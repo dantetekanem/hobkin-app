@@ -2629,3 +2629,21 @@ test('images nothing is waiting for go when hobkin opens and when it closes', as
   await app.close();
   assert.equal(existsSync(image.file), false);
 });
+
+test('a message counts its turn from when the user sent it, when told when that was', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ intervalMs: 60000 });
+  t.after(() => app.close());
+  const sentAt = Date.now() - 250;
+  const { id } = await app.send('Hello', undefined, [], { sentAt });
+  await app.runtime.idle();
+  const timed = (await app.runtime.state()).runs[id].performance;
+  assert.deepEqual([timed.origin, timed.kind, timed.engine, timed.model], ['window', 'main', 'pi', 'fixture/local']);
+  assert.ok(timed.stages.host >= 250 && timed.stages.handed >= timed.stages.host && timed.stages.admitted >= timed.stages.handed);
+  // Words nobody timed count from when they reached hobkin.
+  const plain = await app.send('Again');
+  await app.runtime.idle();
+  const untimed = (await app.runtime.state()).runs[plain.id].performance;
+  assert.equal(untimed.origin, 'host');
+  assert.equal(Object.hasOwn(untimed.stages, 'host'), false);
+});

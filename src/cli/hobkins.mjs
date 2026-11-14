@@ -10,6 +10,7 @@ import { MAX_MESSAGE_BYTES } from './runtime.mjs';
 import { messagesBrief } from './wake.mjs';
 import { efforts, validateBinding } from './schedules.mjs';
 import { tierBinding, tierNames } from './tiers.mjs';
+import { turnFrom } from './turn-metrics.mjs';
 
 /**
  * Durable hobkins: the hobkins the user starts with Command+N in the window and talks to directly. Each is one record in
@@ -296,7 +297,9 @@ export class Hobkins {
    * A waiting hobkin takes the words as its next turn. A working one hears them in the turn it is on. Either way the
    * user's words give that turn a fresh count of messages between hobkins.
    */
-  async say(id, { text, noteId } = {}) {
+  async say(id, { text, noteId, sentAt } = {}) {
+    // Where the turn these words start begins: the user's Enter, when the window said when that was.
+    const began = turnFrom(sentAt);
     const asked = message(text);
     for (let tries = 0; tries < SAY_TRIES; tries++) {
       const record = live(await this.runtime.state(), id);
@@ -311,7 +314,7 @@ export class Hobkins {
           return current;
         });
         if (!next) continue;
-        this.startTurn(next, asked);
+        this.startTurn(next, asked, null, began);
         return { started: true, queued: false, run: next.run };
       }
       if (asked.length > NOTE_MAX) throw Error(`While it works, a message is at most ${NOTE_MAX} characters. Send the rest when it waits.`);
@@ -357,7 +360,7 @@ export class Hobkins {
    * message started has `from`, who sent it. Its process is given a token for this turn alone, so `hobkin tell` from it
    * is sent as this hobkin and spends the turn's count (`record.count`), and the home to reach hobkin through.
    */
-  startTurn(record, asked, from = null) {
+  startTurn(record, asked, from = null, began = { since: Date.now(), origin: 'run', marks: {} }) {
     const n = record.turns;
     const runId = turnRunId(record.id, n);
     const { harness, model, effort, tier } = this.binding(record.engine);
@@ -380,6 +383,7 @@ export class Hobkins {
       hobkin: { id: record.id, turn: n, asked, ...(from ? { from } : {}) },
     };
     const { work } = this.runner.startTracked(request, async signal => {
+      const admitted = Date.now();
       // An end that came before this run was admitted had nothing to stop, so the turn stops itself.
       if ((await this.runtime.state()).hobkins?.[record.id]?.run !== runId) {
         return { status: 'interrupted', noModel: true, error: 'The hobkin ended before this turn began.' };
@@ -392,7 +396,9 @@ export class Hobkins {
         ...(resume ? { resume } : {}),
         ...(Object.keys(claude).length ? { claude } : {}),
         signal,
-      }, { onEvent: event => this.runner.onActivity(runId, event), onReady: send => inbox.resolve(send) });
+      }, { onEvent: event => this.runner.onActivity(runId, event), onReady: send => inbox.resolve(send),
+        // When the turn began and what it has passed, for whichever engine times its stages.
+        turn: { ...began, kind: 'durable', marks: { ...began.marks, admitted } } });
     });
     const ended = work.then(run => this.finishTurn(record.id, runId, run)).catch(() => {});
     this.ending.set(record.id, ended);

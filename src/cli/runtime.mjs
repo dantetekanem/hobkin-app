@@ -792,7 +792,10 @@ export class HobkinRuntime {
     });
   }
 
-  async send(text, id = randomUUID(), images) {
+  /** `began` says when the user sent these words and what they waited on since (`turnFrom`), for the turn's stage timings. */
+  async send(text, id = randomUUID(), images, began) {
+    // When the runtime took the words: a turn nobody timed counts from here.
+    const handed = Date.now();
     this.check();
     if (!this.main) throw Error('Main conversation is not connected.');
     if (this.mainFault) throw Error(`Main chat stopped: ${this.mainFault.message} Restart hobkin to reconnect.`);
@@ -810,7 +813,7 @@ export class HobkinRuntime {
       await this.mainWork;
       this.check();
       if (this.resetting) throw Error('Main conversation is resetting.');
-      return this.send(text, id, images);
+      return this.send(text, id, images, began);
     }
     if (this.mainBusy || this.main.isStreaming) throw Error(MAIN_BUSY);
 
@@ -840,7 +843,9 @@ export class HobkinRuntime {
       effort: session.thinkingLevel,
     }, async signal => {
       const identity = { runId: id, sessionId: turn.sessionId };
-      const metrics = createTurnMetrics({ ...identity, now: this.metricsNow });
+      const model = session.model?.provider && session.model.id ? `${session.model.provider}/${session.model.id}` : undefined;
+      const metrics = createTurnMetrics({ ...identity, now: this.metricsNow, turn: { since: handed, origin: 'host', ...began,
+        kind: 'main', engine: 'pi', model, effort: session.thinkingLevel, marks: { ...began?.marks, handed, admitted: Date.now() } } });
       const unsubscribe = session.subscribe((event, message) => metrics.observe(message ? { ...event, message } : event, identity));
       let outcome;
       const cancelChildren = () => { void turn.owned?.cancel(); };
@@ -902,6 +907,9 @@ export class HobkinRuntime {
         unsubscribe();
         const performance = metrics.record(this.directory, identity);
         if (outcome) outcome.performance = performance;
+        // Which parts of the system prompt this turn read, as hashes: a part that changed sends the whole conversation uncached.
+        const parts = Object.fromEntries(Object.entries(session.promptParts ?? {}).filter(([, hash]) => /^[0-9a-f]{12}$/.test(hash)));
+        if (Object.keys(parts).length) recordEvent(this.directory, 'turn_prompt', { id, parts });
       }
     });
     this.mainWork = work.then(async run => {

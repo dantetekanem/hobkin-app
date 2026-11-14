@@ -32,6 +32,8 @@ export function createOwnedAgentAdapter({
 } = {}) {
   for (const ms of [startupMs, stopMs]) if (!Number.isSafeInteger(ms) || ms < 1 || ms > 60000) throw Error('Invalid owned deadline');
   return { start(identity) {
+    // The moment the helper was asked for: its stages count from here.
+    const began = now();
     const binding = bindingFor?.(identity);
     const theme = binding?.role === 'theme';
     if (
@@ -71,6 +73,8 @@ export function createOwnedAgentAdapter({
       const facts = metrics?.snapshot(owner);
       if (!facts) return { usage: null, lastActivityAt, performance: null };
       const performance = structuredClone(facts);
+      // Read by the event that records this helper; a saved view leaves them out.
+      performance.steps = metrics.steps(owner);
       performance.incomplete ||= uncertain;
       const usage = { incomplete: facts.incomplete || uncertain, sealed };
       for (const field of [...TOKEN_FIELDS, 'estimatedUsd']) {
@@ -186,6 +190,7 @@ export function createOwnedAgentAdapter({
     function onRecord(record) {
       if (finished || cancelled) return;
       if (metrics && !sealed) {
+        if (record.type === 'agent_start') metrics.observe({ type: 'agent_start' }, owner);
         const message = record.message;
         const captured = (record.sessionId === undefined || record.sessionId === sessionId)
           && (record.runId === undefined || record.runId === identity.id)
@@ -256,6 +261,7 @@ export function createOwnedAgentAdapter({
       transport = startProcess({ ...invocation, cwd: binding.cwd,
         env: { ...piEnvironment(binding.launcher), HOBKIN_OWNED_ROLE: binding.role, HOBKIN_OWNED_HELPERS: binding.allowHelpers === true ? '1' : '0' }, name: 'Owned child',
         maxRecordBytes: 1048576, maxKeptBytes: 65536, onRecord, onFail: error => { void fail(error); } });
+      const spawned = now();
       if (typeof transport?.closed?.then === 'function') {
         closed = Promise.resolve(transport.closed).then(value => {
           exit = value; seal();
@@ -275,7 +281,8 @@ export function createOwnedAgentAdapter({
             sessionId = state.sessionId;
             if (`${state.model?.provider}/${state.model?.id}` !== binding.model || state.thinkingLevel !== binding.effort) throw Error('Owned model or effort mismatch');
             owner = { runId: identity.id, sessionId };
-            metrics = createTurnMetrics({ ...owner, now: metricNow });
+            metrics = createTurnMetrics({ ...owner, now: metricNow, wall: now, turn: { since: began, origin: 'tool', kind: 'helper',
+              engine: 'pi', model: binding.model, effort: binding.effort, marks: { spawned, ready: now() } } });
             await transport.request('prompt', { message: binding.prompt });
           } catch (error) { await fail(error); }
         })();

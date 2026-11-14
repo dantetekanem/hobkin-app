@@ -259,3 +259,16 @@ test('synthetic application persists helper facts and retains them through an em
   assert.equal(restarted.telemetry.runs[0].helpers[0].status, 'unknown');
   assert.equal(restarted.telemetry.runs[0].helpers[0].source, 'saved');
 });
+
+test("a helper's event keeps its stages and its steps, and nothing else it was handed", t => {
+  const { root } = fixture(t), app = Object.create(HobkinApplication.prototype);
+  app.runtime = { directory: root };
+  const step = { at: 1, first: 2, text: 3, end: 4, input: 5, cacheRead: 6, output: 7 };
+  app.recordOwnedPerformance(helper('child', { performance: { ...facts('child', 'native'), kind: 'helper', engine: 'pi', model: 'test/model',
+    steps: [{ ...step, said: 'PRIVATE' }] } }));
+  const [event] = recentPerformanceEvents(root).events;
+  assert.deepEqual(event.steps, [step]);
+  assert.deepEqual([event.kind, event.engine, event.model, event.origin], ['helper', 'pi', 'test/model', 'prompt']);
+  assert.equal(event.stages.prompted, 0);
+  assert.equal(JSON.stringify(event).includes('PRIVATE'), false);
+});

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -37,6 +38,21 @@ const realOrSame = path => {
 const sameDirectory = (left, right) => realOrSame(left) === realOrSame(right);
 
 const isMessage = value => Boolean(value) && typeof value === 'object';
+
+/**
+ * The same readers, each leaving a short hash of what it last read. The main agent's system prompt is built from these
+ * parts, and one that changes sends the whole conversation uncached, so a turn's event can say which part changed since
+ * the turn before, and never what any part says.
+ */
+export function fingerprinted(readers) {
+  const parts = {};
+  const reading = ([part, read]) => [part, () => {
+    const value = read();
+    parts[part] = createHash('sha256').update(JSON.stringify(value) ?? '').digest('hex').slice(0, 12);
+    return value;
+  }];
+  return { readers: Object.fromEntries(Object.entries(readers).map(reading)), parts };
+}
 
 // Assistant text only; thinking and tool-call blocks never reach the transcript view.
 function applyUpdate(message, update) {
@@ -366,15 +382,14 @@ export async function openRpcSession(
   if (expected && !sameDirectory(readSessionHeader(file).cwd, config.main.cwd)) {
     throw Error('Main Pi conversation was recorded in a different directory than the configured cwd.');
   }
-  const session = new PiRpcSession({
-    askQuestion,
-    graceMs,
-    tools: {},
+  const prompt = fingerprinted({
     memory: () => readMemory(root),
     directions: () => readDirections(root),
     decided: () => readDecided(root),
     persona: () => readPersona(root),
   });
+  const session = new PiRpcSession({ askQuestion, graceMs, tools: {}, ...prompt.readers });
+  session.promptParts = prompt.parts;
   session.tools = scriptedMain ? {} : {
     ask_question: createQuestionTool(askQuestion, root),
     run_routine: createScheduleTool(triggerSchedule),

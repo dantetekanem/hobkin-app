@@ -1032,3 +1032,25 @@ test('each side lists who it can reach', async t => {
     hobkins: [{ id: 'main', title: 'the main hobkin', state: 'waiting' }, { id: changelog.id, title: 'Changelog', state: 'waiting' }],
   });
 });
+
+test('a message to a hobkin counts its turn from when the user sent it, and one hobkin started counts from that start', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const before = Date.now();
+  const { id } = await app.hobkins.start({ text: 'Find the slow query.', cwd: h.folder, engine: { kind: 'tier', tier: 'mid' } });
+  const first = await turns.nth(0);
+  assert.deepEqual([first.options.turn.origin, first.options.turn.kind], ['run', 'durable']);
+  assert.ok(first.options.turn.since >= before && first.options.turn.marks.admitted >= first.options.turn.since);
+  answer(first, 'The orders index is missing.');
+  await waitingNow(app, id);
+
+  const sentAt = Date.now() - 300;
+  await app.hobkins.say(id, { text: 'Add it.', sentAt });
+  const { turn } = (await turns.nth(1)).options;
+  assert.deepEqual([turn.origin, turn.kind, turn.since], ['window', 'durable', sentAt]);
+  assert.ok(turn.marks.host >= sentAt + 300 && turn.marks.admitted >= turn.marks.host);
+  answer(await turns.nth(1), 'Added.');
+  await waitingNow(app, id);
+});

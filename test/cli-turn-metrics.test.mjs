@@ -160,7 +160,8 @@ test('records only the frozen allowlisted facts locally once and survives write 
   const lines = readFileSync(join(folder, readdirSync(folder)[0]), 'utf8').trim().split('\n');
   assert.equal(lines.length, 1);
   const saved = JSON.parse(lines[0]);
-  assert.deepEqual(Object.keys(saved).sort(), ['at', 'type', ...Object.keys(record)].sort());
+  // The event also lists the responses one by one, which the saved facts leave out.
+  assert.deepEqual(Object.keys(saved).sort(), ['at', 'type', 'steps', ...Object.keys(record)].sort());
   assert.equal(saved.type, 'run_performance');
   assert.equal(saved.runId, owner.runId);
   assert.equal(saved.sessionId, owner.sessionId);

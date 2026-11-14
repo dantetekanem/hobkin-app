@@ -90,13 +90,46 @@ for (const mode of ['completed', 'failed', 'interrupted', 'capture-only', 'stora
     if (mode === 'capture-only' || mode === 'storage-error') assert.deepEqual(saved, []);
     else {
       assert.equal(saved.length, 1);
-      const { at, type, ...facts } = saved[0];
+      const { at, type, steps, ...facts } = saved[0];
       assert.deepEqual(facts, result.performance);
+      assert.equal(steps.length, 1);
       assert.equal(facts.runId, input.id);
       assert.equal(facts.sessionId, 'pi-job');
     }
   });
 }
+
+test('a turn times its process start and its first text from when the turn began', { timeout: 3000 }, async t => {
+  const input = request(t);
+  const partial = { role: 'assistant', provider: 'test', model: 'model', timestamp: 1 };
+  const message = { ...partial, responseId: 'response-1', stopReason: 'stop', content: [{ type: 'text', text: 'Done' }], usage: { input: 2, output: 3, cacheRead: 9 } };
+  const program = rpc(`
+    send({ type: 'agent_start' });
+    send({ type: 'message_start', message: ${JSON.stringify(partial)} });
+    send({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', delta: 'hm' } });
+    send({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'Done' } });
+    send({ type: 'message_end', message: ${JSON.stringify(message)} });
+    send({ type: 'agent_settled' });
+  `);
+  const since = Date.now() - 500;
+  const result = await runHarness({ ...input, purpose: 'durable' }, { metricsRoot: input.cwd, spawnProcess: fake(program),
+    turn: { since, origin: 'window', marks: { host: since + 20, admitted: since + 60 } } });
+  assert.equal(result.status, 'completed');
+  const { origin, kind, engine, model, effort, stages } = result.performance;
+  assert.deepEqual([origin, kind, engine, model, effort], ['window', 'durable', 'pi', 'test/model', 'medium']);
+  assert.deepEqual(Object.keys(stages), ['host', 'admitted', 'spawned', 'ready', 'prompted', 'started', 'requested', 'thinking', 'text', 'ended']);
+  assert.deepEqual(Object.values(stages), Object.values(stages).toSorted((a, b) => a - b));
+  assert.equal(stages.host, 20);
+  assert.ok(stages.spawned >= 500);
+  const [saved] = readEvents(input.cwd).filter(event => event.type === 'run_performance');
+  assert.deepEqual(saved.steps.map(step => [step.input, step.cacheRead, step.output]), [[2, 9, 3]]);
+  assert.ok(saved.steps[0].text >= saved.steps[0].at);
+
+  // A run nobody sent counts from the moment hobkin started it.
+  const alone = await runHarness({ ...input, id: 'f094b0ba-036c-4abc-9198-745fd1226766' }, { spawnProcess: fake(program) });
+  assert.deepEqual([alone.performance.origin, alone.performance.kind], ['run', 'other']);
+  assert.deepEqual(Object.keys(alone.performance.stages).slice(0, 3), ['spawned', 'ready', 'prompted']);
+});
 
 for (const disposition of ['started', 'queued', 'handled', undefined]) {
   test(`steering preserves the RPC disposition ${disposition} without inventing a receipt`, { timeout: 3000 }, async t => {
@@ -626,12 +659,20 @@ test('every job that loads tools leaves pi-emote behind, and the user\'s Pi sett
   mkdirSync(join(agentDir, 'extensions/pi-emote'), { recursive: true });
   writeFileSync(join(agentDir, 'extensions/pi-emote/index.ts'), 'export default function () {}\n');
   writeFileSync(join(agentDir, 'extensions/own.ts'), 'export default function () {}\n');
-  const started = [];
-  const run = namingExtensions(async job => { started.push(job); });
+  const started = [], given = [];
+  const run = namingExtensions(async (job, options) => { started.push(job); given.push(options); });
 
   await run(request(t));
-  await run({ ...request(t), purpose: 'work-do' });
+  await run({ ...request(t), purpose: 'work-do' }, { metricsRoot: '/kept', turn: { since: 5, origin: 'window', marks: { host: 6 } } });
   await run({ ...request(t), purpose: 'reflection' });
+
+  // Naming them takes time before the process starts, so the turn is told when it was done.
+  const [alone, timed, untouched] = given;
+  assert.equal(alone.turn.origin, 'run');
+  assert.ok(alone.turn.marks.resolved >= alone.turn.since);
+  assert.deepEqual([timed.metricsRoot, timed.turn.since, timed.turn.origin, timed.turn.marks.host], ['/kept', 5, 'window', 6]);
+  assert.ok(timed.turn.marks.resolved > 6);
+  assert.equal(untouched, undefined);
 
   const [check, work, toolFree] = started;
   for (const job of [check, work]) {

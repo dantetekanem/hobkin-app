@@ -92,6 +92,24 @@ test('owned measurement reconciles cumulative facts without replay charges or pr
   }
 });
 
+test('a helper times its process start and its first text from the moment it was asked for', { timeout: 1000 }, async () => {
+  let wall = 1000;
+  const f = fixture({ now: () => wall });
+  const handle = f.adapter.start(identity);
+  // The process is started at once, and answers twenty milliseconds later.
+  wall = 1020; await tick();
+  const message = { role: 'assistant', provider: 'test', model: 'model', responseId: 'own', timestamp: 10 };
+  wall = 1025; f.emit({ type: 'agent_start' });
+  wall = 1030; f.emit({ type: 'message_start', message });
+  wall = 1050; f.emit({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', delta: 'private delta' } });
+  wall = 1060; f.emit({ type: 'message_end', message: { ...message, stopReason: 'stop', content: [{ type: 'text', text: 'report' }], usage: { input: 5, output: 2, cacheRead: 40 } } });
+  f.emit({ type: 'agent_settled' }); await handle.result;
+  const { origin, kind, engine, model, effort, stages, steps } = handle.snapshot().performance;
+  assert.deepEqual([origin, kind, engine, model, effort], ['tool', 'helper', 'pi', 'test/model', 'medium']);
+  assert.deepEqual(stages, { spawned: 0, ready: 20, prompted: 20, started: 25, requested: 30, text: 50, ended: 60 });
+  assert.deepEqual(steps, [{ at: 30, first: 50, text: 50, end: 60, input: 5, cacheRead: 40, output: 2 }]);
+});
+
 test('cancellation seals own lower bounds before an outstanding terminal statistics reply', { timeout: 1000 }, async () => {
   const stats = Promise.withResolvers(), f = fixture({ stats: stats.promise }), handle = f.adapter.start(identity);
   await tick();

@@ -77,11 +77,17 @@ export function buildInvocation(request) {
 /** A job that loads tools gets its extensions named up front, so Pi leaves out what Hobkin does not use. */
 export const namingExtensions = run => async (request, options) => {
   if (!usesTools(request.purpose)) return run(request, options);
-  return run({ ...request, extensions: await extensionPaths(request.cwd) }, options);
+  const asked = Date.now();
+  const extensions = await extensionPaths(request.cwd);
+  // Naming them comes before the process starts, so the turn's stages show how long it took.
+  const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };
+  return run({ ...request, extensions }, { ...options, turn });
 };
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, turn } = {}) {
+  // Before anything else, so a turn nobody timed still counts its process start.
+  const entered = Date.now();
   const invocation = buildInvocation(request);
   if (!Number.isInteger(maxOutputBytes) || maxOutputBytes < 1) throw Error('Invalid harness bounds.');
   const result = {
@@ -100,6 +106,7 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
   const settled = Promise.withResolvers();
   settled.promise.catch(() => {});
   let child;
+  let spawned;
   let assistant;
   let metrics;
   let metricIdentity;
@@ -171,6 +178,7 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       onRecord: accept,
       onFail: error => settled.reject(error),
     });
+    spawned = Date.now();
     onControl(child);
   } catch (error) {
     child?.terminate();
@@ -196,7 +204,9 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     result.sessionId = state.sessionId;
     result.model = model;
     metricIdentity = Object.freeze({ runId: request.id, sessionId: state.sessionId });
-    metrics = createTurnMetrics(metricIdentity);
+    const kind = request.purpose === 'durable' ? 'durable' : workPurposes.includes(request.purpose) ? 'work' : 'other';
+    metrics = createTurnMetrics({ ...metricIdentity, turn: { since: entered, origin: 'run', kind, ...turn,
+      engine: 'pi', model, effort: request.effort, marks: { ...turn?.marks, spawned, ready: Date.now() } } });
     const response = await child.request('prompt', { message: request.prompt });
     if (response?.disposition === 'handled') {
       throw Error('Pi handled the prompt without starting an assistant response.');

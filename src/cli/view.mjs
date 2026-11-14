@@ -11,6 +11,7 @@ import { openDecisions } from './decisions.mjs';
 import { callName, readProfile } from './profile.mjs';
 import { workStatus } from './work/commands.mjs';
 import { PERFORMANCE_TAIL_BYTES, recentPerformanceEvents } from './events.mjs';
+import { safeTurnFacts } from './turn-metrics.mjs';
 
 const metricId = value => typeof value === 'string' && /^[a-zA-Z0-9._:-]{1,200}$/.test(value);
 const metricNumber = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
@@ -21,7 +22,8 @@ export const safePerformance = (facts, runId, sessionId) => {
   const result = { schemaVersion: 1, runId, sessionId, responses: metricNumber(facts.responses) ? facts.responses : null,
     incomplete: facts.incomplete !== false,
     firstObservedOutputMs: metricNumber(facts.firstObservedOutputMs) ? facts.firstObservedOutputMs : null,
-    dispatchElapsedMs: metricNumber(facts.dispatchElapsedMs) ? facts.dispatchElapsedMs : null };
+    dispatchElapsedMs: metricNumber(facts.dispatchElapsedMs) ? facts.dispatchElapsedMs : null,
+    ...safeTurnFacts(facts) };
   for (const field of metricFields) {
     const scalar = facts[field];
     result[field] = metricNumber(scalar?.value) && ['complete', 'partial'].includes(scalar.state)

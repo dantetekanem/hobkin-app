@@ -120,3 +120,48 @@ test('startup abandonment has no observed dispatch clock and never replays perfo
   assert.equal(h.state.runs.queued.performance, undefined);
   assert.deepEqual(await h.runtime.interruptAbandonedRuns(), []);
 });
+
+test('a main turn counts its stages from when the user sent, through the wait before its prompt', options, async t => {
+  const h = fixture(t);
+  Object.assign(h.session, { model: { provider: 'fixture', id: 'local' }, thinkingLevel: 'high' });
+  const since = Date.now() - 400;
+  await h.runtime.send('private prompt', 'turn:1', undefined, { since, origin: 'window', marks: { host: since + 30 } });
+  h.emit({ type: 'agent_start' });
+  h.emit({ type: 'message_start', message: h.message(1) });
+  h.emit({ type: 'message_update', message: h.message(1), assistantMessageEvent: { type: 'text_delta', delta: 'private' } });
+  h.emit({ type: 'message_end', message: h.message(1) });
+  h.session.messages.push(h.message(1));
+  h.gate.resolve();
+  await h.runtime.idle();
+  const { origin, kind, engine, model, effort, stages } = h.state.runs['turn:1'].performance;
+  assert.deepEqual([origin, kind, engine, model, effort], ['window', 'main', 'pi', 'fixture/local', 'high']);
+  assert.deepEqual(Object.keys(stages), ['host', 'handed', 'admitted', 'prompted', 'started', 'requested', 'text', 'ended']);
+  assert.equal(stages.host, 30);
+  assert.ok(stages.handed >= 400 && stages.admitted >= stages.handed && stages.prompted >= stages.admitted && stages.text >= stages.prompted);
+});
+
+test('a main turn nobody timed counts from when the runtime took it, and names no model it does not know', options, async t => {
+  const h = fixture(t);
+  await h.runtime.send('/handled', 'plain');
+  await h.runtime.idle();
+  const facts = h.state.runs.plain.performance;
+  assert.deepEqual([facts.origin, facts.kind, facts.engine], ['host', 'main', 'pi']);
+  assert.deepEqual(Object.keys(facts.stages).slice(0, 3), ['handed', 'admitted', 'prompted']);
+  assert.equal(Object.hasOwn(facts, 'model'), false);
+});
+
+test('a main turn says which system prompt parts it read, as hashes, when its session keeps them', options, async t => {
+  const h = fixture(t);
+  const prompts = () => {
+    const folder = join(h.root, 'runtime', 'events');
+    return readdirSync(folder).flatMap(file => readFileSync(join(folder, file), 'utf8').trim().split('\n').map(JSON.parse)).filter(event => event.type === 'turn_prompt');
+  };
+  await h.runtime.send('/handled', 'plain');
+  await h.runtime.idle();
+  assert.deepEqual(prompts(), []);
+  h.session.promptParts = { memory: 'aaaaaaaaaaaa', decided: 'bbbbbbbbbbbb', secret: 'PRIVATE words', persona: 12 };
+  await h.runtime.send('/handled', 'turn:2');
+  await h.runtime.idle();
+  const [event] = prompts();
+  assert.deepEqual([event.id, event.parts], ['turn:2', { memory: 'aaaaaaaaaaaa', decided: 'bbbbbbbbbbbb' }]);
+});

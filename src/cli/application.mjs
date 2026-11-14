@@ -64,6 +64,7 @@ import { learningState } from './learning/store.mjs';
 import { withoutLearningNote } from './learning/note.mjs';
 import { Moods, searchingTool } from './mood.mjs';
 import { projectPerformance, readLocalView, safePerformance } from './view.mjs';
+import { safeSteps, turnFrom } from './turn-metrics.mjs';
 import { PastedImages } from './paste-image.mjs';
 import { deletedReportIds, isQuietRun, readReport, referToReport, reportText, reportTriage, runOutcomeText, savedReportPath, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
@@ -188,11 +189,13 @@ export class HobkinApplication {
       return;
     }
     const facts = safePerformance(performance, id, performance?.sessionId);
+    const steps = safeSteps(performance?.steps);
     recordEvent(this.runtime.directory, 'run_performance', {
       ...facts,
       runId: id,
       sessionId: facts?.sessionId ?? null,
       ownedHelper: { id, parentId, rootId, depth, status },
+      ...(steps.length ? { steps } : {}),
     });
   }
 
@@ -707,9 +710,11 @@ export class HobkinApplication {
   }
 
   // Messages go out in the order they were typed, and one the conversation cannot take yet waits here.
-  send(text, report, images = []) {
+  send(text, report, images = [], { sentAt } = {}) {
+    // Where the turn's clock starts, read before the message waits its place: the user's Enter when the window said when that was.
+    const turn = turnFrom(sentAt);
     this.sending++;
-    const sent = this.outgoing.then(() => this.deliver(text, report, images)).finally(() => { this.sending--; });
+    const sent = this.outgoing.then(() => this.deliver(text, report, images, turn)).finally(() => { this.sending--; });
     this.outgoing = sent.catch(() => {});
     return sent;
   }
@@ -735,7 +740,7 @@ export class HobkinApplication {
       report: savedReportPath(this.runtime.directory, id), partialResult: Boolean(run.result.text) };
   }
 
-  async deliver(text, report, images = []) {
+  async deliver(text, report, images = [], turn) {
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
     const sessions = sessionsToTell(this.runtime.directory);
     const actions = cardActionsToTell(this.runtime.directory);
@@ -750,7 +755,7 @@ export class HobkinApplication {
     const brief = !report && asksForBrief(text) ? this.briefBlock(room) : '';
     // A message with no room for the note still goes, and the note goes with the next one.
     const fits = Buffer.byteLength(`${opening}${learned}${brief}${message}`) <= MAX_MESSAGE_BYTES;
-    const accepted = await this.sendWhenFree(`${opening}${fits ? learned : ''}${brief}${message}`, images);
+    const accepted = await this.sendWhenFree(`${opening}${fits ? learned : ''}${brief}${message}`, images, turn);
     // The user's words reached the main agent's turn, a wake's they joined included, so its messages count from them.
     this.hobkins.userWrote();
     this.pastedImages.remove(images);
@@ -768,11 +773,11 @@ export class HobkinApplication {
     return accepted;
   }
 
-  async sendWhenFree(message, attachments) {
+  async sendWhenFree(message, attachments, turn) {
     const images = attachments.length ? this.pastedImages.contents(attachments) : undefined;
     for (;;) {
       try {
-        return await this.runtime.send(message, undefined, images);
+        return await this.runtime.send(message, undefined, images, turn);
       } catch (error) {
         if (error.message !== MAIN_BUSY) throw error;
         // Only a turn, or a chat too full to wait, holds what the user sent. A compaction hobkin began early gives way.
