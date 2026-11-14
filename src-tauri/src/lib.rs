@@ -1,4 +1,6 @@
+use std::ffi::OsString;
 use std::fs::{self, File};
+use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -12,7 +14,10 @@ use tauri::{AppHandle, Manager, RunEvent, Wry, WindowEvent};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
 mod browser;
+mod host_file;
+mod login_path;
 mod notices;
+mod updates;
 
 /// The port a host started with `--dev` listens on. The development UI asks it for the host's address.
 const DEV_PORT: u16 = 5188;
@@ -26,8 +31,14 @@ fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().map(PathBuf::from).unwrap_or_default()
 }
 
-/// A host already serves the UI: one started by hand, or by an earlier run of the app that did not stop it.
+/// A host already serves the UI: one started by hand, or by an earlier run of the app that did not stop it. In a
+/// development build that is whatever listens on the development port, where the development UI looks. A release
+/// build's host listens on a port of its own choosing, so there it is the one the home's `client/host.json` names,
+/// while that process runs.
 fn host_already_running() -> bool {
+    if !cfg!(debug_assertions) {
+        return home().is_some_and(|home| host_file::running(&home).is_some());
+    }
     let address = SocketAddr::from(([127, 0, 0, 1], DEV_PORT));
     TcpStream::connect_timeout(&address, Duration::from_millis(300)).is_ok()
 }
@@ -38,17 +49,14 @@ fn host_already_running() -> bool {
 /// to the host never took effect, however often the app was restarted. A host somebody runs by hand has its terminal
 /// for a parent, and is not one of these.
 fn leftover_host() -> Option<u32> {
-    let record = fs::read_to_string(home()?.join("client").join("host.json")).ok()?;
-    let digits: String = record.split("\"pid\":").nth(1)?.trim_start().chars().take_while(char::is_ascii_digit).collect();
-    let pid: u32 = digits.parse().ok()?;
-    let output = Command::new("ps").args(["-o", "ppid=,command=", "-p", &pid.to_string()]).output().ok()?;
-    let line = String::from_utf8(output.stdout).ok()?;
-    let (parent, command) = line.trim().split_once(char::is_whitespace)?;
-    (parent == "1" && command.contains("host/src/main.ts")).then_some(pid)
+    let pid = host_file::read(&home()?)?.pid;
+    let (parent, command) = host_file::process(pid)?;
+    (parent == 1 && command.contains("host/src/main.ts")).then_some(pid)
 }
 
 /// Stops a host this run did not start, as `stop_host` stops its own: SIGTERM, so hobkin closes cleanly and frees its
-/// home, and outright once it has had its time. It returns when the port is free, or after a last short wait.
+/// home, and outright once it has had its time. It returns when no host serves the UI any more, or after a last short
+/// wait.
 fn stop_leftover(pid: u32) {
     let pid = pid.to_string();
     let gone = |within: Duration| {
@@ -95,6 +103,48 @@ fn node() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("node"))
 }
 
+/// The Node a release build carries in its resources, when it carries one.
+fn bundled_node(resources: &Path) -> Option<PathBuf> {
+    Some(resources.join("node").join("bin").join("node")).filter(|node| node.is_file())
+}
+
+/// Where the host's code is and the Node it runs on. A development build runs the repository it was built from. A
+/// release build runs the copy in its own resources, `app`, on the Node it carries there, or on one the Mac has.
+fn host_place(app: &AppHandle) -> (PathBuf, PathBuf) {
+    if cfg!(debug_assertions) {
+        return (repo_root(), node());
+    }
+    let resources = app.path().resource_dir().unwrap_or_default();
+    let node = bundled_node(&resources).unwrap_or_else(node);
+    (resources.join("app"), node)
+}
+
+/// What the host is started with. A development build's host serves the development UI on its fixed port. A release
+/// build's host never does: it listens on a port of its own, talks only to the app's own pages, and stops once the app
+/// that started it (`parent`) has gone, so an app that is killed never leaves it holding the home.
+fn host_arguments(release: bool, parent: u32, home: Option<&Path>) -> Vec<OsString> {
+    let mut arguments: Vec<OsString> = vec!["host/src/main.ts".into()];
+    if release {
+        arguments.extend(["--live".into(), "--parent".into(), parent.to_string().into()]);
+    } else {
+        arguments.extend(["--dev".into(), "--live".into()]);
+    }
+    if let Some(home) = home {
+        arguments.extend(["--home".into(), home.into()]);
+    }
+    arguments
+}
+
+/// The line host.log gets when the host could not be started at all. Without it, a host that never started looks like a
+/// window that never connects.
+fn spawn_failure(node: &Path, code: &Path, error: &std::io::Error) -> String {
+    if node == Path::new("node") {
+        format!("hobkin's host could not start: no Node was found ({error}).")
+    } else {
+        format!("hobkin's host could not start with {} in {}: {error}", node.display(), code.display())
+    }
+}
+
 /// The home the app opens: the user's own ~/.hobkin, the one the terminal app uses, so the app is hobkin with all
 /// its routines, work and memory. HOBKIN_CLIENT_HOME points it elsewhere, such as the repository's .dev-home.
 /// Only one hobkin holds a home at a time: while another process has it, the window says so and opens it once it is free.
@@ -106,7 +156,7 @@ fn home() -> Option<PathBuf> {
 
 /// Starts hobkin's host for this app: live, so hobkin answers with the user's own models through Pi.
 /// What it prints goes to host.log in the app's log folder.
-fn start_host(log_dir: Option<PathBuf>) -> Option<Child> {
+fn start_host(app: &AppHandle) -> Option<Child> {
     if host_already_running() {
         // A host an earlier run left behind is replaced, so starting the app always starts hobkin's host anew.
         // One somebody runs by hand is used as it is.
@@ -118,16 +168,22 @@ fn start_host(log_dir: Option<PathBuf>) -> Option<Child> {
             return None;
         }
     }
-    let mut command = Command::new(node());
-    command.current_dir(repo_root()).arg("host/src/main.ts").args(["--dev", "--live"]);
-    if let Some(home) = home() {
-        command.arg("--home").arg(home);
-    }
-    let log = log_dir.and_then(|dir| {
+    let (code, node) = host_place(app);
+    let mut command = Command::new(&node);
+    command.current_dir(&code).args(host_arguments(!cfg!(debug_assertions), std::process::id(), home().as_deref()));
+    let mut log = app.path().app_log_dir().ok().and_then(|dir| {
         fs::create_dir_all(&dir).ok()?;
         File::create(dir.join("host.log")).ok()
     });
-    match log.and_then(|file| file.try_clone().ok().map(|copy| (file, copy))) {
+    if !cfg!(debug_assertions) {
+        let carried = app.path().resource_dir().ok().and_then(|resources| bundled_node(&resources));
+        let host_path = login_path::for_host(carried.as_deref().and_then(Path::parent));
+        if let Some(file) = log.as_mut() {
+            let _ = writeln!(file, "{}", host_path.note());
+        }
+        command.env("PATH", host_path.path);
+    }
+    match log.as_ref().and_then(|file| Some((file.try_clone().ok()?, file.try_clone().ok()?))) {
         Some((out, err)) => {
             command.stdout(Stdio::from(out)).stderr(Stdio::from(err));
         }
@@ -135,7 +191,15 @@ fn start_host(log_dir: Option<PathBuf>) -> Option<Child> {
             command.stdout(Stdio::null()).stderr(Stdio::null());
         }
     }
-    command.spawn().ok()
+    match command.spawn() {
+        Ok(child) => Some(child),
+        Err(error) => {
+            if let Some(mut file) = log {
+                let _ = writeln!(file, "{}", spawn_failure(&node, &code, &error));
+            }
+            None
+        }
+    }
 }
 
 /// Starts the host again when the one this app started has ended by itself, as it does when the window asks it to
@@ -151,7 +215,7 @@ fn keep_host(app: tauri::AppHandle) {
             None => false,
         };
         if ended {
-            *host = start_host(app.path().app_log_dir().ok());
+            *host = start_host(&app);
         }
     });
 }
@@ -208,7 +272,7 @@ fn app_menu(app: &AppHandle) -> tauri::Result<Menu<Wry>> {
         copyright: Some("© 2026 Leonardo Pereira".into()),
         website: Some("https://hobkin.dev".into()),
         website_label: Some("hobkin.dev".into()),
-        credits: Some(format!("{description}\n\nhttps://hobkin.dev\nCreated by Leonardo Pereira")),
+        credits: Some(format!("{description}\n\nhttps://hobkin.dev")),
         icon: Some(tauri::include_image!("icons/icon.png")),
         ..Default::default()
     };
@@ -304,8 +368,9 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(Host(Mutex::new(None)))
         .manage(browser::Browser::default())
-        // The window's own commands: what this shell offers, notifications, and the canvas's browser (036-canvas-browser).
-        // Each answers the main window's webview only.
+        .manage(updates::Ready::default())
+        // The window's own commands: what this shell offers, notifications, the canvas's browser (036-canvas-browser),
+        // where the host is, and updates. Each answers the main window's webview only.
         .invoke_handler(tauri::generate_handler![
             browser::shell_features,
             browser::browser_open,
@@ -318,6 +383,9 @@ pub fn run() {
             browser::browser_close,
             notices::notice_permission,
             notices::notice_send,
+            host_file::host_address,
+            updates::update_status,
+            updates::update_restart,
         ])
         // A window that loads its page again no longer drives the browser it opened, so that browser goes.
         .on_page_load(|webview, payload| {
@@ -328,10 +396,11 @@ pub fn run() {
         })
         .setup(|app| {
             // Opening the app starts hobkin and its background work, as opening the terminal app does.
-            let child = start_host(app.path().app_log_dir().ok());
+            let child = start_host(app.handle());
             *app.state::<Host>().0.lock().unwrap() = child;
             keep_host(app.handle().clone());
             notices::open_on_click(app.handle());
+            updates::start(app.handle());
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
                 blur_behind(&window);
@@ -367,4 +436,42 @@ pub fn run() {
         }
         _ => {}
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn words(arguments: Vec<OsString>) -> Vec<String> {
+        arguments.into_iter().map(|argument| argument.to_string_lossy().into_owned()).collect()
+    }
+
+    #[test]
+    fn a_development_host_serves_the_development_ui_as_before() {
+        let home = Path::new("/Users/someone/.hobkin");
+        assert_eq!(words(host_arguments(false, 99, Some(home))), ["host/src/main.ts", "--dev", "--live", "--home", "/Users/someone/.hobkin"]);
+    }
+
+    #[test]
+    fn a_release_host_never_serves_the_development_ui_and_follows_the_app() {
+        let home = Path::new("/Users/someone/.hobkin");
+        let release = words(host_arguments(true, 4242, Some(home)));
+        assert_eq!(release, ["host/src/main.ts", "--live", "--parent", "4242", "--home", "/Users/someone/.hobkin"]);
+        assert!(!release.iter().any(|word| word == "--dev"));
+        assert_eq!(words(host_arguments(true, 4242, None)), ["host/src/main.ts", "--live", "--parent", "4242"]);
+    }
+
+    #[test]
+    fn a_release_build_runs_the_node_it_carries_only_when_it_is_there() {
+        let resources = std::env::temp_dir().join(format!("hobkin-shell-node-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&resources);
+        assert_eq!(bundled_node(&resources), None);
+        // A folder named node is not a Node to run.
+        fs::create_dir_all(resources.join("node").join("bin").join("node")).unwrap();
+        assert_eq!(bundled_node(&resources), None);
+        fs::remove_dir_all(resources.join("node").join("bin").join("node")).unwrap();
+        fs::write(resources.join("node").join("bin").join("node"), "").unwrap();
+        assert_eq!(bundled_node(&resources), Some(resources.join("node").join("bin").join("node")));
+        let _ = fs::remove_dir_all(&resources);
+    }
 }
