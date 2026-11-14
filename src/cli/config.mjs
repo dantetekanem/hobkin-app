@@ -7,7 +7,7 @@ import { validateLauncher } from './launcher.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 import { validatePersona } from './persona.mjs';
 import { validateReview, validateTiers } from './tiers.mjs';
-import { validateResourceSelection, resolveResourcePolicy } from './resource-policy.mjs';
+import { changeSelection, normalizeSelection, validateResourceSelection, resolveResourcePolicy } from './resource-policy.mjs';
 
 export const defaultRoot = () => process.env.HOBKIN_HOME || join(homedir(), '.hobkin');
 export const legacySources = (home = homedir()) => [
@@ -112,6 +112,19 @@ export function setResourceSelection(root, selection, candidates) {
   return selection;
 }
 
+/** What each kind of agent loads of Pi's, as version 2 (`_specs/038-resources`). Version 1 or none reads as nothing chosen. */
+export const readSelection = root => normalizeSelection(loadConfig(root).resourceSelection);
+
+/** Turns ids on or off for one kind, checked against a catalog, and keeps the result in config.json within its bound. */
+export function applySelection(root, change, catalog) {
+  const current = loadConfig(root);
+  const resourceSelection = changeSelection(normalizeSelection(current.resourceSelection), change, catalog);
+  const config = { ...current, resourceSelection };
+  if (Buffer.byteLength(`${JSON.stringify(config, null, 2)}\n`) > 65536) throw Error('Resource selection exceeds bounded configuration size.');
+  atomicJson(join(resolveDataRoot(root), 'config.json'), config);
+  return resourceSelection;
+}
+
 export function validateConfig(config, { allowLegacyHarness = false } = {}) {
   if (
     config.version !== 2
@@ -124,7 +137,9 @@ export function validateConfig(config, { allowLegacyHarness = false } = {}) {
   validateBinding(config.background, { allowLegacyHarness });
   validateLauncher(config.launcher);
   validatePersona(config.persona);
-  validateResourceSelection(config.resourceSelection);
+  // A version 2 selection is checked as one; every other value is checked as before.
+  if (config.resourceSelection?.version === 2) normalizeSelection(config.resourceSelection);
+  else validateResourceSelection(config.resourceSelection);
   validateTiers(config.tiers);
   validateReview(config.review);
   // Jobs have no automatic deadline; a timeoutMs left in older configs is ignored.

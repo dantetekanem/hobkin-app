@@ -16,6 +16,12 @@ export const scheduledBrief = failures => brief({ scheduled: failures.slice(0, M
 /** Work the user chose on a card that work mode cannot start, for the agent to hand to a session of its own. */
 export const handOffBrief = jobs => brief({ handOff: jobs });
 
+/** Durable hobkins that stopped and wait on a user who has not looked, for the agent to tell the user about. */
+export const hobkinsBrief = hobkins => brief({ hobkins: hobkins.map(({ id, title, status, said }) => ({ id, title, status, said })) });
+
+/** Messages durable hobkins sent the agent with `hobkin tell`: who sent each, by the id to answer with, and its words. */
+export const messagesBrief = messages => brief({ messages: messages.map(({ from, title, text, at }) => ({ from, title, text, at })) });
+
 const isScheduledRun = message => message?.role === 'custom' && message.customType === 'scheduled-task' && Boolean(message.details?.result);
 
 /** A scheduled run that finished cleanly tells the user nothing, because the agent speaks when what it waited for comes. */

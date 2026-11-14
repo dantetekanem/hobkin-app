@@ -8,10 +8,10 @@ const OLD_FOLDER = 'schedules';
 
 export const cadences = ['daily', 'weekly', 'monthly', 'once'];
 export const efforts = {
-  pi: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'],
+  pi: ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
 };
 const legacyClaudeEfforts = ['low', 'medium', 'high', 'xhigh', 'max'];
-const fields = new Set(['id', 'title', 'at', 'window', 'timezone', 'enabled', 'harness', 'model', 'effort', 'cwd', 'context', 'weekday', 'day', 'date']);
+const fields = new Set(['id', 'title', 'at', 'window', 'timezone', 'enabled', 'enabledAt', 'harness', 'model', 'effort', 'cwd', 'context', 'weekday', 'day', 'date']);
 const controls = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/;
 const text = value => typeof value === 'string' && value.trim().length > 0 && !controls.test(value);
 const frontMatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
@@ -97,6 +97,7 @@ export function parseSchedule(source, cadence, path) {
     if (!text(value.timezone)) throw Error('timezone is required');
     new Intl.DateTimeFormat('en', { timeZone: value.timezone }).format();
     if (typeof value.enabled !== 'boolean') throw Error('enabled must be true or false');
+    if (value.enabledAt !== undefined && !Number.isFinite(Date.parse(value.enabledAt))) throw Error('enabledAt must be a timestamp');
     validateBinding(value);
     if (!text(value.cwd) || !isAbsolute(value.cwd)) throw Error('cwd must be an absolute path');
     if (
@@ -137,8 +138,9 @@ export function formatSchedule(schedule) {
 /**
  * Turns one routine on or off, or gives it new times, in its own file. The change is checked as any routine file is
  * before it is written, and the rest of the file stays as it was. A routine from the old scheduler is not changed here.
+ * Turning a routine on stamps `enabledAt`, so the slots that had already passed are never run; it waits for its next one.
  */
-export function changeSchedule(root, id, change) {
+export function changeSchedule(root, id, change, now = new Date()) {
   const deleting = Object.hasOwn(change, 'delete');
   if (deleting && Object.keys(change).length !== 1) throw Error('Only deletion may be requested with a definition.');
   if (!deleting && (!Object.keys(change).length || Object.keys(change).some(key => !changeable.includes(key)))) throw Error('Only enabled, at or window change here.');
@@ -155,6 +157,7 @@ export function changeSchedule(root, id, change) {
   if ('at' in change) delete metadata.window;
   if ('window' in change) delete metadata.at;
   Object.assign(metadata, change);
+  if (change.enabled === true && !schedule.enabled) metadata.enabledAt = new Date(now).toISOString();
   scheduleTimes(metadata);
   const source = `---\n${JSON.stringify(metadata, null, 2)}\n---\n${body}`;
   const changed = parseSchedule(source, schedule.cadence, schedule.path);

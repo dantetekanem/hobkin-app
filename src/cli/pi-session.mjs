@@ -119,7 +119,7 @@ function claimSessionFile(file, { fresh, expected }) {
 }
 
 function mainPrompts(root, config) {
-  return ['prompt', 'taste', 'learning-context', 'v2-runtime', 'memory'].map(name =>
+  return ['prompt', 'taste', 'learning-context', 'v2-runtime', 'memory', 'canvas'].map(name =>
     readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').replace('{{runtime}}', JSON.stringify({
       root,
       notes: join(root, 'notes'),

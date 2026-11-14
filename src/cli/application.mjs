@@ -25,7 +25,9 @@ import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
 import { startSessionJob, takeSessionRequests } from './session-jobs.mjs';
 import { tierBinding } from './tiers.mjs';
-import { failureKey, handOffBrief, isQuietScheduledRun, isWakeBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
+import { failureKey, handOffBrief, hobkinsBrief, isQuietScheduledRun, isWakeBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
+import { Hobkins, hobkinSummaries } from './hobkins.mjs';
+import { tellRequests } from './hobkin-tell.mjs';
 import { fileTemplateNews } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
@@ -34,7 +36,7 @@ import { clientNotice, clientNoticesToPost, markClientNoticesPosted } from './cl
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { workStatus } from './work/commands.mjs';
-import { askAgent, declineItem, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, publishItem, requestReview, triggerRow } from './work/controls.mjs';
+import { askAgent, declineItem, deleteItemBranch, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, publishItem, requestReview, triggerRow } from './work/controls.mjs';
 import { addIssue } from './work/issues.mjs';
 import { mergeGroup } from './work/merge-group.mjs';
 import { filePickUp, retirePickUp } from './work/pick-up.mjs';
@@ -102,7 +104,8 @@ const visibleChatMessages = messages => messages
   .filter(message => !isQuietScheduledRun(message))
   .slice(-100);
 const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
-const isVisibleScheduledReport = run => run.kind === 'background'
+// A durable hobkin's turn answers on its own page, so it is never a report, a notice or an attention row.
+const isVisibleScheduledReport = run => run.kind === 'background' && !run.hobkin
   && typeof run.scheduleId === 'string' && run.scheduleId.length > 0
   && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual');
 const pauseNote = ({ nextRun, timezone }) => {
@@ -118,6 +121,8 @@ const DISCOVERY_POST = 'notice:work-discovery:';
 const isOwnPost = message => message.role === 'notice' || message.id?.startsWith('notice:');
 
 const BUSY_RETRY_MS = 100;
+// How long hobkin waits before it tries again to tell the main agent of a durable hobkin, after a try that failed.
+const HOBKIN_WAKE_RETRY_MS = 5 * 60000;
 // The keys of the Done walk, which only the user presses.
 const WALK_EVENTS = { diff: 'done_diff', merge: 'done_merged', decline: 'done_declined', ask: 'done_sent_back' };
 // A tick comes every second, and what is waiting rarely changes that fast.
@@ -261,6 +266,8 @@ export class HobkinApplication {
           await app.tickWork();
           await app.tickRefreshed();
           await app.tickHolds();
+          // Before the wakes, so a message `hobkin tell` left this second can go in this tick's.
+          await app.hobkins.tick();
           app.tickWakes();
           void app.tickSessions();
           app.tickCompaction();
@@ -274,6 +281,7 @@ export class HobkinApplication {
           app.presentDecision();
         },
       });
+      app.hobkins = new Hobkins({ runtime: app.runtime, runner: app.runner, root: app.runtime.directory, config: () => app.config, now: app.now });
       Object.assign(app, { askQuestion, showDone, showRow, presence });
       app.landOffers = new LandOffers({
         file: decision => fileDecision(app.runtime.directory, decision, app.now()),
@@ -292,12 +300,18 @@ export class HobkinApplication {
         onDraftDone: draft => app.landOffers.add(draft),
       });
       signal?.throwIfAborted();
+      // Before anything starts: a durable hobkin's turn that was running when hobkin stopped is over.
+      await app.hobkins.open();
       app.runner.start({ intervalMs });
       // `hobkin reports delete` runs in another process and changes no runtime state.
       app.deletionWatcher = watch(join(app.runtime.directory, 'runtime'), (event, name) => {
         if (name?.startsWith('deleted-reports.json')) app.requestRefresh();
       });
       app.deletionWatcher.unref();
+      // `hobkin tell` runs in a durable hobkin's own shell and waits for the answer, so its message is taken as soon as
+      // it is written. The tick looks too, for a change the watcher missed.
+      app.tellWatcher = watch(tellRequests(app.runtime.directory), () => { void app.hobkins.tick(); });
+      app.tellWatcher.unref();
       // Only `main` asks for this, so nothing else that opens an application can start a real qmd.
       if (memoryIndex) {
         app.memoryIndex = new MemoryIndex({ ...memoryIndex, root: app.runtime.directory, onNote: () => app.requestRefresh() });
@@ -391,7 +405,7 @@ export class HobkinApplication {
     const handedOver = inboxToPost(this.runtime.directory, this.now());
     const clientLines = clientNoticesToPost(this.runtime.directory);
     const runReports = runs
-      .filter(run => run.kind !== 'main' && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual'))
+      .filter(run => run.kind !== 'main' && !run.hobkin && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual'))
       .filter(run => !deleted.has(run.id) && !isQuietRun(run))
       .map(run => {
         const text = runOutcomeText(run) || 'No result text.';
@@ -610,7 +624,7 @@ export class HobkinApplication {
     ]);
     for (const id of completedIds) {
       const run = state.runs[id];
-      if (!run || run.status === 'running') continue;
+      if (!run || run.status === 'running' || run.hobkin) continue;
       if (deleted.has(id) || isQuietRun(run)) {
         completedJobReports[id] = null;
         continue;
@@ -654,8 +668,9 @@ export class HobkinApplication {
       schedules: loaded.schedules,
       usage: this.ledger.sync(state),
       memoryBytes: memoryBytes(this.runtime.directory),
-      reportAttention: this.telemetry.attention(runs, this.now()),
+      reportAttention: this.telemetry.attention(runs.filter(run => !run.hobkin), this.now()),
       work,
+      hobkins: hobkinSummaries(state),
       decisions: openDecisions(this.runtime.directory),
       waiting: this.waitingNow(visible.reports),
       wins: this.winsToday(),
@@ -736,6 +751,8 @@ export class HobkinApplication {
     // A message with no room for the note still goes, and the note goes with the next one.
     const fits = Buffer.byteLength(`${opening}${learned}${brief}${message}`) <= MAX_MESSAGE_BYTES;
     const accepted = await this.sendWhenFree(`${opening}${fits ? learned : ''}${brief}${message}`, images);
+    // The user's words reached the main agent's turn, a wake's they joined included, so its messages count from them.
+    this.hobkins.userWrote();
     this.pastedImages.remove(images);
     this.workNoteSeen = note;
     markHeard(this.runtime.directory, sessions);
@@ -972,6 +989,23 @@ export class HobkinApplication {
           .map(session => ({ id: `user-stop:${session.stopRunId}` })));
       }).catch(() => {}).finally(() => { this.waking = false; });
     }
+    // Messages durable hobkins sent the main agent with `hobkin tell`, delivered once, as soon as it is free. They leave
+    // the store only once it took the turn. One the main agent cannot take, as with a sign-in that ran out, waits five minutes.
+    const messages = this.now() >= (this.messagesWakeAfter ?? 0) ? this.hobkins.forMain() : [];
+    if (messages.length) {
+      this.waking = true;
+      return this.runtime.send(messagesBrief(messages), this.hobkins.mainTurnFor(messages)).then(() => this.hobkins.heardByMain(messages))
+        .catch(error => { if (error?.message !== MAIN_BUSY) this.messagesWakeAfter = this.now() + HOBKIN_WAKE_RETRY_MS; })
+        .finally(() => { this.waking = false; });
+    }
+    // A durable hobkin that stopped while nobody looked, told once for each wait. A wake that does not go, as with a
+    // sign-in that ran out, is tried again only after five minutes, so a main agent that cannot answer is not asked every tick.
+    const waits = this.now() >= (this.hobkinWakeAfter ?? 0) ? this.hobkins.due(this.now()) : [];
+    if (waits.length) {
+      this.waking = true;
+      return this.runtime.send(hobkinsBrief(waits), this.hobkins.mainTurnFor(waits)).then(() => this.hobkins.told(waits))
+        .catch(() => { this.hobkinWakeAfter = this.now() + HOBKIN_WAKE_RETRY_MS; }).finally(() => { this.waking = false; });
+    }
     const failures = this.untoldFailures();
     if (!failures.length) return;
     for (const failure of failures) this.failuresTold.add(failureKey(failure));
@@ -1060,6 +1094,8 @@ export class HobkinApplication {
       review: () => requestReview(root, slug, value),
       merge: () => mergeItem(root, slug, value, { ...extra, route: 'key' }),
       decline: () => declineItem(root, slug, value),
+      // A review's "Discard and delete branch": `{ look: true }` says what it would delete, and `{ expect }` deletes exactly that.
+      deleteBranch: () => deleteItemBranch(root, slug, value, extra),
       // `k` on an agent at work names the run, and how it stops: `decline` or `later`.
       stop: () => this.director.stopFromScreen(slug, value),
       ask: () => askAgent(root, slug, value, extra),
@@ -1381,10 +1417,13 @@ export class HobkinApplication {
         clearTimeout(this.refreshTimer);
         this.moods?.stop();
         this.deletionWatcher?.close();
+        this.tellWatcher?.close();
         try {
           // The dashboard has just cancelled any open question, and a quit must not reach the agent as an answer.
           const children = this.runtime.ownedLifecycle?.close();
           await Promise.all([children, this.runtime.main?.abort(), this.runner?.stop(), this.memoryIndex?.stop()]);
+          // A durable hobkin's turn stopped here reads as cut off, so its record is written before the store closes.
+          await this.hobkins?.idle();
           await this.delivery?.close();
           await this.runtime.idle();
           this.pastedImages?.clear();

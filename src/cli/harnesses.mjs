@@ -11,7 +11,8 @@ import { BRIDGE, serveBridge } from './bridge.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
-const usesTools = purpose => purpose === undefined || purpose === 'compatibility-check' || workPurposes.includes(purpose);
+// A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
+const usesTools = purpose => purpose === undefined || purpose === 'compatibility-check' || purpose === 'durable' || workPurposes.includes(purpose);
 const prompt = name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8');
 /** What a work run is told, for a harness that cannot take it as a system prompt. */
 export const workDirections = purpose => `${prompt('background')}\n${prompt(purpose)}`;
@@ -39,12 +40,16 @@ export function buildInvocation(request) {
     || !request.prompt.trim() || Buffer.byteLength(request.prompt) > 65536) {
     throw Error('Invalid harness request identity, cwd or bounded prompt.');
   }
-  if (request.purpose !== undefined && !['migration-repair', 'reflection', 'session-patterns', 'compatibility-check', 'humanizer', ...workPurposes].includes(request.purpose)) {
+  if (request.purpose !== undefined && !['migration-repair', 'reflection', 'session-patterns', 'compatibility-check', 'humanizer', 'durable', ...workPurposes].includes(request.purpose)) {
     throw Error('Unsupported harness purpose.');
+  }
+  const durable = request.purpose === 'durable';
+  if (durable && request.directions !== undefined && (typeof request.directions !== 'string' || !request.directions.trim())) {
+    throw Error('Invalid durable directions.');
   }
   const isWork = workPurposes.includes(request.purpose);
   const noTools = !usesTools(request.purpose);
-  const system = prompt(isWork ? 'background' : request.purpose ?? 'background');
+  const system = durable ? request.directions ?? prompt('durable') : prompt(isWork ? 'background' : request.purpose ?? 'background');
   if (!isAbsolute(request.sessionFile ?? '')) throw Error('Pi requires an explicit job session file.');
   const args = [
     '--mode', 'rpc',
@@ -158,7 +163,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     child = startProcess({
       ...invocation,
       cwd: request.cwd,
-      env: piEnvironment(request.launcher),
+      // What hobkin gives this run's own process, such as a durable hobkin's turn token (`hobkin-tell.mjs`).
+      env: { ...piEnvironment(request.launcher), ...request.env },
       spawnProcess,
       maxRecordBytes: maxOutputBytes,
       maxKeptBytes: Math.min(maxOutputBytes, MAX_KEPT_RECORD_BYTES),

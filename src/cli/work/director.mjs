@@ -9,6 +9,7 @@ import { loadConfig } from '../config.mjs';
 import { buildContext } from '../context.mjs';
 import { recordEvent } from '../events.mjs';
 import { runHarness as defaultRunHarness } from '../harnesses.mjs';
+import { isTurnRunId } from '../hobkin-ids.mjs';
 import { readMemory } from '../memory.mjs';
 import { reportTriage } from '../reports.mjs';
 import { tierBinding } from '../tiers.mjs';
@@ -93,7 +94,8 @@ export class WorkDirector {
   outlook() {
     return {
       running: this.running(),
-      checks: [...this.runner.jobs.keys()].filter(id => !id.startsWith('work:')).length,
+      // A durable hobkin's turn is the user's own and takes no place from work mode.
+      checks: [...this.runner.jobs.keys()].filter(id => !id.startsWith('work:') && !isTurnRunId(id)).length,
       lastStartAt: this.lastStartAt,
     };
   }

@@ -70,6 +70,21 @@ async function fixture(t, options = {}) {
   return { root, schedule, save, runtime: new MemoryRuntime() };
 }
 
+test('enabling a routine admits no slot that had already passed, only the next one', async t => {
+  const h = await fixture(t, { enabledAt: '2026-01-02T19:00:00Z' });
+  let clock = new Date('2026-01-02T20:00:00Z');
+  const runner = new HobkinRunner({ ...h, config, now: () => clock, runHarness: async () => ({ status: 'completed', text: 'ok' }) });
+  await runner.tick();
+  await h.runtime.idle();
+  assert.deepEqual(Object.keys(h.runtime.data.runs), [], 'today 09:00 was before enabling');
+  assert.equal((await runner.snapshot()).schedules[0].nextRun.at, '2026-01-03T09:00:00.000Z');
+
+  clock = new Date('2026-01-03T09:00:30Z');
+  await runner.tick();
+  await h.runtime.idle();
+  assert.deepEqual(Object.keys(h.runtime.data.runs), ['check:2026-01-03']);
+});
+
 test('deletion serializes with admission and changes, preserving runtime history', async t => {
   const h = await fixture(t);
   const runner = new HobkinRunner({ ...h, config });

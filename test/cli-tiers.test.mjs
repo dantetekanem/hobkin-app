@@ -30,6 +30,8 @@ test('tiers in the configuration are a model and an effort for each name hobkin 
   assert.equal(validateTiers(undefined), undefined);
   const tiers = { fast: { model: 'p/quick', effort: 'low' }, high: null };
   assert.equal(validateTiers(tiers), tiers);
+  // Every level Pi itself takes is a level a tier can have, `max` included (the user, 2026-11-13).
+  for (const effort of ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']) assert.ok(validateTiers({ max: { model: 'p/deep', effort } }));
   assert.throws(() => validateTiers({ huge: { model: 'p/x', effort: 'low' } }), /tier must be one of fast, mid, high, max/);
   assert.throws(() => validateTiers({ fast: { model: 'p/x', effort: 'extreme' } }), /effort/);
   assert.throws(() => validateTiers({ fast: { effort: 'low' } }), /model/);

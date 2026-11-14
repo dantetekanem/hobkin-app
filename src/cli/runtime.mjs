@@ -54,7 +54,8 @@ const costOf = session => {
 };
 
 function recordUserStop(root, run, actions) {
-  if (run.userStop?.source !== 'user' || run.status !== 'interrupted' || run.result?.status !== 'interrupted') return;
+  // A durable hobkin's turn is stopped on its own page, so neither Chat nor the main agent hears of it.
+  if (run.hobkin || run.userStop?.source !== 'user' || run.status !== 'interrupted' || run.result?.status !== 'interrupted') return;
   const id = `user-stop:${run.id}`;
   const existing = (actions ?? allCardActions(root)).find(action => action.id === id);
   if (existing?.userStop && existing.did && existing.line) return;
@@ -564,7 +565,8 @@ export class HobkinRuntime {
         return null;
       }
       if (result.status === 'interrupted' && this.active.get(id)?.userStop) run.userStop = this.active.get(id).userStop;
-      if (run.kind !== 'main' && !isQuietRun({ trigger: run.trigger, status: result.status, result })) {
+      // A durable hobkin's turn answers on its own page and keeps no report.
+      if (run.kind !== 'main' && !run.hobkin && !isQuietRun({ trigger: run.trigger, status: result.status, result })) {
         const report = result.text || result.error || 'No result text.';
         const failure = result.text && result.error ? `\n\n---\n\n**Execution failure:** ${result.error}` : '';
         saveReport(this.directory, id, `${report}${failure}`);
@@ -586,9 +588,9 @@ export class HobkinRuntime {
     }
   }
 
-  // Every check and work run passes here, whichever agent wrote its report, before anything saves or shows it.
+  // Every check and work run passes here, whichever agent wrote its report, before anything saves or shows it. A durable hobkin's answer is not a report.
   edited(request, result, signal) {
-    if (request.kind !== 'background' || !this.editReport) return result;
+    if (request.kind !== 'background' || request.hobkin || !this.editReport) return result;
     return this.editReport(result, { root: this.directory, signal });
   }
 

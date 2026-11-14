@@ -51,7 +51,9 @@ test('active binding validation rejects legacy harnesses while saved config read
   const config = initialize(root, { cwd: root });
   validateBinding({ harness: 'pi', model: 'anthropic/claude-sonnet', effort: 'xhigh' });
   assert.throws(() => validateBinding({ harness: 'claude', effort: 'max' }), /harness.*pi/);
-  assert.throws(() => validateBinding({ harness: 'pi', effort: 'max' }), /effort/);
+  // `max` is one of Pi's own levels, so only a word Pi does not have is refused.
+  assert.doesNotThrow(() => validateBinding({ harness: 'pi', model: 'p/deep', effort: 'max' }));
+  assert.throws(() => validateBinding({ harness: 'pi', effort: 'extreme' }), /effort/);
   for (const target of ['main', 'background']) {
     const saved = { ...config, [target]: { ...config[target], harness: 'claude', effort: 'max' } };
     const bytes = JSON.stringify(saved);
@@ -309,9 +311,12 @@ test('a routine turns on or off and takes new times in its own file, and the res
   const window = { start: '08:00', end: '17:00', everyMinutes: 60 };
   const { at: _at, ...withoutTimes } = before;
 
-  assert.deepEqual(changeSchedule(root, 'recap', { enabled: true }), { ...before, enabled: true });
-  assert.deepEqual(changeSchedule(root, 'recap', { window }), { ...withoutTimes, enabled: true, window });
-  assert.deepEqual(changeSchedule(root, 'recap', { at: ['08:00', '13:00'] }), { ...before, enabled: true, at: ['08:00', '13:00'] });
+  const now = new Date('2026-05-01T10:00:00Z');
+  const enabledAt = now.toISOString();
+  assert.deepEqual(changeSchedule(root, 'recap', { enabled: true }, now), { ...before, enabled: true, enabledAt });
+  const later = new Date('2026-05-02T10:00:00Z');
+  assert.deepEqual(changeSchedule(root, 'recap', { window }, later), { ...withoutTimes, enabled: true, enabledAt, window });
+  assert.deepEqual(changeSchedule(root, 'recap', { at: ['08:00', '13:00'] }, later), { ...before, enabled: true, enabledAt, at: ['08:00', '13:00'] });
   const source = readFileSync(path, 'utf8');
   assert.deepEqual(loadSchedules(root).schedules, [parseSchedule(source, 'daily', path)]);
   assert.ok(source.endsWith(`\n---\n${body}\n`), 'its instructions stay as written');

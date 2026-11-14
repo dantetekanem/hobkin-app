@@ -48,7 +48,7 @@ async function keepWork(tree) {
   // A tree stopped in one of these refuses to switch, and nothing could ever start here again. Any conflict markers go with it, so none is committed.
   for (const stopped of ['rebase', 'merge', 'cherry-pick', 'revert']) await gitOrNothing(tree, stopped, '--abort');
   const current = await currentBranch(tree);
-  if (!current.startsWith(BRANCH_PREFIX) || !await git(tree, 'status', '--porcelain')) return;
+  if (!current.startsWith(BRANCH_PREFIX) || !await git(tree, 'status', '--porcelain', '--untracked-files=all')) return;
   // The index starts empty because a run may have staged what is never kept. Files the project tracks are its own, whatever they are called.
   await git(tree, 'reset', '--quiet');
   await git(tree, 'add', '--update');
@@ -121,13 +121,14 @@ async function removeTree({ repo, tree }) {
 export async function releaseTree(tree, { finished = false } = {}) {
   if (!statSync(join(tree, '.git'), { throwIfNoEntry: false })?.isFile()) return;
   if (finished) await keepWork(tree);
-  else if (await gitOrNothing(tree, 'status', '--porcelain')) return;
+  else if (await gitOrNothing(tree, 'status', '--porcelain', '--untracked-files=all')) return;
   if (await currentBranch(tree)) await gitOrNothing(tree, 'switch', '--quiet', '--detach');
 }
 
 /** Whether git already holds everything in a tree: nothing uncommitted or untracked, nothing stopped half way, and its commit on a branch, here or on a remote. */
 async function nothingToLose(tree) {
-  if (await git(tree, 'status', '--porcelain')) return false;
+  // Every untracked file counts, also where the project's own git config hides them from a plain status.
+  if (await git(tree, 'status', '--porcelain', '--untracked-files=all')) return false;
   if (await inProgress(tree)) return false;
   const holder = await git(tree, 'for-each-ref', '--count=1', '--contains', 'HEAD', '--format=%(refname)', 'refs/heads', 'refs/remotes');
   return holder !== '';
@@ -186,7 +187,7 @@ export async function folderRefusal(repo, { branch } = {}) {
   const base = await defaultBranch(repo);
   if (current !== base) return `it is on ${current}`;
   if (await inProgress(repo)) return 'a merge or rebase is in progress';
-  return await git(repo, 'status', '--porcelain') ? 'it has uncommitted changes' : null;
+  return await git(repo, 'status', '--porcelain', '--untracked-files=all') ? 'it has uncommitted changes' : null;
 }
 
 /** Fast-forward only, so the default branch stays the source of truth. Returns why the folder cannot be used, or nothing. */
@@ -237,7 +238,8 @@ export async function changesOnlyDocs(repo, base, branch) {
 /** Whether the default branch already holds `sha`, for a branch that is gone. */
 export const isMerged = (repo, sha, base) => git(repo, 'merge-base', '--is-ancestor', sha, base).then(() => true, () => false);
 
-async function worktreeOn(repo, base) {
+/** The folder that has a branch checked out, the project's own or a linked worktree, as git names it, or null when none has. */
+export async function worktreeOn(repo, base) {
   const records = (await git(repo, 'worktree', 'list', '--porcelain')).split('\n\n');
   const holder = records.find(record => record.split('\n').includes(`branch refs/heads/${base}`));
   return holder?.split('\n')[0].replace(/^worktree /, '') ?? null;
@@ -281,7 +283,7 @@ const sameAs = async (repo, base, path) => await git(repo, 'hash-object', '--', 
 export async function leaveFolder({ repo, branch, base }) {
   const current = await currentBranch(repo);
   if (current !== branch) return { moved: current || 'no branch' };
-  if (await git(repo, 'status', '--porcelain')) return { stays: 'it has uncommitted changes' };
+  if (await git(repo, 'status', '--porcelain', '--untracked-files=all')) return { stays: 'it has uncommitted changes' };
 
   const inTheWay = await inTheWayOf(repo, base);
   const changed = [];

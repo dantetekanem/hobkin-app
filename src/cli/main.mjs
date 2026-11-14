@@ -16,12 +16,25 @@ import { HOBKIN_VERSION } from './version.mjs';
 const DAY_MS = 86400000;
 const DEFAULT_TELEMETRY_DAYS = 30;
 const DEFAULT_WINS_DAYS = 7;
-const COMMANDS_WITH_WORDS = ['reports', 'work', 'import', 'learning', 'profile', 'decide', 'action', 'decisions', 'remind', 'remember', 'skill', 'routines', 'schedules', 'feedback', 'telemetry'];
+const COMMANDS_WITH_WORDS = ['reports', 'work', 'import', 'learning', 'profile', 'decide', 'action', 'decisions', 'remind', 'remember', 'skill', 'routines', 'schedules', 'feedback', 'telemetry', 'canvas'];
+// A durable hobkin's turn is inside hobkin, so it passes words on with `hobkin tell`, never with these.
+const NOT_IN_A_TURN = ['remember', 'remind', 'decide', 'action', 'session'];
 
 export function parseArguments(args) {
   const values = [...args];
   const options = { command: 'status', root: resolve(defaultRoot()), explicitRoot: false, plain: false, args: [] };
   if (values[0] && !values[0].startsWith('-')) options.command = values.shift();
+  // `tell` takes `--home` and help before its recipient. After the recipient every word is the message as typed, flags and all.
+  while (options.command === 'tell' && values.length) {
+    const flag = values.shift();
+    if (options.args.length) options.args.push(flag);
+    else if (flag === '--home' && values[0] && !values[0].startsWith('-')) {
+      options.root = resolve(values.shift());
+      options.explicitRoot = true;
+    } else if (flag === '--help' || flag === '-h') options.command = 'help';
+    else if (flag.startsWith('-')) throw Error(`Unknown or incomplete option: ${flag}`);
+    else options.args.push(flag);
+  }
   while (values.length) {
     const flag = values.shift();
     if (flag === '--home' && values[0] && !values[0].startsWith('-')) {
@@ -39,6 +52,8 @@ export function parseArguments(args) {
       options.on = values.shift();
     } else if (options.command === 'decisions' && flag === '--typed' && values.length) {
       options.typed = values.shift();
+    } else if (options.command === 'canvas' && flag === '--hobkin' && values[0] && !values[0].startsWith('-')) {
+      options.hobkin = values.shift();
     } else if (options.command === 'skill' && flag === '--to' && values[0] && !values[0].startsWith('-')) {
       options.to = values.shift();
     } else if (flag === '--plain') options.plain = true;
@@ -50,7 +65,7 @@ export function parseArguments(args) {
     else if (['--auto', '--decline'].includes(flag) && options.command === 'work') options.args.push(flag);
     else if (flag === '--help' || flag === '-h') options.command = 'help';
     else if (flag === '--version' || flag === '-v') options.command = 'version';
-    else if (COMMANDS_WITH_WORDS.includes(options.command) && !flag.startsWith('-')) options.args.push(flag);
+    else if (COMMANDS_WITH_WORDS.includes(options.command) && (!flag.startsWith('-') || (options.command === 'canvas' && flag === '-'))) options.args.push(flag);
     else throw Error(`Unknown or incomplete option: ${flag}`);
   }
   return options;
@@ -152,13 +167,16 @@ async function connected(options, snapshot, dependencies) {
 
 export async function main(args = process.argv.slice(2), output = process.stdout, dependencies = {}) {
   const options = parseArguments(args);
+  if (NOT_IN_A_TURN.includes(options.command) && (dependencies.env ?? process.env).HOBKIN_TURN) {
+    throw Error(`Inside a durable hobkin's turn, hobkin ${options.command} is not for you. To pass words to the main hobkin, run hobkin tell main.`);
+  }
   if (options.command === 'version') {
     output.write(`hobkin ${HOBKIN_VERSION}\n`);
     return 0;
   }
   if (options.command === 'help') {
     output.write(`hobkin ${HOBKIN_VERSION}\n`);
-    output.write('Usage: hobkin [command] [options]\n  version  print the version hobkin runs\n  init | routines | status | history  [--home directory] [--plain]\n  routines templates  list the routine templates setup offers, hobkin\'s and yours from routines/templates, as JSON\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  telemetry upload [on | off | status]  turn the upload of usage events to hobkin\'s server on or off, on by default once this machine is enrolled, or say what goes and where\n  feedback [list | on | off | delete <id>]  list what /feedback sent, turn sending on or off, or delete a report here and on the server\n  wins [--days n]  print what got done each day as JSON: work merged, decisions made and the days in a row, 7 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill [install [--to folder]]  print a skill that teaches other agents to work with hobkin, or install it where agents load skills, ~/.pi/agent/skills by default\n  remind <text> --on YYYY-MM-DD [--from name]  save a reminder that hobkin brings up on that day\n  remember <text> [--from name]  hand hobkin\'s main agent a fact or preference to keep\n  decide [routine <id> | work <project> <item> | --from name]  file the question on stdin as JSON in Decisions\n  pending  print what is waiting on the user, across every routine and work mode, as JSON\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  learning [on | off | clear <id> | clear all | answer <id> yes|later|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  session --tier fast|mid|high|max [--title name] [--cwd directory] [--keep | --wake] [--approved]  hand the brief on stdin to a full Pi session that the running hobkin starts as a job in its agents list, on the model of the tier its work needs, and with --wake gives the main agent a turn when it ends\n');
+    output.write('Usage: hobkin [command] [options]\n  version  print the version hobkin runs\n  init | routines | status | history  [--home directory] [--plain]\n  routines templates  list the routine templates setup offers, hobkin\'s and yours from routines/templates, as JSON\n  patterns-preview --selection file\n  patterns-submit --preview HASH --confirm HASH\n  upgrade-plan --selection file\n  upgrade-prepare --selection plan.json --confirm HASH\n  upgrade-apply --confirm MIGRATION_ID [--selection authorization.json]\n  upgrade-status\n  reports [delete ID...]  list the Reports inventory as JSON, or delete reports by ID\n  telemetry [--days n]  print what happened in hobkin as JSON, from this machine only, 30 days by default\n  telemetry upload [on | off | status]  turn the upload of usage events to hobkin\'s server on or off, on by default once this machine is enrolled, or say what goes and where\n  feedback [list | on | off | delete <id>]  list what /feedback sent, turn sending on or off, or delete a report here and on the server\n  wins [--days n]  print what got done each day as JSON: work merged, decisions made and the days in a row, 7 days by default\n  setup  check what Hobkin needs, change nothing, and say how to fix what is missing\n  skill [install [--to folder]]  print a skill that teaches other agents to work with hobkin, or install it where agents load skills, ~/.pi/agent/skills by default\n  remind <text> --on YYYY-MM-DD [--from name]  save a reminder that hobkin brings up on that day\n  remember <text> [--from name]  hand hobkin\'s main agent a fact or preference to keep\n  decide [routine <id> | work <project> <item> | --from name]  file the question on stdin as JSON in Decisions\n  pending  print what is waiting on the user, across every routine and work mode, as JSON\n  work [help | status | start | stop | pause | resume | add | trigger | cancel | ...]  drive work mode; work help lists it all\n  import [folder]  copy a pi-companion folder into this one, ~/.companion by default\n  learning [on | off | clear <id> | clear all | answer <id> yes|later|no]  show what Hobkin learned, set it, remove lessons or answer a proposal\n  login  sign in to a model provider, the same way as /login in Pi\n  profile [name <text> | call <text> | email <text> | clear [name | call | email]]  show or set who the user is and what to call them\n  canvas show <url> | draw <file|-> | read | save [path] | close  [--title text] [--hobkin id]  show a page or a drawing on a canvas, the main one or a durable hobkin, by writing the files the running app follows\n  tell [main | <id>] [<words> | -]  inside a durable hobkin\'s turn only: message the main hobkin or another durable hobkin, or with nothing after it, list who you can reach\n  session --tier fast|mid|high|max [--title name] [--cwd directory] [--keep | --wake] [--approved]  hand the brief on stdin to a full Pi session that the running hobkin starts as a job in its agents list, on the model of the tier its work needs, and with --wake gives the main agent a turn when it ends\n');
     return 0;
   }
   if (options.command === 'setup') {
@@ -209,6 +227,19 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     const input = dependencies.input ?? process.stdin;
     const filed = await runDecideCommand(root, options.args, input, Date.now(), options.from);
     output.write(`${JSON.stringify(filed, null, 2)}\n`);
+    return 0;
+  }
+  if (options.command === 'canvas') {
+    const { runCanvasCommand } = await import('./canvas.mjs');
+    const result = await runCanvasCommand(workspaceRoot(options.root), options.args, { hobkin: options.hobkin, title: options.title, input: dependencies.input });
+    output.write(`${JSON.stringify(result)}\n`);
+    return 0;
+  }
+  if (options.command === 'tell') {
+    const { runTellCommand } = await import('./hobkin-tell.mjs');
+    // The home of the running hobkin, which a durable hobkin's turn is given as HOBKIN_HOME.
+    const result = await runTellCommand(resolveDataRoot(options.root), options.args, { env: dependencies.env, input: dependencies.input });
+    output.write(`${JSON.stringify(result)}\n`);
     return 0;
   }
   if (options.command === 'action') {

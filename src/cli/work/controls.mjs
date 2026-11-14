@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, join, sep } from 'node:path';
 import { promisify } from 'node:util';
 import { shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
@@ -11,10 +11,10 @@ import { findItem, findProject, nameOf, projectNamed, runsNamed } from './names.
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER, weighedRows } from './reads.mjs';
 import {
-  answerAllowance, chooseProject, doableKinds, dropProject, fileItem, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, pickNow, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
+  answerAllowance, chooseProject, doableKinds, dropProject, fileItem, itemTree, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, pickNow, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
   requestCancel, retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
-import { defaultBranch, gitOrNothing, isMerged, landBranch } from './tree.mjs';
+import { BRANCH_PREFIX, currentBranch, defaultBranch, gitOrNothing, gitWithin, isMerged, landBranch, realPlace, retireTree, worktreeOn } from './tree.mjs';
 import { AFTER_MERGE, changeFacts, closeMergedPull, ghWithin, landedRecord, landingTip, pullNow, readUnmerged, SHIP_KIND } from './unmerged.mjs';
 
 const run = promisify(execFile);
@@ -640,6 +640,105 @@ export function declineItem(root, reference, id, now = Date.now()) {
 export function declineStopped(root, slug, id, now = Date.now()) {
   const { project, item } = runningItem(root, { slug, item: id });
   if (item) recordNo(root, project, item, now);
+}
+
+// Items nothing works on any more, so a branch only they name is free to go.
+const overStates = ['merged', 'done', 'declined', 'dropped'];
+const DELETE_BRANCH_TIMEOUT_MS = 2 * 60000;
+
+/** The branch an item made for itself is `hobkin/` and its work name, which starts with its id. A fix on another item's branch has none of its own. */
+const isOwnBranch = ({ id }, branch) => branch === `${BRANCH_PREFIX}${id}` || branch.startsWith(`${BRANCH_PREFIX}${id}-`);
+
+/** The files and folders git ignores in a tree, by the pattern that matched them, sorted: `.env`, `build/`. */
+async function ignoredIn(tree) {
+  const listed = await gitOrNothing(tree, 'status', '--porcelain', '-z', '--ignored=matching', '--untracked-files=normal');
+  return listed.split('\0').filter(entry => entry.startsWith('!! ')).map(entry => entry.slice(3)).sort();
+}
+
+/** The item's own tree, once it let go of its branch at a commit of that branch: it goes with the branch, or it would hold those commits for good. */
+async function treeLeftOn(root, slug, item, tips) {
+  const tree = itemTree(root, slug, item);
+  if (!statSync(join(tree, '.git'), { throwIfNoEntry: false })?.isFile() || await currentBranch(tree)) return null;
+  const at = await gitOrNothing(tree, 'rev-parse', '--verify', '--quiet', 'HEAD');
+  const onIt = at ? await Promise.all(tips.map(tip => isMerged(tree, at, tip))) : [];
+  return onIt.some(Boolean) ? realPlace(tree) : null;
+}
+
+/**
+ * What deleting an item's own branch takes, read and never changed: the branch on this Mac and on origin, the hobkin tree that goes with it, and how
+ * many commits are on it alone. It refuses, before anything goes, while the item runs, when the branch is not the item's own or another item still
+ * works on it, and when the user's own folder, or any folder hobkin did not make, has it checked out. A tree goes only when nothing in it is uncommitted.
+ */
+async function whatDeletingTakes(root, project, item) {
+  const { slug } = project;
+  const { title, branch } = item;
+  if (ownerView(root).running.some(run => run.slug === slug && run.item === item.id)) throw Error(`"${title}" is running, so its branch cannot be deleted now.`);
+  if (!branch) throw Error(`"${title}" has no branch of its own, so there is nothing to delete.`);
+  const repo = project.path ?? paths(root, slug).clone;
+  if (!isOwnBranch(item, branch) || branch === await defaultBranch(repo)) throw Error(`${branch} is not the branch "${title}" made for itself, so it is not deleted.`);
+  const sharing = readItems(root, slug).find(other => other.id !== item.id && other.branch === branch && !overStates.includes(other.state));
+  if (sharing) throw Error(`"${sharing.title}" works on ${branch} too, so it is not deleted.`);
+
+  const here = await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`) || null;
+  const pushed = await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`) || null;
+  if (!here && !pushed) throw Error(`${branch} is gone already, on this Mac and on origin, so there is nothing to delete.`);
+  const tips = [here, pushed].filter(Boolean);
+
+  const holder = here ? await worktreeOn(repo, branch) : null;
+  if (holder && holder === realPlace(repo)) throw Error(`${branch} is checked out in the project's own folder, ${shortPath(repo)}, so it is not deleted. Switch that folder to another branch first.`);
+  if (holder && !holder.startsWith(`${realPlace(paths(root, slug).trees)}${sep}`)) throw Error(`${branch} is checked out in ${shortPath(holder)}, a folder hobkin did not make, so it is not deleted.`);
+  const worktree = holder ?? await treeLeftOn(root, slug, item, tips);
+  // Every untracked file counts, also where the project's own git config hides them from a plain status.
+  if (worktree && await gitOrNothing(worktree, 'status', '--porcelain', '--untracked-files=all')) throw Error(`Its worktree at ${shortPath(worktree)} has changes that were never committed, so nothing is deleted.`);
+  // What git ignores in the tree, such as a .env or a build, goes with it, so the preview names it.
+  const ignored = worktree ? await ignoredIn(worktree) : [];
+
+  const url = pushed ? await gitOrNothing(repo, 'remote', 'get-url', 'origin') : '';
+  // Commits no other branch or tag on this Mac holds. A remote-tracking branch is left out: it can name a branch that origin no longer has.
+  // Git says nothing when it cannot count them.
+  const lost = await gitOrNothing(repo, 'rev-list', '--count', ...tips, '--not', `--exclude=${branch}`, '--branches', '--tags');
+  return { branch, here, remote: pushed ? { name: 'origin', url, sha: pushed } : null, worktree, ignored, lost: lost === '' ? null : Number(lost) };
+}
+
+/**
+ * Deletes an item's own branch, only ever on the user's word, after they were shown what it takes: `look` reads that and deletes nothing, and the
+ * deletion goes only when `expect` is exactly what the look answered. Its tree goes first, because git keeps a branch a tree holds, then the branch
+ * on this Mac, then on origin, each pinned to the commit that was shown. A step that fails says what was already done and stops there. Nothing else
+ * is touched: no other branch, never the default branch, and never the user's own folder.
+ */
+export async function deleteItemBranch(root, reference, id, { look = false, expect = null } = {}) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  const plan = await whatDeletingTakes(root, project, item);
+  const { branch, here, remote, worktree } = plan;
+  const where = [here && 'on this Mac', remote && 'on origin'].filter(Boolean).join(' and ');
+  if (look) return reply(`It deletes ${branch} ${where}${worktree ? `, with its worktree${plan.ignored.length ? ' and the files git ignores in it' : ''}` : ''}.`, { plan });
+  if (JSON.stringify(expect) !== JSON.stringify(plan)) throw Error(`What deleting ${branch} takes has changed since it was shown, so nothing was deleted.`);
+
+  const repo = project.path ?? paths(root, project.slug).clone;
+  const git = gitWithin(DELETE_BRANCH_TIMEOUT_MS);
+  const done = [];
+  const stopped = (missed, error) => {
+    const said = done.length ? `${done.join(' and ')}, but ${missed}` : `Nothing was deleted: ${missed}`;
+    return Error(error ? `${said}: ${firstLine(error.stderr || error.message).trim()}` : `${said}.`);
+  };
+  if (worktree) {
+    if (!await retireTree({ repo, tree: worktree })) throw stopped(`git would not remove its worktree at ${shortPath(worktree)}`);
+    done.push('Removed its worktree');
+  }
+  if (here) {
+    await git(repo, 'update-ref', '-d', `refs/heads/${branch}`, here).catch(error => { throw stopped(done.length ? `${branch} was not deleted on this Mac` : `git would not delete ${branch}`, error); });
+    await gitOrNothing(repo, 'config', '--remove-section', `branch.${branch}`);
+    done.push(`${done.length ? 'deleted' : 'Deleted'} ${branch} on this Mac`);
+  }
+  if (remote) {
+    await git(repo, 'push', '--quiet', `--force-with-lease=refs/heads/${branch}:${remote.sha}`, 'origin', `:refs/heads/${branch}`).catch(async error => {
+      // Gone from origin already, as when its pull request was merged with its branch deleted there: what this Mac remembers of it goes too.
+      if (/remote ref does not exist/.test(error.stderr ?? '')) return gitOrNothing(repo, 'update-ref', '-d', `refs/remotes/origin/${branch}`);
+      throw stopped(done.length ? 'it was not deleted on origin' : `origin would not delete ${branch}`, error);
+    });
+  }
+  return reply(`Deleted ${branch} ${where}${worktree ? ', and removed its worktree' : ''}.`, { deleted: plan });
 }
 
 /**

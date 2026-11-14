@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { hobkinCommand } from './work/chat.mjs';
 import { changeSchedule, loadSchedules, scheduleDate, scheduleTimes } from './schedules.mjs';
 import { runHarness as defaultRunHarness } from './harnesses.mjs';
+import { isTurnRunId } from './hobkin-ids.mjs';
 import { buildContext } from './context.mjs';
 import { readMemory } from './memory.mjs';
 import { checkHold, keepOnceFile, openCheck, scheduleDefinition } from './checks.mjs';
@@ -101,6 +102,10 @@ export function nextOccurrence(schedule, now = new Date(), { runs = [], notBefor
   return null;
 }
 
+/** Nothing before the home began, or before the routine was last turned on, is ever due. */
+const notBeforeFor = (schedule, config) => [config.initializedAt, schedule.enabledAt].filter(Boolean)
+  .reduce((latest, value) => (Date.parse(value) > Date.parse(latest) ? value : latest));
+
 /** A once file is finished when its latest time has run and no later one is left. */
 const isFinishedOnce = (schedule, runs, now, notBefore) => {
   if (schedule.cadence !== 'once' || !schedule.enabled) return false;
@@ -183,8 +188,8 @@ export class HobkinRunner {
         continue;
       }
       const occurrence = this.compatibilityDue
-        ? this.compatibilityDue(schedule, now, { notBefore: this.config.initializedAt, defaultDue: dueOccurrence })
-        : dueOccurrence(schedule, now, { notBefore: this.config.initializedAt });
+        ? this.compatibilityDue(schedule, now, { notBefore: notBeforeFor(schedule, this.config), defaultDue: dueOccurrence })
+        : dueOccurrence(schedule, now, { notBefore: notBeforeFor(schedule, this.config) });
       if (!occurrence || state.runs[occurrence.id] || this.jobs.has(occurrence.id)) continue;
       // Keep completed admissions when a setting changes between one time and a list.
       if (Object.values(state.runs).some(run => run.scheduleId === schedule.id && run.scheduledAt === occurrence.scheduledAt)) continue;
@@ -209,7 +214,7 @@ export class HobkinRunner {
     const runs = Object.values((await this.runtime.state()).runs);
     for (const schedule of this.loaded.schedules) {
       const own = runs.filter(run => run.scheduleId === schedule.id);
-      if (!isFinishedOnce(schedule, own, now, this.config.initializedAt)) continue;
+      if (!isFinishedOnce(schedule, own, now, notBeforeFor(schedule, this.config))) continue;
       try {
         keepOnceFile(this.root, schedule);
       } catch (error) {
@@ -218,11 +223,11 @@ export class HobkinRunner {
     }
   }
 
-  /** Work runs have their own pool, so they never take a place from ordinary checks. */
+  /** Work runs have their own pool, and a durable hobkin's turn is the user's, so neither takes a place from ordinary checks. */
   scheduledJobCount(state) {
     const running = Object.values(state.runs)
-      .filter(run => run.kind === 'background' && run.status === 'running' && !run.work);
-    const tracked = [...this.jobs.keys()].filter(id => !id.startsWith('work:'));
+      .filter(run => run.kind === 'background' && run.status === 'running' && !run.work && !run.hobkin);
+    const tracked = [...this.jobs.keys()].filter(id => !id.startsWith('work:') && !isTurnRunId(id));
     return Math.max(tracked.length, running.length);
   }
 
@@ -271,7 +276,7 @@ export class HobkinRunner {
         if (Object.values(state.runs).some(run => run.scheduleId === scheduleId && run.status === 'running')
           || [...this.jobs.keys()].some(id => state.runs[id]?.scheduleId === scheduleId)) throw Error('Routine is already running.');
       }
-      const changed = changeSchedule(this.root, scheduleId, change);
+      const changed = changeSchedule(this.root, scheduleId, change, new Date(this.now()));
       this.loaded = loadSchedules(this.root);
       return changed;
     });
@@ -415,7 +420,7 @@ export class HobkinRunner {
     const now = new Date(this.now());
     const stillToCome = schedule => {
       const own = runs.filter(run => run.scheduleId === schedule.id);
-      return !isFinishedOnce(schedule, own, now, this.config.initializedAt);
+      return !isFinishedOnce(schedule, own, now, notBeforeFor(schedule, this.config));
     };
     const schedules = this.loaded.schedules.filter(stillToCome).map(schedule => {
       const related = runs.filter(run => run.scheduleId === schedule.id);
@@ -426,7 +431,7 @@ export class HobkinRunner {
         } else if (related.some(run => run.status === 'running')) {
           // A recurring check's next slot still counts as upcoming work while this run finishes.
           const next = schedule.cadence === 'compatibility' ? null
-            : nextOccurrence(schedule, now, { runs: related, notBefore: this.config.initializedAt });
+            : nextOccurrence(schedule, now, { runs: related, notBefore: notBeforeFor(schedule, this.config) });
           nextRun = { state: 'running', at: next?.scheduledAt ?? null };
         } else if (schedule.cadence === 'compatibility') {
           const last = related.toSorted((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
@@ -449,7 +454,7 @@ export class HobkinRunner {
           }
         } else {
           const hold = checkHold(schedule, related, now.getTime());
-          const next = nextOccurrence(schedule, hold?.until ?? now, { runs: related, notBefore: this.config.initializedAt });
+          const next = nextOccurrence(schedule, hold?.until ?? now, { runs: related, notBefore: notBeforeFor(schedule, this.config) });
           if (hold) {
             const resumesAt = next && Date.parse(next.scheduledAt) > Date.parse(hold.until) ? next.scheduledAt : hold.until;
             nextRun = { state: 'held', at: resumesAt, reason: hold.reason, holdId: holdStart(schedule, related).id };
@@ -478,9 +483,10 @@ export class HobkinRunner {
   }
 
   /** A check shows as running before Pi is ready for it, so a message sent that early waits. With no schedule named, lists what is running. */
-  async messageCheck({ scheduleId, runId, noteId, message }) {
+  async messageCheck({ scheduleId, runId, noteId, message }, { durable = false } = {}) {
     const runs = Object.values((await this.runtime.state()).runs);
-    const reachable = runs.filter(run => run.status === 'running' && this.inboxes.has(run.id));
+    // A durable hobkin's turn is the user's alone, so only its own page reaches it (`hobkins.mjs`), never the main agent's tool.
+    const reachable = runs.filter(run => run.status === 'running' && this.inboxes.has(run.id) && (durable || !run.hobkin));
     if (!scheduleId) return { running: reachable.map(run => ({ scheduleId: run.scheduleId, title: run.title })) };
 
     const run = reachable.find(item => item.scheduleId === scheduleId && (runId === undefined || item.id === runId));
