@@ -16,6 +16,7 @@ import { Switch } from '@/components/ui/switch.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { useTiers } from '@/features/tiers/store.ts'
 import { BackupTile } from './BackupTile.tsx'
+import { KeptThemesList } from './KeptThemesList.tsx'
 import { ReviewTile } from './ReviewTile.tsx'
 import { ClaudeCodeTile } from './ClaudeCodeTile.tsx'
 import { SubscriptionsTile } from './SubscriptionsTile.tsx'
@@ -200,7 +201,10 @@ function DayAndNight() {
   )
 }
 
-/** The request goes to main hobkin as a chat message the user sent. The composer's draft stays as it is. */
+/**
+ * The themes hobkin made, to put one back on, and a request for a new one. The request goes to main hobkin as a chat
+ * message the user sent. The composer's draft stays as it is.
+ */
 function CustomColors() {
   const sending = useSettings((state) => state.themeSending)
   const note = useSettings((state) => state.themeNote)
@@ -215,30 +219,33 @@ function CustomColors() {
   }
 
   return (
-    <form
-      className="flex flex-col gap-2"
-      onSubmit={(event) => {
-        event.preventDefault()
-        void send()
-      }}
-    >
-      <label htmlFor="custom-theme-request" className="text-[12px] font-medium">Ask hobkin for colors</label>
-      <div className="flex gap-2">
-        <input
-          id="custom-theme-request"
-          aria-describedby="custom-theme-status"
-          data-stop=""
-          value={text}
-          onChange={(event) => setText(event.currentTarget.value)}
-          placeholder="A quiet forest at night"
-          className="min-w-0 flex-1 rounded-xl border border-border-strong bg-tone-1 px-3 py-2 text-[13px]"
-        />
-        <Button type="submit" disabled={sending || !text.trim()}>{sending ? 'Sending…' : 'Send'}</Button>
-      </div>
-      <p id="custom-theme-status" role="status" className="text-[12px] text-muted-foreground">
-        {note ?? 'Describe the theme. hobkin will choose readable colors.'}
-      </p>
-    </form>
+    <div className="flex flex-col gap-4">
+      <KeptThemesList />
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={(event) => {
+          event.preventDefault()
+          void send()
+        }}
+      >
+        <label htmlFor="custom-theme-request" className="text-[12px] font-medium">Ask hobkin for a new theme</label>
+        <div className="flex gap-2">
+          <input
+            id="custom-theme-request"
+            aria-describedby="custom-theme-status"
+            data-stop=""
+            value={text}
+            onChange={(event) => setText(event.currentTarget.value)}
+            placeholder="A quiet forest at night"
+            className="min-w-0 flex-1 rounded-xl border border-border-strong bg-tone-1 px-3 py-2 text-[13px]"
+          />
+          <Button type="submit" disabled={sending || !text.trim()}>{sending ? 'Sending…' : 'Send'}</Button>
+        </div>
+        <p id="custom-theme-status" role="status" className="text-[12px] text-muted-foreground">
+          {note ?? 'Describe the theme. hobkin will choose readable colors.'}
+        </p>
+      </form>
+    </div>
   )
 }
 

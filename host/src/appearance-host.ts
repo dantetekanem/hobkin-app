@@ -11,7 +11,7 @@ const admittedRoot = async (root: string): Promise<string> => {
 export async function loadHostAppearance(root: string, onChange: () => void, log: (line: string) => void, resolveRoot = admittedRoot): Promise<Appearance> {
   const file = new AppearanceFile(await resolveRoot(root))
   let ready = false
-  const appearance = new Appearance({ file, onChange: () => { if (ready) onChange() } })
+  const appearance = new Appearance({ file, log, onChange: () => { if (ready) onChange() } })
   try { appearance.load() }
   catch (error) {
     // An uninitialized home has no root yet. The owner creates it later, not the theme loader.

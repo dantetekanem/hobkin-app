@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["001-foundation", "017-model-tiers", "019-keyboard"],
-  "updated": "2026-11-13"
+  "updated": "2026-11-14"
 }
 ---
 # Settings
@@ -38,6 +38,7 @@ Settings is a screen on the canvas that looks like hobkin's desk, not a form. Ea
 
 - Account, data folder and versions get a tile once the host supplies them. Until then they are left out rather than shown empty.
 - Settings that belong to the client alone (theme, type, movement) are kept by the client and work at once. Settings that belong to hobkin (agents, budget, models, usage events, feedback, account) are hobkin's own: the host reads and writes them through hobkin's code, and the terminal app sees the same values. Until the host supplies them, the tiles run on sample values and say so.
+- A custom theme stays until the user changes it (the user, 2026-11-14: "custom theme doesnt persist when i ask to change, or we dont keep a history of them"). The host keeps every theme hobkin makes in `client/themes.json`, beside the theme on now in `client/custom.css`: newest first, at most 12, each with its name, the user's own words when hobkin passed them on, its colors, its photo and when it was made. The same colors again are the same theme, not a new one. Light, Dark and Follow the Mac stop showing the custom theme but keep it in the list, and Custom puts back the one shown last. Under Custom, Settings shows the kept themes as small swatches in their own colors. Picking one puts it on, and it opens from its swatch; Edit renames them or removes them, but not the one on now. hobkin reads and changes the same list with `appearance.themes`, `appearance.pick`, `appearance.rename` and `appearance.remove`, so "go back to yesterday's theme" works from the chat.
 - Every tile works from the keyboard, by the rule of `019-keyboard`: Up and Down move between controls, Left and Right change a choice or a number, Enter opens what a tile opens. Opening Settings puts the keyboard on the first control.
 - Every change is a command (`013-hobkin-access`), so hobkin can make it, and a change hobkin makes plays the same scene.
 - A change that costs money or reaches outside the Mac (budget up, usage events on) says so in one line under the control. Nothing here asks "are you sure".
@@ -53,7 +54,7 @@ Settings is a screen on the canvas that looks like hobkin's desk, not a form. Ea
 ## Acceptance
 
 - A1. Cmd+comma and the header button open Settings on the canvas with the conversation still visible. Close and Escape return the canvas to the screen it showed before, and the Settings item leaves the menu.
-- A2. Choosing light, dark or follow the Mac changes the theme at once with the reveal of `001-foundation`, the sun and moon move to match, and the choice holds after a reload and after a restart, also when a custom theme was showing before it: the host is told, and forgets the custom theme it kept. With follow the Mac, changing the Mac's appearance changes the app.
+- A2. Choosing light, dark or follow the Mac changes the theme at once with the reveal of `001-foundation`, the sun and moon move to match, and the choice holds after a reload and after a restart, also when a custom theme was showing before it: the host is told and starts on that base too, and the custom theme stays in its kept list. With follow the Mac, changing the Mac's appearance changes the app.
 - A3. The agents tile shows as many hoods as the setting, between 1 and 8. Plus, minus and the arrow keys change it by one, and it stops at both ends.
 - A4. The Models tile shows the lead's and each tier's model and thinking level, and opens the tiers lightbox. After Apply in the lightbox the tile shows the new values.
 - A5. Movement set to still makes screen changes fade without travel and holds the avatar still, whatever the Mac's setting. Set to lively, movement plays even when the Mac asks for less. Follow the Mac does what the Mac says.
@@ -77,6 +78,7 @@ Settings is a screen on the canvas that looks like hobkin's desk, not a form. Ea
 - A23. A backup says what it could not take, and a restore leaves those files where they are. A folder of the user's named like run evidence is a record.
 - A24. The copies a restore takes first outlive ordinary pruning, the newest three of them, and no automatic backup runs right after a restore, also after a host restart. The dialog says how long the copy is kept.
 - A25. A restore waits while hobkin answers or anything runs, and the host restarts right after it. A backups folder that is in the home through a link is refused for backups and restores.
+- A26. A custom theme hobkin made keeps its colors, name and photo after a reload, a host restart and an app restart, until the user or hobkin changes it. Every one is kept, newest first, up to 12, and the list holds after a restart. After a built-in theme, Custom brings back the one shown last. From Settings and from the chat, a kept theme can be put back on, renamed or removed, except the one on now, which cannot be removed.
 
 ## Proof
 
@@ -105,6 +107,7 @@ Settings is a screen on the canvas that looks like hobkin's desk, not a form. Ea
 - A23. `host/test/backup.test.ts` › "a name zip cannot take, and a file it cannot read, are said, and a restore leaves both where they are"; › "only hobkin's own evidence and artifact folders are left out, not the user's folders named like them"
 - A24. `host/test/backup.test.ts` › "the copy a restore takes first outlives ordinary pruning, and no automatic backup follows a restore at once"; check: read the dialog.
 - A25. `ui/test/settings-backup.test.ts` › "a restore waits while hobkin answers or anything runs, and says what"; `host/test/backup.test.ts` › "a restore waits while anything runs, and changes nothing" (the host's check, not yet passed by `host.ts`); › "a backups folder that is a link into the home is refused, and a restore never takes the backups with it"; check: restore in the window and see the host restart. Not yet seen.
+- A26. `host/test/appearance-history.test.ts` › "a custom theme keeps its name across a restart"; › "every custom theme is kept, newest first, and a built-in theme does not throw them away"; › "renaming the theme on now changes its title at once; removing keeps the one on now"; › "a photo belongs to the theme it was chosen for"; › "a theme saved before the list existed joins it, and a damaged list never stops the theme"; › "hobkin lists the kept themes with their dates and puts one back on from the chat"; `host/test/theme-history.test.ts` (the list's rules: add, reuse, cap, wear, rename, remove, file); `host/test/state-sync.test.ts` › "the kept themes travel whole on changes and resets, and stay while a built-in theme shows"; `ui/test/theme-kept.test.ts` › "choosing Custom after a built-in theme puts the last kept theme back on, through the host"; `ui/test/settings-kept-themes.test.ts`. Seen 2026-11-14 only as a still render of the Day and night tile (normal and Edit), made with vite and QuickLook. check: in the window, pick a kept theme, rename one, remove one, restart the app, and ask hobkin for "the theme before this one". Not yet seen.
 
 ## Steps
 
@@ -114,6 +117,7 @@ Settings is a screen on the canvas that looks like hobkin's desk, not a form. Ea
 - [x] S4 (A8). Keyboard through every tile.
 - [ ] S5 (A9, A10). Host: hobkin's settings as state and commands.
 - [ ] S6 (A17 to A25). Backup: the rule, backup and restore in the host, and the tile. The host side is tested; the tile is not yet seen, and `host.ts` does not yet pass the host's own check that nothing runs.
+- [ ] S7 (A26). Kept custom themes: the host's list and its four commands, Custom bringing back the theme shown last, and the swatches with Edit under Custom. The rules are tested and the tile is seen in a still render; not yet seen in the window.
 
 ## Open questions
 

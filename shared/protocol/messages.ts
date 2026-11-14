@@ -1,5 +1,6 @@
 import type { StartupForceReceipt, StartupTarget } from '../commands/registry.ts'
 import type { AppearanceRequest } from './appearance.ts'
+import type { KeptThemes } from './theme-history.ts'
 import type { ActivitySteps } from './activity.ts'
 import type { IntegrationsState } from '../integrations/wire.ts'
 import type { CanvasState } from './canvas.ts'
@@ -84,6 +85,8 @@ export interface StateMessage {
   nudge?: Nudge
   /** The latest validated theme request, sent on changes and resets. */
   appearance?: AppearanceRequest | null
+  /** The kept custom themes, whole, whenever they changed and with every reset. Left out by a host from before them. */
+  themes?: KeptThemes
 }
 
 export interface TurnMessage {

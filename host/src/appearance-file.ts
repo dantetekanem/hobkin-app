@@ -3,6 +3,9 @@ import { isAbsolute, join } from 'node:path'
 import { randomUUID } from 'node:crypto'
 import { decodeAppearanceStyle, encodeAppearanceStyle } from './appearance-style.ts'
 
+/** Twelve kept themes with long names and the user's words fit with room to spare. */
+const THEMES_MAX_BYTES = 32768
+
 function missing(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'ENOENT'
 }
@@ -54,6 +57,18 @@ export class AppearanceFile {
   replacePhoto(id: 'milky-way' | null): void {
     if (id !== null && id !== 'milky-way') throw new Error('Only the bundled Milky Way photo or null is accepted.')
     this.replaceArtifact(join(this.directory, 'custom-photo'), `${id ?? 'none'}\n`)
+  }
+
+  /** The kept custom themes (`theme-history.ts`) as their file holds them, or null before there are any. */
+  readThemes(): string | null {
+    return this.readArtifact(join(this.directory, 'themes.json'), THEMES_MAX_BYTES)
+  }
+
+  replaceThemes(content: string): void {
+    if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > THEMES_MAX_BYTES) {
+      throw new Error(`The kept themes must be text of at most ${THEMES_MAX_BYTES} bytes.`)
+    }
+    this.replaceArtifact(join(this.directory, 'themes.json'), content)
   }
 
   private readArtifact(path: string, maxBytes: number): string | null {

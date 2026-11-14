@@ -4,6 +4,7 @@ import { BACKUP_CADENCES, BACKUP_LIMIT_MAX, type BackupState } from '../backup/t
 import type { IntegrationsState } from '../integrations/wire.ts'
 import type { ExtensionsState, SkillFile, SkillsState } from '../pi-resources/wire.ts'
 import { BUILT_IN_THEMES, paletteProblems } from '../protocol/appearance.ts'
+import { KEPT_ASKED_MAX, KEPT_ID_PATTERN, KEPT_NAME_MAX, type KeptThemes } from '../protocol/theme-history.ts'
 import { DRAWING_MAX_BYTES, type CanvasContent, type CanvasSaved, type CanvasState } from '../protocol/canvas.ts'
 import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITLE_MAX, type HobkinConversation, type HobkinReach, type HobkinSummary } from '../protocol/hobkins.ts'
 import { CLAUDE_AGENT_KINDS, CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_PERMISSIONS, type ClaudeCodeState } from '../protocol/claude-code.ts'
@@ -738,7 +739,7 @@ export const COMMANDS = {
   },
   'appearance.set': {
     description:
-      "Set the app's color theme from five colors, each #rrggbb: `background`, `surface` (cards), `text`, `muted` (secondary text), `accent`. Text and muted text must read on the background and on cards (4.5 to 1), or it is refused with the ratio so you can retry. `name` names the theme. Use it when the user asked for a theme, such as a Matrix one.",
+      "Set the app's color theme from five colors, each #rrggbb: `background`, `surface` (cards), `text`, `muted` (secondary text), `accent`. Text and muted text must read on the background and on cards (4.5 to 1), or it is refused with the ratio so you can retry. `name` names the theme, and `asked` carries the user's own words for it, such as what follows \"Build a theme:\". Every theme is kept, so the user can go back to it later (appearance.themes). Use it when the user asked for a theme, such as a Matrix one.",
     runs: 'host',
     args: Type.Object(
       {
@@ -749,7 +750,8 @@ export const COMMANDS = {
           muted: Type.String({ pattern: '^#[0-9a-fA-F]{6}$' }),
           accent: Type.String({ pattern: '^#[0-9a-fA-F]{6}$' }),
         }, { additionalProperties: false }),
-        name: Type.Optional(words(60)),
+        name: Type.Optional(words(KEPT_NAME_MAX)),
+        asked: Type.Optional(words(KEPT_ASKED_MAX)),
       },
       { additionalProperties: false },
     ),
@@ -773,6 +775,32 @@ export const COMMANDS = {
       { theme: oneOf(BUILT_IN_THEMES) },
       { additionalProperties: false },
     ),
+    hobkin: true,
+  },
+  'appearance.themes': {
+    description:
+      "List the custom themes the app keeps, newest first, up to 12: each one's `id`, `name`, the user's own words (`asked`), its colors, and `at`, when it was made. `worn` is the one shown last, and `showing` says whether it is on now. Use it before appearance.pick when the user asks for an earlier theme, such as the one from yesterday or the one before this.",
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
+  'appearance.pick': {
+    description:
+      'Put a kept custom theme back on by its `id` from appearance.themes, with its name and photo. It changes the window at once and stays on after a restart, until another theme is chosen.',
+    runs: 'host',
+    args: Type.Object({ id: Type.String({ pattern: KEPT_ID_PATTERN }) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'appearance.rename': {
+    description: 'Rename a kept custom theme by its `id`. Renaming the one on now changes the title Settings shows.',
+    runs: 'host',
+    args: Type.Object({ id: Type.String({ pattern: KEPT_ID_PATTERN }), name: words(KEPT_NAME_MAX) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'appearance.remove': {
+    description: 'Remove a kept custom theme by its `id`. The theme on now cannot be removed: put another one on first.',
+    runs: 'host',
+    args: Type.Object({ id: Type.String({ pattern: KEPT_ID_PATTERN }) }, { additionalProperties: false }),
     hobkin: true,
   },
   'file.read': {
@@ -1162,6 +1190,10 @@ export interface CommandResults {
   'appearance.set': { ok: true }
   'appearance.photo': { ok: true }
   'appearance.use': { ok: true }
+  'appearance.themes': KeptThemes
+  'appearance.pick': { ok: true }
+  'appearance.rename': { ok: true }
+  'appearance.remove': { ok: true }
   'appearance.customize': ThemeOperation
   'appearance.status': ThemeOperation | null
   'file.read': FileContent

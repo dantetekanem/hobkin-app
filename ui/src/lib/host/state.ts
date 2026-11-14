@@ -1,5 +1,6 @@
 import { applyActivity, MAIN_ACTIVITY, type JobActivity } from '#shared/protocol/activity.ts'
 import type { AppearanceRequest } from '#shared/protocol/appearance.ts'
+import type { KeptThemes } from '#shared/protocol/theme-history.ts'
 import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import type { GitHubState } from '#shared/protocol/github.ts'
@@ -45,6 +46,8 @@ export interface HostState {
   /** The latest one-shot instruction hobkin gave the window (a move or a draft). The window carries out each id once. */
   nudge: Nudge | null
   appearance: AppearanceRequest | null
+  /** The custom themes the host keeps, newest first. Null until the host says, and always from a host from before them. */
+  themes?: KeptThemes | null
   /** hobkin's snapshot, by top-level key. */
   snapshot: WireSnapshot
   /** The stored conversation. */
@@ -74,6 +77,7 @@ export const initialHostState: HostState = {
   canvases: null,
   nudge: null,
   appearance: null,
+  themes: null,
   snapshot: {},
   messages: [],
   live: null,
@@ -116,6 +120,8 @@ function applyState(state: HostState, message: StateMessage): HostState {
     // A one-shot instruction arrives only when it is new. A reset clears it, so a reconnect never replays a move or draft.
     nudge: message.nudge ?? (message.reset ? null : state.nudge),
     appearance: message.appearance !== undefined ? message.appearance : message.reset ? null : state.appearance,
+    // A host that keeps themes sends the list with every reset, so one without it keeps none.
+    themes: message.themes ?? (message.reset ? null : (state.themes ?? null)),
     live: settleLive(message.reset ? null : state.live, messages, snapshot.busy),
     epoch: message.reset ? state.epoch + 1 : state.epoch,
   }

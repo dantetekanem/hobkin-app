@@ -2,6 +2,7 @@ import type { HobkinSnapshot } from 'hobkin/src/cli/application.mjs'
 import { scheduleDefinition } from 'hobkin/src/cli/checks.mjs'
 import { diffActivity, MAIN_ACTIVITY, resetActivity, type JobActivity } from '#shared/protocol/activity.ts'
 import type { AppearanceRequest } from '#shared/protocol/appearance.ts'
+import type { KeptThemes } from '#shared/protocol/theme-history.ts'
 import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import type { GitHubState } from '#shared/protocol/github.ts'
@@ -84,6 +85,8 @@ export interface HostFacts {
   /** The latest one-shot window instruction (a move or a draft), or null while there has been none. */
   nudge?: Nudge | null
   appearance?: AppearanceRequest | null
+  /** The kept custom themes. Left out by a host that keeps none. */
+  themes?: KeptThemes
   /** hobkin's snapshot, or null while there is none to show. */
   snapshot: HobkinSnapshot | null
 }
@@ -110,6 +113,7 @@ export class StateSync {
   /** The last one-shot window instruction sent. Kept only so a repeat of the same one is not sent twice. */
   private nudge: Nudge | null = null
   private appearance: AppearanceRequest | null = null
+  private themes: KeptThemes | null = null
   private readonly cleared = new Set<string>()
   /** Each host fact's JSON as last compared, so the value held is never serialized again. */
   private readonly seen = new Map<keyof HostFacts, string>()
@@ -120,13 +124,14 @@ export class StateSync {
   private readonly now: () => number
 
   constructor(
-    { owner, signIn, models, github, integrations, canvas, canvases, appearance }: Omit<HostFacts, 'snapshot'>,
+    { owner, signIn, models, github, integrations, canvas, canvases, appearance, themes }: Omit<HostFacts, 'snapshot'>,
     { now = Date.now }: { now?: () => number } = {},
   ) {
     this.now = now
     this.canvas = canvas ?? null
     this.canvases = canvases ?? null
     this.appearance = appearance ?? null
+    this.themes = themes ?? null
     this.owner = owner
     this.signIn = signIn
     this.models = models
@@ -162,11 +167,12 @@ export class StateSync {
       ...(this.canvas ? { canvas: this.canvas } : {}),
       ...(this.canvases ? { canvases: this.canvases } : {}),
       appearance: this.appearance,
+      ...(this.themes ? { themes: this.themes } : {}),
     }
   }
 
   /** What changed, or null when nothing did. A new owner state starts over, because its snapshot is another source. */
-  update({ owner, signIn, models, github, integrations, work = null, canvas, canvases, nudge, appearance, snapshot }: HostFacts): StateMessage | null {
+  update({ owner, signIn, models, github, integrations, work = null, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts): StateMessage | null {
     const ownerChanged = this.differs('owner', owner, this.owner)
     const signInChanged = this.differs('signIn', signIn, this.signIn)
     const modelsChanged = models !== null && this.differs('models', models, this.models)
@@ -179,6 +185,7 @@ export class StateSync {
     // window never replays a move or a draft on a reconnect.
     const nudgeChanged = nudge != null && this.differs('nudge', nudge, this.nudge)
     const appearanceChanged = appearance !== undefined && this.differs('appearance', appearance, this.appearance)
+    const themesChanged = themes !== undefined && this.differs('themes', themes, this.themes)
     const startOver = owner.state !== this.owner.state
     this.owner = owner
     this.signIn = signIn
@@ -189,6 +196,7 @@ export class StateSync {
     if (canvases) this.canvases = canvases
     if (nudge) this.nudge = nudge
     if (appearance !== undefined) this.appearance = appearance
+    if (themes) this.themes = themes
     this.work = work
 
     // hobkin changes a value by replacing it, so a value that is still the same object keeps its encoding. In case one
@@ -225,6 +233,7 @@ export class StateSync {
       !canvasesChanged &&
       !nudgeChanged &&
       !appearanceChanged &&
+      !themesChanged &&
       !changed.length &&
       !unset.length &&
       !steps.length &&
@@ -254,6 +263,7 @@ export class StateSync {
       // Only when new — never forced on a reset — so a reconnect never re-navigates the window or rewrites the draft.
       ...(nudgeChanged ? { nudge } : {}),
       ...(appearanceChanged || startOver ? { appearance: this.appearance } : {}),
+      ...(this.themes && (themesChanged || startOver) ? { themes: this.themes } : {}),
     }
   }
 

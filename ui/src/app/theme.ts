@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from 'react'
 import { borderColors } from '#shared/protocol/appearance.ts'
 import { BASE_THEME_SETTINGS, DARK_PALETTE, LIGHT_PALETTE, adjustedPalette, backgroundImageCss, isDarkPalette, onAccent, stepOpacity, type Background, type Palette } from '@/features/settings/rules.ts'
+import { themeToRestore } from '@/features/settings/kept-themes.ts'
 import { useSettings, watchAppearance } from '@/features/settings/store.ts'
 import { hostStore, runCommand } from '@/lib/host/client.ts'
 import { tellHostTheme } from './theme-host.ts'
@@ -132,14 +133,43 @@ function reveal(theme: Theme, palette: Palette | null, background: Background | 
   void transition.finished.finally(() => delete root.dataset.themeReveal)
 }
 
+/** How long a picked theme waits for the host to open from where it was picked. Later than that, it just shows. */
+const PICK_WAIT_MS = 1500
+/** Where the user picked a kept theme, so it opens from there once the host sends it back. */
+let pickedAt: { x: number; y: number; until: number } | null = null
+
+/**
+ * Puts a kept custom theme back on. The host keeps which one is on, so the window shows it when the host sends it and
+ * a restart keeps it. Pass where it was picked, so it opens from there. False when the host could not.
+ */
+export async function pickKeptTheme(id: string, origin?: { x: number; y: number }): Promise<boolean> {
+  pickedAt = origin ? { ...origin, until: Date.now() + PICK_WAIT_MS } : null
+  try {
+    await runCommand('appearance.pick', { id })
+    return true
+  } catch {
+    pickedAt = null
+    return false
+  }
+}
+
 /**
  * Sets what the user chose: light, dark, follow the Mac, or custom. Pass where the control is, so the new theme
- * opens from it. Picking a base theme drops the custom one, so Custom starts from the colors showing now each time.
- * The host is told too, since it keeps the last custom theme and would show it again on its next start.
+ * opens from it. Picking a base theme drops the custom colors here, and the host is told so its next start shows the
+ * base too; the host still keeps the custom theme in its list. Custom brings back the kept theme shown last, and only
+ * with nothing kept does it start from the colors showing now.
  */
 export function setThemeChoice(next: ThemeChoice, origin?: { x: number; y: number }) {
+  const host = hostStore.getState()
+  const kept = next === 'custom' && !customPalette() && host.link === 'open' ? themeToRestore(host.themes) : null
+  if (kept) {
+    void pickKeptTheme(kept.id, origin).then((picked) => {
+      if (!picked) showThemeChoice('custom', origin)
+    })
+    return
+  }
   showThemeChoice(next, origin)
-  tellHostTheme(next, { connected: hostStore.getState().link === 'open', run: runCommand })
+  tellHostTheme(next, { connected: host.link === 'open', run: runCommand })
 }
 
 /** Shows a choice in this window. A theme hobkin asked for comes here, since the host already knows it. */
@@ -177,12 +207,13 @@ export function originOf(element: Element): { x: number; y: number } {
 }
 
 // While the choice is to follow the Mac, follow it.
-system.addEventListener('change', (event) => {
+const followMac = (event: MediaQueryListEvent) => {
   if (choice() === 'system') reveal(event.matches ? 'dark' : 'light', null)
-})
+}
+system.addEventListener('change', followMac)
 
 // Opacity and the custom colors apply as they change, without the reveal: they move in small steps.
-useSettings.subscribe((state, before) => {
+const stopSettings = useSettings.subscribe((state, before) => {
   if (state.backgroundOpacity !== before.backgroundOpacity) showOpacity(state.backgroundOpacity)
   // hobkin put the app on a built-in theme: show it as a click on that choice would.
   if (state.requestedTheme && state.requestedTheme !== before.requestedTheme) {
@@ -195,7 +226,11 @@ useSettings.subscribe((state, before) => {
   const palette = state.customTheme && changed ? customPalette() : null
   if (palette) {
     remember(baseOf(palette))
-    apply(baseOf(palette), palette, customBackground())
+    // A kept theme the user picked opens from where they picked it, as a click on a theme choice does.
+    const origin = pickedAt && Date.now() < pickedAt.until ? pickedAt : undefined
+    pickedAt = null
+    if (origin) reveal(baseOf(palette), palette, customBackground(), origin)
+    else apply(baseOf(palette), palette, customBackground())
   } else if (
     state.appearanceHome !== before.appearanceHome &&
     before.customTheme &&
@@ -206,7 +241,12 @@ useSettings.subscribe((state, before) => {
 })
 
 const stopAppearance = watchAppearance(hostStore)
-import.meta.hot?.dispose(stopAppearance)
+// A hot update starts these again, so the old ones go first and nothing is applied twice.
+import.meta.hot?.dispose(() => {
+  stopAppearance()
+  stopSettings()
+  system.removeEventListener('change', followMac)
+})
 
 // What was saved, before the first render. index.html has already put on the light or dark under it.
 showOpacity(useSettings.getState().backgroundOpacity)

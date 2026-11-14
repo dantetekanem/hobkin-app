@@ -57,6 +57,22 @@ test('appearance travels on changes and resets, and older hosts clear the wire s
   assert.equal(sync.full().appearance, null)
 })
 
+test('the kept themes travel whole on changes and resets, and stay while a built-in theme shows', () => {
+  const facts = { owner: { state: 'opening' } as const, signIn: { status: 'unknown' } as const, models: null, snapshot: null }
+  const sync = new StateSync(facts)
+  const night = { id: '0000000a', name: 'Night', asked: null, palette: DARK_PALETTE, at: '2026-11-13T12:00:00.000Z' }
+  const themes = { themes: [night], worn: night.id, showing: true }
+  assert.deepEqual(sync.update({ ...facts, themes })!.themes, themes)
+  assert.equal(sync.update({ ...facts, themes: structuredClone(themes) }), null, 'the same list is not sent again')
+  const held = applyHostMessage(initialHostState, sync.full())
+  assert.deepEqual(held.themes, themes, 'a reconnect receives the list')
+  const builtIn = { ...themes, showing: false }
+  const shown = applyHostMessage(held, sync.update({ ...facts, appearance: { id: 11, name: null, palette: DARK_PALETTE, use: 'light' }, themes: builtIn })!)
+  assert.deepEqual(shown.themes, builtIn)
+  assert.deepEqual(applyHostMessage(shown, { type: 'state', rev: 20 }).themes, builtIn, 'a message without the list keeps it')
+  assert.equal(applyHostMessage(shown, { type: 'state', rev: 21, reset: true }).themes, null, 'a host from before the list leaves none')
+})
+
 test('parent telemetry travels whole on full, changes, unset and owner reset', () => {
   const facts = { owner: { state: 'opening' } as const, signIn: { status: 'unknown' } as const, models: null }
   const telemetry: RunTelemetry = {

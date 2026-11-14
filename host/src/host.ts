@@ -342,6 +342,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     canvases: canvases.others(),
     nudge: nudge.state,
     appearance: appearanceRequest(appearance),
+    themes: appearance.kept(),
     // Work mode for the Work screen, read from the snapshot with hobkin's own rules (011-work).
     work: owner.snapshot ? workOf(owner.snapshot) : null,
     snapshot: owner.snapshot && { ...activity.keep(owner.wireSnapshot()!), reminderOccurrences: reminders() },
@@ -596,7 +597,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       nudge.draft(text)
       return done
     },
-    'appearance.set': ({ palette, name }) => appearance.set(palette, name),
+    'appearance.set': ({ palette, name, asked }) => appearance.set(palette, name, asked),
+    'appearance.themes': () => appearance.kept(),
+    'appearance.pick': ({ id }) => appearance.pick(id),
+    'appearance.rename': ({ id, name }) => appearance.rename(id, name),
+    'appearance.remove': ({ id }) => appearance.remove(id),
     'appearance.photo': ({ id }) => appearance.photo(id),
     'appearance.use': ({ theme }) => appearance.use(theme),
     'appearance.customize': ({ request }) => customTheme.start(request),
