@@ -1,0 +1,250 @@
+---
+{
+  "id": "044-goal-first-setup",
+  "title": "Goal-first setup",
+  "kind": "work",
+  "status": "draft",
+  "depends": ["025-onboarding", "010-routines", "012-reports-actions", "022-questions"],
+  "updated": "2026-11-14"
+}
+---
+# Goal-first setup
+
+## Outcome
+
+In the first-run setup, hobkin asks what the person is working toward: a new job, a business, a project, keeping life in order, or code. Several can apply. For each goal it shows two or three routines as cards, made from its own templates: what each watches, where it looks, how often, what is worth telling, what it leaves out and what the person gets. The person keeps, changes or drops each card. Main hobkin writes the kept ones from those templates by its own setup guide, and asks before it connects anything. On the person's press it runs one of them, so a first report is on its way while the tour plays. After setup hobkin keeps learning from use: a routine whose reports go unopened gets one question about running less, narrowing or stopping; a correction becomes a dated line in the routine; and a check the person keeps asking for in the chat becomes an offer to make it a routine. The same setup serves someone looking for a job, someone starting a business and someone writing code.
+
+This takes over the questions half of `025-onboarding` on the user's word of 2026-11-14: "see how i use my routines right now, and abstract enough for onboarding/setup to follow similar approach. people might be looking for jobs and can use it, some want to start a business, a project". The told story of 025 stays: the world, the hops, the glass bubbles, sound, Pi, the account, the hand-off and the tour.
+
+## Decisions
+
+### What a routine is, taken from the user's own
+
+- The user's home holds 25 routine files (8 daily, 14 weekly, 3 monthly, in `~/.hobkin/routines/`), four of them follow-ups another routine started. They share one shape, a watcher with a memory:
+  - a stake the person owns, such as a job, money, health, a home or something to enjoy;
+  - named sources it reads and never changes;
+  - a baseline in its memory, so nothing unchanged is announced again (`hobkin/src/prompts/background.md:40`);
+  - a cadence that matches how fast the source changes;
+  - a bar for what is worth telling, and exclusions the user asked for, each with its date (`hobkin/src/prompts/routine-templates/RULES.md:7`);
+  - one output: `Nothing new.`, a report with one `Next:`, an Action Item, a critical alert, or a follow-up routine of its own, as the email template starts for a delivery (`routine-templates/email.md:12`);
+  - a closing rule: only evidence or the user's word closes an item (`RULES.md:8`);
+  - hard limits: it never sends, applies or buys (`RULES.md:3`).
+- The kinds the user runs: dates and deadlines, inbox follow-ups, money, a job search shortlist, official paperwork such as a permit or a renewal, career events, health, home, something to enjoy nearby, reading in their field, code upkeep, housekeeping, and monthly priorities. The spec keeps the shape and the kinds, never their contents.
+- Today's setup is built for a developer. The pitch is "I'm here to push your development to the next level." (`ui/src/features/onboarding/story.ts:246`). The first fork is personal or work computer (`story.ts:243-255`). Both question sets open with "Where do your projects live?" (`questions.ts:30-36`), and the pick lists are developer lists (`questions.ts:55`, `67-80`). `hobkin setup` marks git and gh as needed for everyone (`hobkin/src/cli/setup.mjs:134-176`). The message that starts main hobkin's own questions tells it not to run `hobkin setup` or read its guide (`questions.ts:204`), so it skips its own templates and makes up two or three routines in the chat, as both of the setup's messages ask (`questions.ts:141`). The templates are grouped day, code, week, life and machine (`hobkin/src/cli/routine-templates.mjs:7`), and none covers a job search, a new business or a project's milestones.
+- Neither `~/.hobkin/setup.json` nor `~/.hobkin/client/setup.json` exists, so the user has never run the new setup on the real home. Nothing here changes the user's own routines.
+- In this spec "the person" is whoever runs the setup, and "the user" is the owner of this Mac's real home.
+
+### The goals
+
+- Five goals, by id: `job`, `business`, `project`, `life` and `code`. They live in `shared/protocol/setup.ts` as `GOALS` and in the runtime as `TEMPLATE_GOALS` (`routine-templates.mjs`). A host test holds the two lists equal.
+- The bubbles say "Finding a job", "Starting a business", "A project of my own", "Keeping life in order" and "Writing code". They are a cloud of bubbles (`PickCloud.tsx`), any number can be picked, and the person's own words become a bubble of their own. Own words count as the project goal, and they start the project question's answer.
+- The goals question takes the place of the computer fork, right after the sound question. The development pitch goes.
+- The goals answer is saved as soon as it is given, through `setup.save` as 025 saves every answer (025 A61), so main hobkin, its routines and its agents know the goals from the first conversation, even when no account gets connected.
+- Each goal may have one question, asked after "Set them up", in the order of `GOALS`. Each can be skipped.
+  - `job`: the kind of job, where, and which companies or job boards to watch. Typed.
+  - `business`: the business in a line, what it sells and to whom. Typed.
+  - `project`: the project and the date it has to be done by. Typed.
+  - `life`: none. Its cards are clear enough.
+  - `code`: the folder, the projects and validation, as 025 asks them, with the projects handed to work mode as 025 A63 to A65 say. These are asked only for code.
+
+### Whose computer this is
+
+- It is asked once, after the goals, only when a new job, a business or keeping life in order was picked. Those are the goals whose routines read the person's own mail, money, calendar or health.
+- It changes two things. hobkin's profile line tells every agent which it is, as now (`hobkin/src/cli/profile.mjs:89`). And on a work computer, each card whose template is marked `private` says in one line that it reads the person's own accounts on a work computer, and hobkin says so once in a bubble. Nothing else depends on it.
+- Not asked, the profile's computer stays as it was.
+
+### Templates by goal
+
+- A template's header gains these keys. `goals` lists the goals it serves, the best first. `tells` is what is worth telling, its bar. `skips` is what it leaves out unless the person says otherwise. `gives` lists its outputs, from `report`, `action`, `critical` and `follow-up`. `closes` says what closes an item. `private: yes` marks one that reads the person's own accounts. With the keys it has today, each template then states its stake (`fits`, `goals`), its sources (`needs`), its cadence (`recurrence`), its bar, its output and its closing rule.
+- `goals`, `tells`, `gives` and `closes` are required in hobkin's own templates. A template of the user's own may leave them out. `goals` replaces `group`. A template of the user's own that has a `group` and no `goals` still reads: day, week and life count as `life`, and code and machine count as `code`. One with neither is under no goal, and `hobkin routines templates` still lists it.
+- Each goal has three starters, a fixed list in `routine-templates.mjs`:
+  - `job`: `job-openings`, `job-applications`, `interviews`;
+  - `business`: `business-leads`, `runway`, `competitors`;
+  - `project`: `project-milestones`, `project-blockers`, `deadlines-ahead`;
+  - `life`: `deadlines-ahead`, `email`, `money`;
+  - `code`: `review-queue`, `dependency-watch`, `unblocker`.
+- A template shows once, under the first picked goal it starts, in the order of `GOALS`. So someone who picks a project and life sees Deadlines ahead under the project only, and life shows two cards. Every other template that names a goal is that goal's "More", in the order its `goals` list puts that goal, then by name.
+- `goalCards(root, goals)` in `routine-templates.mjs` builds them: for each goal, its starters and its more, each with its card parts. It reads hobkin's templates and the user's own, the user's own winning by name as `listTemplates` already does (`routine-templates.mjs:122-131`).
+- Eight new templates, written in the shape above. Each keeps a baseline in its memory, so a posting, a lead or a milestone already told is told again only when it changed.
+  - `job-openings`, "Roles that fit". New openings that fit the role and places the person named, at the companies and boards they watch. Twice a week. Needs web access. Tells a new posting that fits, or one they kept that changed or closed. Skips the roles they ruled out, each with its date. Gives a report, best fit first. An item closes when the posting's page is gone or says closed, or when they applied, which moves it to Applications.
+  - `job-applications`, "Applications". Each application sent, where it stands, and the ones gone quiet. Daily. Needs mail. Private. Tells a reply, a request such as a form or a test, a no, or one quiet past the days they set. Gives a report, and an Action Item with a drafted follow-up for each quiet one. Only a reply in their mail or their word closes one. It never sends.
+  - `interviews`, "Interviews". Interviews, take-home tasks and offer deadlines in the next 7 days, each with a short brief. Weekday mornings. Needs calendar and mail. Private. Tells one coming up, or one that moved, once 3 days ahead and once the day before. Gives a report, and a critical alert for an offer deadline within two days. The date passing or their word closes one.
+  - `business-leads`, "Leads and customers". People who wrote to the business and wait on an answer, and deals gone quiet. Weekday mornings and afternoons. Needs mail. Private. Tells a new lead or customer waiting on them, or a deal quiet past the days they set. Gives a report and an Action Item for each reply owed. Their reply in the thread or their word closes one.
+  - `runway`, "Runway". How many months the business can run at its spending, and what moved it. Monthly. Needs a read-only source for the business's money. Private. Tells the months left, what changed since last month, and money due before the next run. Gives a report, and a critical alert below the months they set. An account it cannot see is unknown, never zero.
+  - `competitors`, "Competitors". What changed on the competitors' sites. Weekly. Needs web access. Tells a new price or plan, a new product or a launch post. Skips wording and design changes that do not change what is sold. Gives a report. Each change is told once, against the page as memory last saw it.
+  - `project-milestones`, "Milestones". The next milestones against the date the project must be done by. Weekly, at the start of the week. Needs the notes where the plan lives, and the calendar. Tells a milestone due within two weeks that is behind, one that passed undone, or a change to the plan or the date. Gives a report, and an Action Item for a milestone that needs a decision. The plan marking it done, or their word, closes one.
+  - `project-blockers`, "Blockers". What the project waits on, such as a reply, a delivery or someone's part. Monday, Wednesday and Friday mornings. Needs mail and notes. Private. Tells something waited on past its date. Gives a report, an Action Item to chase each one, and a follow-up routine of its own for a delivery with tracking, as the email template does. Evidence that it came, or their word, closes one.
+- Every template hobkin ships gets the new keys, written from its body. A header change that leaves the body as it is does not raise its `version`, since a routine made from it does not change.
+
+### The cards
+
+- `setup.watchers { goals }` returns `goalCards` for the goals picked. It runs on the host through hobkin's own module, as `setup.work` does (`host/src/setup-work.ts`). It only reads, so hobkin may run it.
+- One goal at a time. hobkin says the goal's bubble, then its cards come up over the hill as glass panes, the same glass as the bubbles (025). hobkin stays in view beside them. Side by side when the window is at least 1100 wide; narrower, one card at a time with the next one's edge showing.
+- A card, from the top: its title; Watches (`summary`); Looks at (`needs`); How often (`recurrence`); Tells you when (`tells`); Leaves out (`skips`, then the person's own); You get (`gives`, in words); on a work computer, the private line; then Keep, Change and Drop. A card of the user's own that lacks a part leaves that row out.
+- Change turns the rows into fields in place: How often, Leaves out, and the template's own question (`asks`) when it has one, each starting from the template's words. Save keeps the change, and Cancel or Escape puts the card back.
+- A kept card shows a mark and a lit edge. A dropped card dims, with Undo. A card left alone is neither written nor turned down.
+- At most five cards are kept across all goals. A sixth Keep does nothing, and the card says why in one line. Every run spends the subscription, and the guide already says two or three are enough to start (`hobkin/src/prompts/setup.md:55`).
+- "More for this goal" adds the goal's other templates as cards after the starters.
+- Done goes on at any time, with "2 of 5 kept" beside it. Left and Right move between cards, Tab moves through a card's buttons, and Enter presses one. Escape goes back to the goal's question until the writing message has gone.
+- With Movement still, the cards fade in and out and Change swaps the rows without travel.
+- In a browser tab on sample data, the cards are made-up ones from `ui/src/features/onboarding/sample-cards.ts`, and nothing is saved or sent.
+
+### What the kept routines need
+
+- After the cards, one bubble says that hobkin will check it can reach what the routines look at, and ask before it connects anything. Each card already says where it looks.
+- Reaching mail, a calendar, money or health takes judgment about which of Pi's tools and MCP servers reach them, so main hobkin does it while it writes, by its guide's "Connect what they use" (`setup.md:29-41`). A question it opens is asked in the story.
+- git, gh, the projects folder and work mode come up only when code was picked. `hobkin setup` lists git and gh as needed only when work mode has a folder or a project (`hobkin/src/cli/work/store.mjs:210-216` for the folder, `readProjects` for the projects). Otherwise they are optional, with one line that says they are for code work.
+
+### Writing the routines
+
+- Main hobkin writes them, from hobkin's templates and its own guide, never made up in the chat. When the cards are done, on a real model, one message goes to it in the chat (`writeRequest` in `ui/src/features/onboarding/cards.ts`). It holds the goals and their answers; each kept card by template id and version, with the person's changes; the cards turned down; for code with validation said yes, the projects' checks as 025 asks for them (`questions.ts:143`); and what to do: run `hobkin setup`, follow the "From the app's setup" section of the guide it names, turn each routine on since the person said yes on its card, ask before connecting anything, and run none of them.
+- The guide gains that section (`hobkin/src/prompts/setup.md`). It skips the parts the app already did. For each kept card it reads the template, lets the card's changes win over the template's words, fills what is in angle brackets from the answers and from the sources that reach them, writes each exclusion as a line that starts with today's date, adds the rules, places the routine as "Spread them" says, names the template in the file, and turns it on. A routine whose source nothing reaches, after the person says not now to connecting one, is written turned off, and hobkin says why in one line. It notes the cards turned down in its memory, with the date.
+- A routine file may name the template it came from: `"template": "job-openings@1"`, the id and the version. The routine loader refuses unknown keys today (`hobkin/src/cli/schedules.mjs:14`, `93`), so it learns this one. The snapshot carries routines whole (`hobkin/src/cli/application.mjs:671`), so the app sees it.
+- While main hobkin writes, the story waits on one line, and a question it opens is asked in hobkin's bubble with its choices, as 025 asks main hobkin's questions (`FollowUps.tsx`, 025 A57). The writing is over when every kept card has a routine that names its template; when hobkin stops working with nothing open, after a few seconds to start; when the person says That's enough; when the message could not go; or after two minutes with nothing asked.
+- Then hobkin says in one bubble what was written, true to the routines that name the kept templates (`routinesSaid`): all of them, some with the rest left for the chat, or none. Nothing before it can be gone back to.
+- When the message could not go, the same message goes at the hand-off, as 025 sends the answers today (`Storyteller.tsx:678-681`). When it went, the hand-off sends nothing more. On the scripted host, or with no host, the cards show and are saved, and nothing is sent or written.
+- It replaces 025's message that asked main hobkin what else it needed and to propose two or three routines (`followUpRequest`, `routinesRequest`).
+
+### The first run
+
+- With at least one kept routine written and on, hobkin offers to run one now: the one with the lowest effort, then the first in card order. It names the routine and says it uses the subscription, as any of its runs does.
+- Only the person's press runs it, and only once: Run it now calls `routine.run` (`shared/commands/registry.ts:972-977`), and Later starts nothing. There is no run on the scripted host, on sample data, or with nothing written. hobkin refuses a run while its background places are full, and the quiet line says so.
+- The run starts before the settings beat, the hand-off and the tour. After a first run the tour has a stop on Reports, before its last: while the run goes it says the report is on its way, and once the report lands it names the routine. The tour never waits for it. If the report lands after the tour, the app's notification says so (`037-notifications`).
+- The tour's Work stop shows only when code was picked or work mode has a folder.
+
+### Learning from use
+
+- `lookAfterRoutines` (`hobkin/src/cli/routine-care.mjs:75`) files one Action Item for a routine whose reports go unopened, or that finds nothing new most times, and closes it once that stops being true. Today only `test/cli-action-items.test.mjs` calls it, though `hobkin/src/prompts/v2-runtime.md:208` says these items exist. It runs beside the learner's pass (`application.mjs:919-928`), whatever the learning switch says, since it only reads local use and asks. On the real home the attention rollup marks two routines ignored today, so this files two items there once it lands.
+- `ignored` means at least 5 reports over at least 7 days, at most 1 in 5 opened, no critical finding and no run asked for (`hobkin/src/cli/telemetry.mjs:8-11`, `66`).
+- An unread routine's choices gain Run it less often, beside Turn it off, Rework it with hobkin and Keep it as it is (`routine-care.mjs:17`). Rework is how a routine narrows. Each answer acts only through main hobkin, after the person picks (`ROUTINE_ASKS`, `routine-care.mjs:23-29`).
+- One ask for one thing. The learner proposes a rework in the chat for the same quiet and unread reports (`hobkin/src/cli/learning/lessons.mjs:30-31`, `50-51`). While a care item about a routine is open, or answered for the routine as it is now, the learner posts no proposal about that routine's quiet or unread reports. Its lessons still reach the routine's runs.
+- A correction becomes a dated rule. The learner already sees a report turned down (`rejectsReport`, `hobkin/src/cli/learning/judge.mjs:68`), but what the correction says reaches no routine. Main hobkin's directions gain: when the person corrects what a routine tells them, in the chat or in reply to one of its reports, write it into that routine's instructions as a line that starts with its date, replace an older line it overrides, keep the rest, and say in one line what changed. That is the form the user's own routines already use.
+- A request the person repeats becomes an offer. Main hobkin's directions gain: when the person asks for the same kind of look a second time within 14 days and no routine covers it, offer once, with `ask_question`, to make it a routine from the template that fits. A no is kept in its memory with the date, and that kind is not offered again. Reading past sessions stays the manual review it is (`hobkin/src/prompts/session-patterns-setup.md`).
+- A card turned down in setup is not offered again unless the person asks for it.
+
+### What the setup saves
+
+- `client/setup.json` keeps the goals, and each kept or dropped card with its template id, version and the person's changes, beside what 025 keeps. Run again, the goals start picked and the cards start kept or dropped as they were left, and every question is still asked (as 025 A62).
+- hobkin's facts (`hobkin/src/cli/setup-facts.mjs`, at most 12 lines of 300 characters) get one line for the goals, one for the kept routines and one for those turned down, beside the answers.
+
+### hobkin's lines
+
+- Every line is written by the humanizer rules: plain verbs, no filler, no em or en dashes, straight quotes. No line pitches development, and none names the user. The words live in `story.ts`, new `goals.ts` and `cards.ts`, and the tour's `steps.ts`.
+- Goals: "I keep watch over the things you care about, so you don't have to keep checking." Then "What are you working toward right now? Pick everything that fits." Under it, once, the note 025 put under its first question: "I keep these answers in my home on this Mac. My agents read them, so your model provider sees them too."
+- Said back (`goalsSaid`): "A new job and a project. Got it. I'll come back to those in a minute." With one goal, "to that". With none, "That's fine. You can tell me later."
+- Computer: "Is this your own computer, or one from work?", with "My own" and "From work". On a work computer: "Okay. When a routine would read your own mail or money here, I'll say so on it."
+- Email, second bubble: "It tells me which mail and accounts are yours, and which are someone else's." With code picked it says "which commits, mail and accounts".
+- Set them up: "I can take you straight into the app." Then "Or stay a few minutes, and I'll set up a few routines for what you're working toward." Then "What do you say?", with "Set them up" and "Take me in".
+- Job: "What kind of job are you after, and where? Name the companies or job boards I should watch, if you have some." Business: "Tell me about the business in a line. What do you sell, and to whom?" Project: "What's the project, and is there a date it has to be done by?"
+- Cards: "For your job search, I'd start with these." Then, for the first goal only, "Keep the ones you want. You can change any of them first, and drop what doesn't fit." Later goals: "And for your business, these." Life reads "To keep life in order, I'd start with these."
+- Needs: "Before they run, I'll check that I can reach what they look at. I'll ask you before I connect anything."
+- Writing: "I'm writing your routines now. It takes a minute or two." Written: "Done. I wrote all three, and they're in Routines." Or "I wrote two of the three. We'll finish the last one in our chat." Or "I couldn't write them just now. We'll pick this up in our chat."
+- First run: "Want to see one work? I can run Roles that fit now." Then "It uses your subscription, the same as any of its runs.", with "Run it now" and "Later". After the press: "It's running. Its report will be in Reports soon."
+- Thanks, with routines written: "Thank you! From now on, your routines only speak up when something changes." Without: "Thank you! Ask me for a routine any time."
+- Tour, Routines: "Each routine watches one thing on its own schedule and remembers what it already told you, so you only hear what's new." The report stop, titled "Your first report": "Roles that fit is still looking. Its report lands here." Then "Roles that fit just reported. Its report is here."
+
+## Out of scope
+
+- Writing routine files from the window without a model. Main hobkin writes them.
+- Connecting an MCP server, or any source, from the window. Main hobkin does it by its guide, on the person's yes.
+- Any sign-in but 025's.
+- Reading past sessions or logs to find routines. 025's logs question goes: no goal needs it, and the Agent sessions template, which reads the week's Pi sessions (`routine-templates/agent-sessions.md:10`), does so only when its card is kept.
+- Telling the person about new or newer templates (`templateNews` and `fileTemplateNews`, `routine-templates.mjs:92`, `routine-care.mjs:98`). Neither is called from `src` today, and this spec leaves them so.
+- Turning learning on from the setup.
+- Changing or regrouping the user's existing routines, or grouping the Routines screen by goal.
+- More goals than the five.
+
+## Acceptance
+
+- A1. Right after the sound question hobkin asks what the person is working toward, with five bubbles (Finding a job, Starting a business, A project of my own, Keeping life in order, Writing code) and room for their own words. Any number can be picked, own words count as a project, and the question can be passed with none. No line before it pitches development, and the personal-or-work fork is not asked there.
+- A2. hobkin then says back what was picked in one bubble that names the goals, or, with none, that it can wait.
+- A3. The computer question comes after the goals only when a new job, a business or keeping life in order was picked. On a work computer hobkin says once that some routines read the person's own accounts, and each card marked private says so in one line. When it is not asked, the profile's computer stays as it was.
+- A4. After Set them up, each picked goal with a question asks it, in the order job, business, project, code: the job and where to look, the business in a line, the project and its date, and for code the folder, the projects and validation as 025 asks them. Each can be skipped, and each answer is saved as it is given. With no goal picked, or with no account, no routines are offered and the story goes to the settings.
+- A5. Each picked goal offers its three starters, a template shows once under the first picked goal it starts, and every other template that names a goal is that goal's More, in a fixed order. A template of the user's own replaces hobkin's of the same name.
+- A6. A card shows its title, then Watches, Looks at, How often, Tells you when, Leaves out and You get, then Keep, Change and Drop. A card of the user's own that lacks a part leaves that row out.
+- A7. Keep, Change and Drop work on each card by mouse and keyboard. Change opens How often, Leaves out and the template's own question, each starting from the template's words, and Cancel puts the card back. At most five cards are kept, and a sixth Keep says why it does nothing. Done goes on at any time, and a card left alone is neither written nor turned down.
+- A8. The cards read well at 1440 by 900 and 900 by 600, in light and in dark, side by side in the wide window and one at a time in the narrow one, and with Movement still nothing travels.
+- A9. `setup.watchers` answers, for the goals asked, each goal's starters and its more, each card with its parts, from hobkin's templates and the user's own. It reads only, and hobkin's `client` tool can run it.
+- A10. Every template hobkin ships names its goals, what is worth telling, what it gives and what closes an item, and every starter exists and names its goal. A template of the user's own with a `group` and no `goals` still reads, under the goal its group maps to.
+- A11. hobkin ships Roles that fit, Applications and Interviews for a job search; Leads and customers, Runway and Competitors for a business; and Milestones and Blockers for a project. Each states who it fits, what it reads, how often, what is worth telling, what it gives and what closes an item, keeps a baseline so nothing unchanged is told twice, and never sends, applies or buys.
+- A12. After the cards, hobkin says once that it will check it can reach what the routines look at and ask before it connects anything. With no card kept, it says nothing of it, nothing is written, and the story goes to the thanks.
+- A13. With code picked, the folder, the projects and validation are asked and the picked projects go to Work as 025 A63 to A65 say. Without code, none of them is asked and nothing goes to Work.
+- A14. `hobkin setup` lists git and gh as needed only once work mode has a folder or a project. Otherwise they are optional, with a line that says they are for code work.
+- A15. With a card kept and a real model, one message goes to main hobkin in the chat. It names the goals and their answers, each kept card by template id and version with the person's changes, and the cards turned down, and it points to the "From the app's setup" section of the guide `hobkin setup` names. It asks for one routine per kept card, each turned on, with nothing connected before the person's yes and nothing run. With no card kept, no message goes.
+- A16. Following that section, main hobkin writes one routine for each kept card. Its file names the template, its instructions start from the template's body with the brackets filled for the person, each exclusion is a line that starts with its date, the template rules are there, and it is turned on. A routine whose source nothing reaches is written turned off, with the reason said. None of them runs.
+- A17. A routine file may name its template as `"template": "<id>@<version>"`, and `hobkin routines` refuses a `template` in any other form.
+- A18. While main hobkin writes, the story waits on one line, and a question it opens is asked in the story as 025 A57 says. The writing is over when every kept card has its routine, when hobkin stops working with nothing open after a few seconds, when the person says That's enough, when the message could not go, or after two minutes with nothing asked.
+- A19. Then hobkin says in one bubble what it wrote, true to the routines that name the kept templates: all, some, or none. Nothing before that bubble can be gone back to.
+- A20. The writing message goes once: after the cards, or at the hand-off when it could not go then. When it went, the hand-off sends nothing more. On the scripted host, or with no host, nothing is sent and nothing is written.
+- A21. With a kept routine written and on, hobkin offers to run the one with the lowest effort, by name, and says it uses the subscription. Run it now starts that one run, and Later starts none. Nothing runs without the press, on the scripted host, on sample data or with nothing written, and a refusal is said in the quiet line while the story goes on.
+- A22. The tour stops at the chat, why hobkin knows things, its mind, Home, Reports, Routines, Action Items, Settings and search. Work is a stop only when code was picked or work mode has a folder. After a first run, a stop on Reports comes before the last: it says the report is on its way, and names the routine once its report lands. Next from the last stop ends it, Back at the first does nothing, leaving ends it from any stop, and a stop whose part is not on screen is passed over.
+- A23. The setup keeps the goals and each kept or dropped card, with its template and the person's changes, whole in `client/setup.json`, and as three of hobkin's facts. Run again, the goals start picked and the cards start as they were left.
+- A24. Main hobkin does not offer a template the person turned down in setup, unless they ask for it.
+- A25. A routine whose reports go unopened, or that finds nothing new most times, gets one Action Item from hobkin, whatever the learning switch says, with Run it less often, Turn it off, Rework it with hobkin and Keep it as it is among its choices. The item closes itself once the routine's use no longer shows it.
+- A26. While such an item is open, or answered for the routine as it is now, the learner posts no proposal about that routine's quiet or unread reports. Its other proposals still post.
+- A27. When the person corrects what a routine tells them, in the chat or in reply to a report, main hobkin writes it into that routine as a line that starts with its date, replaces an older line it overrides, keeps the rest, and says in one line what changed.
+- A28. When the person asks main hobkin for the same kind of look a second time within 14 days and no routine covers it, hobkin offers once to make it a routine from the template that fits. A no is kept with its date, and that kind is not offered again.
+- A29. hobkin's lines in the story and the tour read for anyone, as "hobkin's lines" above gives them, with no em or en dashes and no line that names the user.
+- A30. The note that the answers stay in hobkin's home and reach the model provider shows once, under the goals question.
+- A31. The beats come in order: hello, sound, the goals, the goals said back, the computer when asked, the name, the name said back, the email, the subscription, Pi when something of it is missing, the account, set them up or go in, the goals' questions, the cards, what they need, the writing, what was written, the first run, the thanks, the settings and the walk to the app. Going on from the last one ends the setup as done.
+
+## Proof
+
+- A1. `ui/test/onboarding-story.test.ts` › "after the sound question hobkin asks what the person is working toward, and any goals, their own words or none can be picked"
+- A2. `ui/test/onboarding-cards.test.ts` › "hobkin says back the goals that were picked, or that they can wait"
+- A3. `ui/test/onboarding-story.test.ts` › "the computer is asked only for a job, a business or life, and a work computer marks the private cards"
+- A4. `ui/test/onboarding-story.test.ts` › "each picked goal asks its own question in the goals' order, and none or no account offers no routines"
+- A5. `hobkin/test/cli-routine-templates.test.mjs` › "each goal offers its starters, a template shows once under the first picked goal it starts, and the rest are more"
+- A6. `ui/test/onboarding-cards.test.ts` › "a card has the parts its template gives, in order"; the rows as drawn: check: the still renders of A8.
+- A7. `ui/test/onboarding-cards.test.ts` › "a card is kept, changed or dropped, at most five are kept, and one left alone is neither written nor turned down"; by mouse and keyboard: check: walk the cards in a browser tab on sample data. Not seen.
+- A8. check: still renders of the cards screen, without a browser (the app's built CSS and a server render), at 1440 by 900 and 900 by 600, in light and dark, with a card in Change, a kept one and a dropped one, and the same with Movement still. Not seen.
+- A9. `host/test/setup-watchers.test.ts` › "setup.watchers lists each goal's starters and more with their parts, the user's own winning, and hobkin may run it"
+- A10. `hobkin/test/cli-routine-templates.test.mjs` › "every shipped template names its goals, its bar, what it gives and what closes an item, and every starter names its goal" and "a template of the user's own with only a group reads under the goal its group maps to"
+- A11. `hobkin/test/cli-routine-templates.test.mjs` › "the job, business and project templates are there and read"; check: read each new template's header and body for its stake, sources, cadence, bar, output, closing rule, baseline and limits. Not seen.
+- A12. `ui/test/onboarding-story.test.ts` › "after the cards hobkin says it will check what they need, and with none kept the story goes to the thanks"
+- A13. `ui/test/onboarding-story.test.ts` › "the folder, the projects and validation are asked only with code, and only then do projects go to Work"
+- A14. `hobkin/test/cli-setup.test.mjs` › "git and gh are needed only once work mode has a folder or a project"
+- A15. `ui/test/onboarding-cards.test.ts` › "the writing message names the goals, each kept card by template and version with its changes, the ones turned down and the guide's section, and none goes with nothing kept"
+- A16. check: on a scratch home with a real model, keep three cards and read the routine files main hobkin writes. Not seen: it needs a live model and the user's go-ahead (S10).
+- A17. `hobkin/test/cli-schedules.test.mjs` › "a routine may name the template it came from, and a template named another way is refused"
+- A18. `ui/test/onboarding-cards.test.ts` › "the writing is over when every kept card has its routine, hobkin stops with nothing open, the person says enough, the message did not go, or nothing was asked for two minutes"
+- A19. `ui/test/onboarding-cards.test.ts` › "what hobkin says it wrote is true to the routines that name the kept templates"
+- A20. `ui/test/onboarding-story.test.ts` › "the writing message goes once, after the cards or else at the hand-off, and never on the scripted host or with no host"
+- A21. `ui/test/onboarding-cards.test.ts` › "the first run offered is the written routine with the lowest effort, and only a real model with a routine written offers one"; that one run starts on the press: check: press Run it now on a scratch home (S10). Not seen.
+- A22. `ui/test/tour.test.ts` › "the report stop comes after a first run and names the routine once its report lands, and Work is a stop only for code"
+- A23. `host/test/setup-answers.test.ts` › "the goals and the kept and dropped cards are kept whole in the app's file and as three of hobkin's facts"; `ui/test/onboarding-story.test.ts` › "run again, the goals and the cards start as they were left"
+- A24. check: on a scratch home with a real model, turn a card down in setup, then ask main hobkin for routine ideas. Not seen.
+- A25. `hobkin/test/cli-application.test.mjs` › "hobkin looks after the routines on each pass, whatever the learning switch says"; `hobkin/test/cli-action-items.test.mjs` › "an unread routine can also be run less often"
+- A26. `hobkin/test/cli-learning.test.mjs` › "the learner leaves a routine's quiet or unread reports to hobkin's item about it"
+- A27. check: on a scratch home with a real model, correct a routine's report in the chat and read the routine file. Not seen.
+- A28. check: on a scratch home with a real model, ask main hobkin for the same look twice. Not seen.
+- A29. check: read every line in `story.ts`, `goals.ts`, `cards.ts` and the tour's `steps.ts`, and search them for em and en dashes. Not seen.
+- A30. check: read the note under the goals question in the window. Not seen.
+- A31. `ui/test/onboarding-story.test.ts` › "a new Mac with goals: who the person is, Pi, a sign-in, the cards, the writing, the first run, then the app"
+
+## Steps
+
+Runtime steps (S1 to S5) commit in `~/Poetry/hobkin`, client steps in this repository. S1, S2, S3 and S4 share no file and can be built at once. S5 comes after S1 and S2. S6 comes after S1. S7 and S8 can start at once. S9 comes after S2, S6, S7 and S8. S10 comes last.
+
+- [ ] S1 (A5, A10, A11). Runtime: templates by goal. `TEMPLATE_GOALS`; the `goals`, `tells`, `skips`, `gives`, `closes` and `private` keys, required ones checked; `group` read for the user's own templates and mapped; the starters; `goalCards`. The new keys in every shipped template's header, the eight new templates, and the README's list of keys. The one line of the guide that lists templates by `group` lists them by goal. Files: `hobkin/src/cli/routine-templates.mjs`, `hobkin/src/prompts/routine-templates/README.md` and each template there, eight new templates in that folder, one line of `hobkin/src/prompts/setup.md`; tests `hobkin/test/cli-routine-templates.test.mjs`.
+- [ ] S2 (A17). Runtime: a routine names its template. The `template` key in the loader, held to `<id>@<version>`. Files: `hobkin/src/cli/schedules.mjs`; tests `hobkin/test/cli-schedules.test.mjs`.
+- [ ] S3 (A14). Runtime: `hobkin setup` needs git and gh only for code work. Files: `hobkin/src/cli/setup.mjs`; tests `hobkin/test/cli-setup.test.mjs`.
+- [ ] S4 (A25, A26). Runtime: learning from use. `lookAfterRoutines` on each pass beside the learner, whatever its switch says, with `partial` when a routine file did not load; Run it less often for an unread routine; the learner holding back its quiet and unread proposals for a routine with a care item. Files: `hobkin/src/cli/application.mjs`, `hobkin/src/cli/routine-care.mjs`, `hobkin/src/cli/learning/learner.mjs`; tests `hobkin/test/cli-application.test.mjs`, `hobkin/test/cli-action-items.test.mjs`, `hobkin/test/cli-learning.test.mjs`. Live on the real home once committed: it files items for the routines marked ignored there.
+- [ ] S5 (A16, A24, A27, A28). Runtime: the directions. The guide's "From the app's setup" section, and its "First routines" starting from the goals in the setup's answers; main hobkin's rules for dated corrections, repeated requests and turned-down templates, and its "Setup" section pointing at the new section when the app's message names kept cards (`v2-runtime.md:265-273`). Files: `hobkin/src/prompts/setup.md`, `hobkin/src/prompts/v2-runtime.md`. Prompt text, checked by reading and by the live checks in S10.
+- [ ] S6 (A9, A23). Protocol and host. `GOALS`, the card shape and the saved goals and cards in the setup protocol; `setup.watchers`, which hobkin may run; the host calling `goalCards`; `setup.save` and `setup.saved` keeping the goals and cards, and the three fact lines; a test that holds `GOALS` equal to the runtime's. Files: `shared/protocol/setup.ts`, `shared/commands/registry.ts`, new `host/src/setup-watchers.ts`, `host/src/setup-answers.ts`, `host/src/host.ts`, `host/src/hobkin.d.ts`; tests new `host/test/setup-watchers.test.ts`, `host/test/setup-answers.test.ts`.
+- [ ] S7 (A2, A3, A7, A15, A18, A19, A21). Client rules, built and tested before anything imports them. The goals, their bubbles, nouns and questions, `goalsSaid` and when the computer is asked; a card's parts, keep, change and drop with the cap, `writeRequest`, `writingOver`, `routinesSaid` and the first run's pick. Files: new `ui/src/features/onboarding/goals.ts`, new `ui/src/features/onboarding/cards.ts`; tests new `ui/test/onboarding-cards.test.ts`.
+- [ ] S8 (A6, A7, A8). Client: the cards screen, not yet mounted. The glass cards, Change in place, the count and Done, the keys, the private line, Movement still, and the sample cards. Files: new `ui/src/features/onboarding/CardsScreen.tsx`, new `ui/src/features/onboarding/RoutineCard.tsx`, new `ui/src/features/onboarding/sample-cards.ts`, `ui/src/features/onboarding/story.css`. Checked by still renders.
+- [ ] S9 (A1, A3, A4, A12, A13, A20, A22, A23, A29, A30, A31). Client: wire it in. The new beats, their order and lines; the goals in place of the computer fork; code's questions only for code; the cards screen, the writing with main hobkin's questions, what was written, and the first run in the story; the message once; the tour's Work and report stops; the template a routine names, in the Routines data. It retires 025's tests for what changed: `ui/test/onboarding-story.test.ts` › "the questions differ by whose computer this is, and each has its own way of being answered", "the answers are handed to hobkin as one message, with only what was answered", "with a real model, main hobkin asks its own questions after the fixed ones, and without one the thanks come next", "the follow-ups start with one message that hands hobkin the answers and asks for the rest one question at a time", "the follow-ups are over when hobkin is done asking, five were answered, the user says enough, the message did not go, or nothing was asked for two minutes", "the follow-ups happen once, so neither they nor what came before them can be gone back to" and "when validation is wanted, hobkin is asked to propose each project its checks and write them only on a yes, and the logs are a fact with a question before the first scan". "a new Mac: who the user is, Pi, a sign-in, then the app" becomes A31's test. Files: `ui/src/features/onboarding/story.ts`, `ui/src/features/onboarding/questions.ts`, `ui/src/features/onboarding/Storyteller.tsx`, `ui/src/features/onboarding/FollowUps.tsx`, `ui/src/features/onboarding/PickCloud.tsx` (the note under the goals), `ui/src/features/tour/steps.ts`, `ui/src/features/tour/flow.ts`, `ui/src/features/routines/types.ts`, `ui/src/features/routines/host-data.ts`; tests `ui/test/onboarding-story.test.ts`, `ui/test/tour.test.ts`.
+- [ ] S10 (A8, A16, A21, A22, A24, A27, A28, A29, A30). The checks seen in the window, on a scratch home and a real model, with the user's go-ahead, since they spend the subscription. Never on `~/.hobkin` and never on its host.
+
+## Open questions
+
+- Who writes the routine files. (a) Main hobkin, from the cards and its guide, as decided: it can judge which tool reaches a person's mail and ask, but it needs a live model and a minute or two, and only a live check proves what it writes. (b) The runtime, from the card with no model: fast and testable, but the templates need named slots in place of their brackets, the card has to pick each source, and nothing checks that a source is reachable. It rewrites the body of every template.
+- How a card starts. (a) Left alone until the person keeps it, as decided: every routine is chosen on purpose. (b) Starters start kept: faster, but one press of Done writes up to five routines that all spend the subscription.
+- The cap on kept cards. (a) Five, as decided. (b) Three, as the guide says two or three are enough: less to pay for, but someone with three goals keeps one each. (c) None.
+- The first report and the tour. (a) The tour never waits, as decided: a slow run reports after the tour, and the notification says so. (b) The report stop waits until the report lands, with a way out: the person sees it in the tour, but may wait minutes on one card.
+- New templates for an existing home. `templateNews` and `fileTemplateNews` are not called today. (a) Leave them so, as decided: the user's real home hears of none of the eight new templates. (b) Wire them as they are: eight Action Items on the user's home at once. (c) Wire them with one item that lists every new template: a small change to `fileTemplateNews`.
+- Learning's switch is off unless turned on (`hobkin/src/cli/config.mjs:48-61`), so a new person's routines get no lessons. (a) Leave it, as decided: care items still run. (b) Ask after the first run whether hobkin may learn from how they use it: one more question, and lessons start at once.
+- Repeated requests. (a) A rule in main hobkin's directions, as decided: free, but only as good as the model's memory of the chat. (b) A weekly review of hobkin's own chat, the way the Agent sessions template reads Pi's sessions for requests they keep repeating: it finds more, but it reads every conversation and is a paid run each week.
+- Whose computer. (a) Asked only for a job, a business or life, as decided. (b) Not asked at all: one question fewer, and a new person's profile no longer says it.
+- The person's own goal. (a) It counts as a project, as decided. (b) A sixth goal with no starters of its own: hobkin would need a template that fits anything, which it does not have.
