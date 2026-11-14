@@ -167,6 +167,8 @@ const noteDraft = Type.Union([
   Type.Null(),
   Type.Object({ intent: oneOf(['comment', 'question']), text: Type.String({ maxLength: 20000 }), editing: Type.Optional(words(64)) }, { additionalProperties: false }),
 ])
+/** When the user sent a message, in milliseconds since the epoch on the window's clock, for hobkin's timing of the turn. Only to a host that takes it (`../protocol/timings.ts`). */
+const sentAt = Type.Optional(Type.Integer({ minimum: 0 }))
 
 export const COMMANDS = {
   'app.state': {
@@ -233,6 +235,7 @@ export const COMMANDS = {
         review: Type.Optional(Type.Object({ id: reviewId, step: Type.Optional(words(256)), node: Type.Optional(words(512)) }, { additionalProperties: false })),
         /** An action item the user replies to, as Action Items reads it. hobkin gets it ahead of the words, as it gets a report. */
         item: Type.Optional(Type.Object({ id: words(512), title: words(1000), body: Type.String({ maxLength: 24576 }) }, { additionalProperties: false })),
+        sentAt,
       },
       { additionalProperties: false },
     ),
@@ -643,7 +646,7 @@ export const COMMANDS = {
       "Send the user's words to a durable hobkin. While it waits they start its next turn; while it works they reach the turn in flight.",
     runs: 'host',
     args: Type.Object(
-      { id: hobkinId, text: words(HOBKIN_MESSAGE_MAX), noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })) },
+      { id: hobkinId, text: words(HOBKIN_MESSAGE_MAX), noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })), sentAt },
       { additionalProperties: false },
     ),
   },

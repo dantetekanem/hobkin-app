@@ -2,6 +2,7 @@ import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { CommandArgs, CommandName, CommandResults } from '#shared/commands/registry.ts'
 import type { PresenceMessage } from '#shared/protocol/messages.ts'
 import type { QuestionReply } from '#shared/protocol/question.ts'
+import type { ShownFacts } from '#shared/protocol/timings.ts'
 import type { HostTiers, TiersChange } from '#shared/tiers/tiers.ts'
 import { HostConnection } from './connection.ts'
 import { discoverHost } from './discover.ts'
@@ -66,6 +67,11 @@ export function runCommand<Name extends CommandName>(name: Name, ...args: {} ext
 /** Tells hobkin whether the user is here, for its rules about when to ask something. */
 export function reportPresence(presence: Omit<PresenceMessage, 'type'>): void {
   connection.send({ type: 'presence', ...presence })
+}
+
+/** Tells the host how soon a reply's first words reached the window and showed. Only a host whose hello said it takes timings hears it: one from before closes on a message it does not know. */
+export function reportShown(facts: ShownFacts): void {
+  if (kept.store.getState().timings === true) connection.send({ type: 'shown', ...facts })
 }
 
 /** Answers the question hobkin is asking: one of its choices by value, or the user's own words. */

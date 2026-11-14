@@ -2,6 +2,7 @@ import { join } from 'node:path'
 import type { RawData, WebSocket } from 'ws'
 import { CLOSE, PROTOCOL_VERSION, type ClientMessage, type HelloMessage, type HostMessage, type OwnerState } from '#shared/protocol/messages.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
+import { shownFacts } from '#shared/protocol/timings.ts'
 import type { StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
 import { APP_ORIGIN, createToken, DEV_UI_ORIGIN } from './access.ts'
 import { systemMetrics } from './system-metrics.ts'
@@ -55,6 +56,7 @@ import { routineHandlers } from './routines.ts'
 import { appearanceRequest, loadHostAppearance } from './appearance-host.ts'
 import { appearanceSession } from './appearance-session.ts'
 import * as canvasStore from 'hobkin/src/cli/canvas.mjs'
+import { recordEvent } from 'hobkin/src/cli/events.mjs'
 import { Canvases, canvasHandlers } from './canvases.ts'
 import { Nudges } from './nudge.ts'
 import { decisionHandlers } from './decisions.ts'
@@ -400,7 +402,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   })
   const handlers: HostHandlers = {
     ...appStateHandlers({ root, owner, revision: () => sync.full().rev }),
-    'conversation.send': async ({ text, images = [], report, review, item }) => {
+    'conversation.send': async ({ text, images = [], report, review, item, sentAt }) => {
       const app = hobkin()
       const pictures = attachments.handles(images)
       // The report goes as hobkin's terminal app sends it: the whole report, from hobkin's own list, ahead of the words.
@@ -414,7 +416,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       // A turn needs words, so a message of pictures alone gets hobkin's own.
       const words = text?.trim() ? text : pictures.length ? owner.imageOnlyText : null
       if (!words) throw Error('A message needs words or an image.')
-      const accepted = await app.send(words, about, pictures)
+      // When the user sent it goes to hobkin as it came, for its timing of the turn, and only when the window sent it.
+      const accepted = await (sentAt === undefined ? app.send(words, about, pictures) : app.send(words, about, pictures, { sentAt }))
       attachments.sent(images)
       return { id: accepted.id, queued: accepted.queued === true }
     },
@@ -637,6 +640,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     signIn: signIn.state,
     models: signIn.models,
     viewState: null,
+    timings: true,
   })
 
   const receive = async (socket: WebSocket, data: RawData) => {
@@ -655,6 +659,15 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       if (user.focused) user.seenAt = Date.now()
       // The user may have changed Pi's setup in a terminal while the window was away.
       if (back) lookAgain()
+    } else if (message?.type === 'shown') {
+      // How soon a reply's first words showed in the window, kept as facts in hobkin's event log. One not kept is
+      // dropped with the connection left open, and a write problem never reaches the window.
+      const facts = shownFacts(message)
+      try {
+        if (facts) recordEvent(owner.app?.runtime.directory ?? resolveDataRoot(root), 'turn_shown', facts)
+      } catch {
+        // A timing that cannot be kept is lost, and nothing else.
+      }
     } else {
       socket.close(CLOSE.badMessage, 'Unknown message')
     }

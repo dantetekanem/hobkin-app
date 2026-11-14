@@ -74,7 +74,7 @@ export function hobkinHandlers({ app, claudeMissing, modelProblem, home = homedi
       }
       return ask((hobkins) => hobkins.start({ cwd: path, engine, ...(text === undefined ? {} : { text }), ...(title === undefined ? {} : { title }) }))
     },
-    'hobkin.say': ({ id, text, noteId }) => ask((hobkins) => hobkins.say(id, { text, ...(noteId === undefined ? {} : { noteId }) })),
+    'hobkin.say': ({ id, text, noteId, sentAt }) => ask((hobkins) => hobkins.say(id, { text, ...(noteId === undefined ? {} : { noteId }), ...(sentAt === undefined ? {} : { sentAt }) })),
     'hobkin.end': ({ id }) => ask((hobkins) => hobkins.end(id)),
     'hobkin.rename': ({ id, title }) => ask((hobkins) => hobkins.rename(id, title)),
     'hobkin.seen': ({ id }) => ask((hobkins) => hobkins.seen(id)),

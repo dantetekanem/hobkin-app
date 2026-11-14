@@ -13,6 +13,7 @@ import { heldBy, type Holder } from './doing.ts'
 import { MessageText, risen, StreamingMarkdown, sunk } from './markdown.ts'
 import { nextReveal } from './stream-buffer.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
+import { useFirstWordShown } from './use-first-word.ts'
 import { StoredImages } from './StoredImages.tsx'
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
@@ -141,6 +142,8 @@ function Row({ entry, order }: { entry: Entry; order: number | null }) {
   const still = useStill()
   const writing = entry.kind === 'message' && entry.state === 'writing'
   const text = useRevealed(entry.text, writing)
+  // The time to a reply's first word ends when its words are first on screen.
+  useFirstWordShown(entry.key, entry.kind === 'message' && entry.role === 'assistant' && /\S/.test(text))
   // As before the first word, nothing is drawn before the first finished line.
   if (writing && !text) return null
   const mine = entry.kind === 'message' && entry.role === 'user'

@@ -10,6 +10,7 @@ import type { Nudge } from './nudge.ts'
 import type { PendingQuestion } from './question.ts'
 import type { SignInState } from './signin.ts'
 import type { WireSnapshot } from './snapshot.ts'
+import type { ShownMessage } from './timings.ts'
 import type { TurnEvent } from './turn.ts'
 import type { WorkState } from './work.ts'
 
@@ -47,6 +48,8 @@ export interface HelloMessage {
   models: ModelsState | null
   /** Where the user left off. Filled by `014-continuity`. */
   viewState: unknown
+  /** This host takes the window's timings (`timings.ts`): `sentAt` on a send, and `shown`. A host from before says nothing and is sent neither. */
+  timings?: true
 }
 
 export interface StateMessage {
@@ -120,7 +123,7 @@ export interface PresenceMessage {
 }
 
 export type HostMessage = HelloMessage | StateMessage | TurnMessage | AskMessage | ResultMessage
-export type ClientMessage = CommandMessage | PresenceMessage
+export type ClientMessage = CommandMessage | PresenceMessage | ShownMessage
 
 /** Close codes the host uses. 4000 to 4999 are free for applications. */
 export const CLOSE = {

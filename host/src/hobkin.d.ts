@@ -12,7 +12,8 @@ declare module 'hobkin/src/cli/application.mjs' {
   export interface DurableHobkins {
     /** With no `text` it starts waiting, and `run` is null: its first turn is the first message sent to it. */
     start(args: { cwd: string; engine: HobkinEngine; text?: string; title?: string }): Promise<{ id: string; run: string | null }>
-    say(id: string, args: { text: string; noteId?: string }): Promise<{ started: boolean; queued: boolean; run: string }>
+    /** `sentAt` is when the user sent the words, on the window's clock, for the timing of the turn. */
+    say(id: string, args: { text: string; noteId?: string; sentAt?: number }): Promise<{ started: boolean; queued: boolean; run: string }>
     end(id: string): Promise<{ ok: true }>
     rename(id: string, title: string): Promise<HobkinSummary>
     /** The hobkins named only by their first message, each with the words a better title is made from. */
@@ -183,8 +184,8 @@ declare module 'hobkin/src/cli/application.mjs' {
       send(text: string, id?: string, images?: unknown[]): Promise<{ id: string; queued?: boolean }>
     }
     moods: { react(moment: { event: string; [key: string]: unknown }): void }
-    /** Resolves when the turn is accepted, not when it ends. During a turn the message steers it. */
-    send(text: string, report?: unknown, images?: ImageHandle[]): Promise<{ id: string; queued?: boolean }>
+    /** Resolves when the turn is accepted, not when it ends. During a turn the message steers it. `sentAt` is when the user sent it, on the window's clock. */
+    send(text: string, report?: unknown, images?: ImageHandle[], timing?: { sentAt: number }): Promise<{ id: string; queued?: boolean }>
     messageImage(args: { sessionId: string; messageId: string; ordinal: number }): { mimeType: string; data: string } | null
     /** Takes the image on the clipboard into the draft. With no `image`, `notice` says why not. */
     pasteImage(): Promise<{ image?: ImageHandle; notice?: string; tone?: string }>
@@ -324,6 +325,11 @@ declare module 'hobkin/src/cli/decisions.mjs' {
     },
     now?: number,
   ): { id: string }
+}
+
+declare module 'hobkin/src/cli/events.mjs' {
+  /** Appends one facts-only event to the home's log under `runtime/events`. A write problem is swallowed. */
+  export function recordEvent(root: string, type: string, facts?: Record<string, unknown>, now?: number): void
 }
 
 declare module 'hobkin/src/cli/migration/admission.mjs' {

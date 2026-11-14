@@ -188,6 +188,16 @@ test('the other commands pass straight through', async (t) => {
   ])
 })
 
+test('a message to a hobkin passes the time the user sent it on unchanged, and leaves it out when none came', async (t) => {
+  const { handlers, calls } = fixture(t)
+  await runCommand(handlers, 'hobkin.say', { id: 'a1b2c3d4', text: 'Go on.', sentAt: 1763114400000 })
+  await runCommand(handlers, 'hobkin.say', { id: 'a1b2c3d4', text: 'And then?' })
+  assert.deepEqual(calls, [
+    ['say', 'a1b2c3d4', { text: 'Go on.', sentAt: 1763114400000 }],
+    ['say', 'a1b2c3d4', { text: 'And then?' }],
+  ])
+})
+
 test('a hobkin started from the window runs its turn, waits, takes another message and ends', async (t) => {
   // The real host over hobkin's real runtime, with the scripted job runner, which answers at once and runs no model.
   const host = await hostFor(t)

@@ -55,6 +55,8 @@ export interface HostState {
   question: PendingQuestion | null
   /** Goes up each time the whole state was replaced, as after a reconnect or when another owner let go of the home. */
   epoch: number
+  /** This host's hello said it takes the window's timings (`#shared/protocol/timings.ts`). Never from a host from before them, and forgotten when the connection goes. */
+  timings?: boolean
 }
 
 export const initialHostState: HostState = {
@@ -77,6 +79,7 @@ export const initialHostState: HostState = {
   live: null,
   question: null,
   epoch: 0,
+  timings: false,
 }
 
 function applyState(state: HostState, message: StateMessage): HostState {
@@ -134,6 +137,7 @@ export function applyHostMessage(state: HostState, message: HostMessage): HostSt
         models: message.models ?? null,
         live: null,
         question: null,
+        timings: message.timings === true,
       }
     case 'state':
       return applyState(state, message)
@@ -150,8 +154,12 @@ export function applyHostMessage(state: HostState, message: HostMessage): HostSt
 export function applyLink(state: HostState, link: Link): HostState {
   if (state.link === link) return state
   // Without the host nothing is being written and nobody waits for an answer.
-  return link === 'open' ? { ...state, link } : { ...state, link, live: null, question: null }
+  // The next host says again what it takes, in its own hello.
+  return link === 'open' ? { ...state, link } : { ...state, link, live: null, question: null, timings: false }
 }
+
+/** `sentAt` for a send, only to a host that said it takes it: a host from before refuses an argument it does not know. */
+export const sentAtArg = (state: Pick<HostState, 'timings'>, sentAt: number): { sentAt?: number } => (state.timings === true ? { sentAt } : {})
 
 /**
  * Whether Pi can use a model, so the conversation can go on. A host too old to send the models slice says it with

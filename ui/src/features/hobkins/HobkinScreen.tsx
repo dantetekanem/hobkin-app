@@ -16,7 +16,8 @@ import { MessageText } from '@/features/chat/markdown.ts'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { AgentStopControl, upToAgents, walkSteps } from '@/features/work/AgentScreen.tsx'
 import { doingOf, folderName, hasHost, hueOf } from '@/lib/host/frame.ts'
-import { runCommand, useHost } from '@/lib/host/index.ts'
+import { hostStore, runCommand, useHost } from '@/lib/host/index.ts'
+import { sentAtArg } from '@/lib/host/state.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
@@ -492,7 +493,8 @@ function Talk({ id, onSending, onSent }: { id: string; onSending: (note: Sending
     setDraft('')
     onSending({ text, at })
     try {
-      const said = await runCommand('hobkin.say', { id, text })
+      // When Enter was pressed goes with the words, for the timing of the turn, to a host that takes it.
+      const said = await runCommand('hobkin.say', { id, text, ...sentAtArg(hostStore.getState(), at) })
       onSent({ text, at, run: said.run, started: said.started })
     } catch (error) {
       setProblem(message(error))

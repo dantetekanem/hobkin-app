@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 import { navigationGuide } from '@/app/key-list.ts'
 import { useView } from '@/app/view-store.ts'
 import { hostStore, runCommand } from '@/lib/host/client.ts'
-import { isLive } from '@/lib/host/state.ts'
+import { isLive, sentAtArg } from '@/lib/host/state.ts'
 import type { SlashCommand } from '#shared/protocol/slash.ts'
 import type { ChatMessage } from '#shared/protocol/snapshot.ts'
 import { executionKey, executionTargets, type ExecutionControl } from '../work/actions.ts'
@@ -14,6 +14,7 @@ import { draftReducer, emptyDraft, storedDraft, type Attachment, type DraftActio
 import { emptyOutbox, settleOutbox, type Outbox } from './outbox.ts'
 import { transientLine } from './transient-line.ts'
 import { closedSlash, slashCommandIn, slashKey, slashTyped, type SlashKey, type SlashState } from './slash.ts'
+import { firstWord } from './use-first-word.ts'
 
 interface ChatState {
   draft: DraftState
@@ -120,14 +121,18 @@ export const useChat = create<ChatState>()(
         const entry = { id: ++sends, text: sentText, images: images.length, at: Date.now(), accepted: false, ...(about ? { about } : {}) }
         set(({ draft, outbox }) => ({ draft: plain ? draft : draftReducer(draft, { type: 'sent' }), outbox: { ...outbox, entries: [...outbox.entries, entry] }, problem: null, said: null }))
         const attached = item ? { item } : report && !routine ? { report: report.id } : {}
-        return runCommand('conversation.send', { ...(sentText ? { text: sentText } : {}), ...(images.length ? { images } : {}), ...attached }).then(
-          () => {
+        // When the user sent it goes along, to a host that takes it, and the reply's first words are timed from then.
+        const measure = firstWord.sent(entry.at, hostStore.getState())
+        return runCommand('conversation.send', { ...(sentText ? { text: sentText } : {}), ...(images.length ? { images } : {}), ...attached, ...sentAtArg(hostStore.getState(), entry.at) }).then(
+          (said) => {
+            firstWord.accepted(measure, said)
             forget(attachments)
             // hobkin took it. It stays on screen, without the queued mark, until the stored conversation shows it.
             set(({ outbox }) => ({ outbox: settled({ ...outbox, entries: outbox.entries.map((sent) => (sent.id === entry.id ? { ...sent, accepted: true } : sent)) }) }))
             return true
           },
           (error) => {
+            firstWord.refused(measure)
             // A message that did not go takes its report back, unless another one was chosen meanwhile.
             if (report && !useReportReply.getState().report) useReportReply.getState().attach(report)
             set(({ draft, outbox }) => ({
