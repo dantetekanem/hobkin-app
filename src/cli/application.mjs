@@ -862,18 +862,22 @@ export class HobkinApplication {
     return { ...workStatus(this.runtime.directory, this.director.outlook()), discovering };
   }
 
-  // Agents file work from their own processes, and nothing else tells the dashboard it changed. How much of a usage window's time
-  // has gone moves on every tick, so it counts in whole percent, as Work's words say it. The minute refreshes the dashboard at
-  // least once a minute anyway, for whatever else in it moves with the clock alone.
+  // Agents file work from their own processes, and nothing else tells the dashboard it changed.
   async tickWork() {
     this.moods.notice();
     await this.director.tick();
     await this.learn();
     const root = this.runtime.directory;
-    const signature = JSON.stringify(
-      { work: workStatus(root, this.director.outlook()), decisions: openDecisions(root), learning: learningEnabled(root), minute: Math.floor(this.now() / 60_000) },
-      (key, value) => (key === 'elapsedPercent' && typeof value === 'number' ? Math.round(value) : value),
-    );
+    const watched = {
+      work: workStatus(root, this.director.outlook()),
+      decisions: openDecisions(root),
+      learning: learningEnabled(root),
+      // At least once a minute, for whatever else in the dashboard moves with the clock alone.
+      minute: Math.floor(this.now() / 60_000),
+    };
+    // How much of a usage window's time has gone moves on every tick, so it counts in whole percent, as Work's words say it.
+    const inWholePercent = (key, value) => (key === 'elapsedPercent' && typeof value === 'number' ? Math.round(value) : value);
+    const signature = JSON.stringify(watched, inWholePercent);
     if (signature === this.workSignature) return;
     this.workSignature = signature;
     this.requestRefresh();
