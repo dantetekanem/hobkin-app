@@ -4,7 +4,7 @@
   "title": "Auto-merge, merge counts and what waits to deploy",
   "kind": "work",
   "status": "draft",
-  "depends": ["011-work", "024-github", "031-home", "032-change-review"],
+  "depends": ["011-work", "024-github", "031-home", "032-change-review", "038-resources", "042-stacked-work", "045-dev-system"],
   "updated": "2026-11-14"
 }
 ---
@@ -26,11 +26,11 @@ Each project hobkin works on gets three things. Auto-merge: a setting the user t
 
 ### The bar
 
-- Auto-merge uses the bar an offer uses, unchanged: `offerFor` with the same track records (`patterns.mjs:164-240`). The first confirmation shows the left column:
+- Auto-merge uses the bar an offer uses, unchanged: `offerFor` with the same track records (`patterns.mjs:164-240`). Its grade is Change Review's, as `045-dev-system` S13 makes it: pi-auto-review is not used (the user, 2026-11-14), and safe A gives way to Change Review's answer at this commit. The first confirmation shows the left column:
 
   | Rule | From |
   | --- | --- |
-  | A review graded this exact commit safe A. | `gradeVetoes`, `patterns.mjs:175-185` |
+  | Change Review says "Safe to deploy" for this exact commit, and no part of it is above safe. | `gradeVetoes`, `patterns.mjs:175-185`, after 045 S13 |
   | Its quality grade, for this commit, is B or better. | same |
   | At most 300 changed lines, and no more files than hobkin read. | `changeVetoes`, `:187-199` |
   | It sits in one or two areas, and the survey has read it. | same |
@@ -39,14 +39,14 @@ Each project hobkin works on gets three things. Auto-merge: a setting the user t
   | It deletes no tests. | same |
   | It has proof and leaves nothing for the user. | `vetoesOf`, `:201-209` |
   | Its undo is not one-way or permanent. | same |
-  | Everything it brings with it is safe A too. | same |
+  | Everything it brings with it passes that too. | same |
   | A change like it (same project, kind and area) landed before, and no trouble has reset that since. Docs, tests and dependencies may lean on another project's. | `precedentFor`, `historyVetoes`, `:165-170`, `:211-216` |
   | That kind of change is not turned off, by the user or by severe trouble. | same |
 
 - A PR must also be ready on GitHub, as the survey read it. hobkin opened it (its head is on `hobkin/`), it is not a draft, its base is the default branch, GitHub says it is mergeable, no review asks for changes, and its checks pass. Checks still running wait. A PR with no checks at all goes only when the project has no workflow files under `.github/workflows/`, because checks that have not started yet also read as none. The survey adds `baseRefName` to the PR fields it reads (`unmerged.mjs:19`).
 - A spot check stays a spot check. One in five PRs that pass, chosen by item id as today (`SPOT_ONE_IN`, `patterns.mjs:13`, `:218`), is not merged. It waits on the Work screen as a finished change marked "A spot check: hobkin asks you about 1 in 5 it could merge alone", so the user keeps seeing what the bar lets through.
-- Grades come from reviews, and a review runs only when one is asked for or `hobkin work reviews on` is set (`src/prompts/work-do.md:41`). With neither, no PR has a grade and nothing auto-merges. The project's row says so and names where reviews are turned on.
-- A PR in a stack auto-merges only once it is the bottom of its stack, based on the default branch, and passes the bar on its own. The PRs above it wait until GitHub moves their base, since stacks land bottom up (`042-stacked-work`).
+- Grades come from Change Review. A live host reviews each finished change at its head by itself, hobkin's open PRs among them (`toPrepare`, `host/src/review/seat.ts:205-209`), and a review hobkin asks for is a request for that build, never an agent run (`045-dev-system`, "Change Review in place of pi-auto-review"). A PR with no Change Review at the head the survey read does not auto-merge, and the project's row says that Change Review has not finished that commit.
+- A PR in a stack auto-merges only once it is the bottom of its stack, based on the default branch, and passes the bar on its own. hobkin merges with no `--delete-branch` (`controls.mjs:527`), so GitHub does not move the PRs above it. They wait until `042-stacked-work`'s pass after a merge sets their base to the default branch, which it does only while its `restack` is on.
 
 ### How an auto-merge lands
 
@@ -59,8 +59,8 @@ Each project hobkin works on gets three things. Auto-merge: a setting the user t
 ### Turning it on and off
 
 - Auto-merge is off on every project until the user turns it on. Only the window turns it on or off, on the user's click.
-- The command is `work.auto-merge`, marked `outside`, so hobkin's `client` tool refuses it (`shared/commands/registry.ts:48-50`, `host/src/client-tool.ts:40`). The runtime has no `hobkin work` command and no work action for it. The host calls the runtime's function itself, as `work.agents` calls `setAgents` (`host/src/work.ts:374-379`).
-- There are two separate confirmations, and the host checks both. The first is "Continue" under the bar. It asks the host for `work.auto-merge-preview`, which answers with what holds auto-merge on this project now and a `confirm` for the project, its repository, its PR mode and the bar. The second is "Turn on auto-merge" on a screen of its own, which sends `work.auto-merge` with that `confirm`. The host refuses a `confirm` older than ten minutes, or one whose facts changed. This follows `review.preview` and `review.verdict` (`registry.ts:860-872`).
+- The command is `work.auto-merge`, marked `outside`, so hobkin's `client` tool refuses it (`shared/commands/registry.ts:50-51`, `host/src/client-tool.ts:40`). The runtime has no `hobkin work` command and no work action for it. The host calls the runtime's function itself, as `work.agents` calls `setAgents` (`host/src/work.ts:374-379`).
+- There are two separate confirmations, and the host checks both. The first is "Continue" under the bar. It asks the host for `work.auto-merge-preview`, which answers with what holds auto-merge on this project now and a `confirm` for the project, its repository, its PR mode and the bar. The second is "Turn on auto-merge" on a screen of its own, which sends `work.auto-merge` with that `confirm`. The host refuses a `confirm` older than ten minutes, or one whose facts changed. This follows `review.preview` and `review.verdict` (`registry.ts:895-906`).
 - Turning it off is one click with no question. Two things also turn it off, each keeping its reason: trouble (below), and a change of the project's PR mode by anyone, since the user confirmed auto-merge for PRs that open as PRs.
 - Each change is appended to `work/<slug>/auto-merge.jsonl` in hobkin's home: on or off, when, why (`window`, `trouble` with its item, or `pr-mode`), and for on, the `confirm` it came with. The last line stands. The project's lightbox shows the history.
 - hobkin's directions in `v2-runtime.md` say that the user sets auto-merge and the live read in the window, that hobkin can read both with `projects`, and that it cannot change either.
@@ -75,8 +75,8 @@ Each project hobkin works on gets three things. Auto-merge: a setting the user t
 
 ### Seeing each auto-merge afterwards
 
-- One line in Chat for each, from the after-merge pass (`src/cli/work/after-merge.mjs:61-90`): `Merged "<title>" on <project> by itself, PR #482: safe A, quality B, 120 lines, like "<precedent>" merged Nov 3. Undo: <how>.` What the pass says today, the issue it closed and what is left for the user, follows on the same line.
-- The project's lightbox lists what merged by itself in the last 30 days, newest first: title, PR link, when, grade, lines, and its watch as it stands (watching, held, quiet, unexercised or trouble).
+- One line in Chat for each, from the after-merge pass (`src/cli/work/after-merge.mjs:61-90`): `Merged "<title>" on <project> by itself, PR #482: safe to deploy, quality B, 120 lines, like "<precedent>" merged Nov 3. Undo: <how>.` What the pass says today, the issue it closed and what is left for the user, follows on the same line.
+- The project's lightbox lists what merged by itself in the last 30 days, newest first: title, PR link, when, Change Review's answer, lines, and its watch as it stands (watching, held, quiet, unexercised or trouble).
 - The weekly scoreboard counts merges by itself apart from the user's (`src/cli/work/scoreboard.mjs:23-34`).
 - To say one went wrong, the user tells hobkin in Chat, which runs `trouble`, as today.
 
@@ -133,7 +133,7 @@ Each project hobkin works on gets three things. Auto-merge: a setting the user t
 
 - Work › Projects, on each project's row (`Queue.tsx:315-375`): the facts line gains the week's merges, auto-merge when it is on, and what waits to deploy. A new control, "Auto-merge", reads Off or On. While PR mode is not `published` it is disabled and says "Needs Finished work set to PR". A "Merges and deploys" button opens the project's lightbox, mounted where the tiers lightbox is (`ui/src/app/Frame.tsx:66`).
 - The lightbox has three parts. Merges: the counts, the bars, and what merged by itself. Auto-merge: its switch, what holds it now, and its history. Deploys: what was found, the confirmed read or the proposals, Try it, Use this read, Edit, Read now and Stop reading, and the list of what waits.
-- Turning auto-merge on. The first screen, "What hobkin may merge on <project> by itself", lists the bar above, then what holds auto-merge on this project now (for example "Reviews are off, so no PR gets a grade"), then that a merge goes to GitHub at the graded commit with a merge commit, that one in five comes to the user as a spot check, and that trouble turns it off. Its buttons are Cancel and Continue. The second screen, "Turn on auto-merge for <project>?", says: "From the next survey, within 30 minutes, hobkin merges its PRs on <owner/name> that pass every rule, without asking you. Each one shows in Chat and here. You can turn it off here at any time." Its buttons are Cancel and Turn on auto-merge. On both screens Cancel has the keyboard first, and Escape is Cancel.
+- Turning auto-merge on. The first screen, "What hobkin may merge on <project> by itself", lists the bar above, then what holds auto-merge on this project now (for example "Change Review has not finished the newest commit of 2 PRs"), then that a merge goes to GitHub at the graded commit with a merge commit, that one in five comes to the user as a spot check, and that trouble turns it off. Its buttons are Cancel and Continue. The second screen, "Turn on auto-merge for <project>?", says: "From the next survey, within 30 minutes, hobkin merges its PRs on <owner/name> that pass every rule, without asking you. Each one shows in Chat and here. You can turn it off here at any time." Its buttons are Cancel and Turn on auto-merge. On both screens Cancel has the keyboard first, and Escape is Cancel.
 - With no host the lightbox draws sample data and says so, and its actions answer as hobkin would without reaching it.
 - Everything works from the keyboard, by `019-keyboard`.
 
@@ -168,7 +168,7 @@ Each project hobkin works on gets three things. Auto-merge: a setting the user t
 - A5. One in five PRs that pass, the same ones an offer would spot check, does not merge and waits on the Work screen marked as a spot check.
 - A6. Nothing auto-merges while work mode is off or paused, the project is paused, learning is off, or PR mode is not `published`, and the project's row says which. At most one PR merges on a project in a pass, and none while an earlier auto-merge there has checks failing or still running on the default branch.
 - A7. A merge GitHub refuses leaves the PR a finished change with GitHub's reason, and it is not tried again at that head. Auto-merge stays on.
-- A8. Each auto-merge posts one line in Chat with its title, project, PR, grade, lines and precedent. It shows in the project's list of what merged by itself, with its watch as it stands, and the weekly scoreboard counts it apart from the user's merges.
+- A8. Each auto-merge posts one line in Chat with its title, project, PR, Change Review's answer, lines and precedent. It shows in the project's list of what merged by itself, with its watch as it stands, and the weekly scoreboard counts it apart from the user's merges.
 - A9. Trouble on any change that landed on the project after auto-merge was turned on, severe or not, turns auto-merge off as the trouble is recorded, keeps why in the project's history, and files one Action Item. It stays off until the user turns it on again with both confirmations, and `trust` on the pattern does not turn it back on.
 - A10. A change of the project's PR mode turns auto-merge off and keeps why.
 - A11. For a project on GitHub, the counts give the PRs merged into its default branch today, on each of the last 7 days and in each of the last 8 weeks: everyone's, hobkin's, and those merged by itself. A PR read twice counts once. A project not on GitHub shows no PR counts and says so.
@@ -192,7 +192,7 @@ Each project hobkin works on gets three things. Auto-merge: a setting the user t
 - A5. `hobkin/test/cli-work-auto-merge.test.mjs` › "a spot check does not merge and waits for the user"
 - A6. `hobkin/test/cli-work-auto-merge.test.mjs` › "nothing merges while work mode, the project or learning is off or paused, or PR mode is not published" and › "one PR a project a pass, and none while an earlier one's checks fail or run"
 - A7. `hobkin/test/cli-work-auto-merge.test.mjs` › "a refused merge keeps the PR with GitHub's reason and is not tried again at that head"
-- A8. `hobkin/test/cli-work-after-merge.test.mjs` › "an auto-merge says in Chat what merged, its grade, size and precedent"; `hobkin/test/cli-work-review.test.mjs` › "the scoreboard counts merges by itself apart"; `ui/test/merges-deploys-rules.test.ts` › "what merged by itself lists each one with its watch"
+- A8. `hobkin/test/cli-work-after-merge.test.mjs` › "an auto-merge says in Chat what merged, Change Review's answer, its size and precedent"; `hobkin/test/cli-work-review.test.mjs` › "the scoreboard counts merges by itself apart"; `ui/test/merges-deploys-rules.test.ts` › "what merged by itself lists each one with its watch"
 - A9. `hobkin/test/cli-work-auto-merge.test.mjs` › "trouble after it was turned on turns auto-merge off and files one Action Item" and › "trust on the pattern does not turn auto-merge back on"
 - A10. `hobkin/test/cli-work-auto-merge.test.mjs` › "a change of PR mode turns auto-merge off"
 - A11. `hobkin/test/cli-work-merges.test.mjs` › "merged PRs count by day and week, everyone's, hobkin's and by itself" and › "a PR read twice counts once, and a project not on GitHub has no counts"
@@ -209,7 +209,9 @@ Each project hobkin works on gets three things. Auto-merge: a setting the user t
 
 ## Steps
 
-S1, S2 and S3 can be built at once: they share no file. S4 comes after all three. S5 comes after S4. S6 and S7 can start on sample data at once and connect once S5's `shared/protocol/work.ts` is in. S8 needs the user's go-ahead.
+S1, S2 and S3 can be built at once: they share no file. S2 needs `045-dev-system` S13, since the bar reads Change Review's answer. S4 comes after all three. S5 comes after S4. S6 and S7 can start on sample data at once and connect once S5's `shared/protocol/work.ts` is in. S8 needs the user's go-ahead.
+
+Auto-merge and the live reads ship switched off. Once S4 is committed the pass runs on the live home, but no project has auto-merge on and no project has a confirmed read, so nothing merges and no read runs. The user's go-ahead is what turns each on, in the window: the two confirmations for auto-merge on a project, and Try it then Use this read for a deploy read (S6).
 
 - [ ] S1 (A11). Runtime: the merges ledger, as a module no pass calls yet. The gh read since the last one, the ledger by PR number kept 90 days, and the counts by day and week. Files: new `hobkin/src/cli/work/merges.mjs`; tests new `hobkin/test/cli-work-merges.test.mjs`.
 - [ ] S2 (A2, A3, A4, A5, A6, A7, A9, A10). Runtime: the auto-merge rule and its record, called by nothing yet. The history file and its last word; each open PR weighed by `offerFor` with GitHub's own rules added; the pace; the pass that merges through `mergePullRequest`; off by trouble and by a change of PR mode. `mergePullRequest` and `closeMergedPull` take a `route` that stays `remote` unless given, so nothing changes until S4 passes `auto`. The survey reads `baseRefName`. Files: new `hobkin/src/cli/work/auto-merge.mjs`, `hobkin/src/cli/work/controls.mjs`, `hobkin/src/cli/work/unmerged.mjs`; tests new `hobkin/test/cli-work-auto-merge.test.mjs`.
@@ -222,7 +224,7 @@ S1, S2 and S3 can be built at once: they share no file. S4 comes after all three
 
 ## Open questions
 
-- Which grade counts. The bar asks for a safe A grade from a review run's merge grade, read from pi-auto-review's folder (`src/cli/work/grades.mjs:10`, `:33`; `patterns.mjs:175-185`). `032-change-review` says pi-auto-review no longer reviews hobkin's changes, and its levels (`safe`, `mid`, `high`) carry no letter. (a) Keep the bar as written: once those reviews stop, nothing auto-merges. (b) Count a 032 review whose overall level is `safe` at this exact head in place of safe A: the runtime needs to read the client's review result, and the bar is no longer the one the user chose. (c) Ask for both: the strictest, and the fewest merges.
+- ~~Which grade counts. The bar asks for a safe A grade read from pi-auto-review's folder (`src/cli/work/grades.mjs:10`, `:32`; `patterns.mjs:175-185`). (a) Keep the bar as written. (b) Count a 032 review whose overall level is `safe` at this exact head. (c) Ask for both.~~ Answered by the user on 2026-11-14: (b), "we are not using pi-auto-review", and "dont just remove, where is being used? we made a custom system". `045-dev-system` S13 points every use at Change Review: "Safe to deploy" with no part above safe, at this exact commit.
 - Checks. (a) As decided: passing, or none only in a project with no workflow files. (b) Passing always: a project with no CI never auto-merges. (c) The bar alone, as for a local offer: GitHub's branch protection is then the only check on CI.
 - The second confirmation. (a) As decided: two clicks on two screens, Cancel first. (b) Type the project's name to arm Turn on auto-merge: harder to click through by habit, and a few seconds more each time.
 - Pace. (a) As decided: one a project a pass, and none while an earlier one's checks fail or run. (b) Also a daily cap, such as 3 a project: a watch takes 2 to 7 days to close (`launches.mjs:9-10`), so without a cap a fault the bar misses could land several times before trouble shows.

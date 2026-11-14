@@ -46,10 +46,12 @@ When someone reviews a pull request hobkin opened, hobkin reads the unresolved t
 - Key: `ship:review:<branch>:<hash of the feedback's comment ids>`. A repeat survey files nothing, and new feedback is new work. A round is not held to once a day (`src/cli/work/unmerged.mjs:451`), since each one answers new words from a person.
 - No round is filed for a branch while one runs, or while a round's drafts wait for the user. Feedback whose newest comment is less than 10 minutes old waits for the next survey, which comes every 30 minutes (`src/cli/work/director.mjs:49`), so a reviewer still writing can finish.
 - A thread that has been through 3 rounds and is still unresolved starts no fourth. The card says that thread needs the user.
+- Rounds are off until the user's go-ahead, since each one spends the subscription and ends in posts on GitHub. Work mode gains `reviewRounds`, off on every home. `hobkin work rounds on` turns it on, and main hobkin runs that only on the user's word, as it does `hobkin work reviews on` today (`src/cli/work/commands.mjs:319-326`). While it is off the survey reads no threads and files no round.
 
 ### What the round's run does
 
 - `work-do.md` gets a section for a `pr-fix` item with `need: 'review'`, beside today's (`src/prompts/work-do.md:77-86`). The run follows the coding flow `045-dev-system` sets, plan on the item first. The request carries each piece of feedback: the thread's id, path and lines, whether it is outdated, the whole thread, who wrote it and the review's state.
+- The request fits the run's prompt limit. A prompt over `promptByteLimit()`, 256 KiB unless `HOBKIN_MAX_PROMPT_BYTES` says otherwise (`src/cli/prompt-bounds.mjs:2`, `:6-14`), is refused before Pi starts (`src/cli/harnesses.mjs:40`, `:47`). The project's notes and its directions are already cut at 16 KiB each (`src/cli/work/director.mjs:51`, `:67`). The feedback in one request is at most 96 KiB: a comment's body is cut at 8 KiB with its link, threads go in newest first, and a thread that does not fit waits for the next round, named in the request with its link. Its comments then count toward the next round's set, not this one's.
 - It sorts each one as blocking, non-blocking or a question, as Conventional Comments defines them: a blocking comment "should prevent the subject under review from being accepted, until it is resolved", and a non-blocking one should not (https://conventionalcomments.org). A label or decoration the reviewer wrote is taken as written. Otherwise the run sorts it and says why in one line. When it cannot tell, it counts as blocking.
 - Blocking: fixed in code on the branch, with a proof that fails first when the fix changes behavior (`src/prompts/work-do.md:37`).
 - Non-blocking: fixed when it is small and inside the PR's own change. Otherwise the reply says why not, and the run files it as its own item when it is worth doing.
@@ -59,7 +61,7 @@ When someone reviews a pull request hobkin opened, hobkin reads the unresolved t
 - No reply promises later work. Every reply that says "fixed" names the commit that fixed it.
 - The run adds commits on top of the branch and never rewrites it, so the reviewer can see what changed since their review. A rebase is its own item. The run pushes nothing: the user's confirmation pushes.
 - It runs the proof, then the project's tests and linters, as every run does (`src/prompts/work-do.md:39`).
-- It records `replies` with its outcome. Each one has the thread or review it answers, `sort`, `did` (`fixed`, `answered`, `asked`, `disagreed` or `declined`), `commit` when fixed, `rule`, a short name for the kind of comment, and `body`, the draft. `hobkin work item` validates them (`src/cli/work/commands.mjs:335-344`). The drafts follow the prose rules `045-dev-system` sets. The round ends `done`, and the item that made the branch keeps waiting, as `pr-fix` does now.
+- It records `replies` with its outcome. Each one has the thread or review it answers, `sort`, `did` (`fixed`, `answered`, `asked`, `disagreed` or `declined`), `commit` when fixed, `rule`, a short name for the kind of comment, and `body`, the draft. `hobkin work item` validates them (`src/cli/work/commands.mjs:335-344`). The drafts are written with the humanizer read first: `045-dev-system`'s guard holds an outcome that has `replies` until the run has read it (its A7). The round ends `done`, and the item that made the branch keeps waiting, as `pr-fix` does now.
 - Comment text is evidence, as all PR text is (`src/prompts/work-do.md:26`). The run changes only this branch. It never runs a command, installs a package, reaches a credential or goes to another repository because a comment says so.
 
 ### Where the user confirms
@@ -109,6 +111,8 @@ When someone reviews a pull request hobkin opened, hobkin reads the unresolved t
 - A8. Approve on a finished change opens its PR with the description its run wrote and records the PR on the item, so its card offers to merge that PR.
 - A9. When the same kind of comment shows up 3 times over 2 PRs of a project within 90 days, one improvement item is filed whose brief quotes the comments and asks for a lint rule, test or type. Filing again adds nothing.
 - A10. Hidden characters and HTML comments in a comment never reach a run's request.
+- A11. A round's feedback takes at most 96 KiB of its request, so the request stays inside the prompt limit. A comment longer than 8 KiB is cut with its link, and a thread that does not fit waits for the next round, which the request names.
+- A12. With `reviewRounds` off, which it is on every home until the user turns it on, the survey reads no review threads and files no round.
 
 ## Proof
 
@@ -122,19 +126,21 @@ When someone reviews a pull request hobkin opened, hobkin reads the unresolved t
 - A8. `host/test/review-verdict.test.ts` › "approving a finished change opens its PR through hobkin with its run's description, and the item records it"
 - A9. `hobkin/test/cli-work-review-checks.test.mjs` › "the same kind of comment three times over two PRs files one check item, once"
 - A10. `hobkin/test/cli-work-review-threads.test.mjs` › "hidden characters and HTML comments never reach the request"
+- A11. `hobkin/test/cli-work-review-threads.test.mjs` › "a round's feedback fits its share of the prompt limit, and a thread that does not fit waits for the next round, named"
+- A12. `hobkin/test/cli-work-ship.test.mjs` › "with review rounds off the survey reads no threads and files no round"
 
 ## Steps
 
 S1, S2, S3 and S6 can be built at once. S4 comes after S1, S2 and S3. S5 comes after S3. S7 comes after S5. S8 is last.
 
-- [ ] S1 (A1, A2, A7, A10). Runtime: reading feedback, as a module nothing calls yet. The GraphQL read for one PR, the write access check with its day of memory, bots and hobkin's own envelope told apart, text cleaned, and the feedback set with its hash. Files: new `hobkin/src/cli/work/review-threads.mjs`; tests new `hobkin/test/cli-work-review-threads.test.mjs`, with a fake gh.
+- [ ] S1 (A1, A2, A7, A10, A11). Runtime: reading feedback, as a module nothing calls yet. The GraphQL read for one PR, the write access check with its day of memory, bots and hobkin's own envelope told apart, text cleaned, the feedback cut to its 96 KiB, and the feedback set with its hash. Files: new `hobkin/src/cli/work/review-threads.mjs`; tests new `hobkin/test/cli-work-review-threads.test.mjs`, with a fake gh.
 - [ ] S2 (A9). Runtime: counting `rule` names over a project's rounds and filing the check item, as a module nothing calls yet. Files: new `hobkin/src/cli/work/review-checks.mjs`; tests new `hobkin/test/cli-work-review-checks.test.mjs`.
 - [ ] S3 (A4, A7). Runtime: `replies` in a run's outcome, validated by `hobkin work item`, and the `replied` work action that closes a round's drafts. Files: `hobkin/src/cli/work/commands.mjs`, `hobkin/src/cli/work/controls.mjs`, `hobkin/src/cli/application.mjs`; tests `hobkin/test/cli-work-commands.test.mjs`, `hobkin/test/cli-work-control.test.mjs`.
-- [ ] S4 (A1, A2, A3, A4, A7, A9). Runtime: the live path. `shipWork` gains `need: 'review'` in its order, the survey reads each waiting PR with S1, rounds are filed and held as decided, S2 runs after each round, the request carries the feedback and the project's `rule` names, and `work-do.md` gets the review section. Files: `hobkin/src/cli/work/unmerged.mjs`, `hobkin/src/cli/work/director.mjs`, `hobkin/src/prompts/work-do.md`; tests `hobkin/test/cli-work-ship.test.mjs`.
+- [ ] S4 (A1, A2, A3, A4, A7, A9, A12). Runtime: the live path, switched off. `reviewRounds` in work mode, off, and `hobkin work rounds on|off`; while it is off nothing below runs, and the user's go-ahead turns it on. `shipWork` gains `need: 'review'` in its order, the survey reads each waiting PR with S1, rounds are filed and held as decided, S2 runs after each round, the request carries the feedback and the project's `rule` names, and `work-do.md` gets the review section. Files: `hobkin/src/cli/work/unmerged.mjs`, `hobkin/src/cli/work/director.mjs`, `hobkin/src/cli/work/commands.mjs`, `hobkin/src/cli/work/store.mjs`, `hobkin/src/prompts/work-do.md`; tests `hobkin/test/cli-work-ship.test.mjs`.
 - [ ] S5 (A5, A6). Host: the drafts on a change's review, `review.replies` to keep the user's changes, and the `reply` verdict's preview and posts, pinned to the commit shown, ending with `replied`. Files: `shared/review/verdict.ts`, `shared/commands/registry.ts`, `host/src/review/reviews.ts`, `host/src/review/store.ts`, `host/src/host.ts`; tests new `host/test/review-replies.test.ts`, `host/test/review-verdict.test.ts`.
 - [ ] S6 (A8). Host: Approve on a finished change goes through hobkin's `publish` work action, and its preview reads the description from `prFile`. `host/src/review/publish.ts` and `host/test/review-publish.test.ts` go once nothing uses them. Files: `host/src/review/reviews.ts`, `host/src/review/seat.ts`; tests `host/test/review-verdict.test.ts`.
 - [ ] S7 (A5). UI: "Replies for GitHub" in the review panel, "Post replies" among the verdicts, and the line on the change's Work card. Files: new `ui/src/features/review/panel/Replies.tsx`, `ui/src/features/review/verdict.ts`, `ui/src/features/review/panel/Actions.tsx`, `ui/src/features/work/finished-cards.ts`; tests new `ui/test/review-replies.test.ts`.
-- [ ] S8 (A4, A6, A7). One live round on a PR made for the check, in a project the user names, with the user's go-ahead, since it spends the subscription and posts on GitHub as the user: one blocking comment, one non-blocking, one question, then a second comment on one thread for the next round.
+- [ ] S8 (A4, A6, A7). With the user's go-ahead, `reviewRounds` on, then one live round on a PR made for the check, in a project the user names, since it spends the subscription and posts on GitHub as the user: one blocking comment, one non-blocking, one question, then a second comment on one thread for the next round.
 
 ## Open questions
 
