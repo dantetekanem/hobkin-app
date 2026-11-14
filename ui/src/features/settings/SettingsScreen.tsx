@@ -2,7 +2,7 @@ import { Minus, Plus, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useRef, useState, type ReactNode } from 'react'
 import { TIER_IDS, TIER_INFO, resolveTier } from '#shared/tiers/tiers.ts'
-import { KEY_LIST } from '@/app/key-list.ts'
+import { TILE_KEYS } from '@/app/key-list.ts'
 import { Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER_UNDER_SECOND_ROW } from '@/app/screen-layout.ts'
 import { originOf, setThemeChoice, useTheme, useThemeChoice, type ThemeChoice } from '@/app/theme.ts'
@@ -663,7 +663,7 @@ function Keys() {
   return (
     <Tile name="Keys" value="Everything from the keyboard" className="col-span-6 @max-[820px]:col-span-2">
       <ul className="grid flex-1 grid-cols-2 content-start gap-x-8 gap-y-1.5 text-[12px] @max-[820px]:grid-cols-1">
-        {KEY_LIST.map(({ keys, does }) => (
+        {TILE_KEYS.map(({ keys, does }) => (
           <li key={keys} className="flex items-center gap-2">
             <Kbd className="shrink-0">{keys}</Kbd>
             <span className="text-muted-foreground">{does}</span>
