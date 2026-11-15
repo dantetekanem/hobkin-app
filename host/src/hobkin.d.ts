@@ -115,6 +115,8 @@ declare module 'hobkin/src/cli/application.mjs' {
     clipboard?: ClipboardSource
     createMain?: (options: MainSessionOptions) => Promise<MainSession>
     runHarness?: (request: HarnessRequest, options?: unknown) => Promise<unknown>
+    /** Whether the harness given takes a request to start a durable hobkin's process ahead of its turn. hobkin's own does. */
+    harnessWarms?: boolean
     sessionDependencies?: unknown
     askQuestion?: (request: QuestionRequest, signal?: AbortSignal) => Promise<QuestionAnswer>
     showDone?: (row?: unknown) => void

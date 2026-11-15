@@ -442,10 +442,11 @@ export class HomeOwner {
    * The harness hobkin starts its other agents with: its own, except where the Claude Code settings send them to
    * Claude Code. Should that fail to come together, hobkin builds its own as it always has, and every agent runs on Pi.
    */
-  private async agentHarness(): Promise<Pick<OpenOptions, 'runHarness'>> {
+  private async agentHarness(): Promise<Pick<OpenOptions, 'runHarness' | 'harnessWarms'>> {
     if (!this.options.claudeCode) return {}
     try {
-      return { runHarness: await agentHarness(this.options.claudeCode, (harnessId: string, signal?: AbortSignal) => this.runFor(harnessId, signal)) }
+      // A durable hobkin on Pi goes to hobkin's own harness untouched, so this one starts its process ahead as that one does.
+      return { harnessWarms: true, runHarness: await agentHarness(this.options.claudeCode, (harnessId: string, signal?: AbortSignal) => this.runFor(harnessId, signal)) }
     } catch {
       return {}
     }

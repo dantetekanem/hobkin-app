@@ -36,13 +36,22 @@ function eventsOf(root: string): Timing[] {
   return readdirSync(folder).flatMap((name) => readFileSync(join(folder, name), 'utf8').trim().split('\n').map((line) => JSON.parse(line) as Timing))
 }
 
+/** Waits for something that changes nothing in the window, so no message from the host says to look again. */
+async function eventually(passes: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + 15000
+  while (!passes()) {
+    if (Date.now() > deadline) throw Error(`Timed out waiting for ${what}.`)
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+}
+
 const inOrder = (stages: Record<string, number>, names: string[]) => {
   const values = names.map((name) => stages[name])
   assert.ok(values.every((value) => typeof value === 'number'), `every stage of ${names.join(', ')} in ${JSON.stringify(stages)}`)
   assert.deepEqual(values, values.toSorted((left, right) => left! - right!), `${names.join(' ≤ ')} in ${JSON.stringify(stages)}`)
 }
 
-test('real Pi turns write their stages from the window\'s send to the first text: the main chat and a durable hobkin', async (t) => {
+test('real Pi turns write their stages from the window\'s send to the first text: the main chat, a durable hobkin, and one whose process started ahead', async (t) => {
   const server = await fakeModelServer(t, () => ({ text: 'A reply from the model.' }))
   const agent = piFolderFor(t, server.baseUrl)
   process.env.PI_CODING_AGENT_DIR = agent
@@ -75,12 +84,20 @@ test('real Pi turns write their stages from the window\'s send to the first text
   const folder = temporaryDirectory(t)
   const engine = { kind: 'pi', model: 'deepseek/deepseek-flash', effort: 'high' }
   const { id } = await client.run<{ id: string }>('hobkin.start', { cwd: folder, engine, text: 'first turn' })
-  const waiting = (turns: number) => client.until(
-    (view) => (view.snapshot.hobkins ?? []).some((hobkin) => hobkin.id === id && hobkin.state === 'waiting' && hobkin.turns === turns), `the hobkin waiting after turn ${turns}`)
-  await waiting(1)
+  const durableTimings = () => eventsOf(root).filter((event) => event.type === 'run_performance' && event.kind === 'durable')
+  const waiting = (hobkin: string, turns: number) => client.until(
+    (view) => (view.snapshot.hobkins ?? []).some((item) => item.id === hobkin && item.state === 'waiting' && item.turns === turns), `the hobkin waiting after turn ${turns}`)
+  await waiting(id, 1)
   await client.run('hobkin.say', { id, text: 'second turn', sentAt: Date.now() })
-  await waiting(2)
-  await client.until(() => eventsOf(root).filter((event) => event.type === 'run_performance' && event.kind === 'durable').length === 2, 'both durable timings')
+  await waiting(id, 2)
+  await client.until(() => durableTimings().length === 2, 'both durable timings')
+
+  // One started from the New hobkin sheet has no first message yet, so its process starts while the user writes it.
+  const blank = await client.run<{ id: string }>('hobkin.start', { cwd: folder, engine })
+  await eventually(() => eventsOf(root).some((event) => event.type === 'kept_process_warmed'), 'the process started ahead')
+  await client.run('hobkin.say', { id: blank.id, text: 'first words', sentAt: Date.now() })
+  await waiting(blank.id, 1)
+  await client.until(() => durableTimings().length === 3, "the new hobkin's timing")
 
   const events = eventsOf(root)
   const timings = events.filter((event) => event.type === 'run_performance')
@@ -89,16 +106,24 @@ test('real Pi turns write their stages from the window\'s send to the first text
   inOrder(main.stages!, ['host', 'handed', 'admitted', 'prompted', 'started', 'requested', 'text', 'ended'])
   assert.equal(main.steps!.length, 1)
 
-  const [started, said] = timings.filter((event) => event.kind === 'durable')
+  const [started, said, ahead] = timings.filter((event) => event.kind === 'durable')
   assert.deepEqual([started!.engine, started!.model, started!.origin], ['pi', 'deepseek/deepseek-flash', 'run'])
   inOrder(started!.stages!, ['admitted', 'resolved', 'spawned', 'ready', 'prompted', 'started', 'requested', 'text', 'ended'])
   // The second turn finds the first one's process still up, so it starts none.
   assert.equal(said!.origin, 'window')
   inOrder(said!.stages!, ['host', 'admitted', 'resolved', 'prompted', 'started', 'requested', 'text', 'ended'])
   assert.deepEqual(['spawned', 'ready'].filter((stage) => stage in said!.stages!), [])
+  // Nor does the first turn of the one whose process was started ahead, and the model was asked nothing before it.
+  assert.equal(ahead!.origin, 'window')
+  inOrder(ahead!.stages!, ['host', 'admitted', 'resolved', 'prompted', 'started', 'requested', 'text', 'ended'])
+  assert.deepEqual(['spawned', 'ready'].filter((stage) => stage in ahead!.stages!), [])
+  assert.equal(events.filter((event) => event.type === 'kept_process_replaced').length, 0, 'the process started ahead was the one the turn would have started')
+  assert.equal(server.requests.length, 4, 'one model request for each turn, and none to start a process')
 
   // With a model that answers at once, what is left is hobkin's and Pi's own time.
   t.diagnostic(`\n${firstWordTable(summarizeFirstWord(events))}`)
-  for (const event of [main, started!, said!]) t.diagnostic(`${event.kind} (${event.origin}): ${JSON.stringify(event.stages)}`)
+  const warm = events.find((event) => event.type === 'kept_process_warmed') as { ms?: number } | undefined
+  t.diagnostic(`process started ahead in ${warm?.ms} ms`)
+  for (const event of [main, started!, said!, ahead!]) t.diagnostic(`${event.kind} (${event.origin}): ${JSON.stringify(event.stages)}`)
   assert.deepEqual(opened, [], 'nothing asked for a browser')
 })

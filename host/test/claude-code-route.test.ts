@@ -110,3 +110,14 @@ test('Claude Code missing fails the run with a reason instead of moving it to Pi
   assert.match(result.error, /Claude Code is not installed/)
   assert.deepEqual(calls, [], 'neither harness started')
 })
+
+test("a request to start a durable hobkin's Pi process ahead of its turn goes to Pi as given, whatever the settings", async () => {
+  // hobkin admits no run for it, so looking one up would wait for a run that never comes.
+  const ahead = { id: 'a1', harness: 'pi', purpose: 'durable', warm: true, cwd: '/tmp/project', sessionFile: '/tmp/a1.jsonl' }
+  for (const settings of [CLAUDE_CODE_DEFAULTS, changeClaudeCode(CLAUDE_CODE_DEFAULTS, { enabled: true })]) {
+    const { run, calls, lookups } = router(settings, runs)
+    assert.deepEqual(await run(ahead, undefined), { status: 'completed', via: 'pi' })
+    assert.deepEqual(calls.map((call) => [call.harness, call.request]), [['pi', ahead]])
+    assert.deepEqual(lookups, [])
+  }
+})
