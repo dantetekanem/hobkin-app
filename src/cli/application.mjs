@@ -6,6 +6,7 @@ import { HobkinRuntime, MAIN_BUSY, MAX_MESSAGE_BYTES, controlWait, descendantRec
 import { createOwnedLifecycle } from './owned-agent-lifecycle.mjs';
 import { HobkinRunner } from './runner.mjs';
 import { JobActivity } from './job-activity.mjs';
+import { TeamsAgents } from './teams-agents.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
 import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
 import { UsageLedger } from './usage.mjs';
@@ -172,6 +173,8 @@ export class HobkinApplication {
         this.jobActivity.set(id, new JobActivity({ now: this.now }));
       }
       this.jobActivity.get(id).accept(event);
+      // Read only, after the run's own feed has it. It catches its own errors.
+      this.teamsAgents?.observe(id, event);
       this.requestRefresh(true);
     } catch {
       /* Preview observers cannot fail a job. */
@@ -216,6 +219,8 @@ export class HobkinApplication {
     }
     runHarness ??= namingExtensions(readingUsage(defaultRunHarness));
     app.snapshot = readLocalView(root);
+    // The agents a run's own Pi starts with pi-extended-teams, shown and never controlled or counted (046-teams-layer).
+    app.teamsAgents = new TeamsAgents({ now: app.now, onChange: () => app.requestRefresh(true) });
     app.moods = new Moods({
       now: () => new Date(app.now()).getTime(),
       onChange: () => app.requestRefresh(),
@@ -379,6 +384,7 @@ export class HobkinApplication {
       ...this.snapshot,
       jobActivity: Object.fromEntries([...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()])),
       jobChildren: this.runtime.jobChildren(),
+      teamsAgents: this.teamsAgents?.snapshot() ?? {},
       mainActivity: this.runtime.mainActivity(),
       mainChildren: this.runtime.mainChildren(),
       busy: this.runtime.mainBusy,
@@ -667,6 +673,7 @@ export class HobkinApplication {
       ...visible,
       jobActivity,
       jobChildren,
+      teamsAgents: this.teamsAgents?.snapshot(active) ?? {},
       stopControls: this.runtime.stopControls(),
       steeringReceipts: this.runner.steeringReceipts(),
       completedJobReports,
@@ -1436,6 +1443,7 @@ export class HobkinApplication {
         this.moods?.stop();
         this.deletionWatcher?.close();
         this.tellWatcher?.close();
+        this.teamsAgents?.close();
         try {
           // The dashboard has just cancelled any open question, and a quit must not reach the agent as an answer.
           const children = this.runtime.ownedLifecycle?.close();

@@ -2649,3 +2649,26 @@ test('a message counts its turn from when the user sent it, when told when that 
   assert.equal(untimed.origin, 'host');
   assert.equal(Object.hasOwn(untimed.stages, 'host'), false);
 });
+
+test("a run's teams agents travel in teamsAgents, never in jobChildren", async t => {
+  const root = mkdtempSync(join(tmpdir(), 'teams-publication-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const config = initialize(root, { cwd: root });
+  const runtime = new HobkinRuntime(root, config, { ownedLifecycle: { snapshot: () => [] } });
+  const { TeamsAgents } = await import('../src/cli/teams-agents.mjs');
+  const app = new HobkinApplication();
+  app.runtime = runtime; app.snapshot = {}; app.now = () => 1000;
+  // No real ~/.pi: the reader gets a folder of its own and no timers.
+  app.teamsAgents = new TeamsAgents({ teamsDir: join(root, 'teams'), now: app.now, schedule: () => () => {} });
+  const spawn = [
+    { type: 'tool_execution_start', toolCallId: 'c', toolName: 'spawn_agent', args: { name: 'scout', prompt: 'Find it', model_slot: 'read-review' } },
+    { type: 'tool_execution_end', toolCallId: 'c', toolName: 'spawn_agent', isError: false, result: { content: [{ type: 'text', text: 'Started.' }], details: { name: 'scout', session: 'session-abc', queued: false } } },
+  ];
+  const copies = structuredClone(spawn);
+  for (const event of spawn) app.observeActivity('job', event);
+  app.publishActivity();
+  assert.deepEqual(app.snapshot.teamsAgents.job.map(({ name, state, task }) => [name, state, task]), [['scout', 'running', 'Find it']]);
+  assert.deepEqual(app.snapshot.jobChildren, {});
+  assert.deepEqual(spawn, copies, "the run's events reach the reader unchanged");
+  assert.equal(app.snapshot.jobActivity.job[0].name, 'spawn_agent', "the run's own feed still has the call as a step");
+});
