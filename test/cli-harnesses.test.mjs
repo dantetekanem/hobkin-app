@@ -897,6 +897,84 @@ test('a conversation closes its kept process on request, and other runs end thei
   }
 });
 
+/** A request to start a conversation's process ahead of its turn: what a turn sends, with no words. */
+const ahead = ({ prompt: _words, ...input }, n) => ({ ...input, id: turnId(n), warm: true });
+const warmed = root => readEvents(root).filter(event => event.type === 'kept_process_warmed');
+
+test("a durable conversation's process can be started ahead of its turn, which then only prompts it", { timeout: 5000 }, async t => {
+  const { processes, options } = keptPis();
+  const input = durableTurn(t, { model: 'test/model', directions: 'Be brief.', env: { HOBKIN_TURN: 'a'.repeat(32) } });
+  const start = await runHarness(ahead(input, 1), { ...options, metricsRoot: input.cwd });
+  assert.deepEqual([start.status, start.sessionId, start.model, start.text], ['warmed', 'pi-kept', 'test/model', '']);
+  assert.deepEqual(processes[0].commands, ['get_state'], 'nothing is asked of the model');
+  assert.equal(gone(processes[0].child), false, 'the process waits for the first turn');
+  const [{ at, type, ...facts }] = warmed(input.cwd);
+  assert.deepEqual(Object.keys(facts).toSorted(), ['id', 'ms']);
+  assert.ok(facts.id === turnId(1) && facts.ms >= 0);
+
+  const seen = [];
+  const first = await runHarness({ ...input, id: turnId(2), prompt: 'First.' }, { ...options, onEvent: event => seen.push(event), turn: { since: Date.now(), marks: {} } });
+  assert.deepEqual([first.status, first.text, processes.length], ['completed', 'Took: First.', 1]);
+  assert.deepEqual(processes[0].commands, ['get_state', 'prompt', 'get_session_stats']);
+  assert.deepEqual(['spawned', 'ready'].filter(stage => stage in first.performance.stages), [], 'the turn has no process start');
+  assert.deepEqual(texts(seen), ['Took: First.']);
+
+  // Asked again while one is kept with the same start, it leaves that one alone.
+  assert.equal((await runHarness(ahead(input, 3), options)).status, 'warmed');
+  assert.equal(processes.length, 1);
+});
+
+test('a turn that comes while its process is still starting ahead waits for it and takes it', { timeout: 5000 }, async t => {
+  const { processes, options } = keptPis();
+  const input = durableTurn(t);
+  const starting = runHarness(ahead(input, 1), options);
+  const again = runHarness(ahead(input, 2), options);
+  const first = await runHarness({ ...input, id: turnId(3), prompt: 'First.' }, options);
+  assert.deepEqual([first.status, first.text], ['completed', 'Took: First.']);
+  assert.deepEqual([(await starting).status, (await again).status], ['warmed', 'warmed']);
+  assert.equal(processes.length, 1, 'one process for the conversation, however the requests arrive');
+  assert.deepEqual(processes[0].commands, ['get_state', 'prompt', 'get_session_stats']);
+});
+
+test('a process started ahead with anything else than the turn starts with is replaced, and one that fails its check is not kept', { timeout: 10000 }, async t => {
+  const changed = keptPis();
+  const input = durableTurn(t, { model: 'test/model' });
+  assert.equal((await runHarness(ahead(input, 1), changed.options)).status, 'warmed');
+  const turn = await runHarness({ ...input, id: turnId(2), effort: 'high' }, changed.options);
+  assert.deepEqual([turn.status, changed.processes.length, gone(changed.processes[0].child)], ['completed', 2, true]);
+
+  // This Pi is on another model than the one asked for.
+  const wrong = keptPis();
+  const other = durableTurn(t, { model: 'test/model' });
+  const spawnOther = (command, args, options) => wrong.options.spawnProcess(command, args.map(arg => (arg === 'test/model' ? 'test/other' : arg)), options);
+  const failed = await runHarness(ahead(other, 3), { ...wrong.options, spawnProcess: spawnOther });
+  assert.equal(failed.status, 'failed');
+  assert.match(failed.error, /did not retain the requested model/);
+  await ended(wrong.processes[0].child);
+  assert.equal((await runHarness({ ...other, id: turnId(4) }, wrong.options)).status, 'completed');
+  assert.equal(wrong.processes.length, 2, 'the turn starts its own');
+
+  // A Pi that cannot start says so, and nothing is kept.
+  const missing = durableTurn(t);
+  const none = await runHarness(ahead(missing, 5), { spawnProcess: (command, args, options) => spawn(join(missing.cwd, 'no-such-pi'), args, options) });
+  assert.equal(none.status, 'failed');
+});
+
+test('closing a conversation stops a process that is still starting ahead, and only a durable conversation starts one', { timeout: 5000 }, async t => {
+  const { processes, options } = keptPis();
+  const input = durableTurn(t);
+  const starting = runHarness(ahead(input, 1), options);
+  await closeKept(input.sessionFile);
+  assert.equal((await starting).status, 'failed');
+  assert.ok(processes.every(({ child }) => gone(child)), 'nothing is left running');
+  assert.equal((await runHarness({ ...input, id: turnId(2) }, options)).status, 'completed');
+
+  const job = request(t);
+  assert.throws(() => buildInvocation({ ...ahead(job, 3) }), /Only a durable conversation/);
+  assert.throws(() => buildInvocation({ ...ahead(job, 3), purpose: 'work-do' }), /Only a durable conversation/);
+  assert.throws(() => buildInvocation({ ...input, prompt: undefined }), /Invalid harness request/);
+});
+
 test("a tool-using run records what its first model request was made of, as hashes and sizes and never the text", { timeout: 3000 }, async t => {
   const input = { ...request(t), purpose: 'work-do' };
   const status = statusText => ({ type: 'extension_ui_request', id: 'status', method: 'setStatus', statusKey: 'hobkin/prompt', statusText });

@@ -40,15 +40,18 @@ export function buildInvocation(request) {
   const maxPromptBytes = promptByteLimit();
   if (request.harness !== 'pi') throw Error('Execution requires an explicit Pi binding.');
   validateBinding(request);
-  if (!uuid.test(request.id) || !isAbsolute(request.cwd ?? '') || typeof request.prompt !== 'string'
-    || !request.prompt.trim()) {
+  // A request to start a conversation's process ahead of its turn (`warm`) has no words yet.
+  const warm = request.warm === true;
+  if (!uuid.test(request.id) || !isAbsolute(request.cwd ?? '')
+    || (!warm && (typeof request.prompt !== 'string' || !request.prompt.trim()))) {
     throw Error('Invalid harness request identity, cwd or bounded prompt.');
   }
-  assertPromptBytes(request.prompt, maxPromptBytes, 'harness prompt');
+  if (!warm) assertPromptBytes(request.prompt, maxPromptBytes, 'harness prompt');
   if (request.purpose !== undefined && !['migration-repair', 'reflection', 'session-patterns', 'compatibility-check', 'humanizer', 'durable', ...workPurposes].includes(request.purpose)) {
     throw Error('Unsupported harness purpose.');
   }
   const durable = request.purpose === 'durable';
+  if (warm && !durable) throw Error('Only a durable conversation starts its process ahead of a turn.');
   if (durable && request.directions !== undefined && (typeof request.directions !== 'string' || !request.directions.trim())) {
     throw Error('Invalid durable directions.');
   }
@@ -96,14 +99,40 @@ const MOST_KEPT = 4;
 const keptProcesses = new Map();
 // Kept processes still exiting, by conversation file, so a new one for that file starts only once the old one is gone.
 const closingProcesses = new Map();
+// Processes being started ahead of a turn (`startAhead`), by conversation file: when each is settled, and how to stop it.
+const startingAhead = new Map();
+// One that has not answered by then is closed. Nobody waits on it, so nothing else would end it.
+const START_AHEAD_LIMIT_MS = 60000;
 
 /** Records that come while no turn holds a kept process reach no turn, and a dialog is declined as it is in a turn. */
 const between = child => record => {
   if (record.type === 'extension_ui_request' && dialogMethods.has(record.method)) child.send({ type: 'extension_ui_response', id: record.id, cancelled: true });
 };
 
-/** Closes the process kept for this conversation file, if one is kept, and resolves once it, or one closed before, has exited. */
-export async function closeKept(sessionFile) {
+/** Whether a kept process is one this request can use: started with exactly this, and still up. */
+const usable = (kept, key) => kept?.key === key && !kept.child.failure && !kept.child.exited;
+
+/**
+ * Starts a Pi process whose records and failures go to `lane`, which whoever holds the process fills in: a turn while
+ * it runs, and `between` while the process is kept.
+ */
+function startOnLane(lane, { invocation, cwd, env, startProcess, spawnProcess, maxOutputBytes }) {
+  const child = startProcess({
+    ...invocation,
+    cwd,
+    env,
+    spawnProcess,
+    maxRecordBytes: maxOutputBytes,
+    maxKeptBytes: Math.min(maxOutputBytes, MAX_KEPT_RECORD_BYTES),
+    onRecord: record => lane.accept(record),
+    onFail: error => lane.fail(error),
+  });
+  child.closed.then(({ error }) => lane.fail(error));
+  return child;
+}
+
+/** Closes the process kept for this conversation file now, if one is kept. The promise is for its exit, or that of one closed before. */
+function closeNow(sessionFile) {
   const kept = keptProcesses.get(sessionFile);
   if (kept) {
     keptProcesses.delete(sessionFile);
@@ -114,22 +143,37 @@ export async function closeKept(sessionFile) {
     });
     closingProcesses.set(sessionFile, closed);
   }
-  await closingProcesses.get(sessionFile);
+  return closingProcesses.get(sessionFile);
 }
 
 /**
- * The kept process a turn takes: one started with exactly what this turn would start its own with. Any other kept for the
- * conversation has exited before this resolves, so two processes never share the file. A process a turn holds is never kept.
+ * Closes the process kept for this conversation file, if one is kept, and stops one still starting ahead of a turn.
+ * It resolves once that process, or one closed before, has exited.
+ */
+export async function closeKept(sessionFile) {
+  const starting = startingAhead.get(sessionFile);
+  if (starting) {
+    starting.stop();
+    await starting.settled;
+  }
+  await closeNow(sessionFile);
+}
+
+/**
+ * The kept process a turn takes: one started with exactly what this turn would start its own with. One still starting
+ * ahead is waited for. Any other kept for the conversation has exited before this resolves, so two processes never
+ * share the file. A process a turn holds is never kept.
  */
 async function takeKept(sessionFile, key, onReplaced) {
+  await startingAhead.get(sessionFile)?.settled;
   const kept = keptProcesses.get(sessionFile);
-  if (kept?.key === key && !kept.child.failure && !kept.child.exited) {
+  if (usable(kept, key)) {
     keptProcesses.delete(sessionFile);
     clearTimeout(kept.timer);
     return kept;
   }
   if (kept && kept.key !== key) onReplaced?.(keptDifference(kept.key, key));
-  await closeKept(sessionFile);
+  await closeNow(sessionFile);
 }
 
 /**
@@ -158,8 +202,8 @@ export function keptDifference(keptKey, wantedKey) {
 /** Keeps a process after its turn. One that exits on its own is forgotten, and past the most kept the one idle longest goes. */
 function keep(sessionFile, kept, idleMs) {
   Object.assign(kept.lane, { accept: between(kept.child), fail: () => {} });
-  void closeKept(sessionFile);
-  kept.timer = setTimeout(() => void closeKept(sessionFile), idleMs);
+  void closeNow(sessionFile);
+  kept.timer = setTimeout(() => void closeNow(sessionFile), idleMs);
   kept.timer.unref();
   keptProcesses.set(sessionFile, kept);
   kept.child.closed.then(() => {
@@ -167,7 +211,95 @@ function keep(sessionFile, kept, idleMs) {
     keptProcesses.delete(sessionFile);
     clearTimeout(kept.timer);
   });
-  if (keptProcesses.size > MOST_KEPT) void closeKept(keptProcesses.keys().next().value);
+  if (keptProcesses.size > MOST_KEPT) void closeNow(keptProcesses.keys().next().value);
+}
+
+/** The model a started process is on, once it is seen to hold the thinking level and the model that were asked for. */
+function heldModel(request, state) {
+  const effortHeld = workPurposes.includes(request.purpose)
+    ? keptEffort(state?.model, request.effort, state?.thinkingLevel)
+    : state?.thinkingLevel === request.effort;
+  if (!state?.sessionId || !effortHeld) {
+    throw Error('Pi did not retain the requested effort; no prompt was submitted.');
+  }
+  const model = state.model && `${state.model.provider}/${state.model.id}`;
+  if (!model || (request.model?.includes('/') && request.model !== model)) {
+    throw Error('Pi did not retain the requested model; no prompt was submitted.');
+  }
+  return model;
+}
+
+/**
+ * Starts a durable conversation's process ahead of its next turn and keeps it, so that turn only prompts it
+ * (`warm: true` on the request). One already kept with the same start is left alone, and a second request while one
+ * starts gets the first one's answer. A turn that comes while it starts waits for it (`takeKept`). The caller asks only
+ * while no turn of the conversation runs.
+ */
+function startAhead(request, context) {
+  const { sessionFile } = request;
+  const already = startingAhead.get(sessionFile);
+  if (already) return already.settled;
+
+  const kept = keptProcesses.get(sessionFile);
+  if (usable(kept, context.key)) {
+    const model = heldModel(request, kept.state);
+    return Promise.resolve({ ...context.result, status: 'warmed', sessionId: kept.state.sessionId, model });
+  }
+
+  // `stop` reaches it wherever it has got to: before its process exists, or while that process is asked for its state.
+  const starting = {
+    stopped: false,
+    child: undefined,
+    stop() {
+      this.stopped = true;
+      this.child?.terminate();
+    },
+  };
+  starting.settled = startAndKeep(request, context, starting).finally(() => {
+    if (startingAhead.get(sessionFile) === starting) startingAhead.delete(sessionFile);
+  });
+  startingAhead.set(sessionFile, starting);
+  return starting.settled;
+}
+
+/**
+ * The work of `startAhead`: the process is started, checked as a turn checks its own, and kept. Nothing is asked of the
+ * model. One that fails its start or its check, is stopped meanwhile or does not answer in time is closed and not kept,
+ * and the turn then starts its own.
+ */
+async function startAndKeep(request, { invocation, env, key, result, startProcess, spawnProcess, maxOutputBytes, keepIdleMs, metricsRoot }, starting) {
+  const { sessionFile } = request;
+  const began = Date.now();
+  await closeNow(sessionFile);
+  if (starting.stopped) return { ...result, error: 'Closed before it started.' };
+
+  const lane = { accept: () => {}, fail: () => {} };
+  let child;
+  try {
+    child = startOnLane(lane, { invocation, cwd: request.cwd, env, startProcess, spawnProcess, maxOutputBytes });
+  } catch (error) {
+    return { ...result, error: clean(error.message) };
+  }
+  starting.child = child;
+  lane.accept = between(child);
+  const limit = setTimeout(() => child.terminate(), START_AHEAD_LIMIT_MS);
+  limit.unref();
+
+  try {
+    const state = await child.request('get_state');
+    const model = heldModel(request, state);
+    if (starting.stopped) throw Error('Closed before its turn.');
+
+    keep(sessionFile, { child, key, state, lane }, keepIdleMs);
+    if (metricsRoot) recordEvent(metricsRoot, 'kept_process_warmed', { id: request.id, ms: Date.now() - began });
+    return { ...result, status: 'warmed', sessionId: state.sessionId, model };
+  } catch (error) {
+    child.terminate();
+    await child.closed;
+    return { ...result, error: clean((child.failure ?? error).message).slice(0, 2000) };
+  } finally {
+    clearTimeout(limit);
+  }
 }
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
@@ -192,6 +324,9 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
   const env = { ...piEnvironment(request.launcher), ...request.env };
   // Everything a durable turn's process starts with. The conversation's next turn reuses it only when all of it is the same.
   const key = durable && JSON.stringify([invocation.command, invocation.args, request.cwd, env]);
+  if (request.warm === true) {
+    return startAhead(request, { invocation, env, key, result, startProcess, spawnProcess, maxOutputBytes, keepIdleMs, metricsRoot });
+  }
   const reused = durable ? await takeKept(request.sessionFile, key, difference => {
     if (metricsRoot) recordEvent(metricsRoot, 'kept_process_replaced', { id: request.id, ...difference });
   }) : undefined;
@@ -282,18 +417,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
   try {
     if (reused) child = reused.child;
     else {
-      child = startProcess({
-        ...invocation,
-        cwd: request.cwd,
-        env,
-        spawnProcess,
-        maxRecordBytes: maxOutputBytes,
-        maxKeptBytes: Math.min(maxOutputBytes, MAX_KEPT_RECORD_BYTES),
-        onRecord: record => lane.accept(record),
-        onFail: error => lane.fail(error),
-      });
+      child = startOnLane(lane, { invocation, cwd: request.cwd, env, startProcess, spawnProcess, maxOutputBytes });
       spawned = Date.now();
-      child.closed.then(({ error }) => lane.fail(error));
     }
     if (durable) child.closed.then(released.resolve);
     onControl(durable ? lease : child);
@@ -308,16 +433,7 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
   try {
     // A kept process was checked when it started, and nothing it was started with has changed.
     state = reused?.state ?? await child.request('get_state');
-    const effortHeld = workPurposes.includes(request.purpose)
-      ? keptEffort(state?.model, request.effort, state?.thinkingLevel)
-      : state?.thinkingLevel === request.effort;
-    if (!state?.sessionId || !effortHeld) {
-      throw Error('Pi did not retain the requested effort; no prompt was submitted.');
-    }
-    const model = state.model && `${state.model.provider}/${state.model.id}`;
-    if (!model || (request.model?.includes('/') && request.model !== model)) {
-      throw Error('Pi did not retain the requested model; no prompt was submitted.');
-    }
+    const model = heldModel(request, state);
     result.sessionId = state.sessionId;
     result.model = model;
     metricIdentity = Object.freeze({ runId: request.id, sessionId: state.sessionId });

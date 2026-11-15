@@ -14,6 +14,7 @@ import { main } from '../src/cli/main.mjs';
 import { runTellCommand, takeTellRequests, tellRequests } from '../src/cli/hobkin-tell.mjs';
 import lockfile from 'proper-lockfile';
 import { drawCanvas, readCanvases } from '../src/cli/canvas.mjs';
+import { readEvents } from '../src/cli/events.mjs';
 import { readReport, savedReportPath } from '../src/cli/reports.mjs';
 import { allCardActions } from '../src/cli/work/card-actions.mjs';
 import { durableDirections } from '../src/cli/hobkins.mjs';
@@ -1147,4 +1148,90 @@ test('a durable hobkin on Pi keeps one process for its turns, and ending it or c
   assert.deepEqual([processes.length, gone(processes[1].child)], [2, false]);
   await app.close();
   assert.ok(gone(processes[1].child), 'closing hobkin closes every process it kept');
+});
+
+/**
+ * hobkin with a harness that starts a durable hobkin's process ahead of its turn when asked, as hobkin's own does.
+ * Pi is the kept Pi above, and `asked` holds every request the harness was given.
+ */
+async function appThatStartsAhead(t, h) {
+  const processes = [];
+  const asked = [];
+  const spawnProcess = (command, args, options) => {
+    const child = spawn(process.execPath, ['--input-type=module', '-e', keptPi, '--', ...args], options);
+    processes.push({ child, env: options.env });
+    return child;
+  };
+  const harness = (request, options) => {
+    asked.push(request);
+    if (request.harness !== 'pi') return { status: 'completed', text: 'On Claude Code.', cost: null, sessionId: null };
+    return runHarness(request, { ...options, spawnProcess });
+  };
+  const app = await h.openApp({ runHarness: harness, harnessWarms: true });
+  t.after(() => app.close());
+  return { app, processes, asked };
+}
+
+const startedAhead = root => readEvents(root).filter(event => event.type === 'kept_process_warmed');
+const PI_ENGINE = { kind: 'pi', model: 'test/model', effort: 'medium' };
+
+test('a hobkin started with no message starts its Pi process at once, and its first message only prompts it', async t => {
+  const h = fixture(t);
+  const { app, processes, asked } = await appThatStartsAhead(t, h);
+
+  const { id, run } = await app.hobkins.start({ cwd: h.folder, engine: PI_ENGINE });
+  await until(() => startedAhead(h.root).length === 1);
+
+  assert.equal(run, null, 'no turn runs until it is given something to do');
+  assert.equal(processes.length, 1);
+  const fresh = (await app.hobkins.read(id)).hobkin;
+  assert.deepEqual([fresh.state, fresh.turns, fresh.run, fresh.waiting?.seen], ['waiting', 0, null, true], 'it still waits untold');
+  const runs = Object.values((await app.runtime.state()).runs);
+  assert.equal(runs.some(item => item.hobkin?.id === id), false, 'and no run was recorded for the start');
+
+  const first = await app.hobkins.say(id, { text: 'First.' });
+  const waiting = await waitingNow(app, id);
+
+  assert.equal(waiting.last.said, 'Took: First.');
+  assert.equal(processes.length, 1, 'the first turn ran in the process started ahead');
+  const { stages } = (await app.runtime.state()).runs[first.run].performance;
+  assert.equal('spawned' in stages, false);
+  // The process started ahead holds the token its turns are named by, so `hobkin tell` from it is sent as this hobkin.
+  const [ahead, turn] = asked;
+  assert.deepEqual([ahead.warm, ahead.prompt, turn.warm, turn.prompt], [true, undefined, undefined, 'First.']);
+  assert.equal(ahead.env.HOBKIN_TURN, turn.env.HOBKIN_TURN);
+
+  // A message that comes before the process is up waits for it and uses it.
+  const quick = await app.hobkins.start({ cwd: h.folder, engine: PI_ENGINE });
+  await app.hobkins.say(quick.id, { text: 'At once.' });
+  assert.equal((await waitingNow(app, quick.id)).last.said, 'Took: At once.');
+  assert.equal(processes.length, 2, 'one process for the second hobkin too');
+});
+
+test('nothing is started ahead for a hobkin with its first message or one on Claude Code, and ending one stops a process still starting', async t => {
+  const h = fixture(t);
+  const { app, processes, asked } = await appThatStartsAhead(t, h);
+
+  const told = await app.hobkins.start({ text: 'Now.', cwd: h.folder, engine: PI_ENGINE });
+  await waitingNow(app, told.id);
+  const claude = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'claude' } });
+
+  assert.equal((await app.hobkins.read(claude.id)).hobkin.state, 'waiting');
+  assert.deepEqual(asked.map(request => [request.harness, request.warm]), [['pi', undefined]], 'only the turn was asked for');
+
+  const ended = await app.hobkins.start({ cwd: h.folder, engine: PI_ENGINE });
+  await app.hobkins.end(ended.id);
+  await app.hobkins.start({ cwd: h.folder, engine: PI_ENGINE });
+  await until(() => startedAhead(h.root).length === 1);
+  const toldProcess = processes[0];
+  const lastProcess = processes.at(-1);
+  // The ended hobkin's process is here only if it got as far as starting before the end stopped it.
+  const endedProcesses = processes.slice(1, -1);
+
+  assert.equal(gone(toldProcess.child), false, "the first hobkin's process is kept for its next turn");
+  assert.equal(gone(lastProcess.child), false, "the last hobkin's process is up");
+  assert.ok(endedProcesses.every(({ child }) => gone(child)), "the ended hobkin's process is gone");
+
+  await app.close();
+  assert.ok(processes.every(({ child }) => gone(child)), 'closing hobkin closes every process, started ahead or kept');
 });

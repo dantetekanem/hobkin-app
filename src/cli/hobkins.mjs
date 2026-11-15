@@ -222,9 +222,12 @@ export class Hobkins {
   // The main agent's turn and the counts it may spend from: `from` each sender's it was woken for, `own` a fresh one.
   mainChain = null;
 
-  /** `config` gives hobkin's configuration as it was opened; a turn reads the tiers fresh and falls back to it. */
-  constructor({ runtime, runner, root, config, now = Date.now }) {
-    Object.assign(this, { runtime, runner, root, config, now });
+  /**
+   * `config` gives hobkin's configuration as it was opened; a turn reads the tiers fresh and falls back to it. `warms`
+   * says the runner's harness takes a request to start a process ahead of its turn (`warm` below).
+   */
+  constructor({ runtime, runner, root, config, now = Date.now, warms = false }) {
+    Object.assign(this, { runtime, runner, root, config, now, warms });
   }
 
   at() { return new Date(this.now()).toISOString(); }
@@ -296,7 +299,53 @@ export class Hobkins {
     });
     if (!record) throw Error(`There are already ${MOST_HOBKINS} hobkins. End one first.`);
     if (asked) this.startTurn(record, asked);
+    // The user writes its first message next, so its process starts while they do.
+    else this.warm(record);
     return { id: record.id, run: record.run };
+  }
+
+  /** A hobkin's token: the same for all its turns while hobkin runs, so a process kept between them keeps its environment. */
+  tokenOf(id) {
+    const token = this.hobkinTokens.get(id) ?? turnToken();
+    this.hobkinTokens.set(id, token);
+    return token;
+  }
+
+  /**
+   * What a hobkin's process is started with on this binding. A turn and a process started ahead of it are both given
+   * this, so the turn finds that process started as its own would be.
+   */
+  processStart(record, { harness, model, effort }) {
+    return {
+      harness,
+      model,
+      effort,
+      cwd: record.cwd,
+      sessionFile: record.sessionFile,
+      purpose: 'durable',
+      directions: durableDirections(record.id),
+      // The token says who the process is, and the home is where `hobkin tell` reaches hobkin.
+      env: { [TURN_TOKEN]: this.tokenOf(record.id), [TURN_HOME]: this.root },
+    };
+  }
+
+  /**
+   * Starts a waiting hobkin's Pi process ahead of its next turn, so the turn only prompts it (`startAhead` in
+   * `harnesses.mjs`). Nothing waits for it, no run is recorded and nothing is asked of the model. If it fails nothing is
+   * said: the turn starts its own process, as it did before.
+   */
+  warm(record) {
+    if (!this.warms || this.runner.stopped) return;
+    try {
+      const binding = this.binding(record.engine);
+      if (binding.harness !== 'pi') return;
+
+      mkdirSync(join(this.root, 'hobkins'), { recursive: true, mode: 0o700 });
+      const request = { ...this.processStart(record, binding), id: randomUUID(), warm: true };
+      Promise.resolve(this.runner.runHarness(request)).catch(() => {});
+    } catch {
+      // A tier that cannot be read now, or a folder that cannot be made: the turn says so when it comes.
+    }
   }
 
   /**
@@ -371,8 +420,7 @@ export class Hobkins {
     const n = record.turns;
     const runId = turnRunId(record.id, n);
     const { harness, model, effort, tier } = this.binding(record.engine);
-    const token = this.hobkinTokens.get(record.id) ?? turnToken();
-    this.hobkinTokens.set(record.id, token);
+    const token = this.tokenOf(record.id);
     this.tokens.set(token, { id: record.id, run: runId });
     const resume = record.engine.kind === 'claude' && record.engineSession ? record.engineSession : undefined;
     // What the user chose for Claude Code, for the host that runs it. None when they chose nothing.
@@ -398,9 +446,9 @@ export class Hobkins {
       }
       mkdirSync(join(this.root, 'hobkins'), { recursive: true, mode: 0o700 });
       return this.runner.runHarness({
-        id: harnessId, harness, cwd: record.cwd, model, effort, prompt: from ? messageBlock(from, asked) : asked,
-        sessionFile: record.sessionFile, purpose: 'durable', directions: durableDirections(record.id),
-        env: { [TURN_TOKEN]: token, [TURN_HOME]: this.root },
+        ...this.processStart(record, { harness, model, effort }),
+        id: harnessId,
+        prompt: from ? messageBlock(from, asked) : asked,
         ...(resume ? { resume } : {}),
         ...(Object.keys(claude).length ? { claude } : {}),
         signal,

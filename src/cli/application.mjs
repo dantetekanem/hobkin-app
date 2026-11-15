@@ -200,12 +200,14 @@ export class HobkinApplication {
     });
   }
 
-  static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
+  static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, harnessWarms, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
     app.now = () => new Date(now?.() ?? Date.now()).getTime();
     app.config = loadConfig(root);
+    // hobkin's own harness starts a durable hobkin's process ahead of its turn when asked. One that is given says whether it does.
+    const warms = harnessWarms ?? runHarness === undefined;
     // Every job starts its Pi through the configured launcher, which owns Pi's extensions; without one Hobkin names them.
     const { launcher } = app.config;
     if (launcher) {
@@ -285,7 +287,7 @@ export class HobkinApplication {
           app.presentDecision();
         },
       });
-      app.hobkins = new Hobkins({ runtime: app.runtime, runner: app.runner, root: app.runtime.directory, config: () => app.config, now: app.now });
+      app.hobkins = new Hobkins({ runtime: app.runtime, runner: app.runner, root: app.runtime.directory, config: () => app.config, now: app.now, warms });
       Object.assign(app, { askQuestion, showDone, showRow, presence });
       app.landOffers = new LandOffers({
         file: decision => fileDecision(app.runtime.directory, decision, app.now()),
