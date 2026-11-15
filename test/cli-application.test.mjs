@@ -1429,7 +1429,9 @@ for (const status of ['completed', 'failed', 'interrupted']) {
       app.observeActivity('ending', { type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Final assistant text\n' }] } });
       await app.runtime.finish('ending', { status, text: 'Useful: Fixture report.' });
       const terminal = await app.refresh();
-      assert.deepEqual(terminal.jobActivity.ending, [
+      // Each entry says when hobkin first saw it (`cli-job-activity.test.mjs`).
+      assert.ok(terminal.jobActivity.ending.every(entry => Number.isFinite(entry.at)));
+      assert.deepEqual(terminal.jobActivity.ending.map(({ at, ...entry }) => entry), [
         { id: 'message:1:0', kind: 'assistant', text: 'Final assistant text\n' },
         { id: 'tool:read', kind: 'tool', name: 'read', state: status === 'failed' ? 'failed' : 'completed', input: '{\n  "path": "fixture.txt"\n}', output: 'Final tool output\n' },
       ]);

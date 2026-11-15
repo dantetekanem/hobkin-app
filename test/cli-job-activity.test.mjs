@@ -37,6 +37,32 @@ for (const [boundary, markHidden] of [
   });
 }
 
+test('each entry keeps when hobkin first saw it, and what comes after never moves it', () => {
+  const start = Date.UTC(2026, 10, 14, 19, 26, 5);
+  let now = start;
+  const feed = new JobActivity({ now: () => now });
+  feed.accept({ type: 'message_start', message: { role: 'assistant' } });
+  feed.accept(update('text_delta', { delta: 'Looking' }));
+  now += 2000;
+  feed.accept(update('text_delta', { delta: ' around.' }));
+  feed.accept({ type: 'message_end', message: { role: 'assistant', content: [
+    { type: 'text', text: 'Looking around.' },
+    { type: 'toolCall', id: 't', name: 'bash', arguments: { command: 'ls' } },
+  ] } });
+  now += 1000;
+  feed.accept({ type: 'tool_execution_start', toolCallId: 't', toolName: 'bash', args: { command: 'ls' } });
+  now += 4000;
+  feed.accept({ type: 'tool_execution_end', toolCallId: 't', toolName: 'bash', isError: false, result: { content: [{ type: 'text', text: 'a' }] } });
+  assert.deepEqual(feed.snapshot().map(entry => [entry.id, entry.at]), [['message:1:0', start], ['tool:t', start + 2000]]);
+
+  // Without a clock of its own it reads the system's.
+  const plain = new JobActivity();
+  const before = Date.now();
+  plain.accept({ type: 'tool_execution_start', toolCallId: 'r', toolName: 'read', args: { path: 'a' } });
+  const { at } = plain.snapshot()[0];
+  assert.ok(at >= before && at <= Date.now());
+});
+
 test('public custom messages preserve complete Unicode display history', () => {
   const feed = new JobActivity();
   const text = '🌍你好'.repeat(12000);
@@ -61,7 +87,7 @@ test('compact RPC reconciles text and tool snapshots without duplicating streame
   feed.accept({ type: 'message_start', message: { role: 'assistant' } });
   feed.accept(update('text_delta', { delta: 'Next' }));
   const entries = feed.snapshot();
-  assert.deepEqual(entries.map(({ id, ...entry }) => entry), [
+  assert.deepEqual(entries.map(({ id, at, ...entry }) => entry), [
     { kind: 'assistant', text: 'Hello!' }, { kind: 'tool', name: 'read', state: 'failed', input: '{\n  "path": "file.txt"\n}', output: 'Failed to read' },
     { kind: 'assistant', text: 'Next' },
   ]);

@@ -95,9 +95,21 @@ export class JobActivity {
   message = 0;
   hidden = false;
 
-  /** `most` keeps only the latest entries, for a feed with no end such as the main chat's. */
-  constructor({ most = Infinity } = {}) {
+  /**
+   * `most` keeps only the latest entries, for a feed with no end such as the main chat's. `now` is the clock each
+   * entry is stamped with when it is first seen (`at`, milliseconds since the epoch), so the window can say when it happened.
+   */
+  constructor({ most = Infinity, now = Date.now } = {}) {
     this.most = most;
+    this.now = now;
+  }
+
+  /** A new entry, stamped with when it was first seen. A clock that gives no time leaves the stamp out. */
+  add(entry) {
+    const at = this.now();
+    if (Number.isFinite(at)) entry.at = at;
+    this.entries.push(entry);
+    return entry;
   }
 
   accept(event) {
@@ -113,10 +125,7 @@ export class JobActivity {
     if (!Number.isInteger(index) || index < 0 || typeof value !== 'string') return;
     const id = `message:${this.message}:${index}`;
     let entry = this.entries.find(item => item.id === id);
-    if (!entry) {
-      entry = { id, kind: 'assistant', text: '' };
-      this.entries.push(entry);
-    }
+    if (!entry) entry = this.add({ id, kind: 'assistant', text: '' });
     const previousText = append ? entry.text : '';
     entry.text = clean(previousText + clean(value));
   }
@@ -127,8 +136,7 @@ export class JobActivity {
     let entry = this.entries.find(item => item.id === key);
     if (!entry) {
       if (typeof name !== 'string' || !name) return;
-      entry = { id: key, kind: 'tool', name: clean(name), state };
-      this.entries.push(entry);
+      entry = this.add({ id: key, kind: 'tool', name: clean(name), state });
     }
     entry.state = state;
     if (input !== undefined) entry.input = inputText(input);
