@@ -1,6 +1,7 @@
 import type { ActivityEntry } from './activity.ts'
 import type { ExecutionTarget } from '../commands/registry.ts'
 import type { HobkinSummary } from './hobkins.ts'
+import type { TeamsAgents } from './teams.ts'
 
 /**
  * hobkin's snapshot as it travels to the UI. hobkin builds it in `src/cli/application.mjs` (`project`).
@@ -203,6 +204,8 @@ export interface WireSnapshot {
   jobChildren?: Record<string, readonly RunChild[]>
   /** Main chat's bounded descendants. Owned lifecycle states are independent of legacy teams reports. */
   mainChildren?: readonly RunChild[]
+  /** The agents each run's own Pi started with pi-extended-teams, by run id. Display only, never helpers (`046-teams-layer`). */
+  teamsAgents?: TeamsAgents
   /** The main chat's latest words and tool calls, as a job's are kept (`mainActivity` in hobkin's runtime). A reset starts it over. */
   mainActivity?: readonly ActivityEntry[]
   context?: { compacting?: boolean; percent?: number | null }

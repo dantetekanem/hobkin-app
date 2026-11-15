@@ -15,6 +15,7 @@ import { TaskList } from '@/features/agent-activity/TaskList.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { useNow } from '@/features/chat/use-now.ts'
+import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { agentsFrom } from '@/lib/host/frame.ts'
@@ -120,13 +121,16 @@ export function AgentScreen() {
               <motion.div
                 key="helpers"
                 // In a row of their own, so helpers and tasks arriving never move the exchange below.
-                className="absolute inset-x-[10%] flex justify-center"
+                className="absolute inset-x-[10%] flex justify-center gap-3"
                 style={{ top: HELPERS_TOP }}
                 initial={holdStill({ opacity: 0 }, still)}
                 animate={holdStill({ opacity: 1, transition: agentEntry(still) }, still)}
                 exit={holdStill({ opacity: 0, transition: tween.exit }, still)}
               >
                 <HelpersStrip runId={agentId} hue={agent.hue} />
+                {/* The agents its own Pi started with pi-extended-teams: shown, never controlled (046-teams-layer). A spawn
+                    call is a step, so a run that has any is always read here. */}
+                <TeamsStrip runs={[agentId]} hue={agent.hue} runName={agent.title} variant="line" />
                 <TaskList entries={activity?.entries} hue={agent.hue} />
               </motion.div>
             ) : null}

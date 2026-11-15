@@ -15,6 +15,7 @@ import { StepItem } from '@/features/agent-activity/StepView.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { MessageText } from '@/features/chat/markdown.ts'
+import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { AgentStopControl, upToAgents, walkSteps } from '@/features/work/AgentScreen.tsx'
 import { doingOf, folderName, hasHost, hueOf } from '@/lib/host/frame.ts'
@@ -157,6 +158,10 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
       exit={{ opacity: 0, transition: tween.exit }}
     >
       <Header id={id} hobkin={hobkin} state={state} mood={mood} split={split} />
+      {/* The agents its turns started with pi-extended-teams, as long as hobkin holds those turns: shown, never controlled (046-teams-layer). */}
+      <div className="flex shrink-0 justify-center px-[10%]">
+        <TeamsStrip runs={[...turns.map((turn) => turn.run), hobkin?.run]} hue={hueOf(id)} runName={hobkin?.title ?? 'This hobkin'} variant="rows" className="pb-2" />
+      </div>
       {/* The tasks of the turn in flight, as one line that stays in sight above the conversation and opens over it. */}
       <div className="relative z-10 flex shrink-0 justify-center px-[10%]">
         <TaskList entries={activity?.entries} hue={hueOf(id)} />
