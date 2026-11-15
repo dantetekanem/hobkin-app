@@ -16,7 +16,8 @@ import { CodeText, MoreButton } from './CodeText.tsx'
 import { BOX } from './boxes.ts'
 import { CodemodeCall } from './CodemodeCall.tsx'
 import { previewOf } from './preview.ts'
-import { foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
+import { RowStamp, Stamped } from './Stamp.tsx'
+import { atOf, foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
 import { useUnfold } from './unfold.ts'
 import { useNear } from './use-colors.ts'
 import type { EntryTime } from './use-agent-activity.ts'
@@ -55,7 +56,10 @@ export const StepItem = memo(
           step.kind === 'says' ? '[contain-intrinsic-size:auto_56px]' : '[contain-intrinsic-size:auto_44px]',
         )}
       >
-        <StepBody step={step} timeOf={timeOf} />
+        {/* On a page that shows times, the step's first row has its time beside it. A group of commands times each of its rows. */}
+        <Stamped at={step.kind === 'shell' ? undefined : atOf(step)} line={step.kind === 'says' ? 'text' : 'row'}>
+          <StepBody step={step} timeOf={timeOf} />
+        </Stamped>
       </motion.li>
     )
   },
@@ -161,8 +165,8 @@ function FoldRow({ icon: Icon, open, onToggle, children, failed = false }: { ico
 function Opened({ children }: { children: ReactNode[] }) {
   const still = useStill()
   return (
-    // Lined up under the row's words, past its icon.
-    <ul className="flex flex-col gap-1 pl-[22px]">
+    // Lined up under the row's words, past its icon. The times of its items reach back past the indent (Stamp.tsx).
+    <ul className="flex flex-col gap-1 pl-[22px] [--aa-indent:22px]">
       {children.map((child, index) => (
         <motion.li
           key={index}
@@ -190,12 +194,16 @@ function ShellGroup({ commands, timeOf }: { commands: Command[]; timeOf: TimeOf 
     <div className="flex flex-col gap-1.5">
       {folded.length ? (
         <>
-          <FoldRow icon={SquareTerminal} open={open} onToggle={toggle}>
-            <span className="shrink-0 font-medium">
-              <Count value={folded.length} /> {folded.length === 1 ? 'command' : 'commands'}
-            </span>
-            <span className="truncate font-mono text-[12px] text-muted-foreground">{folded.map((command) => firstLine(command.command)).join(' · ')}</span>
-          </FoldRow>
+          {/* A column, so the row stretches across it as it did without its time. */}
+          <div className="relative flex flex-col">
+            <RowStamp at={folded[0]!.at} line="row" />
+            <FoldRow icon={SquareTerminal} open={open} onToggle={toggle}>
+              <span className="shrink-0 font-medium">
+                <Count value={folded.length} /> {folded.length === 1 ? 'command' : 'commands'}
+              </span>
+              <span className="truncate font-mono text-[12px] text-muted-foreground">{folded.map((command) => firstLine(command.command)).join(' · ')}</span>
+            </FoldRow>
+          </div>
           {open ? <Opened>{folded.map((command) => <CommandCard key={command.id} command={command} time={timeOf(command.id)} />)}</Opened> : null}
         </>
       ) : null}
@@ -234,11 +242,12 @@ function CommandCard({ command, time }: { command: Command; time?: EntryTime }) 
     <div
       ref={box}
       className={cn(
-        'min-w-0 rounded-2xl bg-code-bg text-code-text',
+        'relative min-w-0 rounded-2xl bg-code-bg text-code-text',
         // A hairline, so the card stands off a canvas of nearly its own color. A failed one also carries a red edge.
         command.state === 'failed' ? 'shadow-[inset_3px_0_0_var(--hb-bad),inset_0_0_0_1px_var(--hb-border)]' : 'shadow-[inset_0_0_0_1px_var(--hb-border)]',
       )}
     >
+      <RowStamp at={command.at} line="card" />
       <button
         type="button"
         data-step-toggle
@@ -402,13 +411,15 @@ function LookItem({ look }: { look: Look }) {
   const { open, toggle } = useBlock('looks')
   if (!look.text) {
     return (
-      <div className="py-0.5 text-[13px]">
+      <div className="relative py-0.5 text-[13px]">
+        <RowStamp at={look.at} line="item" />
         <LookLine look={look} />
       </div>
     )
   }
   return (
-    <div className="flex flex-col gap-1 py-0.5 text-[13px]">
+    <div className="relative flex flex-col gap-1 py-0.5 text-[13px]">
+      <RowStamp at={look.at} line="item" />
       <button
         type="button"
         data-step-toggle

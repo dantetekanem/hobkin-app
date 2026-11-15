@@ -9,6 +9,7 @@ import type { Mood } from '@/avatar/moods.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { doingNow, exchangeOf, pauseOf, stepCount, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
+import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
 import { TaskList } from '@/features/agent-activity/TaskList.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
@@ -519,10 +520,10 @@ export function walkSteps(event: KeyboardEvent<HTMLOListElement>) {
 }
 
 /**
- * The whole exchange, drawn while it is read: the agent's steps with the user's messages where they were sent. It fills
- * the room between the shrunken header and the input, opens at its newest step, just above the input, and stays there
- * as steps arrive, unless the user has scrolled up to read, and then offers the way back down. Each step is drawn only
- * while it is in view, so a long run costs what fits on screen.
+ * The whole exchange, drawn while it is read: the agent's steps with the user's messages where they were sent, each
+ * with when it happened in a column at its left. It fills the room between the shrunken header and the input, opens at
+ * its newest step, just above the input, and stays there as steps arrive, unless the user has scrolled up to read, and
+ * then offers the way back down. Each step is drawn only while it is in view, so a long run costs what fits on screen.
  */
 function Exchange({ agentId, hue, question, waiting, activity }: { agentId: string; hue: number; question?: string; waiting: boolean; activity: AgentActivity | null }) {
   const still = useStill()
@@ -559,11 +560,13 @@ function Exchange({ agentId, hue, question, waiting, activity }: { agentId: stri
             <p className="flex h-6 items-center self-start pl-8 text-[12px] text-muted-foreground">{waiting ? 'Your answer goes in the box below.' : 'Answered.'}</p>
           </li>
         ) : null}
-        <AnimatePresence initial={false}>
-          {items.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
-        </AnimatePresence>
-        {/* It leaves in the same moment the next step arrives, so the list glides once instead of settling twice. */}
-        <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} /> : null}</AnimatePresence>
+        <ShowStamps>
+          <AnimatePresence initial={false}>
+            {items.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
+          </AnimatePresence>
+          {/* It leaves in the same moment the next step arrives, so the list glides once instead of settling twice. */}
+          <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} /> : null}</AnimatePresence>
+        </ShowStamps>
         {activity?.sample ? (
           <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is the agent's own work, as it happens.</li>
         ) : !live && notes?.length ? (
@@ -609,14 +612,20 @@ function Thinking({ activity }: { activity: AgentActivity | null }) {
     <motion.li
       initial={holdStill({ opacity: 0, transform: 'translateY(12px)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: { ...tween.enter, delay: 0.4 } } }, still)}
-      className="flex items-center gap-2 pl-2.5 text-[13px] text-muted-foreground tabular-nums"
+      className="pl-2.5 text-[13px] text-muted-foreground tabular-nums"
     >
-      <span className="aa-running size-1.5 rounded-full bg-current" aria-hidden="true" />
-      Thinking{seconds >= 2 ? ` · ${seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`}` : ''}
+      {/* It is now, so its place in the times' column is empty. */}
+      <Stamped line="note">
+        <span className="flex items-center gap-2">
+          <span className="aa-running size-1.5 rounded-full bg-current" aria-hidden="true" />
+          Thinking{seconds >= 2 ? ` · ${seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`}` : ''}
+        </span>
+      </Stamped>
     </motion.li>
   )
 }
 
+/** What the user said to the agent, on their side, timed by when they pressed Enter. The bubble takes the keyboard's ring. */
 function Said({ note }: { note: AgentNote }) {
   const still = useStill()
   return (
@@ -625,19 +634,24 @@ function Said({ note }: { note: AgentNote }) {
       tabIndex={-1}
       initial={holdStill(RISE_IN.initial, still)}
       animate={holdStill(RISE_IN.animate, still)}
-      className="max-w-[72%] self-end rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-left text-[15px] leading-relaxed whitespace-pre-wrap outline-none [contain-intrinsic-size:auto_48px] [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
+      style={{ transformOrigin: '100% 100%' }}
+      className="group w-full min-w-0 px-2.5 outline-none [contain-intrinsic-size:auto_48px] [content-visibility:auto]"
     >
-      {note.text}
-      {note.delivery ? (
-        <p role="status" className={cn('mt-1 text-[11px] leading-normal', note.delivery === 'refused' || note.delivery === 'unconfirmed' ? 'text-bad-fg' : 'text-muted-foreground')}>
-          {note.delivery === 'sending' ? 'Sending · waiting for the host.'
-            : note.delivery === 'received' ? 'Received · admitted into a Pi turn.'
-            : note.delivery === 'waiting' ? 'Waiting · queued for the agent’s next step; receipt not yet confirmed.'
-              : note.delivery === 'refused' ? `Not sent · ${note.why}`
-                : note.delivery === 'unconfirmed' ? `Delivery not confirmed · ${note.why}`
-                  : 'Sample message · kept in this window only.'}
-        </p>
-      ) : null}
+      <Stamped at={note.at} line="bubble">
+        <div className="ml-auto w-fit max-w-[72%] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-left text-[15px] leading-relaxed whitespace-pre-wrap group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
+          {note.text}
+          {note.delivery ? (
+            <p role="status" className={cn('mt-1 text-[11px] leading-normal', note.delivery === 'refused' || note.delivery === 'unconfirmed' ? 'text-bad-fg' : 'text-muted-foreground')}>
+              {note.delivery === 'sending' ? 'Sending · waiting for the host.'
+                : note.delivery === 'received' ? 'Received · admitted into a Pi turn.'
+                : note.delivery === 'waiting' ? 'Waiting · queued for the agent’s next step; receipt not yet confirmed.'
+                  : note.delivery === 'refused' ? `Not sent · ${note.why}`
+                    : note.delivery === 'unconfirmed' ? `Delivery not confirmed · ${note.why}`
+                      : 'Sample message · kept in this window only.'}
+            </p>
+          ) : null}
+        </div>
+      </Stamped>
     </motion.li>
   )
 }

@@ -75,3 +75,82 @@
   overflow-x: hidden;
   overflow-y: auto;
 }
+
+/*
+ * A row with its time in a column at its left (Stamp.tsx). The column is as wide as the widest time on every row, so
+ * the times read straight down the page and the rows' own words start on one line. Every time is set flush to the
+ * column's right edge, beside the row it belongs to.
+ */
+.aa-stamped {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 14px;
+  align-items: start;
+}
+
+/* Where a row's first line sits: its top padding and its line's height, so the time is centered on that line. */
+[data-aa-line='row'] {
+  --aa-top: 6px;
+  --aa-line: 19.5px;
+}
+[data-aa-line='card'] {
+  --aa-top: 8px;
+  --aa-line: 22.1px;
+}
+[data-aa-line='text'] {
+  --aa-top: 0px;
+  --aa-line: 24.375px;
+}
+[data-aa-line='bubble'] {
+  --aa-top: 8px;
+  --aa-line: 24.375px;
+}
+[data-aa-line='item'] {
+  --aa-top: 2px;
+  --aa-line: 19.5px;
+}
+/* Another hobkin's words: an outlined bubble that opens with who sent them, in small type. */
+[data-aa-line='from'] {
+  --aa-top: 9px;
+  --aa-line: 16.5px;
+}
+/* A turn that ended with no answer: one short line of why. */
+[data-aa-line='note'] {
+  --aa-top: 0px;
+  --aa-line: 17.875px;
+}
+
+.aa-stamp,
+.aa-row-stamp {
+  margin-top: var(--aa-top, 0px);
+  font-size: 11px;
+  line-height: var(--aa-line, 16px);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.aa-stamp {
+  display: grid;
+  justify-items: end;
+}
+.aa-stamp > * {
+  grid-area: 1 / 1;
+}
+/*
+ * A row further down a stamped one reaches out into the column: past the gap, and past the indent of a list opened
+ * under a row (--aa-indent).
+ */
+.aa-row-stamp {
+  position: absolute;
+  top: 0;
+  right: calc(100% + 14px + var(--aa-indent, 0px));
+}
+.aa-stamp time,
+.aa-row-stamp time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+/* The day, under the time, for a row from another day. */
+.aa-stamp-date {
+  line-height: 14px;
+}

@@ -1,6 +1,7 @@
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSender, HobkinSummary, HobkinTurn } from '#shared/protocol/hobkins.ts'
 import { exchangeOf, pauseOf, type Step } from '../agent-activity/steps.ts'
+import { timeOf } from '../reports/time.ts'
 
 /**
  * The rules of a durable hobkin's page (`034-durable-hobkins`): when it reads the conversation again, the order its turns
@@ -30,6 +31,8 @@ export interface ShownTurn extends HobkinTurn {
   ending: boolean
   /** The key of the row with the message that began it. One this window sent keeps the key it had on its way. */
   askedKey: string
+  /** When it was asked: hobkin's time once a read has the turn, and until then when the user pressed Enter. */
+  askedWhen: number | null
   /** What the user added to it while it worked, as this window sent it. hobkin keeps no copy apart from the turn. */
   notes: readonly SentNote[]
 }
@@ -100,7 +103,14 @@ export function pageTurns(conversation: HobkinConversation | null, hobkin: Hobki
   const turns = [...read, ...unread].map((turn): ShownTurn => {
     const opening = openingOf(turn.run)
     const live = turn.run === liveRun
-    return { ...turn, live, ending: live && ending, askedKey: opening ? saidKey(opening.at) : `${turn.run}:asked`, notes: notesOf(turn.run) }
+    return {
+      ...turn,
+      live,
+      ending: live && ending,
+      askedKey: opening ? saidKey(opening.at) : `${turn.run}:asked`,
+      askedWhen: timeOf(turn.askedAt) ?? opening?.at ?? null,
+      notes: notesOf(turn.run),
+    }
   })
   const live = turns.find((turn) => turn.live)
   return live ? [...turns.filter((turn) => turn !== live), live] : turns
@@ -115,12 +125,14 @@ export interface LiveActivity {
 
 /**
  * One row of the conversation. A row keeps its `key` in every state it shows in, so nothing on screen is drawn twice
- * or drops out while the host catches up: a message the user sent is keyed by when they pressed Enter.
+ * or drops out while the host catches up: a message the user sent is keyed by when they pressed Enter. `at` is when the
+ * row happened, which the page writes beside it: a message when it was asked or sent, an answer when its turn ended. A
+ * step's time is its own (`atOf`).
  */
 export type PageRow =
-  | { kind: 'said'; key: string; text: string; tag: 'added' | 'sending' | null; from: string | null }
+  | { kind: 'said'; key: string; text: string; tag: 'added' | 'sending' | null; from: string | null; at: number | null }
   | { kind: 'step'; key: string; step: Step; ended: boolean }
-  | { kind: 'answer'; key: string; turn: ShownTurn }
+  | { kind: 'answer'; key: string; turn: ShownTurn; at: number | null }
   | { kind: 'thinking'; key: 'working' }
 
 /**
@@ -135,14 +147,14 @@ export function pageRows(turns: readonly ShownTurn[], { sending, activity }: { s
   const sent = (at: number) => turns.some((turn) => turn.askedKey === saidKey(at) || turn.notes.some((note) => note.at === at))
   const pending = sending && !sent(sending.at) ? sending : null
   // Whatever the page sends is the user's own.
-  const said = ({ text, at }: SendingNote): PageRow => ({ kind: 'said', key: saidKey(at), text, tag: at === pending?.at ? 'sending' : 'added', from: null })
+  const said = ({ text, at }: SendingNote): PageRow => ({ kind: 'said', key: saidKey(at), text, tag: at === pending?.at ? 'sending' : 'added', from: null, at })
 
   const rows: PageRow[] = []
   for (const turn of turns) {
-    if (turn.asked) rows.push({ kind: 'said', key: turn.askedKey, text: turn.asked, tag: null, from: senderName(turn.from) })
+    if (turn.asked) rows.push({ kind: 'said', key: turn.askedKey, text: turn.asked, tag: null, from: senderName(turn.from), at: turn.askedWhen })
     const notes: readonly SendingNote[] = turn === into && pending ? [...turn.notes, pending] : turn.notes
     if (!turn.live) {
-      rows.push(...notes.map(said), { kind: 'answer', key: `${turn.run}:answer`, turn })
+      rows.push(...notes.map(said), { kind: 'answer', key: `${turn.run}:answer`, turn, at: timeOf(turn.endedAt) })
       continue
     }
     if (!activity) {

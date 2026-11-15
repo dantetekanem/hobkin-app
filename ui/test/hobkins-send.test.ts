@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSummary, HobkinTurn } from '#shared/protocol/hobkins.ts'
+import { atOf } from '../src/features/agent-activity/steps.ts'
 import { pageRows, pageTurns, type PageRow, type SendingNote, type SentNote } from '../src/features/hobkins/conversation.ts'
 
 // Every state a durable hobkin's page passes through from Enter until the host has caught up, in the order the host
@@ -133,6 +134,32 @@ test('a turn that ends keeps its steps until a read has its answer, and the answ
   const answer = answered.find((row) => row.kind === 'answer' && row.turn.run === runOf(3))
   assert.equal(answer?.kind === 'answer' ? answer.turn.reply : null, 'Done.')
   assert.ok(answered.every((row) => row.kind !== 'step'))
+})
+
+test('every row says when it happened: a message when it was asked or sent, a step when it began, an answer when it ended', () => {
+  const read: HobkinConversation = { hobkin: working, turns: [...earlier, turn(3, 'das', 'running')] }
+  const opened: SentNote = { text: 'das', at: 1000, run: runOf(3), started: true }
+  const added: SentNote = { text: 'also the README', at: 1200, run: runOf(3), started: false }
+  const steps = activityOf([{ ...tool('a'), at: 1100 }], { 'tool:a': 1100 })
+  const rows = pageRows(pageTurns(read, working, [opened, added]), { sending: { text: 'and the tests', at: 1300 }, activity: steps })
+  const when = (all: readonly PageRow[]) => all.map((row) => [row.kind, row.kind === 'step' ? atOf(row.step) : row.kind === 'thinking' ? null : row.at])
+  assert.deepEqual(when(rows), [
+    ['said', Date.parse('2026-11-13T12:01:00.000Z')],
+    ['answer', Date.parse('2026-11-13T12:01:30.000Z')],
+    ['said', Date.parse('2026-11-13T12:02:00.000Z')],
+    ['answer', Date.parse('2026-11-13T12:02:30.000Z')],
+    // hobkin's own time for the message, once a read has it.
+    ['said', Date.parse('2026-11-13T12:03:00.000Z')],
+    ['step', 1100],
+    // What the user added, and what is on its way: when they pressed Enter.
+    ['said', 1200],
+    ['said', 1300],
+    ['thinking', null],
+  ])
+  // Before a read has the turn, its message is timed by Enter too; a turn read while it still ran has no end yet.
+  assert.deepEqual(when(pageRows(pageTurns(before, working, [opened]), { sending: null, activity: null })).slice(-2), [['said', 1000], ['thinking', null]])
+  const odd: HobkinConversation = { hobkin: summary({ turns: 3 }), turns: [...earlier, turn(3, 'das', 'running')] }
+  assert.deepEqual(when(pageRows(pageTurns(odd, summary({ turns: 3 }), []), { sending: null, activity: null })).at(-1), ['answer', null])
 })
 
 test('a read that has a turn running while the hobkin already waited says so', () => {

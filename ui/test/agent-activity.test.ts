@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
-import { doingNow, exchangeOf, foldOf, looksSummary, pauseOf, stepCount, stepsOf, tailOf, type Step } from '../src/features/agent-activity/steps.ts'
+import { atOf, doingNow, exchangeOf, foldOf, looksSummary, pauseOf, stepCount, stepsOf, tailOf, type Step } from '../src/features/agent-activity/steps.ts'
 
 const said = (id: string, text: string): ActivityEntry => ({ id: `message:${id}`, kind: 'assistant', text })
 const tool = (id: string, name: string, args: object, state: ActivityEntry['state'] = 'completed', output = ''): ActivityEntry => ({
@@ -90,6 +90,23 @@ test('commands in a row fold into one group with the newest open', () => {
 
   // Words between commands end the run.
   assert.deepEqual(kinds(stepsOf([bash('a', 'ls'), said('1:0', 'Now the tests.'), bash('b', 'pnpm test')])), ['shell', 'says', 'shell'])
+})
+
+test('a step says when it began, and each command and read in a group when it happened', () => {
+  const at = (entry: ActivityEntry, time: number): ActivityEntry => ({ ...entry, at: time })
+  const steps = stepsOf([
+    at(said('1:0', 'Looking first.'), 100),
+    at(bash('a', 'ls'), 200),
+    at(bash('b', 'pwd'), 300),
+    at(tool('c', 'read', { path: 'a.ts' }), 400),
+    // From a runtime that kept no times.
+    tool('d', 'read', { path: 'b.ts' }),
+  ])
+  assert.deepEqual(steps.map(atOf), [100, 200, 400])
+  const [, shell, looks] = steps
+  assert.deepEqual(shell?.kind === 'shell' && shell.commands.map((command) => command.at), [200, 300])
+  assert.deepEqual(looks?.kind === 'looks' && looks.looks.map((look) => look.at), [400, undefined])
+  assert.equal(atOf(stepsOf([tool('e', 'read', { path: 'c.ts' })])[0]!), undefined)
 })
 
 test('a failed command stays out of the fold, with its exit code and its last lines', () => {
@@ -237,4 +254,8 @@ test('the user\'s messages sit where they were sent, and split a run of steps ar
   )
   // Steps the window saw before it could time them come before any message.
   assert.deepEqual(exchangeOf(entries, [{ id: 'n1', text: 'Hi', at: 1 }], { seenAt: () => undefined }).map((item) => item.kind), ['shell', 'note'])
+  // A step hobkin timed is placed by that time, the one its row shows, whenever the window first saw it.
+  const timed = entries.map((entry, index) => ({ ...entry, at: 1000 + index * 100 }))
+  const late = exchangeOf(timed, [{ id: 'n1', text: 'Skip the lint.', at: 1150 }], { seenAt: () => 5000 })
+  assert.deepEqual(late.map((item) => (item.kind === 'note' ? 'note' : item.kind === 'shell' ? item.commands.length : item.kind)), [2, 'note', 1])
 })

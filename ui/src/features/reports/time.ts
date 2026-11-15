@@ -36,6 +36,13 @@ export function clockTime(at: number): string {
   return clock.format(at)
 }
 
+const clockWithSeconds = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+
+/** The time of day to the second: the conversation's clock with its seconds, "07:26:05 PM" or "19:26:05". */
+export function clockSeconds(at: number): string {
+  return clockWithSeconds.format(at)
+}
+
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS

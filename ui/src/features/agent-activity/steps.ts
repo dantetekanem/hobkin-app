@@ -24,6 +24,8 @@ export interface Command {
   /** Pi's closing status line for a command that failed: "Command exited with code 1", "Command timed out after 30 seconds". */
   failure?: string
   exitCode?: number
+  /** When hobkin saw the call made (`ActivityEntry.at`). */
+  at?: number
 }
 
 /** One place in a file: the text that was there and the text that took its place. */
@@ -63,6 +65,8 @@ export interface Look {
   from?: number
   /** Pi's note that the read stopped short: "Showing lines 1-2000 of 5120. Use offset=2001 to continue." */
   notice?: string
+  /** When hobkin saw the call made (`ActivityEntry.at`). */
+  at?: number
 }
 
 interface Base {
@@ -88,6 +92,11 @@ export interface Note {
 }
 
 export type ExchangeItem = Step | { kind: 'note'; key: string; note: Note }
+
+/** When a step began: when hobkin saw its first entry. Undefined from a runtime that kept no times. */
+export const atOf = (step: Step): number | undefined => step.entries[0]?.at
+
+const timed = (entry: ActivityEntry) => (entry.at === undefined ? {} : { at: entry.at })
 
 export interface ReadOptions {
   /** The job has ended, so nothing in it is still running. */
@@ -177,7 +186,7 @@ export function commandOf(entry: ActivityEntry, ended: boolean): Command {
   }
   // Pi's words for a command that printed nothing.
   if (output.trim() === '(no output)') output = ''
-  return { id: entry.id, command: firstText(args, 'command', 'cmd', 'script', 'value') ?? '', state, output, ...(failure ? { failure } : {}), ...(exitCode === undefined ? {} : { exitCode }) }
+  return { id: entry.id, command: firstText(args, 'command', 'cmd', 'script', 'value') ?? '', state, output, ...(failure ? { failure } : {}), ...(exitCode === undefined ? {} : { exitCode }), ...timed(entry) }
 }
 
 /** The places an edit call changes, in every shape Pi's edit tool takes: `edits`, as a list, one object or JSON text, and the older `oldText` and `newText`. */
@@ -243,7 +252,7 @@ export function lookOf(entry: ActivityEntry, kind: LookKind, options: ReadOption
   const args = argsOf(entry)
   const state = stateOf(entry, options.ended ?? false)
   const failure = state === 'failed' ? failureOf(entry) : undefined
-  const base = { id: entry.id, kind, state, ...(failure ? { failure } : {}) }
+  const base = { id: entry.id, kind, state, ...(failure ? { failure } : {}), ...timed(entry) }
   const path = (name: string) => shortPath(name, options.cwd)
   if (kind === 'read' || kind === 'list') {
     const what = path(firstText(args, 'path', 'file_path', 'filePath', 'dir', 'value') ?? '.')
@@ -323,8 +332,9 @@ export function stepsOf(entries: readonly ActivityEntry[], options: ReadOptions 
 }
 
 /**
- * The agent's steps with the user's messages where they were sent. hobkin's activity carries no times, so each
- * entry is placed by when this window first saw it. A message splits a run of steps around it.
+ * The agent's steps with the user's messages where they were sent. Each entry is placed by when hobkin first saw it,
+ * the time its row shows, and one from a runtime that kept no times by when this window first saw it. Both clocks are
+ * this Mac's. A message splits a run of steps around it.
  */
 export function exchangeOf(entries: readonly ActivityEntry[], notes: readonly Note[], options: ReadOptions & { seenAt: (id: string) => number | undefined }): ExchangeItem[] {
   const waiting = [...notes].sort((left, right) => left.at - right.at)
@@ -335,7 +345,7 @@ export function exchangeOf(entries: readonly ActivityEntry[], notes: readonly No
     run = []
   }
   for (const entry of entries) {
-    const seen = options.seenAt(entry.id) ?? -Infinity
+    const seen = entry.at ?? options.seenAt(entry.id) ?? -Infinity
     while (waiting.length && waiting[0]!.at < seen) {
       flush()
       const note = waiting.shift()!

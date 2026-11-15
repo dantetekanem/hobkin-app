@@ -23,6 +23,8 @@ export interface ActivityEntry {
   output?: string
   /** Bounded codemode operation previews, never nested result bodies. */
   codemode?: CodemodeMetadata
+  /** When hobkin first saw it, in milliseconds since the epoch: when the agent began saying it, or made the call. A runtime from before 2026-11-15 leaves it out. */
+  at?: number
 }
 
 /** Every job's activity, by run id. */

@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "ready",
   "depends": ["008-review-code", "011-work"],
-  "updated": "2026-11-13"
+  "updated": "2026-11-15"
 }
 ---
 # How an agent's work is drawn
@@ -39,6 +39,7 @@ An agent's canvas shows its work as it happens, in a form a person can follow at
 - Above the blocks, in one line and with no box around it: the agent's mission (goal, question, expected result), what it is doing now, the time so far, its tier and its tokens. The mission opens in full on request.
 - Motion: a new block rises into place. When a command gives way to the next, it slides up into its group's row. A code change draws its lines in. Output streams without the block jumping.
 - Keys: Up and Down move between blocks, Right or Enter opens a block, Left closes it, Control+O opens or closes them all, End returns to the newest block. Talking to the agent is `011-work`.
+- Every row says when it happened, in a quiet column at its left (the user asked for it on durable hobkins and routines, 2026-11-15). The time is to the second, in the conversation's own clock: "03:59:12 PM", or "15:59:12" where the clock is 24-hour. A row from another calendar day has its date under the time, "Nov 14", with the year when it was another year. A step's time is when hobkin first saw it, which hobkin stamps on each activity entry (`at`). A message's time is when hobkin took it, and until hobkin has it, when the user pressed Enter. An answer's time is when its turn ended. A group times each of its rows: the folded row by its first command, and each open command and each item of an opened list by its own. A row with no time keeps its place in the column, empty, so every row's words start on one line. The user's messages are placed among the steps by the same times. An agent's page and a durable hobkin's page show the column; the main agent's page does not yet.
 - A long run is drawn with a virtual list, so its length does not slow the canvas.
 
 ## Out of scope
@@ -62,6 +63,7 @@ An agent's canvas shows its work as it happens, in a form a person can follow at
 - A12. A code change arrives open and every other kind of block arrives closed to its header. After a kind is turned on or off in Settings, its blocks on screen that were not opened or closed by hand follow at once. Control+O still opens and closes them all.
 - A13. An agent that keeps tasks shows them in one line above its blocks, such as "2 of 5 tasks · in progress: …", which opens to every task with its state and its description. No task call shows as a block, except one that failed.
 - A14. Coming back to an agent's page shown before in this window, its code changes are in their colors on the first paint, without asking the highlighter again. A code change seen for the first time is drawn at once in plain lines of their final size and takes its colors in place, off the page's thread, once it is in or near view; the ones far from view wait until they are scrolled to.
+- A15. On an agent's page and a durable hobkin's page, every step, message and answer shows the time it happened to the second, in one column that reads straight down the page and never crowds a row's words, its state or its duration. A row from another day also shows its date. A row with no time shows none, and its words still start where the others' do.
 
 ## Proof
 
@@ -79,6 +81,7 @@ An agent's canvas shows its work as it happens, in a form a person can follow at
 - A12. `ui/test/agent-blocks.test.ts` › "a block arrives open or closed as Settings says for its kind, and a change in Settings applies at once", "Control+O opens every block and closes them all again, over what was chosen for one of them"; check: watch an agent edit a file, then turn Commands on in Settings.
 - A13. `ui/test/agent-tasks.test.ts` › "the tasks read as one line: how many are done, then the one in progress, the next one, or that all are done", "each task keeps the description it was given, and a later one replaces it"; `ui/test/agent-activity.test.ts` › "where the page shows the tasks in their own line, task calls are not steps, and one that failed still is"; check: open an agent that keeps tasks and click its line.
 - A14. `ui/test/agent-colors.test.ts` › "a code change colored once is drawn in its colors at once when it is shown again, without asking the highlighter again", "a code change far from view waits for its colors, and one in or near view asks for them", "what is kept is what was shown most lately, up to a bound on how much code, and only once all of it is colored"; check: move between two agents whose steps hold code changes, and back, and watch for a second paint.
+- A15. `ui/test/agent-stamp.test.ts` › "a step says when it happened to the second, in the conversation's own clock", "a step from another day says its date too, and one from another year its year", "hobkin's written times read as its numbers do, and a step with no time has no stamp" and "the column is as wide as the widest time of day, whatever the hour"; `ui/test/agent-activity.test.ts` › "a step says when it began, and each command and read in a group when it happened" and "the user's messages sit where they were sent, and split a run of steps around them"; `ui/test/hobkins-send.test.ts` › "every row says when it happened: a message when it was asked or sent, a step when it began, an answer when it ended"; `hobkin/test/cli-job-activity.test.mjs` › "each entry keeps when hobkin first saw it, and what comes after never moves it". Seen 2026-11-15 as a still render (server markup with the app's built CSS, no browser, canned activity): a durable hobkin's page in light and dark, with every block opened, at the split's width, and a routine run's page.
 
 ## Steps
 

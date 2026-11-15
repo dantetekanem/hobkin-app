@@ -9,6 +9,7 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
+import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { TaskList } from '@/features/agent-activity/TaskList.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
@@ -358,7 +359,7 @@ interface ConversationProps {
  * Each turn's message and answer, oldest at the top, and the turn in flight last with its steps. It opens at the newest
  * and stays there as steps arrive, unless the user scrolled up to read. Up and Down walk it, as an agent's steps. A hobkin
  * with no turn yet has nothing here until its first message is sent. Each row keeps its key while the host catches up
- * with a message sent (`pageRows`), so none is drawn twice.
+ * with a message sent (`pageRows`), so none is drawn twice. Every row says when it happened, in a column at its left.
  */
 function Conversation({ turns, activity, cwd, sending, problem, loading }: ConversationProps) {
   const still = useStill()
@@ -384,19 +385,21 @@ function Conversation({ turns, activity, cwd, sending, problem, loading }: Conve
         aria-label="The conversation"
         className="mt-auto flex flex-col gap-3 pt-2 pb-3"
       >
-        <AnimatePresence initial={false}>
-          {rows.map((row) =>
-            row.kind === 'said' ? (
-              <Said key={row.key} text={row.text} added={row.tag === 'added'} sending={row.tag === 'sending'} from={row.from} />
-            ) : row.kind === 'step' ? (
-              <StepItem key={row.key} step={row.step} timeOf={activity!.timeOf} ended={row.ended} />
-            ) : row.kind === 'answer' ? (
-              <Answer key={row.key} turn={row.turn} />
-            ) : (
-              <Working key={row.key} />
-            ),
-          )}
-        </AnimatePresence>
+        <ShowStamps>
+          <AnimatePresence initial={false}>
+            {rows.map((row) =>
+              row.kind === 'said' ? (
+                <Said key={row.key} text={row.text} at={row.at} added={row.tag === 'added'} sending={row.tag === 'sending'} from={row.from} />
+              ) : row.kind === 'step' ? (
+                <StepItem key={row.key} step={row.step} timeOf={activity!.timeOf} ended={row.ended} />
+              ) : row.kind === 'answer' ? (
+                <Answer key={row.key} turn={row.turn} at={row.at} />
+              ) : (
+                <Working key={row.key} />
+              ),
+            )}
+          </AnimatePresence>
+        </ShowStamps>
         {loading ? <li className="self-center text-[13px] text-muted-foreground">Reading the conversation.</li> : null}
         {problem ? (
           <li role="alert" className="self-center text-[13px] text-bad-fg">
@@ -431,9 +434,10 @@ const STEP = 'rounded-[18px] outline-none [content-visibility:auto] focus-visibl
 
 /**
  * What began a turn, or what the user added while it worked. The user's own words sit on their side. Words another
- * hobkin sent (`from`) are an agent's, so they keep to the left, outlined, under who sent them.
+ * hobkin sent (`from`) are an agent's, so they keep to the left, outlined, under who sent them. The row spans the
+ * page, so its time stands in the column with the others, and the bubble takes the keyboard's ring.
  */
-function Said({ text, added = false, sending = false, from = null }: { text: string; added?: boolean; sending?: boolean; from?: string | null }) {
+function Said({ text, at, added = false, sending = false, from = null }: { text: string; at: number | null; added?: boolean; sending?: boolean; from?: string | null }) {
   const still = useStill()
   return (
     <motion.li
@@ -442,15 +446,20 @@ function Said({ text, added = false, sending = false, from = null }: { text: str
       initial={holdStill(RISE_IN.initial, still)}
       animate={holdStill(RISE_IN.animate, still)}
       style={{ transformOrigin: from ? '0% 100%' : '100% 100%' }}
-      className={cn(
-        STEP,
-        'max-w-[72%] rounded-2xl px-3.5 py-2 text-left text-[15px] leading-relaxed break-words [contain-intrinsic-size:auto_48px]',
-        from ? 'self-start rounded-bl-md border border-border' : 'self-end rounded-br-md bg-secondary',
-      )}
+      className="group w-full min-w-0 px-2.5 outline-none [contain-intrinsic-size:auto_48px] [content-visibility:auto]"
     >
-      {from ? <p className="mb-1 text-[11px] leading-normal text-muted-foreground">From {from}</p> : null}
-      <MessageText text={text} role="user" />
-      {added || sending ? <p className="mt-1 text-[11px] leading-normal text-muted-foreground">{sending ? 'Sending' : 'Added while it worked'}</p> : null}
+      <Stamped at={at} line={from ? 'from' : 'bubble'}>
+        <div
+          className={cn(
+            'w-fit max-w-[72%] rounded-2xl px-3.5 py-2 text-left text-[15px] leading-relaxed break-words group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
+            from ? 'rounded-bl-md border border-border' : 'ml-auto rounded-br-md bg-secondary',
+          )}
+        >
+          {from ? <p className="mb-1 text-[11px] leading-normal text-muted-foreground">From {from}</p> : null}
+          <MessageText text={text} role="user" />
+          {added || sending ? <p className="mt-1 text-[11px] leading-normal text-muted-foreground">{sending ? 'Sending' : 'Added while it worked'}</p> : null}
+        </div>
+      </Stamped>
     </motion.li>
   )
 }
@@ -464,8 +473,8 @@ function whyOf(turn: ShownTurn): string | null {
   return turn.reply ? null : 'It ended without an answer.'
 }
 
-/** A finished turn's answer, or why it has none. */
-function Answer({ turn }: { turn: ShownTurn }) {
+/** A finished turn's answer, or why it has none, timed by when the turn ended. */
+function Answer({ turn, at }: { turn: ShownTurn; at: number | null }) {
   const still = useStill()
   const why = whyOf(turn)
   const wentWrong = turn.status === 'failed' || turn.status === 'interrupted'
@@ -478,17 +487,19 @@ function Answer({ turn }: { turn: ShownTurn }) {
       style={{ transformOrigin: '0% 100%' }}
       className={cn('w-full min-w-0 px-2.5 text-left [contain-intrinsic-size:auto_56px]', STEP)}
     >
-      {turn.reply ? (
-        <div className="max-w-[92%] text-[15px] leading-relaxed break-words">
-          <MessageText text={turn.reply} role="assistant" />
-        </div>
-      ) : null}
-      {why ? <p className={cn('text-[13px] leading-snug', wentWrong ? 'text-bad-fg' : 'text-muted-foreground', turn.reply && 'mt-1.5')}>{why}</p> : null}
+      <Stamped at={at} line={turn.reply ? 'text' : 'note'}>
+        {turn.reply ? (
+          <div className="max-w-[92%] text-[15px] leading-relaxed break-words">
+            <MessageText text={turn.reply} role="assistant" />
+          </div>
+        ) : null}
+        {why ? <p className={cn('text-[13px] leading-snug', wentWrong ? 'text-bad-fg' : 'text-muted-foreground', turn.reply && 'mt-1.5')}>{why}</p> : null}
+      </Stamped>
     </motion.li>
   )
 }
 
-/** Between steps of the turn in flight. hobkin keeps none of its thinking. */
+/** Between steps of the turn in flight. hobkin keeps none of its thinking. It is now, so its place in the times' column is empty. */
 function Working() {
   const still = useStill()
   return (
@@ -496,10 +507,14 @@ function Working() {
       initial={holdStill({ opacity: 0, transform: 'translateY(12px)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: { ...tween.enter, delay: 0.3 } } }, still)}
       exit={{ opacity: 0, transition: tween.exit }}
-      className="flex items-center gap-2 pl-2.5 text-[13px] text-muted-foreground"
+      className="pl-2.5 text-[13px] text-muted-foreground"
     >
-      <span className="aa-running size-1.5 rounded-full bg-current" aria-hidden="true" />
-      Thinking
+      <Stamped line="note">
+        <span className="flex items-center gap-2">
+          <span className="aa-running size-1.5 rounded-full bg-current" aria-hidden="true" />
+          Thinking
+        </span>
+      </Stamped>
     </motion.li>
   )
 }
