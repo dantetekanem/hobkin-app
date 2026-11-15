@@ -121,14 +121,38 @@ export async function closeKept(sessionFile) {
  * The kept process a turn takes: one started with exactly what this turn would start its own with. Any other kept for the
  * conversation has exited before this resolves, so two processes never share the file. A process a turn holds is never kept.
  */
-async function takeKept(sessionFile, key) {
+async function takeKept(sessionFile, key, onReplaced) {
   const kept = keptProcesses.get(sessionFile);
   if (kept?.key === key && !kept.child.failure && !kept.child.exited) {
     keptProcesses.delete(sessionFile);
     clearTimeout(kept.timer);
     return kept;
   }
+  if (kept && kept.key !== key) onReplaced?.(keptDifference(kept.key, key));
   await closeKept(sessionFile);
+}
+
+/**
+ * What differs between what a kept process was started with and what a turn would start its own with, so a process
+ * that is replaced on every turn can be explained: the flags whose arguments changed and the names of the environment
+ * variables that changed, never a value.
+ */
+export function keptDifference(keptKey, wantedKey) {
+  const [command, args, cwd, env] = JSON.parse(keptKey);
+  const [wantedCommand, wantedArgs, wantedCwd, wantedEnv] = JSON.parse(wantedKey);
+  // An argument is named by the flag before it, so a changed model reads as `--model`.
+  const flagBefore = (list, at) => list.slice(0, at + 1).findLast(arg => String(arg).startsWith('--'));
+  const flags = [];
+  for (let at = 0; at < Math.max(args.length, wantedArgs.length); at++) {
+    if (args[at] !== wantedArgs[at]) flags.push(flagBefore(wantedArgs, at) ?? flagBefore(args, at) ?? `#${at}`);
+  }
+  const names = new Set([...Object.keys(env), ...Object.keys(wantedEnv)]);
+  return {
+    command: command !== wantedCommand,
+    cwd: cwd !== wantedCwd,
+    args: [...new Set(flags)].slice(0, 20),
+    env: [...names].filter(name => env[name] !== wantedEnv[name]).sort().slice(0, 40),
+  };
 }
 
 /** Keeps a process after its turn. One that exits on its own is forgotten, and past the most kept the one idle longest goes. */
@@ -168,7 +192,9 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
   const env = { ...piEnvironment(request.launcher), ...request.env };
   // Everything a durable turn's process starts with. The conversation's next turn reuses it only when all of it is the same.
   const key = durable && JSON.stringify([invocation.command, invocation.args, request.cwd, env]);
-  const reused = durable ? await takeKept(request.sessionFile, key) : undefined;
+  const reused = durable ? await takeKept(request.sessionFile, key, difference => {
+    if (metricsRoot) recordEvent(metricsRoot, 'kept_process_replaced', { id: request.id, ...difference });
+  }) : undefined;
   if (request.signal?.aborted) {
     reused?.child.terminate();
     await reused?.child.closed;

@@ -794,6 +794,20 @@ test('a durable turn started any other way closes the kept process and starts it
   }
 });
 
+test('a kept process that is replaced says which of the things it was started with differed, by name and never by value', { timeout: 10000 }, async t => {
+  const { options } = keptPis();
+  const input = durableTurn(t, { model: 'test/model', directions: 'PRIVATE directions.', extensions: ['/fixture/a.ts'], env: { HOBKIN_TURN: 'a'.repeat(32) } });
+  const replaced = () => readEvents(input.cwd).filter(event => event.type === 'kept_process_replaced');
+  await runHarness({ ...input, id: turnId(1) }, { ...options, metricsRoot: input.cwd });
+  await runHarness({ ...input, id: turnId(2) }, { ...options, metricsRoot: input.cwd });
+  assert.deepEqual(replaced(), [], 'a turn that reuses the process says nothing');
+  await runHarness({ ...input, id: turnId(3), effort: 'high', directions: 'PRIVATE other directions.', env: { HOBKIN_TURN: 'b'.repeat(32), HOBKIN_NEW: '1' } }, { ...options, metricsRoot: input.cwd });
+  const [{ at, type, ...facts }] = replaced();
+  assert.deepEqual(facts, { id: turnId(3), command: false, cwd: false, args: ['--thinking', '--append-system-prompt'], env: ['HOBKIN_NEW', 'HOBKIN_TURN'] });
+  assert.doesNotMatch(JSON.stringify(facts), /PRIVATE|bbbb|aaaa|fixture/);
+  await closeKept(input.sessionFile);
+});
+
 test('a kept process goes after its idle time, and past four kept the one idle longest goes', { timeout: 10000 }, async t => {
   const idle = keptPis();
   const input = durableTurn(t);
