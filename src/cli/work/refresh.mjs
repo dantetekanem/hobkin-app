@@ -54,7 +54,9 @@ async function mergeNow(root, slug, item, { now, gh }) {
       ? await mergePullRequest(root, slug, item.id, gh ? { gh, now } : { now })
       : await mergeItem(root, slug, item.id, { route: 'refresh', read, readMs, now });
     const line = `After its refresh, ${lowerFirst(merged.told?.line ?? merged.message)}`;
-    return { ok: true, message: line, told: toldOf(project, item, 'merged it after its refresh', line) };
+    // The merge's line still waits for what follows it, so the issue's closing joins this one.
+    const { follows } = merged.told ?? {};
+    return { ok: true, message: line, told: { ...toldOf(project, item, 'merged it after its refresh', line), ...(follows ? { follows } : {}) } };
   } catch (error) {
     const line = `After its refresh, ${error.message}`;
     return { ok: false, message: line, told: toldOf(project, item, 'could not merge it after its refresh', line) };

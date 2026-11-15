@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { clientNoticesToPost } from '../src/cli/client-notices.mjs';
 import { initialize } from '../src/cli/config.mjs';
 import { afterMerges } from '../src/cli/work/after-merge.mjs';
+import { cardActionsToPost, recordCardAction } from '../src/cli/work/card-actions.mjs';
 import { mergeRefreshed, refreshThenMerge } from '../src/cli/work/refresh.mjs';
 import { chooseProject, fileItem, readItems, updateItem, writeMode, writeOwnerView } from '../src/cli/work/store.mjs';
 import { closingItems, readyItems } from '../src/cli/work/reads.mjs';
@@ -82,6 +83,21 @@ test('a refresh that left something new for the user still merges on their word,
   assert.equal(merged?.ok, true);
   assert.equal(read(h, item).state, 'merged');
   assert.deepEqual(clientNoticesToPost(h.root).map(({ line }) => line), ['Merged "Fix the job spec" on api. Still for you: The rebase dropped a migration. Check it before deploying.']);
+});
+
+test('a merge after its refresh is one line in Chat, with what the refresh left in it', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'job.txt');
+  const item = finished(h, 'hobkin/abc');
+  refreshThenMerge(h.root, 'api', item.id, { now: NOW + 1000 });
+
+  refreshEnds(h, item, { left: 'Check the migration.' });
+  // The app tells each result like an action on a card.
+  for (const { told } of await mergeRefreshed(h.root, { now: NOW + 3000 })) recordCardAction(h.root, told, NOW + 3000);
+  await afterMerges(h.root, { now: NOW + 4000, gh: async args => assert.fail(`gh was asked ${args.join(' ')}`) });
+
+  const chat = [...cardActionsToPost(h.root, NOW + 4000).map(({ line }) => line), ...clientNoticesToPost(h.root).map(({ line }) => line)];
+  assert.deepEqual(chat, ['After its refresh, merged "Fix the job spec" into main on api. Nothing was pushed. Still for you: Check the migration.']);
 });
 
 test('an empty left is nothing left, before the refresh and after it, so the refreshed branch merges', async t => {

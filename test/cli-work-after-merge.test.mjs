@@ -3,11 +3,13 @@ import { test } from 'node:test';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { clientNoticesToPost } from '../src/cli/client-notices.mjs';
+import { clientNotice, clientNoticesToPost } from '../src/cli/client-notices.mjs';
 import { initialize } from '../src/cli/config.mjs';
 import { readWaiting } from '../src/cli/pending-read.mjs';
 import { afterMerges } from '../src/cli/work/after-merge.mjs';
+import { cardActionNotice, cardActionsToPost, markCardActionsPosted, recordCardAction } from '../src/cli/work/card-actions.mjs';
 import { mergeItem, mergePullRequest } from '../src/cli/work/controls.mjs';
+import { mergeGroup } from '../src/cli/work/merge-group.mjs';
 import { chooseProject, fileItem, readItems, updateItem } from '../src/cli/work/store.mjs';
 import { AFTER_MERGE, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { director, studied } from './helpers/work-director.mjs';
@@ -183,5 +185,93 @@ test("the director's tick follows every merge by itself, and a slow gh holds bac
   assert.deepEqual(lines(h).map(([line]) => line), [
     'Merged "Merged one" on api. Still for you: Tell the team.',
     'Merged "From an issue" on api. GitHub had already closed acme/api#9.',
+  ]);
+});
+
+// A merge from a card says itself in Chat as the user's own line. What follows it, its issue closing, joins that line rather than repeating the merge.
+
+/** Chat as the app builds it from what is waiting: the user's lines from cards, then hobkin's own. Each as its words, role and tone. */
+const chat = (h, now) => [...cardActionsToPost(h.root, now).map(cardActionNotice), ...clientNoticesToPost(h.root).map(clientNotice)]
+  .map(({ content, role, tone }) => [content, role, tone ?? null]);
+// The longest a merge's line waits for its issue: longer than gh may take to read and close it.
+const HOLD_MS = 150000;
+
+/** The user's merge from a card, told as the app tells it. */
+async function mergeFromCard(h, item, at = NOW) {
+  const merged = await mergeItem(h.root, 'api', item.id, { now: at });
+  recordCardAction(h.root, merged.told, at);
+  return merged;
+}
+
+test('a merge from its card is one line in Chat, and the issue it closed is said in that line', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/37-fix', 'import.txt', 'import\n');
+  const item = fromIssue(h, 37, 'hobkin/37-fix');
+  const { gh } = fakeGh();
+
+  await mergeFromCard(h, item);
+  const whileGhWorks = chat(h, NOW + 500);
+  await afterMerges(h.root, { now: NOW + 1000, gh });
+
+  assert.deepEqual(chat(h, NOW + 1000), [['Merged "Issue 37" into main on api. Nothing was pushed. Closed acme/api#37 on GitHub.', 'system', null]]);
+  assert.deepEqual(whileGhWorks, [], 'the line waits for its issue, so the merge is said once');
+});
+
+test('an issue that could not close is said in the merge\'s own line, which reads as blocked', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/12-fix', 'login.txt', 'login\n');
+  const item = fromIssue(h, 12, 'hobkin/12-fix');
+  const { gh } = fakeGh({ closeError: Object.assign(Error('Command failed: gh issue close'), { stderr: 'HTTP 403: Forbidden' }) });
+
+  await mergeFromCard(h, item);
+  await afterMerges(h.root, { now: NOW + 1000, gh });
+
+  assert.deepEqual(chat(h, NOW + 1000), [
+    ['Merged "Issue 12" into main on api. Nothing was pushed. hobkin could not close acme/api#12 on GitHub: HTTP 403: Forbidden', 'notice', 'blocked'],
+  ]);
+});
+
+test('a merge with nothing to follow it is said at once, as before', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/abc', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/abc');
+
+  await mergeFromCard(h, item);
+
+  assert.deepEqual(chat(h, NOW), [['Merged "work 0" into main on api. Nothing was pushed.', 'system', null]]);
+});
+
+test('a merge waits for its issue only so long, and a closing that comes after it says its own line', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/12-fix', 'login.txt', 'login\n');
+  const item = fromIssue(h, 12, 'hobkin/12-fix');
+  const { gh } = fakeGh();
+
+  await mergeFromCard(h, item);
+  const stillWaiting = chat(h, NOW + HOLD_MS - 1);
+  markCardActionsPosted(h.root, cardActionsToPost(h.root, NOW + HOLD_MS));
+  await afterMerges(h.root, { now: NOW + HOLD_MS + 1000, gh });
+
+  assert.deepEqual(stillWaiting, []);
+  assert.deepEqual(chat(h, NOW + HOLD_MS + 1000), [['Merged "Issue 12" on api. Closed acme/api#12 on GitHub.', 'notice', 'useful']]);
+});
+
+test('merging a group keeps its lines in order: each row with its issue, then the line that sums them up', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/1-fix');
+  branched(h.checkout, 'hobkin/2-fix');
+  const rows = [fromIssue(h, 1, 'hobkin/1-fix'), fromIssue(h, 2, 'hobkin/2-fix')].map(({ id }) => ({ slug: 'api', item: id, how: 'merge' }));
+  const { gh } = fakeGh();
+
+  const answer = await mergeGroup(h.root, rows, { now: NOW });
+  for (const told of answer.told) recordCardAction(h.root, told, NOW);
+  const whileGhWorks = chat(h, NOW + 500);
+  await afterMerges(h.root, { now: NOW + 1000, gh });
+
+  assert.deepEqual(whileGhWorks, []);
+  assert.deepEqual(chat(h, NOW + 1000).map(([line]) => line), [
+    'Merged "Issue 1" into main on api. Nothing was pushed. Closed acme/api#1 on GitHub.',
+    'Merged "Issue 2" into main on api. Nothing was pushed. Closed acme/api#2 on GitHub.',
+    'Merged all 2 here, with nothing pushed.',
   ]);
 });

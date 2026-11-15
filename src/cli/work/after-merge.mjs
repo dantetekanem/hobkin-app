@@ -1,4 +1,5 @@
 import { postClientNotice } from '../client-notices.mjs';
+import { cardActionFor, followCardAction } from './card-actions.mjs';
 import { nameOf } from './names.mjs';
 import { saysWhatIsLeft } from './reads.mjs';
 import { readItems, readProjects, updateItem } from './store.mjs';
@@ -57,16 +58,35 @@ async function closeIssue(item, gh) {
   }
 }
 
-/** The one line in Chat for a merge: what became of its issue and what is still the user's. Null when there is neither. */
-function lineFor(project, item, closing) {
+/** Whether this pass has more to say of a merge: its issue's closing, or what its run left for the user. A card's line waits for that. */
+export const followsUp = item => Boolean(item.issue) || saysWhatIsLeft(item);
+
+/** The one line in Chat for a merge: `opening` says the merge, then what became of its issue and what is still the user's. Null when there is neither. */
+function lineFor(opening, item, closing) {
   const left = saysWhatIsLeft(item) ? `Still for you: ${flat(item.left)}` : null;
   if (!closing && !left) return null;
 
-  const opening = [`Merged "${flat(item.title)}" on ${nameOf(project)}.`, closing?.said].filter(Boolean).join(' ');
-  if (!left) return opening;
+  const said = [opening, closing?.said].filter(Boolean).join(' ');
+  if (!left) return said;
 
-  const room = Math.max(LONGEST_LINE - opening.length - 1, 1);
-  return `${opening} ${atAWord(left, room)}`;
+  const room = Math.max(LONGEST_LINE - said.length - 1, 1);
+  return `${said} ${atAWord(left, room)}`;
+}
+
+/**
+ * A card that merged it said so and waits, so what followed joins that line and the merge is said once. A close that failed gives it the blocked
+ * tone. With no card, as for a merge found on GitHub, or a card that went alone after waiting, the line says which merge it follows.
+ */
+function tellFollowUp(root, { project, item, closing, now }) {
+  const tone = closing?.issue === 'failed' ? 'blocked' : 'useful';
+  const card = cardActionFor(root, { slug: project.slug, item: item.id });
+  if (card?.followed) return;
+  if (card && !card.posted) {
+    followCardAction(root, card.id, { line: lineFor(card.line, item, closing) ?? card.line, tone: tone === 'blocked' ? tone : null });
+    return;
+  }
+  const line = lineFor(`Merged "${flat(item.title)}" on ${nameOf(project)}.`, item, closing);
+  if (line) postClientNotice(root, { key: `merged:${project.slug}:${item.id}`, line, tone }, now);
 }
 
 /**
@@ -84,10 +104,7 @@ export async function afterMerges(root, { now = Date.now(), gh = defaultGh } = {
   const followed = [];
   for (const { project, item } of inTurn) {
     const closing = item.issue ? await closeIssue(item, gh) : null;
-
-    const line = lineFor(project, item, closing);
-    const tone = closing?.issue === 'failed' ? 'blocked' : 'useful';
-    if (line) postClientNotice(root, { key: `merged:${project.slug}:${item.id}`, line, tone }, now);
+    tellFollowUp(root, { project, item, closing, now });
 
     const came = closing ? { issue: closing.issue } : {};
     updateItem(root, project.slug, item.id, { afterMerge: { at: new Date(now).toISOString(), ...came } }, now);

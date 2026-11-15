@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { followsUp } from './after-merge.mjs';
 import { shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
 import { forecastWork } from './forecast.mjs';
@@ -50,6 +51,12 @@ export const toldOf = (project, { id, title, pr }, did, line) => ({
   title,
   ...(pr ? { pr } : {}),
   line,
+});
+
+/** A merge's line. When more follows the merge, its issue's closing or what its run left, Chat waits for that (`after-merge.mjs`) to say it once. */
+const toldOfMerge = (project, item, did, line) => ({
+  ...toldOf(project, item, did, line),
+  ...(followsUp(item) ? { follows: { slug: project.slug, item: item.id } } : {}),
 });
 
 /** The reply names the work by its title and project. Chat says the same with a PR's link too, so the user can tell which one it was. */
@@ -503,7 +510,7 @@ export async function mergeItem(root, reference, id, { route = 'chat', read = 'n
   const others = closed - 1;
   const alongside = others > 0 ? ` It brought ${others} earlier ${others === 1 ? 'branch' : 'branches'} with it.` : '';
   const message = `Merged "${title}" into ${base} on ${nameOf(project)}.${alongside} Nothing was pushed.`;
-  return reply(message, { target, route, told: toldOf(project, item, 'merged it locally', message) });
+  return reply(message, { target, route, told: toldOfMerge(project, item, 'merged it locally', message) });
 }
 
 const MERGE_PR_TIMEOUT_MS = 2 * 60000;
@@ -531,7 +538,7 @@ export async function mergePullRequest(root, reference, id, { head = null, gh = 
   closeMergedPull(root, project.slug, item, pull, now);
 
   const named = `the PR for "${item.title}" on ${nameOf(project)}`;
-  return reply(`Merged ${named}.`, { told: toldOf(project, item, 'merged the PR', `Merged ${named}: ${item.pr}.`) });
+  return reply(`Merged ${named}.`, { told: toldOfMerge(project, item, 'merged the PR', `Merged ${named}: ${item.pr}.`) });
 }
 
 /** Opens an item's PR in the browser, to read or comment on it there. */
