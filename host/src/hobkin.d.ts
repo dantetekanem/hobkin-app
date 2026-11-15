@@ -237,6 +237,11 @@ declare module 'hobkin/src/cli/main-session-child.mjs' {
   export function runMainSessionChild(channel: NodeJS.Process, dependencies: { openSession: typeof openConversation }): Promise<void>
 }
 
+declare module 'hobkin/src/cli/stay-awake.mjs' {
+  /** Starts `caffeinate -i -s -w <pid>` on a Mac, which ends with that process. */
+  export function stayAwake(options?: { platform?: NodeJS.Platform; pid?: number }): void
+}
+
 declare module 'hobkin/src/cli/bridge.mjs' {
   export interface BridgeContext {
     mode: string

@@ -13,6 +13,7 @@ import { refreshPath } from './pi/login-path.ts'
 import { addOwnNode, installNode, nodeBin } from './pi/node.ts'
 import { openInBrowser } from './signin.ts'
 import { spawnGh } from './review/gh.ts'
+import { stayAwake } from 'hobkin/src/cli/stay-awake.mjs'
 
 const isFolder = (path: string) => {
   try {
@@ -40,6 +41,12 @@ export function whyNotOrigin({ home: named, live, origin }: Pick<HostArguments, 
   if (actual(piFolder) === actual(realPiFolder)) return `${words}, and PI_CODING_AGENT_DIR names Pi's real folder, ${realPiFolder}.`
   return null
 }
+
+/**
+ * Whether this host keeps the Mac awake while it runs. A Mac that sleeps misses its routines and pauses its durable
+ * hobkins, so the user's own hobkin keeps it awake; a scripted host or a throwaway home never does.
+ */
+export const keepsMacAwake = (options: Pick<HostArguments, 'live'>, home: Pick<ResolvedHome, 'real'>): boolean => options.live && home.real
 
 /** The host's entry. The shell starts it, reads `client/host.json` in the home for the port and the token, and stops it with a signal. */
 async function main(args: readonly string[]): Promise<void> {
@@ -101,6 +108,9 @@ async function main(args: readonly string[]): Promise<void> {
   if (options.origin) console.log(`It also talks to the page at ${options.origin}.`)
   // The token is never printed. It is in the home, readable by the user only.
   console.log(`hobkin host listening on 127.0.0.1:${host.port} for ${home.root} with the ${options.live ? 'live' : 'scripted'} model`)
+  // caffeinate -i -s ends with this process (-w), so a host that restarts onto newer code starts a fresh one.
+  // The display still sleeps; a closed lid on battery still sleeps the Mac.
+  if (keepsMacAwake(options, home)) stayAwake()
 
   let stopping = false
   const stop = () => {
