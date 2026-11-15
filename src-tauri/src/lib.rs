@@ -401,6 +401,8 @@ pub fn run() {
             keep_host(app.handle().clone());
             notices::open_on_click(app.handle());
             updates::start(app.handle());
+            // Escape in a page in the canvas's browser closes the canvas, though the page has the keys (040-canvas-board).
+            browser::escape::watch(app.handle());
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
                 blur_behind(&window);

@@ -1,6 +1,7 @@
 //! The canvas's browser (_specs/036-canvas-browser): one native webview, a child of the main window, laid exactly over
 //! the canvas panel's page area, so a site that refuses to be framed still loads. The window drives it with the
-//! commands below and hears back what it shows (`canvas-browser:state`).
+//! commands below and hears back what it shows (`canvas-browser:state`) and an Escape pressed in its page
+//! (`canvas-browser:key`, see `escape`).
 //!
 //! A page in it is a stranger. No capability names its label, so it reaches none of Tauri's or the plugins' commands,
 //! and every command here answers the main window's own webview only. It keeps its own cookies and storage, apart from
@@ -230,10 +231,11 @@ pub async fn browser_open<R: Runtime>(app: AppHandle<R>, webview: Webview<R>, ur
         .on_permission_request(|_, _| PermissionResponse::Deny)
         .on_download(|_, _| false);
     let (x, y) = (area.x.max(0.0), area.y.max(0.0));
-    webview
+    let child = webview
         .window()
         .add_child(builder, LogicalPosition::new(x, y), LogicalSize::new(area.width.max(1.0), area.height.max(1.0)))
         .map_err(text)?;
+    escape::keep(&child);
     *app.state::<Browser>().current() = Some(label);
     Ok(())
 }
@@ -310,8 +312,172 @@ pub async fn browser_close<R: Runtime>(app: AppHandle<R>, webview: Webview<R>) -
 pub fn close<R: Runtime>(app: &AppHandle<R>) {
     let label = app.state::<Browser>().current().take();
     if let Some(open) = label.and_then(|label| app.get_webview(&label)) {
+        escape::let_go(&open);
         let _ = open.close();
     }
+}
+
+/// Escape in a page in the browser (_specs/040-canvas-board). While a page has the keyboard its keys go to WebKit, and
+/// the window never hears them. So the shell watches each key that comes down in the app, and tells the main window's
+/// webview when Escape comes while the browser's view has the keyboard. The page still gets the key: the shell only
+/// looks at it. What it looks at is AppKit's own (the key, the key window, the view with the keyboard), never the page.
+#[cfg(target_os = "macos")]
+pub mod escape {
+    use std::cell::Cell;
+    use std::ptr;
+
+    use block2::RcBlock;
+    use objc2::msg_send;
+    use objc2::rc::{Retained, Weak};
+    use objc2::runtime::{AnyClass, AnyObject};
+    use tauri::{AppHandle, Emitter, EventTarget, Runtime, Webview};
+
+    use super::MAIN;
+
+    /// Escape pressed in the browser's page, for the main window's webview.
+    const KEY: &str = "canvas-browser:key";
+    /// NSEventTypeKeyDown. The monitor's mask is its bit.
+    const KEY_DOWN: usize = 10;
+    /// The Escape key's code (kVK_Escape), the same on every keyboard layout.
+    const ESCAPE: u16 = 53;
+
+    /// The browser's view while it is open, and the window it opened in.
+    struct Kept {
+        /// Weak: it never keeps a closed view alive, and it reads as nothing once WebKit has freed the view, so the
+        /// monitor never reaches a view that is gone.
+        view: Weak<AnyObject>,
+        /// Only compared with the key window, never sent anything, so it needs no hold on the window.
+        window: *const AnyObject,
+    }
+
+    thread_local! {
+        /// Only the main thread uses it: WebKit hands the view over there, AppKit calls the monitor there, and WebKit
+        /// frees the view there, so it needs no lock. A Cell rather than a RefCell, so nothing here can panic inside
+        /// AppKit's calls.
+        static KEPT: Cell<Option<Kept>> = const { Cell::new(None) };
+    }
+
+    /// Whether a key that came down is one the window hears of: Escape, once a press. A held key's repeats are the same
+    /// press.
+    pub(super) fn tells_window(code: u16, repeat: bool) -> bool {
+        code == ESCAPE && !repeat
+    }
+
+    /// Watches each key that comes down in the app, from setup on. AppKit keeps the monitor, and the block in it, until
+    /// it is removed, which it never is.
+    pub fn watch<R: Runtime>(app: &AppHandle<R>) {
+        let Some(events) = AnyClass::get(c"NSEvent") else { return };
+        let app = app.clone();
+        let monitor: RcBlock<dyn Fn(*mut AnyObject) -> *mut AnyObject> = RcBlock::new(move |event: *mut AnyObject| {
+            // SAFETY: AppKit calls the monitor on the main thread, with the key-down event it is about to send.
+            if unsafe { escape_in_page(event) } {
+                // From a task of its own, as `report` is, so none of Tauri's work runs inside AppKit's sending of a key.
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    let _ = app.emit_to(EventTarget::webview(MAIN), KEY, serde_json::json!({ "key": "Escape" }));
+                });
+            }
+            // The same event, untouched, so the page still gets its Escape.
+            event
+        });
+        let mask: u64 = 1 << KEY_DOWN;
+        // SAFETY: setup runs on the main thread. The method takes an NSEventMask and a block from an event to an event,
+        // and copies the block to keep it.
+        unsafe {
+            let _: *mut AnyObject = msg_send![events, addLocalMonitorForEventsMatchingMask: mask, handler: &*monitor];
+        }
+    }
+
+    /// Whether the event is an Escape pressed while a page in the browser has the keyboard.
+    ///
+    /// # Safety
+    ///
+    /// On the main thread, with `event` a live event or null.
+    unsafe fn escape_in_page(event: *mut AnyObject) -> bool {
+        // Each answer is looked at before it is asked anything: a debug build stops on a message to nil, and a message a
+        // class does not have raises.
+        let Some(event) = event.as_ref() else { return false };
+        // The mask lets only key-down events through. The kind is asked anyway, since another kind has no key code.
+        let kind: usize = msg_send![event, type];
+        if kind != KEY_DOWN {
+            return false;
+        }
+        let code: u16 = msg_send![event, keyCode];
+        let repeat: bool = msg_send![event, isARepeat];
+        if !tells_window(code, repeat) {
+            return false;
+        }
+        let Some((view, opened_in)) = kept() else { return false };
+        let (Some(app_class), Some(view_class)) = (AnyClass::get(c"NSApplication"), AnyClass::get(c"NSView")) else {
+            return false;
+        };
+        let app: *mut AnyObject = msg_send![app_class, sharedApplication];
+        let Some(app) = app.as_ref() else { return false };
+        let window: *mut AnyObject = msg_send![app, keyWindow];
+        // Only in the window the browser opened in. A page's fullscreen, a video's, is a window of WebKit's own, and
+        // there Escape is how the page leaves it.
+        if !ptr::eq(window, opened_in) {
+            return false;
+        }
+        let Some(window) = window.as_ref() else { return false };
+        let responder: *mut AnyObject = msg_send![window, firstResponder];
+        let Some(responder) = responder.as_ref() else { return false };
+        // The window itself can have the keyboard, and only a view has a place among views.
+        let is_view: bool = msg_send![responder, isKindOfClass: view_class];
+        if !is_view {
+            return false;
+        }
+        // The browser's view itself counts as inside it.
+        msg_send![responder, isDescendantOf: &*view]
+    }
+
+    /// The browser's view, held for as long as it is looked at, and the window it opened in. None when no browser is
+    /// open.
+    fn kept() -> Option<(Retained<AnyObject>, *const AnyObject)> {
+        KEPT.try_with(|kept| {
+            let held = kept.take();
+            let found = held.as_ref().and_then(|held| Some((held.view.load()?, held.window)));
+            kept.set(held);
+            found
+        })
+        .ok()
+        .flatten()
+    }
+
+    /// Keeps the browser's view and its window. Tauri runs this on the main thread, and the view is already there:
+    /// `add_child` returns once it is made.
+    pub fn keep<R: Runtime>(webview: &Webview<R>) {
+        let _ = webview.with_webview(|platform| {
+            let window = platform.ns_window() as *const AnyObject;
+            // SAFETY: `inner` is this webview's live WKWebView, handed over on the main thread.
+            let Some(view) = (unsafe { (platform.inner() as *const AnyObject).as_ref() }) else { return };
+            let _ = KEPT.try_with(|kept| kept.set(Some(Kept { view: Weak::new(view), window })));
+        });
+    }
+
+    /// Lets the browser's view go as the browser closes. Tauri runs this on the main thread before the close, which is
+    /// sent after it. A newer browser's view stays.
+    pub fn let_go<R: Runtime>(webview: &Webview<R>) {
+        let _ = webview.with_webview(|platform| {
+            let closing = platform.inner() as *const AnyObject;
+            let _ = KEPT.try_with(|kept| {
+                let held = kept.take();
+                if held.as_ref().and_then(|held| held.view.load()).is_some_and(|view| !ptr::eq(&*view, closing)) {
+                    kept.set(held);
+                }
+            });
+        });
+    }
+}
+
+/// Elsewhere a page's keys stay its own.
+#[cfg(not(target_os = "macos"))]
+pub mod escape {
+    use tauri::{AppHandle, Runtime, Webview};
+
+    pub fn watch<R: Runtime>(_app: &AppHandle<R>) {}
+    pub fn keep<R: Runtime>(_webview: &Webview<R>) {}
+    pub fn let_go<R: Runtime>(_webview: &Webview<R>) {}
 }
 
 #[cfg(test)]
@@ -338,5 +504,17 @@ mod tests {
         assert!(!visit("http://127.0.0.1:5187/"));
         assert!(!visit("file:///etc/passwd"));
         assert!(!visit("tauri://localhost/"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_window_hears_of_escape_once_a_press_and_of_no_other_key() {
+        use super::escape::tells_window;
+        assert!(tells_window(53, false));
+        assert!(!tells_window(53, true), "a held Escape's repeats");
+        // Return, Tab, Space and A.
+        for other in [36, 48, 49, 0] {
+            assert!(!tells_window(other, false), "{other}");
+        }
     }
 }
