@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
+import { readDirections } from './directions.mjs';
 import { markPosted, recordSessionEnd } from './session-log.mjs';
 import { tierNames } from './tiers.mjs';
 
@@ -35,7 +36,8 @@ export function takeSessionRequests(root, capacity = Infinity) {
  * Runs a session as one of the runner's background jobs, the way Work runs: it shows as a running run with its live
  * activity and agents, `message_check` reaches it by its schedule, and `kill` stops it. When it ends, the session log
  * hears of it, so `--wake` gives the main agent its turn with the report. The run keeps the tier it was given beside
- * the model and effort that tier meant then, so a later change of the tier does not rewrite what ran.
+ * the model and effort that tier meant then, so a later change of the tier does not rewrite what ran. Its request carries
+ * the user's directions, as a check's and a work run's do, read when it starts.
  */
 export function startSessionJob({ root, runner, model, effort, tier }, session) {
   const harnessId = randomUUID();
@@ -48,7 +50,7 @@ export function startSessionJob({ root, runner, model, effort, tier }, session) 
     mkdirSync(join(root, 'jobs'), { recursive: true, mode: 0o700 });
     return runner.runHarness({
       id: harnessId, harness: 'pi', cwd: session.cwd, model, effort,
-      prompt: `Read ${session.brief} and follow it.`,
+      prompt: JSON.stringify({ task: `Read ${session.brief} and follow it.`, directions: readDirections(root) }),
       sessionFile: join(root, 'jobs', `${harnessId}.jsonl`),
       signal,
     }, { onEvent: event => runner.onActivity(id, event), onReady: send => inbox.resolve(send) });

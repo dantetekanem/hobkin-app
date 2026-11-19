@@ -1127,11 +1127,14 @@ test('a session `hobkin session` asked for runs as a job: it shows, streams, tak
     return finish.promise;
   } });
   t.after(() => { finish.resolve({ status: 'interrupted', text: '' }); return app.close(); });
+  writeFileSync(join(h.root, 'AGENTS.md'), '# Hobkin directions\n\nThe user\'s own ask in chat is the yes.\n');
   const started = await startSession({ root: h.root, title: 'Review routines', brief: 'Review my routines.', wake: true, cwd: h.root, env: {} });
 
   const ended = app.tickSessions();
   const { request, options } = await ready.promise;
-  assert.equal(request.prompt, `Read ${join(h.root, 'runtime', 'handoffs', `${started.name}.md`)} and follow it.`);
+  const asked = JSON.parse(request.prompt);
+  assert.equal(asked.task, `Read ${join(h.root, 'runtime', 'handoffs', `${started.name}.md`)} and follow it.`);
+  assert.match(asked.directions, /The user's own ask in chat is the yes\.\n$/, 'the session follows the user\'s directions, as every job does');
   assert.equal(request.sessionFile, join(h.root, 'jobs', `${request.id}.jsonl`));
   assert.deepEqual(readdirSync(join(h.root, 'runtime', 'session-requests')), [], 'each request starts once');
   options.onEvent({ type: 'tool_execution_start', toolCallId: 'r', toolName: 'read', args: { path: 'routines.md' } });
