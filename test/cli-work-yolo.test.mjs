@@ -7,6 +7,7 @@ import { clientNoticesToPost } from '../src/cli/client-notices.mjs';
 import { initialize } from '../src/cli/config.mjs';
 import { surveyAndClose } from '../src/cli/work/closing.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
+import { WorkDirector } from '../src/cli/work/director.mjs';
 import { chooseProject, fileItem, prFile, readItems, readMode, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { yoloPass } from '../src/cli/work/yolo-pass.mjs';
@@ -251,13 +252,18 @@ test('each merge by itself is reported in Chat and in the ledger, and its deploy
   assert.match(job.asked, /Deploy exactly that commit by the project's recorded path: bin\/deploy from main, undone by bin\/deploy rollback\./);
 });
 
+/** The description a run saves for its branch. Without one the survey sends an agent to write it, and the branch waits for that. */
+function describe(h, { slug = 'api', id }) {
+  mkdirSync(dirname(prFile(h.root, slug, id)), { recursive: true });
+  writeFileSync(prFile(h.root, slug, id), 'What changed and why.\n');
+}
+
 test('with YOLO mode on, a finished branch on a ready project gets its review by itself', async t => {
   const h = workspace(t, ['api', 'web']);
   makeReady(h);
   // Described and proved, with no scores yet, so a review is all each one lacks.
   const unscored = ({ slug, id }) => {
-    mkdirSync(dirname(prFile(h.root, slug, id)), { recursive: true });
-    writeFileSync(prFile(h.root, slug, id), 'What changed and why.\n');
+    describe(h, { slug, id });
     updateItem(h.root, slug, id, { review: null }, NOW);
   };
   const onReady = { slug: 'api', ...finished(h, 'Fix login') };
@@ -268,4 +274,49 @@ test('with YOLO mode on, a finished branch on a ready project gets its review by
 
   const asked = ({ slug, id }) => Boolean(itemsOf(h, slug).find(item => item.id === id).reviewAsked);
   assert.deepEqual([asked(onReady), asked(onUnready)], [true, false]);
+});
+
+test('the director runs the pass after its own survey, and hands the deploy on', async t => {
+  const h = workspace(t);
+  // The survey's own reader of review grades looks in Pi's folder, and a test has none.
+  const before = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = join(h.base, 'pi');
+  t.after(() => {
+    if (before === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = before;
+  });
+  makeReady(h);
+  const first = finished(h, 'Fix login');
+  describe(h, first);
+  const handed = [];
+  let changes = 0;
+  const directorAt = now => new WorkDirector({ root: h.root, now: () => now, gh: async () => '[]', onChange: () => { changes += 1; }, onHandOff: job => handed.push(job) });
+
+  const director = directorAt(NOW);
+  director.surveyWork();
+  await director.surveying;
+
+  assert.equal(stateOf(h, first), 'merged');
+  assert.deepEqual(handed.map(({ item, why }) => [item, why]), [[first.id, 'YOLO mode is on and this project is ready for it']]);
+  assert.ok(changes > 0, 'the window hears of a merge at once');
+
+  // The same survey with the switch off merges nothing.
+  setYolo(h.root, { on: false }, NOW);
+  const second = finished(h, 'Fix logout');
+  describe(h, second);
+  const later = directorAt(NOW + 3600000);
+  later.surveyWork();
+  await later.surveying;
+
+  assert.equal(stateOf(h, second), 'branch');
+  assert.equal(handed.length, 1);
+
+  // And on again, the next survey takes it: only the switch held it.
+  setYolo(h.root, { on: true }, NOW);
+  const again = directorAt(NOW + 2 * 3600000);
+  again.surveyWork();
+  await again.surveying;
+
+  assert.equal(stateOf(h, second), 'merged');
+  assert.equal(handed.length, 2);
 });
