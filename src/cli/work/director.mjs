@@ -36,6 +36,8 @@ import { lookAfterHarness, stampUpkeep, upkeepDue } from './upkeep.mjs';
 import { offerSubscriptionPause, retireSubscriptionPause } from './subscription.mjs';
 import { nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
+import { yoloPass } from './yolo-pass.mjs';
+import { reviewsByItself } from './yolo.mjs';
 
 function withSessionCost(result, sessionFile) {
   const { usd, sessionId } = sessionUsage(sessionFile);
@@ -81,8 +83,8 @@ const declineMutations = new WeakMap();
 
 /** Decides what runs next. Everything it knows lives in `work/`, so it can restart at any time. Every agent is a Pi job of the runner's, recorded with the other runs. */
 export class WorkDirector {
-  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, now = Date.now, onChange = () => {}, onDraftDone = () => {}, gh, fetch, ownFolder = HOBKIN_FOLDER }) {
-    Object.assign(this, { root, config, runtime, runner, runHarness, now, onChange, onDraftDone, gh, fetch, ownFolder });
+  constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, now = Date.now, onChange = () => {}, onDraftDone = () => {}, onHandOff, gh, fetch, ownFolder = HOBKIN_FOLDER }) {
+    Object.assign(this, { root, config, runtime, runner, runHarness, now, onChange, onDraftDone, onHandOff, gh, fetch, ownFolder });
     this.active = new Map();
     // When the last run started survives a restart, so a new owner keeps the gap instead of starting two at once.
     this.lastStartAt = Date.parse(readMode(root).lastStartAt) || null;
@@ -402,6 +404,11 @@ export class WorkDirector {
     if (this.surveying || elapsedSince(readUnmerged(this.root).at, this.now()) < SURVEY_EVERY_MS) return;
     if (!chosenProjects(this.root).length) return;
     this.surveying = surveyAndClose(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}), ...(this.fetch ? { fetch: this.fetch } : {}) })
+      // Only this survey, the owner's own, lets a change merge by itself, and only while the user has YOLO mode on (`yolo-pass.mjs`).
+      .then(() => yoloPass(this.root, { now: this.now(), ...(this.onHandOff ? { handOff: this.onHandOff } : {}) }))
+      .then(merged => {
+        if (merged.length) this.onChange();
+      })
       .catch(() => {})
       .then(() => retireClosedTrees(this.root, { running: this.running() }))
       .catch(() => {})
@@ -820,8 +827,7 @@ export class WorkDirector {
 
   // With the mode off nothing new starts, and that holds for a review too. A home with no setting is off.
   async earnsAReview(project, branch) {
-    const { enabled, reviewOnFinish } = readMode(this.root);
-    if (!enabled || reviewOnFinish !== true) return false;
+    if (!readMode(this.root).enabled || !reviewsByItself(this.root, project.slug)) return false;
     const repo = project.path ?? paths(this.root, project.slug).clone;
     return !await changesOnlyDocs(repo, await defaultBranch(repo), branch);
   }

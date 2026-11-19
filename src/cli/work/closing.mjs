@@ -4,6 +4,7 @@ import { readyItems, saysDoneButWaits, weighedRows } from './reads.mjs';
 import { chosenProjects, fileItem, itemTree, ownerView, paths, readItems, readMode, retryItem, runnableStates, updateItem } from './store.mjs';
 import { realPlace, retireTree } from './tree.mjs';
 import { readUnmerged, surveyUnmerged } from './unmerged.mjs';
+import { reviewsByItself } from './yolo.mjs';
 
 // The rows the user sees next. Filling in any more would pay for work they may never ship.
 const NEXT_ROWS = 5;
@@ -45,7 +46,7 @@ export function fillGaps(root, now = Date.now()) {
  * quality, it is not asked for again: no grade came of it, and another would cost a whole run. Markdown alone has nothing for a review to grade.
  */
 const lacksAGrade = row => LANDS.includes(row.gap) && Boolean(row.head) && !row.onlyDocs && (!row.safety || row.safety.stale);
-const askedOrReviewedAt = (item, head) => item.reviewAsked || item.reviewAskedFor === head || item.quality?.head === head;
+const askedOrReviewedAt = (item, head) => item.reviewAsked || item.reviewAskedFor === head || item.quality?.head === head || item.review?.head === head;
 const wantsAReview = ({ row, item }) => lacksAGrade(row) && !askedOrReviewedAt(item, row.head);
 
 // A run that has recorded its outcome is still going, and decides on its own review as it ends.
@@ -59,15 +60,15 @@ const beingWorkedOn = (root, { slug, item, branch }, running) => running.some(ru
  * grade is not asked again until the branch moves. These are the writes `hobkin work review` makes, so each review goes to the front of the queue.
  */
 function askReviews(root, now = Date.now()) {
-  // With the mode off nothing new starts, and a review runs by itself only once the user turns reviews on. A home with no setting is off.
-  const { enabled, reviewOnFinish } = readMode(root);
-  if (!enabled || reviewOnFinish !== true) return [];
+  // With the mode off nothing new starts, and a review runs by itself only once the user turns reviews on, or on a project ready for YOLO mode.
+  // A home with no setting is off.
+  if (!readMode(root).enabled) return [];
 
   const { running } = ownerView(root);
   const asked = [];
   for (const { row } of weighedRows(root, now).filter(wantsAReview)) {
     if (asked.length === REVIEWS_A_PASS) break;
-    if (beingWorkedOn(root, row, running)) continue;
+    if (!reviewsByItself(root, row.slug) || beingWorkedOn(root, row, running)) continue;
     updateItem(root, row.slug, row.item, { reviewAsked: true, reviewAskedFor: row.head }, now);
     retryItem(root, row.slug, row.item, now);
     asked.push({ slug: row.slug, id: row.item, title: row.title, branch: row.branch });

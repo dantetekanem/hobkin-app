@@ -198,6 +198,15 @@ function changeVetoes({ area, conflict, size, paths = [], deletedTests = [] }) {
   ];
 }
 
+/**
+ * An offer's rules about the change itself, for a merge that leans on a review's scores in place of a grade and a precedent: its size and areas,
+ * its tests, what it touches, whether git could tell it merges, and a way back.
+ */
+export const changeHolds = (item, unit = {}) => [
+  ...changeVetoes(unit),
+  NO_WAY_BACK.includes(item.launch?.undo) && `undo is ${item.launch.undo}`,
+].filter(Boolean);
+
 const vetoesOf = ({ item, unit, gap, beneath }) => [
   gapWords[gap],
   ...gradeVetoes(unit, item),

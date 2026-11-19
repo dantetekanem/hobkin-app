@@ -97,6 +97,12 @@ export function readinessOf(root, slug) {
   return { ready: needs.length === 0, needs, parts: record?.parts ?? null, at: record?.at ?? null, item: item?.id ?? null };
 }
 
+/**
+ * Whether a finished branch on this project gets its review with no one asking: the user turned reviews on, or YOLO mode is on and the project
+ * is ready, since nothing merges by itself without a review's scores.
+ */
+export const reviewsByItself = (root, slug) => readMode(root).reviewOnFinish === true || (readYolo(root).on && readinessOf(root, slug).ready);
+
 /** YOLO mode as the window and Home read it: the switch, the rate, how many projects are ready, and what each of the others still needs. */
 export function yoloView(root) {
   const projects = chosenProjects(root).map(project => {

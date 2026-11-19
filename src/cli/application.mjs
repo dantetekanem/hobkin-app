@@ -309,6 +309,8 @@ export class HobkinApplication {
         now: app.now,
         onChange: () => app.requestRefresh(),
         onDraftDone: draft => app.landOffers.add(draft),
+        // The deploy of a change YOLO mode merged by itself, for the main agent to hand to one session.
+        onHandOff: job => app.handOff(job),
       });
       signal?.throwIfAborted();
       // Before anything starts: a durable hobkin's turn that was running when hobkin stopped is over.
