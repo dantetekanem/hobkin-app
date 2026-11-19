@@ -106,11 +106,19 @@ function sizeOf(shortstat) {
   return { additions: number('insertion'), deletions: number('deletion'), files: number('file') };
 }
 
-async function localBranches(repo, base) {
-  const refs = await gitOrNothing(repo, 'for-each-ref', '--format=%(refname:short)%09%(committerdate:iso-strict)%09%(objectname)', `refs/heads/${BRANCH_PREFIX}`);
-  const merged = new Set((await gitOrNothing(repo, 'branch', '--merged', base, '--format=%(refname:short)', '--list', `${BRANCH_PREFIX}*`)).split('\n'));
-  return refs.split('\n').filter(Boolean).map(line => {
-    const [name, at, sha] = line.split('\t');
+/**
+ * Hobkin's own branches, and any other branch a finished item names, such as one a session made, so that work is read and pinned to a commit like the rest.
+ * Only names a real local branch came back with reach `git branch`, so nothing an item says can pass for an option.
+ */
+async function localBranches(repo, base, named = new Set()) {
+  const itemBranches = [...named].filter(name => name !== base && !name.startsWith(BRANCH_PREFIX));
+  const refs = await gitOrNothing(repo, 'for-each-ref', '--format=%(refname:short)%09%(committerdate:iso-strict)%09%(objectname)', `refs/heads/${BRANCH_PREFIX}`,
+    ...itemBranches.map(name => `refs/heads/${name}`));
+  const found = refs.split('\n').filter(Boolean).map(line => line.split('\t'))
+    .filter(([name]) => name.startsWith(BRANCH_PREFIX) || itemBranches.includes(name));
+  const others = found.map(([name]) => name).filter(name => !name.startsWith(BRANCH_PREFIX));
+  const merged = new Set((await gitOrNothing(repo, 'branch', '--merged', base, '--format=%(refname:short)', '--list', `${BRANCH_PREFIX}*`, ...others)).split('\n'));
+  return found.map(([name, at, sha]) => {
     // With no default branch known, `base` is whatever is checked out, and a branch holding itself proves nothing.
     return { name, at, sha, merged: merged.has(name) && name !== base };
   });
@@ -185,9 +193,10 @@ async function holdersOf(repo, sha) {
     .map(line => line.split('\t'));
 }
 
-async function usersBranches(repo, base) {
+// A branch a finished item names is that item's work, read like a hobkin branch, so it is no place for other work to have landed.
+async function usersBranches(repo, base, named = new Set()) {
   const newestFirst = lines(await gitOrNothing(repo, 'for-each-ref', '--sort=-committerdate', '--format=%(refname:short)', 'refs/heads'));
-  const theirs = newestFirst.filter(name => name !== base && !notTheUsers.some(prefix => name.startsWith(prefix)) && !BACKUP_BRANCH.test(name));
+  const theirs = newestFirst.filter(name => name !== base && !notTheUsers.some(prefix => name.startsWith(prefix)) && !BACKUP_BRANCH.test(name) && !named.has(name));
   return theirs.slice(0, MOST_BRANCHES_CHECKED);
 }
 
@@ -296,14 +305,14 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   if (!await gitOrNothing(repo, 'rev-parse', '--git-dir')) throw Error(`Cannot read ${repo}.`);
   const base = await defaultBranch(repo);
   const tip = await landingTip(repo, base);
-  const branches = await localBranches(repo, base);
+  const branches = await localBranches(repo, base, finished);
   const pulls = await pullRequests(repo, gh) ?? [];
   // An item can name a PR on any head, but only a hobkin head is work to count.
   const ownPulls = pulls.filter(pr => pr.headRefName?.startsWith(BRANCH_PREFIX));
   // A closed PR leaves its branch as the record of the work, so only an open or merged one speaks for that branch.
   const withPull = new Set(ownPulls.filter(pr => pr.state !== 'CLOSED').map(pr => pr.headRefName));
   const bare = branches.filter(branch => !branch.merged && !withPull.has(branch.name) && !BACKUP_BRANCH.test(branch.name));
-  const others = await usersBranches(repo, base);
+  const others = await usersBranches(repo, base, finished);
   const units = await Promise.all(bare.map(branch => branchUnit({ repo, base, tip, branch, grades, finished, others, previous })));
   const landed = await mergedHere({ repo, base, units, previous });
   // Git keeps no date for a local merge, so one seen now is dated now.

@@ -241,6 +241,23 @@ test('work the last survey did not read stays out, because nothing pins it to a 
   assert.deepEqual(landingList(h.root).landable.map(row => row.item), [item.id]);
 });
 
+test('a branch a session made outside hobkin/ is read from its item, so it lands at the commit it holds and closes once merged', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'local/ruby-4-0-10', 'Gemfile', 'ruby "4.0.10"\n');
+  branched(h.checkout, 'local/someone-else', 'other.txt', 'other\n');
+  const item = finished(h, 'local/ruby-4-0-10', proved);
+
+  await survey(h);
+
+  assert.equal(unit(h, 'local/someone-else'), undefined, 'a branch no item names stays the user\'s');
+  assert.deepEqual(landingList(h.root).landable.map(({ item: id, head }) => [id, head]), [[item.id, tipOf(h, 'local/ruby-4-0-10')]]);
+
+  git(h.checkout, 'merge', '-q', '--no-ff', '--no-edit', 'local/ruby-4-0-10');
+  await survey(h);
+
+  assert.equal(read(h, item).state, 'merged');
+});
+
 test('a branch stays out when it brings along earlier work a review rated below safe', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/under', 'under.txt', 'under\n');
