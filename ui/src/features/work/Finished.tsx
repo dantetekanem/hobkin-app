@@ -432,6 +432,8 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
               <PullStatus pull={pull} />
             </div>
             <ClampedLine className="mt-2" label={<span className="text-muted-foreground">Proof: </span>} text={change.proof ? endAtWord(change.proof) : 'No proof: nothing recorded shows it works.'} />
+            {/* What its review scored it: the kind, the general rate and the five scores (049-yolo-mode). */}
+            {change.scores ? <p className="mt-1 text-[12.5px] leading-snug break-words text-muted-foreground">{change.scores}</p> : null}
             <p className={cn('mt-1 text-[12.5px] leading-snug', group.name === 'needs' || group.name === 'left' ? 'text-warn-fg' : 'text-muted-foreground')}>{change.reason}</p>
             <p className="mt-1 text-[12px] leading-snug break-words text-muted-foreground">{change.yes}</p>
           </div>
