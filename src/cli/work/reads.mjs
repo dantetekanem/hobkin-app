@@ -36,6 +36,26 @@ export const saysWhatIsLeft = ({ left, leftKind }) => Boolean(String(left ?? '')
   && leftKind !== 'delivery'
   && !deliveryDisclaimer(left);
 
+// A clause names a shipping step and the user's yes it waits on, or is an older run's line that shipping remains for later.
+const SHIPPING = /\b(?:merg|land|push|deploy|ship|releas|publish|restart|roll(?:ing)? ?out|go(?:es)? live)/i;
+const THE_YES = /\b(?:approv|yes\b|go-ahead|sign-?off|authori[sz]|permission|consent|confirm|say-?so|ok(?:ay)?\b)/i;
+const SHIPPING_REMAINS = /^(?:publication|deployment|publication and deployment) of .+ remain(?:s)? outside this local-only run\b/i;
+const RECEIPT = /^(?:(?:so )?nothing (?:was )?(?:pushed|opened|merged|deployed|released)|landing is off)\b/i;
+// A period inside a version such as 4.0.10 ends no sentence.
+const sentencesOf = text => String(text ?? '').split(/[.;!?](?=\s|$)/).map(part => part.trim()).filter(Boolean);
+const asksTheYes = sentence => (SHIPPING.test(sentence) && THE_YES.test(sentence)) || SHIPPING_REMAINS.test(sentence);
+
+/**
+ * A note that says only that finished work waits for the user's yes to ship it. `ready` is the list that yes is given on, and the user's own ask may already
+ * have given it, so such a note keeps no item off that list. A note with anything else in it, or one a run marked as personal or as work, still does.
+ */
+export const waitsOnlyForTheYes = ({ left, leftKind }) => {
+  if (leftKind === 'approval') return true;
+  if (leftKind) return false;
+  const sentences = sentencesOf(left);
+  return sentences.some(asksTheYes) && sentences.every(sentence => asksTheYes(sentence) || RECEIPT.test(sentence));
+};
+
 /** Classification is presentation, not permission to ship or evidence that work finished. Unknown text stays visible. */
 export const attentionKind = ({ leftKind, left }) => {
   if (['personal', 'approval', 'work'].includes(leftKind)) return leftKind;
@@ -255,6 +275,7 @@ function readyRow(root, project, item, items, openUnits = []) {
     proof: proof ? oneLine(proof, LONGEST_PROOF) : null,
     left: leftForTheUser(item) ? left : null,
     attentionKind: attentionKind(item),
+    waitsForTheYes: leftForTheUser(item) && waitsOnlyForTheYes(item),
     at: updatedAt,
     behind,
     conflict,
@@ -352,7 +373,7 @@ export const weakEarlierWork = (row, units) => stackedBeneath(row, units).find(h
 function whyLeftOut(row, units) {
   if (row.gap === 'elsewhere' && row.landedOn) return `it is already on ${row.landedOn}`;
   if (row.gap !== 'land') return gapWords[row.gap];
-  if (row.left) return `it still has work left: ${row.left}`;
+  if (row.left && !row.waitsForTheYes) return `it still has work left: ${row.left}`;
   if (heldByItsGrade(row)) return ratingWords(row);
   if (!row.head) return 'the last survey did not read its branch, and hobkin work sync reads it';
   if (row.proved === false) return 'it has no proof';

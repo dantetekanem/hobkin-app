@@ -258,6 +258,29 @@ test('a branch a session made outside hobkin/ is read from its item, so it lands
   assert.equal(read(h, item).state, 'merged');
 });
 
+test('a note that only says the work waits for the user\'s yes to ship keeps nothing off ready, and any other note still does', async t => {
+  const h = workspace(t);
+  const notes = {
+    yes: { left: 'Merging and deploying ruby 4.0.10 wait for the user\'s yes on the exact list.' },
+    marked: { left: 'Ship it to production.', leftKind: 'approval' },
+    receipt: { left: 'Publication and deployment of the approved revision remain outside this local-only run; landing is off, so nothing was pushed or deployed.' },
+    work: { left: 'The migration test still fails.' },
+    mixed: { left: 'The migration test still fails. Deploying needs the user\'s approval.' },
+    personal: { left: 'Approve the new payment account before it can deploy.', leftKind: 'personal' },
+  };
+  const items = Object.fromEntries(Object.entries(notes).map(([name, note]) => {
+    branched(h.checkout, `hobkin/${name}`, `${name}.txt`, `${name}\n`);
+    return [name, finished(h, `hobkin/${name}`, { ...proved, ...note })];
+  }));
+
+  await survey(h);
+  const { landable, leftOut } = landingList(h.root);
+
+  const named = rows => rows.map(({ item }) => Object.keys(items).find(name => items[name].id === item)).toSorted();
+  assert.deepEqual(named(landable), ['marked', 'receipt', 'yes']);
+  assert.deepEqual(named(leftOut), ['mixed', 'personal', 'work']);
+});
+
 test('a branch stays out when it brings along earlier work a review rated below safe', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/under', 'under.txt', 'under\n');
