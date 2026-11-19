@@ -17,6 +17,7 @@ const CONNECTED_BY = {
   key: 'API key',
   environment: 'Key from the environment',
   cloud: 'Cloud credentials',
+  launcher: 'Through the launcher',
 } as const
 
 /** How Pi reaches a connected provider. Falls back on the routes it offers when Pi cannot tell. */

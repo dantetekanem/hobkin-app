@@ -40,6 +40,7 @@ import { piExtensionSourceFor, piSkillSourceFor } from './pi-resources.ts'
 import { Skills } from './skills.ts'
 import { whyNotUsable } from './main-model.ts'
 import { openableUrl } from './open.ts'
+import { LauncherModels, withLauncher, type Launcher } from './launcher-models.ts'
 import { piModelAccess, type LiveModelAccess, type ModelAccess } from './model-access.ts'
 import { HomeOwner } from './owner.ts'
 import { Questions } from './questions.ts'
@@ -234,7 +235,14 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
 
   // Every way to reach a model is Pi's: its own runtime for a live host, a scripted set of its providers otherwise.
   let opened: Promise<ModelAccess> | null = null
-  const access = () => (opened ??= (options.access ?? (live ? piModelAccess : () => scriptedModelAccess()))())
+  // A launcher the home's config names is another account, asked for its models (see `launcher-models.ts`). Only Pi's own access gets it.
+  const launcherModels = new LauncherModels({ launcher: async () => (await import('hobkin/src/cli/config.mjs')).loadConfig(root).launcher as Launcher | undefined })
+  const access = () =>
+    (opened ??= options.access
+      ? options.access()
+      : live
+        ? piModelAccess().then((pi) => withLauncher(pi, launcherModels))
+        : scriptedModelAccess())
 
   // hobkin reaches the app through one tool, which runs the same commands a click does (`013-hobkin-access`).
   const client = createClientTool({ run: (name, args) => runCommand(handlers, name, args) })

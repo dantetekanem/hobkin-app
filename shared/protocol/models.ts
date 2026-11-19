@@ -17,9 +17,9 @@ export interface ProviderAccess {
   connected: boolean
   /**
    * How Pi reaches it, when connected and Pi can tell: a sign-in it keeps, an API key it keeps, a key from the
-   * environment, or the cloud's own credentials. Never the credential itself.
+   * environment, the cloud's own credentials, or the launcher the hobkin config names. Never the credential itself.
    */
-  connectedBy?: 'sign-in' | 'key' | 'environment' | 'cloud'
+  connectedBy?: 'sign-in' | 'key' | 'environment' | 'cloud' | 'launcher'
   /** The model id Pi starts on for this provider when nothing is saved, from Pi's own table. Only a model Pi's catalog has. */
   defaultModel?: string
 }
