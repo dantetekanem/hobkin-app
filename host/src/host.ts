@@ -453,7 +453,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'execution.stop': (args) => stopExecution(owner, args),
     'startup.force': (args) => owner.forceStartup(args),
     'conversation.stop': async () => {
-      const unsent = await hobkin().interrupt()
+      // A stop can wait up to thirty seconds. One that gets no answer is unconfirmed, and asking again is the way on.
+      const unsent = await hobkin().interrupt().catch((error: unknown) => {
+        if ((error as { code?: string } | null)?.code === 'STOP_UNCONFIRMED') throw Error('hobkin has not confirmed the stop yet. Press Esc twice to ask again.')
+        throw error
+      })
       return { stopped: unsent !== null, unsent: unsent ?? [] }
     },
     'slash.list': async () => ({ commands: await slash.list(owner.app) }),

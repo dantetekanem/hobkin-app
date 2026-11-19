@@ -23,6 +23,8 @@ export interface StatusLineProps {
   typing: boolean
   /** The first Escape of a stop was pressed, and the second is waited for. */
   stopArmed?: boolean
+  /** A stop waits for hobkin's answer, which can take up to half a minute. */
+  stopping?: boolean
 }
 
 /** The clock the greeting and the tips follow. It moves only when one of them starts or ends. */
@@ -40,7 +42,7 @@ function useBubbleClock(openedAt: number): number {
  * how to stop it, or, while it waits, the terminal app's greeting and tips. A problem, what a command said, or why
  * nothing can be sent show there as a plain line.
  */
-export function StatusLine({ reason, problem, said, turnRunning, typing, stopArmed = false }: StatusLineProps) {
+export function StatusLine({ reason, problem, said, turnRunning, typing, stopArmed = false, stopping = false }: StatusLineProps) {
   const doing = useHost((state) => doingNow(state.snapshot))
   const startedAt = useHost((state) => turnStartedAt(state.snapshot))
   const userName = useHost((state) => (typeof state.snapshot.userName === 'string' && state.snapshot.userName.trim() ? state.snapshot.userName.trim() : null))
@@ -58,7 +60,7 @@ export function StatusLine({ reason, problem, said, turnRunning, typing, stopArm
   if (!working) seenAt.current = null
   else seenAt.current ??= now
 
-  const line = problem ? 'problem' : said ? 'said' : reason ? 'reason' : null
+  const line = stopping ? 'stopping' : problem ? 'problem' : said ? 'said' : reason ? 'reason' : null
   const bubble = bubbleNow({ doing: working ? doing : null, typing, line, userName, openedAt, now: clock, tips, reminders })
   // A thought being read stays until the pointer or the keyboard leaves it.
   const [inspecting, setInspecting] = useState(false)
@@ -103,7 +105,7 @@ export function StatusLine({ reason, problem, said, turnRunning, typing, stopArm
             exit={holdStill({ opacity: 0, transform: 'translateY(4px)', transition: tween.exit }, still)}
             className={cn('flex h-6 min-w-0 items-center text-[12px]', shownLine === 'problem' ? 'text-destructive' : 'text-muted-foreground')}
           >
-            <span className={cn('truncate', shownLine === 'said' && 'text-foreground')}>{shownLine === 'problem' ? problem : shownLine === 'said' ? said : reason}</span>
+            <span className={cn('truncate', shownLine === 'said' && 'text-foreground')}>{shownLine === 'stopping' ? 'stopping…' : shownLine === 'problem' ? problem : shownLine === 'said' ? said : reason}</span>
           </motion.div>
         )}
       </AnimatePresence>

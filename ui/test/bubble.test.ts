@@ -85,3 +85,8 @@ test('the bubble looks again only when a greeting or a tip window starts or ends
   const after = nextBubbleChange(window.end, 0)
   assert.ok(after > window.end && after <= 33 * TIP_SLOT_MS, 'a quiet slot is skipped')
 })
+
+test('while a stop waits for its answer the row says so and the doing bubble gives way', () => {
+  const openedAt = 0
+  assert.equal(bubbleNow({ doing: 'thinking', typing: false, line: 'stopping', userName: null, openedAt, now: 1_000 }), null)
+})

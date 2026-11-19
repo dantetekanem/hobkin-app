@@ -74,6 +74,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
     [link, home, owner, epoch, stopControls],
   )
   const execution = useExecution()
+  const stopping = main !== undefined && execution.pending[executionKey(main, 'stop')] === true
   const canSend = ready && canSendDraft({ text, attachments })
   const list = ready ? slashList(text, commands, slash) : null
   // The report the next message is about, chosen with r on a report.
@@ -198,7 +199,7 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   return (
     <div className="shrink-0 px-3 pt-1 pb-2">
       <div className="mx-auto max-w-[640px]">
-        <StatusLine reason={ready ? null : availability.reason} problem={problem} said={said} turnRunning={turnRunning} typing={text.length > 0} stopArmed={stopArmed} />
+        <StatusLine reason={ready ? null : availability.reason} problem={problem} said={said} turnRunning={turnRunning} typing={text.length > 0} stopArmed={stopArmed} stopping={stopping} />
         <div className="flex items-end gap-2">
           <ChatAvatar followWithin={followWithin} typing={text.length > 0} />
           <div className="relative min-w-0 flex-1">

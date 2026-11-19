@@ -108,8 +108,8 @@ export interface BubbleFacts {
   doing: string | null
   /** The message input holds text. */
   typing: boolean
-  /** The line the status row shows instead: a problem, what a command said, or why nothing can be sent. */
-  line: 'problem' | 'said' | 'reason' | null
+  /** The line the status row shows instead: a problem, what a command said, why nothing can be sent, or that a stop waits for its answer. */
+  line: 'problem' | 'said' | 'reason' | 'stopping' | null
   userName: string | null
   /** When the window opened, for the greeting. */
   openedAt: number
@@ -123,7 +123,7 @@ export interface BubbleFacts {
  * while the user writes a follow-up. Greetings and tips wait for an empty input and a row with nothing else to say.
  */
 export function bubbleNow({ doing, typing, line, userName, openedAt, now, tips = TIPS, reminders = [] }: BubbleFacts): Bubble | null {
-  if (line === 'problem') return null
+  if (line === 'problem' || line === 'stopping') return null
   if (doing) return { kind: 'doing', text: doingWords(doing) }
   if (line || typing) return null
   if (userName && now - openedAt < GREETING_MS) return { kind: 'greeting', text: pickFrom(GREETINGS, Math.floor(openedAt / 1000))(userName) }
