@@ -58,5 +58,5 @@ hobkin's character is no longer a pointed hood. The user picks one of four pets 
 - [x] S2 (A1, A4, A5). The pets and their parts' movement in `pets.tsx` and `hob.css`; the mood extras moved clear of the parts.
 - [x] S3 (A2, A3). The Pet tile and the stored choice; Hob, the Mark and agent faces read it.
 - [x] S4 (A6). The setup's character measurements follow the new art.
-- [ ] S5 (A1, A3, A7). hobkin.dev: the pets, their movement, the button, the favicon and share images.
+- [x] S5 (A1, A3, A7). hobkin.dev: the pets, their movement, the button, the favicon and share images.
 - [ ] S6 (A8). The app icon, as a patch applied at the user's restart.
