@@ -16,7 +16,8 @@ test('a stored pet the app does not know falls back to Ears', () => {
 
 test('the pet is kept with the window settings, and settings saved before it load with Ears', async () => {
   const values = new Map<string, string>()
-  values.set('hobkin-client-settings', JSON.stringify({ version: 4, state: { movement: 'still', typeFace: 'geist' } }))
+  const savedBeforePets = { version: 4, state: { movement: 'still', typeFace: 'geist' } }
+  values.set('hobkin-client-settings', JSON.stringify(savedBeforePets))
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
     value: {
@@ -27,6 +28,7 @@ test('the pet is kept with the window settings, and settings saved before it loa
       },
     },
   })
+
   try {
     const { useSettings } = await import('../src/features/settings/store.ts')
     assert.equal(useSettings.getState().movement, 'still', 'the saved settings loaded')

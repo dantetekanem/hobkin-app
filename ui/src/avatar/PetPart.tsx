@@ -1,4 +1,4 @@
-import { PET_PARTS, type Paint, type Pet } from './pets.ts'
+import { PET_PARTS, type Paint, type PartShape, type Pet } from './pets.ts'
 
 const PAINT_CLASS: Record<Paint, string> = { fill: 'hob-fm', stroke: 'hob-sm', eye: 'hob-fe' }
 
@@ -16,22 +16,36 @@ export function PetPart({ pet, paint }: { pet: Pet; paint?: MarkPaint }) {
   const shapes = PET_PARTS[pet]
   if (shapes.length === 0) return null
 
+  if (paint) {
+    return (
+      <g>
+        {shapes.map((shape) => (
+          <path key={shape.name} d={shape.d} {...stillColors(shape, paint)} />
+        ))}
+      </g>
+    )
+  }
+
   return (
-    <g className={paint ? undefined : `hob-acc hob-acc-${pet}`}>
-      {shapes.map((shape) => {
-        const color = paint ? (shape.paint === 'eye' ? paint.eye : paint.mark) : undefined
-        return (
-          <path
-            key={shape.name}
-            className={paint ? undefined : `${PAINT_CLASS[shape.paint]} ${shape.name}`}
-            d={shape.d}
-            fill={paint ? (shape.paint === 'stroke' ? 'none' : color) : undefined}
-            stroke={paint && shape.paint === 'stroke' ? color : undefined}
-            strokeWidth={shape.strokeWidth}
-            strokeLinecap={paint && shape.paint === 'stroke' ? 'round' : undefined}
-          />
-        )
-      })}
+    <g className={`hob-acc hob-acc-${pet}`}>
+      {shapes.map((shape) => (
+        <path key={shape.name} className={`${PAINT_CLASS[shape.paint]} ${shape.name}`} d={shape.d} strokeWidth={shape.strokeWidth} />
+      ))}
     </g>
   )
+}
+
+function stillColors(shape: PartShape, paint: MarkPaint) {
+  const color = shape.paint === 'eye' ? paint.eye : paint.mark
+
+  if (shape.paint === 'stroke') {
+    return {
+      fill: 'none',
+      stroke: color,
+      strokeWidth: shape.strokeWidth,
+      strokeLinecap: 'round' as const,
+    }
+  }
+
+  return { fill: color }
 }

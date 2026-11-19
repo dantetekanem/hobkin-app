@@ -17,6 +17,7 @@ export function PetTile() {
   const pet = usePet()
   const setPet = useSettings((state) => state.setPet)
   const [cheering, setCheering] = useState<Pet | null>(null)
+
   useEffect(() => {
     if (!cheering) return
     const done = setTimeout(() => setCheering(null), 1600)
@@ -37,9 +38,10 @@ export function PetTile() {
         aria-label="Pet"
         className="grid grid-cols-4 gap-2 @max-[820px]:grid-cols-2"
         onKeyDown={(event) => {
-          const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
-          if (!delta) return
-          const next = PETS[(PETS.indexOf(pet) + delta + PETS.length) % PETS.length]!
+          const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
+          if (step === 0) return
+
+          const next = petAfter(pet, step)
           event.currentTarget.querySelector<HTMLElement>(`[data-value="${next}"]`)?.focus()
           choose(next)
           event.preventDefault()
@@ -66,7 +68,14 @@ export function PetTile() {
               )}
             >
               {selected ? <motion.span layoutId="choice-pet" className="absolute inset-0 rounded-2xl bg-tone-1" transition={spring.pill} /> : null}
-              <Hob pet={option} mood={cheering === option ? 'happy' : 'idle'} size={92} still={!selected} title={PET_LABEL[option]} className="relative" />
+              <Hob
+                pet={option}
+                mood={cheering === option ? 'happy' : 'idle'}
+                size={92}
+                still={!selected}
+                title={PET_LABEL[option]}
+                className="relative"
+              />
               <span className="relative text-[13px] font-medium">{PET_LABEL[option]}</span>
             </button>
           )
@@ -74,4 +83,10 @@ export function PetTile() {
       </div>
     </Tile>
   )
+}
+
+/** The pet one step along the row, wrapping at either end. */
+function petAfter(pet: Pet, step: 1 | -1): Pet {
+  const index = (PETS.indexOf(pet) + step + PETS.length) % PETS.length
+  return PETS[index]!
 }

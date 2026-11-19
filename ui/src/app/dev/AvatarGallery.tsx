@@ -24,7 +24,13 @@ export function AvatarGallery() {
           <h1 className="text-[24px] font-semibold">Avatar</h1>
           <div className="flex gap-2 text-[13px]">
             {PETS.map((option) => (
-              <button key={option} type="button" aria-pressed={option === pet} className={cn('rounded-full border px-3 py-1', option === pet ? 'border-ring' : 'border-border')} onClick={() => setPet(option)}>
+              <button
+                key={option}
+                type="button"
+                aria-pressed={option === pet}
+                className={cn('rounded-full border px-3 py-1', option === pet ? 'border-ring' : 'border-border')}
+                onClick={() => setPet(option)}
+              >
                 {PET_LABEL[option]}
               </button>
             ))}
