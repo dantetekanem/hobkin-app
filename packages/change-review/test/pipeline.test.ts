@@ -313,12 +313,83 @@ test('a comment edited inside a function or outside any, with no node for either
   }
 })
 
-test('a code file the search tool has no parser for stops the review with that reason, naming the file', async (t) => {
+/** A careful pass that changes nothing and writes down every prompt it was shown. The checker gives nothing to read. */
+function watchingModel() {
+  const shown: string[] = []
+  const model: ModelRunner = async ({ pass, prompt }) => {
+    if (pass !== 'review') return 'nothing'
+    shown.push(prompt)
+    return JSON.stringify({ events: [], words: {}, claims: [] })
+  }
+  return { model, shown }
+}
+
+/** The part a review made of a file nothing mapped, and the unit that holds it. */
+const readFromDiff = (result: Awaited<ReturnType<typeof reviewChange>>, path: string) => {
+  const part = result.graph.nodes.find((node) => node.path === path && node.findings.some((finding) => finding.rule === 'not-mapped'))
+  return { part, unit: part ? result.units.units.find((unit) => unit.nodes.includes(part.id)) : undefined }
+}
+
+test('a code file the search tool has no parser for is a part of its own, read from its diff, and the review finishes', async (t) => {
   const { repo, base, head, out } = repoOf(t, { 'tools/report.py': 'def total(items):\n    return len(items)\n' }, { 'tools/report.py': 'def total(items):\n    return len(items) * 1\n' })
   const scan: Scan = { ...scanWith([]), files: [{ path: 'tools/report.py', kind: 'code', status: 'modified' }] }
-  await assert.rejects(reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan) }), {
-    message: 'scan failure: agentic-search has no parser for `tools/report.py`, so what changed in it could not be mapped',
-  })
+  const { model, shown } = watchingModel()
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan), model })
+
+  const { part, unit } = readFromDiff(result, 'tools/report.py')
+  assert.deepEqual([part?.kind, part?.change, part?.changed_lines, part?.findings.map((finding) => finding.by)], ['general', 'modified', [2], ['search']])
+  assert.equal(part!.findings[0]!.text, 'The search tool has no parser for it, so what calls it and what tests it were not looked for, and its change is judged from the diff alone.')
+  assert.deepEqual([result.units.units.length, unit?.level, unit?.title], [1, 'mid', '`tools/report.py` changed and nothing mapped it: it is read from its diff'])
+  assert.ok(shown.some((prompt) => prompt.includes('return len(items) * 1')), 'the careful pass was shown its changed line')
+  assert.ok(result.problems.includes('Read from the diff alone, with no map: `tools/report.py`.'), result.problems.join('\n'))
+})
+
+test('a scan that could not run leaves every changed code file read from its diff, with the scan\'s reason', async (t) => {
+  const { repo, base, head, out } = repoOf(t, { 'src/total.js': 'export function total(a, b) {\n  return a + b\n}\n' }, { 'src/total.js': 'export function total(a, b) {\n  return Math.round(a + b)\n}\n' })
+  const { model, shown } = watchingModel()
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: async () => ({ ok: false, reason: 'agentic-search is not installed.' }), model })
+
+  const { part, unit } = readFromDiff(result, 'src/total.js')
+  assert.equal(part?.findings[0]?.text, 'The scan could not run (agentic-search is not installed), so what calls it and what tests it were not looked for, and its change is judged from the diff alone.')
+  assert.equal(unit?.level, 'mid')
+  assert.ok(shown.some((prompt) => prompt.includes('Math.round(a + b)')))
+  assert.ok(result.problems.includes('The scan could not run: agentic-search is not installed.'), result.problems.join('\n'))
+  assert.ok(result.problems.includes('Read from the diff alone, with no map: `src/total.js`.'), result.problems.join('\n'))
+})
+
+test('in a change the search tool partly reads, a file with a definition and a file it has no parser for are both rated parts', async (t) => {
+  const { repo, base, head, out } = repoOf(
+    t,
+    { 'src/total.js': 'export function total(a, b) {\n  return a + b\n}\n', 'src/registry.rs': 'pub const LIMIT: u32 = 3;\n' },
+    { 'src/total.js': 'export function total(a, b) {\n  return Math.round(a + b)\n}\n', 'src/registry.rs': 'pub const LIMIT: u32 = 4;\n' },
+  )
+  const scan: Scan = {
+    ...scanWith([{ id: 'n1', symbol: 'total', kind: 'function', path: 'src/total.js', startLine: 1, endLine: 3, changedLines: [2], language: 'javascript', status: 'modified', tests: [] }]),
+    files: [{ path: 'src/total.js', kind: 'code', status: 'modified', language: 'javascript' }, { path: 'src/registry.rs', kind: 'code', status: 'modified' }],
+  }
+  const { model, shown } = watchingModel()
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan), model })
+
+  const { part, unit } = readFromDiff(result, 'src/registry.rs')
+  assert.ok(part?.level && unit, 'the Rust file is a rated part')
+  assert.equal(unit!.title, '`src/registry.rs` changed and nothing mapped it: it is read from its diff')
+  assert.ok(result.units.units.some((entry) => entry.nodes.includes('n1')), 'and the mapped definition is one too')
+  assert.ok(shown.some((prompt) => prompt.includes('LIMIT: u32 = 4')), 'the careful pass was shown the Rust line')
+})
+
+test('a config file the search tool has no parser for is a part read from its diff, not only counted', async (t) => {
+  const { repo, base, head, out } = repoOf(t, { 'config/settings.yml': 'retries: 2\n' }, { 'config/settings.yml': 'retries: 3\n' })
+  const scan: Scan = { ...scanWith([]), files: [{ path: 'config/settings.yml', kind: 'config', status: 'modified' }] }
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan) })
+  const { part, unit } = readFromDiff(result, 'config/settings.yml')
+  assert.deepEqual([part?.changed_lines, unit?.level], [[1], 'mid'])
+})
+
+test('a file the search tool has no parser for whose change is only a blank line makes no part', async (t) => {
+  const { repo, base, head, out } = repoOf(t, { 'tools/report.py': 'def total(items):\n    return len(items)\n' }, { 'tools/report.py': 'def total(items):\n    return len(items)\n\n' })
+  const scan: Scan = { ...scanWith([]), files: [{ path: 'tools/report.py', kind: 'code', status: 'modified' }] }
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan) })
+  assert.deepEqual([result.units.units, result.graph.nodes], [[], []])
 })
 
 test('a test failing at head is a finding only on the nodes it is a candidate of, matched by its exact path', async (t) => {
@@ -526,7 +597,7 @@ test('a helper its direct tests prove, with an older request test running throug
   assert.deepEqual(
     result.units.units.map((unit) => [unit.level, unit.title]),
     [
-      ['mid', '`bin/production-errors` is new and was not checked: the search tool found no definition in it'],
+      ['mid', '`bin/production-errors` is new and nothing mapped it: it is read from its diff'],
       ['safe', '`linkUserTags`: a test goes through a request to it'],
     ],
   )

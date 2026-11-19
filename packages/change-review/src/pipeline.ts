@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { deployAnswer, type DeployAnswer } from './answer.ts'
 import { blindActions, runBlindCheck } from './blind.ts'
 import { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, isNotRequestPath, rx, type ReviewConfig } from './config.ts'
-import { curate } from './curate.ts'
+import { changesCode, curate, NOT_MAPPED } from './curate.ts'
 import { type EntriesSearch, type EntryAbove, searchEntriesAbove } from './entries.ts'
 import { type EntryTestSearch, type EntryTestsOutcome, searchEntryTests } from './entrytests.ts'
 import { deriveFacts, goneAtHead, guardsPutOn, type CallerSite } from './facts.ts'
@@ -220,6 +220,84 @@ const failedScan = (): Scan => ({
   files: [],
   coverage: { truncated: true, truncatedBy: 'failed', skippedAnchors: 0, unresolved: 0, notes: [] },
 })
+
+/**
+ * A part for each changed file the scan was given and holds nothing for, where more than comments or blank lines
+ * changed: a language the search tool has no parser for, a file it found no definition in, or any file when the scan
+ * could not run. It is built from the file's diff, so the careful pass reads its changed lines like any other part's.
+ * Nothing mapped it, so no test was looked for: it starts at worth a look, and an argument alone never lowers that.
+ */
+async function diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, head, config }: {
+  triage: Triage
+  diffs: readonly FileDiff[]
+  nodes: readonly ReviewNode[]
+  scan: Scan
+  scanned: ScanOutcome
+  linesAt: (rev: string, path: string) => Promise<string[] | null>
+  base: string
+  head: string
+  config: ReviewConfig
+}): Promise<ReviewNode[]> {
+  const taken = new Set(nodes.map((node) => node.id))
+  const has = new Set(nodes.map((node) => node.path))
+  const parts: ReviewNode[] = []
+  for (const bucket of triage.buckets.filter((entry) => entry.treatment === 'scan' && entry.kind !== 'test')) {
+    for (const path of bucket.paths) {
+      const file = diffs.find((entry) => entry.path === path)
+      if (has.has(path) || !file?.hunks.length) continue
+      const before = file.oldPath ?? path
+      const [atHead, atBase] = [(await linesAt(head, path))?.join('\n') ?? null, (await linesAt(base, before))?.join('\n') ?? null]
+      if (!changesCode({ source: (at, side) => (side === 'head' ? (at === path ? atHead : null) : at === before ? atBase : null) }, file)) continue
+      const added: number[] = []
+      for (const hunk of file.hunks) {
+        let at = hunk.newStart
+        for (const line of hunk.lines) {
+          if (line[0] === '+') added.push(at)
+          if (line[0] !== '-') at += 1
+        }
+      }
+      const isNew = file.hunks.every((hunk) => hunk.oldStart === 0 && hunk.oldLines === 0)
+      const isGone = file.hunks.every((hunk) => hunk.newStart === 0 && hunk.newLines === 0)
+      const why = !scanned.ok
+        ? `The scan could not run (${scanned.reason.replace(/\.$/, '')})`
+        : scan.files.some((entry) => entry.path === path && !entry.language)
+          ? 'The search tool has no parser for it'
+          : 'The search tool found no definition in it'
+      let id = `d${parts.length + 1}`
+      while (taken.has(id)) id = `${id}x`
+      taken.add(id)
+      parts.push({
+        id,
+        kind: 'general',
+        symbol: path,
+        path,
+        // Every hunk, so the careful pass is shown every one.
+        lines: [Math.min(...file.hunks.map((hunk) => hunk.newStart)), Math.max(...file.hunks.map((hunk) => hunk.newStart + Math.max(hunk.newLines, 1) - 1))],
+        change: isNew ? 'added' : isGone ? 'removed' : 'modified',
+        changed_lines: added,
+        entries: [],
+        facts: {
+          effect: { value: 'behaviour', evidence: 'what the changed lines do is read from the diff' },
+          proof: { value: 'unknown', evidence: 'no definition was mapped, so no test was looked for' },
+          exposure: { value: 'everyone', evidence: 'no condition in front of it was looked for' },
+          undo: { value: 'rollback', evidence: 'a rollback undoes it' },
+        },
+        extras: isNotRequestPath(path, config) ? { runsInRequest: false } : {},
+        conditions: [],
+        hosts_condition: false,
+        runs: [],
+        bucket: bucket.id,
+        sensitive: [],
+        level: null,
+        critical: false,
+        findings: [{ rule: NOT_MAPPED, text: `${why}, so what calls it and what tests it were not looked for, and its change is judged from the diff alone.`, by: 'search' }],
+        watch: null,
+        questions: [],
+      })
+    }
+  }
+  return parts
+}
 
 /** The name a symbol is called by: `total` for `Cart#total` or `Billing::Cart.total`. */
 const shortName = (symbol: string) => symbol.split(/#|::|\./).filter(Boolean).at(-1) ?? symbol
@@ -459,6 +537,10 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     const referred = scan.dangling.some((entry) => shortName(entry.symbol) === shortName(node.symbol))
     if (!referred && !scan.coverage.truncated) node.extras.unreferencedRemoval = true
   }
+  // What the scan was given and holds nothing for is read from its diff, never left out or only counted.
+  const unmapped = await diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, head, config })
+  nodes.push(...unmapped)
+  if (unmapped.length) problems.push(`Read from the diff alone, with no map: ${unmapped.map((node) => `\`${node.path}\``).join(', ')}.`)
   const provable = nodes.filter((node) => node.kind === 'function' && node.change !== 'removed' && node.facts.effect.value !== 'text')
   tracker.start('map-proof', provable.length, provable.length ? 'map-proof: finding how this repository runs its tests' : 'map-proof: nothing that runs needs proof')
   const runbook = detectRunbook(cwd, options.runbook)
@@ -610,7 +692,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const source = (path: string, side: 'head' | 'base') => texts.get(`${side}:${path}`) ?? null
   // A file the scan listed with no language is one it has no parser for; a file it did not list is not said to be.
   const unparsed = [...mapped].filter((path) => scanned.ok && scan.files.some((file) => file.path === path && !file.language))
-  const shape = (list: ReviewNode[]) => curate({ graph: graphOf(list), triage, diffs, source, scannedFiles: [...mapped], unparsed, runsInRequest: (path) => !isNotRequestPath(path, config) })
+  const shape = (list: ReviewNode[]) => curate({ graph: graphOf(list), triage, diffs, source, scannedFiles: [...mapped], unparsed, ...(scanned.ok ? {} : { scanFailed: scanned.reason }), runsInRequest: (path) => !isNotRequestPath(path, config) })
   let units = shape(applied.nodes)
 
   // 5. One careful pass: levels, questions, what to watch, claims, and the story's words.

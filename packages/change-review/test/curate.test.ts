@@ -344,6 +344,16 @@ test('lines that run changed with no node holding them is still a scan failure, 
   )
 })
 
+test('a scan that could not run is the failure named, with its own reason and the files it could not map, never a file to blame', () => {
+  const code = bucket('b1', { paths: ['app/a.rb', 'app/b.rb'], files: 2 })
+  const texts: Record<'head' | 'base', string> = { base: 'class A\n  def a\n    1\n  end\nend\n', head: 'class A\n  def a\n    2\n  end\nend\n' }
+  const diffs = ['app/a.rb', 'app/b.rb'].map((path) => fileDiff(path, 3, '    1', '    2'))
+  assert.throws(
+    () => curate({ graph: graph([]), triage: triage([code]), diffs, scannedFiles: code.paths, source: (_path, side) => texts[side], scanFailed: 'agentic-search is not installed.' }),
+    (error: Error) => error.message === 'scan failure: the scan could not run (agentic-search is not installed), so `app/a.rb`, `app/b.rb` could not be mapped',
+  )
+})
+
 test('a change with no code gets units from buckets with map file-level', () => {
   const docsOnly = triage([
     bucket('b1', { folder: 'config', kind: 'config', paths: ['config/a.yml'], files: 1, added: 2, deleted: 1 }),

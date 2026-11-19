@@ -200,6 +200,15 @@ function depths(graph: Graph): Map<string, number> {
 // ───────────────────────── Titles, places, words ─────────────────────────
 
 const short = (symbol: string) => symbol.split(/#|::|\./).filter(Boolean).pop() ?? symbol
+
+/** The finding on a part nothing mapped, which is read from its diff. */
+export const NOT_MAPPED = 'not-mapped'
+const readFromDiff = (node: ReviewNode) => node.findings.some((finding) => finding.rule === NOT_MAPPED)
+/**
+ * A part as the review names it: a definition by its short name, and a file read from its diff by its full path, since
+ * the short name cuts at dots and would call a Rust file "rs".
+ */
+const nameOf = (node: ReviewNode) => (readFromDiff(node) ? node.path : short(node.symbol))
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 const BEHAVES: Record<Effect, string> = {
   text: 'changes only text',
@@ -224,7 +233,8 @@ const isBroken = (node: ReviewNode) => Boolean(node.extras?.broken) || node.find
 
 /** The title of a single node, a claim built from its facts. No model words. */
 function titleOf(node: ReviewNode): string {
-  const name = `\`${short(node.symbol)}\``
+  const name = `\`${nameOf(node)}\``
+  if (readFromDiff(node)) return `${name} ${{ added: 'is new', removed: 'is removed' }[node.change as string] ?? 'changed'} and nothing mapped it: it is read from its diff`
   if (node.unverified) return `${name} has an inconsistent map entry, so read it yourself`
   const brokenTest = node.findings.some((finding) => finding.rule === 'breaks-test')
   if (brokenTest) return `${name} breaks a test that passes without this change`
@@ -269,7 +279,7 @@ function whereOf(node: ReviewNode, onPath: boolean): string {
 
 /** What changed in a unit, in one short sentence: how many lines, in which definition. */
 function whatOf(node: ReviewNode, excerpt: Excerpt): string {
-  const name = `\`${short(node.symbol)}\``
+  const name = `\`${nameOf(node)}\``
   const count = plural(node.changed_lines.length || excerpt.lines.filter((line) => line[0] === '-' || line[0] === '+').length, 'line')
   const said = node.change === 'added' ? `Adds ${name}, ${count}.` : node.change === 'removed' ? `Removes ${name}.` : `Changes ${count} in ${name}.`
   return `${said}${node.hosts_condition ? ' It adds a check that runs for everyone.' : ''}`
@@ -374,6 +384,8 @@ export interface CurateInput {
   scannedFiles?: readonly string[]
   /** Changed files the scan listed with no language: it has no parser for them. */
   unparsed?: readonly string[]
+  /** Why the scan could not run at all, when it could not: then it mapped nothing, and that is the failure to name. */
+  scanFailed?: string
   /** Whether code at a path runs in a request, job or consumer. A script or a build tool does not. Taken as true when not given. */
   runsInRequest?: (path: string) => boolean
 }
@@ -417,7 +429,7 @@ function neighbourCode(input: CurateInput, owner: ReviewNode, inside: Set<string
   const found = neighbourOf(input.graph, owner, inside)
   if (!found) return undefined
   const { node, line, role } = found
-  const why = `the ${role} \`${short(node.symbol)}\``
+  const why = `the ${role} \`${nameOf(node)}\``
   const changed = nodeExcerpt(input.diffs, node, SIDE_BUDGET)
   if (changed.lines.length) return shown(node.path, why, changed)
   const text = input.source?.(node.path, node.change === 'removed' ? 'base' : 'head')
@@ -456,7 +468,7 @@ function mergeQuestions(nodes: ReviewNode[]): Question[] {
   const out = new Map<string, Question>()
   for (const node of nodes) {
     for (const question of node.questions) out.set(question.text, question)
-    if (node.unverified) out.set(`map:${node.id}`, { text: `Is the map entry for \`${short(node.symbol)}\` right?`, why: node.unverified })
+    if (node.unverified) out.set(`map:${node.id}`, { text: `Is the map entry for \`${nameOf(node)}\` right?`, why: node.unverified })
   }
   return [...out.values()]
 }
@@ -482,7 +494,7 @@ function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grou
     if (grouping === 'new-file-setup') return 'runs as the file loads'
     return grouping === 'mechanical' ? 'the same change as the others' : 'a helper changed with it'
   }
-  const members = nodes.map((node) => ({ node: node.id, name: short(node.symbol), what: memberWhat(node) }))
+  const members = nodes.map((node) => ({ node: node.id, name: nameOf(node), what: memberWhat(node) }))
   let code: CodeShown[]
   let title = titleOf(owner)
   let what: string
@@ -490,8 +502,8 @@ function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grou
   const own = nodeExcerpt(input.diffs, owner, CODE_BUDGET)
   if (grouping === 'mechanical') {
     const sites = nodes.slice(0, SITES_SHOWN)
-    code = sites.map((node) => ownCode(input, node, 8, `site \`${short(node.symbol)}\``))
-    const list = nodes.slice(0, 2).map((node) => `\`${short(node.symbol)}\``).join(', ')
+    code = sites.map((node) => ownCode(input, node, 8, `site \`${nameOf(node)}\``))
+    const list = nodes.slice(0, 2).map((node) => `\`${nameOf(node)}\``).join(', ')
     title = `${nodes.length} sites change the same way: ${list} and ${nodes.length - 2} more`
     what = `The same change is repeated at ${nodes.length} sites. ${sites.length} are shown; the others differ only in the name.`
     why = [...whyOf([owner]), `Every site has the same hunk once its own name is set aside.`]
@@ -501,18 +513,18 @@ function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grou
     code = [ownCode(input, span, CODE_BUDGET, 'the lines that run as the file loads')]
     const lines = nodes.reduce((sum, node) => sum + Math.max(node.changed_lines.length, 1), 0)
     title = `\`${owner.path}\` is new: ${plural(lines, 'line')} run as it loads`
-    const named = nodes.slice(0, 6).map((node) => `\`${short(node.symbol)}\``)
+    const named = nodes.slice(0, 6).map((node) => `\`${nameOf(node)}\``)
     what = `New file. These run once, when it loads: ${listed(named)}${nodes.length > 6 ? ` and ${nodes.length - 6} more` : ''}.`
   } else if (grouping === 'definition-with-helpers') {
     const helpers = nodes.slice(1)
     code = [shown(owner.path, 'the changed lines', own.lines.length ? own : { lines: [], cut: 0 })]
     if (!own.lines.length) code = [ownCode(input, owner, CODE_BUDGET, 'the changed lines')]
     const budget = Math.max(6, Math.floor(CODE_BUDGET / (helpers.length + 1)))
-    for (const helper of helpers.slice(0, 3)) code.push(ownCode(input, helper, budget, `the helper \`${short(helper.symbol)}\``))
+    for (const helper of helpers.slice(0, 3)) code.push(ownCode(input, helper, budget, `the helper \`${nameOf(helper)}\``))
     const neighbour = neighbourCode(input, owner, names)
     if (neighbour) code.push(neighbour)
     title = `${titleOf(owner)}, with ${plural(helpers.length, 'helper')} changed alongside`
-    what = `${whatOf(owner, own)} Changed with it, and reached only through it: ${helpers.map((helper) => `\`${short(helper.symbol)}\``).join(', ')}.`
+    what = `${whatOf(owner, own)} Changed with it, and reached only through it: ${helpers.map((helper) => `\`${nameOf(helper)}\``).join(', ')}.`
   } else {
     code = [ownCode(input, owner, CODE_BUDGET, 'the changed lines')]
     const neighbour = neighbourCode(input, owner, names)
@@ -665,7 +677,7 @@ function bucketDraft(input: CurateInput, bucket: Bucket, absorbed: ReviewNode[],
 }
 
 /** Whether a file's diff changes a line that runs: one added at head or removed at base that is not blank or only a comment. A line that cannot be read counts as one that runs. */
-function changesCode(input: CurateInput, file: FileDiff): boolean {
+export function changesCode(input: Pick<CurateInput, 'source'>, file: FileDiff): boolean {
   const kindsAt = (side: 'head' | 'base') => {
     const text = input.source?.(side === 'base' ? (file.oldPath ?? file.path) : file.path, side)
     return text == null ? null : lineKinds(file.path, text)
@@ -805,6 +817,7 @@ export function curate(input: CurateInput): Units {
     const scanned = input.triage.buckets.filter((bucket) => bucket.kind === 'code' && (bucket.treatment === 'scan' || bucket.treatment === 'parity'))
     const running = scanned.flatMap((bucket) => bucket.paths).filter(runs)
     const named = (paths: readonly string[]) => `${paths.slice(0, 3).map((path) => `\`${path}\``).join(', ')}${paths.length > 3 ? ` and ${paths.length - 3} more` : ''}`
+    if (running.length && input.scanFailed) throw new Error(`scan failure: the scan could not run (${input.scanFailed.replace(/\.$/, '')}), so ${named(running)} could not be mapped`)
     const unread = running.filter((path) => input.unparsed?.includes(path))
     const missed = running.filter((path) => !unread.includes(path))
     const reasons = [
