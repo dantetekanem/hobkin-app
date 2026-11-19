@@ -94,33 +94,37 @@ Every review hobkin runs on a finished change, on any project, scores it from 1 
 - A10. Every merge by itself leaves one line in Chat and one in `work/yolo.jsonl`, and hands the main agent a deploy job when the project's readiness names a deploy path.
 - A11. Only the window turns YOLO mode on or off or sets its rate. hobkin's `client` tool refuses `work.yolo`, no `hobkin work` command changes it, and a rate outside 6 to 10 is refused.
 - A12. Settings shows YOLO mode's switch and rate, how many projects are ready, and what each of the others still needs. With no host it shows sample data.
+- A13. With YOLO mode on, a finished branch on a ready project gets its review by itself, and one on a project that is not ready does not.
 
 ## Proof
 
 - A1. `hobkin/test/cli-work-classified.test.mjs` › "a review's scores are kept only when they are whole, evidenced and pinned to a commit" and › "only the item's review run records scores"
 - A2. `hobkin/test/cli-work-classified.test.mjs` › "the general rate is the average cut to one decimal, and a floor holds a change whatever its average"
-- A3. `hobkin/test/cli-work-classified.test.mjs` › "a finished row carries its scores and says when they are for an older commit"; `hobkin-client/host/test/work-yolo.test.ts` › "a finished change's card says its kind, rate and scores"
-- A4. `hobkin/test/cli-work-yolo.test.mjs` › "with YOLO mode off nothing merges by itself"
+- A3. `hobkin/test/cli-work-classified.test.mjs` › "a finished row carries its scores and says when they are for an older commit"; `host/test/work-yolo.test.ts` › "a finished change's card says its kind, rate and scores"
+- A4. `hobkin/test/cli-work-yolo.test.mjs` › "with YOLO mode off nothing merges by itself" and › "the director runs the pass after its own survey, and hands the deploy on"
 - A5. `hobkin/test/cli-work-yolo.test.mjs` › "turning it on files a readiness feature on each project and merges nothing" and › "a project is ready only once every part is in place and its readiness item has landed"
 - A6. `hobkin/test/cli-work-yolo.test.mjs` › "a project that is not ready never merges by itself, even at rate 10"
 - A7. `hobkin/test/cli-work-yolo.test.mjs` › "on a ready project a small change at the user's rate merges by itself at its scored commit"
 - A8. `hobkin/test/cli-work-yolo.test.mjs` › "scores for an older commit never count"
 - A9. `hobkin/test/cli-work-yolo.test.mjs` › "a feature or an unclear change never merges by itself"
 - A10. `hobkin/test/cli-work-yolo.test.mjs` › "each merge by itself is reported in Chat and in the ledger, and its deploy is handed on"
-- A11. `hobkin-client/host/test/work-yolo.test.ts` › "only the window changes YOLO mode"; `hobkin/test/cli-work-yolo.test.mjs` › "no hobkin work command changes YOLO mode, and a rate outside 6 to 10 is refused"
-- A12. `hobkin-client/ui/test/settings-yolo.test.ts` › "the tile says how many projects are ready and what the others need"
+- A11. `host/test/work-yolo.test.ts` › "only the window changes YOLO mode"; `hobkin/test/cli-work-yolo.test.mjs` › "no hobkin work command changes YOLO mode, and a rate outside 6 to 10 is refused"
+- A12. `ui/test/settings-yolo.test.ts` › "the tile says how many projects are ready and what the others need"; check: the tile in the window, on and off, dark and light. Not done yet.
+- A13. `hobkin/test/cli-work-yolo.test.mjs` › "with YOLO mode on, a finished branch on a ready project gets its review by itself"
 
 ## Steps
 
-- [ ] S1 (A1, A2). Runtime: the scores, the rate and the floors as a pure module, and `hobkin work item` keeping a review's scores. Files: new `hobkin/src/cli/work/classified.mjs`, `hobkin/src/cli/work/commands.mjs`; tests new `hobkin/test/cli-work-classified.test.mjs`.
-- [ ] S2 (A3). Runtime: the review prompt asks for the scores, and a finished row carries them. Files: `hobkin/src/prompts/work-do.md`, `hobkin/src/cli/work/reads.mjs`.
-- [ ] S3 (A4, A5, A11). Runtime: the setting and each project's readiness. Files: new `hobkin/src/cli/work/yolo.mjs`, `hobkin/src/cli/work/commands.mjs`, `hobkin/src/prompts/work-do.md`; tests new `hobkin/test/cli-work-yolo.test.mjs`.
-- [ ] S4 (A4, A6, A7, A8, A9, A10). Runtime: the pass that merges, its report and the deploy hand-off, wired in after the survey. Files: `hobkin/src/cli/work/yolo.mjs`, `hobkin/src/cli/work/patterns.mjs`, `hobkin/src/cli/work/director.mjs`, `hobkin/src/cli/application.mjs`, `hobkin/src/prompts/v2-runtime.md`.
-- [ ] S5 (A3, A11). Host: the protocol, the `work.yolo` command and the card's line. Files: `shared/protocol/work.ts`, `shared/commands/registry.ts`, `host/src/work.ts`, `host/src/hobkin-work.d.ts`; tests new `host/test/work-yolo.test.ts`.
-- [ ] S6 (A12). Window: the YOLO mode tile in Settings and the scores on a finished card. Files: new `ui/src/features/settings/YoloTile.tsx`, new `ui/src/features/settings/yolo.ts`, `ui/src/features/settings/SettingsScreen.tsx`, `ui/src/features/work/Finished.tsx`, `ui/src/features/work/sample.ts`; tests new `ui/test/settings-yolo.test.ts`.
+- [x] S1 (A1, A2). Runtime: the scores, the rate and the floors as a pure module, and `hobkin work item` keeping a review's scores. Files: new `hobkin/src/cli/work/classified.mjs`, `hobkin/src/cli/work/commands.mjs`; tests new `hobkin/test/cli-work-classified.test.mjs`.
+- [x] S2 (A3). Runtime: the review prompt asks for the scores, and a finished row carries them. Files: `hobkin/src/prompts/work-do.md`, `hobkin/src/cli/work/reads.mjs`.
+- [x] S3 (A4, A5, A11). Runtime: the setting and each project's readiness. Files: new `hobkin/src/cli/work/yolo.mjs`, `hobkin/src/cli/work/commands.mjs`, `hobkin/src/prompts/work-do.md`; tests new `hobkin/test/cli-work-yolo.test.mjs`.
+- [x] S4 (A4, A6, A7, A8, A9, A10, A13). Runtime: the pass that merges, its report and the deploy hand-off, wired in after the survey, and reviews by themselves on a ready project. Files: new `hobkin/src/cli/work/yolo-pass.mjs`, `hobkin/src/cli/work/yolo.mjs`, `hobkin/src/cli/work/patterns.mjs`, `hobkin/src/cli/work/closing.mjs`, `hobkin/src/cli/work/director.mjs`, `hobkin/src/cli/application.mjs`, `hobkin/src/prompts/v2-runtime.md`.
+- [x] S5 (A3, A11). Host: the protocol, the `work.yolo` command and the card's line. Files: `shared/protocol/work.ts`, `shared/commands/registry.ts`, `host/src/work.ts`, `host/src/hobkin-work.d.ts`; tests new `host/test/work-yolo.test.ts`.
+- [x] S6 (A12). Window: the YOLO mode tile in Settings and the scores on a finished card. Files: new `ui/src/features/settings/YoloTile.tsx`, new `ui/src/features/settings/yolo.ts`, `ui/src/features/settings/SettingsScreen.tsx`, `ui/src/features/work/Finished.tsx`; tests new `ui/test/settings-yolo.test.ts`.
+- [ ] S7 (A7, A10, A12). What the tests above do not reach. A test that a deploy job the director hands on reaches the main agent as its next wake (`onHandOff` in `hobkin/src/cli/application.mjs`). A look at the tile in the window. Then, with the user's go-ahead, YOLO mode on in the live home and one project taken through its readiness.
 
 ## Open questions
 
 - Who grades. (a) As decided: the review run scores the change, and code holds the floors, the kinds and the change rules. (b) Also need Change Review to say "Safe to deploy" at the same commit: two reviews agree before a merge, and nothing merges on a Mac where the host has not finished its review.
-- Home. Work status carries the count of ready projects and what each needs. Showing it on Home's Projects widget is not built here.
+- Home. Work status carries the count of ready projects and what each needs, and Settings shows both. Showing them on Home's Projects widget is not built yet.
+- The user's directions. Their "Merging and deploying take a yes on a list" section still says never to deploy automatically, so a deploy handed on by YOLO mode is asked about first until they change it. (a) Leave it to them. (b) Offer the new wording as an Action Item when YOLO mode is first turned on.
 - A readiness that goes stale. (a) As decided: it stands until the user retries the item. (b) Check again every 30 days, as a signals look does.
