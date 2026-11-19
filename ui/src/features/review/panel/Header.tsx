@@ -48,9 +48,9 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
       {overlap > 0 ? <div aria-hidden="true" className="float-right" style={{ width: overlap, height: MENU.bottom - 14 }} /> : null}
       <div className="flex items-center gap-1">
         <p className="flex min-w-0 flex-1 items-center gap-1.5 font-heading text-[13px] font-semibold text-muted-foreground" title={pull ? `${project}${item}` : `The project ${project}`}>
-          {target?.kind === 'pull' ? (
+          {target?.kind === 'pull' && pullUrl(target) ? (
             // The pull request's own page, opened in the browser as every link in the window is. Underlined, as the panel's links are.
-            <a href={pullUrl(target)} target="_blank" rel="noopener noreferrer" data-stop className="flex min-w-0 items-center gap-1.5 underline underline-offset-2 hover:text-foreground">
+            <a href={pullUrl(target)!} target="_blank" rel="noopener noreferrer" data-stop className="flex min-w-0 items-center gap-1.5 underline underline-offset-2 hover:text-foreground">
               <Place className="size-3.5 shrink-0" aria-hidden="true" />
               <span className="truncate">
                 {project} {item}
@@ -59,7 +59,10 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
           ) : (
             <>
               <Place className="size-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{project}</span>
+              <span className="truncate">
+                {project}
+                {pull ? ` ${item}` : ''}
+              </span>
             </>
           )}
         </p>
