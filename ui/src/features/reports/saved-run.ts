@@ -44,3 +44,10 @@ export function loadSavedRun(report: string, read: (report: string) => Promise<S
   )
   return () => { active = false; unsubscribe?.() }
 }
+
+/** When Pi wrote a stored entry: the entry's own time (ISO text), else its message's (milliseconds). Null when it has neither. */
+export function entryTime(entry: Record<string, unknown>): number | string | null {
+  const message = entry.message !== null && typeof entry.message === 'object' ? (entry.message as Record<string, unknown>) : null
+  for (const value of [entry.timestamp, message?.timestamp]) if (typeof value === 'number' || (typeof value === 'string' && value)) return value
+  return null
+}

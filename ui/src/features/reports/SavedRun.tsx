@@ -7,7 +7,8 @@ import { savedCodemode, type SavedCodemode } from '@/features/agent-activity/cod
 import { MessageText } from '@/features/chat/markdown.ts'
 import { hostStore, runCommand } from '@/lib/host/client.ts'
 import { useHost } from '@/lib/host/hooks.ts'
-import { loadSavedRun, savedRunScope, type SavedRunState } from './saved-run.ts'
+import { stampOf } from '@/features/agent-activity/stamp.ts'
+import { entryTime, loadSavedRun, savedRunScope, type SavedRunState } from './saved-run.ts'
 
 const object = (value: unknown): Record<string, unknown> | null => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null
 const json = (value: unknown) => JSON.stringify(value, null, 2) ?? ''
@@ -67,8 +68,9 @@ function StoredEntry({ entry, codemode }: { entry: Record<string, unknown>; code
   const role = String(message?.role ?? entry.type)
   const content = message?.content ?? entry.content
   const parts = typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : []
+  const stamp = stampOf(entryTime(entry), Date.now())
   return <article className="flex min-w-0 flex-col gap-2">
-    <h3 className="eyebrow break-all">{role}{message?.toolCallId ? ` · ${String(message.toolName ?? 'tool')} · ${String(message.toolCallId)}` : ''}</h3>
+    <h3 className="eyebrow break-all">{role}{message?.toolCallId ? ` · ${String(message.toolName ?? 'tool')} · ${String(message.toolCallId)}` : ''}{stamp ? <time dateTime={stamp.iso} title={stamp.full}> · {stamp.date ? `${stamp.date} ` : ''}{stamp.time}</time> : null}</h3>
     {message && codemode.has(message) ? <CodemodeCall {...codemode.get(message)!} ended /> : null}
     {parts.map((value, index) => {
       const part = object(value)

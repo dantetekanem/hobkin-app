@@ -81,3 +81,10 @@ test('late failures cannot replace a closed view or reopen it', async () => {
   close(); pending.reject(Error('Too late')); await flush()
   assert.deepEqual(states, [{ phase: 'loading' }])
 })
+test('an entry is written at its own time, else its message\'s, else at none', async () => {
+  const { entryTime } = await import('../src/features/reports/saved-run.ts')
+  assert.equal(entryTime({ timestamp: '2026-11-19T15:30:01.000Z', message: { timestamp: 5 } }), '2026-11-19T15:30:01.000Z')
+  assert.equal(entryTime({ message: { timestamp: 1_800_000_000_000 } }), 1_800_000_000_000)
+  assert.equal(entryTime({ type: 'session' }), null)
+  assert.equal(entryTime({ timestamp: '' }), null)
+})
