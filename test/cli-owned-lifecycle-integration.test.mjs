@@ -75,6 +75,19 @@ test('main callback binds an admitted turn, joins children, and rejects the repl
   await f.runtime.close();
 });
 
+test('helpers get the user\'s whole directions, past the first 16 KB', { timeout: 1000 }, async () => {
+  const calls = [];
+  const scope = { request: () => [], async join() { return undefined; }, async cancel() { return { confirmed: true }; }, finish() {} };
+  const f = runtimeFixture({ register: binding => { calls.push(binding); return scope; }, async close() {} });
+  const directions = `# Directions\n\n${'Keep going. '.repeat(2000)}\n\n## Merging and deploying\n\nThe user's ask is the yes.\n`;
+  writeFileSync(`${fixtureHome}/AGENTS.md`, directions);
+  await f.runtime.connect();
+  await f.runtime.send('fix it and deploy', 'whole-directions');
+  await f.runtime.idle();
+  assert.equal(JSON.parse(calls[0].binding.prompt).directions, directions);
+  await f.runtime.close();
+});
+
 test('owned helper admission follows model-turn response dispositions', { timeout: 1000 }, async t => {
   for (const disposition of ['started', 'queued', 'handled']) {
     const requests = [];

@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import lockfile from 'proper-lockfile';
@@ -16,6 +16,7 @@ import { assertRuntimeAdmission } from './migration/admission.mjs';
 import { MAX_SESSION_BYTES } from './migration/ownership.mjs';
 import { isQuietRun, saveReport } from './reports.mjs';
 import { logRun } from './checks.mjs';
+import { readDirections } from './directions.mjs';
 import { recordEvent, recordRunFinished, recordRunStarted } from './events.mjs';
 import { createTurnMetrics } from './turn-metrics.mjs';
 
@@ -963,9 +964,9 @@ export class HobkinRuntime {
       const cancelChildren = () => { void turn.owned?.cancel(); };
       try {
         signal.throwIfAborted();
-        const directionsFile = join(this.directory, 'AGENTS.md');
+        // Helpers follow the same directions main does, whole, so a rule far down the file still reaches them.
         turn.owned = this.ownedLifecycle?.register({ id, allowHelpers: true, binding: {
-          cwd: this.config.main.cwd, prompt: JSON.stringify({ task: text, directions: readFileSync(existsSync(directionsFile) ? directionsFile : new URL('../prompts/agents-default.md', import.meta.url)).subarray(0, 16384).toString('utf8') }),
+          cwd: this.config.main.cwd, prompt: JSON.stringify({ task: text, directions: readDirections(this.directory) }),
           model: `${session.model?.provider}/${session.model?.id}`, effort: session.thinkingLevel,
           role: 'read', parentRole: 'read', launcher: this.config.launcher,
         } });
