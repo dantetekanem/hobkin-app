@@ -68,6 +68,25 @@ describe('readCheckerAnswer', () => {
     assert.deepEqual(readCheckerAnswer(`My answer: ${JSON.stringify(body)} Thanks.`, ids), expected)
   })
 
+  it('reads a choice that goes on to explain itself as the choice it starts with, and the context\'s why as the note when there is none', () => {
+    const body = {
+      units: [
+        { id: 'u4', agree: 'No, the rescue is gone.', level_i_would_give: 'high: nothing catches it', understood: 'yes - mostly', context: 'too little. The story says the store fails closed but never shows it.' },
+        { id: 'u2', agree: 'yes', understood: 'yes', context: 'Too much: three callers say the same', note: 'Fine as it is.' },
+      ],
+      needs: [],
+    }
+    assert.deepEqual(readCheckerAnswer(JSON.stringify(body), ids)!.units, [
+      { id: 'u4', agree: 'no', level_i_would_give: 'high', understood: 'yes', context: 'too little', note: 'The story says the store fails closed but never shows it.' },
+      { id: 'u2', agree: 'yes', level_i_would_give: null, understood: 'yes', context: 'too much', note: 'Fine as it is.' },
+    ])
+    // A word that only starts like a choice is none: "not sure" is no "no", and "midway" no "mid".
+    const unsure = JSON.stringify({ units: [{ id: 'u1', agree: 'not sure', understood: 'yes', context: 'about right' }], needs: [] })
+    assert.equal(readCheckerAnswer(unsure, ids), null)
+    const midway = JSON.stringify({ units: [{ id: 'u1', agree: 'no', level_i_would_give: 'midway', understood: 'yes', context: 'about right' }], needs: [] })
+    assert.equal(readCheckerAnswer(midway, ids)!.units[0]!.level_i_would_give, null)
+  })
+
   it('is null when the answer cannot be read, so the check counts as not run', () => {
     const unknownOnly = JSON.stringify({ units: [{ id: 'u99', agree: 'yes', understood: 'yes', context: 'about right' }], needs: [] })
     const halfAnswered = JSON.stringify({ units: [{ id: 'u1', understood: 'yes', context: 'about right' }], needs: [] })

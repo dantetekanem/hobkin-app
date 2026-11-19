@@ -65,23 +65,30 @@ export function checkerRequest({ story, units }: CheckerInput): { system: string
 
 // ───────────────────────── Reading the answer ─────────────────────────
 
-/** `yes` or `no` in any case, or a boolean. */
+/**
+ * The choice a field starts with, and what follows it: a checker often writes "too little. The story says..." where one
+ * of three words is asked for. A choice counts only where a word ends right after it, so "not sure" is no "no". Case,
+ * and `_` or `-` between the words of a choice, do not matter.
+ */
+function leadingChoice<Choice extends string>(value: unknown, choices: readonly Choice[]): { choice: Choice; rest: string } | null {
+  if (typeof value !== 'string') return null
+  for (const choice of choices) {
+    const found = new RegExp(`^\\s*${choice.split(' ').join('[\\s_-]+')}(?![\\p{L}\\p{N}])`, 'iu').exec(value)
+    if (found) return { choice, rest: value.slice(found[0].length).replace(/^[\s.,;:!?)\]-]+/, '').trim() }
+  }
+  return null
+}
+
+/** `yes` or `no` in any case, or a boolean, or a sentence that starts with one. */
 function yesNo(value: unknown): 'yes' | 'no' | null {
   if (typeof value === 'boolean') return value ? 'yes' : 'no'
-  const word = typeof value === 'string' ? value.trim().toLowerCase() : ''
-  return word === 'yes' || word === 'no' ? word : null
+  return leadingChoice(value, ['yes', 'no'] as const)?.choice ?? null
 }
 
-/** "too little", "Too_Little" and "too-little" are one answer. */
-function contextOf(value: unknown): UnitAnswer['context'] | null {
-  const words = typeof value === 'string' ? value.trim().toLowerCase().replace(/[\s_-]+/g, ' ') : ''
-  return CONTEXTS.find((context) => context === words) ?? null
-}
+/** "too little", "Too_Little" and "too-little" are one answer, and so is "too little. The story says...". */
+const contextOf = (value: unknown) => leadingChoice(value, CONTEXTS)
 
-function levelOf(value: unknown): Level | null {
-  const word = typeof value === 'string' ? value.trim().toLowerCase() : ''
-  return LEVELS.find((level) => level === word) ?? null
-}
+const levelOf = (value: unknown): Level | null => leadingChoice(value, LEVELS)?.choice ?? null
 
 const textOf = (value: unknown) => (typeof value === 'string' ? plainText(value, TEXT_LIMIT) : '')
 
@@ -91,11 +98,13 @@ function unitAnswerOf(raw: unknown, known: ReadonlyMap<string, string>): UnitAns
   const id = known.get(raw.id.trim().toLowerCase())
   const agree = yesNo(raw.agree)
   const understood = yesNo(raw.understood)
-  const context = contextOf(raw.context)
-  if (!id || !agree || !understood || !context) return null
+  const said = contextOf(raw.context)
+  if (!id || !agree || !understood || !said) return null
+  const { choice: context, rest } = said
   const because = textOf(raw.because)
   const missing = textOf(raw.missing)
-  const note = textOf(raw.note)
+  // Why the context was too little or too much, written after the choice, is the note when there is none.
+  const note = textOf(raw.note) || textOf(rest)
   return {
     id,
     agree,
