@@ -12,7 +12,7 @@ import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { canReviewAgain, groupReviews, reviewToOpen, type ReviewRow } from './ai-reviews.ts'
 import { DeployWhy, ReviewBadge, ReviewProgress, SectionHeading } from './parts.tsx'
-import { createRowActions, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
+import { createRowActions, moreTitle, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
 import type { ReviewListView } from './use-review-list.ts'
 
 /**
@@ -170,8 +170,10 @@ function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: 
   const again = canReviewAgain(row)
   const [more, setMore] = useState(false)
   const toggle = useRef<HTMLButtonElement>(null)
-  // "More" sits before the row's main button, so that button keeps the right edge the time and the badge hold.
-  const moreToggle = (
+  // "More" sits before the row's main button, so that button keeps the right edge the time and the badge hold. A row
+  // with nothing in it, as someone else's pull request while its review runs, has none.
+  const held = rowActions(row)
+  const moreToggle = held.length === 0 ? null : (
     <Button
       ref={toggle}
       variant="ghost"
@@ -179,7 +181,7 @@ function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: 
       data-stop=""
       aria-expanded={more}
       aria-label={more ? 'Fewer actions' : 'More actions'}
-      title="Remove, Discard, or Discard and delete branch"
+      title={moreTitle(held)}
       onClick={() => setMore((open) => !open)}
       className="shrink-0"
     >

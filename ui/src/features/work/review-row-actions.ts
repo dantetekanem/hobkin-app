@@ -15,9 +15,23 @@ export type RowAction = 'remove' | 'discard' | 'discard-branch'
 type RowCommand = 'review.preview' | 'review.verdict' | 'review.remove'
 export type RowCommands = <Name extends RowCommand>(name: Name, args: CommandArgs<Name>) => Promise<CommandResults[Name]>
 
-/** What a row offers, in the order it shows them. A review being built cannot be removed, so a running row has no Remove. */
+/**
+ * What a row offers, in the order it shows them. A review being built cannot be removed, so a running row has no
+ * Remove. A pull request is discarded from here only when its review recorded it as the user's own: someone else's
+ * is closed by its author.
+ */
 export function rowActions(row: ReviewRow): RowAction[] {
-  return canReviewAgain(row) ? ['remove', 'discard', 'discard-branch'] : ['discard', 'discard-branch']
+  const { kind, owner } = row.item
+  const noes: RowAction[] = kind === 'change' || owner?.mine ? ['discard', 'discard-branch'] : []
+  return [...(canReviewAgain(row) ? (['remove'] as const) : []), ...noes]
+}
+
+const ACTION_NAME: Record<RowAction, string> = { remove: 'Remove', discard: 'Discard', 'discard-branch': 'Discard and delete branch' }
+
+/** What the More button holds, by name: "Remove, Discard, or Discard and delete branch". */
+export function moreTitle(actions: readonly RowAction[]): string {
+  const names = actions.map((action) => ACTION_NAME[action])
+  return names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')}, or ${names.at(-1)}`
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
