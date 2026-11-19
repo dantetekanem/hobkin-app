@@ -127,3 +127,8 @@ test('a merge the user asked for that has not happened comes first in the list, 
   assert.deepEqual(groups.ready.map((row) => row.item.id), ['change:storefront:b1'], 'it is listed once, where it will be looked for')
   assert.equal(reviewCounts(groups).unmerged, 2)
 })
+
+test("a merge a code host does in its own time shows that host's own sentence on its row", () => {
+  const groups = groupReviews({ reviews: [item('pr:corp:acme/shop/7', { kind: 'pull', mergeAsked: { at: at(1), state: 'waiting', message: 'The merge queue lands it once its checks pass.' } })] })
+  assert.deepEqual(groups.unmerged.map((row) => row.line), ['You said merge. The merge queue lands it once its checks pass.'])
+})

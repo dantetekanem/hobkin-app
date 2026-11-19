@@ -71,8 +71,10 @@ function rowOf(item: ReviewListItem): ReviewRow | null {
   const running = assessment?.state === 'running'
   const row: ReviewRow = { item, group, where: whereOf(item), line: '', percent: null, startedAt: null, at: null, summary: null }
   if (group === 'unmerged') {
-    const { state, why, at } = item.mergeAsked!
-    row.line = state === 'waiting' ? 'You said merge. hobkin is bringing it up to date, and merges it after that.' : `You said merge, and it did not merge: ${why ?? 'no reason was given.'}`
+    const { state, why, at, message } = item.mergeAsked!
+    // A code host that merges in its own time says what it does; a finished change waits for hobkin to bring it up to date.
+    const waits = message ? `You said merge. ${message}` : 'You said merge. hobkin is bringing it up to date, and merges it after that.'
+    row.line = state === 'waiting' ? waits : `You said merge, and it did not merge: ${why ?? 'no reason was given.'}`
     row.at = timeOf(at)
     row.summary = assessment?.state === 'ready' ? (assessment.summary ?? null) : null
   } else if (group === 'running') {
