@@ -1,13 +1,14 @@
-import { appendFileSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { postClientNotice } from '../client-notices.mjs';
 import { CRITERIA, scoresOf, SMALL_KINDS } from './classified.mjs';
 import { mergeItem, whyWorkModeWaits } from './controls.mjs';
+import { userTrouble } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { changeHolds } from './patterns.mjs';
 import { landingList, weighedRows } from './reads.mjs';
 import { readMode, readProject } from './store.mjs';
-import { prepareProjects, readinessOf, readYolo } from './yolo.mjs';
+import { holdProject, prepareProjects, readinessOf, readYolo } from './yolo.mjs';
 
 /**
  * The one place a change merges with no yes from the user. It runs after the director's own survey and returns at once while YOLO mode is off.
@@ -17,6 +18,10 @@ import { prepareProjects, readinessOf, readYolo } from './yolo.mjs';
  */
 
 const SHORT_SHA = 7;
+// How long a deploy is watched before its monitoring is called calm.
+const AFTER_DEPLOY_MINUTES = 30;
+const READINGS = ['errors', 'slowQueries', 'latency'];
+const LONGEST_LINE = 400;
 const kindWords = {
   performance: 'performance work',
   'bug-fix': 'a bug fix',
@@ -31,6 +36,18 @@ const deployWords = {
 };
 
 const ledgerPath = root => join(root, 'work', 'yolo.jsonl');
+
+function readJsonLines(file) {
+  if (!existsSync(file)) return [];
+  return readFileSync(file, 'utf8').split('\n').filter(Boolean).flatMap(line => {
+    try {
+      return [JSON.parse(line)];
+    } catch {
+      // A line cut short by a crash costs that line and nothing else.
+      return [];
+    }
+  });
+}
 
 /** Why a finished change keeps asking the user, or null when it may merge by itself. The first reason found is the one said. */
 export function whyItAsks({ yolo, project, readiness, landable, row, item, unit = {} }) {
@@ -59,9 +76,53 @@ const deployJob = ({ project, item, target, parts }) => ({
   commit: target,
   asked: `YOLO mode merged this change into the default branch at ${target} by itself, and nothing was pushed. `
     + `Deploy exactly that commit by the project's recorded path: ${parts.deploy.how} Its way back: ${parts.rollback.how} `
-    + 'Prove it with the live revision and a real health check, report what deployed, and deploy nothing else.',
+    + 'Prove it with the live revision and a real health check, report what deployed, and deploy nothing else. '
+    + `Then watch its monitoring for ${AFTER_DEPLOY_MINUTES} minutes and record what it showed: pipe `
+    + '{ "minutes": 30, "errors": { "regressed": false, "saw": "one line" }, "slowQueries": { "regressed": false, "saw": "one line" }, '
+    + '"latency": { "regressed": false, "saw": "the figure against its baseline" } } '
+    + `to hobkin work yolo ${project.slug} ${item.id}. A regression is recorded the moment it shows, without waiting for the window to end.`,
   why: 'YOLO mode is on and this project is ready for it',
 });
+
+const isOneLine = text => typeof text === 'string' && text.trim().length > 0 && text.length <= LONGEST_LINE && !/[\r\n]/.test(text.trim());
+
+function readingOf(name, reading) {
+  const { regressed, saw, notApplicable } = reading ?? {};
+  if (typeof regressed === 'boolean' && isOneLine(saw)) return { regressed, saw: saw.trim() };
+  if (isOneLine(notApplicable)) return { regressed: false, notApplicable: notApplicable.trim() };
+  throw Error(`${name} needs regressed, true or false, with what the monitoring showed in a line as saw, or notApplicable with the reason.`);
+}
+
+const mergedByYolo = (root, slug, id) => readJsonLines(ledgerPath(root)).some(line => line.slug === slug && line.item === id && line.target);
+
+/**
+ * What the monitoring showed after a change YOLO mode merged was deployed: errors, slow queries, and latency against its baseline, over the
+ * window. It is written down and said in Chat. A regression is a problem at once: it is told as critical, recorded as trouble on that change
+ * so its fix is filed, and the project stops merging by itself until its readiness is checked again. A calm reading has to cover the window.
+ */
+export function recordAfterDeploy(root, project, item, sent, now = Date.now()) {
+  const { slug } = project;
+  if (!mergedByYolo(root, slug, item.id)) throw Error(`YOLO mode did not merge "${item.title}", so it has no deploy of its own to report on.`);
+  if (!Number.isInteger(sent?.minutes) || sent.minutes < 1) throw Error('minutes is how long the monitoring was watched, as a whole number.');
+  const after = { minutes: sent.minutes, ...Object.fromEntries(READINGS.map(name => [name, readingOf(name, sent[name])])) };
+  const regressed = READINGS.filter(name => after[name].regressed);
+  if (!regressed.length && after.minutes < AFTER_DEPLOY_MINUTES) throw Error(`A reading with no regression covers the whole ${AFTER_DEPLOY_MINUTES} minutes. Record it once they have passed.`);
+
+  appendFileSync(ledgerPath(root), `${JSON.stringify({ at: new Date(now).toISOString(), slug, item: item.id, title: item.title, after, regressed })}\n`, { mode: 0o600 });
+  const named = `"${item.title}" on ${nameOf(project)}`;
+  const saw = names => names.map(name => after[name].saw).filter(Boolean).join(' ');
+  if (!regressed.length) {
+    const line = `After its deploy, ${named} held for ${after.minutes} minutes: ${saw(READINGS)}`;
+    postClientNotice(root, { key: `yolo-after:${slug}:${item.id}`, line, tone: 'useful' }, now);
+    return { regressed, line };
+  }
+
+  userTrouble(root, slug, item, { why: `After YOLO mode deployed it: ${saw(regressed)}` }, now);
+  holdProject(root, slug, { item: item.id, title: item.title }, now);
+  const line = `Problem after YOLO mode deployed ${named}: ${saw(regressed)} Its fix is filed, and ${nameOf(project)} asks you again until its readiness is checked.`;
+  postClientNotice(root, { key: `yolo-problem:${slug}:${item.id}`, line, tone: 'critical' }, now);
+  return { regressed, line };
+}
 
 function report(root, { project, item, target, readiness, handOff, now }) {
   const { kind, rate, scores, head } = scoresOf(item.review);

@@ -9,7 +9,7 @@ import {
 import { forecastEachMinute } from './forecast.mjs';
 import { offersView } from './land-offer.mjs';
 import { assertLaunch, recordWatch } from './launches.mjs';
-import { findProject, nameOf } from './names.mjs';
+import { findItem, findProject, nameOf } from './names.mjs';
 import { fileFirstPair, setShipFirst } from './pairs.mjs';
 import { filePickUp } from './pick-up.mjs';
 import { finishesWork, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
@@ -23,6 +23,7 @@ import {
 import { gitOrNothing, prepareTree } from './tree.mjs';
 import { unmergedNow } from './unmerged.mjs';
 import { readWatch } from './watcher.mjs';
+import { recordAfterDeploy } from './yolo-pass.mjs';
 import { readinessOf, recordReadiness, yoloView } from './yolo.mjs';
 
 const HELP = `Usage: hobkin work [command] [--home folder]. With no command, the full status.
@@ -67,7 +68,7 @@ Used by agents inside a run:
   item, signals, watch <project>       JSON on stdin: an item; what a look found
   propose, progress                    JSON on stdin: a project; a look's place
   tree <project>                       a worktree for a look that needs tests
-  yolo <project>                       JSON on stdin: what its readiness run found
+  yolo <project> [item]                JSON on stdin: its readiness; or, with an item, monitoring after its deploy
 `;
 // What the tab and an agent asking need, and a long plan would otherwise fill the status.
 const MAX_PLAN_SENT = 50;
@@ -111,13 +112,19 @@ async function signalsCommand(root, reference, input) {
 }
 
 /**
- * With no project this reads YOLO mode, and with one it reads that project's readiness. Piped JSON is what a readiness run found. Nothing here
- * turns YOLO mode on or off or sets its rate: that is the user's alone, in the window.
+ * With no project this reads YOLO mode, and with one it reads that project's readiness. Piped JSON is what a readiness run found, or, with an
+ * item, what the monitoring showed after that change was deployed. Nothing here turns YOLO mode on or off or sets its rate: that is the
+ * user's alone, in the window.
  */
-async function yoloCommand(root, reference, input) {
+async function yoloCommand(root, [reference, change], input) {
   if (!reference) return yoloView(root);
   const project = findProject(root, reference);
   const report = input && !input.isTTY ? await readText(input) : '';
+  if (change) {
+    if (!report.trim()) throw Error('Pipe what the monitoring showed after the deploy, as JSON.');
+    const { regressed, line } = recordAfterDeploy(root, project, findItem(root, project, change), JSON.parse(report));
+    return reply(line, { regressed });
+  }
   if (!report.trim()) return readinessOf(root, project.slug);
 
   const { ready, needs } = recordReadiness(root, project.slug, JSON.parse(report));
@@ -373,7 +380,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'tree': return treeFor(root, args[0]);
     case 'signals': return signalsCommand(root, args[0], input);
     case 'watch': return watchCommand(root, args[0], input);
-    case 'yolo': return yoloCommand(root, args[0], input);
+    case 'yolo': return yoloCommand(root, args, input);
     case 'trouble': return callTrouble(root, ...args);
     default: throw new WrongCommand(HELP);
   }

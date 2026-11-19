@@ -3,11 +3,13 @@ import { test } from 'node:test';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { Readable } from 'node:stream';
 import { clientNoticesToPost } from '../src/cli/client-notices.mjs';
 import { initialize } from '../src/cli/config.mjs';
 import { surveyAndClose } from '../src/cli/work/closing.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
+import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, prFile, readItems, readMode, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { yoloPass } from '../src/cli/work/yolo-pass.mjs';
@@ -22,7 +24,11 @@ const scored = (numbers = {}) => Object.fromEntries(['coverage', 'proof', 'safet
 
 const allReady = (change = {}) => ({
   tests: { ready: true, how: 'node --test runs 40 tests in 3 s.' },
-  visibility: { ready: true, how: 'A failing run shows in the error report.' },
+  errors: { ready: true, how: 'Exceptions reach the error tracker, which mails the user.' },
+  slowQueries: { ready: true, how: 'The database logs queries over 200 ms, and the test suite fails on an N+1.' },
+  performance: { ready: true, how: 'Request and job timings are kept, with last week as the baseline.' },
+  logs: { ready: true, how: 'bin/logs search finds any request by id.' },
+  alerts: { ready: true, how: 'An alert goes to the user by mail within 5 minutes.' },
   rollback: { ready: true, how: 'bin/deploy rollback takes the last release back.' },
   deploy: { ready: true, how: 'bin/deploy from main, undone by bin/deploy rollback.' },
   ...change,
@@ -79,10 +85,10 @@ test('a project is ready only once every part is in place and its readiness item
 
   updateItem(h.root, 'api', id, { state: 'doing' }, NOW);
   assert.throws(() => recordReadiness(h.root, 'api', allReady({ tests: { ready: true } }), NOW), /tests needs ready: true with how it works/);
-  recordReadiness(h.root, 'api', allReady({ visibility: { ready: false, missing: 'No error report hobkin can read.' } }), NOW);
+  recordReadiness(h.root, 'api', allReady({ errors: { ready: false, missing: 'No error report hobkin can read.' } }), NOW);
   assert.deepEqual(
     [readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').needs],
-    [false, ['Visibility: No error report hobkin can read.']],
+    [false, ['Error tracking: No error report hobkin can read.']],
   );
 
   recordReadiness(h.root, 'api', allReady(), NOW);
@@ -319,4 +325,93 @@ test('the director runs the pass after its own survey, and hands the deploy on',
 
   assert.equal(stateOf(h, second), 'merged');
   assert.equal(handed.length, 2);
+});
+
+test('a project is not ready until its monitoring is recorded as in place', async t => {
+  const h = workspace(t);
+  setYolo(h.root, { on: true, rate: 6 }, NOW);
+  const { id } = readinessItem(h);
+  updateItem(h.root, 'api', id, { state: 'doing' }, NOW);
+  const { errors, slowQueries, performance, logs, alerts, ...withoutMonitoring } = allReady();
+
+  // Tests, a way back and a deploy path alone are not enough: each part of the monitoring has to be said.
+  assert.throws(() => recordReadiness(h.root, 'api', withoutMonitoring, NOW), /errors needs ready: true with how it works/);
+  assert.throws(() => recordReadiness(h.root, 'api', allReady({ slowQueries: { notApplicable: ' ' } }), NOW), /slowQueries needs/);
+  assert.throws(() => recordReadiness(h.root, 'api', allReady({ tests: { notApplicable: 'It has none.' } }), NOW), /tests needs/);
+
+  recordReadiness(h.root, 'api', allReady({
+    slowQueries: { ready: false, missing: 'No slow query log, and nothing catches an N+1.' },
+    alerts: { ready: false, missing: 'No alert reaches the user.' },
+  }), NOW);
+  updateItem(h.root, 'api', id, { state: 'merged' }, NOW);
+  assert.deepEqual(
+    [readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').needs],
+    [false, ['Slow queries: No slow query log, and nothing catches an N+1.', 'Alerts: No alert reaches the user.']],
+  );
+  const perfect = finished(h, 'Fix login');
+  await survey(h);
+  assert.deepEqual(await yoloPass(h.root, { now: NOW }), []);
+  assert.equal(stateOf(h, perfect), 'branch');
+
+  // A part the project has no use for counts once it says why.
+  updateItem(h.root, 'api', id, { state: 'doing' }, NOW);
+  recordReadiness(h.root, 'api', allReady({ slowQueries: { notApplicable: 'It has no database.' } }), NOW);
+  updateItem(h.root, 'api', id, { state: 'merged' }, NOW);
+  assert.deepEqual([readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').parts.slowQueries], [true, { notApplicable: 'It has no database.' }]);
+});
+
+test('a change whose regression would not show in the monitoring never merges by itself', async t => {
+  const h = workspace(t);
+  setYolo(h.root, { on: true, rate: 6 }, NOW);
+  makeReady(h);
+  const unseen = finished(h, 'Speed up search', { kind: 'performance', numbers: { visibility: 6 } });
+  await survey(h);
+
+  assert.deepEqual(await yoloPass(h.root, { now: NOW }), []);
+
+  assert.equal(stateOf(h, unseen), 'branch');
+  assert.equal(readyItems(h.root)[0].review.rate, 9.2, 'the average alone would pass');
+  assert.deepEqual(readyItems(h.root)[0].review.floors, [{ criterion: 'visibility', score: 6, needs: 7 }]);
+});
+
+test('after a deploy the report says what the monitoring showed, and a regression is a problem at once', async t => {
+  const h = workspace(t);
+  makeReady(h);
+  const quiet = finished(h, 'Fix login');
+  await survey(h);
+  const handed = [];
+  await yoloPass(h.root, { now: NOW, handOff: job => handed.push(job) });
+  assert.match(handed[0].asked, /watch its monitoring for 30 minutes/);
+  assert.match(handed[0].asked, new RegExp(`hobkin work yolo api ${quiet.id}`));
+  const calm = part => ({ regressed: false, saw: `Nothing new in ${part}.` });
+  const reading = (change = {}) => ({ minutes: 30, errors: calm('errors'), slowQueries: calm('slow queries'), latency: { regressed: false, saw: 'p95 118 ms against a baseline of 120 ms.' }, ...change });
+  const after = (id, sent) => runWorkCommand(h.root, ['yolo', 'api', id], Readable.from([JSON.stringify(sent)]));
+
+  // Only a change YOLO mode merged has a deploy to report on, and a calm reading has to cover the whole window.
+  const byHand = finished(h, 'Fix logout');
+  await assert.rejects(after(byHand.id, reading()), /YOLO mode did not merge/);
+  await assert.rejects(after(quiet.id, reading({ minutes: 5 })), /the whole 30 minutes/);
+  await assert.rejects(after(quiet.id, reading({ latency: { regressed: false } })), /latency needs/);
+
+  await after(quiet.id, reading());
+
+  const [, said] = ledger(h);
+  assert.deepEqual([said.item, said.after.minutes, said.regressed], [quiet.id, 30, []]);
+  const calmLine = clientNoticesToPost(h.root).map(({ line }) => line).find(line => line.startsWith('After its deploy'));
+  assert.equal(calmLine, 'After its deploy, "Fix login" on api held for 30 minutes: Nothing new in errors. Nothing new in slow queries. p95 118 ms against a baseline of 120 ms.');
+  assert.equal(readinessOf(h.root, 'api').ready, true);
+
+  // A regression is told at once, however short the look, as a problem with its fix filed, and the project stops merging by itself.
+  await after(quiet.id, reading({ minutes: 4, slowQueries: { regressed: true, saw: 'orders#index now runs a 900 ms query.' } }));
+
+  const problem = clientNoticesToPost(h.root).find(({ line }) => line.startsWith('Problem after YOLO mode deployed'));
+  assert.deepEqual([problem.tone, problem.line], ['critical', 'Problem after YOLO mode deployed "Fix login" on api: orders#index now runs a 900 ms query. Its fix is filed, and api asks you again until its readiness is checked.']);
+  assert.deepEqual(ledger(h).at(-1).regressed, ['slowQueries']);
+  assert.ok(itemsOf(h).some(({ causedBy }) => causedBy === quiet.id), 'the fix is filed as trouble on that change');
+  assert.deepEqual([readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').needs], [false, ['A regression showed after "Fix login" deployed. Retry its readiness work once that is fixed.']]);
+
+  const next = finished(h, 'Fix signup');
+  await survey(h);
+  assert.deepEqual(await yoloPass(h.root, { now: NOW }), []);
+  assert.equal(stateOf(h, next), 'branch');
 });

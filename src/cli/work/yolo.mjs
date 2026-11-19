@@ -10,13 +10,25 @@ import { chosenProjects, fileItem, paths, readItems, readJson, readMode, writeMo
  * pass's (`yolo-pass.mjs`).
  */
 
-// The floors already put every change that passes them at 6.0 or more, so a lower rate would ask for nothing.
+// The floors already put every change that passes them above 6, so a lower rate would ask for nothing.
 export const LOWEST_RATE = 6;
 export const HIGHEST_RATE = 10;
 const USUAL_RATE = 8;
 const READY_KEY = 'yolo:ready';
-const PARTS = ['tests', 'visibility', 'rollback', 'deploy'];
-const partWords = { tests: 'Tests', visibility: 'Visibility', rollback: 'Rollback', deploy: 'Deploy' };
+// What a regression has to show up in: exceptions that reach an alert, slow queries and N+1s, request and job timings against a baseline,
+// logs that can be searched, and alerts that reach the user. A project with no use for one says why.
+const MONITORING = ['errors', 'slowQueries', 'performance', 'logs', 'alerts'];
+const PARTS = ['tests', ...MONITORING, 'rollback', 'deploy'];
+const partWords = {
+  tests: 'Tests',
+  errors: 'Error tracking',
+  slowQueries: 'Slow queries',
+  performance: 'Performance metrics',
+  logs: 'Searchable logs',
+  alerts: 'Alerts',
+  rollback: 'Rollback',
+  deploy: 'Deploy',
+};
 // The readiness work has landed: the user merged it, or its run found nothing to change.
 const LANDED = ['merged', 'done'];
 const WAITS_FOR_A_YES = ['branch', 'pr'];
@@ -24,8 +36,10 @@ const CLOSED_UNLANDED = ['declined', 'dropped'];
 const LONGEST_LINE = 400;
 
 const READY_BRIEF = 'YOLO mode is on, and hobkin merges and deploys small changes by itself only on a project that is ready for it. '
-  + 'Check that this project has tests that can cover a change, a way to see a failure after a change, a way back with a flag mechanism where one makes sense, '
-  + 'and a deploy path hobkin can run and undo. Build what is missing, and record what you found as the YOLO readiness section of your directions says.';
+  + 'Check that this project has tests that can cover a change, monitoring a regression would show up in (error tracking that reaches an alert, slow query '
+  + 'and N+1 detection, request and job timings with a baseline, logs that can be searched, alerts that reach the user), a way back with a flag mechanism '
+  + 'where one makes sense, and a deploy path hobkin can run and undo. Build what is missing for this project\'s stack, and record what you found as the '
+  + 'YOLO readiness section of your directions says.';
 
 const isRate = rate => Number.isInteger(rate) && rate >= LOWEST_RATE && rate <= HIGHEST_RATE;
 const isOneLine = text => typeof text === 'string' && text.trim().length > 0 && text.length <= LONGEST_LINE && !/[\r\n]/.test(text.trim());
@@ -63,11 +77,15 @@ export function setYolo(root, { on, rate } = {}, now = Date.now()) {
 }
 
 function partOf(name, part) {
-  const { ready, how, missing, deploys } = part ?? {};
+  const { ready, how, missing, deploys, notApplicable } = part ?? {};
+  const mayNotApply = MONITORING.includes(name);
   if (ready === true && isOneLine(how)) return { ready, how: how.trim(), ...(name === 'deploy' && deploys === false ? { deploys } : {}) };
   if (ready === false && isOneLine(missing)) return { ready, missing: missing.trim() };
-  throw Error(`${name} needs ready: true with how it works in a line, or ready: false with what is missing in a line.`);
+  if (mayNotApply && isOneLine(notApplicable)) return { notApplicable: notApplicable.trim() };
+  throw Error(`${name} needs ready: true with how it works in a line, or ready: false with what is missing in a line${mayNotApply ? ', or notApplicable with the reason' : ''}.`);
 }
+
+const inPlace = part => part?.ready === true || Boolean(part?.notApplicable);
 
 /** What a readiness run found, part by part. hobkin keeps it only from the run of that project's readiness item, and the date is hobkin's. */
 export function recordReadiness(root, slug, report, now = Date.now()) {
@@ -77,9 +95,19 @@ export function recordReadiness(root, slug, report, now = Date.now()) {
   return readinessOf(root, slug);
 }
 
+/**
+ * A regression that showed after a change YOLO mode deployed stops changes merging by themselves on that project. The next readiness check
+ * writes a new record, which is what lifts it, so the user retries the readiness work once the regression is fixed.
+ */
+export function holdProject(root, slug, { item, title }, now = Date.now()) {
+  const record = readJson(readinessFile(root, slug), null) ?? { parts: {}, at: null };
+  atomicJson(readinessFile(root, slug), { ...record, held: { item, title, at: new Date(now).toISOString() } });
+}
+
 function needsOf(record, item) {
   if (!record) return ['Its readiness has not been checked yet.'];
-  const missing = PARTS.filter(name => !record.parts[name].ready).map(name => `${partWords[name]}: ${record.parts[name].missing}`);
+  if (record.held) return [`A regression showed after "${record.held.title}" deployed. Retry its readiness work once that is fixed.`];
+  const missing = PARTS.filter(name => !inPlace(record.parts[name])).map(name => `${partWords[name]}: ${record.parts[name]?.missing ?? 'Not recorded yet.'}`);
   if (missing.length || LANDED.includes(item?.state)) return missing;
   if (WAITS_FOR_A_YES.includes(item?.state)) return ['Its readiness work waits for your yes.'];
   if (!item || CLOSED_UNLANDED.includes(item.state)) return ['Its readiness work was closed without landing.'];
