@@ -22,6 +22,7 @@ hobkin's character is no longer a pointed hood. The user picks one of four pets 
 - Pointer reactions, moods and the rules for reduced and still movement stay as they are. A part's pose for a mood (drooped ears when sad) holds when movement is still. Only its loops stop.
 - The choice is kept with the other settings in the window's storage. Settings saved before this load with Ears.
 - Agent faces, the wordmark and the Mark all draw the chosen pet.
+- 2026-11-19: the user asked, "i want an option for \"No Pet\"". It is a fifth choice in the Pet tile, stored as `none`, after the four. Decoration draws nothing and the layout closes up. A small face that tells agents apart by color (given a tint) is a dot in that color, in the same box. The wordmark shows the word alone. The setup's story keeps a character and draws Ears. The window favicon and the app icon stay as they are. The pets' own behavior is unchanged.
 - The app icon becomes the Ears pet. It is a native change, so it waits for a restart the user agrees to.
 - On hobkin.dev the choice is kept in `localStorage` under `hobkin-pet` and set before the first paint, as the theme is.
 
@@ -40,6 +41,7 @@ hobkin's character is no longer a pointed hood. The user picks one of four pets 
 - A6. The setup's character still stands on its hills: its feet touch the ground line.
 - A7. hobkin.dev has a button that changes the pet, its choice survives a reload, and the page shows the chosen pet from the first paint.
 - A8. The app icon shows the Ears pet after the restart.
+- A9. With No Pet chosen, the character is not drawn where it is decoration, agent faces are dots in their color, the wordmark shows the word alone, and setup keeps Ears. The choice survives a reload, and an unknown stored value still loads Ears.
 
 ## Proof
 
@@ -51,6 +53,7 @@ hobkin's character is no longer a pointed hood. The user picks one of four pets 
 - A6. `ui/test/onboarding-world.test.ts`, with the new art's measurements.
 - A7. check: hobkin.dev read through and rendered.
 - A8. check: the user sees the icon after the restart.
+- A9. `ui/test/pets.test.ts` › No Pet is a fifth choice, what a face draws, and the settings store keeps the pet; check: still renders of the Pet tile with No Pet and an agent list row with dots, in light and dark.
 
 ## Steps
 
@@ -60,3 +63,4 @@ hobkin's character is no longer a pointed hood. The user picks one of four pets 
 - [x] S4 (A6). The setup's character measurements follow the new art.
 - [x] S5 (A1, A3, A7). hobkin.dev: the pets, their movement, the button, the favicon and share images.
 - [x] S6 (A8). The app icon, as a patch applied at the user's restart.
+- [x] S7 (A9). No Pet: the fifth choice, `drawingOf` in `pets.ts`, Hob and the Mark follow it, setup draws Ears. Seen in still renders, light and dark. Not yet walked in the window.

@@ -3,14 +3,16 @@ import { Hob } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
 import { BODY_PATH, FEET, MARK_BOX } from '@/avatar/pets.ts'
 import { PetPart } from '@/avatar/PetPart.tsx'
-import { usePet } from '@/avatar/use-pet.ts'
+import { usePetChoice } from '@/avatar/use-pet.ts'
 import './mark.css'
 
 const MARK_PAINT = { mark: 'var(--hb-mark)', eye: 'var(--hb-mark-eye)' }
 
 /** The hobkin mark: the chosen pet and its two eyes, still. For the wordmark and other brand spots. */
 export function Mark({ size = 22, className }: { size?: number; className?: string }) {
-  const pet = usePet()
+  const pet = usePetChoice()
+  // No Pet: the wordmark is the word alone.
+  if (pet === 'none') return null
   return (
     <svg className={className} width={size} height={size} viewBox={`${MARK_BOX.x} ${MARK_BOX.y} ${MARK_BOX.size} ${MARK_BOX.size}`} aria-hidden="true">
       <PetPart pet={pet} paint={MARK_PAINT} />

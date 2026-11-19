@@ -2,6 +2,7 @@ import { useAnimate, type Transition } from 'motion/react'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Hob, useHobReactions } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
+import { usePet } from '@/avatar/use-pet.ts'
 import { play as sound } from '@/features/sound/index.ts'
 import { ease } from '@/lib/motion.ts'
 import { FACE, type Seat } from './face-size.ts'
@@ -183,6 +184,8 @@ export function Actor({ act, arrival, seat, home, mood, beat, still, followWithi
 
   const hasLanded = arrived.current || act === 'talking' || act === 'leaving'
   const face = useHobReactions(hasLanded ? mood : onTheWay)
+  // The story needs a character, so No Pet draws Ears here.
+  const pet = usePet()
 
   const boxesNow = (): Boxes | null => {
     const outer = layer.current
@@ -284,7 +287,7 @@ export function Actor({ act, arrival, seat, home, mood, beat, still, followWithi
         <div ref={body} style={{ transformOrigin: '50% 100%' }}>
           {/* Poking it is play, as by the message input. It takes no keyboard. */}
           <button type="button" tabIndex={-1} aria-label="hobkin" data-own="" className="pointer-events-auto block cursor-default rounded-full outline-none" {...face.handlers}>
-            <Hob mood={face.mood} size={FACE} still={still} followWithin={followWithin} />
+            <Hob pet={pet} mood={face.mood} size={FACE} still={still} followWithin={followWithin} />
           </button>
         </div>
       </div>

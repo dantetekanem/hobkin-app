@@ -18,13 +18,39 @@ export const PET_LABEL: Record<Pet, string> = {
   sprout: 'Sprout',
 }
 
+/** The choice that draws no character at all (No Pet). Stored as this word, after the four. */
+export const NO_PET = 'none'
+
+/** What the user can pick in Settings: one of the four pets, or none. */
+export type PetChoice = Pet | typeof NO_PET
+
+export const PET_CHOICES: readonly PetChoice[] = [...PETS, NO_PET]
+
+export const PET_CHOICE_LABEL: Record<PetChoice, string> = { ...PET_LABEL, none: 'No Pet' }
+
 export function isPet(value: unknown): value is Pet {
   return typeof value === 'string' && (PETS as readonly string[]).includes(value)
 }
 
-/** A stored pet, or Ears when what was stored is not one of the four. */
-export function petOr(value: unknown): Pet {
-  return isPet(value) ? value : DEFAULT_PET
+/** A stored choice (a pet or No Pet), or Ears when what was stored is neither. */
+export function petOr(value: unknown): PetChoice {
+  return value === NO_PET || isPet(value) ? value : DEFAULT_PET
+}
+
+/** The pet to draw where a character is needed whatever the choice (the setup story): No Pet draws Ears. */
+export function characterPet(choice: PetChoice): Pet {
+  return choice === NO_PET ? DEFAULT_PET : choice
+}
+
+/**
+ * What a Hob draws. Where the pet is only decoration, No Pet draws nothing. A small face that tells agents apart by
+ * color (it is given a tint) becomes a dot in that color. A pet asked for by name is drawn as asked, and No Pet asked
+ * for by name is the empty outline the Settings tile previews.
+ */
+export function drawingOf({ choice, pet, tint }: { choice: PetChoice; pet?: PetChoice; tint?: string }): 'pet' | 'dot' | 'nothing' | 'outline' {
+  if (pet === NO_PET) return 'outline'
+  if (pet || choice !== NO_PET) return 'pet'
+  return tint ? 'dot' : 'nothing'
 }
 
 /** The body every pet shares: a dome from 34 to 166 across, its top at 70, standing at 188. */

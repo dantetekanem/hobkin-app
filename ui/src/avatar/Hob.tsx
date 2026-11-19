@@ -1,20 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { MOOD_ART, type Mood } from './moods.tsx'
-import { BODY_PATH, FEET, type Pet } from './pets.ts'
+import { BODY_PATH, FEET, drawingOf, type Pet, type PetChoice } from './pets.ts'
 import { PetPart } from './PetPart.tsx'
-import { usePet } from './use-pet.ts'
+import { usePetChoice } from './use-pet.ts'
 import { FaceReactions, type AppReaction } from './reactions.ts'
 import './hob.css'
 
 export interface HobProps {
   mood?: Mood
-  /** Which pet to draw. Defaults to the one chosen in Settings. */
-  pet?: Pet
+  /** Which pet to draw. Defaults to the one chosen in Settings. 'none' draws the empty outline the Settings tile previews. */
+  pet?: PetChoice
   /** Rendered size in CSS pixels. The art is square. */
   size?: number
   /** Color behind the avatar, used to outline parts drawn over the body. Defaults to the page background. */
   stage?: string
-  /** Body color, for the small faces that stand for delegated agents. */
+  /** Body color, for the small faces that stand for delegated agents. With No Pet chosen, a face given a tint is a dot in this color. */
   tint?: string
   /** Eye color. hobkin's own eyes are yellow. An agent's are the color behind it, so they read on any hue. */
   eye?: string
@@ -29,10 +29,35 @@ export interface HobProps {
 /** The hobkin character, drawn as the chosen pet. One inline SVG, every mood from hobkin's own art. */
 export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = false, followWithin, className, title }: HobProps) {
   const art = MOOD_ART[mood]
-  const chosen = usePet()
-  const shown = pet ?? chosen
+  const chosen = usePetChoice()
   const followRef = useEyeFollow(followWithin)
   const style = { '--hob-stage': stage, '--hob-mark': tint, '--hob-eye': eye } as CSSProperties
+  const drawing = drawingOf({ choice: chosen, pet, tint })
+  const shown = pet ?? chosen
+
+  if (drawing === 'nothing') return null
+
+  if (drawing === 'dot' || drawing === 'outline') {
+    // The same box as the pet, so rows keep their alignment. The dot is centred between the pet's mark box and the art's.
+    return (
+      <svg
+        className={['hob', className].filter(Boolean).join(' ')}
+        data-pet={drawing === 'dot' ? 'dot' : 'none'}
+        width={size}
+        height={size}
+        viewBox="-28 -28 256 256"
+        role="img"
+        aria-label={title ?? (drawing === 'dot' ? 'agent' : 'No Pet')}
+        style={style}
+      >
+        {drawing === 'dot' ? (
+          <circle className="hob-fm" cx="100" cy="106" r="56" />
+        ) : (
+          <circle cx="100" cy="125" r="60" fill="none" stroke="currentColor" strokeOpacity="0.45" strokeWidth="5" strokeDasharray="3 14" strokeLinecap="round" />
+        )}
+      </svg>
+    )
+  }
 
   return (
     <svg
@@ -49,7 +74,7 @@ export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = f
     >
       <g className={`hob-body hob-m-${mood}`}>
         {/* The pet's part goes behind the body, so it can turn about its base without a gap. */}
-        <PetPart pet={shown} />
+        <PetPart pet={shown as Pet} />
         {FEET.map((foot) => (
           <ellipse key={foot.cx} className="hob-fm" {...foot} />
         ))}

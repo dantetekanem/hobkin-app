@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
 import { Hob, useHobReactions } from '@/avatar/Hob.tsx'
 import { MOODS, type Mood } from '@/avatar/moods.tsx'
-import { PETS, PET_LABEL } from '@/avatar/pets.ts'
-import { usePet } from '@/avatar/use-pet.ts'
+import { PET_CHOICES, PET_CHOICE_LABEL } from '@/avatar/pets.ts'
+import { usePetChoice } from '@/avatar/use-pet.ts'
 import { AgentHood } from '@/components/Mark.tsx'
 import { useSettings } from '@/features/settings/store.ts'
 import { cn } from '@/lib/utils.ts'
@@ -14,7 +14,7 @@ export function AvatarGallery() {
   const [selected, setSelected] = useState<Mood>('idle')
   const [still, setStill] = useState(false)
   const reactions = useHobReactions(selected, { lasting: selected === 'sleepy', onWake: () => setSelected('idle') })
-  const pet = usePet()
+  const pet = usePetChoice()
   const setPet = useSettings((state) => state.setPet)
 
   return (
@@ -23,7 +23,7 @@ export function AvatarGallery() {
         <header className="flex items-center justify-between">
           <h1 className="text-[24px] font-semibold">Avatar</h1>
           <div className="flex gap-2 text-[13px]">
-            {PETS.map((option) => (
+            {PET_CHOICES.map((option) => (
               <button
                 key={option}
                 type="button"
@@ -31,7 +31,7 @@ export function AvatarGallery() {
                 className={cn('rounded-full border px-3 py-1', option === pet ? 'border-ring' : 'border-border')}
                 onClick={() => setPet(option)}
               >
-                {PET_LABEL[option]}
+                {PET_CHOICE_LABEL[option]}
               </button>
             ))}
             <button type="button" className="rounded-full border border-border px-3 py-1" onClick={() => setStill((value) => !value)}>

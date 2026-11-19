@@ -1,8 +1,8 @@
 import { motion } from 'motion/react'
 import { useEffect, useState } from 'react'
 import { Hob } from '@/avatar/Hob.tsx'
-import { PETS, PET_LABEL, type Pet } from '@/avatar/pets.ts'
-import { usePet } from '@/avatar/use-pet.ts'
+import { PET_CHOICES, PET_CHOICE_LABEL, type PetChoice } from '@/avatar/pets.ts'
+import { usePetChoice } from '@/avatar/use-pet.ts'
 import { play } from '@/features/sound/index.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
@@ -10,13 +10,13 @@ import { Tile } from './SettingsScreen.tsx'
 import { useSettings } from './store.ts'
 
 /**
- * The pet hobkin is drawn as (spec 047). The four pets are the choice. The one picked cheers, and every hobkin in the
+ * The pet hobkin is drawn as (spec 047). The four pets and No Pet are the choice. The one picked cheers, and every hobkin in the
  * window changes with it. Left and Right move between them, as in any radio group.
  */
 export function PetTile() {
-  const pet = usePet()
+  const pet = usePetChoice()
   const setPet = useSettings((state) => state.setPet)
-  const [cheering, setCheering] = useState<Pet | null>(null)
+  const [cheering, setCheering] = useState<PetChoice | null>(null)
 
   useEffect(() => {
     if (!cheering) return
@@ -24,7 +24,7 @@ export function PetTile() {
     return () => clearTimeout(done)
   }, [cheering])
 
-  const choose = (next: Pet) => {
+  const choose = (next: PetChoice) => {
     if (next === pet) return
     setPet(next)
     setCheering(next)
@@ -32,11 +32,11 @@ export function PetTile() {
   }
 
   return (
-    <Tile name="Pet" value={PET_LABEL[pet]} className="col-span-6 @max-[820px]:col-span-2">
+    <Tile name="Pet" value={PET_CHOICE_LABEL[pet]} className="col-span-6 @max-[820px]:col-span-2">
       <div
         role="radiogroup"
         aria-label="Pet"
-        className="grid grid-cols-4 gap-2 @max-[820px]:grid-cols-2"
+        className="grid grid-cols-5 gap-2 @max-[820px]:grid-cols-2"
         onKeyDown={(event) => {
           const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
           if (step === 0) return
@@ -47,7 +47,7 @@ export function PetTile() {
           event.preventDefault()
         }}
       >
-        {PETS.map((option) => {
+        {PET_CHOICES.map((option) => {
           const selected = option === pet
           return (
             <button
@@ -55,7 +55,7 @@ export function PetTile() {
               type="button"
               role="radio"
               aria-checked={selected}
-              aria-label={PET_LABEL[option]}
+              aria-label={PET_CHOICE_LABEL[option]}
               data-value={option}
               // The chosen one is this group's stop in the walk.
               data-stop={selected ? '' : undefined}
@@ -73,10 +73,10 @@ export function PetTile() {
                 mood={cheering === option ? 'happy' : 'idle'}
                 size={92}
                 still={!selected}
-                title={PET_LABEL[option]}
+                title={PET_CHOICE_LABEL[option]}
                 className="relative"
               />
-              <span className="relative text-[13px] font-medium">{PET_LABEL[option]}</span>
+              <span className="relative text-[13px] font-medium">{PET_CHOICE_LABEL[option]}</span>
             </button>
           )
         })}
@@ -86,7 +86,7 @@ export function PetTile() {
 }
 
 /** The pet one step along the row, wrapping at either end. */
-function petAfter(pet: Pet, step: 1 | -1): Pet {
-  const index = (PETS.indexOf(pet) + step + PETS.length) % PETS.length
-  return PETS[index]!
+function petAfter(pet: PetChoice, step: 1 | -1): PetChoice {
+  const index = (PET_CHOICES.indexOf(pet) + step + PET_CHOICES.length) % PET_CHOICES.length
+  return PET_CHOICES[index]!
 }

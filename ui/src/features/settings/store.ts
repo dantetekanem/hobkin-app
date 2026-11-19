@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 import type { AppearanceRequest, Background, BorderColors, BuiltInTheme } from '#shared/protocol/appearance.ts'
 import type { StoreApi } from 'zustand/vanilla'
 import type { HostState } from '../../lib/host/state.ts'
-import { DEFAULT_PET, petOr, type Pet } from '../../avatar/pets.ts'
+import { DEFAULT_PET, petOr, type PetChoice } from '../../avatar/pets.ts'
 import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, adjustedPalette, migrateSettings, receiveAppearance, stepAgents, stepBudget, stepOpacity, themeRequestText, type BlockKind, type Palette } from './rules.ts'
 
 /** Lively plays movement even when the Mac asks for less. Still never moves. */
@@ -26,7 +26,7 @@ interface SettingsState extends BorderColors {
   sound: boolean
   typeFace: TypeFace
   /** The pet hobkin is drawn as (spec 047). Settings saved before the pets load with Ears, as the store fills in what a saved state lacks. */
-  pet: Pet
+  pet: PetChoice
   /** hobkin's own settings. Sample values until the host supplies hobkin's (020-settings, S5). */
   agents: number
   dailyTokens: number
@@ -64,7 +64,7 @@ interface SettingsState extends BorderColors {
   setMovement: (movement: Movement) => void
   setSound: (on: boolean) => void
   setTypeFace: (typeFace: TypeFace) => void
-  setPet: (pet: Pet) => void
+  setPet: (pet: PetChoice) => void
   changeAgents: (delta: -1 | 1) => void
   setDailyTokens: (tokens: number) => void
   changeDailyTokens: (delta: -1 | 1) => void
