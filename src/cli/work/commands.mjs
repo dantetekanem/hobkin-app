@@ -23,6 +23,7 @@ import {
 import { gitOrNothing, prepareTree } from './tree.mjs';
 import { unmergedNow } from './unmerged.mjs';
 import { readWatch } from './watcher.mjs';
+import { readinessOf, recordReadiness, yoloView } from './yolo.mjs';
 
 const HELP = `Usage: hobkin work [command] [--home folder]. With no command, the full status.
 Read, as JSON, with nothing running:
@@ -36,6 +37,7 @@ Read, as JSON, with nothing running:
   search <text>                        by name, path, title, summary or error
   attention, offers                    what is left for the user; what can land
   watching, signals <project>          what landed; what a project can show
+  yolo [project]                       YOLO mode; what a project still needs
 Change, printing ok and message. Project: name, slug or path. Item: id start.
   start [folder] [--auto], stop       on, only picks run; off: agents finish
   pause, resume [project]              agents finish, none start; resume ends it
@@ -65,6 +67,7 @@ Used by agents inside a run:
   item, signals, watch <project>       JSON on stdin: an item; what a look found
   propose, progress                    JSON on stdin: a project; a look's place
   tree <project>                       a worktree for a look that needs tests
+  yolo <project>                       JSON on stdin: what its readiness run found
 `;
 // What the tab and an agent asking need, and a long plan would otherwise fill the status.
 const MAX_PLAN_SENT = 50;
@@ -105,6 +108,21 @@ async function signalsCommand(root, reference, input) {
   const signals = recordSignals(root, project.slug, JSON.parse(report));
   const { signal, wants } = signals;
   return reply(`${nameOf(project)} is at signal ${signal} and wants ${wants}.`, { signal, wants, gaps: signalGaps(signals) });
+}
+
+/**
+ * With no project this reads YOLO mode, and with one it reads that project's readiness. Piped JSON is what a readiness run found. Nothing here
+ * turns YOLO mode on or off or sets its rate: that is the user's alone, in the window.
+ */
+async function yoloCommand(root, reference, input) {
+  if (!reference) return yoloView(root);
+  const project = findProject(root, reference);
+  const report = input && !input.isTTY ? await readText(input) : '';
+  if (!report.trim()) return readinessOf(root, project.slug);
+
+  const { ready, needs } = recordReadiness(root, project.slug, JSON.parse(report));
+  const said = needs.length ? `It still needs: ${needs.join(' ')}` : 'Every part is in place, and it counts once this item lands.';
+  return reply(`Recorded the readiness of ${nameOf(project)}. ${said}`, { ready, needs });
 }
 
 async function watchCommand(root, reference, input) {
@@ -210,6 +228,7 @@ export function workStatus(root, outlook = {}) {
     nextDiscoveryAt: folderSearched(root, folder) ? null : nextDiscoveryAt(mode),
     projects,
     ready: readyItems(root),
+    yolo: yoloView(root),
     closing: closingItems(root),
     watching: watchingView(root),
   };
@@ -354,6 +373,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'tree': return treeFor(root, args[0]);
     case 'signals': return signalsCommand(root, args[0], input);
     case 'watch': return watchCommand(root, args[0], input);
+    case 'yolo': return yoloCommand(root, args[0], input);
     case 'trouble': return callTrouble(root, ...args);
     default: throw new WrongCommand(HELP);
   }

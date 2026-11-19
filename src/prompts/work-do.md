@@ -92,6 +92,25 @@ Record an outcome when the item reaches a supported state. If part of the item w
 
 Use a flag only if rollback cannot undo the harm, a real named audience exists for partial exposure, or a flaky dependency needs a kill switch. Skip it if a rollback takes a minute. Never flag schema changes, libraries or static sites. Use the project's own tool, or an env var or YAML in the repository. Every flag gets an expiry when it is made, and the review records both in `launch.flag`. When its watch closes, hobkin files the removal as a `chore`, and the user merges it like any other branch. You never flip a flag in production.
 
+## A YOLO readiness item
+
+When `work.item.key` is `yolo:ready`, the job is to make this project ready for YOLO mode, where hobkin merges and deploys small changes by itself. Check each part by running it, and build what is missing on your branch as you would any feature. Never deploy, roll back or flip a flag to find out.
+
+| Part | Ready when |
+|---|---|
+| `tests` | The suite runs here with one command and can cover a change. Say the command and what it printed. |
+| `visibility` | A failure after a change would show: a failing check, an error report, a log or a metric hobkin can read. |
+| `rollback` | One named step undoes a change, and the project has a flag mechanism where a rollback alone could not undo the harm. |
+| `deploy` | A deploy path hobkin can run and undo is written down: the command, and the command that takes it back. A project nothing deploys, such as a library, is ready with `"deploys": false`. |
+
+Before you record the outcome, pipe what you found to `work.commands.yolo`, each part in one line:
+
+```json
+{ "tests": { "ready": true, "how": "pnpm test runs 412 tests in 40 s." }, "visibility": { "ready": false, "missing": "No error report or log hobkin can read after a deploy." }, "rollback": { "ready": true, "how": "kamal rollback <version>, and flags are env vars in config/deploy.yml." }, "deploy": { "ready": true, "how": "bin/kamal deploy from main, undone by bin/kamal rollback <version>." } }
+```
+
+A part you built on your branch is ready once that branch merges, so record it as ready and say in `how` that it is on your branch. What you could not build stays `missing`, in words the user can act on. The project counts as ready only when every part is ready and this item is merged, or done with nothing to change.
+
 ## A `pr-fix` item
 
 When `work.item.kind` is `pr-fix`, the job is to make that branch ready to merge, not to add anything. The brief says what stops it. These take the place of steps 4, 5, 9, 10 and 11:

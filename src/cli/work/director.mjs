@@ -757,7 +757,9 @@ export class WorkDirector {
   describeFor(project, { id }) {
     const described = this.describe(project);
     const decide = hobkinCommand(this.root, `decide work ${project.slug} ${id}`);
-    return { ...described, commands: { ...described.commands, decide } };
+    // Where a project's readiness run records what it found (`yolo.mjs`), which only that run's record is kept from.
+    const yolo = this.command(`yolo ${project.slug}`);
+    return { ...described, commands: { ...described.commands, decide, yolo } };
   }
 
   startDo(project, item, cost = {}) {
