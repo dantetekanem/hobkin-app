@@ -16,6 +16,7 @@ import { Switch } from '@/components/ui/switch.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { useTiers } from '@/features/tiers/store.ts'
 import { BackupTile } from './BackupTile.tsx'
+import { DirectionsTile } from './DirectionsTile.tsx'
 import { KeptThemesList } from './KeptThemesList.tsx'
 import { PetTile } from './PetTile.tsx'
 import { ReviewTile } from './ReviewTile.tsx'
@@ -55,6 +56,7 @@ export function SettingsScreen() {
         <Models />
         <ReviewTile />
         <IntegrationsTile />
+        <DirectionsTile />
         <SubscriptionsTile />
         <ClaudeCodeTile />
         <TypeTile />
