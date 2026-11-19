@@ -19,6 +19,7 @@ import { piSetup, piSetupHandlers, refuseInstall } from './pi/install.ts'
 import { configDeps, configLauncher, useLauncher } from './setup-launcher.ts'
 import { nodeBin } from './pi/node.ts'
 import { profileHandlers } from './profile.ts'
+import { directionsHandlers } from './directions.ts'
 import { projectsHandlers } from './projects-folder.ts'
 import { setupAnswerHandlers } from './setup-answers.ts'
 import { setupWorkHandlers } from './setup-work.ts'
@@ -548,6 +549,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         await owner.app?.refresh()
       },
     }),
+    // hobkin's directions, AGENTS.md in its data root, edited in Settings. hobkin reads it fresh each turn and run.
+    ...directionsHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root) }),
     // Pi on this Mac. Nothing installs unless the caller hands the installers in: only the entry does (main.ts).
     ...piSetupHandlers({
       live,

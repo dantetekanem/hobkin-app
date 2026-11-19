@@ -8,6 +8,7 @@ import { KEPT_ASKED_MAX, KEPT_ID_PATTERN, KEPT_NAME_MAX, type KeptThemes } from 
 import { DRAWING_MAX_BYTES, type CanvasContent, type CanvasSaved, type CanvasState } from '../protocol/canvas.ts'
 import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITLE_MAX, type HobkinConversation, type HobkinReach, type HobkinSummary } from '../protocol/hobkins.ts'
 import { CLAUDE_AGENT_KINDS, CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_PERMISSIONS, type ClaudeCodeState } from '../protocol/claude-code.ts'
+import { DIRECTIONS_MAX_BYTES, DIRECTIONS_MISSING, type DirectionsFile, type DirectionsSaved } from '../protocol/directions.ts'
 import type { FileContent } from '../protocol/files.ts'
 import type { GitHubState } from '../protocol/github.ts'
 import type { KeyHelp, ModelsState, ModelsUpdate } from '../protocol/models.ts'
@@ -435,6 +436,23 @@ export const COMMANDS = {
       { additionalProperties: false },
     ),
     rule: (change) => (Object.keys(change).length > 0 ? null : 'need a name, an email or a computer to save'),
+  },
+  // hobkin's directions, edited in Settings (020-settings). hobkin's agents write the file themselves, so these are the window's alone.
+  'directions.read': {
+    description:
+      "Read hobkin's directions, AGENTS.md in its home, whole: its text and a version of it to save against. With no file yet, hobkin's default, which hobkin writes there the first time it reads it.",
+    runs: 'host',
+    args: nothing,
+  },
+  'directions.save': {
+    description:
+      "Save hobkin's directions to AGENTS.md in its home, in one write. `version` is what directions.read gave: when the file changed since, nothing is saved and the answer says so. At most 65,536 bytes.",
+    runs: 'host',
+    // The cap is on UTF-8 bytes, which the host counts and refuses with the size. This only bounds the message.
+    args: Type.Object(
+      { text: Type.String({ maxLength: DIRECTIONS_MAX_BYTES * 4 }), version: Type.String({ pattern: `^(${DIRECTIONS_MISSING}|[0-9a-f]{64})$` }) },
+      { additionalProperties: false },
+    ),
   },
   'setup.pi': {
     description: "Read whether Pi is installed on this Mac at the version hobkin runs on, whether npm is there to install it, and which of the Pi packages hobkin's agents use Pi has. It only reads.",
@@ -1195,6 +1213,8 @@ export interface CommandResults {
   'profile.read': UserProfile
   /** The profile as saved. */
   'profile.set': UserProfile
+  'directions.read': DirectionsFile
+  'directions.save': DirectionsSaved
   'setup.pi': PiSetup
   /** Pi as it is once the install is done. */
   'setup.install-pi': PiSetup
