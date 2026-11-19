@@ -20,11 +20,13 @@ import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { agentsFrom, sameFields } from '@/lib/host/frame.ts'
-import { useHasHost, useHost, useHostEqual } from '@/lib/host/index.ts'
+import { runCommand, useHasHost, useHost, useHostEqual } from '@/lib/host/index.ts'
 import { useAgentThreads, type AgentNote } from './agent-threads.ts'
 import { ChildCluster, ChildHood } from './ChildAgents.tsx'
 import { childHue, childLine, childrenSummary, describeChild, satellitesOf } from './child-summary.ts'
 import { useRunChildren } from './children.ts'
+import { changeLine } from '@/features/chat/change-line.ts'
+import { sendChange } from '@/features/chat/send-change.ts'
 import { sayToAgent } from './say.ts'
 import { agentEntry, agentReading, keepsPreview } from './agent-entry.ts'
 import { executionKey, executionTargets } from './actions.ts'
@@ -675,12 +677,28 @@ function TalkInput({ agentId, name, hue, mood, answering, finished }: { agentId:
   const live = useHasHost()
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
+  /** What a /model or /effort line did, under the box. */
+  const [said, setSaid] = useState<string | null>(null)
   const canSend = draft.trim().length > 0 && !finished
 
   const send = async () => {
     if (!canSend) return
     const text = draft.trim()
     setProblem(null)
+    setSaid(null)
+    // A /model or /effort line changes how the agent works instead of being sent to it.
+    const change = changeLine(text)
+    if (change) {
+      if ('problem' in change) return setProblem(change.problem)
+      setDraft('')
+      const done = await sendChange({ agent: agentId }, change, { live, run: (name, args) => runCommand(name, args as never) })
+      if (done.ok) setSaid(done.message)
+      else {
+        setProblem(done.why)
+        setDraft((now) => now || text)
+      }
+      return
+    }
     // Record before awaiting: changing canvases must not hide a pending message or lose a refusal.
     setDraft('')
     const result = await sendNote(agentId, text, (noteId) => sayToAgent(agentId, text, { live, noteId }))
@@ -744,6 +762,10 @@ function TalkInput({ agentId, name, hue, mood, answering, finished }: { agentId:
       {problem ? (
         <p role="alert" className="mt-1.5 px-3 text-[11px] text-bad-fg">
           {problem}
+        </p>
+      ) : said ? (
+        <p role="status" className="mt-1.5 px-3 text-[11px] text-muted-foreground">
+          {said}
         </p>
       ) : finished ? (
         // Only what the user cannot tell by looking: the keys are in the key list, not under every input.

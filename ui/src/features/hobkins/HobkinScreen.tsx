@@ -20,6 +20,8 @@ import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { AgentStopControl, upToAgents, walkSteps } from '@/features/work/AgentScreen.tsx'
 import { doingOf, folderName, hasHost, hueOf } from '@/lib/host/frame.ts'
+import { changeLine } from '@/features/chat/change-line.ts'
+import { sendChange } from '@/features/chat/send-change.ts'
 import { hostStore, runCommand, useHost } from '@/lib/host/index.ts'
 import { sentAtArg } from '@/lib/host/state.ts'
 import { spring, tween } from '@/lib/motion.ts'
@@ -540,6 +542,8 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
   const { hobkin, state, connected, fresh } = useHobkin(id)
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
+  /** What a /model or /effort line did, under the box. */
+  const [said, setSaid] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const name = hobkin?.title ?? 'the new hobkin'
   const working = hobkin?.state === 'working'
@@ -552,6 +556,23 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
 
   const send = async () => {
     if (!canSend) return
+    setSaid(null)
+    // A /model or /effort line changes how the hobkin works instead of being sent to it.
+    const change = changeLine(text)
+    if (change) {
+      if ('problem' in change) return setProblem(change.problem)
+      setBusy(true)
+      setProblem(null)
+      setDraft('')
+      const done = await sendChange({ hobkin: id }, change, { live: true, run: (name, args) => runCommand(name, args as never) })
+      if (done.ok) setSaid(done.message)
+      else {
+        setProblem(done.why)
+        setDraft((now) => now || text)
+      }
+      setBusy(false)
+      return
+    }
     // When Enter was pressed keys the message's row, on its way and once sent.
     const at = Date.now()
     setBusy(true)
@@ -627,6 +648,10 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
       {problem ? (
         <p role="alert" className="mt-1.5 px-3 text-[11px] text-bad-fg">
           {problem}
+        </p>
+      ) : said ? (
+        <p role="status" className="mt-1.5 px-3 text-[11px] text-muted-foreground">
+          {said}
         </p>
       ) : connected ? null : (
         <p className="mt-1.5 px-3 text-[11px] text-muted-foreground">hobkin is not connected, so nothing can be sent.</p>
