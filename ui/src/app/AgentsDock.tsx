@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Hob } from '@/avatar/Hob.tsx'
+import { usePetChoice } from '@/avatar/use-pet.ts'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
@@ -60,6 +61,8 @@ export function AgentsDock() {
   const [more, setMore] = useState({ above: false, below: false })
   const id = useId()
   const helpers = helpersNow(useMainChildren())
+  // With No Pet, hobkin's own face is not drawn, so its row starts at the words.
+  const drawsPet = usePetChoice() !== 'none'
 
   const measure = () => {
     const element = list.current
@@ -122,9 +125,11 @@ export function AgentsDock() {
               exit={holdStill({ opacity: 0, transform: 'translateY(0px) scale(0.7)', transition: { duration: 0.18 } }, still)}
               className="flex items-center gap-2.5 px-2 py-1.5"
             >
-              <span className="grid w-7 shrink-0 place-items-center">
-                <Hob mood="working" size={24} still={still} stage="var(--background)" />
-              </span>
+              {drawsPet ? (
+                <span className="grid w-7 shrink-0 place-items-center">
+                  <Hob mood="working" size={24} still={still} stage="var(--background)" />
+                </span>
+              ) : null}
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[13px] leading-tight">hobkin's helpers</span>
                 <span className="block truncate text-[11px] text-muted-foreground">{childrenSummary(helpers)}</span>
