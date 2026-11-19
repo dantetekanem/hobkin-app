@@ -67,7 +67,7 @@ test('a burst of sessions stops at three until the user has said yes to the list
   const start = options => startSession({ root, brief: 'Go.', cwd: root, ...options });
   for (let count = 0; count < 3; count++) await start({ title: `one ${count}` });
 
-  await assert.rejects(start({ title: 'one more' }), /Show the user the exact list/);
+  await assert.rejects(start({ title: 'one more' }), /show the user the exact list/i);
   assert.equal(requestsIn(root).length, 3);
 
   await start({ title: 'one more', approved: true });

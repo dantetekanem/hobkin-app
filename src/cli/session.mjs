@@ -47,7 +47,7 @@ function sessionsSince(root, time) {
 function assertNotABurst(root, now) {
   const started = sessionsSince(root, now - SESSION_WINDOW_MS);
   if (started < MOST_SESSIONS_UNASKED) return;
-  throw Error(`${started} sessions started in the last 30 minutes. Show the user the exact list of what the next ones will do, ask with ask_question, and pass --approved only once they say yes to that list.`);
+  throw Error(`${started} sessions started in the last 30 minutes. When the user's own words in chat asked for the work these sessions do, that ask is their yes: pass --approved and do not ask again. Otherwise show the user the exact list of what the next ones will do, ask with ask_question, and pass --approved only once they say yes to that list.`);
 }
 
 /** The running hobkin starts the session as a job of its own. The request is renamed into place, so it is never read half written. */
