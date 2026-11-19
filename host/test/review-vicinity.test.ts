@@ -309,3 +309,23 @@ test('git looks for a name at head in the defining file, and for code that may i
     rmSync(repo, { recursive: true, force: true })
   }
 })
+
+test("a side panel scan agentic-search refuses for a newer option, by name, runs once more without it; any other refusal stops it with the tool's words", async () => {
+  const calls: string[][] = []
+  const older: ScanRun = async (args) => {
+    calls.push([...args])
+    if (args.includes('--tests')) return { ok: false, reason: "Unknown option '--tests'. To specify a positional argument starting with a '-', place it at the end of the command after '--', as in '-- \"--tests\"" }
+    return calls.length === 2 ? { ok: true, stdout: JSON.stringify({ details: diff }) } : { ok: false, reason: 'no pack for this scan' }
+  }
+  const found = await scan(older)
+  assert.deepEqual([calls[0]!.includes('--tests'), calls[1]!.includes('--tests'), calls[1]!.includes('all')], [true, false, false])
+  assert.ok(found.links.some((link) => link.other.symbol === 'listen'), 'the scan without it maps the change')
+
+  let asked = 0
+  const refused = await scan(async () => {
+    asked += 1
+    return { ok: false, reason: 'not a git repository' }
+  })
+  assert.equal(asked, 1)
+  assert.match(refused.notice ?? '', /not shown: not a git repository/)
+})

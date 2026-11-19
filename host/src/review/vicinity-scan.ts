@@ -23,6 +23,7 @@ import { isSafePath } from '#shared/review/prose.ts'
 import type { ReviewEntry } from '#shared/review/types.ts'
 import { blockAt, functionOwners } from '#shared/review/units.ts'
 import { LIFE_CYCLE, type Vicinity, type VicinityDefinition, type VicinityGuard, type VicinityLeft, type VicinityLink, type VicinityReach, type VicinityTest } from '#shared/review/vicinity.ts'
+import { withoutRefusedOption } from '../../../packages/change-review/src/scan.ts'
 import { gitReader } from './git.ts'
 
 const exec = promisify(execFile)
@@ -713,7 +714,13 @@ export async function scanVicinity({
   const folder = mkdtempSync(join(tmpdir(), 'hobkin-review-scan-'))
   let packs = 0
   const scan = async (target: string[], limits: string[], timeoutMs: number): Promise<{ pack: Pack } | { reason: string }> => {
-    const answer = await run(['scan', ...target, '--cwd', repo, '--json', ...limits, '--output-dir', join(folder, `pack-${(packs += 1)}`)], { timeoutMs })
+    let args = ['scan', ...target, '--cwd', repo, '--json', ...limits, '--output-dir', join(folder, `pack-${(packs += 1)}`)]
+    let answer = await run(args, { timeoutMs })
+    // An older agentic-search refuses a newer option by name: the scan runs once more without that one.
+    for (let fewer = answer.ok ? null : withoutRefusedOption(args, answer.reason); fewer; fewer = answer.ok ? null : withoutRefusedOption(args, answer.reason)) {
+      args = fewer
+      answer = await run(args, { timeoutMs })
+    }
     if (!answer.ok) return { reason: answer.reason }
     try {
       const pack = readPack((JSON.parse(answer.stdout) as { details?: unknown }).details)

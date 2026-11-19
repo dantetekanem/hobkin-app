@@ -377,6 +377,19 @@ export interface ScanRequest {
 
 const option = (flagName: string, value: number | undefined) => (value === undefined ? [] : [flagName, String(value)])
 
+/** Options newer releases of agentic-search take, each with a value, that an older one refuses: every caller, every test. */
+const NEWER_OPTIONS = ['--callers', '--tests']
+
+/**
+ * The same arguments without the one newer option agentic-search refused by name, so the scan runs once more with the
+ * tool's own limits there. Null for any other refusal, which stops the scan with what the tool said.
+ */
+export function withoutRefusedOption(args: readonly string[], reason: string): string[] | null {
+  const refused = /unknown option '(--[\w-]+)'/i.exec(reason)?.[1]
+  const at = refused && NEWER_OPTIONS.includes(refused) ? args.indexOf(refused) : -1
+  return at < 0 ? null : [...args.slice(0, at), ...args.slice(at + 2)]
+}
+
 /**
  * Scans the change from `base` to `head` in the checkout at `cwd`. The pack holds source, so it is written to a
  * folder of its own, read, and removed. A scan that cannot run answers why, never a partial scan.
@@ -409,7 +422,7 @@ async function scanOf(target: string[], { cwd, program, timeoutMs = SCAN_TIMEOUT
   const folder = mkdtempSync(join(tmpdir(), 'change-review-scan-'))
   try {
     const out = join(folder, 'pack')
-    const args = [
+    let args = [
       'scan',
       ...target,
       '--cwd',
@@ -423,13 +436,19 @@ async function scanOf(target: string[], { cwd, program, timeoutMs = SCAN_TIMEOUT
       ...option('--max-depth', depth),
     ]
     // The pack on disk is what is read; the same report on stdout is not needed.
-    const run = await runProgram(file, args, { cwd, env: { ...process.env, NO_COLOR: '1' }, timeoutMs, group: true, ignoreStdout: true, signal })
-    if (!run.started) return { ok: false, reason: `agentic-search could not start: ${run.reason}` }
-    if (run.timedOut) return { ok: false, reason: `the scan took longer than ${timeoutMs / 1000} seconds.` }
-    if (run.aborted) return { ok: false, reason: 'the scan was stopped.' }
-    if (run.code !== 0) {
+    const scanned = () => runProgram(file, args, { cwd, env: { ...process.env, NO_COLOR: '1' }, timeoutMs, group: true, ignoreStdout: true, signal })
+    let run = await scanned()
+    for (;;) {
+      if (!run.started) return { ok: false, reason: `agentic-search could not start: ${run.reason}` }
+      if (run.timedOut) return { ok: false, reason: `the scan took longer than ${timeoutMs / 1000} seconds.` }
+      if (run.aborted) return { ok: false, reason: 'the scan was stopped.' }
+      if (run.code === 0) break
       const said = run.stderr.toString('utf8').trim().split('\n')[0]?.replace(/^agentic-search:\s*/, '')
-      return { ok: false, reason: said || `the scan stopped with code ${run.code}.` }
+      // An older agentic-search refuses a newer option by name: it runs once more without that one.
+      const fewer = said ? withoutRefusedOption(args, said) : null
+      if (!fewer) return { ok: false, reason: said || `the scan stopped with code ${run.code}.` }
+      args = fewer
+      run = await scanned()
     }
     let pack: unknown
     try {

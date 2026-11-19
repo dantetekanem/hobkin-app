@@ -193,6 +193,22 @@ test('runScan answers why when the scan fails, writes no pack, or takes too long
   assert.deepEqual(await runScan({ cwd: slow.dir, base: 'a', head: 'b', program: join(slow.dir, 'missing') }), { ok: false, reason: `agentic-search could not start: spawn ${join(slow.dir, 'missing')} ENOENT` })
 })
 
+test("a scan that agentic-search refuses for a newer option, by name, runs once more without it; any other refusal stops it with the tool's words", async (t) => {
+  // How the released 0.7.1 refuses an option it does not know.
+  const refusal = (name: string) => `agentic-search: Unknown option '${name}'. To specify a positional argument starting with a '-', place it at the end of the command after '--', as in '-- "${name}"\n`
+  const older = fakeProgram(
+    t,
+    `fs.appendFileSync(__dirname + '/calls.jsonl', JSON.stringify(args) + '\\n')\nif (args.includes('--callers')) { process.stderr.write(${JSON.stringify(refusal('--callers'))}); process.exit(2) }\nfs.mkdirSync(out, { recursive: true }); fs.writeFileSync(out + '/pack.json', ${JSON.stringify(JSON.stringify(PACK))})`,
+  )
+  const answer = await runScan({ cwd: older.dir, base: 'aaa', head: 'bbb', program: older.program })
+  assert.equal(answer.ok, true)
+  const calls = readFileSync(join(older.dir, 'calls.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line) as string[])
+  assert.deepEqual([calls.length, calls[0]!.includes('--callers'), calls[1]!.includes('--callers'), calls[1]!.includes('all')], [2, true, false, false])
+
+  const refusing = fakeProgram(t, "process.stderr.write('agentic-search: --max-anchors must be an integer from 1 to 100\\n'); process.exit(2)")
+  assert.deepEqual(await runScan({ cwd: refusing.dir, base: 'a', head: 'b', program: refusing.program, maxAnchors: 500 }), { ok: false, reason: '--max-anchors must be an integer from 1 to 100' })
+})
+
 test('agentic-search is found on PATH first, then in the usual install folders', (t) => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'change-review-find-')))
   t.after(() => rmSync(dir, { recursive: true, force: true }))
