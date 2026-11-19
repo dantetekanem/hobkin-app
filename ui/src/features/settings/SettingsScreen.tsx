@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils.ts'
 import { AboutLine } from './AboutLine.tsx'
 import { NotificationsLine } from '@/features/notifications/NotificationsLine.tsx'
 import { NerdStats } from './NerdStats.tsx'
+import { UpdateModels } from './UpdateModels.tsx'
 import { SetupAgainTile } from './SetupAgainTile.tsx'
 import { useChat } from '@/features/chat/chat-store.ts'
 import { hostStore } from '@/lib/host/client.ts'
@@ -412,6 +413,7 @@ function Models() {
       <Button variant="outline" className="w-fit" data-stop="" onClick={() => openTiers()}>
         Change models
       </Button>
+      <UpdateModels />
     </Tile>
   )
 }
