@@ -67,8 +67,10 @@ If `work.item.workNote` is set, the user read your branch and wrote that note. D
     | `coverage` | Do tests cover the change? | Every changed line and branch runs in a test that fails without the change. | No test runs the changed code. |
     | `proof` | Were tests added or changed to prove this works, and what is still missing? | A test written or changed for this change shows it working, and nothing is missing. | Nothing was added or changed to show it. |
     | `safety` | Does it risk the deployment or data? Is data integrity safe? | It cannot break a deploy and touches no stored data. | It can lose or corrupt data, or stop a deploy. |
-    | `visibility` | Do metrics and visibility cover it? | A failure would show by itself: a failing check, an error report, a log or a metric on its path. | A failure would go unseen until someone complained. |
+    | `visibility` | Would a regression from this change show in the project's monitoring, and how fast: an error, a slower query, a slower endpoint or job? | Its errors are tracked, its queries are timed, its endpoint or job has a metric with a baseline, and an alert reaches the user within minutes. | Nobody would know until someone complained. |
     | `rollback` | What is the risk and the time to roll back? Does a flag guard it, or should one? | One step undoes it in minutes and leaves nothing behind. | Nothing undoes it. |
+
+    For `visibility`, name the monitoring that covers the changed path: the error tracker, the slow query log or query timing, the request or job metric, the alert. A change that touches a query or a hot path with none of that on it scores 4 or less, however good its tests are. hobkin holds a change whose `visibility` is under 7, as it holds one whose `safety` is under 8 or whose `rollback` is under 7.
 
     `kind` says what the change is, whatever its item was filed as: `performance`, `bug-fix`, `state-machine` for an implicit state machine made explicit or fixed, `package-update`, `small-change`, or `feature` for new behaviour a user can see. Say `unclear` when it fits none of them or mixes them. hobkin works out the general rate from your scores, so send no rate. It keeps scores only from a review, so a run without `work.item.reviewAsked` leaves `review` out.
 9. Write the PR description to `work.item.prFile`, in Markdown: a title on the first line, then what changed, why, the proof, what could not be tested, and that Hobkin work mode made it. When `work.item.issue` is set, its last line is `Fixes <repo>#<number>` with that issue's `repo` and `number`, so GitHub closes the issue when the PR merges. This is the description of your branch whatever `work.landing` says.
@@ -99,15 +101,21 @@ When `work.item.key` is `yolo:ready`, the job is to make this project ready for 
 | Part | Ready when |
 |---|---|
 | `tests` | The suite runs here with one command and can cover a change. Say the command and what it printed. |
-| `visibility` | A failure after a change would show: a failing check, an error report, a log or a metric hobkin can read. |
+| `errors` | Exceptions reach an error tracker, and a new one raises an alert. |
+| `slowQueries` | Slow queries are caught: the database's slow query log or the framework's query timing, with N+1 detection where the stack has it. |
+| `performance` | Request and job timings are measured and kept, with a baseline to compare a deploy against. |
+| `logs` | Logs can be searched, by request or job, for what happened after a deploy. |
+| `alerts` | An alert from any of these reaches the user, by a route that works today. |
 | `rollback` | One named step undoes a change, and the project has a flag mechanism where a rollback alone could not undo the harm. |
 | `deploy` | A deploy path hobkin can run and undo is written down: the command, and the command that takes it back. A project nothing deploys, such as a library, is ready with `"deploys": false`. |
 
 Before you record the outcome, pipe what you found to `work.commands.yolo`, each part in one line:
 
 ```json
-{ "tests": { "ready": true, "how": "pnpm test runs 412 tests in 40 s." }, "visibility": { "ready": false, "missing": "No error report or log hobkin can read after a deploy." }, "rollback": { "ready": true, "how": "kamal rollback <version>, and flags are env vars in config/deploy.yml." }, "deploy": { "ready": true, "how": "bin/kamal deploy from main, undone by bin/kamal rollback <version>." } }
+{ "tests": { "ready": true, "how": "pnpm test runs 412 tests in 40 s." }, "errors": { "ready": true, "how": "Sentry takes every exception and mails a new one." }, "slowQueries": { "ready": false, "missing": "No slow query log, and nothing catches an N+1." }, "performance": { "ready": true, "how": "Request and job timings by path, with last week as the baseline." }, "logs": { "ready": true, "how": "kamal app logs --grep finds a request by id." }, "alerts": { "ready": true, "how": "Alerts mail the user within 5 minutes." }, "rollback": { "ready": true, "how": "kamal rollback <version>, and flags are env vars in config/deploy.yml." }, "deploy": { "ready": true, "how": "bin/kamal deploy from main, undone by bin/kamal rollback <version>." } }
 ```
+
+The five monitoring parts are what a regression has to show up in, so set up what is missing for this project's stack with the tools it already uses, and install or sign up for nothing the user has not approved: say that in `missing`. A monitoring part this project has no use for, such as slow queries where there is no database, takes `{ "notApplicable": "the reason" }`. Tests, rollback and deploy never do.
 
 A part you built on your branch is ready once that branch merges, so record it as ready and say in `how` that it is on your branch. What you could not build stays `missing`, in words the user can act on. The project counts as ready only when every part is ready and this item is merged, or done with nothing to change.
 
