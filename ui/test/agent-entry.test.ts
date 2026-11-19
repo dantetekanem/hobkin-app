@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AnimatePresence, motion } from 'motion/react'
-import { agentEntry, agentReading, entryTransition } from '../src/features/work/agent-entry.ts'
+import { agentEntry, agentReading, entryTransition, keepsPreview } from '../src/features/work/agent-entry.ts'
 import { isStill } from '../src/app/still-rule.ts'
 
 test('the shared entry is quick and continuous: one spring with no bounce, faster than a screen push, and no count-dependent delay', () => {
@@ -44,4 +44,13 @@ test('effective Still and reduced System are immediate; unrelated transitions re
   assert.equal(agentEntry(isStill('lively', true)).duration, 0.32)
   const other = { type: 'spring', duration: 0.62 }
   assert.equal(entryTransition(false, false, other), other)
+})
+
+test('a click or the keyboard in an agent previewed from the list keeps it open, whether the walk began on a screen or on an agent', () => {
+  const view = (previewReturn: 'work' | null, previewFrom: string | null) => ({ screen: 'agent' as const, openAgent: 'a2', previewReturn, previewFrom })
+  assert.equal(keepsPreview(view('work', null), 'a2'), true, 'a walk that began on the Work screen')
+  assert.equal(keepsPreview(view(null, 'a1'), 'a2'), true, "a walk that began on another agent's window")
+  assert.equal(keepsPreview(view(null, null), 'a2'), false, 'an agent opened for good has no preview to keep')
+  assert.equal(keepsPreview(view('work', null), 'a3'), false, 'another agent is on screen')
+  assert.equal(keepsPreview({ ...view('work', null), screen: 'work' }, 'a2'), false)
 })

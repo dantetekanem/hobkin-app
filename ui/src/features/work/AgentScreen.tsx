@@ -26,7 +26,7 @@ import { ChildCluster, ChildHood } from './ChildAgents.tsx'
 import { childHue, childLine, childrenSummary, describeChild, satellitesOf } from './child-summary.ts'
 import { useRunChildren } from './children.ts'
 import { sayToAgent } from './say.ts'
-import { agentEntry, agentReading } from './agent-entry.ts'
+import { agentEntry, agentReading, keepsPreview } from './agent-entry.ts'
 import { executionKey, executionTargets } from './actions.ts'
 import { useExecution } from './store.ts'
 
@@ -163,7 +163,7 @@ const Plain = ({ children, className }: { children: ReactNode; className?: strin
 /** An agent previewed from the list stays open, as one chosen in the menu does, so the list's blur does not end it. */
 function keepPreview(agentId: string) {
   const view = useView.getState()
-  if (view.screen === 'agent' && view.openAgent === agentId && view.previewReturn !== null) view.openAgentCanvas(agentId)
+  if (keepsPreview(view, agentId)) view.openAgentCanvas(agentId)
 }
 
 /** Which way the user moved: 1 to an agent later in the list, -1 to one before it. */

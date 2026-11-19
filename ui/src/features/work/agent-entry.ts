@@ -17,3 +17,12 @@ export function agentReading(available: boolean, content: boolean) {
 export function entryTransition<T>(agent: boolean, still: boolean, other: T) {
   return agent ? agentEntry(still) : other
 }
+
+/**
+ * Whether a click or the keyboard in this agent's window keeps it open for good: it is the agent on screen, previewed
+ * from the agents list in a walk that began on another screen (`previewReturn`) or on another agent's window
+ * (`previewFrom`). The list losing the keyboard then no longer ends the preview.
+ */
+export function keepsPreview(view: { screen: string; openAgent: string | null; previewReturn: unknown; previewFrom: string | null }, agentId: string): boolean {
+  return view.screen === 'agent' && view.openAgent === agentId && (view.previewReturn !== null || view.previewFrom !== null)
+}
