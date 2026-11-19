@@ -10,8 +10,9 @@ export const KINDS = ['performance', 'bug-fix', 'state-machine', 'package-update
 /** The kinds small enough to merge by themselves. A feature, and anything a review could not place, keeps asking the user. */
 export const SMALL_KINDS = KINDS.slice(0, 5);
 
-// A deploy or data risk is the harm an average hides, and a change that is slow to undo needs a person.
-const FLOORS = { safety: 8, rollback: 7 };
+// A deploy or data risk is the harm an average hides, a regression the monitoring would not show goes unseen, and a change that is slow to undo
+// needs a person.
+const FLOORS = { safety: 8, visibility: 7, rollback: 7 };
 // A 4 or less means the review found that part missing or wrong.
 const LOWEST = 5;
 const COMMIT = /^[0-9a-f]{40}$/;

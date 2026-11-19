@@ -67,7 +67,10 @@ test('the general rate is the average cut to one decimal, and a floor holds a ch
   assert.deepEqual(brokenFloors(scored()), []);
   assert.deepEqual(brokenFloors(scored({ safety: 7 })), [{ criterion: 'safety', score: 7, needs: 8 }]);
   assert.deepEqual(brokenFloors(scored({ rollback: 6 })), [{ criterion: 'rollback', score: 6, needs: 7 }]);
-  assert.deepEqual(brokenFloors(scored({ visibility: 4 })), [{ criterion: 'visibility', score: 4, needs: 5 }]);
+  // A regression the monitoring would not show holds a change as a risk to data does.
+  assert.deepEqual(brokenFloors(scored({ visibility: 6 })), [{ criterion: 'visibility', score: 6, needs: 7 }]);
+  assert.deepEqual(brokenFloors(scored({ visibility: 7 })), []);
+  assert.deepEqual(brokenFloors(scored({ proof: 4 })), [{ criterion: 'proof', score: 4, needs: 5 }]);
 
   // The average alone would pass a rate of 8, and the floor still holds it.
   const dangerous = scoresOf(review({}, { coverage: 10, proof: 10, safety: 5, visibility: 10, rollback: 10 }));
