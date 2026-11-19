@@ -89,11 +89,12 @@ function codeHostsSeat(seat: ReviewSeat) {
     if (!host) throw new Error(`${target.host} is not a code host the code host file names.`)
     return namedApi(host, target)
   }
-  /** A review checks out a named host's repository only where the code host file allows it. */
+  /** A review checks out a named host's repository only where the code host file allows it, or names a tree of the host's own. */
   const checksOut = (target: ReviewTarget) => {
     if (target.kind !== 'pull' || !target.host) return true
     try {
-      return hostOf(target.host)?.checkout === true
+      const host = hostOf(target.host)
+      return host?.checkout === true || host?.tree != null
     } catch {
       return false
     }
@@ -118,7 +119,9 @@ function codeHostsSeat(seat: ReviewSeat) {
       return undefined
     }
   }
-  return { hostOf: quietHostOf, apiOf, checksOut, whoIsMe, named }
+  /** The review tree a named host keeps of its own, used in place of hobkin's worktree. */
+  const treeOf = (target: ReviewTarget) => (target.kind === 'pull' && target.host ? (quietHostOf(target.host)?.tree ?? null) : null)
+  return { hostOf: quietHostOf, apiOf, checksOut, whoIsMe, named, treeOf }
 }
 
 export function hostReviews(seat: ReviewSeat): Reviews {
@@ -175,6 +178,8 @@ export function hostReviews(seat: ReviewSeat): Reviews {
         root: seat.root,
         repoOf,
         ...(checkout ? { pullRepo: (target, head, say) => checkout.repoFor(target, head, say) } : {}),
+        // A code host's own tree, for a repository too large to check out whole (entry 15).
+        hostTree: hosts.treeOf,
         run: async (request) => {
           const model = piModelRunner({ root: seat.root, data: seat.data, runtime: seat.runtime })
           const result = await reviewChange({ ...request, model })
@@ -278,6 +283,7 @@ export function pullVicinity(assessments: Assessments, run?: ScanRun): (target: 
         return scanVicinity({ repo: tree, base, head, ...(run ? { run } : {}) })
       },
       say,
+      base,
     )
 }
 

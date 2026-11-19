@@ -25,6 +25,20 @@ test('the code host file names each host with its defaults, and the user’s add
   })
 })
 
+test("a code host can name a review tree of its own: where it is, how it is made and fitted, the disk a new one needs, and settings for its commands", (t) => {
+  const tree = { path: '/trees/shop', make: ['corp-tree', 'new', '--from', '{base}'], makeIn: '/trees', fit: ['corp-fit', '{base}'], env: { GIT_LFS_SKIP_SMUDGE: '1' } }
+  const [host] = readCodeHosts(home(t, { hosts: [{ ...HOST, tree }] })).hosts
+  assert.deepEqual(host!.tree, { ...tree, leastFreeGb: 20 }, '20 GB free unless the file names its own')
+  const refused = (bad: Record<string, unknown>, why: RegExp) => assert.throws(() => readCodeHosts(home(t, { hosts: [{ ...HOST, tree: { ...tree, ...bad } }] })), why)
+  refused({ path: 'trees/shop' }, /tree/)
+  refused({ make: [] }, /tree/)
+  refused({ makeIn: 'relative' }, /tree/)
+  refused({ fit: ['-x'] }, /tree/)
+  refused({ leastFreeGb: -1 }, /tree/)
+  refused({ env: { GITHUB_TOKEN: 'x' } }, /tree/)
+  refused({ other: true }, /tree/)
+})
+
 test('a code host file that cannot be trusted is refused with a plain reason', (t) => {
   const refused = (file: unknown, why: RegExp) => assert.throws(() => readCodeHosts(home(t, file)), why)
   refused('{ not json', /code host file .* cannot be read/)

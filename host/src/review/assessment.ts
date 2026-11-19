@@ -18,6 +18,8 @@ import { DEPLOY_WORDS, deployOf, deployWhy, type AssessmentLogLine, type Assessm
 import { count } from '#shared/review/prose.ts'
 import type { Review } from '#shared/review/types.ts'
 import { STEP_IDS } from '../../../packages/change-review/src/types.ts'
+import type { HostTree } from './code-hosts.ts'
+import { readyHostTree } from './host-tree.ts'
 import { unitStory, unitWords, type UnitPlace, type UnitRun } from './unit-story.ts'
 
 const run = promisify(execFile)
@@ -242,9 +244,9 @@ export function summarize(result: AssessResult, at: string): AssessmentSummary {
 /** A pull request, as a review target. */
 type PullTarget = Extract<ReviewTarget, { kind: 'pull' }>
 
-/** The review tree of a target's repository: one per project, and one per pull request repository. */
+/** The review tree of a target's repository: one per project, and one per pull request repository, apart for each named code host. */
 export function treeOf(root: string, target: ReviewTarget): string {
-  return join(root, 'client', 'review-trees', target.kind === 'change' ? target.slug : `pr+${target.owner}+${target.repo}`)
+  return join(root, 'client', 'review-trees', target.kind === 'change' ? target.slug : `pr+${target.host ? `${target.host}+` : ''}${target.owner}+${target.repo}`)
 }
 
 /** The most lines a run's log keeps: the latest. */
@@ -326,6 +328,8 @@ export interface AssessmentsOptions {
   repoOf: (slug: string) => string | null
   /** A pull request's repository on this Mac, with its head in it, found, cloned or fetched as needed. Without it no pull request is reviewed. */
   pullRepo?: (target: PullTarget, head: string, say: (text: string) => void) => Promise<string>
+  /** The review tree a code host names for a target's repository, used in place of hobkin's own worktree, or null for none. */
+  hostTree?: (target: ReviewTarget) => HostTree | null
   git?: GitRun
   onChange?: () => void
   /** A run finished and its review is ready, with its summary and what it reviewed. Once for each run that finishes. */
@@ -554,8 +558,10 @@ export class Assessments {
    * Readies the review tree of the target's repository at `head` and lends it to `use`, one user at a time, so a run's
    * tests and a preparation's scan never share a checkout. The tree is the review's own, never the user's folder.
    */
-  async inTree<Value>(target: ReviewTarget, repo: string | (() => Promise<string>), head: string, use: (tree: string) => Promise<Value>, say?: (text: string) => void): Promise<Value> {
-    const tree = treeOf(this.options.root, target)
+  async inTree<Value>(target: ReviewTarget, repo: string | (() => Promise<string>), head: string, use: (tree: string) => Promise<Value>, say?: (text: string) => void, base?: string): Promise<Value> {
+    // A code host's own tree, when it names one: hobkin then makes no worktree of its own for the repository.
+    const hosted = this.options.hostTree?.(target) ?? null
+    const tree = hosted?.path ?? treeOf(this.options.root, target)
     const before = this.turns.get(tree) ?? Promise.resolve()
     let release = () => {}
     const mine = new Promise<void>((resolve) => (release = resolve))
@@ -566,7 +572,10 @@ export class Assessments {
       // The repository is found once the checkout is this run's: its turn was taken the moment it asked.
       const from = typeof repo === 'string' ? repo : await repo()
       say?.(`Readying the review checkout at ${head.slice(0, 7)}.`)
-      await readyReviewTree({ repo: from, tree, head, git: this.options.git ?? gitIn, log: this.options.log })
+      if (hosted) {
+        if (!base) throw new Error("The code host's review tree is fitted to the change, so it needs the commit the change starts from.")
+        await readyHostTree({ tree: hosted, repo: from, base, head })
+      } else await readyReviewTree({ repo: from, tree, head, git: this.options.git ?? gitIn, log: this.options.log })
       return await use(tree)
     } finally {
       release()
@@ -582,7 +591,7 @@ export class Assessments {
     const running = (status: Omit<AssessmentStatus, 'state' | 'head' | 'startedAt'>) => this.set(target, head, { state: 'running', head, startedAt, ...status })
     const opening = { percent: 0, now: 'checking the change out in the review tree', eta: null, steps: pendingSteps() }
     // Another review that uses the same checkout goes first: this one waits, and says so, until the checkout is free.
-    if (this.turns.has(treeOf(root, target))) {
+    if (this.turns.has(this.options.hostTree?.(target)?.path ?? treeOf(root, target))) {
       say('Waiting for another review of the same project, which is using its review checkout.')
       this.set(target, head, { state: 'queued', head, startedAt, ...opening, now: 'waiting for another review of the same project' })
     } else running(opening)
@@ -624,6 +633,7 @@ export class Assessments {
         })
       },
       say,
+      base,
     )
     // A run stopped on the way has not finished, whatever it answered, so no summary says it has.
     if (signal.aborted) throw new Error(STOPPED)

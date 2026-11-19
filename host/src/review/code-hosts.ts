@@ -25,6 +25,22 @@ export interface CodeHost {
   clones: Record<string, string>
   checkout: boolean
   merge: boolean
+  /** A review tree of the host's own, for a repository too large to check out whole (entry 15). */
+  tree?: HostTree
+}
+
+/**
+ * A code host's own review tree: where it is, the command that makes it when it is missing and the folder that command
+ * runs in, an optional command that fits it to a change, the least free disk a new one needs, and settings for those
+ * commands and for git there. `{base}` in a command is the commit the change starts from.
+ */
+export interface HostTree {
+  path: string
+  make: string[]
+  makeIn: string
+  fit?: string[]
+  leastFreeGb: number
+  env?: Record<string, string>
 }
 
 /** An agent that opens pull requests for someone, by the host it works on (`github` or a named host) and its login. */
@@ -43,7 +59,30 @@ export interface CodeHosts {
 
 export const codeHostsFile = (dataRoot: string) => join(dataRoot, 'client', 'code-hosts.json')
 
-const HOST_KEYS = new Set(['name', 'web', 'api', 'git', 'headRef', 'clones', 'checkout', 'merge'])
+const HOST_KEYS = new Set(['name', 'web', 'api', 'git', 'headRef', 'clones', 'checkout', 'merge', 'tree'])
+const TREE_KEYS = new Set(['path', 'make', 'makeIn', 'fit', 'leastFreeGb', 'env'])
+/** Words of a command: 1 to 16 plain words, the first a program, never an option. */
+const COMMAND = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 16 && value.every(PLAIN) && !(value[0] as string).startsWith('-')
+/** A setting's name that holds a credential is no setting: the commands find their own. */
+const CREDENTIAL = /(^|_)(KEY|APIKEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|AUTH|BEARER)(_|$)/
+
+function treeOf(raw: unknown, where: string): HostTree {
+  const tree = record(raw)
+  const wrong = (what: string) => new Error(`The code host file's ${where} has a tree with ${what}.`)
+  if (!tree) throw wrong('no object')
+  for (const key of Object.keys(tree)) if (!TREE_KEYS.has(key)) throw wrong(`an unknown setting, ${key}`)
+  const { path, make, makeIn, fit, leastFreeGb = 20, env } = tree
+  if (typeof path !== 'string' || !isAbsolute(path)) throw wrong('a path that is not absolute')
+  if (!COMMAND(make)) throw wrong('a make command that is not 1 to 16 plain words, the first a program')
+  if (typeof makeIn !== 'string' || !isAbsolute(makeIn)) throw wrong('a makeIn folder that is not absolute')
+  if (fit !== undefined && !COMMAND(fit)) throw wrong('a fit command that is not 1 to 16 plain words, the first a program')
+  if (typeof leastFreeGb !== 'number' || !Number.isFinite(leastFreeGb) || leastFreeGb < 0) throw wrong('a leastFreeGb that is not a number of gigabytes')
+  const settings = env === undefined ? undefined : record(env)
+  if (env !== undefined && (!settings || !Object.entries(settings).every(([name, value]) => /^[A-Z_][A-Z0-9_]*$/.test(name) && !CREDENTIAL.test(name) && typeof value === 'string' && !/[\u0000-\u001f]/.test(value)))) {
+    throw wrong('settings that are not uppercase names, none a credential, to plain strings')
+  }
+  return { path, make, makeIn, ...(fit ? { fit: fit as string[] } : {}), leastFreeGb, ...(settings ? { env: settings as Record<string, string> } : {}) }
+}
 const EMAIL = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[a-z]{2,}$/i
 const PLAIN = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '' && !/[\u0000-\u001f\u007f]/.test(value)
 const REPO = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/
@@ -56,7 +95,7 @@ function hostOf(raw: unknown, at: number): CodeHost {
   const wrong = (what: string) => new Error(`The code host file's ${where} has ${what}.`)
   if (!entry) throw wrong('no object')
   for (const key of Object.keys(entry)) if (!HOST_KEYS.has(key)) throw wrong(`an unknown setting, ${key}`)
-  const { name, web, api, git, headRef = 'refs/pull/{number}/head', clones = {}, checkout = true, merge = false } = entry
+  const { name, web, api, git, headRef = 'refs/pull/{number}/head', clones = {}, checkout = true, merge = false, tree } = entry
   if (typeof name !== 'string' || !HOST_NAME.test(name)) throw wrong('a name that is not a short lowercase name other than github')
   if (typeof web !== 'string' || !URL.canParse(web) || new URL(web).protocol !== 'https:') throw wrong('a web address that is not https')
   if (!Array.isArray(api) || api.length === 0 || api.length > 12 || !api.every(PLAIN) || (api[0] as string).startsWith('-')) throw wrong('an api command that is not 1 to 12 plain words, the first a program')
@@ -75,6 +114,7 @@ function hostOf(raw: unknown, at: number): CodeHost {
     clones: Object.fromEntries(Object.entries(cloned).map(([repo, folder]) => [repo.toLowerCase(), folder as string])),
     checkout,
     merge,
+    ...(tree !== undefined ? { tree: treeOf(tree, where) } : {}),
   }
 }
 
