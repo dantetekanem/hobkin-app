@@ -254,9 +254,19 @@ function heldModel(request, state) {
   return model;
 }
 
+/** A kept process asked for again stays another idle time, and counts as the one used last. */
+function keepAgain(sessionFile, kept, idleMs) {
+  clearTimeout(kept.timer);
+  kept.timer = setTimeout(() => void closeNow(sessionFile), idleMs);
+  kept.timer.unref();
+  keptProcesses.delete(sessionFile);
+  keptProcesses.set(sessionFile, kept);
+}
+
 /**
  * Starts a durable conversation's process ahead of its next turn and keeps it, so that turn only prompts it
- * (`warm: true` on the request). One already kept with the same start is left alone, and a second request while one
+ * (`warm: true` on the request). One already kept with the same start is kept again, its idle time starting over and nothing
+ * asked of it, and a second request while one
  * starts gets the first one's answer. A turn that comes while it starts waits for it (`takeKept`). The caller asks only
  * while no turn of the conversation runs.
  */
@@ -268,6 +278,7 @@ function startAhead(request, context) {
   const kept = keptProcesses.get(sessionFile);
   if (usable(kept, context.key)) {
     const model = heldModel(request, kept.state);
+    keepAgain(sessionFile, kept, context.keepIdleMs);
     return Promise.resolve({ ...context.result, status: 'warmed', sessionId: kept.state.sessionId, model });
   }
 

@@ -1235,3 +1235,40 @@ test('nothing is started ahead for a hobkin with its first message or one on Cla
   await app.close();
   assert.ok(processes.every(({ child }) => gone(child)), 'closing hobkin closes every process, started ahead or kept');
 });
+
+test("a waiting hobkin's page on screen starts its Pi process after a restart, and its next turn only prompts it", async t => {
+  const h = fixture(t);
+  const before = await appThatStartsAhead(t, h);
+  const { id } = await before.app.hobkins.start({ text: 'First.', cwd: h.folder, engine: PI_ENGINE });
+  await waitingNow(before.app, id);
+  await before.app.close();
+  assert.ok(before.processes.every(({ child }) => gone(child)), 'a restart leaves no process');
+
+  const { app, processes, asked } = await appThatStartsAhead(t, h);
+  assert.deepEqual(await app.hobkins.pageShown(id), { ok: true });
+  await until(() => startedAhead(h.root).length === 1);
+  assert.equal(processes.length, 1);
+  await app.hobkins.pageShown(id);
+  await wait(100);
+  assert.equal(processes.length, 1, 'telling it again starts no second one');
+
+  const second = await app.hobkins.say(id, { text: 'Second.' });
+  assert.equal((await waitingNow(app, id)).last.said, 'Took: Second.');
+  assert.equal(processes.length, 1, 'the turn ran in the process the page started');
+  assert.equal('spawned' in (await app.runtime.state()).runs[second.run].performance.stages, false);
+
+  const held = await app.hobkins.say(id, { text: 'Hold on.' });
+  await until(async () => (await app.runtime.state()).runs[held.run]?.status === 'running');
+  const warms = asked.filter(request => request.warm).length;
+  await app.hobkins.pageShown(id);
+  assert.equal(asked.filter(request => request.warm).length, warms, 'a working hobkin starts nothing');
+
+  const claude = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'claude' } });
+  await app.hobkins.pageShown(claude.id);
+  assert.equal(asked.filter(request => request.warm).length, warms, 'nor does one on Claude Code');
+
+  await app.hobkins.end(id);
+  await assert.rejects(app.hobkins.pageShown(id), /ended/);
+  await assert.rejects(app.hobkins.pageShown('ffffffff'), /no hobkin with that id/);
+  assert.equal(processes.length, 1);
+});

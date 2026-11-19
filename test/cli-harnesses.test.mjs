@@ -924,6 +924,20 @@ test("a durable conversation's process can be started ahead of its turn, which t
   assert.equal(processes.length, 1);
 });
 
+test('a kept process asked for again ahead of a turn is kept again, and its idle time starts over', { timeout: 5000 }, async t => {
+  const { processes, options } = keptPis();
+  const input = durableTurn(t);
+  const idle = { ...options, keepIdleMs: 400 };
+  assert.equal((await runHarness({ ...input, id: turnId(1), prompt: 'First.' }, idle)).status, 'completed');
+  await new Promise(resolve => setTimeout(resolve, 250));
+  assert.equal((await runHarness(ahead(input, 2), idle)).status, 'warmed');
+  await new Promise(resolve => setTimeout(resolve, 250));
+  assert.equal(gone(processes[0].child), false, 'past its first idle time, it is still kept');
+  assert.deepEqual(processes[0].commands, ['get_state', 'prompt', 'get_session_stats'], 'keeping it again asked it nothing');
+  await ended(processes[0].child);
+  assert.equal(processes.length, 1);
+});
+
 test('a turn that comes while its process is still starting ahead waits for it and takes it', { timeout: 5000 }, async t => {
   const { processes, options } = keptPis();
   const input = durableTurn(t);

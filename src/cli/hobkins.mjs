@@ -596,6 +596,17 @@ export class Hobkins {
     return summaryOf(record);
   }
 
+  /**
+   * The window says this hobkin's page is on screen, so its next message may come soon. One that waits on Pi gets its
+   * process started ahead of that turn, or the one kept for it kept for another ten idle minutes (`warm`). A working one
+   * and one on Claude Code start nothing.
+   */
+  async pageShown(id) {
+    const record = live(await this.runtime.state(), id);
+    if (record.state === 'waiting') this.warm(record);
+    return { ok: true };
+  }
+
   /** The user looked at it, so this wait is never told. */
   async seen(id) {
     live(await this.runtime.state(), id);
