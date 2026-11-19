@@ -49,7 +49,7 @@ test('live projection rereads selection without changing the active model or cac
   Object.assign(app, { snapshot: readLocalView(root), config: { persona: 'Normal' }, now: () => 0,
     delivery: { syncEvidence: async () => {} }, noticeRunIds: new Set(), templatesLooked: true, uploadLooked: true,
     runtime: { directory: root, state: async () => ({ runs: {} }), messages: () => [], contextInfo: () => ({}),
-      main, mainChildren: () => [], mainActivity: () => null },
+      main, helpers: () => ({ jobChildren: {}, mainChildren: [] }), stopControls: () => ({ targets: [] }), mainActivity: () => null },
     runner: { snapshot: async () => ({ errors: [], schedules: [], counts: {} }), steeringReceipts: () => [] },
     workView: () => ({ harnessLines: [], folderLines: [], discovery: {} }), learner: { takePost: () => null },
     yesterdayWins: () => null, winsToday: () => [], waitingNow: () => [],

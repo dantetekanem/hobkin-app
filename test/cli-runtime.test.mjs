@@ -201,6 +201,26 @@ function mainFactory(control = {}) {
   });
 }
 
+test('a runtime lists a run\'s helpers and the main chat\'s from one reading of the lifecycle\'s rows', () => {
+  const rows = [
+    { id: 'job-helper', rootId: 'job', parentId: 'job', depth: 1, name: 'a', status: 'running' },
+    { id: 'chat-helper', rootId: 'turn', parentId: 'turn', depth: 1, name: 'b', status: 'queued' },
+  ];
+  let reads = 0;
+  const runtime = new HobkinRuntime('/unused', {}, { ownedLifecycle: {
+    rows: () => { reads++; return structuredClone(rows); },
+    snapshot: () => { throw Error('Showing helpers needs no measurements'); },
+  } });
+  runtime.ownedActivity.track('job', 'background');
+  runtime.ownedActivity.track('turn', 'main');
+  runtime.mainOwnedRoots.add('turn');
+  assert.deepEqual(runtime.helpers(), {
+    jobChildren: { job: [{ id: 'job-helper', parentId: 'job', rootId: 'job', depth: 1, name: 'a', state: 'running' }] },
+    mainChildren: [{ id: 'chat-helper', parentId: 'turn', rootId: 'turn', depth: 1, name: 'b', state: 'queued' }],
+  });
+  assert.equal(reads, 1);
+});
+
 test('owned-publication runtime selects admitted roots and retains unknown controls after display reset', async t => {
   const root = mkdtempSync(join(tmpdir(), 'owned-runtime-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));

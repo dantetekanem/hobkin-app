@@ -238,7 +238,7 @@ test('synthetic application persists helper facts and retains them through an em
     result: { id: 'captured', sessionId: 'native', performance: facts('captured', 'native') } };
   app.runtime = { directory: root, state: async () => ({ runs: { work } }), messages: () => [],
     main: { model: { provider: 'fixture', id: 'local' } }, contextInfo: () => ({}),
-    jobChildren: () => ({}), mainChildren: () => [], stopControls: () => ({}), mainActivity: () => [],
+    helpers: () => ({ jobChildren: {}, mainChildren: [] }), stopControls: () => ({}), mainActivity: () => [],
     ownedLifecycle: { snapshot: () => [helper('child', { rootId: work.id, parentId: work.id, status: 'running' })] } };
   app.config = config; app.snapshot = { history: { reports: [] } }; app.noticeRunIds = new Set();
   app.delivery = { syncEvidence: async () => {} };

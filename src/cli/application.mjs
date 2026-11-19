@@ -383,10 +383,9 @@ export class HobkinApplication {
     this.snapshot = {
       ...this.snapshot,
       jobActivity: Object.fromEntries([...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()])),
-      jobChildren: this.runtime.jobChildren(),
+      ...this.runtime.helpers(),
       teamsAgents: this.teamsAgents?.snapshot() ?? {},
       mainActivity: this.runtime.mainActivity(),
-      mainChildren: this.runtime.mainChildren(),
       busy: this.runtime.mainBusy,
       searching: searchingTool(this.runtime.mainTool),
       tooling: Boolean(this.runtime.mainTool),
@@ -657,7 +656,7 @@ export class HobkinApplication {
     const jobActivity = Object.fromEntries(
       [...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()]),
     );
-    const jobChildren = this.runtime.jobChildren();
+    const helpers = this.runtime.helpers();
     for (const id of this.jobActivity.keys()) {
       if (!active.has(id)) this.jobActivity.delete(id);
     }
@@ -672,7 +671,7 @@ export class HobkinApplication {
       ...this.snapshot,
       ...visible,
       jobActivity,
-      jobChildren,
+      ...helpers,
       teamsAgents: this.teamsAgents?.snapshot(active) ?? {},
       stopControls: this.runtime.stopControls(),
       steeringReceipts: this.runner.steeringReceipts(),
@@ -692,7 +691,6 @@ export class HobkinApplication {
       searching: searchingTool(this.runtime.mainTool),
       tooling: Boolean(this.runtime.mainTool),
       doing: this.runtime.mainDoing ?? null,
-      mainChildren: this.runtime.mainChildren(),
       mainActivity: this.runtime.mainActivity(),
       learning: learningEnabled(this.runtime.directory),
       userName: callName(readProfile(this.runtime.directory)),

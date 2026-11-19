@@ -192,6 +192,22 @@ test('unknown teardown stays occupied; joining never hangs behind it and retains
   assert.equal(cleanup.confirmed, false); assert.equal(cleanup.agents[0].report, 'partial');
 });
 
+test('rows give every helper\'s place and standing, without the measurements a snapshot carries', { timeout: 1000 }, async () => {
+  const f = transportFactory(), life = createOwnedLifecycle({ startProcess: f.startProcess, maxRunning: 1 });
+  const root = life.register({ id: 'root', allowHelpers: true, binding });
+  const running = root.request({ action: 'spawn', name: 'running' });
+  const queued = root.request({ action: 'spawn', name: 'queued' });
+  life.register({ id: 'empty', allowHelpers: true, binding });
+  await tick();
+  f.children[0].emit({ ...end('partial'), message: { ...end('partial').message, provider: 'test', model: 'model', responseId: 'own', usage: { input: 7 } } });
+  assert.equal(life.snapshot()[0].usage.input.value, 7);
+  assert.deepEqual(life.rows(), [
+    { id: running.id, parentId: 'root', rootId: 'root', depth: 1, name: 'running', status: 'running' },
+    { id: queued.id, parentId: 'root', rootId: 'root', depth: 1, name: 'queued', status: 'queued' },
+  ]);
+  await life.close();
+});
+
 test('host Force remains available after invalidation and reports only captured helper closure', { timeout: 1000 }, async () => {
   const f = transportFactory(true);
   const rows = [], life = createOwnedLifecycle({ startProcess: f.startProcess, stopMs: 5, onPerformance: row => rows.push(row) });

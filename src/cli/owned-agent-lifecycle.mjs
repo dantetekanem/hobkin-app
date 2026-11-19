@@ -151,6 +151,11 @@ export function createOwnedLifecycle({ maxRunning = 4, maxDepth = 3, startProces
         .map(({ id, parentId, rootId, depth, name, status }) => ({ id, parentId, rootId, depth, name, status,
           ...(scopes.get(id)?.handle?.snapshot() ?? { usage: null, lastActivityAt: null, performance: null }) }));
     },
+    /** Every helper's place and standing, as `snapshot()` gives them without measuring each helper: all a display needs. */
+    rows() {
+      return [...roots].flatMap(id => tree.list(id))
+        .map(({ id, parentId, rootId, depth, name, status }) => ({ id, parentId, rootId, depth, name, status }));
+    },
     targets() {
       return [...roots].flatMap(runId => tree.list(runId)).filter(node => ['running', 'queued', 'cancelling', 'unknown'].includes(node.status))
         .map(node => ({ kind: 'agent', runId: node.rootId, agentId: node.id, parentId: node.parentId, rootId: node.rootId, label: node.name, canStop: true, canForce: true }));

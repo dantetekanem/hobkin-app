@@ -7,13 +7,13 @@ function fixture(t) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const app = new HobkinApplication();
   const published = [];
-  let projects = 0;
+  let projects = 0, helperLists = 0;
   app.now = Date.now;
   app.runner = {};
   app.snapshot = { reports: [{ id: 'saved-report' }], runs: [{ id: 'job', state: 'running' }] };
   app.runtime = {
     mainActivity: () => [{ id: 'main', kind: 'assistant', text: 'Streaming' }],
-    mainChildren: () => [],
+    helpers: () => { helperLists++; return { jobChildren: { job: [{ id: 'helper', state: 'running' }] }, mainChildren: [] }; },
     mainBusy: true,
     mainTool: 'read',
     mainDoing: 'Reading',
@@ -24,7 +24,7 @@ function fixture(t) {
     t.mock.timers.tick(25);
     await app.refreshing;
   };
-  return { app, published, flush, projects: () => projects };
+  return { app, published, flush, projects: () => projects, helperLists: () => helperLists };
 }
 
 test('streamed job activity updates without rebuilding reports or runtime state', async t => {
@@ -38,6 +38,9 @@ test('streamed job activity updates without rebuilding reports or runtime state'
   assert.equal(h.projects(), 0);
   assert.equal(h.published.length, 10);
   assert.equal(h.published.at(-1).jobActivity.job[0].text, 'a'.repeat(10));
+  assert.equal(h.helperLists(), 10, 'helpers are listed once a publish');
+  assert.equal(h.published.at(-1).jobChildren.job[0].id, 'helper');
+  assert.deepEqual(h.published.at(-1).mainChildren, []);
   assert.equal(h.app.snapshot.reports, reports);
   assert.equal(h.app.snapshot.mainActivity[0].text, 'Streaming');
   assert.equal(h.app.snapshot.doing, 'Reading');

@@ -392,23 +392,26 @@ export class HobkinRuntime {
   }
 
   ownedChildren() {
-    const groups = this.ownedActivity.project(this.ownedLifecycle?.snapshot?.() ?? []);
+    // A lifecycle from before `rows` gives them only with each helper's measurements.
+    const rows = this.ownedLifecycle?.rows?.() ?? this.ownedLifecycle?.snapshot?.() ?? [];
+    const groups = this.ownedActivity.project(rows);
     for (const id of this.mainOwnedRoots) {
       if (!this.ownedActivity.groups.has(id)) this.mainOwnedRoots.delete(id);
     }
     return groups;
   }
 
-  mainChildren() {
-    return Object.entries(this.ownedChildren())
-      .filter(([id]) => this.mainOwnedRoots.has(id))
-      .flatMap(([, rows]) => rows);
+  /** The helpers of each run but the main chat's (`jobChildren`, by run id) and the main chat's (`mainChildren`), from one projection. */
+  helpers() {
+    const groups = Object.entries(this.ownedChildren());
+    return {
+      jobChildren: Object.fromEntries(groups.filter(([id]) => this.ownedActivity.groups.get(id).kind !== 'main')),
+      mainChildren: groups.filter(([id]) => this.mainOwnedRoots.has(id)).flatMap(([, rows]) => rows),
+    };
   }
 
-  jobChildren() {
-    return Object.fromEntries(Object.entries(this.ownedChildren())
-      .filter(([id]) => this.ownedActivity.groups.get(id).kind !== 'main'));
-  }
+  mainChildren() { return this.helpers().mainChildren; }
+  jobChildren() { return this.helpers().jobChildren; }
   /** The main chat's latest words and tool calls, as a job's activity is kept: never its thinking. */
   mainActivity() { return this.mainFeed?.snapshot() ?? []; }
   get mainBusy() { return Boolean(this.main && this.busySessions.has(this.main.sessionId)); }
