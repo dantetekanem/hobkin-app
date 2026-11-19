@@ -857,6 +857,11 @@ export const COMMANDS = {
     args: nothing,
     hobkin: true,
   },
+  'review.codeHosts': {
+    description: 'The code hosts the home names besides GitHub, each by its short name and web address, so a pull request page on one opens as its review.',
+    runs: 'host',
+    args: nothing,
+  },
   'review.stop': {
     description:
       "Stop a review that is waiting or running, by its review id: its tests are stopped where they are and nothing more of it runs. What was ready before stays. Several reviews can run at once, and each is stopped alone. Refused when that review is not running. review.prepare with `refresh: true` starts it again.",
@@ -1238,6 +1243,7 @@ export interface CommandResults {
   'review.prepare': ReviewStatus
   'review.status': ReviewStatus
   'review.list': ReviewList
+  'review.codeHosts': { hosts: { name: string; web: string }[] }
   'review.remove': { id: string; removed: true }
   'review.stop': ReviewStatus
   'review.get': OpenedReview

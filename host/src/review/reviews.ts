@@ -11,13 +11,14 @@ import { homedir } from 'node:os'
 import { agentMessage } from '#shared/agent-message.ts'
 import { CLIENT_PRODUCER_VERSION } from '../producer-version.ts'
 import { completeReview, draftReview } from '#shared/review/prepare.ts'
-import { reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/ids.ts'
+import { reviewIdOf, targetOfReviewId, type NamedCodeHost, type ReviewTarget } from '#shared/review/ids.ts'
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
 import type { AssessmentLogLine, AssessmentRequest, AssessmentStatus } from '#shared/review/assessment.ts'
 import { count } from '#shared/review/prose.ts'
 import { IDLE_STATUS, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
+import { githubApi, type HostApi } from './code-hosts.ts'
 import { checkGrammar, grammarLines, type GrammarAsk, type GrammarResult, type GrammarTexts } from '#shared/review/grammar.ts'
 import { askForChanges, closingComment, pullReviewPost, saysNothing, type PullReviewPost, type Verdict } from '#shared/review/verdict.ts'
 import { Unavailable } from '../commands.ts'
@@ -76,6 +77,15 @@ export interface ReviewsOptions {
   gh?: GhCall
   /** The quick model, for fixing the grammar of the user's words before a pull request gets them. A host that asks no models has none. */
   grammar?: GrammarAsk
+  /** The API of a pull request on a code host the home names, other than GitHub: null when it can be asked nothing. */
+  apiOf?: (target: PullTarget) => HostApi | null
+  /**
+   * Whether a review may check the change's repository out. One that may not, as a pull request on a host that allows
+   * no checkout, gets its map, code, notes and verdict, and no change review. Taken as yes when not given.
+   */
+  checksOut?: (target: ReviewTarget) => boolean
+  /** The code hosts the home names besides GitHub, by name and web address, as the window learns them. */
+  namedHosts?: () => NamedCodeHost[]
   /** Opens a finished change's pull request. A host given none opens none. */
   publish?: Publisher
   /** The commit a change is at now, as the app already knows it without asking anyone. Null when it does not know. */
@@ -624,7 +634,7 @@ export class Reviews {
     this.opened.set(id, { review, files, meta })
     this.set(id, { state: 'ready', phase: null, stale: false, ...meta })
     const told = this.asked.delete(id)
-    if (told && target.kind === 'pull' && !this.options.assessments) {
+    if (told && target.kind === 'pull' && !this.reviewsChange(target)) {
       try {
         this.options.onReady?.({ target, review, at: meta.preparedAt })
       } catch (error) {
@@ -636,9 +646,14 @@ export class Reviews {
   }
 
   /** Starts the change review at the commit the review's graph was built for. Never stops the graph. */
+  /** Whether a change review runs for this target: a host with change reviews, and a repository a review may check out. */
+  private reviewsChange(target: ReviewTarget): boolean {
+    return this.options.assessments != null && (this.options.checksOut?.(target) ?? true)
+  }
+
   private assess(target: ReviewTarget, review: Review, { again = false }: { again?: boolean } = {}) {
     const { assessments } = this.options
-    if (!assessments) return
+    if (!assessments || !this.reviewsChange(target)) return
     // The user stopped this review while its map was being prepared.
     if (this.halted.delete(reviewIdOf(target))) return
     const { change } = review
@@ -839,6 +854,17 @@ export class Reviews {
     return note
   }
 
+  /** The code hosts the home names besides GitHub, so a pull request page on one opens as its review. None without a code host file. */
+  codeHosts(): NamedCodeHost[] {
+    return this.options.namedHosts?.() ?? []
+  }
+
+  /** Where a pull request's reads and verdicts go: gh for GitHub, else its code host's API. Null when this host sends nothing there. */
+  private apiFor(target: PullTarget): HostApi | null {
+    if (target.host) return this.options.apiOf?.(target) ?? null
+    return this.options.gh ? githubApi(this.options.gh) : null
+  }
+
   /** The user's words checked for grammar once, by their exact texts. Null on a host that asks no models. */
   private grammarOf(texts: GrammarTexts): Promise<GrammarResult> | null {
     const ask = this.options.grammar
@@ -904,8 +930,11 @@ export class Reviews {
 
     if (target.kind === 'pull') {
       const name = `${target.owner}/${target.repo}#${target.number}`
+      const where = target.host ?? 'GitHub'
+      const how = target.host ? 'through its API command' : 'through gh'
       // Only the user's own pull request is merged or closed from here, as its review recorded it. A review from before that reads as someone else's.
       if ((verdict === 'approve-merge' || no) && !meta?.owner?.mine) throw new Unavailable(`${name} is not yours, so merging or closing it is left to its author. Approve it or comment on it.`)
+      if ((verdict === 'approve-merge' || no) && target.host) throw new Unavailable(`Merging or closing a pull request on ${target.host} is not done from here yet. Approve it or comment on it, and merge or close it there.`)
       if (no) {
         const { comment, said: checked } = await this.fixedComment(closingComment(summary))
         const closing = [`Close ${name} on GitHub without merging it, as you.`, ...(comment ? ['Your words go on it as a comment first.', ...checked] : [])]
@@ -954,7 +983,7 @@ export class Reviews {
         return { review, card: null, merge, preview: { verdict, lines, ...(says ? { post } : {}), confirm: token(merge) } }
       }
       // GitHub would refuse it, so it is refused here, before anything is sent.
-      if (verdict === 'approve' && this.options.gh && (await this.pullFacts(target)).mine) {
+      if (verdict === 'approve' && this.apiFor(target) && (await this.pullFacts(target)).mine) {
         throw new Unavailable('GitHub does not let you approve your own pull request. Approve and merge merges it without an approval, or leave a comment.')
       }
       const written = pullReviewPost(review, notes, verdict, summary, loose)
@@ -963,7 +992,7 @@ export class Reviews {
       if (verdict === 'request-changes' && !written.body) throw new Unavailable('A request for changes needs your words: write what should change first.')
       const { post, said: checked } = await this.fixedPost(written)
       const words = { comment: 'Comment on', approve: 'Approve', 'request-changes': 'Ask for changes on' }[verdict]
-      const lines = [`${words} ${name} on GitHub, as you, through gh.`, `At commit ${at.slice(0, 7)}, the one this review was built from.`, `${lineComments(post).replace(/^w/, 'W')}.`, ...checked]
+      const lines = [`${words} ${name} on ${where}, as you, ${how}.`, `At commit ${at.slice(0, 7)}, the one this review was built from.`, `${lineComments(post).replace(/^w/, 'W')}.`, ...checked]
       return { review, card: null, preview: { verdict, lines, post, confirm: token(post) } }
     }
 
@@ -1076,9 +1105,9 @@ export class Reviews {
    * into, and how its repository lets it be merged, squashed first, then with a merge commit, then rebased.
    */
   private async pullFacts(target: PullTarget): Promise<{ mine: boolean; method: MergeMethod; base: string; head: string | null }> {
-    const { gh } = this.options
-    if (!gh) throw new Unavailable('This host merges nothing on GitHub.')
-    const api = async <Value>(path: string) => JSON.parse(await ghText(gh, ['api', '--hostname', 'github.com', path])) as Value
+    const host = this.apiFor(target)
+    if (!host) throw new Unavailable(`This host merges nothing on ${target.host ?? 'GitHub'}.`)
+    const api = async <Value>(path: string) => JSON.parse(await host({ path })) as Value
     const repo = `repos/${target.owner}/${target.repo}`
     type Facts = [{ login?: string }, { user?: { login?: string }; base?: { ref?: string }; head?: { sha?: string } }, { allow_squash_merge?: boolean; allow_merge_commit?: boolean; allow_rebase_merge?: boolean }]
     let facts: Facts
@@ -1172,11 +1201,12 @@ export class Reviews {
     if (discard) return this.discarded(id, target, discard)
 
     if (target.kind === 'pull') {
-      const { gh } = this.options
-      if (!gh) throw new Unavailable('This host posts nothing to GitHub.')
+      const where = target.host ?? 'GitHub'
+      const api = this.apiFor(target)
+      if (!api) throw new Unavailable(`This host posts nothing to ${where}.`)
       const name = `${target.owner}/${target.repo}#${target.number}`
       const post = async (body: PullReviewPost) => {
-        const answer = await ghText(gh, ['api', '--hostname', 'github.com', '--method', 'POST', `repos/${target.owner}/${target.repo}/pulls/${target.number}/reviews`, '--input', '-'], JSON.stringify(body))
+        const answer = await api({ method: 'POST', path: `repos/${target.owner}/${target.repo}/pulls/${target.number}/reviews`, body })
         // The comments went with it, so they are never sent twice, and neither is anything this yes posts.
         this.posted.add(confirm)
         this.markSent(target, verdict)
@@ -1187,7 +1217,7 @@ export class Reviews {
         const posted = merge.post && !this.posted.has(confirm) ? await post(merge.post) : null
         try {
           // `sha` is the commit the preview showed: GitHub refuses the merge if the pull request has moved since.
-          await ghText(gh, ['api', '--hostname', 'github.com', '--method', 'PUT', `repos/${target.owner}/${target.repo}/pulls/${target.number}/merge`, '--input', '-'], JSON.stringify({ sha: merge.head, merge_method: merge.method }))
+          await api({ method: 'PUT', path: `repos/${target.owner}/${target.repo}/pulls/${target.number}/merge`, body: { sha: merge.head, merge_method: merge.method } })
         } catch (error) {
           if (merge.post) throw new Error(`${merge.mine ? 'Your comments went' : 'It was approved'} on GitHub, but it was not merged: ${messageOf(error)}`)
           throw error
@@ -1198,7 +1228,7 @@ export class Reviews {
       }
       if (this.posted.has(confirm)) throw new Unavailable('This was posted already, so it is not posted again.')
       const posted = await post(preview.post!)
-      return { message: `Posted to GitHub${posted ? `: ${posted}` : '.'}` }
+      return { message: `Posted to ${where}${posted ? `: ${posted}` : '.'}` }
     }
 
     if (publication) {

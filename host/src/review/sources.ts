@@ -10,7 +10,8 @@ import { pullUrl, type ReviewTarget } from '#shared/review/ids.ts'
 import type { PullOwner } from '#shared/review/status.ts'
 import { SIZE_LIMIT } from '#shared/review/types.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
-import { ghText, type GhCall } from './gh.ts'
+import { githubApi, type HostApi } from './code-hosts.ts'
+import type { GhCall } from './gh.ts'
 import { gitReader, type GitReader } from './git.ts'
 import { whosePull, type WhoIsMe } from './owner.ts'
 import type { PullCheckout, PullTarget, Say } from './pull-checkout.ts'
@@ -124,30 +125,39 @@ export function changeSource({
 }
 
 /**
- * A GitHub pull request: its title, description and branches read through gh with GET requests only, and its code
- * from a checkout of it on this Mac, where the review's tests can run.
+ * A pull request: its title, description and branches read with GET requests only, through gh on GitHub or through
+ * the API command of the code host it lives on, and its code from a checkout of it on this Mac, where the review's
+ * tests can run.
  */
 export function pullSource({
   gh,
+  apiOf = () => null,
+  canCheckOut = () => true,
   checkout,
   vicinity,
   limit = SIZE_LIMIT,
   whoIsMe,
 }: {
   gh: GhCall
+  /** The API of a pull request on a named code host, or null for one on GitHub, which gh answers. */
+  apiOf?: (target: PullTarget) => HostApi | null
+  /** Whether a review may check the pull request's repository out. One that may not gets no call-graph scan. */
+  canCheckOut?: (target: PullTarget) => boolean
   /** Where its code comes from. Without one, a pull request is not read. */
   checkout?: PullCheckout
-  /** Who the user is, to say whose a pull request is. Without it, their login as gh has it, and nothing more. */
-  whoIsMe?: () => Promise<WhoIsMe>
+  /** Who the user is on the pull request's host, to say whose it is. Without it, their login there, and nothing more. */
+  whoIsMe?: (target: PullTarget) => Promise<WhoIsMe>
   /** The unchanged code around the change, from a call-graph scan of a checkout at `head`. Without it the review shows none. */
   vicinity?: (target: PullTarget, repo: string, base: string, head: string, say?: Say) => Promise<Vicinity>
   limit?: SizeLimit
 }): ReviewSource {
-  const api = async <Value>(path: string): Promise<Value> => JSON.parse(await ghText(gh, ['api', '--hostname', 'github.com', path])) as Value
+  const github = githubApi(gh)
+  /** A read on the pull request's own host. */
+  const read = (target: PullTarget) => async <Value>(path: string): Promise<Value> => JSON.parse(await (apiOf(target) ?? github)({ path })) as Value
   // Who the user is, when it cannot be said, leaves every pull request someone else's: nothing is merged or closed on a guess.
-  const me = async (): Promise<WhoIsMe> => {
+  const me = async (target: PullTarget): Promise<WhoIsMe> => {
     try {
-      return whoIsMe ? await whoIsMe() : { viewer: (await api<{ login?: string }>('user')).login ?? null }
+      return whoIsMe ? await whoIsMe(target) : { viewer: (await read(target)<{ login?: string }>('user')).login ?? null }
     } catch {
       return { viewer: null }
     }
@@ -160,29 +170,30 @@ export function pullSource({
   return {
     async head(target) {
       const pull = pullOf(target)
-      const answer = await api<{ state?: string; head?: { sha?: string } }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
+      const answer = await read(pull)<{ state?: string; head?: { sha?: string } }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
       return answer.state === 'open' && answer.head?.sha ? answer.head.sha : null
     },
     async read(target, head, watch = {}) {
       const pull = pullOf(target)
       if (!checkout) throw new Error('This host checks out no pull requests, so it cannot read one.')
       const say = watch.say ?? (() => {})
-      say(`Reading #${pull.number} on GitHub.`)
-      const details = await api<{ title: string; body?: string | null; base: { ref: string }; head: { ref: string }; user?: { login?: string } | null }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
+      say(`Reading #${pull.number} on ${pull.host ?? 'GitHub'}.`)
+      const details = await read(pull)<{ title: string; body?: string | null; base: { ref: string }; head: { ref: string }; user?: { login?: string } | null }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
       watch.titled?.(details.title)
-      const { repo, base } = await checkout.fetch(pull, { head, baseBranch: details.base.ref }, say)
+      const { repo, base } = await checkout.fetch(pull, { head, baseBranch: details.base.ref, headBranch: details.head.ref }, say)
       const reader = gitReader(repo)
       say('Reading the changed files.')
       const capture = await captureChange(reader, base, head, limit)
       const specPath = specPathFor(details.head.ref, capture.files)
       const specText = specPath ? await reader.text(head, specPath) : null
-      const around = vicinity ? await vicinity(pull, repo, base, head, say) : undefined
+      // A host that allows no checkout gets no call-graph scan, which reads a checkout.
+      const around = vicinity && canCheckOut(pull) ? await vicinity(pull, repo, base, head, say) : undefined
       // GitHub writes its lines with \r\n.
       const description = (details.body ?? '').replace(/\r\n?/g, '\n').trim()
       return {
         change: { project: `${pull.owner}/${pull.repo}`, item: `#${pull.number}`, title: details.title, branch: details.head.ref },
         description,
-        owner: whosePull({ author: details.user?.login ?? null, description }, await me()),
+        owner: whosePull({ author: details.user?.login ?? null, description }, await me(pull)),
         capture,
         spec: specPath && specText != null ? { path: specPath, text: specText } : null,
         readHead: (path) => reader.text(head, path),

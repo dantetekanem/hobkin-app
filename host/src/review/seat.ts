@@ -18,9 +18,11 @@ import type { PiModelRuntime } from '../pi.ts'
 import { reviewChange } from '../../../packages/change-review/src/pipeline.ts'
 import { piModelRunner } from './agent.ts'
 import { Assessments, gitIn } from './assessment.ts'
+import { githubApi, namedApi, readCodeHosts, type CodeHosts, type HostApi } from './code-hosts.ts'
 import { reviewCode, reviewMap } from './guide.ts'
 import { mergePlan, movedSince } from './landing.ts'
 import { chatTeller } from './notify.ts'
+import type { WhoIsMe } from './owner.ts'
 import type { GhCall } from './gh.ts'
 import { pullCheckout, pullRefs, type PullTarget, type Say } from './pull-checkout.ts'
 import { Reviews, type Watched } from './reviews.ts'
@@ -65,7 +67,68 @@ function ghCredentialHelper(): string | null {
   return gh ? `!${JSON.stringify(gh)} auth git-credential` : null
 }
 
+/**
+ * The home's code hosts besides GitHub (spec 048, entry 13), read from its code host file each time, so an edit counts
+ * at once. A file that cannot be read stops only what goes to a named host: GitHub's reviews never wait on it.
+ */
+function codeHostsSeat(seat: ReviewSeat) {
+  const strict = (): CodeHosts => readCodeHosts(seat.data())
+  const known = (): CodeHosts => {
+    try {
+      return strict()
+    } catch (error) {
+      seat.log?.(`Reviews: ${error instanceof Error ? error.message : String(error)}`)
+      return { hosts: [], emails: [], agents: [] }
+    }
+  }
+  const hostOf = (name: string) => strict().hosts.find((host) => host.name === name)
+  /** A named host's API for a pull request's repository; null for GitHub, which gh answers. */
+  const apiOf = (target: PullTarget): HostApi | null => {
+    if (!target.host) return null
+    const host = hostOf(target.host)
+    if (!host) throw new Error(`${target.host} is not a code host the code host file names.`)
+    return namedApi(host, target)
+  }
+  /** A review checks out a named host's repository only where the code host file allows it. */
+  const checksOut = (target: ReviewTarget) => {
+    if (target.kind !== 'pull' || !target.host) return true
+    try {
+      return hostOf(target.host)?.checkout === true
+    } catch {
+      return false
+    }
+  }
+  /** Who the user is on a pull request's host: their login there, their addresses and the agents that work there for them. */
+  const whoIsMe = async (target: PullTarget): Promise<WhoIsMe> => {
+    const { emails, agents } = known()
+    let viewer: string | null = null
+    try {
+      const api = apiOf(target) ?? (seat.gh ? githubApi(seat.gh) : null)
+      viewer = api ? ((JSON.parse(await api({ path: 'user' })) as { login?: string }).login ?? null) : null
+    } catch {
+      // Not said: their login then counts for nothing, and their addresses still do.
+    }
+    return { viewer, emails, agents: agents.filter((agent) => agent.host === (target.host ?? 'github')).map((agent) => agent.login) }
+  }
+  const named = () => known().hosts.map(({ name, web }) => ({ name, web }))
+  const quietHostOf = (name: string) => {
+    try {
+      return hostOf(name)
+    } catch {
+      return undefined
+    }
+  }
+  return { hostOf: quietHostOf, apiOf, checksOut, whoIsMe, named }
+}
+
 export function hostReviews(seat: ReviewSeat): Reviews {
+  const hosts = codeHostsSeat(seat)
+  // This side learns the named hosts' pages at once, when hobkin is open, so their pull requests read as reviews.
+  try {
+    hosts.named()
+  } catch {
+    // hobkin is not open yet: they are learned the first time the file is read.
+  }
   const find = (slug: string, item: string) => finishedIn(seat.work()).find((change) => change.slug === slug && change.item === item) ?? null
   // hobkin's own rule: the folder the project was chosen from, or hobkin's own copy of it.
   const repoOf = (slug: string) => {
@@ -103,7 +166,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     return { state: 'refreshing', ...(at ? { at } : {}), ...(branch ? { into: branch } : {}), message: `An agent is bringing it up to date with ${branch ?? 'its default branch'}, and hobkin merges it once that run ends well.` }
   }
   // A pull request is reviewed on this Mac: in the user's clone of its repository, else in a clone of hobkin's own.
-  const checkout = seat.gh ? pullCheckout({ root: seat.root, folders: () => projectFolders(seat.data()), gh: seat.gh, credentialHelper: ghCredentialHelper() }) : undefined
+  const checkout = seat.gh ? pullCheckout({ root: seat.root, folders: () => projectFolders(seat.data()), gh: seat.gh, credentialHelper: ghCredentialHelper(), hostOf: hosts.hostOf }) : undefined
   // The change review of each finished change and each pull request asked for (spec 032): their own tests run in a
   // review worktree, and the careful pass and the blind check go to the tiers. Only a live host runs it: the scripted one
   // runs no tests and asks no model.
@@ -165,6 +228,10 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       pull: seat.gh
         ? pullSource({
             gh: seat.gh,
+            // A pull request on a code host the home names is read through that host, and checked out only where it allows.
+            apiOf: hosts.apiOf,
+            canCheckOut: hosts.checksOut,
+            whoIsMe: hosts.whoIsMe,
             ...(checkout ? { checkout } : {}),
             // The call-graph scan runs only where reviews are real, never for the scripted host.
             ...(assessments ? { vicinity: pullVicinity(assessments) } : {}),
@@ -182,6 +249,10 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     ...(seat.live && seat.gh ? { gh: seat.gh, publish: gitPublisher({ repoOf, baseOf: defaultBranch, gh: seat.gh }) } : {}),
     // The user's words have their grammar fixed on the quick tier before a pull request gets them. The scripted host asks no model.
     ...(seat.live ? { grammar: quickGrammar(seat) } : {}),
+    // Verdicts on a named code host's pull request go through that host, from a live host only, as GitHub's do.
+    ...(seat.live && seat.gh ? { apiOf: hosts.apiOf } : {}),
+    checksOut: hosts.checksOut,
+    namedHosts: hosts.named,
     log: seat.log,
   })
 }
@@ -217,13 +288,14 @@ export function toPrepare(work: WorkState | null, _github?: GitHubState): Watche
   return finishedIn(work).map((change) => ({ id: reviewIdOf({ kind: 'change', slug: change.slug, item: change.item }), head: change.head }))
 }
 
-type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'review.remove' | 'review.stop' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
+type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'review.codeHosts' | 'review.remove' | 'review.stop' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
 
 export function reviewHandlers(reviews: Reviews): Pick<HostHandlers, ReviewCommand> {
   return {
     // Asked for by the window or by hobkin, as against what the background prepares by itself.
     'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh, asked: true }),
     'review.list': () => reviews.list(),
+    'review.codeHosts': () => ({ hosts: reviews.codeHosts() }),
     'review.remove': ({ id }) => reviews.remove(id),
     'review.stop': ({ id }) => reviews.stop(id),
     'review.status': ({ id }) => {
