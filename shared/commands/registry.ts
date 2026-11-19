@@ -1002,6 +1002,15 @@ export const COMMANDS = {
     args: Type.Object({ tokens: Type.Integer({ minimum: 1 }) }, { additionalProperties: false }),
     hobkin: true,
   },
+  // YOLO mode lets small, well-reviewed changes merge and deploy with no yes, so only the user's click in the window changes it (049-yolo-mode).
+  'work.yolo': {
+    description:
+      "Turn YOLO mode on or off, or set the lowest general rate it accepts, from 6 to 10. Turning it on merges nothing: hobkin first files one feature on each project to get it ready, and only on a ready project does a small change its review rated at or above that rate merge and deploy by itself.",
+    runs: 'host',
+    args: Type.Object({ on: Type.Optional(Type.Boolean()), rate: Type.Optional(Type.Integer({ minimum: 6, maximum: 10 })) }, { additionalProperties: false }),
+    rule: ({ on, rate }) => (on === undefined && rate === undefined ? 'need on or rate' : null),
+    outside: true,
+  },
   'work.change': {
     description:
       "Act on a finished change, only ever on the user's word: `merge` merges its branch on this machine and pushes nothing, `merge-pr` merges its PR on GitHub, `refresh-merge` has an agent bring it up to date and merges it once that run ends well, `review` has an agent review it, `ask` sends an agent back to it with the user's `note`, `decline` says no, and `done` marks the item done: what it left for the user is cleared and any branch or PR stays as it is. `head` is the commit the card showed, so a change that moved since is refused.",
@@ -1307,6 +1316,8 @@ export interface CommandResults {
   'work.agents': { agents: number }
   /** The daily limit now. */
   'work.tokens': { tokens: number }
+  /** YOLO mode as it stands now. */
+  'work.yolo': { on: boolean; rate: number }
   /** What hobkin did, in its own words. */
   'work.change': { message: string }
   /** hobkin's line for each row, in the order they went, and the line that sums them up. */

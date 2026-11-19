@@ -2,6 +2,7 @@ import type { HobkinSnapshot } from 'hobkin/src/cli/application.mjs'
 import { approvalGroups, groupPlan, groupWords, landingWay, shownTitle, type GroupName } from 'hobkin/src/cli/work/groups.mjs'
 import { heldByItsGrade } from 'hobkin/src/cli/work/reads.mjs'
 import { byPriority, byRank, grades, MAX_AGENTS, readMode, setAgents, setDailyTokens } from 'hobkin/src/cli/work/store.mjs'
+import { setYolo } from 'hobkin/src/cli/work/yolo.mjs'
 import {
   GRADES,
   ISSUE_PICKUPS,
@@ -16,6 +17,7 @@ import {
   type QueueRow,
   type WorkProject,
   type WorkState,
+  type YoloState,
 } from '#shared/protocol/work.ts'
 import type { HostHandlers } from './commands.ts'
 
@@ -38,6 +40,15 @@ interface Safety {
   stale?: boolean
 }
 
+/** What a review scored a change, with the rate and the broken floors hobkin worked out (`scoresOf` in its `src/cli/work/classified.mjs`). */
+interface ReviewScores {
+  kind: string
+  rate: number
+  scores: Record<string, { score: number }>
+  floors: { criterion: string; score: number; needs: number }[]
+  stale?: boolean
+}
+
 /** A finished change as hobkin lists it: one of its `readyItems` or `pullRequestRows` (`src/cli/work/reads.mjs`). */
 interface ReadyRow {
   slug: string
@@ -56,6 +67,7 @@ interface ReadyRow {
   conflict?: boolean | null
   size?: { additions: number; deletions: number; files: number } | null
   safety?: Safety | null
+  review?: ReviewScores | null
   gap?: string
   holds?: number
   proved?: boolean
@@ -115,6 +127,8 @@ interface WorkStatus {
   queued?: number
   plan?: PlanRow[]
   projects?: ProjectStatus[]
+  /** YOLO mode and each project's readiness, from a hobkin that has it. */
+  yolo?: YoloState | null
 }
 
 const gradeOf = (value: unknown): Grade | null => (GRADES.includes(value as Grade) ? (value as Grade) : null)
@@ -147,6 +161,37 @@ function reviewLine({ safety }: ReadyRow): string {
   if (!safety) return 'Not reviewed. Get it reviewed runs one first, about $2 and 14 minutes.'
   const grade = `${safety.grade} ${safety.rating}`
   return safety.stale ? `Reviewed on an older commit (${grade}), not this one.` : `Reviewed: ${grade} at this commit.`
+}
+
+const KIND_WORDS: Record<string, string> = {
+  performance: 'Performance work',
+  'bug-fix': 'Bug fix',
+  'state-machine': 'State machine fix',
+  'package-update': 'Package update',
+  'small-change': 'Small change',
+  feature: 'Feature',
+  unclear: 'Unclear kind',
+}
+/** The five scores in the order hobkin asks them, in the card's words. */
+const SCORE_WORDS = [
+  ['coverage', 'coverage'],
+  ['proof', 'proof'],
+  ['safety', 'deploy and data'],
+  ['visibility', 'visibility'],
+  ['rollback', 'rollback'],
+] as const
+
+/**
+ * What a review scored the change, in one line. A score says how well a question is answered and is never the review's
+ * level, which is the risk of a break. A floor hobkin holds a change by is named, and scores for an older commit say so.
+ */
+function scoreLine({ review }: ReadyRow): string | null {
+  if (!review) return null
+  const each = SCORE_WORDS.map(([criterion, words]) => `${words} ${review.scores[criterion]?.score ?? '?'}`).join(', ')
+  const floors = review.floors.map(({ criterion, needs }) => `${SCORE_WORDS.find(([name]) => name === criterion)?.[1] ?? criterion} is under ${needs}`)
+  const held = floors.length ? ` Held whatever the rate: ${floors.join(', ')}.` : ''
+  const older = review.stale ? ' Scored on an older commit, not this one.' : ''
+  return `${KIND_WORDS[review.kind] ?? review.kind}, general rate ${review.rate}: ${each}.${held}${older}`
 }
 
 function mergeLine({ branch, size, pr, conflict, behind }: ReadyRow): string {
@@ -211,6 +256,7 @@ export function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
     yes: mergeLine(entry),
     reason: reasonOf(entry, group),
     safety: entry.safety ? { grade: entry.safety.grade, rating: entry.safety.rating, stale: Boolean(entry.safety.stale) } : null,
+    scores: scoreLine(entry),
     size,
     behind: entry.behind ?? 0,
     conflict: entry.conflict ?? null,
@@ -315,6 +361,7 @@ export function workFrom(snapshot: HobkinSnapshot): WorkState | null {
     queued: work.queued ?? 0,
     projects: projectsFrom(work.projects ?? []),
     finished: finishedFrom(waiting?.branches ?? []),
+    yolo: work.yolo ?? null,
   }
 }
 
@@ -325,7 +372,7 @@ export interface WorkSeat {
   root: () => string
 }
 
-type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.change' | 'work.group'
+type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.yolo' | 'work.change' | 'work.group'
 
 /** y and n on a proposal in the terminal: take it, or leave it alone. */
 const PROPOSAL_ANSWERS = { take: 'choose', skip: 'skip' } as const
@@ -382,6 +429,13 @@ export function workHandlers({ app, root }: WorkSeat): Pick<HostHandlers, WorkCo
       const mode = setDailyTokens(root(), tokens)
       await app().refresh()
       return { tokens: mode.dailyTokens }
+    },
+    'work.yolo': async ({ on, rate }) => {
+      // The user's click and nothing else: no work action and no `hobkin work` command changes YOLO mode, so the host
+      // calls the runtime's own function. Turning it on merges nothing and files each project's readiness work.
+      const yolo = setYolo(root(), { ...(on === undefined ? {} : { on }), ...(rate === undefined ? {} : { rate }) })
+      await app().refresh()
+      return { on: yolo.on, rate: yolo.rate }
     },
     'work.change': async ({ slug, item, action, head, note }) => {
       const named = CHANGE_ACTIONS[action]

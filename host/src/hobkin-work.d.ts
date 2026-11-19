@@ -98,3 +98,11 @@ declare module 'hobkin/src/cli/work/reads.mjs' {
   /** Only a review that rated this very commit below safe holds work back. */
   export function heldByItsGrade(entry: { safety?: { grade: string; stale?: boolean } | null }): boolean
 }
+
+declare module 'hobkin/src/cli/work/yolo.mjs' {
+  /**
+   * The user's word on YOLO mode, which no `hobkin work` command changes. A value left out keeps what it was. Turning
+   * it on merges nothing and files each project's readiness work, named in `filed`. Throws for a rate outside 6 to 10.
+   */
+  export function setYolo(root: string, change: { on?: boolean; rate?: number }): { on: boolean; rate: number; filed: { slug: string; id: string; title: string }[] }
+}

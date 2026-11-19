@@ -140,6 +140,33 @@ export interface FinishedChange {
   issue?: WorkIssue | null
   /** On a "Left for you" card, the note its run left for the user, whole. */
   left?: string | null
+  /**
+   * What its review scored it, in one line: its kind, its general rate and the five scores (049-yolo-mode). A score says
+   * how well a question is answered, never the risk of a break, which is the review's level. Null with no scores.
+   */
+  scores?: string | null
+}
+
+/** One project's place in YOLO mode: whether changes may merge there by themselves, and what it still needs when not. */
+export interface YoloProject {
+  slug: string
+  name: string
+  ready: boolean
+  needs: string[]
+}
+
+/**
+ * YOLO mode as hobkin reports it (`yoloView` in its `src/cli/work/yolo.mjs`, 049-yolo-mode): the user's switch, the
+ * lowest general rate a change may have to merge by itself with the range hobkin takes, and each chosen project's readiness.
+ */
+export interface YoloState {
+  on: boolean
+  rate: number
+  lowest: number
+  highest: number
+  /** How many of `projects` are ready. */
+  ready: number
+  projects: YoloProject[]
 }
 
 /** What the user said yes to that has not merged yet: an agent brings it up to date first, and hobkin merges it once that run ends well. */
@@ -203,6 +230,8 @@ export interface WorkState {
   finished: FinishedGroup[]
   /** What the user said yes to that is still being brought up to date before it merges. A host older than this does not send it. */
   merging?: MergingRow[]
+  /** YOLO mode and each project's readiness for it. A host older than this does not send it. */
+  yolo?: YoloState | null
 }
 
 /** One row of a group's yes, as hobkin's `mergeGroup` takes it. */
