@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import type { HobkinConversation, HobkinSummary } from '#shared/protocol/hobkins.ts'
 import { runCommand } from '@/lib/host/client.ts'
 import { latestWins, reloadKey, seenToSend } from './conversation.ts'
+import { pageShownId } from './page-shown.ts'
 
 /**
  * A durable hobkin's conversation, read with `hobkin.read` when its page opens and again whenever its turns, its state or
@@ -62,4 +63,17 @@ export function useMarkSeen(hobkin: HobkinSummary | undefined, onPage: boolean, 
     // A refusal leaves the wait to the main hobkin, which tells the user in the chat.
     runCommand('hobkin.seen', { id }).catch(() => {})
   }, [wait, id])
+}
+
+/**
+ * While the page is on screen, the window is showing and the hobkin waits on Pi, tells the host, which starts that
+ * hobkin's Pi process if none is kept (spec 034). It says so each time that becomes true again: the page opens, the
+ * window shows again, or a turn ends. A refusal changes nothing.
+ */
+export function usePageShown(hobkin: HobkinSummary | undefined, onPage: boolean, connected: boolean): void {
+  const shown = useWindowShown()
+  const id = connected ? pageShownId({ onPage, windowShowing: shown, hobkin: hobkin ?? null }) : null
+  useEffect(() => {
+    if (id) runCommand('hobkin.shown', { id }).catch(() => {})
+  }, [id])
 }

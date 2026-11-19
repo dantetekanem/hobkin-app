@@ -30,7 +30,7 @@ import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, type PageSt
 import { endingOf, pressEndOf, takeBackEnd, useEnding } from './end.ts'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
-import { useConversation, useMarkSeen } from './use-conversation.ts'
+import { useConversation, useMarkSeen, usePageShown } from './use-conversation.ts'
 
 /**
  * A durable hobkin's page: the agent screen for the agent id `hobkin:<id>` (`034-durable-hobkins`). Its name, folder,
@@ -143,6 +143,7 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
   const { hobkin, state, connected, fresh } = useHobkin(id)
   const onPage = useView((view) => view.screen === 'agent' && view.openAgent === hobkinAgentId(id))
   useMarkSeen(hobkin, onPage && present, connected)
+  usePageShown(hobkin, onPage && present, connected)
   const { conversation, problem } = useConversation(id, hobkin, connected)
 
   // Before the first read answers, a turn in flight still shows, with the message that began it.
