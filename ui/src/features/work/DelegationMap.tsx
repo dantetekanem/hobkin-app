@@ -8,7 +8,8 @@ import { Hob } from '@/avatar/Hob.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
-import { hostStore, useHost } from '@/lib/host/index.ts'
+import { sameFields, sameLists } from '@/lib/host/frame.ts'
+import { hostStore, useHost, useHostEqual } from '@/lib/host/index.ts'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { ChildFaces, ChildHood } from './ChildAgents.tsx'
 import { childHue, childLine, childrenSummary, describeChild, helpersNow, HOBKIN_HUE, satellitesOf } from './child-summary.ts'
@@ -224,10 +225,13 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
   )
 }
 
+const sameControls = (left: readonly ExecutionControl[], right: readonly ExecutionControl[]) => sameLists(left, right, sameFields)
+
 /** Authoritative owned rows are separate from the decorative, name-only observations above. */
 function OwnedExecutionControls() {
-  const host = useHost(state => state)
-  const targets = executionTargets(host)
+  // The controls alone: the host's other messages do not draw them again.
+  const targets = useHostEqual(executionTargets, sameControls)
+  const epoch = useHost(state => state.epoch)
   const state = useExecution()
   const rows = executionFeedbackRows(targets, state.results)
   return <details className="rounded-xl border border-border p-3 text-sm">
@@ -238,7 +242,7 @@ function OwnedExecutionControls() {
           <OwnedExecutionRow
             key={executionKey(target)}
             target={target}
-            source={host.epoch}
+            source={epoch}
             active={active}
             result={result}
             pending={state.pending}

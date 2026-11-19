@@ -177,3 +177,28 @@ export function connectionFrom(state: HostState, macWindow = IN_MAC_WINDOW): Con
   if (owner?.state === 'failed') return { status: 'offline', label: 'Offline', detail: owner.message }
   return { status: 'connecting', label: 'Starting', detail: null }
 }
+
+/**
+ * Two values say the same: every field the same, and a nested object (a durable hobkin's facts) by its own fields. The
+ * host's messages rebuild what the window reads from them, so a reader compares what it draws instead of objects.
+ */
+export function sameFields(left: object | null | undefined, right: object | null | undefined, depth = 1): boolean {
+  if (left === right) return true
+  if (!left || !right) return false
+  const keys = Object.keys(left)
+  if (keys.length !== Object.keys(right).length) return false
+  return keys.every((key) => {
+    const [a, b] = [(left as Record<string, unknown>)[key], (right as Record<string, unknown>)[key]]
+    if (a === b) return true
+    return depth > 0 && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b) && sameFields(a, b, depth - 1)
+  })
+}
+
+/** Two lists hold values that say the same, in the same order. */
+export function sameLists<Value>(left: readonly Value[], right: readonly Value[], same: (a: Value, b: Value) => boolean = Object.is): boolean {
+  return left === right || (left.length === right.length && left.every((value, index) => same(value, right[index]!)))
+}
+
+/** The value held while the next one says the same, so a reader of it draws again only when it changed. */
+export const keepEqual = <Value>(held: Value | undefined, next: Value, same: (a: Value, b: Value) => boolean): Value =>
+  held !== undefined && same(held, next) ? held : next

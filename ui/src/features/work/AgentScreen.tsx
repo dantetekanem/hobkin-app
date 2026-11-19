@@ -2,7 +2,7 @@ import { ArrowDown, ArrowUp } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
-import { agentControls, answerAgent, questionOf, useAgent, useAgentControl, useRunningAgents, type RunningAgent } from '@/app/running-agents.ts'
+import { agentControls, answerAgent, questionOf, runningAgents, useAgent, useAgentControl, type RunningAgent } from '@/app/running-agents.ts'
 import { holdStill, stillVariants, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import type { Mood } from '@/avatar/moods.tsx'
@@ -19,8 +19,8 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { agentsFrom } from '@/lib/host/frame.ts'
-import { useHasHost, useHost } from '@/lib/host/index.ts'
+import { agentsFrom, sameFields } from '@/lib/host/frame.ts'
+import { useHasHost, useHost, useHostEqual } from '@/lib/host/index.ts'
 import { useAgentThreads, type AgentNote } from './agent-threads.ts'
 import { ChildCluster, ChildHood } from './ChildAgents.tsx'
 import { childHue, childLine, childrenSummary, describeChild, satellitesOf } from './child-summary.ts'
@@ -175,10 +175,11 @@ type Side = 1 | -1
  * it goes the way the canvas was asked to move.
  */
 function useSide(agentId: string | null): Side {
-  const agents = useRunningAgents()
   const asked = useView((view) => view.screenMotion.direction)
   const last = useRef<{ agentId: string | null; side: Side }>({ agentId, side: asked })
   if (last.current.agentId !== agentId) {
+    // The list is read as it is when the agent changes: its steps arriving do not draw the screen again.
+    const agents = runningAgents()
     const from = agents.findIndex((agent) => agent.id === last.current.agentId)
     const to = agents.findIndex((agent) => agent.id === agentId)
     last.current = { agentId, side: from === -1 || to === -1 ? asked : to > from ? 1 : -1 }
@@ -235,8 +236,8 @@ function Passing({ side, children }: { side: Side; children: ReactNode }) {
  */
 export function AgentStopControl({ agentId, forceKey = false }: { agentId: string | null; forceKey?: boolean }) {
   const { target, result } = useAgentControl()
-  const host = useHost(state => state)
-  const control = executionTargets(host).find(row => row.kind === 'run' && row.runId === agentId)
+  // Only this run's control: the host's other messages do not draw the buttons again.
+  const control = useHostEqual((state) => executionTargets(state).find(row => row.kind === 'run' && row.runId === agentId), sameFields)
   const execution = useExecution()
   const pending = (mode: 'stop' | 'force') => agentControls.pending(agentId, mode) || (control !== undefined && execution.pending[executionKey(control, mode)] === true)
   const executionResult = Object.values(execution.results).find(result => result.receipt?.target.kind === 'run' && result.receipt.target.runId === agentId)

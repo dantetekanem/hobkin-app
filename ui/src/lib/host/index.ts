@@ -12,6 +12,7 @@ export {
   useGitHub,
   useHasHost,
   useHost,
+  useHostEqual,
   useMainModel,
   useModels,
   usePendingQuestion,

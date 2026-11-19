@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useStore } from 'zustand'
 import { sampleAgents, sampleModels, sampleProjects, sampleSessions, sampleStatus, type SampleAgent, type SampleProject, type SampleSession } from '@/app/sample.ts'
 import { GITHUB_UNKNOWN, sampleGitHub, type GitHubState } from '#shared/protocol/github.ts'
@@ -6,12 +6,25 @@ import type { ModelsState } from '#shared/protocol/models.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { hostStore } from './client.ts'
-import { actionItemCountFrom, agentsFrom, connectionFrom, hasHost, mainModelFrom, projectsFrom, type Connection } from './frame.ts'
+import { actionItemCountFrom, agentsFrom, connectionFrom, hasHost, keepEqual, mainModelFrom, projectsFrom, type Connection } from './frame.ts'
 import { canUseModel, type HostState } from './state.ts'
 
 /** Reads the host's state. The component draws again only when what it selected changes. */
 export function useHost<Selected>(selector: (state: HostState) => Selected): Selected {
   return useStore(hostStore, selector)
+}
+
+/**
+ * Reads the host's state, for a selection that is made anew from each message (a list, an agent, a control): the
+ * component draws again only when the selection no longer says the same by `same`, not for every message the host sends.
+ */
+export function useHostEqual<Selected>(selector: (state: HostState) => Selected, same: (a: Selected, b: Selected) => boolean): Selected {
+  const held = useRef<{ value: Selected } | null>(null)
+  return useStore(hostStore, (state) => {
+    const value = held.current ? keepEqual(held.current.value, selector(state), same) : selector(state)
+    held.current = { value }
+    return value
+  })
 }
 
 /** Whether this window has a host (`hasHost`): always in the Mac window. Without one the frame draws sample data, labelled as such. */

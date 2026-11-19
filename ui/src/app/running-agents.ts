@@ -9,8 +9,8 @@ import { runExecution } from '@/features/work/store.ts'
 import { listedAgents, type ListedAgent } from '@/features/hobkins/list.ts'
 import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
-import { hasHost } from '@/lib/host/frame.ts'
-import { hostStore, useHasHost, useHost } from '@/lib/host/index.ts'
+import { hasHost, sameFields, sameLists } from '@/lib/host/frame.ts'
+import { hostStore, useHasHost, useHostEqual } from '@/lib/host/index.ts'
 import { agentQuestionId, answeredAgents, nextAsking, waitingFirst } from './asking.ts'
 import { useView } from './view-store.ts'
 
@@ -88,13 +88,15 @@ function running(limit: number, answered: readonly string[]): RunningAgent[] {
   return waitingFirst(POOL.slice(0, limit).map((agent) => settle(agent, answered)))
 }
 
-/** hobkin's agents with a host: the user's durable hobkins, then every run at work that is not the main conversation. */
+/**
+ * hobkin's agents with a host: the user's durable hobkins, then every run at work that is not the main conversation.
+ * The list stays the same while every agent in it says the same, so its readers do not draw again for each message.
+ */
 function useHostedAgents(): RunningAgent[] {
-  const runs = useHost((state) => state.snapshot.runs)
-  const jobActivity = useHost((state) => state.snapshot.jobActivity)
-  const hobkins = useHost((state) => state.snapshot.hobkins)
-  return useMemo(() => listedAgents({ runs, jobActivity, hobkins }), [runs, jobActivity, hobkins])
+  return useHostEqual((state) => listedAgents(state.snapshot), sameAgents)
 }
+
+const sameAgents = (left: readonly RunningAgent[], right: readonly RunningAgent[]) => sameLists(left, right, sameFields)
 
 export function useRunningAgents(): RunningAgent[] {
   const live = useHasHost()
@@ -107,10 +109,11 @@ export function useRunningAgents(): RunningAgent[] {
 /** One agent, following whether it is still waiting. It is found even after it has left the list. */
 export function useAgent(id: string | null): RunningAgent | undefined {
   const live = useHasHost()
-  const hosted = useHostedAgents()
+  // Only this agent: another agent's steps do not draw its screen again.
+  const hosted = useHostEqual((state) => listedAgents(state.snapshot).find((agent) => agent.id === id), sameFields)
   const answered = useAnswered((state) => state.ids)
   return useMemo(() => {
-    if (live) return hosted.find((agent) => agent.id === id)
+    if (live) return hosted
     const agent = POOL.find((entry) => entry.id === id)
     return agent && settle(agent, answered)
   }, [id, live, hosted, answered])
