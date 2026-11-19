@@ -1,0 +1,57 @@
+/**
+ * What a review says of a finished change, beside its grade: five scores from 1 to 10, each with a line of evidence, and the kind of change it is.
+ * The review sends the scores and hobkin works out the rest here, so no run can send a rate. A score says how well a question is answered, and
+ * never how risky the change is: that is the review's level.
+ */
+
+/** The five questions, in the order a card says them. */
+export const CRITERIA = ['coverage', 'proof', 'safety', 'visibility', 'rollback'];
+export const KINDS = ['performance', 'bug-fix', 'state-machine', 'package-update', 'small-change', 'feature', 'unclear'];
+/** The kinds small enough to merge by themselves. A feature, and anything a review could not place, keeps asking the user. */
+export const SMALL_KINDS = KINDS.slice(0, 5);
+
+// A deploy or data risk is the harm an average hides, and a change that is slow to undo needs a person.
+const FLOORS = { safety: 8, rollback: 7 };
+// A 4 or less means the review found that part missing or wrong.
+const LOWEST = 5;
+const COMMIT = /^[0-9a-f]{40}$/;
+const LONGEST_LINE = 400;
+
+const isScore = score => Number.isInteger(score) && score >= 1 && score <= 10;
+const isOneLine = text => typeof text === 'string' && text.trim().length > 0 && text.length <= LONGEST_LINE && !/[\r\n]/.test(text.trim());
+
+/** Refuses a review hobkin could not stand behind, saying which part is wrong. */
+export function assertReview(review) {
+  const { kind, scores, head, missing, rate } = review ?? {};
+  if (!KINDS.includes(kind)) throw Error(`A review's kind must be one of: ${KINDS.join(', ')}`);
+  if (!COMMIT.test(head ?? '')) throw Error('A review needs head, the full commit it read, as git rev-parse HEAD prints it.');
+  if (rate !== undefined) throw Error('A review sends no rate: hobkin works it out from the scores.');
+  for (const criterion of CRITERIA) {
+    const { score, evidence } = scores?.[criterion] ?? {};
+    if (!isScore(score)) throw Error(`${criterion} needs a whole score from 1 to 10.`);
+    if (!isOneLine(evidence)) throw Error(`${criterion} needs one line of evidence, at most ${LONGEST_LINE} characters.`);
+  }
+  if (missing !== undefined && !isOneLine(missing)) throw Error('missing is one line saying what proof is still wanted, or left out.');
+}
+
+/** A review as hobkin keeps it: only what it asked for, checked. */
+export function keptReview(review) {
+  assertReview(review);
+  const { kind, scores, head, missing } = review;
+  const kept = Object.fromEntries(CRITERIA.map(criterion => [criterion, { score: scores[criterion].score, evidence: scores[criterion].evidence.trim() }]));
+  return { kind, scores: kept, head, ...(missing ? { missing: missing.trim() } : {}) };
+}
+
+/** The average of the five, cut to one decimal and never rounded up. */
+export function generalRate(scores) {
+  const sum = CRITERIA.reduce((total, criterion) => total + scores[criterion].score, 0);
+  return Math.floor((sum * 10) / CRITERIA.length) / 10;
+}
+
+/** The scores that hold a change whatever its average, each with what it needed. */
+export const brokenFloors = scores => CRITERIA
+  .map(criterion => ({ criterion, score: scores[criterion].score, needs: FLOORS[criterion] ?? LOWEST }))
+  .filter(({ score, needs }) => score < needs);
+
+/** A kept review with what hobkin works out from it. */
+export const scoresOf = ({ kind, scores, head, missing = null }) => ({ kind, scores, rate: generalRate(scores), floors: brokenFloors(scores), missing, head });

@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { learningEnabled } from '../config.mjs';
 import { lookTime } from './chat.mjs';
+import { scoresOf } from './classified.mjs';
 import { forecastWork } from './forecast.mjs';
 import { knownSoFar, launchSince, openLaunches } from './launches.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
@@ -260,6 +261,8 @@ function readyRow(root, project, item, items, openUnits = []) {
     size,
     safety,
     quality: quality && { rating: quality.rating, reason: quality.reason, stale: quality.head !== unit.sha },
+    // A review's scores belong to the commit it read, as its quality does.
+    review: item.review ? { ...scoresOf(item.review), stale: item.review.head !== unit.sha } : null,
     notices,
     launch,
     onlyDocs,

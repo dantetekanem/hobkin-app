@@ -53,6 +53,24 @@ If `work.item.workNote` is set, the user read your branch and wrote that note. D
     | `forward-fix` | data backfills |
     | `two-phase` | serialized formats and job payloads |
     | `permanent` | published packages and app store builds |
+
+    A review also scores the change. Add `review` to the same outcome, with `head` from `git rev-parse HEAD` after your last commit:
+
+    ```json
+    "review": { "kind": "bug-fix", "head": "<git rev-parse HEAD>", "missing": "What proof is still wanted, in a line.", "scores": { "coverage": { "score": 8, "evidence": "One line." }, "proof": { "score": 9, "evidence": "One line." }, "safety": { "score": 9, "evidence": "One line." }, "visibility": { "score": 6, "evidence": "One line." }, "rollback": { "score": 9, "evidence": "One line." } } }
+    ```
+
+    Each score is a whole number from 1 to 10 with one line of evidence that names what you saw: a test, a file and line, or a command and what it printed. Score what is there, never what was meant, and score low what you could not check. Leave `missing` out when no proof is wanted.
+
+    | Score | The question | 10 | 1 |
+    |---|---|---|---|
+    | `coverage` | Do tests cover the change? | Every changed line and branch runs in a test that fails without the change. | No test runs the changed code. |
+    | `proof` | Were tests added or changed to prove this works, and what is still missing? | A test written or changed for this change shows it working, and nothing is missing. | Nothing was added or changed to show it. |
+    | `safety` | Does it risk the deployment or data? Is data integrity safe? | It cannot break a deploy and touches no stored data. | It can lose or corrupt data, or stop a deploy. |
+    | `visibility` | Do metrics and visibility cover it? | A failure would show by itself: a failing check, an error report, a log or a metric on its path. | A failure would go unseen until someone complained. |
+    | `rollback` | What is the risk and the time to roll back? Does a flag guard it, or should one? | One step undoes it in minutes and leaves nothing behind. | Nothing undoes it. |
+
+    `kind` says what the change is, whatever its item was filed as: `performance`, `bug-fix`, `state-machine` for an implicit state machine made explicit or fixed, `package-update`, `small-change`, or `feature` for new behaviour a user can see. Say `unclear` when it fits none of them or mixes them. hobkin works out the general rate from your scores, so send no rate. It keeps scores only from a review, so a run without `work.item.reviewAsked` leaves `review` out.
 9. Write the PR description to `work.item.prFile`, in Markdown: a title on the first line, then what changed, why, the proof, what could not be tested, and that Hobkin work mode made it. When `work.item.issue` is set, its last line is `Fixes <repo>#<number>` with that issue's `repo` and `number`, so GitHub closes the issue when the PR merges. This is the description of your branch whatever `work.landing` says.
 10. Land it as `work.landing` says:
     - `off`: stop here. Your branch and that description are a local PR for the user to review. Push nothing and open no PR.

@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveDataRoot } from '../migration/admission.mjs';
+import { keptReview } from './classified.mjs';
 import {
   addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, publishItem, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
@@ -252,6 +253,13 @@ async function treeFor(root, slug) {
   return { tree: lookTree };
 }
 
+/** A review's scores are kept only from the run hobkin started as that item's review, so the run that wrote a change cannot grade it. */
+function reviewScores(root, slug, { id, review }) {
+  const underReview = readItems(root, slug).some(item => item.id === id && item.reviewAsked);
+  if (!underReview) throw Error('Only the run hobkin started as this item\'s review records its scores. Leave review out.');
+  return keptReview(review);
+}
+
 /** These take no lock. They only append or rewrite `mode.json`, and the owner picks that up on its next tick. */
 export async function runWorkCommand(requestedRoot, [action, ...args], input, { state, brief } = {}) {
   const root = resolveDataRoot(requestedRoot);
@@ -340,7 +348,8 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       if (item.launch) assertLaunch(item.launch);
       // A session the main agent was handed this work by has said how it went, so its card comes back now, not when the hand-off runs out.
       const reported = item.state || item.proof ? { withMainAgent: null } : {};
-      return updateItem(root, args[0], item.id, { ...(await trueOutcome(root, args[0], item)), ...reported });
+      const scored = item.review ? { review: reviewScores(root, args[0], item) } : {};
+      return updateItem(root, args[0], item.id, { ...(await trueOutcome(root, args[0], item)), ...scored, ...reported });
     }
     case 'tree': return treeFor(root, args[0]);
     case 'signals': return signalsCommand(root, args[0], input);
