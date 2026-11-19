@@ -457,8 +457,17 @@ const USED_BY_NAME = new Set(['constant', 'variable', 'type', 'interface', 'enum
 /** The most places one changed constant or type is looked for. */
 const MOST_REFERENCES = 12
 
+/**
+ * Where a use of a name can count: the file that defines it, and whether other files may import it. Ruby files never
+ * import a constant by its name, so for a Ruby definition only its own file can hold a use that counts.
+ */
+export interface ReferenceScope {
+  file: string
+  importers: boolean
+}
+
 /** Where a name is used at head, as git finds the whole word in the commit, never in the working tree. */
-export type ReferenceSearch = (name: string) => Promise<{ path: string; line: number }[]>
+export type ReferenceSearch = (name: string, scope: ReferenceScope) => Promise<{ path: string; line: number }[]>
 
 /** The definition at head that holds a line: the innermost declaration around it, else the statement that starts there. */
 function enclosingAt(text: string, at: number, path: string): VicinityDefinition | null {
@@ -482,7 +491,7 @@ async function referencesOf(anchor: Anchor, search: ReferenceSearch, readHead: (
   if (!/^[\w$]+$/.test(name)) return []
   const found: { definition: VicinityDefinition; line: number; proven: boolean }[] = []
   const seen = new Set<string>()
-  for (const hit of await search(name)) {
+  for (const hit of await search(name, { file: anchor.path, importers: anchor.language !== 'ruby' })) {
     if (found.length >= MOST_REFERENCES) break
     if (isTestPath(hit.path) || (hit.path === anchor.path && hit.line >= anchor.startLine && hit.line <= anchor.endLine)) continue
     const text = await readHead(hit.path)
@@ -498,12 +507,51 @@ async function referencesOf(anchor: Anchor, search: ReferenceSearch, readHead: (
   return found
 }
 
-/** Where git finds the whole word at a commit: the commit's own files, read without the working tree. */
+/** A file in a folder that makes it a project of its own, as the call-graph scan finds a project's root. */
+const isProjectFile = (name: string) => name === 'package.json' || name === 'component.yml' || name === 'Gemfile' || name.endsWith('.gemspec')
+/** The files that may import a JavaScript or TypeScript definition. */
+const IMPORTER_EXTENSIONS = ['js', 'jsx', 'mjs', 'cjs', 'ts', 'tsx', 'mts', 'cts', 'vue', 'svelte', 'astro']
+const GIT_READ_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+
+/**
+ * The project a file sits in at head: the deepest folder above it that holds a package.json, component.yml, Gemfile
+ * or gemspec, read in one listing of every such folder. The empty string is the whole repository.
+ */
+async function projectOf(repo: string, head: string, file: string): Promise<string> {
+  const parts = file.split('/').slice(0, -1)
+  const folders = parts.map((_, index) => parts.slice(0, index + 1).join('/'))
+  let stdout: string
+  try {
+    ;({ stdout } = await exec('git', ['-C', repo, 'ls-tree', '-z', '--full-name', '--name-only', head, '--', './', ...folders.map((folder) => `${folder}/`)], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: SCAN_TIMEOUT_MS, env: { ...GIT_READ_ENV, GIT_LITERAL_PATHSPECS: '1' } }))
+  } catch {
+    return ''
+  }
+  const holding = new Set(stdout.split('\0').flatMap((entry) => {
+    const at = entry.lastIndexOf('/')
+    return isProjectFile(entry.slice(at + 1)) ? [at < 0 ? '' : entry.slice(0, at)] : []
+  }))
+  return folders.findLast((folder) => holding.has(folder)) ?? ''
+}
+
+/** git's pathspecs for where a use can count: the defining file as written, and the code of its project that may import it. */
+async function referencePaths(repo: string, head: string, { file, importers }: ReferenceScope): Promise<string[]> {
+  const own = `:(literal)${file}`
+  if (!importers) return [own]
+  // A folder's name is never read as a pattern.
+  const under = (await projectOf(repo, head, file)).replace(/[*?[\]\\]/g, '\\$&')
+  return [own, ...IMPORTER_EXTENSIONS.map((extension) => `:(glob)${under ? `${under}/` : ''}**/*.${extension}`)]
+}
+
+/**
+ * Where git finds the whole word at a commit: the commit's own files, read without the working tree, and only those
+ * where a use can count, so a very large repository is never read whole.
+ */
 export function gitReferences(repo: string, head: string): ReferenceSearch {
-  return async (name) => {
+  return async (name, scope) => {
     let stdout: string
     try {
-      ;({ stdout } = await exec('git', ['-C', repo, 'grep', '-n', '-w', '-F', '-I', '-e', name, head, '--'], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: SCAN_TIMEOUT_MS, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } }))
+      const paths = await referencePaths(repo, head, scope)
+      ;({ stdout } = await exec('git', ['-C', repo, 'grep', '-n', '-w', '-F', '-I', '-e', name, head, '--', ...paths], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024, timeout: SCAN_TIMEOUT_MS, env: GIT_READ_ENV }))
     } catch {
       // No place at all, or none git could read.
       return []

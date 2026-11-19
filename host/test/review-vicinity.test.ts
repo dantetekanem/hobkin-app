@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import type { VicinityLink } from '#shared/review/vicinity.ts'
-import { scanVicinity, type ScanRun } from '../src/review/vicinity-scan.ts'
+import { gitReferences, scanVicinity, type ReferenceScope, type ScanRun } from '../src/review/vicinity-scan.ts'
 
 /**
  * agentic-search's packs, as `scan --json` writes them under `details`: the diff scan of the change, then a scan of the
@@ -211,7 +215,7 @@ test('a changed constant, which no one calls, has what uses it by name as its ca
     asked.push([...args])
     return { ok: true, stdout: JSON.stringify({ details: pack }) }
   }
-  const searched: string[] = []
+  const searched: [string, ReferenceScope][] = []
   const vicinity = await scanVicinity({
     repo: '/repo.invalid',
     base: 'b'.repeat(40),
@@ -219,14 +223,14 @@ test('a changed constant, which no one calls, has what uses it by name as its ca
     run,
     readHead: async (path) => head[path] ?? null,
     readFolder: () => null,
-    references: async (name) => {
-      searched.push(name)
+    references: async (name, scope) => {
+      searched.push([name, scope])
       return [{ path: 'src/extension.ts', line: 4 }, { path: 'src/extension.ts', line: 9 }, { path: 'src/other.ts', line: 3 }, { path: 'src/unrelated.ts', line: 2 }, { path: 'test/cli.test.ts', line: 9 }]
     },
   })
 
   assert.ok(asked[0]!.includes('--tests') && asked[0]![asked[0]!.indexOf('--tests') + 1] === 'all', 'the first scan lists every test that uses the change')
-  assert.deepEqual(searched, ['SearchParams'])
+  assert.deepEqual(searched, [['SearchParams', { file: 'src/extension.ts', importers: true }]], 'its own file, and the files that may import it')
   assert.deepEqual(
     vicinity.links.map(({ other, call, proven }) => [other.path, other.symbol, other.startLine, other.endLine, call.line, call.reference, proven]),
     [
@@ -237,4 +241,71 @@ test('a changed constant, which no one calls, has what uses it by name as its ca
   )
   assert.equal(vicinity.left?.partial, 0, 'found, so the scan no longer says it could not list every caller')
   assert.deepEqual(vicinity.tests, [{ changed: { path: 'src/extension.ts', line: 4 }, test: { path: 'test/cli.test.ts', symbol: 'cli matches pi', line: 9 } }])
+})
+
+test('a changed Ruby constant is looked for in its own file only, since no other Ruby file imports it, and its use there is still its caller', async () => {
+  const plan = ['class Plan', '  LIMITS = {', '    free: 1,', '  }.freeze', '', '  def allowed?(count)', '    count <= LIMITS[:free]', '  end', 'end', ''].join('\n')
+  const pack = {
+    files: [{ path: 'app/models/plan.rb' }],
+    nodes: [node('c1', 'app/models/plan.rb', 'Plan::LIMITS', 2, 4, { kind: 'constant', language: 'ruby', depth: 0 })],
+    anchors: [{ id: 'c1', symbol: 'Plan::LIMITS', kind: 'constant', language: 'ruby', path: 'app/models/plan.rb', startLine: 2, endLine: 4, changedLines: [3], callers: [], callerCount: { total: 0, shown: 0, complete: false } }],
+    edges: [],
+    coverage: { truncatedBy: 'none' },
+  }
+  const searched: [string, ReferenceScope][] = []
+  const vicinity = await scanVicinity({
+    repo: '/repo.invalid',
+    base: 'b'.repeat(40),
+    head: 'c'.repeat(40),
+    run: async () => ({ ok: true, stdout: JSON.stringify({ details: pack }) }),
+    readHead: async (path) => (path === 'app/models/plan.rb' ? plan : null),
+    readFolder: () => null,
+    references: async (name, scope) => {
+      searched.push([name, scope])
+      return [{ path: 'app/models/plan.rb', line: 2 }, { path: 'app/models/plan.rb', line: 7 }]
+    },
+  })
+
+  assert.deepEqual(searched, [['LIMITS', { file: 'app/models/plan.rb', importers: false }]])
+  assert.deepEqual(vicinity.links.map(({ other, call, proven }) => [other.path, other.startLine, other.endLine, call.line, call.reference, proven]), [['app/models/plan.rb', 6, 8, 7, true, true]])
+})
+
+test('git looks for a name at head in the defining file, and for code that may import it, only in the JavaScript and TypeScript of its own project', async () => {
+  const repo = mkdtempSync(join(tmpdir(), 'hobkin-references-'))
+  try {
+    const files: Record<string, string> = {
+      'README.md': 'LIMITS, SearchParams and Loose are named here.\n',
+      'app/models/plan.rb': 'class Plan\n  LIMITS = 1\n  def a = LIMITS\nend\n',
+      'app/models/other.rb': 'class Other\n  def b = Plan::LIMITS\nend\n',
+      'Gemfile': "source 'https://rubygems.invalid'\n",
+      'loose.ts': 'export const Loose = 1\n',
+      'packages/w[e]b/package.json': '{}\n',
+      'packages/w[e]b/src/extension.ts': 'export const SearchParams = 1\nexport const Loose = 2\n',
+      'packages/w[e]b/src/forms/use.tsx': 'import { SearchParams } from "../extension.ts"\nexport const use = SearchParams\n',
+      'packages/w[e]b/src/notes.md': 'SearchParams\n',
+      'packages/api/package.json': '{}\n',
+      'packages/api/src/user.ts': 'import { SearchParams } from "../../w[e]b/src/extension.ts"\nexport const user = SearchParams\nimport { Loose } from "../../../loose.ts"\nexport const loose = Loose\n',
+    }
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(repo, path)), { recursive: true })
+      writeFileSync(join(repo, path), text)
+    }
+    const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
+    git('init', '--quiet', '--initial-branch=main')
+    git('add', '-A')
+    git('commit', '--quiet', '-m', 'start')
+    const head = git('rev-parse', 'HEAD')
+    // A change in the working tree after the commit is not the commit's.
+    writeFileSync(join(repo, 'packages/w[e]b/src/forms/use.tsx'), `${files['packages/w[e]b/src/forms/use.tsx']}export const again = SearchParams\n`)
+    writeFileSync(join(repo, 'packages/w[e]b/src/late.ts'), 'export const late = SearchParams\n')
+
+    const search = gitReferences(repo, head)
+    const found = async (name: string, file: string, importers: boolean) => (await search(name, { file, importers })).map(({ path, line }) => `${path}:${line}`).sort()
+
+    assert.deepEqual(await found('LIMITS', 'app/models/plan.rb', false), ['app/models/plan.rb:2', 'app/models/plan.rb:3'], 'a Ruby file: its own uses, not another Ruby file or the README')
+    assert.deepEqual(await found('SearchParams', 'packages/w[e]b/src/extension.ts', true), ['packages/w[e]b/src/extension.ts:1', 'packages/w[e]b/src/forms/use.tsx:1', 'packages/w[e]b/src/forms/use.tsx:2'], 'its project, a folder named like a pattern read as itself; not the sibling project, a document, or the working tree')
+    assert.deepEqual(await found('Loose', 'loose.ts', true), ['loose.ts:1', 'packages/api/src/user.ts:3', 'packages/api/src/user.ts:4', 'packages/w[e]b/src/extension.ts:2'], 'no project above it: every JavaScript and TypeScript file')
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
 })
