@@ -1,5 +1,6 @@
 import { setTimeout as wait } from 'node:timers/promises';
 import { readCredentials } from './credentials.mjs';
+import { talksToServer } from './real-home.mjs';
 import { freshNonce, signedHeaders } from './sign.mjs';
 
 export const FEEDBACK_PATH = '/api/v1/feedback';
@@ -110,8 +111,12 @@ export function createTransport({
   return { request };
 }
 
-/** A transport for this data folder, or null when it is not enrolled. Bad credentials throw, without saying what they hold. */
+/**
+ * A transport for this data folder, or null when it is not enrolled, or is not the real home and its caller gave no
+ * fetch of its own. Bad credentials throw, without saying what they hold.
+ */
 export function transportFor(root, options = {}) {
+  if (!talksToServer(root, options)) return null;
   const credentials = readCredentials(root);
   return credentials && createTransport({ ...options, credentials });
 }

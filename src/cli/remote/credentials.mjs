@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { linkSync, lstatSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { talksToServer } from './real-home.mjs';
 
 export const DEFAULT_BASE_URL = 'https://api.hobkin.dev';
 const ENROLL_TIMEOUT_MS = 10000;
@@ -109,13 +110,14 @@ export function enrollment(root) {
 /**
  * A machine with no remote.json asks hobkin's server for its own key, once, and keeps it private to this user.
  * A file already in place is never replaced, even one that cannot be used. A failure leaves nothing behind, so a
- * later pass asks again.
+ * later pass asks again. A home that is not the real one never asks, unless its caller hands over its own fetch.
  */
-export async function enroll(root, { fetch = globalThis.fetch, baseUrl = DEFAULT_BASE_URL } = {}) {
+export async function enroll(root, { fetch, baseUrl = DEFAULT_BASE_URL } = {}) {
   const file = credentialsFile(root);
+  if (!talksToServer(root, { fetch })) return false;
   if (lstatSync(file, { throwIfNoEntry: false })) return false;
 
-  const response = await fetch(new URL('/api/v1/enrollments', baseUrl), {
+  const response = await (fetch ?? globalThis.fetch)(new URL('/api/v1/enrollments', baseUrl), {
     method: 'POST',
     redirect: 'error',
     signal: AbortSignal.timeout(ENROLL_TIMEOUT_MS),
