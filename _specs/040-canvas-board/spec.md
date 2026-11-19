@@ -5,14 +5,14 @@
   "kind": "work",
   "status": "doing",
   "depends": ["030-canvas-panel", "035-canvas-drawings", "036-canvas-browser", "034-durable-hobkins", "019-keyboard"],
-  "updated": "2026-11-14"
+  "updated": "2026-11-19"
 }
 ---
 # Canvas: the right side, live drawings and the kit
 
 ## Outcome
 
-The canvas becomes a real drawing surface and whiteboard, as big as the right side of the window. When the main hobkin opens its canvas, the right side travels to it: a place of its own with its own row in the menu, as Settings has, and it stays until the user or hobkin closes it. When a durable hobkin opens its canvas on its page, the page moves left over the chat and the canvas takes the right side. A redraw changes the drawing in place: what stayed the same stays still, new parts draw themselves in, moved parts glide, removed parts fade. A small kit that comes with every drawing gives hobkins sticky notes, boxes, frames and arrows joined by id, in the app's light and dark colors. Escape closes the canvas when the keyboard is in it, the drawing included. The skill teaches hobkins to think on the canvas instead of writing pages.
+The canvas becomes a real drawing surface and whiteboard, as big as the right side of the window. When the main hobkin opens its canvas, the right side travels to it: a place of its own with its own row in the menu, as Settings has, and it stays until the user or hobkin closes it. When a durable hobkin opens its canvas on its page, the page moves left over the chat and the canvas takes the right side. A redraw changes the drawing in place: what stayed the same stays still, new parts draw themselves in, moved parts glide, removed parts fade. A small kit that comes with every drawing gives hobkins sticky notes, boxes, frames and arrows joined by id, in the app's light and dark colors. Escape closes the canvas when the keyboard is in it, the drawing included. The skill teaches hobkins to draw on the canvas when the user asks for a drawing, and never on their own.
 
 ## Decisions
 
@@ -52,7 +52,8 @@ The canvas becomes a real drawing surface and whiteboard, as big as the right si
 - The colors are CSS variables that follow the app's light and dark theme: `--hb-paper`, `--hb-ink`, `--hb-muted`, `--hb-line`, `--hb-accent`, and a variable for each note color. Fonts are the Mac's own; nothing is loaded from the network.
 
 ### The skill
-- `hobkin/src/prompts/canvas.md` says when to draw (how parts connect, options side by side, ideas as notes, numbers as a chart, a rough mock-up), to build one drawing up across turns with each element's id kept, so only what changed moves, to use the kit, and scripts only when the drawing needs one. The commands and the rules from `035-canvas-drawings` stay.
+- `hobkin/src/prompts/canvas.md` says a hobkin opens, draws on or shows a page on its canvas only when the user asks for it, and changes a drawing again only when asked or when what it shows stops being true. It says what a drawing helps with once asked (how parts connect, options side by side, ideas as notes, numbers as a chart, a rough mock-up), to add to the same drawing with each element's id kept, so only what changed moves, to use the kit, and scripts only when the drawing needs one. The commands and the rules from `035-canvas-drawings` stay.
+- Changed on 2026-11-19, the user's words: "the agent sketch things without being asked". Until then the skill said to think on the canvas while talking and to draw instead of describing, and hobkins drew unasked. The main hobkin's client tool and the `canvas.show` and `canvas.draw` descriptions say the same.
 
 ## Out of scope
 - The user drawing on the canvas, panning and zooming, more than one canvas per hobkin.
