@@ -5,6 +5,7 @@
  * import, the life cycle and changed dependencies become wires, and the spec becomes acceptance nodes. A node nothing
  * wires says why.
  */
+import { isTranslation } from '../../packages/change-review/src/triage.ts'
 import { parseSpec, type Spec, type SpecProof } from '../spec/parse.ts'
 import { sideText, type Capture, type CapturedFile } from './capture.ts'
 import { hashLines, splitLines } from './lines.ts'
@@ -173,10 +174,20 @@ function wholeFileNode(id: string, file: CapturedFile): ReviewNode {
   }
 }
 
+/**
+ * The change as its graph draws it: without the translations of its English locale, which would each be a node of
+ * their own. The change review reads them still, and the review still lists them.
+ */
+function drawnPart(capture: Capture): { drawn: Capture; translations: number } {
+  const left = new Set(capture.files.filter((file) => isTranslation(file.path)).map((file) => file.id))
+  if (left.size === 0) return { drawn: capture, translations: 0 }
+  return { drawn: { ...capture, files: capture.files.filter((file) => !left.has(file.id)), changes: capture.changes.filter((change) => !left.has(change.fileId)) }, translations: left.size }
+}
+
 export async function draftReview(input: PrepareInput): Promise<Draft> {
-  const { capture } = input
-  const fileOf = new Map(capture.files.map((file) => [file.id, file]))
-  const files: ReviewFile[] = capture.files.map(({ id, path, oldPath, status, binary, additions, deletions, summarized }) => ({
+  const { drawn: capture, translations } = drawnPart(input.capture)
+  const fileOf = new Map(input.capture.files.map((file) => [file.id, file]))
+  const files: ReviewFile[] = input.capture.files.map(({ id, path, oldPath, status, binary, additions, deletions, summarized }) => ({
     id,
     path,
     ...(oldPath ? { oldPath } : {}),
@@ -188,6 +199,7 @@ export async function draftReview(input: PrepareInput): Promise<Draft> {
   }))
   const headFiles = new Map<string, string>()
   const notices: string[] = []
+  if (translations > 0) notices.push(`The graph draws the English locale and leaves out ${count(translations, 'translation')} of it. ${translations === 1 ? 'It is' : 'They are'} still in the change.`)
 
   // Pass 2: units, pairing and references.
   const extracted = prepareUnits(capture)

@@ -99,6 +99,28 @@ export function localeOf(path: string): { locale: string; set: string } | null {
   return null
 }
 
+/** Names languages by their code, and names nothing for a word that only looks like one, such as `app` or `ui`. */
+const LANGUAGES = new Intl.DisplayNames(['en'], { type: 'language', fallback: 'none' })
+
+/** Whether a locale code names a real language: `en`, `pt-BR` and `zh_Hant` do; `app` and `common` do not. */
+export function isLanguageCode(code: string): boolean {
+  if (!LOCALE_CODE.test(code)) return false
+  try {
+    return LANGUAGES.of(code.replace('_', '-')) !== undefined
+  } catch {
+    return false
+  }
+}
+
+/** The English source of a set of translations: `en`, `en-GB`, `en_US`. */
+export const isEnglish = (code: string) => /^en([-_]|$)/i.test(code)
+
+/** A translation of the English source: a file read as a locale whose code is a real language other than English. */
+export function isTranslation(path: string): boolean {
+  const locale = localeOf(path)?.locale
+  return locale != null && isLanguageCode(locale) && !isEnglish(locale)
+}
+
 const escapeRegex = (text: string) => text.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
 const dirOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '.')
 
@@ -357,7 +379,7 @@ export function triage(meta: ChangeMeta, { diffs = [] }: { diffs?: readonly File
       const { kind, treatment, why } = entries[0]!.kinded
       let sample = entries[0]!.sample
       if (kind === 'translation' && treatment === 'sample') {
-        const read = paths.find((path) => /^en([-_]|$)/.test(localeOf(path)?.locale ?? '')) ?? paths[0]!
+        const read = paths.find((path) => isEnglish(localeOf(path)?.locale ?? '')) ?? paths[0]!
         sample = { read: [read], trusted: paths.length - 1, parity_check: `key set and interpolation variables against ${read}` }
       }
       return {
