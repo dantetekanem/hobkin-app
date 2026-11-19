@@ -175,3 +175,31 @@ test('a clone that fails leaves nothing behind and says why; a head GitHub no lo
   const checkout = pullCheckout({ root, folders: () => [join(poetry, 'shop')], gh: noGh })
   await assert.rejects(checkout.fetch(target, { head: 'f'.repeat(40), baseBranch: 'main' }), /#12 is no longer at fffffff on GitHub: it moved while it was fetched/)
 })
+
+test("a pull request on a named code host is fetched from the user's own bare clone through the host's own ref, into refs of that host, moving nothing of theirs", async (t) => {
+  const { bare, base, head } = github(t)
+  // The user's bare clone of the repository, as the code host file lists it.
+  const clone = join(temporaryDirectory(t), 'shop.git')
+  execFileSync('git', ['clone', '--quiet', '--bare', bare, clone])
+  const before = gitAt(clone)('for-each-ref', '--format=%(refname) %(objectname)')
+  const corp = { name: 'corp', web: 'https://git.example.invalid', api: ['corp-api'], git: join(bare, '..', '{repo}.git').replace('shop.git', '{repo}.git'), headRef: 'refs/pull/{number}/head', clones: { 'acme/shop': clone }, checkout: false, merge: false }
+  const named = { ...target, host: 'corp' }
+  const { git, calls } = recordingGit()
+  const checkout = pullCheckout({ root: temporaryDirectory(t), folders: () => [], gh: noGh, git, hostOf: (name) => (name === 'corp' ? corp : undefined) })
+
+  const said: string[] = []
+  const fetched = await checkout.fetch(named, { head, baseBranch: 'main', headBranch: 'round-the-total' }, (line) => said.push(line))
+  assert.deepEqual(fetched, { repo: clone, base })
+  const refs = pullRefs(named)
+  assert.deepEqual(refs, { head: 'refs/hobkin/review/corp/pull/12/head', base: 'refs/hobkin/review/corp/pull/12/base' }, 'apart from a GitHub pull request of the same number')
+  assert.equal(gitAt(clone)('rev-parse', refs.head), head)
+  // Only hobkin's refs were added: every ref of the user's is where it was.
+  const after = gitAt(clone)('for-each-ref', '--format=%(refname) %(objectname)').split('\n').filter((line) => !line.startsWith('refs/hobkin/'))
+  assert.deepEqual(after, before.split('\n'))
+  const fetches = calls.filter((call) => call.includes('fetch'))
+  assert.ok(fetches.every((call) => call.includes('--no-write-fetch-head') && call.includes('--refmap=') && call.includes(join(bare, '..', 'shop.git'))), JSON.stringify(fetches))
+  assert.ok(said.some((line) => /corp/.test(line)) && !said.some((line) => /GitHub/.test(line)), said.join('\n'))
+
+  // A host the code host file does not name is refused.
+  await assert.rejects(checkout.fetch({ ...target, host: 'other' }, { head, baseBranch: 'main' }), /other is not a code host the code host file names/)
+})

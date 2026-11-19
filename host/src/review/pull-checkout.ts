@@ -13,6 +13,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import type { ReviewTarget } from '#shared/review/ids.ts'
 import { gitWithin, type GitRun } from './assessment.ts'
+import type { CodeHost } from './code-hosts.ts'
 import { ghText, type GhCall } from './gh.ts'
 import { githubRepoOf } from './publish.ts'
 
@@ -26,7 +27,7 @@ export interface PullCheckout {
    * Fetches the pull request at `head`, and the branch it merges into, into hobkin's own refs. Answers the repository's
    * folder and the commit the change starts from: where `head` and that branch last met, as GitHub compares them.
    */
-  fetch(target: PullTarget, pull: { head: string; baseBranch: string }, say?: Say): Promise<{ repo: string; base: string }>
+  fetch(target: PullTarget, pull: { head: string; baseBranch: string; headBranch?: string }, say?: Say): Promise<{ repo: string; base: string }>
   /** The repository's folder with `head` in it, found or made, fetching the pull request's head again when it is not there. */
   repoFor(target: PullTarget, head: string, say?: Say): Promise<string>
 }
@@ -43,14 +44,18 @@ interface Clone {
   own: boolean
 }
 
-/** The refs a pull request is fetched into. Only hobkin writes or reads them. */
+/** The refs a pull request is fetched into, apart for each named code host. Only hobkin writes or reads them. */
 export function pullRefs(target: PullTarget): { head: string; base: string } {
-  const at = `refs/hobkin/review/pull/${target.number}`
+  const at = `refs/hobkin/review/${target.host ? `${target.host}/` : ''}pull/${target.number}`
   return { head: `${at}/head`, base: `${at}/base` }
 }
 
-/** Where hobkin keeps its own clone of a repository: beside its review trees, in its client folder. */
-export const ownCloneOf = (root: string, target: PullTarget) => join(root, 'client', 'review-clones', target.owner, target.repo)
+/** Where hobkin keeps its own clone of a repository: beside its review trees, in its client folder, apart for each named code host. */
+export const ownCloneOf = (root: string, target: PullTarget) => join(root, 'client', 'review-clones', ...(target.host ? [target.host] : []), target.owner, target.repo)
+
+/** A host's word with the pull request's repository and its number or branch filled in. */
+const filled = (word: string, target: PullTarget, branch = '') =>
+  word.replaceAll('{owner}', target.owner).replaceAll('{repo}', target.repo).replaceAll('{number}', String(target.number)).replaceAll('{branch}', branch)
 
 /** A folder in words, with the home folder as `~`. */
 const shown = (folder: string) => (folder.startsWith(`${homedir()}/`) ? `~${folder.slice(homedir().length)}` : folder)
@@ -81,6 +86,7 @@ export function pullCheckout({
   gh,
   git = gitWithin(FETCH_TIMEOUT_MS),
   credentialHelper = null,
+  hostOf = () => undefined,
 }: {
   /** The home: hobkin's own clones go in its client folder. */
   root: string
@@ -91,6 +97,8 @@ export function pullCheckout({
   git?: GitRun
   /** How git in hobkin's own clone signs in to GitHub later, such as `!gh auth git-credential`. Null leaves git's own. */
   credentialHelper?: string | null
+  /** A code host the home names, by its short name, as the code host file has it now. */
+  hostOf?: (name: string) => CodeHost | undefined
 }): PullCheckout {
   /** The answer for each repository, `owner/repo`, so the folders are looked through once. */
   const found = new Map<string, Clone>()
@@ -144,8 +152,53 @@ export function pullCheckout({
     return { folder, remote: 'origin', own: true }
   }
 
+  /** Whether a folder is a repository git can read: a bare clone counts. */
+  const isRepository = (folder: string) => git(folder, 'rev-parse', '--git-dir').then(() => true, () => false)
+
+  /**
+   * A named host's repository on this Mac: the user's own clone the code host file lists, else hobkin's own, made with
+   * git from the host's git address. Its fetches name that address, so no remote of the user's is used or changed.
+   */
+  async function hostPlace(target: PullTarget, host: CodeHost, say?: Say): Promise<Clone> {
+    const key = `${target.owner}/${target.repo}`
+    const address = filled(host.git, target)
+    const listed = host.clones[key]
+    if (listed && (await isRepository(listed))) {
+      say?.(`Using the clone of ${key} at ${shown(listed)}. Only hobkin's own refs change in it.`)
+      return { folder: listed, remote: address, own: false }
+    }
+    const folder = ownCloneOf(root, target)
+    if (await isRepository(folder)) return { folder, remote: address, own: true }
+    say?.(`There is no clone of ${key} from ${host.name} on this Mac, so hobkin makes its own. Its files come from ${host.name} as they are read.`)
+    const making = `${folder}.cloning-${process.pid}`
+    rmSync(making, { recursive: true, force: true })
+    mkdirSync(dirname(folder), { recursive: true, mode: 0o700 })
+    try {
+      await git(dirname(folder), 'clone', '--quiet', '--filter=blob:none', '--no-checkout', '--', address, making)
+      renameSync(making, folder)
+    } catch (error) {
+      rmSync(making, { recursive: true, force: true })
+      throw new Error(`${key} could not be cloned from ${host.name}: ${messageOf(error)}`)
+    }
+    return { folder, remote: address, own: true }
+  }
+
+  /** The code host a named pull request lives on, as the code host file names it now. */
+  const hostFor = (target: PullTarget) => {
+    if (!target.host) return undefined
+    const host = hostOf(target.host)
+    if (!host) throw new Error(`${target.host} is not a code host the code host file names, so its pull request is not read.`)
+    return host
+  }
+  /** Where a pull request is read from, in words. */
+  const from = (target: PullTarget) => target.host ?? 'GitHub'
+  /** The branch each pull request's head was last fetched by, for a host that keeps a pull request's head by branch. */
+  const branches = new Map<string, string>()
+
   /** The repository's folder on this Mac, as found before, else looked for, else cloned. */
   async function place(target: PullTarget, say?: Say): Promise<Clone> {
+    const host = hostFor(target)
+    if (host) return hostPlace(target, host, say)
     const key = `${target.owner}/${target.repo}`
     const known = found.get(key)
     if (known && isClone(known.folder)) return known
@@ -162,23 +215,31 @@ export function pullCheckout({
    * Fetches into hobkin's refs only: no tags, no FETCH_HEAD, and no remote-tracking ref, which git would otherwise move
    * for a branch its remote's settings name.
    */
-  const fetchInto = async (clone: Clone, refspecs: string[]) => {
+  const fetchInto = async (target: PullTarget, clone: Clone, refspecs: string[]) => {
     try {
       await git(clone.folder, 'fetch', '--quiet', '--no-tags', '--no-write-fetch-head', '--refmap=', clone.remote, ...refspecs)
     } catch (error) {
-      throw new Error(`GitHub could not be fetched from: ${messageOf(error)}`)
+      throw new Error(`${from(target)} could not be fetched from: ${messageOf(error)}`)
     }
   }
 
   const moved = (target: PullTarget, head: string) =>
-    new Error(`#${target.number} is no longer at ${head.slice(0, 7)} on GitHub: it moved while it was fetched. Start its review again.`)
+    new Error(`#${target.number} is no longer at ${head.slice(0, 7)} on ${from(target)}: it moved while it was fetched. Start its review again.`)
+
+  /** The ref on its host that holds a pull request's head: GitHub's own, or the one its code host names. */
+  const headRefOf = (target: PullTarget) => {
+    const host = hostFor(target)
+    return host ? filled(host.headRef, target, branches.get(reviewKey(target)) ?? '') : `refs/pull/${target.number}/head`
+  }
+  const reviewKey = (target: PullTarget) => `${target.host ?? ''}:${target.owner}/${target.repo}#${target.number}`
 
   return {
-    async fetch(target, { head, baseBranch }, say) {
+    async fetch(target, { head, baseBranch, headBranch }, say) {
+      if (headBranch) branches.set(reviewKey(target), headBranch)
       const clone = await place(target, say)
       const refs = pullRefs(target)
-      say?.(`Fetching #${target.number} and ${baseBranch} from GitHub.`)
-      await fetchInto(clone, [`+refs/pull/${target.number}/head:${refs.head}`, `+refs/heads/${baseBranch}:${refs.base}`])
+      say?.(`Fetching #${target.number} and ${baseBranch} from ${from(target)}.`)
+      await fetchInto(target, clone, [`+${headRefOf(target)}:${refs.head}`, `+refs/heads/${baseBranch}:${refs.base}`])
       if (!(await has(clone.folder, head))) throw moved(target, head)
       const base = await git(clone.folder, 'merge-base', refs.base, head)
       if (clone.own) {
@@ -191,8 +252,8 @@ export function pullCheckout({
     async repoFor(target, head, say) {
       const clone = await place(target, say)
       if (await has(clone.folder, head)) return clone.folder
-      say?.(`Fetching #${target.number} from GitHub.`)
-      await fetchInto(clone, [`+refs/pull/${target.number}/head:${pullRefs(target).head}`])
+      say?.(`Fetching #${target.number} from ${from(target)}.`)
+      await fetchInto(target, clone, [`+${headRefOf(target)}:${pullRefs(target).head}`])
       if (!(await has(clone.folder, head))) throw moved(target, head)
       return clone.folder
     },
