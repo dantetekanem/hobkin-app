@@ -19,9 +19,14 @@ export function useHost<Selected>(selector: (state: HostState) => Selected): Sel
  * component draws again only when the selection no longer says the same by `same`, not for every message the host sends.
  */
 export function useHostEqual<Selected>(selector: (state: HostState) => Selected, same: (a: Selected, b: Selected) => boolean): Selected {
+  return useHostKept(selector, (held, next) => keepEqual(held, next, same))
+}
+
+/** Like `useHostEqual`, with `keep` choosing what stays of the value held: a list can keep each of its items that says the same. */
+export function useHostKept<Selected>(selector: (state: HostState) => Selected, keep: (held: Selected, next: Selected) => Selected): Selected {
   const held = useRef<{ value: Selected } | null>(null)
   return useStore(hostStore, (state) => {
-    const value = held.current ? keepEqual(held.current.value, selector(state), same) : selector(state)
+    const value = held.current ? keep(held.current.value, selector(state)) : selector(state)
     held.current = { value }
     return value
   })

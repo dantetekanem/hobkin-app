@@ -1,17 +1,19 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react'
 import { Hob } from '@/avatar/Hob.tsx'
 import { usePetChoice } from '@/avatar/use-pet.ts'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { agentGroups } from '@/features/hobkins/list.ts'
+import { listedAgents } from '@/features/hobkins/list.ts'
 import { useTiers } from '@/features/tiers/store.ts'
 import { ChildCluster, ChildFaces } from '@/features/work/ChildAgents.tsx'
 import { agentEntry } from '@/features/work/agent-entry.ts'
 import { childrenSummary, helpersNow, HOBKIN_HUE } from '@/features/work/child-summary.ts'
 import { useMainChildren } from '@/features/work/children.ts'
 import { cn } from '@/lib/utils.ts'
+import { useHasHost, useHost } from '@/lib/host/index.ts'
 import { requestCanvasFocus } from './focus.ts'
 import { agentControls, askAgent, useAgentControl, useRunningAgents, type RunningAgent } from './running-agents.ts'
 import { type Tier } from './sample.ts'
@@ -190,113 +192,27 @@ export function AgentsDock() {
             >
               <AnimatePresence initial={false} mode="popLayout">
                 {agents.flatMap((agent, index) => {
-                  const asks = agent.asks
                   const selected = index === at
-                  const waits = agent.durable?.state === 'waiting'
                   // The agents that come and go start under their count, and under a line when durable hobkins sit above.
                   const heads =
                     index === durable.length
                       ? [
                           durable.length ? <GroupLine key="line" still={still} /> : null,
-                          <GroupHead key="head:others" still={still}>
-                            <span className="eyebrow">{others.length} working</span>
-                            {waiting ? (
-                              <span className="flex items-center gap-1.5 text-[11px] font-medium text-sun-fg">
-                                <span aria-hidden="true">·</span>
-                                {waiting === 1 ? '1 needs you' : `${waiting} need you`}
-                                <Kbd>⌘G</Kbd>
-                              </span>
-                            ) : null}
-                          </GroupHead>,
+                          <OthersHead key="head:others" still={still} count={others.length} waiting={waiting} />,
                         ]
                       : []
                   return [
                     ...heads,
-                    <motion.div
+                    <AgentRow
                       key={agent.id}
-                      layout={still ? false : 'position'}
-                      transition={agentEntry(still)}
-                      id={`${id}-${agent.id}`}
-                      role="option"
-                      aria-selected={selected}
-                      aria-label={asks ? `${agent.title}, waiting for you: ${asks}` : waits ? `${agent.title}, waiting` : undefined}
-                      aria-describedby={`${id}-${agent.id}-children`}
-                      data-agent-row={agent.id}
-                      data-asking={asks ? true : undefined}
-                      // A new agent bubbles up from below and overshoots a little, like a bubble reaching the surface.
-                      initial={holdStill({ opacity: 0, transform: 'translateY(34px) scale(0.5)' }, still)}
-                      animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: agentEntry(still) }, still)}
-                      exit={holdStill({ opacity: 0, transform: 'translateY(0px) scale(0.7)', transition: { duration: 0.18 } }, still)}
-                      // The row keeps the keyboard where it is: a click must not blur the list and end a preview first.
-                      onMouseDown={(event) => event.preventDefault()}
-                      // Clicking an agent puts the keyboard on it in the list (once the open has re-rendered), so Up walks
-                      // to the agent above it, instead of falling back to the message input and recalling the last message.
-                      onClick={() => {
-                        openAgentCanvas(agent.id)
-                        requestAnimationFrame(() => list.current?.focus())
-                      }}
-                      // The question mark on the face is the only sign that an agent waits. The row itself stays as any other.
-                      className={cn(
-                        'flex cursor-default items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors duration-[160ms] ease-[ease]',
-                        selected ? 'bg-surface-2' : 'hover:bg-tone-1',
-                      )}
-                    >
-                      <span className="grid w-7 shrink-0 place-items-center">
-                        {/* A durable hobkin stays: its face sits in a faint ring, apart from the agents that come and go. */}
-                        <span className={cn('grid place-items-center rounded-full', agent.durable && 'size-7 ring-1 ring-border-strong/50')}>
-                          <AgentHood hue={agent.hue} size={agent.durable ? 22 : 24} mood={agent.mood} asking={Boolean(asks)} working={!waits} />
-                        </span>
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-[13px] leading-tight">{agent.title}</span>
-                        {asks ? (
-                          <span className="block truncate text-[11px] text-muted-foreground">{asks}</span>
-                        ) : waits ? (
-                          // Waiting for the next message, with what it said last. One the user has not looked at says so a little louder.
-                          <span className="block truncate text-[11px] text-muted-foreground">
-                            <span className={cn(agent.durable?.unseen && 'font-medium text-sun-fg')}>waiting</span>
-                            {' · '}
-                            {agent.update ?? agent.project}
-                          </span>
-                        ) : agent.update ? (
-                          // Its own latest words, small and cut to one line; a hover opens the whole line in the app's
-                          // soft, animated tooltip rather than the browser's plain one.
-                          <Tooltip>
-                            <TooltipTrigger render={<span className="block truncate text-[11px] text-muted-foreground" />}>
-                              {agent.project} · {agent.update}
-                            </TooltipTrigger>
-                            <TooltipContent side="right" align="center" sideOffset={10} className="max-w-xs text-left leading-snug whitespace-normal">
-                              {agent.update}
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : (
-                          // Before it speaks, the plain phase ("running the tests") stands in.
-                          <span className="block truncate text-[11px] text-muted-foreground">
-                            {agent.project} · {agent.doing}
-                          </span>
-                        )}
-                      </span>
-                      <ChildCluster runId={agent.durable?.run ?? agent.id} hue={agent.hue} summaryId={`${id}-${agent.id}-children`} />
-                      {agent.durable && agent.durable.engine.kind !== 'tier' ? (
-                        <span className="rounded-full border border-border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">
-                          {agent.durable.engine.kind === 'claude' ? 'claude' : 'custom'}
-                        </span>
-                      ) : (
-                        <button
-                          type="button"
-                          // Reached with the mouse here, and through Settings from the keyboard.
-                          tabIndex={-1}
-                          title="Models for this tier"
-                          onClick={(event) => {
-                            event.stopPropagation()
-                            openTiers(agent.tier)
-                          }}
-                          className="rounded-full border border-border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground transition-colors duration-[160ms] ease-[ease] hover:border-border-strong hover:text-foreground"
-                        >
-                          {TIER_LABEL[agent.tier]}
-                        </button>
-                      )}
-                    </motion.div>,
+                      agent={agent}
+                      selected={selected}
+                      still={still}
+                      listId={id}
+                      list={list}
+                      openAgentCanvas={openAgentCanvas}
+                      openTiers={openTiers}
+                    />,
                   ]
                 })}
               </AnimatePresence>
@@ -307,6 +223,127 @@ export function AgentsDock() {
     </div>
   )
 }
+
+interface AgentRowProps {
+  agent: RunningAgent
+  selected: boolean
+  still: boolean
+  listId: string
+  list: RefObject<HTMLDivElement | null>
+  openAgentCanvas: (id: string) => void
+  openTiers: (tier: Tier) => void
+  /** AnimatePresence passes the row's element up through this to measure it as it leaves. */
+  ref?: Ref<HTMLDivElement>
+}
+
+/**
+ * One agent's row. It draws again only when its own agent, or whether it is selected, changes: every row with a
+ * layout prop reads the page's layout for each draw, and the list draws for every agent's latest words.
+ */
+const AgentRow = memo(function AgentRow({ agent, selected, still, listId: id, list, openAgentCanvas, openTiers, ref }: AgentRowProps) {
+  const asks = agent.asks
+  const waits = agent.durable?.state === 'waiting'
+  return (
+    <motion.div
+      ref={ref}
+      layout={still ? false : 'position'}
+      transition={agentEntry(still)}
+      id={`${id}-${agent.id}`}
+      role="option"
+      aria-selected={selected}
+      aria-label={asks ? `${agent.title}, waiting for you: ${asks}` : waits ? `${agent.title}, waiting` : undefined}
+      aria-describedby={`${id}-${agent.id}-children`}
+      data-agent-row={agent.id}
+      data-asking={asks ? true : undefined}
+      // A new agent bubbles up from below and overshoots a little, like a bubble reaching the surface.
+      initial={holdStill({ opacity: 0, transform: 'translateY(34px) scale(0.5)' }, still)}
+      animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: agentEntry(still) }, still)}
+      exit={holdStill({ opacity: 0, transform: 'translateY(0px) scale(0.7)', transition: { duration: 0.18 } }, still)}
+      // The row keeps the keyboard where it is: a click must not blur the list and end a preview first.
+      onMouseDown={(event) => event.preventDefault()}
+      // Clicking an agent puts the keyboard on it in the list (once the open has re-rendered), so Up walks
+      // to the agent above it, instead of falling back to the message input and recalling the last message.
+      onClick={() => {
+        openAgentCanvas(agent.id)
+        requestAnimationFrame(() => list.current?.focus())
+      }}
+      // The question mark on the face is the only sign that an agent waits. The row itself stays as any other.
+      className={cn(
+        'flex cursor-default items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors duration-[160ms] ease-[ease]',
+        selected ? 'bg-surface-2' : 'hover:bg-tone-1',
+      )}
+    >
+      <span className="grid w-7 shrink-0 place-items-center">
+        {/* A durable hobkin stays: its face sits in a faint ring, apart from the agents that come and go. */}
+        <span className={cn('grid place-items-center rounded-full', agent.durable && 'size-7 ring-1 ring-border-strong/50')}>
+          <AgentHood hue={agent.hue} size={agent.durable ? 22 : 24} mood={agent.mood} asking={Boolean(asks)} working={!waits} />
+        </span>
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] leading-tight">{agent.title}</span>
+        <AgentWords agent={agent} />
+      </span>
+      <ChildCluster runId={agent.durable?.run ?? agent.id} hue={agent.hue} summaryId={`${id}-${agent.id}-children`} />
+      {agent.durable && agent.durable.engine.kind !== 'tier' ? (
+        <span className="rounded-full border border-border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">
+          {agent.durable.engine.kind === 'claude' ? 'claude' : 'custom'}
+        </span>
+      ) : (
+        <button
+          type="button"
+          // Reached with the mouse here, and through Settings from the keyboard.
+          tabIndex={-1}
+          title="Models for this tier"
+          onClick={(event) => {
+            event.stopPropagation()
+            openTiers(agent.tier)
+          }}
+          className="rounded-full border border-border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground transition-colors duration-[160ms] ease-[ease] hover:border-border-strong hover:text-foreground"
+        >
+          {TIER_LABEL[agent.tier]}
+        </button>
+      )}
+    </motion.div>
+  )
+})
+
+/**
+ * What the row says under the agent's name. It follows the agent's latest words itself, so the row, which reads the
+ * page's layout each time it draws, does not draw again for each of them.
+ */
+const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) {
+  const live = useHasHost()
+  const said = useHost((state) => (live ? listedAgents(state.snapshot).find((entry) => entry.id === agent.id)?.update : undefined))
+  const update = live ? said : agent.update
+  const asks = agent.asks
+  const waits = agent.durable?.state === 'waiting'
+  return asks ? (
+      <span className="block truncate text-[11px] text-muted-foreground">{asks}</span>
+    ) : waits ? (
+      // Waiting for the next message, with what it said last. One the user has not looked at says so a little louder.
+      <span className="block truncate text-[11px] text-muted-foreground">
+        <span className={cn(agent.durable?.unseen && 'font-medium text-sun-fg')}>waiting</span>
+        {' · '}
+        {update ?? agent.project}
+      </span>
+    ) : update ? (
+      // Its own latest words, small and cut to one line; a hover opens the whole line in the app's
+      // soft, animated tooltip rather than the browser's plain one.
+      <Tooltip>
+        <TooltipTrigger render={<span className="block truncate text-[11px] text-muted-foreground" />}>
+          {agent.project} · {update}
+        </TooltipTrigger>
+        <TooltipContent side="right" align="center" sideOffset={10} className="max-w-xs text-left leading-snug whitespace-normal">
+          {update}
+        </TooltipContent>
+      </Tooltip>
+    ) : (
+      // Before it speaks, the plain phase ("running the tests") stands in.
+      <span className="block truncate text-[11px] text-muted-foreground">
+        {agent.project} · {agent.doing}
+      </span>
+    )
+})
 
 /** Four rows of the list, in pixels. Each group's header and the line between the groups add their own height. */
 const FOUR_ROWS = 188
@@ -331,7 +368,7 @@ function GroupHead({ still, children }: { still: boolean; children: ReactNode })
 }
 
 /** The thin line between the durable hobkins and the other agents. */
-function GroupLine({ still }: { still: boolean }) {
+const GroupLine = memo(function GroupLine({ still }: { still: boolean }) {
   return (
     <motion.div
       aria-hidden="true"
@@ -343,7 +380,23 @@ function GroupLine({ still }: { still: boolean }) {
       className="mx-2 my-1.5 h-px bg-border"
     />
   )
-}
+})
+
+/** The header over the agents that come and go: how many work, and how many need the user. Draws again only for those two. */
+const OthersHead = memo(function OthersHead({ still, count, waiting }: { still: boolean; count: number; waiting: number }) {
+  return (
+    <GroupHead still={still}>
+      <span className="eyebrow">{count} working</span>
+      {waiting ? (
+        <span className="flex items-center gap-1.5 text-[11px] font-medium text-sun-fg">
+          <span aria-hidden="true">·</span>
+          {waiting === 1 ? '1 needs you' : `${waiting} need you`}
+          <Kbd>⌘G</Kbd>
+        </span>
+      ) : null}
+    </GroupHead>
+  )
+})
 
 /** Moves the keyboard into the agents list. The input calls this when Down is pressed in an empty message. */
 export function focusAgentsDock(): boolean {

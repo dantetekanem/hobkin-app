@@ -29,3 +29,21 @@ test('a value that says the same as the one held is the one held, so what draws 
   const first = agent('x')
   assert.equal(keepEqual(undefined, first, sameFields), first)
 })
+
+test('a list keeps each item that says the same, so a row draws again only for its own agent', async () => {
+  const { keepEachEqual } = await import('../src/lib/host/frame.ts')
+  const a = agent('a'), b = agent('b', { id: 'run-2' })
+  const held = [a, b]
+  const next = [agent('a'), agent('changed', { id: 'run-2' })]
+  const kept = keepEachEqual(held, next, sameFields)
+  assert.notEqual(kept, held)
+  assert.equal(kept[0], a, 'the unchanged agent stays the same object')
+  assert.equal(kept[1], next[1])
+  assert.equal(keepEachEqual(held, [agent('a'), agent('b', { id: 'run-2' })], sameFields), held, 'nothing changed: the list itself stays')
+})
+
+test('agents compared without their latest words say the same while those words change', async () => {
+  const { sameAgentsQuietly } = await import('../src/lib/host/frame.ts')
+  assert.ok(sameAgentsQuietly(agent('writing', { update: 'one' }) as never, agent('writing', { update: 'two' }) as never))
+  assert.ok(!sameAgentsQuietly(agent('writing', { update: 'one' }) as never, agent('thinking', { update: 'one' }) as never))
+})

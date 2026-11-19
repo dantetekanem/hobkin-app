@@ -9,8 +9,8 @@ import { runExecution } from '@/features/work/store.ts'
 import { listedAgents, type ListedAgent } from '@/features/hobkins/list.ts'
 import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
-import { hasHost, sameFields, sameLists } from '@/lib/host/frame.ts'
-import { hostStore, useHasHost, useHostEqual } from '@/lib/host/index.ts'
+import { hasHost, keepEachEqual, sameAgentsQuietly, sameFields } from '@/lib/host/frame.ts'
+import { hostStore, useHasHost, useHostEqual, useHostKept } from '@/lib/host/index.ts'
 import { agentQuestionId, answeredAgents, nextAsking, waitingFirst } from './asking.ts'
 import { useView } from './view-store.ts'
 
@@ -90,17 +90,19 @@ function running(limit: number, answered: readonly string[]): RunningAgent[] {
 
 /**
  * hobkin's agents with a host: the user's durable hobkins, then every run at work that is not the main conversation.
- * The list stays the same while every agent in it says the same, so its readers do not draw again for each message.
+ * Each agent keeps its identity while it says the same, and the list while every agent does, so a row draws again
+ * only for its own agent. `withUpdate` says whether the reader draws an agent's latest words: one that does not is
+ * left alone while only those change, which is most of the time while agents stream.
  */
-function useHostedAgents(): RunningAgent[] {
-  return useHostEqual((state) => listedAgents(state.snapshot), sameAgents)
+function useHostedAgents(withUpdate: boolean): RunningAgent[] {
+  const same = withUpdate ? sameFields : sameAgentsQuietly
+  return useHostKept((state) => listedAgents(state.snapshot), (held, next) => keepEachEqual(held, next, same) as RunningAgent[])
 }
 
-const sameAgents = (left: readonly RunningAgent[], right: readonly RunningAgent[]) => sameLists(left, right, sameFields)
-
-export function useRunningAgents(): RunningAgent[] {
+/** The agents at work. Pass `withUpdate` only to draw what each said last: the others do not draw again as it changes. */
+export function useRunningAgents({ withUpdate = false }: { withUpdate?: boolean } = {}): RunningAgent[] {
   const live = useHasHost()
-  const hosted = useHostedAgents()
+  const hosted = useHostedAgents(withUpdate)
   const limit = useSettings((state) => state.agents)
   const answered = useAnswered((state) => state.ids)
   return useMemo(() => (live ? hosted : running(limit, answered)), [live, hosted, limit, answered])

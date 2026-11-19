@@ -13,6 +13,7 @@ export {
   useHasHost,
   useHost,
   useHostEqual,
+  useHostKept,
   useMainModel,
   useModels,
   usePendingQuestion,

@@ -202,3 +202,17 @@ export function sameLists<Value>(left: readonly Value[], right: readonly Value[]
 /** The value held while the next one says the same, so a reader of it draws again only when it changed. */
 export const keepEqual = <Value>(held: Value | undefined, next: Value, same: (a: Value, b: Value) => boolean): Value =>
   held !== undefined && same(held, next) ? held : next
+
+/** The values of a list, each the one held while it says the same, and the list itself the one held while all do. */
+export function keepEachEqual<Value>(held: readonly Value[] | undefined, next: readonly Value[], same: (a: Value, b: Value) => boolean): readonly Value[] {
+  if (!held) return next
+  const merged = next.map((value, index) => (held[index] !== undefined && same(held[index]!, value) ? held[index]! : value))
+  return merged.length === held.length && merged.every((value, index) => value === held[index]) ? held : merged
+}
+
+/** Two agents say the same, leaving aside their latest words (`update`), for a reader that never draws them. */
+export function sameAgentsQuietly(left: object, right: object): boolean {
+  const { update: _left, ...a } = left as { update?: string }
+  const { update: _right, ...b } = right as { update?: string }
+  return sameFields(a, b)
+}
