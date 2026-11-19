@@ -26,7 +26,7 @@ import { ScreenBoundary } from './ScreenBoundary.tsx'
 import { ScreenMenu } from './ScreenMenu.tsx'
 import { useStill } from './still.ts'
 import { type ScreenId } from './screens.ts'
-import { canvasGrowth, useView, type ScreenMotion } from './view-store.ts'
+import { canvasGrowth, pageInsetMove, useView, type ScreenMotion } from './view-store.ts'
 
 // The menu's screens load with the frame. A screen loaded on demand slides in empty, and React shows it only once its
 // fallback has been up for a while, so its content would appear in place after the slide instead of sliding in.
@@ -120,15 +120,16 @@ function useGrowth(split: boolean, enteringAgent: boolean, still: boolean): Tran
  */
 function usePageInset(onPage: boolean, split: boolean, canvasWidth: number, still: boolean): MotionValue<number> {
   const inset = useMotionValue(split ? canvasWidth : 0)
-  const was = useRef({ onPage, split })
+  const was = useRef({ onPage, split, sent: split ? canvasWidth : 0 })
+  // Checked on every draw, so a split the window missed does not leave the page wide.
   useLayoutEffect(() => {
     const before = was.current
-    was.current = { onPage, split }
-    if (!onPage) return
+    const move = pageInsetMove({ onPage, wasOnPage: before.onPage, split, wasSplit: before.split, sent: before.sent, canvasWidth, still })
     const target = split ? canvasWidth : 0
-    if (!before.onPage || before.split === split || still) inset.jump(target)
-    else animate(inset, target, split ? spring.screen : spring.screenExit)
-  }, [onPage, split, canvasWidth, still, inset])
+    was.current = { onPage, split, sent: move === 'leave' ? before.sent : target }
+    if (move === 'jump') inset.jump(target)
+    else if (move === 'travel') animate(inset, target, split ? spring.screen : spring.screenExit)
+  })
   return inset
 }
 

@@ -31,6 +31,17 @@ export function splitSizes(windowWidth: number, conversationWidth: number): { gr
   return { grow: pageWidth, pageWidth, canvasWidth: Math.max(0, windowWidth - pageWidth) }
 }
 
+/**
+ * What a draw does to a durable hobkin's page inset (where it was last sent against where it should be: the sketch's
+ * width while its split shows, nothing otherwise). In place, or on its way, or a page leaving: leave it. The split
+ * forming or undoing on the page travels on the split's spring; arriving, a resize, Still or a missed split jump.
+ */
+export function pageInsetMove(now: { onPage: boolean; wasOnPage: boolean; split: boolean; wasSplit: boolean; sent: number; canvasWidth: number; still: boolean }): 'leave' | 'jump' | 'travel' {
+  if (!now.onPage) return 'leave'
+  if (now.sent === (now.split ? now.canvasWidth : 0)) return 'leave'
+  return now.wasOnPage && now.wasSplit !== now.split && !now.still ? 'travel' : 'jump'
+}
+
 /** How the canvas moves to its next screen: along the menu (x) or along the agents list (y), and which way. */
 export interface ScreenMotion {
   axis: 'x' | 'y'

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { Place } from '../src/features/main-agent/mind.ts'
 import { walkScreens, type ScreenId } from '../src/app/screens.ts'
-import { canvasGrowth, launchView, splitSizes, useView } from '../src/app/view-store.ts'
+import { canvasGrowth, launchView, pageInsetMove, splitSizes, useView } from '../src/app/view-store.ts'
 import { canvasDot, canvasKey, mainPill, placeMove, showingCanvas, splitOwner, windowCanvas } from '../src/features/canvas-panel/rules.ts'
 
 const view = () => useView.getState()
@@ -144,4 +144,16 @@ test('a new launch comes back on the place under the canvas, and keeps what was 
   assert.equal(saved({ screen: 'settings', settingsReturn: 'canvas', canvasReturn: place('home') }).screen, 'home', 'Settings over the canvas')
   assert.equal(saved({ screen: 'canvas', canvasReturn: null }).screen, 'work', 'a canvas with no way back')
   assert.deepEqual(saved({ screen: 'home', canvasSeen: { main: 3 } }).canvasSeen, { main: 3 })
+})
+
+test("a hobkin's page narrows beside its sketch, and a draw puts it right when it was missed", () => {
+  const at = { onPage: true, wasOnPage: true, split: true, wasSplit: false, sent: 0, canvasWidth: 400, still: false }
+  assert.equal(pageInsetMove(at), 'travel', 'the split forming on the page travels')
+  assert.equal(pageInsetMove({ ...at, split: false, wasSplit: true, sent: 400 }), 'travel', 'the split undoing travels')
+  assert.equal(pageInsetMove({ ...at, wasSplit: true, sent: 400 }), 'leave', 'a draw that finds it in place leaves it')
+  assert.equal(pageInsetMove({ ...at, wasSplit: true, sent: 0 }), 'jump', 'a split shown with the page still wide is put right at once')
+  assert.equal(pageInsetMove({ ...at, wasSplit: true, sent: 300 }), 'jump', 'a resize puts it straight there')
+  assert.equal(pageInsetMove({ ...at, wasOnPage: false }), 'jump', 'arriving on the page')
+  assert.equal(pageInsetMove({ ...at, still: true }), 'jump', 'Still')
+  assert.equal(pageInsetMove({ ...at, onPage: false }), 'leave', 'a page on its way out keeps its width')
 })
