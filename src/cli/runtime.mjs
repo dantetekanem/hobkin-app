@@ -727,6 +727,27 @@ export class HobkinRuntime {
     if (active.forceRequested) { child.force(); active.controller.abort(); }
   }
 
+  /**
+   * Changes a working agent's model or thinking level from its next step, through its process handle (`changeBinding` in
+   * `harnesses.mjs`). The run records what Pi holds now and keeps anything Pi did not say. Answers with the run's model and level.
+   */
+  async changeRun(runId, change) {
+    const active = this.active.get(runId);
+    if (!active || active.finished) throw Error('That agent is not working.');
+    if (active.request.kind === 'main') throw Error("hobkin's own conversation changes its model in Settings.");
+    if (!active.admitted) throw Error('That agent has not started yet.');
+    if (!active.transport || typeof active.transport.changeBinding !== 'function') throw Error('Its process has not started yet.');
+    if (active.transportClosed) throw Error('Its process has closed.');
+    const held = await active.transport.changeBinding(change);
+    return this.change(state => {
+      const run = state.runs[runId];
+      if (!run) return { model: held.model ?? null, effort: held.effort ?? null };
+      if (held.model) run.model = held.model;
+      if (held.effort) run.effort = held.effort;
+      return { model: run.model ?? null, effort: run.effort ?? null };
+    });
+  }
+
   async forceRun(runId, stop = { source: 'user', reason: 'Stopped from the agent view.' }) {
     const active = this.active.get(runId);
     if (!active?.admitted || active.request.kind === 'main') {

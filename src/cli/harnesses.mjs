@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute } from 'node:path';
-import { validateBinding } from './schedules.mjs';
+import { efforts, validateBinding } from './schedules.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { keptEffort } from './model-settings.mjs';
 import { extensionArguments, extensionPaths } from './pi-extensions.mjs';
@@ -214,6 +214,31 @@ function keep(sessionFile, kept, idleMs) {
   if (keptProcesses.size > MOST_KEPT) void closeNow(keptProcesses.keys().next().value);
 }
 
+/**
+ * A change to a working agent's model or thinking level, checked before anything is sent: a full provider/model, one of
+ * Pi's thinking levels, or both. Answers with only what it names.
+ */
+export function bindingChange({ model, effort } = {}) {
+  if (model === undefined && effort === undefined) throw Error('Say what to change: a model, a thinking level or both.');
+  if (model !== undefined && (typeof model !== 'string' || !/^[^/\s-][^/\s]*\/\S+$/.test(model) || model.length > 200)) {
+    throw Error('A Pi model is named as provider/model.');
+  }
+  if (effort !== undefined && !efforts.pi.includes(effort)) throw Error(`A thinking level is one of ${efforts.pi.join(', ')}.`);
+  return { ...(model === undefined ? {} : { model }), ...(effort === undefined ? {} : { effort }) };
+}
+
+/** Pi's own setters for only what the change names, then what Pi holds now. Pi takes it from its next model call. */
+async function changeOn(child, change) {
+  const { model, effort } = bindingChange(change);
+  if (model !== undefined) {
+    const slash = model.indexOf('/');
+    await child.request('set_model', { provider: model.slice(0, slash), modelId: model.slice(slash + 1) });
+  }
+  if (effort !== undefined) await child.request('set_thinking_level', { level: effort });
+  const state = await child.request('get_state');
+  return { model: state?.model ? `${state.model.provider}/${state.model.id}` : null, effort: state?.thinkingLevel ?? null };
+}
+
 /** The model a started process is on, once it is seen to hold the thinking level and the model that were asked for. */
 function heldModel(request, state) {
   const effortHeld = workPurposes.includes(request.purpose)
@@ -350,6 +375,7 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     closed: released.promise,
     force: () => { if (holding) child.force(); },
     terminate: () => { if (holding) child.terminate(); },
+    changeBinding: change => (holding ? changeOn(child, change) : Promise.reject(Error('Its turn has ended.'))),
   };
   let assistant;
   let metrics;
@@ -421,7 +447,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       spawned = Date.now();
     }
     if (durable) child.closed.then(released.resolve);
-    onControl(durable ? lease : child);
+    // Whoever holds the handle can also change the run's model and thinking level while it works (`HobkinRuntime.changeRun`).
+    onControl(durable ? lease : Object.assign(Object.create(child), { changeBinding: change => changeOn(child, change) }));
   } catch (error) {
     child?.terminate();
     if (child) await child.closed;

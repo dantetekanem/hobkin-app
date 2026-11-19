@@ -4,7 +4,7 @@ import { isAbsolute, join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { canvasSkill, closeCanvas, readCanvases } from './canvas.mjs';
 import { loadConfig } from './config.mjs';
-import { closeKept } from './harnesses.mjs';
+import { bindingChange, closeKept } from './harnesses.mjs';
 import { turnRunId, turnSchedule } from './hobkin-ids.mjs';
 import { answerTell, takeTellRequests, TELL_MAX, TOO_LONG, TURN_HOME, TURN_TOKEN, turnToken } from './hobkin-tell.mjs';
 import { MAX_MESSAGE_BYTES } from './runtime.mjs';
@@ -511,6 +511,44 @@ export class Hobkins {
       // The window stops drawing an ended hobkin's canvas either way.
     }
     return { ok: true };
+  }
+
+  /**
+   * Changes the model or thinking level a hobkin works on. It is saved as a Pi engine for every later turn, so one that
+   * waits starts its next turn with it, and only what changed is passed to the turn in flight, which takes it from its
+   * next step (`HobkinRuntime.changeRun`). A turn that ends meanwhile leaves the change for the next one and says why it
+   * did not take it. A hobkin on Claude Code keeps what Claude Code runs on.
+   */
+  async changeEngine(id, change) {
+    const state = await this.runtime.state();
+    const record = live(state, id);
+    if (record.engine.kind === 'claude') throw Error('A hobkin on Claude Code keeps the model and thinking level Claude Code runs on.');
+    const asked = bindingChange(change);
+    const turn = record.state === 'working' && record.run ? state.runs[record.run] : null;
+    // What it works on now: the turn in flight's, which a change may have moved, else what its next turn would start with.
+    const now = turn?.status === 'running' ? { model: turn.model, effort: turn.effort } : this.binding(record.engine);
+    if (!asked.model && !now.model) throw Error('Name the model too: this hobkin has no model of its own yet.');
+    const engine = engineOf({ kind: 'pi', model: asked.model ?? now.model, effort: asked.effort ?? now.effort });
+
+    const saved = await this.change(hobkins => {
+      const current = hobkins[id];
+      if (!current || current.state === 'ended') return null;
+      current.engine = engine;
+      return { run: current.state === 'working' ? current.run : null };
+    });
+    if (!saved) throw Error('That hobkin has ended.');
+    if (!saved.run) return { engine, turn: null };
+
+    const passed = {
+      ...(engine.model === now.model ? {} : { model: engine.model }),
+      ...(engine.effort === now.effort ? {} : { effort: engine.effort }),
+    };
+    if (!Object.keys(passed).length) return { engine, turn: { run: saved.run, took: true, model: now.model, effort: now.effort } };
+    try {
+      return { engine, turn: { run: saved.run, took: true, ...await this.runtime.changeRun(saved.run, passed) } };
+    } catch (error) {
+      return { engine, turn: { run: saved.run, took: false, reason: String(error?.message ?? error) } };
+    }
   }
 
   async rename(id, title) {
