@@ -55,6 +55,10 @@ test('each entry keeps when hobkin first saw it, and what comes after never move
   feed.accept({ type: 'tool_execution_end', toolCallId: 't', toolName: 'bash', isError: false, result: { content: [{ type: 'text', text: 'a' }] } });
   assert.deepEqual(feed.snapshot().map(entry => [entry.id, entry.at]), [['message:1:0', start], ['tool:t', start + 2000]]);
 
+  // A later call gets a time of its own.
+  feed.accept({ type: 'tool_execution_start', toolCallId: 'u', toolName: 'read', args: { path: 'b' } });
+  assert.deepEqual(feed.snapshot().map(entry => [entry.id, entry.at]), [['message:1:0', start], ['tool:t', start + 2000], ['tool:u', start + 7000]]);
+
   // Without a clock of its own it reads the system's.
   const plain = new JobActivity();
   const before = Date.now();
