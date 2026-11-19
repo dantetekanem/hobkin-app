@@ -7,11 +7,12 @@ import { hasHost } from '../../lib/host/frame.ts'
 import { useView } from '../../app/view-store.ts'
 import { routinesFromHost } from './host-data.ts'
 import type { TimesEdit, WindowEdit } from './edit.ts'
+import { groupChoices, groupOf, type GroupChoices } from './groups.ts'
 import { prepareRoutines, withSkyWidth, type PreparedRoutines } from './prepare.ts'
 import { changeTimes, finishRun, holdFor, setEnabled, startRun, type RunOutcome } from './rules.ts'
 import { buildSample, SAMPLE_OUTCOMES } from './sample.ts'
 import { occurrencesBetween } from './timeline.ts'
-import type { RoutinesData } from './types.ts'
+import type { Recurrence, RoutinesData } from './types.ts'
 
 /**
  * With a host, Run now, the switch and new times are hobkin's own commands, and its snapshot then shows what it did.
@@ -56,6 +57,8 @@ interface RoutinesState {
   /** Null for host data; otherwise the explicitly labelled sample. */
   sample: 'full' | 'empty' | null
   view: RoutinesView
+  /** Which groups of All routines the user opened or folded. A group never touched follows what is due. Kept with the view. */
+  groups: GroupChoices
   /** The routine whose detail is open. */
   openId: string | null
   /** The row the detail opened from. The keyboard goes back to it when the detail closes. */
@@ -68,6 +71,7 @@ interface RoutinesState {
   refused: Record<string, string>
 
   setView: (view: RoutinesView) => void
+  setGroup: (group: Recurrence, open: boolean) => void
   open: (id: string, from: string) => void
   close: () => void
   light: (id: string | null) => void
@@ -161,6 +165,7 @@ export const useRoutines = create<RoutinesState>()(
       ...ready(freshSample()),
       sample: 'full',
       view: 'all',
+      groups: {},
       navigation: 0,
       deletion: null,
       openId: null,
@@ -170,7 +175,20 @@ export const useRoutines = create<RoutinesState>()(
       refused: {},
 
       setView: (view) => set({ view }),
-      open: (id, from) => set({ openId: id, openFrom: from, lit: id, navigation: get().navigation + 1, deletion: null }),
+      setGroup: (group, open) => set({ groups: { ...get().groups, [group]: open } }),
+      // Its group opens too, so the keyboard has a row to come back to when the detail closes.
+      open: (id, from) => {
+        const routine = get().data.routines.find((row) => row.id === id)
+        const group = routine ? groupOf(routine) : null
+        set({
+          openId: id,
+          openFrom: from,
+          lit: id,
+          navigation: get().navigation + 1,
+          deletion: null,
+          ...(group && get().groups[group] !== true ? { groups: { ...get().groups, [group]: true } } : {}),
+        })
+      },
       // What it opened from stays known, so the keyboard can go back to it.
       close: () => set({ openId: null, lit: null, navigation: get().navigation + 1, deletion: null }),
       askDelete: (id) => {
@@ -259,8 +277,9 @@ export const useRoutines = create<RoutinesState>()(
     {
       name: 'hobkin-client-routines',
       version: 1,
-      // Only the choice of view is kept, never routine data.
-      partialize: ({ view }) => ({ view }),
+      // Only the choice of view and of open groups is kept, never routine data.
+      partialize: ({ view, groups }) => ({ view, groups }),
+      merge: (stored, current) => ({ ...current, ...(stored as Partial<RoutinesState> | undefined), groups: groupChoices((stored as { groups?: unknown } | undefined)?.groups) }),
     },
   ),
 )

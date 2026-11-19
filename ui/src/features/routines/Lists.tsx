@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { ChevronRight, Play } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { Button } from '@/components/ui/button.tsx'
@@ -12,7 +12,8 @@ import { RoutineHood, StateChip } from './parts.tsx'
 import { byNextRun, type RoutineFacts } from './rules.ts'
 import type { Pending } from './store.ts'
 import type { TimelineDay, TimelineEntry } from './timeline.ts'
-import { RECURRENCES, type Recurrence } from './types.ts'
+import { useRoutines } from './store.ts'
+import { RECURRENCES } from './types.ts'
 import { clockText, dateLabel, dayName, dayWord, elapsedText, everyText, holdEnds, howOften, RECURRENCE_TITLE, stateSentence, untilText, zoneText } from './words.ts'
 
 /**
@@ -43,13 +44,14 @@ interface ListProps extends ListActions {
 type RowProps = Omit<ListProps, 'facts'> & { facts: RoutineFacts }
 
 export function AllRoutines({ facts, marks, openId, now, zone, walkable, ...actions }: ListProps & { marks: readonly SkyMark[]; openId: string | null }) {
-  const [chosen, setChosen] = useState<Partial<Record<Recurrence, boolean>>>({})
+  const chosen = useRoutines((state) => state.groups)
+  const setGroup = useRoutines((state) => state.setGroup)
   // A routine picked from the sky or detail index must still have a row to return to.
   useEffect(() => {
     const opened = facts.find((item) => item.routine.id === openId)?.routine
-    const cadence = opened ? groupOf(opened) : undefined
-    if (cadence) setChosen((before) => before[cadence] === true ? before : { ...before, [cadence]: true })
-  }, [facts, openId])
+    const group = opened ? groupOf(opened) : undefined
+    if (group && useRoutines.getState().groups[group] !== true) setGroup(group, true)
+  }, [facts, openId, setGroup])
 
   return RECURRENCES.map((recurrence) => {
     const group = facts.filter((item) => groupOf(item.routine) === recurrence).toSorted(byNextRun)
@@ -66,7 +68,7 @@ export function AllRoutines({ facts, marks, openId, now, zone, walkable, ...acti
             aria-controls={listId}
             data-stop={walkable ? '' : undefined}
             tabIndex={walkable ? 0 : -1}
-            onClick={() => setChosen((before) => ({ ...before, [recurrence]: !expanded }))}
+            onClick={() => setGroup(recurrence, !expanded)}
             className="flex cursor-pointer items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <ChevronRight className={cn('size-3', expanded && 'rotate-90')} aria-hidden="true" />
