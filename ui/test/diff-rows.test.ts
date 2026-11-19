@@ -110,11 +110,34 @@ test('lines a node points at are shown with their surroundings, changed or not',
   assert.deepEqual(lines(rows).map((item) => item.type === 'line' && item.line.newLine), [27, 28, 29, 30, 31, 32, 33, 34, 35])
   assert.deepEqual(lines(rows).map((item) => item.type === 'line' && item.line.emphasis), [false, false, false, true, true, true, false, false, false])
 
-  // In a changed file the lines of the step are marked, and the other changes are not.
+  // In a changed file the lines of the step are marked.
   const changed = diffOf(numbered(40), numbered(40, { 5: 'changed 5', 30: 'changed 30' }))
   const marked = unifiedRows(changed, startView(changed, [{ side: 'added', startLine: 30, endLine: 30 }]))
   const emphasis = Object.fromEntries(lines(marked).flatMap((item) => (item.type === 'line' && item.line.kind !== 'context' ? [[`${item.line.marker}${item.line.oldLine ?? item.line.newLine}`, item.line.emphasis]] : [])))
-  assert.deepEqual(emphasis, { '-5': false, '+5': false, '-30': false, '+30': true })
+  assert.deepEqual(emphasis, { '-30': false, '+30': true })
+})
+
+test('a node\'s code opens on its own lines, with the file\'s other changes folded away', () => {
+  const changed = diffOf(numbered(200), numbered(200, { 5: 'changed 5', 150: 'changed 150' }))
+  const pointed = [{ side: 'added' as const, startLine: 150, endLine: 150 }]
+  const rows = unifiedRows(changed, startView(changed, pointed))
+  assert.equal(rows[0]!.type, 'gap')
+  assert.equal(rows.findIndex((item) => item.type === 'line' && item.line.emphasis), 5)
+  assert.deepEqual(lines(rows).map((item) => item.type === 'line' && item.line.newLine).filter(Boolean).slice(0, 3), [147, 148, 149])
+  assert.ok(!lines(rows).some((item) => item.type === 'line' && item.line.newLine === 5))
+
+  // Nothing pointed at: every change shows.
+  assert.equal(shape(unifiedRows(changed, startView(changed))).filter((row) => row.startsWith('+')).length, 2)
+
+  // The whole file shows every change, the node's marked and the other unmarked.
+  const whole = unifiedRows(changed, showWholeFile(startView(changed, pointed)))
+  assert.equal(lines(whole).length, 202)
+  const marks = lines(whole).flatMap((item) => (item.type === 'line' && item.line.kind === 'added' ? [item.line.emphasis] : []))
+  assert.deepEqual(marks, [false, true])
+
+  // A node whose lines hold no change shows only its lines, with their surroundings.
+  const none = unifiedRows(changed, startView(changed, [{ side: 'added', startLine: 80, endLine: 81 }]))
+  assert.deepEqual(lines(none).map((item) => item.type === 'line' && item.line.newLine), [77, 78, 79, 80, 81, 82, 83, 84])
 })
 
 test('handles added, deleted, renamed and binary files', () => {

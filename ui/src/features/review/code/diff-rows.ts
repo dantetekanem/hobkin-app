@@ -208,14 +208,19 @@ function shown(diff: Diff, view: DiffView): Shown[] {
     return parts
   }
 
-  // What must show: every group of changes, and lines pointed at that hold no change (context, an unchanged test).
-  const seeds = diff.groups.map((group) => ({ ...group }))
+  // What must show: the groups of changes (with a node's lines pointed at, only those touching them), and
+  // lines pointed at that hold no change (context, an unchanged test).
+  const pointedRow = (row: Row) => (row.kind !== 'delete' && covers(view.emphasis, 'added', row.newLine)) || (row.kind !== 'insert' && covers(view.emphasis, 'deleted', row.oldLine))
+  const touching = view.emphasis.length === 0 ? [] : diff.groups.filter((group) => diff.rows.slice(group.start, group.end + 1).some(pointedRow))
+  const seeds = (view.emphasis.length === 0 ? diff.groups : touching).map((group) => ({ ...group }))
   let run: { start: number; end: number } | null = null
   diff.rows.forEach((row, index) => {
-    const pointed = row.kind === 'equal' && (covers(view.emphasis, 'added', row.newLine) || covers(view.emphasis, 'deleted', row.oldLine))
+    const pointed = row.kind === 'equal' && pointedRow(row)
     if (pointed && run && run.end === index - 1) run.end = index
     else if (pointed) seeds.push((run = { start: index, end: index }))
   })
+  // Pointing at lines that are nowhere in the diff leaves every change showing.
+  if (view.emphasis.length > 0 && seeds.length === 0) seeds.push(...diff.groups.map((group) => ({ ...group })))
   if (view.whole || seeds.length === 0) return [{ range: [0, last] }]
 
   const blocks: { start: number; end: number }[] = []
