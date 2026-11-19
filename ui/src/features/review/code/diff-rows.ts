@@ -306,6 +306,23 @@ export function splitRows(diff: Diff, view: DiffView): SplitItem[] {
   return items
 }
 
+/**
+ * The item a view opens at, for lines it points at: the first changed line from where those lines begin on
+ * the new side. With no change there, the first change among them (a node only removed), else the first of
+ * its lines. -1 when nothing is pointed at.
+ */
+export function openingIndex(items: readonly (DiffItem | SplitItem)[], emphasis: readonly Emphasis[]): number {
+  const linesOf = (item: DiffItem | SplitItem): DiffLine[] => (item.type === 'line' ? [item.line] : item.type === 'row' ? [item.right, item.left].filter((line) => line != null) : [])
+  const find = (test: (line: DiffLine) => boolean, from = 0) => items.findIndex((item, index) => index >= from && linesOf(item).some(test))
+  const changed = (line: DiffLine) => line.emphasis && line.kind !== 'context'
+  const start = Math.min(...emphasis.filter((range) => range.side === 'added').map((range) => range.startLine))
+  const anchor = Number.isFinite(start) ? find((line) => line.newLine != null && line.newLine >= start) : -1
+  const own = anchor >= 0 ? find((line) => line.emphasis && line.kind === 'added', anchor) : -1
+  if (own >= 0) return own
+  const first = find(changed)
+  return first >= 0 ? first : find((line) => line.emphasis)
+}
+
 export interface FileSides {
   path: string
   /** The path at base, when the file was renamed. */

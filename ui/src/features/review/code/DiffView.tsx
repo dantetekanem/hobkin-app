@@ -13,6 +13,7 @@ import {
   unifiedRows,
   type DiffItem,
   type DiffLine,
+  openingIndex,
   type Emphasis,
   type FileSides,
   type SplitItem,
@@ -98,13 +99,7 @@ export function DiffView({ file, patch, emphasis, split = false, selection = nul
   })
 
   // Open on the lines pointed at: the first of them that changed, or the first of them.
-  const target = useMemo(() => {
-    const marked = (line?: DiffLine) => line?.emphasis === true
-    const changed = (line?: DiffLine) => marked(line) && line?.kind !== 'context'
-    const find = (test: (line?: DiffLine) => boolean) => items.findIndex((item) => (item.type === 'line' ? test(item.line) : item.type === 'row' ? test(item.left) || test(item.right) : false))
-    const first = find(changed)
-    return first >= 0 ? first : find(marked)
-  }, [items])
+  const target = useMemo(() => openingIndex(items, view.emphasis), [items, view.emphasis])
   const aimed = useRef<unknown>(null)
   useLayoutEffect(() => {
     if (aimed.current === view.emphasis || items.length === 0) return

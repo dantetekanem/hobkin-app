@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { CONTEXT_LINES, EXPAND_BY, describeFile, diffFromPatch, diffOf, expandGap, showWholeFile, splitRows, startView, unifiedRows, type DiffItem, type SplitItem } from '../src/features/review/code/diff-rows.ts'
+import { openingIndex, CONTEXT_LINES, EXPAND_BY, describeFile, diffFromPatch, diffOf, expandGap, showWholeFile, splitRows, startView, unifiedRows, type DiffItem, type Emphasis, type SplitItem } from '../src/features/review/code/diff-rows.ts'
 
 const numbered = (count: number, change: Record<number, string> = {}) => Array.from({ length: count }, (_, index) => change[index + 1] ?? `line ${index + 1}`).join('\n') + '\n'
 const lines = (items: readonly DiffItem[]) => items.filter((item) => item.type === 'line')
@@ -199,4 +199,22 @@ test('reads a patch when only a patch is at hand', () => {
   ])
   // A patch does not hold the lines between its hunks, so those gaps cannot be opened.
   assert.ok(gaps(rows).every((item) => item.type === 'gap' && !item.above && !item.below))
+})
+
+test('a node\'s code opens at its own change', () => {
+  // A line removed from the class body (base line 12) and a method added below (head lines 29 and 30).
+  const base = numbered(40).trimEnd().split('\n')
+  const head = [...base.slice(0, 11), ...base.slice(12, 29), 'method one', 'method two', ...base.slice(29)].join('\n') + '\n'
+  const diff = diffOf(base.join('\n') + '\n', head)
+  const at = (emphasis: readonly Emphasis[]) => {
+    const rows = unifiedRows(diff, startView(diff, emphasis))
+    const item = rows[openingIndex(rows, emphasis)]
+    return item?.type === 'line' ? `${item.line.marker}${item.line.oldLine ?? ''}:${item.line.newLine ?? ''}` : undefined
+  }
+  // The node owns both places: it opens at the method, not at the removed line.
+  assert.equal(at([{ side: 'deleted', startLine: 12, endLine: 12 }, { side: 'added', startLine: 29, endLine: 30 }]), '+:29')
+  // A node whose change is one added line opens at that line.
+  assert.equal(at([{ side: 'added', startLine: 30, endLine: 30 }]), '+:30')
+  // A node only removed opens at its removal.
+  assert.equal(at([{ side: 'deleted', startLine: 12, endLine: 12 }]), '-12:')
 })
