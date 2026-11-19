@@ -10,7 +10,8 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { doingNow, exchangeOf, pauseOf, stepCount, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
-import { StepItem } from '@/features/agent-activity/StepView.tsx'
+import { useNewest } from '@/features/agent-activity/newest.ts'
+import { EarlierSteps, StepItem } from '@/features/agent-activity/StepView.tsx'
 import { TaskList } from '@/features/agent-activity/TaskList.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
@@ -527,7 +528,8 @@ export function walkSteps(event: KeyboardEvent<HTMLOListElement>) {
  * The whole exchange, drawn while it is read: the agent's steps with the user's messages where they were sent, each
  * with when it happened in a column at its left. It fills the room between the shrunken header and the input, opens at
  * its newest step, just above the input, and stays there as steps arrive, unless the user has scrolled up to read, and
- * then offers the way back down. Each step is drawn only while it is in view, so a long run costs what fits on screen.
+ * then offers the way back down. A long run draws only its newest steps, with a row above them that draws more, and each
+ * step drawn paints only while it is in view.
  */
 function Exchange({ agentId, hue, question, waiting, activity }: { agentId: string; hue: number; question?: string; waiting: boolean; activity: AgentActivity | null }) {
   const still = useStill()
@@ -542,10 +544,12 @@ function Exchange({ agentId, hue, question, waiting, activity }: { agentId: stri
         : (notes ?? []).map((note) => ({ kind: 'note', key: `note:${note.id}`, note })),
     [activity, notes],
   )
+  // A long run draws only its newest steps, with a row above them for the ones before (newest.ts).
+  const newest = useNewest(agentId, items)
   const thinking = activity !== null && !waiting && pauseOf(activity.entries, { ended: activity.ended }) === 'thinking'
   // Where the list is on screen before the new steps are in place, so it can glide from there rather than jump.
   scroll.note()
-  useLayoutEffect(scroll.settle, [items, thinking, scroll.settle])
+  useLayoutEffect(scroll.settle, [newest.shown, thinking, scroll.settle])
 
   return (
     <motion.div
@@ -564,9 +568,10 @@ function Exchange({ agentId, hue, question, waiting, activity }: { agentId: stri
             <p className="flex h-6 items-center self-start pl-8 text-[12px] text-muted-foreground">{waiting ? 'Your answer goes in the box below.' : 'Answered.'}</p>
           </li>
         ) : null}
+        {newest.earlier ? <EarlierSteps count={newest.earlier} onMore={newest.more} /> : null}
         <ShowStamps>
           <AnimatePresence initial={false}>
-            {items.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
+            {newest.shown.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
           </AnimatePresence>
           {/* It leaves in the same moment the next step arrives, so the list glides once instead of settling twice. */}
           <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} /> : null}</AnimatePresence>

@@ -11,7 +11,8 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { TaskList } from '@/features/agent-activity/TaskList.tsx'
-import { StepItem } from '@/features/agent-activity/StepView.tsx'
+import { useNewest } from '@/features/agent-activity/newest.ts'
+import { EarlierSteps, StepItem } from '@/features/agent-activity/StepView.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { MessageText } from '@/features/chat/markdown.ts'
@@ -167,6 +168,7 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
         <TaskList entries={activity?.entries} hue={hueOf(id)} />
       </div>
       <Conversation
+        id={id}
         turns={turns}
         activity={activity}
         cwd={hobkin?.cwd}
@@ -351,6 +353,8 @@ function focusNewestStep(input: Element): boolean {
 }
 
 interface ConversationProps {
+  /** The hobkin's id: how many of its newest rows are drawn is kept by it. */
+  id: string
   turns: readonly ShownTurn[]
   activity: AgentActivity | null
   cwd?: string
@@ -366,15 +370,17 @@ interface ConversationProps {
  * with no turn yet has nothing here until its first message is sent. Each row keeps its key while the host catches up
  * with a message sent (`pageRows`), so none is drawn twice. Every row says when it happened, in a column at its left.
  */
-function Conversation({ turns, activity, cwd, sending, problem, loading }: ConversationProps) {
+function Conversation({ id, turns, activity, cwd, sending, problem, loading }: ConversationProps) {
   const still = useStill()
   const scroll = useFollow(still)
   const rows = useMemo(
     () => pageRows(turns, { sending, activity: activity ? { entries: activity.entries, cwd: activity.cwd ?? cwd, seenAt: (id) => activity.timeOf(id)?.seen } : null }),
     [turns, sending, activity, cwd],
   )
+  // A long conversation draws only its newest rows, with a row above them for the ones before (newest.ts).
+  const newest = useNewest(id, rows)
   scroll.note()
-  useLayoutEffect(scroll.settle, [rows, scroll.settle])
+  useLayoutEffect(scroll.settle, [newest.shown, scroll.settle])
 
   return (
     <div
@@ -390,9 +396,10 @@ function Conversation({ turns, activity, cwd, sending, problem, loading }: Conve
         aria-label="The conversation"
         className="mt-auto flex flex-col gap-3 pt-2 pb-3"
       >
+        {newest.earlier ? <EarlierSteps count={newest.earlier} onMore={newest.more} /> : null}
         <ShowStamps>
           <AnimatePresence initial={false}>
-            {rows.map((row) =>
+            {newest.shown.map((row) =>
               row.kind === 'said' ? (
                 <Said key={row.key} text={row.text} at={row.at} added={row.tag === 'added'} sending={row.tag === 'sending'} from={row.from} />
               ) : row.kind === 'step' ? (

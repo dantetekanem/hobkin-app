@@ -15,6 +15,7 @@ import { ChangeDiff } from './ChangeDiff.tsx'
 import { CodeText, MoreButton } from './CodeText.tsx'
 import { BOX } from './boxes.ts'
 import { CodemodeCall } from './CodemodeCall.tsx'
+import { NEWEST_STEPS } from './newest.ts'
 import { previewOf } from './preview.ts'
 import { RowStamp, Stamped } from './Stamp.tsx'
 import { atOf, foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
@@ -65,6 +66,27 @@ export const StepItem = memo(
   },
   (before, after) => before.timeOf === after.timeOf && before.ended === after.ended && sameStep(before.step, after.step),
 )
+
+/**
+ * The row above a long conversation's newest steps (newest.ts): how many came before them, and a press that draws forty
+ * more. Up and Down walk onto it as onto a step, and Enter or Right presses it.
+ */
+export function EarlierSteps({ count, onMore }: { count: number; onMore: () => void }) {
+  const more = Math.min(count, NEWEST_STEPS)
+  return (
+    <li data-step="earlier" tabIndex={-1} className="flex justify-center rounded-[18px] outline-none focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
+      <button
+        type="button"
+        data-step-toggle
+        aria-expanded={false}
+        onClick={onMore}
+        className="rounded-full px-3 py-1 text-[12px] text-muted-foreground transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 hover:text-foreground"
+      >
+        {count === 1 ? '1 earlier step' : `${count.toLocaleString('en-US')} earlier steps`} · Show {more === count ? (count === 1 ? 'it' : 'them') : `${more} more`}
+      </button>
+    </li>
+  )
+}
 
 function StepBody({ step, timeOf }: { step: Step; timeOf: TimeOf }) {
   switch (step.kind) {
