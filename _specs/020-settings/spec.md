@@ -119,7 +119,7 @@ Settings is a screen on the canvas that looks like hobkin's desk, not a form. Ea
 - [ ] S3 (A3, A4, A6, A7, A12). The tiles for hobkin's settings and the nerd stats on sample values, with their rules tested.
 - [x] S4 (A8). Keyboard through every tile.
 - [ ] S5 (A9, A10). Host: hobkin's settings as state and commands.
-- [ ] S6 (A17 to A25). Backup: the rule, backup and restore in the host, and the tile. The host side is tested; the tile is not yet seen, and `host.ts` does not yet pass the host's own check that nothing runs.
+- [ ] S6 (A17, A18, A19, A20, A21, A22, A23, A24, A25). Backup: the rule, backup and restore in the host, and the tile. The host side is tested; the tile is not yet seen, and `host.ts` does not yet pass the host's own check that nothing runs.
 - [ ] S7 (A26). Kept custom themes: the host's list and its four commands, Custom bringing back the theme shown last, and the swatches with Edit under Custom. The rules are tested and the tile is seen in a still render; not yet seen in the window.
 
 ## Open questions
