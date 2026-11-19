@@ -37,6 +37,23 @@ test('below 80% there is nothing to do', () => {
   assert.equal(compactionDue(context({ percent: null })), null, 'just after a compaction nothing is known yet');
 });
 
+test('from 160,000 tokens the chat compacts ahead of time, however big its window is', () => {
+  assert.equal(compactionDue(context({ percent: 16, tokens: 160000 })), 'smart');
+  assert.equal(compactionDue(context({ percent: 32.8, tokens: 328000 })), 'smart');
+  assert.equal(compactionDue(context({ percent: 15.9, tokens: 159999 })), null);
+  assert.equal(compactionDue(context({ percent: 16, tokens: null })), null, 'a size nobody knows is no reason');
+});
+
+test('a big chat still waits for a good moment, and its size never forces anything', () => {
+  const big = change => compactionDue(context({ percent: 32.8, tokens: 328000, ...change }));
+
+  assert.equal(big({ quietMs: MINUTE }), null, 'used a minute ago');
+  assert.equal(big({ free: false }), null, 'busy');
+  assert.equal(big({ nextRunInMs: 30 * MINUTE }), null, 'a run is coming in half an hour');
+  assert.equal(big({ auto: false }), null, "Pi's own compaction is off");
+  assert.equal(big({ tokens: 900000, quietMs: 0 }), null, 'a size alone does not force it');
+});
+
 test('the smart one never takes the chat from someone using it', () => {
   assert.equal(compactionDue(context({ free: false })), null);
   assert.equal(compactionDue(context({ quietMs: MINUTE })), null, 'a reply may be on its way');

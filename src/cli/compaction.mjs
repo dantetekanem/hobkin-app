@@ -1,4 +1,6 @@
 const SMART_AT_PERCENT = 80;
+// Where a 200,000-token window reaches its 80%. Every model call reads the whole chat again, so a bigger window must not let it grow past this.
+const SMART_AT_TOKENS = 160000;
 export const FORCE_AT_PERCENT = 95;
 const MINUTE_MS = 60000;
 // Someone reading the last reply may be about to answer it, and they should not meet a spinner.
@@ -9,15 +11,17 @@ const NEXT_RUN_IS_FAR_MS = 120 * MINUTE_MS;
 const RETRY_AFTER_MS = 10 * MINUTE_MS;
 
 const failedRecently = (last, now) => Boolean(last) && last.status !== 'completed' && now - Date.parse(last.at) < RETRY_AFTER_MS;
+const worthCompacting = (percent, tokens) => percent >= SMART_AT_PERCENT || (Number.isFinite(tokens) && tokens >= SMART_AT_TOKENS);
 
 /**
- * Whether the main session should compact. `force` is too full to wait for a good moment. `smart` is a good moment arriving early: the
- * chat is idle and nobody needs it soon, because either agents are working or the next check is hours away.
+ * Whether the main session should compact. `force` is too full to wait for a good moment. `smart` is a good moment arriving early for a
+ * chat that is full enough or big enough: it is idle and nobody needs it soon, because either agents are working or the next check is hours
+ * away. Only the window's percentage forces it.
  */
-export function compactionDue({ percent, auto, free, quietMs, agentsRunning, nextRunInMs, last, now = Date.now() }) {
+export function compactionDue({ percent, tokens, auto, free, quietMs, agentsRunning, nextRunInMs, last, now = Date.now() }) {
   if (auto === false || !Number.isFinite(percent) || failedRecently(last, now)) return null;
   if (percent >= FORCE_AT_PERCENT) return 'force';
-  if (percent < SMART_AT_PERCENT || !free || quietMs < QUIET_BEFORE_SMART_MS) return null;
+  if (!worthCompacting(percent, tokens) || !free || quietMs < QUIET_BEFORE_SMART_MS) return null;
 
   const nextRunIsFar = nextRunInMs === null || nextRunInMs >= NEXT_RUN_IS_FAR_MS;
   return agentsRunning || nextRunIsFar ? 'smart' : null;
