@@ -123,6 +123,7 @@ export function fakeModelAccess({ catalog = FAKE_CATALOG, stored = [], ambient =
       providers: catalog.map(({ models: _models, ...provider }) => ({ ...provider, connected: connected(provider.id) })),
       models: catalog.filter(({ id }) => connected(id)).flatMap(({ id, models }) => models.map((model) => ({ ...model, provider: id }))),
     }),
+    update: async () => ({ ...(await access.list()), added: [], errors: [] }),
     login: async (id, interaction) => {
       find(id)
       logins.push(id)

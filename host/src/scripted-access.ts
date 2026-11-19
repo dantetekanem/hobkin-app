@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
+import type { ModelsState } from '#shared/protocol/models.ts'
 import type { ModelAccess } from './model-access.ts'
 import { defaultModelOf, modelChoiceOf, providerAccessOf } from './model-access.ts'
 import { loadPiAi, loadPiCodingAgent, loadPiDefaultModels, loadPiKeyVariables } from './pi.ts'
@@ -46,14 +47,18 @@ export async function scriptedModelAccess({ connected = ['openai'] }: ScriptedAc
     return provider.name
   }
 
+  const list = async (): Promise<ModelsState> => ({
+    providers: providers.map((provider) => providerAccessOf(provider, keyVariables(provider.id), on.has(provider.id), defaultModelOf(defaults, catalog, provider.id))),
+    models: providers
+      .filter(({ id }) => on.has(id))
+      .flatMap(({ id }) => catalog.getModels(id).filter(({ type }) => type === undefined || type === 'chat'))
+      .map((model) => modelChoiceOf(model, ai.getSupportedThinkingLevels(model))),
+  })
+
   return {
-    list: async () => ({
-      providers: providers.map((provider) => providerAccessOf(provider, keyVariables(provider.id), on.has(provider.id), defaultModelOf(defaults, catalog, provider.id))),
-      models: providers
-        .filter(({ id }) => on.has(id))
-        .flatMap(({ id }) => catalog.getModels(id).filter(({ type }) => type === undefined || type === 'chat'))
-        .map((model) => modelChoiceOf(model, ai.getSupportedThinkingLevels(model))),
-    }),
+    list,
+    // The scripted catalog is Pi's built-in one, which is not fetched from anywhere.
+    update: async () => ({ ...(await list()), added: [], errors: [] }),
     login: async (id, interaction) => {
       nameOf(id)
       interaction.notify({

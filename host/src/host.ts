@@ -474,6 +474,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       await signIn.refresh()
       return signIn.models!
     },
+    'models.update': async () => {
+      try {
+        return await signIn.updateModels()
+      } catch (error) {
+        throw new Unavailable(error instanceof Error ? error.message : String(error))
+      }
+    },
     'models.key-help': ({ provider }) => signIn.keyHelp(provider),
     'models.keychain': ({ provider }) => signIn.useKeychain(provider),
     'models.select': async ({ model, effort }) => {

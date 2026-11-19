@@ -10,7 +10,7 @@ import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITL
 import { CLAUDE_AGENT_KINDS, CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_PERMISSIONS, type ClaudeCodeState } from '../protocol/claude-code.ts'
 import type { FileContent } from '../protocol/files.ts'
 import type { GitHubState } from '../protocol/github.ts'
-import type { KeyHelp, ModelsState } from '../protocol/models.ts'
+import type { KeyHelp, ModelsState, ModelsUpdate } from '../protocol/models.ts'
 import { NUDGE_SCREENS } from '../protocol/nudge.ts'
 import type { SystemMetrics, UsageFacts } from '../protocol/system.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
@@ -318,6 +318,12 @@ export const COMMANDS = {
     runs: 'host',
     args: nothing,
     hobkin: true,
+  },
+  'models.update': {
+    description: "Refresh Pi's model catalogs from the network, as `pi update` does, and list the models again with what is new and what a provider could not give.",
+    runs: 'host',
+    args: nothing,
+    outside: true,
   },
   'models.key-help': {
     description: "Say how to give Pi a provider's API key without typing it into the app: the environment variable Pi reads, or the macOS Keychain.",
@@ -1141,6 +1147,7 @@ export interface CommandResults {
   'question.answer': { ok: true }
   'question.defer': { ok: true }
   'models.list': ModelsState
+  'models.update': ModelsUpdate
   'models.key-help': KeyHelp
   'models.keychain': { ok: true; connected: boolean }
   /** What hobkin saved. `applied`: the open conversation runs that model now. Without an open conversation, the next one starts on it. */

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { hasUsableModel, type KeyHelp, type ModelsState, type ProviderAccess } from '#shared/protocol/models.ts'
+import { hasUsableModel, type KeyHelp, type ModelsState, type ModelsUpdate, type ProviderAccess } from '#shared/protocol/models.ts'
 import type { SignInProblem, SignInState } from '#shared/protocol/signin.ts'
 import { Unavailable } from './commands.ts'
 import { CLOUD_ROUTES, keyHelpFor } from './key-help.ts'
@@ -141,6 +141,15 @@ export class SignIn {
       this.looking = null
     })
     return this.looking
+  }
+
+  /** Pi's own catalog refresh, then the slice carries the new list. Throws what Pi said when it ran out of time. */
+  async updateModels(): Promise<ModelsUpdate> {
+    const updated = await (await this.pi()).update()
+    this.models = { providers: updated.providers, models: updated.models }
+    if (!this.attempt) this.set({ status: hasUsableModel(this.models) ? 'signed-in' : 'signed-out', ...(this.problem ? { problem: this.problem } : {}) })
+    else this.options.onChange()
+    return updated
   }
 
   private async provider(id: string): Promise<ProviderAccess> {

@@ -40,6 +40,15 @@ export interface ModelsState {
   models: ModelChoice[]
 }
 
+/**
+ * What "Update models" found. The state is the list as it is after the refresh. `added` names the models that were not in
+ * the last list, as `provider/id`. `errors` has one line per provider Pi could not refresh: the rest still updated.
+ */
+export interface ModelsUpdate extends ModelsState {
+  added: string[]
+  errors: { provider: string; message: string }[]
+}
+
 /** How to give Pi an API key without the key passing through the app. */
 export interface KeyHelp {
   provider: string

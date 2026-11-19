@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process'
 import { scrubText } from '#shared/integrations/redact.ts'
-import type { ModelChoice, ProviderAccess } from '#shared/protocol/models.ts'
+import type { ModelChoice, ModelsState, ProviderAccess } from '#shared/protocol/models.ts'
 import type { ModelAccess } from './model-access.ts'
 
 /**
@@ -132,6 +132,15 @@ export class LauncherModels {
     return answer
   }
 
+  /** Asks the launcher again at once, not waiting out the kept answer. `added` is what the new answer lists that the kept one did not. */
+  async refresh(): Promise<{ answer: LauncherAnswer | null; added: string[] }> {
+    const before = await this.kept?.answer.catch(() => null)
+    this.kept = null
+    const answer = await this.list()
+    const known = new Set((before?.models ?? []).map(({ provider, id }) => `${provider}/${id}`))
+    return { answer, added: (answer?.models ?? []).map(({ provider, id }) => `${provider}/${id}`).filter((id) => !known.has(id)) }
+  }
+
   private async ask(launcher: Launcher): Promise<LauncherAnswer | null> {
     try {
       const models = await listLauncher(launcher, this.run)
@@ -150,12 +159,17 @@ export class LauncherModels {
  * A launcher that cannot be asked leaves the list as Pi alone gave it.
  */
 export function withLauncher(access: ModelAccess, launcher: LauncherModels): ModelAccess {
+  const joined = (state: ModelsState, found: LauncherAnswer | null): ModelsState => (found ? { providers: [...state.providers, found.account], models: [...state.models, ...found.models] } : state)
   return {
     ...access,
+    update: async () => {
+      const updated = await access.update()
+      const { answer, added } = await launcher.refresh().catch(() => ({ answer: null, added: [] as string[] }))
+      return { ...joined(updated, answer), added: [...updated.added, ...added], errors: updated.errors }
+    },
     list: async () => {
       const [state, found] = await Promise.all([access.list(), launcher.list().catch(() => null)])
-      if (!found) return state
-      return { providers: [...state.providers, found.account], models: [...state.models, ...found.models] }
+      return joined(state, found)
     },
   }
 }
