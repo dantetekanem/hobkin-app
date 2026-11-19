@@ -290,6 +290,23 @@ test('a once file that has run moves in with its check, and no longer counts', a
   assert.equal((await h.runner.snapshot()).counts.once, 0);
 });
 
+test('a once file waiting for its time, and leaving once it has run, costs a tick no reading of every run whole', async t => {
+  const runtime = new MemoryRuntime();
+  let wholeReads = 0;
+  const whole = runtime.state.bind(runtime);
+  runtime.state = () => { wholeReads++; return whole(); };
+  runtime.runIndex = async () => ({ runs: Object.fromEntries(Object.entries(runtime.data.runs).map(([id, { kind, status, scheduleId, scheduledAt }]) =>
+    [id, { id, kind, status, scheduleId, scheduledAt, work: false, hobkin: false }])) });
+  const h = harness(t, {}, { runtime });
+  await tickAt(h, '2026-05-04T14:00:00Z');
+  assert.equal(wholeReads, 0, 'not due yet');
+  await tickAt(h, '2026-05-04T15:00:30Z');
+  assert.equal(wholeReads, 1, 'weighed against every run once, to start');
+  await tickAt(h, '2026-05-04T15:00:31Z');
+  assert.equal(existsSync(join(h.root, 'routines/once/dentist.md')), false);
+  assert.equal(wholeReads, 1, 'the index says it has run');
+});
+
 test('a once file is running while its job runs', async t => {
   const h = harness(t);
   await tickAt(h, '2026-05-04T14:00:00Z');

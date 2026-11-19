@@ -175,13 +175,17 @@ export class HobkinRunner {
     const now = new Date(this.now());
     this.loaded = loadSchedules(this.root);
     this.lastError = null;
-    const state = await this.runtime.state();
-    let capacity = this.config.concurrency - this.scheduledJobCount(state);
+    const index = await this.runIndex();
+    // Every run whole, results and all, is read only for a routine that is due and has not run: its hold and its start
+    // weigh them. Read once a tick, as before, so every routine in it sees the same runs.
+    let whole = null;
+    const wholeState = async () => (whole ??= await this.runtime.state());
+    let capacity = this.config.concurrency - this.scheduledJobCount(index);
     for (const schedule of this.loaded.schedules) {
       if (this.stopped || capacity <= 0) break;
       if (schedule.cadence === 'compatibility') {
         try {
-          if (await this.startCompatibility(schedule, state, now)) capacity--;
+          if (await this.startCompatibility(schedule, await wholeState(), now)) capacity--;
         } catch (error) {
           this.loaded.errors.push({ path: schedule.path, message: error.message });
         }
@@ -190,10 +194,11 @@ export class HobkinRunner {
       const occurrence = this.compatibilityDue
         ? this.compatibilityDue(schedule, now, { notBefore: notBeforeFor(schedule, this.config), defaultDue: dueOccurrence })
         : dueOccurrence(schedule, now, { notBefore: notBeforeFor(schedule, this.config) });
-      if (!occurrence || state.runs[occurrence.id] || this.jobs.has(occurrence.id)) continue;
+      if (!occurrence || index.runs[occurrence.id] || this.jobs.has(occurrence.id)) continue;
       // Keep completed admissions when a setting changes between one time and a list.
-      if (Object.values(state.runs).some(run => run.scheduleId === schedule.id && run.scheduledAt === occurrence.scheduledAt)) continue;
-      if (Object.values(state.runs).some(run => run.scheduleId === schedule.id && run.status === 'running')) continue;
+      if (Object.values(index.runs).some(run => run.scheduleId === schedule.id && run.scheduledAt === occurrence.scheduledAt)) continue;
+      if (Object.values(index.runs).some(run => run.scheduleId === schedule.id && run.status === 'running')) continue;
+      const state = await wholeState();
       if (checkHold(schedule, Object.values(state.runs), now.getTime())) continue;
       try {
         await this.startNative(schedule, occurrence, state);
@@ -211,7 +216,8 @@ export class HobkinRunner {
   async retireFinishedOnce(now) {
     if (!this.loaded.counts.once) return;
 
-    const runs = Object.values((await this.runtime.state()).runs);
+    // Whether a time has run needs only each run's routine, occurrence and status.
+    const runs = Object.values((await this.runIndex()).runs);
     for (const schedule of this.loaded.schedules) {
       const own = runs.filter(run => run.scheduleId === schedule.id);
       if (!isFinishedOnce(schedule, own, now, notBeforeFor(schedule, this.config))) continue;
@@ -221,6 +227,11 @@ export class HobkinRunner {
         this.loaded.errors.push({ path: schedule.path, message: error.message });
       }
     }
+  }
+
+  /** Every run, to count and match them: the runtime's index, or the whole state from a runtime without one. */
+  runIndex() {
+    return typeof this.runtime.runIndex === 'function' ? this.runtime.runIndex() : this.runtime.state();
   }
 
   /** Work runs have their own pool, and a durable hobkin's turn is the user's, so neither takes a place from ordinary checks. */

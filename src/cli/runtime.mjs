@@ -197,6 +197,22 @@ export class HobkinRuntime {
     return JSON.parse(this.encodedState);
   }
 
+  /**
+   * Each run's bookkeeping, for what only counts and matches runs, as the scheduler's tick does every second: its id,
+   * kind, status, routine and occurrence, and whether it is Work's or a durable hobkin's, never its prompt or result.
+   * Worked out once per commit, as `state()` encodes, and frozen, since every caller gets this same object.
+   */
+  async runIndex() {
+    const document = await this.harness.snapshot(RuntimeDoc, this.root.id, context);
+    if (document !== this.indexedDocument) {
+      const runs = Object.entries(document.runs ?? {}).map(([id, { kind, status, scheduleId, scheduledAt, work, hobkin }]) =>
+        [id, Object.freeze({ id, kind, status, scheduleId, scheduledAt, work: Boolean(work), hobkin: Boolean(hobkin) })]);
+      this.indexed = Object.freeze({ runs: Object.freeze(Object.fromEntries(runs)) });
+      this.indexedDocument = document;
+    }
+    return this.indexed;
+  }
+
   async change(update) {
     const result = await this.root.commit(async tx => update(await tx.doc(RuntimeDoc, this.root.id)), context);
     this.notify();

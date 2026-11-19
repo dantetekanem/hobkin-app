@@ -85,6 +85,35 @@ test('enabling a routine admits no slot that had already passed, only the next o
   assert.deepEqual(Object.keys(h.runtime.data.runs), ['check:2026-01-03']);
 });
 
+test('a tick reads every run whole only for a routine that is due and has not run, and its index otherwise', async t => {
+  const h = await fixture(t);
+  const whole = h.runtime.state.bind(h.runtime);
+  let wholeReads = 0, indexReads = 0;
+  h.runtime.state = () => { wholeReads++; return whole(); };
+  h.runtime.runIndex = async () => {
+    indexReads++;
+    const { runs } = await whole();
+    return { runs: Object.fromEntries(Object.entries(runs).map(([id, { kind, status, scheduleId, scheduledAt, work, hobkin }]) =>
+      [id, { id, kind, status, scheduleId, scheduledAt, work: Boolean(work), hobkin: Boolean(hobkin) }])) };
+  };
+  let clock = new Date('2026-01-02T08:00:00Z');
+  const runner = new HobkinRunner({ ...h, config, now: () => clock, runHarness: async () => ({ status: 'completed', text: 'ok' }) });
+  await runner.tick();
+  assert.deepEqual([wholeReads, indexReads], [0, 1], 'nothing is due before 09:00');
+
+  clock = new Date('2026-01-02T09:00:30Z');
+  await runner.tick();
+  await h.runtime.idle();
+  assert.deepEqual(Object.keys(h.runtime.data.runs), ['check:2026-01-02']);
+  assert.deepEqual([wholeReads, indexReads], [1, 2], 'the due routine is weighed against every run before it starts');
+
+  clock = new Date('2026-01-02T09:01:30Z');
+  await runner.tick();
+  await h.runtime.idle();
+  assert.deepEqual(Object.keys(h.runtime.data.runs), ['check:2026-01-02'], 'it runs once');
+  assert.deepEqual([wholeReads, indexReads], [1, 3], 'once it has run, the index says so');
+});
+
 test('deletion serializes with admission and changes, preserving runtime history', async t => {
   const h = await fixture(t);
   const runner = new HobkinRunner({ ...h, config });

@@ -1043,8 +1043,7 @@ export class HobkinApplication {
     const root = this.runtime.directory;
     return this.runner.serialize(async () => {
       if (this.runner.stopped) return [];
-      const state = await this.runtime.state();
-      const capacity = Math.max(0, this.config.concurrency - this.runner.scheduledJobCount(state));
+      const capacity = Math.max(0, this.config.concurrency - this.runner.scheduledJobCount(await this.runner.runIndex()));
       // Reserve synchronously, but release admission before waiting for any job to finish.
       this.sessionJobs ??= new Set();
       const requests = takeSessionRequests(root, capacity);

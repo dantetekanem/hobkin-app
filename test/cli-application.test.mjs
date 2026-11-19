@@ -1035,6 +1035,17 @@ test('scheduled ticks and sessions reserve two ordinary places independently of 
   assert.deepEqual(readdirSync(join(h.root, 'runtime/session-requests')), []);
 });
 
+test('looking for sessions to start counts the running checks from the run index, never reading every run whole', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ intervalMs: 60000, runHarness: async () => ({ status: 'completed', text: 'Done.' }) });
+  t.after(() => app.close());
+  const whole = app.runtime.state.bind(app.runtime);
+  let wholeReads = 0;
+  app.runtime.state = () => { wholeReads++; return whole(); };
+  assert.deepEqual(await app.tickSessions(), []);
+  assert.equal(wholeReads, 0);
+});
+
 for (const enabled of [false, true]) {
   test(`queued sessions share ordinary check admission with Work ${enabled ? 'enabled' : 'disabled'}`, async t => {
     const h = fixture(t);

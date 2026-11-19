@@ -53,3 +53,25 @@ test('a commit shows in the next read, which encodes the new document once', asy
   await runtime.change(state => { delete state.evidenceReceipts.later; });
   assert.equal((await runtime.state()).evidenceReceipts.later, undefined);
 });
+
+test('the run index gives each run\'s bookkeeping without its prompt or result, the same until a commit and never encoded', async t => {
+  const runtime = await open(t);
+  await runtime.change(state => {
+    state.runs.check = { id: 'check', kind: 'background', scheduleId: 'mail', scheduledAt: '2026-01-02T09:00:00.000Z',
+      status: 'running', prompt: 'PROMPT', result: { text: 'RESULT' }, work: { slug: 'site' } };
+    state.runs.turn = { id: 'turn', kind: 'main', status: 'completed', hobkin: 'friend', prompt: 'PROMPT' };
+  });
+  const { result: index, encodings } = await encodingsWhile(t, () => runtime.runIndex());
+  assert.equal(encodings, 0);
+  assert.deepEqual(index, { runs: {
+    check: { id: 'check', kind: 'background', status: 'running', scheduleId: 'mail', scheduledAt: '2026-01-02T09:00:00.000Z', work: true, hobkin: false },
+    turn: { id: 'turn', kind: 'main', status: 'completed', scheduleId: undefined, scheduledAt: undefined, work: false, hobkin: true },
+  } });
+  assert.equal(await runtime.runIndex(), index, 'nothing was committed');
+  assert.throws(() => { index.runs.check.status = 'changed'; }, TypeError, 'an index is read, never written');
+
+  await runtime.change(state => { state.runs.check.status = 'completed'; });
+  assert.equal((await runtime.runIndex()).runs.check.status, 'completed');
+  assert.equal(index.runs.check.status, 'running', 'an index handed out is never changed');
+  assert.equal((await runtime.state()).runs.check.status, 'completed', 'the document itself is untouched');
+});
