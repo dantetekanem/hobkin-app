@@ -164,3 +164,14 @@ test('the walk goes to each node once: a node an earlier step holds is not in a 
   assert.equal(walks[0]!.focus.length, 1)
   assert.equal(walks[1]!.focus.length, 1, 'the later step keeps the node that is its alone')
 })
+
+test('a unit whose nodes an earlier step showed goes back to them, so no step of the walk is left with none', async () => {
+  const graph = await review()
+  // The second unit's only place is `total`, which the first step showed already.
+  const again: UnitPlace[] = [...places, { id: 'n9', kind: 'general', path: 'app/models/cart.rb', lines: [2, 2], change: 'modified' }]
+  const units = [unit('u1', 1, { nodes: ['n1'] }), unit('u2', 2, { nodes: ['n9'] })]
+  const walks = unitStory(graph, { units, places: again, words: null, story: STORY, buckets: [] }).filter((step) => step.kind === 'walk')
+  assert.equal(walks.length, 2)
+  assert.ok(walks.every((step) => step.focus.length > 0), 'every step of the walk has a node')
+  assert.deepEqual(walks[1]!.focus, walks[0]!.focus, 'it goes back to the node that holds its code')
+})

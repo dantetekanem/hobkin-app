@@ -292,8 +292,10 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
       },
       openWire: (wire) => set({ wire }),
       openCode: (nodeId) => {
-        const { view, focus } = get()
-        const target = nodeId ?? codeTarget(view, focus)
+        const { view, focus, story } = get()
+        // On the path, the code a step offers is its own: a step told beside its neighbor's node offers none of that node's.
+        const onPath = story.detour == null && story.group == null && !story.whole
+        const target = nodeId ?? codeTarget(view, onPath ? (view.story[story.step]?.focus ?? []) : focus)
         beforeCode = null
         if (!target) return false
         // A folded test shows its own code, with its card in focus.

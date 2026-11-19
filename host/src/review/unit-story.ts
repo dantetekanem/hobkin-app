@@ -185,11 +185,14 @@ export function unitStory(review: Review, parts: UnitStoryParts): StoryStep[] {
   const focusOf = focusFinder(review, parts)
   const ordered = parts.units.map((unit, index) => ({ unit, index })).sort((a, b) => (a.unit.part ?? 1) - (b.unit.part ?? 1) || a.unit.story_order - b.unit.story_order || a.index - b.index)
   // The walk goes to each node once. A step may hold several nodes, and a node belongs to the first step that holds
-  // it: a later step that would go back there keeps only what is its alone.
+  // it: a later step that would go back there keeps only what is its alone. A step left with nothing of its own goes
+  // back to its nodes, so its code is told beside the node that holds it, never with the whole graph.
   const visited = new Set<string>()
   const walks: StoryStep[] = ordered.map(({ unit }) => {
     const said = parts.words?.units?.[unit.id]
-    const focus = focusOf(unit).filter((id) => !visited.has(id))
+    const own = focusOf(unit)
+    const fresh = own.filter((id) => !visited.has(id))
+    const focus = fresh.length ? fresh : own
     for (const id of focus) visited.add(id)
     return {
       id: `unit-${unit.id}`,

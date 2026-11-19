@@ -39,17 +39,32 @@ const NOTHING: Fresh = { nodes: [], wires: [] }
 const clampStep = (review: Story, index: number) => Math.max(0, Math.min(review.story.length - 1, Math.trunc(index) || 0))
 const unique = <Value>(values: readonly Value[]) => [...new Set(values)]
 
-/** The nodes in focus now: the detour or the group, nothing for the whole graph, or the current step's own focus. */
+/**
+ * The nodes a step is told beside: its own, or, for a step after the opening that has none, the nearest step's: the
+ * one before it, else the one after. So the camera stays where the walk is, and only the opening shows the whole
+ * graph. What the step shows stays its own: this is only where it is told.
+ */
+export function besideOf(review: Pick<Review, 'story'>, index: number): string[] {
+  const own = review.story[index]?.focus ?? []
+  if (own.length > 0 || index <= 0) return own
+  const near = (from: number, by: number) => {
+    for (let at = from; at > 0 && at < review.story.length; at += by) if (review.story[at]!.focus.length > 0) return review.story[at]!.focus
+    return null
+  }
+  return near(index - 1, -1) ?? near(index + 1, 1) ?? []
+}
+
+/** The nodes in focus now: the detour or the group, nothing for the whole graph, or what the current step is told beside. */
 export function focusOf(review: Story, state: StoryState): string[] {
   if (state.whole) return []
   if (state.detour != null) return [state.detour]
   if (state.group) return state.group
-  return review.story[state.step]?.focus ?? []
+  return besideOf(review, state.step)
 }
 
 /** True when the reviewer is looking at something other than the current step: "Back to step N" is offered. */
 export function offPath(review: Story, state: StoryState): boolean {
-  return state.detour != null || state.group != null || (state.whole && (review.story[state.step]?.focus.length ?? 0) > 0)
+  return state.detour != null || state.group != null || (state.whole && besideOf(review, state.step).length > 0)
 }
 
 /**
@@ -89,14 +104,14 @@ export function startStory(review: Story, saved?: StoredProgress | null): StoryS
   if (current && !seen.includes(current)) seen.push(current)
   const restored = unique((saved?.revealed ?? []).filter((id) => known.has(id)))
   // The step being opened on is on screen, so it has drawn in.
-  return { step, seen, revealed: reveal(review, restored, review.story[step]?.focus ?? []).revealed, detour: null, group: null, whole: false }
+  return { step, seen, revealed: reveal(review, restored, besideOf(review, step)).revealed, detour: null, group: null, whole: false }
 }
 
 /** Moves to a step, back onto the path. */
 export function goToStep(review: Story, state: StoryState, index: number): Moved {
   const step = clampStep(review, index)
   const id = review.story[step]!.id
-  const { revealed, fresh } = reveal(review, state.revealed, review.story[step]!.focus)
+  const { revealed, fresh } = reveal(review, state.revealed, besideOf(review, step))
   return { state: { step, seen: state.seen.includes(id) ? state.seen : [...state.seen, id], revealed, detour: null, group: null, whole: false }, fresh }
 }
 
@@ -115,7 +130,7 @@ export function stepFrom(review: Story, state: StoryState, delta: number): numbe
  */
 export function focusNode(review: Story, state: StoryState, nodeId: string, { alone = false }: { alone?: boolean } = {}): Moved {
   if (!review.nodes.some((node) => node.id === nodeId)) return { state, fresh: NOTHING }
-  if (!alone && review.story[state.step]?.focus.includes(nodeId)) return backToStep(review, state)
+  if (!alone && besideOf(review, state.step).includes(nodeId)) return backToStep(review, state)
   const { revealed, fresh } = reveal(review, state.revealed, [nodeId])
   return { state: { ...state, revealed, detour: nodeId, group: null, whole: false }, fresh }
 }
@@ -129,7 +144,7 @@ export function focusGroup(review: Story, state: StoryState, nodeIds: readonly s
   const ids = unique(nodeIds.filter((id) => known.has(id)))
   if (ids.length === 0) return { state, fresh: NOTHING }
   if (ids.length === 1) return focusNode(review, state, ids[0]!)
-  const own = review.story[state.step]?.focus ?? []
+  const own = besideOf(review, state.step)
   if (own.length === ids.length && ids.every((id) => own.includes(id))) return backToStep(review, state)
   const { revealed, fresh } = reveal(review, state.revealed, ids)
   return { state: { ...state, revealed, detour: null, group: ids, whole: false }, fresh }

@@ -107,8 +107,10 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
     const removed = new Set(view.removed.map((edge) => edge.id))
     return { covers: view.covers, groups: view.groups, nodeOf, edges: review.edges.filter((edge) => !removed.has(edge.id)) }
   }, [nodeOf, review.edges, view.covers, view.groups, view.removed])
+  // What a step shows is its own: a step told beside its neighbor's node asks about, and opens, none of that node's.
+  const own = content?.kind === 'step' ? content.step.focus : focus
   // hobkin is asked about a node of the review: a card of folded tests stands for its first test.
-  const about = content?.kind === 'node' ? content.node.id : focus[0]
+  const about = content?.kind === 'node' ? content.node.id : own[0]
   const askAbout = useAskHobkin(ask, about ? (view.groups[about]?.tests[0] ?? about) : null)
   const actions = useMemo(
     () => ({ openCode: () => void store.getState().openCode(), back: () => store.getState().back(), showTest: (id: string) => void store.getState().showTest(id) }),
@@ -120,7 +122,7 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
   const width = beside ? besideWidth(area) : cardWidth(canvas.width)
   // With the code panel open, it explains the unit beside its code, and the card keeps only the step's name.
   const brief = beside && codeOpen
-  const canOpenCode = focus.some((id) => (nodeOf.get(id)?.anchors.length ?? 0) > 0)
+  const canOpenCode = own.some((id) => (nodeOf.get(id)?.anchors.length ?? 0) > 0)
   const measure = useRef<HTMLDivElement>(null)
   const last = useRef<number | null>(null)
   const [besidePlace, setBesidePlace] = useState<BesidePlace | null>(null)
