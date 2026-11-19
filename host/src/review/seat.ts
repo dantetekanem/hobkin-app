@@ -4,6 +4,7 @@
  * 024-github, 032-change-review.
  */
 import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import { paths, readItems, readProject, readProjects } from 'hobkin/src/cli/work/store.mjs'
 import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
 import type { GitHubState } from '#shared/protocol/github.ts'
@@ -23,6 +24,7 @@ import { reviewCode, reviewMap } from './guide.ts'
 import { mergePlan, movedSince } from './landing.ts'
 import { chatTeller } from './notify.ts'
 import type { WhoIsMe } from './owner.ts'
+import { peopleFinder, pullPeople } from './people.ts'
 import type { GhCall } from './gh.ts'
 import { pullCheckout, pullRefs, type PullTarget, type Say } from './pull-checkout.ts'
 import { Reviews, type Watched } from './reviews.ts'
@@ -121,7 +123,10 @@ function codeHostsSeat(seat: ReviewSeat) {
   }
   /** The review tree a named host keeps of its own, used in place of hobkin's worktree. */
   const treeOf = (target: ReviewTarget) => (target.kind === 'pull' && target.host ? (quietHostOf(target.host)?.tree ?? null) : null)
-  return { hostOf: quietHostOf, apiOf, checksOut, whoIsMe, named, treeOf, emails: () => known().emails }
+  // People found by the home's lookup, kept in its client folder (entry 27).
+  const find = peopleFinder({ file: () => join(seat.data(), 'client', 'people.json'), lookup: () => known().people })
+  const peopleOf = (target: PullTarget, facts: { author: string | null; description: string }) => pullPeople({ target, ...facts, agents: known().agents, find })
+  return { hostOf: quietHostOf, apiOf, checksOut, whoIsMe, named, treeOf, emails: () => known().emails, peopleOf }
 }
 
 export function hostReviews(seat: ReviewSeat): Reviews {
@@ -262,6 +267,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     ...(seat.live && seat.gh ? { apiOf: hosts.apiOf } : {}),
     checksOut: hosts.checksOut,
     namedHosts: hosts.named,
+    peopleOf: hosts.peopleOf,
     // How a named host merges and deletes a branch, its own way, as its code host file says (entry 26).
     hostWays: (target: PullTarget) => {
       const host = target.host ? hosts.hostOf(target.host) : undefined
@@ -304,7 +310,7 @@ export function toPrepare(work: WorkState | null, _github?: GitHubState): Watche
   return finishedIn(work).map((change) => ({ id: reviewIdOf({ kind: 'change', slug: change.slug, item: change.item }), head: change.head }))
 }
 
-type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'review.codeHosts' | 'review.remove' | 'review.stop' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
+type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'review.codeHosts' | 'review.people' | 'review.remove' | 'review.stop' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
 
 export function reviewHandlers(reviews: Reviews): Pick<HostHandlers, ReviewCommand> {
   return {
@@ -312,6 +318,7 @@ export function reviewHandlers(reviews: Reviews): Pick<HostHandlers, ReviewComma
     'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh, asked: true }),
     'review.list': () => reviews.list(),
     'review.codeHosts': () => ({ hosts: reviews.codeHosts() }),
+    'review.people': ({ id }) => reviews.people(id),
     'review.remove': ({ id }) => reviews.remove(id),
     'review.stop': ({ id }) => reviews.stop(id),
     'review.status': ({ id }) => {

@@ -857,6 +857,11 @@ export const COMMANDS = {
     args: nothing,
     hobkin: true,
   },
+  'review.people': {
+    description: 'Who a prepared review’s pull request is from: its author, and who it is for when an agent opened it because they asked, each with a link to their profile when one is known. Null for a finished change.',
+    runs: 'host',
+    args: Type.Object({ id: reviewId }, { additionalProperties: false }),
+  },
   'review.codeHosts': {
     description: 'The code hosts the home names besides GitHub, each by its short name and web address, so a pull request page on one opens as its review.',
     runs: 'host',
@@ -1244,6 +1249,7 @@ export interface CommandResults {
   'review.status': ReviewStatus
   'review.list': ReviewList
   'review.codeHosts': { hosts: { name: string; web: string }[] }
+  'review.people': { author: { name: string; url?: string } | null; for?: { name: string; url?: string } } | null
   'review.remove': { id: string; removed: true }
   'review.stop': ReviewStatus
   'review.get': OpenedReview

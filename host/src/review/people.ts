@@ -8,6 +8,7 @@
  * for a day, and nothing when the lookup could not run, so it is asked again. The same email is asked once at a time.
  */
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import type { ReviewPeople, ReviewPerson } from '#shared/review/status.ts'
 import { tmpdir } from 'node:os'
 import { dirname } from 'node:path'
 import { runProgram } from '../../../packages/change-review/src/git.ts'
@@ -15,16 +16,9 @@ import type { PullAgent } from './code-hosts.ts'
 import { requestedBy } from './owner.ts'
 import type { PullTarget } from './pull-checkout.ts'
 
-export interface Person {
-  name: string
-  url?: string
-}
-
+export type Person = ReviewPerson
 /** The people a pull request's by-line names. */
-export interface PullPeople {
-  author: Person | null
-  for?: Person
-}
+export type PullPeople = ReviewPeople
 
 const EMAIL = /^[^\s@<>()",;:]+@[^\s@<>()",;:]+\.[a-z]{2,}$/i
 /** Only an id made of these goes in a link. */

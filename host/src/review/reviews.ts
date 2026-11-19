@@ -15,7 +15,7 @@ import { reviewIdOf, targetOfReviewId, type NamedCodeHost, type ReviewTarget } f
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
 import type { AssessmentLogLine, AssessmentRequest, AssessmentStatus } from '#shared/review/assessment.ts'
 import { count } from '#shared/review/prose.ts'
-import { IDLE_STATUS, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
+import { IDLE_STATUS, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewPeople, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
 import { githubApi, type HostApi } from './code-hosts.ts'
@@ -88,6 +88,8 @@ export interface ReviewsOptions {
   namedHosts?: () => NamedCodeHost[]
   /** How a named code host merges, and deletes a branch, as the code host file says. Null where hobkin has no way there. */
   hostWays?: (target: PullTarget) => HostWays | null
+  /** Who a pull request is from, by its author and description, with links to their profiles. */
+  peopleOf?: (target: PullTarget, facts: { author: string | null; description: string }) => Promise<ReviewPeople>
   /** Opens a finished change's pull request. A host given none opens none. */
   publish?: Publisher
   /** The commit a change is at now, as the app already knows it without asking anyone. Null when it does not know. */
@@ -871,6 +873,29 @@ export class Reviews {
     this.options.store.saveNotes(target, { entries: notes.map((entry) => ({ op: 'put', note: entry })), draft: saved.draft })
     this.set(id, { notesAt: at }, at)
     return note
+  }
+
+  /**
+   * Who a prepared review's pull request is from: by the author and description its review kept, or, for a review that
+   * kept no author, as the pull request's host says now. A finished change names nobody.
+   */
+  async people(id: string): Promise<ReviewPeople | null> {
+    const target = this.target(id)
+    if (target.kind !== 'pull') return null
+    const { review, meta } = this.loaded(id)
+    let author = meta?.owner?.author ?? null
+    let description = review.change.description ?? ''
+    const api = author ? null : this.apiFor(target)
+    if (api) {
+      try {
+        const pull = JSON.parse(await api({ path: `repos/${target.owner}/${target.repo}/pulls/${target.number}` })) as { user?: { login?: string }; body?: string | null }
+        author = pull.user?.login ?? null
+        description = description || (pull.body ?? '').replace(/\r\n?/g, '\n').trim()
+      } catch (error) {
+        throw new Unavailable(messageOf(error))
+      }
+    }
+    return this.options.peopleOf ? this.options.peopleOf(target, { author, description }) : { author: author ? { name: author } : null }
   }
 
   /** The code hosts the home names besides GitHub, so a pull request page on one opens as its review. None without a code host file. */

@@ -70,3 +70,32 @@ test('who a pull request is from: its author, or the agent that opened it and th
   assert.deepEqual(await pullPeople({ target: corp, author: 'cy@example.invalid', description: '', agents, find }), { author: { name: 'cy@example.invalid' } }, 'one who cannot be looked up shows as they are')
   assert.deepEqual(await pullPeople({ target: corp, author: null, description: '', agents, find }), { author: null })
 })
+
+test("a review's people come from the author it kept, else from its pull request's host; a finished change names nobody", async (t) => {
+  const { readFileSync } = await import('node:fs')
+  const { Reviews } = await import('../src/review/reviews.ts')
+  const { reviewStore } = await import('../src/review/store.ts')
+  const { pullSource } = await import('../src/review/sources.ts')
+  const sample = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/review.json', import.meta.url), 'utf8'))
+  const files = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/files.json', import.meta.url), 'utf8'))
+  const store = reviewStore(temporaryDirectory(t))
+  const kept = { kind: 'pull' as const, owner: 'acme', repo: 'shop', number: 1 }
+  const older = { kind: 'pull' as const, owner: 'acme', repo: 'shop', number: 2 }
+  store.write(kept, { ...sample, change: { ...sample.change, description: 'Requested by ana@example.invalid' } }, files, { preparedAt: '2026-11-19T12:00:00.000Z', storyBy: 'host', owner: { author: 'helper-bot[bot]', mine: false } })
+  store.write(older, sample, files)
+  const asked: unknown[] = []
+  const gh = async (args: readonly string[]) => (args.includes('repos/acme/shop/pulls/2') ? { kind: 'done' as const, stdout: JSON.stringify({ user: { login: 'dev' }, body: '' }) } : { kind: 'failed' as const, code: 1, stdout: '', stderr: 'HTTP 404' })
+  const reviews = new Reviews({
+    store,
+    sources: { change: pullSource({ gh }), pull: pullSource({ gh }) },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    gh,
+    peopleOf: async (_target, facts) => (asked.push(facts), { author: facts.author ? { name: facts.author } : null }),
+  })
+  t.after(() => reviews.close())
+  assert.deepEqual(await reviews.people('pr:acme/shop/1'), { author: { name: 'helper-bot[bot]' } })
+  assert.deepEqual(await reviews.people('pr:acme/shop/2'), { author: { name: 'dev' } })
+  assert.deepEqual(asked, [{ author: 'helper-bot[bot]', description: 'Requested by ana@example.invalid' }, { author: 'dev', description: '' }])
+  assert.equal(await reviews.people('change:hobkin:7d02c9'), null)
+})

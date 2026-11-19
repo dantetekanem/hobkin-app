@@ -53,6 +53,18 @@ export interface ReviewStatus {
   owner?: PullOwner
 }
 
+/** A person a pull request names: their name, and their profile when it is known. */
+export interface ReviewPerson {
+  name: string
+  url?: string
+}
+
+/** Who a pull request is from: its author, and who it is for when an agent opened it because they asked. */
+export interface ReviewPeople {
+  author: ReviewPerson | null
+  for?: ReviewPerson
+}
+
 /** Whose a pull request is: its author as its host names them, and whether it is the user's own. */
 export interface PullOwner {
   author: string | null
