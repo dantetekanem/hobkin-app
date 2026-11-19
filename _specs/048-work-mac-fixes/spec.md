@@ -46,10 +46,12 @@ The fixes the user made on their work Mac, which stayed uncommitted there, are r
 ## Steps
 
 - [x] S1 (A3). The canvas only when asked: hobkin ef6d989, client dcf4d4b.
-- [ ] S2 (A1, A2). Performance with subagents running, 44, then 28 and 29 in the window.
-- [ ] S3 (A1, A2). In hobkin: 24, then 41 (Esc), 33, 23 and 29 on the runtime's side.
-- [ ] S4 (A1, A2). Change Review: 40 (the constant search), 31 and 41 (only the user's words), 18, 38, 25, 9, 17, 10, 46, 16, 12, 42, 37, 40 (the title link), then 13, 15, 26 and 27 (other code hosts).
-- [ ] S5 (A1). Review window: 43, 19, 14.
-- [ ] S6 (A1). Setup and routines: 3 (03688b4), 5 (a42fa73), 6, 21, 8, 11, 7, 20.
-- [x] S7 (A1). Views: 30 (388e3f9), 32 (876048f), 34 (f8616cd).
-- [ ] S8 (A1). The window's halves of 41 (Esc), 33 and 23, once S3 has them.
+- [x] S2 (A1, A2). Performance with subagents running: 938ef44 (44), e8a831a, 8d3f2ce, 1f2b259, de62b84, 3057f50; 28 and 29 in the window: cc55aa3, d043796.
+- [x] S3 (A1, A2). In hobkin: 3b79dd7 (24), b48126c (41, Esc), 7d42a93 (33), b46fe91 (23), 3d97be9 (29); performance 634de70, b070dd4, e63dcc8, 5660fb5.
+- [x] S4 (A1, A2). Change Review: cdab6f5 (40), 7395763 (31, 41), d23d256 (18), b3d28c5 (38), e4eaad2 (25, 9), de78112 (17), e3cb12d (10), e4e897f (46), 83dba4e (16), 6bbfbe5 (42), 076ebaf (37), 13a7f2a and ea5d50e (40, the title link); other code hosts e94c020, a912a70, 6ed0130, a8c082c, 519a5c0, 85b6336 (13), 30fadec (15), 5c7538a, 65ea1a8, 636d742 (26), 4ff4905, 5a58c39, b0c208f, 1cf4de0 (27).
+- [x] S5 (A1). Review window: 5461c60 (43), 63d2cdf (19), f43bc28 (14).
+- [x] S6 (A1). Setup and routines: 03688b4 (3), a42fa73 (5), 6176739 (6), 514728b (21), b5abf50 (8), 6ffea4d (11), 584d331 (7), 266b93a (20).
+- [x] S7 (A1). Views: 388e3f9 (30), 876048f and 755c659 (32), f8616cd (34).
+- [x] S8 (A1). The window's halves of 41 (Esc): bb41cd5, e83a9fd; 33: 07d115e, d79be3e; 23: 07d115e, 94e5f0a.
+- [ ] S9 (A1). 12, the review learnings: waits for the work Mac's rules file, which is not in `notes.md`.
+- [ ] S10 (A1, A2). Seen in the app after the user's restart.
