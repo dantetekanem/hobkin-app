@@ -1,15 +1,20 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
-import { HOOD_PATH, MOOD_ART, type Mood } from './moods.tsx'
+import { MOOD_ART, type Mood } from './moods.tsx'
+import { BODY_PATH, FEET, type Pet } from './pets.ts'
+import { PetPart } from './PetPart.tsx'
+import { usePet } from './use-pet.ts'
 import { FaceReactions, type AppReaction } from './reactions.ts'
 import './hob.css'
 
 export interface HobProps {
   mood?: Mood
+  /** Which pet to draw. Defaults to the one chosen in Settings. */
+  pet?: Pet
   /** Rendered size in CSS pixels. The art is square. */
   size?: number
-  /** Color behind the avatar, used to outline parts drawn over the hood. Defaults to the page background. */
+  /** Color behind the avatar, used to outline parts drawn over the body. Defaults to the page background. */
   stage?: string
-  /** Hood color, for the small hoods that stand for delegated agents. */
+  /** Body color, for the small faces that stand for delegated agents. */
   tint?: string
   /** Eye color. hobkin's own eyes are yellow. An agent's are the color behind it, so they read on any hue. */
   eye?: string
@@ -21,9 +26,11 @@ export interface HobProps {
   title?: string
 }
 
-/** The hobkin character. One inline SVG, every mood from hobkin's own art. */
-export function Hob({ mood = 'idle', size = 44, stage, tint, eye, still = false, followWithin, className, title }: HobProps) {
+/** The hobkin character, drawn as the chosen pet. One inline SVG, every mood from hobkin's own art. */
+export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = false, followWithin, className, title }: HobProps) {
   const art = MOOD_ART[mood]
+  const chosen = usePet()
+  const shown = pet ?? chosen
   const followRef = useEyeFollow(followWithin)
   const style = { '--hob-stage': stage, '--hob-mark': tint, '--hob-eye': eye } as CSSProperties
 
@@ -31,6 +38,7 @@ export function Hob({ mood = 'idle', size = 44, stage, tint, eye, still = false,
     <svg
       className={['hob', className].filter(Boolean).join(' ')}
       data-mood={mood}
+      data-pet={shown}
       data-still={still || undefined}
       width={size}
       height={size}
@@ -40,7 +48,12 @@ export function Hob({ mood = 'idle', size = 44, stage, tint, eye, still = false,
       style={style}
     >
       <g className={`hob-body hob-m-${mood}`}>
-        <path className="hob-fm" d={HOOD_PATH} />
+        {/* The pet's part goes behind the body, so it can turn about its base without a gap. */}
+        <PetPart pet={shown} />
+        {FEET.map((foot) => (
+          <ellipse key={foot.cx} className="hob-fm" {...foot} />
+        ))}
+        <path className="hob-fm" d={BODY_PATH} />
         <g ref={followRef} className="hob-follow">
           {/* Keyed by mood so each mood's own animation starts at its beginning. */}
           <g key={mood} className={['hob-look hob-part', art.look].filter(Boolean).join(' ')}>

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, type RefObject } from 'react'
 import { sampleStatus } from '@/app/sample.ts'
 import { useStill } from '@/app/still.ts'
 import { Hob, useHobReactions } from '@/avatar/Hob.tsx'
+import { PET_FOOT_Y } from '@/avatar/pets.ts'
 import { hopCue } from '@/features/sound/cues.ts'
 import { play } from '@/features/sound/index.ts'
 import { runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
@@ -18,8 +19,8 @@ export interface ChatAvatarProps {
 }
 
 const SIZE = 104
-/** The hood's base is at y 188 of a view box that ends at 228. The art's empty edge below it hangs past the row, so the base sits on the input's bottom line. */
-const BASE_INSET = ((228 - 188) / 256) * SIZE
+/** The pet's feet end at y 197.5 of a view box that ends at 228. The art's empty edge below them hangs past the row, so the feet sit on the input's bottom line. */
+const BASE_INSET = ((228 - PET_FOOT_Y) / 256) * SIZE
 
 /** hobkin's face beside the input. Its mood is hobkin's, with the user's pokes layered over it, as in the terminal app. */
 export function ChatAvatar({ followWithin, typing }: ChatAvatarProps) {

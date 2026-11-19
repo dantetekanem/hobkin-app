@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import type { AppearanceRequest, Background, BorderColors, BuiltInTheme } from '#shared/protocol/appearance.ts'
 import type { StoreApi } from 'zustand/vanilla'
 import type { HostState } from '../../lib/host/state.ts'
+import { DEFAULT_PET, petOr, type Pet } from '../../avatar/pets.ts'
 import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, adjustedPalette, migrateSettings, receiveAppearance, stepAgents, stepBudget, stepOpacity, themeRequestText, type BlockKind, type Palette } from './rules.ts'
 
 /** Lively plays movement even when the Mac asks for less. Still never moves. */
@@ -24,6 +25,8 @@ interface SettingsState extends BorderColors {
    */
   sound: boolean
   typeFace: TypeFace
+  /** The pet hobkin is drawn as (spec 047). Settings saved before the pets load with Ears, as the store fills in what a saved state lacks. */
+  pet: Pet
   /** hobkin's own settings. Sample values until the host supplies hobkin's (020-settings, S5). */
   agents: number
   dailyTokens: number
@@ -61,6 +64,7 @@ interface SettingsState extends BorderColors {
   setMovement: (movement: Movement) => void
   setSound: (on: boolean) => void
   setTypeFace: (typeFace: TypeFace) => void
+  setPet: (pet: Pet) => void
   changeAgents: (delta: -1 | 1) => void
   setDailyTokens: (tokens: number) => void
   changeDailyTokens: (delta: -1 | 1) => void
@@ -114,6 +118,7 @@ export const useSettings = create<SettingsState>()(
       movement: 'system',
       sound: false,
       typeFace: 'space-grotesk',
+      pet: DEFAULT_PET,
       agents: AGENTS.initial,
       dailyTokens: BUDGET.initial,
       usageEvents: true,
@@ -154,6 +159,7 @@ export const useSettings = create<SettingsState>()(
       setMovement: (movement) => set({ movement }),
       setSound: (sound) => set({ sound }),
       setTypeFace: (typeFace) => set({ typeFace }),
+      setPet: (pet) => set({ pet: petOr(pet) }),
       changeAgents: (delta) => set({ agents: stepAgents(get().agents, delta) }),
       setDailyTokens: (tokens) => set({ dailyTokens: stepBudget(tokens, 0) }),
       changeDailyTokens: (delta) => set({ dailyTokens: stepBudget(get().dailyTokens, delta) }),
@@ -171,10 +177,11 @@ export const useSettings = create<SettingsState>()(
       // Version 4 drops the tracked theme ask: Custom's request is a chat message to main hobkin.
       version: 4,
       migrate: (saved) => migrateSettings(saved),
-      partialize: ({ movement, sound, typeFace, agents, dailyTokens, usageEvents, feedback, showGitHubInMenu, backgroundOpacity, openByDefault, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
+      partialize: ({ movement, sound, typeFace, pet, agents, dailyTokens, usageEvents, feedback, showGitHubInMenu, backgroundOpacity, openByDefault, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
         movement,
         sound,
         typeFace,
+        pet,
         agents,
         dailyTokens,
         usageEvents,

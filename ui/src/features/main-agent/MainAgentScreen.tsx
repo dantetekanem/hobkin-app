@@ -27,7 +27,7 @@ import { SAMPLE_MAIN } from './sample.ts'
 
 /** When the sample first played, so it plays on from there. */
 let sampleStart: number | undefined
-/** hobkin's hood, as its helpers' faces take their colors from it. */
+/** hobkin's own hue, as its helpers' faces take their colors from it. */
 const HUE = 42
 
 /** When this window first saw each of the main agent's steps, and when a call it saw start ended. hobkin keeps no times. */

@@ -3,6 +3,7 @@
  * the character comes from behind a far ridge to the middle of the screen. Pure, so a test can hold the drawing and the
  * numbers to each other. See _specs/025-onboarding.
  */
+import { PET_TOP_Y } from '../../avatar/pets.ts'
 import { FACE, footBelow, type Seat, type Viewport } from './face-size.ts'
 
 /** A ridge, far (0) to near (3), or the hill in front of them all. */
@@ -34,7 +35,7 @@ interface Outline {
 
 /**
  * A ridge the way hobkin.dev draws one, in thousandths of the window: valleys, and a peak between each two. A curve
- * leaves each valley straight up and bends into the peak, the character's own hood shape. `point` is how sharp the
+ * leaves each valley straight up and bends into a pointed peak. `point` is how sharp the
  * top is: 0.5 is the site's, lower is rounder, which the peaks it lands on use so its foot meets the top.
  */
 interface RidgeArt {
@@ -217,8 +218,11 @@ export interface Arrival {
   stage: Seat
 }
 
-/** The character's art as shares of its square, from its middle (avatar/moods.tsx: the hood spans 22 to 188 and 40 to 160 of -28 to 228; the eyes sit at 138, radius 8). */
-const ART = { tip: 0.305, eyes: 0.148, eyeRadius: 8 / 256, hoodHalf: 60 / 256 }
+/**
+ * The character's art as shares of its square, from its middle (avatar/pets.ts: every pet's body spans 34 to 166, its
+ * tallest part reaches 28 of -28 to 228; the eyes sit at 138, radius 8).
+ */
+const ART = { tip: (100 - PET_TOP_Y) / 256, eyes: 0.148, eyeRadius: 8 / 256, bodyHalf: 66 / 256 }
 
 /**
  * It hides behind the last ridge of mountains, on the right, smaller than it will be because it is still far. From
@@ -261,8 +265,8 @@ export function arrivalFor(viewport: Viewport): Arrival {
   const size = FACE * scale
   const x = viewport.width * HIDE.x
   const crest = crestY(HIDE.ridge, x, viewport)
-  // The crest falls away to one side here, so the hood hides under the lowest point of the crest across its width.
-  const half = size * ART.hoodHalf
+  // The crest falls away to one side here, so the pet hides under the lowest point of the crest across its width.
+  const half = size * ART.bodyHalf
   const crestsAcross = [-1, -0.5, 0, 0.5, 1].map((share) => crestY(HIDE.ridge, x + share * half, viewport))
   const lowest = Math.max(...crestsAcross)
 

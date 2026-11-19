@@ -12,12 +12,12 @@ const VIEWPORTS: Viewport[] = [
 const SHAPES: Shape[] = [0, 1, 2, 3, 'hill']
 const RIDGES = [0, 1, 2, 3] as const
 
-// The character's art, as shares of its square around its middle (avatar/moods.tsx, HOOD_PATH and the eyes).
-const tipOf = (seat: Seat) => seat.y - FACE * seat.scale * 0.305
+// The character's art, as shares of its square around its middle (avatar/pets.ts: the body, its feet, its tallest part, and the eyes).
+const tipOf = (seat: Seat) => seat.y - FACE * seat.scale * ((100 - 28) / 256)
 const eyesBottomOf = (seat: Seat) => seat.y + FACE * seat.scale * (0.148 + 8 / 256)
 const footOf = (seat: Seat) => seat.y + footBelow(seat.scale)
-const hoodHalf = (seat: Seat) => FACE * seat.scale * (60 / 256)
-const footHalf = (seat: Seat) => FACE * seat.scale * (52 / 256)
+const bodyHalf = (seat: Seat) => FACE * seat.scale * (66 / 256)
+const footHalf = (seat: Seat) => FACE * seat.scale * ((126 + 14.5 - 100) / 256)
 
 const across = (x: number, half: number) => [-1, -0.5, 0, 0.5, 1].map((share) => x + share * half)
 const layerOf = (shape: Shape) => (shape === 'hill' ? LAYER.hill : LAYER.ridges[shape])
@@ -106,7 +106,7 @@ test('it hides behind the last ridge of mountains, on the right, then peeks unti
     assert.ok(hiddenLayer > LAYER.ridges[2], 'and in front of the ones farther away')
     assert.ok(hidden.x / viewport.width >= 0.68 && hidden.x / viewport.width <= 0.8, `on the right in ${name}`)
     assert.ok(hidden.scale >= 0.4 && hidden.scale <= 0.6, 'smaller than it will be, because it is still far')
-    for (const x of across(hidden.x, hoodHalf(hidden))) assert.ok(tipOf(hidden) > crestY(behind, x, viewport), `the whole hood is below the crest at ${x.toFixed(1)} in ${name}`)
+    for (const x of across(hidden.x, bodyHalf(hidden))) assert.ok(tipOf(hidden) > crestY(behind, x, viewport), `the whole pet is below the crest at ${x.toFixed(1)} in ${name}`)
 
     const crest = crestY(behind, peek.x, viewport)
     assert.equal(peek.x, hidden.x)

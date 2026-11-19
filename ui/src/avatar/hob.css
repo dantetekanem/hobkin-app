@@ -16,7 +16,7 @@
 .hob-fs { fill: var(--hob-stage); }
 .hob-se { fill: none; stroke: var(--hob-eye); stroke-linecap: round; stroke-linejoin: round; }
 .hob-sm { fill: none; stroke: var(--hob-mark); stroke-linecap: round; stroke-linejoin: round; }
-/* A part drawn over the hood: filled like the hood, outlined in the color behind it. */
+/* A part drawn over the body: filled like the body, outlined in the color behind it. */
 .hob-cut { fill: var(--hob-mark); stroke: var(--hob-stage); }
 
 .hob-body, .hob-look, .hob-blink, .hob-dot, .hob-z, .hob-hand, .hob-key, .hob-pulse, .hob-twinkle,
@@ -124,15 +124,149 @@
 @keyframes hob-burst { 0% { transform: scale(0.2); opacity: 0; } 15% { opacity: 1; } 70% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1.2); opacity: 0; } }
 @keyframes hob-puff { 0% { opacity: 0; transform: translate(0, 0) scale(0.6); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(0, -16px) scale(1.3); } }
 
+/*
+ * A pet's part (spec 047, avatar/pets.tsx): ears, an antenna or a sprout, drawn behind the body. Each piece turns
+ * about its base, given in the art's units. A mood either poses it, and the change eases in, or loops it.
+ * A pose stays when movement is still; only the loops stop.
+ */
+.hob-ear, .hob-acc-antenna, .hob-acc-sprout, .hob-leaf {
+  transform-box: view-box;
+  transition: transform 360ms cubic-bezier(0.3, 0.7, 0.4, 1);
+}
+.hob-bulb {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  transition: transform 360ms cubic-bezier(0.3, 0.7, 0.4, 1), opacity 360ms ease;
+}
+.hob-ear-l { transform-origin: 74px 90px; }
+.hob-ear-r { transform-origin: 126px 90px; }
+.hob-acc-antenna { transform-origin: 100.5px 74px; }
+.hob-acc-sprout { transform-origin: 100px 72px; }
+.hob-leaf-r { transform-origin: 101px 52px; }
+.hob-leaf-l { transform-origin: 100px 56px; }
+
+/* Ears. A negative turn drops the left ear outward, a positive one the right. */
+.hob-m-idle .hob-ear-r { animation: hob-ear-flick 5s ease-in-out infinite; }
+.hob-m-hello .hob-ear-l { animation: hob-ear-wag-l 1s ease-in-out infinite; }
+.hob-m-hello .hob-ear-r { animation: hob-ear-wag-r 1s ease-in-out infinite; }
+.hob-m-listening .hob-ear-l { animation: hob-ear-listen 2s ease-in-out infinite; }
+.hob-m-listening .hob-ear-r { transform: rotate(4deg); }
+.hob-m-thinking .hob-ear-l { transform: rotate(-14deg); }
+.hob-m-searching .hob-ear { animation: hob-part-swivel 1.6s ease-in-out infinite; }
+.hob-m-working .hob-ear-l, .hob-m-focused .hob-ear-l { transform: rotate(-7deg); }
+.hob-m-working .hob-ear-r, .hob-m-focused .hob-ear-r { transform: rotate(7deg); }
+.hob-m-happy .hob-ear-l { animation: hob-ear-bounce-l 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-happy .hob-ear-r { animation: hob-ear-bounce-r 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-ear-l { animation: hob-ear-bounce-l 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-ear-r { animation: hob-ear-bounce-r 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-love .hob-ear-l { transform: rotate(-8deg); }
+.hob-m-love .hob-ear-r { transform: rotate(8deg); }
+.hob-m-wink .hob-ear-r { animation: hob-ear-wink 2s ease-in-out infinite; }
+.hob-m-surprised .hob-ear { animation: hob-part-pop 2.4s ease-out infinite; }
+.hob-m-confused .hob-ear-l { transform: rotate(-26deg); }
+.hob-m-confused .hob-ear-r { transform: rotate(-4deg); }
+.hob-m-sad .hob-ear-l { transform: rotate(-40deg); }
+.hob-m-sad .hob-ear-r { transform: rotate(40deg); }
+.hob-m-grumpy .hob-ear-l { transform: rotate(-48deg); }
+.hob-m-grumpy .hob-ear-r { transform: rotate(48deg); }
+.hob-m-error .hob-ear-l { transform: rotate(-34deg); }
+.hob-m-error .hob-ear-r { transform: rotate(22deg); }
+.hob-m-dizzy .hob-ear-l { animation: hob-ear-dizzy-l 1.2s ease-in-out infinite; }
+.hob-m-dizzy .hob-ear-r { animation: hob-ear-dizzy-r 1.2s ease-in-out infinite; }
+.hob-m-sleepy .hob-ear-l { transform: rotate(-28deg); }
+.hob-m-sleepy .hob-ear-r { transform: rotate(28deg); }
+
+/* Antenna. The whole antenna turns about where it leaves the body; a positive turn drops the bulb to the right. */
+.hob-m-idle .hob-acc-antenna { animation: hob-part-sway 3.2s ease-in-out infinite; }
+.hob-m-hello .hob-acc-antenna { animation: hob-part-wobble 0.5s ease-in-out infinite; }
+.hob-m-listening .hob-acc-antenna { transform: rotate(-10deg); }
+.hob-m-listening .hob-bulb { animation: hob-fade 1.5s ease-in-out infinite; }
+.hob-m-thinking .hob-acc-antenna { transform: rotate(-6deg); }
+.hob-m-thinking .hob-bulb { animation: hob-bulb-glow 1.2s ease-in-out infinite; }
+.hob-m-searching .hob-acc-antenna { animation: hob-part-swivel 1.6s ease-in-out infinite; }
+.hob-m-searching .hob-bulb { animation: hob-bulb-blink 0.8s steps(1) infinite; }
+.hob-m-working .hob-bulb { animation: hob-bulb-blink 0.5s steps(1) infinite; }
+.hob-m-focused .hob-bulb { animation: hob-bulb-glow 3s ease-in-out infinite; }
+.hob-m-happy .hob-acc-antenna { animation: hob-part-bounce 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-acc-antenna { animation: hob-part-bounce 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-bulb { animation: hob-bulb-glow 0.4s ease-in-out infinite; }
+.hob-m-love .hob-bulb { animation: hob-beat 1s ease-in-out infinite; }
+.hob-m-wink .hob-acc-antenna { animation: hob-tilt 2s ease-in-out infinite; }
+.hob-m-surprised .hob-bulb { animation: hob-bulb-pop 2.4s ease-out infinite; }
+.hob-m-confused .hob-acc-antenna { transform: rotate(-24deg); }
+.hob-m-confused .hob-bulb { animation: hob-fade 2.4s ease-in-out infinite; }
+.hob-m-sad .hob-acc-antenna { transform: rotate(42deg); }
+.hob-m-sad .hob-bulb { opacity: 0.5; }
+.hob-m-grumpy .hob-acc-antenna { transform: rotate(-4deg); }
+.hob-m-grumpy .hob-bulb { animation: hob-bulb-blink 0.36s steps(1) infinite; }
+.hob-m-error .hob-acc-antenna { transform: rotate(28deg); }
+.hob-m-error .hob-bulb { animation: hob-bulb-blink 0.6s steps(1) infinite; }
+.hob-m-dizzy .hob-acc-antenna { animation: hob-part-dizzy 0.6s ease-in-out infinite; }
+.hob-m-sleepy .hob-acc-antenna { transform: rotate(34deg); }
+.hob-m-sleepy .hob-bulb { opacity: 0.35; }
+
+/* Sprout. The stem turns about where it leaves the body, each leaf about where it meets the stem. */
+.hob-m-idle .hob-acc-sprout { animation: hob-part-sway 3.2s ease-in-out infinite; }
+.hob-m-hello .hob-leaf-r { animation: hob-leaf-wave-r 1s ease-in-out infinite; }
+.hob-m-hello .hob-leaf-l { animation: hob-leaf-wave-l 1s ease-in-out infinite; }
+.hob-m-listening .hob-acc-sprout { transform: rotate(-8deg); }
+.hob-m-thinking .hob-acc-sprout { animation: hob-part-sway 3s ease-in-out infinite; }
+.hob-m-searching .hob-acc-sprout { animation: hob-part-swivel 1.6s ease-in-out infinite; }
+.hob-m-working .hob-acc-sprout { animation: hob-part-sway 0.7s ease-in-out infinite; }
+.hob-m-happy .hob-leaf-r { animation: hob-leaf-flap-r 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-happy .hob-leaf-l { animation: hob-leaf-flap-l 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-leaf-r { animation: hob-leaf-flap-r 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-leaf-l { animation: hob-leaf-flap-l 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-love .hob-leaf { animation: hob-beat 1s ease-in-out infinite; }
+.hob-m-wink .hob-leaf-r { animation: hob-leaf-wink 2s ease-in-out infinite; }
+.hob-m-surprised .hob-acc-sprout { animation: hob-part-pop 2.4s ease-out infinite; }
+.hob-m-confused .hob-acc-sprout { transform: rotate(-18deg); }
+.hob-m-sad .hob-acc-sprout { transform: rotate(22deg); }
+.hob-m-sad .hob-leaf-r { transform: rotate(38deg); }
+.hob-m-sad .hob-leaf-l { transform: rotate(-34deg); }
+.hob-m-grumpy .hob-leaf-r { transform: rotate(20deg); }
+.hob-m-grumpy .hob-leaf-l { transform: rotate(-20deg); }
+.hob-m-error .hob-acc-sprout { transform: rotate(-20deg); }
+.hob-m-error .hob-leaf-l { transform: rotate(-30deg); }
+.hob-m-dizzy .hob-acc-sprout { animation: hob-part-dizzy 1.2s ease-in-out infinite; }
+.hob-m-sleepy .hob-acc-sprout { transform: rotate(16deg); }
+.hob-m-sleepy .hob-leaf-r { transform: rotate(30deg); }
+.hob-m-sleepy .hob-leaf-l { transform: rotate(-28deg); }
+
+@keyframes hob-ear-flick { 0%, 84%, 100% { transform: rotate(0); } 87% { transform: rotate(12deg); } 90% { transform: rotate(-2deg); } 93% { transform: rotate(7deg); } 96% { transform: rotate(0); } }
+@keyframes hob-ear-wag-l { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(6deg); } }
+@keyframes hob-ear-wag-r { 0%, 100% { transform: rotate(4deg); } 50% { transform: rotate(-6deg); } }
+@keyframes hob-ear-listen { 0%, 100% { transform: rotate(-10deg); } 50% { transform: rotate(-15deg); } }
+@keyframes hob-ear-bounce-l { 0%, 75%, 100% { transform: rotate(0); } 30% { transform: rotate(-12deg); } 55% { transform: rotate(6deg); } }
+@keyframes hob-ear-bounce-r { 0%, 75%, 100% { transform: rotate(0); } 30% { transform: rotate(12deg); } 55% { transform: rotate(-6deg); } }
+@keyframes hob-ear-wink { 0%, 100% { transform: rotate(0); } 30%, 70% { transform: rotate(18deg); } }
+@keyframes hob-ear-dizzy-l { 0%, 100% { transform: rotate(-14deg); } 50% { transform: rotate(8deg); } }
+@keyframes hob-ear-dizzy-r { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(14deg); } }
+@keyframes hob-part-sway { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(4deg); } }
+@keyframes hob-part-swivel { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
+@keyframes hob-part-wobble { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
+@keyframes hob-part-bounce { 0%, 75%, 100% { transform: rotate(0); } 30% { transform: rotate(14deg); } 55% { transform: rotate(-8deg); } }
+@keyframes hob-part-dizzy { 0%, 100% { transform: rotate(-16deg); } 50% { transform: rotate(16deg); } }
+@keyframes hob-part-pop { 0% { transform: scale(1, 1); } 8% { transform: scale(0.95, 1.18); } 16%, 85% { transform: scale(1, 1.1); } 100% { transform: scale(1, 1); } }
+@keyframes hob-bulb-glow { 0%, 100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.3); opacity: 0.6; } }
+@keyframes hob-bulb-blink { 0% { opacity: 1; } 50% { opacity: 0.3; } }
+@keyframes hob-bulb-pop { 0% { transform: scale(1); } 8% { transform: scale(1.6); } 16%, 85% { transform: scale(1.3); } 100% { transform: scale(1); } }
+@keyframes hob-leaf-wave-r { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-14deg); } }
+@keyframes hob-leaf-wave-l { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(14deg); } }
+@keyframes hob-leaf-flap-r { 0%, 75%, 100% { transform: rotate(0); } 30% { transform: rotate(14deg); } 55% { transform: rotate(-10deg); } }
+@keyframes hob-leaf-flap-l { 0%, 75%, 100% { transform: rotate(0); } 30% { transform: rotate(-14deg); } 55% { transform: rotate(10deg); } }
+@keyframes hob-leaf-wink { 0%, 100% { transform: rotate(0); } 30%, 70% { transform: rotate(-18deg); } }
+
 /* Reduced motion: the character holds its pose. Parts that only show mid-animation stay visible. */
 @media (prefers-reduced-motion: reduce) {
-  :root:not([data-motion="lively"]) .hob * { animation: none !important; }
+  :root:not([data-motion="lively"]) .hob * { animation: none !important; transition: none !important; }
   :root:not([data-motion="lively"]) .hob-follow { transition: none; }
   :root:not([data-motion="lively"]) .hob-z,
   :root:not([data-motion="lively"]) .hob-puff { opacity: 1; }
 }
 :root[data-motion="still"] .hob *,
 .hob[data-still="true"] * { animation: none !important; }
+:root[data-motion="still"] .hob * { transition: none !important; }
 :root[data-motion="still"] .hob-z,
 :root[data-motion="still"] .hob-puff { opacity: 1; }
 .hob[data-still="true"] .hob-z,

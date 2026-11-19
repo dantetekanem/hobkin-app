@@ -17,7 +17,7 @@ hobkin's character is no longer a pointed hood. The user picks one of four pets 
 ## Decisions
 
 - The art comes from the user's sheet (`opt_sheet2.png`, 2026-11-19), in the same units as the old art: eyes at 84 and 116, height 138, radius 8. The four share one body, a dome from 34 to 166 wide with its top at 70 and two feet below it, and differ only in the part on top. The paths were checked against the sheet: under 0.5% of pixels differ, all at edges.
-- The pets' paths, the part each pet adds and how that part moves are defined once in `ui/src/avatar/pets.tsx` and `ui/src/avatar/hob.css`. hobkin.dev copies them.
+- The pets' paths, the part each pet adds and how that part moves are defined once in `ui/src/avatar/pets.ts` (drawn by `PetPart.tsx`) and `ui/src/avatar/hob.css`. hobkin.dev copies them.
 - A pet's part is drawn behind the body, so it can turn about its base without showing a gap.
 - Pointer reactions, moods and the rules for reduced and still movement stay as they are. A part's pose for a mood (drooped ears when sad) holds when movement is still. Only its loops stop.
 - The choice is kept with the other settings in the window's storage. Settings saved before this load with Ears.
@@ -55,8 +55,8 @@ hobkin's character is no longer a pointed hood. The user picks one of four pets 
 ## Steps
 
 - [x] S1 (A4). Measure the sheet and write the four pets' paths.
-- [ ] S2 (A1, A4, A5). The pets and their parts' movement in `pets.tsx` and `hob.css`; the mood extras moved clear of the parts.
-- [ ] S3 (A2, A3). The Pet tile and the stored choice; Hob, the Mark and agent faces read it.
-- [ ] S4 (A6). The setup's character measurements follow the new art.
+- [x] S2 (A1, A4, A5). The pets and their parts' movement in `pets.tsx` and `hob.css`; the mood extras moved clear of the parts.
+- [x] S3 (A2, A3). The Pet tile and the stored choice; Hob, the Mark and agent faces read it.
+- [x] S4 (A6). The setup's character measurements follow the new art.
 - [ ] S5 (A1, A3, A7). hobkin.dev: the pets, their movement, the button, the favicon and share images.
 - [ ] S6 (A8). The app icon, as a patch applied at the user's restart.

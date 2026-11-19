@@ -1,14 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 17 176 176">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="12 25 176 176">
 <title>hobkin</title>
 <style>
-.hood{fill:#16181F}
+.body{fill:#16181F}
 .eye{fill:#FFC940}
 @media (prefers-color-scheme:dark){
-.hood{fill:#F0EAD6}
+.body{fill:#F0EAD6}
 .eye{fill:#E8A317}
 }
 </style>
-<path class="hood" d="M40 180 Q40 100 100 22 Q160 100 160 180 Q160 188 152 188 L48 188 Q40 188 40 180 Z"/>
-<circle class="eye" cx="84" cy="138" r="13"/>
-<circle class="eye" cx="116" cy="138" r="13"/>
+<path class="body" d="M92 78 C88 60 74 42 64 39 Q58 37.5 56 43 C49 58 46 80 53 102 L66 112 L98 88 Z"/>
+<path class="body" d="M108 78 C112 60 126 42 136 39 Q142 37.5 144 43 C151 58 154 80 147 102 L134 112 L102 88 Z"/>
+<ellipse class="body" cx="74" cy="190" rx="14.5" ry="7.5"/>
+<ellipse class="body" cx="126" cy="190" rx="14.5" ry="7.5"/>
+<path class="body" d="M34 182 C34 120 60 70 100 70 C140 70 166 120 166 182 Q166 188 160 188 L40 188 Q34 188 34 182 Z"/>
+<circle class="eye" cx="84" cy="138" r="10"/>
+<circle class="eye" cx="116" cy="138" r="10"/>
 </svg>

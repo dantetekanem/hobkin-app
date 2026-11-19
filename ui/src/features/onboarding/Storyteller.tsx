@@ -3,6 +3,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEve
 import { focusInput } from '@/app/keys.ts'
 import { useStill } from '@/app/still.ts'
 import type { Mood } from '@/avatar/moods.tsx'
+import { PET_TOP } from '@/avatar/pets.ts'
+import { usePet } from '@/avatar/use-pet.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { useChat } from '@/features/chat/chat-store.ts'
@@ -42,12 +44,12 @@ const ARRIVE_AT = 0.85
 /** How long the hand-off takes before the setup is taken away, in milliseconds: the flight, or a fade when held still. */
 const HAND_OFF_MS = { flight: 840, fade: 280 }
 
-/** How far the tip of the hood is above the middle of the character's square, as a share of the square. */
-const HOOD_TIP = 0.305
+/** How far the top of the chosen pet is above the middle of the character's square, as a share of the square. */
+const topShare = (top: number) => (100 - top) / 256
 
 /**
  * How far into the hill the character stands, in pixels. Its faces lean and bob from a point below its foot, which
- * lifts a corner of the hood, so standing exactly on the crest it looks like it floats.
+ * lifts a foot, so standing exactly on the crest it looks like it floats.
  */
 const SUNK = 7
 const onTheGround = (seat: Seat): Seat => ({ ...seat, y: seat.y + SUNK })
@@ -59,7 +61,7 @@ function grounded(arrival: Arrival): Arrival {
 }
 
 /**
- * Where the two choices float, in pixels: how far above the tip of the hood, never nearer the top of the window
+ * Where the two choices float, in pixels: how far above the top of the pet, never nearer the top of the window
  * than `top`, between `nearest` and `farthest` from the middle, and at least `edge` from the window's side.
  */
 const CHOICES = { above: 96, top: 116, nearest: 344, farthest: 400, edge: 106 }
@@ -606,6 +608,7 @@ export function Storyteller() {
 
   const picking = asking?.kind === 'pick' ? asking : null
   const bubbles = useBubbles(picking, hasHost)
+  const pet = usePet()
   // A list that is given takes bubbles of the user's own. Projects are only the ones that are there.
   const ownAllowed = picking !== null && 'options' in picking.from
 
@@ -693,9 +696,9 @@ export function Storyteller() {
   }, [cheering, tale.at])
 
   const stage = onTheGround(stageFor(viewport))
-  const hoodTip = { x: stage.x, y: stage.y - FACE * stage.scale * HOOD_TIP }
+  const petTop = { x: stage.x, y: stage.y - FACE * stage.scale * topShare(PET_TOP[pet]) }
   // The two choices float in the sky, either side of what hobkin says, clear of it and inside the window.
-  const choicesAt = { x: stage.x, y: Math.max(hoodTip.y - CHOICES.above, CHOICES.top) }
+  const choicesAt = { x: stage.x, y: Math.max(petTop.y - CHOICES.above, CHOICES.top) }
   const choicesApart = Math.min(clamp(viewport.width * 0.27, CHOICES.nearest, CHOICES.farthest), viewport.width / 2 - CHOICES.edge)
   const mood = faceFor(beat.mood, { leaving, signingIn, busy })
   const storyShows = talking && !leaving
@@ -740,7 +743,7 @@ export function Storyteller() {
           />
         </World>
 
-        {storyShows ? <Bubble id={bubble} line={line} said={said} waits={waitsToGoOn} above={hoodTip} still={still} /> : null}
+        {storyShows ? <Bubble id={bubble} line={line} said={said} waits={waitsToGoOn} above={petTop} still={still} /> : null}
 
         {asking?.kind === 'choice' ? (
           <Choices

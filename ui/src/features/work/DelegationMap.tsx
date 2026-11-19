@@ -137,7 +137,7 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
     <div className="flex flex-col gap-3">
       <div ref={box} className="relative overflow-hidden rounded-3xl bg-background px-4 py-5" style={{ height: height + 40 }}>
         <div className="relative h-full">
-          {/* hobkin, in the middle of what it started. Its hood's middle is where every wire leaves from. */}
+          {/* hobkin, in the middle of what it started. Its body's middle is where every wire leaves from. */}
           <motion.div
             className="absolute flex justify-center"
             style={{ left: 0, width: size.left - 16, top: still ? hobkinY - size.hob / 2 : 0 }}

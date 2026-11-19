@@ -17,6 +17,7 @@ import { useModelChoices } from '@/features/tiers/models.ts'
 import { useTiers } from '@/features/tiers/store.ts'
 import { BackupTile } from './BackupTile.tsx'
 import { KeptThemesList } from './KeptThemesList.tsx'
+import { PetTile } from './PetTile.tsx'
 import { ReviewTile } from './ReviewTile.tsx'
 import { ClaudeCodeTile } from './ClaudeCodeTile.tsx'
 import { SubscriptionsTile } from './SubscriptionsTile.tsx'
@@ -58,6 +59,7 @@ export function SettingsScreen() {
         <TypeTile />
         <OpacityTile />
         <DailyBudget />
+        <PetTile />
         <MovementTile />
         <SoundTile />
         <OpenBlocksTile />

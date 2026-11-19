@@ -1,6 +1,6 @@
 /*
- * A small hobkin that stands for one agent. The box is the hood. The art is larger and set back, so what
- * floats beside the hood (hands, dots) is drawn outside the box without moving anything around it.
+ * A small hobkin that stands for one agent. The box holds the pet. The art is larger and set back, so what
+ * floats beside the pet (hands, dots) is drawn outside the box without moving anything around it.
  */
 .agent-hood {
   position: relative;
@@ -13,7 +13,7 @@
   pointer-events: none;
 }
 
-/* Each hood starts its loops at its own point (--agent-delay), so a row of them never moves in step. */
+/* Each face starts its loops at its own point (--agent-delay), so a row of them never moves in step. */
 .agent-hood .hob-body,
 .agent-hood .hob-look {
   animation-delay: var(--agent-delay, 0s);
@@ -52,7 +52,7 @@
   animation: agent-ask-ring 1.8s cubic-bezier(0.23, 1, 0.32, 1) infinite;
 }
 
-/* On a large face the corner of the box is far from the hood, so the mark sits on the hood's shoulder instead. */
+/* On a large face the corner of the box is far from the pet, so the mark sits on the pet's shoulder instead. */
 .agent-hood[data-large] .agent-hood-ask {
   top: 1%;
   right: auto;

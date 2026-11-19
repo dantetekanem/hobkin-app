@@ -35,7 +35,7 @@ export interface MoodArt {
   blink?: string
   eyesOpacity?: number
   eyes: ReactNode
-  /** Parts drawn outside the hood: hands, dots, a keyboard. */
+  /** Parts drawn outside the body: hands, dots, a keyboard. */
   extras?: ReactNode
 }
 
@@ -55,7 +55,10 @@ const happyEyes = (
 
 const KEY_COLUMNS = [56, 69, 82, 95, 108, 121, 134]
 
-/** Coordinates and paths are the art from hobkin's `assets/animations`, unchanged. */
+/**
+ * Coordinates and paths are the art from hobkin's `assets/animations`. The thinking dots, the question mark and the Zs
+ * sit further right and higher, clear of the pets' ears, antenna and sprout (avatar/pets.tsx).
+ */
 export const MOOD_ART: Record<Mood, MoodArt> = {
   idle: { blink: 'hob-b-on', eyes: roundEyes },
 
@@ -91,9 +94,9 @@ export const MOOD_ART: Record<Mood, MoodArt> = {
     eyes: roundEyes,
     extras: (
       <g className="hob-fm">
-        <circle className="hob-dot" cx="150" cy="46" r="4" />
-        <circle className="hob-dot hob-d2" cx="164" cy="30" r="5" />
-        <circle className="hob-dot hob-d3" cx="181" cy="12" r="6" />
+        <circle className="hob-dot" cx="166" cy="52" r="4" />
+        <circle className="hob-dot hob-d2" cx="180" cy="36" r="5" />
+        <circle className="hob-dot hob-d3" cx="196" cy="18" r="6" />
       </g>
     ),
   },
@@ -203,8 +206,8 @@ export const MOOD_ART: Record<Mood, MoodArt> = {
     ),
     extras: (
       <g className="hob-qfloat">
-        <path className="hob-sm" d="M152 26 Q152 14 164 14 Q176 14 176 26 Q176 34 166 38 L164 46" strokeWidth="4" />
-        <circle className="hob-fm" cx="164" cy="56" r="3" />
+        <path className="hob-sm" d="M164 26 Q164 14 176 14 Q188 14 188 26 Q188 34 178 38 L176 46" strokeWidth="4" />
+        <circle className="hob-fm" cx="176" cy="56" r="3" />
       </g>
     ),
   },
@@ -253,12 +256,10 @@ export const MOOD_ART: Record<Mood, MoodArt> = {
     ),
     extras: (
       <g className="hob-sm" strokeWidth="3">
-        <path className="hob-z" d="M140 36 H148 L140 45 H148" />
-        <path className="hob-z hob-z2" d="M152 22 H163 L152 34 H163" />
-        <path className="hob-z hob-z3" d="M166 6 H180 L166 21 H180" />
+        <path className="hob-z" d="M160 22 H168 L160 31 H168" />
+        <path className="hob-z hob-z2" d="M172 8 H183 L172 20 H183" />
+        <path className="hob-z hob-z3" d="M186 -8 H200 L186 7 H200" />
       </g>
     ),
   },
 }
-
-export const HOOD_PATH = 'M40 180 Q40 100 100 22 Q160 100 160 180 Q160 188 152 188 L48 188 Q40 188 40 180 Z'

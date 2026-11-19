@@ -21,12 +21,12 @@ interface BubbleProps {
   said: boolean
   /** The story waits for the user to go on, with nothing asked. */
   waits: boolean
-  /** The tip of hobkin's hood, in the window. The bubble sits on top of it. */
+  /** The top of hobkin's pet, in the window. The bubble sits on top of it. */
   above: { x: number; y: number }
   still: boolean
 }
 
-/** The gap between the hood and the bubble, which the tail points across. */
+/** The gap between the pet and the bubble, which the tail points across. */
 const GAP = 20
 
 const AT_REST = 'translateX(-50%) translateY(0px) scale(1)'
@@ -46,7 +46,7 @@ export function Bubble({ id, line, said, waits, above, still }: BubbleProps) {
   }, [id, said, still])
 
   return (
-    // No size of its own: a point above the hood that every bubble hangs from.
+    // No size of its own: a point above the pet that every bubble hangs from.
     <div aria-hidden="true" className="pointer-events-none absolute z-[80]" style={{ left: above.x, top: above.y - GAP }}>
       <div className="tale-drift">
         <AnimatePresence initial>

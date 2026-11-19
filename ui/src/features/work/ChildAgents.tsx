@@ -12,7 +12,7 @@ import { useRunChildren } from './children.ts'
  * stopped or messaged: hobkin has no way to reach them, so nothing here takes the keyboard.
  */
 
-/** A mark at the hood's foot for how a child ended. A report is the wire's pulse come home, not a tick. */
+/** A mark at the face's foot for how a child ended. A report is the wire's pulse come home, not a tick. */
 const ENDED: Partial<Record<RunChild['state'], string>> = {
   reported: 'bg-[var(--hb-wire-pulse)] shadow-[0_0_0_1px_var(--hb-wire-active),0_0_0_2.5px_var(--background)]',
   failed: 'bg-bad shadow-[0_0_0_1.5px_var(--background)]',

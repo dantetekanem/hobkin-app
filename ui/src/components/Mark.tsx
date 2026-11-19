@@ -1,23 +1,33 @@
 import type { CSSProperties } from 'react'
 import { Hob } from '@/avatar/Hob.tsx'
-import { HOOD_PATH, type Mood } from '@/avatar/moods.tsx'
+import type { Mood } from '@/avatar/moods.tsx'
+import { BODY_PATH, FEET, MARK_BOX } from '@/avatar/pets.ts'
+import { PetPart } from '@/avatar/PetPart.tsx'
+import { usePet } from '@/avatar/use-pet.ts'
 import './mark.css'
 
-/** The hobkin mark: the hood and its two eyes, still. For the wordmark and other brand spots. */
+const MARK_PAINT = { mark: 'var(--hb-mark)', eye: 'var(--hb-mark-eye)' }
+
+/** The hobkin mark: the chosen pet and its two eyes, still. For the wordmark and other brand spots. */
 export function Mark({ size = 22, className }: { size?: number; className?: string }) {
+  const pet = usePet()
   return (
-    <svg className={className} width={size} height={size} viewBox="12 17 176 176" aria-hidden="true">
-      <path d={HOOD_PATH} fill="var(--hb-mark)" />
-      <circle cx="84" cy="138" r="13" fill="var(--hb-mark-eye)" />
-      <circle cx="116" cy="138" r="13" fill="var(--hb-mark-eye)" />
+    <svg className={className} width={size} height={size} viewBox={`${MARK_BOX.x} ${MARK_BOX.y} ${MARK_BOX.size} ${MARK_BOX.size}`} aria-hidden="true">
+      <PetPart pet={pet} paint={MARK_PAINT} />
+      {FEET.map((foot) => (
+        <ellipse key={foot.cx} {...foot} fill={MARK_PAINT.mark} />
+      ))}
+      <path d={BODY_PATH} fill={MARK_PAINT.mark} />
+      <circle cx="84" cy="138" r="10" fill={MARK_PAINT.eye} />
+      <circle cx="116" cy="138" r="10" fill={MARK_PAINT.eye} />
     </svg>
   )
 }
 
 interface AgentHoodProps {
-  /** Hue of this agent's hood, in degrees. */
+  /** Hue of this agent's body, in degrees. */
   hue: number
-  /** Size of the hood itself, in CSS pixels. What floats beside it (hands, dots) is drawn outside this box. */
+  /** Size of the pet's box, in CSS pixels. What floats beside it (hands, dots) is drawn outside this box. */
   size?: number
   /** What the agent is doing. Its small face shows it the way hobkin's own face does. */
   mood?: Mood
@@ -28,21 +38,20 @@ interface AgentHoodProps {
   className?: string
 }
 
-/** The art's own box and the mark's box, in the art's units. The hood sits in the same place in both. */
-const ART = { size: 256, left: 40, top: 45 }
-const HOOD_BOX = 176
+/** The art's own box (-28 to 228) and where the mark's box sits in it, in the art's units. The pet sits in the same place in both. */
+const ART = { size: 256, left: MARK_BOX.x + 28, top: MARK_BOX.y + 28 }
 
 /**
  * A small hobkin in a hue of its own, standing for one delegated agent. It is the same character as the
  * one by the message input, so it shows the same moods: working, thinking, searching and the rest.
  */
 export function AgentHood({ hue, size = 22, mood = 'working', asking = false, working = true, className }: AgentHoodProps) {
-  const unit = size / HOOD_BOX
+  const unit = size / MARK_BOX.size
   const style = {
     width: size,
     height: size,
     fontSize: size,
-    // A start point taken from the hue, so hoods side by side are out of step with each other.
+    // A start point taken from the hue, so faces side by side are out of step with each other.
     '--agent-delay': `${-((hue * 7) % 100) / 100}s`,
   } as CSSProperties
 
