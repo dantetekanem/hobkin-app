@@ -46,6 +46,17 @@ export interface ReviewStatus {
   landing?: ReviewLanding
   /** A merge the user asked for that has not happened: still on its way, or refused. Gone once it merges. */
   mergeAsked?: MergeAsked
+  /**
+   * For a pull request whose review recorded it: who opened it, and whether it is the user's. Only the user's own is
+   * merged or closed from here. A review prepared before this was recorded has none, and reads as someone else's.
+   */
+  owner?: PullOwner
+}
+
+/** Whose a pull request is: its author as its host names them, and whether it is the user's own. */
+export interface PullOwner {
+  author: string | null
+  mine: boolean
 }
 
 /**

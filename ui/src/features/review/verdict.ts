@@ -2,7 +2,7 @@ import { createStore } from 'zustand/vanilla'
 import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { Note } from '#shared/review/notes.ts'
-import type { ReviewLanding, VerdictPreview } from '#shared/review/status.ts'
+import type { PullOwner, ReviewLanding, VerdictPreview } from '#shared/review/status.ts'
 import { usersComments, type Verdict } from '#shared/review/verdict.ts'
 
 type VerdictCommand = 'review.preview' | 'review.verdict'
@@ -177,6 +177,21 @@ export const VERDICT_CHOICES: Record<'change' | 'pull', readonly VerdictChoice[]
     { verdict: 'discard', label: 'Discard', doing: 'Closing…' },
     { verdict: 'discard-branch', label: 'Discard and delete branch', doing: 'Deleting…' },
   ],
+}
+
+/** What someone else's pull request can get here: it is approved or commented on, and its author merges or closes it. */
+const THEIRS = new Set<Verdict>(['approve', 'comment'])
+
+/**
+ * The choices a review offers, and why some are missing. A pull request that is not the user's, as its review recorded
+ * it, offers only Approve and Comment, and says that merging or closing it is left to its author. A review prepared
+ * before that was recorded reads as someone else's until it is reviewed again.
+ */
+export function verdictChoices(id: string, owner?: PullOwner | null): { choices: readonly VerdictChoice[]; why: string | null } {
+  const kind = verdictKind(id)
+  if (kind === 'change' || owner?.mine) return { choices: VERDICT_CHOICES[kind], why: null }
+  const why = owner?.author ? `This pull request is by ${owner.author}: merging or closing it is left to them.` : 'Merging or closing this pull request is left to its author.'
+  return { choices: VERDICT_CHOICES.pull.filter((choice) => THEIRS.has(choice.verdict)), why }
 }
 
 /** Whether a review is of a pull request from GitHub or of a finished hobkin change, which have their own choices. */

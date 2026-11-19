@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import type { Review } from '../../shared/review/types.ts'
 import type { Verdict } from '../../shared/review/verdict.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
-import { CONFIRM_MS, createVerdictChoices, heldDown, sendsComments, VERDICT_CHOICES, verdictComments, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
+import { CONFIRM_MS, createVerdictChoices, heldDown, sendsComments, VERDICT_CHOICES, verdictChoices, verdictComments, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
 
 const CHANGE = 'change:hobkin:7d02c9'
 const PULL = 'pr:acme/shop/482'
@@ -214,6 +214,18 @@ test('a pull request is approved, approved and merged, or commented on, never se
   // Its key is the click on it: A and M, wherever the reviewer is in the review. Comment and the two discards have none.
   assert.deepEqual(VERDICT_CHOICES.pull.map(({ keys }) => keys ?? null), ['A', 'M', null, null, null])
   assert.deepEqual([verdictKind(PULL), verdictKind(CHANGE)], ['pull', 'change'])
+})
+
+test("on someone else's pull request only Approve and Comment are offered, with why; on the user's own every choice", () => {
+  const verdicts = (id: string, owner?: { author: string | null; mine: boolean }) => verdictChoices(id, owner).choices.map(({ verdict }) => verdict)
+  assert.deepEqual(verdicts(PULL, { author: 'dev', mine: true }), ['approve', 'approve-merge', 'comment', 'discard', 'discard-branch'])
+  assert.deepEqual(verdicts(PULL, { author: 'dev', mine: false }), ['approve', 'comment'])
+  assert.deepEqual(verdicts(PULL), ['approve', 'comment'], 'a review from before it was recorded reads as someone else’s')
+  assert.equal(verdictChoices(PULL, { author: 'dev', mine: false }).why, 'This pull request is by dev: merging or closing it is left to them.')
+  assert.equal(verdictChoices(PULL).why, 'Merging or closing this pull request is left to its author.')
+  assert.equal(verdictChoices(PULL, { author: 'dev', mine: true }).why, null)
+  assert.deepEqual(verdicts(CHANGE), ['approve', 'approve-merge', 'request-changes', 'discard', 'discard-branch'])
+  assert.equal(verdictChoices(CHANGE).why, null)
 })
 
 test("a pull request's verdict takes only the user's own comments, and a finished change's fixes take hobkin's too", () => {

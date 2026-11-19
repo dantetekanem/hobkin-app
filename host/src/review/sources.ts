@@ -7,14 +7,19 @@
 import { captureChange, type SizeLimit } from '#shared/review/capture.ts'
 import type { PrepareInput } from '#shared/review/draft.ts'
 import { pullUrl, type ReviewTarget } from '#shared/review/ids.ts'
+import type { PullOwner } from '#shared/review/status.ts'
 import { SIZE_LIMIT } from '#shared/review/types.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
 import { ghText, type GhCall } from './gh.ts'
 import { gitReader, type GitReader } from './git.ts'
+import { whosePull, type WhoIsMe } from './owner.ts'
 import type { PullCheckout, PullTarget, Say } from './pull-checkout.ts'
 
-/** What the review passes need, but its id. A pull request also has its description, which the review shows as it is. */
-export type ChangeInput = Omit<PrepareInput, 'id'> & { description?: string }
+/**
+ * What the review passes need, but its id. A pull request also has its description, which the review shows as it is,
+ * and whose it is, which decides whether it can be merged or closed from here.
+ */
+export type ChangeInput = Omit<PrepareInput, 'id'> & { description?: string; owner?: PullOwner }
 
 /** What a source tells while it reads: each step, in plain words, and the change's title as soon as it knows it. */
 export interface ReadWatch {
@@ -127,15 +132,26 @@ export function pullSource({
   checkout,
   vicinity,
   limit = SIZE_LIMIT,
+  whoIsMe,
 }: {
   gh: GhCall
   /** Where its code comes from. Without one, a pull request is not read. */
   checkout?: PullCheckout
+  /** Who the user is, to say whose a pull request is. Without it, their login as gh has it, and nothing more. */
+  whoIsMe?: () => Promise<WhoIsMe>
   /** The unchanged code around the change, from a call-graph scan of a checkout at `head`. Without it the review shows none. */
   vicinity?: (target: PullTarget, repo: string, base: string, head: string, say?: Say) => Promise<Vicinity>
   limit?: SizeLimit
 }): ReviewSource {
   const api = async <Value>(path: string): Promise<Value> => JSON.parse(await ghText(gh, ['api', '--hostname', 'github.com', path])) as Value
+  // Who the user is, when it cannot be said, leaves every pull request someone else's: nothing is merged or closed on a guess.
+  const me = async (): Promise<WhoIsMe> => {
+    try {
+      return whoIsMe ? await whoIsMe() : { viewer: (await api<{ login?: string }>('user')).login ?? null }
+    } catch {
+      return { viewer: null }
+    }
+  }
   const pullOf = (target: ReviewTarget): PullTarget => {
     if (target.kind !== 'pull') throw new Error('Not a pull request.')
     return target
@@ -152,7 +168,7 @@ export function pullSource({
       if (!checkout) throw new Error('This host checks out no pull requests, so it cannot read one.')
       const say = watch.say ?? (() => {})
       say(`Reading #${pull.number} on GitHub.`)
-      const details = await api<{ title: string; body?: string | null; base: { ref: string }; head: { ref: string } }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
+      const details = await api<{ title: string; body?: string | null; base: { ref: string }; head: { ref: string }; user?: { login?: string } | null }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
       watch.titled?.(details.title)
       const { repo, base } = await checkout.fetch(pull, { head, baseBranch: details.base.ref }, say)
       const reader = gitReader(repo)
@@ -161,10 +177,12 @@ export function pullSource({
       const specPath = specPathFor(details.head.ref, capture.files)
       const specText = specPath ? await reader.text(head, specPath) : null
       const around = vicinity ? await vicinity(pull, repo, base, head, say) : undefined
+      // GitHub writes its lines with \r\n.
+      const description = (details.body ?? '').replace(/\r\n?/g, '\n').trim()
       return {
         change: { project: `${pull.owner}/${pull.repo}`, item: `#${pull.number}`, title: details.title, branch: details.head.ref },
-        // GitHub writes its lines with \r\n.
-        description: (details.body ?? '').replace(/\r\n?/g, '\n').trim(),
+        description,
+        owner: whosePull({ author: details.user?.login ?? null, description }, await me()),
         capture,
         spec: specPath && specText != null ? { path: specPath, text: specText } : null,
         readHead: (path) => reader.text(head, path),

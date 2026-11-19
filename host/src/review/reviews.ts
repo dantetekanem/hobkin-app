@@ -402,7 +402,7 @@ export class Reviews {
     // A review prepared before the host started is ready from its file.
     const newest = this.options.store.newest(this.target(id))
     if (!newest) return IDLE_STATUS(id)
-    return { ...IDLE_STATUS(id), state: 'ready', preparedAt: newest.meta?.preparedAt ?? new Date(newest.at).toISOString(), storyBy: newest.meta?.storyBy ?? null }
+    return { ...IDLE_STATUS(id), state: 'ready', preparedAt: newest.meta?.preparedAt ?? new Date(newest.at).toISOString(), storyBy: newest.meta?.storyBy ?? null, ...(newest.meta?.owner ? { owner: newest.meta.owner } : {}) }
   }
 
   /** A preparation of this review is waiting or under way. */
@@ -593,7 +593,7 @@ export class Reviews {
       this.asked.delete(id)
       this.opened.delete(id)
       if (log) log.request = requestOf(target, cached.review)
-      this.set(id, { state: 'ready', phase: null, stale: false, preparedAt: cached.meta?.preparedAt ?? this.status(id).preparedAt, storyBy: cached.meta?.storyBy ?? null })
+      this.set(id, { state: 'ready', phase: null, stale: false, preparedAt: cached.meta?.preparedAt ?? this.status(id).preparedAt, storyBy: cached.meta?.storyBy ?? null, ...(cached.meta?.owner ? { owner: cached.meta.owner } : {}) })
       this.assess(target, cached.review)
       return
     }
@@ -612,7 +612,7 @@ export class Reviews {
     const review = input.description === undefined ? completed : { ...completed, change: { ...completed.change, description: input.description } }
 
     const files = filesOf(draft.input.capture.files, draft.headFiles, review)
-    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const, graph: GRAPH_RULES, producerVersion: CLIENT_PRODUCER_VERSION }
+    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const, graph: GRAPH_RULES, producerVersion: CLIENT_PRODUCER_VERSION, ...(input.owner ? { owner: input.owner } : {}) }
     store.write(target, review, files, meta)
     say(`Drew the graph: ${count(review.nodes.length, 'node')} and ${count(review.edges.length, 'wire')}.`)
     this.opened.set(id, { review, files, meta })
@@ -868,6 +868,8 @@ export class Reviews {
 
     if (target.kind === 'pull') {
       const name = `${target.owner}/${target.repo}#${target.number}`
+      // Only the user's own pull request is merged or closed from here, as its review recorded it. A review from before that reads as someone else's.
+      if ((verdict === 'approve-merge' || no) && !meta?.owner?.mine) throw new Unavailable(`${name} is not yours, so merging or closing it is left to its author. Approve it or comment on it.`)
       if (no) {
         const comment = closingComment(summary)
         const closing = [`Close ${name} on GitHub without merging it, as you.`, ...(comment ? ['Your words go on it as a comment first.'] : [])]

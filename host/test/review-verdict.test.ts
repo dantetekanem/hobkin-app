@@ -6,6 +6,7 @@ import { test, type TestContext } from 'node:test'
 import { agentMessage } from '#shared/agent-message.ts'
 import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import type { Note } from '#shared/review/notes.ts'
+import type { PullOwner } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import type { GhOutcome } from '../src/github-gh.ts'
 import type { Moved } from '../src/review/landing.ts'
@@ -264,11 +265,13 @@ function pullSeat(
     protectedBranch = false,
     /** Other open pull requests from the same branch, and open pull requests that merge into it. */
     sharing = { heads: [] as number[], bases: [] as number[] },
+    /** Whose its review recorded it is: the user's own unless a test says otherwise, null for a review from before that. */
+    owner = { author: 'dev', mine: true } as PullOwner | null,
   } = {},
 ) {
   const id = 'pr:acme/shop/482'
   const store = reviewStore(temporaryDirectory(t))
-  store.write(targetOfReviewId(id)!, sample, files)
+  store.write(targetOfReviewId(id)!, sample, files, owner ? { preparedAt: '2026-11-12T15:00:00.000Z', storyBy: 'host', owner } : undefined)
   const calls: { args: readonly string[]; input?: string }[] = []
   /**
    * GitHub as these calls find it. `gate`, while set, holds the close until a test lets it go; `pushOnClose` is a commit
@@ -398,6 +401,18 @@ test('on the user’s own pull request, approve and merge merges it without an a
   await reviews.verdict(id, 'approve-merge', '', commented.confirm)
   assert.deepEqual(sent().slice(1).map((call) => call.args[4]), ['POST', 'PUT'])
   assert.equal(store.notes(target).entries.every((entry) => entry.op === 'put' && entry.note.sent === 1000), true, 'the comment is marked sent')
+})
+
+test("someone else's pull request is approved or commented on: merging and closing it are left to its author, and refused before anything is sent", async (t) => {
+  for (const owner of [{ author: 'dev', mine: false }, null]) {
+    const { id, reviews, sent } = pullSeat(t, { owner })
+    for (const verdict of ['approve-merge', 'discard', 'discard-branch'] as const) {
+      await assert.rejects(reviews.preview(id, verdict, ''), /left to its author/, `${verdict}, ${owner ? 'someone else' : 'a review from before'}`)
+      await assert.rejects(reviews.verdict(id, verdict, '', 'any'), /left to its author/)
+    }
+    assert.deepEqual(sent(), [])
+    assert.equal((await reviews.preview(id, 'approve', 'Looks right.')).post?.event, 'APPROVE')
+  }
 })
 
 test('a merge GitHub refuses after the approval went says both', async (t) => {

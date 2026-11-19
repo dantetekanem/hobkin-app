@@ -12,7 +12,7 @@ import { cn } from '@/lib/utils.ts'
 import type { Note } from '../notes/notes.ts'
 import '../preparing/preparing.css'
 import { reviewMemory } from '../state/context.tsx'
-import { CONFIRM_MS, createVerdictChoices, handOver, heldDown, VERDICT_CHOICES, verdictComments, verdictKind, type VerdictCommands } from '../verdict.ts'
+import { CONFIRM_MS, createVerdictChoices, handOver, heldDown, VERDICT_CHOICES, verdictChoices, verdictComments, verdictKind, type VerdictCommands } from '../verdict.ts'
 
 /** The choices that send the reviewer's comments, and have nothing to send without one. */
 const needsComment = (verdict: Verdict) => verdict === 'request-changes' || verdict === 'comment'
@@ -73,6 +73,8 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
   status?: ReviewStatus | null
 }) {
   const kind = verdictKind(review.id)
+  // Someone else's pull request is approved or commented on: its author merges or closes it.
+  const offered = verdictChoices(review.id, status?.owner)
   const comments = verdictComments(review.id, notes).length
   const landing = status?.landing ?? null
   const merged = landing?.state === 'merged'
@@ -177,7 +179,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
       {/* The choices' place. Once the change merged, where it landed is told in it, at the choices' size. */}
       <div className="grid">
         <div className={cn('col-start-1 row-start-1 flex flex-col gap-1.5', merged && 'invisible')} inert={merged}>
-          {VERDICT_CHOICES[kind].map((choice) => {
+          {offered.choices.map((choice) => {
             const waiting = armed === choice.verdict
             const working = flow.busy && (doing.current === choice.verdict || asking.current === choice.verdict)
             const primary = choice.verdict === PRIMARY
@@ -225,6 +227,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
               </Button>
             )
           })}
+          {offered.why ? <p className="px-1 text-[13px] leading-snug text-pretty text-muted-foreground">{offered.why}</p> : null}
         </div>
         {merged ? (
           <p className="col-start-1 row-start-1 flex items-center gap-2 self-center px-1 font-heading text-[15px] leading-snug font-semibold text-pretty">

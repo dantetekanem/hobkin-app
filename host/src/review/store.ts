@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { join } from 'node:path'
 import { reviewFolder, targetOfReviewFolder, type ReviewTarget } from '#shared/review/ids.ts'
 import type { NoteEntry } from '#shared/review/notes.ts'
-import type { MergeAsked } from '#shared/review/status.ts'
+import type { MergeAsked, PullOwner } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 
 /** The reviewer's notes, sent and not, and the note they were writing. */
@@ -26,6 +26,8 @@ export interface ReviewMeta {
   graph?: number
   /** Client version captured when this summary was generated. Missing on older reviews; never inferred later. */
   producerVersion?: string | null
+  /** For a pull request: who opened it and whether it is the user's, as it was when the review was prepared. */
+  owner?: PullOwner
 }
 
 export interface Prepared {
