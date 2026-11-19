@@ -1,8 +1,9 @@
 import { createStore } from 'zustand/vanilla'
 import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
+import type { Note } from '#shared/review/notes.ts'
 import type { ReviewLanding, VerdictPreview } from '#shared/review/status.ts'
-import type { Verdict } from '#shared/review/verdict.ts'
+import { usersComments, type Verdict } from '#shared/review/verdict.ts'
 
 type VerdictCommand = 'review.preview' | 'review.verdict'
 export type VerdictCommands = <Name extends VerdictCommand>(name: Name, args: CommandArgs<Name>) => Promise<CommandResults[Name]>
@@ -122,6 +123,15 @@ export function sendsComments(id: string, verdict: Verdict): boolean {
 }
 
 /**
+ * The comments not sent yet that a verdict on this review can take: on a pull request only the user's own, since
+ * hobkin's notes never go there; on a finished change every comment, for the fixes.
+ */
+export function verdictComments(id: string, notes: readonly Note[]): string[] {
+  const unsent = verdictKind(id) === 'pull' ? usersComments(notes) : notes.filter((note) => note.intent === 'comment' && note.sent == null)
+  return unsent.map((note) => note.id)
+}
+
+/**
  * True for a key held down, which must not give the second click. A choice waiting for its second click holds the
  * keyboard as soon as the host has said what will happen, and the key that gave the first may still be down then, such
  * as Enter on the choice. A held key goes on as repeats, and only a key pressed anew confirms. Enter and Space are the
@@ -162,7 +172,7 @@ export const VERDICT_CHOICES: Record<'change' | 'pull', readonly VerdictChoice[]
   pull: [
     { verdict: 'approve', label: 'Approve', doing: 'Posting…', keys: 'A' },
     { verdict: 'approve-merge', label: 'Approve and merge', doing: 'Merging…', keys: 'M' },
-    { verdict: 'request-changes', label: 'Request changes', doing: 'Posting…', keys: 'X' },
+    // A pull request is only commented on or approved: the user does not send one back from here.
     { verdict: 'comment', label: 'Comment', doing: 'Posting…' },
     { verdict: 'discard', label: 'Discard', doing: 'Closing…' },
     { verdict: 'discard-branch', label: 'Discard and delete branch', doing: 'Deleting…' },

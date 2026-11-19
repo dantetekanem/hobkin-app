@@ -359,6 +359,8 @@ export class Reviews {
   private readonly runs = new Map<string, RunLog>()
   /** The verdict under way on each review, and the token it was confirmed with: one at a time. */
   private readonly deciding = new Map<string, { confirm: string; done: Promise<{ message: string }> }>()
+  /** The confirmations whose words went on a pull request: one confirmation posts once, so the same words never go twice. */
+  private readonly posted = new Set<string>()
   private readonly options: ReviewsOptions
 
   constructor(options: ReviewsOptions) {
@@ -896,10 +898,10 @@ export class Reviews {
         const movedOn = !(current.startsWith(reviewed) || reviewed.startsWith(current))
         const said = movedOn ? await this.pullMovedWords(target, reviewed, current, base) : null
         // GitHub lets nobody approve their own pull request: what the user wrote still goes, as a comment, and then it merges.
-        const written = pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose, CLIENT_PRODUCER_VERSION)
+        const written = pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose)
         // A review with no line to place goes on the commit it merges; lines stay on the commit they were written on.
         const post = movedOn && written.comments.length === 0 ? { ...written, commit_id: current } : written
-        const says = !mine || !saysNothing(post, CLIENT_PRODUCER_VERSION)
+        const says = !mine || !saysNothing(post)
         const at7 = current.slice(0, 7)
         const tail = said ? [said, `This merges ${at7}, the commit shown here. GitHub refuses if the pull request moves again before then.`] : [pinned]
         const lines = mine
@@ -917,7 +919,10 @@ export class Reviews {
       if (verdict === 'approve' && this.options.gh && (await this.pullFacts(target)).mine) {
         throw new Unavailable('GitHub does not let you approve your own pull request. Approve and merge merges it without an approval, or leave a comment.')
       }
-      const post = pullReviewPost(review, notes, verdict, summary, loose, CLIENT_PRODUCER_VERSION)
+      const post = pullReviewPost(review, notes, verdict, summary, loose)
+      if (verdict === 'comment' && saysNothing(post)) throw new Unavailable('There is nothing to post: write a comment first.')
+      // GitHub asks every request for changes for a body, and only the user's words may be it.
+      if (verdict === 'request-changes' && !post.body) throw new Unavailable('A request for changes needs your words: write what should change first.')
       const words = { comment: 'Comment on', approve: 'Approve', 'request-changes': 'Ask for changes on' }[verdict]
       const lines = [`${words} ${name} on GitHub, as you, through gh.`, `At commit ${at.slice(0, 7)}, the one this review was built from.`, `${lineComments(post).replace(/^w/, 'W')}.`]
       return { review, card: null, preview: { verdict, lines, post, confirm: token(post) } }
@@ -1133,12 +1138,14 @@ export class Reviews {
       const name = `${target.owner}/${target.repo}#${target.number}`
       const post = async (body: PullReviewPost) => {
         const answer = await ghText(gh, ['api', '--hostname', 'github.com', '--method', 'POST', `repos/${target.owner}/${target.repo}/pulls/${target.number}/reviews`, '--input', '-'], JSON.stringify(body))
-        // The comments went with it, so they are never sent twice.
+        // The comments went with it, so they are never sent twice, and neither is anything this yes posts.
+        this.posted.add(confirm)
         this.markSent(target, verdict)
         return (JSON.parse(answer || '{}') as { html_url?: string }).html_url
       }
       if (merge) {
-        const posted = merge.post ? await post(merge.post) : null
+        // A merge that failed after its review went is tried again with that same yes: the review does not go twice.
+        const posted = merge.post && !this.posted.has(confirm) ? await post(merge.post) : null
         try {
           // `sha` is the commit the preview showed: GitHub refuses the merge if the pull request has moved since.
           await ghText(gh, ['api', '--hostname', 'github.com', '--method', 'PUT', `repos/${target.owner}/${target.repo}/pulls/${target.number}/merge`, '--input', '-'], JSON.stringify({ sha: merge.head, merge_method: merge.method }))
@@ -1150,6 +1157,7 @@ export class Reviews {
         this.merged(id)
         return { message: `Merged ${name} into ${merge.base}${before}.${posted ? ` ${posted}` : ''}` }
       }
+      if (this.posted.has(confirm)) throw new Unavailable('This was posted already, so it is not posted again.')
       const posted = await post(preview.post!)
       return { message: `Posted to GitHub${posted ? `: ${posted}` : '.'}` }
     }
@@ -1270,12 +1278,16 @@ export class Reviews {
     return { plan, pull: { head, title: review.change.title, body } }
   }
 
-  /** A verdict that went takes its comments with it: they are marked sent, so they are never sent twice. */
+  /**
+   * A verdict that went takes its comments with it: they are marked sent, so they are never sent twice. A pull request
+   * takes only the user's own, so hobkin's notes stay unsent.
+   */
   private markSent(target: ReviewTarget, verdict: Verdict) {
     if ((verdict === 'approve' || verdict === 'approve-merge') && target.kind === 'change') return
     const saved = this.options.store.notes(target)
     const at = (this.options.now ?? Date.now)()
-    const entries = foldNotes(saved.entries as NoteEntry[]).map((note) => ({ op: 'put' as const, note: note.intent === 'comment' && note.sent == null ? { ...note, sent: at } : note }))
+    const took = (note: Note) => note.intent === 'comment' && note.sent == null && (target.kind === 'change' || note.author !== 'hobkin')
+    const entries = foldNotes(saved.entries as NoteEntry[]).map((note) => ({ op: 'put' as const, note: took(note) ? { ...note, sent: at } : note }))
     this.options.store.saveNotes(target, { entries, draft: saved.draft })
   }
 

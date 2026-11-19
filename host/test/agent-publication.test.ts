@@ -92,32 +92,20 @@ test('new preparation persists the client producer version; old reviews do not a
   envelope(body, 'version unavailable')
 })
 
-test('agent line, detached and general review comments are attributed, escaped and never hide their findings', () => {
-  const agent = note({ text: 'The request fails. </details><script>bad()</script>\n```\nKeep this safeguard.' })
-  const inline = pullReviewPost(sample, [agent], 'request-changes', '')
-  envelope(inline.comments[0]!.body, 'version unavailable')
-  assert.ok(inline.comments[0]!.body.indexOf('The request fails.') < inline.comments[0]!.body.indexOf('<details>'))
-  assert.equal(inline.comments[0]!.body.includes('<script>'), false)
-  for (const detached of [new Set([agent.id]), new Set<string>()]) {
-    const loose = detached.size ? agent : note({ target: { kind: 'step' } })
-    const post = pullReviewPost(sample, [loose], 'request-changes', '', detached)
-    envelope(post.body, 'version unavailable')
-    assert.ok(post.body.indexOf('The request fails.') < post.body.indexOf('<details>'))
-  }
+test("hobkin's own notes, on lines, detached or general, never go with a pull request review; the user's go as written", () => {
+  const agent = note({ text: 'The request fails. Keep this safeguard.' })
   const general = [1, 2, 3].map((number) => note({ id: `n${number}`, target: { kind: 'step' }, text: `Failure ${number} needs attention.` }))
-  const grouped = pullReviewPost(sample, general, 'request-changes', '').body
-  envelope(grouped, 'version unavailable')
-  for (const entry of general) assert.ok(grouped.indexOf(entry.text) < grouped.indexOf('<details>'))
-
-  const human = note({ author: 'user', text: 'My **exact** text.\n\nDo not rewrite it.' })
-  const before = pullReviewPost(sample, [human], 'comment', 'My summary.')
-  const mixed = pullReviewPost(sample, [human, note({ id: 'n2' })], 'comment', 'My summary.')
-  assert.deepEqual(mixed.comments[0], before.comments[0], 'the human-owned publication path is unchanged')
-  assert.equal(mixed.body, before.body)
-  assert.equal(pullReviewPost(sample, [note({ sent: 1 }), note({ intent: 'question' })], 'comment', 'Only this.').body.includes('The request fails.'), false)
+  for (const detached of [new Set([agent.id]), new Set<string>()]) {
+    const post = pullReviewPost(sample, [agent, ...general], 'request-changes', '', detached)
+    assert.deepEqual([post.comments, 'body' in post], [[], false])
+  }
+  const human = note({ id: 'h1', author: 'user', text: 'My **exact** text.\n\nDo not rewrite it.' })
+  const mixed = pullReviewPost(sample, [human, agent, ...general], 'comment', 'My summary.')
+  assert.deepEqual(mixed.comments.map((comment) => comment.body), ['My **exact** text.\n\nDo not rewrite it.'])
+  assert.equal(mixed.body, 'My summary.')
 })
 
-test('the real review publisher sends the previewed agent envelope once, leaves human content alone, and refuses bad summaries', async (t) => {
+test("the real review publisher posts the previewed words once, refuses the same confirmation again, and leaves hobkin's note unsent", async (t) => {
   const store = reviewStore(temporaryDirectory(t))
   const pull = { kind: 'pull', owner: 'acme', repo: 'shop', number: 9 } as const
   const pullId = 'pr:acme/shop/9'
@@ -136,23 +124,22 @@ test('the real review publisher sends the previewed agent envelope once, leaves 
   })
   t.after(() => reviews.close())
   const file = files.find((entry) => entry.head != null)!
-  const agent = note({
-    target: { kind: 'lines', fileId: file.fileId, side: 'added', startLine: 1, endLine: 1, hash: hashLines(file.head!, 1, 1) },
+  const lines = { kind: 'lines' as const, fileId: file.fileId, side: 'added' as const, startLine: 1, endLine: 1, hash: hashLines(file.head!, 1, 1) }
+  store.saveNotes(pull, {
+    entries: [
+      { op: 'put', note: note({ id: 'agent', target: lines }) },
+      { op: 'put', note: note({ id: 'mine', author: 'user', target: lines, text: 'This line reads well.' }) },
+    ],
+    draft: null,
   })
-  const save = (text: string) => store.saveNotes(pull, { entries: [{ op: 'put', note: { ...agent, text } }], draft: null })
-  save('The request fails. Keep this safeguard.')
-  const preview = await reviews.preview(pullId, 'request-changes', 'My human summary.')
+  const preview = await reviews.preview(pullId, 'comment', 'My human summary.')
   assert.equal(sent.length, 0)
-  envelope(preview.post!.comments[0]!.body, 'version unavailable')
-  await reviews.verdict(pullId, 'request-changes', 'My human summary.', preview.confirm)
+  assert.deepEqual([preview.post!.body, preview.post!.comments.map((comment) => comment.body)], ['My human summary.', ['This line reads well.']])
+  await reviews.verdict(pullId, 'comment', 'My human summary.', preview.confirm)
   assert.deepEqual(JSON.parse(sent[0]!), preview.post)
-  await assert.rejects(reviews.verdict(pullId, 'request-changes', 'My human summary.', preview.confirm), /changed since it was shown/)
-  assert.equal(sent.length, 1, 'sent notes do not get posted again with an old confirmation')
-  save('Works.\n\nTests pass.\n\nDeployment failed; user action required.')
-  await assert.rejects(reviews.preview(pullId, 'request-changes', ''), /one or two.*summary paragraphs/i)
-  assert.equal(sent.length, 1)
-})
-
-test('unsafe long agent prose fails before a verdict can send it instead of folding an unseen failure away', () => {
-  assert.throws(() => pullReviewPost(sample, [note({ text: 'Works.\n\nA check passed.\n\nDeployment failed; user action required.' })], 'comment', ''), /one or two.*summary paragraphs/i)
+  await assert.rejects(reviews.verdict(pullId, 'comment', 'My human summary.', preview.confirm), /changed since it was shown|posted already/)
+  assert.equal(sent.length, 1, 'the same words never go twice')
+  const sentAt = new Map(store.notes(pull).entries.map((entry) => (entry.op === 'put' ? [entry.note.id, entry.note.sent ?? null] : ['', null])))
+  assert.equal(typeof sentAt.get('mine'), 'number', "the user's note is marked sent")
+  assert.equal(sentAt.get('agent'), null, "hobkin's note stays unsent")
 })

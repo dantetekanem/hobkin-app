@@ -4,7 +4,6 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { agentMessage } from '#shared/agent-message.ts'
-import { CLIENT_PRODUCER_VERSION } from '../src/producer-version.ts'
 import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import type { Note } from '#shared/review/notes.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
@@ -206,8 +205,8 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
   assert.equal(preview.post?.commit_id, sample.change.head)
   // n1's lines no longer hold what it was written on, so it goes in the body instead of on the wrong lines.
   assert.deepEqual(preview.post?.comments, [])
-  assert.match(preview.post!.body, /^\*\*hobkin automated review\*\*\n\nTwo things\.\n\n<details>\n<summary>See more<\/summary>\n\n- About src\/cli\/runtime\.mjs, lines 176 to 178, as changed: Read as one\.\n- About send/)
-  assert.equal(preview.post!.body.includes('For hobkin only'), false)
+  assert.match(preview.post!.body!, /^Two things\.\n\nAbout src\/cli\/runtime\.mjs, lines 176 to 178, as changed: Read as one\.\n\nAbout send, code in [^:]+: Name it after what it holds\.$/)
+  assert.equal(preview.post!.body!.includes('For hobkin only'), false)
 
   const done = await reviews.verdict(id, 'request-changes', 'Two things.', preview.confirm)
   assert.equal(done.message, 'Posted to GitHub: https://github.com/acme/shop/pull/482#pullrequestreview-1')
@@ -218,7 +217,34 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
   // The comments went with it, so they are marked sent and are not posted again. The question stays for hobkin.
   const after = store.notes(target).entries.map((entry) => (entry.op === 'put' ? [entry.note.id, entry.note.sent ?? null] : null))
   assert.deepEqual(after, [['n1', 1000], ['n2', 1000], ['n3', null]])
-  assert.equal((await reviews.preview(id, 'comment', '')).post!.body, agentMessage({ summary: 'Commented.', version: CLIENT_PRODUCER_VERSION }))
+  // With every comment sent, a comment would say nothing, so it is refused before anything is sent.
+  await assert.rejects(reviews.preview(id, 'comment', ''), /nothing to post/)
+})
+
+test("a review posts only the user's words once: hobkin's note stays unsent, and a review with nothing to say is refused before anything goes", async (t) => {
+  const id = 'pr:acme/shop/482'
+  const { reviews, posts, notes, store, target } = seated(t, id)
+  notes([
+    note('n1', { text: 'Rename it later.' }),
+    note('n2', { author: 'hobkin', text: 'hobkin thinks this needs a test.' }),
+  ])
+  const preview = await reviews.preview(id, 'comment', '')
+  assert.deepEqual(preview.post, { event: 'COMMENT', commit_id: sample.change.head, body: 'Rename it later.', comments: [] })
+  await reviews.verdict(id, 'comment', '', preview.confirm)
+  assert.deepEqual(posts.map((post) => JSON.parse(post.input!)), [preview.post])
+  const sent = store.notes(target).entries.map((entry) => (entry.op === 'put' ? [entry.note.id, entry.note.sent ?? null] : null))
+  assert.deepEqual(sent, [['n1', 1000], ['n2', null]], "only the user's note is marked sent")
+
+  // A request for changes needs words of the user's; a comment needs something.
+  await assert.rejects(reviews.preview(id, 'request-changes', ''), /request for changes needs your words/)
+  await assert.rejects(reviews.preview(id, 'comment', ''), /nothing to post/)
+
+  // An approval with no words is posted once: the same confirmation again posts nothing more.
+  const approval = await reviews.preview(id, 'approve', '')
+  assert.deepEqual(approval.post, { event: 'APPROVE', commit_id: sample.change.head, comments: [] })
+  await reviews.verdict(id, 'approve', '', approval.confirm)
+  await assert.rejects(reviews.verdict(id, 'approve', '', approval.confirm), /posted already/)
+  assert.equal(posts.filter((post) => post.args.includes('--method')).length, 2, 'one comment and one approval')
 })
 
 /** A pull request's review in the home, with a gh that answers as GitHub would and writes down every call. */
@@ -379,6 +405,9 @@ test('a merge GitHub refuses after the approval went says both', async (t) => {
   const preview = await reviews.preview(id, 'approve-merge', '')
   await assert.rejects(reviews.verdict(id, 'approve-merge', '', preview.confirm), /^Error: It was approved on GitHub, but it was not merged: gh said: Pull Request is not mergeable \(HTTP 405\)$/)
   assert.deepEqual(sent().map((call) => call.args[4]), ['POST', 'PUT'])
+  // The same yes again tries the merge again, and the approval does not go twice.
+  await assert.rejects(reviews.verdict(id, 'approve-merge', '', preview.confirm), /not mergeable/)
+  assert.deepEqual(sent().map((call) => call.args[4]), ['POST', 'PUT', 'PUT'])
 })
 
 test('a pull request that moved since its review is merged where it is now: the preview says what moved, and the yes is pinned to it', async (t) => {
@@ -442,7 +471,7 @@ test('discarding a pull request closes it on GitHub without merging it, and only
 
   assert.deepEqual(await reviews.verdict(id, 'discard', 'Superseded by the new checkout.', preview.confirm), { message: 'Closed acme/shop#482 without merging it.' })
   assert.deepEqual(sentTo(calls), [
-    ['POST', 'repos/acme/shop/issues/482/comments', { body: '**hobkin automated review**\n\nSuperseded by the new checkout.' }],
+    ['POST', 'repos/acme/shop/issues/482/comments', { body: 'Superseded by the new checkout.' }],
     ['PATCH', 'repos/acme/shop/pulls/482', { state: 'closed' }],
   ])
   // It is closed on GitHub, so the host is told and it leaves the lists at once, and its review leaves with it.
@@ -513,7 +542,7 @@ test('discarding a pull request and deleting its branch closes it, then deletes 
   assert.deepEqual(await reviews.verdict(id, 'discard-branch', 'Superseded by the new checkout.', preview.confirm), { message: 'Closed acme/shop#482 without merging it, and deleted its branch feature/rounding.' })
   const writes = sentTo(calls)
   assert.deepEqual(writes.slice(0, 2), [
-    ['POST', 'repos/acme/shop/issues/482/comments', { body: '**hobkin automated review**\n\nSuperseded by the new checkout.' }],
+    ['POST', 'repos/acme/shop/issues/482/comments', { body: 'Superseded by the new checkout.' }],
     ['PATCH', 'repos/acme/shop/pulls/482', { state: 'closed' }],
   ])
   // The delete is one atomic update of the ref, from the commit shown to nothing.

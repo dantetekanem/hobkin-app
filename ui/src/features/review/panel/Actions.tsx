@@ -12,11 +12,10 @@ import { cn } from '@/lib/utils.ts'
 import type { Note } from '../notes/notes.ts'
 import '../preparing/preparing.css'
 import { reviewMemory } from '../state/context.tsx'
-import { CONFIRM_MS, createVerdictChoices, handOver, heldDown, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../verdict.ts'
+import { CONFIRM_MS, createVerdictChoices, handOver, heldDown, VERDICT_CHOICES, verdictComments, verdictKind, type VerdictCommands } from '../verdict.ts'
 
 /** The choices that send the reviewer's comments, and have nothing to send without one. */
 const needsComment = (verdict: Verdict) => verdict === 'request-changes' || verdict === 'comment'
-const unsentComments = (notes: readonly Note[]) => notes.filter((note) => note.intent === 'comment' && note.sent == null).map((note) => note.id)
 
 const noHost: VerdictCommands = async () => {
   throw new Error('Hobkin is not connected here.')
@@ -74,7 +73,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
   status?: ReviewStatus | null
 }) {
   const kind = verdictKind(review.id)
-  const comments = unsentComments(notes).length
+  const comments = verdictComments(review.id, notes).length
   const landing = status?.landing ?? null
   const merged = landing?.state === 'merged'
   // The host merges a finished change where its branch is now, which the preview says.
@@ -100,7 +99,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
         command: verdict ?? noHost,
         saveNotes: saveNotes ?? nothingToSave,
         current: () => true,
-        comments: () => unsentComments(reviewMemory.getState().notesOf(review)),
+        comments: () => verdictComments(review.id, reviewMemory.getState().notesOf(review)),
         markSent: (ids) => reviewMemory.getState().markSent(review, ids, Date.now()),
         landed: (done, message) => onLanded.current?.(done, message),
         failed: async (failedVerdict, reason) => (onAsk.current ? onAsk.current(handOver(verdictKind(review.id), failedVerdict, reason)) : false),
@@ -305,14 +304,14 @@ function Preview({ kind, preview }: { kind: 'change' | 'pull'; preview: VerdictP
 
 const EVENT: Record<NonNullable<VerdictPreview['post']>['event'], string> = { APPROVE: 'an approval', COMMENT: 'a comment', REQUEST_CHANGES: 'a request for changes' }
 
-/** The review GitHub will get, as the host will post it: its kind, its words, and each comment on its lines. */
+/** The review GitHub will get, as the host will post it: its kind, the user's words when they wrote any, and each comment on its lines. */
 function GitHubPost({ post }: { post: NonNullable<VerdictPreview['post']> }) {
   return (
     <div className="flex flex-col gap-2 rounded-lg bg-secondary/70 p-2.5" aria-label="The review GitHub will get">
       <p className="font-heading text-[13px] font-semibold text-muted-foreground">
         GitHub gets {EVENT[post.event]}, on commit {post.commit_id.slice(0, 7)}
       </p>
-      <p className="text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{post.body}</p>
+      {post.body ? <p className="text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{post.body}</p> : null}
       {post.comments.map((comment, index) => (
         <div key={index} className="flex flex-col gap-0.5 border-t border-border pt-2">
           <p className="font-mono text-[12.5px] [overflow-wrap:anywhere] text-muted-foreground">

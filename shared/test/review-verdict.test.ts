@@ -5,7 +5,7 @@ import { reviewFolder, reviewIdOf, targetOfReviewId } from '../review/ids.ts'
 import { hashLines } from '../review/lines.ts'
 import type { Note } from '../review/notes.ts'
 import type { Review } from '../review/types.ts'
-import { askForChanges, pullReviewPost, saysNothing } from '../review/verdict.ts'
+import { askForChanges, closingComment, pullReviewPost, saysNothing } from '../review/verdict.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const step = (title: string) => sample.story.find((entry) => entry.title === title)!
@@ -32,58 +32,58 @@ test('a review is named by what it reviews, and the name comes back as the same 
   assert.notEqual(reviewFolder({ kind: 'change', slug: 'a--b', item: 'c' }), reviewFolder({ kind: 'change', slug: 'a', item: 'b--c' }))
 })
 
-test('approving or asking for changes on a pull request posts one GitHub review, with line comments where notes have lines', () => {
+test("every review of a pull request carries exactly what the user wrote, and nothing of hobkin's", () => {
   const text = 'a\nb\nc\nd\n'
   const notes = [
     note('n1', { target: { kind: 'lines', fileId: 'src/cli/runtime.mjs', side: 'added', startLine: 176, endLine: 178, hash: hashLines(text, 1, 3) }, text: 'These three lines read as one.' }),
     note('n2', { target: { kind: 'lines', fileId: 'src/cli/ui.mjs', side: 'deleted', startLine: 9, endLine: 9, hash: hashLines(text, 1, 1) }, text: 'Was this line used elsewhere?' }),
     note('n3', { target: { kind: 'node', node: idOf('send') }, text: 'Name the field after what it holds.' }),
+    note('n4', { text: 'A note on the step.' }),
     // A question is for hobkin, never for the pull request.
-    note('n4', { intent: 'question', text: 'Why here and not in connectMain?' }),
+    note('n5', { intent: 'question', text: 'Why here and not in connectMain?' }),
+    // hobkin's own notes stay with hobkin, on lines or not.
+    note('n6', { author: 'hobkin', target: { kind: 'lines', fileId: 'src/cli/runtime.mjs', side: 'added', startLine: 176, endLine: 176, hash: hashLines(text, 1, 1) }, text: 'hobkin thinks this is risky.' }),
+    note('n7', { author: 'hobkin', text: 'hobkin found nothing else.' }),
   ]
+  const EVENTS = { comment: 'COMMENT', approve: 'APPROVE', 'request-changes': 'REQUEST_CHANGES' } as const
+  for (const verdict of ['comment', 'approve', 'request-changes'] as const) {
+    const post = pullReviewPost(sample, notes, verdict, 'Two small things before this lands.')
+    assert.equal(post.event, EVENTS[verdict])
+    assert.equal(post.commit_id, sample.change.head)
+    assert.deepEqual(post.comments, [
+      { path: 'src/cli/runtime.mjs', side: 'RIGHT', start_line: 176, start_side: 'RIGHT', line: 178, body: 'These three lines read as one.' },
+      { path: 'src/cli/ui.mjs', side: 'LEFT', line: 9, body: 'Was this line used elsewhere?' },
+    ])
+    // The summary, then each note with no lines, with what it is about, as written: no line of hobkin's, no filler.
+    assert.equal(post.body, ['Two small things before this lands.', 'About send, code in src/cli/runtime.mjs: Name the field after what it holds.', 'A note on the step.'].join('\n\n'))
+    assert.equal(JSON.stringify(post).includes('hobkin'), false, verdict)
+    assert.equal(post.body!.includes('Why here'), false)
+  }
 
-  const post = pullReviewPost(sample, notes, 'request-changes', 'Two small things before this lands.')
-  assert.equal(post.event, 'REQUEST_CHANGES')
-  assert.equal(post.commit_id, sample.change.head)
-  assert.deepEqual(post.comments, [
-    { path: 'src/cli/runtime.mjs', side: 'RIGHT', start_line: 176, start_side: 'RIGHT', line: 178, body: '**hobkin automated review**\n\nThese three lines read as one.' },
-    { path: 'src/cli/ui.mjs', side: 'LEFT', line: 9, body: '**hobkin automated review**\n\nWas this line used elsewhere?' },
-  ])
-  // It says first that hobkin wrote it, then the summary in one paragraph. A note with no lines follows, folded
-  // away, with where it was taken written out.
-  assert.equal(
-    post.body,
-    [
-      '**hobkin automated review**',
-      '',
-      'Two small things before this lands.',
-      '',
-      '<details>',
-      '<summary>See more</summary>',
-      '',
-      '- About send, code in src/cli/runtime.mjs: Name the field after what it holds.',
-      '',
-      '</details>',
-    ].join('\n'),
-  )
-  assert.equal(post.body.includes('Why here'), false)
+  // A long summary goes as it was written, unfolded.
+  const long = 'The retry\nloop is fine.\n\nOne thing to look at later:\nthe log line.'
+  assert.equal(pullReviewPost(sample, [], 'comment', long).body, long)
 
-  // A summary of several paragraphs leads with its first as one paragraph, and folds the rest away.
-  const long = pullReviewPost(sample, [], 'comment', 'The retry\nloop is fine.\n\nOne thing to look at later:\nthe log line.')
-  assert.equal(long.body, ['**hobkin automated review**', '', 'The retry loop is fine.', '', '<details>', '<summary>See more</summary>', '', 'One thing to look at later:\nthe log line.', '', '</details>'].join('\n'))
-
-  // An approval with nothing to say still says something, as GitHub asks of a review with a body.
-  assert.deepEqual(pullReviewPost(sample, [], 'approve', ''), { event: 'APPROVE', commit_id: sample.change.head, body: '**hobkin automated review**\n\nApproved.', comments: [] })
-  assert.equal(saysNothing(pullReviewPost(sample, [], 'comment', '')), true)
+  // With nothing written, an approval has no words, and a review says nothing.
+  assert.deepEqual(pullReviewPost(sample, [], 'approve', ''), { event: 'APPROVE', commit_id: sample.change.head, comments: [] })
+  assert.equal(saysNothing(pullReviewPost(sample, [], 'approve', '')), true)
+  assert.equal(saysNothing(pullReviewPost(sample, [], 'comment', '  ')), true)
+  assert.equal(saysNothing(pullReviewPost(sample, [notes[5]!, notes[6]!], 'comment', '')), true, "hobkin's notes are no words of the user's")
   assert.equal(saysNothing(pullReviewPost(sample, [], 'comment', 'Fine.')), false)
-  assert.equal(saysNothing(post), false)
-  assert.equal(pullReviewPost(sample, [], 'comment', '').event, 'COMMENT')
+  // Only line comments: they go, and the review has no body.
+  const lines = pullReviewPost(sample, [notes[0]!], 'comment', '')
+  assert.equal('body' in lines, false)
+  assert.equal(saysNothing(lines), false)
+
   // A note that was handed over already, or detached from its lines, is not posted again or posted on the wrong lines.
-  const handed = pullReviewPost(sample, [{ ...notes[0]!, sent: 5 }], 'comment', 'Looks fine.', new Set())
-  assert.deepEqual(handed.comments, [])
+  assert.deepEqual(pullReviewPost(sample, [{ ...notes[0]!, sent: 5 }], 'comment', 'Looks fine.').comments, [])
   const loose = pullReviewPost(sample, [notes[0]!], 'comment', '', new Set(['n1']))
-  assert.deepEqual(loose.comments, [])
-  assert.equal(loose.body, ['**hobkin automated review**', '', 'Commented.', '', '<details>', '<summary>See more</summary>', '', '- About src/cli/runtime.mjs, lines 176 to 178, as changed: These three lines read as one.', '', '</details>'].join('\n'))
+  assert.deepEqual(loose, { event: 'COMMENT', commit_id: sample.change.head, body: 'About src/cli/runtime.mjs, lines 176 to 178, as changed: These three lines read as one.', comments: [] })
+})
+
+test('the words a pull request gets before it is closed unmerged go as the user wrote them', () => {
+  assert.equal(closingComment('  Superseded by the new checkout.\n\nThanks for it.  '), 'Superseded by the new checkout.\n\nThanks for it.')
+  assert.equal(closingComment('  '), null)
 })
 
 test('ask for changes sends selected notes with their targets', () => {

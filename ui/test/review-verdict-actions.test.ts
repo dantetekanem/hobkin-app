@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import type { Review } from '../../shared/review/types.ts'
 import type { Verdict } from '../../shared/review/verdict.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
-import { CONFIRM_MS, createVerdictChoices, heldDown, sendsComments, VERDICT_CHOICES, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
+import { CONFIRM_MS, createVerdictChoices, heldDown, sendsComments, VERDICT_CHOICES, verdictComments, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
 
 const CHANGE = 'change:hobkin:7d02c9'
 const PULL = 'pr:acme/shop/482'
@@ -66,7 +66,7 @@ test("approve and approve-and-merge reach the host's verdict", async () => {
 })
 
 test("Send fixes and a pull request's own choices are the host's verdict too, shown before they go", async () => {
-  const choices: [string, Verdict][] = [[CHANGE, 'request-changes'], [PULL, 'approve'], [PULL, 'comment'], [PULL, 'request-changes']]
+  const choices: [string, Verdict][] = [[CHANGE, 'request-changes'], [PULL, 'approve'], [PULL, 'comment']]
   for (const [id, verdict] of choices) {
     const panelFor = panel(id, host)
     await panelFor.choices.choose(verdict)
@@ -208,12 +208,24 @@ test('a verdict is confirmed in place: the first click shows what it does, a sec
   assert.equal(landed.length, 1)
 })
 
-test('a pull request can be approved, approved and merged, sent back for changes or commented on; a finished change approved, merged or sent its fixes', () => {
-  assert.deepEqual(VERDICT_CHOICES.pull.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'request-changes', 'comment', 'discard', 'discard-branch'])
+test('a pull request is approved, approved and merged, or commented on, never sent back; a finished change approved, merged or sent its fixes', () => {
+  assert.deepEqual(VERDICT_CHOICES.pull.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'comment', 'discard', 'discard-branch'])
   assert.deepEqual(VERDICT_CHOICES.change.map(({ verdict }) => verdict), ['approve', 'approve-merge', 'request-changes', 'discard', 'discard-branch'])
-  // Its key is the click on it: A, M and X, wherever the reviewer is in the review. Comment and the two discards have none.
-  assert.deepEqual(VERDICT_CHOICES.pull.map(({ keys }) => keys ?? null), ['A', 'M', 'X', null, null, null])
+  // Its key is the click on it: A and M, wherever the reviewer is in the review. Comment and the two discards have none.
+  assert.deepEqual(VERDICT_CHOICES.pull.map(({ keys }) => keys ?? null), ['A', 'M', null, null, null])
   assert.deepEqual([verdictKind(PULL), verdictKind(CHANGE)], ['pull', 'change'])
+})
+
+test("a pull request's verdict takes only the user's own comments, and a finished change's fixes take hobkin's too", () => {
+  const base = { step: 's1', target: { kind: 'step' as const }, at: 1 }
+  const notes = [
+    { ...base, id: 'mine', intent: 'comment' as const, author: 'user' as const, text: 'Mine.' },
+    { ...base, id: 'hobkins', intent: 'comment' as const, author: 'hobkin' as const, text: "hobkin's." },
+    { ...base, id: 'asked', intent: 'question' as const, author: 'user' as const, text: 'Why?' },
+    { ...base, id: 'gone', intent: 'comment' as const, author: 'user' as const, text: 'Sent.', sent: 5 },
+  ]
+  assert.deepEqual(verdictComments(PULL, notes), ['mine'])
+  assert.deepEqual(verdictComments(CHANGE, notes), ['mine', 'hobkins'])
 })
 
 test('Discard comes after every yes for a finished change and for a pull request, shown before it goes, and takes no comments with it', async () => {
