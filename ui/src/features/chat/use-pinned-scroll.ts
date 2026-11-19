@@ -2,9 +2,10 @@ import { animate, type AnimationPlaybackControls } from 'motion/react'
 import { useCallback, useLayoutEffect, useRef, useState, type RefObject } from 'react'
 import { useStill } from '@/app/still.ts'
 import { spring } from '@/lib/motion.ts'
+import { followAfter, START, type FollowEvent } from './follow.ts'
 
-/** How close to the end still counts as being at the end, in pixels. */
-const SLACK = 48
+/** Where a pointer or finger is let go, ending a drag. A touch that pans cancels its pointer while the finger is still down. */
+const RELEASES = ['pointerup', 'touchend', 'touchcancel']
 
 /** How far the list is drawn below its place while it glides up into it. Zero at rest. */
 const liftOf = (list: HTMLElement) => new DOMMatrixReadOnly(getComputedStyle(list).transform).m42
@@ -33,7 +34,7 @@ export interface PinnedScroll {
 }
 
 /**
- * Keeps a conversation at its newest message while it grows, unless the user scrolled up to read.
+ * Keeps a conversation at its newest message while it grows, unless the user scrolled up to read (`follow.ts`).
  * It opens at the newest message. When a reply grows by a block, the view goes to the end at once, so the scroll
  * stays the user's, and the content is drawn where it was seen and glides up into place on the spring the rows
  * make room with. Under Still it does not glide.
@@ -41,11 +42,16 @@ export interface PinnedScroll {
 export function usePinnedScroll(): PinnedScroll {
   const scroller = useRef<HTMLDivElement | null>(null)
   const content = useRef<HTMLOListElement | null>(null)
-  const following = useRef(true)
+  const follow = useRef(START)
   const [pinned, setPinned] = useState(true)
   const still = useRef(false)
   still.current = useStill()
   const lift = useRef<AnimationPlaybackControls | null>(null)
+
+  const tell = useCallback((event: FollowEvent) => {
+    follow.current = followAfter(follow.current, event)
+    setPinned(follow.current.following)
+  }, [])
 
   const toEnd = useCallback(() => {
     // A glide still under way ends in place first, so the end is where the content rests.
@@ -56,54 +62,71 @@ export function usePinnedScroll(): PinnedScroll {
     if (element) element.scrollTop = element.scrollHeight
   }, [])
 
-  // Every change in the content's height that no new message drew: a reply growing, an image that loaded.
   useLayoutEffect(() => {
     const list = content.current
     const element = scroller.current
     if (!list || !element) return
     toEnd()
-    const observer = new ResizeObserver(() => {
-      if (!following.current || restingEnd(element, list) - element.scrollTop < 0.5) return
+    // Every change in the content's height that no new message drew: a reply growing, an image that loaded, content that
+    // shrank. And the conversation's own box changing height, as when the input under it grows or the window is resized.
+    const observer = new ResizeObserver((entries) => {
+      if (!follow.current.following) return
       const before = element.scrollTop
+      const end = Math.max(0, restingEnd(element, list))
+      if (Math.abs(end - before) < 0.5) return
       const drawn = liftOf(list)
-      element.scrollTop = restingEnd(element, list)
-      if (still.current) return
+      element.scrollTop = end
+
+      // Only content that grew glides up into place. The box itself changing height, or content that shrank, does not.
+      const listGrew = end > before && entries.some(({ target }) => target === list)
+      if (!listGrew || still.current) return
       lift.current?.stop()
       lift.current = animate(list, { transform: [`translateY(${drawn + element.scrollTop - before}px)`, 'translateY(0px)'] }, spring.sheet)
     })
     observer.observe(list)
+    observer.observe(element)
+
+    // What the user does to read up. The scroll alone cannot tell it from layout.
+    const wheel = (event: WheelEvent) => tell({ type: 'wheel', deltaY: event.deltaY, top: element.scrollTop })
+    const key = (event: KeyboardEvent) => tell({ type: 'key', key: event.key, shiftKey: event.shiftKey })
+    const press = () => tell({ type: 'press' })
+    const release = () => tell({ type: 'release' })
+    element.addEventListener('wheel', wheel, { passive: true })
+    element.addEventListener('keydown', key)
+    element.addEventListener('pointerdown', press)
+    element.addEventListener('touchstart', press, { passive: true })
+    // Heard on the way down, before anything on the page can keep the release to itself.
+    for (const name of RELEASES) window.addEventListener(name, release, true)
     return () => {
       observer.disconnect()
       lift.current?.stop()
+      element.removeEventListener('wheel', wheel)
+      element.removeEventListener('keydown', key)
+      element.removeEventListener('pointerdown', press)
+      element.removeEventListener('touchstart', press)
+      for (const name of RELEASES) window.removeEventListener(name, release, true)
     }
-  }, [toEnd])
+  }, [toEnd, tell])
 
-  const lastTop = useRef(0)
   const onScroll = useCallback(() => {
     const element = scroller.current
-    if (!element) return
-    const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight <= SLACK
-    // Only moving up, away from the end, stops the following. A message on its way in is drawn below its
-    // place for a moment, which makes the content look longer than it is, and that must not count as scrolling away.
-    if (atEnd) following.current = true
-    else if (element.scrollTop < lastTop.current) following.current = false
-    lastTop.current = element.scrollTop
-    setPinned(following.current)
-  }, [])
+    if (element) tell({ type: 'scroll', top: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight })
+  }, [tell])
 
   const jumpToLatest = useCallback(() => {
-    following.current = true
-    setPinned(true)
+    tell({ type: 'jump' })
     toEnd()
-  }, [toEnd])
+  }, [tell, toEnd])
 
   const scrollByPage = useCallback((direction: 1 | -1) => {
     const element = scroller.current
+    // Page Up in the input reads up, as it would in the conversation itself.
+    if (direction < 0) tell({ type: 'key', key: 'PageUp' })
     element?.scrollBy({ top: direction * element.clientHeight * 0.8 })
-  }, [])
+  }, [tell])
 
   const stick = useCallback(() => {
-    if (following.current) toEnd()
+    if (follow.current.following) toEnd()
   }, [toEnd])
 
   return { scroller, content, pinned, jumpToLatest, stick, scrollByPage, onScroll }
