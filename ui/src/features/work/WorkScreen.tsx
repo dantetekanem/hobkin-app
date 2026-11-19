@@ -20,12 +20,15 @@ import { AiReviews } from './AiReviews.tsx'
 import { DelegationMap } from './DelegationMap.tsx'
 import { FinishedSection } from './Finished.tsx'
 import { PageTabs, TabCount } from './PageTabs.tsx'
+import { WhenWorkComes, WorkPage } from './page-arrival.tsx'
 import { SaidLine, Segmented } from './parts.tsx'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
 import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab } from './tab.ts'
 import { useReviewList } from './use-review-list.ts'
 import { bindWorkTarget } from './work-target.ts'
+
+const TABS = ['work', 'reviews'] as const
 
 /**
  * Work: hobkin and the agents it started, live, with the queue, the finished changes and the projects, and every AI
@@ -58,6 +61,12 @@ export function WorkScreen() {
   const variants = useMemo(() => rowVariants(still), [still])
   const tab = useWorkTab((state) => state.tab)
   const chooseTab = useWorkTab((state) => state.choose)
+  // Which way the page came along the menu's second row: later pages from the right, earlier from the left.
+  const shown = useRef(tab)
+  const way = shown.current === tab ? 0 : TABS.indexOf(tab) > TABS.indexOf(shown.current) ? 1 : -1
+  useEffect(() => {
+    shown.current = tab
+  })
   // The tab says how many reviews run and how many are ready, so the list is followed on either page.
   const reviews = useReviewList(live)
   const counts = reviewCounts(groupReviews(reviews.list))
@@ -151,11 +160,11 @@ export function WorkScreen() {
             ]}
           />
           {tab === 'reviews' ? (
-            <div role="tabpanel" id="work-panel-reviews" aria-labelledby="work-tab-reviews">
+            <WorkPage key="reviews" way={way} role="tabpanel" id="work-panel-reviews" aria-labelledby="work-tab-reviews">
               <AiReviews live={live} reviews={reviews} />
-            </div>
+            </WorkPage>
           ) : (
-            <div role="tabpanel" id="work-panel-work" aria-labelledby="work-tab-work" className="flex flex-col gap-10">
+            <WorkPage key="work" way={way} role="tabpanel" id="work-panel-work" aria-labelledby="work-tab-work" className="flex flex-col gap-10">
               <Rise>
                 <section aria-label="At work" className="flex flex-col gap-3">
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-1">
@@ -168,7 +177,7 @@ export function WorkScreen() {
                 </section>
               </Rise>
               {work ? (
-                <>
+                <WhenWorkComes>
                   <Rise>
                     <QueueSection work={work} {...shared} />
                   </Rise>
@@ -179,9 +188,9 @@ export function WorkScreen() {
                   <Rise>
                     <ProjectsSection work={work} now={now} onDiscover={() => setDiscovering(true)} discoverRef={trigger} {...shared} />
                   </Rise>
-                </>
+                </WhenWorkComes>
               ) : null}
-            </div>
+            </WorkPage>
           )}
         </div>
       </div>
