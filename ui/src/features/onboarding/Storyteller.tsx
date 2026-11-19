@@ -572,6 +572,21 @@ export function Storyteller() {
       return null
     }
 
+    if (ask.field.kind === 'launcher') {
+      // Left empty, the command is put off. Otherwise the host asks it for its models, and refuses one that lists none.
+      if (!value) {
+        answer({ launcher: 'later' }, facts)
+        return null
+      }
+      try {
+        setPi(await runCommand('setup.launcher', { command: value }))
+      } catch (error) {
+        return reasonOf(error)
+      }
+      answer({ launcher: 'saved' }, facts)
+      return null
+    }
+
     if (ask.field.kind === 'name') {
       const refused = await keep({ name: value })
       if (refused) return refused
@@ -624,6 +639,7 @@ export function Storyteller() {
   /** What was typed for a question before, when the user comes back to it, or the last time the setup ran. */
   const typedBefore = (ask: InputAsk): string => {
     if (ask.field.kind === 'reply') return startingReply(answers, earlier, ask.field.question)
+    if (ask.field.kind === 'launcher') return ''
     return answers[ask.field.kind] ?? ''
   }
 

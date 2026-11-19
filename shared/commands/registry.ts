@@ -479,6 +479,13 @@ export const COMMANDS = {
     args: Type.Object({ name: oneOf(PI_PACKAGES.map(({ name }) => name)) }, { additionalProperties: false }),
     outside: true,
   },
+  'setup.launcher': {
+    description:
+      "On a work computer, take the command the company provides to start Pi, such as `work-pi`. hobkin asks it for its models, refuses it with what it printed when it lists none, and otherwise keeps it as the launcher in its config and starts the main conversation again behind it. Answers with Pi as it is after.",
+    runs: 'host',
+    args: Type.Object({ command: words(500) }, { additionalProperties: false }),
+    outside: true,
+  },
   'setup.install-node': {
     description:
       "Install a Node of hobkin's own, for a Mac without npm: the official build of the Node the host runs on, for this Mac's chip, checked against nodejs.org's checksums and unpacked into client/node in hobkin's home, then put on the host's PATH. It needs no admin password and changes nothing else on the Mac. Answers with Pi as it is after.",
@@ -1157,6 +1164,7 @@ export interface CommandResults {
   'setup.install-pi': PiSetup
   'setup.install-package': PiSetup
   'setup.install-node': PiSetup
+  'setup.launcher': PiSetup
   'setup.projects': ProjectsFound
   /** What the app saved. */
   'setup.save': SetupSaved

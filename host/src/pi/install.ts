@@ -7,6 +7,7 @@ import { scrubText } from '#shared/integrations/redact.ts'
 import { piVersionPasses, type PiSetup } from '#shared/protocol/setup.ts'
 import { PI_PACKAGES } from '#shared/setup/pi-packages.ts'
 import { Unavailable, type HostHandlers } from '../commands.ts'
+import type { Launcher } from '../launcher-models.ts'
 import { nodeBuild } from './node.ts'
 
 /**
@@ -92,10 +93,10 @@ interface Ran {
   stderr: string
 }
 
-function ran(run: PiRun, file: string, args: string[], timeout: number): Promise<Ran> {
+function ran(run: PiRun, file: string, args: string[], timeout: number, env: NodeJS.ProcessEnv = environment(file)): Promise<Ran> {
   return new Promise((resolve) => {
     try {
-      run(file, args, { timeout, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8', env: environment(file) }, (error, stdout, stderr) =>
+      run(file, args, { timeout, maxBuffer: 4 * 1024 * 1024, encoding: 'utf8', env }, (error, stdout, stderr) =>
         resolve({ error, stdout: String(stdout ?? ''), stderr: String(stderr ?? '') }),
       )
     } catch (error) {
@@ -105,8 +106,8 @@ function ran(run: PiRun, file: string, args: string[], timeout: number): Promise
 }
 
 /** Stdout of a read, or null when it failed or timed out. Pi prints its version on stderr, so that stands in for an empty stdout. */
-async function read(run: PiRun, file: string, args: string[]): Promise<string | null> {
-  const { error, stdout, stderr } = await ran(run, file, args, READ_MS)
+async function read(run: PiRun, file: string, args: string[], env?: NodeJS.ProcessEnv): Promise<string | null> {
+  const { error, stdout, stderr } = await ran(run, file, args, READ_MS, env)
   if (error) return null
   return stdout.trim() ? stdout : stderr
 }
@@ -129,8 +130,8 @@ function failure(words: string, { error, stdout, stderr }: Ran): Error {
   return Error(scrubText(`${words}${slow}${said}`.trimEnd()))
 }
 
-async function install(run: PiRun, file: string, args: string[], words: string): Promise<void> {
-  const result = await ran(run, file, args, INSTALL_MS)
+async function install(run: PiRun, file: string, args: string[], words: string, env?: NodeJS.ProcessEnv): Promise<void> {
+  const result = await ran(run, file, args, INSTALL_MS, env)
   if (result.error) throw failure(words, result)
 }
 
@@ -184,8 +185,24 @@ export interface PiSetupOptions {
    * names it, so a host started for a check never writes into Pi's folder.
    */
   agentDir?: () => string
-  /** The version to install and to compare with. hobkin's pin when not given. */
+  /** The version to install. hobkin's pin when not given. */
   pinned?: string
+  /**
+   * The launcher the hobkin config names, read each time. With one, Pi is the launcher: the version, the package list
+   * and package installs all run through its command and its environment (`launcher-models.ts`).
+   */
+  launcher?: () => Launcher | undefined | Promise<Launcher | undefined>
+}
+
+/** The launcher as a program to run: its command, the words after it, and the environment it owns. Null without one, or when the config cannot be read. */
+async function launcherVia(launcher: PiSetupOptions['launcher']): Promise<{ file: string; prefix: string[]; env: NodeJS.ProcessEnv; name: string } | null> {
+  try {
+    const found = await launcher?.()
+    const [file, ...prefix] = found?.command ?? []
+    return found && file ? { file, prefix, env: { ...process.env, ...found.env }, name: found.command.join(' ') } : null
+  } catch {
+    return null
+  }
 }
 
 /** Pi on this Mac, the Node npm runs on, and the packages hobkin's agents use. It only reads, and a program that fails says nothing. */
@@ -196,15 +213,18 @@ export async function piSetup({
   findNode = () => findProgram('node', { ownNode }),
   run = realRun,
   pinned = pinnedPi(),
+  launcher,
 }: PiSetupOptions = {}): Promise<PiSetup> {
-  const pi = findPi()
+  const via = await launcherVia(launcher)
+  const pi = via ? via.file : findPi()
+  const piArgs = (args: string[]) => (via ? [...via.prefix, ...args] : args)
   const npm = findNpm()
   const node = nodeFor(npm, findNode)
   // The host's own Node says its version without being asked.
   const askNode = node !== null && node !== process.execPath
   const [versionText, list, nodeText] = await Promise.all([
-    pi ? read(run, pi, ['--version']) : null,
-    pi ? read(run, pi, ['list']) : null,
+    pi ? read(run, pi, piArgs(['--version']), via?.env) : null,
+    pi ? read(run, pi, piArgs(['list']), via?.env) : null,
     askNode ? read(run, node, ['--version']) : null,
   ])
 
@@ -221,6 +241,7 @@ export async function piSetup({
     installCommand: installCommand(pinned),
     packages: PI_PACKAGES.filter(({ optional }) => !optional).map(({ name, adds }) => ({ name, adds, installed: list !== null && listed(list, name) })),
     node: { found: node !== null, version: nodeVersion, installs: process.versions.node },
+    ...(via ? { launcher: via.name } : {}),
   }
 }
 
@@ -232,12 +253,13 @@ export async function installPi({ ownNode, findNpm = () => findProgram('npm', { 
 }
 
 /** Installs one of the catalog's packages through Pi, by its name, so what Pi installs never comes from the window. */
-export async function installPackage(name: string, { ownNode, findPi = () => findProgram('pi', { ownNode }), run = realRun, agentDir }: PiSetupOptions = {}): Promise<void> {
+export async function installPackage(name: string, { ownNode, findPi = () => findProgram('pi', { ownNode }), run = realRun, agentDir, launcher }: PiSetupOptions = {}): Promise<void> {
   const known = PI_PACKAGES.find((item) => item.name === name)
   if (!known) throw new Unavailable(`${name} is not one of the Pi packages hobkin sets up.`)
-  const pi = findPi()
+  const via = await launcherVia(launcher)
+  const pi = via ? via.file : findPi()
   if (!pi) throw new Unavailable(`Pi is not installed yet, so ${name} cannot be. Install Pi first.`)
-  await install(run, pi, ['install', known.source], `Pi could not install ${name}.`)
+  await install(run, pi, [...(via?.prefix ?? []), 'install', known.source], `Pi could not install ${name}.`, via?.env)
 
   if (!known.config || !agentDir) return
   try {

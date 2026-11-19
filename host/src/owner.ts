@@ -564,6 +564,21 @@ export class HomeOwner {
     return applyHostTiers(this.options.root, change, modelRuntime)
   }
 
+  /**
+   * Closes the open conversation and opens it again, so it starts from the configuration as it is now: a launcher that
+   * was just named in `config.json`. Nothing happens for a home that is not open, which opens as it always does.
+   */
+  async restart(): Promise<void> {
+    if (this.closed) return
+    await this.opening?.catch(() => {})
+    const app = this.app
+    this.app = null
+    this.main = null
+    await app?.close()
+    this.startup.cleanupSettled = true
+    this.start()
+  }
+
   /** Stops hobkin and releases the home. A turn that is running ends as interrupted. */
   async close(): Promise<void> {
     this.closed = true

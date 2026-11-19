@@ -53,6 +53,8 @@ export interface PiSetup {
   packages: PiPackageState[]
   /** The Node npm runs on. Left out by a host from before this was sent. */
   node?: PiNodeState
+  /** The launcher the hobkin config names, as its command reads. Pi is read and its packages installed through it. Left out when there is none. */
+  launcher?: string
   /** hobkin can install a Node of its own here (`setup.install-node`): a live host on a Mac with Apple silicon or an Intel chip. Left out by a host from before. */
   canInstallNode?: boolean
 }

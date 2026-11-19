@@ -9,6 +9,7 @@ import { openGitHubPage } from './github.ts'
 import { openFileInSystem, openInSystem } from './open.ts'
 import { watchParent } from './parent-watch.ts'
 import { installPackage, installPi, piAgentFolder } from './pi/install.ts'
+import { configLauncher } from './setup-launcher.ts'
 import { refreshPath } from './pi/login-path.ts'
 import { addOwnNode, installNode, nodeBin } from './pi/node.ts'
 import { openInBrowser } from './signin.ts'
@@ -95,7 +96,7 @@ async function main(args: readonly string[]): Promise<void> {
     ...(options.live
       ? {
           installPi: () => installPi({ ownNode: nodeBin(home.root) }),
-          installPiPackage: (name: string) => installPackage(name, { agentDir: piAgentFolder, ownNode: nodeBin(home.root) }),
+          installPiPackage: (name: string) => installPackage(name, { agentDir: piAgentFolder, ownNode: nodeBin(home.root), launcher: () => configLauncher(home.root) }),
           installNode: () => installNode({ root: home.root }),
           refreshPath: () => refreshPath(),
         }

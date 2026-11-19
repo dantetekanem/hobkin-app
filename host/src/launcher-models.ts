@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { scrubText } from '#shared/integrations/redact.ts'
 import type { ModelChoice, ProviderAccess } from '#shared/protocol/models.ts'
 import type { ModelAccess } from './model-access.ts'
 
@@ -62,11 +63,30 @@ export type LauncherRun = (file: string, args: readonly string[], env: NodeJS.Pr
 const realRun: LauncherRun = (file, args, env) =>
   new Promise((resolve, reject) => {
     execFile(file, [...args], { timeout: ASK_MS, maxBuffer: 8 * 1024 * 1024, encoding: 'utf8', env }, (error, stdout, stderr) => {
-      if (error) reject(error)
+      // What the command printed says why it failed better than the error's own words.
+      if (error) reject(Error(lastLines(stderr.trim() ? stderr : stdout) || error.message))
       // Pi prints its table on stdout, and some launchers print it on stderr.
       else resolve({ text: stdout.trim() ? stdout : stderr })
     })
   })
+
+const SHOWN_LINES = 6
+
+/** The last lines a program printed, with anything shaped like a secret hidden. */
+function lastLines(printed: string): string {
+  const lines = printed.split('\n').map((line) => line.trimEnd()).filter(Boolean)
+  return scrubText(lines.slice(-SHOWN_LINES).join('\n'))
+}
+
+/** Asks a launcher for its models. Throws, with what it printed, when it fails or lists none. */
+export async function listLauncher({ command, env = {} }: Launcher, run: LauncherRun = realRun): Promise<LauncherModel[]> {
+  const [file, ...rest] = command
+  if (!file) throw Error('The launcher has no command.')
+  const { text } = await run(file, [...rest, '--no-approve', '--list-models'], { ...process.env, ...env })
+  const models = parseLauncherModels(text)
+  if (!models.length) throw Error(lastLines(text) || 'It printed nothing.')
+  return models
+}
 
 export interface LauncherAnswer {
   /** The one connected account the launcher makes, named by its command. */
@@ -112,15 +132,11 @@ export class LauncherModels {
     return answer
   }
 
-  private async ask({ command, env = {} }: Launcher): Promise<LauncherAnswer | null> {
-    const [file, ...rest] = command
-    if (!file) return null
+  private async ask(launcher: Launcher): Promise<LauncherAnswer | null> {
     try {
-      const { text } = await this.run(file, [...rest, '--no-approve', '--list-models'], { ...process.env, ...env })
-      const models = parseLauncherModels(text)
-      if (!models.length) return null
+      const models = await listLauncher(launcher, this.run)
       return {
-        account: { id: LAUNCHER_ACCOUNT, name: command.join(' '), connected: true, connectedBy: 'launcher' },
+        account: { id: LAUNCHER_ACCOUNT, name: launcher.command.join(' '), connected: true, connectedBy: 'launcher' },
         models: models.map(({ provider, id, thinks, contextWindow }) => ({ id, provider, name: id, thinking: thinks ? THINKING : ['off'], contextWindow })),
       }
     } catch {

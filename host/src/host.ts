@@ -16,6 +16,7 @@ import { ClaudeCodeSettingsFile } from './claude-code/settings.ts'
 import type { ClaudeCodeStatus } from '#shared/protocol/claude-code.ts'
 import type { PiSetup } from '#shared/protocol/setup.ts'
 import { piSetup, piSetupHandlers, refuseInstall } from './pi/install.ts'
+import { configDeps, configLauncher, useLauncher } from './setup-launcher.ts'
 import { nodeBin } from './pi/node.ts'
 import { profileHandlers } from './profile.ts'
 import { projectsHandlers } from './projects-folder.ts'
@@ -414,6 +415,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // nothing, and that is when a restore is needed most.
     busy: () => (owner.snapshot && busy() ? 'hobkin is answering or something is running. Restore once it is quiet.' : null),
   })
+  // Pi on this Mac. A live host with a launcher in the config reads Pi through it; a scripted one never does.
+  const readPi = options.piSetup ?? (() => piSetup({ ownNode: nodeBin(root), ...(live ? { launcher: () => configLauncher(root) } : {}) }))
   const handlers: HostHandlers = {
     ...appStateHandlers({ root, owner, revision: () => sync.full().rev }),
     'conversation.send': async ({ text, images = [], report, review, item, sentAt }) => {
@@ -537,12 +540,18 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // Pi on this Mac. Nothing installs unless the caller hands the installers in: only the entry does (main.ts).
     ...piSetupHandlers({
       live,
-      read: options.piSetup ?? (() => piSetup({ ownNode: nodeBin(root) })),
+      read: readPi,
       installPi: options.installPi ?? refuseInstall,
       installPackage: options.installPiPackage ?? refuseInstall,
       installNode: options.installNode,
       refreshPath: options.refreshPath,
     }),
+    // A work computer's launcher, asked for and kept in the config (025-onboarding), then the main conversation starts behind it.
+    'setup.launcher': async ({ command }) => {
+      if (!live) throw new Unavailable('This is the scripted development host, so no launcher is kept. Start the host with --live to use one.')
+      await useLauncher(command, { ...(await configDeps(root)), restart: () => owner.restart() })
+      return readPi()
+    },
     ...projectsHandlers(),
     // The setup's answers, the first context: the app's own copy, and hobkin's facts in front of its directions.
     ...setupAnswerHandlers({ root: () => owner.app?.runtime.directory ?? resolveDataRoot(root) }),

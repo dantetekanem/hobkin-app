@@ -356,6 +356,13 @@ declare module 'hobkin/src/cli/config.mjs' {
   export function atomicJson(file: string, value: unknown): void
   /** The home's configuration, checked. */
   export function loadConfig(root: string): HobkinConfig
+  /** Throws a plain sentence for a configuration hobkin would refuse. Returns the checked configuration. */
+  export function validateConfig(config: unknown, options?: { allowLegacyHarness?: boolean }): HobkinConfig
+}
+
+declare module 'hobkin/src/cli/launcher.mjs' {
+  /** Throws a plain sentence for a launcher hobkin would refuse. */
+  export function validateLauncher(launcher: unknown): void
 }
 
 declare module 'hobkin/src/cli/settings.mjs' {

@@ -12,11 +12,11 @@ import { nodeBuild } from '../src/pi/node.ts'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
 
 type Answer = { stdout: string; stderr?: string } | { error: Error; stdout?: string; stderr?: string }
-interface Call { program: string; args: string[]; timeout: number; path: string }
+interface Call { program: string; args: string[]; timeout: number; path: string; env?: NodeJS.ProcessEnv }
 
 /** Answers by the program's name and its arguments, and writes down every call. Nothing real is ever started. */
 const fakeRun = (answers: Record<string, Answer>, calls: Call[] = []): PiRun => (file, args, options, done) => {
-  calls.push({ program: file, args: [...args], timeout: options.timeout, path: options.env.PATH ?? '' })
+  calls.push({ program: file, args: [...args], timeout: options.timeout, path: options.env.PATH ?? '', env: options.env })
   const answer = answers[[basename(file), ...args].join(' ')] ?? { error: new Error('unexpected') }
   if ('error' in answer) done(answer.error, answer.stdout ?? '', answer.stderr ?? '')
   else done(null, answer.stdout, answer.stderr ?? '')
@@ -118,6 +118,31 @@ test('an optional package is left out of what setup asks for, even when Pi has i
   for (const name of optional) assert.ok(!names.includes(name), name)
   assert.deepEqual(packages.find(({ name }) => name === 'pi-coder')?.installed, true)
   assert.ok(names.includes('pi-ask-user'))
+})
+
+test('with a launcher the Pi check and a package install run through it, with its environment, and no Pi on the PATH is looked for', async () => {
+  const calls: Call[] = []
+  const launcher = () => ({ command: ['work-pi', '--flag'], env: { REGION: 'x' } })
+  const run = fakeRun({ 'work-pi --flag --version': { stdout: '' }, 'work-pi --flag list': { stdout: '  npm:pi-coder\n' }, 'work-pi --flag install npm:pi-ask-user': { stdout: 'Installed\n' } }, calls)
+  // The version goes to stderr, as a real Pi does.
+  const stderr: PiRun = (file, args, options, done) => (args.includes('--version') ? (calls.push({ program: file, args: [...args], timeout: options.timeout, path: '', env: options.env }), done(null, '', '1.5.0\n')) : run(file, args, options, done))
+
+  const setup = await piSetup({ findPi: () => null, findNpm: () => NPM, run: stderr, pinned: PIN, launcher })
+  assert.equal(setup.installed, true)
+  assert.equal(setup.version, '1.5.0')
+  assert.equal(setup.launcher, 'work-pi --flag')
+  assert.deepEqual(setup.packages.find(({ name }) => name === 'pi-coder')?.installed, true)
+
+  await installPackage('pi-ask-user', { findPi: () => null, run, launcher })
+  assert.deepEqual(calls.map(({ program, args }) => [program, ...args]), [
+    ['work-pi', '--flag', '--version'],
+    ['work-pi', '--flag', 'list'],
+    ['work-pi', '--flag', 'install', 'npm:pi-ask-user'],
+  ])
+  assert.ok(calls.every(({ env }) => env?.REGION === 'x'))
+
+  // Without a launcher the setup says none.
+  assert.equal('launcher' in (await piSetup({ findPi: () => PI, findNpm: () => NPM, run: fakeRun({}), pinned: PIN })), false)
 })
 
 test('the pinned Pi says which packages it has, by their whole names', async () => {

@@ -369,7 +369,7 @@ test('every beat has words, and only the last bubble of a beat asks', () => {
   const answers: Answers = { ...none, computer: 'work', name: 'Ada', more: true }
   const facts: Facts = { pi: pi({ installed: false, version: null, matches: false }), connected: ['OpenAI'], claude: true, smart: true, asked: null }
   const long = followUpOf(pending({ question: `${'Which of your projects should I watch first, and how often, '.repeat(3)}and why?` }))
-  const ids: BeatId[] = ['hello', 'sound', 'computer', 'computer-thanks', 'name', 'name-hi', 'email', 'subscription', 'pi', 'pi-ready', 'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'projects-said', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'settings', 'tour']
+  const ids: BeatId[] = ['hello', 'sound', 'computer', 'computer-thanks', 'name', 'name-hi', 'email', 'subscription', 'launcher', 'pi', 'pi-ready', 'pi-later', 'found', 'connect', 'connected', 'no-account', 'more', 'q1', 'q2', 'projects-said', 'q3', 'q4', 'q5', 'q6', 'follow-ups', 'questions-thanks', 'settings', 'tour']
 
   for (const asked of [null, long]) {
     for (const id of ids) {
@@ -713,4 +713,28 @@ test('run again, what was saved before is where a field starts, and what was ans
   assert.equal(startingReply(none, earlier, 'check'), '')
   assert.equal(startingReply(none, null, 'projects-folder'), '')
   assert.equal(beatAfter('more', { ...none, more: true }, hosted), 'q1', 'the story still asks every question')
+})
+
+test('a work computer with no account and no launcher is asked for the command that starts Pi, and nowhere else', () => {
+  const work: Answers = { ...none, computer: 'work' }
+  const host: Facts = { ...bare, host: true, pi: pi() }
+
+  assert.equal(beatAfter('subscription', work, host), 'launcher')
+  assert.equal(beatOf('launcher', work, host).ask?.kind, 'input')
+  // Not on a personal computer, with an account found, with a launcher already named, or without a host to keep it.
+  assert.equal(beatAfter('subscription', { ...none, computer: 'personal' }, host), 'connect')
+  assert.equal(beatAfter('subscription', work, { ...host, connected: ['OpenAI'] }), 'found')
+  assert.equal(beatAfter('subscription', work, { ...host, pi: pi({ launcher: 'work-pi' }) }), 'connect')
+  assert.equal(beatAfter('subscription', work, { ...bare, pi: pi() }), 'connect')
+  assert.equal(beatAfter('subscription', none, host), 'connect', 'a computer that was not said is not a work one')
+})
+
+test('a launcher that was kept is an account, and one put off sends the story on as before', () => {
+  const host: Facts = { ...bare, host: true, pi: pi() }
+  assert.equal(beatAfter('launcher', { ...none, computer: 'work', launcher: 'saved' }, host), 'connected')
+  assert.equal(beatAfter('launcher', { ...none, computer: 'work', launcher: 'later' }, host), 'connect')
+  assert.equal(beatAfter('launcher', { ...none, computer: 'work', launcher: 'later' }, { ...host, pi: pi({ installed: false, version: null, matches: false }) }), 'pi')
+  assert.equal(checkAnswer('launcher', ''), null, 'empty puts it off')
+  assert.equal(checkAnswer('launcher', 'work-pi --flag'), null)
+  assert.notEqual(checkAnswer('launcher', 'a\u0007b'), null)
 })

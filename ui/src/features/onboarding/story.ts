@@ -25,6 +25,7 @@ export type BeatId =
   | 'name-hi'
   | 'email'
   | 'subscription'
+  | 'launcher'
   | 'pi'
   | 'pi-ready'
   | 'pi-later'
@@ -91,6 +92,8 @@ export interface Answers {
   pi?: 'installed' | 'later'
   /** The sign-in the setup offered connected, or was put off. */
   account?: 'connected' | 'later'
+  /** The command that starts Pi, asked on a work computer without an account: kept as the launcher, or put off. */
+  launcher?: 'saved' | 'later'
   /** The user wants the five questions. */
   more?: boolean
   /** The answers to the questions, by question id. */
@@ -103,7 +106,7 @@ export interface Option {
 }
 
 /** What is typed into: the name, the email, or the answer to one of the questions, by its id. */
-export type InputField = { kind: 'name' } | { kind: 'email' } | { kind: 'reply'; question: string }
+export type InputField = { kind: 'name' } | { kind: 'email' } | { kind: 'launcher' } | { kind: 'reply'; question: string }
 
 /** What a choice between two answers: one of the setup's own facts, or one of the questions, by its id. */
 export type ChoiceField = 'sound' | 'computer' | 'more' | { reply: string }
@@ -343,6 +346,22 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
         ],
         ask: { kind: 'go', label: 'Ready!' },
       }
+    case 'launcher':
+      return {
+        mood: 'listening',
+        lines: [
+          'I found no account on this Mac.',
+          'On a work computer, Pi often starts through a command the company provides. What is it?',
+        ],
+        ask: {
+          kind: 'input',
+          field: { kind: 'launcher' },
+          type: 'text',
+          placeholder: 'The command that starts Pi',
+          optional: true,
+          note: 'I run it to ask for its models, and keep it in my config if it lists some. Leave it empty to go on without.',
+        },
+      }
     case 'pi':
       return { mood: 'surprised', lines: piWords(facts.pi), ask: { kind: 'pi' } }
     case 'pi-ready':
@@ -414,6 +433,12 @@ function wordsOf(id: BeatId, answers: Answers, facts: Facts): Omit<Beat, 'id'> {
 /** An account Pi already reaches is found. With none, the setup offers its one sign-in. */
 const accounts = (facts: Facts): BeatId => (facts.connected.length > 0 ? 'found' : 'connect')
 
+/**
+ * A work computer with no account asks for the command the company provides to start Pi, unless the config already
+ * names a launcher. Never on a personal computer, never when an account was found, and never without a host to keep it.
+ */
+const asksForLauncher = ({ computer }: Answers, facts: Facts): boolean => computer === 'work' && facts.host === true && facts.connected.length === 0 && !facts.pi?.launcher
+
 /** The beat after one, or null when the story is over. Decided as the beat is left, from what is known then. */
 export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | null {
   switch (id) {
@@ -432,6 +457,11 @@ export function beatAfter(id: BeatId, answers: Answers, facts: Facts): BeatId | 
     case 'email':
       return 'subscription'
     case 'subscription':
+      if (asksForLauncher(answers, facts)) return 'launcher'
+      return piNeeds(facts.pi) ? 'pi' : accounts(facts)
+    // A launcher that was kept is an account: its models are the app's now. Put off, the story goes on as without it.
+    case 'launcher':
+      if (answers.launcher === 'saved') return 'connected'
       return piNeeds(facts.pi) ? 'pi' : accounts(facts)
     case 'pi':
       return answers.pi === 'installed' ? 'pi-ready' : 'pi-later'
@@ -592,6 +622,7 @@ export function checkAnswer(field: InputField['kind'], value: string): string | 
   if (field === 'reply') return text.length > REPLY_MAX ? `That is a lot. Keep it under ${REPLY_MAX} characters.` : null
 
   if (!text) return field === 'name' ? 'I need a name to call you.' : null
+  if (field === 'launcher') return CONTROL_CHARACTER.test(text) ? 'One line, please.' : text.length > 500 ? 'That is long for a command. Keep it under 500 characters.' : null
   if (text.length > PROFILE_TEXT_MAX || CONTROL_CHARACTER.test(text)) return `One line of at most ${PROFILE_TEXT_MAX} characters, please.`
   if (field === 'email' && !EMAIL.test(text)) return 'That does not look like an email.'
   return null
