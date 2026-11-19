@@ -1,6 +1,6 @@
 import { useEffect, useState, type RefObject } from 'react'
 import { requestHighlight, type HighlightedText } from '@/features/review/code/use-highlighted.ts'
-import { colorsNow, keptColors } from './colors.ts'
+import { colorsFitting, colorsNow, keptColors } from './colors.ts'
 
 /** The window's kept colors, for every agent's page. Colored off the page's thread, by the review's own worker. */
 const COLORS = keptColors(requestHighlight)
@@ -18,9 +18,9 @@ export function useColors(code: string | null, language: string | null, near: bo
     if (!asks || code === null) return
     return COLORS.color(code, language, (colors) => setArrived({ code, language, colors }))
   }, [asks, code, language])
-  if (now) return now
-  // Colors that belong to other code are never shown on this code.
-  return arrived && arrived.code === code && arrived.language === language ? arrived.colors : PLAIN
+  if (now || code === null) return now ?? PLAIN
+  // Colors that belong to other code are never shown on this code. Those of its first lines are, until its own arrive.
+  return colorsFitting(arrived, code, language) ?? PLAIN
 }
 
 /** How far around the view a box counts as near it: one height of the view above it and one below. */

@@ -1,5 +1,6 @@
 import type { HighlightedPart } from '../review/code/tokens.ts'
 import type { HighlightedText } from '../review/code/use-highlighted.ts'
+import type { DiffItem } from '../review/code/diff-rows.ts'
 
 /**
  * The colors of the code an agent's page has shown, kept while the window is open, so a page come back to is drawn in
@@ -132,4 +133,44 @@ export function colorsNow(colors: Pick<Colors, 'kept'>, code: string | null, lan
   if (code === null) return { now: null, asks: false }
   const now = colors.kept(code, language)
   return now ? { now, asks: false } : { now: null, asks: near }
+}
+
+/** Code is colored as far as its drawn lines reach, rounded up to this many lines, so a few more lines drawn ask for nothing new. */
+export const COLORED_STEP = 100
+
+/**
+ * The part of code that is colored: its first lines, as far as `reach` (a line number) rounded up to a hundred lines, or
+ * the whole code once that reaches its end. A big file whose first lines are drawn is colored for those lines only.
+ */
+export function coloredUpTo(code: string | null, reach: number): string | null {
+  if (code === null) return null
+  const upTo = Math.max(1, Math.ceil(reach / COLORED_STEP)) * COLORED_STEP
+  let at = -1
+  for (let line = 0; line < upTo; line += 1) {
+    at = code.indexOf('\n', at + 1)
+    if (at === -1) return code
+  }
+  return at === code.length - 1 ? code : code.slice(0, at)
+}
+
+/** The last line a drawn diff reaches on each side: the new side (`head`) for added and unchanged lines, the old (`base`) for removed ones. */
+export function linesReached(items: readonly DiffItem[]): { head: number; base: number } {
+  let head = 0
+  let base = 0
+  for (const item of items) {
+    if (item.type !== 'line') continue
+    const { kind, oldLine, newLine } = item.line
+    if (kind === 'removed') base = Math.max(base, oldLine ?? 0)
+    else head = Math.max(head, newLine ?? 0)
+  }
+  return { head, base }
+}
+
+/**
+ * Colors that arrived, if they are for this code: for the same code, or for its first lines (which color those lines as
+ * the whole code would), until the longer code's own arrive. Colors of other code are never drawn on it.
+ */
+export function colorsFitting(arrived: { code: string; language: string | null; colors: HighlightedText } | null, code: string, language: string | null): HighlightedText | null {
+  if (!arrived || arrived.language !== language) return null
+  return arrived.code === code || code.startsWith(`${arrived.code}\n`) ? arrived.colors : null
 }

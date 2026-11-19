@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { colorsNow, keptColors, type Ask } from '../src/features/agent-activity/colors.ts'
+import { colorsFitting, coloredUpTo, colorsNow, keptColors, linesReached, type Ask } from '../src/features/agent-activity/colors.ts'
+import type { HighlightedText } from '../src/features/review/code/use-highlighted.ts'
 
 /**
  * A stand-in for the highlighter's worker: it counts what it is asked, answers when told to, each line as one plain
@@ -102,4 +103,32 @@ test('boxes that show the same code wait on one request, and it is cancelled onl
   gone()
   assert.equal(shiki.asked[1]!.cancelled, true, 'a page left before its colors came asks for nothing more')
   assert.equal(colors.kept('left before its colors came', 'go'), undefined)
+})
+
+test('a change is colored only as far as its lines are drawn, in steps of a hundred lines, and whole once it reaches its end', () => {
+  const file = Array.from({ length: 1500 }, (_, index) => `line ${index + 1}`).join('\n') + '\n'
+  assert.equal(coloredUpTo(null, 12), null)
+  const preview = coloredUpTo(file, 12)!
+  assert.equal(preview.split('\n').length, 100)
+  assert.ok(file.startsWith(`${preview}\n`))
+  assert.equal(coloredUpTo(file, 100), preview, 'a few more lines drawn ask for nothing new')
+  assert.equal(coloredUpTo(file, 101)!.split('\n').length, 200)
+  assert.equal(coloredUpTo(file, 1500), file)
+  assert.equal(coloredUpTo('short\n', 1), 'short\n')
+})
+
+test('the lines a drawn diff reaches on each side: the new side for added and unchanged lines, the old side for removed ones', () => {
+  const line = (kind: 'context' | 'added' | 'removed', oldLine?: number, newLine?: number) => ({ type: 'line' as const, key: `${kind}${oldLine}${newLine}`, line: { kind, marker: ' ' as const, oldLine, newLine, text: '', words: [], emphasis: false } })
+  const gap = { type: 'gap' as const, key: 'g', id: 'g', hidden: 40, above: true, below: true }
+  assert.deepEqual(linesReached([]), { head: 0, base: 0 })
+  assert.deepEqual(linesReached([line('context', 1, 1), line('removed', 2), line('added', undefined, 2), line('added', undefined, 3), gap, line('context', 44, 45)]), { head: 45, base: 2 })
+})
+
+test('colors that came for the first lines of a code are drawn on the longer code until its own arrive, and never on other code', () => {
+  const colors = { lines: [[['line 1', 0]]], styles: [], done: true } as HighlightedText
+  assert.equal(colorsFitting({ code: 'line 1', language: 'ts', colors }, 'line 1\nline 2', 'ts'), colors)
+  assert.equal(colorsFitting({ code: 'line 1', language: 'ts', colors }, 'line 1', 'ts'), colors)
+  assert.equal(colorsFitting({ code: 'line 1', language: 'ts', colors }, 'line 10\nline 2', 'ts'), null, 'a line cut short is other code')
+  assert.equal(colorsFitting({ code: 'line 1', language: 'ts', colors }, 'line 1\nline 2', 'js'), null)
+  assert.equal(colorsFitting(null, 'line 1', 'ts'), null)
 })
