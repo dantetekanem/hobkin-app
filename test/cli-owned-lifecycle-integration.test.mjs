@@ -173,10 +173,10 @@ test('owned harness forwards only trusted policy while retaining closed admissio
 
 test('application close invalidates owned admission before waiting for main idle', { timeout: 1000 }, async () => {
   const order = [], app = new HobkinApplication(); app.openedAt = 0;
-  app.runtime = { ownedLifecycle: { close: async () => order.push('owned') }, main: { abort: async () => order.push('abort') },
+  app.runtime = { ownedLifecycle: { close: async () => order.push('owned') }, quitMain: async () => order.push('quit'),
     idle: async () => { assert.equal(order[0], 'owned'); order.push('idle'); }, close: async () => order.push('close') };
   await app.close();
-  assert.deepEqual(order, ['owned', 'abort', 'idle', 'close']);
+  assert.deepEqual(order, ['owned', 'quit', 'idle', 'close']);
 });
 
 test('parent Force before transport capture binds only the admitted run/harness, before startup awaits', { timeout: 1000 }, async t => {

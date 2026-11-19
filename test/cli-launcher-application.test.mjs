@@ -64,11 +64,37 @@ test('with a launcher the main chat is an RPC child and a schedule it starts run
   pi.children[0].exit(3, 'my-pi-launcher: session ended');
   while (!app.runtime.mainFault) await new Promise(resolve => setImmediate(resolve));
   await app.refresh();
-  assert.match(app.snapshot.error, /^Main chat stopped: .*session ended.*scheduled checks keep running/);
+  assert.match(app.snapshot.error, /^Main chat stopped: .*session ended.* Your next message opens it again; scheduled checks keep running\.$/);
   assert.equal(app.snapshot.connection, 'connected');
   assert.equal((await app.runner.trigger('email', 'request-2')).status, 'running');
   await app.runtime.idle();
   assert.equal(h.requests.length, 2, 'a schedule still runs after the chat stopped');
+
+  const conversation = (await app.runtime.state()).main;
+  await app.send('are you there?');
+  await app.runtime.idle();
+  assert.equal(pi.spawned.length, 2, 'the next message opened the chat again');
+  assert.deepEqual((await app.runtime.state()).main, conversation, 'in the same conversation');
+  await app.refresh();
+  assert.equal(app.snapshot.error ?? null, null);
+  assert.match(app.runtime.messages().at(-1).content[0].text, /^Reply: .*are you there\?$/);
+});
+
+test('closing the application quits a main Pi that does not answer its stop', { timeout: 10000 }, async t => {
+  const h = fixture(t, true);
+  const pi = fakePiRpc({ script: { abort: () => {} } });
+  const app = await HobkinApplication.open(h.root, {
+    now: () => new Date('2026-04-27T23:00:00Z'),
+    intervalMs: 60000,
+    runHarness: h.runHarness,
+    createMain: options => openPiSession(options, { spawnProcess: pi.spawnProcess, graceMs: 50 }),
+  });
+  const quits = [];
+  const quit = app.runtime.quitMain?.bind(app.runtime);
+  app.runtime.quitMain = () => { quits.push('quit'); return quit(); };
+  await app.close();
+  assert.ok(quits.length >= 1, 'the application quits the main chat through the runtime');
+  assert.ok(pi.children[0].signals.includes('SIGTERM'), 'the unanswered stop ended the process');
 });
 
 test('without a launcher the main chat stays in process and job requests are exactly as before', async t => {

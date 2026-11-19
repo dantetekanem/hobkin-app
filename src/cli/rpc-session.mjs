@@ -39,6 +39,8 @@ const realOrSame = path => {
 const sameDirectory = (left, right) => realOrSame(left) === realOrSame(right);
 
 const isMessage = value => Boolean(value) && typeof value === 'object';
+// How long a quit waits for Pi to answer its stop before it ends the process.
+const QUIT_AFTER_MS = 2000;
 
 /**
  * The same readers, each leaving a short hash of what it last read. The main agent's system prompt is built from these
@@ -105,7 +107,8 @@ export class PiRpcSession {
       this.bashIds.clear();
       this.isStreaming = false;
       this.open = null;
-      this.exit.resolve(this.disposed ? null : error);
+      // An exit hobkin asked for, by closing or quitting, does not stop the chat.
+      this.exit.resolve(this.disposed || this.ending ? null : error);
     });
   }
 
@@ -256,19 +259,29 @@ export class PiRpcSession {
     return this.child.request('compact');
   }
 
+  /**
+   * Pi's own stop, waited for as long as its run takes to end: a tool that does not listen for a stop holds Pi's answer until it returns.
+   * It never ends the process. A Pi that exited counts as stopped once its output has closed. A refusal from a Pi that still runs is thrown,
+   * so the stop stays unconfirmed and the next one asks again.
+   */
   abort() {
     for (const controller of this.calls) controller.abort();
-    if (this.aborting) return this.aborting;
-    this.aborting = (async () => {
-      try {
-        await within(this.child.request('abort'), 2000, 'Main Pi did not acknowledge Stop.');
-      } catch (error) {
-        this.child.fail(error);
-        // A signal is only a request. The captured transport must actually close before this resolves.
-        await within(this.child.closed, 2000, 'Main Pi exit is unconfirmed after Stop.');
-      }
-    })().finally(() => { this.aborting = null; });
+    this.aborting ??= this.child.request('abort').then(() => {}, async error => {
+      if (error.commandRejected && !this.child.exited) throw error;
+      await this.child.closed;
+    }).finally(() => { this.aborting = null; });
     return this.aborting;
+  }
+
+  /** Closing asks the same way, and ends the process when Pi has not answered within two seconds, so quitting stays quick. */
+  quit() {
+    this.quitting ??= within(this.abort(), QUIT_AFTER_MS, 'Main Pi did not acknowledge Stop.').catch(async error => {
+      this.ending = true;
+      this.child.fail(error);
+      // A signal is only a request. The captured transport must actually close before this resolves.
+      await within(this.child.closed, 2000, 'Main Pi exit is unconfirmed after Stop.');
+    }).finally(() => { this.quitting = null; });
+    return this.quitting;
   }
 
   force() {

@@ -610,7 +610,7 @@ export class HobkinApplication {
       ],
       lastTick: loaded.lastTick,
       error: this.runtime.mainFault
-        ? `Main chat stopped: ${this.runtime.mainFault.message} Restart hobkin to reconnect; scheduled checks keep running.`
+        ? `Main chat stopped: ${this.runtime.mainFault.message} Your next message opens it again; scheduled checks keep running.`
         : loaded.error,
     };
     const saved = {
@@ -751,6 +751,8 @@ export class HobkinApplication {
   }
 
   async deliver(text, report, images = [], turn) {
+    // A main chat whose Pi ended opens the same conversation again for the user's next message.
+    await this.runtime.reopenMain();
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
     const sessions = sessionsToTell(this.runtime.directory);
     const actions = cardActionsToTell(this.runtime.directory);
@@ -823,10 +825,7 @@ export class HobkinApplication {
   }
 
   recoverMainStop(turn, confirmed = true) {
-    if (confirmed && !turn.stopNoticed) {
-      recordCardAction(this.runtime.directory, { id: `main-stop:${turn.id}`, did: 'stopped your turn', line: 'You stopped hobkin.' }, this.now());
-      turn.stopNoticed = true;
-    }
+    if (confirmed) this.runtime.noticeStop(turn, this.now());
     if (!turn.unread) return { status: 'unknown' };
     const alreadyReturned = turn.draftsReturned === true;
     turn.draftsReturned = true;
@@ -1447,7 +1446,7 @@ export class HobkinApplication {
         try {
           // The dashboard has just cancelled any open question, and a quit must not reach the agent as an answer.
           const children = this.runtime.ownedLifecycle?.close();
-          await Promise.all([children, this.runtime.main?.abort(), this.runner?.stop(), this.memoryIndex?.stop()]);
+          await Promise.all([children, this.runtime.quitMain(), this.runner?.stop(), this.memoryIndex?.stop()]);
           // A durable hobkin's turn stopped here reads as cut off, so its record is written before the store closes.
           await this.hobkins?.idle();
           // No turn runs now, so the processes kept for the hobkins' next turns close too.

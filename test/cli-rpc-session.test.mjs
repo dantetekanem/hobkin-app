@@ -446,7 +446,7 @@ test('a child that exits unasked stops the chat but not scheduled work; a reques
   assert.match(run.result.error, /exited before completion \(3\).*credentials expired/);
   await until(() => runtime.mainFault, 'the chat fault');
   assert.equal(runtime.fault, null);
-  await assert.rejects(runtime.send('again'), /Main chat stopped: .*exited before completion \(3\).*Restart hobkin/);
+  await assert.rejects(runtime.send('again'), /Main chat stopped: .*exited before completion \(3\).*next message opens it again/);
   const check = await runtime.dispatch({ id: 'check-after-exit', kind: 'background', title: 'Check' },
     async () => ({ status: 'completed', text: 'Nothing new.', cost: null }));
   assert.equal(check.status, 'completed');
@@ -458,6 +458,85 @@ test('a child that exits unasked stops the chat but not scheduled work; a reques
   await second.close();
   assert.equal(second.fault, null);
   assert.deepEqual(calm.fake.children[0].signals, []);
+});
+
+test('a stop keeps the same Pi process for the next message', async t => {
+  const h = fixture(t);
+  const runtime = await h.connected();
+  h.fake.gate = Promise.withResolvers();
+  await runtime.send('first', 'message:first');
+  await until(() => runtime.main.isStreaming, 'the run to start');
+  assert.deepEqual(await runtime.interrupt(), []);
+  await runtime.send('second', 'message:second');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['message:second'].result.text, 'Reply: second');
+  assert.equal(h.fake.spawned.length, 1);
+  assert.deepEqual(h.fake.children[0].signals, []);
+  assert.equal(runtime.mainFault, null);
+});
+
+test('a reset ends an old Pi held by a tool that ignores the stop, and opens a fresh conversation', { timeout: 10000 }, async t => {
+  let ignoring = true;
+  const h = fixture(t, { script: { abort: reply => { if (!ignoring) reply(); } } });
+  const runtime = await h.connected({ stopWaitMs: 50 });
+  h.fake.gate = Promise.withResolvers();
+  await runtime.send('review this pull request', 'message:held');
+  await until(() => runtime.main.isStreaming, 'the run to start');
+  const before = (await runtime.state()).main;
+  // The fresh Pi shares the stand-in's state, and its tool is not held.
+  h.fake.gate = null;
+  h.fake.streaming = false;
+
+  const reset = await runtime.reset();
+  ignoring = false;
+  assert.notEqual(reset.sessionFile, before.sessionFile);
+  assert.equal(h.fake.spawned.length, 2);
+  assert.ok(h.fake.children[0].signals.includes('SIGTERM'), 'the old Pi was ended');
+  assert.equal(runtime.mainFault, null);
+  assert.equal((await runtime.state()).runs['message:held'].status, 'interrupted');
+  await runtime.send('fresh', 'message:fresh');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['message:fresh'].result.text, 'Reply: fresh');
+});
+
+test('a main Pi that exited opens again on the same conversation, and the window hears its new process', async t => {
+  const h = fixture(t);
+  const startups = [];
+  const runtime = await h.connected({ onMainStartup: startup => { if (!startups.includes(startup)) startups.push(startup); } });
+  await runtime.send('hello', 'message:1');
+  await runtime.idle();
+  const { main } = await runtime.state();
+  h.fake.children[0].exit(3, 'my-pi-launcher: session ended');
+  await until(() => runtime.mainFault, 'the chat fault');
+
+  const [first, second] = await Promise.all([runtime.reopenMain(), runtime.reopenMain()]);
+  assert.equal(first, second, 'a second message joins the reopening');
+  assert.equal(h.fake.spawned.length, 2);
+  const args = h.fake.spawned[1].args;
+  assert.equal(args[args.indexOf('--session') + 1], main.sessionFile);
+  assert.equal(runtime.main.sessionId, main.sessionId);
+  assert.deepEqual((await runtime.state()).main, main);
+  assert.equal(runtime.mainFault, null);
+  assert.equal(startups.length, 2);
+  assert.equal(startups[1].installed, true);
+  assert.equal(await runtime.reopenMain(), runtime.main, 'an open chat is not opened again');
+  await runtime.send('again', 'message:2');
+  await runtime.idle();
+  assert.equal((await runtime.state()).runs['message:2'].result.text, 'Reply: again');
+});
+
+test('a close waits for a reopening under way', async t => {
+  const h = fixture(t);
+  const runtime = await h.connected();
+  h.fake.children[0].exit(3, 'my-pi-launcher: session ended');
+  await until(() => runtime.mainFault, 'the chat fault');
+  const order = [];
+  const reopening = assert.rejects(runtime.reopenMain(), /closing/).then(() => order.push('reopening settled'));
+  await runtime.close();
+  order.push('closed');
+  await reopening;
+  assert.deepEqual(order, ['reopening settled', 'closed']);
+  assert.ok(h.fake.children.slice(1).every(child => child.stdin.writableEnded), 'no reopened Pi is left running');
 });
 
 test('closing asks Pi to exit by closing stdin and signals only a child that ignores it', { timeout: 5000 }, async t => {

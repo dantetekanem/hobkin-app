@@ -23,6 +23,11 @@ import { createTurnMetrics } from './turn-metrics.mjs';
 const MAIN_ACTIVITY_ENTRIES = 200;
 
 export const MAIN_BUSY = 'Main conversation is busy.';
+const MAIN_STOPPING = 'Main conversation is stopping.';
+// A turn whose Pi has stopped is held only for what it had not read, and the next stop gives that back.
+export const STOP_AGAIN = 'Stop hobkin again to get back what it had not read.';
+// A tool that does not listen for a stop holds Pi's answer until it returns, so a stop waits this long before it says it is unconfirmed.
+const STOP_WAIT_MS = 30000;
 export const MAX_MESSAGE_BYTES = 65536;
 /** A chat past `MAX_SESSION_BYTES` will not reopen, and only images can grow one fast. This much stays free for words. */
 export const IMAGE_ROOM_BYTES = 32 * 1024 * 1024;
@@ -75,10 +80,11 @@ function recordMainStop(root, run, actions) {
 }
 
 export class HobkinRuntime {
-  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, editReport, metricsNow, onChange = () => {} } = {}) {
+  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, editReport, metricsNow, stopWaitMs = STOP_WAIT_MS, onChange = () => {} } = {}) {
     this.directory = root;
     this.config = config;
     this.createMain = createMain;
+    this.stopWaitMs = stopWaitMs;
     this.onMainStartup = onMainStartup;
     this.metricsNow = metricsNow;
     this.askQuestion = askQuestion;
@@ -206,6 +212,33 @@ export class HobkinRuntime {
       });
     }
     return this.connecting;
+  }
+
+  /**
+   * The main chat's Pi ended without being asked, so the next message opens the same conversation again in a new process. Not while a
+   * stop of a turn on that Pi is under way or gives back what it had not read, nor during a reset. A turn the ended Pi still held goes, since
+   * nothing is left to stop. A second message joins a reopening under way, and a close waits for it.
+   */
+  reopenMain() {
+    this.check();
+    if (!this.mainFault) return Promise.resolve(this.main);
+    if (this.resetting) return Promise.reject(Error('Main conversation is resetting.'));
+    const ended = this.main, turn = this.mainTurn;
+    if (turn?.session === ended && (turn.stopWork || turn.heldForUnread)) {
+      return Promise.reject(Error(turn.stopWork ? MAIN_STOPPING : STOP_AGAIN));
+    }
+    this.reopening ??= (async () => {
+      // The ended Pi's output has closed, so a turn on it has nothing left to wait for.
+      await this.mainWork;
+      const held = this.mainTurn;
+      if (held?.session === ended && !held.stopWork) {
+        this.mainTurn = null;
+        held.release();
+      }
+      this.check();
+      return this.connectMain(false);
+    })().finally(() => { this.reopening = null; });
+    return this.reopening;
   }
 
   async connectMain(fresh = false) {
@@ -469,7 +502,7 @@ export class HobkinRuntime {
     this.resetting = true;
     this.notify();
     try {
-      if (ownedTurn) await this.stopTurn(ownedTurn);
+      if (ownedTurn) await this.stopTurn(ownedTurn).catch(error => this.quitHeld(previous, ownedTurn, error));
       const main = await this.connectMain(true);
       this.connecting = Promise.resolve(main);
       return { sessionId: main.sessionId, sessionFile: main.sessionFile };
@@ -480,8 +513,21 @@ export class HobkinRuntime {
   }
 
   /**
-   * The user's stop, the way Esc stops Pi: what waits in Pi's queue comes out, and the turn ends at once. What it already said stays
-   * in the conversation. Returns what the user sent that the agent never read, or null when no turn was running.
+   * A reset must not wait forever on a tool that ignores the stop. When the stop stays unconfirmed and the main chat's Pi is a process of its
+   * own, that Pi ends and the reset goes on to the fresh conversation.
+   */
+  async quitHeld(session, turn, error) {
+    if (error?.code !== 'STOP_UNCONFIRMED' || typeof session.quit !== 'function') throw error;
+    await session.quit();
+    if (this.mainTurn === turn) {
+      this.mainTurn = null;
+      turn.release();
+    }
+  }
+
+  /**
+   * The user's stop, the way Esc stops Pi: what waits in Pi's queue comes out, and the turn ends once Pi has stopped. What it already said
+   * stays in the conversation. Returns what the user sent that the agent never read, or null when no turn was running.
    */
   async interrupt() {
     const turn = this.mainTurn;
@@ -515,9 +561,17 @@ export class HobkinRuntime {
       if (turn.owned && cleanup?.confirmed !== true) throw Error('Owned agent cleanup is unconfirmed.');
       turn.cancellationConfirmed = true;
     });
+    const stopped = Promise.all([cancelled, recovery]).then(([, unread]) => unread);
+    let outlasted = false;
+    stopped.then(unread => { if (outlasted) this.letGo(turn, unread); }, () => {});
     turn.stopWork = Promise.race([
-      Promise.all([cancelled, recovery]).then(([, unread]) => unread),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(Error('Stop completion or unread draft recovery is unconfirmed.')), 5000); }),
+      stopped,
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          outlasted = true;
+          reject(Error('Stop completion or unread draft recovery is unconfirmed.'));
+        }, this.stopWaitMs);
+      }),
     ]).then(unread => {
       // Only a confirmed attempt releases custody, never late recovery after a timed-out Stop.
       if (this.mainTurn === turn) this.mainTurn = null;
@@ -533,6 +587,30 @@ export class HobkinRuntime {
       turn.stopWork = null;
     });
     return turn.stopWork;
+  }
+
+  /**
+   * A stop that outlasted its wait, once Pi has stopped: with no other stop under way, the turn ends as an ordinary stop ends it, Chat says
+   * so once and the window hears it. A message Pi never read keeps the conversation until the next stop gives it back. A reset takes the
+   * turn itself.
+   */
+  letGo(turn, unread) {
+    if (turn.stopWork || this.resetting || this.mainTurn !== turn) return;
+    if (unread.length && !turn.draftsReturned) {
+      turn.heldForUnread = true;
+      this.notify();
+      return;
+    }
+    this.mainTurn = null;
+    this.noticeStop(turn);
+    turn.release();
+  }
+
+  /** Chat's one line for a turn the user stopped, said once whichever way the turn stopped. */
+  noticeStop(turn, now = Date.now()) {
+    if (turn.stopNoticed) return;
+    turn.stopNoticed = true;
+    recordCardAction(this.directory, { id: `main-stop:${turn.id}`, did: 'stopped your turn', line: 'You stopped hobkin.' }, now);
   }
 
   async admit(request) {
@@ -798,14 +876,14 @@ export class HobkinRuntime {
     const handed = Date.now();
     this.check();
     if (!this.main) throw Error('Main conversation is not connected.');
-    if (this.mainFault) throw Error(`Main chat stopped: ${this.mainFault.message} Restart hobkin to reconnect.`);
+    if (this.mainFault) throw Error(`Main chat stopped: ${this.mainFault.message} The next message opens it again.`);
     if (this.resetting) throw Error('Main conversation is resetting.');
     if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > MAX_MESSAGE_BYTES) throw Error(`Message must contain 1–${MAX_MESSAGE_BYTES} bytes.`);
     if (images && this.imageRefusal) throw Error(this.imageRefusal);
 
     const activeTurn = this.mainTurn;
     if (activeTurn?.session === this.main) {
-      if (activeTurn.stopping) throw Error('Main conversation is stopping.');
+      if (activeTurn.stopping) throw Error(activeTurn.heldForUnread ? STOP_AGAIN : MAIN_STOPPING);
       if (activeTurn.preflight && this.main.isStreaming && typeof this.main.steer === 'function') {
         return this.queueSteering(text, id, activeTurn, images);
       }
@@ -958,6 +1036,12 @@ export class HobkinRuntime {
     return true;
   }
 
+  /** A close stops the main chat's Pi, and ends it when it is a process of its own that does not answer in time (`PiRpcSession.quit`). */
+  quitMain() {
+    const main = this.main;
+    return typeof main?.quit === 'function' ? main.quit() : main?.abort();
+  }
+
   async idle() {
     await this.mainWork;
     await Promise.all([...this.active.values()].map(item => item.completion));
@@ -970,7 +1054,8 @@ export class HobkinRuntime {
         const children = this.ownedLifecycle?.close();
         for (const { controller } of this.active.values()) controller.abort();
         await this.connecting?.catch(() => {});
-        await this.main?.abort();
+        await this.reopening?.catch(() => {});
+        await this.quitMain();
         await children;
         await Promise.allSettled([this.mainWork, ...[...this.active.values()].map(item => item.completion)]);
         this.unsubscribe?.();

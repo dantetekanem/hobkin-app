@@ -92,7 +92,7 @@ test('a stalled queue cannot delay cancellation and yields explicit unknown draf
   assert.ok(h.calls.abort > 0);
   await assert.rejects(h.runtime.send('Cannot race recovery', 'late'), /stopping/i);
   assert.equal(h.runtime.mainFree, false);
-  t.mock.timers.tick(5000); await tick();
+  t.mock.timers.tick(30000); await tick();
   assert.equal(stopped.error?.code, 'STOP_UNCONFIRMED');
   assert.equal(stopped.error?.queueRecovery, 'unknown');
   assert.equal(stopped.error?.cancellationConfirmed, true);
@@ -100,7 +100,7 @@ test('a stalled queue cannot delay cancellation and yields explicit unknown draf
   const retried = observe(h.runtime.interrupt());
   await tick();
   assert.equal(recoveries, 1, 'an outstanding clearQueue is joined, not sent again');
-  t.mock.timers.tick(5000); await tick();
+  t.mock.timers.tick(30000); await tick();
   assert.equal(retried.error?.code, 'STOP_UNCONFIRMED');
   queue.resolve({ steering: ['Unobserved text'], followUp: [] }); await tick();
   assert.equal(h.runtime.mainFree, false, 'late recovery alone cannot release Stop custody');
@@ -123,7 +123,7 @@ test('uncooperative in-process abort remains unknown and a later Stop retries wi
   await h.runtime.send('Original', 'original');
   await h.runtime.send('Unread correction', 'queued');
   const first = observe(h.runtime.interrupt());
-  await tick(); t.mock.timers.tick(5000); await tick();
+  await tick(); t.mock.timers.tick(30000); await tick();
   assert.equal(first.error?.code, 'STOP_UNCONFIRMED');
   assert.equal(h.state.runs.original.status, 'running');
   const calls = h.calls.abort;
@@ -235,6 +235,98 @@ for (const owned of [false, true]) test(`Stop confirms ${owned ? 'real owned lif
   if (owned) assert.equal(h.state.runs.original.result.ownedCleanupConfirmed, true);
 });
 
+const until = async check => {
+  for (let turns = 0; turns < 1000 && !check(); turns++) await tick();
+  assert.ok(check());
+};
+/** A turn held by a tool that does not listen for a stop: Pi answers the stop only once the tool returns. */
+function heldByTool(t) {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const h = fixture(t), tool = Promise.withResolvers();
+  h.cleanup.push(() => tool.resolve());
+  h.session.abort = async () => {
+    h.calls.abort++;
+    await tool.promise;
+    h.session.isStreaming = false;
+    h.prompt.reject(Error('Cancelled'));
+  };
+  return { ...h, tool };
+}
+const stopLines = h => allCardActions(h.runtime.directory).filter(action => action.id === 'main-stop:original');
+
+test('a turn whose tool ignores the stop is confirmed once Pi stops, inside the thirty seconds', options, async t => {
+  const h = heldByTool(t);
+  await h.runtime.send('Review the pull request', 'original');
+  const stopping = h.runtime.interrupt(), stopped = observe(stopping);
+  await tick(); t.mock.timers.tick(29000); await tick();
+  assert.deepEqual(stopped, {});
+  await assert.rejects(h.runtime.send('Meanwhile', 'meanwhile'), { message: 'Main conversation is stopping.' });
+  h.tool.resolve();
+  assert.deepEqual(await stopping, []);
+  assert.equal(h.runtime.mainFree, true);
+  assert.equal(h.state.runs.original.status, 'interrupted');
+});
+
+test('a stop that outlasted its wait lets go once Pi stops, and Chat says so once', options, async t => {
+  const h = heldByTool(t);
+  let changes = 0;
+  h.runtime.onChange = () => { changes++; };
+  await h.runtime.send('Review the pull request', 'original');
+  const stopped = observe(h.runtime.interrupt());
+  await tick(); t.mock.timers.tick(30000); await tick();
+  assert.equal(stopped.error?.code, 'STOP_UNCONFIRMED');
+  await assert.rejects(h.runtime.send('Meanwhile', 'meanwhile'), { message: 'Main conversation is stopping.' });
+  assert.equal(stopLines(h).length, 0);
+
+  const before = changes;
+  h.tool.resolve();
+  await until(() => h.runtime.mainFree);
+  assert.ok(changes > before, 'the window hears it');
+  assert.equal(h.runtime.mainTurn, null);
+  assert.deepEqual(stopLines(h).map(action => action.line), ['You stopped hobkin.']);
+  assert.equal(await h.runtime.interrupt(), null, 'nothing is left to stop');
+  h.session.prompt = async (_text, opts) => { h.calls.prompt++; opts.preflightResult('started'); };
+  assert.deepEqual(await h.runtime.send('Next', 'next'), { id: 'next' });
+  await h.runtime.idle();
+  assert.equal(stopLines(h).length, 1);
+});
+
+test('one with a message Pi never read keeps the conversation until the next stop gives it back', options, async t => {
+  const h = heldByTool(t);
+  await h.runtime.send('Review the pull request', 'original');
+  await h.runtime.send('Also check the tests', 'unread');
+  const stopped = observe(h.runtime.interrupt());
+  await tick(); t.mock.timers.tick(30000); await tick();
+  assert.equal(stopped.error?.code, 'STOP_UNCONFIRMED');
+
+  h.tool.resolve();
+  await until(() => h.runtime.mainTurn?.cancellationConfirmed && h.state.runs.original.status === 'interrupted');
+  await tick();
+  await assert.rejects(h.runtime.send('A new question', 'new'), { message: 'Stop hobkin again to get back what it had not read.' });
+  assert.equal(h.runtime.mainFree, false, 'the conversation stays held');
+  assert.equal(stopLines(h).length, 0);
+  assert.deepEqual(await h.runtime.interrupt(), ['Also check the tests']);
+  assert.equal(h.runtime.mainFree, true);
+});
+
+test('a turn still being stopped keeps an ended Pi from opening again, and so does a reset', options, async t => {
+  const h = heldByTool(t);
+  let opened = 0;
+  h.runtime.createMain = async () => { opened++; throw Error('Opened while it should not.'); };
+  assert.equal(await h.runtime.reopenMain(), h.session, 'a running Pi is left alone');
+  await h.runtime.send('Review the pull request', 'original');
+  const stopping = h.runtime.interrupt();
+  await tick();
+  h.runtime.mainFault = Error('Main Pi exited before completion (1).');
+  await assert.rejects(h.runtime.reopenMain(), { message: 'Main conversation is stopping.' });
+  h.runtime.resetting = true;
+  await assert.rejects(h.runtime.reopenMain(), { message: 'Main conversation is resetting.' });
+  h.runtime.resetting = false;
+  assert.equal(opened, 0);
+  h.tool.resolve();
+  assert.deepEqual(await stopping, []);
+});
+
 function rpcFixture(t) {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const ack = Promise.withResolvers(), closed = Promise.withResolvers(), calls = [];
@@ -247,38 +339,85 @@ function rpcFixture(t) {
   return { session, ack, closed, calls };
 }
 
-test('RPC Stop escalates a missing acknowledgment but waits for captured close evidence', options, async t => {
+/** Each request gets an answer of its own, so a stop asked twice can be told apart. */
+function answering(h) {
+  const answers = [];
+  h.session.child.request = type => {
+    h.calls.push(type);
+    const answer = Promise.withResolvers();
+    answers.push(answer);
+    return answer.promise;
+  };
+  return answers;
+}
+const refused = message => Object.assign(Error(message), { commandRejected: true });
+
+test('a stop that Pi answers late is waited for, asks once and never ends the process', options, async t => {
   const h = rpcFixture(t), permission = new AbortController();
   h.session.calls.add(permission);
-  let settled = false;
-  const stopped = h.session.abort().then(() => { settled = true; });
-  const repeated = h.session.abort();
-  stopped.catch(() => {}); repeated.catch(() => {});
+  const stopped = observe(h.session.abort()), repeated = observe(h.session.abort());
   await tick();
-  assert.equal(permission.signal.aborted, true);
-  t.mock.timers.tick(2000); await tick();
-  assert.deepEqual(h.calls, ['abort', 'fail']);
-  assert.equal(settled, false);
-  h.closed.resolve({ error: Error('Captured child exited') });
-  await Promise.all([stopped, repeated]);
-  assert.equal(settled, true);
+  assert.equal(permission.signal.aborted, true, 'a dialog waiting on the user is let go at once');
+  t.mock.timers.tick(60000); await tick();
+  assert.deepEqual(h.calls, ['abort'], 'no signal, however long Pi takes');
+  assert.deepEqual([stopped, repeated], [{}, {}]);
+  h.ack.resolve(); await tick();
+  assert.ok('value' in stopped && 'value' in repeated);
+  assert.deepEqual(h.calls, ['abort']);
 });
 
-test('RPC escalation without exit is bounded and never returns a successful Stop', options, async t => {
+test('a Pi that exited counts as stopped once its output closes', options, async t => {
   const h = rpcFixture(t);
   const stopped = observe(h.session.abort());
+  h.ack.reject(Error('Main Pi exited before completion (1).')); await tick();
+  assert.deepEqual(stopped, {}, 'not before its output has closed');
+  h.closed.resolve({ error: Error('Main Pi exited before completion (1).') }); await tick();
+  assert.ok('value' in stopped);
+  assert.deepEqual(h.calls, ['abort']);
+});
+
+test('a refusal from a Pi that still runs leaves the stop unconfirmed, and the next stop asks again', options, async t => {
+  const h = rpcFixture(t), answers = answering(h);
+  const first = observe(h.session.abort());
+  answers[0].reject(refused('Nothing to abort.')); await tick();
+  assert.match(first.error?.message ?? '', /Nothing to abort/);
+  const second = observe(h.session.abort());
+  assert.deepEqual(h.calls, ['abort', 'abort']);
+  answers[1].resolve(); await tick();
+  assert.ok('value' in second);
+});
+
+test('a quit ends the process two seconds after an unanswered stop, and waits for its output to close', options, async t => {
+  const h = rpcFixture(t), permission = new AbortController();
+  h.session.calls.add(permission);
+  const quit = observe(h.session.quit()), repeated = observe(h.session.quit());
+  await tick();
+  assert.equal(permission.signal.aborted, true);
+  t.mock.timers.tick(1999); await tick();
+  assert.deepEqual(h.calls, ['abort']);
+  t.mock.timers.tick(1); await tick();
+  assert.deepEqual(h.calls, ['abort', 'fail']);
+  assert.deepEqual(quit, {}, 'a signal is only a request');
+  h.closed.resolve({ error: Error('Captured child exited') }); await tick();
+  assert.ok('value' in quit && 'value' in repeated);
+  assert.equal(await h.session.exited, null, 'a requested end does not stop the chat');
+});
+
+test('a quit whose process does not close is bounded and never confirmed', options, async t => {
+  const h = rpcFixture(t);
+  const quit = observe(h.session.quit());
   await tick(); t.mock.timers.tick(2000); await tick();
   assert.deepEqual(h.calls, ['abort', 'fail']);
   t.mock.timers.tick(2000); await tick();
-  assert.match(stopped.error?.message ?? '', /exit.*unconfirmed/i);
-  const retried = h.session.abort();
+  assert.match(quit.error?.message ?? '', /exit.*unconfirmed/i);
+  const retried = h.session.quit();
   h.closed.resolve({ error: Error('Late captured exit') });
   await retried;
 });
 
-test('acknowledged RPC Stop joins callers and clears its escalation timer', options, async t => {
+test('a quit that Pi answers ends nothing', options, async t => {
   const h = rpcFixture(t);
-  const first = h.session.abort(), second = h.session.abort();
+  const first = h.session.quit(), second = h.session.quit();
   h.ack.resolve();
   await Promise.all([first, second]);
   t.mock.timers.tick(5000); await tick();
