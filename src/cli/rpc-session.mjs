@@ -255,8 +255,8 @@ export class PiRpcSession {
     return this.child.request('clear_queue');
   }
 
-  compact() {
-    return this.child.request('compact');
+  compact(customInstructions) {
+    return this.child.request('compact', customInstructions ? { customInstructions } : undefined);
   }
 
   /**

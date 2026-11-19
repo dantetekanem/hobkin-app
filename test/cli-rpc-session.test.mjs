@@ -356,7 +356,8 @@ test('a chat behind a launcher compacts through its Pi child', async t => {
 
   assert.equal(await runtime.compactMain(), true);
 
-  assert.ok(h.fake.received.some(record => record.type === 'compact'));
+  const compact = h.fake.received.find(record => record.type === 'compact');
+  assert.match(compact?.customInstructions ?? '', /explicit ask the user made/, 'the child is told to keep the user\'s asks');
 });
 
 test('Pi-side compaction refreshes the transcript and is reported to observers', async t => {

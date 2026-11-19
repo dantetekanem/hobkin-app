@@ -455,6 +455,7 @@ export class HobkinRuntime {
   /**
    * Hobkin's own compaction. Pi's aborts whatever is running, so this takes only a free session and holds it, so no turn can start under it.
    * One begun `early`, before the chat is too full to wait, gives way to the user's next message (`yieldCompaction`).
+   * The summary keeps what the user asked for in their own words, because a later turn takes those asks as its yes.
    */
   async compactMain({ early = false } = {}) {
     if (!this.mainFree || typeof this.main.compact !== 'function') return false;
@@ -463,7 +464,7 @@ export class HobkinRuntime {
     const compaction = { early, session: this.main, yielded: false };
     this.ownCompaction = compaction;
     try {
-      await this.main.compact();
+      await this.main.compact(readFileSync(new URL('../prompts/compaction.md', import.meta.url), 'utf8'));
       return true;
     } catch (error) {
       this.lastCompaction = {
