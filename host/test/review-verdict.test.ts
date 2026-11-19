@@ -5,6 +5,8 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { agentMessage } from '#shared/agent-message.ts'
 import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
+import { GRAMMAR_EDITOR, type GrammarAsk } from '#shared/review/grammar.ts'
+import { hashLines } from '#shared/review/lines.ts'
 import type { Note } from '#shared/review/notes.ts'
 import type { PullOwner } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
@@ -26,7 +28,7 @@ const NEWER = 'f'.repeat(40)
  * `plan` is what hobkin says deleting the change's branch takes; `branch` lets a test refuse that look, change it, or fail the deletion.
  * `timeline` is every call to either, in the order they came.
  */
-function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'Merge hobkin/7d02c9 into main on this machine. Nothing is pushed.', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr: null } as ChangeCard | null, publish, plan = null as unknown }: { card?: ChangeCard | null; publish?: Publisher; plan?: unknown } = {}) {
+function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'Merge hobkin/7d02c9 into main on this machine. Nothing is pushed.', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr: null } as ChangeCard | null, publish, plan = null as unknown, grammar }: { card?: ChangeCard | null; publish?: Publisher; plan?: unknown; grammar?: GrammarAsk } = {}) {
   const home = temporaryDirectory(t)
   const store = reviewStore(home)
   const target = targetOfReviewId(id)!
@@ -56,6 +58,7 @@ function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'M
     }),
     card: () => card,
     ...(publish ? { publish } : {}),
+    ...(grammar ? { grammar } : {}),
     gh: async (args, input): Promise<GhOutcome> => {
       posts.push({ args, input })
       if (args.includes('--method')) timeline.push(`gh ${args[args.indexOf('--method') + 1]} ${args.find((arg) => arg.startsWith('repos/'))}`)
@@ -246,6 +249,39 @@ test("a review posts only the user's words once: hobkin's note stays unsent, and
   await reviews.verdict(id, 'approve', '', approval.confirm)
   await assert.rejects(reviews.verdict(id, 'approve', '', approval.confirm), /posted already/)
   assert.equal(posts.filter((post) => post.args.includes('--method')).length, 2, 'one comment and one approval')
+})
+
+test("the user's words have their grammar fixed before they post: the preview shows what goes, its yes sends exactly that, and they are checked once", async (t) => {
+  const passes: string[] = []
+  const grammar: GrammarAsk = async ({ system, prompt }) => {
+    passes.push(system)
+    if (system !== GRAMMAR_EDITOR) return JSON.stringify({ judgments: [{ id: 'body', grammar_only: true }, { id: 'comment-0', grammar_only: false }] })
+    assert.equal((JSON.parse(prompt) as { comments: string[] }).comments[0], 'rename it')
+    return JSON.stringify({ body: "This doesn't handle the retry.", comments: ['Rename it to total.'] })
+  }
+  const id = 'pr:acme/shop/482'
+  const { reviews, posts, notes } = seated(t, id, { grammar })
+  const head = files.find((file) => file.fileId === 'src/cli/runtime.mjs')!.head!
+  notes([note('n1', { text: 'this dont handle the retry' }), note('n2', { target: { kind: 'lines', fileId: 'src/cli/runtime.mjs', side: 'added', startLine: 176, endLine: 176, hash: hashLines(head, 176, 176) }, text: 'rename it' })])
+
+  const preview = await reviews.preview(id, 'comment', '')
+  assert.deepEqual([preview.post?.body, preview.post?.comments.map((comment) => comment.body)], ["This doesn't handle the retry.", ['rename it']])
+  assert.ok(preview.lines.includes('Grammar fixed in one place; what goes is shown below.'), preview.lines.join('\n'))
+  assert.ok(preview.lines.includes('Not changed, since it could change what you meant: "rename it". Suggested: "Rename it to total."'), preview.lines.join('\n'))
+  await reviews.verdict(id, 'comment', '', preview.confirm)
+  assert.deepEqual(JSON.parse(posts.find((post) => post.args.includes('--method'))!.input!), preview.post)
+  assert.equal(passes.length, 2, 'the yes posts the words the preview checked, asking nothing again')
+})
+
+test('a grammar check that cannot run posts the words as written and says why', async (t) => {
+  const id = 'pr:acme/shop/482'
+  const { reviews, posts, notes } = seated(t, id, { grammar: async () => Promise.reject(new Error('the model is down')) })
+  notes([note('n1', { text: 'this dont handle the retry' })])
+  const preview = await reviews.preview(id, 'comment', '')
+  assert.equal(preview.post?.body, 'this dont handle the retry')
+  assert.ok(preview.lines.includes('Your words go as you wrote them: their grammar was not checked, because the check failed: the model is down.'), preview.lines.join('\n'))
+  await reviews.verdict(id, 'comment', '', preview.confirm)
+  assert.equal(JSON.parse(posts.find((post) => post.args.includes('--method'))!.input!).body, 'this dont handle the retry')
 })
 
 /** A pull request's review in the home, with a gh that answers as GitHub would and writes down every call. */

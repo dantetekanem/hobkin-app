@@ -8,6 +8,7 @@ import { paths, readItems, readProject, readProjects } from 'hobkin/src/cli/work
 import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
+import type { GrammarAsk } from '#shared/review/grammar.ts'
 import { reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import type { ReviewLanding } from '#shared/review/status.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
@@ -179,8 +180,16 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     },
     // Only a live host posts to GitHub or opens a pull request, and only for a verdict the user confirmed.
     ...(seat.live && seat.gh ? { gh: seat.gh, publish: gitPublisher({ repoOf, baseOf: defaultBranch, gh: seat.gh }) } : {}),
+    // The user's words have their grammar fixed on the quick tier before a pull request gets them. The scripted host asks no model.
+    ...(seat.live ? { grammar: quickGrammar(seat) } : {}),
     log: seat.log,
   })
+}
+
+/** The quick tier, as the grammar check asks it: the model the blind check runs on. */
+function quickGrammar(seat: { root: string; data: () => string; runtime: Parameters<typeof piModelRunner>[0]['runtime'] }): GrammarAsk {
+  const quick = piModelRunner({ root: seat.root, data: seat.data, runtime: seat.runtime })
+  return ({ system, prompt, signal }) => quick({ pass: 'checker', system, prompt, signal })
 }
 
 /**

@@ -18,6 +18,7 @@ import { count } from '#shared/review/prose.ts'
 import { IDLE_STATUS, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
+import { checkGrammar, grammarLines, type GrammarAsk, type GrammarResult, type GrammarTexts } from '#shared/review/grammar.ts'
 import { askForChanges, closingComment, pullReviewPost, saysNothing, type PullReviewPost, type Verdict } from '#shared/review/verdict.ts'
 import { Unavailable } from '../commands.ts'
 import { LOG_LINES, pendingSteps, type Assessments } from './assessment.ts'
@@ -73,6 +74,8 @@ export interface ReviewsOptions {
   card: (slug: string, item: string) => ChangeCard | null
   /** gh, for a verdict on a pull request. A host given none posts nothing. */
   gh?: GhCall
+  /** The quick model, for fixing the grammar of the user's words before a pull request gets them. A host that asks no models has none. */
+  grammar?: GrammarAsk
   /** Opens a finished change's pull request. A host given none opens none. */
   publish?: Publisher
   /** The commit a change is at now, as the app already knows it without asking anyone. Null when it does not know. */
@@ -361,6 +364,8 @@ export class Reviews {
   private readonly deciding = new Map<string, { confirm: string; done: Promise<{ message: string }> }>()
   /** The confirmations whose words went on a pull request: one confirmation posts once, so the same words never go twice. */
   private readonly posted = new Set<string>()
+  /** The grammar check of each set of words, so a confirmation and its yes post the same words, checked once. */
+  private readonly grammared = new Map<string, Promise<GrammarResult>>()
   private readonly options: ReviewsOptions
 
   constructor(options: ReviewsOptions) {
@@ -833,6 +838,36 @@ export class Reviews {
     return note
   }
 
+  /** The user's words checked for grammar once, by their exact texts. Null on a host that asks no models. */
+  private grammarOf(texts: GrammarTexts): Promise<GrammarResult> | null {
+    const ask = this.options.grammar
+    if (!ask) return null
+    const key = JSON.stringify(texts)
+    let found = this.grammared.get(key)
+    if (!found) {
+      found = checkGrammar(texts, ask)
+      this.grammared.set(key, found)
+      if (this.grammared.size > 50) this.grammared.delete(this.grammared.keys().next().value!)
+    }
+    return found
+  }
+
+  /** A pull request review with its words' grammar fixed where only grammar changed, and what the confirmation says of it. */
+  private async fixedPost(post: PullReviewPost): Promise<{ post: PullReviewPost; said: string[] }> {
+    const result = await this.grammarOf({ ...(post.body ? { body: post.body } : {}), comments: post.comments.map((comment) => comment.body) })
+    if (!result) return { post, said: [] }
+    if (result.kind === 'unchecked') return { post, said: grammarLines(result) }
+    const { body, comments } = result.texts
+    return { post: { ...post, ...(body !== undefined ? { body } : {}), comments: post.comments.map((comment, index) => ({ ...comment, body: comments[index]! })) }, said: grammarLines(result) }
+  }
+
+  /** The words a pull request gets before it is closed, with their grammar fixed in the same way. */
+  private async fixedComment(comment: string | null): Promise<{ comment: string | null; said: string[] }> {
+    const result = comment ? await this.grammarOf({ body: comment, comments: [] }) : null
+    if (!result) return { comment, said: [] }
+    return { comment: result.kind === 'checked' ? (result.texts.body ?? comment) : comment, said: grammarLines(result) }
+  }
+
   /**
    * What a verdict will do, built from the review and the notes in the home, with the token that lets it go.
    * Nothing is sent here. `head` is the commit of the review on the user's screen: when the host holds a review of
@@ -871,8 +906,8 @@ export class Reviews {
       // Only the user's own pull request is merged or closed from here, as its review recorded it. A review from before that reads as someone else's.
       if ((verdict === 'approve-merge' || no) && !meta?.owner?.mine) throw new Unavailable(`${name} is not yours, so merging or closing it is left to its author. Approve it or comment on it.`)
       if (no) {
-        const comment = closingComment(summary)
-        const closing = [`Close ${name} on GitHub without merging it, as you.`, ...(comment ? ['Your words go on it as a comment first.'] : [])]
+        const { comment, said: checked } = await this.fixedComment(closingComment(summary))
+        const closing = [`Close ${name} on GitHub without merging it, as you.`, ...(comment ? ['Your words go on it as a comment first.', ...checked] : [])]
         const pull = { owner: target.owner, repo: target.repo, number: target.number, named: name }
         // Closed already, by this yes from another window or on GitHub: there is no second comment and no second delete.
         if (this.options.store.landedAt(target)) throw new Unavailable(`${name} is closed already, so there is nothing left to discard.`)
@@ -900,7 +935,7 @@ export class Reviews {
         const movedOn = !(current.startsWith(reviewed) || reviewed.startsWith(current))
         const said = movedOn ? await this.pullMovedWords(target, reviewed, current, base) : null
         // GitHub lets nobody approve their own pull request: what the user wrote still goes, as a comment, and then it merges.
-        const written = pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose)
+        const { post: written, said: checked } = await this.fixedPost(pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose))
         // A review with no line to place goes on the commit it merges; lines stay on the commit they were written on.
         const post = movedOn && written.comments.length === 0 ? { ...written, commit_id: current } : written
         const says = !mine || !saysNothing(post)
@@ -909,11 +944,11 @@ export class Reviews {
         const lines = mine
           ? [
               'GitHub does not let you approve your own pull request, so this merges it without an approval.',
-              ...(says ? [`Comment on ${name} on GitHub first, as you, through gh, ${lineComments(post)}.`] : []),
+              ...(says ? [`Comment on ${name} on GitHub first, as you, through gh, ${lineComments(post)}.`, ...checked] : []),
               `Merge ${name} into ${base} ${MERGE_WORDS[method]}, as you, through gh.`,
               ...tail,
             ]
-          : [`Approve ${name} on GitHub, as you, through gh, ${lineComments(post)}.`, `Then merge it into ${base} ${MERGE_WORDS[method]}.`, ...tail]
+          : [`Approve ${name} on GitHub, as you, through gh, ${lineComments(post)}.`, ...checked, `Then merge it into ${base} ${MERGE_WORDS[method]}.`, ...tail]
         const merge: Merge = { post: says ? post : null, method, base, mine, head: current }
         return { review, card: null, merge, preview: { verdict, lines, ...(says ? { post } : {}), confirm: token(merge) } }
       }
@@ -921,12 +956,13 @@ export class Reviews {
       if (verdict === 'approve' && this.options.gh && (await this.pullFacts(target)).mine) {
         throw new Unavailable('GitHub does not let you approve your own pull request. Approve and merge merges it without an approval, or leave a comment.')
       }
-      const post = pullReviewPost(review, notes, verdict, summary, loose)
-      if (verdict === 'comment' && saysNothing(post)) throw new Unavailable('There is nothing to post: write a comment first.')
+      const written = pullReviewPost(review, notes, verdict, summary, loose)
+      if (verdict === 'comment' && saysNothing(written)) throw new Unavailable('There is nothing to post: write a comment first.')
       // GitHub asks every request for changes for a body, and only the user's words may be it.
-      if (verdict === 'request-changes' && !post.body) throw new Unavailable('A request for changes needs your words: write what should change first.')
+      if (verdict === 'request-changes' && !written.body) throw new Unavailable('A request for changes needs your words: write what should change first.')
+      const { post, said: checked } = await this.fixedPost(written)
       const words = { comment: 'Comment on', approve: 'Approve', 'request-changes': 'Ask for changes on' }[verdict]
-      const lines = [`${words} ${name} on GitHub, as you, through gh.`, `At commit ${at.slice(0, 7)}, the one this review was built from.`, `${lineComments(post).replace(/^w/, 'W')}.`]
+      const lines = [`${words} ${name} on GitHub, as you, through gh.`, `At commit ${at.slice(0, 7)}, the one this review was built from.`, `${lineComments(post).replace(/^w/, 'W')}.`, ...checked]
       return { review, card: null, preview: { verdict, lines, post, confirm: token(post) } }
     }
 
