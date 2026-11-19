@@ -68,6 +68,8 @@ interface ViewState {
   openAgent: string | null
   /** While the user walks the agents list, the screen to return to when they leave it. */
   previewReturn: ScreenId | null
+  /** While the user walks the agents list from an agent's window: that agent, which leaving the list goes back to. */
+  previewFrom: string | null
   /** The screen under an agent, kept when its preview becomes a canvas. */
   agentReturn: ScreenId | null
   /** While Settings or Integrations is open: the screen under both, which closing returns to. */
@@ -137,7 +139,7 @@ function stepOver(state: ViewState, step: (over: Over) => Over): Partial<ViewSta
   const before: Over = { screen: state.screen, settingsReturn: state.settingsReturn }
   const after = step(before)
   // Going deeper comes down over the canvas. Stepping back lifts away.
-  return { ...after, previewReturn: null, screenMotion: { axis: 'y', direction: depth(after) > depth(before) ? -1 : 1 } }
+  return { ...after, previewReturn: null, previewFrom: null, screenMotion: { axis: 'y', direction: depth(after) > depth(before) ? -1 : 1 } }
 }
 
 /**
@@ -185,6 +187,7 @@ export const useView = create<ViewState>()(
       reviewReturn: null,
       openAgent: null,
       previewReturn: null,
+      previewFrom: null,
       agentReturn: null,
       settingsReturn: null,
       githubReturn: null,
@@ -203,6 +206,7 @@ export const useView = create<ViewState>()(
             openAgent: current.openAgent, previewReturn: current.previewReturn,
           } } : {}),
           previewReturn: null,
+          previewFrom: null,
           settingsReturn: null,
           githubReturn: screen === 'github' ? backFromGitHub(current) : null,
           screenMotion: { axis: 'x', direction: screenIndex(screen) > screenIndex(current.screen) ? 1 : -1 },
@@ -236,9 +240,11 @@ export const useView = create<ViewState>()(
         set({ openReview: null, reviewReturn: null })
       },
       previewAgent: (agentId, direction) => {
-        const { screen, previewReturn, openAgent, agentReturn } = get()
+        const { screen, previewReturn, previewFrom, openAgent, agentReturn } = get()
         if (screen === 'agent' && openAgent === agentId) return
         set({
+          // A walk that starts on an agent's window remembers that agent, and keeps it while the walk goes on.
+          previewFrom: previewFrom ?? (screen === 'agent' && previewReturn === null ? openAgent : null),
           // Remember where the canvas was only on the way in, not while moving between agents.
           previewReturn: previewReturn ?? (screen === 'agent' ? null : screen),
           agentReturn: screen === 'agent' ? agentReturn : screen,
@@ -249,19 +255,23 @@ export const useView = create<ViewState>()(
         })
       },
       endAgentPreview: () => {
-        const { previewReturn } = get()
+        const { previewReturn, previewFrom } = get()
+        if (previewFrom !== null) {
+          set({ openAgent: previewFrom, screen: 'agent', previewFrom: null, screenMotion: { axis: 'y', direction: -1 } })
+          return
+        }
         if (previewReturn === null) return
         set({ screen: previewReturn, openAgent: null, previewReturn: null, agentReturn: null, screenMotion: { axis: 'y', direction: -1 } })
       },
       openAgentCanvas: (agentId) => {
         const { screen, openAgent, previewReturn, agentReturn } = get()
         const same = screen === 'agent' && openAgent === agentId
-        set({ openAgent: agentId, screen: 'agent', agentReturn: screen === 'agent' ? (agentReturn ?? previewReturn) : screen, previewReturn: null, ...(same ? {} : { screenMotion: { axis: 'y', direction: 1 } }) })
+        set({ openAgent: agentId, screen: 'agent', agentReturn: screen === 'agent' ? (agentReturn ?? previewReturn) : screen, previewReturn: null, previewFrom: null, ...(same ? {} : { screenMotion: { axis: 'y', direction: 1 } }) })
       },
       closeAgentCanvas: () => {
         const { screen, agentReturn, previewReturn } = get()
         if (screen !== 'agent') return
-        set({ screen: agentReturn ?? previewReturn ?? 'work', openAgent: null, previewReturn: null, agentReturn: null, screenMotion: { axis: 'y', direction: -1 } })
+        set({ screen: agentReturn ?? previewReturn ?? 'work', openAgent: null, previewReturn: null, previewFrom: null, agentReturn: null, screenMotion: { axis: 'y', direction: -1 } })
       },
       // Settings and Integrations come down over whatever is showing, and lift away again when they are left.
       // The way back is in overlays.ts.
@@ -292,7 +302,7 @@ export const useView = create<ViewState>()(
         if (view.screen === 'canvas') return
         // Settings, or a page under it, opened over the canvas gives the canvas back with the way back it had.
         const back = ground(view) === 'canvas' && view.canvasReturn ? view.canvasReturn : placeOf(view)
-        set({ screen: 'canvas', canvasReturn: back, settingsReturn: null, previewReturn: null, screenMotion: { axis: 'x', direction: 1 } })
+        set({ screen: 'canvas', canvasReturn: back, settingsReturn: null, previewReturn: null, previewFrom: null, screenMotion: { axis: 'x', direction: 1 } })
       },
       closeCanvasPlace: () => {
         const { screen, canvasReturn } = get()

@@ -114,7 +114,7 @@ function spotNow(): Spot {
  */
 function show(spot: Spot, screenMotion?: ScreenMotion): void {
   const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, action, githubTab, githubProject } = spot
-  useView.setState({ screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, previewReturn: null, ...(screenMotion ? { screenMotion } : {}) })
+  useView.setState({ screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, previewReturn: null, previewFrom: null, ...(screenMotion ? { screenMotion } : {}) })
   remembered.setState({ action, githubTab, githubProject })
 }
 
@@ -152,7 +152,7 @@ function settle(): void {
     storage()?.setItem(KEY, JSON.stringify({ ...now, home: hostStore.getState().home }))
   } catch {}
   const view = useView.getState()
-  if (view.screen === 'agent' && view.previewReturn !== null) return
+  if (view.screen === 'agent' && (view.previewReturn !== null || view.previewFrom !== null)) return
   if (moveKey(now) !== moveKey(last)) {
     trail = { back: [...trail.back, last].slice(-MOST), forward: [] }
     wanted = null
