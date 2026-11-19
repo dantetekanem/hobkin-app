@@ -9,7 +9,7 @@ import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
 import type { GrammarAsk } from '#shared/review/grammar.ts'
-import { reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
+import { pullUrl, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import type { ReviewLanding } from '#shared/review/status.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
 import type { HostHandlers } from '../commands.ts'
@@ -121,7 +121,7 @@ function codeHostsSeat(seat: ReviewSeat) {
   }
   /** The review tree a named host keeps of its own, used in place of hobkin's worktree. */
   const treeOf = (target: ReviewTarget) => (target.kind === 'pull' && target.host ? (quietHostOf(target.host)?.tree ?? null) : null)
-  return { hostOf: quietHostOf, apiOf, checksOut, whoIsMe, named, treeOf }
+  return { hostOf: quietHostOf, apiOf, checksOut, whoIsMe, named, treeOf, emails: () => known().emails }
 }
 
 export function hostReviews(seat: ReviewSeat): Reviews {
@@ -214,7 +214,11 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     },
     onReady: ({ target, review, at }) => void tell?.({ id: reviewIdOf(target), kind: target.kind, title: review.change.title, project: review.change.project, head: review.change.head, at }),
     ...(seat.merged
-      ? { onMerged: (target: ReviewTarget) => seat.merged!(target.kind === 'pull' ? { repo: `${target.owner}/${target.repo}`, number: target.number } : { url: find(target.slug, target.item)?.pr ?? undefined }) }
+      ? {
+          // What closed or merged on a named host is told by its page, never by a repository and number GitHub could also have.
+          onMerged: (target: ReviewTarget) =>
+            seat.merged!(target.kind === 'pull' ? (target.host ? { url: pullUrl(target) ?? undefined } : { repo: `${target.owner}/${target.repo}`, number: target.number }) : { url: find(target.slug, target.item)?.pr ?? undefined }),
+        }
       : {}),
     store,
     sources: {
@@ -258,6 +262,12 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     ...(seat.live && seat.gh ? { apiOf: hosts.apiOf } : {}),
     checksOut: hosts.checksOut,
     namedHosts: hosts.named,
+    // How a named host merges and deletes a branch, its own way, as its code host file says (entry 26).
+    hostWays: (target: PullTarget) => {
+      const host = target.host ? hosts.hostOf(target.host) : undefined
+      if (!host || !checkout) return null
+      return { merge: host.merge, mergeBy: host.mergeBy ?? null, emails: hosts.emails(), deleteBranch: (branch: string, sha: string) => checkout.deleteBranch(target, branch, sha) }
+    },
     log: seat.log,
   })
 }

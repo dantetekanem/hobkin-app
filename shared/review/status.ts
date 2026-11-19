@@ -68,6 +68,10 @@ export interface MergeAsked {
   at: string
   state: 'waiting' | 'failed'
   why?: string
+  /** For a merge a code host does in its own time: what it does once asked, in the code host file's words. */
+  message?: string
+  /** The confirmation the merge was asked with, so the same yes again asks nothing more. */
+  confirm?: string
 }
 
 /**

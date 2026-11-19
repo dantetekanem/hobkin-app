@@ -86,6 +86,8 @@ export interface ReviewsOptions {
   checksOut?: (target: ReviewTarget) => boolean
   /** The code hosts the home names besides GitHub, by name and web address, as the window learns them. */
   namedHosts?: () => NamedCodeHost[]
+  /** How a named code host merges, and deletes a branch, as the code host file says. Null where hobkin has no way there. */
+  hostWays?: (target: PullTarget) => HostWays | null
   /** Opens a finished change's pull request. A host given none opens none. */
   publish?: Publisher
   /** The commit a change is at now, as the app already knows it without asking anyone. Null when it does not know. */
@@ -144,7 +146,21 @@ interface Publication {
 type MergeMethod = 'squash' | 'merge' | 'rebase'
 
 /** What approve and merge does to a pull request: the review it posts first, if any, and how it merges. */
+/** How a named code host lands and closes the user's pull requests, its own way (spec 048, entry 26). */
+export interface HostWays {
+  /** Whether hobkin may merge there. */
+  merge: boolean
+  /** The comment that asks the host to merge, and what it does once that is posted. Null when the file names none. */
+  mergeBy: { comment: string; after?: string } | null
+  /** The user's email addresses: on such a host the user opened a pull request when one is its author's name. */
+  emails: readonly string[]
+  /** Deletes a branch there with git, only while it is at `sha`. */
+  deleteBranch: (branch: string, sha: string) => Promise<void>
+}
+
 interface Merge {
+  /** On a named host, the comment that asks it to merge, which is posted in place of a merge. */
+  asks?: { comment: string; after?: string }
   post: PullReviewPost | null
   method: MergeMethod
   base: string
@@ -177,6 +193,8 @@ interface PullPlace {
   owner: string
   repo: string
   number: number
+  /** The named code host it lives on, or none for GitHub. */
+  host?: string
 }
 
 /** What a discard closes on GitHub, and under what name it says so: the pull request under review, or a finished change's own. */
@@ -195,7 +213,8 @@ interface Discard {
 interface PullBranch {
   ref: string
   sha: string
-  repo: string
+  /** GitHub's id of the repository, which its delete needs. None on a named host, which deletes with git. */
+  repo?: string
 }
 
 /**
@@ -934,29 +953,32 @@ export class Reviews {
       const how = target.host ? 'through its API command' : 'through gh'
       // Only the user's own pull request is merged or closed from here, as its review recorded it. A review from before that reads as someone else's.
       if ((verdict === 'approve-merge' || no) && !meta?.owner?.mine) throw new Unavailable(`${name} is not yours, so merging or closing it is left to its author. Approve it or comment on it.`)
-      if ((verdict === 'approve-merge' || no) && target.host) throw new Unavailable(`Merging or closing a pull request on ${target.host} is not done from here yet. Approve it or comment on it, and merge or close it there.`)
       if (no) {
         const { comment, said: checked } = await this.fixedComment(closingComment(summary))
-        const closing = [`Close ${name} on GitHub without merging it, as you.`, ...(comment ? ['Your words go on it as a comment first.', ...checked] : [])]
-        const pull = { owner: target.owner, repo: target.repo, number: target.number, named: name }
+        const closing = [`Close ${name} on ${where} without merging it, as you${target.host ? `, ${how}` : ''}.`, ...(comment ? ['Your words go on it as a comment first.', ...checked] : [])]
+        const pull = { owner: target.owner, repo: target.repo, number: target.number, ...(target.host ? { host: target.host } : {}), named: name }
         // Closed already, by this yes from another window or on GitHub: there is no second comment and no second delete.
         if (this.options.store.landedAt(target)) throw new Unavailable(`${name} is closed already, so there is nothing left to discard.`)
         if (verdict === 'discard') {
           const discard: Discard = { pull, comment }
           return { review, card: null, discard, preview: { verdict, lines: [...closing, 'Its branch stays.'], confirm: token('discard', comment) } }
         }
-        // The branch as GitHub has it now, commit and all: one that gains a commit after this is not the one shown.
+        if (target.host && !this.options.hostWays?.(target)) throw new Unavailable(`${target.host} gives hobkin no way to delete a branch there, so Discard closes the pull request and keeps it.`)
+        // The branch as its host has it now, commit and all: one that gains a commit after this is not the one shown.
         const branch = await this.pullHead(target)
-        const lines = [
-          ...closing,
-          `Then delete its branch ${branch.ref} on GitHub, in ${target.owner}/${target.repo}, as you, only if it is still at ${branch.sha.slice(0, 7)}: a commit pushed since keeps it.`,
-          'Its commits stay on the closed pull request, and GitHub can restore the branch from there.',
-        ]
+        const lines = target.host
+          ? [...closing, `Then delete its branch ${branch.ref} on ${target.host}, with git, as you, only if it is still at ${branch.sha.slice(0, 7)}: a commit pushed since keeps it.`, 'Its commits stay on the closed pull request.']
+          : [
+              ...closing,
+              `Then delete its branch ${branch.ref} on GitHub, in ${target.owner}/${target.repo}, as you, only if it is still at ${branch.sha.slice(0, 7)}: a commit pushed since keeps it.`,
+              'Its commits stay on the closed pull request, and GitHub can restore the branch from there.',
+            ]
         const discard: Discard = { pull, comment, branch }
         return { review, card: null, discard, preview: { verdict, lines, confirm: token('discard-branch', comment, branch) } }
       }
       const lineComments = (post: PullReviewPost) => (post.comments.length ? `with ${post.comments.length === 1 ? 'one comment' : `${post.comments.length} comments`} on lines` : 'with no comments on lines')
       const pinned = `At commit ${at.slice(0, 7)}, the one this review was built from. GitHub refuses if the pull request has moved since.`
+      if (verdict === 'approve-merge' && target.host) return this.hostMergePlan({ target, name, review, notes, summary, loose, at, token })
       if (verdict === 'approve-merge') {
         const { mine, method, base, head: now } = await this.pullFacts(target)
         // It merges where the pull request is now, which the preview says: a head that moved since the review is no refusal.
@@ -984,6 +1006,7 @@ export class Reviews {
       }
       // GitHub would refuse it, so it is refused here, before anything is sent.
       if (verdict === 'approve' && this.apiFor(target) && (await this.pullFacts(target)).mine) {
+        if (target.host) throw new Unavailable(`On ${target.host} your own approval counts for nothing. Approve and merge asks ${target.host} to merge it, or leave a comment.`)
         throw new Unavailable('GitHub does not let you approve your own pull request. Approve and merge merges it without an approval, or leave a comment.')
       }
       const written = pullReviewPost(review, notes, verdict, summary, loose)
@@ -1043,14 +1066,66 @@ export class Reviews {
   }
 
   /**
+   * Approve and merge on the user's own pull request on a named host, the way that host merges: the review goes first,
+   * as a comment on a pull request the user opened (their own approval counts for nothing there) and as an approval on
+   * one an agent opened because they asked, then the comment that asks the host to merge it, at the commit shown.
+   * Refused, before anything is sent, for a draft, a conflict, one no longer open, or a host with no merge entry.
+   */
+  private async hostMergePlan({ target, name, review, notes, summary, loose, at, token }: {
+    target: PullTarget
+    name: string
+    review: Review
+    notes: readonly Note[]
+    summary: string
+    loose: ReadonlySet<string>
+    at: string
+    token: (...shown: unknown[]) => string
+  }): Promise<Planned> {
+    const host = target.host!
+    const ways = this.options.hostWays?.(target)
+    const api = this.apiFor(target)
+    if (!ways?.merge || !api) throw new Unavailable(`hobkin may not merge on ${host}, as its code host file says.`)
+    if (!ways.mergeBy) throw new Unavailable(`${host} has no merge entry in the code host file, so hobkin does not know how to ask it to merge. Name its merge comment there.`)
+    let pull: { state?: string; draft?: boolean; mergeable?: boolean | null; mergeable_state?: string; head?: { sha?: string }; user?: { login?: string } }
+    try {
+      pull = JSON.parse(await api({ path: `repos/${target.owner}/${target.repo}/pulls/${target.number}` })) as typeof pull
+    } catch (error) {
+      throw new Unavailable(messageOf(error))
+    }
+    if (pull.state !== 'open') throw new Unavailable(`${name} is not open on ${host}, so there is nothing to merge.`)
+    if (pull.draft) throw new Unavailable(`${name} is a draft on ${host}: mark it ready for review first.`)
+    if (pull.mergeable === false || pull.mergeable_state === 'dirty') throw new Unavailable(`${name} has conflicts on ${host}: resolve them first.`)
+    const current = pull.head?.sha
+    if (!current) throw new Unavailable(`${host} did not say which commit ${name} is at, so its merge is not asked.`)
+    const opened = Boolean(pull.user?.login && ways.emails.includes(pull.user.login.toLowerCase()))
+    const { post: written, said: checked } = await this.fixedPost(pullReviewPost(review, notes, opened ? 'comment' : 'approve', summary, loose))
+    // A review with no line to place goes on the commit it asks to merge; lines stay on the commit they were written on.
+    const post = current !== at && written.comments.length === 0 ? { ...written, commit_id: current } : written
+    const says = !opened || !saysNothing(post)
+    const lineComments = post.comments.length ? `with ${post.comments.length === 1 ? 'one comment' : `${post.comments.length} comments`} on lines` : 'with no comments on lines'
+    const { comment, after } = ways.mergeBy
+    const lines = [
+      ...(opened
+        ? [`On ${host} your own approval counts for nothing, so nothing is approved.`, ...(says ? [`Comment on ${name} on ${host} first, as you, through its API command, ${lineComments}.`, ...checked] : [])]
+        : [`Approve ${name} on ${host}, as you, through its API command, ${lineComments}.`, ...checked]),
+      `Then post "${comment}" on it, which asks ${host} to merge it.`,
+      ...(after ? [after] : []),
+      // Not the branch it merges into: a stacked pull request's base is the one below it.
+      `It asks at commit ${current.slice(0, 7)}: if ${name} moves before then, nothing more is posted.`,
+    ]
+    const merge: Merge = { asks: ways.mergeBy, post: says ? post : null, method: 'merge', base: '', mine: opened, head: current }
+    return { review, card: null, merge, preview: { verdict: 'approve-merge', lines, ...(says ? { post } : {}), confirm: token(merge) } }
+  }
+
+  /**
    * The branch a pull request comes from, as GitHub has it now, for deleting it once it is closed. Refused, before anything
    * is sent, when it is not one to delete from here: in a fork, in a repository that is gone, the repository's default
    * branch, a protected branch, the branch of another open pull request, or one that open pull requests merge into.
    */
   private async pullHead(target: PullTarget): Promise<PullBranch> {
-    const { gh } = this.options
-    if (!gh) throw new Unavailable('This host posts nothing to GitHub.')
-    const api = async <Value>(path: string) => JSON.parse(await ghText(gh, ['api', '--hostname', 'github.com', path])) as Value
+    const host = this.apiFor(target)
+    if (!host) throw new Unavailable(`This host posts nothing to ${target.host ?? 'GitHub'}.`)
+    const api = async <Value>(path: string) => JSON.parse(await host({ path })) as Value
     const repo = `repos/${target.owner}/${target.repo}`
     type Pull = { head?: { ref?: string; sha?: string; repo?: { full_name?: string } | null }; base?: { repo?: { full_name?: string } } }
     const read = async <Facts>(reads: Promise<unknown>[]) => {
@@ -1069,7 +1144,8 @@ export class Reviews {
     if (from.toLowerCase() !== (pull.base?.repo?.full_name ?? home).toLowerCase()) throw new Unavailable(`Its branch ${ref} lives in ${from}, a fork, and is not deleted from here. ${keeps}`)
     if (ref === settings.default_branch) throw new Unavailable(`Its branch is ${ref}, the default branch of ${home}, which is never deleted. ${keeps}`)
     const sha = pull.head?.sha
-    if (!sha || !settings.node_id) throw new Unavailable(`GitHub did not say which commit its branch ${ref} is at, so it is not deleted. ${keeps}`)
+    // GitHub's delete names the repository by its id; a named host deletes with git, by the commit alone.
+    if (!sha || (!target.host && !settings.node_id)) throw new Unavailable(`${target.host ?? 'GitHub'} did not say which commit its branch ${ref} is at, so it is not deleted. ${keeps}`)
     type Listed = { number?: number }[]
     const [branch, heads, bases] = await read<[{ protected?: boolean }, Listed, Listed]>([
       api(`${repo}/branches/${ref.split('/').map(encodeURIComponent).join('/')}`),
@@ -1084,7 +1160,7 @@ export class Reviews {
       const into = bases.length === 1 ? `${home}#${bases[0]!.number}, an open pull request, merges` : `${home}#${bases[0]!.number} and ${bases.length - 1} more open pull requests merge`
       throw new Unavailable(`Its branch ${ref} is what ${into} into, so it is not deleted. ${others}`)
     }
-    return { ref, sha, repo: settings.node_id }
+    return { ref, sha, ...(target.host ? {} : { repo: settings.node_id }) }
   }
 
   /** What hobkin says deleting a finished change's own branch takes, read and never changed. Its refusal comes back as it is. */
@@ -1112,15 +1188,21 @@ export class Reviews {
     type Facts = [{ login?: string }, { user?: { login?: string }; base?: { ref?: string }; head?: { sha?: string } }, { allow_squash_merge?: boolean; allow_merge_commit?: boolean; allow_rebase_merge?: boolean }]
     let facts: Facts
     try {
-      facts = (await Promise.all([api('user'), api(`${repo}/pulls/${target.number}`), api(repo)])) as Facts
+      // A named host places the author by the user's addresses, and merges its own way: neither its login nor its settings are read.
+      facts = (await Promise.all([target.host ? {} : api('user'), api(`${repo}/pulls/${target.number}`), target.host ? {} : api(repo)])) as Facts
     } catch (error) {
       throw new Unavailable(messageOf(error))
     }
     const [viewer, pull, settings] = facts
     const method: MergeMethod | null = settings.allow_squash_merge === true ? 'squash' : settings.allow_merge_commit !== false ? 'merge' : settings.allow_rebase_merge !== false ? 'rebase' : null
-    if (!method) throw new Unavailable(`${target.owner}/${target.repo} allows no way to merge a pull request.`)
-    const mine = Boolean(viewer.login && pull.user?.login && viewer.login.toLowerCase() === pull.user.login.toLowerCase())
-    return { mine, method, base: pull.base?.ref ?? 'its base branch', head: pull.head?.sha ?? null }
+    // A named host merges its own way, so how GitHub would merge is no question there.
+    if (!method && !target.host) throw new Unavailable(`${target.owner}/${target.repo} allows no way to merge a pull request.`)
+    // On GitHub the user opened it when gh's login is its author's; elsewhere, when one of their addresses is its author's name.
+    const author = pull.user?.login?.toLowerCase()
+    const mine = target.host
+      ? Boolean(author && (this.options.hostWays?.(target)?.emails ?? []).includes(author))
+      : Boolean(viewer.login && author && viewer.login.toLowerCase() === author)
+    return { mine, method: method ?? 'merge', base: pull.base?.ref ?? 'its base branch', head: pull.head?.sha ?? null }
   }
 
   /** What moved on a pull request since its review, in a line: from a checkout of it when the host has one. */
@@ -1164,7 +1246,13 @@ export class Reviews {
     const target = this.target(id)
     const at = new Date(this.now()).toISOString()
     try {
-      const done = await this.give(id, verdict, summary, confirm, head)
+      const { waiting, ...done } = await this.give(id, verdict, summary, confirm, head)
+      // A named host merges in its own time: the merge waits, with what the host does, until the host has closed it.
+      if (waiting != null) {
+        this.options.store.saveMergeAsked(target, { at, state: 'waiting', message: waiting, confirm })
+        this.options.onChange?.()
+        return done
+      }
       const waits = this.landingOf(target)?.state === 'refreshing'
       this.options.store.saveMergeAsked(target, waits ? { at, state: 'waiting' } : null)
       // Merged: it leaves the list of reviews, so nothing stays on screen that reads as if it had not gone through.
@@ -1185,14 +1273,16 @@ export class Reviews {
 
   /** The merge the user asked for that has not happened, or undefined: one that waited is done once the change has merged. */
   private mergeAskedOf(target: ReviewTarget, landing: ReviewLanding | null): MergeAsked | undefined {
-    const asked = this.options.store.mergeAsked(target)
-    if (!asked) return undefined
+    const stored = this.options.store.mergeAsked(target)
+    if (!stored) return undefined
+    // The confirmation it was asked with stays in the host: the window is shown what waits, and why.
+    const { confirm: _confirm, ...asked } = stored
     if (landing?.state !== 'merged') return asked
     this.options.store.saveMergeAsked(target, null)
     return undefined
   }
 
-  private async give(id: string, verdict: Verdict, summary: string, confirm: string, head?: string): Promise<{ message: string }> {
+  private async give(id: string, verdict: Verdict, summary: string, confirm: string, head?: string): Promise<{ message: string; waiting?: string }> {
     // Done with what the token was checked against: a review prepared again meanwhile is never the one acted on.
     const { preview, review, card, publication, merge, plan, done, discard } = await this.planned(id, verdict, summary, head)
     if (preview.confirm !== confirm) throw new Unavailable('What would be sent has changed since it was shown. Look at it again before sending.')
@@ -1211,6 +1301,17 @@ export class Reviews {
         this.posted.add(confirm)
         this.markSent(target, verdict)
         return (JSON.parse(answer || '{}') as { html_url?: string }).html_url
+      }
+      if (merge?.asks) {
+        // The review first, then the pull request read again: the merge is asked only at the commit shown.
+        const posted = merge.post && !this.posted.has(confirm) ? await post(merge.post) : null
+        const went = merge.post ? (merge.mine ? 'Your comment went' : 'It was approved') : null
+        const now = (JSON.parse(await api({ path: `repos/${target.owner}/${target.repo}/pulls/${target.number}` })) as { head?: { sha?: string } }).head?.sha
+        if (!now || now !== merge.head) throw new Error(`${went ? `${went} on ${where}, but ` : ''}${name} moved to ${(now ?? 'another commit').slice(0, 7)} before its merge was asked, so the merge comment was not posted.`)
+        // The same yes again asks nothing more: one merge comment for one confirmation.
+        if (this.options.store.mergeAsked(target)?.confirm !== confirm) await api({ method: 'POST', path: `repos/${target.owner}/${target.repo}/issues/${target.number}/comments`, body: { body: merge.asks.comment } })
+        const after = merge.asks.after ?? `${where} merges it in its own time.`
+        return { message: `Asked ${where} to merge ${name}${went ? (merge.mine ? ', after your comment' : ', after approving it') : ''}. ${after}${posted ? ` ${posted}` : ''}`.trim(), waiting: after }
       }
       if (merge) {
         // A merge that failed after its review went is tried again with that same yes: the review does not go twice.
@@ -1253,6 +1354,7 @@ export class Reviews {
    */
   private async discarded(id: string, target: ReviewTarget, { pull, comment, branch, deletes }: Discard): Promise<{ message: string }> {
     const closed = pull ? await this.closePull(pull, comment) : null
+
     const leave = () => {
       // What closed on GitHub leaves the lists at once, as what merged does.
       if (pull) this.merged(id)
@@ -1263,7 +1365,7 @@ export class Reviews {
     if (target.kind === 'pull' && pull && branch) {
       const done = said.replace(/\.$/, '')
       try {
-        await this.deleteHeadBranch(branch)
+        await this.deleteHeadBranch(target, branch)
       } catch (error) {
         leave()
         throw new Error(`${done}, but its branch ${branch.ref} was not deleted: ${messageOf(error)}`)
@@ -1295,8 +1397,16 @@ export class Reviews {
     return { message: said }
   }
 
-  /** Deletes a closed pull request's head branch on GitHub, through gh, as the user, only while it is at the commit shown. */
-  private async deleteHeadBranch({ ref, sha, repo }: PullBranch): Promise<void> {
+  /**
+   * Deletes a closed pull request's head branch, as the user, only while it is at the commit shown: on GitHub through gh,
+   * on a named host with git, the way its code host file allows.
+   */
+  private async deleteHeadBranch(target: ReviewTarget, { ref, sha, repo }: PullBranch): Promise<void> {
+    if (target.kind === 'pull' && target.host) {
+      const ways = this.options.hostWays?.(target)
+      if (!ways) throw new Unavailable(`${target.host} gives hobkin no way to delete a branch there.`)
+      return ways.deleteBranch(ref, sha)
+    }
     const { gh } = this.options
     if (!gh) throw new Unavailable('This host posts nothing to GitHub.')
     const body = JSON.stringify({ query: DELETE_REF, variables: { repo, name: `refs/heads/${ref}`, before: sha } })
@@ -1306,20 +1416,20 @@ export class Reviews {
     if (errors.length > 0) throw new Error(errors.map((error) => error.message ?? 'GitHub refused it.').join(' '))
   }
 
-  /** Closes a pull request on GitHub without merging it, through gh, as the user, with their words as a comment first. */
+  /** Closes a pull request without merging it, as the user, through its own host, with their words as a comment first. */
   private async closePull(pull: PullPlace & { named: string }, comment: string | null): Promise<string> {
-    const { gh } = this.options
-    if (!gh) throw new Unavailable('This host posts nothing to GitHub.')
-    const send = (method: 'POST' | 'PATCH', path: string, body: unknown) =>
-      ghText(gh, ['api', '--hostname', 'github.com', '--method', method, `repos/${pull.owner}/${pull.repo}/${path}`, '--input', '-'], JSON.stringify(body))
+    const where = pull.host ?? 'GitHub'
+    const api = this.apiFor({ kind: 'pull', owner: pull.owner, repo: pull.repo, number: pull.number, ...(pull.host ? { host: pull.host } : {}) })
+    if (!api) throw new Unavailable(`This host posts nothing to ${where}.`)
+    const send = (method: 'POST' | 'PATCH', path: string, body: unknown) => api({ method, path: `repos/${pull.owner}/${pull.repo}/${path}`, body })
     if (comment) await send('POST', `issues/${pull.number}/comments`, { body: comment })
     try {
       await send('PATCH', `pulls/${pull.number}`, { state: 'closed' })
     } catch (error) {
-      if (comment) throw new Error(`Your comment went on GitHub, but it was not closed: ${messageOf(error)}`)
+      if (comment) throw new Error(`Your comment went on ${where}, but it was not closed: ${messageOf(error)}`)
       throw error
     }
-    return `Closed ${pull.named} without merging it.`
+    return `Closed ${pull.named}${pull.host ? ` on ${pull.host}` : ''} without merging it.`
   }
 
   /** Tells the host something merged. What it does next never undoes the merge. */

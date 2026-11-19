@@ -163,7 +163,10 @@ export function reviewStore(root: string): ReviewStore {
     },
     mergeAsked(target) {
       const saved = readJson<Partial<MergeAsked>>(join(folderOf(target), 'merge-asked.json'))
-      return saved?.at && (saved.state === 'waiting' || saved.state === 'failed') ? { at: saved.at, state: saved.state, ...(saved.why ? { why: saved.why } : {}) } : null
+      if (!saved?.at || (saved.state !== 'waiting' && saved.state !== 'failed')) return null
+      const said = (value: unknown) => (typeof value === 'string' && value ? value : undefined)
+      const [why, message, confirm] = [said(saved.why), said(saved.message), said(saved.confirm)]
+      return { at: saved.at, state: saved.state, ...(why ? { why } : {}), ...(message ? { message } : {}), ...(confirm ? { confirm } : {}) }
     },
     saveMergeAsked(target, asked) {
       const folder = folderOf(target)

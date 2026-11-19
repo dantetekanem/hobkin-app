@@ -60,7 +60,7 @@ test("a named host's pull request is read through its own API, fetched by its he
 const sample = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const files = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/files.json', import.meta.url), 'utf8')) as ReviewFileContents[]
 
-test("a review of a named host's pull request is posted through that host's API, as the user, and merging or closing it waits for that host's own way", async (t) => {
+test("a review of a named host's pull request is posted through that host's API, as the user, and nothing is merged or deleted there without that host's way", async (t) => {
   const store = reviewStore(temporaryDirectory(t))
   store.write(target, sample, files, { preparedAt: '2026-11-19T12:00:00.000Z', storyBy: 'host', owner: { author: 'me@example.invalid', mine: true } })
   const calls: ApiCall[] = []
@@ -90,7 +90,9 @@ test("a review of a named host's pull request is posted through that host's API,
   assert.deepEqual(await reviews.verdict(id, 'comment', '', preview.confirm), { message: 'Posted to corp: https://git.example.invalid/acme/shop/pull/7#review-1' })
   assert.deepEqual(calls, [{ method: 'POST', path: 'repos/acme/shop/pulls/7/reviews', body: preview.post }])
 
-  for (const verdict of ['approve-merge', 'discard', 'discard-branch'] as const) await assert.rejects(reviews.preview(id, verdict, ''), /on corp/, verdict)
+  // With no way of the host's named in the code host file, hobkin neither merges there nor deletes a branch there.
+  await assert.rejects(reviews.preview(id, 'approve-merge', ''), /may not merge on corp/)
+  await assert.rejects(reviews.preview(id, 'discard-branch', ''), /no way to delete a branch/)
   assert.equal(calls.length, 1)
 })
 
