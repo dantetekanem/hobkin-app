@@ -19,6 +19,17 @@ export function focusCanvas(): void {
   activeCanvasScreen()?.focus({ preventScroll: true })
 }
 
+/**
+ * A screen takes the keyboard only when it is nowhere: on nothing, on the page itself, or on something that
+ * has left the page with its old screen. Typing in the chat, or any control still on the page, keeps it.
+ */
+export function takeKeyboardIfNowhere(element: HTMLElement): boolean {
+  const held = document.activeElement as HTMLElement | null
+  const nowhere = held == null || held === document.body || held === document.documentElement || held.isConnected === false
+  if (nowhere) element.focus({ preventScroll: true })
+  return nowhere
+}
+
 /** Navigation waits for React to mount the arriving section. */
 export function requestCanvasFocus(selector?: string): void {
   cancelEntry?.()

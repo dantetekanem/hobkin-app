@@ -14,7 +14,7 @@ import { sampleHost } from './preparing/sample-run.ts'
 import { ReviewLoad } from './ReviewLoad.ts'
 import { isSamplePull } from './sample/pull-id.ts'
 import { escapeReview, reviewTakesEscape } from './entry.ts'
-import { handOffCanvasFocus } from '@/app/focus.ts'
+import { handOffCanvasFocus, takeKeyboardIfNowhere } from '@/app/focus.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
@@ -267,6 +267,16 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
     void element.offsetWidth
     element.classList.add('rv-cut')
   }, [moveKey, reduced])
+
+  // The screen is drawn anew when the review becomes ready and when its AI review lands. Whatever held the keyboard
+  // left with the old one, so the review takes it when it is nowhere, now and once more next frame, never from typing.
+  useEffect(() => {
+    const element = root.current
+    if (!element) return
+    takeKeyboardIfNowhere(element)
+    const frame = requestAnimationFrame(() => takeKeyboardIfNowhere(element))
+    return () => cancelAnimationFrame(frame)
+  }, [assessment])
 
   // The frame hands the keyboard to the screen's section. The review takes it from there, so its keys work.
   useEffect(() => {

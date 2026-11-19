@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { afterEach, test } from 'node:test'
-import { focusCanvas, handOffCanvasFocus, requestCanvasFocus } from '../src/app/focus.ts'
+import { focusCanvas, handOffCanvasFocus, requestCanvasFocus, takeKeyboardIfNowhere } from '../src/app/focus.ts'
 import { useView } from '../src/app/view-store.ts'
 import { bindStops } from '../src/app/stops.ts'
 
@@ -64,7 +64,7 @@ function screen(key = 'screen') {
   }
   const root = {
     closest: () => section,
-    focus() { page.activeElement = root },
+    focus() { Object.assign(document, { activeElement: root }); page.activeElement = root },
   }
   return { section, root: root as unknown as HTMLElement }
 }
@@ -254,4 +254,20 @@ test('explicit review routes take focus and closing restores the opener screen, 
   frames.shift()!(0)
   assert.equal(useView.getState().screen, 'actions')
   assert.equal(page.activeElement, opener.section)
+})
+
+test('a screen takes the keyboard when it is nowhere, never from where the user types', () => {
+  const body = { tagName: 'BODY' }
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { ...page, body, documentElement: { tagName: 'HTML' }, activeElement: body } })
+  const review = screen('review')
+  assert.equal(takeKeyboardIfNowhere(review.root), true)
+  assert.equal(document.activeElement, review.root)
+  // Typing in the chat box, or a button that is still in the page, keeps the keyboard.
+  const chat = { tagName: 'TEXTAREA', isConnected: true }
+  Object.assign(document, { activeElement: chat })
+  assert.equal(takeKeyboardIfNowhere(review.root), false)
+  assert.equal(document.activeElement, chat)
+  // Whatever held it left the page with its screen.
+  Object.assign(document, { activeElement: { tagName: 'BUTTON', isConnected: false } })
+  assert.equal(takeKeyboardIfNowhere(review.root), true)
 })
