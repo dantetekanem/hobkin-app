@@ -6,6 +6,20 @@ interface Job {
 
 type Jobs = Record<string, unknown>
 
+/**
+ * A helper's row without its steps. hobkin keeps each helper's latest words and calls with its row, and resends every
+ * run's helpers whole whenever one of them moves, but the window draws only who they are and how they stand. So the
+ * steps stay here: a helper's words and calls send nothing, and its rows travel small.
+ */
+function withoutSteps(rows: unknown): unknown {
+  if (!Array.isArray(rows)) return rows
+  return rows.map((row) => {
+    if (!row || typeof row !== 'object' || !('activity' in row)) return row
+    const { activity: _steps, ...rest } = row as Record<string, unknown>
+    return rest
+  })
+}
+
 /** A missing source is not proof of termination. Legacy reports keep their original meanings. */
 function lastKnown(children: unknown): unknown {
   if (!Array.isArray(children)) return children
@@ -25,17 +39,23 @@ export class ActivityKeeper {
     this.most = most
   }
 
-  /** The snapshot with the activity and agents of the jobs running now and of those that ended most recently. */
+  /**
+   * The snapshot with the activity and agents of the jobs running now and of those that ended most recently. Helpers'
+   * rows, a job's and the main chat's, come without their steps (`withoutSteps`).
+   */
   keep<Snapshot extends object>(snapshot: Snapshot): Snapshot & { jobActivity: Jobs; jobChildren: Jobs } {
-    const { jobActivity: now, jobChildren } = snapshot as { jobActivity?: unknown; jobChildren?: unknown }
+    const { jobActivity: now, jobChildren, mainChildren } = snapshot as { jobActivity?: unknown; jobChildren?: unknown; mainChildren?: unknown }
     // Saved views with neither key change nothing kept. Children can outlive their parent's feed.
     const activity = now && typeof now === 'object' ? now as Jobs : undefined
-    const children = jobChildren && typeof jobChildren === 'object' ? jobChildren as Jobs : undefined
+    const children = jobChildren && typeof jobChildren === 'object'
+      ? Object.fromEntries(Object.entries(jobChildren).map(([id, rows]) => [id, withoutSteps(rows)]))
+      : undefined
     if (activity || children) this.follow(activity ?? {}, children ?? {})
 
     const jobs = [...this.ended, ...Object.entries(this.running)]
     return {
       ...snapshot,
+      ...(Array.isArray(mainChildren) ? { mainChildren: withoutSteps(mainChildren) } : {}),
       jobActivity: Object.fromEntries(jobs.filter(([, job]) => job.activity !== undefined).map(([id, job]) => [id, job.activity])),
       // hobkin lists only the jobs that spawned agents, and so does this.
       jobChildren: Object.fromEntries(jobs.filter(([, job]) => job.children !== undefined).map(([id, job]) => [id, job.children])),

@@ -83,17 +83,38 @@ test('owned ancestry and late child-only updates survive deltas and reconnects w
   const grandchild = { ...parent, id: 'g', parentId: 'p', depth: 2, state: 'running', activity: [said('g', 'Reading')] } as const
   sync.update(facts({ jobActivity: { root: [said('p', 'Done')] }, jobChildren: { root: [parent, grandchild] } }))
   let client = applyHostMessage(initialHostState, sync.full())
-  assert.deepEqual(client.snapshot.jobChildren?.root, [parent, grandchild])
+  assert.deepEqual(client.snapshot.jobChildren?.root, [rowOf(parent), rowOf(grandchild)])
 
   const final = { ...grandchild, state: 'cancelled', activity: [said('g', 'Ended')] } as const
   const other = { ...parent, id: 'o', rootId: 'other', parentId: 'other' }
   const delta = sync.update(facts({ jobActivity: {}, jobChildren: { root: [parent, final], other: [other] } }))
   assert.ok(delta, 'a late descendant update must travel even without the parent feed')
   client = applyHostMessage(client, delta)
-  assert.deepEqual(client.snapshot.jobChildren?.other, [other])
-  assert.deepEqual(client.snapshot.jobChildren?.root, [parent, final])
+  assert.deepEqual(client.snapshot.jobChildren?.other, [rowOf(other)])
+  assert.deepEqual(client.snapshot.jobChildren?.root, [rowOf(parent), rowOf(final)])
   assert.deepEqual(client.snapshot.jobActivity, { root: [said('p', 'Done')] })
   assert.deepEqual(applyHostMessage(initialHostState, sync.full()).snapshot, client.snapshot)
+})
+
+/** A helper's row as the window gets it: everything but its steps, which stay in the host. */
+const rowOf = ({ activity: _steps, ...row }: RunChild) => row
+
+test("a helper's steps stay in the host: its words and tool calls alone send nothing, and its rows travel without them", () => {
+  const keeper = new ActivityKeeper()
+  const sync = new StateSync({ owner, signIn, models: null })
+  const facts = (snapshot: object) => ({ owner, signIn, models: null, snapshot: keeper.keep(snapshot) })
+  const helper = (state: RunChild['state'], activity: ActivityEntry[]): RunChild => ({ id: 'h', parentId: 'r', rootId: 'r', depth: 1, name: 'scout', state, activity })
+  const row = { id: 'h', parentId: 'r', rootId: 'r', depth: 1, name: 'scout' }
+  const words = [said('h:0', 'Reading the login tests'), read('h1', 'export const login = true\n')]
+
+  const first = sync.update(facts({ jobActivity: {}, jobChildren: { r: [helper('running', [])] }, mainChildren: [helper('running', [])] }))
+  assert.deepEqual(first?.set?.jobChildren, { r: [{ ...row, state: 'running' }] })
+  assert.deepEqual(first?.set?.mainChildren, [{ ...row, state: 'running' }])
+  assert.equal(sync.update(facts({ jobActivity: {}, jobChildren: { r: [helper('running', words)] }, mainChildren: [helper('running', words)] })), null, 'its words and calls alone send nothing')
+
+  const ended = sync.update(facts({ jobActivity: {}, jobChildren: { r: [helper('completed', words)] }, mainChildren: [helper('completed', words)] }))
+  assert.deepEqual(ended?.set, { jobChildren: { r: [{ ...row, state: 'completed' }] }, mainChildren: [{ ...row, state: 'completed' }] }, 'how it stands still travels')
+  assert.doesNotMatch(JSON.stringify(sync.full()), /Reading the login tests|export const login/)
 })
 
 test('child-only roots retain twenty copied last-known groups without source mutation or resurrection', () => {
