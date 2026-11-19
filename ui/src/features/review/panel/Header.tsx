@@ -1,7 +1,7 @@
 import { Check, ChevronDown, ChevronsLeft, FolderGit2, GitPullRequest, RefreshCw, TriangleAlert, X } from 'lucide-react'
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import type { ChangeAssessment } from '#shared/review/assessment.ts'
-import { targetOfReviewId } from '#shared/review/ids.ts'
+import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
 import type { ReviewStatus } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
@@ -48,11 +48,20 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
       {overlap > 0 ? <div aria-hidden="true" className="float-right" style={{ width: overlap, height: MENU.bottom - 14 }} /> : null}
       <div className="flex items-center gap-1">
         <p className="flex min-w-0 flex-1 items-center gap-1.5 font-heading text-[13px] font-semibold text-muted-foreground" title={pull ? `${project}${item}` : `The project ${project}`}>
-          <Place className="size-3.5 shrink-0" aria-hidden="true" />
-          <span className="truncate">
-            {project}
-            {pull ? ` ${item}` : ''}
-          </span>
+          {target?.kind === 'pull' ? (
+            // The pull request's own page, opened in the browser as every link in the window is. Underlined, as the panel's links are.
+            <a href={pullUrl(target)} target="_blank" rel="noopener noreferrer" data-stop className="flex min-w-0 items-center gap-1.5 underline underline-offset-2 hover:text-foreground">
+              <Place className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">
+                {project} {item}
+              </span>
+            </a>
+          ) : (
+            <>
+              <Place className="size-3.5 shrink-0" aria-hidden="true" />
+              <span className="truncate">{project}</span>
+            </>
+          )}
         </p>
         <QuietButton label="Hide the panel" keys="S" onClick={onHide}>
           <ChevronsLeft />
