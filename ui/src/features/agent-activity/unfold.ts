@@ -4,12 +4,14 @@ import { ease } from '@/lib/motion.ts'
 import { UNFOLD, UNFOLD_MS } from './follow.ts'
 
 /**
- * A box the user opens to all of its lines and closes again. Its height glides from what it was to what it is (at once
- * under Still), and the transcript is told first, so opening a box by the newest step never scrolls away from it.
+ * A box the user opens and closes again, and a big one opens further with each press (`presses`, none while closed).
+ * Its height glides from what it was to what it is (at once under Still), and the transcript is told first, so opening
+ * a box by the newest step never scrolls away from it.
  */
 export function useUnfold<T extends HTMLElement>() {
   const still = useStill()
-  const [open, setOpen] = useState(false)
+  const [presses, setPresses] = useState(0)
+  const open = presses > 0
   const box = useRef<T>(null)
   const from = useRef<number | null>(null)
   useLayoutEffect(() => {
@@ -20,11 +22,11 @@ export function useUnfold<T extends HTMLElement>() {
     const after = element.offsetHeight
     if (Math.abs(after - before) < 1) return
     element.animate([{ height: `${before}px`, overflow: 'hidden' }, { height: `${after}px`, overflow: 'hidden' }], { duration: UNFOLD_MS, easing: `cubic-bezier(${ease.out.join(', ')})` })
-  }, [open, still])
-  const toggle = () => {
+  }, [presses, still])
+  const press = (next: number) => {
     from.current = box.current?.offsetHeight ?? null
-    box.current?.dispatchEvent(new CustomEvent(UNFOLD, { bubbles: true, detail: { closing: open } }))
-    setOpen(!open)
+    box.current?.dispatchEvent(new CustomEvent(UNFOLD, { bubbles: true, detail: { closing: next === 0 } }))
+    setPresses(next)
   }
-  return { open, toggle, box }
+  return { open, presses, toggle: () => press(open ? 0 : 1), more: () => press(presses + 1), box }
 }

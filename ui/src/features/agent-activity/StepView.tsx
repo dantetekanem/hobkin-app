@@ -339,13 +339,14 @@ function partsOf(change: Change): Part[] {
  */
 function ChangeBlock({ change }: { change: Change }) {
   const block = useBlock('change')
-  const { open, toggle, box } = useUnfold<HTMLDivElement>()
+  const { open, presses, toggle, more, box } = useUnfold<HTMLDivElement>()
   // Colored only once in or near view: a page's changes far above it wait until they are scrolled to.
   const near = useNear(box)
   const parts = useMemo(() => partsOf(change), [change])
   const additions = parts.reduce((sum, part) => sum + part.additions, 0)
   const deletions = parts.reduce((sum, part) => sum + part.deletions, 0)
-  const preview = previewOf(parts.map((part) => part.rows), open)
+  // A big change opens two hundred lines a press: its rows are drawn as they are asked for, never all at once.
+  const preview = previewOf(parts.map((part) => part.rows), presses)
   const verb = change.whole !== null ? 'Wrote' : 'Edited'
   const shown = block.open && parts.length > 0
   return (
@@ -380,7 +381,7 @@ function ChangeBlock({ change }: { change: Change }) {
       ) : null}
       {shown && preview.foldable ? (
         <p>
-          <MoreButton open={open} count={parts.reduce((sum, part) => sum + part.lines, 0)} onToggle={toggle} />
+          <MoreButton open={open} count={parts.reduce((sum, part) => sum + part.lines, 0)} onToggle={toggle} onMore={more} left={preview.left} next={preview.next} />
         </p>
       ) : null}
       {change.failures.map((failure, index) => (
