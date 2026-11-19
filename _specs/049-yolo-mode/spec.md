@@ -12,7 +12,7 @@
 
 ## Outcome
 
-Every review hobkin runs on a finished change, on any project, scores it from 1 to 10 on five questions, each with one line of evidence, and says what kind of change it is. hobkin works out one general rate from those scores, and the change's card shows all of it. YOLO mode is a setting, off until the user turns it on in Settings, with the lowest general rate they accept (8 unless they pick another). Turning it on merges nothing. Its first job on each project is to get that project ready: tests that can cover a change, a way to see a failure, a way back, and a deploy path hobkin can run and undo. That work is filed as a feature and lands on the user's yes like any other. Once a project is ready, a small change there that a review rated at or above the user's rate merges and deploys by itself, and hobkin reports what it did. Features, anything unclear, and every change on a project that is not ready keep asking the user, as today. With YOLO mode off, nothing about merging changes.
+Every review hobkin runs on a finished change, on any project, scores it from 1 to 10 on five questions, each with one line of evidence, and says what kind of change it is. hobkin works out one general rate from those scores, and the change's card shows all of it. YOLO mode is a setting, off until the user turns it on in Settings, with the lowest general rate they accept (8 unless they pick another). Turning it on merges nothing. Its first job on each project is to get that project ready: tests that can cover a change, monitoring a regression would show up in (error tracking, slow query detection, performance metrics with a baseline, searchable logs, and alerts that reach the user), a way back, and a deploy path hobkin can run and undo. That work is filed as a feature and lands on the user's yes like any other. Once a project is ready, a small change there that a review rated at or above the user's rate merges and deploys by itself, and hobkin reports what it did and what the monitoring showed afterwards. Features, anything unclear, and every change on a project that is not ready keep asking the user, as today. With YOLO mode off, nothing about merging changes.
 
 ## Decisions
 
@@ -20,6 +20,7 @@ Every review hobkin runs on a finished change, on any project, scores it from 1 
 
 - 2026-11-19: "we need to have review classified. tests cover the change 100%? 1/10 grade. were the tests modified to prove this works? what else needed? does this risk deployment or data? is data integrity safe? is there metrics and visibility to cover this? what is the risk and time to rollback? can we have a feature flag system? all this in a prompt for new/existent projects, which should collect points and have a system to allow self-merge/deploy. which will only report. by default this will be off, but if i turn on, i can select (general rate 8 or more will continue). and the system will just work. will mainly focus in performance work, bug finds, implicit state machines, package updates, small things. features, etc, will still need review, a spec and a plan."
 - Later the same day: the setting is named YOLO mode, and "YOLO mode will not just start, but make the environment ready for YOLO as a first task if activated".
+- And again: "thinks like slow queries, etc, visibility for it, monitoring. all this should be there - just saying again".
 
 ### The scores
 
@@ -31,10 +32,11 @@ Every review hobkin runs on a finished change, on any project, scores it from 1 
   | `coverage` | Do tests cover the change? | Every changed line and branch runs in a test that fails without the change. |
   | `proof` | Were tests added or changed to prove this works, and what proof is still missing? | A test written or changed for this change shows it working, and nothing is missing. |
   | `safety` | Does it risk the deployment or data? Is data integrity safe? | It cannot break a deploy and touches no stored data. |
-  | `visibility` | Do metrics and visibility cover it? | A failure would show by itself, in a failing check, an error report, a log or a metric on its path. |
+  | `visibility` | Would a regression from this change show in the project's monitoring, and how fast: an error, a slower query, a slower endpoint or job? | Its errors are tracked, its queries are timed, its endpoint or job has a metric with a baseline, and an alert reaches the user within minutes. |
   | `rollback` | What is the risk and the time to roll back? Does a feature flag guard it, or should one? | One step undoes it in minutes and leaves nothing behind. |
 
 - Each score is a whole number from 1 to 10 with one line of evidence. The review also says in `missing` what proof it still wants, when it wants any.
+- For `visibility` the review names the monitoring that covers the changed path. A change that touches a query or a hot path with none on it scores 4 or less, however good its tests are.
 - `kind` is one of `performance`, `bug-fix`, `state-machine`, `package-update`, `small-change`, `feature` or `unclear`. A review that cannot tell says `unclear`.
 - hobkin keeps scores only from a run it started as that item's review, and refuses scores that are malformed. An author's own run cannot grade its change.
 - The scores belong to one commit. On a card, scores for an older commit say so. A review's level, in Change Review, still means only the risk of breaking code or production. The scores sit beside it and never change it.
@@ -42,16 +44,17 @@ Every review hobkin runs on a finished change, on any project, scores it from 1 
 ### The general rate
 
 - The general rate is the average of the five scores, cut to one decimal and never rounded up, so 7.96 reads 7.9.
-- Three floors hold a change whatever its average: `safety` under 8, `rollback` under 7, or any score under 5. A deploy or data risk is the harm an average hides, a change that is slow to undo needs a person, and a score of 4 or less means the review found that part missing.
+- Four floors hold a change whatever its average: `safety` under 8, `visibility` under 7, `rollback` under 7, or any score under 5. A deploy or data risk is the harm an average hides, a regression the monitoring would not show goes unseen, a change that is slow to undo needs a person, and a score of 4 or less means the review found that part missing.
 - hobkin works the rate out in code from the recorded scores. A run never sends a rate.
-- The lowest rate the user can pick is 6, because the floors already put every change that passes them at 6.0 or more. The most is 10, and it starts at 8.
+- The lowest rate the user can pick is 6, because the floors already put every change that passes them at 6.4 or more. The most is 10, and it starts at 8.
 
 ### Getting a project ready
 
-- A project's readiness has four parts: `tests` (a suite that runs and can cover a change), `visibility` (how a failure after a change shows), `rollback` (the way back, and a flag mechanism where one makes sense) and `deploy` (a deploy path hobkin can run and undo, or the fact that nothing deploys).
+- A project's readiness has eight parts. `tests`: a suite that runs and can cover a change. Five of monitoring: `errors` (exceptions reach an error tracker, and a new one raises an alert), `slowQueries` (the database's slow query log or the framework's query timing, with N+1 detection where the stack has it), `performance` (request and job timings kept, with a baseline), `logs` (logs that can be searched) and `alerts` (an alert reaches the user). `rollback`: the way back, and a flag mechanism where one makes sense. `deploy`: a deploy path hobkin can run and undo, or the fact that nothing deploys.
+- The readiness work sets up the monitoring that is missing for the project's stack, with the tools it already uses. A monitoring part the project has no use for, such as slow queries with no database, is recorded as not applicable with the reason. Tests, rollback and deploy never are.
 - When YOLO mode is turned on, and again after each survey while it is on, hobkin files one item on each chosen project that has none: "Get <project> ready for YOLO mode", kind `feature`. It runs through the queue like any feature, builds what is missing on a branch, and waits for the user's yes.
 - That item's run records what it found with `hobkin work yolo <project>`: for each part, either how it works (`how`) or what is missing (`missing`). hobkin keeps the record only from that item's run.
-- A project is ready when all four parts are in place and its readiness item is merged, or done with no change needed. Work that still waits for the user's yes does not count.
+- A project is ready when every part is in place, or not applicable with a reason, and its readiness item is merged, or done with no change needed. Work that still waits for the user's yes does not count.
 - Work status carries each project's readiness and what it still needs, and the count of ready projects, so Settings and Home can say "3 of 5 projects ready".
 
 ### What merges by itself
@@ -66,6 +69,8 @@ Every review hobkin runs on a finished change, on any project, scores it from 1 
 - hobkin's code never deploys. After a merge by itself on a project whose readiness names a deploy path, hobkin hands the main agent one job for that project: deploy exactly that commit by the recorded path, in one session, prove it live, and report. This is the hand-off a card uses when work mode cannot start work.
 - The user's own directions still win. Until their "Merging and deploying take a yes on a list" section says YOLO mode covers these deploys, the main agent asks first, as that section tells it to.
 - Each merge by itself is one line in Chat and one line in `work/yolo.jsonl` in hobkin's home: when, project, item, title, commit, kind, rate, scores, and whether a deploy was handed on.
+- The deploy job also says to watch the project's monitoring for 30 minutes after the deploy and record what it showed with `hobkin work yolo <project> <item>`: errors, slow queries, and latency against the baseline, each as regressed or not with one line. hobkin keeps it only for a change YOLO mode merged, writes it to the ledger and says it in Chat. A reading with no regression has to cover the whole 30 minutes.
+- A regression is recorded the moment it shows. hobkin says it in Chat as critical, records trouble on that change so its fix is filed at the front of the queue, and stops merging by itself on that project until its readiness work is retried. Nothing is rolled back by itself.
 
 ### Turning it on
 
@@ -95,6 +100,9 @@ Every review hobkin runs on a finished change, on any project, scores it from 1 
 - A11. Only the window turns YOLO mode on or off or sets its rate. hobkin's `client` tool refuses `work.yolo`, no `hobkin work` command changes it, and a rate outside 6 to 10 is refused.
 - A12. Settings shows YOLO mode's switch and rate, how many projects are ready, and what each of the others still needs. With no host it shows sample data.
 - A13. With YOLO mode on, a finished branch on a ready project gets its review by itself, and one on a project that is not ready does not.
+- A14. A project is not ready, and nothing merges there by itself, until error tracking, slow query detection, performance metrics, searchable logs and alerts are each recorded as in place or as not applicable with a reason. A record without them is refused.
+- A15. A change whose `visibility` is under 7 never merges by itself, whatever its average.
+- A16. After a deploy of a change YOLO mode merged, what the monitoring showed for errors, slow queries and latency over 30 minutes is written to the ledger and said in Chat. A regression is said as critical at once, its fix is filed, and the project stops merging by itself until its readiness is checked again.
 
 ## Proof
 
@@ -111,6 +119,9 @@ Every review hobkin runs on a finished change, on any project, scores it from 1 
 - A11. `host/test/work-yolo.test.ts` › "only the window changes YOLO mode"; `hobkin/test/cli-work-yolo.test.mjs` › "no hobkin work command changes YOLO mode, and a rate outside 6 to 10 is refused"
 - A12. `ui/test/settings-yolo.test.ts` › "the tile says how many projects are ready and what the others need"; check: the tile in the window, on and off, dark and light. Not done yet.
 - A13. `hobkin/test/cli-work-yolo.test.mjs` › "with YOLO mode on, a finished branch on a ready project gets its review by itself"
+- A14. `hobkin/test/cli-work-yolo.test.mjs` › "a project is not ready until its monitoring is recorded as in place"
+- A15. `hobkin/test/cli-work-yolo.test.mjs` › "a change whose regression would not show in the monitoring never merges by itself"
+- A16. `hobkin/test/cli-work-yolo.test.mjs` › "after a deploy the report says what the monitoring showed, and a regression is a problem at once"
 
 ## Steps
 
@@ -120,6 +131,7 @@ Every review hobkin runs on a finished change, on any project, scores it from 1 
 - [x] S4 (A4, A6, A7, A8, A9, A10, A13). Runtime: the pass that merges, its report and the deploy hand-off, wired in after the survey, and reviews by themselves on a ready project. Files: new `hobkin/src/cli/work/yolo-pass.mjs`, `hobkin/src/cli/work/yolo.mjs`, `hobkin/src/cli/work/patterns.mjs`, `hobkin/src/cli/work/closing.mjs`, `hobkin/src/cli/work/director.mjs`, `hobkin/src/cli/application.mjs`, `hobkin/src/prompts/v2-runtime.md`.
 - [x] S5 (A3, A11). Host: the protocol, the `work.yolo` command and the card's line. Files: `shared/protocol/work.ts`, `shared/commands/registry.ts`, `host/src/work.ts`, `host/src/hobkin-work.d.ts`; tests new `host/test/work-yolo.test.ts`.
 - [x] S6 (A12). Window: the YOLO mode tile in Settings and the scores on a finished card. Files: new `ui/src/features/settings/YoloTile.tsx`, new `ui/src/features/settings/yolo.ts`, `ui/src/features/settings/SettingsScreen.tsx`, `ui/src/features/work/Finished.tsx`; tests new `ui/test/settings-yolo.test.ts`.
+- [x] S8 (A14, A15, A16). Runtime: monitoring in a project's readiness, the visibility floor, and the report after a deploy. Files: `hobkin/src/cli/work/yolo.mjs`, `hobkin/src/cli/work/yolo-pass.mjs`, `hobkin/src/cli/work/classified.mjs`, `hobkin/src/cli/work/commands.mjs`, `hobkin/src/prompts/work-do.md`, `hobkin/src/prompts/v2-runtime.md`; tests `hobkin/test/cli-work-yolo.test.mjs`, `hobkin/test/cli-work-classified.test.mjs`.
 - [ ] S7 (A7, A10, A12). What the tests above do not reach. A test that a deploy job the director hands on reaches the main agent as its next wake (`onHandOff` in `hobkin/src/cli/application.mjs`). A look at the tile in the window. Then, with the user's go-ahead, YOLO mode on in the live home and one project taken through its readiness.
 
 ## Open questions
@@ -127,4 +139,5 @@ Every review hobkin runs on a finished change, on any project, scores it from 1 
 - Who grades. (a) As decided: the review run scores the change, and code holds the floors, the kinds and the change rules. (b) Also need Change Review to say "Safe to deploy" at the same commit: two reviews agree before a merge, and nothing merges on a Mac where the host has not finished its review.
 - Home. Work status carries the count of ready projects and what each needs, and Settings shows both. Showing them on Home's Projects widget is not built yet.
 - The user's directions. Their "Merging and deploying take a yes on a list" section still says never to deploy automatically, so a deploy handed on by YOLO mode is asked about first until they change it. (a) Leave it to them. (b) Offer the new wording as an Action Item when YOLO mode is first turned on.
+- Reading the monitoring. (a) As decided: the deploy's session reads it and says whether each part regressed, and code checks only the shape and the window. (b) hobkin reads the numbers itself with a command the readiness run recorded, and compares them with the baseline in code: no session's word is needed, and each project needs a read hobkin can run.
 - A readiness that goes stale. (a) As decided: it stands until the user retries the item. (b) Check again every 30 days, as a signals look does.

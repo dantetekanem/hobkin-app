@@ -14,7 +14,7 @@ export const SAMPLE_YOLO: YoloState = {
   ready: 1,
   projects: [
     { slug: 'storefront', name: 'storefront', ready: true, needs: [] },
-    { slug: 'billing-api', name: 'billing-api', ready: false, needs: ['Visibility: No error report hobkin can read after a deploy.'] },
+    { slug: 'billing-api', name: 'billing-api', ready: false, needs: ['Slow queries: No slow query log, and nothing catches an N+1.', 'Alerts: No alert reaches you.'] },
     { slug: 'docs-site', name: 'docs-site', ready: false, needs: ['Its readiness work waits for your yes.'] },
   ],
 }
