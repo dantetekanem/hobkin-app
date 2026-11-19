@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { groupExpanded } from '../src/features/routines/groups.ts'
-import { factsOf } from '../src/features/routines/rules.ts'
+import { groupExpanded, groupOf } from '../src/features/routines/groups.ts'
+import { factsOf, listOrder } from '../src/features/routines/rules.ts'
 import { prepareRoutines } from '../src/features/routines/prepare.ts'
 import { buildSample } from '../src/features/routines/sample.ts'
 
@@ -35,4 +35,27 @@ test('explicit expansion survives refreshed facts and a changing view window', (
   assert.equal(groupExpanded(facts, [], true), true)
   assert.equal(groupExpanded(factsOf(fixture, NOW + 60_000), [], true), true)
   assert.equal(groupExpanded(facts, [{ routineId: 'weekly', kind: 'due' }], false), false)
+})
+
+test('a weekly routine that runs exactly Monday to Friday is listed, and walked, with the daily ones', () => {
+  const weekdays = { ...weekly, id: 'weekdays', weekday: [1, 2, 3, 4, 5] }
+  const shuffled = { ...weekly, id: 'shuffled', weekday: [5, 3, 1, 4, 2] }
+  const daily = { ...base, id: 'daily', cadence: 'daily' as const }
+  const others = [
+    { ...weekly, id: 'friday' },
+    { ...weekly, id: 'with-saturday', weekday: [1, 2, 3, 4, 5, 6] },
+    { ...weekly, id: 'four', weekday: [1, 2, 3, 4] },
+  ]
+
+  assert.equal(groupOf(weekdays), 'daily')
+  assert.equal(groupOf(shuffled), 'daily')
+  assert.equal(groupOf(daily), 'daily')
+  for (const routine of others) assert.equal(groupOf(routine), 'weekly', routine.id)
+  assert.equal(groupOf(monthly), 'monthly')
+
+  // The file stays in the weekly folder, and the keyboard's walk follows the groups.
+  assert.equal(weekdays.cadence, 'weekly')
+  const walk = listOrder(factsOf({ ...fixture, routines: [...others, weekdays, daily] }, NOW)).map(({ routine }) => routine.id)
+  assert.deepEqual(walk.slice(0, 2).toSorted(), ['daily', 'weekdays'])
+  assert.deepEqual(walk.slice(2).toSorted(), ['four', 'friday', 'with-saturday'])
 })

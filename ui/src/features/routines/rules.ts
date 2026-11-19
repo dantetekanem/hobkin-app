@@ -3,6 +3,7 @@
  * Mutations are sample-only. Host data and its next-run forecast remain authoritative.
  */
 import type { TimesEdit, WindowEdit } from './edit.ts'
+import { groupOf } from './groups.ts'
 import { holdOf } from './holds.ts'
 import { clearOf, nextRun, type Occurrence } from './timeline.ts'
 import { RECURRENCES, type Hold, type Routine, type RoutineState, type RoutinesData, type RunLine, type RunningRun, type RunStatus } from './types.ts'
@@ -64,7 +65,7 @@ export function byNextRun(first: RoutineFacts, second: RoutineFacts): number {
 
 /** Every routine in the order All routines lists them: by how often it runs, then by when it runs next. */
 export function listOrder(facts: readonly RoutineFacts[]): RoutineFacts[] {
-  return RECURRENCES.flatMap((recurrence) => facts.filter((item) => item.routine.cadence === recurrence).toSorted(byNextRun))
+  return RECURRENCES.flatMap((recurrence) => facts.filter((item) => groupOf(item.routine) === recurrence).toSorted(byNextRun))
 }
 
 /** Which way the detail slides to another routine: 1 brings one further down the list from the right, -1 one further up from the left. */

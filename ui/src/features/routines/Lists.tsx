@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { cn } from '@/lib/utils.ts'
 import { useClock } from './hooks.ts'
-import { groupExpanded } from './groups.ts'
+import { groupExpanded, groupOf } from './groups.ts'
 import type { SkyMark } from './sky-math.ts'
 import { chipMotion, groupVariants, rowMotion } from './look.ts'
 import { RoutineHood, StateChip } from './parts.tsx'
@@ -46,12 +46,13 @@ export function AllRoutines({ facts, marks, openId, now, zone, walkable, ...acti
   const [chosen, setChosen] = useState<Partial<Record<Recurrence, boolean>>>({})
   // A routine picked from the sky or detail index must still have a row to return to.
   useEffect(() => {
-    const cadence = facts.find((item) => item.routine.id === openId)?.routine.cadence
+    const opened = facts.find((item) => item.routine.id === openId)?.routine
+    const cadence = opened ? groupOf(opened) : undefined
     if (cadence) setChosen((before) => before[cadence] === true ? before : { ...before, [cadence]: true })
   }, [facts, openId])
 
   return RECURRENCES.map((recurrence) => {
-    const group = facts.filter((item) => item.routine.cadence === recurrence).toSorted(byNextRun)
+    const group = facts.filter((item) => groupOf(item.routine) === recurrence).toSorted(byNextRun)
     if (group.length === 0) return null
     const expanded = groupExpanded(group, marks, chosen[recurrence])
     const listId = `routine-group-${recurrence}`
