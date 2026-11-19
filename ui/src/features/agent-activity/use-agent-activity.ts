@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react'
-import type { ActivityEntry, JobActivity } from '#shared/protocol/activity.ts'
+import { MAIN_ACTIVITY, type ActivityEntry, type JobActivity } from '#shared/protocol/activity.ts'
 import { SAMPLE_ACTIVITY } from '@/app/running-agents.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { hostStore, useHasHost, useHost } from '@/lib/host/index.ts'
@@ -26,16 +26,22 @@ function timeEntries(job: string, entries: readonly ActivityEntry[], now: number
   }
 }
 
-// Steps are timed as the host sends them, also for agents whose canvas is not open, so their times are right once it is.
+// Steps are timed as the host sends them, also for agents whose canvas is not open, so their times are right once it
+// is. The main agent's are timed the same way under its own key, whether hobkin's mind is open or not.
 const stopTiming = hostStore.subscribe((state, previous) => {
+  const now = Date.now()
+  const main = state.snapshot.mainActivity
+  if (Array.isArray(main) && main !== previous.snapshot.mainActivity) timeEntries(MAIN_ACTIVITY, main, now)
   const next = state.snapshot.jobActivity as JobActivity | undefined
   if (!next || next === previous.snapshot.jobActivity) return
   const before = previous.snapshot.jobActivity as JobActivity | undefined
-  const now = Date.now()
   for (const [job, entries] of Object.entries(next)) {
     if (entries !== before?.[job] && Array.isArray(entries)) timeEntries(job, entries, now)
   }
 })
+
+/** When the window first saw each of the main agent's steps, and when a call it saw start ended. */
+export const mainTimeOf = (id: string): EntryTime | undefined => timings.get(MAIN_ACTIVITY)?.get(id)
 import.meta.hot?.dispose(stopTiming)
 
 /** When each sample agent's canvas first opened, so its sample plays from there. */

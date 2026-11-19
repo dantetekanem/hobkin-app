@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { walkScreens } from '../src/app/screens.ts'
-import { intoMind, mainActivityOf, outOfMind, type Place } from '../src/features/main-agent/mind.ts'
+import { intoMind, mainActivityOf, outOfMind, quietLine, quietSince, type Place } from '../src/features/main-agent/mind.ts'
 
 const place = (overrides: Partial<Place> = {}): Place => ({ screen: 'reports', settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, ...overrides })
 
@@ -32,4 +32,19 @@ test('opened from a screen over the mind, it keeps the way back it had', () => {
 
 test('the mind is not one of the numbered screens', () => {
   assert.ok(!walkScreens({ screen: 'mind', reviewOpen: false, githubInMenu: true }).includes('mind'))
+})
+
+test('between steps the mind counts how long hobkin has been quiet: from its last step, or from a turn that began after it', () => {
+  const now = 1_000_000
+  assert.equal(quietSince(now - 12_000, null), now - 12_000, 'from the last step')
+  assert.equal(quietSince(now - 30_000, now - 5_000), now - 5_000, 'from a turn that began after the last step')
+  assert.equal(quietSince(now - 5_000, now - 30_000), now - 5_000, 'a turn that began before the last step counts from the step')
+  assert.equal(quietSince(undefined, now - 8_000), now - 8_000, 'before the first step, from the turn')
+  assert.equal(quietSince(undefined, null), undefined, 'nothing to count from')
+
+  assert.equal(quietLine('thinking', now - 12_000, now), 'Thinking · 12s')
+  assert.equal(quietLine('thinking', now - 65_000, now), 'Thinking · 1m 05s')
+  assert.equal(quietLine('compacting', now - 1_500, now), 'Compacting', 'under two seconds it says only what it does')
+  assert.equal(quietLine('thinking', undefined, now), 'Thinking')
+  assert.equal(quietLine('thinking', now + 4_000, now), 'Thinking', 'never below zero')
 })

@@ -43,3 +43,23 @@ export function intoMind(view: Place, back: Place | null) {
 export function outOfMind(back: Place | null) {
   return { ...(back ?? { screen: FALLBACK, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null }), screenMotion: { axis: 'x', direction: 1 } as const }
 }
+
+/**
+ * When the main agent last did something, to count its quiet from: its last step (when the window saw it, or saw its
+ * call end), or its turn's start when that came later. Undefined with nothing to count from.
+ */
+export function quietSince(lastStep: number | undefined, turnStart: number | null): number | undefined {
+  if (lastStep === undefined) return turnStart ?? undefined
+  return turnStart === null ? lastStep : Math.max(lastStep, turnStart)
+}
+
+/**
+ * What the mind says between steps, as an agent's canvas does: what hobkin is doing and, from two seconds on, for how
+ * long, in seconds under a minute and then minutes and seconds. Never a time below zero.
+ */
+export function quietLine(word: string, since: number | undefined, now: number): string {
+  const lead = word.charAt(0).toUpperCase() + word.slice(1)
+  const seconds = since === undefined ? 0 : Math.max(0, Math.floor((now - since) / 1000))
+  if (seconds < 2) return lead
+  return `${lead} · ${seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`}`
+}
