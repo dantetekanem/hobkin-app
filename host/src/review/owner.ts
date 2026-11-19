@@ -16,7 +16,7 @@ export interface WhoIsMe {
 const EMAIL = /[^\s<>(),;:"']+@[^\s<>(),;:"']+\.[a-z]{2,}/gi
 
 /** The addresses the first "requested by" line names, before any "modified by" on it. */
-function requestedBy(description: string): string[] {
+export function requestedBy(description: string): string[] {
   const line = description.split('\n').find((entry) => /requested by/i.test(entry))
   if (!line) return []
   const asked = line.slice(line.search(/requested by/i)).split(/modified by/i)[0]!

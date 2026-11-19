@@ -57,6 +57,12 @@ export interface CodeHosts {
   /** The user's own email addresses, lowercased. */
   emails: string[]
   agents: PullAgent[]
+  /**
+   * How a person is found by email: a command run with no shell, the email given as a parameter of its own (a word
+   * that is `{email}`, or `name={email}`), printing the person as JSON with an id and a name; and the profile address,
+   * with `{id}` where the id goes. None when the file names no lookup.
+   */
+  people?: { command: string[]; profile: string }
 }
 
 export const codeHostsFile = (dataRoot: string) => join(dataRoot, 'client', 'code-hosts.json')
@@ -164,8 +170,30 @@ export function readCodeHosts(dataRoot: string): CodeHosts {
   }
   const named = Array.isArray(agents) ? agents.map(agentOf) : [null]
   if (named.some((agent) => agent == null)) throw new Error('The code host file has agents that are not each a host it names (or github) and a login.')
+  const people = raw.people === undefined ? undefined : record(raw.people)
+  // The email goes as a parameter of its own, never inside a query's text, so no address can change what is asked.
+  const asParameter = (word: string) => !word.includes('{email}') || /^(?:[A-Za-z][\w.-]*=)?\{email\}$/.test(word)
+  if (
+    raw.people !== undefined &&
+    (!people ||
+      !COMMAND(people.command) ||
+      !(people.command as string[]).some((word) => word.includes('{email}')) ||
+      !(people.command as string[]).every(asParameter) ||
+      typeof people.profile !== 'string' ||
+      !people.profile.includes('{id}') ||
+      !URL.canParse(people.profile.replace('{id}', 'id')) ||
+      new URL(people.profile.replace('{id}', 'id')).protocol !== 'https:' ||
+      Object.keys(people).some((key) => key !== 'command' && key !== 'profile'))
+  ) {
+    throw new Error('The code host file has people that are not a command with {email} as a parameter of its own and an https profile address with {id}.')
+  }
   learnCodeHosts(hosts.map(({ name, web }) => ({ name, web })))
-  return { hosts, emails: (emails as string[]).map((email) => email.toLowerCase()), agents: named as PullAgent[] }
+  return {
+    hosts,
+    emails: (emails as string[]).map((email) => email.toLowerCase()),
+    agents: named as PullAgent[],
+    ...(people ? { people: { command: people.command as string[], profile: people.profile as string } } : {}),
+  }
 }
 
 /** A REST call as GitHub's API names it, answered by a pull request's host. */

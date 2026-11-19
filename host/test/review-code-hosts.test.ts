@@ -46,6 +46,16 @@ test('a host where hobkin may merge can say which comment asks for a merge there
   assert.throws(() => readCodeHosts(home(t, { hosts: [{ ...HOST, merge: true, mergeBy: { comment: '' } }] })), /mergeBy/)
 })
 
+test('the code host file can say how a person is found by email and where their profile is', (t) => {
+  const people = { command: ['corp-people', 'find', '--email', '{email}'], profile: 'https://people.example.invalid/u/{id}' }
+  assert.deepEqual(readCodeHosts(home(t, { hosts: [HOST], people })).people, people)
+  const refused = (bad: Record<string, unknown>) => assert.throws(() => readCodeHosts(home(t, { hosts: [HOST], people: { ...people, ...bad } })), /people/)
+  refused({ command: ['corp-people', '--query', 'person(email: "{email}")'] })
+  refused({ command: ['corp-people', 'find'] })
+  refused({ profile: 'https://people.example.invalid/u/' })
+  refused({ profile: 'http://people.example.invalid/{id}' })
+})
+
 test('a code host file that cannot be trusted is refused with a plain reason', (t) => {
   const refused = (file: unknown, why: RegExp) => assert.throws(() => readCodeHosts(home(t, file)), why)
   refused('{ not json', /code host file .* cannot be read/)
