@@ -494,6 +494,7 @@ export class Reviews {
         error: status.error,
         ...(known ? { assessment: forList(known) } : {}),
         ...(status.mergeAsked ? { mergeAsked: status.mergeAsked } : {}),
+        ...(status.owner ? { owner: status.owner } : {}),
         updatedAt: new Date(at).toISOString(),
       }
       return [{ item, at }]

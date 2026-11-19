@@ -5,6 +5,7 @@ import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { waited } from '@/features/reports/time.ts'
+import { byLineWords, peopleOfOwner } from '@/features/review/panel/by-line.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
 import { runCommand } from '@/lib/host/index.ts'
@@ -164,6 +165,8 @@ function StopReview({ id, live, onStopped, more }: { id: string; live: boolean; 
 function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: boolean; onAgain: () => void }) {
   const { item } = row
   const Kind = item.kind === 'pull' ? GitPullRequest : GitBranch
+  // Who it is from, as words: the row is itself a button, so its names are no links.
+  const byLine = item.kind === 'pull' ? byLineWords(peopleOfOwner(item.owner)) : null
   const again = canReviewAgain(row)
   const [more, setMore] = useState(false)
   const toggle = useRef<HTMLButtonElement>(null)
@@ -197,6 +200,7 @@ function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: 
           <Kind aria-hidden="true" className="size-4 shrink-0" />
           <span className="min-w-0 truncate font-medium text-foreground">{row.where}</span>
           <span className="shrink-0">· {item.kind === 'pull' ? 'Pull request' : 'Finished change'}</span>
+          {byLine ? <span className="min-w-0 truncate">· {byLine}</span> : null}
           <span className="ml-auto shrink-0 pl-2 tabular-nums">{whenOf(row, now)}</span>
         </span>
         <span className="flex items-start gap-3">

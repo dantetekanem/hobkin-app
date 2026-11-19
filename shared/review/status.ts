@@ -161,6 +161,8 @@ export interface ReviewListItem {
   assessment?: AssessmentStatus
   /** A merge the user asked for that has not happened. */
   mergeAsked?: MergeAsked
+  /** For a pull request whose review recorded it: who opened it, and whether it is the user's. */
+  owner?: PullOwner
   /** When any of it last changed, as an ISO time. */
   updatedAt: string
 }

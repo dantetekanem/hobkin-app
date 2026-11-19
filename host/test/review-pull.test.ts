@@ -211,6 +211,7 @@ test('a pull request’s review records who opened it and whether it is the user
   theirs.reviews.prepare(ID)
   await theirs.reviews.settled(ID)
   assert.deepEqual(theirs.reviews.status(ID).owner, { author: 'dev', mine: false })
+  assert.deepEqual(theirs.reviews.list().reviews.find((item) => item.id === ID)?.owner, { author: 'dev', mine: false }, 'and its row in the list says so')
 
   const mine = seat(t, { viewer: 'Dev' })
   mine.reviews.prepare(ID)
