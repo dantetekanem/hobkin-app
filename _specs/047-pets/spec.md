@@ -59,4 +59,4 @@ hobkin's character is no longer a pointed hood. The user picks one of four pets 
 - [x] S3 (A2, A3). The Pet tile and the stored choice; Hob, the Mark and agent faces read it.
 - [x] S4 (A6). The setup's character measurements follow the new art.
 - [x] S5 (A1, A3, A7). hobkin.dev: the pets, their movement, the button, the favicon and share images.
-- [ ] S6 (A8). The app icon, as a patch applied at the user's restart.
+- [x] S6 (A8). The app icon, as a patch applied at the user's restart.
