@@ -181,6 +181,11 @@ export class HomeOwner {
   }
 
   private retainStartup(runtime: MainStartup, lifecycle: object): void {
+    // hobkin opens the conversation again by itself after the last startup is done and cleaned up: that startup gets
+    // a slot of its own, as a reset's does, and once it is installed its conversation is the one the window hears.
+    const last = this.startup
+    const reopening = Boolean(last.runtime && last.runtime !== runtime && last.runtime.done && last.cleanupSettled && this.app && !this.closed && this.lifecycle === lifecycle)
+    if (reopening) this.startup = this.newStartup()
     const slot = this.startup
     if (
       this.closed ||
@@ -195,7 +200,12 @@ export class HomeOwner {
     if (!slot.runtime) {
       slot.runtime = runtime
       void runtime.settled.then(() => {
-        if (this.startup === slot && !this.closed) this.options.onChange()
+        if (this.startup !== slot || this.closed) return
+        if (reopening) {
+          slot.cleanupSettled = true
+          if (runtime.installed && !slot.fenced && this.app) this.main = this.app.runtime.main as PiMainSession
+        }
+        this.options.onChange()
       })
     }
 

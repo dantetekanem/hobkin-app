@@ -360,3 +360,29 @@ test('model selection awaits native apply and preserves its effective failure', 
   release.resolve(); assert.equal((await selection).applied, true)
   fail = true; assert.equal((await value.selectModel(saved.model, saved.effort)).applied, false)
 })
+
+test('a startup hobkin begins by itself gets its own slot, a failed one leaves the main as it was, and the next becomes the main the window hears', { timeout: 10000 }, async () => {
+  const { value, open, changes } = owner(), initial = startup(), application = app(), oldMain = application.runtime.main
+  let callback!: NonNullable<OpenOptions['onMainStartup']>
+  fixture.open = async (_root, options) => {
+    callback = options.onMainStartup!; callback(initial.state); initial.state.child = initial.child; callback(initial.state)
+    initial.state.persistence = { status: 'committed', sessionId: 'old' }; initial.state.installed = true; initial.finish(); return application
+  }
+  await open()
+  const heard = () => (value as unknown as { main: MainSession }).main
+  assert.equal(heard(), oldMain)
+
+  const failed = startup()
+  callback(failed.state); failed.state.child = failed.child; callback(failed.state)
+  assert.ok(changes.at(-1)!.startup?.target, 'the reopening has a slot of its own, with a target to force')
+  failed.state.error = Error('no'); failed.finish(); await failed.state.settled
+  failed.closed.resolve({}); await failed.closed.promise
+  assert.equal(heard(), oldMain, 'a failed reopening leaves the main as it was')
+
+  const next = startup(), reopened = { sessionId: 'reopened', subscribe() {} } as unknown as MainSession
+  callback(next.state); next.state.child = next.child; callback(next.state)
+  application.runtime.main = reopened
+  next.state.installed = true; next.finish(); await next.state.settled
+  await new Promise(done => setImmediate(done))
+  assert.equal(heard(), reopened, 'the next reopening becomes the main the window hears')
+})
