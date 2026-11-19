@@ -37,6 +37,44 @@ for (const [boundary, markHidden] of [
   });
 }
 
+test('a snapshot is the same list while nothing in the feed changes, and a change copies only the entries it touched', () => {
+  const feed = new JobActivity();
+  feed.accept({ type: 'message_start', message: { role: 'assistant' } });
+  feed.accept(update('text_delta', { delta: 'Looking' }));
+  feed.accept({ type: 'tool_execution_start', toolCallId: 'a', toolName: 'read', args: { path: 'a' } });
+  const first = feed.snapshot();
+  assert.equal(feed.snapshot(), first, 'nothing changed');
+  feed.accept(update('thinking_delta', { delta: 'never shown' }));
+  feed.accept({ type: 'turn_start' });
+  assert.equal(feed.snapshot(), first, 'events that show nothing change nothing');
+
+  feed.accept({ type: 'tool_execution_end', toolCallId: 'a', toolName: 'read', result: { content: [{ type: 'text', text: 'A' }] } });
+  const second = feed.snapshot();
+  assert.notEqual(second, first);
+  assert.equal(second[0], first[0], 'the words did not change');
+  assert.equal(second[1].state, 'completed');
+  assert.equal(first[1].state, 'running', 'a list handed out is never rewritten');
+
+  feed.accept(update('text_delta', { delta: ' around' }));
+  const third = feed.snapshot();
+  assert.deepEqual(third.map(entry => entry.text), ['Looking around', undefined]);
+  assert.equal(third[1], second[1]);
+  assert.equal(second[0].text, 'Looking');
+
+  feed.accept({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Looking around' }] } });
+  feed.accept({ type: 'message_start', message: { role: 'assistant' } });
+  feed.accept(update('text_delta', { delta: 'Next' }));
+  feed.accept({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'toolCall', id: 'b', name: 'grep', arguments: {} }] } });
+  assert.deepEqual(feed.snapshot().map(entry => entry.id), ['message:1:0', 'tool:a', 'tool:b'], 'a text its message dropped is gone');
+
+  const bounded = new JobActivity({ most: 2 });
+  for (const id of ['x', 'y']) bounded.accept({ type: 'tool_execution_start', toolCallId: id, toolName: 'read' });
+  const full = bounded.snapshot();
+  bounded.accept({ type: 'tool_execution_start', toolCallId: 'z', toolName: 'read' });
+  assert.deepEqual(bounded.snapshot().map(entry => entry.id), ['tool:y', 'tool:z']);
+  assert.equal(bounded.snapshot()[0], full[1], 'what stays keeps its copy');
+});
+
 test('each entry keeps when hobkin first saw it, and what comes after never moves it', () => {
   const start = Date.UTC(2026, 10, 14, 19, 26, 5);
   let now = start;

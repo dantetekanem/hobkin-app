@@ -94,6 +94,9 @@ export class JobActivity {
   entries = [];
   message = 0;
   hidden = false;
+  /** The last snapshot, while nothing has changed since, and each entry's copy until that entry changes (`snapshot`). */
+  shown = null;
+  copies = new WeakMap();
 
   /**
    * `most` keeps only the latest entries, for a feed with no end such as the main chat's. `now` is the clock each
@@ -104,18 +107,28 @@ export class JobActivity {
     this.now = now;
   }
 
+  /** The next snapshot is a new list, with a new copy of `entry` when one is given. Every change to the feed says so here. */
+  changed(entry) {
+    if (entry) this.copies.delete(entry);
+    this.shown = null;
+  }
+
   /** A new entry, stamped with when it was first seen. A clock that gives no time leaves the stamp out. */
   add(entry) {
     const at = this.now();
     if (Number.isFinite(at)) entry.at = at;
     this.entries.push(entry);
+    this.changed();
     return entry;
   }
 
   accept(event) {
     try {
       this.reduce(event);
-      if (this.entries.length > this.most) this.entries.splice(0, this.entries.length - this.most);
+      if (this.entries.length > this.most) {
+        this.entries.splice(0, this.entries.length - this.most);
+        this.changed();
+      }
     } catch {
       /* Display data must not fail execution. */
     }
@@ -127,7 +140,10 @@ export class JobActivity {
     let entry = this.entries.find(item => item.id === id);
     if (!entry) entry = this.add({ id, kind: 'assistant', text: '' });
     const previousText = append ? entry.text : '';
-    entry.text = clean(previousText + clean(value));
+    const text = clean(previousText + clean(value));
+    if (text === entry.text) return;
+    entry.text = text;
+    this.changed(entry);
   }
 
   tool(id, name, state, input, output) {
@@ -146,6 +162,7 @@ export class JobActivity {
       if (metadata) entry.codemode = metadata;
       else delete entry.codemode;
     } else delete entry.codemode;
+    this.changed(entry);
   }
 
   reduce(event) {
@@ -182,8 +199,12 @@ export class JobActivity {
         if (!Array.isArray(content)) return;
         const ids = new Set(content.flatMap((part, index) =>
           part?.type === 'text' && part.display !== false ? [`message:${this.message}:${index}`] : []));
-        this.entries = this.entries.filter(entry =>
+        const kept = this.entries.filter(entry =>
           !entry.id.startsWith(`message:${this.message}:`) || ids.has(entry.id));
+        if (kept.length !== this.entries.length) {
+          this.entries = kept;
+          this.changed();
+        }
         content.forEach((part, index) => {
           if (part?.display === false) return;
           if (part?.type === 'text') this.text(index, part.text);
@@ -204,11 +225,25 @@ export class JobActivity {
       || (message?.role === 'custom' && message.display === true));
   }
 
-  snapshot() { return this.entries.map(entry => ({
-    ...entry,
-    ...(entry.codemode ? { codemode: {
-      ...entry.codemode,
-      calls: entry.codemode.calls.map(call => ({ ...call })),
-    } } : {}),
-  })); }
+  /**
+   * A copy of the entries. While nothing changes it is the same list, and an entry that did not change keeps the same
+   * copy, so a reader that compares by identity skips them. A list or copy handed out is never changed afterwards.
+   */
+  snapshot() {
+    this.shown ??= this.entries.map(entry => {
+      let copy = this.copies.get(entry);
+      if (!copy) {
+        copy = {
+          ...entry,
+          ...(entry.codemode ? { codemode: {
+            ...entry.codemode,
+            calls: entry.codemode.calls.map(call => ({ ...call })),
+          } } : {}),
+        };
+        this.copies.set(entry, copy);
+      }
+      return copy;
+    });
+    return this.shown;
+  }
 }
