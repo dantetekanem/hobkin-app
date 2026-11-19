@@ -203,3 +203,25 @@ test("a pull request on a named code host is fetched from the user's own bare cl
   // A host the code host file does not name is refused.
   await assert.rejects(checkout.fetch({ ...target, host: 'other' }, { head, baseBranch: 'main' }), /other is not a code host the code host file names/)
 })
+
+test("a branch on a named code host is deleted with git from the clone it is fetched into, only while it is at the commit shown", async (t) => {
+  const { bare, head } = github(t)
+  const host = (...args: string[]) => execFileSync('git', ['-C', bare, ...args], { encoding: 'utf8' }).trim()
+  host('update-ref', 'refs/heads/round-the-total', head)
+  const clone = join(temporaryDirectory(t), 'shop.git')
+  execFileSync('git', ['clone', '--quiet', '--bare', bare, clone])
+  const corp = { name: 'corp', web: 'https://git.example.invalid', api: ['corp-api'], git: bare.replace('shop.git', '{repo}.git'), headRef: 'refs/pull/{number}/head', clones: { 'acme/shop': clone }, checkout: false, merge: true }
+  const named = { ...target, host: 'corp' }
+  const checkout = pullCheckout({ root: temporaryDirectory(t), folders: () => [], gh: noGh, hostOf: () => corp })
+
+  // Another commit than the one shown keeps it.
+  await assert.rejects(checkout.deleteBranch(named, 'round-the-total', 'e'.repeat(40)), /was not deleted/)
+  assert.equal(host('rev-parse', 'refs/heads/round-the-total'), head)
+  // A commit that is not one, or a name git takes as no branch, is refused before anything is pushed.
+  await assert.rejects(checkout.deleteBranch(named, 'round-the-total', 'abc'), /full commit/)
+  await assert.rejects(checkout.deleteBranch(named, '-x', head), /not a branch/)
+  // At the commit shown it goes, and the host says it is gone.
+  await checkout.deleteBranch(named, 'round-the-total', head)
+  assert.equal(host('for-each-ref', 'refs/heads/round-the-total'), '')
+  assert.equal(host('rev-parse', 'refs/heads/main') !== '', true, 'nothing else goes')
+})

@@ -43,7 +43,7 @@ test("a named host's pull request is read through its own API, fetched by its he
     },
     apiOf: (pull) => (pull.host === 'corp' ? api : null),
     canCheckOut: (pull) => pull.host !== 'corp',
-    checkout: { fetch: async (_pull, asked) => (fetched.push(asked), { repo, base }), repoFor: async () => repo },
+    checkout: { fetch: async (_pull, asked) => (fetched.push(asked), { repo, base }), repoFor: async () => repo, deleteBranch: async () => {} },
     vicinity: async (...args) => (scanned.push(args), { links: [] }),
     whoIsMe: async () => ({ viewer: null, emails: ['me@example.invalid'] }),
   })
@@ -99,7 +99,7 @@ test('a pull request on a host that allows no checkout gets its map, code, notes
   const api: HostApi = async () => JSON.stringify({ state: 'open', title: 'Round the total', body: '', base: { ref: 'main' }, head: { ref: 'round', sha: head }, user: { login: 'dev' } })
   const started: unknown[] = []
   const ready: unknown[] = []
-  const source = pullSource({ gh: async () => ({ kind: 'missing' }), apiOf: () => api, canCheckOut: () => false, checkout: { fetch: async () => ({ repo, base }), repoFor: async () => repo }, whoIsMe: async () => ({ viewer: null }) })
+  const source = pullSource({ gh: async () => ({ kind: 'missing' }), apiOf: () => api, canCheckOut: () => false, checkout: { fetch: async () => ({ repo, base }), repoFor: async () => repo, deleteBranch: async () => {} }, whoIsMe: async () => ({ viewer: null }) })
   const reviews = new Reviews({
     store: reviewStore(temporaryDirectory(t)),
     sources: { change: source, pull: source },

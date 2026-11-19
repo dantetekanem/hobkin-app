@@ -39,6 +39,13 @@ test("a code host can name a review tree of its own: where it is, how it is made
   refused({ other: true }, /tree/)
 })
 
+test('a host where hobkin may merge can say which comment asks for a merge there and what the host does next; one that may not merge cannot', (t) => {
+  const mergeBy = { comment: '/merge', after: 'The merge queue lands it once its checks pass.' }
+  assert.deepEqual(readCodeHosts(home(t, { hosts: [{ ...HOST, merge: true, mergeBy }] })).hosts[0]!.mergeBy, mergeBy)
+  assert.throws(() => readCodeHosts(home(t, { hosts: [{ ...HOST, mergeBy }] })), /mergeBy.*merge/)
+  assert.throws(() => readCodeHosts(home(t, { hosts: [{ ...HOST, merge: true, mergeBy: { comment: '' } }] })), /mergeBy/)
+})
+
 test('a code host file that cannot be trusted is refused with a plain reason', (t) => {
   const refused = (file: unknown, why: RegExp) => assert.throws(() => readCodeHosts(home(t, file)), why)
   refused('{ not json', /code host file .* cannot be read/)

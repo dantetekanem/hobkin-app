@@ -30,6 +30,11 @@ export interface PullCheckout {
   fetch(target: PullTarget, pull: { head: string; baseBranch: string; headBranch?: string }, say?: Say): Promise<{ repo: string; base: string }>
   /** The repository's folder with `head` in it, found or made, fetching the pull request's head again when it is not there. */
   repoFor(target: PullTarget, head: string, say?: Say): Promise<string>
+  /**
+   * Deletes a branch on a named code host with git, from the clone its pull request is fetched into, only while it is at
+   * `sha`, and answers once the host says it is gone. Refused for a commit that is not one, or a name git takes as no branch.
+   */
+  deleteBranch(target: PullTarget, branch: string, sha: string): Promise<void>
 }
 
 /** A fetch or a first checkout reads from GitHub, so it gets longer than local git. */
@@ -248,6 +253,29 @@ export function pullCheckout({
         await git(clone.folder, 'diff', '--numstat', base, head)
       }
       return { repo: clone.folder, base }
+    },
+    async deleteBranch(target, branch, sha) {
+      const host = hostFor(target)
+      if (!host) throw new Error('A branch on GitHub is deleted through GitHub, not with git from here.')
+      if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error(`${sha} is not a full commit, so ${branch} is not deleted.`)
+      const clone = await place(target)
+      const valid = await git(clone.folder, 'check-ref-format', '--branch', branch).then(() => !branch.startsWith('-'), () => false)
+      if (!valid) throw new Error(`${branch} is not a branch name git takes, so nothing is deleted.`)
+      const ref = `refs/heads/${branch}`
+      try {
+        // With a lease on the commit shown: a branch that moved since keeps it.
+        await git(clone.folder, 'push', '--quiet', '--no-verify', `--force-with-lease=${ref}:${sha}`, clone.remote, `:${ref}`)
+      } catch (error) {
+        throw new Error(`${branch} was not deleted on ${host.name}: ${messageOf(error)}`)
+      }
+      // Only no such ref is gone: a listing that fails says nothing either way.
+      let left: string
+      try {
+        left = await git(clone.folder, 'ls-remote', '--heads', clone.remote, ref)
+      } catch (error) {
+        throw new Error(`${host.name} could not say whether ${branch} is gone: ${messageOf(error)}`)
+      }
+      if (left.trim()) throw new Error(`${branch} is still on ${host.name}.`)
     },
     async repoFor(target, head, say) {
       const clone = await place(target, say)

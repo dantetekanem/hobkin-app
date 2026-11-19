@@ -27,6 +27,8 @@ export interface CodeHost {
   merge: boolean
   /** A review tree of the host's own, for a repository too large to check out whole (entry 15). */
   tree?: HostTree
+  /** The comment that asks this host to merge a pull request, and in a sentence what the host does once it is posted. */
+  mergeBy?: { comment: string; after?: string }
 }
 
 /**
@@ -59,7 +61,7 @@ export interface CodeHosts {
 
 export const codeHostsFile = (dataRoot: string) => join(dataRoot, 'client', 'code-hosts.json')
 
-const HOST_KEYS = new Set(['name', 'web', 'api', 'git', 'headRef', 'clones', 'checkout', 'merge', 'tree'])
+const HOST_KEYS = new Set(['name', 'web', 'api', 'git', 'headRef', 'clones', 'checkout', 'merge', 'tree', 'mergeBy'])
 const TREE_KEYS = new Set(['path', 'make', 'makeIn', 'fit', 'leastFreeGb', 'env'])
 /** Words of a command: 1 to 16 plain words, the first a program, never an option. */
 const COMMAND = (value: unknown): value is string[] => Array.isArray(value) && value.length > 0 && value.length <= 16 && value.every(PLAIN) && !(value[0] as string).startsWith('-')
@@ -95,7 +97,7 @@ function hostOf(raw: unknown, at: number): CodeHost {
   const wrong = (what: string) => new Error(`The code host file's ${where} has ${what}.`)
   if (!entry) throw wrong('no object')
   for (const key of Object.keys(entry)) if (!HOST_KEYS.has(key)) throw wrong(`an unknown setting, ${key}`)
-  const { name, web, api, git, headRef = 'refs/pull/{number}/head', clones = {}, checkout = true, merge = false, tree } = entry
+  const { name, web, api, git, headRef = 'refs/pull/{number}/head', clones = {}, checkout = true, merge = false, tree, mergeBy } = entry
   if (typeof name !== 'string' || !HOST_NAME.test(name)) throw wrong('a name that is not a short lowercase name other than github')
   if (typeof web !== 'string' || !URL.canParse(web) || new URL(web).protocol !== 'https:') throw wrong('a web address that is not https')
   if (!Array.isArray(api) || api.length === 0 || api.length > 12 || !api.every(PLAIN) || (api[0] as string).startsWith('-')) throw wrong('an api command that is not 1 to 12 plain words, the first a program')
@@ -105,6 +107,11 @@ function hostOf(raw: unknown, at: number): CodeHost {
   if (!cloned || !Object.entries(cloned).every(([repo, folder]) => REPO.test(repo) && typeof folder === 'string' && isAbsolute(folder))) throw wrong('clones that are not owner/repo to an absolute folder')
   if (typeof checkout !== 'boolean') throw wrong('a checkout that is not true or false')
   if (typeof merge !== 'boolean') throw wrong('a merge that is not true or false')
+  const asks = mergeBy === undefined ? undefined : record(mergeBy)
+  if (mergeBy !== undefined && (!asks || !PLAIN(asks.comment) || (asks.after !== undefined && !PLAIN(asks.after)) || Object.keys(asks).some((key) => key !== 'comment' && key !== 'after'))) {
+    throw wrong('a mergeBy that is not a comment to post and, if you like, what happens after')
+  }
+  if (asks && !merge) throw wrong('a mergeBy, but merge is not true: hobkin may not merge there')
   return {
     name,
     web: web.replace(/\/+$/, ''),
@@ -115,6 +122,7 @@ function hostOf(raw: unknown, at: number): CodeHost {
     checkout,
     merge,
     ...(tree !== undefined ? { tree: treeOf(tree, where) } : {}),
+    ...(asks ? { mergeBy: { comment: asks.comment as string, ...(asks.after ? { after: asks.after as string } : {}) } } : {}),
   }
 }
 
