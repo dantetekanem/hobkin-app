@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { PiSetup } from '#shared/protocol/setup.ts'
-import { markSetupSeen, setupWantedNow } from './first-run.ts'
+import { markSetupEnded, setupWantedNow, unfinishedNow } from './first-run.ts'
 import { startTale, tellOn, type Answers, type Facts, type Tale, type TaleEvent } from './story.ts'
 
 interface SetupState {
@@ -25,18 +25,26 @@ interface SetupState {
   answer: (change: Partial<Answers>, facts: Facts) => void
   setPi: (pi: PiSetup) => void
   setClaude: (claude: boolean) => void
-  /** Marks the setup seen and takes it away. The setup calls this once it has handed over to the app. */
-  close: () => void
+  /**
+   * Keeps how the setup ended and takes it away. The setup calls this once it has handed over to the app. An
+   * unfinished one keeps whose computer it is, and opens again at the account step.
+   */
+  close: (as?: 'finished' | 'unfinished') => void
 }
 
 const NOTHING_ANSWERED: Answers = { replies: {} }
+
+/** A setup that ended with no account starts again where the account is looked for, knowing whose computer it is. */
+const earlierEnd = unfinishedNow()
+const startingAnswers: Answers = earlierEnd?.computer ? { replies: {}, computer: earlierEnd.computer } : NOTHING_ANSWERED
+const startingTale = (): Tale => (earlierEnd ? { ...startTale(), at: 'subscription' } : startTale())
 
 /** The first-run setup: whether it is open, where its story is and what was answered. See _specs/025-onboarding. */
 export const useSetup = create<SetupState>()((set, get) => ({
   open: setupWantedNow(),
   origin: 'first-run',
-  tale: startTale(),
-  answers: NOTHING_ANSWERED,
+  tale: startingTale(),
+  answers: startingAnswers,
   pi: null,
   claude: false,
   run: 0,
@@ -58,8 +66,8 @@ export const useSetup = create<SetupState>()((set, get) => ({
   setClaude: (claude) => {
     if (claude !== get().claude) set({ claude })
   },
-  close: () => {
-    markSetupSeen()
+  close: (as = 'finished') => {
+    markSetupEnded(as, get().answers.computer)
     set({ open: false })
   },
 }))

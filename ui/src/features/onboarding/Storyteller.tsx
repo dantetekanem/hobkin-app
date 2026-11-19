@@ -28,6 +28,7 @@ import { foldersPicked, pickedAnswer, picksOf } from './picks.ts'
 import { PiPanel } from './PiPanel.tsx'
 import { followUpRequest, followUpsOver, routinesRequest, SAMPLE_PROJECTS, setupAnswersOf, startingReply } from './questions.ts'
 import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type Facts, type Tale } from './story.ts'
+import { endedAs, tourFollows } from './first-run.ts'
 import { useSetup } from './store.ts'
 import { resolveTaleKey, type TaleKey, type TaleKeyContext } from './tale-keys.ts'
 import { WORLD_TIMES, World, type WorldPhase } from './World.tsx'
@@ -685,13 +686,15 @@ export function Storyteller() {
   const [home, setHome] = useState<Seat | null>(null)
   useEffect(() => {
     if (!leaving) return
-    const toldToTheEnd = tale.ended === 'done'
     setHome(homeOfFace())
     leave()
 
+    // Told to the end with no account, the setup is unfinished: it opens again at the account step, and no tour starts.
+    const ended = tale.ended === 'done' ? 'done' : 'skipped'
+    const as = endedAs(ended, facts.connected.length > 0)
     const handOver = () => {
-      close()
-      if (!toldToTheEnd) return
+      close(as)
+      if (!tourFollows(ended, as)) return
 
       // Main hobkin already has the answers when the follow-ups' message went. Otherwise they go now, as one message.
       const request = routinesRequest(answers)
