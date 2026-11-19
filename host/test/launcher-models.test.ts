@@ -45,6 +45,15 @@ test('a launcher is asked for its models through its own command and environment
   assert.deepEqual(found?.models.map(({ provider, id }) => `${provider}/${id}`), ['acme/deep-1', 'acme/quick-1', 'other/plain.model-2'])
 })
 
+test('a model that thinks offers every level, max too, and one that does not offers only off', async () => {
+  const found = await new LauncherModels({ launcher: () => LAUNCHER, run: fakeRun(TABLE) }).list()
+  const by = (id: string) => found?.models.find((model) => model.id === id)
+
+  assert.deepEqual(by('deep-1')?.thinking, ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+  assert.deepEqual(by('plain.model-2')?.thinking.at(-1), 'max')
+  assert.deepEqual(by('quick-1')?.thinking, ['off'])
+})
+
 test('the answer is kept five minutes, then asked again', async () => {
   const calls: unknown[] = []
   const { time, now } = clock()

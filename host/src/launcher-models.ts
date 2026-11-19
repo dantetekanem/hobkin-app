@@ -22,7 +22,7 @@ const ASK_MS = 15_000
 export const LAUNCHER_KEEP_MS = 5 * 60_000
 
 /** Every thinking level the picker knows, lowest first. Pi brings a level down to what a model has. */
-const THINKING = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh']
+const THINKING = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
 
 export interface LauncherModel {
   provider: string
