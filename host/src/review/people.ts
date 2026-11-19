@@ -80,9 +80,10 @@ export function peopleFinder({ file, lookup, run = runProgram, now = Date.now }:
       const ran = await run(program!, args, { cwd: tmpdir(), timeoutMs: LOOKUP_MS })
       // A lookup that could not run says nothing of the person, so nothing is kept and it is asked again.
       if (!ran.started || ran.timedOut || ran.code !== 0) return null
-      let answer: { id?: unknown; name?: unknown } | null = null
+      type Answer = { id?: unknown; name?: unknown } | null
+      let answer: Answer
       try {
-        answer = JSON.parse(ran.stdout.toString('utf8')) as typeof answer
+        answer = JSON.parse(ran.stdout.toString('utf8')) as Answer
       } catch {
         answer = null
       }
