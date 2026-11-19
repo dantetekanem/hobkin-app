@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { TeamsAgent } from '../../shared/protocol/teams.ts'
 import { stampOf } from '../src/features/agent-activity/stamp.ts'
-import { describeTeamsAgent, firstLine, standing, teamsAgentsOf, teamsSummary, whatIsKept, whoSaid } from '../src/features/teams/rules.ts'
+import { describeTeamsAgent, firstLine, standing, stillShown, teamsAgentsOf, teamsSummary, whatIsKept, whoSaid } from '../src/features/teams/rules.ts'
 
 // Local times, so the rules hold in any time zone the tests run in.
 const at = (hour: number, minute: number, second: number) => new Date(2026, 10, 15, hour, minute, second).getTime()
@@ -28,6 +28,16 @@ test('running agents come first, then queued and unknown, then failed and done',
   assert.equal(teamsSummary(shown), '6 teams agents · 2 running, 1 queued, 1 unknown, 1 failed, 1 done')
   assert.equal(teamsSummary(shown.slice(0, 1)), '1 teams agent · 1 running')
   assert.equal(teamsSummary([]), '')
+})
+
+test('a done agent leaves the strip, and a failed or unknown one stays', () => {
+  const all = {
+    turn1: [agent('scout', 'done', at(14, 0, 0), { endedAt: at(14, 3, 0) }), agent('fixer', 'running', at(14, 1, 0))],
+    turn2: [agent('lint', 'failed', at(14, 4, 0), { endedAt: at(14, 4, 1) }), agent('lost', 'unknown', at(13, 59, 0)), agent('waiting', 'queued', at(14, 6, 0))],
+  }
+  const shown = stillShown(teamsAgentsOf(all, ['turn1', 'turn2']))
+  assert.deepEqual(shown.map((row) => `${row.name}:${row.state}`), ['fixer:running', 'waiting:queued', 'lost:unknown', 'lint:failed'])
+  assert.deepEqual(stillShown(teamsAgentsOf({ turn1: [agent('scout', 'done', at(14, 0, 0))] }, ['turn1'])), [])
 })
 
 test('an opened agent says what it was asked and what hobkin has of its work', () => {

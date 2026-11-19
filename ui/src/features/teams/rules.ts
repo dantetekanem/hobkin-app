@@ -25,6 +25,11 @@ export function teamsAgentsOf(all: TeamsAgents | undefined, runs: readonly strin
     .map(({ row }) => row)
 }
 
+/** What a screen still shows: a done agent leaves, and a failed or unknown one stays, since it may need the user. */
+export function stillShown(agents: readonly ShownTeamsAgent[]): ShownTeamsAgent[] {
+  return agents.filter((agent) => agent.state !== 'done')
+}
+
 /** "4 teams agents · 1 running, 1 queued, 2 done", or nothing when there are none. */
 export function teamsSummary(agents: readonly TeamsAgent[]): string {
   if (agents.length === 0) return ''

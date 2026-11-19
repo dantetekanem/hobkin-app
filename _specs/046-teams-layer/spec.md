@@ -55,6 +55,7 @@ A durable hobkin's turn or a routine run runs in its own Pi process, and the age
 - Where room is short, a chip: the name, its status and one time, since when it has been out or when it finished or failed. Its label, read on hover and by a screen reader, has the rest of a row, and the list behind "+N more" has every row whole.
 - Statuses: `queued`; `running`, with teams' phase or tool when its runtime file has one; `done`, it reported, which does not say whether the work is right; `failed`, it could not start or it reported a failure; `unknown`, no report was seen and either the run has ended or teams no longer lists it, so hobkin cannot tell how it ended.
 - Running first, then queued and unknown, then failed and done. Within each, in the order they were spawned.
+- A done agent leaves a screen's teams strip; a failed or unknown one stays, since it may need the user. Changed on 2026-11-19, the user's words: "done sub-sub agents should disappear"; until then a done agent stayed in the strip with its end time.
 - At most 24 rows for a run. hobkin keeps the rows of the 20 runs that ended last, so a finished run's screen and a waiting durable hobkin's page still show theirs until hobkin restarts.
 
 ### Opening one
