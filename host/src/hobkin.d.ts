@@ -21,6 +21,13 @@ declare module 'hobkin/src/cli/application.mjs' {
     /** A title made for it, taken once and never over a name the user gave. Answers with the hobkin as it is now. */
     retitle(id: string, title: string): Promise<HobkinSummary>
     seen(id: string): Promise<{ ok: true }>
+    /** The window says this hobkin's page is on screen. Absent in a runtime from before. */
+    pageShown?(id: string): Promise<{ ok: true }>
+    /** Absent in a runtime from before a hobkin's model could change from its message box. */
+    changeEngine?(id: string, change: { model?: string; effort?: string }): Promise<{
+      engine: { kind: 'pi'; model: string; effort: string }
+      turn: null | { run: string; took: true; model: string | null; effort: string | null } | { run: string; took: false; reason: string }
+    }>
     read(id: string): Promise<HobkinConversation>
     /**
      * The main hobkin's message to one, never the user's words. While it waits they start its next turn, recorded as
@@ -182,6 +189,8 @@ declare module 'hobkin/src/cli/application.mjs' {
       state(): Promise<{ runs: Record<string, { kind?: string; harness?: string; harnessId?: string; scheduleId?: string; title?: string; status?: string; legacy?: boolean; result?: { sessionId?: string | null } }> }>
       /** Resolves once no turn and no run is under way. */
       idle(): Promise<void>
+      /** Absent in a runtime from before an agent could change its model while it works. Answers with what Pi holds now. */
+      changeRun?(runId: string, change: { model?: string; effort?: string }): Promise<{ model: string | null; effort: string | null }>
       /** Gives the main session a message as it is, with none of hobkin's notes ahead of it. */
       send(text: string, id?: string, images?: unknown[]): Promise<{ id: string; queued?: boolean }>
     }

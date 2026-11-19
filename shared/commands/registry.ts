@@ -32,7 +32,7 @@ import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import { GRADES, ISSUE_PICKUPS, PR_MODES } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
-import { TIER_IDS, type HostTiers } from '../tiers/tiers.ts'
+import { EFFORTS, TIER_IDS, type HostTiers } from '../tiers/tiers.ts'
 
 /**
  * Every action a person can take is a command here: a name, what it does, the shape of its arguments and where it runs.
@@ -107,7 +107,7 @@ const words = (maxLength: number) => Type.String({ minLength: 1, maxLength, patt
 /** Pi's id for a provider. Plain enough to name in a shell command. */
 const provider = Type.Object({ provider: Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,63}$' }) }, { additionalProperties: false })
 /** The thinking levels hobkin's main conversation takes: `efforts.pi` in hobkin's `src/cli/schedules.mjs`. */
-export const MAIN_EFFORTS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+export const MAIN_EFFORTS = EFFORTS
 /** One of a few words. A union built with map checks the same at runtime, but its type collapses, so the type is named here. */
 const oneOf = <const Word extends string>(choices: readonly Word[]) => Type.Unsafe<Word>(Type.Union(choices.map((choice) => Type.Literal(choice))))
 /** One of hobkin's four tiers for delegated work, and the model and thinking level a tier holds (`017-model-tiers`). */
@@ -686,6 +686,18 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ id: hobkinId }, { additionalProperties: false }),
   },
+  'hobkin.shown': {
+    description: "Say a durable hobkin's page is on screen, so one that waits on Pi has its process ready before the user's next message. Only the window says it.",
+    runs: 'host',
+    args: Type.Object({ id: hobkinId }, { additionalProperties: false }),
+  },
+  'hobkin.change': {
+    description:
+      "Change the model or thinking level a durable hobkin works on, from the window's message box (/model, /effort). `model` is a full provider/model or a short name that only one model Pi can use matches. The turn in flight takes it from its next step, and every later turn keeps it. Refused for a hobkin on Claude Code or one that ended.",
+    runs: 'host',
+    args: Type.Object({ id: hobkinId, model: Type.Optional(words(200)), effort: Type.Optional(oneOf(MAIN_EFFORTS)) }, { additionalProperties: false }),
+    rule: ({ model, effort }) => (model !== undefined || effort !== undefined ? null : 'need a model or a thinking level to change'),
+  },
   'hobkin.read': {
     description: "Read a durable hobkin's conversation: what it is, and each turn with what was asked, who asked it (`from`) and what it answered, oldest first.",
     runs: 'host',
@@ -1017,6 +1029,13 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ run: words(256), text: words(4096), noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })) }, { additionalProperties: false }),
   },
+  'agent.change': {
+    description:
+      "Change the model or thinking level of an agent that is working, by its run's id, from the window's message box (/model, /effort). `model` is a full provider/model or a short name that only one model Pi can use matches. The agent takes it from its next step. Refused for a finished agent, hobkin's own conversation and an agent on Claude Code.",
+    runs: 'host',
+    args: Type.Object({ run: words(256), model: Type.Optional(words(200)), effort: Type.Optional(oneOf(MAIN_EFFORTS)) }, { additionalProperties: false }),
+    rule: ({ model, effort }) => (model !== undefined || effort !== undefined ? null : 'need a model or a thinking level to change'),
+  },
   'routine.run': {
     description:
       "Run a routine once now, by its id, as hobkin's run_routine does: even when it is off or not due, and no setting changes. hobkin refuses while it is already running or its background places are full. Answers once the run has started; its report comes later in Reports.",
@@ -1194,6 +1213,9 @@ export interface CommandResults {
   'hobkin.end': { ok: true }
   'hobkin.rename': HobkinSummary
   'hobkin.seen': { ok: true }
+  'hobkin.shown': { ok: true }
+  /** What it works on now, or from when, in words. */
+  'hobkin.change': { message: string }
   'hobkin.read': HobkinConversation
   'hobkin.list': { hobkins: HobkinReach[] }
   /** `started`: the words began its next turn, which is `run`. `queued`: they wait for the turn in flight to end, so no run yet. */
@@ -1262,6 +1284,8 @@ export interface CommandResults {
   /** What hobkin did, in its own words. */
   'agent.stop': { message: string }
   'agent.say': { queued: boolean }
+  /** What the agent works on now, in words. */
+  'agent.change': { message: string }
   'agent.session': SavedJobSession
   /** The run hobkin started. */
   'routine.run': { run: string }

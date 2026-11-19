@@ -647,10 +647,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // Close issue closes it through gh on the user's word, declines hobkin's unfinished item for it, and reads GitHub again.
     ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh, refreshGitHub: () => github.refresh() }),
     // Its agents and routines, stopped or told something while they work, by run id (011-work).
-    ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[] }),
+    ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[], models: async () => (await signIn.refresh(), signIn.models ?? null) }),
     // Durable hobkins (034-durable-hobkins): hobkin's runtime keeps them, and the host checks only what it knows.
     ...hobkinHandlers({
       app: hobkin,
+      models: async () => (await signIn.refresh(), signIn.models ?? null),
       claudeMissing: async () => (findClaude() ? null : 'Claude Code is not installed on this Mac, so a hobkin cannot run on it. Install it, or pick a tier.'),
       // Only a model Pi can use now: what the models slice lists, asked again.
       modelProblem: async (model, effort) => {

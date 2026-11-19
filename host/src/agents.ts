@@ -1,5 +1,7 @@
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
+import type { ModelsState } from '#shared/protocol/models.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
+import { changeFrom } from './model-name.ts'
 
 /**
  * The agents and routines hobkin runs, stopped or told something while they work, through hobkin's own ways of
@@ -12,6 +14,8 @@ export interface AgentsApp {
   workAction(action: string, slug?: unknown, value?: unknown, extra?: unknown): Promise<unknown>
   kill(runId: string): Promise<boolean>
   runner: { messageCheck(request: { scheduleId?: string; runId?: string; noteId?: string; message?: string }): Promise<unknown> }
+  /** Absent in a runtime from before an agent could change its model while it works. */
+  runtime?: { changeRun?(runId: string, change: { model?: string; effort?: string }): Promise<{ model: string | null; effort: string | null }> }
 }
 
 export interface AgentsSeat {
@@ -19,6 +23,8 @@ export interface AgentsSeat {
   app: () => AgentsApp
   /** hobkin's runs as its snapshot lists them now. */
   runs: () => readonly RunSummary[]
+  /** The models Pi can use now, read again, or null while it has not listed them. */
+  models?: () => Promise<ModelsState | null>
 }
 
 /** The two ways the terminal's k stops a work agent. */
@@ -26,7 +32,7 @@ const STOPS = { 'for-now': 'later', 'not-approved': 'decline' } as const
 
 const messageOf = (result: unknown) => String((result as { message?: unknown } | null)?.message ?? '')
 
-export function agentHandlers({ app, runs }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say'> {
+export function agentHandlers({ app, runs, models }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change'> {
   /** The run, while it runs. hobkin's own conversation is no agent: its turn stops from the input. */
   const running = (id: string, ended: string): RunSummary => {
     const run = runs().find((entry) => entry.id === id)
@@ -42,6 +48,22 @@ export function agentHandlers({ app, runs }: AgentsSeat): Pick<HostHandlers, 'ag
   }
 
   return {
+    'agent.change': async ({ run: id, model, effort }) => {
+      const run = runs().find((entry) => entry.id === id)
+      if (run?.kind === 'main') throw new Unavailable("hobkin's own conversation changes its model in Settings.")
+      if (!run || run.state !== 'running') throw new Unavailable('That agent is not working.')
+      const changeRun = app().runtime?.changeRun
+      if (!changeRun) throw new Unavailable('This hobkin cannot change a working agent yet. Restart the app to load it.')
+
+      const asked = changeFrom((await models?.()) ?? null, { model, effort }, run.model)
+      if ('problem' in asked) throw new Unavailable(asked.problem)
+      try {
+        const held = await changeRun.call(app().runtime, id, asked.change)
+        return { message: `It works on ${held.model ?? 'its model'} at ${held.effort ?? 'its level'} from its next step.` }
+      } catch (error) {
+        throw error instanceof Unavailable || !(error instanceof Error) ? error : new Unavailable(error.message)
+      }
+    },
     'agent.stop': async ({ run: id, how = 'for-now' }) => {
       const run = running(id, 'It had already finished, so nothing was stopped.')
 

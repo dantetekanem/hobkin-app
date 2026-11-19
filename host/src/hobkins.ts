@@ -3,7 +3,9 @@ import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import type { DurableHobkins } from 'hobkin/src/cli/application.mjs'
 import type { CommandName } from '#shared/commands/registry.ts'
+import type { ModelsState } from '#shared/protocol/models.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
+import { changeFrom } from './model-name.ts'
 
 /**
  * The durable hobkins' commands (034-durable-hobkins), passed to hobkin's runtime as they are. The window starts,
@@ -19,6 +21,8 @@ export interface HobkinsSeat {
   claudeMissing: () => Promise<string | null>
   /** Why Pi cannot run this model at this thinking level now, or null when it can. */
   modelProblem: (model: string, effort: string) => Promise<string | null> | string | null
+  /** The models Pi can use now, read again, or null while it has not listed them. */
+  models?: () => Promise<ModelsState | null>
   /** The user's home folder, for a folder that starts with ~. */
   home?: string
 }
@@ -28,7 +32,7 @@ type Names = Extract<CommandName, `hobkin.${string}`>
 const OLD_RUNTIME = 'This hobkin does not have durable hobkins yet. Restart the app to load them.'
 const NO_MESSAGES = 'This hobkin cannot pass messages between hobkins yet. Restart the app to load them.'
 
-export function hobkinHandlers({ app, claudeMissing, modelProblem, home = homedir() }: HobkinsSeat): Pick<HostHandlers, Names> {
+export function hobkinHandlers({ app, claudeMissing, modelProblem, models, home = homedir() }: HobkinsSeat): Pick<HostHandlers, Names> {
   const durable = (): DurableHobkins => {
     const hobkins = app().hobkins
     if (!hobkins) throw new Unavailable(OLD_RUNTIME)
@@ -78,6 +82,25 @@ export function hobkinHandlers({ app, claudeMissing, modelProblem, home = homedi
     'hobkin.end': ({ id }) => ask((hobkins) => hobkins.end(id)),
     'hobkin.rename': ({ id, title }) => ask((hobkins) => hobkins.rename(id, title)),
     'hobkin.seen': ({ id }) => ask((hobkins) => hobkins.seen(id)),
+    'hobkin.change': async ({ id, model, effort }) => {
+      const hobkins = durable()
+      if (!hobkins.changeEngine) throw new Unavailable("This hobkin cannot change a hobkin's model yet. Restart the app to load it.")
+      // A level alone is checked against the model the hobkin runs on now, when it has one of its own.
+      const engine = effort !== undefined && model === undefined ? (await ask((all) => all.read(id))).hobkin.engine : null
+      const asked = changeFrom((await models?.()) ?? null, { model, effort }, engine?.kind === 'pi' ? engine.model : null)
+      if ('problem' in asked) throw new Unavailable(asked.problem)
+      const { engine: saved, turn } = await ask((all) => all.changeEngine!(id, asked.change))
+      const now = `${saved.model} at ${saved.effort}`
+      if (!turn) return { message: `It will work on ${now} from its next turn.` }
+      if (turn.took) return { message: `It works on ${now} from its next step, and its later turns keep it.` }
+      return { message: `Its turn ended before it took the change. It will work on ${now} from its next turn.` }
+    },
+    'hobkin.shown': async ({ id }) => {
+      const hobkins = app().hobkins
+      // A runtime from before has nothing to start, so the page is still welcome.
+      if (!hobkins?.pageShown) return { ok: true }
+      return ask((all) => all.pageShown!(id))
+    },
     'hobkin.read': ({ id }) => ask((hobkins) => hobkins.read(id)),
     'hobkin.list': () => ask((hobkins) => {
       if (!hobkins.reach) throw new Unavailable(NO_MESSAGES)
