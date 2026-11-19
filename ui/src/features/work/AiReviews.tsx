@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { waited } from '@/features/reports/time.ts'
 import { byLineWords, peopleOfOwner } from '@/features/review/panel/by-line.ts'
+import { usePullPeople } from '@/features/review/use-people.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
 import { runCommand } from '@/lib/host/index.ts'
@@ -165,8 +166,10 @@ function StopReview({ id, live, onStopped, more }: { id: string; live: boolean; 
 function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: boolean; onAgain: () => void }) {
   const { item } = row
   const Kind = item.kind === 'pull' ? GitPullRequest : GitBranch
-  // Who it is from, as words: the row is itself a button, so its names are no links.
-  const byLine = item.kind === 'pull' ? byLineWords(peopleOfOwner(item.owner)) : null
+  // Who it is from, as words: the row is itself a button, so its names are no links. The host is asked once for each
+  // review, and the panel shares the answer; until it says, the author the review recorded.
+  const people = usePullPeople(item.id, live && item.kind === 'pull')
+  const byLine = item.kind === 'pull' ? byLineWords(people ?? peopleOfOwner(item.owner)) : null
   const again = canReviewAgain(row)
   const [more, setMore] = useState(false)
   const toggle = useRef<HTMLButtonElement>(null)

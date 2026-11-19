@@ -2,13 +2,14 @@ import { Check, ChevronDown, ChevronsLeft, FolderGit2, GitPullRequest, RefreshCw
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import type { ChangeAssessment } from '#shared/review/assessment.ts'
 import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
-import type { ReviewStatus } from '#shared/review/status.ts'
+import type { ReviewPerson, ReviewStatus } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { cn } from '@/lib/utils.ts'
+import { usePullPeople } from '../use-people.ts'
 import { headerBadge, type HeaderBadge } from './sidebar.ts'
 
 /**
@@ -74,6 +75,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
         </QuietButton>
       </div>
       <h2 className="mt-1 font-heading text-[17px] leading-[1.28] font-semibold tracking-[-0.02em] text-pretty [overflow-wrap:anywhere]">{title}</h2>
+      {pull ? <ByLine id={review.id} live={live} /> : null}
       {/* A change that lands is never reviewed again, so its review offers no "Try again". */}
       <Risk badge={headerBadge(assessment, preparation?.assessment)} live={live && !preparation?.landing} merged={preparation?.landing?.state === 'merged'} rebuild={rebuild} />
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-muted-foreground">
@@ -112,6 +114,29 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
       ) : null}
       <Outdated review={review} preparation={preparation} live={live} rebuild={rebuild} />
     </header>
+  )
+}
+
+/**
+ * Who a pull request is from, under its title: "By" its author, or "By" the agent and "for" the person who asked, each
+ * a link to their profile when one is known, opened in the browser. Nothing without a host, or when nobody is named.
+ */
+function ByLine({ id, live }: { id: string; live: boolean }) {
+  const people = usePullPeople(id, live)
+  if (!people?.author) return null
+  const named = (person: ReviewPerson) =>
+    person.url ? (
+      <a href={person.url} target="_blank" rel="noopener noreferrer" data-stop className="underline underline-offset-2 hover:text-foreground">
+        {person.name}
+      </a>
+    ) : (
+      <span>{person.name}</span>
+    )
+  return (
+    <p className="mt-1 text-[13px] leading-snug text-muted-foreground [overflow-wrap:anywhere]">
+      By {named(people.author)}
+      {people.for ? <>, for {named(people.for)}</> : null}
+    </p>
   )
 }
 
