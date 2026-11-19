@@ -3,12 +3,16 @@
  * thinking; and Quick, for its blind check. Each runs on the tier the user named for it in Settings, the high tier
  * and the fast tier until they do. Each is one question in a Pi session
  * of its own, with no tools: it reads no file, runs nothing and changes nothing. Whatever it answers is checked by the
- * change review before anyone sees it.
+ * change review before anyone sees it. When the home names a launcher, which gives Pi its credentials, each question
+ * is one run of the launcher's Pi instead, as hobkin's own jobs without tools run.
  */
-import { existsSync, mkdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { scrubText } from '#shared/integrations/redact.ts'
 import type { PiModelRuntime } from '../pi.ts'
 import { DEFAULT_REVIEW_TIERS, TIER_IDS, type ReviewRole, type TierId } from '#shared/tiers/tiers.ts'
+import { runProgram } from '../../../packages/change-review/src/git.ts'
 import { loadPiCodingAgent } from '../pi.ts'
 
 /** A model and how hard it thinks, as hobkin's tiers store them (`017-model-tiers`), with where it came from: the tier itself, or the setting that tier follows while it has no model of its own. */
@@ -27,6 +31,8 @@ interface TiersConfig {
   background?: { harness?: string; model?: string | null; effort?: string }
   tiers?: Partial<Record<string, { model?: string; effort?: string } | null>>
   review?: Partial<Record<ReviewRole, string>>
+  /** The command that starts Pi with the user's credentials, as hobkin's config names it. */
+  launcher?: { command: string[]; env?: Record<string, string>; managedExtensions?: boolean }
 }
 
 const readConfig = (root: string): TiersConfig | null => {
@@ -80,16 +86,55 @@ export function checkerTier(root: string): TierChoice | null {
 
 /**
  * The model runner the change-review engine asks (spec 032): its one careful pass on the review tier, with high
- * thinking, and its blind check on the checker tier. Both run in a Pi session with no tools and an empty context.
+ * thinking, and its blind check on the checker tier. Both run with no tools and an empty context: in a Pi session in
+ * this process, or, when the home names a launcher, in one run of the launcher's Pi. A host with no models asks nothing.
  */
-export function piModelRunner({ root, data, runtime }: PiAgentPlace): (call: { pass: 'review' | 'checker'; system: string; prompt: string; signal: AbortSignal }) => Promise<string | null> {
+export function piModelRunner({ root, data, runtime, program = runProgram }: PiAgentPlace & { program?: typeof runProgram }): (call: { pass: 'review' | 'checker'; system: string; prompt: string; signal: AbortSignal }) => Promise<string | null> {
   return async ({ pass, system, prompt, signal }) => {
     const models = await runtime()
-    const choice = pass === 'checker' ? checkerTier(data()) : reviewTier(data())
+    const home = data()
+    const choice = pass === 'checker' ? checkerTier(home) : reviewTier(home)
     if (!models || !choice) return null
+    // Read on every call, so a launcher the home names now is the one asked.
+    const launcher = readConfig(home)?.launcher
+    if (launcher) return askLauncher({ launcher, choice, system, prompt, signal, program })
     return askPi({ root, models, choice, system, prompt, signal })
   }
 }
+
+/**
+ * One question to the launcher's Pi, run once in its one-shot mode: no tools, no session kept, no skills, prompt
+ * templates, themes, context files or project settings, on the tier's model and thinking. The question goes on
+ * standard input and the system prompt in a private file kept only while the call runs, so neither is on the command
+ * line. Pi's extensions stay when the launcher manages them, since one may bring the very provider.
+ */
+async function askLauncher({ launcher, choice, system, prompt, signal, program }: { launcher: NonNullable<TiersConfig['launcher']>; choice: TierChoice; system: string; prompt: string; signal: AbortSignal; program: typeof runProgram }): Promise<string> {
+  const { piCommand, piEnvironment } = await import('hobkin/src/cli/launcher.mjs')
+  const folder = mkdtempSync(join(tmpdir(), 'hobkin-review-call-'))
+  const file = join(folder, 'system.md')
+  try {
+    writeFileSync(file, system, { mode: 0o600 })
+    const { command, args } = piCommand(launcher, [
+      '-p', '--no-session', '--no-tools',
+      ...(launcher.managedExtensions ? [] : ['--no-extensions']),
+      '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve',
+      '--model', choice.model, '--thinking', choice.effort, '--system-prompt', file,
+    ])
+    const ran = await program(command, args, { cwd: folder, env: piEnvironment(launcher), input: prompt, timeoutMs: MODEL_DEADLINE_MS, group: true, signal })
+    if (signal.aborted) throw new Error('The review was stopped before its model answered.')
+    const failed = (why: string) => new Error(scrubText(`The ${choice.tier} tier's model, ${choice.model}, gave no answer through the launcher: ${why}`))
+    if (!ran.started) throw failed(ran.reason)
+    if (ran.timedOut) throw failed(`it was stopped after ${MODEL_DEADLINE_MS / 60_000} minutes.`)
+    const said = ran.stdout.toString('utf8').trim()
+    if (ran.code !== 0) throw failed(lastLine(ran.stderr.toString('utf8')) || lastLine(said) || `it stopped with code ${ran.code}.`)
+    return said
+  } finally {
+    rmSync(folder, { recursive: true, force: true })
+  }
+}
+
+/** The last line a program wrote that says something. */
+const lastLine = (text: string) => text.trim().split('\n').filter((line) => line.trim()).at(-1)?.trim() ?? ''
 
 /** Where a live agent runs: the home, hobkin's data folder (its config.json names the tiers), and Pi's models. */
 interface PiAgentPlace {

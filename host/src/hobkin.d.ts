@@ -372,6 +372,10 @@ declare module 'hobkin/src/cli/config.mjs' {
 declare module 'hobkin/src/cli/launcher.mjs' {
   /** Throws a plain sentence for a launcher hobkin would refuse. */
   export function validateLauncher(launcher: unknown): void
+  /** The program and arguments that run Pi with `args`: through the launcher when there is one, else `pi`. Validates it first. */
+  export function piCommand(launcher: unknown, args: readonly string[]): { command: string; args: string[] }
+  /** The environment Pi runs in: the launcher's own additions, or hobkin's offline defaults without one. */
+  export function piEnvironment(launcher: unknown): NodeJS.ProcessEnv
 }
 
 declare module 'hobkin/src/cli/settings.mjs' {

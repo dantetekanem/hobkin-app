@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
-import { writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
-import { askSession, checkerTier, MODEL_DEADLINE_MS, reviewTier, type PiSession } from '../src/review/agent.ts'
+import { askSession, checkerTier, MODEL_DEADLINE_MS, piModelRunner, reviewTier, type PiSession } from '../src/review/agent.ts'
 import { temporaryDirectory } from './support.ts'
 
 const home = (t: Parameters<typeof temporaryDirectory>[0], config: unknown) => {
@@ -88,4 +88,50 @@ test('a model call still going at its deadline is stopped, and says so', async (
   t.mock.timers.tick(1)
   await assert.rejects(reply, /^Error: The model gave no answer within 10 minutes, so it was stopped\.$/)
   assert.deepEqual(slow.calls, ['prompt: Rate it.', 'abort', 'dispose'])
+})
+
+/** A stand-in for running a program once: it writes down how it was run, what the system prompt file held while it ran, and answers as told. */
+function oneShot(answer: { code: number; stdout?: string; stderr?: string }) {
+  const runs: { program: string; args: readonly string[]; input?: string; env?: NodeJS.ProcessEnv; system: string | null }[] = []
+  const program = async (file: string, args: readonly string[], options: { input?: string; env?: NodeJS.ProcessEnv }) => {
+    const at = args.indexOf('--system-prompt')
+    runs.push({ program: file, args, input: options.input, env: options.env, system: at >= 0 && existsSync(args[at + 1]!) ? readFileSync(args[at + 1]!, 'utf8') : null })
+    return { started: true as const, code: answer.code, signal: null, timedOut: false, aborted: false, overflow: false, stdout: Buffer.from(answer.stdout ?? ''), stderr: Buffer.from(answer.stderr ?? ''), tail: '', seconds: 1 }
+  }
+  return { runs, program }
+}
+
+const LAUNCHED = { main: { model: 'acme/chat', effort: 'medium' }, tiers: { high: { model: 'acme/big' }, fast: { model: 'acme/small', effort: 'low' } } }
+const asked = { system: 'You review code.', prompt: 'Is this change safe?', signal: new AbortController().signal }
+
+test('with a launcher in the home, a review model call runs the launcher’s Pi once in its one-shot mode, the question on standard input and the system prompt in a file kept only while it runs', async (t) => {
+  const home = temporaryDirectory(t)
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ ...LAUNCHED, launcher: { command: ['company-pi', '--profile', 'work'], env: { REGION: 'north' } } }))
+  const { runs, program } = oneShot({ code: 0, stdout: 'It is safe.\n' })
+  const run = piModelRunner({ root: home, data: () => home, runtime: async () => ({}) as never, program })
+
+  assert.equal(await run({ pass: 'review', ...asked }), 'It is safe.')
+  const [call] = runs
+  assert.equal(call!.program, 'company-pi')
+  const file = call!.args[call!.args.indexOf('--system-prompt') + 1]!
+  assert.deepEqual(call!.args, ['--profile', 'work', '-p', '--no-session', '--no-tools', '--no-extensions', '--no-skills', '--no-prompt-templates', '--no-themes', '--no-context-files', '--no-approve', '--model', 'acme/big', '--thinking', 'high', '--system-prompt', file])
+  assert.deepEqual([call!.input, call!.system, call!.env?.REGION], [asked.prompt, asked.system, 'north'])
+  assert.equal(call!.args.some((arg) => arg.includes(asked.prompt) || arg.includes(asked.system)), false, 'neither is on the command line')
+  assert.equal(existsSync(file), false, 'the system prompt file is gone once the call ends')
+
+  // The blind check, and the titles that ask the same tier, go the same way on the fast tier.
+  await run({ pass: 'checker', ...asked })
+  assert.deepEqual(runs[1]!.args.slice(runs[1]!.args.indexOf('--model'), runs[1]!.args.indexOf('--model') + 4), ['--model', 'acme/small', '--thinking', 'low'])
+})
+
+test('a launcher that manages Pi’s extensions keeps them, and a call that fails names the model it asked for with secrets hidden', async (t) => {
+  const home = temporaryDirectory(t)
+  writeFileSync(join(home, 'config.json'), JSON.stringify({ ...LAUNCHED, launcher: { command: ['company-pi'], managedExtensions: true } }))
+  const kept = oneShot({ code: 0, stdout: 'ok' })
+  await piModelRunner({ root: home, data: () => home, runtime: async () => ({}) as never, program: kept.program })({ pass: 'review', ...asked })
+  assert.equal(kept.runs[0]!.args.includes('--no-extensions'), false)
+
+  const failing = oneShot({ code: 1, stderr: 'warming up\nAuthorization failed for token sk-live-4f8a9b2c7d1e6f3a0b5c8d2e9f7a1b3c\n' })
+  const failed = piModelRunner({ root: home, data: () => home, runtime: async () => ({}) as never, program: failing.program })({ pass: 'review', ...asked })
+  await assert.rejects(failed, (error: Error) => /acme\/big/.test(error.message) && /launcher/.test(error.message) && !/4f8a9b2c7d1e/.test(error.message) && /\[hidden\]/.test(error.message))
 })
