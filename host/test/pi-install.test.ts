@@ -26,7 +26,7 @@ const PI = '/fake.invalid/bin/pi'
 const NPM = '/fake.invalid/bin/npm'
 const PIN = '1.5.0'
 const COMMAND = `npm install -g --ignore-scripts @earendil-works/pi-coding-agent@${PIN}`
-const none = (installed: string[] = []) => PI_PACKAGES.map(({ name, adds }) => ({ name, adds, installed: installed.includes(name) }))
+const none = (installed: string[] = []) => PI_PACKAGES.filter(({ optional }) => !optional).map(({ name, adds }) => ({ name, adds, installed: installed.includes(name) }))
 /** The fake npm has no Node beside it, so it runs on the host's own, as `environment` says. Its version is known without asking. */
 const HOST_NODE = { found: true, version: process.versions.node, installs: process.versions.node }
 
@@ -106,6 +106,18 @@ test('a Pi that prints its version on standard error is read from there when sta
   const setup = await piSetup({ findPi: () => PI, findNpm: () => NPM, run, pinned: PIN })
   assert.equal(setup.version, '1.5.0')
   assert.equal(setup.matches, true)
+})
+
+test('an optional package is left out of what setup asks for, even when Pi has it, and a required one stays', async () => {
+  const optional = PI_PACKAGES.filter((item) => item.optional).map(({ name }) => name)
+  assert.ok(optional.includes('pi-search-hub'), 'pi-search-hub is optional')
+  const list = ['User packages:', `  npm:pi-coder`, ...optional.map((name) => `  npm:${name}`)].join('\n')
+  const run = fakeRun({ 'pi --version': { stdout: '1.5.0\n' }, 'pi list': { stdout: list } })
+  const { packages } = await piSetup({ findPi: () => PI, findNpm: () => NPM, run, pinned: PIN })
+  const names = packages.map(({ name }) => name)
+  for (const name of optional) assert.ok(!names.includes(name), name)
+  assert.deepEqual(packages.find(({ name }) => name === 'pi-coder')?.installed, true)
+  assert.ok(names.includes('pi-ask-user'))
 })
 
 test('the pinned Pi says which packages it has, by their whole names', async () => {

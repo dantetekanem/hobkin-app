@@ -219,7 +219,7 @@ export async function piSetup({
     matches: piVersionPasses(version),
     canInstall: npm !== null,
     installCommand: installCommand(pinned),
-    packages: PI_PACKAGES.map(({ name, adds }) => ({ name, adds, installed: list !== null && listed(list, name) })),
+    packages: PI_PACKAGES.filter(({ optional }) => !optional).map(({ name, adds }) => ({ name, adds, installed: list !== null && listed(list, name) })),
     node: { found: node !== null, version: nodeVersion, installs: process.versions.node },
   }
 }

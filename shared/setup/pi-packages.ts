@@ -7,6 +7,8 @@ export interface PiPackage {
   source: string
   /** What it adds, in one short line. */
   adds: string
+  /** Setup neither asks for it nor installs it. */
+  optional?: boolean
   /** A setting the package needs to work the way hobkin uses it. */
   config?: PiPackageConfig
 }
@@ -32,6 +34,7 @@ export const PI_PACKAGES: readonly PiPackage[] = [
   { name: 'pi-solid-tasks', source: 'npm:pi-solid-tasks', adds: 'Task tracking for agents, with dependencies, owners, subtasks and progress.' },
   {
     name: 'pi-search-hub',
+    optional: true,
     // The user's fork, on the branch that holds its fix for Pi 1.5. The published package's OpenAI search imports
     // what Pi 1.5 no longer has.
     source: 'git:github.com/dantetekanem/pi-search-hub@fix/openai-codex-model-runtime',

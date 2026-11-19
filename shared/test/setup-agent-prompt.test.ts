@@ -12,7 +12,7 @@ const setup = (over: Partial<PiSetup> = {}): PiSetup => ({
   matches: false,
   canInstall: false,
   installCommand: COMMAND,
-  packages: PI_PACKAGES.map(({ name, adds }) => ({ name, adds, installed: false })),
+  packages: PI_PACKAGES.filter(({ optional }) => !optional).map(({ name, adds }) => ({ name, adds, installed: false })),
   node: { found: false, version: null, installs: '26.1.0' },
   canInstallNode: false,
   ...over,
@@ -24,7 +24,7 @@ test('with nothing on this Mac, the prompt asks for Node with npm, the pinned Pi
   assert.match(prompt, new RegExp(`Node ${PI_NODE.replace('.', '\\.')} or newer, with npm`))
   assert.match(prompt, /found no Node/)
   assert.ok(prompt.includes(`\`${COMMAND}\``), 'Pi by the exact npm line')
-  for (const { source } of PI_PACKAGES) assert.ok(prompt.includes(`\`pi install ${source}\``), source)
+  for (const { source } of PI_PACKAGES.filter(({ optional }) => !optional)) assert.ok(prompt.includes(`\`pi install ${source}\``), source)
   // Where hobkin looks, so the agent puts the programs somewhere hobkin finds them.
   for (const place of ['$SHELL -ilc', '~/Library/pnpm', '~/.npm-global/bin', '/opt/homebrew/bin', '/usr/local/bin', 'client/node/bin']) assert.ok(prompt.includes(place), place)
   assert.match(prompt, /You may change whatever stands in the way on this Mac/)
@@ -52,7 +52,7 @@ test('after a failure, the prompt says what hobkin saw, with no secret and no ho
 })
 
 test('with Pi in place, only the missing packages are asked for, and Pi is not installed again', () => {
-  const packages = PI_PACKAGES.map(({ name, adds }) => ({ name, adds, installed: name !== 'pi-coder' }))
+  const packages = PI_PACKAGES.filter(({ optional }) => !optional).map(({ name, adds }) => ({ name, adds, installed: name !== 'pi-coder' }))
   const prompt = agentPrompt(setup({ installed: true, version: '1.5.0', matches: true, canInstall: true, packages }), 'Pi could not install pi-coder.')
 
   assert.ok(prompt.includes('`pi install npm:pi-coder`'))
