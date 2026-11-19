@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { delimiter, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { scrubText } from '#shared/integrations/redact.ts'
-import type { PiSetup } from '#shared/protocol/setup.ts'
+import { piVersionPasses, type PiSetup } from '#shared/protocol/setup.ts'
 import { PI_PACKAGES } from '#shared/setup/pi-packages.ts'
 import { Unavailable, type HostHandlers } from '../commands.ts'
 import { nodeBuild } from './node.ts'
@@ -104,10 +104,11 @@ function ran(run: PiRun, file: string, args: string[], timeout: number): Promise
   })
 }
 
-/** Stdout of a read, or null when it failed or timed out. */
+/** Stdout of a read, or null when it failed or timed out. Pi prints its version on stderr, so that stands in for an empty stdout. */
 async function read(run: PiRun, file: string, args: string[]): Promise<string | null> {
-  const { error, stdout } = await ran(run, file, args, READ_MS)
-  return error ? null : stdout
+  const { error, stdout, stderr } = await ran(run, file, args, READ_MS)
+  if (error) return null
+  return stdout.trim() ? stdout : stderr
 }
 
 /** Plain words, then the last lines the program printed, with anything shaped like a secret hidden. */
@@ -215,7 +216,7 @@ export async function piSetup({
     installed: pi !== null,
     version,
     pinned,
-    matches: version === pinned,
+    matches: piVersionPasses(version),
     canInstall: npm !== null,
     installCommand: installCommand(pinned),
     packages: PI_PACKAGES.map(({ name, adds }) => ({ name, adds, installed: list !== null && listed(list, name) })),

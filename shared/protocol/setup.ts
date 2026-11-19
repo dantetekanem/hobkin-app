@@ -26,6 +26,15 @@ export interface PiPackageState {
   installed: boolean
 }
 
+/** The oldest Pi major version the setup accepts. */
+export const PI_MIN_MAJOR = 1
+
+/** A Pi version passes when it is 1.0 or newer. The pinned one is only what a Mac without Pi gets installed. */
+export const piVersionPasses = (version: string | null): boolean => {
+  const major = Number(version?.match(/^\d+/)?.[0])
+  return Number.isInteger(major) && major >= PI_MIN_MAJOR
+}
+
 /** Pi on this Mac. Checks, agents and work mode start the `pi` program, so they need it installed. */
 export interface PiSetup {
   /** A `pi` program was found. */
@@ -34,7 +43,7 @@ export interface PiSetup {
   version: string | null
   /** The version hobkin runs on. */
   pinned: string
-  /** The installed Pi is the pinned one. */
+  /** The installed Pi is one hobkin runs on: any Pi from `PI_MIN_MAJOR` on (`piVersionPasses`), not only the pinned one. */
   matches: boolean
   /** npm was found, so the window can install Pi. When false the user runs `installCommand` themselves. */
   canInstall: boolean

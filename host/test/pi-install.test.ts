@@ -11,7 +11,7 @@ import { findProgram, installPackage, installPi, piAgentFolder, piSetup, piSetup
 import { nodeBuild } from '../src/pi/node.ts'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
 
-type Answer = { stdout: string } | { error: Error; stdout?: string; stderr?: string }
+type Answer = { stdout: string; stderr?: string } | { error: Error; stdout?: string; stderr?: string }
 interface Call { program: string; args: string[]; timeout: number; path: string }
 
 /** Answers by the program's name and its arguments, and writes down every call. Nothing real is ever started. */
@@ -19,7 +19,7 @@ const fakeRun = (answers: Record<string, Answer>, calls: Call[] = []): PiRun => 
   calls.push({ program: file, args: [...args], timeout: options.timeout, path: options.env.PATH ?? '' })
   const answer = answers[[basename(file), ...args].join(' ')] ?? { error: new Error('unexpected') }
   if ('error' in answer) done(answer.error, answer.stdout ?? '', answer.stderr ?? '')
-  else done(null, answer.stdout, '')
+  else done(null, answer.stdout, answer.stderr ?? '')
 }
 
 const PI = '/fake.invalid/bin/pi'
@@ -92,10 +92,20 @@ test('with Pi missing nothing is run, no package is installed, and the install c
   assert.deepEqual(calls, [])
 })
 
-test('Pi at another version is installed but does not match the pin', async () => {
-  const run = fakeRun({ 'pi --version': { stdout: '1.4.2\n' }, 'pi list': { stdout: 'No packages installed.\n' } })
+test('any Pi from 1.0 passes, whatever the pin, and an older one does not', async () => {
+  const versions: [string, boolean][] = [['1.4.2', true], ['1.0.0', true], ['2.0.1', true], ['0.68.0', false]]
+  for (const [version, passes] of versions) {
+    const run = fakeRun({ 'pi --version': { stdout: `${version}\n` }, 'pi list': { stdout: 'No packages installed.\n' } })
+    const setup = await piSetup({ findPi: () => PI, findNpm: () => NPM, run, pinned: PIN })
+    assert.deepEqual(setup, { installed: true, version, pinned: PIN, matches: passes, canInstall: true, installCommand: COMMAND, packages: none(), node: HOST_NODE }, version)
+  }
+})
+
+test('a Pi that prints its version on standard error is read from there when standard output is empty', async () => {
+  const run = fakeRun({ 'pi --version': { stdout: '', stderr: '1.5.0\n' }, 'pi list': { stdout: 'No packages installed.\n' } })
   const setup = await piSetup({ findPi: () => PI, findNpm: () => NPM, run, pinned: PIN })
-  assert.deepEqual(setup, { installed: true, version: '1.4.2', pinned: PIN, matches: false, canInstall: true, installCommand: COMMAND, packages: none(), node: HOST_NODE })
+  assert.equal(setup.version, '1.5.0')
+  assert.equal(setup.matches, true)
 })
 
 test('the pinned Pi says which packages it has, by their whole names', async () => {
