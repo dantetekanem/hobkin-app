@@ -6,6 +6,7 @@ import type { ReviewStatus } from '#shared/review/status.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
+import { useDragEdge } from '@/app/drag-edge.ts'
 import { spring } from '@/lib/motion.ts'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import type { Size } from '../story/camera.ts'
@@ -81,6 +82,11 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
   const width = stepsPanelWidth(canvas.width)
   const open = !hidden || within
   useEffect(() => store.getState().setPanelOpen(open), [open, store])
+  // The window's drag strip starts where the part of the panel on screen ends, so its top line takes its own clicks.
+  useEffect(() => {
+    useDragEdge.getState().set(open ? width : STEPS_STRIP)
+    return () => useDragEdge.getState().set(0)
+  }, [open, width])
 
   // How much of the panel is on screen. The camera reads this as covered, and the panel reads its own place from it.
   useEffect(() => {

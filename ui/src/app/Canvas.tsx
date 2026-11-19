@@ -22,6 +22,7 @@ import { useCanvasPlace } from '@/features/canvas-panel/use-place.ts'
 import { HobkinScreen } from '@/features/hobkins/HobkinScreen.tsx'
 import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import { NotWiredYet } from './NotWiredYet.tsx'
+import { dragLeft, useDragEdge } from './drag-edge.ts'
 import { ScreenBoundary } from './ScreenBoundary.tsx'
 import { ScreenMenu } from './ScreenMenu.tsx'
 import { useStill } from './still.ts'
@@ -169,6 +170,7 @@ export function Canvas() {
   const pageInset = usePageInset(durable, split !== null, sizes.canvasWidth, still)
   // While the split grows the right side over the chat, what floats over the canvas moves back by as much.
   const shift = split ? grow : 0
+  const dragEdge = useDragEdge((state) => state.edge)
   // Each agent has a key of its own, which focus and the keys go by. The agents share one section, though: moving from
   // one agent to the next keeps the canvas and its controls in place, and only the agent's own pieces change on it.
   const key = needsModel ? 'connect' : screen === 'agent' ? `agent:${openAgent}` : screen
@@ -193,7 +195,7 @@ export function Canvas() {
         data-tauri-drag-region
         className="select-none-chrome absolute top-0 right-44 z-10 h-14"
         initial={false}
-        animate={{ left: shift }}
+        animate={{ left: dragLeft(shift, dragEdge) }}
         transition={growth}
       />
       {needsModel ? null : <ScreenMenu shift={shift} transition={growth} />}
