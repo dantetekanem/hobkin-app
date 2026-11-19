@@ -39,7 +39,10 @@ const codemodeDetails = details => {
 };
 const TERMINAL_CHILD = new Set(['completed', 'failed', 'cancelled']);
 
-/** Disposable display groups, never execution targets or custody. Only admitted roots are tracked. */
+/**
+ * Disposable display groups, never execution targets or custody. Only admitted roots are tracked. A helper's row says
+ * who it is and how it stands, never its words or calls: nothing draws them.
+ */
 export class OwnedActivity {
   groups = new Map();
 
@@ -49,32 +52,12 @@ export class OwnedActivity {
     if (group) group.settled = true;
   }
 
-  observe(identity, event) {
-    const row = this.groups.get(identity?.rootId)?.children.get(identity?.id);
-    if (!row || event?.display === false) return;
-    if (event?.type === 'message_end' && typeof event.text === 'string') {
-      row.activity.push({ kind: 'assistant', text: boundedText(event.text, 8000) });
-    } else if (['tool_execution_start', 'tool_execution_end'].includes(event?.type)) {
-      const id = boundedText(event.toolCallId, 200);
-      const name = boundedText(event.toolName, 120);
-      if (!id || !name) return;
-      let tool = row.activity.find(entry => entry.id === 'tool:' + id);
-      if (!tool) {
-        tool = { id: 'tool:' + id, kind: 'tool', name };
-        row.activity.push(tool);
-      }
-      tool.state = event.type === 'tool_execution_start' ? 'running' : event.isError ? 'failed' : 'completed';
-    }
-    if (row.activity.length > 32) row.activity.splice(0, row.activity.length - 32);
-  }
-
   project(snapshot = []) {
     for (const row of snapshot) {
       const group = this.groups.get(row.rootId);
       if (!group || (!group.children.has(row.id) && group.children.size >= 32)) continue;
-      const previous = group.children.get(row.id);
       const { id, parentId, rootId, depth, name, status } = row;
-      group.children.set(id, { id, parentId, rootId, depth, name, state: status, activity: previous?.activity ?? [] });
+      group.children.set(id, { id, parentId, rootId, depth, name, state: status });
     }
     for (const [id, group] of this.groups) {
       if (group.settled && !group.children.size) this.groups.delete(id);
@@ -83,9 +66,7 @@ export class OwnedActivity {
       && [...group.children.values()].every(row => TERMINAL_CHILD.has(row.state)));
     for (const [id] of terminal.slice(0, Math.max(0, terminal.length - 20))) this.groups.delete(id);
     return Object.fromEntries([...this.groups].filter(([, group]) => group.children.size)
-      .map(([id, group]) => [id, [...group.children.values()].map(row => ({
-        ...row, activity: row.activity.map(entry => ({ ...entry })),
-      }))]));
+      .map(([id, group]) => [id, [...group.children.values()].map(row => ({ ...row }))]));
   }
 }
 

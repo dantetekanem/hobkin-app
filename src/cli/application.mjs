@@ -181,8 +181,8 @@ export class HobkinApplication {
     }
   }
 
+  // A helper's words and calls are not shown, only who it is and how it stands, which its lifecycle reports itself.
   observeOwnedEvent(identity, event) {
-    this.runtime?.observeOwnedActivity(identity, event);
     if (['performance', 'message_end'].includes(event.type)) this.requestRefresh(false);
   }
 

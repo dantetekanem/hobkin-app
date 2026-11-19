@@ -391,12 +391,6 @@ export class HobkinRuntime {
     if (fresh) this.mainOwnedRoots.clear();
   }
 
-  observeOwnedActivity(identity, event) {
-    this.ownedChildren();
-    this.ownedActivity.observe(identity, event);
-    this.notify(true);
-  }
-
   ownedChildren() {
     const groups = this.ownedActivity.project(this.ownedLifecycle?.snapshot?.() ?? []);
     for (const id of this.mainOwnedRoots) {

@@ -107,14 +107,14 @@ test('Work performance uses captured harness and native session IDs across offli
 });
 
 test('application helper observers append allowlisted facts and refresh only meaningful measurements', t => {
-  const { root } = fixture(t), app = Object.create(HobkinApplication.prototype), refreshes = [], observed = [];
-  app.runtime = { directory: root, observeOwnedActivity: (...args) => observed.push(args) };
+  const { root } = fixture(t), app = Object.create(HobkinApplication.prototype), refreshes = [];
+  app.runtime = { directory: root };
   app.requestRefresh = value => refreshes.push(value);
   app.observeOwnedEvent(helper(), { type: 'performance', display: false });
   app.observeOwnedEvent(helper(), { type: 'message_end', text: 'PRIVATE' });
   app.observeOwnedEvent(helper(), { type: 'message_update' });
-  assert.deepEqual(refreshes, [false, false]);
-  assert.equal(observed.length, 3);
+  app.observeOwnedEvent(helper(), { type: 'tool_execution_start', toolCallId: 'call', toolName: 'read' });
+  assert.deepEqual(refreshes, [false, false], 'a helper\'s words and calls are not shown, so only its measurements refresh');
   app.recordOwnedPerformance(helper('child', { name: 'PRIVATE', performance: { ...facts('child', 'native'), prompt: 'PRIVATE' } }));
   app.recordOwnedPerformance(helper('queued', { status: 'cancelled', performance: null }));
   app.recordOwnedPerformance({ ...helper(), id: 'PRIVATE/path' });

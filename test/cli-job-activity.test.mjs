@@ -195,25 +195,20 @@ test('unsafe, hidden and malformed records are ignored; visible content stays te
 const child = (rootId, id, status = 'running', parentId = rootId) => ({
   id, parentId, rootId, depth: parentId === rootId ? 1 : 2, name: 'same name', status,
 });
-test('owned-publication projects exact ancestry and bounded public observations only', () => {
+test('owned-publication projects exact ancestry, and a helper row says only who it is and how it stands', () => {
   assert.equal(typeof activity.OwnedActivity, 'function');
   const display = new activity.OwnedActivity();
   display.track('root');
-  const rows = [child('root', 'child'), child('root', 'grandchild', 'unknown', 'child')];
-  display.project(rows);
-  display.observe({ id: 'impostor', rootId: 'root', name: 'same name' }, { type: 'message_end', text: 'SECRET' });
-  display.observe(rows[0], { type: 'message_end', text: '\x1b[31mPublic\x1b[0m' + 'x'.repeat(9000), usage: { private: 'SECRET' } });
-  display.observe(rows[0], { type: 'tool_execution_start', toolCallId: 'tool', toolName: 'read', args: { path: 'SECRET' } });
-  display.observe(rows[0], { type: 'tool_execution_end', toolCallId: 'tool', toolName: 'read', isError: true, result: 'SECRET' });
+  const rows = [
+    { ...child('root', 'child'), usage: { private: 'SECRET' }, lastActivityAt: 1, performance: { steps: ['SECRET'] } },
+    child('root', 'grandchild', 'unknown', 'child'),
+  ];
   const view = display.project(rows).root;
-  assert.deepEqual(view.map(({ id, parentId, rootId, depth, state }) => [id, parentId, rootId, depth, state]), [
-    ['child', 'root', 'root', 1, 'running'], ['grandchild', 'child', 'root', 2, 'unknown'],
+  assert.deepEqual(view, [
+    { id: 'child', parentId: 'root', rootId: 'root', depth: 1, name: 'same name', state: 'running' },
+    { id: 'grandchild', parentId: 'child', rootId: 'root', depth: 2, name: 'same name', state: 'unknown' },
   ]);
-  assert.equal(view[0].activity[0].text.length, 8000);
-  assert.deepEqual(view[0].activity[1], { id: 'tool:tool', kind: 'tool', name: 'read', state: 'failed' });
-  assert.doesNotMatch(JSON.stringify(view), /SECRET|usage|args|result|\\u001b/);
-  view[0].activity[0].text = 'changed'; view[1].state = 'completed';
-  assert.equal(display.project(rows).root[0].activity[0].text.startsWith('Public'), true);
+  view[1].state = 'completed';
   assert.equal(display.project(rows).root[1].state, 'unknown');
 });
 
@@ -231,8 +226,6 @@ test('owned-publication retains unsettled and unknown roots and evicts only olde
   assert.equal(rows.length, 24, 'display eviction never prunes lifecycle authority');
   const many = Array.from({ length: 40 }, (_, i) => child('active', 'bounded' + i));
   assert.equal(display.project([...rows, ...many]).active.length, 32);
-  for (let i = 0; i < 100; i++) display.observe(many[0], { type: 'tool_execution_start', toolCallId: 't' + i, toolName: 'grep' });
-  assert.equal(display.project([...rows, ...many]).active.find(row => row.id === 'bounded0').activity.length, 32);
 });
 
 test('codemode details preserve ordered call snapshots, including duplicate running ids', () => {

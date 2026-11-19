@@ -216,8 +216,6 @@ test('owned-publication runtime selects admitted roots and retains unknown contr
   await started.promise;
   assert.equal(runtime.ownedActivity.groups.get('main-root').settled, false);
   assert.equal(runtime.mainChildren()[0]?.id, 'child');
-  runtime.observeOwnedActivity(rows[0], { type: 'message_end', text: 'Public child' });
-  assert.equal(runtime.mainChildren()[0].activity[0].text, 'Public child');
   runtime.resetting = true; runtime.mainFault = Error('fault');
   assert.equal(runtime.mainChildren()[0].state, 'unknown');
   const controls = runtime.stopControls();
