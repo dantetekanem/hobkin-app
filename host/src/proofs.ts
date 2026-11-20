@@ -226,8 +226,9 @@ export function findTools(home: string, env: NodeJS.ProcessEnv = process.env): P
   const inPath = (name: string, extra: string[] = []) =>
     [...extra, ...(env.PATH ?? '').split(delimiter)].filter(Boolean).map((dir) => join(dir, name)).find((path) => existsSync(path)) ?? null
   const java = env.JAVA_HOME && existsSync(join(env.JAVA_HOME, 'bin', 'java')) ? join(env.JAVA_HOME, 'bin', 'java') : inPath('java', ['/opt/homebrew/opt/openjdk/bin', '/usr/local/opt/openjdk/bin'])
-  const jar = [env.TLA2TOOLS, join(home, 'tools', 'tla2tools.jar'), join(home, 'proofs', 'tools', 'tla2tools.jar')].find((path): path is string => !!path && existsSync(path))
-  const tlaps = inPath('tlapm', [join(home, 'tools', 'tlapm', 'bin')])
+  // `hobkin proof setup` puts the jar in tools/tla and TLAPS in tools/tlaps.
+  const jar = [env.TLA2TOOLS, join(home, 'tools', 'tla', 'tla2tools.jar')].find((path): path is string => !!path && existsSync(path))
+  const tlaps = inPath('tlapm', [join(home, 'tools', 'tlaps', 'bin'), join(home, 'tools', 'tlaps')])
   // macOS ships /usr/bin/java as a stub that only asks for an install, so it is not a Java.
   return { java: java === '/usr/bin/java' ? null : java, tlc: jar ?? null, tlaps }
 }
@@ -380,7 +381,7 @@ export interface ProofRuntime {
   /** Ends a run and records `stopped`. */
   stop?: (input: { home: string; id: string }) => Promise<unknown> | unknown
   /** Starts a check, as `hobkin proof check` does. */
-  check?: (input: { home: string; spec: string; cfg?: string; project?: string; item?: string; head?: string }) => Promise<unknown> | unknown
+  check?: (input: { home: string; spec: string; cfg?: string; root?: string; project?: string; item?: string; head?: string }) => Promise<unknown> | unknown
   /** Downloads the pinned tools. */
   setup?: (input: { home: string }) => Promise<unknown> | unknown
 }
@@ -486,11 +487,13 @@ export function proofHandlers({ keeper, home, runtime = loadProofRuntime, alive 
       const folder = join(home(), 'proofs', id)
       const check = (await runtime()).check
       if (!check) throw missing('start a proof check')
-      const cfg = readJson(join(folder, 'result.json'))?.cfg
+      // The spec and cfg paths are relative to the checkout the run happened in.
+      const { cfg, root } = readJson(join(folder, 'result.json')) ?? {}
       const said = await check({
         home: home(),
         spec: run.spec,
         ...(typeof cfg === 'string' ? { cfg } : {}),
+        ...(typeof root === 'string' ? { root } : {}),
         ...(run.project ? { project: run.project } : {}),
         ...(run.item ? { item: run.item } : {}),
       })

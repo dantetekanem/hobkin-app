@@ -6,7 +6,7 @@ import { setTimeout as pause } from 'node:timers/promises'
 import type { ProofsState } from '#shared/protocol/proofs.ts'
 import { checkArguments, COMMANDS } from '#shared/commands/registry.ts'
 import { runCommand } from '../src/commands.ts'
-import { foldEvents, proofHandlers, ProofsKeeper, readRun, summaryOf, type ProofRuntime } from '../src/proofs.ts'
+import { findTools, foldEvents, proofHandlers, ProofsKeeper, readRun, summaryOf, type ProofRuntime } from '../src/proofs.ts'
 import { StateSync } from '../src/state-sync.ts'
 import { temporaryDirectory } from './support.ts'
 
@@ -163,7 +163,7 @@ test('the state message carries the proofs slice when it changes and with every 
 
 function seat(t: Parameters<typeof temporaryDirectory>[0], runtime: ProofRuntime, pid: string | null = null) {
   const { home, folder } = homeWith(t, 'r1', [startEvent, progress(2, 100)], pid ? { pid } : {})
-  writeFileSync(join(folder, 'result.json'), JSON.stringify({ outcome: 'holds', cfg: 'specs/tla/WorkItem.cfg' }))
+  writeFileSync(join(folder, 'result.json'), JSON.stringify({ outcome: 'holds', cfg: 'specs/tla/WorkItem.cfg', root: '/work/api/trees/proof' }))
   const keeper = new ProofsKeeper({ home: () => home, onChange: () => {}, tools: () => tools, pollMs: 1000 })
   t.after(() => keeper.close())
   return { home, folder, keeper, handlers: proofHandlers({ keeper, home: () => home, runtime: async () => runtime, pauseMs: 5, graceMs: 60 }) }
@@ -182,7 +182,7 @@ test('proof.again starts the same check through the runtime, and an older runtim
   const calls: unknown[] = []
   const { handlers, home } = seat(t, { check: (input) => (calls.push(input), { id: 'r2', message: 'Started r2.' }) })
   assert.deepEqual(await runCommand(handlers, 'proof.again', { id: 'r1' }), { ok: true, value: { message: 'Started r2.', id: 'r2' } })
-  assert.deepEqual(calls, [{ home, spec: 'specs/tla/WorkItem.tla', cfg: 'specs/tla/WorkItem.cfg', project: 'api', item: 'queue' }])
+  assert.deepEqual(calls, [{ home, spec: 'specs/tla/WorkItem.tla', cfg: 'specs/tla/WorkItem.cfg', root: '/work/api/trees/proof', project: 'api', item: 'queue' }])
 
   const old = seat(t, {})
   const refused = await runCommand(old.handlers, 'proof.again', { id: 'r1' })
@@ -247,4 +247,16 @@ test('proof.stop with an older runtime still ends the process and shows the run 
   assert.match(said.ok ? (said.value as { message: string }).message : '', /not recorded as stopped/)
   assert.equal(alive, false)
   assert.equal(readRun(live, 'live', { alive: () => false, stopped: keeper.stopped })!.outcome, 'stopped')
+})
+
+test('the tools are found where hobkin proof setup puts them', (t) => {
+  const home = temporaryDirectory(t)
+  mkdirSync(join(home, 'tools', 'tla'), { recursive: true })
+  writeFileSync(join(home, 'tools', 'tla', 'tla2tools.jar'), '')
+  mkdirSync(join(home, 'tools', 'tlaps', 'bin'), { recursive: true })
+  writeFileSync(join(home, 'tools', 'tlaps', 'bin', 'tlapm'), '')
+  const found = findTools(home, { PATH: '' })
+  assert.equal(found.tlc, join(home, 'tools', 'tla', 'tla2tools.jar'))
+  assert.equal(found.tlaps, join(home, 'tools', 'tlaps', 'bin', 'tlapm'))
+  assert.equal(found.java, null)
 })
