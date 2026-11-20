@@ -147,12 +147,22 @@ export interface FinishedChange {
   scores?: string | null
 }
 
+/**
+ * Where a project's readiness work stands (`workOf` in hobkin's `src/cli/work/yolo.mjs`): none filed yet, queued to run,
+ * running, waiting for the user's yes on its branch, landed, or closed without landing.
+ */
+export type YoloWork = 'none' | 'queued' | 'running' | 'waiting' | 'landed' | 'closed'
+
 /** One project's place in YOLO mode: whether changes may merge there by themselves, and what it still needs when not. */
 export interface YoloProject {
   slug: string
   name: string
   ready: boolean
   needs: string[]
+  /** Where its readiness work stands. A hobkin older than this does not send it. */
+  work?: YoloWork
+  /** When its readiness was last recorded, as an ISO time, and null before its first check. A hobkin older than this does not send it. */
+  checkedAt?: string | null
 }
 
 /**

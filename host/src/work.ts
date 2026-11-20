@@ -372,7 +372,7 @@ export interface WorkSeat {
   root: () => string
 }
 
-type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.yolo' | 'work.change' | 'work.group'
+type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.yolo' | 'work.yolo.ready' | 'work.change' | 'work.group'
 
 /** y and n on a proposal in the terminal: take it, or leave it alone. */
 const PROPOSAL_ANSWERS = { take: 'choose', skip: 'skip' } as const
@@ -436,6 +436,11 @@ export function workHandlers({ app, root }: WorkSeat): Pick<HostHandlers, WorkCo
       const yolo = setYolo(root(), { ...(on === undefined ? {} : { on }), ...(rate === undefined ? {} : { rate }) })
       await app().refresh()
       return { on: yolo.on, rate: yolo.rate }
+    },
+    // hobkin's own work action, which starts the readiness run the way Start now starts a queue row. It merges nothing.
+    'work.yolo.ready': async ({ slug }) => {
+      const said = await app().workAction('ready', slug)
+      return { message: messageOf(said) }
     },
     'work.change': async ({ slug, item, action, head, note }) => {
       const named = CHANGE_ACTIONS[action]

@@ -1011,6 +1011,13 @@ export const COMMANDS = {
     rule: ({ on, rate }) => (on === undefined && rate === undefined ? 'need on or rate' : null),
     outside: true,
   },
+  // It spends an agent's run, so only the user's click in the window starts it.
+  'work.yolo.ready': {
+    description:
+      "Run one project's readiness for YOLO mode now, whether YOLO mode is on or off: hobkin files its readiness work when it has none, opens it again for a fresh check once it landed or closed, and starts it at once, as Start now starts a queue row. Work that waits for the user's yes on its branch is refused. It merges and deploys nothing.",
+    runs: 'host',
+    args: Type.Object({ slug: projectSlug }, { additionalProperties: false }),
+  },
   'work.change': {
     description:
       "Act on a finished change, only ever on the user's word: `merge` merges its branch on this machine and pushes nothing, `merge-pr` merges its PR on GitHub, `refresh-merge` has an agent bring it up to date and merges it once that run ends well, `review` has an agent review it, `ask` sends an agent back to it with the user's `note`, `decline` says no, and `done` marks the item done: what it left for the user is cleared and any branch or PR stays as it is. `head` is the commit the card showed, so a change that moved since is refused.",
@@ -1318,6 +1325,8 @@ export interface CommandResults {
   'work.tokens': { tokens: number }
   /** YOLO mode as it stands now. */
   'work.yolo': { on: boolean; rate: number }
+  /** What hobkin said: the readiness work starts now, or what still holds it. */
+  'work.yolo.ready': { message: string }
   /** What hobkin did, in its own words. */
   'work.change': { message: string }
   /** hobkin's line for each row, in the order they went, and the line that sums them up. */

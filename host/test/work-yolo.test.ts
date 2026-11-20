@@ -94,3 +94,34 @@ test('only the window changes YOLO mode', async (t) => {
   }
   assert.deepEqual([(await reported()).on, (await reported()).rate], [true, 9])
 })
+
+test("the window runs one project's readiness now through hobkin's own work action, and hobkin's tool cannot", async (t) => {
+  const calls: unknown[][] = []
+  const said = 'Queued "Get api ready for YOLO mode" on api to start at once. It starts now.'
+  const app: WorkApp = {
+    workAction: async (...args: unknown[]) => {
+      calls.push(args)
+      if (args[1] === 'web') throw Error('The readiness work on web waits for your yes on its branch. Merge it or say no to it first.')
+      return { ok: true, message: said }
+    },
+    refresh: async () => {},
+  }
+  const handlers = workHandlers({ app: () => app, root: () => temporaryDirectory(t) })
+
+  assert.deepEqual(await runCommand(handlers, 'work.yolo.ready', { slug: 'api' }), { ok: true, value: { message: said } })
+  assert.deepEqual(calls, [['ready', 'api']])
+
+  // hobkin's refusal comes back in its own words.
+  const waiting = await runCommand(handlers, 'work.yolo.ready', { slug: 'web' })
+  assert.match(!waiting.ok ? waiting.error.message : '', /waits for your yes on its branch/)
+
+  for (const args of [{}, { slug: 'Not a slug' }, { slug: 'api', on: true }]) {
+    const refused = await runCommand(handlers, 'work.yolo.ready', args)
+    assert.equal(!refused.ok && refused.error.code, 'invalid-arguments', JSON.stringify(args))
+  }
+
+  // It spends an agent's run, so it is the user's click alone.
+  const tool = createClientTool({ run: (name, args) => runCommand(handlers, name, args) })
+  await assert.rejects(tool.execute('1', { action: 'run', name: 'work.yolo.ready', args: { slug: 'api' } }), /hobkin cannot run work\.yolo\.ready/)
+  assert.deepEqual(calls, [['ready', 'api'], ['ready', 'web']])
+})
