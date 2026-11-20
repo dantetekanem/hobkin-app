@@ -3,7 +3,7 @@
   "id": "050-tla-proofs",
   "title": "TLA+ proofs in work mode and YOLO mode",
   "kind": "work",
-  "status": "draft",
+  "status": "doing",
   "depends": ["011-work", "032-change-review", "049-yolo-mode"],
   "updated": "2026-11-20"
 }
@@ -154,15 +154,17 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 
 ## Steps
 
-- [ ] S1 (A1, A2). Runtime: the pinned toolchain, `hobkin proof setup`, the Java check and the setup row. Record real SANY and TLC output for a small spec as fixtures. Files: new `hobkin/src/cli/proof/setup.mjs`, `hobkin/src/cli/setup.mjs`.
-- [ ] S2 (A3, A4, A5, A7). Runtime: `hobkin proof check`. It covers the runner, the parser for TLC's framed messages, the events, the run record, the trace, coverage, the limits and stop. Files: new `hobkin/src/cli/proof/{check,tool-messages,record}.mjs`, `hobkin/src/cli/commands.mjs`.
-- [ ] S3 (A6, A13). Runtime: who writes a run, how a run is matched to an item, the proof score's evidence and cap, the YOLO floor and the rerun on a modeled file. Files: `hobkin/src/cli/work/{classified,yolo-pass,commands,yolo}.mjs`.
-- [ ] S4 (A3, A15). Host and protocol: the `proofs` slice, and the `proof.get` and `proof.stop` commands. Files: new `host/src/proofs.ts`, new `shared/protocol/proofs.ts`, `shared/protocol/messages.ts`, `host/src/state-sync.ts`, `shared/commands/registry.ts`, `host/src/host.ts`.
-- [ ] S5 (A8, A12). Window: the run view as a page of its own, opened from the item and the agent, and the proof widget in the agent's steps. Files: new `ui/src/features/proofs/`, `ui/src/app/screens.ts`, `ui/src/app/Canvas.tsx`, `ui/src/features/agent-activity/`.
-- [ ] S6 (A9). Window: the state graph. It reads the dot dump, lays it out with dagre and draws it with xyflow, in the three views with the step bar. Files: `ui/src/features/proofs/graph/`.
-- [ ] S7 (A10, A11). Runtime and window: TLAPS through `tlapm --toolbox` with `--strict`, the proof tree, the Unicode typesetting and the three modes. Files: new `hobkin/src/cli/proof/tlaps.mjs`, `ui/src/features/proofs/math/`.
-- [ ] S8 (A12, A14). The surfaces: the finished card, the review's scores, the YOLO page's `models` part, Home's Problems, and the state-machines look writing specs, with the weekly recheck. Files: `ui/src/features/work/{Finished,YoloScreen}.tsx`, `ui/src/features/home/model.ts`, `hobkin/src/prompts/work-look.md`, `hobkin/src/cli/work/plan.mjs`.
-- [ ] S9 (A5, A14). Prompts: when and how an agent models a machine, and the rules on what a result shows. A model is small enough to finish. Every action has to fire. The `\* code:` and `\* words:` comments are required. Files: `hobkin/src/prompts/work-do.md`, `hobkin/src/prompts/work-look.md`.
+- [x] S1 (A1, A2). Runtime: the pinned toolchain, `hobkin proof setup`, the Java check and the setup row. Record real SANY and TLC output for a small spec as fixtures. Files: new `hobkin/src/cli/proof/setup.mjs`, `hobkin/src/cli/setup.mjs`.
+- [x] S2 (A3, A4, A5, A7). Runtime: `hobkin proof check`. It covers the runner, the parser for TLC's framed messages, the events, the run record, the trace, coverage, the limits and stop. Files: new `hobkin/src/cli/proof/{check,tool-messages,record}.mjs`, `hobkin/src/cli/commands.mjs`.
+- [x] S3 (A6, A13). Runtime: who writes a run, how a run is matched to an item, the proof score's evidence and cap, the YOLO floor and the rerun on a modeled file. Files: `hobkin/src/cli/work/{classified,yolo-pass,commands,yolo}.mjs`.
+- [x] S4 (A3, A15). Host and protocol: the `proofs` slice, and the `proof.get` and `proof.stop` commands. Files: new `host/src/proofs.ts`, new `shared/protocol/proofs.ts`, `shared/protocol/messages.ts`, `host/src/state-sync.ts`, `shared/commands/registry.ts`, `host/src/host.ts`.
+- [x] S5 (A8, A12). Window: the run view as a page of its own, opened from the item and the agent, and the proof widget in the agent's steps. Files: new `ui/src/features/proofs/`, `ui/src/app/screens.ts`, `ui/src/app/Canvas.tsx`, `ui/src/features/agent-activity/`.
+- [x] S6 (A9). Window: the state graph. It reads the dot dump, lays it out with dagre and draws it with xyflow, in the three views with the step bar. Files: `ui/src/features/proofs/graph/`.
+- [x] S7 (A10, A11). Runtime and window: TLAPS through `tlapm --toolbox` with `--strict`, the proof tree, the Unicode typesetting and the three modes. Files: new `hobkin/src/cli/proof/tlaps.mjs`, `ui/src/features/proofs/math/`.
+- [x] S8 (A12, A14). The surfaces: the finished card, the review's scores, the YOLO page's `models` part, Home's Problems, and the state-machines look writing specs, with the weekly recheck. Files: `ui/src/features/work/{Finished,YoloScreen}.tsx`, `ui/src/features/home/model.ts`, `hobkin/src/prompts/work-look.md`, `hobkin/src/cli/work/plan.mjs`.
+- [x] S9 (A5, A14). Prompts: when and how an agent models a machine, and the rules on what a result shows. A model is small enough to finish. Every action has to fire. The `\* code:` and `\* words:` comments are required. Files: `hobkin/src/prompts/work-do.md`, `hobkin/src/prompts/work-look.md`.
+
+- [ ] S10 (A1, A2, A3, A4, A7, A11). What the recorded fixtures cannot show. The fixtures come from TLC 1.7.4 and tlapm 1.6.0-pre source, not real runs. With the user's yes to install Java and the pinned jar: run `HOBKIN_TLC=1 node --test test/cli-proof.test.mjs` in hobkin, check one real model end to end in the live window (live counts, stop, the graph, the math), and fill `TLA2TOOLS.sha256` in `hobkin/src/cli/proof/tools.mjs` from the verified download.
 
 ## Open questions
 
