@@ -50,10 +50,11 @@ const LOG_ROW = 52
 export function RunView({ run, now, zone, onTab, onCode }: RunViewProps) {
   return (
     <div className="grid grid-cols-1 gap-5 @min-[880px]:grid-cols-[minmax(0,1fr)_320px]">
-      <div className="flex min-w-0 flex-col gap-4">
+      {/* Its own container, so its pieces fit the column they have, not the page. */}
+      <div className="@container flex min-w-0 flex-col gap-4">
         <Check run={run} now={now} />
         <ResultArea run={run} onTab={onTab} />
-        <div className="grid grid-cols-1 gap-4 @min-[680px]:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 @min-[640px]:grid-cols-2">
           <Rules run={run} />
           <Actions run={run} />
         </div>
@@ -69,12 +70,14 @@ export function RunView({ run, now, zone, onTab, onCode }: RunViewProps) {
 const STEP_LOOK: Readonly<Record<StepLook, { box: string; dot: string; mark: string }>> = {
   done: { box: 'border-border bg-tone-2', dot: 'bg-ok-fg text-background', mark: '✓' },
   running: { box: 'border-sun bg-sun/20', dot: 'pf-pulse bg-sun text-primary-foreground', mark: '•' },
-  waiting: { box: 'border-border bg-transparent', dot: 'bg-tone-1 text-muted-foreground', mark: '' },
+  waiting: { box: 'border-border bg-transparent', dot: 'bg-surface-2 text-muted-foreground', mark: '' },
   failed: { box: 'border-bad-fg bg-bad/15', dot: 'bg-bad-fg text-background', mark: '!' },
 }
 
 const STROKE: Readonly<Record<Tone, string>> = { live: 'stroke-foreground', ok: 'stroke-ok-fg', bad: 'stroke-bad-fg', warn: 'stroke-warn-fg', quiet: 'stroke-muted-foreground' }
 const WASH: Readonly<Record<Tone, string>> = { live: 'fill-sun/20', ok: 'fill-ok/15', bad: 'fill-bad/15', warn: 'fill-warn/15', quiet: 'fill-tone-1' }
+
+const modelLine = (run: ProofRun) => [run.model && `Model: ${run.model}`, run.workers ? `${run.workers} ${run.workers === 1 ? 'worker' : 'workers'}` : null].filter(Boolean).join(' · ')
 
 /** The spec and its model, the three steps, the four counters and the chart of new states. */
 function Check({ run, now }: { run: ProofRun; now: number }) {
@@ -83,10 +86,13 @@ function Check({ run, now }: { run: ProofRun; now: number }) {
   const tween_ = still ? { duration: 0 } : { duration: 0.6, ease: [0.23, 1, 0.32, 1] as const }
   return (
     <section aria-label="The check" className={cn(CARD, 'flex flex-col gap-[18px] px-[22px] py-5')}>
-      <div className="flex flex-wrap items-baseline gap-x-3.5 gap-y-1.5">
-        <h2 className="font-mono text-[15px] font-medium">{specFile(run.spec)}</h2>
-        <span className="text-[13px] text-muted-foreground">{[run.model && `Model: ${run.model}`, run.workers ? `${run.workers} ${run.workers === 1 ? 'worker' : 'workers'}` : null].filter(Boolean).join(' · ')}</span>
-        <span className="ml-auto font-mono text-[12.5px] text-muted-foreground tabular-nums">{elapsedLine(run, now)}</span>
+      {/* The time keeps its place at the end whatever it says, and the model gives way to it. */}
+      <div className="flex items-baseline gap-3.5">
+        <h2 className="shrink-0 font-mono text-[15px] font-medium">{specFile(run.spec)}</h2>
+        <span title={modelLine(run)} className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+          {modelLine(run)}
+        </span>
+        <span className="shrink-0 font-mono text-[12.5px] text-muted-foreground tabular-nums">{elapsedLine(run, now)}</span>
       </div>
 
       <ol aria-label="Steps" className="grid grid-cols-3 gap-2">
@@ -109,7 +115,7 @@ function Check({ run, now }: { run: ProofRun; now: number }) {
         })}
       </ol>
 
-      <div className="grid grid-cols-2 gap-3 @min-[560px]:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 @min-[480px]:grid-cols-4">
         {countersOf(run).map((counter) => (
           <div key={counter.label} className="flex flex-col gap-1 rounded-[14px] border border-border bg-tone-2 px-3.5 py-3">
             <span className="text-[12px] text-muted-foreground">{counter.label}</span>
@@ -143,7 +149,10 @@ const RESULT_LOOK: Readonly<Record<Tone, { box: string; icon: string }>> = {
 }
 const RESULT_ICON: Readonly<Record<ResultIcon, LucideIcon>> = { clock: Clock, alert: TriangleAlert, check: CheckIcon, stop: OctagonX }
 
-/** What the run found. One height whatever it says, its title on one line and its words on two, its buttons in place. */
+/**
+ * What the run found. One height whatever it says, its title on one line and its words on two, its buttons in place.
+ * Where the column is narrow the buttons sit under the words, in a taller area of its own one height.
+ */
 function ResultArea({ run, onTab }: { run: ProofRun; onTab: RunViewProps['onTab'] }) {
   const still = useStill()
   const result = resultOf(run)
@@ -151,34 +160,46 @@ function ResultArea({ run, onTab }: { run: ProofRun; onTab: RunViewProps['onTab'
   const Icon = RESULT_ICON[result.icon]
   const words = `${result.icon}:${result.title}`
   return (
-    <section aria-label="Result" aria-live="polite" className={cn('flex h-[128px] items-center gap-[18px] rounded-[20px] border px-[22px] py-[18px] transition-colors duration-[220ms]', look.box)}>
-      <span aria-hidden="true" className={cn('grid size-11 shrink-0 place-items-center rounded-[14px] transition-colors duration-[220ms]', look.icon)}>
-        <Icon className="size-[22px]" strokeWidth={2} />
-      </span>
-      <AnimatePresence mode="wait" initial={false}>
-        <motion.div
-          key={words}
-          className="flex min-w-0 flex-1 flex-col gap-1"
-          initial={holdStill({ opacity: 0, transform: 'translateY(6px)' }, still)}
-          animate={holdStill({ opacity: 1, transform: 'translateY(0px)' }, still)}
-          exit={{ opacity: 0, transition: tween.exit }}
-          transition={tween.enter}
-        >
-          <p className="line-clamp-1 font-heading text-[17px] font-semibold">{result.title}</p>
-          <p title={result.line} className="line-clamp-2 text-[13.5px] leading-[1.45] text-muted-foreground">
-            {result.line}
-          </p>
-        </motion.div>
-      </AnimatePresence>
-      <div className="flex w-[300px] shrink-0 justify-end gap-2 @max-[640px]:w-auto @max-[640px]:flex-col">
-        <Button data-stop="" variant={result.primary.strong ? 'default' : 'outline'} className="h-11 rounded-xl px-4 text-[14px]" disabled={!onTab} title={onTab ? undefined : 'The state graph is not in this build yet.'} onClick={() => onTab?.('graph')}>
-          {result.primary.label}
-        </Button>
-        <Button data-stop="" variant="outline" className="h-11 rounded-xl px-3.5 text-[14px]" disabled={!onTab} title={onTab ? undefined : 'The math is not in this build yet.'} onClick={() => onTab?.('math')}>
-          Read the math
-        </Button>
-      </div>
-    </section>
+    <div className="@container/result">
+      <section
+        aria-label="Result"
+        aria-live="polite"
+        className={cn(
+          'grid h-[176px] grid-cols-[44px_minmax(0,1fr)] grid-rows-[1fr_auto] items-center gap-x-[18px] gap-y-3 rounded-[20px] border px-[22px] py-[18px] transition-colors duration-[220ms]',
+          '@min-[760px]/result:h-[128px] @min-[760px]/result:grid-cols-[44px_minmax(0,1fr)_300px] @min-[760px]/result:grid-rows-1',
+          look.box,
+        )}
+      >
+        <span aria-hidden="true" className={cn('grid size-11 place-items-center rounded-[14px] transition-colors duration-[220ms]', look.icon)}>
+          <Icon className="size-[22px]" strokeWidth={2} />
+        </span>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={words}
+            className="flex min-w-0 flex-col gap-1"
+            initial={holdStill({ opacity: 0, transform: 'translateY(6px)' }, still)}
+            animate={holdStill({ opacity: 1, transform: 'translateY(0px)' }, still)}
+            exit={{ opacity: 0, transition: tween.exit }}
+            transition={tween.enter}
+          >
+            <p title={result.title} className="line-clamp-1 font-heading text-[17px] font-semibold">
+              {result.title}
+            </p>
+            <p title={result.line} className="line-clamp-2 text-[13.5px] leading-[1.45] text-muted-foreground">
+              {result.line}
+            </p>
+          </motion.div>
+        </AnimatePresence>
+        <div className="col-start-2 flex justify-end gap-2 @min-[760px]/result:col-start-3 @min-[760px]/result:row-start-1">
+          <Button data-stop="" variant={result.primary.strong ? 'default' : 'outline'} className="h-11 rounded-xl px-4 text-[14px]" disabled={!onTab} title={onTab ? undefined : 'The state graph is not in this build yet.'} onClick={() => onTab?.('graph')}>
+            {result.primary.label}
+          </Button>
+          <Button data-stop="" variant="outline" className="h-11 rounded-xl px-3.5 text-[14px]" disabled={!onTab} title={onTab ? undefined : 'The math is not in this build yet.'} onClick={() => onTab?.('math')}>
+            Read the math
+          </Button>
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -203,7 +224,7 @@ function Rules({ run }: { run: ProofRun }) {
                 {rule.name}
               </span>
               <span className={cn('row-span-2 inline-flex h-[26px] items-center rounded-full px-2.5 font-heading text-[12px] font-semibold whitespace-nowrap transition-colors duration-[220ms]', PILL[rule.tone])}>{rule.status}</span>
-              <span title={rule.words} className="line-clamp-1 text-[12.5px] text-muted-foreground">
+              <span title={rule.words} className="line-clamp-2 text-[12.5px] leading-snug text-muted-foreground">
                 {rule.words}
               </span>
             </li>
@@ -312,7 +333,7 @@ function CodeMap({ run, onCode }: { run: ProofRun; onCode: RunViewProps['onCode'
                 className="-mx-2 grid min-h-9 w-[calc(100%+16px)] grid-cols-[92px_minmax(0,1fr)_14px] items-center gap-2.5 rounded-[10px] px-2 text-left transition-colors duration-[160ms] ease-[ease] enabled:hover:bg-tone-1 disabled:cursor-default"
               >
                 <span className="truncate font-mono text-[12.5px] font-medium">{row.action}</span>
-                <span className="truncate font-mono text-[12px] text-sun-fg">{row.where}</span>
+                <span className="truncate font-mono text-[12px] text-sun-fg">{row.where.split('/').at(-1)}</span>
                 {onCode ? <Code aria-hidden="true" className="size-3.5 text-muted-foreground" /> : <span />}
               </button>
             </li>

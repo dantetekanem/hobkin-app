@@ -96,7 +96,7 @@ function Header({ run, live }: { run: ProofRun; live: boolean }) {
   }
 
   return (
-    <header className="flex flex-col gap-2">
+    <header className="flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
         <Hob mood={MOOD[phase.tone]} size={42} still={still} className="shrink-0" />
         <div className="flex min-w-0 flex-[1_1_320px] flex-col gap-0.5">
@@ -117,7 +117,7 @@ function Header({ run, live }: { run: ProofRun; live: boolean }) {
         </div>
       </div>
       {/* What hobkin said to the last press, in one line's room so nothing under it moves. */}
-      <p role="status" className="h-5 truncate text-right text-[12.5px] text-muted-foreground">
+      <p role="status" className="h-4 truncate text-right text-[12px] leading-4 text-muted-foreground">
         {said}
       </p>
     </header>
