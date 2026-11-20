@@ -1,13 +1,16 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
-import { modelsLine, modelsOnMain } from './proof-match.ts'
+import type { ModelFact } from '#shared/protocol/work.ts'
+import { factRow, factsLine, type FactRow } from './proof-match.ts'
+import './proofs.css'
 import type { Tone } from './run/run-view.ts'
 import { useProofRuns } from './use-proof-run.ts'
 
 const TITLE: Readonly<Record<Tone, string>> = { ok: '', live: '', quiet: '', warn: 'text-warn-fg', bad: 'text-bad-fg' }
+const DOT: Readonly<Record<Tone, string>> = { ok: 'bg-ok-fg', live: 'pf-pulse bg-sun', quiet: 'bg-muted-foreground', warn: 'bg-warn-fg', bad: 'bg-bad-fg' }
 const SAMPLE = 'This is sample data, so nothing runs.'
 
 /** What hobkin said to the last press, and whether it was a refusal. */
@@ -17,33 +20,42 @@ interface Said {
 }
 
 /**
- * A project's models on the YOLO page (050-tla-proofs, screen 4): how its state machines' specs stand on main, and
- * Check models, which runs each again at the project's head. Its title opens the run that broke, or the newest. A
- * project with no model shows nothing: the part does not apply to it. It keeps one height whatever it says.
+ * A project's models on the YOLO page (050-tla-proofs, screen 4), the readiness part YOLO mode needs to hold: how each
+ * state machine's model stands on the default branch, as hobkin's latest run of it says. A model with a run opens it,
+ * and can be checked again; one nothing checked offers nothing to press. A project with no model shows nothing: the
+ * part does not apply to it.
  */
-export function ProjectModels({ slug, live }: { slug: string; live: boolean }) {
-  const { proofs } = useProofRuns()
-  const runs = useMemo(() => modelsOnMain(proofs, slug), [proofs, slug])
+export function ProjectModels({ models, live }: { models: readonly ModelFact[]; live: boolean }) {
+  if (!models.length) return null
+  const line = factsLine(models)
+  return (
+    <div className="flex flex-col gap-1 rounded-[14px] border border-border bg-tone-2 px-3.5 py-2.5">
+      <p className={cn('text-[13px] font-semibold', TITLE[line.tone])}>{line.title}</p>
+      <ul className="flex flex-col">
+        {models.map((fact) => (
+          <ModelRow key={fact.spec} row={factRow(fact)} live={live} />
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** One model: its file, which opens its run, how it stands, hobkin's line for it, and Check again where a run can be repeated. */
+function ModelRow({ row, live }: { row: FactRow; live: boolean }) {
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<Said | null>(null)
-  if (!runs.length) return null
 
-  const line = modelsLine(runs)
-  const first = runs.find((run) => run.outcome === 'broken') ?? runs[0]!
-
-  const check = async () => {
+  const checkAgain = async (run: string) => {
     if (busy) return
     if (!live) {
       setSaid({ text: SAMPLE, refused: false })
       return
     }
+
     setBusy(true)
     setSaid(null)
     try {
-      // One TLC run at a time on this Mac: hobkin queues each as it comes.
-      let last = ''
-      for (const run of runs) last = (await runCommand('proof.again', { id: run.id })).message
-      setSaid({ text: last, refused: false })
+      setSaid({ text: (await runCommand('proof.again', { id: run })).message, refused: false })
     } catch (error) {
       setSaid({ text: error instanceof Error ? error.message : String(error), refused: true })
     } finally {
@@ -51,26 +63,30 @@ export function ProjectModels({ slug, live }: { slug: string; live: boolean }) {
     }
   }
 
-  const detail = said?.text ?? line.detail
+  const detail = said?.text ?? row.line
+  const run = row.run
   return (
-    <div className="grid h-[60px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border border-border bg-tone-2 px-3.5">
-      <span className="flex min-w-0 flex-col gap-0.5">
-        <button
-          type="button"
-          data-stop=""
-          onClick={() => useView.getState().openProofRun(first.id)}
-          className={cn('w-fit max-w-full truncate rounded text-left text-[13px] font-semibold underline-offset-2 hover:underline', TITLE[line.tone])}
-        >
-          {line.title}
-        </button>
-        <span role={said?.refused ? 'alert' : undefined} title={detail} className={cn('truncate text-[11.5px]', said ? (said.refused ? 'text-bad-fg' : 'text-muted-foreground') : 'font-mono text-muted-foreground')}>
+    <li className="grid h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-3">
+      <span className="flex min-w-0 items-center gap-2 text-[12.5px]">
+        <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', DOT[row.tone])} />
+        {run ? (
+          <button type="button" data-stop="" title="Opens the run" onClick={() => useView.getState().openProofRun(run)} className="shrink-0 rounded font-mono font-medium underline-offset-2 hover:underline">
+            {row.file}
+          </button>
+        ) : (
+          <span className="shrink-0 font-mono font-medium">{row.file}</span>
+        )}
+        <span className="sr-only">{row.state}.</span>
+        <span role={said?.refused ? 'alert' : undefined} title={detail} className={cn('min-w-0 truncate', said?.refused ? 'text-bad-fg' : 'text-muted-foreground')}>
           {detail}
         </span>
       </span>
-      <Button variant="outline" size="sm" data-stop="" disabled={busy} focusableWhenDisabled onClick={() => void check()} className="w-[120px] data-disabled:opacity-50">
-        {busy ? 'Starting…' : 'Check models'}
-      </Button>
-    </div>
+      {run ? (
+        <Button variant="outline" size="sm" data-stop="" disabled={busy} focusableWhenDisabled aria-label={`Check ${row.file} again`} onClick={() => void checkAgain(run)} className="w-[112px] data-disabled:opacity-50">
+          {busy ? 'Starting…' : 'Check again'}
+        </Button>
+      ) : null}
+    </li>
   )
 }
 

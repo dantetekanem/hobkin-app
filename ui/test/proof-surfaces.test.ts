@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ProofRunSummary, ProofsState } from '#shared/protocol/proofs.ts'
-import type { WorkState } from '#shared/protocol/work.ts'
-import { brokenOnMain, chipsOf, inflowOf, itemTitle, modelsLine, modelsOnMain, placeOf, proofCheckOf, runForCommand, runsForItem, runWords } from '../src/features/proofs/proof-match.ts'
+import type { ModelFact, WorkState } from '#shared/protocol/work.ts'
+import { brokenModels, chipsOf, factChips, factRow, factsLine, inflowOf, itemTitle, placeOf, proofCheckOf, runForCommand, runsForItem, runWords } from '../src/features/proofs/proof-match.ts'
 import { sampleRun, sampleSummary, type SamplePhase } from '../src/features/proofs/sample.ts'
 import { foldOf, type Command } from '../src/features/agent-activity/steps.ts'
 import { homeModel } from '../src/features/home/model.ts'
@@ -52,7 +52,7 @@ test("an agent's step finds the run its hobkin proof check started", () => {
   assert.equal(runForCommand(proofs, { spec: 'specs/tla/WorkItem.tla', at: STARTED + 9 * 60_000, output: 'Run ~/.hobkin/proofs/first/ broke' })?.id, 'first')
 })
 
-test("the step's words, and a project's models on main for the YOLO page and Home", () => {
+test("the agent's step says how its run stands, and its bar is the share of states still to explore", () => {
   assert.deepEqual(runWords(summary('checking')), { title: 'Checking WorkItem.tla', detail: '12,408 states · depth 14 · 3 of 4 holding so far', tone: 'live' })
   assert.deepEqual(runWords(summary('broken')), { title: 'WorkItem.tla: MergedAtReviewedHead breaks', detail: '5 steps · 4,906 states', tone: 'bad' })
   assert.deepEqual(runWords(summary('holds')).title, 'WorkItem.tla holds')
@@ -60,18 +60,6 @@ test("the step's words, and a project's models on main for the YOLO page and Hom
   assert.equal(Math.round(inflowOf(summary('checking')) * 100), 25)
   assert.equal(inflowOf(summary('holds')), 0)
   assert.equal(inflowOf({ stats: { generated: 0, distinct: 0, queue: 0, depth: 0 } }), 0)
-
-  const queue = summary('holds', { id: 'q', item: undefined, spec: 'specs/tla/ReviewQueue.tla' }, 2)
-  const main = summary('holds', { id: 'm', item: undefined }, 1)
-  const broke = summary('broken', { id: 'b', item: undefined }, 3)
-  const models = modelsOnMain(slice(main, queue, summary('holds')), 'hobkin')
-  assert.deepEqual(models.map(({ id }) => id), ['q', 'm'])
-  assert.deepEqual(modelsLine(models), { title: 'Models: 2 machines, both hold', detail: 'ReviewQueue.tla · WorkItem.tla · rechecked when their code changes', tone: 'ok' })
-  assert.equal(modelsLine([broke, queue]).title, 'Models: 2 machines, 1 breaks')
-
-  // Home shows a model that broke on main until a newer check of the same spec holds.
-  assert.deepEqual(brokenOnMain(slice(broke, main, summary('broken'))).map(({ id }) => id), ['b'])
-  assert.deepEqual(brokenOnMain(slice(summary('holds', { id: 'later', item: undefined }, 4), broke)), [])
 })
 
 test("the page's eyebrow and title come from work mode", () => {
@@ -91,16 +79,49 @@ test("an agent's proof check never folds away with the commands that passed befo
   assert.deepEqual(open.map(({ id }) => id), ['b', 'd'])
 })
 
+const holds: ModelFact = { spec: 'specs/tla/WorkItem.tla', state: 'holds', run: 'run-main', line: 'TLC: 4 of 4 hold in 48,211 states · at 3f1a9c2' }
+const broken: ModelFact = { spec: 'specs/tla/ReviewQueue.tla', state: 'broken', run: 'run-queue', why: 'NoLostReview', line: 'TLC: NoLostReview breaks in 4 steps · at 3f1a9c2' }
+const unchecked: ModelFact = { spec: 'specs/tla/Deploy.tla', state: 'unchecked' }
+
+test("the YOLO page says how a project's models stand on the default branch, as hobkin's runs say", () => {
+  assert.deepEqual(factsLine([holds, { ...holds, spec: 'specs/tla/ReviewQueue.tla' }]), { title: 'Models: 2 machines, both hold', tone: 'ok' })
+  assert.deepEqual(factsLine([holds, broken]), { title: 'Models: 2 machines, 1 breaks', tone: 'bad' })
+  assert.deepEqual(factsLine([holds, unchecked]), { title: 'Models: 2 machines, 1 of 2 hold', tone: 'warn' })
+
+  assert.deepEqual(factRow(holds), { spec: holds.spec, file: 'WorkItem.tla', state: 'Holds', tone: 'ok', line: holds.line, run: 'run-main' })
+  // Nothing checked it, so there is no run to open or repeat.
+  assert.deepEqual(factRow(unchecked), { spec: unchecked.spec, file: 'Deploy.tla', state: 'Not checked', tone: 'quiet', line: 'No run of it on the default branch yet.', run: null })
+})
+
+test("a card's chips come from hobkin's facts at its head, with the counts and proof of a run the slice still has", () => {
+  const proved = summary('proved', { id: 'run-main' })
+
+  const chips = factChips([holds, broken, unchecked], [proved])
+
+  assert.deepEqual(chips, [
+    { id: 'run-main', label: 'WorkItem holds · 48,211 states', tone: 'ok' },
+    { id: 'run-main', label: 'Proved for every size', tone: 'ok' },
+    { id: 'run-queue', label: 'ReviewQueue broke', tone: 'bad' },
+    { id: null, label: 'Deploy not checked at this head', tone: 'quiet' },
+  ])
+  assert.deepEqual(factChips([{ spec: holds.spec, state: 'unproven', run: 'r', why: 'Decline never fired' }], []), [{ id: 'r', label: 'Model ran · Decline never fired', tone: 'warn' }])
+})
+
 test("Home's Problems says a model broke on main, and opens its run", () => {
   const github: HomeInput['github'] = { connection: 'unknown', login: null, reviews: [], pulls: [], issues: [], more: { reviews: false, pulls: false, issues: false }, refreshedAt: null, refreshing: false, error: null, sample: false }
-  const home = (proofs?: ProofsState): HomeInput => ({
-    now: STARTED + 3_600_000, reports: [], read: new Set(), attention: null, waiting: [], question: null, work: null, live: true, github,
-    routines: [], agents: [], wins: null, integrations: null, dismissed: new Set(), layout: null, custom: null, thoughts: null, ...(proofs ? { proofs } : {}),
+  const work = (models?: ModelFact[]) => ({ queue: [], finished: [], projects: [{ slug: 'hobkin', name: 'hobkin', ...(models ? { models } : {}) }] }) as unknown as WorkState
+  const home = (state: WorkState | null): HomeInput => ({
+    now: STARTED, reports: [], read: new Set(), attention: null, waiting: [], question: null, work: state, live: true, github,
+    routines: [], agents: [], wins: null, integrations: null, dismissed: new Set(), layout: null, custom: null, thoughts: null,
   })
-  const broke = summary('broken', { id: 'weekly', item: undefined })
-  const rows = homeModel(home(slice(broke))).problems.rows
-  assert.deepEqual(rows.map(({ title, detail, tone, action }) => [title, detail, tone, action.target]), [['A model broke on main', 'hobkin: WorkItem.tla, MergedAtReviewedHead breaks in 5 steps', 'bad', { to: 'proof', id: 'weekly' }]])
-  // An item's own check is its card's business, and a host from before proofs sends none.
-  assert.deepEqual(homeModel(home(slice(summary('broken')))).problems.rows, [])
-  assert.deepEqual(homeModel(home()).problems.rows, [])
+
+  const rows = homeModel(home(work([holds, broken]))).problems.rows
+
+  assert.deepEqual(
+    rows.map(({ title, detail, tone, action }) => [title, detail, tone, action.target]),
+    [['A model broke on main', 'hobkin · ReviewQueue.tla: NoLostReview breaks', 'bad', { to: 'proof', id: 'run-queue' }]],
+  )
+  assert.deepEqual(brokenModels(work([holds])), [])
+  // A hobkin from before models sends none.
+  assert.deepEqual(homeModel(home(work())).problems.rows, [])
 })

@@ -1,7 +1,8 @@
 import { useMemo } from 'react'
 import { useView } from '@/app/view-store.ts'
 import { cn } from '@/lib/utils.ts'
-import { chipsOf, runsForItem } from './proof-match.ts'
+import type { ModelFact } from '#shared/protocol/work.ts'
+import { chipsOf, factChips, runsForItem } from './proof-match.ts'
 import './proofs.css'
 import type { Tone } from './run/run-view.ts'
 import { useProofRuns } from './use-proof-run.ts'
@@ -14,35 +15,78 @@ const LOOK: Readonly<Record<Tone, { chip: string; dot: string }>> = {
   quiet: { chip: 'border-border bg-surface', dot: 'bg-muted-foreground' },
 }
 
+const CHIP = 'inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[12.5px] whitespace-nowrap text-foreground'
+
+interface ProofChipsProps {
+  project: string
+  item: string
+  head: string | null
+  /** What hobkin's runs at the change's head say of each model covering it. A hobkin from before them sends none. */
+  models?: readonly ModelFact[]
+}
+
 /**
- * A finished change's proof (050-tla-proofs, screen 4): whether its model holds or broke, and whether its proof is
- * proved or fails, from the checks hobkin ran itself for its item. Each chip opens its run. A change with no check
- * shows nothing here.
+ * A finished change's proof (050-tla-proofs, screen 4): whether each model covering it holds or broke at its head, and
+ * whether its proof is proved or fails, from the checks hobkin ran itself. A chip with a run opens it. Without hobkin's
+ * facts, the newest checks of its item in the proofs slice stand in. A change with no check shows nothing here.
  */
-export function ProofChips({ project, item, head }: { project: string; item: string; head: string | null }) {
+export function ProofChips({ project, item, head, models }: ProofChipsProps) {
   const { proofs } = useProofRuns()
-  const chips = useMemo(() => chipsOf(runsForItem(proofs, project, item, head), head), [proofs, project, item, head])
+  const chips = useMemo(() => (models ? factChips(models, proofs.runs) : chipsOf(runsForItem(proofs, project, item, head), head)), [models, proofs, project, item, head])
   if (!chips.length) return null
+
   return (
     <ul aria-label="Proof" className="flex flex-wrap gap-2">
-      {chips.map((chip) => {
-        const look = LOOK[chip.tone]
+      {chips.map(({ id, label, tone }) => {
+        const look = LOOK[tone]
+        const dot = <span aria-hidden="true" className={cn('size-2 rounded-full', look.dot)} />
         return (
-          <li key={`${chip.id}:${chip.label}`}>
-            <button
-              type="button"
-              tabIndex={-1}
-              data-row-control=""
-              title="hobkin ran this check itself. Opens the run."
-              onClick={() => useView.getState().openProofRun(chip.id)}
-              className={cn('inline-flex h-8 items-center gap-2 rounded-full border px-3 text-[12.5px] whitespace-nowrap text-foreground transition-colors duration-[160ms] ease-[ease] hover:brightness-[0.97]', look.chip)}
-            >
-              <span aria-hidden="true" className={cn('size-2 rounded-full', look.dot)} />
-              {chip.label}
-            </button>
+          <li key={`${id}:${label}`}>
+            {id ? (
+              <button
+                type="button"
+                tabIndex={-1}
+                data-row-control=""
+                title="hobkin ran this check itself. Opens the run."
+                onClick={() => useView.getState().openProofRun(id)}
+                className={cn(CHIP, 'transition-colors duration-[160ms] ease-[ease] hover:brightness-[0.97]', look.chip)}
+              >
+                {dot}
+                {label}
+              </button>
+            ) : (
+              <span className={cn(CHIP, look.chip)}>
+                {dot}
+                {label}
+              </span>
+            )}
           </li>
         )
       })}
     </ul>
+  )
+}
+
+/**
+ * The proof score's evidence when hobkin's own model checks at the change's head wrote it, not the review: its line,
+ * marked as hobkin's, and the run it names.
+ */
+export function ProofCheckLine({ check }: { check: { line: string; run: string } }) {
+  return (
+    <p className="mt-1 text-[12.5px] leading-snug break-words">
+      <span className="text-muted-foreground">Proof score: </span>
+      {check.line}
+      {' · '}
+      <button
+        type="button"
+        tabIndex={-1}
+        data-row-control=""
+        title="Opens the run"
+        onClick={() => useView.getState().openProofRun(check.run)}
+        className="rounded font-semibold text-ok-fg underline-offset-2 hover:underline"
+      >
+        hobkin ran this itself
+      </button>
+    </p>
   )
 }

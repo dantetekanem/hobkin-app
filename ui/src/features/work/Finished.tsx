@@ -17,7 +17,7 @@ import type { MergingRow } from '#shared/protocol/work.ts'
 import type { HobkinChoice } from './actions.ts'
 import { endAtWord, needsFirst } from './finished-cards.ts'
 import { GradeChip, IssueLink, PullLink, ReviewBadge, SaidLine, SectionHeading } from './parts.tsx'
-import { ProofChips } from '@/features/proofs/ProofChips.tsx'
+import { ProofCheckLine, ProofChips } from '@/features/proofs/ProofChips.tsx'
 import { saysHigh } from './review-badge.ts'
 import { underWay } from './review-follow.ts'
 import { sampleAssessmentOf } from './sample-reviews.ts'
@@ -413,7 +413,7 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
             </div>
             {/* What hobkin's own model checks found for its item, each opening its run (050-tla-proofs). */}
             <div className="mt-2 empty:hidden">
-              <ProofChips project={change.slug} item={change.item} head={change.head} />
+              <ProofChips project={change.slug} item={change.item} head={change.head} models={change.models} />
             </div>
             {change.about ? (
               <p title={change.about} className="mt-1.5 line-clamp-2 text-[13.5px] leading-relaxed">
@@ -439,6 +439,7 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
             <ClampedLine className="mt-2" label={<span className="text-muted-foreground">Proof: </span>} text={change.proof ? endAtWord(change.proof) : 'No proof: nothing recorded shows it works.'} />
             {/* What its review scored it: the kind, the general rate and the five scores (049-yolo-mode). */}
             {change.scores ? <p className="mt-1 text-[12.5px] leading-snug break-words text-muted-foreground">{change.scores}</p> : null}
+            {change.proofCheck ? <ProofCheckLine check={change.proofCheck} /> : null}
             <p className={cn('mt-1 text-[12.5px] leading-snug', group.name === 'needs' || group.name === 'left' ? 'text-warn-fg' : 'text-muted-foreground')}>{change.reason}</p>
             <p className="mt-1 text-[12px] leading-snug break-words text-muted-foreground">{change.yes}</p>
           </div>

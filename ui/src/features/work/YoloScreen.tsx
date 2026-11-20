@@ -221,7 +221,7 @@ function ProjectReadiness({ project, live, workOn, now, setSample }: ReadinessCo
       </div>
       {/* Its state machines' models on main, a part of its readiness when it has any (050-tla-proofs). */}
       <div data-models="" className="empty:hidden">
-        <ProjectModels slug={project.slug} live={live} />
+        <ProjectModels models={project.models ?? []} live={live} />
       </div>
     </li>
   )

@@ -44,6 +44,5 @@ export function gatherHomeInput(now: number, host: HostState, reports: Reports, 
     agents: agentsFrom(host.snapshot),
     wins: host.snapshot.wins,
     integrations: host.integrations,
-    proofs: host.proofs ?? null,
   }
 }

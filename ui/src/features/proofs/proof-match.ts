@@ -1,11 +1,11 @@
 import type { ProofRunSummary, ProofsState } from '#shared/protocol/proofs.ts'
-import type { WorkState } from '#shared/protocol/work.ts'
+import type { ModelFact, WorkState } from '#shared/protocol/work.ts'
 import { namesOf, neverFired, stepsToBreak, type Tone } from './run/run-view.ts'
 
 /**
  * Where proof runs show outside their own page (_specs/050-tla-proofs, screen 4): which runs belong to a finished card,
- * which run an agent's `hobkin proof check` started, what a project's models on main say, and the words for each.
- * Pure, so the matching is tested without a window.
+ * which run an agent's `hobkin proof check` started, what hobkin's runs say of a project's models, and the words for
+ * each. Pure, so the matching is tested without a window.
  */
 
 const count = (value: number) => value.toLocaleString('en-US')
@@ -18,13 +18,12 @@ export const sameHead = (left: string | null | undefined, right: string | null |
 
 const newestFirst = (left: ProofRunSummary, right: ProofRunSummary) => Date.parse(right.started) - Date.parse(left.started)
 
-/** The newest run of each spec among `runs`, newest first. `specOf` says which runs are of one spec. */
-function newestPerSpec(runs: readonly ProofRunSummary[], specOf = (run: ProofRunSummary) => run.spec): ProofRunSummary[] {
+/** The newest run of each spec among `runs`, newest first. */
+function newestPerSpec(runs: readonly ProofRunSummary[]): ProofRunSummary[] {
   const seen = new Set<string>()
   return [...runs].sort(newestFirst).filter((run) => {
-    const spec = specOf(run)
-    if (seen.has(spec)) return false
-    seen.add(spec)
+    if (seen.has(run.spec)) return false
+    seen.add(run.spec)
     return true
   })
 }
@@ -39,14 +38,9 @@ export function runsForItem(proofs: ProofsState | null, project: string, item: s
   return newestPerSpec(atHead.length ? atHead : mine)
 }
 
-/** A project's models on main: the newest run of each spec that no item ran, as hobkin's weekly recheck writes them. */
-export function modelsOnMain(proofs: ProofsState | null, project: string): ProofRunSummary[] {
-  const onMain = (proofs?.runs ?? []).filter((run) => run.project === project && !run.item)
-  return newestPerSpec(onMain)
-}
-
 export interface ProofChip {
-  id: string
+  /** The run it opens. Null for a model nothing checked, whose chip is not a button. */
+  id: string | null
   label: string
   tone: Tone
 }
@@ -121,26 +115,6 @@ export function runWords(run: ProofRunSummary): { title: string; detail: string;
  */
 export const inflowOf = (run: Pick<ProofRunSummary, 'stats'>): number => (run.stats.distinct > 0 ? Math.min(1, run.stats.queue / run.stats.distinct) : 0)
 
-/** What a project's models say together, for the YOLO page: "Models: 2 machines, both hold". */
-export function modelsLine(runs: readonly ProofRunSummary[]): { title: string; detail: string; tone: Tone } {
-  const total = runs.length
-  const holding = runs.filter((run) => run.outcome === 'holds' && !neverFired(run).length).length
-  const broken = runs.filter((run) => run.outcome === 'broken').length
-  const machines = `Models: ${total === 1 ? '1 machine' : `${total} machines`}`
-  const detail = `${runs.map((run) => specFile(run.spec)).join(' · ')} · rechecked when their code changes`
-
-  if (runs.some((run) => run.outcome === 'checking')) return { title: `${machines}, checking now`, detail, tone: 'live' }
-  if (broken) {
-    const breaks = total === 1 ? 'it breaks' : broken === 1 ? '1 breaks' : `${broken} break`
-    return { title: `${machines}, ${breaks}`, detail, tone: 'bad' }
-  }
-  if (holding === total) {
-    const hold = total === 1 ? 'it holds' : total === 2 ? 'both hold' : 'all hold'
-    return { title: `${machines}, ${hold}`, detail, tone: 'ok' }
-  }
-  return { title: `${machines}, ${holding} of ${total} hold`, detail, tone: 'warn' }
-}
-
 /** The spec a shell command checks, when it is `hobkin proof check <spec.tla>`, with or without a path to hobkin. */
 export function proofCheckOf(command: string): string | null {
   const match = /(?:^|[\s;&|(])(?:\S*\/)?hobkin\s+proof\s+check\s+(?:--\S+(?:[ =]\S+)?\s+)*['"]?([^\s'"]+\.tla)['"]?/.exec(command)
@@ -168,14 +142,6 @@ export function runForCommand(proofs: ProofsState | null, { spec, at, output }: 
   return oldestFirst.find((run) => Date.parse(run.started) >= at - START_SLACK_MS) ?? null
 }
 
-/** The models that broke on main, newest first, for Home's Problems. */
-export function brokenOnMain(proofs: ProofsState | null): ProofRunSummary[] {
-  const onMain = (proofs?.runs ?? []).filter((run) => run.project && !run.item)
-  const newest = newestPerSpec(onMain, (run) => `${run.project}\n${run.spec}`)
-  return newest.filter((run) => run.outcome === 'broken')
-}
-
-/** The item's title from work mode, wherever it shows: a finished change, a queue row or an agent's run. */
 type Agent = { work?: { slug?: string; item?: string }; title?: string }
 
 export function itemTitle(run: Pick<ProofRunSummary, 'project' | 'item'>, work: WorkState | null, agents: readonly Agent[] = []): string | null {
@@ -193,4 +159,89 @@ export function placeOf(run: Pick<ProofRunSummary, 'project' | 'item'>, work: Wo
   if (!run.project) return 'Proof run'
   const name = work?.projects.find((project) => project.slug === run.project)?.name ?? run.project
   return run.item ? `Work · ${name} · item ${run.item}` : `Work · ${name} · on main`
+}
+
+// What hobkin's own runs say of each model (`ModelFact`), as work mode and YOLO mode send it.
+
+const FACT_WORDS: Readonly<Record<ModelFact['state'], { state: string; tone: Tone }>> = {
+  holds: { state: 'Holds', tone: 'ok' },
+  broken: { state: 'Broken', tone: 'bad' },
+  unproven: { state: 'Not evidence', tone: 'warn' },
+  unchecked: { state: 'Not checked', tone: 'quiet' },
+}
+
+export interface FactRow {
+  spec: string
+  file: string
+  state: string
+  tone: Tone
+  /** What the run showed, why it is no evidence, or that nothing checked it. */
+  line: string
+  run: string | null
+}
+
+/** One model on the YOLO page: its file, how it stands, hobkin's line for it, and the run that says so. */
+export function factRow(fact: ModelFact): FactRow {
+  const { state, tone } = FACT_WORDS[fact.state]
+  const line = fact.line ?? (fact.why ? `${fact.why}.` : 'No run of it on the default branch yet.')
+  return { spec: fact.spec, file: specFile(fact.spec), state, tone, line, run: fact.run ?? null }
+}
+
+/** What a project's models say together, for the YOLO page: "Models: 2 machines, both hold". */
+export function factsLine(facts: readonly ModelFact[]): { title: string; tone: Tone } {
+  const total = facts.length
+  const machines = `Models: ${total === 1 ? '1 machine' : `${total} machines`}`
+  const broken = facts.filter((fact) => fact.state === 'broken').length
+  const holding = facts.filter((fact) => fact.state === 'holds').length
+
+  if (broken) {
+    const breaks = total === 1 ? 'it breaks' : broken === 1 ? '1 breaks' : `${broken} break`
+    return { title: `${machines}, ${breaks}`, tone: 'bad' }
+  }
+  if (holding === total) {
+    const hold = total === 1 ? 'it holds' : total === 2 ? 'both hold' : 'all hold'
+    return { title: `${machines}, ${hold}`, tone: 'ok' }
+  }
+  return { title: `${machines}, ${holding} of ${total} hold`, tone: 'warn' }
+}
+
+/**
+ * A finished card's chips from what hobkin's runs at its head say of each model covering it: holds, broke, ran but is no
+ * evidence, or not checked at this head. A run the proofs slice still has adds its counts and its proof.
+ */
+export function factChips(facts: readonly ModelFact[], runs: readonly ProofRunSummary[]): ProofChip[] {
+  const named = facts.length > 1
+  return facts.flatMap((fact) => {
+    const name = named ? `${specFile(fact.spec).replace(/\.tla$/, '')} ` : 'Model '
+    const run = fact.run ? runs.find((candidate) => candidate.id === fact.run) : undefined
+    const id = fact.run ?? null
+
+    switch (fact.state) {
+      case 'unchecked':
+        return [{ id, label: `${name}not checked at this head`, tone: 'quiet' }]
+      case 'unproven':
+        return [{ id, label: `${name}ran · ${fact.why ?? 'not evidence'}`, tone: 'warn' }]
+      case 'broken': {
+        const steps = run ? ` · ${stepsToBreak(run)} ${stepsToBreak(run) === 1 ? 'step' : 'steps'}` : ''
+        return [{ id, label: `${name}broke${steps}`, tone: 'bad' }, ...proofChips(run)]
+      }
+      case 'holds': {
+        const states = run ? ` · ${count(run.stats.distinct)} states` : ''
+        return [{ id, label: `${name}holds${states}`, tone: 'ok' }, ...proofChips(run)]
+      }
+    }
+  })
+}
+
+function proofChips(run: ProofRunSummary | undefined): ProofChip[] {
+  const proof = run?.steps.find((step) => step.id === 'prove')?.state
+  if (!run || (proof !== 'done' && proof !== 'failed')) return []
+  return [{ id: run.id, label: proof === 'done' ? 'Proved for every size' : 'Proof fails', tone: proof === 'done' ? 'ok' : 'bad' }]
+}
+
+/** The models that broke on a project's default branch, for Home's Problems, each with its project's name. */
+export function brokenModels(work: WorkState | null): { project: string; fact: ModelFact & { run: string } }[] {
+  return (work?.projects ?? []).flatMap((project) =>
+    (project.models ?? []).flatMap((fact) => (fact.state === 'broken' && fact.run ? [{ project: project.name, fact: { ...fact, run: fact.run } }] : [])),
+  )
 }
