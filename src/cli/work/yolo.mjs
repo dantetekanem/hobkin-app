@@ -227,16 +227,17 @@ function workOf(item, running) {
 
 /**
  * YOLO mode as the window and Home read it: the switch, the rate, how many projects are ready, what each of the others still needs, where each
- * project's readiness work stands, when its readiness was last recorded, and what hobkin's runs say of its models on the default branch.
+ * project's readiness work stands and its item, so the window can offer the yes to its branch, when its readiness was last recorded, and what hobkin's runs say of its models on the default branch.
  */
 export function yoloView(root) {
   const { running } = ownerView(root);
   const projects = chosenProjects(root).map(project => {
     const { ready, needs, at } = readinessOf(root, project.slug);
     const runs = running.filter(run => run.slug === project.slug);
-    const work = workOf(readinessItem(root, project.slug), runs);
+    const item = readinessItem(root, project.slug);
+    const work = workOf(item, runs);
     const models = mainModels(root, project.slug);
-    return { slug: project.slug, name: nameOf(project), ready, needs, work, checkedAt: at, ...(models.length ? { models } : {}) };
+    return { slug: project.slug, name: nameOf(project), ready, needs, work, item: item?.id ?? null, checkedAt: at, ...(models.length ? { models } : {}) };
   });
   return { ...readYolo(root), lowest: LOWEST_RATE, highest: HIGHEST_RATE, ready: projects.filter(({ ready }) => ready).length, projects };
 }

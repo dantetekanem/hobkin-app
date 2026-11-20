@@ -595,6 +595,7 @@ test('readiness waiting for the user\'s yes or running is not started again, clo
     updateItem(h.root, 'api', id, { state, branch: 'hobkin/ready' }, NOW);
     assert.throws(() => runReadiness(h.root, 'api', NOW), /waits for your yes/, state);
     assert.deepEqual(checks(h)[0], ['api', 'waiting', null], state);
+    assert.equal(yoloView(h.root).projects[0].item, id, 'the window finds the branch to say yes to by its item');
   }
 
   updateItem(h.root, 'api', id, { state: 'declined' }, NOW);
