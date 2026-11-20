@@ -92,7 +92,7 @@ test('without --strict no step counts as proved, and the summary says why', () =
   const rows = proofRows(proof(false, FAILING))
   assert.ok(rows.every((row) => !row.counted))
   assert.equal(rows[0]!.tone, 'unsure')
-  assert.equal(proofSummary(proof(false, FAILING)), 'Ran without --strict · none counted')
+  assert.equal(proofSummary(proof(false, FAILING)), 'ran without --strict · none counted')
   const note = proofNote(brokenRun(), proof(false, FAILING), null)
   assert.equal(note.tone, 'warn')
   assert.equal(note.title, 'Not counted: the proof ran without --strict')

@@ -87,7 +87,7 @@ function tally(proof: Proof) {
 
 /** The tree's count, beside its title: "14 proved · 1 failed · 2 waiting", or "17 of 17 proved". */
 export function proofSummary(proof: Proof): string {
-  if (!proof.strict) return 'Ran without --strict · none counted'
+  if (!proof.strict) return 'ran without --strict · none counted'
   const { all, proved, failed, pending, omitted, missing } = tally(proof)
   if (all > 0 && proved === all) return `${all} of ${all} proved`
   return [`${proved} proved`, failed && `${failed} failed`, pending && `${pending} waiting`, omitted && `${omitted} omitted`, missing && `${missing} missing`].filter(Boolean).join(' · ')
