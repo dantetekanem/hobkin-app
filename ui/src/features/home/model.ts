@@ -818,9 +818,11 @@ function chipsOf(input: HomeInput): HomeModel['header']['chips'] {
   const chips: HomeModel['header']['chips'] = []
   const next = forecasts(input)[0]
   const yolo = input.work?.yolo
-  if (yolo) {
-    const ready = yolo.projects.length ? ` · ${yolo.ready} of ${yolo.projects.length} ready` : ''
-    chips.push({ tone: yolo.on ? 'accent' : 'quiet', label: yolo.on ? `YOLO on${ready}` : 'YOLO off', target: screen('work') })
+  if (yolo?.on) {
+    const readiness = yolo.projects.length ? ` · ${yolo.ready} of ${yolo.projects.length} ready` : ''
+    chips.push({ tone: 'accent', label: `YOLO on${readiness}`, target: screen('work') })
+  } else if (yolo) {
+    chips.push({ tone: 'quiet', label: 'YOLO off', target: screen('work') })
   }
   if (input.agents.length) {
     chips.push({ tone: 'info', label: `${input.agents.length} working`, target: screen('work') })
