@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
 import { modeledFiles } from '../src/cli/work/proofs.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
-import { chooseProject, fileItem, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, paths, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
+import { yoloPass } from '../src/cli/work/yolo-pass.mjs';
+import { recordReadiness, setYolo } from '../src/cli/work/yolo.mjs';
 import { branched, commit, git, repository, writeJson } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
@@ -80,6 +82,16 @@ const broke = { outcome: 'broken', broken: 'MergedAtReviewedHead', traceLength: 
 const survey = h => surveyUnmerged(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
 const rowOf = (h, { id }) => readyItems(h.root).find(row => row.item === id);
 
+/** A spawn that starts nothing, keeping what hobkin asked for. `pid` stands for the child: the test's own process is one that is alive. */
+function fakeSpawn(pid = 2 ** 22 + 1) {
+  const calls = [];
+  const spawn = (command, args, options) => {
+    calls.push({ command, args, cwd: options.cwd });
+    return { pid, unref() {}, on() {} };
+  };
+  return { spawn, calls };
+}
+
 test('a spec names the files it models in its models comments', () => {
   assert.deepEqual(modeledFiles(specText('src/items.mjs, src/yolo-pass.mjs')), ['src/items.mjs', 'src/yolo-pass.mjs']);
   assert.deepEqual(modeledFiles('\\* models: a.mjs\n\\*models:  ./b.mjs ,\nX == 1\n\\* code: c.mjs:3'), ['a.mjs', 'b.mjs']);
@@ -123,4 +135,66 @@ test('a run covers a change whose files its spec models, and counts only when it
     spec: SPEC, state: 'broken', changed: false, run: 'broke', why: 'MergedAtReviewedHead',
     line: `TLC: MergedAtReviewedHead breaks in 5 steps · at ${modeled.head.slice(0, 7)}`,
   }]);
+});
+
+/** A project with every readiness part in place, its readiness work merged, and its spec holding on the default branch. */
+async function readyWithModel(h) {
+  withSpec(h);
+  writeRun(h, { id: 'main', head: git(h.checkout, 'rev-parse', 'main') });
+  setYolo(h.root, { on: true }, NOW);
+  const { id } = readItems(h.root, 'api').find(({ key }) => key === 'yolo:ready');
+  updateItem(h.root, 'api', id, { state: 'doing' }, NOW);
+  const part = { ready: true, how: 'In place.' };
+  recordReadiness(h.root, 'api', Object.fromEntries(['tests', 'errors', 'slowQueries', 'performance', 'logs', 'alerts', 'rollback', 'deploy'].map(name => [name, part])), NOW);
+  updateItem(h.root, 'api', id, { state: 'merged' }, NOW);
+}
+
+test('hobkin checks an unchanged model at a change\'s new head itself, once, and only for a change heading to a YOLO merge', async t => {
+  const h = workspace(t);
+  await readyWithModel(h);
+  const modeled = finished(h, 'Fix merge');
+  const remodeled = finished(h, 'Model the queue', { file: SPEC, text: specText('app.txt, queue.txt') });
+  await survey(h);
+  const { spawn, calls } = fakeSpawn();
+
+  assert.deepEqual(await yoloPass(h.root, { now: NOW, spawn }), [], 'nothing merges before its model is checked at its head');
+
+  assert.equal(calls.length, 1, 'a change whose spec changed has its own run to cite, so hobkin starts none for it');
+  const [{ command, args, cwd }] = calls;
+  assert.equal(command, process.execPath);
+  assert.deepEqual(args.slice(1), ['proof', 'check', SPEC, '--project', 'api', '--item', modeled.id, '--head', modeled.head, '--home', h.root]);
+  assert.equal(cwd, join(paths(h.root, 'api').trees, 'proof'));
+  assert.equal(git(cwd, 'rev-parse', 'HEAD'), modeled.head, 'the check runs in a tree at that very commit');
+  assert.equal(readFileSync(join(cwd, SPEC), 'utf8'), specText());
+  assert.deepEqual([rowOf(h, modeled).models[0].state, rowOf(h, remodeled).models[0].state], ['unchecked', 'unchecked']);
+
+  await yoloPass(h.root, { now: NOW + 60000, spawn });
+  assert.equal(calls.length, 1, 'a check hobkin tried is not started again for the same commit');
+
+  writeRun(h, { id: 'rerun', head: modeled.head, item: modeled.id });
+  const [merged] = await yoloPass(h.root, { now: NOW + 120000, spawn });
+  assert.deepEqual([merged.item, merged.head], [modeled.id, modeled.head]);
+});
+
+test('hobkin checks nothing while YOLO mode is off, and one check at a time', async t => {
+  const h = workspace(t);
+  await readyWithModel(h);
+  const first = finished(h, 'Fix merge');
+  const second = finished(h, 'Fix merge again', { text: 'again\n' });
+  await survey(h);
+  setYolo(h.root, { on: false }, NOW);
+  const { spawn, calls } = fakeSpawn(process.pid);
+
+  await yoloPass(h.root, { now: NOW, spawn });
+  assert.equal(calls.length, 0);
+
+  setYolo(h.root, { on: true }, NOW);
+  await yoloPass(h.root, { now: NOW, spawn });
+  assert.equal(calls.length, 1, 'one check at a time, while the first is going');
+  await yoloPass(h.root, { now: NOW + 60000, spawn });
+  assert.equal(calls.length, 1);
+
+  // TLC stops itself after 20 minutes, so a check older than that is over, whatever its process id says now.
+  await yoloPass(h.root, { now: NOW + 26 * 60000, spawn });
+  assert.deepEqual(calls.map(({ args }) => args[7]).sort(), [first.id, second.id].sort());
 });

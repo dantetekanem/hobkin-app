@@ -6,6 +6,7 @@ import { mergeItem, whyWorkModeWaits } from './controls.mjs';
 import { userTrouble } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { changeHolds } from './patterns.mjs';
+import { startCheck } from './proof-checks.mjs';
 import { changeModels, specName } from './proofs.mjs';
 import { landingList, weighedRows } from './reads.mjs';
 import { readMode, readProject } from './store.mjs';
@@ -172,10 +173,21 @@ async function mergeAlone(root, { row, item, now }) {
 }
 
 /**
+ * A change heading to a merge by itself that waits only for a model nobody has run at its head, where only the code that model covers changed,
+ * gets that model checked by hobkin itself. A change that edited its spec has its own run to cite. `startCheck` keeps it to one at a time.
+ */
+async function checkWaitingModel(root, { asked, models, item, row, spawn, now }) {
+  const waiting = models.filter(({ state, changed }) => state === 'unchecked' && !changed);
+  if (!waiting.length || whyItAsks({ ...asked, models: models.filter(model => !waiting.includes(model)) })) return;
+  const [{ spec }] = waiting;
+  await startCheck(root, { slug: row.slug, item: item.id, spec, head: asked.unit.sha }, { now, ...(spawn ? { spawn } : {}) });
+}
+
+/**
  * Merges what may merge by itself, at most one change a project, and answers a report of each. `handOff` gives a deploy to the main agent.
  * While YOLO mode is on it also files the readiness work of any project that has none yet.
  */
-export async function yoloPass(root, { now = Date.now(), handOff } = {}) {
+export async function yoloPass(root, { now = Date.now(), handOff, spawn } = {}) {
   const yolo = readYolo(root);
   if (!yolo.on) return [];
   prepareProjects(root, now);
@@ -189,7 +201,11 @@ export async function yoloPass(root, { now = Date.now(), handOff } = {}) {
     const project = readProject(root, row.slug);
     const readiness = readinessOf(root, row.slug);
     const models = changeModels(root, row.slug, unit);
-    if (whyItAsks({ yolo, project, readiness, landable: landable.has(`${row.slug}:${row.item}`), row, item, unit, models })) continue;
+    const asked = { yolo, project, readiness, landable: landable.has(`${row.slug}:${row.item}`), row, item, unit };
+    if (whyItAsks({ ...asked, models })) {
+      await checkWaitingModel(root, { asked, models, item, row, spawn, now });
+      continue;
+    }
 
     const landed = await mergeAlone(root, { row, item, now });
     if (!landed) continue;
