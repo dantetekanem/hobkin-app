@@ -12,6 +12,7 @@ import {
   type FinishedGroup,
   type Grade,
   type IssuePickup,
+  type ModelFact,
   type PrMode,
   type ProjectState,
   type QueueRow,
@@ -40,11 +41,22 @@ interface Safety {
   stale?: boolean
 }
 
+/**
+ * One score and its evidence. When hobkin's own model checks at the change's head wrote the proof score's evidence, it
+ * is marked `by: 'hobkin'` with the run that says so (`withModelChecks` in its `src/cli/work/classified.mjs`).
+ */
+interface Score {
+  score: number
+  evidence?: string
+  by?: string
+  run?: string
+}
+
 /** What a review scored a change, with the rate and the broken floors hobkin worked out (`scoresOf` in its `src/cli/work/classified.mjs`). */
 interface ReviewScores {
   kind: string
   rate: number
-  scores: Record<string, { score: number }>
+  scores: Record<string, Score>
   floors: { criterion: string; score: number; needs: number }[]
   stale?: boolean
 }
@@ -72,6 +84,8 @@ interface ReadyRow {
   holds?: number
   proved?: boolean
   unread?: string | null
+  /** The TLA+ models that cover it, and what hobkin's own runs at its head say of each. */
+  models?: ModelFact[]
 }
 
 /** A row of hobkin's queue (`planRow` in its `src/cli/work/commands.mjs`). */
@@ -109,6 +123,8 @@ interface ProjectStatus {
   merged?: number
   nextLookAt?: string | null
   lookError?: string | null
+  /** Its TLA+ models on the default branch and hobkin's latest run of each. */
+  models?: ModelFact[]
 }
 
 /** hobkin's `workStatus`, as the snapshot's `work` holds it. */
@@ -238,6 +254,13 @@ function reasonOf(entry: ReadyRow, group: GroupName): string {
   return 'It needs you to open it.'
 }
 
+/** The proof score's evidence and run, when hobkin's own model checks wrote it rather than the review. */
+function proofCheckOf({ review }: ReadyRow): FinishedChange['proofCheck'] {
+  const proof = review?.scores.proof
+  if (proof?.by !== 'hobkin' || !proof.run) return null
+  return { line: proof.evidence ?? '', run: proof.run }
+}
+
 export function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
   const size = entry.size ? { lines: entry.size.additions + entry.size.deletions, files: entry.size.files } : null
   return {
@@ -257,6 +280,8 @@ export function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
     reason: reasonOf(entry, group),
     safety: entry.safety ? { grade: entry.safety.grade, rating: entry.safety.rating, stale: Boolean(entry.safety.stale) } : null,
     scores: scoreLine(entry),
+    ...(entry.models ? { models: entry.models } : {}),
+    proofCheck: proofCheckOf(entry),
     size,
     behind: entry.behind ?? 0,
     conflict: entry.conflict ?? null,
@@ -321,6 +346,7 @@ const projectOf = (project: ProjectStatus): WorkProject => ({
   merged: project.merged ?? 0,
   nextLookAt: project.nextLookAt ?? null,
   lookError: project.lookError ?? null,
+  ...(project.models ? { models: project.models } : {}),
 })
 
 /**

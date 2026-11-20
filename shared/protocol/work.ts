@@ -57,6 +57,25 @@ export interface QueueRow {
 export type ProjectState = 'chosen' | 'proposed' | 'skipped' | 'dropped'
 
 /** A project work mode knows. */
+/**
+ * What hobkin's own runs say of one TLA+ model (050-tla-proofs, `factOf` in its `src/cli/work/proofs.mjs`): it holds,
+ * it broke, it ran and is no evidence (it ended otherwise, or an action never fired), or nothing checked it. On the
+ * default branch it is the latest run of the spec committed there; on a finished change, a run at the change's head.
+ */
+export interface ModelFact {
+  /** The spec's path in the project, such as `specs/tla/WorkItem.tla`. */
+  spec: string
+  state: 'holds' | 'broken' | 'unproven' | 'unchecked'
+  /** On a finished change: the change edits the spec itself. */
+  changed?: boolean
+  /** The run that says so, for its page. None while nothing checked it. */
+  run?: string
+  /** Why it is not evidence: the rule that broke, the actions that never fired, or how the run ended. */
+  why?: string
+  /** What the run showed, in hobkin's line: "TLC: 4 of 4 hold in 48,211 states · at 3f1a9c2". */
+  line?: string
+}
+
 export interface WorkProject {
   slug: string
   name: string
@@ -85,6 +104,8 @@ export interface WorkProject {
    * Null for one that is not on github.com. Sent only for the projects hobkin works on, and not by a host older than this.
    */
   repo?: string | null
+  /** Its TLA+ models on the default branch, when it has any. A hobkin older than them does not send it. */
+  models?: ModelFact[]
 }
 
 /**
@@ -145,6 +166,10 @@ export interface FinishedChange {
    * how well a question is answered, never the risk of a break, which is the review's level. Null with no scores.
    */
   scores?: string | null
+  /** The TLA+ models that cover what it changes, and what hobkin's own runs at its head say of each. A hobkin older than them does not send it. */
+  models?: ModelFact[]
+  /** When hobkin's own model checks at its head wrote the proof score's evidence, rather than the review: that line, and the run it names. */
+  proofCheck?: { line: string; run: string } | null
 }
 
 /**
@@ -163,6 +188,8 @@ export interface YoloProject {
   work?: YoloWork
   /** When its readiness was last recorded, as an ISO time, and null before its first check. A hobkin older than this does not send it. */
   checkedAt?: string | null
+  /** Its TLA+ models on the default branch, the readiness part YOLO mode needs to hold, when it has any. A hobkin older than them does not send it. */
+  models?: ModelFact[]
 }
 
 /**
