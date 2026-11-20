@@ -1,0 +1,22 @@
+
+****** SANY2 Version 2.2 created 08 August 2024
+
+Parsing file /fixture/WorkItem.tla
+***Parse Error***
+Was expecting "==== or more Module body"
+Encountered "Beginning of definition" at line 24, column 1 and token "=="
+
+Residual stack trace follows:
+Module body starting at line 4, column 1.
+
+
+Fatal errors while parsing TLA+ spec in file WorkItem
+
+tla2sany.semantic.AbortException
+*** Abort messages: 1
+
+In module WorkItem
+
+Could not parse module WorkItem from file /fixture/WorkItem.tla
+
+
