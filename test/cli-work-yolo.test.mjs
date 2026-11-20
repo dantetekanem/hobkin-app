@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -13,10 +14,10 @@ import { WorkDirector } from '../src/cli/work/director.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, paths, prFile, readItems, readMode, skipProject, updateItem, writeMode, writeOwnerView, writeState } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
-import { yoloPass } from '../src/cli/work/yolo-pass.mjs';
+import { whyItAsks, yoloPass } from '../src/cli/work/yolo-pass.mjs';
 import { holdProject, readinessOf, readYolo, recordReadiness, runReadiness, setYolo, yoloView } from '../src/cli/work/yolo.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
-import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
+import { branched, commit, git, repository, writeJson } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 const READY_KEY = 'yolo:ready';
@@ -416,6 +417,71 @@ test('after a deploy the report says what the monitoring showed, and a regressio
   await survey(h);
   assert.deepEqual(await yoloPass(h.root, { now: NOW }), []);
   assert.equal(stateOf(h, next), 'branch');
+});
+
+const SPEC = 'specs/tla/WorkItem.tla';
+const specText = '---- MODULE WorkItem ----\n\\* models: app.txt\n====\n';
+const specHash = createHash('sha256').update(specText).digest('hex');
+
+function withSpec(h, slug = 'api') {
+  mkdirSync(join(h.checkouts[slug], 'specs', 'tla'), { recursive: true });
+  commit(h.checkouts[slug], SPEC, specText);
+}
+
+/** A run as `hobkin proof check` leaves it, which only that process writes. */
+const writeRun = (h, id, change) => writeJson(join(h.root, 'proofs', id, 'result.json'), {
+  id, project: 'api', spec: SPEC, specSha256: specHash, outcome: 'holds', finished: new Date(NOW).toISOString(),
+  stats: { generated: 40, distinct: 12, queue: 0, depth: 4 }, rules: [{ name: 'MergedAtReviewedHead', kind: 'invariant', status: 'holds' }], actions: [{ name: 'Merge', count: 3 }],
+  ...change,
+});
+const brokenRun = { outcome: 'broken', broken: 'MergedAtReviewedHead', traceLength: 5 };
+
+test('a model that breaks at a change\'s head, or has not held there, keeps it asking in a plain line', () => {
+  const head = 'c'.repeat(40);
+  const review = { kind: 'bug-fix', scores: scored(), head };
+  const unit = { sha: head, area: 'app', conflict: false, size: { additions: 1, deletions: 0, files: 1 }, paths: ['app.txt'] };
+  const asks = models => whyItAsks({ yolo: { on: true, rate: 8 }, project: {}, readiness: { ready: true }, landable: true, row: { holds: 0 }, item: { state: 'branch', kind: 'fix', review }, unit, models });
+  const model = change => ({ spec: SPEC, changed: false, ...change });
+
+  assert.equal(asks([]), null, 'a change no model covers goes on its scores');
+  assert.equal(asks([model({ state: 'holds', run: 'held' })]), null);
+  assert.equal(asks([model({ state: 'unchecked' })]), 'its model WorkItem.tla has not been checked at this commit yet');
+  assert.equal(asks([model({ state: 'unproven', run: 'r', why: 'Decline never fired' })]), 'its model WorkItem.tla did not hold at this commit: Decline never fired');
+  assert.equal(
+    asks([model({ state: 'unchecked' }), model({ spec: 'specs/tla/Queue.tla', state: 'broken', run: 'r', why: 'MergedAtReviewedHead' })]),
+    'its model Queue.tla breaks at this commit: MergedAtReviewedHead',
+    'a broken model is the reason said, before its proof score of 3',
+  );
+});
+
+/** Finished work that changes the file the model covers, reviewed at its head with every score at 10. */
+function modeledChange(h, title) {
+  const branch = `hobkin/${title.toLowerCase().replaceAll(' ', '-')}`;
+  branched(h.checkouts.api, branch, 'app.txt', `${title}\n`);
+  const head = git(h.checkouts.api, 'rev-parse', branch);
+  const { id } = fileItem(h.root, 'api', { key: title, kind: 'fix', title, brief: 'Evidence and first change.' }, NOW);
+  updateItem(h.root, 'api', id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores: scored(), head } }, NOW);
+  return { id, branch, head };
+}
+
+test('on a ready project a change whose model broke at its head never merges by itself, and one whose model held there does', async t => {
+  const h = workspace(t);
+  withSpec(h);
+  writeRun(h, 'on-main', { head: git(h.checkouts.api, 'rev-parse', 'main') });
+  makeReady(h);
+  const broke = modeledChange(h, 'Fix merge');
+  const held = modeledChange(h, 'Fix merge again');
+  await survey(h);
+  writeRun(h, 'broke', { head: broke.head, ...brokenRun });
+  writeRun(h, 'held', { head: held.head });
+
+  const reports = await yoloPass(h.root, { now: NOW, spawn: () => assert.fail('a commit already checked is not checked again') });
+
+  assert.deepEqual(reports.map(({ item }) => item), [held.id]);
+  assert.deepEqual([stateOf(h, broke), stateOf(h, held)], ['branch', 'merged']);
+  assert.deepEqual(readyItems(h.root).find(({ item }) => item === broke.id).review.scores.proof, {
+    score: 3, evidence: `TLC: MergedAtReviewedHead breaks in 5 steps · at ${broke.head.slice(0, 7)}`, by: 'hobkin', run: 'broke',
+  });
 });
 
 const HOUR = 3600000;

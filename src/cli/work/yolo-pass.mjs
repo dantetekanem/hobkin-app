@@ -6,6 +6,7 @@ import { mergeItem, whyWorkModeWaits } from './controls.mjs';
 import { userTrouble } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { changeHolds } from './patterns.mjs';
+import { changeModels, specName } from './proofs.mjs';
 import { landingList, weighedRows } from './reads.mjs';
 import { readMode, readProject } from './store.mjs';
 import { holdProject, prepareProjects, readinessOf, readYolo } from './yolo.mjs';
@@ -36,6 +37,12 @@ const deployWords = {
 };
 
 const ledgerPath = root => join(root, 'work', 'yolo.jsonl');
+// A change to code a model covers merges by itself only when that model holds at the change's head.
+const modelWords = {
+  broken: ({ spec, why }) => `its model ${specName(spec)} breaks at this commit${why ? `: ${why}` : ''}`,
+  unproven: ({ spec, why }) => `its model ${specName(spec)} did not hold at this commit${why ? `: ${why}` : ''}`,
+  unchecked: ({ spec }) => `its model ${specName(spec)} has not been checked at this commit yet`,
+};
 
 function readJsonLines(file) {
   if (!existsSync(file)) return [];
@@ -49,8 +56,11 @@ function readJsonLines(file) {
   });
 }
 
-/** Why a finished change keeps asking the user, or null when it may merge by itself. The first reason found is the one said. */
-export function whyItAsks({ yolo, project, readiness, landable, row, item, unit = {} }) {
+/**
+ * Why a finished change keeps asking the user, or null when it may merge by itself. The first reason found is the one said. `models` is what
+ * hobkin's own runs say of each TLA+ model covering the change, at its head (`changeModels`).
+ */
+export function whyItAsks({ yolo, project, readiness, landable, row, item, unit = {}, models = [] }) {
   if (!yolo.on) return 'YOLO mode is off';
   if (project?.paused) return 'its project is paused';
   if (!readiness.ready) return 'its project is not ready for YOLO mode';
@@ -58,10 +68,13 @@ export function whyItAsks({ yolo, project, readiness, landable, row, item, unit 
   if (row.holds) return 'it brings earlier branches with it';
   if (!item.review) return 'no review has scored it';
 
-  const { kind, rate, floors, head } = scoresOf(item.review);
+  const { kind, rate, floors, head } = scoresOf(item.review, models);
   if (!unit.sha || head !== unit.sha) return 'its scores are for an older commit';
   if (!SMALL_KINDS.includes(kind)) return `its review calls it ${kind}`;
   if (item.kind === 'feature') return 'its item is a feature';
+  // A broken model is a floor, said before the proof score of 3 it leaves.
+  const model = models.find(({ state }) => state === 'broken') ?? models.find(({ state }) => state !== 'holds');
+  if (model) return modelWords[model.state](model);
   if (floors.length) return `${floors[0].criterion} scored ${floors[0].score}, under ${floors[0].needs}`;
   if (rate < yolo.rate) return `its general rate is ${rate}, under ${yolo.rate}`;
   return changeHolds(item, unit)[0] ?? null;
@@ -175,7 +188,8 @@ export async function yoloPass(root, { now = Date.now(), handOff } = {}) {
     if (mergedOn.has(row.slug)) continue;
     const project = readProject(root, row.slug);
     const readiness = readinessOf(root, row.slug);
-    if (whyItAsks({ yolo, project, readiness, landable: landable.has(`${row.slug}:${row.item}`), row, item, unit })) continue;
+    const models = changeModels(root, row.slug, unit);
+    if (whyItAsks({ yolo, project, readiness, landable: landable.has(`${row.slug}:${row.item}`), row, item, unit, models })) continue;
 
     const landed = await mergeAlone(root, { row, item, now });
     if (!landed) continue;
