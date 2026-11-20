@@ -259,4 +259,10 @@ test('the tools are found where hobkin proof setup puts them', (t) => {
   assert.equal(found.tlc, join(home, 'tools', 'tla', 'tla2tools.jar'))
   assert.equal(found.tlaps, join(home, 'tools', 'tlaps', 'bin', 'tlapm'))
   assert.equal(found.java, null)
+
+  // The Java runtime it installs on a Mac without one.
+  const java = join(home, 'tools', 'java', 'Contents', 'Home', 'bin', 'java')
+  mkdirSync(join(java, '..'), { recursive: true })
+  writeFileSync(java, '')
+  assert.equal(findTools(home, { PATH: '' }).java, java)
 })

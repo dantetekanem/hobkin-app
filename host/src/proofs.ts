@@ -225,8 +225,8 @@ export function readRun(folder: string, id: string, { alive = pidAlive, now = Da
 export function findTools(home: string, env: NodeJS.ProcessEnv = process.env): ProofTools {
   const inPath = (name: string, extra: string[] = []) =>
     [...extra, ...(env.PATH ?? '').split(delimiter)].filter(Boolean).map((dir) => join(dir, name)).find((path) => existsSync(path)) ?? null
-  const java = env.JAVA_HOME && existsSync(join(env.JAVA_HOME, 'bin', 'java')) ? join(env.JAVA_HOME, 'bin', 'java') : inPath('java', ['/opt/homebrew/opt/openjdk/bin', '/usr/local/opt/openjdk/bin'])
-  // `hobkin proof setup` puts the jar in tools/tla and TLAPS in tools/tlaps.
+  // `hobkin proof setup` puts its Java runtime in tools/java on a Mac without one, the jar in tools/tla and TLAPS in tools/tlaps.
+  const java = env.JAVA_HOME && existsSync(join(env.JAVA_HOME, 'bin', 'java')) ? join(env.JAVA_HOME, 'bin', 'java') : inPath('java', [join(home, 'tools', 'java', 'Contents', 'Home', 'bin'), '/opt/homebrew/opt/openjdk/bin', '/usr/local/opt/openjdk/bin'])
   const jar = [env.TLA2TOOLS, join(home, 'tools', 'tla', 'tla2tools.jar')].find((path): path is string => !!path && existsSync(path))
   const tlaps = inPath('tlapm', [join(home, 'tools', 'tlaps', 'bin'), join(home, 'tools', 'tlaps')])
   // macOS ships /usr/bin/java as a stub that only asks for an install, so it is not a Java.
