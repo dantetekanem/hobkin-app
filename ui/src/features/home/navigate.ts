@@ -51,5 +51,7 @@ export function openTarget(target: HomeTarget): void {
       // hobkin's question rises on the question sheet by itself (questions/bridge.ts). Once put off, it waits under Action Items.
       if (!current(useQuestions.getState().queue)) openScreen('actions')
       return
+    case 'proof':
+      return useView.getState().openProofRun(target.id)
   }
 }

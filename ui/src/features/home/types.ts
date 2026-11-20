@@ -1,4 +1,5 @@
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
+import type { ProofsState } from '#shared/protocol/proofs.ts'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
@@ -51,6 +52,8 @@ export interface HomeInput {
   custom: unknown
   /** Proactive thoughts hobkin surfaces in the tip strip (`snapshot.homeThoughts`). Untrusted shape: `thoughtsOf` validates it. */
   thoughts: unknown
+  /** TLA+ proof runs (050-tla-proofs): a model that broke on main is a problem. Absent from a host from before them. */
+  proofs?: ProofsState | null
 }
 
 /** Where a button or row goes. Reminder completion uses its separate user-only control, never a navigation target. */
@@ -68,6 +71,8 @@ export type HomeTarget =
   | { to: 'url'; url: string }
   /** The question hobkin is asking in the conversation. */
   | { to: 'question' }
+  /** A TLA+ proof run's own page. */
+  | { to: 'proof'; id: string }
 
 export interface HomeAction {
   label: string

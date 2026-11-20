@@ -10,6 +10,8 @@ import { outcomeWeek, sinceLastLook } from '../reports/briefing.ts'
 import { kindOf, sourceOf, toneOf, triageOf } from '../reports/report.ts'
 import { clockTime, timeOf, waited } from '../reports/time.ts'
 import { readyCount, yoloSays } from '../settings/yolo.ts'
+import { brokenOnMain, specFile } from '../proofs/proof-match.ts'
+import { stepsToBreak } from '../proofs/run/run-view.ts'
 import type { CardFact, ConnectionTile, DayMark, HomeAction, HomeInput, HomeModel, HomeRow, HomeTarget, HomeTone, HomeYolo, NeedKind, NeedRow, StackCard } from './types.ts'
 import { stripItems, thoughtsOf, TIPS } from './tips.ts'
 import { customWidgetsOf, layoutOf, orderWidgets } from './widgets.ts'
@@ -311,7 +313,17 @@ function problemsOf(input: HomeInput): HomeRow[] {
       target: screen('integrations'),
       label: 'See',
     }))
-  return [...reports, ...heldRoutines, ...failedServers]
+  // A model hobkin's weekly recheck found broken on main, until a newer check of the same spec holds (050-tla-proofs).
+  const brokenModels = brokenOnMain(input.proofs ?? null).map(run => row({
+    id: `model:${run.id}`,
+    title: 'A model broke on main',
+    detail: `${run.project}: ${specFile(run.spec)}${run.broken ? `, ${run.broken} breaks in ${stepsToBreak(run)} steps` : ''}`,
+    tone: 'bad',
+    target: { to: 'proof', id: run.id },
+    aside: age(timeOf(run.finished ?? run.started), input.now),
+    label: 'See',
+  }))
+  return [...brokenModels, ...reports, ...heldRoutines, ...failedServers]
 }
 
 function projectsOf(input: HomeInput): HomeRow[] {

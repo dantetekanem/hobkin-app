@@ -5,6 +5,8 @@ import type { WorkState } from '#shared/protocol/work.ts'
 import { brokenOnMain, chipsOf, itemTitle, modelsLine, modelsOnMain, placeOf, proofCheckOf, runForCommand, runsForItem, runWords } from '../src/features/proofs/proof-match.ts'
 import { sampleRun, sampleSummary, type SamplePhase } from '../src/features/proofs/sample.ts'
 import { foldOf, type Command } from '../src/features/agent-activity/steps.ts'
+import { homeModel } from '../src/features/home/model.ts'
+import type { HomeInput } from '../src/features/home/types.ts'
 
 const STARTED = Date.parse('2026-11-20T14:05:00Z')
 const summary = (phase: SamplePhase, change: Partial<ProofRunSummary> = {}, minutes = 0): ProofRunSummary => ({ ...sampleSummary(sampleRun(phase, STARTED + minutes * 60_000)), ...change })
@@ -83,4 +85,18 @@ test("an agent's proof check never folds away with the commands that passed befo
   const { folded, open } = foldOf([ran('a', 'pnpm test'), ran('b', 'hobkin proof check specs/tla/WorkItem.tla'), ran('c', 'git status'), ran('d', 'git diff')])
   assert.deepEqual(folded.map(({ id }) => id), ['a', 'c'])
   assert.deepEqual(open.map(({ id }) => id), ['b', 'd'])
+})
+
+test("Home's Problems says a model broke on main, and opens its run", () => {
+  const github: HomeInput['github'] = { connection: 'unknown', login: null, reviews: [], pulls: [], issues: [], more: { reviews: false, pulls: false, issues: false }, refreshedAt: null, refreshing: false, error: null, sample: false }
+  const home = (proofs?: ProofsState): HomeInput => ({
+    now: STARTED + 3_600_000, reports: [], read: new Set(), attention: null, waiting: [], question: null, work: null, live: true, github,
+    routines: [], agents: [], wins: null, integrations: null, dismissed: new Set(), layout: null, custom: null, thoughts: null, ...(proofs ? { proofs } : {}),
+  })
+  const broke = summary('broken', { id: 'weekly', item: undefined })
+  const rows = homeModel(home(slice(broke))).problems.rows
+  assert.deepEqual(rows.map(({ title, detail, tone, action }) => [title, detail, tone, action.target]), [['A model broke on main', 'hobkin: WorkItem.tla, MergedAtReviewedHead breaks in 5 steps', 'bad', { to: 'proof', id: 'weekly' }]])
+  // An item's own check is its card's business, and a host from before proofs sends none.
+  assert.deepEqual(homeModel(home(slice(summary('broken')))).problems.rows, [])
+  assert.deepEqual(homeModel(home()).problems.rows, [])
 })
