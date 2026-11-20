@@ -7,6 +7,7 @@ import { loadConfig } from './config.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
 import { loadSchedules } from './schedules.mjs';
+import { inspectTools, TLA2TOOLS } from './proof/tools.mjs';
 
 const PI_PACKAGE = '@earendil-works/pi-coding-agent';
 // `gh` reaches GitHub, and no tool may hold up a report.
@@ -26,6 +27,9 @@ const GH_USE = 'Work mode uses it for GitHub PRs. A repository on another host w
 const INSTALL_QMD = 'Run `npm install -g @tobilu/qmd`. Hobkin finds it the next time it opens, and qmd downloads a 330 MB model the first time it indexes.';
 const PI_CODER_ADDS = 'With it, d on a local PR opens the branch\'s diff.';
 const INSTALL_PI_CODER = 'Run `pi install npm:pi-coder`.';
+const TLC_ADDS = 'Work mode checks TLA+ models of state machines with it.';
+const INSTALL_JAVA = 'Install Java 21 from https://adoptium.net, then run `hobkin proof setup`.';
+const SETUP_TLC = `Run \`hobkin proof setup\`. It downloads tla2tools.jar ${TLA2TOOLS.version} into Hobkin's folder and checks it.`;
 
 const promptPath = name => fileURLToPath(new URL(`../prompts/${name}.md`, import.meta.url));
 /** Only the running package knows where it lives, so the report names this for the agent to read. */
@@ -245,6 +249,22 @@ async function piCoderRow(ask, launcher) {
   return ready('pi-coder', `Installed. ${PI_CODER_ADDS}`);
 }
 
+/** TLC needs Java and the pinned jar, and TLAPS adds proofs. Each row says what it adds, since none of it is needed. */
+async function tlcRow(proofTools, root) {
+  let home = root;
+  try {
+    home = resolveDataRoot(root);
+  } catch {
+    // The home row already says what is wrong with it.
+  }
+  const { java, jar, tlapm } = await proofTools(home);
+  if (!java.path) return optional('tlc', `${java.problem} ${TLC_ADDS}`, INSTALL_JAVA);
+  if (!jar) return optional('tlc', `Java ${java.version} is here, but not TLC. ${TLC_ADDS}`, SETUP_TLC);
+
+  const proofs = tlapm ? ' TLAPS is here too, so it proves them as well.' : '';
+  return ready('tlc', `TLC ${TLA2TOOLS.version} on Java ${java.version}. ${TLC_ADDS}${proofs}`);
+}
+
 const grouped = (rows, group) => rows.map(item => ({ ...item, group }));
 
 /** Reads only, so it is safe at any time, on a home that does not exist yet too. */
@@ -252,6 +272,7 @@ export async function setupChecks(root, {
   exec = defaultExec,
   nodeVersion = process.versions.node,
   piSdkVersion = installedPiSdk(),
+  proofTools = inspectTools,
 } = {}) {
   const ask = askWith(exec);
   const home = readHome(root);
@@ -273,6 +294,7 @@ export async function setupChecks(root, {
   const extras = await Promise.all([
     qmdRow(ask),
     piCoderRow(ask, launcher),
+    tlcRow(proofTools, root),
   ]);
 
   return [...grouped(needed, 'needed'), ...grouped(extras, 'optional')];

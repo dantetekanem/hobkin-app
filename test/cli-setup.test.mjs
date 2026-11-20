@@ -66,8 +66,12 @@ const addSchedule = (root, id, enabled) => writeFileSync(join(root, 'routines', 
   id, title: id, at: '09:00', timezone: 'UTC', enabled, harness: 'pi', model: null, effort: 'medium', cwd: root, context: [],
 })}\n---\nCheck something.\n`);
 
+const java21 = { path: '/jdk/bin/java', version: '21.0.2', major: 21 };
+/** What the proof tools look like to setup, without running Java. */
+const proofToolsAre = ({ java = java21, jar = '/home/.hobkin/tools/tla/tla2tools.jar', tlapm = null } = {}) => async () => ({ java, jar, tlapm });
+
 async function checks(root, { tools, ...options } = {}) {
-  const rows = await setupChecks(root, { exec: fakeTools(tools).exec, nodeVersion: minimumNode, piSdkVersion: pinned, ...options });
+  const rows = await setupChecks(root, { exec: fakeTools(tools).exec, nodeVersion: minimumNode, piSdkVersion: pinned, proofTools: proofToolsAre(), ...options });
   return Object.fromEntries(rows.map(row => [row.name, row]));
 }
 
@@ -91,13 +95,14 @@ test('a ready machine reads as ok, and setup only asks tools about themselves', 
     exec,
     nodeVersion: minimumNode,
     piSdkVersion: pinned,
+    proofTools: proofToolsAre(),
   });
 
   assert.deepEqual(rows.filter(row => row.state !== 'ok'), []);
-  const optionalRows = rows.slice(-2);
-  assert.deepEqual(optionalRows.map(row => row.name), ['qmd', 'pi-coder']);
+  const optionalRows = rows.slice(-3);
+  assert.deepEqual(optionalRows.map(row => row.name), ['qmd', 'pi-coder', 'tlc']);
   assert.ok(optionalRows.every(row => row.group === 'optional'));
-  assert.ok(rows.slice(0, -2).every(row => row.group === 'needed'));
+  assert.ok(rows.slice(0, -3).every(row => row.group === 'needed'));
   assert.deepEqual(calls.toSorted(), [
     'gh auth status',
     'git --version',
@@ -312,8 +317,27 @@ test('pi-coder is optional: it is how a local PR\'s diff opens, and setup says h
   assert.match(row.fix, /pi install npm:pi-coder/);
 });
 
+test('tlc is optional: it needs Java and the pinned jar, and setup says how to get each', async t => {
+  const root = home(t);
+  const ready = (await checks(root)).tlc;
+  assert.equal(ready.state, 'ok');
+  assert.match(ready.detail, /TLC 1\.7\.4 on Java 21\.0\.2/);
+  assert.doesNotMatch(ready.detail, /TLAPS/);
+  assert.match((await checks(root, { proofTools: proofToolsAre({ tlapm: '/usr/local/bin/tlapm' }) })).tlc.detail, /TLAPS is here too/);
+
+  const noJava = (await checks(root, { proofTools: proofToolsAre({ java: { path: null, problem: 'Java is not installed. TLC needs Java 11 or newer.' } }) })).tlc;
+  assert.equal(noJava.state, 'optional');
+  assert.match(noJava.detail, /^Java is not installed/);
+  assert.match(noJava.fix, /adoptium\.net.*hobkin proof setup/);
+
+  const noJar = (await checks(root, { proofTools: proofToolsAre({ jar: null }) })).tlc;
+  assert.equal(noJar.state, 'optional');
+  assert.match(noJar.detail, /Java 21\.0\.2 is here, but not TLC/);
+  assert.match(noJar.fix, /hobkin proof setup/);
+});
+
 test('a tool that is missing or broken never throws', async t => {
-  const everyRow = ['Pi', 'Node', 'git', 'hobkin', 'gh', 'Chat model', 'Checks model', 'Routines', 'qmd', 'pi-coder'];
+  const everyRow = ['Pi', 'Node', 'git', 'hobkin', 'gh', 'Chat model', 'Checks model', 'Routines', 'qmd', 'pi-coder', 'tlc'];
 
   for (const answer of [absent, broken]) {
     const rows = await checks(home(t), { tools: everyToolIs(answer) });
