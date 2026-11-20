@@ -1,0 +1,173 @@
+---
+{
+  "id": "050-tla-proofs",
+  "title": "TLA+ proofs in work mode and YOLO mode",
+  "kind": "work",
+  "status": "draft",
+  "depends": ["011-work", "032-change-review", "049-yolo-mode"],
+  "updated": "2026-11-20"
+}
+---
+# TLA+ proofs in work mode and YOLO mode
+
+## Outcome
+
+When an agent in work mode touches a state machine, explicit or hidden in the code, it writes a TLA+ model of it in the project, and hobkin checks that model with TLC, and proves it with TLAPS when a proof is written. The user watches the check live, and reads the result three ways: as math, in plain words, and as a state graph they can walk node by node, stepping through any counterexample with each variable's change marked. hobkin runs the tools itself and keeps the result, so a check is evidence the agent cannot write for itself. That evidence feeds the review's proof score, and in YOLO mode a model that breaks at a change's head stops that change from merging by itself.
+
+## Decisions
+
+### The user's words
+
+- "I want Hobkin and (Work + YOLO) to support TLA+ natively, i mean the proof run, in the greatest UI/UX ever we have, and during the process. This will be massive preparing and designing systems, and also having a way to see the math proof and a visual proof (node navigation) as where possible. plan and design this now"
+- On the first screens of the design: "yes that is good".
+
+### The design
+
+The screens are on the canvas https://claude.ai/artifact/CD5U7JA1zyonJsYYnyDTrk, and this spec follows them:
+
+1. **Proof run, live**: the steps (Parse, Model check, Proof), four counters, new states over time, what must stay true, which actions ran, what hobkin is doing, and where each action lives in the code.
+2. **Visual proof**: the state graph in three views (the counterexample, the states around it, and every state grouped by one variable), with a step bar and the selected state's variables.
+3. **The math**: the spec typeset, in three modes (Math, In words, Side by side), with the TLAPS proof tree and a box that says what each result shows and what it does not.
+4. **Where it shows up**: the finished card, the agent's steps, the review's five scores and the YOLO page.
+
+Every view keeps its controls still when the content changes: fixed heights, clamped text and facts pinned in place.
+
+### The tools
+
+- **TLC and SANY** come from `tla2tools.jar` (MIT). hobkin pins v1.7.4, the last stable release (2024-08-05). v1.8.0 is a prerelease from 2026-11-19, so hobkin moves to it only once it is stable. TLC needs Java 11 or newer. Sources: https://github.com/tlaplus/tlaplus/releases and https://docs.tlapl.us/using:tlc:start
+- **TLAPS** (`tlapm`, BSD-2) is optional. 1.6.0-pre ships an arm64 macOS tarball (https://github.com/tlaplus/tlapm/releases). hobkin always runs it with `--strict`, because without it `tlapm` can report every obligation proved while proofs are missing (https://groups.google.com/g/tlaplus/c/ynn-HTUSOW4/m/_bY2kSvBAgAJ). Check the licenses of its backends (Z3, Zenon, Isabelle, LS4) before hobkin downloads them.
+- hobkin never installs anything by itself. `hobkin proof setup`, and the same button on the YOLO page, downloads the pinned jar into `<home>/tools/tla/` and checks its sha256. The user's click is the yes. When Java is missing, hobkin says so in one line and changes nothing. `hobkin/src/cli/setup.mjs` gains an optional `tlc` row.
+
+### How a check runs
+
+- Agents never call `java` directly. They run `hobkin proof check <spec.tla> [--cfg <file>]`:
+  1. SANY parses the spec. A parse error reports its file, line and column, and TLC never starts.
+  2. TLC runs with `-tool -workers <n> -coverage 1 -dumpTrace json <run>/trace.json`, breadth first, so a counterexample is the shortest one.
+  3. hobkin reads TLC's framed messages (`@!@!@STARTMSG <code>:<class> @!@!@`). The codes it reads (from https://github.com/tlaplus/tlaplus/blob/master/tlatools/org.lamport.tlatools/src/tlc2/output/EC.java):
+     - progress 2200
+     - final stats 2199
+     - finished 2186
+     - success 2193
+     - invariant violated 2107, 2110 and 2146
+     - temporal property violated 2116
+     - deadlock 2114
+     - trace 2121, with states 2216 to 2218
+     - coverage 2201, 2202 and 2221, and 2772 on
+
+     The text of 2200 is parsed from a real run captured as a fixture, not from the docs.
+  4. Each event goes to `<home>/proofs/<run>/events.jsonl`, and the run ends with a `result.json`.
+- A model lives in the project at `specs/tla/<Machine>.tla` with its `.cfg`, and is committed on the item's branch like code, so the review reads it and it moves with the code. A spec says which files it models in a comment, `\* models: src/cli/work/items.mjs, src/cli/work/yolo-pass.mjs`. Each action names its code in a comment, `\* code: src/cli/work/yolo-pass.mjs:165`. Each definition carries its plain-words gloss in a comment, `\* words: ...`.
+- The run record holds:
+  - who and where: `id`, `project`, `item`, `head`
+  - the spec: `spec` with its sha256, and `cfg` with its sha256
+  - the tool: `tool` with its version, and `workers`
+  - when: `started` and `finished`
+  - the result: `outcome` (holds, broken, error or stopped)
+  - the stats: generated, distinct, queue and depth
+  - each invariant's status and each action's count
+  - the file paths of the trace and the graph
+- Only the `hobkin proof` process writes a run record. `hobkin work item` cannot write or change one. An agent cites a run by its id, and the run counts for an item only when its `head` and spec hash match the item's.
+- A run where an action never fired is still reported as it ended. It does not count as evidence that the model holds, because a model that never reaches an action checks nothing that action guards.
+- Limits:
+  - One TLC run at a time on the machine, using half the cores.
+  - A heap cap, set with `-Xmx`.
+  - 20 minutes unless the user sets another limit.
+  - Stopping it ends the Java process within 2 seconds.
+
+### Live progress
+
+- There is no generic channel for a job with live progress, so the host adds a `proofs` slice to `StateMessage`. It carries each running run with its latest stats, pushed when they change, at most twice a second.
+- The full events, trace and graph come from the `proof.get` command, and `proof.stop` stops a run.
+- When an agent runs `hobkin proof check`, its step in the agent's activity draws as the proof widget from screen 4, not as raw tool text.
+- TLC cannot know how long a check will take, so no view shows a time left. The views show how fast new states still come in.
+
+### The state graph
+
+- When a run has at most 50,000 distinct states, TLC dumps the graph with `-dump dot,actionlabels,colorize`. A bigger model gets no dump, and its views say so.
+- The graph uses the libraries the review graph already uses: `@dagrejs/dagre` for layout and `@xyflow/react` for drawing.
+- **The counterexample** shows the shortest path, with the other moves from the same states faded.
+- **Around it** shows the states within 2 steps of the path, at most 200, and says how many of how many it shows.
+- **By a variable** groups every state by one variable the user picks. That draws the machine the code has without saying so, with each action's count on its arrow.
+- Search filters the dumped states by `variable = value`. Evaluating any TLA+ expression is a later step: see the open questions.
+
+### The math
+
+- The spec is shown in Unicode TLA+ (≜ ∧ ∨ ⇒ ∀ ∃ □ ′ ⟨⟩), set in JetBrains Mono, using the symbol table of `tlauc` (MIT, https://github.com/tlaplus-community/tlauc). No KaTeX: no TLA+ to KaTeX tool exists, and the monospace layout keeps TLA+'s aligned conjunctions readable. A glyph JetBrains Mono lacks falls back to a math font.
+- In words shows each definition's `\* words:` gloss. Side by side shows both.
+- When a proof ran, the TLAPS tree shows each step with its status (proved, failed, omitted or missing), its backend and its time. A failed step shows its goal and what is known. A step counts as proved only when `tlapm --strict` exits 0.
+- Every math view carries the box that says what each result shows:
+  - a model check covers the small world it was given
+  - a proof covers every size
+  - both are about the model, not the code
+
+### Work, the review and YOLO
+
+- The finished card shows proof chips: the model holds, the model broke, or the proof is proved or fails. Each opens the run.
+- The review's `proof` score: when a run at the item's head covers the changed files, hobkin writes that score's evidence line from the run, and marks it "hobkin ran this itself". A covering model that broke caps the proof score at 3.
+- YOLO: a covering model that breaks at the change's head is a floor, so the change never merges by itself. This works like a safety score under 8, in `brokenFloors` (`hobkin/src/cli/work/classified.mjs`) and `whyItAsks` (`hobkin/src/cli/work/yolo-pass.mjs`). When a change touches a modeled file and the spec did not change, hobkin reruns the model itself at the new head. That rerun is a hobkin job, not an agent run.
+- Readiness gains a `models` part. It is ready when each machine the state-machines look found has a spec that holds on main, and not applicable when the project has none.
+- The state-machines look writes the spec for each machine it finds, files the `machine:<name>` item with the spec's path, and hobkin rechecks every spec on main weekly. A model that breaks on main shows in Home's Problems.
+
+## Out of scope
+
+- Apalache and Quint. Their ITF traces can come later.
+- Checking real runs of the code against the model (trace validation, https://arxiv.org/abs/2404.16075). Until then, the `\* code:` mapping and the review's judgment are all that tie the model to the code, and the math view says so.
+- Embedding Spectacle (https://github.com/will62794/spectacle) for exploring a model in the browser. It is a spike first.
+- TLC across several machines, and a bundled Java runtime.
+- A proof for every spec. TLAPS runs only when the agent writes a proof or the user asks for one.
+
+## Acceptance
+
+- A1. `hobkin proof setup` downloads the pinned `tla2tools.jar` into `<home>/tools/tla/` only when the user asks, and checks its sha256. Without Java it says so in one line and changes nothing.
+- A2. `hobkin proof check` parses with SANY first. A parse error reports its file, line and column, and TLC never starts.
+- A3. A TLC run writes its events to `events.jsonl` and to the `proofs` slice at most twice a second, and ends with an outcome of holds, broken, error or stopped, and its final stats.
+- A4. A broken invariant, temporal property or deadlock leaves a trace of states with their action names in `trace.json`, the shortest one TLC found.
+- A5. A run where an action never fired says which action, and cannot count as evidence that the model holds.
+- A6. Only the `hobkin proof` process writes a run record. `hobkin work item` cannot write or change one, and a run counts for an item only when its head and spec hash match.
+- A7. Stopping a run ends its Java process within 2 seconds and records the outcome as stopped.
+- A8. The run view matches screen 1 and updates live. Its result area and buttons stay still as the run moves from checking to broken or holds.
+- A9. The graph view matches screen 2. Its step bar shows each state's variables, with the changed ones marked and the ones that break the invariant shown in red. Around it states how many states it shows. By a variable groups the states by the variable the user picks.
+- A10. The math view matches screen 3, in all three modes. When a proof ran, it shows the TLAPS tree with each step's status, and a failed step with its goal and what is known.
+- A11. A TLAPS step counts as proved only when `tlapm --strict` exits 0.
+- A12. The finished card, the agent's steps, the review's scores and the YOLO page show proof results as screen 4 does.
+- A13. In YOLO mode, a covering model that breaks at a change's head stops it merging by itself. The review's proof evidence comes from the run, and a covering model that broke caps the proof score at 3.
+- A14. The state-machines look writes a spec for each machine it finds, hobkin rechecks every spec on main weekly, and a model that breaks on main shows in Home's Problems.
+- A15. Every new field on the wire is optional, so an older host or window still works.
+
+## Proof
+
+- A1. `hobkin/test/cli-proof.test.mjs`, against SANY and TLC output recorded in `hobkin/test/fixtures/tlc/`, so the tests need no Java.
+- A2. `hobkin/test/cli-proof.test.mjs`, with a recorded parse error.
+- A3. `hobkin/test/cli-proof.test.mjs` for the events and the outcome; `host/test/proofs.test.ts` for the slice and its rate.
+- A4. `hobkin/test/cli-proof.test.mjs`, with recorded violations of each kind. One test runs real TLC, only when `HOBKIN_TLC=1` is set.
+- A5. `hobkin/test/cli-proof.test.mjs`, with recorded coverage where one action never fired.
+- A6. `hobkin/test/cli-proof-record.test.mjs`.
+- A7. `hobkin/test/cli-proof.test.mjs`, with a stub process that ignores its first signal.
+- A8. `ui/test/proof-run.test.ts` for the view model; check: a still render in light and dark, compared with screen 1.
+- A9. `ui/test/proof-graph.test.ts` for the views and the step bar; check: a still render compared with screen 2.
+- A10. `ui/test/proof-math.test.ts` for the tokens and the tree; check: a still render compared with screen 3.
+- A11. `hobkin/test/cli-proof-tlaps.test.mjs`, with recorded `tlapm --toolbox` output.
+- A12. `host/test/proofs.test.ts` for the fields; check: a still render of each surface compared with screen 4.
+- A13. `hobkin/test/cli-work-yolo.test.mjs` and `hobkin/test/cli-work-classified.test.mjs`.
+- A14. `hobkin/test/cli-work-look.test.mjs`; check: a look at the live home with the user's go-ahead.
+- A15. `host/test/proofs.test.ts`, with a host that sends none of the new fields.
+
+## Steps
+
+- [ ] S1 (A1, A2). Runtime: the pinned toolchain, `hobkin proof setup`, the Java check and the setup row. Record real SANY and TLC output for a small spec as fixtures. Files: new `hobkin/src/cli/proof/setup.mjs`, `hobkin/src/cli/setup.mjs`.
+- [ ] S2 (A3, A4, A5, A7). Runtime: `hobkin proof check`. It covers the runner, the parser for TLC's framed messages, the events, the run record, the trace, coverage, the limits and stop. Files: new `hobkin/src/cli/proof/{check,tool-messages,record}.mjs`, `hobkin/src/cli/commands.mjs`.
+- [ ] S3 (A6, A13). Runtime: who writes a run, how a run is matched to an item, the proof score's evidence and cap, the YOLO floor and the rerun on a modeled file. Files: `hobkin/src/cli/work/{classified,yolo-pass,commands,yolo}.mjs`.
+- [ ] S4 (A3, A15). Host and protocol: the `proofs` slice, and the `proof.get` and `proof.stop` commands. Files: new `host/src/proofs.ts`, new `shared/protocol/proofs.ts`, `shared/protocol/messages.ts`, `host/src/state-sync.ts`, `shared/commands/registry.ts`, `host/src/host.ts`.
+- [ ] S5 (A8, A12). Window: the run view as a page of its own, opened from the item and the agent, and the proof widget in the agent's steps. Files: new `ui/src/features/proofs/`, `ui/src/app/screens.ts`, `ui/src/app/Canvas.tsx`, `ui/src/features/agent-activity/`.
+- [ ] S6 (A9). Window: the state graph. It reads the dot dump, lays it out with dagre and draws it with xyflow, in the three views with the step bar. Files: `ui/src/features/proofs/graph/`.
+- [ ] S7 (A10, A11). Runtime and window: TLAPS through `tlapm --toolbox` with `--strict`, the proof tree, the Unicode typesetting and the three modes. Files: new `hobkin/src/cli/proof/tlaps.mjs`, `ui/src/features/proofs/math/`.
+- [ ] S8 (A12, A14). The surfaces: the finished card, the review's scores, the YOLO page's `models` part, Home's Problems, and the state-machines look writing specs, with the weekly recheck. Files: `ui/src/features/work/{Finished,YoloScreen}.tsx`, `ui/src/features/home/model.ts`, `hobkin/src/prompts/work-look.md`, `hobkin/src/cli/work/plan.mjs`.
+- [ ] S9 (A5, A14). Prompts: when and how an agent models a machine, and the rules on what a result shows. A model is small enough to finish. Every action has to fire. The `\* code:` and `\* words:` comments are required. Files: `hobkin/src/prompts/work-do.md`, `hobkin/src/prompts/work-look.md`.
+
+## Open questions
+
+- Should hobkin pin v1.7.4 now and move to v1.8.0 once it is stable, or start on the rolling build?
+- Should hobkin require Java, or offer to download a JRE into `<home>/tools/`?
+- How strong must a model be for YOLO? Every action firing is the floor. A probe that each invariant can fail when a guard is removed would catch an invariant that is always true, but costs a run per invariant.
+- Should search accept any TLA+ expression? That needs an evaluator, from TLC's REPL in v1.8.0 or from Spectacle's JavaScript interpreter.
+- How long may a TLAPS run take before it counts as stopped?
