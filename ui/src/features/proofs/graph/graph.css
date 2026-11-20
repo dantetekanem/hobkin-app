@@ -1,0 +1,173 @@
+/*
+ * The state graph (050-tla-proofs, screen 2). Colors are the palette's: ink for the path, red where it breaks, the
+ * accent for the selected state, the code's periwinkle for a search's matches, and a faint line for the moves the
+ * counterexample did not take. Only transform, box-shadow and opacity move, and nothing moves under Still.
+ */
+.pf-graph {
+  --pf-canvas: var(--hb-tone-2);
+  --pf-ink: var(--hb-text);
+  --pf-faint: color-mix(in oklab, var(--hb-border-strong) 45%, var(--hb-border));
+}
+.dark .pf-graph {
+  --pf-canvas: var(--hb-tone-3);
+}
+
+.pf-graph .react-flow {
+  background: transparent;
+}
+.pf-graph .react-flow__pane {
+  cursor: grab;
+}
+.pf-graph .react-flow__pane.dragging {
+  cursor: grabbing;
+}
+.pf-graph .react-flow__node {
+  cursor: pointer;
+}
+/* React Flow's handles only tell it where moves attach: a point at the middle of each side. */
+.pf-graph .react-flow__handle {
+  width: 1px;
+  height: 1px;
+  min-width: 0;
+  min-height: 0;
+  border: 0;
+  background: transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: none;
+}
+
+/* ───────────────────────────── States ───────────────────────────── */
+
+.pf-node {
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 2px solid var(--pf-ink);
+  background: var(--hb-surface);
+  color: var(--hb-text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  transition:
+    transform var(--dur-fast) var(--ease-out),
+    box-shadow var(--dur-fast) ease,
+    opacity var(--dur-fast) ease;
+}
+.pf-node:hover {
+  transform: scale(1.08);
+}
+.pf-node[data-look='side'],
+.pf-node[data-look='near'] {
+  border: 1.5px solid var(--pf-faint);
+}
+.pf-node[data-look='near'] {
+  background: var(--pf-canvas);
+}
+.pf-node[data-look='group'] {
+  border-radius: 14px;
+  gap: 1px;
+  align-content: center;
+}
+.pf-node[data-look='ghost'] {
+  border: 1.5px dashed color-mix(in oklab, var(--hb-warn-fg) 75%, transparent);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--hb-warn-fg);
+  cursor: default;
+}
+.pf-node[data-look='ghost']:hover {
+  transform: none;
+}
+.pf-node[data-selected='true'] {
+  background: var(--hb-accent);
+  color: var(--hb-on-accent);
+  box-shadow: 0 0 0 5px color-mix(in oklab, var(--hb-accent) 28%, transparent);
+}
+.pf-node[data-breaks='true'] {
+  border-color: var(--hb-bad-fg);
+  background: var(--hb-bad-fg);
+  color: var(--hb-bg);
+}
+.pf-node[data-look='group'][data-breaks='true'] {
+  background: color-mix(in oklab, var(--hb-bad) 18%, var(--hb-surface));
+  color: var(--hb-text);
+}
+.pf-node[data-breaks='true'][data-selected='true'] {
+  box-shadow: 0 0 0 5px color-mix(in oklab, var(--hb-bad) 30%, transparent);
+}
+.pf-node[data-match='true'] {
+  outline: 2px solid var(--hb-code);
+  outline-offset: 3px;
+}
+.pf-node[data-dim='true'] {
+  opacity: 0.3;
+}
+.pf-node .pf-count {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--hb-muted);
+}
+.pf-node[data-selected='true']:not([data-breaks='true']) .pf-count {
+  color: color-mix(in oklab, var(--hb-on-accent) 72%, transparent);
+}
+
+/* ───────────────────────────── Moves ───────────────────────────── */
+
+.pf-move {
+  fill: none;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+.pf-wire[data-look='path'] .pf-move {
+  stroke: var(--pf-ink);
+  stroke-width: 2.5;
+}
+.pf-wire[data-look='side'] .pf-move {
+  stroke: var(--pf-faint);
+  stroke-width: 1.5;
+  stroke-dasharray: 4 5;
+}
+.pf-wire[data-look='near'] .pf-move {
+  stroke: var(--pf-faint);
+  stroke-width: 1;
+}
+.pf-wire[data-look='group'] .pf-move {
+  stroke: var(--pf-ink);
+  stroke-width: 2;
+}
+.pf-wire[data-breaks='true'] .pf-move {
+  stroke: var(--hb-bad-fg);
+  stroke-width: 3;
+}
+.pf-arrow {
+  fill: var(--pf-ink);
+}
+.pf-wire[data-breaks='true'] .pf-arrow {
+  fill: var(--hb-bad-fg);
+}
+.pf-wire[data-dim='true'] {
+  opacity: 0.25;
+}
+.pf-label rect {
+  fill: var(--pf-canvas);
+}
+.pf-label text {
+  font-family: 'JetBrains Mono Variable', Menlo, ui-monospace, monospace;
+  font-size: 11px;
+  fill: var(--hb-text);
+}
+.pf-wire[data-look='side'] .pf-label text {
+  fill: var(--hb-muted);
+}
+.pf-label text[data-breaks='true'] {
+  fill: var(--hb-bad-fg);
+}
+
+/* Still: the graph changes in place. */
+.pf-graph[data-still] .pf-node {
+  transition: none;
+}
+.pf-graph[data-still] .pf-node:hover {
+  transform: none;
+}

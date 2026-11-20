@@ -253,7 +253,8 @@ export function aroundPicture(graph: StateGraph, { radius = 2, cap = AROUND, mat
     if (step != null) return stepNode(graph, id, step, SMALL_STEP)
     return { id, look: 'near', text: '', states: [id], width: NEAR, height: NEAR, aria: graph.nodes.get(id)?.initial ? 'A state the model starts in' : 'A nearby state' }
   })
-  const edges = pathEdges(graph)
+  // So many states leave no room to name each move: the path's moves are named on the step bar.
+  const edges: PictureEdge[] = pathEdges(graph).map((edge) => ({ ...edge, labels: [] }))
   const drawn = new Set(edges.map((edge) => `${edge.from}>${edge.to}`))
   for (const id of shown) {
     for (const move of graph.out.get(id) ?? []) {

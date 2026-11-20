@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { layOut } from '../src/features/proofs/graph/layout.ts'
+import { layOut, placePath } from '../src/features/proofs/graph/layout.ts'
 import { aroundPicture, defaultLens, groupedPicture, pathPicture, stateGraph } from '../src/features/proofs/graph/model.ts'
 import { findStates, parseQuery } from '../src/features/proofs/graph/search.ts'
 import { formatValue, lensesOf } from '../src/features/proofs/graph/values.ts'
@@ -177,4 +177,18 @@ test('the layout puts each state of a path to the right of the one before, with 
       const [a, b] = [at.get(one.id)!, at.get(two.id)!]
       assert.ok(Math.abs(a.x - b.x) >= 44 || Math.abs(a.y - b.y) >= 44, `${one.id} and ${two.id} overlap`)
     }
+})
+
+test('the counterexample lies on one straight line, and the moves it did not take land above and below it in turn', () => {
+  const picture = pathPicture(stateGraph(brokenRun()))
+  const at = placePath(picture)
+  const path = ['s1', 's2', 's3', 's4', 's5', 's6'].map((id) => at.get(id)!)
+  assert.ok(path.every((point) => point.y === 0))
+  assert.ok(path.every((point, index) => index === 0 || point.x > path[index - 1]!.x))
+  const middle = (id: string) => at.get(id)!.y + 13
+  // a leaves state 1 into column 2 above, b leaves state 2 into column 3 below, c leaves state 3 into column 4 above.
+  assert.ok(middle('a') < 0)
+  assert.ok(middle('b') > 44)
+  assert.ok(middle('c') < 0)
+  assert.equal(at.get('a')!.x + 13, at.get('s2')!.x + 22)
 })

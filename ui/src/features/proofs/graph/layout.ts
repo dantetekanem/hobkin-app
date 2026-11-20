@@ -53,8 +53,39 @@ export function layOut(boxes: readonly Box[], links: readonly Link[], spacing: S
   )
 }
 
-/** The gap under the graph before the row of actions that never fired. */
+/** Between two states of the path, where the action that leads from one to the next is named. */
+const PATH_GAP = 92
+/** How far a move the path did not take lands from it, above or below. */
+const SIDE_RISE = 92
+
+/**
+ * The counterexample as the design draws it: its states on one straight line, in order, and each other move from a
+ * state landing in the next column, above the line from one column and below it from the next, so they never meet.
+ */
+export function placePath(picture: Picture): Map<string, Point> {
+  const placed = new Map<string, Point>()
+  const steps = picture.nodes.filter((node) => node.look === 'step')
+  const size = steps[0]?.width ?? 44
+  const column = (index: number) => index * (size + PATH_GAP)
+  for (const node of steps) placed.set(node.id, { x: column(node.step ?? 0), y: 0 })
+  const byId = new Map(picture.nodes.map((node) => [node.id, node]))
+  const filled = new Map<number, number>()
+  for (const edge of picture.edges) {
+    const side = byId.get(edge.to)
+    if (edge.look !== 'side' || side?.look !== 'side' || placed.has(side.id)) continue
+    const at = (byId.get(edge.from)?.step ?? 0) + 1
+    const taken = filled.get(at) ?? 0
+    filled.set(at, taken + 1)
+    const above = taken % 2 === 0 ? at % 2 === 1 : at % 2 === 0
+    const middle = size / 2 + (above ? -1 : 1) * SIDE_RISE * (Math.floor(taken / 2) + 1)
+    placed.set(side.id, { x: column(at) + (size - side.width) / 2, y: middle - side.height / 2 })
+  }
+  return placed
+}
+
+/** The gap under the graph before the row of actions that never fired, and more when loops hang under its nodes. */
 const GHOST_GAP = 48
+const UNDER_LOOPS = 132
 
 /** A whole picture: the graph by dagre, and the actions that never fired in a row under it. */
 export function placePicture(picture: Picture, spacing: Spacing): Map<string, Point> {
@@ -68,9 +99,10 @@ export function placePicture(picture: Picture, spacing: Spacing): Map<string, Po
   const boxes = picture.nodes.filter((node) => placed.has(node.id))
   const left = boxes.length > 0 ? Math.min(...boxes.map((node) => placed.get(node.id)!.x)) : 0
   const bottom = boxes.length > 0 ? Math.max(...boxes.map((node) => placed.get(node.id)!.y + node.height)) : 0
+  const gap = picture.edges.some((edge) => edge.loop === 'below') ? UNDER_LOOPS : GHOST_GAP
   let x = left
   for (const ghost of ghosts) {
-    placed.set(ghost.id, { x, y: bottom + GHOST_GAP })
+    placed.set(ghost.id, { x, y: bottom + gap })
     x += ghost.width + 16
   }
   return placed

@@ -174,6 +174,8 @@ function storyOf(words: string | undefined, before: Before, vars: StateVars): st
 interface RuleReading {
   rule: ProofRule | undefined
   body: string
+  /** What the rule says in words: its definition's sentence, else the rule's own gloss. */
+  words: string | undefined
   /** The variables it requires, which are red where it breaks. */
   required: Set<string>
   /** The key the counterexample is about: the one its last move changed, when it changed one. */
@@ -194,6 +196,7 @@ function readRule(run: ProofRun, graph: StateGraph, names: ReadonlySet<string>):
   return {
     rule,
     body,
+    words: definition?.words ?? rule?.words,
     required: new Set(required.length > 0 ? required : all.length > 0 ? all : names),
     focus: culprits?.size === 1 ? [...culprits][0]! : null,
     culprits: culprits && culprits.size > 0 ? culprits : null,
@@ -219,13 +222,13 @@ function verdictOf(run: ProofRun, graph: StateGraph, reading: RuleReading, vars:
   }
   if (rule.kind === 'property') {
     return atBreak
-      ? { tone: 'bad', title: 'The property fails on this run', formula: reading.body || rule.name, words: rule.words ?? 'TLC found a run along which this does not hold.' }
+      ? { tone: 'bad', title: 'The property fails on this run', formula: reading.body || rule.name, words: reading.words ?? 'TLC found a run along which this does not hold.' }
       : { tone: 'plain', title: 'On the way', formula: reading.body || rule.name, words: 'A property is about the whole run, so it fails only at its end.' }
   }
   const formula = instantiate(reading.body || rule.name, reading.focus)
   if (atBreak) {
     const values = reading.body ? valued(requiredPart(formula), vars, names) : ''
-    return { tone: 'bad', title: 'This is where it breaks', formula: values ? `${formula}   is   ${values}   FALSE` : formula, words: rule.words ?? `${rule.name} does not hold in this state.` }
+    return { tone: 'bad', title: 'This is where it breaks', formula: values ? `${formula}   is   ${values}   FALSE` : formula, words: reading.words ?? `${rule.name} does not hold in this state.` }
   }
   if (step != null) return { tone: 'plain', title: 'Still true here', formula, words: 'It holds in this state. Step on to see what changes.' }
   return { tone: 'plain', title: 'Holds here', formula, words: 'TLC checked this state too, and the rule held.' }
