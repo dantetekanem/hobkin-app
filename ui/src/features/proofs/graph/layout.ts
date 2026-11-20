@@ -1,7 +1,8 @@
 /**
- * Where each node of a picture sits, laid out by dagre from left to right (_specs/050-tla-proofs uses the libraries the
- * review graph already does). A move goes left to right, so a run reads in the order it happened. Actions that never
- * fired join nothing, so they wait in a row under the graph. Pure, so the tests run it with Node alone.
+ * Where each node of a picture sits, laid out by dagre (_specs/050-tla-proofs uses the libraries the review graph
+ * already does). A move goes left to right, so a run reads in the order it happened; the machine by a variable reads
+ * top to bottom. Actions that never fired join nothing, so they wait in a row under the graph. Pure, so the tests run
+ * it with Node alone.
  */
 import dagre from '@dagrejs/dagre'
 import type { Picture } from './model.ts'
@@ -25,10 +26,12 @@ export interface Point {
 }
 
 export interface Spacing {
-  /** Between two nodes of a column. */
+  /** Between two nodes of a column (a row, top to bottom). */
   nodesep: number
-  /** Between columns, where the action names sit. */
+  /** Between columns (rows, top to bottom), where the action names sit. */
   ranksep: number
+  /** Left to right, or top to bottom for the machine by a variable, whose few groups fit a wide canvas better so. */
+  rankdir?: 'LR' | 'TB'
 }
 
 const DEFAULT: Spacing = { nodesep: 24, ranksep: 80 }
@@ -36,7 +39,7 @@ const DEFAULT: Spacing = { nodesep: 24, ranksep: 80 }
 /** Each box's top-left corner. */
 export function layOut(boxes: readonly Box[], links: readonly Link[], spacing: Spacing = DEFAULT): Map<string, Point> {
   const graph = new dagre.graphlib.Graph({ multigraph: true })
-  graph.setGraph({ rankdir: 'LR', nodesep: spacing.nodesep, ranksep: spacing.ranksep, marginx: 0, marginy: 0 })
+  graph.setGraph({ rankdir: spacing.rankdir ?? 'LR', nodesep: spacing.nodesep, ranksep: spacing.ranksep, marginx: 0, marginy: 0 })
   graph.setDefaultEdgeLabel(() => ({}))
   const known = new Set(boxes.map((box) => box.id))
   for (const box of boxes) graph.setNode(box.id, { width: box.width, height: box.height })
@@ -83,9 +86,8 @@ export function placePath(picture: Picture): Map<string, Point> {
   return placed
 }
 
-/** The gap under the graph before the row of actions that never fired, and more when loops hang under its nodes. */
+/** The gap under the graph before the row of actions that never fired. */
 const GHOST_GAP = 48
-const UNDER_LOOPS = 132
 
 /** A whole picture: the graph by dagre, and the actions that never fired in a row under it. */
 export function placePicture(picture: Picture, spacing: Spacing): Map<string, Point> {
@@ -99,10 +101,9 @@ export function placePicture(picture: Picture, spacing: Spacing): Map<string, Po
   const boxes = picture.nodes.filter((node) => placed.has(node.id))
   const left = boxes.length > 0 ? Math.min(...boxes.map((node) => placed.get(node.id)!.x)) : 0
   const bottom = boxes.length > 0 ? Math.max(...boxes.map((node) => placed.get(node.id)!.y + node.height)) : 0
-  const gap = picture.edges.some((edge) => edge.loop === 'below') ? UNDER_LOOPS : GHOST_GAP
   let x = left
   for (const ghost of ghosts) {
-    placed.set(ghost.id, { x, y: bottom + gap })
+    placed.set(ghost.id, { x, y: bottom + GHOST_GAP })
     x += ghost.width + 16
   }
   return placed

@@ -10,7 +10,7 @@
  * tests run it with Node alone; layout and drawing are elsewhere.
  */
 import type { ProofAction, ProofRun } from '#shared/protocol/proofs.ts'
-import { actionName, count, formatValue, lensValue, lensesOf, stateKey, type Lens, type StateVars } from './values.ts'
+import { actionName, changedKeys, count, formatValue, lensValue, lensesOf, stateKey, type Lens, type StateVars } from './values.ts'
 
 export interface GraphState {
   id: string
@@ -32,10 +32,17 @@ export interface StateGraph {
   path: string[]
   /** The move into each state of the path after the first, in the trace's own words: `Fix(i1)`. */
   pathMoves: Move[]
+  /**
+   * Each step of the path as the views name it: `Init`, then the move into it. TLC 1.7.4 names a move without its
+   * arguments, so a bare name gets the keys the move changed: `Fix · i1`.
+   */
+  stepWords: string[]
   /** The run broke, and the path's last state is where. */
   broken: boolean
   /** TLC dumped the graph. Without it, the graph is the counterexample alone. */
   dumped: boolean
+  /** Why there is no dump, in a sentence: hobkin's note, or a plain default. Null with a dump. */
+  why: string | null
   /** Distinct states in the whole model. */
   total: number
 }
@@ -69,8 +76,8 @@ export interface PictureEdge {
   look: EdgeLook
   labels: EdgeLabel[]
   breaks?: boolean
-  /** A move that keeps the grouped value draws as a loop on its node, above or below it. */
-  loop?: 'above' | 'below'
+  /** A move that keeps its state, or the grouped value, draws as a loop on its node. */
+  loop?: boolean
 }
 
 export interface Picture {
@@ -92,7 +99,16 @@ export const GROUPS = 40
 const unique = <Value>(values: Iterable<Value>) => [...new Set(values)]
 const push = <Key, Value>(map: Map<Key, Value[]>, key: Key, value: Value) => map.set(key, [...(map.get(key) ?? []), value])
 
-export function stateGraph(run: Pick<ProofRun, 'graph' | 'trace' | 'stats' | 'outcome'>): StateGraph {
+const NO_DUMP = "TLC did not dump this model's graph."
+
+/** A move's name with the keys it changed when TLC gave it no arguments, so `Fix` and `Fix` read apart. */
+function moveWords(action: string, before: StateVars, after: StateVars): string {
+  if (action.includes('(')) return action
+  const keys = [...changedKeys(before, after)]
+  return keys.length > 0 && keys.length <= 2 ? `${action} · ${keys.join(', ')}` : action
+}
+
+export function stateGraph(run: Pick<ProofRun, 'graph' | 'graphNote' | 'trace' | 'stats' | 'outcome'>): StateGraph {
   const nodes = new Map<string, GraphState>()
   const byKey = new Map<string, string>()
   const moves: Move[] = []
@@ -131,14 +147,17 @@ export function stateGraph(run: Pick<ProofRun, 'graph' | 'trace' | 'stats' | 'ou
     push(into, move.to, move)
   }
   const dumped = (run.graph?.nodes.length ?? 0) > 0
+  const note = run.graphNote?.trim()
   return {
     nodes,
     out,
     into,
     path,
     pathMoves,
+    stepWords: path.map((id, index) => (index === 0 ? 'Init' : moveWords(trace[index]!.action, nodes.get(path[index - 1]!)!.vars, nodes.get(id)!.vars))),
     broken: run.outcome === 'broken' && path.length > 0,
     dumped,
+    why: dumped ? null : note ? (/[.!?]$/.test(note) ? note : `${note}.`) : NO_DUMP,
     total: Math.max(nodes.size, run.graph?.total ?? run.stats.distinct),
   }
 }
@@ -177,7 +196,7 @@ function pathNodes(graph: StateGraph, size: number): PictureNode[] {
 function pathEdges(graph: StateGraph): PictureEdge[] {
   return graph.pathMoves.map((move, index) => {
     const breaks = graph.broken && index === graph.pathMoves.length - 1
-    return { id: `path:${index + 1}`, from: move.from, to: move.to, look: 'path', labels: [{ text: move.action, breaks }], breaks }
+    return { id: `path:${index + 1}`, from: move.from, to: move.to, look: 'path', labels: [{ text: graph.stepWords[index + 1]!, breaks }], breaks, ...(move.from === move.to ? { loop: true } : {}) }
   })
 }
 
@@ -200,9 +219,7 @@ export function pathPicture(graph: StateGraph, { sides = SIDES }: { sides?: numb
     }
   })
   const lead = graph.broken ? 'The shortest path to a broken state.' : 'The path TLC printed.'
-  const note = !graph.dumped
-    ? `${lead} TLC did not dump this model's graph, so its other moves are not shown.`
-    : `${lead} Faded: other moves from the same states.${capped ? ` At most ${sides} from each.` : ''}`
+  const note = graph.why ? `${lead} No other moves are shown: ${graph.why}` : `${lead} Faded: other moves from the same states.${capped ? ` At most ${sides} from each.` : ''}`
   return { nodes, edges, note }
 }
 
@@ -271,8 +288,8 @@ export function aroundPicture(graph: StateGraph, { radius = 2, cap = AROUND, mat
   if (match) {
     const found = matches.filter((id) => chosen.has(id)).length
     note = `Showing ${count(found)} of ${count(matches.length)} states where ${match.text}, with ${seeds.words}.`
-  } else if (!graph.dumped) {
-    note = `Showing ${count(shown.length)} of ${total} states: TLC did not dump this model's graph, so only the counterexample is here.`
+  } else if (graph.why) {
+    note = `Showing ${count(shown.length)} of ${total} states: the counterexample's only. ${graph.why}`
   } else {
     note = `Showing ${count(shown.length)} of ${total} states: those within ${radius} steps of ${seeds.words}.${shown.length < graph.total ? ' Search to find others.' : ''}`
   }
@@ -366,12 +383,7 @@ export function groupedPicture(graph: StateGraph, lens: Lens, actions: readonly 
   for (const [pair, { from, to, byAction }] of between) {
     const labels = [...byAction].map(labelOf)
     const breaks = labels.some((label) => label.breaks)
-    if (from !== to) {
-      edges.push({ id: pair, from, to, look: 'group', labels, breaks })
-      continue
-    }
-    edges.push({ id: `${pair}:above`, from, to, look: 'group', labels: labels.slice(0, 1), breaks: labels[0]!.breaks, loop: 'above' })
-    if (labels.length > 1) edges.push({ id: `${pair}:below`, from, to, look: 'group', labels: labels.slice(1), breaks: labels.slice(1).some((label) => label.breaks), loop: 'below' })
+    edges.push(from === to ? { id: `${pair}:loop`, from, to, look: 'group', labels, breaks, loop: true } : { id: pair, from, to, look: 'group', labels, breaks })
   }
 
   const silent = actions.filter((action) => action.count === 0)
@@ -382,7 +394,7 @@ export function groupedPicture(graph: StateGraph, lens: Lens, actions: readonly 
 
   const notes = [`Every state, grouped by ${lens.label}. This is the machine the code has without saying so.`]
   if (kept.size < groups.size) notes.push(`Showing the ${cap} biggest of ${count(groups.size)} values.`)
-  if (!graph.dumped) notes.push(`Only the counterexample's states: TLC did not dump this model's graph.`)
+  if (graph.why) notes.push(`Only the counterexample's states. ${graph.why}`)
   if (silent.length > 0) notes.push('Dashed: never fired, so nothing it guards was checked.')
   return { nodes, edges, note: notes.join(' ') }
 }

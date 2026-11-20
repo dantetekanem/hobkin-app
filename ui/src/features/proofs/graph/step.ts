@@ -8,7 +8,7 @@
  */
 import type { ProofRule, ProofRun } from '#shared/protocol/proofs.ts'
 import type { GraphState, Move, StateGraph } from './model.ts'
-import { actionName, formatValue, keysOf, lensValue, type StateVars } from './values.ts'
+import { actionName, changedKeys, formatValue, keysOf, lensValue, type StateVars } from './values.ts'
 
 export interface Cell {
   text: string
@@ -141,19 +141,6 @@ function readings(vars: StateVars, byKey = true): Map<string, string> {
   return read
 }
 
-/** The keys that changed from one state to the next, in any variable. */
-function changedKeys(before: StateVars, after: StateVars): Set<string> {
-  const keys = new Set<string>()
-  for (const { name, value } of after) {
-    const old = before.find((entry) => entry.name === name)?.value
-    for (const key of keysOf(value) ?? []) {
-      const [now, was] = [lensValue(after, { variable: name, key }), old ? lensValue(before, { variable: name, key }) : undefined]
-      if (!was || !now || formatValue(now) !== formatValue(was)) keys.add(key)
-    }
-  }
-  return keys
-}
-
 function storyOf(words: string | undefined, before: Before, vars: StateVars): string {
   const lead = before.fromStep != null ? `From state ${before.fromStep + 1}.` : ''
   if (!before.state) return [lead, words ?? 'Where every run starts.'].filter(Boolean).join(' ')
@@ -272,7 +259,7 @@ export function stateFacts(run: ProofRun, graph: StateGraph, picked: Picked): St
 
   return {
     title: step != null ? `State ${step + 1} of ${graph.path.length}` : state?.initial ? 'A starting state' : 'Another state',
-    action: before.action,
+    action: step != null ? (graph.stepWords[step] ?? before.action) : before.action,
     ...(code ? { code } : {}),
     story: storyOf(definition?.words, before, vars),
     columns: perKey ? keys : ['Value'],

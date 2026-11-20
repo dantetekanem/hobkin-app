@@ -125,6 +125,12 @@ export function traceOnlyRun(): ProofRun {
   return run
 }
 
+/** The run as TLC 1.7.4 writes it: actions without their arguments, and no dump, with hobkin's note saying why. */
+export function bareRun(): ProofRun {
+  const run = traceOnlyRun()
+  return { ...run, trace: run.trace!.map((state) => ({ ...state, action: state.action.replace(/\(.*\)$/, '') })), graphNote: 'TLC dumps a graph only up to 50,000 states.' }
+}
+
 /** A model that holds: a graph and no trace. */
 export function holdingRun(): ProofRun {
   const { trace: _trace, broken: _broken, traceLength: _length, ...run } = brokenRun()

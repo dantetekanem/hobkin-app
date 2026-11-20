@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { stateGraph } from '../src/features/proofs/graph/model.ts'
 import { stateFacts, stepWindow } from '../src/features/proofs/graph/step.ts'
-import { brokenRun, holdingRun, traceOnlyRun } from './proof-graph-fixture.ts'
+import { bareRun, brokenRun, holdingRun, traceOnlyRun } from './proof-graph-fixture.ts'
 
 const facts = (run = brokenRun(), id: string, step?: number) => stateFacts(run, stateGraph(run), { id, ...(step == null ? {} : { step }) })
 const row = (result: ReturnType<typeof facts>, name: string) => result.rows.find((entry) => entry.name === name)!
@@ -75,6 +75,15 @@ test('the trace alone is enough for the table and the verdict', () => {
   const result = stateFacts(run, graph, { id: graph.path[5]!, step: 5 })
   assert.equal(result.title, 'State 6 of 6')
   assert.equal(result.verdict.tone, 'bad')
+})
+
+test('a move TLC names without arguments still finds its words and code, and says which item it moved', () => {
+  const run = bareRun()
+  const graph = stateGraph(run)
+  const result = stateFacts(run, graph, { id: graph.path[4]!, step: 4 })
+  assert.equal(result.action, 'Fix · i1')
+  assert.equal(result.code, 'src/cli/work/runner.mjs:203')
+  assert.match(result.story, /^While a branch waits/)
 })
 
 test('the step bar shows six steps at most, and slides only when the current one would leave them', () => {

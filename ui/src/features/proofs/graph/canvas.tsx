@@ -16,19 +16,28 @@ export type NodeMarks = {
   match: boolean
 }
 
-type StateData = { node: PictureNode } & NodeMarks
-type MoveData = { edge: PictureEdge; dim: boolean }
+type StateData = { node: PictureNode; vertical: boolean } & NodeMarks
+type MoveData = { edge: PictureEdge; dim: boolean; vertical: boolean; width: number }
 type StateNode = Node<StateData, 'state'>
 type MoveEdge = Edge<MoveData, 'move'>
 
-/** Where moves attach, for a still render on the server: the middle of each side. In the window the handles say it. */
-const handlesOf = (node: PictureNode): NonNullable<Node['handles']> => [
-  { type: 'target', position: Position.Left, x: 0, y: node.height / 2 - 0.5, width: 1, height: 1 },
-  { type: 'source', position: Position.Right, x: node.width - 1, y: node.height / 2 - 0.5, width: 1, height: 1 },
-]
+/**
+ * Where moves attach, for a still render on the server: the middle of the left and right sides, or of the top and
+ * bottom when the graph reads top to bottom. In the window the handles say it.
+ */
+const handlesOf = (node: PictureNode, vertical: boolean): NonNullable<Node['handles']> =>
+  vertical
+    ? [
+        { type: 'target', position: Position.Top, x: node.width / 2 - 0.5, y: 0, width: 1, height: 1 },
+        { type: 'source', position: Position.Bottom, x: node.width / 2 - 0.5, y: node.height - 1, width: 1, height: 1 },
+      ]
+    : [
+        { type: 'target', position: Position.Left, x: 0, y: node.height / 2 - 0.5, width: 1, height: 1 },
+        { type: 'source', position: Position.Right, x: node.width - 1, y: node.height / 2 - 0.5, width: 1, height: 1 },
+      ]
 
 function StateNodeView({ data }: NodeProps<StateNode>) {
-  const { node, selected, dim, match } = data
+  const { node, selected, dim, match, vertical } = data
   return (
     <div
       className="pf-node"
@@ -40,7 +49,7 @@ function StateNodeView({ data }: NodeProps<StateNode>) {
       style={{ width: node.width, height: node.height }}
       title={node.aria}
     >
-      <Handle type="target" position={Position.Left} isConnectable={false} />
+      <Handle type="target" position={vertical ? Position.Top : Position.Left} isConnectable={false} />
       {node.look === 'group' ? (
         <>
           <span className="max-w-full truncate px-3 font-mono text-[13px] leading-4">{node.text}</span>
@@ -51,7 +60,7 @@ function StateNodeView({ data }: NodeProps<StateNode>) {
       ) : (
         <span className={node.width >= 40 ? 'text-[13px]' : 'text-[11px]'}>{node.text}</span>
       )}
-      <Handle type="source" position={Position.Right} isConnectable={false} />
+      <Handle type="source" position={vertical ? Position.Bottom : Position.Right} isConnectable={false} />
     </div>
   )
 }
@@ -88,23 +97,25 @@ const OVER_PATH = 36
 
 function MoveEdgeView({ sourceX, sourceY, targetX, targetY, data }: EdgeProps<MoveEdge>) {
   if (!data) return null
-  const { edge, dim } = data
+  const { edge, dim, vertical, width } = data
   const [source, target] = [
     { x: sourceX, y: sourceY },
     { x: targetX, y: targetY },
   ]
-  const curve = moveCurve(source, target, edge.loop)
+  const curve = moveCurve(source, target, { loop: Boolean(edge.loop), vertical, width })
   const middle = curve.at(0.5)
   const level = Math.abs(source.y - target.y) < 1
   let label: Point | null = middle
   if (edge.look === 'near' || edge.labels.length === 0) label = null
+  // Top to bottom, a loop is named to the right of where it turns.
+  else if (vertical && edge.loop) label = { x: middle.x + 10 + labelWidth(edge.labels) / 2, y: middle.y }
   else if (edge.look === 'path' && level && target.x > source.x) label = { x: middle.x, y: middle.y - OVER_PATH }
   // A move the path did not take is named beside where it lands, on the far side from the path, as the design has it.
   else if (edge.look === 'side' && !level) label = { x: target.x - 14, y: target.y + (target.y < source.y ? -24 : 24) }
   return (
     <g className="pf-wire" data-look={edge.look} data-breaks={edge.breaks || undefined} data-dim={dim || undefined}>
       <path className="pf-move" d={curve.d} />
-      {edge.look === 'group' ? <path className="pf-arrow" d={arrowAt(curve, target)} /> : null}
+      {edge.look === 'group' ? <path className="pf-arrow" d={arrowAt(curve, curve.at(1))} /> : null}
       {label ? <Labels labels={edge.labels} at={label} /> : null}
     </g>
   )
@@ -121,6 +132,8 @@ const LOOKS_UNDER: Record<PictureEdge['look'], number> = { near: 0, side: 1, gro
 export interface GraphCanvasProps {
   picture: Picture
   positions: ReadonlyMap<string, Point>
+  /** The picture reads top to bottom. */
+  vertical?: boolean
   marks: (node: PictureNode) => NodeMarks
   /** The node to keep in view as the user steps. */
   focus: string | null
@@ -133,7 +146,7 @@ export interface GraphCanvasProps {
  * The picture on a React Flow canvas: it pans by dragging and zooms by pinching, and the page keeps its own scroll.
  * States are picked with a click; the keyboard steps through the counterexample from the step bar.
  */
-export function GraphCanvas({ picture, positions, marks, focus, fit, still, onPick }: GraphCanvasProps) {
+export function GraphCanvas({ picture, positions, vertical = false, marks, focus, fit, still, onPick }: GraphCanvasProps) {
   const theme = useTheme()
   const nodes = useMemo<StateNode[]>(
     () =>
@@ -141,19 +154,20 @@ export function GraphCanvas({ picture, positions, marks, focus, fit, still, onPi
         id: node.id,
         type: 'state',
         position: positions.get(node.id) ?? { x: 0, y: 0 },
-        data: { node, ...marks(node) },
+        data: { node, vertical, ...marks(node) },
         width: node.width,
         height: node.height,
-        handles: handlesOf(node),
+        handles: handlesOf(node, vertical),
         draggable: false,
         selectable: false,
         connectable: false,
         focusable: false,
         ariaLabel: node.aria,
       })),
-    [picture, positions, marks],
+    [picture, positions, marks, vertical],
   )
   const dimmed = useMemo(() => new Set(nodes.filter((node) => node.data.dim).map((node) => node.id)), [nodes])
+  const widthOf = useMemo(() => new Map(picture.nodes.map((node) => [node.id, node.width])), [picture])
   const edges = useMemo<MoveEdge[]>(
     () =>
       [...picture.edges]
@@ -163,11 +177,11 @@ export function GraphCanvas({ picture, positions, marks, focus, fit, still, onPi
           type: 'move',
           source: edge.from,
           target: edge.to,
-          data: { edge, dim: dimmed.has(edge.from) && dimmed.has(edge.to) },
+          data: { edge, dim: dimmed.has(edge.from) && dimmed.has(edge.to), vertical, width: widthOf.get(edge.from) ?? 0 },
           selectable: false,
           focusable: false,
         })),
-    [picture, dimmed],
+    [picture, dimmed, vertical, widthOf],
   )
   const focusBox = useMemo(() => {
     const node = picture.nodes.find((entry) => entry.id === focus)

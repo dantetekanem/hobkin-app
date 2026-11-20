@@ -21,15 +21,22 @@ const VIEWS: readonly { value: View; label: string }[] = [
   { value: 'grouped', label: 'By a variable' },
 ]
 const AROUND: Spacing = { nodesep: 14, ranksep: 56 }
-/** Groups stand far enough apart for the longest action name between two of them, in 11px mono. */
+/**
+ * The machine by a variable, top to bottom: rows far enough apart for the most names stacked on one arrow, or on a loop
+ * beside a group (16px a line, centered on a 46px group), and groups side by side far enough apart for a loop and its
+ * names on a group's right, in 11px mono.
+ */
 const groupSpacing = (picture: Picture): Spacing => {
-  const longest = Math.max(0, ...picture.edges.filter((edge) => !edge.loop).flatMap((edge) => edge.labels.map((label) => label.text.length)))
-  return { nodesep: 104, ranksep: Math.min(280, Math.max(100, Math.ceil(longest * 6.6) + 32)) }
+  const loops = picture.edges.filter((edge) => edge.loop)
+  const stacked = Math.max(1, ...picture.edges.filter((edge) => !edge.loop).map((edge) => edge.labels.length))
+  const beside = Math.max(0, ...loops.map((edge) => edge.labels.length))
+  const widest = Math.max(0, ...loops.flatMap((edge) => edge.labels.map((label) => label.text.length)))
+  return { rankdir: 'TB', ranksep: Math.max(40 + stacked * 16, beside * 16 - 46 + 28), nodesep: Math.min(320, Math.ceil(widest * 6.6) + 100) }
 }
 const FIT: Record<View, FitViewOptions> = {
   path: { padding: 0.08, minZoom: 0.6, maxZoom: 1.15 },
   around: { padding: 0.08, minZoom: 0.2, maxZoom: 1.1 },
-  grouped: { padding: 0.06, minZoom: 0.35, maxZoom: 1.1 },
+  grouped: { padding: 0.08, minZoom: 0.35, maxZoom: 1.1 },
 }
 const EMPTY: Picture = { nodes: [], edges: [], note: '' }
 
@@ -58,8 +65,8 @@ function anchorStep(graph: StateGraph, picked: Picked): number {
  */
 export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((where: string) => void) | null }) {
   const still = useStill()
-  const { graph: dump, trace, outcome, stats, actions } = run
-  const graph = useMemo(() => stateGraph({ graph: dump, trace, outcome, stats }), [dump, trace, outcome, stats])
+  const { graph: dump, graphNote, trace, outcome, stats, actions } = run
+  const graph = useMemo(() => stateGraph({ graph: dump, graphNote, trace, outcome, stats }), [dump, graphNote, trace, outcome, stats])
   const hasPath = graph.path.length > 0
   const lenses = useMemo(() => {
     const first = graph.nodes.values().next().value
@@ -162,9 +169,19 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
               className="relative h-[420px] overflow-hidden rounded-2xl border border-border bg-[var(--pf-canvas)] outline-offset-2"
             >
               {picture.nodes.length > 0 ? (
-                <GraphCanvas key={`${view}:${lens?.label ?? ''}:${view === 'around' ? matchText : ''}`} picture={picture} positions={positions} marks={marks} focus={focus} fit={FIT[view]} still={still} onPick={pick} />
+                <GraphCanvas
+                  key={`${view}:${lens?.label ?? ''}:${view === 'around' ? matchText : ''}`}
+                  picture={picture}
+                  positions={positions}
+                  vertical={view === 'grouped'}
+                  marks={marks}
+                  focus={focus}
+                  fit={FIT[view]}
+                  still={still}
+                  onPick={pick}
+                />
               ) : (
-                <p className="grid h-full place-items-center px-8 text-center text-[13px] text-muted-foreground">{emptyWords(run)}</p>
+                <p className="grid h-full place-items-center px-8 text-center text-[13px] text-muted-foreground">{emptyWords(run, graph)}</p>
               )}
             </div>
             <div className="-mt-1 flex h-9 items-start gap-2.5">
@@ -207,9 +224,9 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
   )
 }
 
-function emptyWords(run: ProofRun): string {
+function emptyWords(run: ProofRun, graph: StateGraph): string {
   if (run.outcome === 'checking') return 'TLC dumps the state graph when the check ends.'
-  return 'No state graph to draw: TLC dumps one only for a model of at most 50,000 states, and this run has no counterexample.'
+  return `No state graph to draw, and no counterexample. ${graph.why ?? ''}`.trim()
 }
 
 /** The counterexample, step by step: six at most, with Previous and Next held still at the ends. */
@@ -237,7 +254,7 @@ function StepBar({ run, graph, step, onStep, onMove }: { run: ProofRun; graph: S
         {steps.map((index) => {
           const current = index === step
           const breaks = graph.broken && index === length - 1
-          const action = index === 0 ? 'Init' : (run.trace?.[index]?.action ?? graph.pathMoves[index - 1]!.action)
+          const action = graph.stepWords[index]!
           return (
             <li key={index} className="min-w-0">
               <button
@@ -255,7 +272,11 @@ function StepBar({ run, graph, step, onStep, onMove }: { run: ProofRun; graph: S
                   {breaks ? <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bad-fg" /> : null}
                   Step {index + 1}
                 </span>
-                <span className="w-full truncate font-mono text-[11px] leading-tight font-medium">{action}</span>
+                <span className="w-full truncate font-mono text-[11px] leading-tight font-medium">
+                  {/* A bare name and the item it moved, as `Fix · i1`, reads in the narrow slot as "Fix i1". */}
+                  {action.split(' · ')[0]}
+                  {action.includes(' · ') ? <span className="font-normal text-muted-foreground">{` ${action.split(' · ')[1]}`}</span> : null}
+                </span>
               </button>
             </li>
           )

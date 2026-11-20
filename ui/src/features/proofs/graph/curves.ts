@@ -1,7 +1,8 @@
 /**
- * The shape of a move on the state graph. It leaves its state on the right and arrives at the next on the left, as the
- * review graph's wires do; a move back to an earlier column dips under the states between, and a move that keeps the
- * grouped value loops over or under its own node. Pure.
+ * The shape of a move on the state graph. Left to right, it leaves its state on the right and arrives at the next on the
+ * left, as the review graph's wires do; a move back to an earlier column dips under the states between, and a move that
+ * keeps its state loops over it. Top to bottom, it leaves from the bottom and arrives at the top, a move back bulges to
+ * the right, and a move that keeps the grouped value loops out of the node's right side and back. Pure.
  */
 import type { Point } from './layout.ts'
 
@@ -28,11 +29,32 @@ function cubic(start: Point, one: Point, two: Point, end: Point): Curve {
 /** How far a loop rises over its node. */
 const LOOP = 62
 
-export function moveCurve(source: Point, target: Point, loop?: 'above' | 'below'): Curve {
+export interface Bend {
+  loop?: boolean
+  /** Top to bottom: the handles are at the bottom (source) and top (target). */
+  vertical?: boolean
+  /** The node's width, for a loop on its side. */
+  width?: number
+}
+
+function verticalCurve(source: Point, target: Point, { loop, width = 0 }: Bend): Curve {
   if (loop) {
-    const lift = loop === 'above' ? -LOOP * 1.3 : LOOP * 1.3
-    return cubic(source, { x: source.x + 40, y: source.y + lift }, { x: target.x - 40, y: target.y + lift }, target)
+    // The node's right edge, at its middle: the handles are the middles of its bottom and top.
+    const [right, middle] = [source.x + width / 2, (source.y + target.y) / 2]
+    return cubic({ x: right, y: middle - 9 }, { x: right + 58, y: middle - 44 }, { x: right + 58, y: middle + 44 }, { x: right + 1, y: middle + 9 })
   }
+  const run = target.y - source.y
+  if (run >= 0) {
+    const reach = Math.max(run * 0.5, 24)
+    return cubic(source, { x: source.x, y: source.y + reach }, { x: target.x, y: target.y - reach }, target)
+  }
+  const bulge = 70 + Math.min(120, -run * 0.12)
+  return cubic(source, { x: Math.max(source.x, target.x) + bulge, y: source.y + 60 }, { x: Math.max(source.x, target.x) + bulge, y: target.y - 60 }, target)
+}
+
+export function moveCurve(source: Point, target: Point, bend: Bend = {}): Curve {
+  if (bend.vertical) return verticalCurve(source, target, bend)
+  if (bend.loop) return cubic(source, { x: source.x + 40, y: source.y - LOOP * 1.3 }, { x: target.x - 40, y: target.y - LOOP * 1.3 }, target)
   const run = target.x - source.x
   if (run >= 0) {
     const reach = Math.max(run * 0.5, 24)

@@ -79,6 +79,19 @@ export function keysOf(value: TlaValue | undefined): string[] | null {
   return keyed(value) ? value.pairs.map((pair) => pair.key) : null
 }
 
+/** The keys that changed from one state to the next, in any variable that is a function or a record. */
+export function changedKeys(before: StateVars, after: StateVars): Set<string> {
+  const keys = new Set<string>()
+  for (const { name, value } of after) {
+    const old = before.find((entry) => entry.name === name)?.value
+    for (const key of keysOf(value) ?? []) {
+      const [now, was] = [lensValue(after, { variable: name, key }), old ? lensValue(before, { variable: name, key }) : undefined]
+      if (!was || !now || formatValue(now) !== formatValue(was)) keys.add(key)
+    }
+  }
+  return keys
+}
+
 /** `Fix(i1)` is the action `Fix`. */
 export const actionName = (action: string) => action.replace(/\(.*$/s, '').trim()
 

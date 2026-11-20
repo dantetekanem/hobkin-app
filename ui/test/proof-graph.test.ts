@@ -4,7 +4,7 @@ import { layOut, placePath } from '../src/features/proofs/graph/layout.ts'
 import { aroundPicture, defaultLens, groupedPicture, pathPicture, stateGraph } from '../src/features/proofs/graph/model.ts'
 import { findStates, parseQuery } from '../src/features/proofs/graph/search.ts'
 import { formatValue, lensesOf } from '../src/features/proofs/graph/values.ts'
-import { brokenRun, holdingRun, traceOnlyRun } from './proof-graph-fixture.ts'
+import { bareRun, brokenRun, holdingRun, traceOnlyRun } from './proof-graph-fixture.ts'
 
 const ids = (picture: { nodes: { id: string }[] }) => picture.nodes.map((node) => node.id)
 
@@ -100,7 +100,20 @@ test('a model without a counterexample is explored around where it starts', () =
 test('without a dump, around says only the counterexample is there', () => {
   const picture = aroundPicture(stateGraph(traceOnlyRun()))
   assert.equal(picture.nodes.length, 6)
-  assert.match(picture.note, /^Showing 6 of 4,906 states: TLC did not dump/)
+  assert.equal(picture.note, "Showing 6 of 4,906 states: the counterexample's only. TLC did not dump this model's graph.")
+})
+
+test('a move TLC names without its arguments is told with the item it changed, and the note says why there is no graph', () => {
+  const graph = stateGraph(bareRun())
+  assert.deepEqual(graph.stepWords, ['Init', 'Start · i1', 'Finish · i1', 'Review · i1', 'Fix · i1', 'YoloMerge · i1'])
+  assert.deepEqual(stateGraph(brokenRun()).stepWords.slice(1, 3), ['Start(i1)', 'Finish(i1)'])
+  const picture = pathPicture(graph)
+  assert.deepEqual(
+    picture.edges.map((edge) => edge.labels[0]!.text),
+    ['Start · i1', 'Finish · i1', 'Review · i1', 'Fix · i1', 'YoloMerge · i1'],
+  )
+  assert.equal(picture.note, 'The shortest path to a broken state. No other moves are shown: TLC dumps a graph only up to 50,000 states.')
+  assert.match(aroundPicture(graph).note, /the counterexample's only\. TLC dumps a graph only up to 50,000 states\.$/)
 })
 
 test('grouped by a variable, each value is one node and each action its count on the arrow', () => {
@@ -119,9 +132,8 @@ test('grouped by a variable, each value is one node and each action its count on
   assert.equal(arrows['"queued">"doing"'], 'Start · 2')
   assert.equal(arrows['"doing">"branch"'], 'Finish · 2')
   assert.equal(arrows['"branch">"merged"'], 'YoloMerge · 1 · breaks')
-  // Moves that keep the value loop on their node: the first action above, the rest below.
-  assert.equal(arrows['"branch">"branch":above'], 'Review · 1')
-  assert.equal(arrows['"branch">"branch":below'], 'Fix · 2 / Finish · 1')
+  // Moves that keep the value loop on their node, every action of them on the one loop.
+  assert.equal(arrows['"branch">"branch":loop'], 'Review · 1 / Fix · 2 / Finish · 1')
   const ghost = picture.nodes.find((node) => node.look === 'ghost')!
   assert.equal(ghost.text, 'Decline · never fired')
   assert.match(picture.note, /grouped by state\[i1\]/)
@@ -191,4 +203,18 @@ test('the counterexample lies on one straight line, and the moves it did not tak
   assert.ok(middle('b') > 44)
   assert.ok(middle('c') < 0)
   assert.equal(at.get('a')!.x + 13, at.get('s2')!.x + 22)
+})
+
+test('the machine by a variable can be laid out from top to bottom, each value below the one it came from', () => {
+  const boxes = ['queued', 'doing', 'branch'].map((id) => ({ id, width: 110, height: 46 }))
+  const at = layOut(
+    boxes,
+    [
+      { from: 'queued', to: 'doing' },
+      { from: 'doing', to: 'branch' },
+    ],
+    { nodesep: 160, ranksep: 64, rankdir: 'TB' },
+  )
+  assert.ok(at.get('queued')!.y + 46 < at.get('doing')!.y && at.get('doing')!.y + 46 < at.get('branch')!.y)
+  assert.equal(at.get('queued')!.x, at.get('branch')!.x)
 })
