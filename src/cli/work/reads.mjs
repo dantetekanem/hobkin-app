@@ -7,6 +7,7 @@ import { knownSoFar, launchSince, openLaunches } from './launches.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
 import { offerFor, trackRecords } from './patterns.mjs';
 import { canStart, itemGrade, planWork, rowWait, withPending } from './plan.mjs';
+import { changeModels } from './proofs.mjs';
 import {
   byPriority, byRank, chosenProjects, currentRequest, issueMode, itemStates, landing, nextLookAt, ownerView, prFile, priorityOf, readItems, readLaunches, readMode, readProjects, readTrust, runnableStates,
   tokenLabel,
@@ -260,6 +261,7 @@ function readyRow(root, project, item, items, openUnits = []) {
   const { id, title, branch = null, summary = null, left = null, proof = null, updatedAt = null, quality = null, notices = null, launch = null } = item;
   const unit = openUnits.find(({ branch: name }) => name === branch) ?? {};
   const { behind = null, conflict = null, size = null, safety = null, onlyDocs = false, landedOn = null, sha = null } = unit;
+  const models = changeModels(root, project.slug, unit);
   return {
     slug: project.slug,
     project: nameOf(project),
@@ -283,7 +285,9 @@ function readyRow(root, project, item, items, openUnits = []) {
     safety,
     quality: quality && { rating: quality.rating, reason: quality.reason, stale: quality.head !== unit.sha },
     // A review's scores belong to the commit it read, as its quality does.
-    review: item.review ? { ...scoresOf(item.review), stale: item.review.head !== unit.sha } : null,
+    review: item.review ? { ...scoresOf(item.review, models), stale: item.review.head !== unit.sha } : null,
+    // The TLA+ models covering it and what hobkin's own runs at its head say of each, when any covers it.
+    ...(models.length ? { models } : {}),
     notices,
     launch,
     onlyDocs,

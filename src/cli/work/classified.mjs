@@ -15,6 +15,8 @@ export const SMALL_KINDS = KINDS.slice(0, 5);
 const FLOORS = { safety: 8, visibility: 7, rollback: 7 };
 // A 4 or less means the review found that part missing or wrong.
 const LOWEST = 5;
+// A model hobkin checked broke at the change's head, so the proof it was given shows the change wrong.
+const BROKEN_MODEL_PROOF = 3;
 const COMMIT = /^[0-9a-f]{40}$/;
 const LONGEST_LINE = 400;
 
@@ -54,5 +56,26 @@ export const brokenFloors = scores => CRITERIA
   .map(criterion => ({ criterion, score: scores[criterion].score, needs: FLOORS[criterion] ?? LOWEST }))
   .filter(({ score, needs }) => score < needs);
 
-/** A kept review with what hobkin works out from it. */
-export const scoresOf = ({ kind, scores, head, missing = null }) => ({ kind, scores, rate: generalRate(scores), floors: brokenFloors(scores), missing, head });
+/**
+ * The scores with what hobkin's own model checks at the change's head say (`modelFacts` in `proofs.mjs`). Once any model ran there, the proof
+ * score's evidence is those runs and marked as hobkin's, and a model that broke there leaves it at 3 at most. A model nobody ran is no evidence.
+ */
+export function withModelChecks(scores, models = []) {
+  const ran = models.filter(({ run }) => run);
+  if (!ran.length) return scores;
+  const broken = ran.find(({ state }) => state === 'broken');
+  const { score } = scores.proof;
+  const proof = {
+    score: broken ? Math.min(score, BROKEN_MODEL_PROOF) : score,
+    evidence: ran.map(({ line }) => line).join('; ').slice(0, LONGEST_LINE),
+    by: 'hobkin',
+    run: (broken ?? ran[0]).run,
+  };
+  return { ...scores, proof };
+}
+
+/** A kept review with what hobkin works out from it, and from its own model checks at the change's head. */
+export function scoresOf({ kind, scores: reviewed, head, missing = null }, models = []) {
+  const scores = withModelChecks(reviewed, models);
+  return { kind, scores, rate: generalRate(scores), floors: brokenFloors(scores), missing, head };
+}

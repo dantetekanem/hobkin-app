@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import { atomicJson } from '../config.mjs';
 import { readReviewGrades, reviewsFolder } from './grades.mjs';
 import { areaOf, isTestPath } from './patterns.mjs';
+import { modelsAt } from './proofs.mjs';
 import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, isMerged, realPlace } from './tree.mjs';
 import { chosenProjects, fileItem, paths, readItems, readJson, runnableStates, updateItem } from './store.mjs';
 
@@ -247,6 +248,9 @@ export async function changeFacts(repo, base, name) {
 async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, finished, others, previous }) {
   const change = await changeOf(repo, base, name);
   const before = (previous.open ?? []).find(unit => unit.branch === name);
+  const touched = await pathsOf(repo, base, name);
+  // The TLA+ models at its head that cover what it touches, whose runs at that head speak for it (`proofs.mjs`).
+  const models = await modelsAt(repo, sha, touched.paths);
   return {
     kind: 'branch',
     branch: name,
@@ -254,7 +258,8 @@ async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, 
     title: await gitOrNothing(repo, 'log', '-1', '--format=%s', name),
     openedAt: new Date(at).toISOString(),
     size: await sizeOfRange(repo, base, name),
-    ...await pathsOf(repo, base, name),
+    ...touched,
+    ...(models.length ? { models } : {}),
     behind: await commitsBehind(repo, tip, name),
     // Not knowing is an answer, so nothing here can cost a project its survey.
     conflict: await conflictsWith(repo, tip, name).catch(() => null),

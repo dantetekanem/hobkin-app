@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -10,7 +11,7 @@ import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
-import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
+import { branched, commit, git, repository, writeJson } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 const HEAD = 'a'.repeat(40);
@@ -78,6 +79,26 @@ test('the general rate is the average cut to one decimal, and a floor holds a ch
   assert.deepEqual(dangerous.floors, [{ criterion: 'safety', score: 5, needs: 8 }]);
 });
 
+test('a model hobkin checked at the change\'s head writes the proof score\'s evidence, and one that broke caps it at 3', () => {
+  const holds = { spec: 'specs/tla/WorkItem.tla', state: 'holds', run: 'held', line: 'TLC: 4 of 4 hold in 48,211 states · at 3f1a9c2' };
+  const broken = { spec: 'specs/tla/ReviewQueue.tla', state: 'broken', run: 'broke', line: 'TLC: MergedAtReviewedHead breaks in 5 steps · at 3f1a9c2' };
+
+  const held = scoresOf(review({}, { proof: 9 }), [holds]);
+  assert.deepEqual(held.scores.proof, { score: 9, evidence: holds.line, by: 'hobkin', run: 'held' }, 'the review\'s score stands, on hobkin\'s own evidence');
+  assert.deepEqual([held.rate, held.floors], [9, []]);
+  assert.equal(held.scores.safety.evidence, 'What the review saw of safety.', 'only the proof score is hobkin\'s');
+
+  const broke = scoresOf(review({}, { proof: 9 }), [holds, broken]);
+  assert.deepEqual(broke.scores.proof, { score: 3, evidence: `${holds.line}; ${broken.line}`, by: 'hobkin', run: 'broke' });
+  assert.deepEqual([broke.rate, broke.floors], [7.8, [{ criterion: 'proof', score: 3, needs: 5 }]]);
+  assert.equal(scoresOf(review({}, { proof: 2 }), [broken]).scores.proof.score, 2, 'a cap never raises a score');
+
+  // A model nobody has run at this commit yet is no evidence either way, so the review's own line stands.
+  const unchecked = scoresOf(review(), [{ spec: 'specs/tla/WorkItem.tla', state: 'unchecked' }]);
+  assert.deepEqual(unchecked.scores, scored());
+  assert.deepEqual(scoresOf(review()).scores, scored());
+});
+
 test('only the item\'s review run records scores', async t => {
   const h = workspace(t);
   const { id, head } = finished(h, 'Fix login');
@@ -114,4 +135,28 @@ test('a finished row carries its scores and says when they are for an older comm
   await surveyUnmerged(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
 
   assert.equal(readyItems(h.root)[0].review.stale, true);
+});
+
+test('a finished row\'s proof score is hobkin\'s own once a model covering its files ran at its head', async t => {
+  const h = workspace(t);
+  const spec = '---- MODULE WorkItem ----\n\\* models: app.txt\n====\n';
+  mkdirSync(join(h.checkout, 'specs', 'tla'), { recursive: true });
+  commit(h.checkout, 'specs/tla/WorkItem.tla', spec);
+  const branch = 'hobkin/fix-merge';
+  branched(h.checkout, branch, 'app.txt', 'two\n');
+  const head = git(h.checkout, 'rev-parse', branch);
+  const { id } = fileItem(h.root, 'api', { key: 'Fix merge', kind: 'fix', title: 'Fix merge', brief: 'Evidence and first change.' }, NOW);
+  updateItem(h.root, 'api', id, { state: 'branch', branch, proof: 'The spec passes.', reviewAsked: true }, NOW);
+  // The review says TLC held, and only hobkin's own run can say that.
+  await record(h, { id, state: 'branch', review: review({ head }, { proof: 10 }) });
+  writeJson(join(h.root, 'proofs', 'broke', 'result.json'), {
+    id: 'broke', project: 'api', item: id, spec: 'specs/tla/WorkItem.tla', head, specSha256: createHash('sha256').update(spec).digest('hex'),
+    outcome: 'broken', broken: 'MergedAtReviewedHead', traceLength: 5, stats: { generated: 9, distinct: 7, queue: 0, depth: 5 }, actions: [{ name: 'Merge', count: 2 }],
+  });
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
+
+  const [row] = readyItems(h.root);
+  assert.deepEqual(row.review.scores.proof, { score: 3, evidence: `TLC: MergedAtReviewedHead breaks in 5 steps · at ${head.slice(0, 7)}`, by: 'hobkin', run: 'broke' });
+  assert.deepEqual(row.review.floors, [{ criterion: 'proof', score: 3, needs: 5 }]);
+  assert.equal(itemOf(h, id).review.scores.proof.score, 10, 'what the review sent is kept as it was');
 });
