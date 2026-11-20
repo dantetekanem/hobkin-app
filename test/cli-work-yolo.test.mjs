@@ -430,7 +430,7 @@ function withSpec(h, slug = 'api') {
 
 /** A run as `hobkin proof check` leaves it, which only that process writes. */
 const writeRun = (h, id, change) => writeJson(join(h.root, 'proofs', id, 'result.json'), {
-  id, project: 'api', spec: SPEC, specSha256: specHash, outcome: 'holds', finished: new Date(NOW).toISOString(),
+  id, project: 'api', spec: SPEC, specHash: specHash, outcome: 'holds', finished: new Date(NOW).toISOString(),
   stats: { generated: 40, distinct: 12, queue: 0, depth: 4 }, rules: [{ name: 'MergedAtReviewedHead', kind: 'invariant', status: 'holds' }], actions: [{ name: 'Merge', count: 3 }],
   ...change,
 });

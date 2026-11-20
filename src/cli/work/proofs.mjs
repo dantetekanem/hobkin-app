@@ -13,7 +13,7 @@ import { gitOrNothing } from './tree.mjs';
 
 const SPECS_FOLDER = 'specs/tla';
 // The spec's sha256 as the check read it, so a run of an edit nobody committed counts for no commit.
-const SPEC_HASH = 'specSha256';
+const SPEC_HASH = 'specHash';
 const SHORT_SHA = 7;
 const LONGEST_LINE = 400;
 

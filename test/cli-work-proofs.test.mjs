@@ -66,7 +66,7 @@ function writeRun(h, change) {
   const run = {
     project: 'api',
     spec: SPEC,
-    specSha256: sha256(specText()),
+    specHash: sha256(specText()),
     tool: 'TLC 1.7.4',
     workers: 4,
     started: new Date(NOW - 120000).toISOString(),
@@ -116,7 +116,7 @@ test('a run covers a change whose files its spec models, and counts only when it
 
   // A run of another commit, or of a spec that is not the one at the change's head, is not evidence for it.
   writeRun(h, { id: 'older-head', head: 'b'.repeat(40) });
-  writeRun(h, { id: 'edited-spec', head: modeled.head, specSha256: sha256('an edit never committed') });
+  writeRun(h, { id: 'edited-spec', head: modeled.head, specHash: sha256('an edit never committed') });
   writeRun(h, { id: 'other-project', head: modeled.head, project: 'web' });
   assert.equal(rowOf(h, modeled).models[0].state, 'unchecked');
 
@@ -222,7 +222,7 @@ test('hobkin checks each model on the default branch itself once a week, and one
   assert.equal(calls.length, 2, 'a spec tried this week is not tried again');
 
   writeRun(h, { id: 'item-held', head: tip, finished: new Date(NOW).toISOString() });
-  writeRun(h, { id: 'queue-broke', head: tip, spec: QUEUE, specSha256: sha256(specText('queue.txt', 'ReviewQueue')), finished: new Date(NOW).toISOString(), ...broke });
+  writeRun(h, { id: 'queue-broke', head: tip, spec: QUEUE, specHash: sha256(specText('queue.txt', 'ReviewQueue')), finished: new Date(NOW).toISOString(), ...broke });
   const [project] = workStatus(h.root).projects;
   assert.deepEqual(project.models.map(({ spec, state, run, why }) => [spec, state, run, why]), [
     [QUEUE, 'broken', 'queue-broke', 'MergedAtReviewedHead'],
