@@ -95,3 +95,14 @@ test('the step bar shows six steps at most, and slides only when the current one
   assert.deepEqual(stepWindow(20, 16, 14), { from: 14, to: 20 })
   assert.deepEqual(stepWindow(20, 13, 14), { from: 13, to: 19 })
 })
+
+test('a variable named only inside a string of the rule is not one the rule requires', () => {
+  const run = brokenRun()
+  const rule = run.definitions.find((definition) => definition.name === 'MergedAtReviewedHead')!
+  rule.lines = ['MergedAtReviewedHead ≜', '  ∀ i ∈ Items : state[i] = "merged" ⇒ reviewed[i] = head[i] ∧ "rate" # "none"']
+
+  const result = stateFacts(run, stateGraph(run), { id: 's6', step: 5 })
+
+  assert.equal(row(result, 'rate').cells[0]!.breaks, false)
+  assert.equal(row(result, 'head').cells[0]!.breaks, true)
+})

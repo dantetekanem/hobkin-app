@@ -89,29 +89,36 @@ function arrowAt(curve: Curve, tip: Point): string {
   const [back, side] = [8, 4.5]
   const [cos, sin] = [Math.cos(curve.heading), Math.sin(curve.heading)]
   const base = { x: tip.x - back * cos, y: tip.y - back * sin }
-  return `M${tip.x} ${tip.y}L${base.x - side * sin} ${base.y + side * cos}L${base.x + side * sin} ${base.y - side * cos}Z`
+  const left = { x: base.x - side * sin, y: base.y + side * cos }
+  const right = { x: base.x + side * sin, y: base.y - side * cos }
+  return `M${tip.x} ${tip.y}L${left.x} ${left.y}L${right.x} ${right.y}Z`
 }
 
 /** The path's labels sit over its states, clear of them: a path state is 44 high. */
 const OVER_PATH = 36
 
+/** Where a move's names sit, or null when it is drawn unnamed. */
+function labelPlace(edge: PictureEdge, curve: Curve, source: Point, target: Point, vertical: boolean): Point | null {
+  if (edge.look === 'near' || edge.labels.length === 0) return null
+  const middle = curve.at(0.5)
+  const level = Math.abs(source.y - target.y) < 1
+
+  // Top to bottom, a loop is named to the right of where it turns.
+  if (vertical && edge.loop) return { x: middle.x + 10 + labelWidth(edge.labels) / 2, y: middle.y }
+  if (edge.look === 'path' && level && target.x > source.x) return { x: middle.x, y: middle.y - OVER_PATH }
+  // A move the path did not take is named beside where it lands, on the far side from the path, as the design has it.
+  if (edge.look === 'side' && !level) return { x: target.x - 14, y: target.y + (target.y < source.y ? -24 : 24) }
+  return middle
+}
+
 function MoveEdgeView({ sourceX, sourceY, targetX, targetY, data }: EdgeProps<MoveEdge>) {
   if (!data) return null
   const { edge, dim, vertical, width } = data
-  const [source, target] = [
-    { x: sourceX, y: sourceY },
-    { x: targetX, y: targetY },
-  ]
+  const source = { x: sourceX, y: sourceY }
+  const target = { x: targetX, y: targetY }
   const curve = moveCurve(source, target, { loop: Boolean(edge.loop), vertical, width })
-  const middle = curve.at(0.5)
-  const level = Math.abs(source.y - target.y) < 1
-  let label: Point | null = middle
-  if (edge.look === 'near' || edge.labels.length === 0) label = null
-  // Top to bottom, a loop is named to the right of where it turns.
-  else if (vertical && edge.loop) label = { x: middle.x + 10 + labelWidth(edge.labels) / 2, y: middle.y }
-  else if (edge.look === 'path' && level && target.x > source.x) label = { x: middle.x, y: middle.y - OVER_PATH }
-  // A move the path did not take is named beside where it lands, on the far side from the path, as the design has it.
-  else if (edge.look === 'side' && !level) label = { x: target.x - 14, y: target.y + (target.y < source.y ? -24 : 24) }
+  const label = labelPlace(edge, curve, source, target, vertical)
+
   return (
     <g className="pf-wire" data-look={edge.look} data-breaks={edge.breaks || undefined} data-dim={dim || undefined}>
       <path className="pf-move" d={curve.d} />

@@ -31,7 +31,11 @@ const groupSpacing = (picture: Picture): Spacing => {
   const stacked = Math.max(1, ...picture.edges.filter((edge) => !edge.loop).map((edge) => edge.labels.length))
   const beside = Math.max(0, ...loops.map((edge) => edge.labels.length))
   const widest = Math.max(0, ...loops.flatMap((edge) => edge.labels.map((label) => label.text.length)))
-  return { rankdir: 'TB', ranksep: Math.max(40 + stacked * 16, beside * 16 - 46 + 28), nodesep: Math.min(320, Math.ceil(widest * 6.6) + 100) }
+  return {
+    rankdir: 'TB',
+    ranksep: Math.max(40 + stacked * 16, beside * 16 - 46 + 28),
+    nodesep: Math.min(320, Math.ceil(widest * 6.6) + 100),
+  }
 }
 const FIT: Record<View, FitViewOptions> = {
   path: { padding: 0.08, minZoom: 0.6, maxZoom: 1.15 },
@@ -47,13 +51,32 @@ function firstPick(graph: StateGraph): Picked | null {
   return start ? { id: start.id } : null
 }
 
-/** The step of the counterexample a state is at, or leaves from, for stepping on from a state off it. */
-function anchorStep(graph: StateGraph, picked: Picked): number {
+/** The view shown: the one the user chose, else the counterexample when there is one, else the machine by a variable. */
+function viewOf(chosen: View | null, hasPath: boolean): View {
+  if (chosen === 'path' && !hasPath) return 'grouped'
+  if (chosen) return chosen
+  return hasPath ? 'path' : 'grouped'
+}
+
+/** The picked state's step on the counterexample, or null off it. */
+function stepOf(graph: StateGraph, picked: Picked | null): number | null {
+  if (!picked || graph.path.length === 0) return null
   if (picked.step != null) return picked.step
   const on = graph.path.indexOf(picked.id)
-  if (on >= 0) return on
+  return on >= 0 ? on : null
+}
+
+/** The step of the counterexample a state off it leaves from, for stepping on from there. */
+function anchorStep(graph: StateGraph, picked: Picked): number {
   const from = (graph.into.get(picked.id) ?? []).map((move) => graph.path.indexOf(move.from)).filter((at) => at >= 0)
   return from.length > 0 ? Math.min(...from) : 0
+}
+
+/** The node to keep in view: the picked state, or the group that holds it. */
+function focusOf(picture: Picture, picked: Picked | null, view: View): string | null {
+  if (!picked) return null
+  if (view !== 'grouped') return picked.id
+  return picture.nodes.find((node) => node.look === 'group' && node.states.includes(picked.id))?.id ?? null
 }
 
 /**
@@ -74,7 +97,7 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
   }, [graph])
 
   const [chosenView, setChosenView] = useState<View | null>(null)
-  const view: View = chosenView === 'path' && !hasPath ? 'grouped' : (chosenView ?? (hasPath ? 'path' : 'grouped'))
+  const view = viewOf(chosenView, hasPath)
   const [lensLabel, setLensLabel] = useState<string | null>(null)
   const lens = useMemo(() => lenses.find((entry) => entry.label === lensLabel) ?? defaultLens(graph), [lenses, lensLabel, graph])
   const [chosen, setChosen] = useState<Picked | null>(null)
@@ -103,25 +126,31 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
     },
     [picked, found],
   )
-  const focus = picked ? (view === 'grouped' ? (picture.nodes.find((node) => node.look === 'group' && node.states.includes(picked.id))?.id ?? null) : picked.id) : null
+  const focus = focusOf(picture, picked, view)
+  const step = stepOf(graph, picked)
 
+  const pickStep = (index: number) => setChosen({ id: graph.path[index]!, step: index })
   const pick = (node: PictureNode) => {
     if (node.look === 'ghost') return
-    if (node.look !== 'group') return setChosen(node.step != null ? { id: node.id, step: node.step } : { id: node.id })
+    if (node.look !== 'group') {
+      setChosen(node.step != null ? { id: node.id, step: node.step } : { id: node.id })
+      return
+    }
+    // A group already holding the picked state keeps it; another picks its first step, or its first state.
     if (picked && node.states.includes(picked.id)) return
-    setChosen(node.step != null ? { id: graph.path[node.step]!, step: node.step } : { id: node.states[0]! })
+    if (node.step != null) pickStep(node.step)
+    else setChosen({ id: node.states[0]! })
   }
-  const last = graph.path.length - 1
-  const step = picked && hasPath ? (picked.step ?? (graph.path.indexOf(picked.id) >= 0 ? graph.path.indexOf(picked.id) : null)) : null
   const go = (delta: number) => {
     if (!hasPath || !picked) return
     // From a state off the path, Next goes on from the step it left, and Previous back to that step.
-    const anchor = anchorStep(graph, picked)
-    const next = Math.max(0, Math.min(last, step != null ? step + delta : delta > 0 ? anchor + 1 : anchor))
-    setChosen({ id: graph.path[next]!, step: next })
+    let next: number
+    if (step != null) next = step + delta
+    else next = delta > 0 ? anchorStep(graph, picked) + 1 : anchorStep(graph, picked)
+    pickStep(Math.max(0, Math.min(graph.path.length - 1, next)))
   }
 
-  const area = useRef<HTMLDivElement | null>(null)
+  const canvas = useRef<HTMLDivElement | null>(null)
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || !hasPath) return
     const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0
@@ -132,8 +161,13 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
   }
 
   const facts = picked ? stateFacts(run, graph, picked) : null
-  const example = lens && picked ? `${lens.label} = ${formatValue(lensValue(graph.nodes.get(picked.id)!.vars, lens) ?? { kind: 'raw', text: '…' })}` : 'variable = value'
-  const note = parsed && !parsed.ok ? parsed.reason : found?.size === 0 ? `No state has ${matchText}.` : picture.note
+  // The search's example is the lens at the picked state: what the user would type to find states like it.
+  const pickedValue = lens && picked ? lensValue(graph.nodes.get(picked.id)!.vars, lens) : undefined
+  const example = lens && pickedValue ? `${lens.label} = ${formatValue(pickedValue)}` : 'variable = value'
+  const problem = parsed && !parsed.ok ? parsed.reason : null
+  let note = picture.note
+  if (problem) note = problem
+  else if (found?.size === 0) note = `No state has ${matchText}.`
   const options = hasPath ? VIEWS : VIEWS.filter((option) => option.value !== 'path')
 
   return (
@@ -142,30 +176,17 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
         <section aria-label="State graph" className="flex min-w-0 flex-col gap-3.5 rounded-[20px] border border-border bg-surface px-[18px] pt-4 pb-[18px]">
           <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2.5">
             <Segmented label="What the graph shows" name="proof-graph-view" value={view} options={options} onChoose={setChosenView} />
-            <label className="flex h-9 min-w-[220px] flex-[1_1_220px] items-center gap-2 rounded-xl border border-border bg-background px-3 focus-within:border-border-strong">
-              <Search aria-hidden className="size-[15px] shrink-0 text-muted-foreground" />
-              <span className="sr-only">Find states where</span>
-              <input
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={example}
-                spellCheck={false}
-                autoComplete="off"
-                disabled={graph.nodes.size === 0}
-                className="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground/70"
-              />
-              <span className="w-[80px] shrink-0 truncate text-right text-[12px] text-muted-foreground tabular-nums">
-                {found ? (found.size === 0 ? 'No state' : `${count(found.size)} ${found.size === 1 ? 'state' : 'states'}`) : ''}
-              </span>
-            </label>
+            <SearchField query={query} onQuery={setQuery} example={example} found={found?.size ?? null} disabled={graph.nodes.size === 0} />
           </div>
 
-          <div ref={area} onKeyDown={onKeyDown} className="flex flex-col gap-3.5">
+          <div onKeyDown={onKeyDown} className="flex flex-col gap-3.5">
             <div
+              ref={canvas}
               tabIndex={0}
               role="group"
               aria-label={hasPath ? 'State graph. Left and Right step through the counterexample.' : 'State graph'}
-              onPointerDown={() => area.current?.querySelector<HTMLElement>('[role="group"]')?.focus({ preventScroll: true })}
+              // A click on the canvas gives it the keys; React Flow's own pointer handling would not.
+              onPointerDown={() => canvas.current?.focus({ preventScroll: true })}
               className="relative h-[420px] overflow-hidden rounded-2xl border border-border bg-[var(--pf-canvas)] outline-offset-2"
             >
               {picture.nodes.length > 0 ? (
@@ -201,11 +222,11 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
                   </select>
                 </label>
               ) : null}
-              <p role={parsed && !parsed.ok ? 'status' : undefined} title={note} className={cn('line-clamp-2 min-w-0 text-[11.5px] leading-[18px]', parsed && !parsed.ok ? 'text-warn-fg' : 'text-muted-foreground')}>
+              <p role={problem ? 'status' : undefined} title={note} className={cn('line-clamp-2 min-w-0 text-[11.5px] leading-[18px]', problem ? 'text-warn-fg' : 'text-muted-foreground')}>
                 {note}
               </p>
             </div>
-            <StepBar run={run} graph={graph} step={step} onStep={(next) => setChosen({ id: graph.path[next]!, step: next })} onMove={go} />
+            <StepBar run={run} graph={graph} step={step} onStep={pickStep} onMove={go} />
           </div>
         </section>
 
@@ -224,18 +245,61 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
   )
 }
 
+interface SearchFieldProps {
+  query: string
+  onQuery: (query: string) => void
+  /** What the empty field suggests: the variable at the picked state. */
+  example: string
+  /** How many states the query found, or null before a query reads. */
+  found: number | null
+  disabled: boolean
+}
+
+/** `variable = value`, with how many states it finds held at the field's end. */
+function SearchField({ query, onQuery, example, found, disabled }: SearchFieldProps) {
+  let counted = ''
+  if (found === 0) counted = 'No state'
+  else if (found != null) counted = `${count(found)} ${found === 1 ? 'state' : 'states'}`
+
+  return (
+    <label className="flex h-9 min-w-[220px] flex-[1_1_220px] items-center gap-2 rounded-xl border border-border bg-background px-3 focus-within:border-border-strong">
+      <Search aria-hidden className="size-[15px] shrink-0 text-muted-foreground" />
+      <span className="sr-only">Find states where</span>
+      <input
+        value={query}
+        onChange={(event) => onQuery(event.target.value)}
+        placeholder={example}
+        spellCheck={false}
+        autoComplete="off"
+        disabled={disabled}
+        className="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-foreground outline-none placeholder:text-muted-foreground/70"
+      />
+      <span className="w-[80px] shrink-0 truncate text-right text-[12px] text-muted-foreground tabular-nums">{counted}</span>
+    </label>
+  )
+}
+
 function emptyWords(run: ProofRun, graph: StateGraph): string {
   if (run.outcome === 'checking') return 'TLC dumps the state graph when the check ends.'
   return `No state graph to draw, and no counterexample. ${graph.why ?? ''}`.trim()
 }
 
+interface StepBarProps {
+  run: ProofRun
+  graph: StateGraph
+  step: number | null
+  onStep: (step: number) => void
+  onMove: (delta: number) => void
+}
+
 /** The counterexample, step by step: six at most, with Previous and Next held still at the ends. */
-function StepBar({ run, graph, step, onStep, onMove }: { run: ProofRun; graph: StateGraph; step: number | null; onStep: (step: number) => void; onMove: (delta: number) => void }) {
+function StepBar({ run, graph, step, onStep, onMove }: StepBarProps) {
   const length = graph.path.length
   const [from, setFrom] = useState(0)
   const shown = stepWindow(length, step ?? 0, from)
   // The window is remembered between renders, so walking back inside it leaves it where it is.
   if (length > 0 && shown.from !== from) setFrom(shown.from)
+
   if (length === 0) {
     return (
       <p className="flex h-11 items-center text-[13px] text-muted-foreground">
@@ -243,6 +307,7 @@ function StepBar({ run, graph, step, onStep, onMove }: { run: ProofRun; graph: S
       </p>
     )
   }
+
   const steps = Array.from({ length: shown.to - shown.from }, (_, index) => shown.from + index)
   const arrow = 'grid size-11 shrink-0 place-items-center rounded-xl border border-border text-foreground transition-colors hover:bg-tone-2 disabled:opacity-40 disabled:hover:bg-transparent'
   return (
@@ -251,41 +316,52 @@ function StepBar({ run, graph, step, onStep, onMove }: { run: ProofRun; graph: S
         <ChevronLeft aria-hidden className="size-4" />
       </button>
       <ol aria-label="The counterexample, step by step" className="grid min-w-0 flex-1 gap-1.5" style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(0, 1fr))` }}>
-        {steps.map((index) => {
-          const current = index === step
-          const breaks = graph.broken && index === length - 1
-          const action = graph.stepWords[index]!
-          return (
-            <li key={index} className="min-w-0">
-              <button
-                type="button"
-                aria-current={current ? 'step' : undefined}
-                aria-label={`Step ${index + 1}, ${action}${breaks ? ', where it breaks' : ''}`}
-                onClick={() => onStep(index)}
-                title={action}
-                className={cn(
-                  'flex h-11 w-full flex-col items-start justify-center gap-px rounded-xl border px-1.5 text-left transition-colors',
-                  current ? (breaks ? 'border-bad-fg bg-bad/15' : 'border-primary bg-primary/25') : 'border-border hover:bg-tone-2',
-                )}
-              >
-                <span className={cn('flex w-full items-center gap-1 truncate text-[10.5px] leading-tight tabular-nums', breaks ? 'text-bad-fg' : 'text-muted-foreground')}>
-                  {breaks ? <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bad-fg" /> : null}
-                  Step {index + 1}
-                </span>
-                <span className="w-full truncate font-mono text-[11px] leading-tight font-medium">
-                  {/* A bare name and the item it moved, as `Fix · i1`, reads in the narrow slot as "Fix i1". */}
-                  {action.split(' · ')[0]}
-                  {action.includes(' · ') ? <span className="font-normal text-muted-foreground">{` ${action.split(' · ')[1]}`}</span> : null}
-                </span>
-              </button>
-            </li>
-          )
-        })}
+        {steps.map((index) => (
+          <li key={index} className="min-w-0">
+            <StepSlot index={index} action={graph.stepWords[index]!} current={index === step} breaks={graph.broken && index === length - 1} onStep={onStep} />
+          </li>
+        ))}
       </ol>
       <button type="button" aria-label="Next step" className={arrow} disabled={step === length - 1} onClick={() => onMove(1)}>
         <ChevronRight aria-hidden className="size-4" />
       </button>
     </div>
+  )
+}
+
+interface StepSlotProps {
+  index: number
+  /** The step's words: `Fix(i1)`, or a bare name and the item it moved, `Fix · i1`. */
+  action: string
+  current: boolean
+  breaks: boolean
+  onStep: (step: number) => void
+}
+
+function StepSlot({ index, action, current, breaks, onStep }: StepSlotProps) {
+  // The slot is narrow, so `Fix · i1` reads as "Fix i1", the item quieter.
+  const [name, item] = action.split(' · ')
+  let tone = 'border-border hover:bg-tone-2'
+  if (current) tone = breaks ? 'border-bad-fg bg-bad/15' : 'border-primary bg-primary/25'
+
+  return (
+    <button
+      type="button"
+      aria-current={current ? 'step' : undefined}
+      aria-label={`Step ${index + 1}, ${action}${breaks ? ', where it breaks' : ''}`}
+      onClick={() => onStep(index)}
+      title={action}
+      className={cn('flex h-11 w-full flex-col items-start justify-center gap-px rounded-xl border px-1.5 text-left transition-colors', tone)}
+    >
+      <span className={cn('flex w-full items-center gap-1 truncate text-[10.5px] leading-tight tabular-nums', breaks ? 'text-bad-fg' : 'text-muted-foreground')}>
+        {breaks ? <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-bad-fg" /> : null}
+        Step {index + 1}
+      </span>
+      <span className="w-full truncate font-mono text-[11px] leading-tight font-medium">
+        {name}
+        {item ? <span className="font-normal text-muted-foreground">{` ${item}`}</span> : null}
+      </span>
+    </button>
   )
 }
 
@@ -298,7 +374,11 @@ function cellClass(cell: Cell): string {
 /** The selected state: where it is, what led to it and its code, a line of story, and its variables. */
 function Inspector({ facts, onCode }: { facts: StateFacts; onCode: ((where: string) => void) | null }) {
   // A key the counterexample never moves needs less room, which leaves more for the values that change.
-  const quiet = facts.columns.map((_, index) => facts.columns.length > 1 && facts.rows.every((row) => row.cells.length > 1 && row.cells[index]?.quiet))
+  const quiet = facts.columns.map((_, index) => {
+    if (facts.columns.length <= 1) return false
+    return facts.rows.every((row) => row.cells.length > 1 && row.cells[index]?.quiet)
+  })
+
   return (
     <section className="flex flex-col gap-3 rounded-[20px] border border-border bg-surface px-5 py-[18px]">
       <div className="flex items-baseline justify-between gap-2.5">
@@ -313,19 +393,7 @@ function Inspector({ facts, onCode }: { facts: StateFacts; onCode: ((where: stri
         {facts.story}
       </p>
       <div className="-mx-2.5 flex h-9 items-center">
-        {facts.code && onCode ? (
-          <button type="button" onClick={() => onCode(facts.code!)} className="flex h-9 min-w-0 items-center gap-2 rounded-[10px] px-2.5 text-sun-fg hover:bg-tone-2">
-            <Code aria-hidden className="size-3.5 shrink-0" />
-            <span className="truncate font-mono text-[12px]">{facts.code}</span>
-          </button>
-        ) : (
-          <span className="flex min-w-0 items-center gap-2 px-2.5 text-muted-foreground">
-            <Code aria-hidden className="size-3.5 shrink-0" />
-            <span title={facts.code} className="truncate font-mono text-[12px] select-text">
-              {facts.code ?? 'The spec names no code for this action.'}
-            </span>
-          </span>
-        )}
+        <CodeLink code={facts.code} onCode={onCode} />
       </div>
       <table className="w-full table-fixed border-separate border-spacing-y-1 text-[12.5px]">
         <caption className="sr-only">Variables in this state</caption>
@@ -369,6 +437,26 @@ function Inspector({ facts, onCode }: { facts: StateFacts; onCode: ((where: stri
         </tbody>
       </table>
     </section>
+  )
+}
+
+/** Where the action lives: a link that opens it when the page can, else the place as text to copy. */
+function CodeLink({ code, onCode }: { code: string | undefined; onCode: ((where: string) => void) | null }) {
+  if (code && onCode) {
+    return (
+      <button type="button" onClick={() => onCode(code)} className="flex h-9 min-w-0 items-center gap-2 rounded-[10px] px-2.5 text-sun-fg hover:bg-tone-2">
+        <Code aria-hidden className="size-3.5 shrink-0" />
+        <span className="truncate font-mono text-[12px]">{code}</span>
+      </button>
+    )
+  }
+  return (
+    <span className="flex min-w-0 items-center gap-2 px-2.5 text-muted-foreground">
+      <Code aria-hidden className="size-3.5 shrink-0" />
+      <span title={code} className="truncate font-mono text-[12px] select-text">
+        {code ?? 'The spec names no code for this action.'}
+      </span>
+    </span>
   )
 }
 

@@ -30,6 +30,7 @@ export interface ProofRow {
 
 const MARK: Record<ProofObligation['status'], string> = { proved: '✓', failed: '!', omitted: '–', missing: '?', pending: '·' }
 const HOW: Record<Exclude<ProofObligation['status'], 'proved'>, string> = { failed: 'failed', omitted: 'omitted', missing: 'no proof', pending: 'waits' }
+const TONE: Record<Exclude<ProofObligation['status'], 'proved'>, ProofTone> = { failed: 'bad', omitted: 'warn', missing: 'warn', pending: 'quiet' }
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
 
 /** A step's label as TLA+ typesets it: `<2>5` as `⟨2⟩5`. */
@@ -51,11 +52,19 @@ export function proofRows(proof: Proof): ProofRow[] {
       below.push(next)
     }
     const failing = below.filter((entry) => entry.status === 'failed').length
-    const base = { index, id: step.id, label: step.label, text: `${stepLabel(step.id)} ${step.label}`, status: step.status, indent: step.depth - top, counted: proof.strict && step.status === 'proved' }
+    const base = {
+      index,
+      id: step.id,
+      label: step.label,
+      text: `${stepLabel(step.id)} ${step.label}`,
+      status: step.status,
+      indent: step.depth - top,
+      counted: proof.strict && step.status === 'proved',
+    }
+    // A step whose own steps fail says how many, whatever it says of itself.
     if (failing > 0) return { ...base, tone: 'bad', mark: MARK.failed, how: `${plural(failing, 'step', 'steps')} ${failing === 1 ? 'fails' : 'fail'}` }
     if (step.status === 'proved') return { ...base, tone: proof.strict ? 'ok' : 'unsure', mark: MARK.proved, how: howProved(step, below.length > 0) }
-    const tone: ProofTone = step.status === 'failed' ? 'bad' : step.status === 'pending' ? 'quiet' : 'warn'
-    return { ...base, tone, mark: MARK[step.status], how: HOW[step.status] }
+    return { ...base, tone: TONE[step.status], mark: MARK[step.status], how: HOW[step.status] }
   })
 }
 
@@ -82,7 +91,14 @@ export function foldRows(rows: readonly ProofRow[]): ProofRow[] {
 
 function tally(proof: Proof) {
   const of = (status: ProofObligation['status']) => proof.obligations.filter((step) => step.status === status).length
-  return { all: proof.obligations.length, proved: of('proved'), failed: of('failed'), pending: of('pending'), omitted: of('omitted'), missing: of('missing') }
+  return {
+    all: proof.obligations.length,
+    proved: of('proved'),
+    failed: of('failed'),
+    pending: of('pending'),
+    omitted: of('omitted'),
+    missing: of('missing'),
+  }
 }
 
 /** The tree's count, beside its title: "14 proved · 1 failed · 2 waiting", or "17 of 17 proved". */
@@ -90,7 +106,13 @@ export function proofSummary(proof: Proof): string {
   if (!proof.strict) return 'ran without --strict · none counted'
   const { all, proved, failed, pending, omitted, missing } = tally(proof)
   if (all > 0 && proved === all) return `${all} of ${all} proved`
-  return [`${proved} proved`, failed && `${failed} failed`, pending && `${pending} waiting`, omitted && `${omitted} omitted`, missing && `${missing} missing`].filter(Boolean).join(' · ')
+
+  const parts = [`${proved} proved`]
+  if (failed) parts.push(`${failed} failed`)
+  if (pending) parts.push(`${pending} waiting`)
+  if (omitted) parts.push(`${omitted} omitted`)
+  if (missing) parts.push(`${missing} missing`)
+  return parts.join(' · ')
 }
 
 /** A definition's body: what follows its ≜, or what follows THEOREM when it has none, on one line. */
@@ -135,10 +157,15 @@ export interface ProofNote {
 export function proofNote(run: Pick<ProofRun, 'outcome' | 'broken' | 'traceLength' | 'model' | 'definitions'>, proof: Proof, picked: number | null): ProofNote {
   const theorem = theoremOf(run.definitions)
   const statement = theorem?.statement ?? ''
-  const chosen = (picked != null ? proof.obligations[picked] : undefined) ?? (proof.strict ? proof.obligations.find((step) => step.status === 'failed') : undefined)
+  const pickedStep = picked != null ? proof.obligations[picked] : undefined
+  // Without --strict, the run's standing comes first; the first failure is shown only when picked.
+  const firstFailure = proof.strict ? proof.obligations.find((step) => step.status === 'failed') : undefined
+  const chosen = pickedStep ?? firstFailure
   const label = chosen ? stepLabel(chosen.id) : ''
+
   if (chosen?.status === 'failed') {
-    const echo = run.outcome === 'broken' && run.broken ? `The model check broke ${run.broken} too${run.traceLength ? `, in a ${run.traceLength}-step example` : ''}.` : ''
+    const example = run.traceLength ? `, in a ${run.traceLength}-step example` : ''
+    const echo = run.outcome === 'broken' && run.broken ? `The model check broke ${run.broken} too${example}.` : ''
     return {
       tone: 'bad',
       title: `${label} could not be proved`,
@@ -149,19 +176,34 @@ export function proofNote(run: Pick<ProofRun, 'outcome' | 'broken' | 'traceLengt
     }
   }
   if (!proof.strict) {
-    return { tone: 'warn', title: 'Not counted: the proof ran without --strict', math: 'tlapm --strict', words: 'Without --strict, tlapm can call a step proved while its proof is missing, so hobkin counts none of these.' }
+    return {
+      tone: 'warn',
+      title: 'Not counted: the proof ran without --strict',
+      math: 'tlapm --strict',
+      words: 'Without --strict, tlapm can call a step proved while its proof is missing, so hobkin counts none of these.',
+    }
   }
-  if (chosen && picked != null) {
-    if (chosen.status === 'proved') return { tone: 'plain', title: `${label} is proved`, math: chosen.label, words: chosen.backend ? `${chosen.backend} proved it${chosen.seconds != null ? ` in ${chosen.seconds.toFixed(1)} s` : ''}.` : 'Proved by the steps under it.' }
-    if (chosen.status === 'pending') return { tone: 'plain', title: `${label} waits`, math: chosen.label, words: 'TLAPS has not checked it yet.' }
-    return { tone: 'warn', title: `${label} has no proof yet`, math: chosen.label, words: 'A step left OMITTED or without a proof leaves the theorem unproved.' }
-  }
+
+  if (chosen && pickedStep) return pickedNote(chosen, label)
+
   const { all, proved, pending, omitted, missing } = tally(proof)
   if (all > 0 && proved === all) {
-    return { tone: 'ok', title: 'Proved for every size', math: statement, words: `Not just ${run.model ?? 'the small world the model check tried'}: any size. Checked with --strict, so no step was skipped.` }
+    const world = run.model ?? 'the small world the model check tried'
+    return { tone: 'ok', title: 'Proved for every size', math: statement, words: `Not just ${world}: any size. Checked with --strict, so no step was skipped.` }
   }
   if (pending > 0) return { tone: 'plain', title: 'Proving', math: statement, words: 'TLAPS is still checking its steps.' }
-  return { tone: 'warn', title: 'Not proved yet', math: statement, words: `${plural(omitted + missing, 'step has', 'steps have')} no proof yet, so the theorem is not proved.` }
+  const unproved = plural(omitted + missing, 'step has', 'steps have')
+  return { tone: 'warn', title: 'Not proved yet', math: statement, words: `${unproved} no proof yet, so the theorem is not proved.` }
+}
+
+/** A step the user picked that did not fail: proved, waiting, or with no proof. */
+function pickedNote(step: ProofObligation, label: string): ProofNote {
+  if (step.status === 'pending') return { tone: 'plain', title: `${label} waits`, math: step.label, words: 'TLAPS has not checked it yet.' }
+  if (step.status !== 'proved') return { tone: 'warn', title: `${label} has no proof yet`, math: step.label, words: 'A step left OMITTED or without a proof leaves the theorem unproved.' }
+
+  let words = 'Proved by the steps under it.'
+  if (step.backend) words = `${step.backend} proved it${step.seconds != null ? ` in ${step.seconds.toFixed(1)} s` : ''}.`
+  return { tone: 'plain', title: `${label} is proved`, math: step.label, words }
 }
 
 export interface ScopeRow {
@@ -174,16 +216,20 @@ function modelCheckSays(run: ProofRun): ScopeRow {
   const world = run.model ? `a small world: ${run.model}` : 'the small world its cfg sets'
   const what = 'Model check'
   switch (run.outcome) {
-    case 'broken':
-      return { what, says: `Tried every state of ${world}, and found ${run.traceLength ? `a ${run.traceLength}-step example` : 'a state'} that breaks ${run.broken ?? 'a rule'}.`, tone: 'bad' }
+    case 'broken': {
+      const found = run.traceLength ? `a ${run.traceLength}-step example` : 'a state'
+      return { what, says: `Tried every state of ${world}, and found ${found} that breaks ${run.broken ?? 'a rule'}.`, tone: 'bad' }
+    }
     case 'holds':
       return { what, says: `Tried every state of ${world}, and every rule held. A bigger world is not checked.`, tone: 'ok' }
     case 'checking':
       return { what, says: `Is trying every state of ${world}. It finds bugs fast, with an example.`, tone: 'text' }
     case 'stopped':
       return { what, says: 'Was stopped before it finished, so it shows nothing yet.', tone: 'muted' }
-    default:
-      return { what, says: `Did not finish${run.message ? `: ${run.message.replace(/\.$/, '')}` : ''}, so it shows nothing yet.`, tone: 'muted' }
+    default: {
+      const why = run.message ? `: ${run.message.replace(/\.$/, '')}` : ''
+      return { what, says: `Did not finish${why}, so it shows nothing yet.`, tone: 'muted' }
+    }
   }
 }
 

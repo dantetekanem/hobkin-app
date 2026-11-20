@@ -24,11 +24,16 @@ export function parseQuery(text: string, lenses: readonly Lens[]): ParsedQuery |
   if (!text.trim()) return null
   const shape = SHAPE.exec(text)
   if (!shape || !shape[5]) return { ok: false, reason: HOW }
-  const [, variable, bracket, dot, operator, value] = shape as unknown as [string, string, string | undefined, string | undefined, string, string]
+
+  const [, variable = '', bracket, dot, operator = '=', value = ''] = shape
   const key = bracket ?? dot
   if (!lenses.some((lens) => lens.variable === variable)) return { ok: false, reason: `No variable is called ${variable}.` }
-  const lens = lenses.find((entry) => entry.variable === variable && (key == null ? entry.key == null : entry.key != null && bareKey(entry.key) === bareKey(key)))
+
+  // `state` reads the variable whole, and `state[i1]` or `state["i1"]` one key of it.
+  const readsTheKey = (lens: Lens) => (key == null ? lens.key == null : lens.key != null && bareKey(lens.key) === bareKey(key))
+  const lens = lenses.find((entry) => entry.variable === variable && readsTheKey(entry))
   if (!lens) return { ok: false, reason: key == null ? HOW : `${variable} has no ${bareKey(key)}.` }
+
   const negate = operator !== '='
   return { ok: true, query: { lens, value, negate, text: `${lens.label} ${negate ? '≠' : '='} ${value}` } }
 }

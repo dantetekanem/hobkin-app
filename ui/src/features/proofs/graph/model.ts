@@ -97,9 +97,21 @@ const AROUND_WIRES = 600
 export const GROUPS = 40
 
 const unique = <Value>(values: Iterable<Value>) => [...new Set(values)]
-const push = <Key, Value>(map: Map<Key, Value[]>, key: Key, value: Value) => map.set(key, [...(map.get(key) ?? []), value])
+
+function push<Key, Value>(map: Map<Key, Value[]>, key: Key, value: Value) {
+  const list = map.get(key)
+  if (list) list.push(value)
+  else map.set(key, [value])
+}
 
 const NO_DUMP = "TLC did not dump this model's graph."
+
+/** Why a run has no dump, as one sentence: hobkin's note, or the plain default. */
+function whyNoDump(note: string | undefined): string {
+  const said = note?.trim()
+  if (!said) return NO_DUMP
+  return /[.!?]$/.test(said) ? said : `${said}.`
+}
 
 /** A move's name with the keys it changed when TLC gave it no arguments, so `Fix` and `Fix` read apart. */
 function moveWords(action: string, before: StateVars, after: StateVars): string {
@@ -124,7 +136,9 @@ export function stateGraph(run: Pick<ProofRun, 'graph' | 'graphNote' | 'trace' |
     nodes.set(node.id, { id: node.id, initial: node.initial, vars: node.vars })
     byKey.set(stateKey(node.vars), node.id)
   }
-  for (const edge of run.graph?.edges ?? []) if (nodes.has(edge.from) && nodes.has(edge.to)) addMove({ from: edge.from, to: edge.to, action: edge.action })
+  for (const edge of run.graph?.edges ?? []) {
+    if (nodes.has(edge.from) && nodes.has(edge.to)) addMove({ from: edge.from, to: edge.to, action: edge.action })
+  }
 
   const trace = run.trace ?? []
   const path = trace.map((state, index) => {
@@ -138,7 +152,14 @@ export function stateGraph(run: Pick<ProofRun, 'graph' | 'graphNote' | 'trace' |
   })
   const pathMoves = path.slice(1).map((to, index) => ({ from: path[index]!, to, action: trace[index + 1]!.action }))
   // A move of the counterexample the dump lacks, or every one of them without a dump, so each view can draw the path.
-  for (const move of pathMoves) if (!moves.some((known) => known.from === move.from && known.to === move.to)) addMove({ ...move, action: actionName(move.action) })
+  for (const move of pathMoves) {
+    const dumpedToo = moves.some((known) => known.from === move.from && known.to === move.to)
+    if (!dumpedToo) addMove({ ...move, action: actionName(move.action) })
+  }
+  const stepWords = path.map((id, index) => {
+    if (index === 0) return 'Init'
+    return moveWords(trace[index]!.action, nodes.get(path[index - 1]!)!.vars, nodes.get(id)!.vars)
+  })
 
   const out = new Map<string, Move[]>()
   const into = new Map<string, Move[]>()
@@ -147,17 +168,16 @@ export function stateGraph(run: Pick<ProofRun, 'graph' | 'graphNote' | 'trace' |
     push(into, move.to, move)
   }
   const dumped = (run.graph?.nodes.length ?? 0) > 0
-  const note = run.graphNote?.trim()
   return {
     nodes,
     out,
     into,
     path,
     pathMoves,
-    stepWords: path.map((id, index) => (index === 0 ? 'Init' : moveWords(trace[index]!.action, nodes.get(path[index - 1]!)!.vars, nodes.get(id)!.vars))),
+    stepWords,
     broken: run.outcome === 'broken' && path.length > 0,
     dumped,
-    why: dumped ? null : note ? (/[.!?]$/.test(note) ? note : `${note}.`) : NO_DUMP,
+    why: dumped ? null : whyNoDump(run.graphNote),
     total: Math.max(nodes.size, run.graph?.total ?? run.stats.distinct),
   }
 }
@@ -196,7 +216,15 @@ function pathNodes(graph: StateGraph, size: number): PictureNode[] {
 function pathEdges(graph: StateGraph): PictureEdge[] {
   return graph.pathMoves.map((move, index) => {
     const breaks = graph.broken && index === graph.pathMoves.length - 1
-    return { id: `path:${index + 1}`, from: move.from, to: move.to, look: 'path', labels: [{ text: graph.stepWords[index + 1]!, breaks }], breaks, ...(move.from === move.to ? { loop: true } : {}) }
+    return {
+      id: `path:${index + 1}`,
+      from: move.from,
+      to: move.to,
+      look: 'path',
+      labels: [{ text: graph.stepWords[index + 1]!, breaks }],
+      breaks,
+      ...(move.from === move.to ? { loop: true } : {}),
+    }
   })
 }
 
@@ -213,13 +241,29 @@ export function pathPicture(graph: StateGraph, { sides = SIDES }: { sides?: numb
     for (const move of others.slice(0, sides)) {
       if (!placed.has(move.to)) {
         placed.add(move.to)
-        nodes.push({ id: move.to, look: 'side', text: '', states: [move.to], width: SIDE, height: SIDE, aria: `Another state, after ${move.action}` })
+        nodes.push({
+          id: move.to,
+          look: 'side',
+          text: '',
+          states: [move.to],
+          width: SIDE,
+          height: SIDE,
+          aria: `Another state, after ${move.action}`,
+        })
       }
-      edges.push({ id: `side:${move.from}>${move.to}:${move.action}`, from: move.from, to: move.to, look: 'side', labels: [{ text: move.action }] })
+      edges.push({
+        id: `side:${move.from}>${move.to}:${move.action}`,
+        from: move.from,
+        to: move.to,
+        look: 'side',
+        labels: [{ text: move.action }],
+      })
     }
   })
+
   const lead = graph.broken ? 'The shortest path to a broken state.' : 'The path TLC printed.'
-  const note = graph.why ? `${lead} No other moves are shown: ${graph.why}` : `${lead} Faded: other moves from the same states.${capped ? ` At most ${sides} from each.` : ''}`
+  let note = `${lead} Faded: other moves from the same states.${capped ? ` At most ${sides} from each.` : ''}`
+  if (graph.why) note = `${lead} No other moves are shown: ${graph.why}`
   return { nodes, edges, note }
 }
 
@@ -268,7 +312,15 @@ export function aroundPicture(graph: StateGraph, { radius = 2, cap = AROUND, mat
   const nodes = shown.map((id): PictureNode => {
     const step = stepOf.get(id)
     if (step != null) return stepNode(graph, id, step, SMALL_STEP)
-    return { id, look: 'near', text: '', states: [id], width: NEAR, height: NEAR, aria: graph.nodes.get(id)?.initial ? 'A state the model starts in' : 'A nearby state' }
+    return {
+      id,
+      look: 'near',
+      text: '',
+      states: [id],
+      width: NEAR,
+      height: NEAR,
+      aria: graph.nodes.get(id)?.initial ? 'A state the model starts in' : 'A nearby state',
+    }
   })
   // So many states leave no room to name each move: the path's moves are named on the step bar.
   const edges: PictureEdge[] = pathEdges(graph).map((edge) => ({ ...edge, labels: [] }))
@@ -302,6 +354,19 @@ interface Group {
   steps: number[]
 }
 
+/** How often one action moved a state from one group to another, and whether the breaking move was one of them. */
+interface ActionTally {
+  times: number
+  breaks: boolean
+}
+
+/** One arrow of the machine: two groups, and each action between them. */
+interface Arrow {
+  from: string
+  to: string
+  byAction: Map<string, ActionTally>
+}
+
 /**
  * The lens the grouped view starts with: the one whose value changes most along the counterexample, else the first
  * that splits the model into a few groups, else the first. Null when there is no state at all.
@@ -320,7 +385,11 @@ export function defaultLens(graph: StateGraph): Lens | null {
     if (most > 0) return lenses[changes.indexOf(most)]!
   }
   const sample = [...graph.nodes.keys()].slice(0, 5000)
-  return lenses.find((lens) => new Set(sample.map((id) => valueAt(id, lens))).size >= 2 && new Set(sample.map((id) => valueAt(id, lens))).size <= 12) ?? lenses[0] ?? null
+  const splitsIntoFew = (lens: Lens) => {
+    const values = new Set(sample.map((id) => valueAt(id, lens))).size
+    return values >= 2 && values <= 12
+  }
+  return lenses.find(splitsIntoFew) ?? lenses[0] ?? null
 }
 
 export function groupedPicture(graph: StateGraph, lens: Lens, actions: readonly ProofAction[] = [], { cap = GROUPS }: { cap?: number } = {}): Picture {
@@ -363,33 +432,51 @@ export function groupedPicture(graph: StateGraph, lens: Lens, actions: readonly 
 
   // Each pair of groups, and the actions between them with how often each moved a state from one to the other.
   const breakingMove = graph.broken ? graph.pathMoves.at(-1) : undefined
-  const between = new Map<string, { from: string; to: string; byAction: Map<string, { times: number; breaks: boolean }> }>()
+  const between = new Map<string, Arrow>()
   for (const moves of graph.out.values()) {
     for (const move of moves) {
       const [from, to] = [groupOf.get(move.from)!, groupOf.get(move.to)!]
       if (!kept.has(from) || !kept.has(to)) continue
+
       const pair = `${from}>${to}`
-      const { byAction } = between.get(pair) ?? between.set(pair, { from, to, byAction: new Map() }).get(pair)!
+      let arrow = between.get(pair)
+      if (!arrow) {
+        arrow = { from, to, byAction: new Map() }
+        between.set(pair, arrow)
+      }
       const name = actionName(move.action)
-      const known = byAction.get(name) ?? { times: 0, breaks: false }
-      byAction.set(name, { times: known.times + 1, breaks: known.breaks || (move.from === breakingMove?.from && move.to === breakingMove.to) })
+      const known = arrow.byAction.get(name) ?? { times: 0, breaks: false }
+      const breaks = move.from === breakingMove?.from && move.to === breakingMove.to
+      arrow.byAction.set(name, { times: known.times + 1, breaks: known.breaks || breaks })
     }
   }
-  const labelOf = ([name, { times, breaks }]: [string, { times: number; breaks: boolean }]): EdgeLabel => ({
-    text: [name, ...(graph.dumped ? [count(times)] : []), ...(breaks ? ['breaks'] : [])].join(' · '),
-    breaks,
-  })
+
+  const labelOf = ([name, { times, breaks }]: [string, ActionTally]): EdgeLabel => {
+    const parts = [name]
+    if (graph.dumped) parts.push(count(times))
+    if (breaks) parts.push('breaks')
+    return { text: parts.join(' · '), breaks }
+  }
   const edges: PictureEdge[] = []
   for (const [pair, { from, to, byAction }] of between) {
     const labels = [...byAction].map(labelOf)
     const breaks = labels.some((label) => label.breaks)
-    edges.push(from === to ? { id: `${pair}:loop`, from, to, look: 'group', labels, breaks, loop: true } : { id: pair, from, to, look: 'group', labels, breaks })
+    if (from === to) edges.push({ id: `${pair}:loop`, from, to, look: 'group', labels, breaks, loop: true })
+    else edges.push({ id: pair, from, to, look: 'group', labels, breaks })
   }
 
   const silent = actions.filter((action) => action.count === 0)
   for (const action of silent) {
     const text = `${action.name} · never fired`
-    nodes.push({ id: `ghost:${action.name}`, look: 'ghost', text, states: [], ...pill(text, 6.9, 120), height: 34, aria: `${action.name} never fired, so nothing it guards was checked` })
+    nodes.push({
+      id: `ghost:${action.name}`,
+      look: 'ghost',
+      text,
+      states: [],
+      ...pill(text, 6.9, 120),
+      height: 34,
+      aria: `${action.name} never fired, so nothing it guards was checked`,
+    })
   }
 
   const notes = [`Every state, grouped by ${lens.label}. This is the machine the code has without saying so.`]

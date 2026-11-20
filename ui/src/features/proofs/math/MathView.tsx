@@ -24,7 +24,12 @@ interface Tag {
 function tagsOf(run: ProofRun): Map<string, Tag> {
   const tags = new Map<string, Tag>()
   const names = run.definitions.map((definition) => definition.name)
-  for (const action of run.actions) if (action.count === 0 && run.outcome !== 'checking') tags.set(action.name, { text: 'never fired', tone: 'warn' })
+  // While TLC still checks, every action is at 0 so far, which says nothing yet.
+  if (run.outcome !== 'checking') {
+    for (const action of run.actions) {
+      if (action.count === 0) tags.set(action.name, { text: 'never fired', tone: 'warn' })
+    }
+  }
   if (run.proof?.strict) {
     for (const step of run.proof.obligations) {
       const about = step.status === 'failed' ? relatedDefinition(step.label, names) : null
@@ -59,6 +64,8 @@ export function MathView({ run }: { run: ProofRun }) {
   const tags = useMemo(() => tagsOf(run), [run])
   const spec = useRef<HTMLDivElement | null>(null)
   const parse = run.steps.find((entry) => entry.id === 'parse')
+  const parseWords = parse?.note || (parse?.state === 'running' ? 'SANY is parsing it' : '')
+  const hasBlocks = run.definitions.length > 0
 
   /** Brings a block into the spec's scroll area. Only that area moves: scrollIntoView would scroll the page too. */
   const reveal = (name: string | null) => {
@@ -66,19 +73,21 @@ export function MathView({ run }: { run: ProofRun }) {
     const block = name && area ? area.querySelector<HTMLElement>(`[data-block="${CSS.escape(name)}"]`) : null
     if (!block || !area) return
     const top = block.offsetTop - area.offsetTop
-    if (top < area.scrollTop || top + block.offsetHeight > area.scrollTop + area.clientHeight) area.scrollTo({ top: Math.max(0, top - 12) })
+    const outOfView = top < area.scrollTop || top + block.offsetHeight > area.scrollTop + area.clientHeight
+    if (outOfView) area.scrollTo({ top: Math.max(0, top - 12) })
   }
   const show = (name: string | null) => {
     setChosen(name)
     reveal(name)
   }
-  // The block picked first is in view when the math opens.
+  // The block picked first is in view once the spec first has blocks; a run still parsing has none yet.
   const opened = useRef(false)
   useEffect(() => {
-    if (opened.current || run.definitions.length === 0) return
+    if (opened.current || !hasBlocks) return
     opened.current = true
     reveal(selected)
-  })
+    // Only the spec's arrival moves its scroll here; later picks move it themselves, through `show`.
+  }, [hasBlocks])
 
   return (
     <div className="@container">
@@ -88,16 +97,25 @@ export function MathView({ run }: { run: ProofRun }) {
             <span title={run.spec} className="min-w-0 truncate font-mono text-[13px] font-semibold">
               {run.spec}
             </span>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{parse?.note || (parse?.state === 'running' ? 'SANY is parsing it' : '')}</span>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{parseWords}</span>
             <Segmented label="How to read it" name="proof-math-mode" value={mode} options={MODES} onChoose={setMode} />
           </div>
           <div ref={spec} className="scroll-quiet relative h-[664px] overflow-auto px-2 pt-2.5 pb-4">
-            {run.definitions.length > 0 ? (
+            {hasBlocks ? (
               run.definitions.map((definition) => (
-                <Block key={definition.name} definition={definition} mode={mode} on={selected === definition.name} tag={tags.get(definition.name)} onPick={() => setChosen(selected === definition.name ? null : definition.name)} />
+                <Block
+                  key={definition.name}
+                  definition={definition}
+                  mode={mode}
+                  on={selected === definition.name}
+                  tag={tags.get(definition.name)}
+                  onPick={() => setChosen(selected === definition.name ? null : definition.name)}
+                />
               ))
             ) : (
-              <p className="px-3 py-2 text-[13px] text-muted-foreground">{parse?.state === 'failed' ? 'SANY could not parse the spec, so there is nothing to set.' : 'The spec shows here once SANY has parsed it.'}</p>
+              <p className="px-3 py-2 text-[13px] text-muted-foreground">
+                {parse?.state === 'failed' ? 'SANY could not parse the spec, so there is nothing to set.' : 'The spec shows here once SANY has parsed it.'}
+              </p>
             )}
           </div>
         </section>
@@ -187,7 +205,17 @@ const NOTE_TONE: Record<ProofNote['tone'], string> = {
   plain: 'border-border bg-tone-2',
 }
 
-function ProofSection({ run, selected, step, onStep }: { run: ProofRun; selected: string | null; step: number | null; onStep: (index: number, about: string | null) => void }) {
+interface ProofSectionProps {
+  run: ProofRun
+  /** The spec's picked block, whose steps light up. */
+  selected: string | null
+  /** The picked step, by its place in the tree. */
+  step: number | null
+  /** A step was picked, with the definition it is about. */
+  onStep: (index: number, about: string | null) => void
+}
+
+function ProofSection({ run, selected, step, onStep }: ProofSectionProps) {
   const theorem = theoremOf(run.definitions)
   const names = useMemo(() => run.definitions.map((definition) => definition.name), [run.definitions])
   const rows = useMemo(() => (run.proof ? proofRows(run.proof) : []), [run.proof])
@@ -217,14 +245,18 @@ function ProofSection({ run, selected, step, onStep }: { run: ProofRun; selected
             ) : null}
           </div>
           <ol aria-label="Proof steps" className="scroll-quiet -mx-1 flex max-h-[456px] flex-col gap-0.5 overflow-y-auto px-1">
-            {shown.map((row) => (
-              <ProofStep key={row.index} row={row} lit={step === row.index || (selected != null && relatedDefinition(row.label, names) === selected)} onPick={() => onStep(row.index, relatedDefinition(row.label, names))} />
-            ))}
+            {shown.map((row) => {
+              const about = relatedDefinition(row.label, names)
+              const lit = step === row.index || (selected != null && about === selected)
+              return <ProofStep key={row.index} row={row} lit={lit} onPick={() => onStep(row.index, about)} />
+            })}
           </ol>
           <NoteBox note={proofNote(run, proof, step)} />
         </>
       ) : (
-        <p className="text-[13px] leading-snug text-muted-foreground">No proof was written for this spec, so TLAPS did not run. The model check covers the small world it was given; a proof would cover every size.</p>
+        <p className="text-[13px] leading-snug text-muted-foreground">
+          No proof was written for this spec, so TLAPS did not run. The model check covers the small world it was given; a proof would cover every size.
+        </p>
       )}
     </section>
   )
