@@ -18,6 +18,7 @@ export {
   useModels,
   usePendingQuestion,
   useProjects,
+  useProofs,
   useRunningCount,
   useSessions,
   useWork,

@@ -3,6 +3,7 @@ import { useStore } from 'zustand'
 import { sampleAgents, sampleModels, sampleProjects, sampleSessions, sampleStatus, type SampleAgent, type SampleProject, type SampleSession } from '@/app/sample.ts'
 import { GITHUB_UNKNOWN, sampleGitHub, type GitHubState } from '#shared/protocol/github.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
+import type { ProofsState } from '#shared/protocol/proofs.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { hostStore } from './client.ts'
@@ -136,4 +137,13 @@ export function useGitHub(): GitHubState {
  */
 export function useWork(): WorkState | null {
   return useHost((state) => state.work)
+}
+
+/**
+ * TLA+ proof runs as the host reads them from hobkin's home (050-tla-proofs): the ones running and the 20 most recent,
+ * newest first, with their latest counts, and the tools found. Null without a host and from a host from before them.
+ * The whole of a run comes from `proof.get`.
+ */
+export function useProofs(): ProofsState | null {
+  return useHost((state) => state.proofs ?? null)
 }

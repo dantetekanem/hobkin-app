@@ -8,6 +8,7 @@ import { applyMessageOps } from '#shared/protocol/message-ops.ts'
 import type { HostMessage, OwnerState, StateMessage } from '#shared/protocol/messages.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import type { Nudge } from '#shared/protocol/nudge.ts'
+import type { ProofsState } from '#shared/protocol/proofs.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { SignInState } from '#shared/protocol/signin.ts'
 import type { ChatMessage, WireSnapshot } from '#shared/protocol/snapshot.ts'
@@ -48,6 +49,8 @@ export interface HostState {
   appearance: AppearanceRequest | null
   /** The custom themes the host keeps, newest first. Null until the host says, and always from a host from before them. */
   themes?: KeptThemes | null
+  /** TLA+ proof runs, running and recent, and the tools found. Null until the host says, and always from a host from before them. */
+  proofs?: ProofsState | null
   /** hobkin's snapshot, by top-level key. */
   snapshot: WireSnapshot
   /** The stored conversation. */
@@ -78,6 +81,7 @@ export const initialHostState: HostState = {
   nudge: null,
   appearance: null,
   themes: null,
+  proofs: null,
   snapshot: {},
   messages: [],
   live: null,
@@ -122,6 +126,8 @@ function applyState(state: HostState, message: StateMessage): HostState {
     appearance: message.appearance !== undefined ? message.appearance : message.reset ? null : state.appearance,
     // A host that keeps themes sends the list with every reset, so one without it keeps none.
     themes: message.themes ?? (message.reset ? null : (state.themes ?? null)),
+    // Proof runs come whole with every reset from a host that reads them, so one without them has none.
+    proofs: message.proofs ?? (message.reset ? null : (state.proofs ?? null)),
     live: settleLive(message.reset ? null : state.live, messages, snapshot.busy),
     epoch: message.reset ? state.epoch + 1 : state.epoch,
   }
