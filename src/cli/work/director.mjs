@@ -23,6 +23,7 @@ import { watchBrief } from './launches.mjs';
 import { nameOf } from './names.mjs';
 import { watchPile } from './pairs.mjs';
 import { countsAgainst, ideasWanted, planWork, skipsTheHour } from './plan.mjs';
+import { recheckModels } from './proof-checks.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
 import {
@@ -409,6 +410,9 @@ export class WorkDirector {
       .then(merged => {
         if (merged.length) this.onChange();
       })
+      .catch(() => {})
+      // hobkin's own weekly check of each TLA+ model on a default branch, one at a time (`proof-checks.mjs`).
+      .then(() => recheckModels(this.root, { now: this.now(), survey: readUnmerged(this.root).projects }))
       .catch(() => {})
       .then(() => retireClosedTrees(this.root, { running: this.running() }))
       .catch(() => {})

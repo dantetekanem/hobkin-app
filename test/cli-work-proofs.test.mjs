@@ -5,16 +5,20 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
+import { workStatus } from '../src/cli/work/commands.mjs';
+import { recheckModels } from '../src/cli/work/proof-checks.mjs';
 import { modeledFiles } from '../src/cli/work/proofs.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, paths, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
-import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
+import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { yoloPass } from '../src/cli/work/yolo-pass.mjs';
-import { recordReadiness, setYolo } from '../src/cli/work/yolo.mjs';
+import { recordReadiness, setYolo, yoloView } from '../src/cli/work/yolo.mjs';
 import { branched, commit, git, repository, writeJson } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
+const WEEK = 7 * 24 * 3600000;
 const SPEC = 'specs/tla/WorkItem.tla';
+const QUEUE = 'specs/tla/ReviewQueue.tla';
 
 const specText = (models = 'app.txt', name = 'WorkItem') => [
   `---- MODULE ${name} ----`,
@@ -197,4 +201,41 @@ test('hobkin checks nothing while YOLO mode is off, and one check at a time', as
   // TLC stops itself after 20 minutes, so a check older than that is over, whatever its process id says now.
   await yoloPass(h.root, { now: NOW + 26 * 60000, spawn });
   assert.deepEqual(calls.map(({ args }) => args[7]).sort(), [first.id, second.id].sort());
+});
+
+test('hobkin checks each model on the default branch itself once a week, and one that breaks there shows on its project', async t => {
+  const h = workspace(t);
+  withSpec(h);
+  withSpec(h, QUEUE, specText('queue.txt', 'ReviewQueue'));
+  const tip = git(h.checkout, 'rev-parse', 'main');
+  await survey(h);
+  const { spawn, calls } = fakeSpawn();
+  const recheck = now => recheckModels(h.root, { now, survey: readUnmerged(h.root).projects, spawn });
+
+  await recheck(NOW);
+  assert.deepEqual(calls.map(({ args }) => args.slice(1)), [['proof', 'check', QUEUE, '--project', 'api', '--head', tip, '--home', h.root]]);
+  assert.equal(git(calls[0].cwd, 'rev-parse', 'HEAD'), tip);
+
+  await recheck(NOW + 60000);
+  assert.deepEqual(calls.map(({ args }) => args[3]), [QUEUE, SPEC], 'one check a pass, each spec in turn');
+  await recheck(NOW + 120000);
+  assert.equal(calls.length, 2, 'a spec tried this week is not tried again');
+
+  writeRun(h, { id: 'item-held', head: tip, finished: new Date(NOW).toISOString() });
+  writeRun(h, { id: 'queue-broke', head: tip, spec: QUEUE, specSha256: sha256(specText('queue.txt', 'ReviewQueue')), finished: new Date(NOW).toISOString(), ...broke });
+  const [project] = workStatus(h.root).projects;
+  assert.deepEqual(project.models.map(({ spec, state, run, why }) => [spec, state, run, why]), [
+    [QUEUE, 'broken', 'queue-broke', 'MergedAtReviewedHead'],
+    [SPEC, 'holds', 'item-held', undefined],
+  ]);
+  assert.deepEqual(yoloView(h.root).projects[0].models, project.models);
+
+  await recheck(NOW + WEEK - 1);
+  assert.equal(calls.length, 2);
+  await recheck(NOW + WEEK + 60000);
+  assert.equal(calls.length, 3, 'a week on, each model is checked again');
+
+  writeMode(h.root, { enabled: false });
+  await recheck(NOW + 2 * WEEK + 60000);
+  assert.equal(calls.length, 3, 'nothing is checked while work mode is off');
 });

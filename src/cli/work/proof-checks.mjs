@@ -2,13 +2,14 @@ import { spawn as spawnProcess } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { paths, readProject } from './store.mjs';
+import { latestMainRun, readRuns } from './proofs.mjs';
+import { chosenProjects, paths, readMode, readProject } from './store.mjs';
 import { gitOrNothing, gitWithin } from './tree.mjs';
 
 /**
- * TLA+ checks hobkin starts itself (_specs/050-tla-proofs): a model at a change's new head when only the code it models changed. Each is
- * `hobkin proof check`, run as hobkin's own job, never an agent's, in a tree of hobkin's own at that commit. That process writes the run, and
- * `proofs.mjs` reads it.
+ * TLA+ checks hobkin starts itself (_specs/050-tla-proofs): a model at a change's new head when only the code it models changed, and every model
+ * on the default branch once a week. Each is `hobkin proof check`, run as hobkin's own job, never an agent's, in a tree of hobkin's own at that
+ * commit. That process writes the run, and `proofs.mjs` reads it.
  */
 
 // A check stops itself after 20 minutes, so one older than this is over whatever its process id now names.
@@ -85,4 +86,23 @@ export async function startCheck(root, check, { now = Date.now(), spawn = spawnP
   mkdirSync(join(root, 'work'), { recursive: true, mode: 0o700 });
   appendFileSync(checksPath(root), `${JSON.stringify(started)}\n`, { mode: 0o600 });
   return started.error ? null : started;
+}
+
+/**
+ * Once a week, and as soon as a spec reaches the default branch with no run of it, hobkin checks each spec there itself, one at a time and only
+ * while work mode is on. `survey` is the survey's projects, which hold each one's specs on the default branch.
+ */
+export async function recheckModels(root, { now = Date.now(), survey = {}, spawn } = {}) {
+  if (!readMode(root).enabled) return null;
+  const runs = readRuns(root);
+  for (const { slug } of chosenProjects(root)) {
+    const { head, specs = [] } = survey[slug]?.models ?? {};
+    for (const { spec, sha256 } of specs) {
+      const last = latestMainRun(runs, { slug, spec, sha256 });
+      if (last && now - Date.parse(last.finished ?? last.started) < CHECK_EVERY_MS) continue;
+      const started = await startCheck(root, { slug, spec, head }, { now, ...(spawn ? { spawn } : {}) });
+      if (started) return started;
+    }
+  }
+  return null;
 }

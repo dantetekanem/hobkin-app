@@ -24,7 +24,7 @@ import { gitOrNothing, prepareTree } from './tree.mjs';
 import { unmergedNow } from './unmerged.mjs';
 import { readWatch } from './watcher.mjs';
 import { recordAfterDeploy } from './yolo-pass.mjs';
-import { readinessOf, recordReadiness, yoloView } from './yolo.mjs';
+import { mainModels, readinessOf, recordReadiness, yoloView } from './yolo.mjs';
 
 const HELP = `Usage: hobkin work [command] [--home folder]. With no command, the full status.
 Read, as JSON, with nothing running:
@@ -180,6 +180,8 @@ export function workStatus(root, outlook = {}) {
   const projects = readProjects(root).map(project => {
     const items = readItems(root, project.slug);
     const { lookError = null, folderNote = null } = readState(root, project.slug);
+    // Its TLA+ models on the default branch and hobkin's latest run of each, so a model that breaks there can show in Home's Problems.
+    const models = mainModels(root, project.slug);
     return {
       ...project,
       priority: priorityOf(project),
@@ -191,6 +193,7 @@ export function workStatus(root, outlook = {}) {
       lookError,
       folderNote,
       signal: readSignals(root, project.slug)?.signal ?? null,
+      ...(models.length ? { models } : {}),
     };
   });
   const { enabled, folder, autoPick } = mode;
