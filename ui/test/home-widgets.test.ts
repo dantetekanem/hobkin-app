@@ -22,6 +22,7 @@ const model = (over: Partial<Model>): Model => ({
   github: { known: false, reviews: 0, failing: 0, rows: [] },
   connections: { known: false, tiles: [], summary: null },
   week: { days: [], completed: 0, unfinished: 0, wins: null },
+  yolo: null,
   ...over,
 })
 

@@ -4,7 +4,7 @@ import { homeModel } from '../src/features/home/model.ts'
 import type { HomeInput } from '../src/features/home/types.ts'
 import type { ActionItem, WaitingRow } from '../src/features/actions/items.ts'
 import { hostRows } from '../src/features/actions/host.ts'
-import type { FinishedChange, WorkProject, WorkState } from '../../shared/protocol/work.ts'
+import type { FinishedChange, WorkProject, WorkState, YoloState } from '../../shared/protocol/work.ts'
 import type { GitHubPull } from '../../shared/protocol/github.ts'
 import type { Report } from '../src/features/reports/report.ts'
 import type { RoutineFacts } from '../src/features/routines/rules.ts'
@@ -678,6 +678,48 @@ test('connections show gh and each Pi server, and a server waiting for sign-in n
   assert.deepEqual(need?.action.target, { to: 'screen', screen: 'integrations' })
   assert.ok(model.problems.rows.some(row => row.title === 'Sentry could not connect' && row.detail === 'Timed out'))
   assert.deepEqual(homeModel(input()).connections, { known: false, tiles: [], summary: null })
+})
+
+const yolo = (rest: Partial<YoloState> = {}): YoloState => ({
+  on: true, rate: 8, lowest: 6, highest: 10, ready: 1,
+  projects: [
+    { slug: 'app', name: 'App', ready: true, needs: [] },
+    { slug: 'api', name: 'API', ready: false, needs: ['Alerts: No alert reaches you.', 'Tests: None run.'] },
+    { slug: 'docs', name: 'Docs', ready: false, needs: [] },
+  ],
+  ...rest,
+})
+
+test('YOLO mode shows as hobkin reports it: a chip to Settings, and each project ready or with the first thing it needs', () => {
+  const settings = { to: 'screen', screen: 'settings' }
+  const model = homeModel(input({ work: { ...work(), yolo: yolo() } }))
+  assert.deepEqual(model.header.chips[0], { tone: 'accent', label: 'YOLO on · 1 of 3 ready', target: settings })
+  assert.equal(model.yolo?.on, true)
+  assert.equal(model.yolo?.rate, 8)
+  assert.equal(model.yolo?.summary, '1 of 3 projects ready')
+  assert.deepEqual(model.yolo?.projects, [
+    { slug: 'app', name: 'App', ready: true, note: 'Ready' },
+    { slug: 'api', name: 'API', ready: false, note: 'Alerts: No alert reaches you.' },
+    { slug: 'docs', name: 'Docs', ready: false, note: 'Not ready yet' },
+  ])
+
+  const off = homeModel(input({ work: { ...work(), yolo: yolo({ on: false }) } }))
+  assert.deepEqual(off.header.chips[0], { tone: 'quiet', label: 'YOLO off', target: settings })
+  assert.match(off.yolo?.says ?? '', /merges nothing/)
+  assert.equal(homeModel(input({ work: { ...work(), yolo: yolo({ projects: [], ready: 0 }) } })).header.chips[0]?.label, 'YOLO on')
+
+  // An older host sends no YOLO state, and an unavailable home knows nothing: no chip, and Home says it does not know yet.
+  for (const unknown of [homeModel(input({ work: work() })), homeModel(input({ live: false, work: { ...work(), yolo: yolo() } }))]) {
+    assert.equal(unknown.yolo, null)
+    assert.equal(unknown.header.chips.some(chip => /YOLO/.test(chip.label)), false)
+  }
+})
+
+test('held routines show as one chip that opens Routines', () => {
+  const model = homeModel(input({ routines: [routine('a', 60000, 'held'), routine('b', 60000, 'held'), routine('c', 60000)] }))
+  assert.deepEqual(model.header.chips.at(-1), { tone: 'warn', label: '2 routines held', target: { to: 'screen', screen: 'routines' } })
+  assert.equal(homeModel(input({ routines: [routine('a', 60000, 'held')] })).header.chips.at(-1)?.label, '1 routine held')
+  assert.equal(homeModel(input({ routines: [routine('c', 60000)] })).header.chips.some(chip => /held/.test(chip.label)), false)
 })
 
 test('each run on the day strip names its routine and opens its report, or the routine when no report says it', () => {

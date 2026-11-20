@@ -55,7 +55,7 @@ export interface HomeInput {
 
 /** Where a button or row goes. Reminder completion uses its separate user-only control, never a navigation target. */
 export type HomeTarget =
-  | { to: 'screen'; screen: 'actions' | 'reports' | 'routines' | 'work' | 'github' | 'integrations' }
+  | { to: 'screen'; screen: 'actions' | 'reports' | 'routines' | 'work' | 'github' | 'integrations' | 'settings' }
   | { to: 'report'; id: string }
   /** An Action Items row. One that hobkin handles elsewhere (`row.opens`) is resolved by the model, not here. */
   | { to: 'action'; id: string }
@@ -239,6 +239,26 @@ export interface HomeLayout {
   hidden: WidgetKind[]
 }
 
+/** One project in YOLO mode: ready, or the first thing it still needs. */
+export interface YoloRow {
+  slug: string
+  name: string
+  ready: boolean
+  note: string
+}
+
+/** YOLO mode as hobkin reports it (049-yolo-mode), in the words Home shows. */
+export interface HomeYolo {
+  on: boolean
+  /** The lowest general rate a change may have to merge by itself. */
+  rate: number
+  /** "3 of 5 projects ready". */
+  summary: string
+  /** What the switch means as it stands. */
+  says: string
+  projects: YoloRow[]
+}
+
 export interface HomeModel {
   /** The widgets to draw, most relevant first. The screen maps over this and renders each by its kind. */
   widgets: HomeWidget[]
@@ -293,4 +313,6 @@ export interface HomeModel {
     unfinished: number
     wins: { merged: number; decided: number; streak: number } | null
   }
+  /** Null before hobkin has said how YOLO mode stands: an older host, or none. */
+  yolo: HomeYolo | null
 }

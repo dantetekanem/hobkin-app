@@ -3,13 +3,14 @@ import { remindersOf, type ReminderOccurrence } from '#shared/protocol/reminders
 import type { ConfiguredServer } from '#shared/integrations/types.ts'
 import type { GitHubConnection, GitHubPull } from '#shared/protocol/github.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
-import type { FinishedChange } from '#shared/protocol/work.ts'
+import type { FinishedChange, YoloState } from '#shared/protocol/work.ts'
 import { isFinishedBranch, type WaitingRow } from '../actions/items.ts'
 import { ownMark, serviceMark } from '../integrations/marks.ts'
 import { outcomeWeek, sinceLastLook } from '../reports/briefing.ts'
 import { kindOf, sourceOf, toneOf, triageOf } from '../reports/report.ts'
 import { clockTime, timeOf, waited } from '../reports/time.ts'
-import type { CardFact, ConnectionTile, DayMark, HomeAction, HomeInput, HomeModel, HomeRow, HomeTarget, HomeTone, NeedKind, NeedRow, StackCard } from './types.ts'
+import { readyCount, yoloSays } from '../settings/yolo.ts'
+import type { CardFact, ConnectionTile, DayMark, HomeAction, HomeInput, HomeModel, HomeRow, HomeTarget, HomeTone, HomeYolo, NeedKind, NeedRow, StackCard } from './types.ts'
 import { stripItems, thoughtsOf, TIPS } from './tips.ts'
 import { customWidgetsOf, layoutOf, orderWidgets } from './widgets.ts'
 
@@ -796,9 +797,31 @@ function runningOf(input: HomeInput): HomeModel['running'] {
   }
 }
 
+/** YOLO mode in Home's words, or null when hobkin has not said how it stands. */
+function yoloOf(yolo: YoloState | null | undefined): HomeYolo | null {
+  if (!yolo) return null
+  return {
+    on: yolo.on,
+    rate: yolo.rate,
+    summary: readyCount(yolo),
+    says: yoloSays(yolo),
+    projects: yolo.projects.map(({ slug, name, ready, needs }) => ({
+      slug,
+      name,
+      ready,
+      note: ready ? 'Ready' : needs[0] ?? 'Not ready yet',
+    })),
+  }
+}
+
 function chipsOf(input: HomeInput): HomeModel['header']['chips'] {
   const chips: HomeModel['header']['chips'] = []
   const next = forecasts(input)[0]
+  const yolo = input.work?.yolo
+  if (yolo) {
+    const ready = yolo.projects.length ? ` · ${yolo.ready} of ${yolo.projects.length} ready` : ''
+    chips.push({ tone: yolo.on ? 'accent' : 'quiet', label: yolo.on ? `YOLO on${ready}` : 'YOLO off', target: screen('settings') })
+  }
   if (input.agents.length) {
     chips.push({ tone: 'info', label: `${input.agents.length} working`, target: screen('work') })
   }
@@ -807,6 +830,10 @@ function chipsOf(input: HomeInput): HomeModel['header']['chips'] {
   }
   if (input.work?.held) {
     chips.push({ tone: 'warn', label: 'Work held', target: screen('work') })
+  }
+  const held = input.routines.filter(facts => facts.state === 'held').length
+  if (held) {
+    chips.push({ tone: 'warn', label: `${plural(held, 'routine')} held`, target: screen('routines') })
   }
   return chips
 }
@@ -828,6 +855,7 @@ export function homeModel(input: HomeInput): HomeModel {
     github: { known: false, reviews: 0, failing: 0, rows: [] },
     connections: { known: false, tiles: [], summary: null },
     week: { days: [], completed: 0, unfinished: 0, wins: null },
+    yolo: null,
   }
 
   // A dismissed id ("seen it / not now") is dropped wherever it would show: its need row, its problem row and its stack
@@ -868,6 +896,7 @@ export function homeModel(input: HomeInput): HomeModel {
       unfinished: days.reduce((sum, day) => sum + day.failed + day.stopped, 0),
       wins: winsOf(input.wins),
     },
+    yolo: yoloOf(input.work?.yolo),
   }
   // Custom widgets ride the same manifest, ordering, animation and dismissal as the built-ins; a dismissed one leaves
   // by its `custom:<id>`, which never collides with a built-in's bare-kind id.
