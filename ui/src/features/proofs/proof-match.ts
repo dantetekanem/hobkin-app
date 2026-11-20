@@ -10,7 +10,7 @@ import { namesOf, neverFired, stepsToBreak, type Tone } from './run/run-view.ts'
 
 const count = (value: number) => value.toLocaleString('en-US')
 
-/** The spec's file name: `specs/tla/WorkItem.tla` is WorkItem.tla. */
+/** The spec's file name: `_specs/tla/WorkItem.tla` is WorkItem.tla. */
 export const specFile = (spec: string) => spec.split('/').filter(Boolean).at(-1) ?? spec
 
 /** Two commits are the same when one is the other's short form. */

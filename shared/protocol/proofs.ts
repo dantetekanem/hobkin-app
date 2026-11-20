@@ -119,7 +119,7 @@ export interface ProofRunSummary {
   /** The work mode project and item it belongs to, when an agent ran it for one. */
   project?: string
   item?: string
-  /** The spec's path in the project, such as `specs/tla/WorkItem.tla`. */
+  /** The spec's path in the project, such as `_specs/tla/WorkItem.tla`. */
   spec: string
   /** The commit it checked. */
   head?: string

@@ -68,7 +68,7 @@ export function brokenRun(): ProofRun {
   const node = (id: string, both: Both, initial = false) => ({ id, initial, vars: varsOf(both) })
   return {
     id: 'run-1',
-    spec: 'specs/tla/WorkItem.tla',
+    spec: '_specs/tla/WorkItem.tla',
     tool: 'TLC 1.7.4',
     model: '2 items, up to 3 pushes each',
     workers: 4,

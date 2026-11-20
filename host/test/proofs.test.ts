@@ -13,7 +13,7 @@ import { temporaryDirectory } from './support.ts'
 const T0 = Date.parse('2026-11-20T10:00:00Z')
 const at = (seconds: number) => new Date(T0 + seconds * 1000).toISOString()
 
-const startEvent = { type: 'start', at: at(0), spec: 'specs/tla/WorkItem.tla', cfg: 'specs/tla/WorkItem.cfg', project: 'api', item: 'queue', head: 'abc1234', tool: 'TLC 1.7.4', workers: 4, model: '2 items' }
+const startEvent = { type: 'start', at: at(0), spec: '_specs/tla/WorkItem.tla', cfg: '_specs/tla/WorkItem.cfg', project: 'api', item: 'queue', head: 'abc1234', tool: 'TLC 1.7.4', workers: 4, model: '2 items' }
 const progress = (seconds: number, distinct: number) => ({ type: 'progress', at: at(seconds), generated: distinct * 2, distinct, queue: 10, depth: 3 })
 
 const writeEvents = (folder: string, events: object[]) => {
@@ -57,7 +57,7 @@ test('a finished run comes from result.json, over what the events said', (t) => 
   const run = readRun(folder, 'r1')!
   assert.equal(run.outcome, 'broken')
   assert.equal(run.broken, 'Safe')
-  assert.equal(run.spec, 'specs/tla/WorkItem.tla')
+  assert.equal(run.spec, '_specs/tla/WorkItem.tla')
   assert.equal(run.stats.distinct, 5)
   assert.equal(summaryOf(run).rate, undefined)
 })
@@ -163,7 +163,7 @@ test('the state message carries the proofs slice when it changes and with every 
 
 function seat(t: Parameters<typeof temporaryDirectory>[0], runtime: ProofRuntime, pid: string | null = null) {
   const { home, folder } = homeWith(t, 'r1', [startEvent, progress(2, 100)], pid ? { pid } : {})
-  writeFileSync(join(folder, 'result.json'), JSON.stringify({ outcome: 'holds', cfg: 'specs/tla/WorkItem.cfg', root: '/work/api/trees/proof' }))
+  writeFileSync(join(folder, 'result.json'), JSON.stringify({ outcome: 'holds', cfg: '_specs/tla/WorkItem.cfg', root: '/work/api/trees/proof' }))
   const keeper = new ProofsKeeper({ home: () => home, onChange: () => {}, tools: () => tools, pollMs: 1000 })
   t.after(() => keeper.close())
   return { home, folder, keeper, handlers: proofHandlers({ keeper, home: () => home, runtime: async () => runtime, pauseMs: 5, graceMs: 60 }) }
@@ -172,7 +172,7 @@ function seat(t: Parameters<typeof temporaryDirectory>[0], runtime: ProofRuntime
 test('proof.get answers the whole run, and says plainly when there is none', async (t) => {
   const { handlers } = seat(t, {})
   const got = await runCommand(handlers, 'proof.get', { id: 'r1' })
-  assert.equal(got.ok && (got.value as { spec: string }).spec, 'specs/tla/WorkItem.tla')
+  assert.equal(got.ok && (got.value as { spec: string }).spec, '_specs/tla/WorkItem.tla')
   const none = await runCommand(handlers, 'proof.get', { id: 'nope' })
   assert.match(!none.ok ? none.error.message : '', /no proof run nope/)
   assert.equal(checkArguments('proof.get', { id: '../x' }).ok, false)
@@ -182,7 +182,7 @@ test('proof.again starts the same check through the runtime, and an older runtim
   const calls: unknown[] = []
   const { handlers, home } = seat(t, { check: (input) => (calls.push(input), { id: 'r2', message: 'Started r2.' }) })
   assert.deepEqual(await runCommand(handlers, 'proof.again', { id: 'r1' }), { ok: true, value: { message: 'Started r2.', id: 'r2' } })
-  assert.deepEqual(calls, [{ home, spec: 'specs/tla/WorkItem.tla', cfg: 'specs/tla/WorkItem.cfg', root: '/work/api/trees/proof', project: 'api', item: 'queue' }])
+  assert.deepEqual(calls, [{ home, spec: '_specs/tla/WorkItem.tla', cfg: '_specs/tla/WorkItem.cfg', root: '/work/api/trees/proof', project: 'api', item: 'queue' }])
 
   const old = seat(t, {})
   const refused = await runCommand(old.handlers, 'proof.again', { id: 'r1' })

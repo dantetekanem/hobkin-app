@@ -15,7 +15,7 @@ const slice = (...runs: ProofRunSummary[]): ProofsState => ({ runs })
 test("a finished card's runs are its item's, the newest of each spec, at the card's head when one is", () => {
   const old = summary('broken', { id: 'old' }, 0)
   const fixed = summary('proved', { id: 'fixed' }, 5)
-  const other = summary('holds', { id: 'other', spec: 'specs/tla/ReviewQueue.tla' }, 6)
+  const other = summary('holds', { id: 'other', spec: '_specs/tla/ReviewQueue.tla' }, 6)
   const elsewhere = summary('holds', { id: 'elsewhere', item: 'ffff' }, 7)
   const proofs = slice(elsewhere, other, fixed, old)
   assert.deepEqual(runsForItem(proofs, 'hobkin', '4f2c').map(({ id }) => id), ['other', 'fixed'])
@@ -29,27 +29,27 @@ test('the chips say what the model and the proof found, as the design does', () 
   assert.deepEqual(chipsOf([summary('proofFails')]).map(({ label, tone }) => [label, tone]), [['Model broke · 5 steps', 'bad'], ['Proof fails', 'bad']])
   assert.deepEqual(chipsOf([summary('checking')]).map(({ label, tone }) => [label, tone]), [['Checking · 12,408 states', 'live']])
   // Two specs name their files, and a check of an older head says so.
-  const two = chipsOf([summary('holds'), summary('broken', { spec: 'specs/tla/ReviewQueue.tla' })], '3f1a9c2')
+  const two = chipsOf([summary('holds'), summary('broken', { spec: '_specs/tla/ReviewQueue.tla' })], '3f1a9c2')
   assert.deepEqual(two.map(({ label }) => label), ['WorkItem holds · 48,211 states', 'ReviewQueue checked at an older head'])
   const missed = summary('holds', { actions: summary('holds').actions.map((action) => ({ ...action, count: action.name === 'Decline' ? 0 : action.count })) })
   assert.deepEqual(chipsOf([missed])[0], { id: 'sample-holds', label: 'Model holds · Decline never ran', tone: 'warn' })
 })
 
 test("an agent's step finds the run its hobkin proof check started", () => {
-  assert.equal(proofCheckOf('hobkin proof check specs/tla/WorkItem.tla'), 'specs/tla/WorkItem.tla')
-  assert.equal(proofCheckOf('cd ~/code && ~/bin/hobkin proof check --cfg specs/tla/W.cfg "specs/tla/WorkItem.tla"'), 'specs/tla/WorkItem.tla')
+  assert.equal(proofCheckOf('hobkin proof check _specs/tla/WorkItem.tla'), '_specs/tla/WorkItem.tla')
+  assert.equal(proofCheckOf('cd ~/code && ~/bin/hobkin proof check --cfg _specs/tla/W.cfg "_specs/tla/WorkItem.tla"'), '_specs/tla/WorkItem.tla')
   assert.equal(proofCheckOf('hobkin proof setup'), null)
   assert.equal(proofCheckOf('echo hobkin proof check is next'), null)
 
   const first = summary('broken', { id: 'first' }, 0)
   const again = summary('holds', { id: 'again' }, 10)
   const proofs = slice(again, first)
-  assert.equal(runForCommand(proofs, { spec: 'specs/tla/WorkItem.tla', at: STARTED + 9 * 60_000 })?.id, 'again')
+  assert.equal(runForCommand(proofs, { spec: '_specs/tla/WorkItem.tla', at: STARTED + 9 * 60_000 })?.id, 'again')
   assert.equal(runForCommand(proofs, { spec: 'WorkItem.tla', at: STARTED - 1_000 })?.id, 'first')
-  assert.equal(runForCommand(proofs, { spec: 'specs/tla/WorkItem.tla' })?.id, 'again')
-  assert.equal(runForCommand(proofs, { spec: 'specs/tla/WorkItem.tla', at: STARTED + 60 * 60_000 }), null)
+  assert.equal(runForCommand(proofs, { spec: '_specs/tla/WorkItem.tla' })?.id, 'again')
+  assert.equal(runForCommand(proofs, { spec: '_specs/tla/WorkItem.tla', at: STARTED + 60 * 60_000 }), null)
   // The output naming the run's folder wins.
-  assert.equal(runForCommand(proofs, { spec: 'specs/tla/WorkItem.tla', at: STARTED + 9 * 60_000, output: 'Run ~/.hobkin/proofs/first/ broke' })?.id, 'first')
+  assert.equal(runForCommand(proofs, { spec: '_specs/tla/WorkItem.tla', at: STARTED + 9 * 60_000, output: 'Run ~/.hobkin/proofs/first/ broke' })?.id, 'first')
 })
 
 test("the agent's step says how its run stands, and its bar is the share of states still to explore", () => {
@@ -74,17 +74,17 @@ test("the page's eyebrow and title come from work mode", () => {
 
 test("an agent's proof check never folds away with the commands that passed before it", () => {
   const ran = (id: string, command: string): Command => ({ id, command, state: 'done', output: '' })
-  const { folded, open } = foldOf([ran('a', 'pnpm test'), ran('b', 'hobkin proof check specs/tla/WorkItem.tla'), ran('c', 'git status'), ran('d', 'git diff')])
+  const { folded, open } = foldOf([ran('a', 'pnpm test'), ran('b', 'hobkin proof check _specs/tla/WorkItem.tla'), ran('c', 'git status'), ran('d', 'git diff')])
   assert.deepEqual(folded.map(({ id }) => id), ['a', 'c'])
   assert.deepEqual(open.map(({ id }) => id), ['b', 'd'])
 })
 
-const holds: ModelFact = { spec: 'specs/tla/WorkItem.tla', state: 'holds', run: 'run-main', line: 'TLC: 4 of 4 hold in 48,211 states · at 3f1a9c2' }
-const broken: ModelFact = { spec: 'specs/tla/ReviewQueue.tla', state: 'broken', run: 'run-queue', why: 'NoLostReview', line: 'TLC: NoLostReview breaks in 4 steps · at 3f1a9c2' }
-const unchecked: ModelFact = { spec: 'specs/tla/Deploy.tla', state: 'unchecked' }
+const holds: ModelFact = { spec: '_specs/tla/WorkItem.tla', state: 'holds', run: 'run-main', line: 'TLC: 4 of 4 hold in 48,211 states · at 3f1a9c2' }
+const broken: ModelFact = { spec: '_specs/tla/ReviewQueue.tla', state: 'broken', run: 'run-queue', why: 'NoLostReview', line: 'TLC: NoLostReview breaks in 4 steps · at 3f1a9c2' }
+const unchecked: ModelFact = { spec: '_specs/tla/Deploy.tla', state: 'unchecked' }
 
 test("the YOLO page says how a project's models stand on the default branch, as hobkin's runs say", () => {
-  assert.deepEqual(factsLine([holds, { ...holds, spec: 'specs/tla/ReviewQueue.tla' }]), { title: 'Models: 2 machines, both hold', tone: 'ok' })
+  assert.deepEqual(factsLine([holds, { ...holds, spec: '_specs/tla/ReviewQueue.tla' }]), { title: 'Models: 2 machines, both hold', tone: 'ok' })
   assert.deepEqual(factsLine([holds, broken]), { title: 'Models: 2 machines, 1 breaks', tone: 'bad' })
   assert.deepEqual(factsLine([holds, unchecked]), { title: 'Models: 2 machines, 1 of 2 hold', tone: 'warn' })
 

@@ -63,7 +63,7 @@ export type ProjectState = 'chosen' | 'proposed' | 'skipped' | 'dropped'
  * default branch it is the latest run of the spec committed there; on a finished change, a run at the change's head.
  */
 export interface ModelFact {
-  /** The spec's path in the project, such as `specs/tla/WorkItem.tla`. */
+  /** The spec's path in the project, such as `_specs/tla/WorkItem.tla`. */
   spec: string
   state: 'holds' | 'broken' | 'unproven' | 'unchecked'
   /** On a finished change: the change edits the spec itself. */

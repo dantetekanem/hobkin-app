@@ -3,8 +3,8 @@ import { test } from 'node:test'
 import { workFrom } from '../src/work.ts'
 
 const HEAD = `3f1a9c2${'0'.repeat(33)}`
-const holds = { spec: 'specs/tla/WorkItem.tla', state: 'holds', run: 'run-main', line: 'TLC: 4 of 4 hold in 48,211 states · at 3f1a9c2' }
-const broken = { spec: 'specs/tla/ReviewQueue.tla', state: 'broken', run: 'run-queue', why: 'NoLostReview', line: 'TLC: NoLostReview breaks in 4 steps · at 3f1a9c2' }
+const holds = { spec: '_specs/tla/WorkItem.tla', state: 'holds', run: 'run-main', line: 'TLC: 4 of 4 hold in 48,211 states · at 3f1a9c2' }
+const broken = { spec: '_specs/tla/ReviewQueue.tla', state: 'broken', run: 'run-queue', why: 'NoLostReview', line: 'TLC: NoLostReview breaks in 4 steps · at 3f1a9c2' }
 const score = (value: number, more: Record<string, unknown> = {}) => ({ score: value, evidence: 'What the review saw.', ...more })
 
 /** A finished change as hobkin lists it (`readyRow` in its `src/cli/work/reads.mjs`), with what its review scored. */

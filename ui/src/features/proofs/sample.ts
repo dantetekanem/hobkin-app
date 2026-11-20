@@ -3,7 +3,7 @@ import type { ProofDefinition, ProofGraph, ProofLogLine, ProofObligation, ProofO
 /**
  * A TLA+ proof run for a window with no host and for still renders (_specs/050-tla-proofs), in the shape `proof.get`
  * answers (`shared/protocol/proofs.ts`). It is the design's example: a model of how a work item moves from queued to
- * merged, `specs/tla/WorkItem.tla`, whose check finds that YOLO mode merges a head no review read. Nothing here came
+ * merged, `_specs/tla/WorkItem.tla`, whose check finds that YOLO mode merges a head no review read. Nothing here came
  * from hobkin.
  *
  * The runs are the phases of that check: `checking` while TLC runs, `broken` once it found the counterexample, `holds`
@@ -276,7 +276,7 @@ interface Phase {
 
 const READ: Phase['log'] = [
   [-3, 'Read how an item moves from queued to merged', 'src/cli/work/items.mjs · yolo-pass.mjs', 'done'],
-  [-1, 'Wrote the model: 6 actions, 4 things that must stay true', 'specs/tla/WorkItem.tla', 'done'],
+  [-1, 'Wrote the model: 6 actions, 4 things that must stay true', '_specs/tla/WorkItem.tla', 'done'],
   [-1, 'Parsed it with SANY', 'no errors', 'done'],
 ]
 const BROKE: Phase['log'][number] = [0, 'Found a counterexample: a merge on a stale grade', '5 steps · MergedAtReviewedHead', 'bad']
@@ -357,7 +357,7 @@ export function sampleRun(phase: SamplePhase, started = SAMPLE_STARTED): ProofRu
     id: `sample-${phase}`,
     project: 'hobkin',
     item: '4f2c',
-    spec: 'specs/tla/WorkItem.tla',
+    spec: '_specs/tla/WorkItem.tla',
     head: shape.head,
     tool: 'TLC 1.7.4',
     model: '2 items, up to 3 pushes each, rate 8',

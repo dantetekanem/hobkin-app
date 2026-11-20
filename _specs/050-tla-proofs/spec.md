@@ -56,7 +56,7 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 
      The text of 2200 is parsed from a real run captured as a fixture, not from the docs.
   4. Each event goes to `<home>/proofs/<run>/events.jsonl`, and the run ends with a `result.json`.
-- A model lives in the project at `specs/tla/<Machine>.tla` with its `.cfg`, and is committed on the item's branch like code, so the review reads it and it moves with the code. A spec says which files it models in a comment, `\* models: src/cli/work/items.mjs, src/cli/work/yolo-pass.mjs`. Each action names its code in a comment, `\* code: src/cli/work/yolo-pass.mjs:165`. Each definition carries its plain-words gloss in a comment, `\* words: ...`.
+- A model lives in the project at `_specs/tla/<Machine>.tla` with its `.cfg`, and is committed on the item's branch like code, so the review reads it and it moves with the code. A spec says which files it models in a comment, `\* models: src/cli/work/items.mjs, src/cli/work/yolo-pass.mjs`. Each action names its code in a comment, `\* code: src/cli/work/yolo-pass.mjs:165`. Each definition carries its plain-words gloss in a comment, `\* words: ...`.
 - The run record holds:
   - who and where: `id`, `project`, `item`, `head`
   - the spec: `spec` with its sha256, and `cfg` with its sha256
