@@ -78,10 +78,10 @@ Settings has a Short reports switch, off until the user turns it on. While it is
 
 ## Steps
 
-- [ ] S1 (A1, A2, A3, A4, A5). Runtime: the switch, the prompt, the `short-report` purpose, making and checking the short version, the background queue, `short` in the snapshot, and the delete. Files: new `hobkin/src/cli/short-reports.mjs`, new `hobkin/src/prompts/short-report.md`, `hobkin/src/cli/harnesses.mjs`, `hobkin/src/cli/reports.mjs`, `hobkin/src/cli/application.mjs`.
-- [ ] S2 (A6, A8). Host and protocol: the `short-reports.read` and `short-reports.set` commands. Files: `host/src/reports.ts`, new `host/src/hobkin-short-reports.d.ts`, `shared/commands/registry.ts`.
-- [ ] S3 (A6). Window: the Short reports tile in Settings. Files: new `ui/src/features/settings/short-reports.ts`, new `ui/src/features/settings/ShortReportsTile.tsx`, `ui/src/features/settings/SettingsScreen.tsx`.
-- [ ] S4 (A7, A8). Window: the reader shows the short version first and the full report collapsed. Files: `ui/src/features/reports/report.ts`, `ui/src/features/reports/Reader.tsx`.
+- [x] S1 (A1, A2, A3, A4, A5). Runtime: the switch, the prompt, the `short-report` purpose, making and checking the short version, the background queue, `short` in the snapshot, and the delete. Files: new `hobkin/src/cli/short-reports.mjs`, new `hobkin/src/prompts/short-report.md`, `hobkin/src/cli/harnesses.mjs`, `hobkin/src/cli/reports.mjs`, `hobkin/src/cli/application.mjs`. Built in hobkin 607d884.
+- [x] S2 (A6, A8). Host and protocol: the `short-reports.read` and `short-reports.set` commands. Files: `host/src/reports.ts`, new `host/src/hobkin-short-reports.d.ts`, `shared/commands/registry.ts`.
+- [x] S3 (A6). Window: the Short reports tile in Settings. Files: new `ui/src/features/settings/short-reports.ts`, new `ui/src/features/settings/ShortReportsTile.tsx`, `ui/src/features/settings/SettingsScreen.tsx`.
+- [x] S4 (A7, A8). Window: the reader shows the short version first and the full report collapsed. Files: `ui/src/features/reports/report.ts`, `ui/src/features/reports/Reader.tsx`. A still render of the reader, closed and open in light and dark, showed the control in the same place both ways.
 - [ ] S5 (A2, A7). What the tests cannot show: one real short version from the fast tier, read in the live window, with the user's go-ahead.
 
 ## Open questions
