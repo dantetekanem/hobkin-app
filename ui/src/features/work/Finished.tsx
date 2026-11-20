@@ -17,6 +17,7 @@ import type { MergingRow } from '#shared/protocol/work.ts'
 import type { HobkinChoice } from './actions.ts'
 import { endAtWord, needsFirst } from './finished-cards.ts'
 import { GradeChip, IssueLink, PullLink, ReviewBadge, SaidLine, SectionHeading } from './parts.tsx'
+import { ProofChips } from '@/features/proofs/ProofChips.tsx'
 import { saysHigh } from './review-badge.ts'
 import { underWay } from './review-follow.ts'
 import { sampleAssessmentOf } from './sample-reviews.ts'
@@ -409,6 +410,10 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
                 <h4 className="mt-0.5 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{change.title}</h4>
               </div>
               <ReviewBadge status={assessment} size="md" />
+            </div>
+            {/* What hobkin's own model checks found for its item, each opening its run (050-tla-proofs). */}
+            <div className="mt-2 empty:hidden">
+              <ProofChips project={change.slug} item={change.item} head={change.head} />
             </div>
             {change.about ? (
               <p title={change.about} className="mt-1.5 line-clamp-2 text-[13.5px] leading-relaxed">
