@@ -30,6 +30,7 @@ import { followUpRequest, followUpsOver, routinesRequest, SAMPLE_PROJECTS, setup
 import { beatOf, checkAnswer, followUpOf, spokenText, type Answers, type Ask, type Facts, type Tale } from './story.ts'
 import { endedAs, tourFollows } from './first-run.ts'
 import { useSetup } from './store.ts'
+import { useProofTools } from './use-proof-tools.ts'
 import { resolveTaleKey, type TaleKey, type TaleKeyContext } from './tale-keys.ts'
 import { WORLD_TIMES, World, type WorldPhase } from './World.tsx'
 import { LAYER, arrivalFor, stageFor, type Arrival } from './world-geometry.ts'
@@ -485,6 +486,9 @@ export function Storyteller() {
   const [busy, setBusy] = useState(false)
   // Something that was meant to be kept and was not. Said once, quietly, at the bottom.
   const [trouble, setTrouble] = useState<string | null>(null)
+  // The TLA+ tools, set up in the background. The quiet line says how it goes while nothing went wrong.
+  const toolsLine = useProofTools(setTrouble)
+  const quietLine = trouble ?? toolsLine
 
   // Main hobkin's own questions after the fixed ones. The story goes on by itself once they are over.
   const followUps = useFollowUps({
@@ -842,9 +846,9 @@ export function Storyteller() {
           </Button>
         </motion.div>
 
-        {trouble ? (
+        {quietLine ? (
           <p role="status" className="absolute inset-x-0 bottom-2 z-[90] mx-auto w-fit max-w-[70ch] rounded-full bg-card px-3 py-1 text-center text-[12px] text-muted-foreground shadow-panel">
-            {trouble}
+            {quietLine}
           </p>
         ) : null}
         <p className="sr-only" aria-live="polite">
