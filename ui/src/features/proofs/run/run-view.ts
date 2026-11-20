@@ -176,12 +176,12 @@ export function rateOf(run: Pick<ProofRun, 'rate' | 'samples'>): number | null {
   return Math.max(0, Math.round(((after.distinct - before.distinct) * 1000) / (after.at - before.at)))
 }
 
-/** Whether new states come in slower in the second half of the run than in the first. */
-function slowing(samples: ProofRun['samples']): boolean {
+/** How new states come in while it checks: slower in the second half of the run than in the first, or not, once counts say. */
+function risingWords(samples: ProofRun['samples']): string {
   const end = samples.at(-1)
-  if (!end || end.at <= 0) return false
+  if (!end || end.at <= 0) return 'TLC sends its counts once a minute, and none has come yet.'
   const half = distinctAt(samples, end.at / 2)
-  return end.distinct - half < half
+  return end.distinct - half < half ? 'New states are still rising, but more slowly.' : 'New states are still rising fast.'
 }
 
 const CHART_TONES: Readonly<Record<ProofRun['outcome'], Tone>> = { checking: 'live', holds: 'ok', broken: 'bad', error: 'bad', stopped: 'quiet' }
@@ -205,8 +205,15 @@ function chartPaths(samples: ProofRun['samples'], checking: boolean): { line: st
   return { line, area }
 }
 
+/** Every run starts from no states. TLC sends its counts once a minute, so a short run may have one count or none. */
+function fromNothing(samples: ProofRun['samples']): ProofRun['samples'] {
+  const first = samples[0]
+  if (first && first.at <= 0) return samples
+  return [{ at: 0, distinct: 0 }, ...samples]
+}
+
 export function chartOf(run: Pick<ProofRun, 'samples' | 'outcome' | 'rate' | 'traceLength' | 'stats'>): Chart {
-  const samples = run.samples.length ? run.samples : [{ at: 0, distinct: 0 }]
+  const samples = fromNothing(run.samples)
   const paths = { ...chartPaths(samples, run.outcome === 'checking'), tone: CHART_TONES[run.outcome] }
 
   switch (run.outcome) {
@@ -214,8 +221,8 @@ export function chartOf(run: Pick<ProofRun, 'samples' | 'outcome' | 'rate' | 'tr
       const rate = rateOf(run)
       return {
         ...paths,
-        aria: slowing(samples) ? 'New states are still rising, but more slowly.' : 'New states are still rising fast.',
-        caption: rate === null ? 'Counting states' : `${count(rate)} states a second`,
+        aria: risingWords(samples),
+        caption: rate === null ? 'Counts arrive once a minute' : `${count(rate)} states a second`,
       }
     }
     case 'holds':

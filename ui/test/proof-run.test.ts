@@ -58,6 +58,19 @@ test('the chart always has the same points, so one line turns into the next, and
   assert.equal(chartOf({ ...run('checking'), rate: undefined, samples: [{ at: 0, distinct: 0 }, { at: 2000, distinct: 500 }] }).caption, '250 states a second')
 })
 
+test('TLC counts once a minute: a short run draws a straight rise from nothing, and says when counts arrive', () => {
+  const short = { ...run('holds'), samples: [{ at: 40_000, distinct: 812 }] }
+  const points = chartOf(short).line.slice(1).split(' L')
+
+  // From the floor at the start to the top at its one count, never a flat line.
+  assert.equal(points[0], '0 108')
+  assert.equal(points.at(-1), '600 6')
+
+  const waiting = chartOf({ ...run('checking'), rate: undefined, samples: [] })
+  assert.equal(waiting.caption, 'Counts arrive once a minute')
+  assert.equal(waiting.aria, 'TLC sends its counts once a minute, and none has come yet.')
+})
+
 test('the result says what was found, and its first button steps through a counterexample', () => {
   assert.deepEqual(resultOf(run('checking')), {
     tone: 'quiet',
