@@ -30,11 +30,11 @@ function setting(t) {
   const home = temp(t, 'hobkin-proof-home-');
   const project = realpathSync(temp(t, 'hobkin-proof-project-'));
   execFileSync('git', ['init', '-q'], { cwd: project });
-  mkdirSync(join(project, 'specs', 'tla'), { recursive: true });
-  for (const name of ['WorkItem.tla', 'WorkItem.cfg']) copyFileSync(fixture(name), join(project, 'specs', 'tla', name));
+  mkdirSync(join(project, '_specs', 'tla'), { recursive: true });
+  for (const name of ['WorkItem.tla', 'WorkItem.cfg']) copyFileSync(fixture(name), join(project, '_specs', 'tla', name));
   mkdirSync(join(home, 'tools', 'tla'), { recursive: true });
   writeFileSync(jarPath(home), '');
-  return { home, project, spec: join(project, 'specs', 'tla', 'WorkItem.tla') };
+  return { home, project, spec: join(project, '_specs', 'tla', 'WorkItem.tla') };
 }
 
 /** `java` and `tlapm` wrappers that run the stub with this plan, and the calls they got. */
@@ -186,8 +186,8 @@ test('SANY\'s output says whether the spec parsed, and where it did not', () => 
 });
 
 test('the check command takes the spec and its flags, and nothing it does not know', () => {
-  assert.deepEqual(parseCheckArgs(['specs/tla/WorkItem.tla', '--cfg', 'specs/tla/Small.cfg', '--project', 'hobkin', '--item', '4f2c', '--head', 'abc1234', '--workers', '3', '--minutes', '5']), {
-    spec: 'specs/tla/WorkItem.tla', cfg: 'specs/tla/Small.cfg', project: 'hobkin', item: '4f2c', head: 'abc1234', workers: 3, minutes: 5,
+  assert.deepEqual(parseCheckArgs(['_specs/tla/WorkItem.tla', '--cfg', '_specs/tla/Small.cfg', '--project', 'hobkin', '--item', '4f2c', '--head', 'abc1234', '--workers', '3', '--minutes', '5']), {
+    spec: '_specs/tla/WorkItem.tla', cfg: '_specs/tla/Small.cfg', project: 'hobkin', item: '4f2c', head: 'abc1234', workers: 3, minutes: 5,
   });
   assert.deepEqual(parseCheckArgs(['WorkItem.tla']), { spec: 'WorkItem.tla' });
   assert.throws(() => parseCheckArgs([]), /Usage: hobkin proof check/);
@@ -248,7 +248,7 @@ test('the events tell the run as it goes, and the record ends with the outcome a
 
   assert.equal(types[0], 'start');
   assert.deepEqual(lines[0], {
-    type: 'start', at: lines[0].at, spec: 'specs/tla/WorkItem.tla', cfg: 'specs/tla/WorkItem.cfg', project: 'hobkin', item: '4f2c',
+    type: 'start', at: lines[0].at, spec: '_specs/tla/WorkItem.tla', cfg: '_specs/tla/WorkItem.cfg', project: 'hobkin', item: '4f2c',
     head: 'abc1234', tool: 'TLC 1.7.4', workers: 2, model: 'MaxPush = 2', root: project,
   });
   assert.equal(types.at(-1), 'end');
@@ -291,7 +291,7 @@ test('an action that never fired is named, and the run does not count as evidenc
 test('a deadlock and a broken temporal property leave their traces, and a broken initial state its one state', async t => {
   const dir = setting(t);
   const cfg = (name, text) => {
-    const path = join(dir.project, 'specs', 'tla', name);
+    const path = join(dir.project, '_specs', 'tla', name);
     writeFileSync(path, text);
     return path;
   };
@@ -364,7 +364,7 @@ test('one TLC runs at a time: a second check waits for the first', async t => {
  * relative to it, and the stub found through JAVA_HOME.
  */
 function startCli(place, stub) {
-  const args = [entry, 'proof', 'check', 'specs/tla/WorkItem.tla', '--project', 'hobkin', '--item', '4f2c', '--head', 'abc1234', '--home', place.home, '--workers', '1'];
+  const args = [entry, 'proof', 'check', '_specs/tla/WorkItem.tla', '--project', 'hobkin', '--item', '4f2c', '--head', 'abc1234', '--home', place.home, '--workers', '1'];
   const child = spawn(process.execPath, args, {
     cwd: place.project,
     env: { ...process.env, JAVA_HOME: stub.javaHome },
@@ -423,20 +423,20 @@ test('stop ends the Java process within 2 seconds, even one that ignores its fir
   assert.notEqual(code, 0);
   const record = result(place.home, id);
   assert.equal(record.outcome, 'stopped');
-  assert.deepEqual([record.spec, record.project, record.item, record.head], ['specs/tla/WorkItem.tla', 'hobkin', '4f2c', 'abc1234']);
+  assert.deepEqual([record.spec, record.project, record.item, record.head], ['_specs/tla/WorkItem.tla', 'hobkin', '4f2c', 'abc1234']);
   assert.equal(existsSync(join(place.home, 'proofs', id, 'pid')), false);
 });
 
 test('the host starts a check as its own process and gets its id back at once', async t => {
   const place = setting(t);
   const stub = stubTools(t, { ...okParse, tlc: { stdout: 'tlc-holds.out' }, graph: { stdout: 'tlc-holds.out', dot: 'states.dot' } });
-  const started = await checkProof({ home: place.home, spec: 'specs/tla/WorkItem.tla', root: place.project, env: { ...process.env, JAVA_HOME: stub.javaHome } });
+  const started = await checkProof({ home: place.home, spec: '_specs/tla/WorkItem.tla', root: place.project, env: { ...process.env, JAVA_HOME: stub.javaHome } });
 
   assert.match(started.id, /^\d{8}-\d{6}-workitem-[a-z0-9]{4}$/);
-  assert.match(started.message, /Started the check of specs\/tla\/WorkItem\.tla/);
+  assert.match(started.message, /Started the check of _specs\/tla\/WorkItem\.tla/);
   const record = await until(() => existsSync(join(place.home, 'proofs', started.id, 'result.json')) && result(place.home, started.id));
   assert.equal(record.outcome, 'holds');
-  assert.equal(record.spec, 'specs/tla/WorkItem.tla');
+  assert.equal(record.spec, '_specs/tla/WorkItem.tla');
 });
 
 test('real TLC checks the fixture spec, only with HOBKIN_TLC=1', { skip: process.env.HOBKIN_TLC !== '1' }, async t => {

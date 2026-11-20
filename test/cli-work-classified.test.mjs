@@ -80,8 +80,8 @@ test('the general rate is the average cut to one decimal, and a floor holds a ch
 });
 
 test('a model hobkin checked at the change\'s head writes the proof score\'s evidence, and one that broke caps it at 3', () => {
-  const holds = { spec: 'specs/tla/WorkItem.tla', state: 'holds', run: 'held', line: 'TLC: 4 of 4 hold in 48,211 states · at 3f1a9c2' };
-  const broken = { spec: 'specs/tla/ReviewQueue.tla', state: 'broken', run: 'broke', line: 'TLC: MergedAtReviewedHead breaks in 5 steps · at 3f1a9c2' };
+  const holds = { spec: '_specs/tla/WorkItem.tla', state: 'holds', run: 'held', line: 'TLC: 4 of 4 hold in 48,211 states · at 3f1a9c2' };
+  const broken = { spec: '_specs/tla/ReviewQueue.tla', state: 'broken', run: 'broke', line: 'TLC: MergedAtReviewedHead breaks in 5 steps · at 3f1a9c2' };
 
   const held = scoresOf(review({}, { proof: 9 }), [holds]);
   assert.deepEqual(held.scores.proof, { score: 9, evidence: holds.line, by: 'hobkin', run: 'held' }, 'the review\'s score stands, on hobkin\'s own evidence');
@@ -94,7 +94,7 @@ test('a model hobkin checked at the change\'s head writes the proof score\'s evi
   assert.equal(scoresOf(review({}, { proof: 2 }), [broken]).scores.proof.score, 2, 'a cap never raises a score');
 
   // A model nobody has run at this commit yet is no evidence either way, so the review's own line stands.
-  const unchecked = scoresOf(review(), [{ spec: 'specs/tla/WorkItem.tla', state: 'unchecked' }]);
+  const unchecked = scoresOf(review(), [{ spec: '_specs/tla/WorkItem.tla', state: 'unchecked' }]);
   assert.deepEqual(unchecked.scores, scored());
   assert.deepEqual(scoresOf(review()).scores, scored());
 });
@@ -140,8 +140,8 @@ test('a finished row carries its scores and says when they are for an older comm
 test('a finished row\'s proof score is hobkin\'s own once a model covering its files ran at its head', async t => {
   const h = workspace(t);
   const spec = '---- MODULE WorkItem ----\n\\* models: app.txt\n====\n';
-  mkdirSync(join(h.checkout, 'specs', 'tla'), { recursive: true });
-  commit(h.checkout, 'specs/tla/WorkItem.tla', spec);
+  mkdirSync(join(h.checkout, '_specs', 'tla'), { recursive: true });
+  commit(h.checkout, '_specs/tla/WorkItem.tla', spec);
   const branch = 'hobkin/fix-merge';
   branched(h.checkout, branch, 'app.txt', 'two\n');
   const head = git(h.checkout, 'rev-parse', branch);
@@ -153,7 +153,7 @@ test('a finished row\'s proof score is hobkin\'s own once a model covering its f
     id: 'broke',
     project: 'api',
     item: id,
-    spec: 'specs/tla/WorkItem.tla',
+    spec: '_specs/tla/WorkItem.tla',
     head,
     specHash: createHash('sha256').update(spec).digest('hex'),
     outcome: 'broken',

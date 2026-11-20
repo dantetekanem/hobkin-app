@@ -419,12 +419,12 @@ test('after a deploy the report says what the monitoring showed, and a regressio
   assert.equal(stateOf(h, next), 'branch');
 });
 
-const SPEC = 'specs/tla/WorkItem.tla';
+const SPEC = '_specs/tla/WorkItem.tla';
 const specText = '---- MODULE WorkItem ----\n\\* models: app.txt\n====\n';
 const specHash = createHash('sha256').update(specText).digest('hex');
 
 function withSpec(h, slug = 'api') {
-  mkdirSync(join(h.checkouts[slug], 'specs', 'tla'), { recursive: true });
+  mkdirSync(join(h.checkouts[slug], '_specs', 'tla'), { recursive: true });
   commit(h.checkouts[slug], SPEC, specText);
 }
 
@@ -465,7 +465,7 @@ test('a model that breaks at a change\'s head, or has not held there, keeps it a
   assert.equal(asks([model({ state: 'unchecked' })]), 'its model WorkItem.tla has not been checked at this commit yet');
   assert.equal(asks([model({ state: 'unproven', run: 'r', why: 'Decline never fired' })]), 'its model WorkItem.tla did not hold at this commit: Decline never fired');
   assert.equal(
-    asks([model({ state: 'unchecked' }), model({ spec: 'specs/tla/Queue.tla', state: 'broken', run: 'r', why: 'MergedAtReviewedHead' })]),
+    asks([model({ state: 'unchecked' }), model({ spec: '_specs/tla/Queue.tla', state: 'broken', run: 'r', why: 'MergedAtReviewedHead' })]),
     'its model Queue.tla breaks at this commit: MergedAtReviewedHead',
     'a broken model is the reason said, before its proof score of 3',
   );

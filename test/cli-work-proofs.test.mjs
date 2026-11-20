@@ -17,8 +17,8 @@ import { branched, commit, git, repository, writeJson } from './helpers/work-fix
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 const WEEK = 7 * 24 * 3600000;
-const SPEC = 'specs/tla/WorkItem.tla';
-const QUEUE = 'specs/tla/ReviewQueue.tla';
+const SPEC = '_specs/tla/WorkItem.tla';
+const QUEUE = '_specs/tla/ReviewQueue.tla';
 
 const specText = (models = 'app.txt', name = 'WorkItem') => [
   `---- MODULE ${name} ----`,
@@ -46,7 +46,7 @@ function workspace(t) {
 }
 
 function withSpec(h, spec = SPEC, text = specText()) {
-  mkdirSync(join(h.checkout, 'specs', 'tla'), { recursive: true });
+  mkdirSync(join(h.checkout, '_specs', 'tla'), { recursive: true });
   commit(h.checkout, spec, text);
 }
 

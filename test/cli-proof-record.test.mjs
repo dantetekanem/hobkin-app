@@ -38,14 +38,14 @@ test('a run counts for an item only when it holds, every action fired, and its h
 
 test('a run is written once by the proof process, and read back whole', t => {
   const root = home(t);
-  const record = openRecord(root, '20261120-103000-workitem-ab12', { spec: 'specs/tla/WorkItem.tla', tool: 'TLC 1.7.4', workers: 2 });
+  const record = openRecord(root, '20261120-103000-workitem-ab12', { spec: '_specs/tla/WorkItem.tla', tool: 'TLC 1.7.4', workers: 2 });
   record.emit({ type: 'progress', generated: 10, distinct: 4, queue: 1, depth: 2 });
   record.emit({ type: 'end', outcome: 'holds' });
-  record.finish({ cfg: 'specs/tla/WorkItem.cfg', specHash: 'f00d' });
+  record.finish({ cfg: '_specs/tla/WorkItem.cfg', specHash: 'f00d' });
 
   const run = readRun(root, '20261120-103000-workitem-ab12');
   assert.equal(run.outcome, 'holds');
-  assert.equal(run.cfg, 'specs/tla/WorkItem.cfg');
+  assert.equal(run.cfg, '_specs/tla/WorkItem.cfg');
   assert.deepEqual(run.stats, { generated: 10, distinct: 4, queue: 1, depth: 2 });
   assert.throws(() => openRecord(root, '20261120-103000-workitem-ab12', { spec: 'x.tla' }), /already/);
 

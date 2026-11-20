@@ -492,14 +492,14 @@ function assertSize({ impact, effort }) {
 }
 
 // A TLA+ model's path in its project, as the state machines look files it with its machine.
-const isSpecPath = spec => typeof spec === 'string' && /^specs\/tla\/[\w./-]+\.tla$/.test(spec) && !spec.split('/').includes('..');
+const isSpecPath = spec => typeof spec === 'string' && /^_specs\/tla\/[\w./-]+\.tla$/.test(spec) && !spec.split('/').includes('..');
 
 function assertItem(item) {
   const { key, kind, title, brief, spec } = item;
   if (!key) throw Error('An item needs a stable key.');
   if (!itemKinds.includes(kind)) throw Error(`kind must be one of: ${itemKinds.join(', ')}`);
   if (!title || !brief) throw Error('An item needs a title and a brief.');
-  if (spec !== undefined && !isSpecPath(spec)) throw Error('spec is the model\'s path in the project, under specs/tla/ and ending in .tla.');
+  if (spec !== undefined && !isSpecPath(spec)) throw Error('spec is the model\'s path in the project, under _specs/tla/ and ending in .tla.');
   assertSize(item);
 }
 

@@ -6,12 +6,12 @@ import { promisify } from 'node:util';
 import { gitOrNothing } from './tree.mjs';
 
 /**
- * TLA+ models as work mode reads them (_specs/050-tla-proofs). A model lives in its project at `specs/tla/<Machine>.tla`, and its `\* models:`
+ * TLA+ models as work mode reads them (_specs/050-tla-proofs). A model lives in its project at `_specs/tla/<Machine>.tla`, and its `\* models:`
  * comments name the files it models. Only the `hobkin proof check` process writes a run, as `<home>/proofs/<id>/result.json`: this file only
  * reads runs and matches them to a commit. hobkin's own checks start in `proof-checks.mjs`.
  */
 
-const SPECS_FOLDER = 'specs/tla';
+const SPECS_FOLDER = '_specs/tla';
 // The spec's sha256 as the check read it, so a run of an edit nobody committed counts for no commit.
 const SPEC_HASH = 'specHash';
 const SHORT_SHA = 7;
