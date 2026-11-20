@@ -20,6 +20,7 @@ import { DirectionsTile } from './DirectionsTile.tsx'
 import { KeptThemesList } from './KeptThemesList.tsx'
 import { PetTile } from './PetTile.tsx'
 import { ReviewTile } from './ReviewTile.tsx'
+import { ShortReportsTile } from './ShortReportsTile.tsx'
 import { ClaudeCodeTile } from './ClaudeCodeTile.tsx'
 import { SubscriptionsTile } from './SubscriptionsTile.tsx'
 import { spring } from '@/lib/motion.ts'
@@ -57,6 +58,7 @@ export function SettingsScreen() {
         <ReviewTile />
         <IntegrationsTile />
         <DirectionsTile />
+        <ShortReportsTile />
         <SubscriptionsTile />
         <ClaudeCodeTile />
         <TypeTile />
