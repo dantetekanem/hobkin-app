@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Brain, CalendarClock, FileText, GitPullRequest, House, Inbox, Plug, Presentation, Puzzle, Settings2, Waypoints, Workflow, type LucideIcon } from 'lucide-react'
+import { BookOpen, Bot, Brain, CalendarClock, FileText, GitPullRequest, House, Inbox, Plug, Presentation, Puzzle, Settings2, Waypoints, Workflow, Zap, type LucideIcon } from 'lucide-react'
 
 /** The screens in menu order. The order sets the direction a screen comes in from. */
 export const SCREENS = [
@@ -11,6 +11,8 @@ export const SCREENS = [
   { id: 'github', label: 'GitHub', icon: GitPullRequest },
   // These show in the menu only while something is open in them.
   { id: 'world', label: 'World', icon: Workflow, contextual: true },
+  // YOLO mode's switch and each project's readiness, a page of Work's own as World is (049-yolo-mode).
+  { id: 'yolo', label: 'YOLO mode', icon: Zap, contextual: true },
   { id: 'agent', label: 'Agent', icon: Bot, contextual: true },
   { id: 'mind', label: "Hobkin's mind", icon: Brain, contextual: true },
   { id: 'review', label: 'Review', icon: Waypoints, contextual: true },

@@ -13,6 +13,7 @@ import { AgentScreen } from '@/features/work/AgentScreen.tsx'
 import { MainAgentScreen } from '@/features/main-agent/MainAgentScreen.tsx'
 import { WorkScreen } from '@/features/work/WorkScreen.tsx'
 import { WorldScreen } from '@/features/work/WorldScreen.tsx'
+import { YoloScreen } from '@/features/work/YoloScreen.tsx'
 import { ActionsScreen } from '@/features/actions/ActionsScreen.tsx'
 import { GitHubScreen } from '@/features/github/GitHubScreen.tsx'
 import { CanvasPane } from '@/features/canvas-panel/CanvasPane.tsx'
@@ -47,6 +48,7 @@ const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
   home: HomeScreen,
   work: WorkScreen,
   world: WorldScreen,
+  yolo: YoloScreen,
   routines: RoutinesScreen,
   reports: ReportsScreen,
   actions: ActionsScreen,

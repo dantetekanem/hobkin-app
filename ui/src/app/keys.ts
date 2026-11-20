@@ -168,14 +168,14 @@ function perform(action: KeyAction): boolean {
       else if (view.screen === 'integrations') view.toggleIntegrations()
       else if (view.screen === 'skills' || view.screen === 'extensions') view.togglePage(view.screen)
       else if (view.screen === 'github') view.closeGitHub()
-      else if (view.screen === 'world') view.openScreen('work')
+      else if (view.screen === 'world' || view.screen === 'yolo') view.openScreen('work')
       else view.closeSettings()
       // Leaving a review returns the keyboard to its opener; other temporary screens keep their existing trail.
       if (view.screen === 'review') {
         requestCanvasFocus()
-      } else if (view.screen === 'world') {
-        // As the World's own Back to Work does: onto the control that opened it.
-        requestCanvasFocus('[data-opens="world"]')
+      } else if (view.screen === 'world' || view.screen === 'yolo') {
+        // As the page's own Back to Work does: onto the control that opened it.
+        requestCanvasFocus(`[data-opens="${view.screen}"]`)
       } else if (useView.getState().screen === 'settings') {
         // Back in Settings, onto the button that opened the page just left.
         requestCanvasFocus(`[data-opens="${view.screen}"]`)

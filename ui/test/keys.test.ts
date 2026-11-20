@@ -325,7 +325,7 @@ test('command left and right go back and forward, and stay text editing in any t
 })
 
 test('escape that nothing used leaves a screen that is open only for now', () => {
-  for (const screen of ['review', 'settings', 'integrations', 'world'] as const) {
+  for (const screen of ['review', 'settings', 'integrations', 'world', 'yolo'] as const) {
     assert.deepEqual(resolveEscape(context({ zone: 'canvas', screen }), false), { do: 'leave-screen' }, screen)
     assert.deepEqual(resolveEscape(context({ zone: 'other', screen }), false), { do: 'leave-screen' }, `${screen}, with the keyboard nowhere`)
     assert.equal(resolveEscape(context({ zone: 'canvas', screen }), true), null, `${screen}, when the screen used the key`)

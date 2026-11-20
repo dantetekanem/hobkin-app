@@ -1,4 +1,4 @@
-import { Map as MapIcon } from 'lucide-react'
+import { Map as MapIcon, Zap } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
@@ -10,6 +10,7 @@ import { useStill } from '@/app/still.ts'
 import { useStops } from '@/app/stops.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
+import { SAMPLE_YOLO } from '@/features/settings/yolo.ts'
 import { rowVariants, useArriving } from '@/features/reports/list-motion.ts'
 import type { WorkState } from '@/lib/host/index.ts'
 import { spring } from '@/lib/motion.ts'
@@ -27,7 +28,7 @@ import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab } from './tab.ts'
 import { useReviewList } from './use-review-list.ts'
 import { bindWorkTarget } from './work-target.ts'
-import { YoloMode } from './Yolo.tsx'
+import { yoloAtAGlance } from './yolo-page.ts'
 
 const TABS = ['work', 'reviews'] as const
 
@@ -149,7 +150,6 @@ export function WorkScreen() {
         <Hero>
           <Header work={work} live={live} working={agents.length} onOpenWorld={worldAvailable ? openWorld : undefined} />
         </Hero>
-        <YoloMode work={work} live={live} />
         <div className="flex flex-col gap-6">
           <PageTabs
             id="work"
@@ -256,10 +256,18 @@ function openWorld() {
   requestCanvasFocus()
 }
 
+/** YOLO mode is a page of its own too. Coming back lands on the button that opened it, on whichever page of Work was showing. */
+function openYolo() {
+  useView.getState().openScreen('yolo')
+  useView.getState().engageCanvas()
+  requestCanvasFocus()
+}
+
 /**
- * Work's heading: what is going on, the way to World beside the mode switch on the same line, and what the mode means.
- * The World button and the switch are one pair of controls: the same height, centered on the title's line, and kept
- * at the right edge even when they wrap under a long title.
+ * Work's heading: what is going on, the ways to YOLO mode and World beside the mode switch on the same line, and what
+ * the mode means. The buttons and the switch are one group of controls: the same height, centered on the title's line,
+ * and kept at the right edge even when they wrap under a long title. The YOLO mode button says how it stands, and it is
+ * first, so a longer word grows it to the left and moves nothing beside it.
  */
 function Header({ work, live, working, onOpenWorld }: { work: WorkState | null; live: boolean; working: number; onOpenWorld?: () => void }) {
   const busy = useWorkUi((state) => Boolean(state.busy['mode']))
@@ -287,6 +295,7 @@ function Header({ work, live, working, onOpenWorld }: { work: WorkState | null; 
     )
   }
 
+  const yolo = live ? (work.yolo ?? null) : SAMPLE_YOLO
   const finished = work.finished.reduce((sum, { changes }) => sum + changes.length, 0)
   const title = work.enabled ? `${working} working, ${work.queued} queued, ${finished} finished` : 'Work mode is off'
   const line = work.enabled
@@ -301,6 +310,13 @@ function Header({ work, live, working, onOpenWorld }: { work: WorkState | null; 
           {title}
         </p>
         <div className="ml-auto flex items-center gap-2">
+          {yolo ? (
+            <Button variant="outline" data-stop="" data-opens="yolo" onClick={openYolo}>
+              <Zap aria-hidden="true" />
+              YOLO mode
+              <span className="text-muted-foreground tabular-nums">{yoloAtAGlance(yolo)}</span>
+            </Button>
+          ) : null}
           {onOpenWorld ? (
             <Button variant="outline" data-stop="" data-opens="world" onClick={onOpenWorld}>
               <MapIcon aria-hidden="true" />

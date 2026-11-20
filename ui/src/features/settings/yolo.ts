@@ -13,9 +13,16 @@ export const SAMPLE_YOLO: YoloState = {
   highest: 10,
   ready: 1,
   projects: [
-    { slug: 'storefront', name: 'storefront', ready: true, needs: [] },
-    { slug: 'billing-api', name: 'billing-api', ready: false, needs: ['Slow queries: No slow query log, and nothing catches an N+1.', 'Alerts: No alert reaches you.'] },
-    { slug: 'docs-site', name: 'docs-site', ready: false, needs: ['Its readiness work waits for your yes.'] },
+    { slug: 'storefront', name: 'storefront', ready: true, needs: [], work: 'landed', checkedAt: '2026-11-18T16:20:00Z' },
+    {
+      slug: 'billing-api',
+      name: 'billing-api',
+      ready: false,
+      needs: ['Slow queries: No slow query log, and nothing catches an N+1.', 'Alerts: No alert reaches you.'],
+      work: 'landed',
+      checkedAt: '2026-11-19T10:05:00Z',
+    },
+    { slug: 'docs-site', name: 'docs-site', ready: false, needs: ['Its readiness work waits for your yes.'], work: 'waiting', checkedAt: '2026-11-19T14:40:00Z' },
   ],
 }
 
