@@ -8,6 +8,7 @@ import { startProcess } from './child.mjs';
 import { isRunId, newRunId, openRecord, proofsFolder, readRun, recordStopped, runCounts, runFolder } from './record.mjs';
 import { readSany } from './sany.mjs';
 import { modelLine, readCfg, readSpec } from './spec.mjs';
+import { proofFrom, readToolbox, tlapmArguments } from './tlaps.mjs';
 import { defaultWorkers, heapMegabytes, sanyArguments, tlcArguments, tlcOutcome } from './tlc.mjs';
 import { messageReader } from './tool-messages.mjs';
 import { inspectTools, jarPath, MINIMUM_JAVA, TLA2TOOLS } from './tools.mjs';
@@ -28,8 +29,8 @@ const JAVA_GRACE_MS = 1000;
 const STOP_WAIT_MS = 1500;
 const POLL_MS = 50;
 const LOCK_POLL_MS = 250;
-/** TLC's working files, which go when the run ends. */
-const SCRATCH = ['states', 'states-graph'];
+/** TLC's and TLAPS's working files, which go when the run ends. */
+const SCRATCH = ['states', 'states-graph', 'tlapm'];
 
 export const CHECK_USAGE = 'Usage: hobkin proof check <spec.tla> [--cfg file] [--project slug] [--item id] [--head sha] [--workers n] [--minutes n]';
 // `--root` and `--id` are for `checkProof`, which starts this command for the host.
@@ -263,8 +264,16 @@ function judge(seen, ended, rules) {
   return { outcome: 'error', message, statuses: every('unchecked') };
 }
 
-/** How a run with no model to check ends. */
-const noModelEnding = () => ({ outcome: 'error', message: 'Nothing checked: the spec has no .cfg for TLC.' });
+/** How a run with no model to check ends: as its proof did, or with nothing checked. */
+function proofEnding(proof, hasProof) {
+  if (!proof) {
+    const missing = hasProof ? 'TLAPS is not installed for its proof' : 'no proof';
+    return { outcome: 'error', message: `Nothing checked: the spec has no .cfg for TLC, and ${missing}.` };
+  }
+  if (proof.proved) return { outcome: 'holds' };
+  if (proof.obligations.length) return { outcome: 'broken', broken: 'the proof' };
+  return { outcome: 'error', message: 'TLAPS proved nothing: it found no steps to prove.' };
+}
 
 const CLOSING = {
   holds: { text: 'Done: it holds', tone: 'ok' },
@@ -295,7 +304,8 @@ export async function runCheck({
 }) {
   const place = locate({ spec, cfg, root, cwd });
   const found = tools ?? await toolsOnMachine(home, env);
-  const parts = readSpec(readFileSync(place.spec, 'utf8'));
+  const source = readFileSync(place.spec, 'utf8');
+  const parts = readSpec(source);
   const cfgInfo = place.cfg ? readCfg(readFileSync(place.cfg, 'utf8')) : null;
   const words = byName(parts.definitions, 'words');
   const codes = byName(parts.definitions, 'code');
@@ -329,7 +339,7 @@ export async function runCheck({
   if (stopSignal?.aborted) onAbort();
   const timer = setTimeout(() => stop(`Stopped at the time limit of ${plural(minutes, 'minute')}.`), minutes * 60000);
 
-  /** Java, with its pid kept beside the run's so `stop` can end it. */
+  /** Java or tlapm, with its pid kept beside the run's so `stop` can end it. */
   const runTool = async (command, args, handlers = {}) => {
     const child = startProcess(command, args, { cwd: dirname(place.spec), env, ...handlers });
     active = child;
@@ -504,8 +514,35 @@ export async function runCheck({
     log(`Drew the state graph: ${plural(extra.graph.nodes.length, 'state')}`, 'done');
   };
 
-  /** The proof step, which TLAPS does not take yet. */
-  const prove = () => step('prove', 'skipped', parts.hasProof ? 'TLAPS does not run yet' : 'The spec has no proof');
+  /** TLAPS, when the spec has a proof and the model, if it has one, holds. Null when it did not run. */
+  const prove = async model => {
+    if (!parts.hasProof) {
+      step('prove', 'skipped', 'The spec has no proof');
+      return null;
+    }
+    if (model && model.outcome !== 'holds') {
+      step('prove', 'skipped', 'Waits until the model holds');
+      return null;
+    }
+    if (!found.tlapm) {
+      step('prove', 'skipped', 'TLAPS is not installed, so the proof did not run');
+      return null;
+    }
+
+    step('prove', 'running', 'TLAPS · strict');
+    log('Proving the theorems with TLAPS', 'running', 'tlapm --strict');
+    const { ended, said } = await runAndRead(found.tlapm, tlapmArguments(place.spec, join(folder, 'tlapm')));
+    if (stopping) return null;
+
+    const proof = proofFrom(readToolbox(said), { source, exitCode: ended.code, strict: true });
+    emit({ type: 'proof', ...proof });
+    const total = proof.obligations.length;
+    const provedSteps = proof.obligations.filter(({ status }) => status === 'proved').length;
+    step('prove', proof.proved ? 'done' : 'failed', `TLAPS · ${provedSteps} of ${plural(total, 'step')} proved`);
+    if (proof.proved) log(`TLAPS proved all ${plural(total, 'step')}`, 'ok');
+    else log(`TLAPS could not prove ${total - provedSteps} of ${plural(total, 'step')}`, 'bad');
+    return proof;
+  };
 
   const steps = async () => {
     if (!await parse()) return;
@@ -515,8 +552,9 @@ export async function runCheck({
     else step('check', 'skipped', 'No .cfg next to the spec, so TLC did not run');
     if (stopping) return;
 
-    prove();
-    Object.assign(ending, model ?? noModelEnding());
+    const proof = await prove(model);
+    if (stopping) return;
+    Object.assign(ending, model ?? proofEnding(proof, parts.hasProof));
   };
 
   /** Ends the record: the steps still open, the closing line, the end event and `result.json`. */
