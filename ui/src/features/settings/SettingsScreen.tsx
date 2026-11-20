@@ -29,7 +29,6 @@ import { NotificationsLine } from '@/features/notifications/NotificationsLine.ts
 import { NerdStats } from './NerdStats.tsx'
 import { UpdateModels } from './UpdateModels.tsx'
 import { SetupAgainTile } from './SetupAgainTile.tsx'
-import { YoloTile } from './YoloTile.tsx'
 import { useChat } from '@/features/chat/chat-store.ts'
 import { hostStore } from '@/lib/host/client.ts'
 import { runWork, useWorkUi, useWorkView } from '@/features/work/store.ts'
@@ -56,7 +55,6 @@ export function SettingsScreen() {
         <AgentsAtOnce />
         <Models />
         <ReviewTile />
-        <YoloTile />
         <IntegrationsTile />
         <DirectionsTile />
         <SubscriptionsTile />

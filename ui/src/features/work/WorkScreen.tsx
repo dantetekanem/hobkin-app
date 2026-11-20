@@ -27,6 +27,7 @@ import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab } from './tab.ts'
 import { useReviewList } from './use-review-list.ts'
 import { bindWorkTarget } from './work-target.ts'
+import { YoloMode } from './Yolo.tsx'
 
 const TABS = ['work', 'reviews'] as const
 
@@ -148,6 +149,7 @@ export function WorkScreen() {
         <Hero>
           <Header work={work} live={live} working={agents.length} onOpenWorld={worldAvailable ? openWorld : undefined} />
         </Hero>
+        <YoloMode work={work} live={live} />
         <div className="flex flex-col gap-6">
           <PageTabs
             id="work"
