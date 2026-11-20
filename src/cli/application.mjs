@@ -43,6 +43,7 @@ import { mergeGroup } from './work/merge-group.mjs';
 import { filePickUp, retirePickUp } from './work/pick-up.mjs';
 import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
 import { winsNow, yesterdayLine } from './work/wins.mjs';
+import { runReadiness } from './work/yolo.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers, lastOfferAt, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { fileFirstPair } from './work/pairs.mjs';
@@ -1110,6 +1111,8 @@ export class HobkinApplication {
       run: () => pickNext(root, slug),
       // Start now on a queue row: at once, as one extra worker when none is free. The tick below starts it.
       now: () => triggerRow(root, slug, undefined, { now: true }),
+      // One project's readiness for YOLO mode, run now whether YOLO mode is on or off. It starts the same way, and merges nothing.
+      ready: () => runReadiness(root, slug, this.now()),
       later: () => skipInQueue(root, slug),
       back: () => putBackInQueue(root, slug),
       retry: () => retryItem(root, slug, value),

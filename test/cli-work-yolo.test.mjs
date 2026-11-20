@@ -4,16 +4,18 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
+import { HobkinApplication } from '../src/cli/application.mjs';
 import { clientNoticesToPost } from '../src/cli/client-notices.mjs';
-import { initialize } from '../src/cli/config.mjs';
+import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { surveyAndClose } from '../src/cli/work/closing.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
-import { chooseProject, fileItem, prFile, readItems, readMode, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, paths, prFile, readItems, readMode, skipProject, updateItem, writeMode, writeOwnerView, writeState } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { yoloPass } from '../src/cli/work/yolo-pass.mjs';
-import { readinessOf, readYolo, recordReadiness, setYolo, yoloView } from '../src/cli/work/yolo.mjs';
+import { holdProject, readinessOf, readYolo, recordReadiness, runReadiness, setYolo, yoloView } from '../src/cli/work/yolo.mjs';
+import { fakePi } from './helpers/pi-session.mjs';
 import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
@@ -414,4 +416,129 @@ test('after a deploy the report says what the monitoring showed, and a regressio
   await survey(h);
   assert.deepEqual(await yoloPass(h.root, { now: NOW }), []);
   assert.equal(stateOf(h, next), 'branch');
+});
+
+const HOUR = 3600000;
+const checks = h => yoloView(h.root).projects.map(({ slug, work, checkedAt }) => [slug, work, checkedAt]);
+
+/** A project made ready by its own readiness run alone, with YOLO mode never turned on. */
+function checkedAlone(h, slug) {
+  runReadiness(h.root, slug, NOW);
+  const { id } = readinessItem(h, slug);
+  updateItem(h.root, slug, id, { state: 'doing' }, NOW);
+  recordReadiness(h.root, slug, allReady(), NOW);
+  updateItem(h.root, slug, id, { state: 'merged' }, NOW);
+}
+
+test('one project\'s readiness runs on its own with YOLO mode off, and running it merges nothing', t => {
+  const h = workspace(t, ['api', 'web']);
+  checkedAlone(h, 'web');
+  assert.equal(readinessOf(h.root, 'web').ready, true, 'a project can be got ready before the switch is turned on');
+  const waiting = finished(h, 'Fix signup', { slug: 'web' });
+  assert.deepEqual(checks(h), [['api', 'none', null], ['web', 'landed', new Date(NOW).toISOString()]]);
+
+  const { message } = runReadiness(h.root, 'api', NOW);
+
+  const { id, kind, title, state, brief } = readinessItem(h);
+  assert.deepEqual([kind, title, state], ['feature', 'Get api ready for YOLO mode', 'open']);
+  assert.doesNotMatch(brief, /YOLO mode is on/, 'the run is not told YOLO mode is on when it is off');
+  assert.match(message, /^Queued "Get api ready for YOLO mode" on api to start at once\./);
+  assert.deepEqual(readMode(h.root).queueNext[0], `item:api:${id}`, 'it starts the way Start now starts a queue row');
+  assert.ok(readMode(h.root).queueNow.includes(`item:api:${id}`));
+  assert.deepEqual(checks(h), [['api', 'queued', null], ['web', 'landed', new Date(NOW).toISOString()]]);
+  assert.deepEqual([readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').needs], [false, ['Its readiness has not been checked yet.']]);
+  assert.equal(readYolo(h.root).on, false, 'the switch stays the user\'s');
+  assert.equal(stateOf(h, waiting, 'web'), 'branch');
+  assert.equal(onMain(h, waiting, 'web'), false);
+  assert.deepEqual(ledger(h), []);
+});
+
+test('checking again opens landed readiness work on a fresh branch, and the project is ready again only once that lands', t => {
+  const h = workspace(t);
+  makeReady(h);
+  const before = readinessItem(h);
+  updateItem(h.root, 'api', before.id, { branch: 'hobkin/ready-before', attempts: 2, lastError: 'An earlier run failed.' }, NOW);
+  holdProject(h.root, 'api', { item: 'abc123', title: 'Fix login' }, NOW);
+
+  runReadiness(h.root, 'api', NOW + HOUR);
+
+  const again = readinessItem(h);
+  assert.equal(again.id, before.id, 'the same readiness work, run again');
+  assert.deepEqual([again.state, again.attempts, again.lastError], ['open', 0, null]);
+  assert.ok(again.branch.startsWith('hobkin/') && again.branch !== 'hobkin/ready-before', 'a fresh branch, so the run starts from the default branch');
+  assert.deepEqual(checks(h), [['api', 'queued', new Date(NOW).toISOString()]], 'the last check stands until the next one records');
+  assert.equal(readinessOf(h.root, 'api').ready, false);
+
+  updateItem(h.root, 'api', again.id, { state: 'doing' }, NOW + HOUR);
+  recordReadiness(h.root, 'api', allReady(), NOW + 2 * HOUR);
+  assert.deepEqual(readinessOf(h.root, 'api').needs, ['Its readiness work is still under way.'], 'the new check lifted the hold');
+  updateItem(h.root, 'api', again.id, { state: 'merged' }, NOW + 2 * HOUR);
+  assert.deepEqual([readinessOf(h.root, 'api').ready, checks(h)], [true, [['api', 'landed', new Date(NOW + 2 * HOUR).toISOString()]]]);
+});
+
+test('readiness waiting for the user\'s yes or running is not started again, closed readiness opens again, and only a chosen project has any', t => {
+  const h = workspace(t, ['api', 'web']);
+  runReadiness(h.root, 'api', NOW);
+  const { id } = readinessItem(h);
+
+  for (const state of ['branch', 'pr']) {
+    updateItem(h.root, 'api', id, { state, branch: 'hobkin/ready' }, NOW);
+    assert.throws(() => runReadiness(h.root, 'api', NOW), /waits for your yes/, state);
+    assert.deepEqual(checks(h)[0], ['api', 'waiting', null], state);
+  }
+
+  updateItem(h.root, 'api', id, { state: 'declined' }, NOW);
+  assert.deepEqual(checks(h)[0], ['api', 'closed', null]);
+  runReadiness(h.root, 'api', NOW);
+  assert.deepEqual([readinessItem(h).state, checks(h)[0]], ['open', ['api', 'queued', null]]);
+
+  // An open owner says what runs.
+  updateItem(h.root, 'api', id, { state: 'doing' }, NOW);
+  mkdirSync(join(h.root, 'runtime.lock'));
+  writeOwnerView(h.root, { running: [{ id: 'run-1', slug: 'api', item: id, lane: 'do', title: 'api: Get api ready for YOLO mode' }] });
+  assert.deepEqual(checks(h)[0], ['api', 'running', null]);
+  assert.throws(() => runReadiness(h.root, 'api', NOW), /already running/);
+
+  skipProject(h.root, 'web', NOW);
+  assert.throws(() => runReadiness(h.root, 'web', NOW), /not a project work mode works on/);
+  assert.throws(() => runReadiness(h.root, 'nowhere', NOW), /not a project work mode works on/);
+  assert.equal(readinessItem(h, 'web'), undefined);
+});
+
+test('the window\'s Run readiness is hobkin\'s own work action, and its run starts at once', async t => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-yolo-app-')));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const root = join(base, 'home');
+  const config = initialize(root, { cwd: base, now: '2026-01-01T00:00:00Z' });
+  config.main.model = 'fixture/local';
+  config.background.model = 'fixture/check';
+  atomicJson(join(root, 'config.json'), config);
+  const at = new Date().toISOString();
+  chooseProject(root, repository(base, 'api'), 'important');
+  mkdirSync(paths(root, 'api').directory, { recursive: true });
+  writeFileSync(paths(root, 'api').project, '# What it is\n');
+  writeState(root, 'api', { lastLookAt: at, lastLensAt: at, lastIdeasAt: at, lastSignalsAt: at });
+  atomicJson(join(root, 'work', 'unmerged.json'), { at, projects: {} });
+  writeMode(root, { enabled: true, startGapMs: 0, lastDiscoveryAt: at });
+
+  const started = [];
+  const runHarness = request => {
+    started.push(JSON.parse(request.prompt).work?.item?.key ?? 'something else');
+    return new Promise(resolve => {
+      const stop = () => resolve({ status: 'interrupted', error: 'Harness cancelled.' });
+      if (request.signal.aborted) stop();
+      else request.signal.addEventListener('abort', stop, { once: true });
+    });
+  };
+  const app = await HobkinApplication.open(root, { createMain: fakePi(root).createMain, runHarness, intervalMs: 60000 });
+  try {
+    const { message } = await app.workAction('ready', 'api');
+    while (!started.includes(READY_KEY)) await new Promise(resolve => setTimeout(resolve, 10));
+
+    assert.match(message, /^Queued "Get api ready for YOLO mode" on api to start at once\. It starts now/);
+    assert.equal(yoloView(root).projects[0].work, 'running');
+    assert.equal(readYolo(root).on, false);
+  } finally {
+    await app.close();
+  }
 });

@@ -1,13 +1,15 @@
 import { join } from 'node:path';
 import { atomicJson } from '../config.mjs';
+import { triggerRow } from './controls.mjs';
 import { nameOf } from './names.mjs';
-import { chosenProjects, fileItem, paths, readItems, readJson, readMode, writeMode } from './store.mjs';
+import { chosenProjects, fileItem, ownerView, paths, readItems, readJson, readMode, runnableStates, updateItem, workName, writeMode } from './store.mjs';
+import { BRANCH_PREFIX } from './tree.mjs';
 
 /**
  * YOLO mode: the user's switch for letting small, well-reviewed changes merge and deploy by themselves, and the lowest general rate they accept.
  * It is off until they turn it on in the window, and turning it on merges nothing. Its first job on each project is to get that project ready,
- * which is work filed as a feature and landed on the user's yes. This file holds the switch and each project's readiness. What merges is the
- * pass's (`yolo-pass.mjs`).
+ * which is work filed as a feature and landed on the user's yes, and the user can run that work on one project before turning it on. This file
+ * holds the switch and each project's readiness. What merges is the pass's (`yolo-pass.mjs`).
  */
 
 // The floors already put every change that passes them above 6, so a lower rate would ask for nothing.
@@ -35,7 +37,8 @@ const WAITS_FOR_A_YES = ['branch', 'pr'];
 const CLOSED_UNLANDED = ['declined', 'dropped'];
 const LONGEST_LINE = 400;
 
-const READY_BRIEF = 'YOLO mode is on, and hobkin merges and deploys small changes by itself only on a project that is ready for it. '
+// The user may run it before turning YOLO mode on, so it never says the switch is on.
+const READY_BRIEF = 'With YOLO mode on, hobkin merges and deploys small changes by itself, and only on a project that is ready for it. '
   + 'Check that this project has tests that can cover a change, monitoring a regression would show up in (error tracking that reaches an alert, slow query '
   + 'and N+1 detection, request and job timings with a baseline, logs that can be searched, alerts that reach the user), a way back with a flag mechanism '
   + 'where one makes sense, and a deploy path hobkin can run and undo. Build what is missing for this project\'s stack, and record what you found as the '
@@ -53,14 +56,58 @@ export function readYolo(root) {
 const readinessFile = (root, slug) => join(paths(root, slug).directory, 'yolo.json');
 const readinessItem = (root, slug) => readItems(root, slug).find(({ key }) => key === READY_KEY) ?? null;
 
+function fileReadiness(root, project, now) {
+  const readiness = {
+    key: READY_KEY,
+    kind: 'feature',
+    title: `Get ${nameOf(project)} ready for YOLO mode`,
+    brief: READY_BRIEF,
+    impact: 'high',
+    effort: 'medium',
+  };
+  return fileItem(root, project.slug, readiness, now);
+}
+
 /** Each chosen project gets its readiness work once, as a feature in the queue. It answers what it filed. */
 export function prepareProjects(root, now = Date.now()) {
   return chosenProjects(root).flatMap(project => {
     if (readinessItem(root, project.slug)) return [];
-    const title = `Get ${nameOf(project)} ready for YOLO mode`;
-    const { id } = fileItem(root, project.slug, { key: READY_KEY, kind: 'feature', title, brief: READY_BRIEF, impact: 'high', effort: 'medium' }, now);
+    const { id, title } = fileReadiness(root, project, now);
     return [{ slug: project.slug, id, title }];
   });
+}
+
+// Each fresh check gets a branch of its own from the default branch, since the branch of a check that landed stays behind.
+function freshBranch(item, now) {
+  const stamp = new Date(now).toISOString().replace(/\D/g, '').slice(0, 14);
+  return `${BRANCH_PREFIX}${workName(item)}-${stamp}`;
+}
+
+/**
+ * Runs one chosen project's readiness now, whether YOLO mode is on or off, so a project can be got ready before the switch is turned on. It files
+ * the readiness work when there is none, and opens work that landed or closed again for a fresh check. It starts the way Start now starts a queue
+ * row, so work mode's own limits and stops still hold it. Work that waits for the user's yes is theirs to answer first. Nothing merges or deploys.
+ */
+export function runReadiness(root, slug, now = Date.now()) {
+  const project = chosenProjects(root).find(chosen => chosen.slug === slug);
+  if (!project) throw Error(`${slug} is not a project work mode works on.`);
+  const known = readinessItem(root, slug);
+  if (WAITS_FOR_A_YES.includes(known?.state)) throw Error(`The readiness work on ${nameOf(project)} waits for your yes on its branch. Merge it or say no to it first.`);
+
+  const item = known ?? fileReadiness(root, project, now);
+  if (!runnableStates.includes(item.state)) {
+    const freshCheck = {
+      state: 'open',
+      attempts: 0,
+      lastError: null,
+      branch: freshBranch(item, now),
+      pr: null,
+      brief: READY_BRIEF,
+    };
+    updateItem(root, slug, item.id, freshCheck, now);
+  }
+
+  return triggerRow(root, `item:${slug}:${item.id}`, undefined, { now: true });
 }
 
 /**
@@ -131,11 +178,26 @@ export function readinessOf(root, slug) {
  */
 export const reviewsByItself = (root, slug) => readMode(root).reviewOnFinish === true || (readYolo(root).on && readinessOf(root, slug).ready);
 
-/** YOLO mode as the window and Home read it: the switch, the rate, how many projects are ready, and what each of the others still needs. */
+/** Where a project's readiness work stands: none filed, queued, running, waiting for the user's yes, landed, or closed without landing. */
+function workOf(item, running) {
+  if (!item) return 'none';
+  if (running.some(run => run.item === item.id)) return 'running';
+  if (runnableStates.includes(item.state)) return 'queued';
+  if (WAITS_FOR_A_YES.includes(item.state)) return 'waiting';
+  return LANDED.includes(item.state) ? 'landed' : 'closed';
+}
+
+/**
+ * YOLO mode as the window and Home read it: the switch, the rate, how many projects are ready, what each of the others still needs, where each
+ * project's readiness work stands and when its readiness was last recorded.
+ */
 export function yoloView(root) {
+  const { running } = ownerView(root);
   const projects = chosenProjects(root).map(project => {
-    const { ready, needs } = readinessOf(root, project.slug);
-    return { slug: project.slug, name: nameOf(project), ready, needs };
+    const { ready, needs, at } = readinessOf(root, project.slug);
+    const runs = running.filter(run => run.slug === project.slug);
+    const work = workOf(readinessItem(root, project.slug), runs);
+    return { slug: project.slug, name: nameOf(project), ready, needs, work, checkedAt: at };
   });
   return { ...readYolo(root), lowest: LOWEST_RATE, highest: HIGHEST_RATE, ready: projects.filter(({ ready }) => ready).length, projects };
 }
