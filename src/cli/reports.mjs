@@ -112,6 +112,29 @@ export function saveReport(root, id, body) {
   return writePrivate(reportPath(root, id), body);
 }
 
+// A report's short version sits beside it (051-short-reports), small enough to read whole.
+const shortReportPath = (root, id) => reportPath(root, id).replace(/\.md$/, '.short.md');
+const MOST_SHORT_BYTES = 65536;
+
+export function saveShortReport(root, id, text) {
+  if (typeof text !== 'string' || !text.trim() || Buffer.byteLength(text) > MOST_SHORT_BYTES) throw Error('A short report must be bounded Markdown text.');
+  mkdirSync(reportDirectory(root), { recursive: true, mode: 0o700 });
+  return writePrivate(shortReportPath(root, id), text);
+}
+
+/** The report's short version, or null when it has none. One that cannot be read, or is not a private bounded file, counts as none. */
+export function readShortReport(root, id) {
+  try {
+    reportDirectory(root);
+    const file = shortReportPath(root, id);
+    const stat = statOrMissing(file);
+    if (!stat || !stat.isFile() || (stat.mode & 0o077) || stat.size > MOST_SHORT_BYTES) return null;
+    return readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
 export function readReport(root, id, fallback) {
   reportDirectory(root);
   const file = reportPath(root, id);
@@ -141,6 +164,7 @@ export function deleteReports(root, ids) {
   for (const id of ids) {
     deleted.add(id);
     rmSync(reportPath(root, id), { force: true });
+    rmSync(shortReportPath(root, id), { force: true });
   }
   mkdirSync(join(root, 'runtime'), { recursive: true, mode: 0o700 });
   writePrivate(deletedPath(root), `${JSON.stringify({ version: 1, ids: [...deleted] }, null, 2)}\n`);

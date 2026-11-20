@@ -21,6 +21,7 @@ import { MemoryIndex } from './memory-index.mjs';
 import { CHROME_NOTE } from './chrome.mjs';
 import { compactionDue, nextRunIn } from './compaction.mjs';
 import { editReport } from './report-editor.mjs';
+import { ShortReports } from './short-reports.mjs';
 import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
@@ -243,6 +244,8 @@ export class HobkinApplication {
     });
     try {
       runHarness = app.ownedHarness(runHarness);
+      // A report's short version comes in the background once the report is listed, and the list refreshes when it does (051-short-reports).
+      app.shortReports = new ShortReports({ root: app.runtime.directory, runHarness, onMade: () => app.requestRefresh() });
       moveRoutinesFolder(app.runtime.directory);
       // Only a draft ever needs these, and a draft does not outlive the process.
       app.pastedImages = new PastedImages(app.runtime.directory, clipboard);
@@ -574,6 +577,11 @@ export class HobkinApplication {
       })
       .map(({ message }) => message)).slice(-100);
     const readReports = readReportIds(this.runtime.directory);
+    const listedReports = [...reports, ...this.snapshot.history.reports.filter(report => {
+      if (deleted.has(report.id) || reportIds.has(report.id)) return false;
+      reportIds.add(report.id);
+      return true;
+    })].map(report => readReports.has(report.id) ? { ...report, readState: 'read' } : report);
     const currentAndRecentRuns = runs.filter((run, index) => run.status === 'running' || index < 100);
     const visible = {
       version: 1,
@@ -583,12 +591,8 @@ export class HobkinApplication {
       telemetry: projectPerformance(this.runtime.directory, currentAndRecentRuns, {
         liveHelpers: this.runtime.ownedLifecycle?.snapshot?.() ?? [], savedTelemetry: this.snapshot.telemetry,
       }),
-      // Every report is listed. The tab shows them a page at a time, so nothing needs cutting here.
-      reports: [...reports, ...this.snapshot.history.reports.filter(report => {
-        if (deleted.has(report.id) || reportIds.has(report.id)) return false;
-        reportIds.add(report.id);
-        return true;
-      })].map(report => readReports.has(report.id) ? { ...report, readState: 'read' } : report),
+      // Every report is listed. The tab shows them a page at a time, so nothing needs cutting here. Each carries its short version once it has one.
+      reports: this.shortReports?.carry(listedReports) ?? listedReports,
       messages,
       context: this.runtime.contextInfo(),
       runs: [
@@ -1441,6 +1445,7 @@ export class HobkinApplication {
       if (this.openedAt) recordEvent(this.runtime.directory, 'app_closed', { ms: this.now() - this.openedAt });
       this.closing = (async () => {
         clearTimeout(this.refreshTimer);
+        this.shortReports?.close();
         this.moods?.stop();
         this.deletionWatcher?.close();
         this.tellWatcher?.close();

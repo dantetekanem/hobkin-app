@@ -12,7 +12,7 @@ const LINK = /https?:\/\/[^\s)>\]]+/g;
 const NUMBER = /\d[\d.,:]*\d|\d/g;
 
 /** The parts of a report an edit may not touch: words can change, and these are the evidence. */
-const fixedParts = text => [
+export const fixedParts = text => [
   ...[...text.matchAll(CODE)].map(([, code]) => code),
   ...(text.match(LINK) ?? []),
   ...(text.match(NUMBER) ?? []),
