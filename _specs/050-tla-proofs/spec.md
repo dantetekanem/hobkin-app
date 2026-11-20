@@ -42,13 +42,13 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 
 - Agents never call `java` directly. They run `hobkin proof check <spec.tla> [--cfg <file>]`:
   1. SANY parses the spec. A parse error reports its file, line and column, and TLC never starts.
-  2. TLC runs with `-tool -workers <n> -coverage 1 -dumpTrace json <run>/trace.json`, breadth first, so a counterexample is the shortest one.
+  2. TLC runs with `-tool -workers <n> -coverage 1`, breadth first, so a counterexample is the shortest one. TLC 1.7.4 has no `-dumpTrace`, so hobkin writes `trace.json` itself from the trace states TLC prints (2217). Its trace steps name the action without arguments (`Fix`, not `Fix(i1)`). It reports progress (2200) once a minute, so a short run shows only its final counts.
   3. hobkin reads TLC's framed messages (`@!@!@STARTMSG <code>:<class> @!@!@`). The codes it reads (from https://github.com/tlaplus/tlaplus/blob/master/tlatools/org.lamport.tlatools/src/tlc2/output/EC.java):
      - progress 2200
      - final stats 2199
      - finished 2186
      - success 2193
-     - invariant violated 2107, 2110 and 2146
+     - invariant violated 2107 and 2110 (2146 is an invariant that is not a state predicate: the run ends in error)
      - temporal property violated 2116
      - deadlock 2114
      - trace 2121, with states 2216 to 2218
@@ -83,7 +83,7 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 
 ### The state graph
 
-- When a run has at most 50,000 distinct states, TLC dumps the graph with `-dump dot,actionlabels,colorize`. A bigger model gets no dump, and its views say so.
+- When a run found at most 50,000 distinct states, hobkin runs TLC a second time with `-dump dot,actionlabels,colorize` for the graph. A bigger model gets no dump, and its views say so.
 - The graph uses the libraries the review graph already uses: `@dagrejs/dagre` for layout and `@xyflow/react` for drawing.
 - **The counterexample** shows the shortest path, with the other moves from the same states faded.
 - **Around it** shows the states within 2 steps of the path, at most 200, and says how many of how many it shows.
