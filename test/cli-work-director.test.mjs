@@ -5,6 +5,7 @@ import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realp
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initialize, setLearning } from '../src/cli/config.mjs';
+import { jarPath } from '../src/cli/proof/tools.mjs';
 import { readEvents, recordEvent } from '../src/cli/events.mjs';
 import { saveState } from '../src/cli/learning/store.mjs';
 import { lastUpkeep } from '../src/cli/work/upkeep.mjs';
@@ -1198,10 +1199,14 @@ test("the weekly state-machines look runs on the max tier, whatever its project'
   h.director.config = { ...config, tiers: { max: { model: 'fixture/deepest', effort: 'xhigh' } } };
   writeMode(h.root, { enabled: true, machinesLook: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
   chooseProject(h.root, repository(h.base, 'site'), 'casual');
+  // With the TLA+ tools set up, the look that starts is one readiness counts, and that is what the project's state says.
+  mkdirSync(dirname(jarPath(h.root)), { recursive: true });
+  writeFileSync(jarPath(h.root), 'not a real jar');
   await h.ticks(8);
 
   const machines = h.calls.filter(call => call.purpose === 'work-look' && h.work(call).focus === 'state-machines');
   assert.equal(machines.length, 1, 'once, not on every tick');
+  assert.equal(readState(h.root, 'site').lastMachinesTlcAt, readState(h.root, 'site').lastMachinesAt);
   assert.deepEqual([machines[0].model, machines[0].effort], ['fixture/deepest', 'xhigh']);
   // The look is told whether its project picks up issues by itself, so it knows whether an issue alone is enough.
   assert.equal(h.work(machines[0]).project.issues, 'off');

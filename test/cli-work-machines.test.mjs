@@ -3,18 +3,21 @@
 // covers sent back to its branch for the model, keeping its review's scores. No agent, Java or TLC runs here.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { realpathSync, mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
+import { jarPath } from '../src/cli/proof/tools.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { readMachines, recordMachines } from '../src/cli/work/machines.mjs';
-import { chooseProject, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
-import { readinessOf, recordReadiness, setYolo } from '../src/cli/work/yolo.mjs';
-import { repository } from './helpers/work-fixture.mjs';
+import { planWork } from '../src/cli/work/plan.mjs';
+import { chooseProject, paths, readItems, readMode, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
+import { readinessOf, recordReadiness, runReadiness, setYolo } from '../src/cli/work/yolo.mjs';
+import { repository, writeJson } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
+const DAY = 24 * 3600000;
 const RECORDED = ['tests', 'errors', 'slowQueries', 'performance', 'logs', 'alerts', 'rollback', 'deploy'];
 
 function workspace(t, projects = ['api']) {
@@ -73,4 +76,47 @@ test('the models part is not ready until a look with TLC recorded the machines, 
   const reply = await runWorkCommand(h.root, ['machines', 'api'], piped({ machines: [] }));
   assert.match(reply.message, /^Recorded no state machine on api, without Java and TLC/);
   assert.deepEqual([readMachines(h.root, 'api').tlc, models()], [false, { ready: false, missing: notLooked }]);
+});
+
+/** A studied project whose looks are all fresh, and whose state machines were looked for a day ago, before the TLA+ tools were here. */
+function lookedYesterday(h, slug) {
+  mkdirSync(paths(h.root, slug).directory, { recursive: true });
+  writeFileSync(paths(h.root, slug).project, '# What it is\n');
+  const at = new Date(NOW).toISOString();
+  writeState(h.root, slug, { lastLookAt: at, lastLensAt: at, lastIdeasAt: at, lastSignalsAt: at, lastMachinesAt: new Date(NOW - DAY).toISOString() });
+}
+
+/** The pinned jar as setup leaves it, which it puts in only once Java is found or installed. */
+function toolsSetUp(h) {
+  mkdirSync(dirname(jarPath(h.root)), { recursive: true });
+  writeFileSync(jarPath(h.root), 'not a real jar');
+}
+
+test('a project never looked at for its state machines with TLC has that look due now, and Run readiness puts it first', t => {
+  const h = workspace(t, ['api', 'web', 'site']);
+  writeJson(join(h.root, 'work', 'subscription.json'), { secondary: { usedPercent: 10, windowMinutes: 10080, resetAt: NOW + 3 * DAY } });
+  for (const slug of ['api', 'web', 'site']) lookedYesterday(h, slug);
+  const due = () => planWork(h.root, { now: NOW }).entries.filter(({ kind }) => kind === 'machines').map(({ slug, why }) => [slug, why]);
+
+  assert.deepEqual(due(), [], 'without the tools a look made yesterday comes again in a week');
+
+  toolsSetUp(h);
+  assert.deepEqual(due().map(([slug, why]) => [slug, why.endsWith('never looked for with TLC')]).toSorted(), [['api', true], ['site', true], ['web', true]]);
+  writeMode(h.root, { agents: 1 });
+  const plan = planWork(h.root, { now: NOW, running: [{ id: 'run-1', slug: 'web', lane: 'look', kind: 'machines', level: 'max' }] });
+  assert.equal(plan.next, null, 'the agent limit paces them: with one agent and it busy, none of them starts');
+
+  // A look that started with the tools here is the one readiness waits for, and the next comes a week after it.
+  writeState(h.root, 'web', { lastMachinesAt: new Date(NOW).toISOString(), lastMachinesTlcAt: new Date(NOW).toISOString() });
+  assert.deepEqual(due().map(([slug]) => slug).toSorted(), ['api', 'site']);
+
+  // Run readiness puts the project's look ahead of its readiness work when the look is due, and leaves a look that is not due alone.
+  const { message } = runReadiness(h.root, 'api', NOW);
+  const readiness = readItems(h.root, 'api').find(({ key }) => key === 'yolo:ready');
+  assert.match(message, /^Queued "Get api ready for YOLO mode" on api to start at once\..* Its state machines look goes first\.$/);
+  assert.deepEqual(readMode(h.root).queueNext, ['machines:api', `item:api:${readiness.id}`]);
+  assert.deepEqual(planWork(h.root, { now: NOW }).entries.filter(({ pickedNow }) => pickedNow).map(({ key }) => key), ['machines:api', `item:api:${readiness.id}`]);
+
+  runReadiness(h.root, 'web', NOW);
+  assert.equal(readMode(h.root).queueNext.includes('machines:web'), false);
 });

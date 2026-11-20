@@ -3,8 +3,9 @@ import { atomicJson } from '../config.mjs';
 import { triggerRow } from './controls.mjs';
 import { readMachines } from './machines.mjs';
 import { nameOf } from './names.mjs';
+import { machinesLookDue } from './plan.mjs';
 import { mainFacts, readRuns, specName } from './proofs.mjs';
-import { chosenProjects, fileItem, ownerView, paths, readItems, readJson, readMode, runnableStates, updateItem, workName, writeMode } from './store.mjs';
+import { chosenProjects, fileItem, ownerView, paths, pickNow, readItems, readJson, readMode, runnableStates, updateItem, workName, writeMode } from './store.mjs';
 import { BRANCH_PREFIX } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 
@@ -98,6 +99,7 @@ function freshBranch(item, now) {
  * Runs one chosen project's readiness now, whether YOLO mode is on or off, so a project can be got ready before the switch is turned on. It files
  * the readiness work when there is none, and opens work that landed or closed again for a fresh check. It starts the way Start now starts a queue
  * row, so work mode's own limits and stops still hold it. Work that waits for the user's yes is theirs to answer first. Nothing merges or deploys.
+ * A state machines look that is due goes first, since readiness counts the project's models only after a look with the TLA+ tools.
  */
 export function runReadiness(root, slug, now = Date.now()) {
   const project = chosenProjects(root).find(chosen => chosen.slug === slug);
@@ -118,7 +120,10 @@ export function runReadiness(root, slug, now = Date.now()) {
     updateItem(root, slug, item.id, freshCheck, now);
   }
 
-  return triggerRow(root, `item:${slug}:${item.id}`, undefined, { now: true });
+  const started = triggerRow(root, `item:${slug}:${item.id}`, undefined, { now: true });
+  if (!machinesLookDue(root, project, now)) return started;
+  pickNow(root, `machines:${slug}`);
+  return { ...started, message: `${started.message} Its state machines look goes first.` };
 }
 
 /**

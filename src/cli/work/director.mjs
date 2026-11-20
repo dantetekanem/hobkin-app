@@ -20,6 +20,7 @@ import { retireClosedTrees, surveyAndClose } from './closing.mjs';
 import { declineStopped, toldStop } from './controls.mjs';
 import { fileOpenIssues } from './issues.mjs';
 import { watchBrief } from './launches.mjs';
+import { toolsHere } from './machines.mjs';
 import { nameOf } from './names.mjs';
 import { watchPile } from './pairs.mjs';
 import { countsAgainst, ideasWanted, planWork, skipsTheHour } from './plan.mjs';
@@ -732,7 +733,8 @@ export class WorkDirector {
     const stampedBy = {
       study: { lastLookAt: now },
       ideas: { lastIdeasAt: now },
-      'state-machines': { lastLookAt: now, lastMachinesAt: now },
+      // A look started with the TLA+ tools in place is the one readiness waits for (`plan.mjs`).
+      'state-machines': { lastLookAt: now, lastMachinesAt: now, ...(toolsHere(this.root) ? { lastMachinesTlcAt: now } : {}) },
       signals: { lastSignalsAt: now },
       watch: { lastWatchAt: now },
     };

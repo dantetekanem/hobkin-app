@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { budgetFor, costHistory, dayLine, estimateRun, fitsDay, fitsHour, hourLine, outOfStarts, startBudgets } from './budget.mjs';
 import { lookTime } from './chat.mjs';
 import { openLaunches, watchDue } from './launches.mjs';
+import { toolsHere } from './machines.mjs';
 import { belowWanted, canWatch, readSignals, signalsDue } from './signals.mjs';
 // `reads.mjs` imports this file too. Neither calls the other while loading, so the cycle is safe.
 import { readyItems } from './reads.mjs';
@@ -212,12 +213,18 @@ export function lensEntry(project, state, now, triggered) {
 
 /**
  * The weekly look for implicit state machines: every place the project keeps a state in flags, strings or columns
- * that can disagree. Due at once on a project never looked at this way, and then once a week. It runs on the max tier
- * (the director binds it), so it is worth as much as a security look and comes before the next lens.
+ * that can disagree. Due at once on a project never looked at this way, and then once a week. With the TLA+ tools in
+ * place (`tools`), a project never looked at while they were is due at once too, since its models count for readiness
+ * only after such a look. It runs on the max tier (the director binds it), so it is worth as much as a security look
+ * and comes before the next lens.
  */
-export function machinesEntry(project, state, now, triggered) {
+export function machinesEntry(project, state, now, triggered, { tools = false } = {}) {
   const { slug, level } = project;
-  if (elapsedSince(state.lastMachinesAt, now) < MACHINES_EVERY_MS && !triggered) return null;
+  const neverWithTools = tools && !state.lastMachinesTlcAt;
+  if (!neverWithTools && elapsedSince(state.lastMachinesAt, now) < MACHINES_EVERY_MS && !triggered) return null;
+  let why = 'a week old';
+  if (!state.lastMachinesAt) why = 'never done';
+  else if (neverWithTools) why = 'never looked for with TLC';
   return {
     ...ofProject(project),
     key: `machines:${slug}`,
@@ -228,7 +235,7 @@ export function machinesEntry(project, state, now, triggered) {
     title: 'state machines look',
     effort: 'medium',
     score: levelWorth[level] * lensWorth.bugs / effortCost.medium,
-    why: plainList([levelWord(level), state.lastMachinesAt ? 'a week old' : 'never done']),
+    why: plainList([levelWord(level), why]),
   };
 }
 
@@ -298,11 +305,18 @@ export function signalsEntry(project, state, { root, now }, triggered) {
 function lookEntry(context, project, state, studied, items) {
   const triggered = kind => context.mode.queueNext.includes(`${kind}:${project.slug}`);
   if (triggered('study')) return studyEntry(project, items);
-  const machines = context.mode.machinesLook === false ? null : machinesEntry(project, state, context.now, triggered('machines'));
+  const tools = toolsHere(context.root);
+  const machines = context.mode.machinesLook === false ? null : machinesEntry(project, state, context.now, triggered('machines'), { tools });
   if (studied) return machines ?? lensEntry(project, state, context.now, triggered('look')) ?? ideasEntry(project, state, context);
   if (elapsedSince(state.lastLookAt, context.now) < STUDY_RETRY_MS) return null;
   // Once a study has been tried the items run without it, so trying again unlocks nothing.
   return studyEntry(project, state.lastLookAt ? [] : items);
+}
+
+/** Whether a project's state-machines look is due now, untriggered, as the plan would have it. Only a studied project gets one. */
+export function machinesLookDue(root, project, now = Date.now()) {
+  if (readMode(root).machinesLook === false || !existsSync(paths(root, project.slug).project)) return false;
+  return Boolean(machinesEntry(project, readState(root, project.slug), now, false, { tools: toolsHere(root) }));
 }
 
 function projectEntries(context, project) {
