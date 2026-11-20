@@ -9,7 +9,7 @@ import { ownMark, serviceMark } from '../integrations/marks.ts'
 import { outcomeWeek, sinceLastLook } from '../reports/briefing.ts'
 import { kindOf, sourceOf, toneOf, triageOf } from '../reports/report.ts'
 import { clockTime, timeOf, waited } from '../reports/time.ts'
-import type { CardFact, ConnectionTile, HomeAction, HomeInput, HomeModel, HomeRow, HomeTarget, HomeTone, NeedKind, NeedRow, StackCard } from './types.ts'
+import type { CardFact, ConnectionTile, DayMark, HomeAction, HomeInput, HomeModel, HomeRow, HomeTarget, HomeTone, NeedKind, NeedRow, StackCard } from './types.ts'
 import { stripItems, thoughtsOf, TIPS } from './tips.ts'
 import { customWidgetsOf, layoutOf, orderWidgets } from './widgets.ts'
 
@@ -720,26 +720,31 @@ function stackOf(input: HomeInput, needs: Need[]): StackCard[] {
 }
 
 function upcomingOf(input: HomeInput, start: number, end: number): HomeModel['upcoming'] {
-  const marks: HomeModel['upcoming']['day']['marks'] = []
+  const marks: DayMark[] = []
   const observations = new Set<string>()
-  const record = (source: string, at: number | null, outcome: string) => {
+  const titles = new Map(input.routines.map(facts => [facts.routine.id, facts.routine.title]))
+  const record = (source: string, at: number | null, outcome: string, title: string, target: HomeTarget) => {
     if (at === null || at < start || at >= end || at > input.now) return
     const key = JSON.stringify([source, at])
     if (observations.has(key)) return
     observations.add(key)
-    marks.push({ at, state: outcome === 'failed' ? 'failed' : 'done' })
+    marks.push({ at, state: outcome === 'failed' ? 'failed' : 'done', title: titles.get(source) ?? title, target })
   }
   for (const report of input.reports) {
-    if (kindOf(report) === 'scheduled' && report.scheduleId) record(report.scheduleId, timeOf(report.at), report.outcome)
+    if (kindOf(report) === 'scheduled' && report.scheduleId) {
+      record(report.scheduleId, timeOf(report.at), report.outcome, report.title, { to: 'report', id: report.id })
+    }
   }
   for (const facts of input.routines) {
-    if (facts.lastRun) record(facts.routine.id, timeOf(facts.lastRun.finishedAt), facts.lastRun.status)
+    const { id, title } = facts.routine
+    if (facts.lastRun) record(id, timeOf(facts.lastRun.finishedAt), facts.lastRun.status, title, { to: 'routine', id })
   }
   const runs = marks.length
   const failed = marks.filter(mark => mark.state === 'failed').length
   const next = forecasts(input)
   for (const facts of next) {
-    if (facts.next!.at < end) marks.push({ at: facts.next!.at, state: 'next' })
+    const { id, title } = facts.routine
+    if (facts.next!.at < end) marks.push({ at: facts.next!.at, state: 'next', title, target: { to: 'routine', id } })
   }
   marks.sort((a, b) => a.at - b.at)
   return {

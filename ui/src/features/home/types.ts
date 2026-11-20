@@ -137,6 +137,10 @@ export interface NeedRow extends HomeRow {
 export interface DayMark {
   at: number
   state: 'done' | 'failed' | 'next'
+  /** The routine's name, or the report's title when no routine is known by its schedule. */
+  title: string
+  /** The run's report when one says it, otherwise its routine. */
+  target: HomeTarget
 }
 
 /** Today from midnight to midnight: the runs that ended, now, and the runs still to come. */

@@ -366,7 +366,7 @@ test('day strip uses local midnight across DST and only actual scheduled observa
     }))
 
     assert.equal(model.upcoming.day.end - model.upcoming.day.start, 23 * 3600000)
-    assert.deepEqual(model.upcoming.day.marks, [{ at: Date.parse(finishedAt), state: 'failed' }, { at: localNow + 1000, state: 'next' }])
+    assert.deepEqual(model.upcoming.day.marks.map(({ at, state }) => ({ at, state })), [{ at: Date.parse(finishedAt), state: 'failed' }, { at: localNow + 1000, state: 'next' }])
     assert.match(model.upcoming.summary, /1 run.*1 failed/)
     assert.equal(
       homeModel(input({ now: new Date(2026, 10, 1, 12).getTime() })).upcoming.day.end - new Date(2026, 10, 1).getTime(),
@@ -678,4 +678,23 @@ test('connections show gh and each Pi server, and a server waiting for sign-in n
   assert.deepEqual(need?.action.target, { to: 'screen', screen: 'integrations' })
   assert.ok(model.problems.rows.some(row => row.title === 'Sentry could not connect' && row.detail === 'Timed out'))
   assert.deepEqual(homeModel(input()).connections, { known: false, tiles: [], summary: null })
+})
+
+test('each run on the day strip names its routine and opens its report, or the routine when no report says it', () => {
+  const daily = routine('daily', 3_600_000)
+  daily.routine.title = 'Daily sweep'
+  daily.lastRun = { finishedAt: iso(7_200_000), trigger: 'scheduled', status: 'completed', seconds: 1, usd: null, summary: '' }
+  const model = homeModel(input({
+    routines: [daily],
+    reports: [
+      report('swept', 3_600_000, { scheduleId: 'daily', outcome: 'failed' }),
+      report('Gone routine', 1_800_000, { scheduleId: 'gone' }),
+    ],
+  }))
+  assert.deepEqual(model.upcoming.day.marks, [
+    { at: now - 7_200_000, state: 'done', title: 'Daily sweep', target: { to: 'routine', id: 'daily' } },
+    { at: now - 3_600_000, state: 'failed', title: 'Daily sweep', target: { to: 'report', id: 'swept' } },
+    { at: now - 1_800_000, state: 'done', title: 'Gone routine', target: { to: 'report', id: 'Gone routine' } },
+    { at: now + 3_600_000, state: 'next', title: 'Daily sweep', target: { to: 'routine', id: 'daily' } },
+  ])
 })
