@@ -430,8 +430,15 @@ function withSpec(h, slug = 'api') {
 
 /** A run as `hobkin proof check` leaves it, which only that process writes. */
 const writeRun = (h, id, change) => writeJson(join(h.root, 'proofs', id, 'result.json'), {
-  id, project: 'api', spec: SPEC, specHash: specHash, outcome: 'holds', finished: new Date(NOW).toISOString(),
-  stats: { generated: 40, distinct: 12, queue: 0, depth: 4 }, rules: [{ name: 'MergedAtReviewedHead', kind: 'invariant', status: 'holds' }], actions: [{ name: 'Merge', count: 3 }],
+  id,
+  project: 'api',
+  spec: SPEC,
+  specHash,
+  outcome: 'holds',
+  finished: new Date(NOW).toISOString(),
+  stats: { generated: 40, distinct: 12, queue: 0, depth: 4 },
+  rules: [{ name: 'MergedAtReviewedHead', kind: 'invariant', status: 'holds' }],
+  actions: [{ name: 'Merge', count: 3 }],
   ...change,
 });
 const brokenRun = { outcome: 'broken', broken: 'MergedAtReviewedHead', traceLength: 5 };
@@ -440,7 +447,17 @@ test('a model that breaks at a change\'s head, or has not held there, keeps it a
   const head = 'c'.repeat(40);
   const review = { kind: 'bug-fix', scores: scored(), head };
   const unit = { sha: head, area: 'app', conflict: false, size: { additions: 1, deletions: 0, files: 1 }, paths: ['app.txt'] };
-  const asks = models => whyItAsks({ yolo: { on: true, rate: 8 }, project: {}, readiness: { ready: true }, landable: true, row: { holds: 0 }, item: { state: 'branch', kind: 'fix', review }, unit, models });
+  // Everything else about this change would let it merge by itself.
+  const asks = models => whyItAsks({
+    yolo: { on: true, rate: 8 },
+    project: {},
+    readiness: { ready: true },
+    landable: true,
+    row: { holds: 0 },
+    item: { state: 'branch', kind: 'fix', review },
+    unit,
+    models,
+  });
   const model = change => ({ spec: SPEC, changed: false, ...change });
 
   assert.equal(asks([]), null, 'a change no model covers goes on its scores');
@@ -491,8 +508,9 @@ test('readiness has a models part: each machine the state machines look found ha
   assert.equal(readinessOf(h.root, 'api').ready, true, 'a project with no machine is ready without one');
 
   // The look files each machine it modeled with the spec's path, and the model counts once it is on the default branch.
-  fileItem(h.root, 'api', { key: 'machine:work-item', kind: 'chore', title: 'Commit the work item model', brief: 'Its spec, run and how to prove it.', spec: SPEC }, NOW);
-  assert.throws(() => fileItem(h.root, 'api', { key: 'machine:other', kind: 'chore', title: 'Elsewhere', brief: 'A brief.', spec: '../outside.tla' }, NOW), /spec is the model's path/);
+  const machine = { key: 'machine:work-item', kind: 'chore', title: 'Commit the work item model', brief: 'Its spec, run and how to prove it.', spec: SPEC };
+  fileItem(h.root, 'api', machine, NOW);
+  assert.throws(() => fileItem(h.root, 'api', { ...machine, key: 'machine:other', spec: '../outside.tla' }, NOW), /spec is the model's path/);
   const needs = () => [readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').needs];
   assert.deepEqual(needs(), [false, ['Models: WorkItem.tla is not on the default branch yet.']]);
 

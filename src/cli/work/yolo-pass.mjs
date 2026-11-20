@@ -176,11 +176,17 @@ async function mergeAlone(root, { row, item, now }) {
  * A change heading to a merge by itself that waits only for a model nobody has run at its head, where only the code that model covers changed,
  * gets that model checked by hobkin itself. A change that edited its spec has its own run to cite. `startCheck` keeps it to one at a time.
  */
-async function checkWaitingModel(root, { asked, models, item, row, spawn, now }) {
+async function checkWaitingModel(root, { asked, models, spawn, now }) {
   const waiting = models.filter(({ state, changed }) => state === 'unchecked' && !changed);
-  if (!waiting.length || whyItAsks({ ...asked, models: models.filter(model => !waiting.includes(model)) })) return;
-  const [{ spec }] = waiting;
-  await startCheck(root, { slug: row.slug, item: item.id, spec, head: asked.unit.sha }, { now, ...(spawn ? { spawn } : {}) });
+  if (!waiting.length) return;
+
+  const others = models.filter(model => !waiting.includes(model));
+  const headingToAMerge = !whyItAsks({ ...asked, models: others });
+  if (!headingToAMerge) return;
+
+  const { row, item, unit } = asked;
+  const check = { slug: row.slug, item: item.id, spec: waiting[0].spec, head: unit.sha };
+  await startCheck(root, check, { now, ...(spawn ? { spawn } : {}) });
 }
 
 /**
@@ -203,7 +209,7 @@ export async function yoloPass(root, { now = Date.now(), handOff, spawn } = {}) 
     const models = changeModels(root, row.slug, unit);
     const asked = { yolo, project, readiness, landable: landable.has(`${row.slug}:${row.item}`), row, item, unit };
     if (whyItAsks({ ...asked, models })) {
-      await checkWaitingModel(root, { asked, models, item, row, spawn, now });
+      await checkWaitingModel(root, { asked, models, spawn, now });
       continue;
     }
 

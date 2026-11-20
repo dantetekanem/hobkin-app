@@ -43,6 +43,8 @@ function alive(pid) {
 }
 
 const sameCheck = (first, second) => ['slug', 'item', 'spec', 'head'].every(key => (first[key] ?? null) === (second[key] ?? null));
+const isGoing = ({ at, pid }, now) => now - Date.parse(at) < CHECK_LASTS_MS && alive(pid);
+const triedLately = (earlier, check, now) => sameCheck(earlier, check) && now - Date.parse(earlier.at) < CHECK_EVERY_MS;
 
 /** hobkin's own tree for checks, detached at `head`. Nothing else works in it, so what a check left there goes. */
 async function treeAt(root, slug, head) {
@@ -67,8 +69,8 @@ async function treeAt(root, slug, head) {
  */
 export async function startCheck(root, check, { now = Date.now(), spawn = spawnProcess } = {}) {
   const tried = readChecks(root);
-  if (tried.some(({ at, pid }) => now - Date.parse(at) < CHECK_LASTS_MS && alive(pid))) return null;
-  if (tried.some(earlier => sameCheck(earlier, check) && now - Date.parse(earlier.at) < CHECK_EVERY_MS)) return null;
+  if (tried.some(earlier => isGoing(earlier, now))) return null;
+  if (tried.some(earlier => triedLately(earlier, check, now))) return null;
 
   const { slug, item = null, spec, head } = check;
   const started = { at: new Date(now).toISOString(), slug, item, spec, head, pid: null };
@@ -99,7 +101,9 @@ export async function recheckModels(root, { now = Date.now(), survey = {}, spawn
     const { head, specs = [] } = survey[slug]?.models ?? {};
     for (const { spec, sha256 } of specs) {
       const last = latestMainRun(runs, { slug, spec, sha256 });
-      if (last && now - Date.parse(last.finished ?? last.started) < CHECK_EVERY_MS) continue;
+      const checkedThisWeek = last && now - Date.parse(last.finished ?? last.started) < CHECK_EVERY_MS;
+      if (checkedThisWeek) continue;
+
       const started = await startCheck(root, { slug, spec, head }, { now, ...(spawn ? { spawn } : {}) });
       if (started) return started;
     }

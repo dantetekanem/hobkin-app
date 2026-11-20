@@ -162,6 +162,9 @@ export function holdProject(root, slug, { item, title }, now = Date.now()) {
   atomicJson(readinessFile(root, slug), { ...record, held: { item, title, at: new Date(now).toISOString() } });
 }
 
+// A machine the state machines look filed with its model's path, and nobody closed without landing.
+const isFiledMachine = ({ key, spec, state }) => Boolean(key?.startsWith(MACHINE_KEY) && spec) && !CLOSED_UNLANDED.includes(state);
+
 /** What hobkin's latest run of each TLA+ spec on the project's default branch says of it, as the last survey found them there. */
 export const mainModels = (root, slug) => mainFacts(readRuns(root), { slug, specs: readUnmerged(root).projects[slug]?.models?.specs });
 
@@ -171,14 +174,16 @@ export const mainModels = (root, slug) => mainFacts(readRuns(root), { slug, spec
  */
 function modelsPart(root, slug) {
   const facts = mainModels(root, slug);
-  const filed = readItems(root, slug).filter(({ key, spec, state }) => key?.startsWith(MACHINE_KEY) && spec && !CLOSED_UNLANDED.includes(state));
-  const notThere = [...new Set(filed.map(({ spec }) => spec))].filter(spec => !facts.some(fact => fact.spec === spec));
-  if (!facts.length && !notThere.length) return { notApplicable: 'It has no state machine models.' };
+  const filedSpecs = new Set(readItems(root, slug).filter(isFiledMachine).map(({ spec }) => spec));
+  const notOnMain = [...filedSpecs].filter(spec => !facts.some(fact => fact.spec === spec));
+  if (!facts.length && !notOnMain.length) return { notApplicable: 'It has no state machine models.' };
+
   const missing = [
-    ...notThere.map(spec => `${specName(spec)} is not on the default branch yet`),
+    ...notOnMain.map(spec => `${specName(spec)} is not on the default branch yet`),
     ...facts.filter(({ state }) => state !== 'holds').map(fact => modelOnMain[fact.state](fact)),
   ];
   if (missing.length) return { ready: false, missing: `${missing.join('; ')}.` };
+
   const held = facts.length === 1 ? '1 model holds' : `${facts.length} models hold`;
   return { ready: true, how: `${held} on the default branch: ${facts.map(({ spec }) => specName(spec)).join(', ')}.` };
 }

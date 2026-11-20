@@ -18,10 +18,10 @@ const SHORT_SHA = 7;
 const LONGEST_LINE = 400;
 
 const run = promisify(execFile);
+const number = value => Number(value ?? 0).toLocaleString('en-US');
 
 /** A spec as a sentence names it: its file name. */
 export const specName = spec => basename(spec);
-const number = value => Number(value ?? 0).toLocaleString('en-US');
 
 /** The files a spec says it models, from each `\* models: a, b` comment. */
 export const modeledFiles = text => [...String(text).matchAll(/^\s*\\\*\s*models:(.*)$/gm)]
@@ -29,35 +29,51 @@ export const modeledFiles = text => [...String(text).matchAll(/^\s*\\\*\s*models
   .map(path => path.trim().replace(/^\.\//, ''))
   .filter(Boolean);
 
-/** Every run that ended, newest first. A folder with no readable result is a run still going, or one that never ended. */
+/** A run's result, or null for a run still going, or one that never ended. */
+function readResult(folder, id) {
+  try {
+    const result = JSON.parse(readFileSync(join(folder, id, 'result.json'), 'utf8'));
+    return result && typeof result === 'object' ? { ...result, id: result.id ?? id } : null;
+  } catch {
+    return null;
+  }
+}
+
+const endOf = ({ finished, started }) => String(finished ?? started ?? '');
+
+/** Every run that ended, newest first. */
 export function readRuns(root) {
   const folder = join(root, 'proofs');
   if (!existsSync(folder)) return [];
-  const runs = readdirSync(folder, { withFileTypes: true }).filter(entry => entry.isDirectory()).flatMap(entry => {
-    try {
-      const result = JSON.parse(readFileSync(join(folder, entry.name, 'result.json'), 'utf8'));
-      return result && typeof result === 'object' ? [{ ...result, id: result.id ?? entry.name }] : [];
-    } catch {
-      return [];
-    }
-  });
-  const endOf = ({ finished, started }) => String(finished ?? started ?? '');
+
+  const ids = readdirSync(folder, { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => entry.name);
+  const runs = ids.map(id => readResult(folder, id)).filter(Boolean);
   return runs.toSorted((first, second) => endOf(second).localeCompare(endOf(first)));
 }
 
-/** Each spec at a commit, with the sha256 of its committed bytes and the files it models. A spec git cannot show is left out. */
+/** One spec as committed at `head`, read as bytes so its sha256 matches the file the check read. Null when git cannot show it. */
+async function readSpec(repo, head, spec) {
+  try {
+    const { stdout } = await run('git', ['-C', repo, 'show', `${head}:${spec}`], { encoding: 'buffer', maxBuffer: 16 * 1024 * 1024 });
+    return {
+      spec,
+      sha256: createHash('sha256').update(stdout).digest('hex'),
+      models: modeledFiles(stdout.toString('utf8')),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Each spec at a commit, with the sha256 of its committed bytes and the files it models. */
 export async function specsAt(repo, head) {
   if (!head) return [];
+
   const listed = await gitOrNothing(repo, 'ls-tree', '-r', '--name-only', head, '--', SPECS_FOLDER);
   const specs = listed.split('\n').filter(path => path.endsWith('.tla'));
-  const read = await Promise.all(specs.map(async spec => {
-    try {
-      const { stdout } = await run('git', ['-C', repo, 'show', `${head}:${spec}`], { encoding: 'buffer', maxBuffer: 16 * 1024 * 1024 });
-      return { spec, sha256: createHash('sha256').update(stdout).digest('hex'), models: modeledFiles(stdout.toString('utf8')) };
-    } catch {
-      return null;
-    }
-  }));
+  const read = await Promise.all(specs.map(spec => readSpec(repo, head, spec)));
   return read.filter(Boolean);
 }
 
@@ -102,7 +118,11 @@ function tlapsWords({ proof }) {
 }
 
 /** What a run showed, in the line a proof score's evidence takes. */
-const lineOf = run => [tlcWords(run), tlapsWords(run), run.head && `at ${run.head.slice(0, SHORT_SHA)}`].filter(Boolean).join(' · ').slice(0, LONGEST_LINE);
+function lineOf(run) {
+  const where = run.head ? `at ${run.head.slice(0, SHORT_SHA)}` : null;
+  const parts = [tlcWords(run), tlapsWords(run), where].filter(Boolean);
+  return parts.join(' · ').slice(0, LONGEST_LINE);
+}
 
 function factOf(spec, run, extra = {}) {
   const state = stateOf(run);
@@ -119,7 +139,8 @@ function factOf(spec, run, extra = {}) {
 export function modelFacts(runs, { slug, head, specs = [] }) {
   return specs.map(({ spec, sha256, changed = false }) => {
     const here = runs.filter(run => run.project === slug && run.spec === spec && run.head === head && run[SPEC_HASH] === sha256);
-    return factOf(spec, here.find(run => run.outcome === 'broken') ?? here.find(counts) ?? here[0], { changed });
+    const speaking = here.find(run => run.outcome === 'broken') ?? here.find(counts) ?? here[0];
+    return factOf(spec, speaking, { changed });
   });
 }
 

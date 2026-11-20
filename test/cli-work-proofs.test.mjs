@@ -96,6 +96,9 @@ function fakeSpawn(pid = 2 ** 22 + 1) {
   return { spawn, calls };
 }
 
+const flagOf = (call, flag) => call.args[call.args.indexOf(flag) + 1];
+const specOf = call => call.args[call.args.indexOf('check') + 1];
+
 test('a spec names the files it models in its models comments', () => {
   assert.deepEqual(modeledFiles(specText('src/items.mjs, src/yolo-pass.mjs')), ['src/items.mjs', 'src/yolo-pass.mjs']);
   assert.deepEqual(modeledFiles('\\* models: a.mjs\n\\*models:  ./b.mjs ,\nX == 1\n\\* code: c.mjs:3'), ['a.mjs', 'b.mjs']);
@@ -127,7 +130,14 @@ test('a run covers a change whose files its spec models, and counts only when it
     line: `TLC: 2 of 2 hold in 48,211 states, but Decline never fired · at ${modeled.head.slice(0, 7)}`,
   }]);
 
-  writeRun(h, { id: 'held', head: modeled.head, proof: { strict: true, obligations: [{ id: '<1>1', label: 'Init', status: 'proved', depth: 1 }, { id: '<1>2', label: 'Next', status: 'proved', depth: 1 }] } });
+  const strictProof = {
+    strict: true,
+    obligations: [
+      { id: '<1>1', label: 'Init', status: 'proved', depth: 1 },
+      { id: '<1>2', label: 'Next', status: 'proved', depth: 1 },
+    ],
+  };
+  writeRun(h, { id: 'held', head: modeled.head, proof: strictProof });
   assert.deepEqual(rowOf(h, modeled).models, [{
     spec: SPEC, state: 'holds', changed: false, run: 'held',
     line: `TLC: 2 of 2 hold in 48,211 states · TLAPS: 2 of 2, strict · at ${modeled.head.slice(0, 7)}`,
@@ -148,8 +158,9 @@ async function readyWithModel(h) {
   setYolo(h.root, { on: true }, NOW);
   const { id } = readItems(h.root, 'api').find(({ key }) => key === 'yolo:ready');
   updateItem(h.root, 'api', id, { state: 'doing' }, NOW);
-  const part = { ready: true, how: 'In place.' };
-  recordReadiness(h.root, 'api', Object.fromEntries(['tests', 'errors', 'slowQueries', 'performance', 'logs', 'alerts', 'rollback', 'deploy'].map(name => [name, part])), NOW);
+  const recorded = ['tests', 'errors', 'slowQueries', 'performance', 'logs', 'alerts', 'rollback', 'deploy'];
+  const everyPartInPlace = Object.fromEntries(recorded.map(name => [name, { ready: true, how: 'In place.' }]));
+  recordReadiness(h.root, 'api', everyPartInPlace, NOW);
   updateItem(h.root, 'api', id, { state: 'merged' }, NOW);
 }
 
@@ -200,7 +211,7 @@ test('hobkin checks nothing while YOLO mode is off, and one check at a time', as
 
   // TLC stops itself after 20 minutes, so a check older than that is over, whatever its process id says now.
   await yoloPass(h.root, { now: NOW + 26 * 60000, spawn });
-  assert.deepEqual(calls.map(({ args }) => args[7]).sort(), [first.id, second.id].sort());
+  assert.deepEqual(calls.map(call => flagOf(call, '--item')).sort(), [first.id, second.id].sort());
 });
 
 test('hobkin checks each model on the default branch itself once a week, and one that breaks there shows on its project', async t => {
@@ -217,16 +228,19 @@ test('hobkin checks each model on the default branch itself once a week, and one
   assert.equal(git(calls[0].cwd, 'rev-parse', 'HEAD'), tip);
 
   await recheck(NOW + 60000);
-  assert.deepEqual(calls.map(({ args }) => args[3]), [QUEUE, SPEC], 'one check a pass, each spec in turn');
+  assert.deepEqual(calls.map(specOf), [QUEUE, SPEC], 'one check a pass, each spec in turn');
   await recheck(NOW + 120000);
   assert.equal(calls.length, 2, 'a spec tried this week is not tried again');
 
-  writeRun(h, { id: 'item-held', head: tip, finished: new Date(NOW).toISOString() });
-  writeRun(h, { id: 'queue-broke', head: tip, spec: QUEUE, specHash: sha256(specText('queue.txt', 'ReviewQueue')), finished: new Date(NOW).toISOString(), ...broke });
+  const checkedAt = new Date(NOW).toISOString();
+  writeRun(h, { id: 'main-held', head: tip, finished: checkedAt });
+  writeRun(h, { id: 'queue-broke', head: tip, spec: QUEUE, specHash: sha256(specText('queue.txt', 'ReviewQueue')), finished: checkedAt, ...broke });
+
   const [project] = workStatus(h.root).projects;
+
   assert.deepEqual(project.models.map(({ spec, state, run, why }) => [spec, state, run, why]), [
     [QUEUE, 'broken', 'queue-broke', 'MergedAtReviewedHead'],
-    [SPEC, 'holds', 'item-held', undefined],
+    [SPEC, 'holds', 'main-held', undefined],
   ]);
   assert.deepEqual(yoloView(h.root).projects[0].models, project.models);
 

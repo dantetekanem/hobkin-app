@@ -150,8 +150,17 @@ test('a finished row\'s proof score is hobkin\'s own once a model covering its f
   // The review says TLC held, and only hobkin's own run can say that.
   await record(h, { id, state: 'branch', review: review({ head }, { proof: 10 }) });
   writeJson(join(h.root, 'proofs', 'broke', 'result.json'), {
-    id: 'broke', project: 'api', item: id, spec: 'specs/tla/WorkItem.tla', head, specHash: createHash('sha256').update(spec).digest('hex'),
-    outcome: 'broken', broken: 'MergedAtReviewedHead', traceLength: 5, stats: { generated: 9, distinct: 7, queue: 0, depth: 5 }, actions: [{ name: 'Merge', count: 2 }],
+    id: 'broke',
+    project: 'api',
+    item: id,
+    spec: 'specs/tla/WorkItem.tla',
+    head,
+    specHash: createHash('sha256').update(spec).digest('hex'),
+    outcome: 'broken',
+    broken: 'MergedAtReviewedHead',
+    traceLength: 5,
+    stats: { generated: 9, distinct: 7, queue: 0, depth: 5 },
+    actions: [{ name: 'Merge', count: 2 }],
   });
   await surveyUnmerged(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
 
