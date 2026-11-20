@@ -1,6 +1,6 @@
-import { ChevronLeft, ChevronRight, MessagesSquare, Trash, X } from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, MessagesSquare, Trash, X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { slideVariants } from './slide.ts'
 import { SavedRun } from './SavedRun.tsx'
 import { watchReportRead } from './store.ts'
@@ -8,7 +8,7 @@ import { useStill } from './still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { cn } from '@/lib/utils.ts'
-import { kindOf, plainLine, readerParts, sourceOf, type Report, type Triage, type TriageLevel } from './report.ts'
+import { kindOf, plainLine, readerParts, shortOf, sourceOf, type Report, type Triage, type TriageLevel } from './report.ts'
 import { ReportMarkdown } from './ReportMarkdown.tsx'
 import { clockTime, dayLabel, timeOf } from './time.ts'
 import { KIND_NAME, TONE_NAME, TONE_TEXT, kindIconOf } from './Tone.tsx'
@@ -136,6 +136,18 @@ function Page({ report }: { report: Report }) {
   const { triage, markdown } = readerParts(report)
   const at = timeOf(report.at)
   const KindIcon = kindIconOf(report)
+  // Chosen as the report opens. A short version that lands while it is open shows the next time, so nothing moves under the reader.
+  const [short] = useState(() => shortOf(report))
+  const full = (
+    <>
+      {triage ? <TriageBand triage={triage} /> : <OutcomeBand outcome={report.outcome} />}
+      {markdown ? (
+        <div className="mt-6 text-[15px] leading-relaxed">
+          <ReportMarkdown text={markdown} />
+        </div>
+      ) : null}
+    </>
+  )
 
   return (
     <article className="mx-auto max-w-[660px]">
@@ -147,13 +159,35 @@ function Page({ report }: { report: Report }) {
       <p className="mt-2 text-[13px] text-muted-foreground">
         {at === null ? 'No time given' : `${dayLabel(at, Date.now())} at ${clockTime(at)}`} · {OUTCOME_SAYS[report.outcome] ?? report.outcome}
       </p>
-      {triage ? <TriageBand triage={triage} /> : <OutcomeBand outcome={report.outcome} />}
-      {markdown ? (
-        <div className="mt-6 text-[15px] leading-relaxed">
-          <ReportMarkdown text={markdown} />
-        </div>
-      ) : null}
+      {short ? <ShortFirst short={short} triage={triage} outcome={report.outcome}>{full}</ShortFirst> : full}
     </article>
+  )
+}
+
+/**
+ * The short version hobkin wrote, read first in the report's tone, and the full report under it behind one control
+ * (051-short-reports). The full report opens below the control, so the control and all above it stay where they are.
+ */
+function ShortFirst({ short, triage, outcome, children }: { short: string; triage: Triage | null; outcome: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const fullId = useId()
+  const band = triage?.level ?? OUTCOME_BAND[outcome]?.tone
+  const word = triage ? TONE_NAME[triage.level] : OUTCOME_BAND[outcome] ? OUTCOME_SAYS[outcome] : 'Short version'
+
+  return (
+    <>
+      <section aria-label="The short version" className={cn('mt-5 rounded-2xl px-4 py-3.5', band ? BAND[band] : 'bg-tone-1')}>
+        <p className={cn('eyebrow', band ? TONE_TEXT[band] : 'text-muted-foreground')}>{word}</p>
+        <div className="mt-1.5 text-[16px] leading-relaxed">
+          <ReportMarkdown text={short} />
+        </div>
+      </section>
+      <Button variant="outline" size="sm" className="mt-4" aria-expanded={open} aria-controls={fullId} onClick={() => setOpen((was) => !was)}>
+        <ChevronDown aria-hidden="true" className={cn('transition-transform duration-[160ms] ease-out', open && 'rotate-180')} />
+        {open ? 'Hide the full report' : 'Show the full report'}
+      </Button>
+      <div id={fullId}>{open ? children : null}</div>
+    </>
   )
 }
 

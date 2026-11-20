@@ -16,6 +16,17 @@ export interface Report {
   body: string
   /** How the run ended: `completed`, `failed`, `incomplete` and so on. */
   outcome: string
+  /**
+   * The short version hobkin wrote on its fast tier, read first, with the full report under it (051-short-reports).
+   * Only a report that has one carries it: none while Short reports is off, still being written, or not written.
+   */
+  short?: string
+}
+
+/** The short version to read first, or null when the report has none and reads as it always has. */
+export function shortOf(report: Report): string | null {
+  const short: unknown = report.short
+  return typeof short === 'string' && short.trim() ? short.trim() : null
 }
 
 /** Scheduled: a routine ran. Done: work mode or another session finished something. */
