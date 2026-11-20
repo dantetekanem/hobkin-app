@@ -16,32 +16,34 @@ export const specFile = (spec: string) => spec.split('/').filter(Boolean).at(-1)
 /** Two commits are the same when one is the other's short form. */
 export const sameHead = (left: string | null | undefined, right: string | null | undefined): boolean => Boolean(left && right && (left.startsWith(right) || right.startsWith(left)))
 
-/** The newest run of each spec among `runs`, newest first. The slice comes newest first, so the first seen of a spec is its newest. */
-function newestPerSpec(runs: readonly ProofRunSummary[]): ProofRunSummary[] {
-  const seen = new Set<string>()
-  return [...runs]
-    .sort((left, right) => Date.parse(right.started) - Date.parse(left.started))
-    .filter((run) => {
-      if (seen.has(run.spec)) return false
-      seen.add(run.spec)
-      return true
-    })
-}
+const newestFirst = (left: ProofRunSummary, right: ProofRunSummary) => Date.parse(right.started) - Date.parse(left.started)
 
-const ofProject = (run: ProofRunSummary, project: string) => run.project === project
+/** The newest run of each spec among `runs`, newest first. `specOf` says which runs are of one spec. */
+function newestPerSpec(runs: readonly ProofRunSummary[], specOf = (run: ProofRunSummary) => run.spec): ProofRunSummary[] {
+  const seen = new Set<string>()
+  return [...runs].sort(newestFirst).filter((run) => {
+    const spec = specOf(run)
+    if (seen.has(spec)) return false
+    seen.add(spec)
+    return true
+  })
+}
 
 /**
  * The runs for one work item, the newest of each spec. When the card shows a head, a spec's newest run at that head
  * stands for it, so a check of an older head never speaks for the change the user is about to merge.
  */
 export function runsForItem(proofs: ProofsState | null, project: string, item: string, head: string | null = null): ProofRunSummary[] {
-  const mine = (proofs?.runs ?? []).filter((run) => ofProject(run, project) && run.item === item)
+  const mine = (proofs?.runs ?? []).filter((run) => run.project === project && run.item === item)
   const atHead = head ? mine.filter((run) => sameHead(run.head, head)) : []
   return newestPerSpec(atHead.length ? atHead : mine)
 }
 
 /** A project's models on main: the newest run of each spec that no item ran, as hobkin's weekly recheck writes them. */
-export const modelsOnMain = (proofs: ProofsState | null, project: string): ProofRunSummary[] => newestPerSpec((proofs?.runs ?? []).filter((run) => ofProject(run, project) && !run.item))
+export function modelsOnMain(proofs: ProofsState | null, project: string): ProofRunSummary[] {
+  const onMain = (proofs?.runs ?? []).filter((run) => run.project === project && !run.item)
+  return newestPerSpec(onMain)
+}
 
 export interface ProofChip {
   id: string
@@ -57,11 +59,14 @@ export function chipsOf(runs: readonly ProofRunSummary[], head: string | null = 
   const named = runs.length > 1
   return runs.flatMap((run) => {
     const name = named ? `${specFile(run.spec).replace(/\.tla$/, '')} ` : 'Model '
-    const older = head && run.head && !sameHead(run.head, head)
-    const check: ProofChip = older ? { id: run.id, label: `${name}checked at an older head`, tone: 'quiet' } : { id: run.id, ...checkChip(run, name) }
-    const prove = run.steps.find((step) => step.id === 'prove')
-    if (older || (prove?.state !== 'done' && prove?.state !== 'failed')) return [check]
-    return [check, { id: run.id, label: prove.state === 'done' ? 'Proved for every size' : 'Proof fails', tone: prove.state === 'done' ? 'ok' : 'bad' }]
+    const older = Boolean(head && run.head && !sameHead(run.head, head))
+    if (older) return [{ id: run.id, label: `${name}checked at an older head`, tone: 'quiet' }]
+
+    const check: ProofChip = { id: run.id, ...checkChip(run, name) }
+    const proof = run.steps.find((step) => step.id === 'prove')?.state
+    if (proof === 'done') return [check, { id: run.id, label: 'Proved for every size', tone: 'ok' }]
+    if (proof === 'failed') return [check, { id: run.id, label: 'Proof fails', tone: 'bad' }]
+    return [check]
   })
 }
 
@@ -71,10 +76,13 @@ function checkChip(run: ProofRunSummary, name: string): Omit<ProofChip, 'id'> {
       return { label: `Checking · ${count(run.stats.distinct)} states`, tone: 'live' }
     case 'holds': {
       const missed = neverFired(run)
-      return missed.length ? { label: `${name}holds · ${namesOf(missed)} never ran`, tone: 'warn' } : { label: `${name}holds · ${count(run.stats.distinct)} states`, tone: 'ok' }
+      if (missed.length) return { label: `${name}holds · ${namesOf(missed)} never ran`, tone: 'warn' }
+      return { label: `${name}holds · ${count(run.stats.distinct)} states`, tone: 'ok' }
     }
-    case 'broken':
-      return { label: `${name}broke · ${stepsToBreak(run)} ${stepsToBreak(run) === 1 ? 'step' : 'steps'}`, tone: 'bad' }
+    case 'broken': {
+      const steps = stepsToBreak(run)
+      return { label: `${name}broke · ${steps} ${steps === 1 ? 'step' : 'steps'}`, tone: 'bad' }
+    }
     case 'stopped':
       return { label: `${name}check stopped`, tone: 'quiet' }
     case 'error':
@@ -115,15 +123,22 @@ export const inflowOf = (run: Pick<ProofRunSummary, 'stats'>): number => (run.st
 
 /** What a project's models say together, for the YOLO page: "Models: 2 machines, both hold". */
 export function modelsLine(runs: readonly ProofRunSummary[]): { title: string; detail: string; tone: Tone } {
+  const total = runs.length
   const holding = runs.filter((run) => run.outcome === 'holds' && !neverFired(run).length).length
   const broken = runs.filter((run) => run.outcome === 'broken').length
-  const checking = runs.some((run) => run.outcome === 'checking')
-  const machines = runs.length === 1 ? '1 machine' : `${runs.length} machines`
+  const machines = `Models: ${total === 1 ? '1 machine' : `${total} machines`}`
   const detail = `${runs.map((run) => specFile(run.spec)).join(' · ')} · rechecked when their code changes`
-  if (checking) return { title: `Models: ${machines}, checking now`, detail, tone: 'live' }
-  if (broken) return { title: `Models: ${machines}, ${broken === 1 ? (runs.length === 1 ? 'it breaks' : '1 breaks') : `${broken} break`}`, detail, tone: 'bad' }
-  if (holding === runs.length) return { title: `Models: ${machines}, ${runs.length === 1 ? 'it holds' : runs.length === 2 ? 'both hold' : 'all hold'}`, detail, tone: 'ok' }
-  return { title: `Models: ${machines}, ${holding} of ${runs.length} hold`, detail, tone: 'warn' }
+
+  if (runs.some((run) => run.outcome === 'checking')) return { title: `${machines}, checking now`, detail, tone: 'live' }
+  if (broken) {
+    const breaks = total === 1 ? 'it breaks' : broken === 1 ? '1 breaks' : `${broken} break`
+    return { title: `${machines}, ${breaks}`, detail, tone: 'bad' }
+  }
+  if (holding === total) {
+    const hold = total === 1 ? 'it holds' : total === 2 ? 'both hold' : 'all hold'
+    return { title: `${machines}, ${hold}`, detail, tone: 'ok' }
+  }
+  return { title: `${machines}, ${holding} of ${total} hold`, detail, tone: 'warn' }
 }
 
 /** The spec a shell command checks, when it is `hobkin proof check <spec.tla>`, with or without a path to hobkin. */
@@ -132,7 +147,11 @@ export function proofCheckOf(command: string): string | null {
   return match?.[1] ?? null
 }
 
+/** A command names its spec from where it ran, the run from the project: the same file when one path ends with the other. */
 const specMatches = (run: ProofRunSummary, spec: string) => run.spec === spec || run.spec.endsWith(`/${spec}`) || spec.endsWith(`/${run.spec}`)
+
+/** A run can start a moment before hobkin records the command that started it. */
+const START_SLACK_MS = 5_000
 
 /**
  * The run an agent's `hobkin proof check` started: the one its output names (`proofs/<id>`), or else the first run of
@@ -143,25 +162,25 @@ export function runForCommand(proofs: ProofsState | null, { spec, at, output }: 
   const named = /proofs\/([A-Za-z0-9][A-Za-z0-9._-]*)/.exec(output ?? '')?.[1]
   const byId = named ? runs.find((run) => run.id === named) : undefined
   if (byId) return byId
-  const ofSpec = runs.filter((run) => specMatches(run, spec)).sort((left, right) => Date.parse(left.started) - Date.parse(right.started))
-  if (at === undefined) return ofSpec.at(-1) ?? null
-  return ofSpec.find((run) => Date.parse(run.started) >= at - 5_000) ?? null
+
+  const oldestFirst = runs.filter((run) => specMatches(run, spec)).sort((left, right) => newestFirst(right, left))
+  if (at === undefined) return oldestFirst.at(-1) ?? null
+  return oldestFirst.find((run) => Date.parse(run.started) >= at - START_SLACK_MS) ?? null
 }
 
 /** The models that broke on main, newest first, for Home's Problems. */
 export function brokenOnMain(proofs: ProofsState | null): ProofRunSummary[] {
-  const runs = (proofs?.runs ?? []).filter((run) => run.project && !run.item)
-  const newest = new Map<string, ProofRunSummary>()
-  for (const run of [...runs].sort((left, right) => Date.parse(right.started) - Date.parse(left.started))) {
-    const key = `${run.project}\n${run.spec}`
-    if (!newest.has(key)) newest.set(key, run)
-  }
-  return [...newest.values()].filter((run) => run.outcome === 'broken')
+  const onMain = (proofs?.runs ?? []).filter((run) => run.project && !run.item)
+  const newest = newestPerSpec(onMain, (run) => `${run.project}\n${run.spec}`)
+  return newest.filter((run) => run.outcome === 'broken')
 }
 
 /** The item's title from work mode, wherever it shows: a finished change, a queue row or an agent's run. */
-export function itemTitle(run: Pick<ProofRunSummary, 'project' | 'item'>, work: WorkState | null, agents: readonly { work?: { slug?: string; item?: string }; title?: string }[] = []): string | null {
+type Agent = { work?: { slug?: string; item?: string }; title?: string }
+
+export function itemTitle(run: Pick<ProofRunSummary, 'project' | 'item'>, work: WorkState | null, agents: readonly Agent[] = []): string | null {
   if (!run.project || !run.item) return null
+
   const same = (slug: string | null | undefined, item: string | null | undefined) => slug === run.project && item === run.item
   const change = work?.finished.flatMap((group) => group.changes).find((candidate) => same(candidate.slug, candidate.item))
   const queued = work?.queue.find((row) => same(row.slug, row.item))

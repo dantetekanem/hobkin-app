@@ -67,7 +67,8 @@ function movesOf(world: World, fixed: boolean): { action: string; to: World }[] 
   world.forEach((item, index) => {
     const name = ITEMS[index]!
     const put = (action: string, changed: Partial<Item>) => {
-      const to = world.map((other, at) => (at === index ? { ...other, ...changed } : other)) as unknown as World
+      const moved = { ...item, ...changed }
+      const to: World = index === 0 ? [moved, world[1]] : [world[0], moved]
       moves.push({ action: `${action}(${name})`, to })
     }
     if (item.state === 'queued') put('Start', { state: 'doing' })

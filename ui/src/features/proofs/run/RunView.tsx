@@ -77,20 +77,28 @@ const STEP_LOOK: Readonly<Record<StepLook, { box: string; dot: string; mark: str
 const STROKE: Readonly<Record<Tone, string>> = { live: 'stroke-foreground', ok: 'stroke-ok-fg', bad: 'stroke-bad-fg', warn: 'stroke-warn-fg', quiet: 'stroke-muted-foreground' }
 const WASH: Readonly<Record<Tone, string>> = { live: 'fill-sun/20', ok: 'fill-ok/15', bad: 'fill-bad/15', warn: 'fill-warn/15', quiet: 'fill-tone-1' }
 
-const modelLine = (run: ProofRun) => [run.model && `Model: ${run.model}`, run.workers ? `${run.workers} ${run.workers === 1 ? 'worker' : 'workers'}` : null].filter(Boolean).join(' · ')
+/** The model's size and TLC's workers: "Model: 2 items, up to 3 pushes each · 8 workers". */
+function modelLine(run: ProofRun): string {
+  const size = run.model ? `Model: ${run.model}` : null
+  const workers = run.workers ? `${run.workers} ${run.workers === 1 ? 'worker' : 'workers'}` : null
+  return [size, workers].filter(Boolean).join(' · ')
+}
 
 /** The spec and its model, the three steps, the four counters and the chart of new states. */
 function Check({ run, now }: { run: ProofRun; now: number }) {
   const still = useStill()
   const chart = chartOf(run)
-  const tween_ = still ? { duration: 0 } : { duration: 0.6, ease: [0.23, 1, 0.32, 1] as const }
+  const model = modelLine(run)
+  // The line turns into the next one as counts arrive. Under Still it is simply redrawn.
+  const reshape = still ? { duration: 0 } : { duration: 0.6, ease: [0.23, 1, 0.32, 1] as const }
+
   return (
     <section aria-label="The check" className={cn(CARD, 'flex flex-col gap-[18px] px-[22px] py-5')}>
       {/* The time keeps its place at the end whatever it says, and the model gives way to it. */}
       <div className="flex items-baseline gap-3.5">
         <h2 className="shrink-0 font-mono text-[15px] font-medium">{specFile(run.spec)}</h2>
-        <span title={modelLine(run)} className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
-          {modelLine(run)}
+        <span title={model} className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+          {model}
         </span>
         <span className="shrink-0 font-mono text-[12.5px] text-muted-foreground tabular-nums">{elapsedLine(run, now)}</span>
       </div>
@@ -132,8 +140,8 @@ function Check({ run, now }: { run: ProofRun; now: number }) {
         </figcaption>
         <svg role="img" aria-label={chart.aria} viewBox={`0 0 ${CHART.width} ${CHART.height}`} preserveAspectRatio="none" className="block h-[110px] w-full">
           <path d={`M0 ${CHART.floor} H${CHART.width}`} className="fill-none stroke-border" strokeWidth={1} vectorEffect="non-scaling-stroke" />
-          <motion.path initial={false} animate={{ d: chart.area }} transition={tween_} className={cn('stroke-none', WASH[chart.tone])} />
-          <motion.path initial={false} animate={{ d: chart.line }} transition={tween_} className={cn('fill-none', STROKE[chart.tone])} strokeWidth={2} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
+          <motion.path initial={false} animate={{ d: chart.area }} transition={reshape} className={cn('stroke-none', WASH[chart.tone])} />
+          <motion.path initial={false} animate={{ d: chart.line }} transition={reshape} className={cn('fill-none', STROKE[chart.tone])} strokeWidth={2} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
         </svg>
       </figure>
     </section>
@@ -191,10 +199,24 @@ function ResultArea({ run, onTab }: { run: ProofRun; onTab: RunViewProps['onTab'
           </motion.div>
         </AnimatePresence>
         <div className="col-start-2 flex justify-end gap-2 @min-[760px]/result:col-start-3 @min-[760px]/result:row-start-1">
-          <Button data-stop="" variant={result.primary.strong ? 'default' : 'outline'} className="h-11 rounded-xl px-4 text-[14px]" disabled={!onTab} title={onTab ? undefined : 'The state graph is not in this build yet.'} onClick={() => onTab?.('graph')}>
+          <Button
+            data-stop=""
+            variant={result.primary.strong ? 'default' : 'outline'}
+            disabled={!onTab}
+            title={onTab ? undefined : 'The state graph is not in this build yet.'}
+            onClick={() => onTab?.('graph')}
+            className="h-11 rounded-xl px-4 text-[14px]"
+          >
             {result.primary.label}
           </Button>
-          <Button data-stop="" variant="outline" className="h-11 rounded-xl px-3.5 text-[14px]" disabled={!onTab} title={onTab ? undefined : 'The math is not in this build yet.'} onClick={() => onTab?.('math')}>
+          <Button
+            data-stop=""
+            variant="outline"
+            disabled={!onTab}
+            title={onTab ? undefined : 'The math is not in this build yet.'}
+            onClick={() => onTab?.('math')}
+            className="h-11 rounded-xl px-3.5 text-[14px]"
+          >
             Read the math
           </Button>
         </div>
@@ -333,7 +355,7 @@ function CodeMap({ run, onCode }: { run: ProofRun; onCode: RunViewProps['onCode'
                 className="-mx-2 grid min-h-9 w-[calc(100%+16px)] grid-cols-[92px_minmax(0,1fr)_14px] items-center gap-2.5 rounded-[10px] px-2 text-left transition-colors duration-[160ms] ease-[ease] enabled:hover:bg-tone-1 disabled:cursor-default"
               >
                 <span className="truncate font-mono text-[12.5px] font-medium">{row.action}</span>
-                <span className="truncate font-mono text-[12px] text-sun-fg">{row.where.split('/').at(-1)}</span>
+                <span className="truncate font-mono text-[12px] text-sun-fg">{row.file}</span>
                 {onCode ? <Code aria-hidden="true" className="size-3.5 text-muted-foreground" /> : <span />}
               </button>
             </li>

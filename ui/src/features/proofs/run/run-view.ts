@@ -47,13 +47,18 @@ export function phaseOf(run: ProofRunSummary): { label: string; tone: Tone } {
       if (running === 'prove') return { label: 'Proving it for every size', tone: 'live' }
       return { label: 'Checking the model', tone: 'live' }
     }
-    case 'broken':
-      return { label: run.broken && run.rules.find((rule) => rule.name === run.broken)?.kind === 'deadlock' ? 'Found a deadlock' : 'Found a counterexample', tone: 'bad' }
+    case 'broken': {
+      const deadlock = run.rules.find((rule) => rule.name === run.broken)?.kind === 'deadlock'
+      return { label: deadlock ? 'Found a deadlock' : 'Found a counterexample', tone: 'bad' }
+    }
     case 'holds': {
       const missed = neverFired(run)
       if (missed.length) return { label: `Holds, but ${namesOf(missed)} never ran`, tone: 'warn' }
-      if (stepOf(run, 'prove')?.state === 'failed') return { label: 'Holds, the proof fails', tone: 'warn' }
-      return { label: stepOf(run, 'prove')?.state === 'done' ? 'Holds, and proved' : 'Model holds', tone: 'ok' }
+
+      const proof = stepOf(run, 'prove')?.state
+      if (proof === 'failed') return { label: 'Holds, the proof fails', tone: 'warn' }
+      if (proof === 'done') return { label: 'Holds, and proved', tone: 'ok' }
+      return { label: 'Model holds', tone: 'ok' }
     }
     case 'error':
       return { label: 'Could not check', tone: 'bad' }
@@ -113,22 +118,26 @@ export interface Counter {
   sub: string
 }
 
+const WAITING_SUBS: Readonly<Record<ProofRun['outcome'], string>> = { checking: 'Still to explore', holds: 'Nothing left', broken: 'Left when it stopped', stopped: 'Left when it stopped', error: 'Left when it stopped' }
+
 export function countersOf(run: ProofRunSummary): Counter[] {
   const { distinct, generated, queue, depth } = run.stats
-  const checking = run.outcome === 'checking'
-  const done = run.outcome === 'holds'
-  const last: Counter = run.outcome === 'broken' ? { label: 'Counterexample', value: count(stepsToBreak(run)), sub: 'Steps, the shortest' } : { label: 'Deepest path', value: count(depth), sub: 'Steps from the start' }
+  const deepest: Counter =
+    run.outcome === 'broken'
+      ? { label: 'Counterexample', value: count(stepsToBreak(run)), sub: 'Steps, the shortest' }
+      : { label: 'Deepest path', value: count(depth), sub: 'Steps from the start' }
+
   return [
-    { label: 'Distinct states', value: count(distinct), sub: done ? 'All of them' : 'Each one checked' },
+    { label: 'Distinct states', value: count(distinct), sub: run.outcome === 'holds' ? 'All of them' : 'Each one checked' },
     { label: 'States found', value: count(generated), sub: 'Including repeats' },
-    { label: 'Waiting', value: count(queue), sub: checking ? 'Still to explore' : done ? 'Nothing left' : 'Left when it stopped' },
-    last,
+    { label: 'Waiting', value: count(queue), sub: WAITING_SUBS[run.outcome] },
+    deepest,
   ]
 }
 
 // The chart.
 
-/** The chart's own box, in its viewBox units: the line keeps two units clear of the top and the floor. */
+/** The chart's own box, in its viewBox units: the line starts on the floor and never rises past the top. */
 export const CHART = { width: 600, height: 110, floor: 108, top: 6 } as const
 /** Every line has this many points, so one line can turn into the next. */
 export const CHART_POINTS = 40
@@ -175,36 +184,64 @@ function slowing(samples: ProofRun['samples']): boolean {
   return end.distinct - half < half
 }
 
-export function chartOf(run: Pick<ProofRun, 'samples' | 'outcome' | 'rate' | 'traceLength' | 'stats'>): Chart {
-  const checking = run.outcome === 'checking'
-  const samples = run.samples.length ? run.samples : [{ at: 0, distinct: 0 }]
-  const end = samples.at(-1)!.at
+const CHART_TONES: Readonly<Record<ProofRun['outcome'], Tone>> = { checking: 'live', holds: 'ok', broken: 'bad', error: 'bad', stopped: 'quiet' }
+
+/** The line through distinct states over time, at CHART_POINTS points, and the area under it. */
+function chartPaths(samples: ProofRun['samples'], checking: boolean): { line: string; area: string } {
+  const end = samples.at(-1)?.at ?? 0
   const most = Math.max(1, ...samples.map((sample) => sample.distinct))
   const reach = checking ? LIVE_REACH : 1
-  const height = checking ? LIVE_HEIGHT : 1
-  const rise = CHART.floor - CHART.top
+  const height = (checking ? LIVE_HEIGHT : 1) * (CHART.floor - CHART.top)
+
   const points = Array.from({ length: CHART_POINTS }, (_, index) => {
     const share = index / (CHART_POINTS - 1)
     const x = round(share * reach * CHART.width)
-    const y = round(CHART.floor - (distinctAt(samples, share * end) / most) * height * rise)
+    const y = round(CHART.floor - (distinctAt(samples, share * end) / most) * height)
     return `${x} ${y}`
   })
+
   const line = `M${points.join(' L')}`
   const area = `${line} L${round(reach * CHART.width)} ${CHART.floor} L0 ${CHART.floor} Z`
-  const tone: Tone = run.outcome === 'broken' || run.outcome === 'error' ? 'bad' : run.outcome === 'holds' ? 'ok' : checking ? 'live' : 'quiet'
-  const rate = rateOf(run)
+  return { line, area }
+}
+
+export function chartOf(run: Pick<ProofRun, 'samples' | 'outcome' | 'rate' | 'traceLength' | 'stats'>): Chart {
+  const samples = run.samples.length ? run.samples : [{ at: 0, distinct: 0 }]
+  const paths = { ...chartPaths(samples, run.outcome === 'checking'), tone: CHART_TONES[run.outcome] }
 
   switch (run.outcome) {
-    case 'checking':
-      return { line, area, tone, aria: slowing(samples) ? 'New states are still rising, but more slowly.' : 'New states are still rising fast.', caption: rate === null ? 'Counting states' : `${count(rate)} states a second` }
+    case 'checking': {
+      const rate = rateOf(run)
+      return {
+        ...paths,
+        aria: slowing(samples) ? 'New states are still rising, but more slowly.' : 'New states are still rising fast.',
+        caption: rate === null ? 'Counting states' : `${count(rate)} states a second`,
+      }
+    }
     case 'holds':
-      return { line, area, tone, aria: 'New states rose fast, then flattened to none: the whole model was explored.', caption: 'Every reachable state looked at' }
+      return {
+        ...paths,
+        aria: 'New states rose fast, then flattened to none: the whole model was explored.',
+        caption: 'Every reachable state looked at',
+      }
     case 'broken':
-      return { line, area, tone, aria: 'The check stopped early, at the counterexample.', caption: `Stopped at depth ${stepsToBreak(run)}` }
+      return {
+        ...paths,
+        aria: 'The check stopped early, at the counterexample.',
+        caption: `Stopped at depth ${stepsToBreak(run)}`,
+      }
     case 'stopped':
-      return { line, area, tone, aria: 'The check was stopped before it looked at every state.', caption: 'Stopped before the end' }
+      return {
+        ...paths,
+        aria: 'The check was stopped before it looked at every state.',
+        caption: 'Stopped before the end',
+      }
     case 'error':
-      return { line, area, tone, aria: 'The check ended with an error.', caption: 'Ended with an error' }
+      return {
+        ...paths,
+        aria: 'The check ended with an error.',
+        caption: 'Ended with an error',
+      }
   }
 }
 
@@ -224,43 +261,90 @@ export interface Result {
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1)
 const plural = (value: number, one: string, many = `${one}s`) => `${count(value)} ${value === 1 ? one : many}`
 
+const WATCH = { label: 'Watch the graph grow', strong: false }
+const EXPLORE = { label: 'Explore the graph', strong: false }
+const STEP_THROUGH = { label: 'Step through it', strong: true }
+
 /** What the run found, in a title and two lines at most. It always has the same two buttons beside it. */
 export function resultOf(run: ProofRunSummary): Result {
-  const { generated, queue, distinct } = run.stats
-  const look = { label: 'Explore the graph', strong: false }
+  const { generated, queue } = run.stats
   switch (run.outcome) {
     case 'checking':
-      if (stepOf(run, 'parse')?.state === 'running') return { tone: 'quiet', icon: 'clock', title: 'Nothing checked yet', line: 'SANY reads the spec first, and TLC starts once it parses.', primary: { label: 'Watch the graph grow', strong: false } }
+      if (stepOf(run, 'parse')?.state === 'running') {
+        return { tone: 'quiet', icon: 'clock', title: 'Nothing checked yet', line: 'SANY reads the spec first, and TLC starts once it parses.', primary: WATCH }
+      }
       return {
         tone: 'quiet',
         icon: 'clock',
         title: 'Nothing broken yet',
         line: `${count(generated)} states looked at, ${count(queue)} still waiting. You can leave: hobkin keeps checking and tells you what it finds.`,
-        primary: { label: 'Watch the graph grow', strong: false },
+        primary: WATCH,
       }
-    case 'broken': {
-      const steps = stepsToBreak(run)
-      const rule = run.rules.find((candidate) => candidate.name === run.broken)
-      const title = rule?.kind === 'deadlock' ? `The model gets stuck after ${plural(steps, 'step')}` : `${run.broken ?? 'A rule'} breaks after ${plural(steps, 'step')}`
-      const line = rule?.words ? `It should be that ${lowerFirst(rule.words)}. TLC found the shortest way to break it.` : 'TLC found the shortest way there. Step through it to see each change.'
-      return { tone: 'bad', icon: 'alert', title, line, primary: { label: 'Step through it', strong: true } }
-    }
-    case 'holds': {
-      const missed = neverFired(run)
-      const size = run.model ? `${run.model}. ` : ''
-      if (missed.length) {
-        const them = missed.length === 1 ? 'it' : 'them'
-        return { tone: 'warn', icon: 'alert', title: `Holds, but ${namesOf(missed)} never ran`, line: `A model that never reaches an action checks nothing ${them} guards, so this run is not evidence. ${size}`.trim(), primary: look }
-      }
-      const prove = stepOf(run, 'prove')
-      if (prove?.state === 'failed') return { tone: 'warn', icon: 'alert', title: 'Holds here, but the proof fails', line: `It holds for ${run.model ?? 'this size'}, not yet for every size. ${prove.note}`.trim(), primary: look }
-      if (prove?.state === 'done') return { tone: 'ok', icon: 'check', title: 'Holds, and is proved for every size', line: `TLC looked at all ${count(distinct)} states of ${run.model ?? 'this model'}. ${prove.note}.`, primary: look }
-      return { tone: 'ok', icon: 'check', title: 'Holds in every state this model can reach', line: `${size}That is a check of this size, not a proof for every size: the Proof step does that.`, primary: look }
-    }
+    case 'broken':
+      return { ...brokenResult(run), tone: 'bad', icon: 'alert', primary: STEP_THROUGH }
+    case 'holds':
+      return { ...holdsResult(run), primary: EXPLORE }
     case 'stopped':
-      return { tone: 'quiet', icon: 'stop', title: 'Stopped before the end', line: `${count(generated)} states looked at, ${count(queue)} not yet. A stopped check says nothing of the states it did not reach.`, primary: look }
+      return {
+        tone: 'quiet',
+        icon: 'stop',
+        title: 'Stopped before the end',
+        line: `${count(generated)} states looked at, ${count(queue)} not yet. A stopped check says nothing of the states it did not reach.`,
+        primary: EXPLORE,
+      }
     case 'error':
-      return { tone: 'bad', icon: 'alert', title: 'The check could not run', line: run.message ?? 'What hobkin is doing says where it stopped.', primary: look }
+      return { tone: 'bad', icon: 'alert', title: 'The check could not run', line: run.message ?? 'What hobkin is doing says where it stopped.', primary: EXPLORE }
+  }
+}
+
+/** Which rule broke after how many steps, and what it should have kept true, in its spec's words when it has them. */
+function brokenResult(run: ProofRunSummary): Pick<Result, 'title' | 'line'> {
+  const steps = plural(stepsToBreak(run), 'step')
+  const rule = run.rules.find((candidate) => candidate.name === run.broken)
+  const title = rule?.kind === 'deadlock' ? `The model gets stuck after ${steps}` : `${run.broken ?? 'A rule'} breaks after ${steps}`
+  const line = rule?.words ? `It should be that ${lowerFirst(rule.words)}. TLC found the shortest way to break it.` : 'TLC found the shortest way there. Step through it to see each change.'
+  return { title, line }
+}
+
+/**
+ * A model that holds: not evidence while an action never fired, held back by a proof that fails, proved for every size,
+ * or a check of this size only.
+ */
+function holdsResult(run: ProofRunSummary): Omit<Result, 'primary'> {
+  const missed = neverFired(run)
+  if (missed.length) {
+    const guards = missed.length === 1 ? 'it guards' : 'they guard'
+    const size = run.model ? ` ${run.model}.` : ''
+    return {
+      tone: 'warn',
+      icon: 'alert',
+      title: `Holds, but ${namesOf(missed)} never ran`,
+      line: `A model that never reaches an action checks nothing ${guards}, so this run is not evidence.${size}`,
+    }
+  }
+
+  const prove = stepOf(run, 'prove')
+  if (prove?.state === 'failed') {
+    return {
+      tone: 'warn',
+      icon: 'alert',
+      title: 'Holds here, but the proof fails',
+      line: `It holds for ${run.model ?? 'this size'}, not yet for every size. ${prove.note}`.trim(),
+    }
+  }
+  if (prove?.state === 'done') {
+    return {
+      tone: 'ok',
+      icon: 'check',
+      title: 'Holds, and is proved for every size',
+      line: `TLC looked at all ${count(run.stats.distinct)} states of ${run.model ?? 'this model'}. ${prove.note}.`,
+    }
+  }
+  return {
+    tone: 'ok',
+    icon: 'check',
+    title: 'Holds in every state this model can reach',
+    line: `${run.model ? `${run.model}. ` : ''}That is a check of this size, not a proof for every size: the Proof step does that.`,
   }
 }
 
@@ -363,9 +447,13 @@ export interface CodeRow {
   action: string
   /** `path:line` in the project, as the spec's `\* code:` says. */
   where: string
-  path: string
+  /** Its file name and line, as the row shows it: `yolo-pass.mjs:165`. */
+  file: string
 }
 
 export function codeRows(run: Pick<ProofRunSummary, 'actions'>): CodeRow[] {
-  return run.actions.flatMap((action) => (action.code ? [{ action: action.name, where: action.code, path: action.code.replace(/:\d+$/, '') }] : []))
+  return run.actions.flatMap((action) => {
+    if (!action.code) return []
+    return [{ action: action.name, where: action.code, file: action.code.split('/').at(-1) ?? action.code }]
+  })
 }

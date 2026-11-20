@@ -98,7 +98,18 @@ test('each rule says how it stands in words a person reads', () => {
 
 test('which actions ran: bars against the busiest, the breaking action marked and one that never fired empty', () => {
   const rows = actionRows(run('broken'))
-  assert.deepEqual(rows.map(({ name, width, tone }) => [name, width, tone]), [['Start', 100], ['Finish', 92], ['Review', 60], ['Fix', 37], ['YoloMerge', 6], ['Decline', 0]].map(([name, width], index) => [name, width, index === 4 ? 'bad' : index === 5 ? 'none' : 'text']))
+
+  assert.deepEqual(
+    rows.map(({ name, width, tone }) => [name, width, tone]),
+    [
+      ['Start', 100, 'text'],
+      ['Finish', 92, 'text'],
+      ['Review', 60, 'text'],
+      ['Fix', 37, 'text'],
+      ['YoloMerge', 6, 'bad'],
+      ['Decline', 0, 'none'],
+    ],
+  )
   assert.equal(rows[0]!.count, '4,906')
   // A sliver for one that fired at all, and no culprit while it checks.
   assert.equal(actionRows({ actions: [{ name: 'A', count: 10_000 }, { name: 'B', count: 1 }], outcome: 'checking' })[1]!.width, 3)
@@ -110,6 +121,6 @@ test('the log keeps the newest lines on the 24-hour clock, and the code map name
   assert.equal(rows.length, LOG_LINES)
   assert.deepEqual(rows.map(({ at, text, tone }) => [at, text, tone]).slice(-2), [['14:13', 'Line 8', 'done'], ['', 'Checking', 'live']])
 
-  assert.deepEqual(codeRows(run('holds'))[4], { action: 'YoloMerge', where: 'src/cli/work/yolo-pass.mjs:165', path: 'src/cli/work/yolo-pass.mjs' })
+  assert.deepEqual(codeRows(run('holds'))[4], { action: 'YoloMerge', where: 'src/cli/work/yolo-pass.mjs:165', file: 'yolo-pass.mjs:165' })
   assert.deepEqual(codeRows({ actions: [{ name: 'Tick', count: 3 }] }), [])
 })

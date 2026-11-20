@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStill } from '@/app/still.ts'
 import { useStops } from '@/app/stops.ts'
@@ -68,7 +68,7 @@ function Header({ run, live }: { run: ProofRun; live: boolean }) {
   const still = useStill()
   const { work } = useWorkView()
   const agents = useHost((state) => state.snapshot.runs)
-  const title = useMemo(() => itemTitle(run, work, agents ?? []), [run, work, agents]) ?? `The model in ${specFile(run.spec)}`
+  const title = itemTitle(run, work, agents ?? []) ?? `The model in ${specFile(run.spec)}`
   const phase = phaseOf(run)
   const control = controlOf(run)
   const [said, setSaid] = useState<string | null>(null)
@@ -80,13 +80,14 @@ function Header({ run, live }: { run: ProofRun; live: boolean }) {
       setSaid('This is sample data, so nothing runs.')
       return
     }
+
     setBusy(true)
     setSaid(null)
     try {
       const answer = await runCommand(control.command, { id: run.id })
-      // Run again starts a new run: its page follows it when hobkin names it.
-      const next = 'id' in answer ? answer.id : undefined
-      if (next) useView.getState().openProofRun(next)
+      // Run again starts a new run: the page follows it when hobkin names it.
+      const started = 'id' in answer ? answer.id : undefined
+      if (started) useView.getState().openProofRun(started)
       else setSaid(answer.message)
     } catch (error) {
       setSaid(error instanceof Error ? error.message : String(error))
@@ -148,14 +149,18 @@ function RunPanel({ run, now }: { run: ProofRun; now: number }) {
 
 /** Opens an action's code in the app's own viewer, from the folder an agent of the run's item worked in, when hobkin says. */
 function useCodeOpener(run: ProofRun): ((where: string) => void) | null {
-  const runs = useHost((state) => state.snapshot.runs)
-  const folder = useMemo(() => folderOf(run, runs ?? []), [run, runs])
+  const agents = useHost((state) => state.snapshot.runs)
+  const folder = folderOf(run, agents ?? [])
   if (!folder) return null
-  return (where) => useViewer.getState().openFile(`${folder}/${where.replace(/:\d+$/, '')}`)
+  return (where) => {
+    const path = where.replace(/:\d+$/, '')
+    useViewer.getState().openFile(`${folder}/${path}`)
+  }
 }
 
-function folderOf(run: Pick<ProofRun, 'project' | 'item'>, runs: readonly RunSummary[]): string | null {
+/** The folder an agent worked on the run's item in, as a full path. Null for a run of no item, or when no agent says. */
+function folderOf(run: Pick<ProofRun, 'project' | 'item'>, agents: readonly RunSummary[]): string | null {
   if (!run.project || !run.item) return null
-  const mine = runs.filter((candidate) => candidate.work?.slug === run.project && candidate.work?.item === run.item && candidate.cwd?.startsWith('/'))
-  return mine.at(-1)?.cwd?.replace(/\/$/, '') ?? null
+  const agent = agents.findLast(({ work, cwd }) => work?.slug === run.project && work?.item === run.item && cwd?.startsWith('/'))
+  return agent?.cwd?.replace(/\/$/, '') ?? null
 }

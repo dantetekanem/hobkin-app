@@ -39,35 +39,39 @@ export function useProofRun(id: string | null): ShownRun {
   const { proofs, live } = useProofRuns()
   const summary = useMemo(() => (id ? proofs.runs.find((run) => run.id === id) : proofs.runs[0]) ?? null, [proofs, id])
   const shownId = summary?.id ?? id
+  const outcome = summary?.outcome
+  const generated = summary?.stats.generated
+  const checking = outcome === 'checking'
   const [whole, setWhole] = useState<{ id: string; run: ProofRun } | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
-  const checking = summary?.outcome === 'checking'
-  const asked = useRef(0)
+  const lastAsked = useRef(0)
 
-  // Read whole on arriving, again when it ends, and every so often while it checks.
-  const outcome = summary?.outcome
-  const stats = summary?.stats.generated
+  // Read whole on arriving, again when it ends, and while it checks each time its counts move, at most every REFRESH_MS.
   useEffect(() => {
     if (!live || !shownId) return
-    const wait = checking ? Math.max(0, asked.current + REFRESH_MS - Date.now()) : 0
+    const wait = outcome === 'checking' ? Math.max(0, lastAsked.current + REFRESH_MS - Date.now()) : 0
     let gone = false
+
     const timer = setTimeout(() => {
-      asked.current = Date.now()
-      runCommand('proof.get', { id: shownId })
-        .then((run) => {
+      lastAsked.current = Date.now()
+      runCommand('proof.get', { id: shownId }).then(
+        (run) => {
           if (gone) return
           setWhole({ id: shownId, run })
           setProblem(null)
-        })
-        .catch((error: unknown) => {
-          if (!gone) setProblem(error instanceof Error ? error.message : String(error))
-        })
+        },
+        (error: unknown) => {
+          if (gone) return
+          setProblem(error instanceof Error ? error.message : String(error))
+        },
+      )
     }, wait)
+
     return () => {
       gone = true
       clearTimeout(timer)
     }
-  }, [live, shownId, checking, outcome, stats])
+  }, [live, shownId, outcome, generated])
 
   const clock = useNow(live && checking, 1000)
 
@@ -77,16 +81,27 @@ export function useProofRun(id: string | null): ShownRun {
     const run = SAMPLE_RUNS[phase]
     return { run, live, now: Date.parse(run.started) + SAMPLE_ELAPSED_MS[phase], problem: null }
   }
+
+  // A run older than the slice keeps comes from proof.get alone.
   if (!summary) return { run: whole?.id === id ? whole.run : null, live, now: clock, problem }
+
   // The slice is newer than the last whole read: its counters, rules and actions win, and its count ends the chart.
   const base = whole?.id === summary.id ? whole.run : fromSummary(summary)
-  return { run: { ...base, ...summary, samples: withLatest(base.samples, summary, clock) }, live, now: clock, problem }
+  const run = { ...base, ...summary, samples: withLatest(base.samples, summary, clock) }
+  return { run, live, now: clock, problem }
 }
 
 /** While it checks, the chart ends at the slice's count now, so it moves between whole reads. */
 function withLatest(samples: ProofRun['samples'], summary: ProofRunSummary, now: number): ProofRun['samples'] {
+  if (summary.outcome !== 'checking') return samples
+
   const at = now - Date.parse(summary.started)
+  if (Number.isNaN(at)) return samples
+
+  // A whole read that came after the slice's count already ends the chart.
   const last = samples.at(-1)
-  if (summary.outcome !== 'checking' || Number.isNaN(at) || (last && (last.at >= at || last.distinct > summary.stats.distinct))) return samples
+  const readSince = last && (last.at >= at || last.distinct > summary.stats.distinct)
+  if (readSince) return samples
+
   return [...samples, { at, distinct: summary.stats.distinct }]
 }
