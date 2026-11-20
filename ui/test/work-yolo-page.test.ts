@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { YoloProject, YoloState } from '#shared/protocol/work.ts'
-import { readinessRow, sampleReadiness, yoloAtAGlance } from '../src/features/work/yolo-page.ts'
+import type { FinishedChange, FinishedGroup, FinishedGroupName, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import { readinessRow, sampleReadiness, waitingChange, yoloAtAGlance } from '../src/features/work/yolo-page.ts'
 
 const NOW = Date.parse('2026-11-20T15:00:00Z')
 const project = (change: Partial<YoloProject> = {}): YoloProject => ({
@@ -43,7 +43,7 @@ test("readiness that runs or waits for the user's yes cannot be started again, a
   assert.deepEqual([running.state, running.tone, running.canRun], ['Running', 'live', false])
 
   const waiting = rowOf({ work: 'waiting', needs: ['Its readiness work waits for your yes.'] })
-  assert.deepEqual([waiting.state, waiting.tone, waiting.canRun], ['Waits for your yes', 'warn', false])
+  assert.deepEqual([waiting.state, waiting.tone, waiting.press, waiting.action], ['Waits for your yes', 'warn', { do: 'open', key: null }, 'Open on Work'])
 
   const queued = rowOf({ work: 'queued' })
   assert.deepEqual([queued.state, queued.canRun], ['Queued', true])
@@ -61,4 +61,32 @@ test('with no host, running readiness queues it on the sample alone', () => {
   const after = sampleReadiness(before, 'api')
   assert.deepEqual(after.projects.map(({ slug, work }) => [slug, work]), [['api', 'queued'], ['web', 'landed']])
   assert.equal(after.on, false, 'the switch stays as it was')
+})
+
+const card = (choices: FinishedChange['choices'], change: Partial<FinishedChange> = {}) =>
+  ({ key: 'api:r1', slug: 'api', item: 'r1', yes: 'Merge it puts hobkin/r1 into the default branch on this machine. Nothing is pushed.', reason: 'Rated risky.', choices, ...change }) as FinishedChange
+const groups = (name: FinishedGroupName, change: FinishedChange): FinishedGroup[] => [{ name, heading: '', why: null, action: null, changes: [change] }]
+const MERGE = [{ value: 'diff', label: 'Show the diff' }, { value: 'merge', label: 'Merge it' }] as FinishedChange['choices']
+
+test("readiness that waits for the user's yes says it on its own row when hobkin rates its branch ready to merge", () => {
+  const waits = project({ work: 'waiting', item: 'r1' })
+  const change = card(MERGE)
+  const found = waitingChange(waits, groups('merge', change))
+  assert.equal(found?.change, change)
+  assert.equal(waitingChange(project({ work: 'waiting', item: 'other' }), groups('merge', change)), null)
+  assert.equal(waitingChange(project({ work: 'landed', item: 'r1' }), groups('merge', change)), null, 'only readiness that waits')
+
+  const row = readinessRow(waits, { workOn: true, now: NOW, zone: 'UTC', waiting: found })
+  assert.deepEqual([row.action, row.canRun, row.press, row.detail], ['Merge', true, { do: 'yes', change, choice: 'merge' }, change.yes])
+
+  const pr = readinessRow(waits, { workOn: true, now: NOW, zone: 'UTC', waiting: waitingChange(waits, groups('refresh', card([{ value: 'refreshMerge', label: 'Refresh and merge the PR' }]))) })
+  assert.deepEqual([pr.action, pr.press.do], ['Refresh, merge', 'yes'])
+})
+
+test('readiness whose branch needs the user opens its card on Work instead of merging from the row', () => {
+  const waits = project({ work: 'waiting', item: 'r1' })
+  for (const name of ['needs', 'left'] as const) {
+    const row = readinessRow(waits, { workOn: true, now: NOW, zone: 'UTC', waiting: waitingChange(waits, groups(name, card(MERGE))) })
+    assert.deepEqual([row.action, row.press, row.detail], ['Open on Work', { do: 'open', key: 'api:r1' }, 'Rated risky.'], name)
+  }
 })

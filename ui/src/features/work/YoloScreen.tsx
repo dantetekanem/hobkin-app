@@ -9,10 +9,11 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { rateChoices, readyCount, SAMPLE_YOLO, sampleAfter, yoloSays } from '@/features/settings/yolo.ts'
 import { runCommand } from '@/lib/host/client.ts'
 import { cn } from '@/lib/utils.ts'
-import type { YoloProject, YoloState } from '#shared/protocol/work.ts'
+import type { FinishedGroup, YoloProject, YoloState } from '#shared/protocol/work.ts'
 import { SectionHeading, Segmented } from './parts.tsx'
-import { useWorkView } from './store.ts'
-import { readinessRow, sampleReadiness, type ReadinessTone } from './yolo-page.ts'
+import { runWork, useWorkView } from './store.ts'
+import { openOnWork } from './work-target.ts'
+import { readinessRow, sampleReadiness, waitingChange, type ReadinessPress, type ReadinessTone } from './yolo-page.ts'
 import { ProjectModels, ProofSetup } from '@/features/proofs/ProjectModels.tsx'
 
 type SetSample = Dispatch<SetStateAction<YoloState>>
@@ -51,7 +52,7 @@ export function YoloScreen() {
         {yolo ? (
           <>
             <Switchboard yolo={yolo} live={live} setSample={setSample} />
-            <Readiness yolo={yolo} live={live} workOn={work?.enabled ?? false} now={now} setSample={setSample} />
+            <Readiness yolo={yolo} live={live} workOn={work?.enabled ?? false} finished={work?.finished ?? []} now={now} setSample={setSample} />
           </>
         ) : (
           <p className="text-[13.5px] text-muted-foreground">This hobkin has not said how YOLO mode stands yet.</p>
@@ -112,15 +113,16 @@ function Switchboard({ yolo, live, setSample }: { yolo: YoloState; live: boolean
   )
 }
 
-/** What every readiness row needs besides its project: where the data comes from, whether work mode is on, and the time now. */
+/** What every readiness row needs besides its project: where the data comes from, whether work mode is on, Work's finished changes, and the time now. */
 interface ReadinessContext {
   live: boolean
   workOn: boolean
+  finished: FinishedGroup[]
   now: number
   setSample: SetSample
 }
 
-function Readiness({ yolo, live, workOn, now, setSample }: ReadinessContext & { yolo: YoloState }) {
+function Readiness({ yolo, live, workOn, finished, now, setSample }: ReadinessContext & { yolo: YoloState }) {
   return (
     <section aria-label="Readiness" className="flex flex-col gap-3">
       <SectionHeading label="Readiness" count={readyCount(yolo)} />
@@ -131,7 +133,7 @@ function Readiness({ yolo, live, workOn, now, setSample }: ReadinessContext & { 
       {yolo.projects.length ? (
         <ul aria-label="Projects" className="flex flex-col gap-2">
           {yolo.projects.map((project) => (
-            <ProjectReadiness key={project.slug} project={project} live={live} workOn={workOn} now={now} setSample={setSample} />
+            <ProjectReadiness key={project.slug} project={project} live={live} workOn={workOn} finished={finished} now={now} setSample={setSample} />
           ))}
         </ul>
       ) : (
@@ -155,11 +157,13 @@ interface Said {
 }
 
 /**
- * One project: where its readiness stands, when it was last checked, and the button that runs it now. The row has
- * one height and its words two lines, so the button never moves while its status changes live.
+ * One project: where its readiness stands, when it was last checked, and the button that runs it now. While its branch
+ * waits for the user's yes, the button is that yes, as the branch's card on Work offers it, or opens the card there
+ * when it needs the user. The row has one height and its words two lines, so the button never moves while its status
+ * changes live.
  */
-function ProjectReadiness({ project, live, workOn, now, setSample }: ReadinessContext & { project: YoloProject }) {
-  const row = readinessRow(project, { workOn, now, zone: ZONE })
+function ProjectReadiness({ project, live, workOn, finished, now, setSample }: ReadinessContext & { project: YoloProject }) {
+  const row = readinessRow(project, { workOn, now, zone: ZONE, waiting: waitingChange(project, finished) })
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<Said | null>(null)
 
@@ -168,18 +172,29 @@ function ProjectReadiness({ project, live, workOn, now, setSample }: ReadinessCo
     setSaid((current) => (current?.tone === 'done' && project.work === 'queued' ? current : null))
   }, [project.work])
 
-  const run = async () => {
+  const run = async (press: ReadinessPress) => {
     if (busy || !row.canRun) return
+    if (press.do === 'open') {
+      if (press.key) openOnWork(`[data-change="${press.key}"]`)
+      else backToWork()
+      return
+    }
     setSaid(null)
-    if (!live) {
+    if (press.do === 'run' && !live) {
       setSample((before) => sampleReadiness(before, project.slug))
       return
     }
 
     setBusy(true)
     try {
-      const { message } = await runCommand('work.yolo.ready', { slug: project.slug })
-      setSaid({ text: message, tone: 'done' })
+      if (press.do === 'yes') {
+        // The same yes as its card on Work, at the commit the card shows. What hobkin says is the row's until the work moves on.
+        const said = await runWork({ do: 'change', change: press.change, choice: press.choice }, { live, place: press.change.key })
+        setSaid(said)
+      } else {
+        const { message } = await runCommand('work.yolo.ready', { slug: project.slug })
+        setSaid({ text: message, tone: 'done' })
+      }
     } catch (error) {
       setSaid({ text: error instanceof Error ? error.message : String(error), tone: 'refused' })
     } finally {
@@ -187,7 +202,7 @@ function ProjectReadiness({ project, live, workOn, now, setSample }: ReadinessCo
     }
   }
 
-  const detail = said?.text ?? row.detail
+  const detail = said?.text || row.detail
 
   return (
     <li className="flex flex-col rounded-2xl bg-surface px-4 has-[[data-models]:not(:empty)]:pb-3">
@@ -212,8 +227,9 @@ function ProjectReadiness({ project, live, workOn, now, setSample }: ReadinessCo
           data-stop=""
           disabled={busy || !row.canRun}
           focusableWhenDisabled
-          aria-label={`${row.action} on ${project.name}`}
-          onClick={() => void run()}
+          title={row.title}
+          aria-label={`${row.title ?? row.action} on ${project.name}`}
+          onClick={() => void run(row.press)}
           className="w-[120px] data-disabled:opacity-50"
         >
           {row.action}

@@ -186,6 +186,8 @@ export interface YoloProject {
   needs: string[]
   /** Where its readiness work stands. A hobkin older than this does not send it. */
   work?: YoloWork
+  /** Its readiness work's item, so the window can find the branch that waits for the user's yes. A hobkin older than this does not send it. */
+  item?: string | null
   /** When its readiness was last recorded, as an ISO time, and null before its first check. A hobkin older than this does not send it. */
   checkedAt?: string | null
   /** Its TLA+ models on the default branch, the readiness part YOLO mode needs to hold, when it has any. A hobkin older than them does not send it. */
