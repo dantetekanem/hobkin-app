@@ -72,6 +72,8 @@ If `work.item.workNote` is set, the user read your branch and wrote that note. D
 
     For `visibility`, name the monitoring that covers the changed path: the error tracker, the slow query log or query timing, the request or job metric, the alert. A change that touches a query or a hot path with none of that on it scores 4 or less, however good its tests are. hobkin holds a change whose `visibility` is under 7, as it holds one whose `safety` is under 8 or whose `rollback` is under 7.
 
+    When a TLA+ model covers the change, hobkin writes the `proof` evidence from its own run at your head, and a model that broke there leaves `proof` at 3 at most. Score the tests you see.
+
     `kind` says what the change is, whatever its item was filed as: `performance`, `bug-fix`, `state-machine` for an implicit state machine made explicit or fixed, `package-update`, `small-change`, or `feature` for new behaviour a user can see. Say `unclear` when it fits none of them or mixes them. hobkin works out the general rate from your scores, so send no rate. It keeps scores only from a review, so a run without `work.item.reviewAsked` leaves `review` out.
 9. Write the PR description to `work.item.prFile`, in Markdown: a title on the first line, then what changed, why, the proof, what could not be tested, and that Hobkin work mode made it. When `work.item.issue` is set, its last line is `Fixes <repo>#<number>` with that issue's `repo` and `number`, so GitHub closes the issue when the PR merges. This is the description of your branch whatever `work.landing` says.
 10. Land it as `work.landing` says:
@@ -93,6 +95,18 @@ Record an outcome when the item reaches a supported state. If part of the item w
 ## Flags
 
 Use a flag only if rollback cannot undo the harm, a real named audience exists for partial exposure, or a flaky dependency needs a kill switch. Skip it if a rollback takes a minute. Never flag schema changes, libraries or static sites. Use the project's own tool, or an env var or YAML in the repository. Every flag gets an expiry when it is made, and the review records both in `launch.flag`. When its watch closes, hobkin files the removal as a `chore`, and the user merges it like any other branch. You never flip a flag in production.
+
+## A state machine
+
+When your change touches a state machine, one the code names or one hidden in flags, strings or columns, model it in TLA+ and keep the model true to the code. A spec under `specs/tla/` whose `\* models:` names a file you change is that model, so update it. Otherwise write `specs/tla/<Machine>.tla` and its `.cfg` on your branch, with the code.
+
+- Keep it small enough to check in minutes: two or three of each thing, and a bound on anything that counts up.
+- `\* models: <path>, <path>` names the files it models. Above each action, `\* code: <path>:<line>` names the code it stands for. Above each definition, `\* words:` says what it means in one plain sentence.
+- Every action must fire. hobkin does not count a run where one never fired, because that run checked nothing the action guards.
+- After your last commit, run `work.commands.proof` with the spec's path and `--head "$(git rev-parse HEAD)"`. hobkin checks it itself and prints the run's id and how it ended. Never run `java` or TLC yourself, and install nothing for it. If it says its tools are missing, say so in `proof` and carry on.
+- Cite the run's id and how it ended in `proof`. A model that breaks has found a bug in the code or a gap in the model: fix the one it is, commit, and check again.
+
+A model check covers the small world it was given, and it is about the model, not the code. Never write that the code is proved.
 
 ## A YOLO readiness item
 
