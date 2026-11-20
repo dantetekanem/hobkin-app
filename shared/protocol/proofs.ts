@@ -154,6 +154,8 @@ export interface ProofRun extends ProofRunSummary {
   samples: { at: number; distinct: number }[]
   trace?: ProofTraceState[]
   graph?: ProofGraph
+  /** Why there is no graph, when there is none: the model was too big to dump, say. */
+  graphNote?: string
   definitions: ProofDefinition[]
   /** The proof, when TLAPS ran. `strict` is whether it ran with `--strict`; only then can a step count as proved. */
   proof?: { strict: boolean; obligations: ProofObligation[] }
