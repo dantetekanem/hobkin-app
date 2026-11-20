@@ -80,6 +80,10 @@ interface ViewState {
   mindReturn: Place | null
   /** Where closing the main canvas goes back to: the place it was opened over. A reload keeps it (location.ts). */
   canvasReturn: Place | null
+  /** The proof run its page shows, by id (050-tla-proofs). Null shows the newest. */
+  openProof: string | null
+  /** Where leaving a proof run's page goes back to: the place it was opened from. A reload keeps it (location.ts). */
+  proofReturn: Place | null
   /** The last revision of each canvas the user has seen in front, by owner. A newer one dots the canvas's pill. */
   canvasSeen: Record<string, number>
   /**
@@ -122,6 +126,10 @@ interface ViewState {
   openCanvasPlace: () => void
   /** Leaves the main canvas for the place it was opened over, exactly as it was. */
   closeCanvasPlace: () => void
+  /** Opens a proof run's page, coming in from the right, and keeps the place it came from. From over itself it keeps the way back it had. */
+  openProofRun: (id: string) => void
+  /** Leaves a proof run's page for the place it was opened from. */
+  closeProof: () => void
   /** The revision of `owner`'s canvas the user has now seen. */
   seeCanvas: (owner: string, revision: number) => void
   engageCanvas: () => void
@@ -161,7 +169,7 @@ export function launchView({ screen, settingsReturn, canvasReturn, conversationW
   const under = ground(place)
   // A review is not reopened either, so a review that cannot be drawn can never keep the app from starting.
   return {
-    screen: under === 'review' || under === 'canvas' ? 'work' : under,
+    screen: under === 'review' || under === 'canvas' || under === 'proof' ? 'work' : under,
     conversationWidth,
     openReview: null,
     openAgent: place.openAgent,
@@ -193,6 +201,8 @@ export const useView = create<ViewState>()(
       githubReturn: null,
       mindReturn: null,
       canvasReturn: null,
+      openProof: null,
+      proofReturn: null,
       canvasSeen: {},
       canvasEngaged: false,
 
@@ -308,6 +318,17 @@ export const useView = create<ViewState>()(
         const { screen, canvasReturn } = get()
         if (screen !== 'canvas') return
         set({ ...(canvasReturn ?? UNDER_CANVAS), canvasReturn: null, screenMotion: { axis: 'x', direction: -1 } })
+      },
+      openProofRun: (openProof) => {
+        const view = get()
+        const back = view.screen === 'proof' ? view.proofReturn : placeOf(view)
+        set({ screen: 'proof', openProof, proofReturn: back, settingsReturn: null, previewReturn: null, previewFrom: null, ...(view.screen === 'proof' ? {} : { screenMotion: { axis: 'x', direction: 1 } }) })
+        requestCanvasFocus()
+      },
+      closeProof: () => {
+        const { screen, proofReturn } = get()
+        if (screen !== 'proof') return
+        set({ ...(proofReturn ?? UNDER_CANVAS), proofReturn: null, screenMotion: { axis: 'x', direction: -1 } })
       },
       seeCanvas: (owner, revision) => {
         const { canvasSeen } = get()

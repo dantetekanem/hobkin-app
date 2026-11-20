@@ -138,7 +138,7 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
       <Surface>
         <nav aria-label="Screens" className={ROW}>
           {main.map((tab) => {
-            const active = tab.id === screen || ((screen === 'world' || screen === 'yolo') && tab.id === 'work')
+            const active = tab.id === screen || ((screen === 'world' || screen === 'yolo' || screen === 'proof') && tab.id === 'work')
             const badge = badges[tab.id]
             return (
               <button

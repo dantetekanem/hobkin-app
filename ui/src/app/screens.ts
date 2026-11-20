@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Brain, CalendarClock, FileText, GitPullRequest, House, Inbox, Plug, Presentation, Puzzle, Settings2, Waypoints, Workflow, Zap, type LucideIcon } from 'lucide-react'
+import { BookOpen, Bot, Brain, CalendarClock, FileText, GitPullRequest, House, Inbox, Plug, Presentation, Puzzle, Settings2, Sigma, Waypoints, Workflow, Zap, type LucideIcon } from 'lucide-react'
 
 /** The screens in menu order. The order sets the direction a screen comes in from. */
 export const SCREENS = [
@@ -13,6 +13,8 @@ export const SCREENS = [
   { id: 'world', label: 'World', icon: Workflow, contextual: true },
   // YOLO mode's switch and each project's readiness, a page of Work's own as World is (049-yolo-mode).
   { id: 'yolo', label: 'YOLO mode', icon: Zap, contextual: true },
+  // A TLA+ proof run, a page of its own opened from a card, an agent's step or the YOLO page (050-tla-proofs).
+  { id: 'proof', label: 'Proof run', icon: Sigma, contextual: true },
   { id: 'agent', label: 'Agent', icon: Bot, contextual: true },
   { id: 'mind', label: "Hobkin's mind", icon: Brain, contextual: true },
   { id: 'review', label: 'Review', icon: Waypoints, contextual: true },

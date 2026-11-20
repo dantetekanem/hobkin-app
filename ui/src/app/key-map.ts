@@ -188,9 +188,9 @@ function veilKey(key: string): KeyAction | null {
   return null
 }
 
-const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations', 'skills', 'extensions', 'world', 'yolo']
+const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations', 'skills', 'extensions', 'world', 'yolo', 'proof']
 
-/** A review, Settings, Integrations and Work's World and YOLO mode are open only for now, and so is a GitHub opened while the menu leaves it out. */
+/** A review, Settings, Integrations, Work's World and YOLO mode, and a proof run are open only for now, and so is a GitHub opened while the menu leaves it out. */
 function openForNow({ screen, githubInMenu }: KeyContext): boolean {
   return OPEN_FOR_NOW.includes(screen) || (screen === 'github' && !githubInMenu)
 }
@@ -200,7 +200,7 @@ function openForNow({ screen, githubInMenu }: KeyContext): boolean {
  * when it used the key (`prevented`), the frame leaves it alone.
  *
  * A screen that is open only for now is left: a review for its opener, Integrations for Settings, Settings for the screen
- * under it, a GitHub the menu leaves out for the screen it was opened over, the World and YOLO mode for Work. A menu screen stays open and the
+ * under it, a GitHub the menu leaves out for the screen it was opened over, the World and YOLO mode for Work, a proof run for where it was opened from. A menu screen stays open and the
  * keyboard goes home.
  *
  * A canvas with the keyboard in it closes (`040-canvas-board`). The main canvas is not a place open only for now: Escape

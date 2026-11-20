@@ -23,6 +23,9 @@ export interface Spot {
   mindReturn: Place | null
   /** Where closing the canvas goes back to. A reload on the canvas comes back to it while it is open. */
   canvasReturn: Place | null
+  /** The proof run on its page, and where leaving it goes back to. */
+  openProof: string | null
+  proofReturn: Place | null
   report: string | null
   routine: string | null
   action: string | null
@@ -57,13 +60,14 @@ export function readSpot(text: string | null): (Spot & { home: string | null }) 
     agentReturn: screenOr(raw.agentReturn),
     screen: raw.screen, settingsReturn: screenOr(raw.settingsReturn), githubReturn: screenOr(raw.githubReturn), openAgent: idOr(raw.openAgent),
     openReview: idOr(raw.openReview), reviewReturn: placeOr(raw.reviewReturn), mindReturn: placeOr(raw.mindReturn), canvasReturn: placeOr(raw.canvasReturn), report: idOr(raw.report),
+    openProof: idOr(raw.openProof), proofReturn: placeOr(raw.proofReturn),
     routine: idOr(raw.routine), action: idOr(raw.action), githubTab: raw.githubTab === 'issues' ? 'issues' : 'pulls', githubProject: idOr(raw.githubProject), home: idOr(raw.home),
   }
 }
 
 /** What a move changes: the screen, and what is open on it. Its ways back change with it. */
 export function moveKey(spot: Spot): string {
-  const open: Partial<Record<ScreenId, string | null>> = { agent: spot.openAgent, review: spot.openReview, reports: spot.report, routines: spot.routine, actions: spot.action }
+  const open: Partial<Record<ScreenId, string | null>> = { agent: spot.openAgent, review: spot.openReview, reports: spot.report, routines: spot.routine, actions: spot.action, proof: spot.openProof }
   return `${spot.screen}:${open[spot.screen] ?? ''}`
 }
 
@@ -104,8 +108,8 @@ export function useRemembered<K extends keyof Remembered>(key: K): [Remembered[K
 }
 
 function spotNow(): Spot {
-  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn } = useView.getState()
-  return { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, report: useReports.getState().openId, routine: useRoutines.getState().openId, ...remembered.getState() }
+  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, openProof, proofReturn } = useView.getState()
+  return { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, openProof, proofReturn, report: useReports.getState().openId, routine: useRoutines.getState().openId, ...remembered.getState() }
 }
 
 /**
@@ -113,8 +117,8 @@ function spotNow(): Spot {
  * closed meanwhile is left for the place under it by the canvas itself (`placeMove`), once the host has said so.
  */
 function show(spot: Spot, screenMotion?: ScreenMotion): void {
-  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, action, githubTab, githubProject } = spot
-  useView.setState({ screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, previewReturn: null, previewFrom: null, ...(screenMotion ? { screenMotion } : {}) })
+  const { screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, openProof, proofReturn, action, githubTab, githubProject } = spot
+  useView.setState({ screen, settingsReturn, githubReturn, openAgent, agentReturn, openReview, reviewReturn, mindReturn, canvasReturn, openProof, proofReturn, previewReturn: null, previewFrom: null, ...(screenMotion ? { screenMotion } : {}) })
   remembered.setState({ action, githubTab, githubProject })
 }
 
