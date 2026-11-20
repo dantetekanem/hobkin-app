@@ -814,6 +814,9 @@ test('after the study the agent looks for work and starts on what is open, on a 
   assert.deepEqual([h.work(run).item.key, h.work(run).landing, h.work(run).place], ['update:rack', 'off', 'folder']);
   assert.match(h.work(run).projectNotes, /An API/);
   assert.match(h.work(run).commands.item, /work item api --home/);
+  // hobkin checks a TLA+ model itself, for the project a look is on.
+  const look = h.calls.find(call => call.purpose === 'work-look');
+  assert.match(h.work(look).commands.proof, /proof check --project api --home/);
 });
 
 test('each lens comes up in turn, as often as the priority says', async t => {

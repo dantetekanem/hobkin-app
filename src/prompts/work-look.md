@@ -53,10 +53,24 @@ For each one, write down:
 1. Its states, as the code has them, with the file and line that sets each.
 2. Its transitions: what moves it from one state to the next, and what is supposed to.
 3. What is wrong, if anything: a state that is declared and never set, or set and never read; two records of the same state that can disagree; a move that nothing prevents and that should not happen; a state with no way out; a transition that leaves another record behind in the old state; a failure that leaves it half moved.
+4. Its model: the spec's path, and the id and outcome of its last check.
 
 Put the whole list in `work.projectFile` under a heading **State machines**, replacing last week's, so the next look starts from it and says what changed.
 
-File only what is wrong. A machine that works is noted in the list and filed nowhere. Something is worth filing when a person using the project can hit it, when it loses or corrupts data, or when it lets through what a rule was written to stop. Say `critical` in the title's first word only for data loss, money, access, or an outage.
+### Model each machine
+
+Write a TLA+ model of each machine so hobkin can check it. Write it in a tree (run `work.commands.tree` if you are in the folder) at `specs/tla/<Machine>.tla`, with its `<Machine>.cfg`. A spec already on the default branch is where you start: bring it in line with the code instead of writing another.
+
+- Model the code as it is, small enough to check in minutes: two or three of each thing, and a bound on anything that counts up.
+- Near the top, `\* models: <path>, <path>` names the files the machine lives in. Above each action, `\* code: <path>:<line>` names the code it stands for. Above each definition, `\* words:` says what it means in one plain sentence.
+- Put what must stay true in the cfg as invariants, and make every action able to fire. hobkin does not count a run where an action never fired, because that run checked nothing the action guards.
+- Run `work.commands.proof` with the spec's path and `--head "$(git rev-parse HEAD)"`. hobkin parses and checks it itself and prints the run's id and how it ended. Never run `java` or TLC yourself, and install nothing for it. If it says its tools are missing, say so in your report and carry on.
+
+A model that breaks is evidence for the finding: cite its run id and the steps of its counterexample.
+
+Your tree does not keep the spec. So each machine whose model is not already on the default branch, holding and true to the code, gets an item with the key `machine:<a-short-name>` and `"spec": "specs/tla/<Machine>.tla"`. Its brief holds the spec and the cfg whole, the run id and how it ended, and says to commit both files. File it as a `chore` when the machine works, or when its bug goes to a GitHub issue below. Where the bug has nowhere else to go, the same item is its `fix`.
+
+Beyond those models, file only what is wrong. Something is worth filing when a person using the project can hit it, when it loses or corrupts data, or when it lets through what a rule was written to stop. Say `critical` in the title's first word only for data loss, money, access, or an outage.
 
 ### Where each finding goes
 
@@ -66,7 +80,7 @@ Each finding that is a bug goes to the project's own GitHub issues, so it is tra
   - When `work.project.issues` is `all`, the issue is enough: hobkin picks it up by itself and files its own work for it. When it is `labeled`, add the label `hobkin` to the issue for the same result. Pipe no item for it.
   - When `work.project.issues` is `off`, also pipe the item as below, with the key `issue:<number>`, so the work is in the queue.
 - **A finding someone could use to attack the project** (access, secrets, another user's data) never goes on a public repository. Check with `gh repo view <owner>/<name> --json isPrivate`. On a public one, pipe the item only, as `security`, and say in your report that it was kept out of the public issues.
-- **The project is not on github.com, or `gh` cannot reach it:** there is nowhere shared to file it, so hobkin tracks it. Pipe the item as below with the key `machine:<a-short-name>`, as a `fix`. It waits in the queue like any other item and is picked up the same way.
+- **The project is not on github.com, or `gh` cannot reach it:** there is nowhere shared to file it, so hobkin tracks it. Pipe the item as below with the key `machine:<a-short-name>` and its `spec`, as a `fix`: its run commits the model with the fix, and the model holds once the fix is in. It waits in the queue like any other item and is picked up the same way.
 
 Keep any credential, key or personal detail out of every title and body. Never file on another repository than this project's own.
 

@@ -530,7 +530,8 @@ export class WorkDirector {
       projectNotes: readBounded(notes),
       directions: readBounded(directions),
       items,
-      commands: { item: this.command(`item ${slug}`), tree: this.command(`tree ${slug}`) },
+      // A TLA+ model is checked by hobkin itself, never with java, so the run it records is evidence the agent cannot write.
+      commands: { item: this.command(`item ${slug}`), tree: this.command(`tree ${slug}`), proof: hobkinCommand(this.root, `proof check --project ${slug}`) },
     };
   }
 
