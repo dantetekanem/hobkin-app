@@ -133,6 +133,7 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - A13. In YOLO mode, a covering model that breaks at a change's head stops it merging by itself. The review's proof evidence comes from the run, and a covering model that broke caps the proof score at 3.
 - A14. The state-machines look writes a spec for each machine it finds, hobkin rechecks every spec on main weekly, and a model that breaks on main shows in Home's Problems.
 - A15. Every new field on the wire is optional, so an older host or window still works.
+- A16. The first-run setup sets up the TLA+ tools by default on a live host, as `hobkin proof setup` does, in the background while the story goes on. Its quiet line says hobkin's one line, a failure never holds the setup up, and Set up TLC on the YOLO page tries again. A scripted host sets up nothing, and hobkin's `client` tool cannot ask for it.
 
 ## Proof
 
@@ -151,6 +152,7 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - A13. `hobkin/test/cli-work-yolo.test.mjs` and `hobkin/test/cli-work-classified.test.mjs`.
 - A14. `hobkin/test/cli-work-look.test.mjs`; check: a look at the live home with the user's go-ahead.
 - A15. `host/test/proofs.test.ts`, with a host that sends none of the new fields.
+- A16. `host/test/setup-proof.test.ts` › "a failed setup is an answer with its one line, never an error, so the setup goes on"
 
 ## Steps
 
@@ -165,6 +167,7 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - [x] S9 (A5, A14). Prompts: when and how an agent models a machine, and the rules on what a result shows. A model is small enough to finish. Every action has to fire. The `\* code:` and `\* words:` comments are required. Files: `hobkin/src/prompts/work-do.md`, `hobkin/src/prompts/work-look.md`.
 
 - [ ] S10 (A1, A2, A3, A4, A7, A11). What the recorded fixtures cannot show. The fixtures come from TLC 1.7.4 and tlapm 1.6.0-pre source, not real runs. With the user's yes to install Java and the pinned jar: run `HOBKIN_TLC=1 node --test test/cli-proof.test.mjs` in hobkin, check one real model end to end in the live window (live counts, stop, the graph, the math), and fill `TLA2TOOLS.sha256` in `hobkin/src/cli/proof/tools.mjs` from the verified download.
+- [x] S11 (A16). Host and window: the first-run setup sets up the TLA+ tools by default, on the user's word of 2026-11-20 ("this should come with hobkin by default, while installing in setup"). `setup.install-proof-tools` runs hobkin's `setupProof` through `loadProofRuntime`, only on a live host, and the window asks for it once as the setup opens. Files: new `host/src/setup-proof.ts`, `shared/commands/registry.ts`, `host/src/host.ts`, `host/src/main.ts`, new `ui/src/features/onboarding/use-proof-tools.ts`, `ui/src/features/onboarding/Storyteller.tsx`; tests new `host/test/setup-proof.test.ts`, whose other tests cover the home, one run at a time and the live host. The quiet line is not seen in the window yet: open the setup on a scratch home with a live host.
 
 ## Open questions
 
