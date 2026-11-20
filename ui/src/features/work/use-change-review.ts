@@ -10,12 +10,16 @@ import { followChangeReview, type ChangeReviewFollow } from './review-follow.ts'
  */
 export function useChangeReview(id: string | null, head: string | null): { assessment: AssessmentStatus | undefined; again: () => Promise<void> } {
   const home = useHost((state) => state.home)
-  const [assessment, setAssessment] = useState<AssessmentStatus>()
+  const [last, setLast] = useState<{ id: string; home: typeof home; status: AssessmentStatus }>()
   const follow = useRef<ChangeReviewFollow | null>(null)
 
   useEffect(() => {
     if (!id) return
-    const following = followChangeReview({ id, run: (name, args) => runCommand(name, args), onStatus: setAssessment })
+    const following = followChangeReview({
+      id,
+      run: (name, args) => runCommand(name, args),
+      onStatus: (status) => setLast(status ? { id, home, status } : undefined),
+    })
     follow.current = following
     return () => {
       following.stop()
@@ -24,5 +28,8 @@ export function useChangeReview(id: string | null, head: string | null): { asses
   }, [id, head, home])
 
   const again = useCallback(() => follow.current?.again() ?? Promise.reject(new Error('This change has no review to run again.')), [])
+  // Render against the current commit, even before the next effect starts or if its request fails.
+  const matchesCard = last && last.id === id && last.home === home && head !== null && last.status.head === head
+  const assessment = matchesCard ? last.status : undefined
   return { assessment, again }
 }
