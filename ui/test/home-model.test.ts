@@ -740,3 +740,11 @@ test('each run on the day strip names its routine and opens its report, or the r
     { at: now + 3_600_000, state: 'next', title: 'Daily sweep', target: { to: 'routine', id: 'daily' } },
   ])
 })
+
+test('a project counts one problem, one change and one pull request in the singular', () => {
+  const model = homeModel(input({
+    work: work([change('one')], [{ ...project('app'), prs: 1 }]),
+    reports: [report('only', 1000, { scheduleId: 'work.app.tests' })],
+  }))
+  assert.equal(model.projects.rows[0]?.detail, '1 problem · 1 change to review · 1 PR')
+})

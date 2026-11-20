@@ -320,9 +320,9 @@ function projectsOf(input: HomeInput): HomeRow[] {
     const problems = reports.filter(report => /^work\.(.+)\.[^.]+$/.exec(report.scheduleId ?? '')?.[1] === project.slug)
     const changes = finishedChanges(input).filter(change => change.slug === project.slug).length
     const detail = [
-      problems.length ? `${problems.length} problems` : '',
-      changes ? `${changes} changes to review` : '',
-      project.prs ? `${project.prs} PRs` : '',
+      problems.length ? plural(problems.length, 'problem') : '',
+      changes ? `${plural(changes, 'change')} to review` : '',
+      project.prs ? plural(project.prs, 'PR') : '',
       project.paused ? 'Paused' : '',
       project.lookError ?? '',
     ].filter(Boolean).join(' · ') || null
