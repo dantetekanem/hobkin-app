@@ -13,6 +13,7 @@ import type { YoloProject, YoloState } from '#shared/protocol/work.ts'
 import { SectionHeading, Segmented } from './parts.tsx'
 import { useWorkView } from './store.ts'
 import { readinessRow, sampleReadiness, type ReadinessTone } from './yolo-page.ts'
+import { ProjectModels, ProofSetup } from '@/features/proofs/ProjectModels.tsx'
 
 type SetSample = Dispatch<SetStateAction<YoloState>>
 
@@ -126,6 +127,7 @@ function Readiness({ yolo, live, workOn, now, setSample }: ReadinessContext & { 
       <p className="px-1 text-[13px] leading-snug text-muted-foreground">
         A check is work mode&apos;s own work, on a branch for your yes. It merges and deploys nothing, so a project can be got ready before YOLO mode is on.
       </p>
+      <ProofSetup live={live} />
       {yolo.projects.length ? (
         <ul aria-label="Projects" className="flex flex-col gap-2">
           {yolo.projects.map((project) => (
@@ -188,33 +190,39 @@ function ProjectReadiness({ project, live, workOn, now, setSample }: ReadinessCo
   const detail = said?.text ?? row.detail
 
   return (
-    <li className="grid h-[84px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 rounded-2xl bg-surface px-4">
-      <div className="flex min-w-0 flex-col gap-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-heading text-[14px] font-medium">{project.name}</span>
-          <span className={cn('inline-flex h-5 shrink-0 items-center rounded-full px-2 font-heading text-[11px] font-semibold whitespace-nowrap', TONES[row.tone])}>{row.state}</span>
-          <span className="shrink-0 truncate text-[12px] text-muted-foreground tabular-nums">{row.checked}</span>
+    <li className="flex flex-col rounded-2xl bg-surface px-4 has-[[data-models]:not(:empty)]:pb-3">
+      <div className="grid h-[84px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4">
+        <div className="flex min-w-0 flex-col gap-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="truncate font-heading text-[14px] font-medium">{project.name}</span>
+            <span className={cn('inline-flex h-5 shrink-0 items-center rounded-full px-2 font-heading text-[11px] font-semibold whitespace-nowrap', TONES[row.tone])}>{row.state}</span>
+            <span className="shrink-0 truncate text-[12px] text-muted-foreground tabular-nums">{row.checked}</span>
+          </div>
+          <p
+            role={said?.tone === 'refused' ? 'alert' : undefined}
+            title={detail}
+            className={cn('line-clamp-2 h-9 text-[12.5px] leading-[18px] break-words', said?.tone === 'refused' ? 'text-bad-fg' : 'text-muted-foreground')}
+          >
+            {detail}
+          </p>
         </div>
-        <p
-          role={said?.tone === 'refused' ? 'alert' : undefined}
-          title={detail}
-          className={cn('line-clamp-2 h-9 text-[12.5px] leading-[18px] break-words', said?.tone === 'refused' ? 'text-bad-fg' : 'text-muted-foreground')}
+        <Button
+          variant="outline"
+          size="sm"
+          data-stop=""
+          disabled={busy || !row.canRun}
+          focusableWhenDisabled
+          aria-label={`${row.action} on ${project.name}`}
+          onClick={() => void run()}
+          className="w-[120px] data-disabled:opacity-50"
         >
-          {detail}
-        </p>
+          {row.action}
+        </Button>
       </div>
-      <Button
-        variant="outline"
-        size="sm"
-        data-stop=""
-        disabled={busy || !row.canRun}
-        focusableWhenDisabled
-        aria-label={`${row.action} on ${project.name}`}
-        onClick={() => void run()}
-        className="w-[120px] data-disabled:opacity-50"
-      >
-        {row.action}
-      </Button>
+      {/* Its state machines' models on main, a part of its readiness when it has any (050-tla-proofs). */}
+      <div data-models="" className="empty:hidden">
+        <ProjectModels slug={project.slug} live={live} />
+      </div>
     </li>
   )
 }
