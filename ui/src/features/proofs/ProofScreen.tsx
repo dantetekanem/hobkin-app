@@ -15,14 +15,19 @@ import type { ProofRun } from '#shared/protocol/proofs.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { itemTitle, placeOf, specFile } from './proof-match.ts'
 import './proofs.css'
+import { GraphView } from './graph/GraphView.tsx'
+import { MathView } from './math/MathView.tsx'
 import { RunView, type ProofTab } from './run/RunView.tsx'
 import { controlOf, phaseOf, type Tone } from './run/run-view.ts'
 import { useProofRun } from './use-proof-run.ts'
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-/** The tabs this build has. The state graph and the math join once their views are built. */
-const TABS: readonly PageTab<ProofTab>[] = [{ value: 'run', label: 'Run' }]
+const TABS: readonly PageTab<ProofTab>[] = [
+  { value: 'run', label: 'Run' },
+  { value: 'graph', label: 'State graph' },
+  { value: 'math', label: 'Math' },
+]
 
 /**
  * A TLA+ proof run, a page of its own (050-tla-proofs), opened from a finished card, an agent's step or the YOLO page:
@@ -44,7 +49,7 @@ export function ProofScreen() {
             <Header run={run} live={live} />
             <PageTabs id="proof" label="Proof run views" tabs={TABS} value={tab} onChoose={setTab} />
             <div role="tabpanel" id={`proof-panel-${tab}`} aria-labelledby={`proof-tab-${tab}`}>
-              <RunPanel run={run} now={now} />
+              <Panel tab={tab} run={run} now={now} onTab={setTab} />
             </div>
             {problem ? <p className="text-[12px] text-muted-foreground">Only the latest counts show: {problem}</p> : null}
           </>
@@ -142,9 +147,17 @@ function BackRow() {
   )
 }
 
-function RunPanel({ run, now }: { run: ProofRun; now: number }) {
+/** The chosen tab: the run live, the state graph to walk, or the spec as math and in words. */
+function Panel({ tab, run, now, onTab }: { tab: ProofTab; run: ProofRun; now: number; onTab: (tab: ProofTab) => void }) {
   const onCode = useCodeOpener(run)
-  return <RunView run={run} now={now} zone={ZONE} onTab={null} onCode={onCode} />
+  switch (tab) {
+    case 'run':
+      return <RunView run={run} now={now} zone={ZONE} onTab={onTab} onCode={onCode} />
+    case 'graph':
+      return <GraphView run={run} onCode={onCode} />
+    case 'math':
+      return <MathView run={run} />
+  }
 }
 
 /** Opens an action's code in the app's own viewer, from the folder an agent of the run's item worked in, when hobkin says. */

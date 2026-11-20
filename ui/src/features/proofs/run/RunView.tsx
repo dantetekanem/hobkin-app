@@ -32,8 +32,8 @@ export interface RunViewProps {
   run: ProofRun
   now: number
   zone: string
-  /** Goes to another tab. Null while that tab is not in this build. */
-  onTab: ((tab: Exclude<ProofTab, 'run'>) => void) | null
+  /** Goes to another tab: the state graph to step through, or the math. */
+  onTab: (tab: Exclude<ProofTab, 'run'>) => void
   /** Opens an action's code, `path:line` in the project. Null while the project's folder is not known here. */
   onCode: ((where: string) => void) | null
 }
@@ -202,9 +202,7 @@ function ResultArea({ run, onTab }: { run: ProofRun; onTab: RunViewProps['onTab'
           <Button
             data-stop=""
             variant={result.primary.strong ? 'default' : 'outline'}
-            disabled={!onTab}
-            title={onTab ? undefined : 'The state graph is not in this build yet.'}
-            onClick={() => onTab?.('graph')}
+            onClick={() => onTab('graph')}
             className="h-11 rounded-xl px-4 text-[14px]"
           >
             {result.primary.label}
@@ -212,9 +210,7 @@ function ResultArea({ run, onTab }: { run: ProofRun; onTab: RunViewProps['onTab'
           <Button
             data-stop=""
             variant="outline"
-            disabled={!onTab}
-            title={onTab ? undefined : 'The math is not in this build yet.'}
-            onClick={() => onTab?.('math')}
+            onClick={() => onTab('math')}
             className="h-11 rounded-xl px-3.5 text-[14px]"
           >
             Read the math
