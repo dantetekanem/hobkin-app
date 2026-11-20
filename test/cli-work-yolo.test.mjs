@@ -11,6 +11,7 @@ import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { surveyAndClose } from '../src/cli/work/closing.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
+import { recordMachines } from '../src/cli/work/machines.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, paths, prFile, readItems, readMode, skipProject, updateItem, writeMode, writeOwnerView, writeState } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
@@ -44,6 +45,8 @@ function workspace(t, projects = ['api']) {
   initialize(root, { cwd: base });
   const checkouts = Object.fromEntries(projects.map(name => [name, repository(base, name)]));
   for (const name of projects) chooseProject(root, checkouts[name], 'important', NOW);
+  // Each project's state machines were looked for with TLC and none found, so only what a test sets up decides its readiness.
+  for (const name of projects) recordMachines(root, name, { machines: [] }, { tlc: true, now: NOW });
   writeMode(root, { enabled: true });
   return { base, root, checkouts };
 }
@@ -501,18 +504,17 @@ test('on a ready project a change whose model broke at its head never merges by 
   });
 });
 
-test('readiness has a models part: each machine the state machines look found has a model that holds on the default branch', async t => {
+test('readiness has a models part: each spec on the default branch holds there', async t => {
   const h = workspace(t);
   makeReady(h);
-  assert.deepEqual(readinessOf(h.root, 'api').parts.models, { notApplicable: 'It has no state machine models.' });
-  assert.equal(readinessOf(h.root, 'api').ready, true, 'a project with no machine is ready without one');
+  assert.deepEqual(readinessOf(h.root, 'api').parts.models, { notApplicable: 'Its state machines look found none.' });
+  assert.equal(readinessOf(h.root, 'api').ready, true, 'a project whose look found no machine is ready without one');
 
-  // The look files each machine it modeled with the spec's path, and the model counts once it is on the default branch.
+  // The look files each machine it modeled with the spec's path, and its path stays inside the project.
   const machine = { key: 'machine:work-item', kind: 'chore', title: 'Commit the work item model', brief: 'Its spec, run and how to prove it.', spec: SPEC };
   fileItem(h.root, 'api', machine, NOW);
   assert.throws(() => fileItem(h.root, 'api', { ...machine, key: 'machine:other', spec: '../outside.tla' }, NOW), /spec is the model's path/);
   const needs = () => [readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').needs];
-  assert.deepEqual(needs(), [false, ['Models: WorkItem.tla is not on the default branch yet.']]);
 
   withSpec(h);
   await survey(h);
@@ -526,6 +528,12 @@ test('readiness has a models part: each machine the state machines look found ha
   writeRun(h, 'main-held', { head: tip, finished: new Date(NOW + 3600000).toISOString() });
   assert.deepEqual(needs(), [true, []]);
   assert.deepEqual(readinessOf(h.root, 'api').parts.models, { ready: true, how: '1 model holds on the default branch: WorkItem.tla.' });
+
+  // A machine the look found whose files that model names is modeled, and one it does not name waits for a change to it.
+  recordMachines(h.root, 'api', { machines: [{ name: 'Work item', files: ['app.txt'] }, { name: 'Deploy', files: ['deploy.txt'] }] }, { tlc: true, now: NOW });
+  assert.deepEqual(readinessOf(h.root, 'api').parts.models, {
+    ready: true, how: '1 model holds on the default branch: WorkItem.tla. 1 machine has no model on the default branch yet, so a change to it gets its model first.',
+  });
 });
 
 const HOUR = 3600000;

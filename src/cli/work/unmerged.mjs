@@ -329,8 +329,8 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
     ...await pullHead({ repo, base, pr, grades, finished, previous }),
   });
   const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(surveyPull));
-  // The TLA+ models on the default branch, which its readiness and the weekly recheck read.
-  const specs = (await specsAt(repo, tip)).map(({ spec, sha256 }) => ({ spec, sha256 }));
+  // The TLA+ models on the default branch with the files each models, which its readiness and the weekly recheck read.
+  const specs = (await specsAt(repo, tip)).map(({ spec, sha256, models }) => ({ spec, sha256, models }));
   return {
     survey: {
       open: [...openPulls, ...units],

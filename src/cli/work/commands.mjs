@@ -9,6 +9,7 @@ import {
 import { forecastEachMinute } from './forecast.mjs';
 import { offersView } from './land-offer.mjs';
 import { assertLaunch, recordWatch } from './launches.mjs';
+import { readMachines, recordMachines, toolsFound } from './machines.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
 import { fileFirstPair, setShipFirst } from './pairs.mjs';
 import { filePickUp } from './pick-up.mjs';
@@ -69,6 +70,7 @@ Used by agents inside a run:
   propose, progress                    JSON on stdin: a project; a look's place
   tree <project>                       a worktree for a look that needs tests
   yolo <project> [item]                JSON on stdin: its readiness; or, with an item, monitoring after its deploy
+  machines <project>                   JSON on stdin: each state machine a look found, with its files
 `;
 // What the tab and an agent asking need, and a long plan would otherwise fill the status.
 const MAX_PLAN_SENT = 50;
@@ -130,6 +132,21 @@ async function yoloCommand(root, [reference, change], input) {
   const { ready, needs } = recordReadiness(root, project.slug, JSON.parse(report));
   const said = needs.length ? `It still needs: ${needs.join(' ')}` : 'Every part is in place, and it counts once this item lands.';
   return reply(`Recorded the readiness of ${nameOf(project)}. ${said}`, { ready, needs });
+}
+
+/**
+ * What a state-machines look found, piped by the look: each machine with the files it lives in, an empty list when it found none. hobkin
+ * notes whether Java and TLC were found as the list comes in, since readiness counts only a look that could check a model.
+ */
+async function machinesCommand(root, reference, input) {
+  const project = findProject(root, reference);
+  const report = input && !input.isTTY ? await readText(input) : '';
+  if (!report.trim()) return readMachines(root, project.slug) ?? { at: null, tlc: false, machines: [] };
+
+  const { machines, tlc } = recordMachines(root, project.slug, JSON.parse(report), { tlc: await toolsFound(root) });
+  const found = machines.length ? `${machines.length} state ${machines.length === 1 ? 'machine' : 'machines'}` : 'no state machine';
+  const tools = tlc ? 'with Java and TLC found' : 'without Java and TLC, so readiness waits for a look that has them';
+  return reply(`Recorded ${found} on ${nameOf(project)}, ${tools}.`, { machines: machines.length, tlc });
 }
 
 async function watchCommand(root, reference, input) {
@@ -384,6 +401,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'signals': return signalsCommand(root, args[0], input);
     case 'watch': return watchCommand(root, args[0], input);
     case 'yolo': return yoloCommand(root, args, input);
+    case 'machines': return machinesCommand(root, args[0], input);
     case 'trouble': return callTrouble(root, ...args);
     default: throw new WrongCommand(HELP);
   }

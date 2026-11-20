@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 import { triggerRow } from './controls.mjs';
+import { readMachines } from './machines.mjs';
 import { nameOf } from './names.mjs';
 import { mainFacts, readRuns, specName } from './proofs.mjs';
 import { chosenProjects, fileItem, ownerView, paths, readItems, readJson, readMode, runnableStates, updateItem, workName, writeMode } from './store.mjs';
@@ -22,10 +23,9 @@ const READY_KEY = 'yolo:ready';
 // What a regression has to show up in: exceptions that reach an alert, slow queries and N+1s, request and job timings against a baseline,
 // logs that can be searched, and alerts that reach the user. A project with no use for one says why.
 const MONITORING = ['errors', 'slowQueries', 'performance', 'logs', 'alerts'];
-// What a readiness run records. `models` is hobkin's to work out, from the state machines look's machines and its own runs of their specs.
+// What a readiness run records. `models` is hobkin's to work out, from the machines the state machines look recorded and its own runs of the specs.
 const RECORDED = ['tests', ...MONITORING, 'rollback', 'deploy'];
 const PARTS = [...RECORDED, 'models'];
-const MACHINE_KEY = 'machine:';
 const partWords = {
   tests: 'Tests',
   errors: 'Error tracking',
@@ -162,30 +162,34 @@ export function holdProject(root, slug, { item, title }, now = Date.now()) {
   atomicJson(readinessFile(root, slug), { ...record, held: { item, title, at: new Date(now).toISOString() } });
 }
 
-// A machine the state machines look filed with its model's path, and nobody closed without landing.
-const isFiledMachine = ({ key, spec, state }) => Boolean(key?.startsWith(MACHINE_KEY) && spec) && !CLOSED_UNLANDED.includes(state);
+// Each TLA+ spec on the project's default branch as the last survey found it, with the files it models.
+const mainSpecs = (root, slug) => readUnmerged(root).projects[slug]?.models?.specs ?? [];
 
 /** What hobkin's latest run of each TLA+ spec on the project's default branch says of it, as the last survey found them there. */
-export const mainModels = (root, slug) => mainFacts(readRuns(root), { slug, specs: readUnmerged(root).projects[slug]?.models?.specs });
+export const mainModels = (root, slug) => mainFacts(readRuns(root), { slug, specs: mainSpecs(root, slug) });
+
+const machineCount = count => (count === 1 ? '1 machine has' : `${count} machines have`);
 
 /**
- * Ready when each machine has a model that holds on the default branch: each spec there, and each spec the state machines look filed with its
- * machine. A project with none has no use for the part.
+ * Not ready until a state machines look ran with Java and TLC found and recorded what it found (`machines.mjs`), since a look without them
+ * could check no model. Then ready when each spec on the default branch holds there, and not applicable when the look found no machine and no
+ * spec is there. A machine with no model yet holds nothing back: a change to it is sent back for its model first (`yolo-pass.mjs`).
  */
 function modelsPart(root, slug) {
+  const looked = readMachines(root, slug);
+  if (looked?.tlc !== true) return { ready: false, missing: 'Its state machines have not been looked for with TLC yet.' };
   const facts = mainModels(root, slug);
-  const filedSpecs = new Set(readItems(root, slug).filter(isFiledMachine).map(({ spec }) => spec));
-  const notOnMain = [...filedSpecs].filter(spec => !facts.some(fact => fact.spec === spec));
-  if (!facts.length && !notOnMain.length) return { notApplicable: 'It has no state machine models.' };
+  if (!facts.length && !looked.machines.length) return { notApplicable: 'Its state machines look found none.' };
 
-  const missing = [
-    ...notOnMain.map(spec => `${specName(spec)} is not on the default branch yet`),
-    ...facts.filter(({ state }) => state !== 'holds').map(fact => modelOnMain[fact.state](fact)),
-  ];
+  const missing = facts.filter(({ state }) => state !== 'holds').map(fact => modelOnMain[fact.state](fact));
   if (missing.length) return { ready: false, missing: `${missing.join('; ')}.` };
 
+  const modeled = new Set(mainSpecs(root, slug).flatMap(({ models = [] }) => models));
+  const unmodeled = looked.machines.filter(({ files }) => !files.every(file => modeled.has(file))).length;
   const held = facts.length === 1 ? '1 model holds' : `${facts.length} models hold`;
-  return { ready: true, how: `${held} on the default branch: ${facts.map(({ spec }) => specName(spec)).join(', ')}.` };
+  const holding = facts.length ? `${held} on the default branch: ${facts.map(({ spec }) => specName(spec)).join(', ')}.` : '';
+  const waiting = unmodeled ? `${machineCount(unmodeled)} no model on the default branch yet, so a change to it gets its model first.` : '';
+  return { ready: true, how: [holding, waiting].filter(Boolean).join(' ') };
 }
 
 function needsOf(record, item) {

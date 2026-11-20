@@ -1205,6 +1205,8 @@ test("the weekly state-machines look runs on the max tier, whatever its project'
   assert.deepEqual([machines[0].model, machines[0].effort], ['fixture/deepest', 'xhigh']);
   // The look is told whether its project picks up issues by itself, so it knows whether an issue alone is enough.
   assert.equal(h.work(machines[0]).project.issues, 'off');
+  // It pipes the machines it found, with their files, to a command of its own.
+  assert.match(h.work(machines[0]).commands.machines, / work machines site --home /);
 });
 
 test('a run lands the way its project says, whatever its level, and stays a local branch until the project says otherwise', async t => {

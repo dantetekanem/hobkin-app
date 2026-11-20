@@ -57,6 +57,14 @@ For each one, write down:
 
 Put the whole list in `work.projectFile` under a heading **State machines**, replacing last week's, so the next look starts from it and says what changed.
 
+Then pipe the same machines to `work.commands.machines`, each with the files it lives in, as paths from the project's top folder:
+
+```json
+{ "machines": [{ "name": "Checkout", "files": ["app/models/order.rb", "app/jobs/charge_job.rb"] }] }
+```
+
+Pipe `{ "machines": [] }` when you found none. hobkin reads this list, not your notes: a change to one of these files that no model names waits for its model before it merges by itself. So name every file whose code sets or reads the machine's state.
+
 ### Model each machine
 
 Write a TLA+ model of each machine so hobkin can check it. Write it in a tree (run `work.commands.tree` if you are in the folder) at `_specs/tla/<Machine>.tla`, with its `<Machine>.cfg`. A spec already on the default branch is where you start: bring it in line with the code instead of writing another.

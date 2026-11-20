@@ -717,6 +717,8 @@ export class WorkDirector {
   describeLook(project, focus) {
     const { slug } = project;
     const described = this.describe(project);
+    // The state machines look pipes each machine it found, with its files, which readiness and the YOLO pass read (`machines.mjs`).
+    if (focus === 'state-machines') return { ...described, commands: { ...described.commands, machines: this.command(`machines ${slug}`) } };
     const reads = { signals: () => readSignals(this.root, slug), watch: () => watchBrief(this.root, slug) }[focus];
     if (!reads) return described;
     return { ...described, [focus]: reads(), commands: { ...described.commands, [focus]: this.command(`${focus} ${slug}`) } };

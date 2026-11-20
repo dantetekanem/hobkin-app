@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
 import { workStatus } from '../src/cli/work/commands.mjs';
+import { recordMachines } from '../src/cli/work/machines.mjs';
 import { recheckModels } from '../src/cli/work/proof-checks.mjs';
 import { modeledFiles } from '../src/cli/work/proofs.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
@@ -41,6 +42,8 @@ function workspace(t) {
   initialize(root, { cwd: base });
   const checkout = repository(base, 'api');
   chooseProject(root, checkout, 'important', NOW);
+  // Its state machines were looked for with TLC, so its models part reads only the specs a test commits.
+  recordMachines(root, 'api', { machines: [] }, { tlc: true, now: NOW });
   writeMode(root, { enabled: true });
   return { base, root, checkout };
 }
