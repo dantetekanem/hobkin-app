@@ -79,7 +79,7 @@ test('setup downloads the pinned jar into tools/tla and keeps it only when its c
   const home = temp(t, 'hobkin-proof-setup-');
   const java = async () => ({ path: '/jdk/bin/java', version: '21.0.2', major: 21 });
   const body = Buffer.from('the pinned jar');
-  const pinned = { ...TLA2TOOLS, sha1: createHash('sha1').update(body).digest('hex') };
+  const pinned = { ...TLA2TOOLS, sha1: createHash('sha1').update(body).digest('hex'), sha256: createHash('sha256').update(body).digest('hex') };
   const asked = [];
   const fetch = async url => {
     asked.push(url);
@@ -107,7 +107,7 @@ test('setup on a Mac without Java installs the pinned Java runtime into tools/ja
   const jarBody = Buffer.from('the pinned jar');
   const build = { ...JAVA_RUNTIME.builds.arm64, sha256: createHash('sha256').update(runtime).digest('hex') };
   const java = { ...JAVA_RUNTIME, builds: { ...JAVA_RUNTIME.builds, arm64: build } };
-  const pinned = { ...TLA2TOOLS, sha1: createHash('sha1').update(jarBody).digest('hex') };
+  const pinned = { ...TLA2TOOLS, sha1: createHash('sha1').update(jarBody).digest('hex'), sha256: createHash('sha256').update(jarBody).digest('hex') };
   const asked = [];
   const fetch = async url => {
     asked.push(url);

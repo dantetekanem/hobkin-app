@@ -5,15 +5,14 @@ import { promisify } from 'node:util';
 
 /**
  * The TLA+ tools hobkin runs (_specs/050-tla-proofs). TLC and SANY come from tla2tools.jar, pinned to v1.7.4, the last
- * stable release (https://github.com/tlaplus/tlaplus/releases/tag/v1.7.4). That release page publishes only a sha1, so
- * that is the checksum `hobkin proof setup` checks. `sha256` stays null until it is taken from a verified download, and
- * once it is set, setup checks it too.
+ * stable release (https://github.com/tlaplus/tlaplus/releases/tag/v1.7.4). That release page publishes only a sha1.
+ * The sha256 was taken from a download whose sha1 matched, and setup checks both.
  */
 export const TLA2TOOLS = {
   version: '1.7.4',
   url: 'https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar',
   sha1: 'bee4a54f3ee3d4afc347c3240ec2d9e93b075104',
-  sha256: null,
+  sha256: '936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88',
   bytes: 2274532,
 };
 
