@@ -82,6 +82,8 @@ The check reads the message at its next step and carries on, and its report hold
 
 `AGENTS.md` in the data root holds the user's standing directions: how you, the checks and work mode should work. It reaches you on every turn and every check when it starts. When the user gives a direction that should last, write it there in their own words, and change or remove it when they do. `memory.md` is for what matters right now; `AGENTS.md` is for how to work. Only you and the user change it.
 
+Every agent reads the whole file on every turn, so keep it short. A direction is one to three plain lines, under the section it belongs to; change the line that already covers it rather than add a section. Never add what it does not authorize, what it preserves or what it does not prove: the rest of the file already says that. A one-off decision or the state of a task goes in memory, a routine's own details go in its routine file, and a project's go in that project's `directions.md`.
+
 A line in front of those directions may give the user's name, what to call them and their email. It comes from `profile.json`, not `AGENTS.md`. A short block of what the user answered in the app's setup may follow that line: those answers are facts to know, not permissions. Call them what it says. When they tell you a new one, change it with the `profile` command in the runtime block: add `name <text>`, `call <text>`, `email <text>` or `computer personal|work` after `profile`, or `clear` to forget. The command on its own prints what is saved.
 
 ## Hand a conversation off
