@@ -690,10 +690,10 @@ const yolo = (rest: Partial<YoloState> = {}): YoloState => ({
   ...rest,
 })
 
-test('YOLO mode shows as hobkin reports it: a chip to Settings, and each project ready or with the first thing it needs', () => {
-  const settings = { to: 'screen', screen: 'settings' }
+test('YOLO mode shows as hobkin reports it: a chip to Work, and each project ready or with the first thing it needs', () => {
+  const workScreen = { to: 'screen', screen: 'work' }
   const model = homeModel(input({ work: { ...work(), yolo: yolo() } }))
-  assert.deepEqual(model.header.chips[0], { tone: 'accent', label: 'YOLO on · 1 of 3 ready', target: settings })
+  assert.deepEqual(model.header.chips[0], { tone: 'accent', label: 'YOLO on · 1 of 3 ready', target: workScreen })
   assert.equal(model.yolo?.on, true)
   assert.equal(model.yolo?.rate, 8)
   assert.equal(model.yolo?.summary, '1 of 3 projects ready')
@@ -704,7 +704,7 @@ test('YOLO mode shows as hobkin reports it: a chip to Settings, and each project
   ])
 
   const off = homeModel(input({ work: { ...work(), yolo: yolo({ on: false }) } }))
-  assert.deepEqual(off.header.chips[0], { tone: 'quiet', label: 'YOLO off', target: settings })
+  assert.deepEqual(off.header.chips[0], { tone: 'quiet', label: 'YOLO off', target: workScreen })
   assert.match(off.yolo?.says ?? '', /merges nothing/)
   assert.equal(homeModel(input({ work: { ...work(), yolo: yolo({ projects: [], ready: 0 }) } })).header.chips[0]?.label, 'YOLO on')
 
