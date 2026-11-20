@@ -3,18 +3,24 @@
 // covers sent back to its branch for the model, keeping its review's scores. No agent, Java or TLC runs here.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
 import { jarPath } from '../src/cli/proof/tools.mjs';
+import { surveyAndClose } from '../src/cli/work/closing.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
+import { WorkDirector } from '../src/cli/work/director.mjs';
 import { readMachines, recordMachines } from '../src/cli/work/machines.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
-import { chooseProject, paths, readItems, readMode, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
+import { readyItems } from '../src/cli/work/reads.mjs';
+import { chooseProject, fileItem, paths, prFile, readItems, readMode, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
+import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
+import { whyItAsks, yoloPass } from '../src/cli/work/yolo-pass.mjs';
 import { readinessOf, recordReadiness, runReadiness, setYolo } from '../src/cli/work/yolo.mjs';
-import { repository, writeJson } from './helpers/work-fixture.mjs';
+import { branched, commit, git, repository, writeJson } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 const DAY = 24 * 3600000;
@@ -119,4 +125,151 @@ test('a project never looked at for its state machines with TLC has that look du
 
   runReadiness(h.root, 'web', NOW);
   assert.equal(readMode(h.root).queueNext.includes('machines:web'), false);
+});
+
+const CHECKOUT = { name: 'Checkout', files: ['app.txt'] };
+const MODEL = '_specs/tla/Checkout.tla';
+const modelText = [
+  '---- MODULE Checkout ----',
+  '\\* models: app.txt',
+  'VARIABLE state',
+  '\\* words: An order starts open.',
+  'Init == state = "open"',
+  '\\* code: app.txt:1',
+  'Pay == state\' = "paid"',
+  'Next == Pay',
+  '====',
+  '',
+].join('\n');
+const scored = numbers => Object.fromEntries(['coverage', 'proof', 'safety', 'visibility', 'rollback']
+  .map(name => [name, { score: numbers?.[name] ?? 10, evidence: `What the review saw of ${name}.` }]));
+
+/** Finished work on a branch of its own that changes `file`, reviewed at its head. */
+function finished(h, title, { slug = 'api', file = 'app.txt', numbers } = {}) {
+  const branch = `hobkin/${title.toLowerCase().replaceAll(' ', '-')}`;
+  branched(h.checkouts[slug], branch, file, `${title}\n`);
+  const head = git(h.checkouts[slug], 'rev-parse', branch);
+  const { id } = fileItem(h.root, slug, { key: title, kind: 'fix', title, brief: 'Evidence and first change.' }, NOW);
+  updateItem(h.root, slug, id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores: scored(numbers), head } }, NOW);
+  // Described, so the survey's own pass has nothing to file for it.
+  mkdirSync(dirname(prFile(h.root, slug, id)), { recursive: true });
+  writeFileSync(prFile(h.root, slug, id), 'What changed and why.\n');
+  return { slug, id, branch, head };
+}
+
+/** What the run sent back for a model leaves on the change's branch: the model alone, committed on top of the reviewed head. */
+function modelOnBranch(h, { slug, branch }) {
+  const checkout = h.checkouts[slug];
+  git(checkout, 'switch', '-q', branch);
+  mkdirSync(join(checkout, '_specs', 'tla'), { recursive: true });
+  commit(checkout, MODEL, modelText);
+  git(checkout, 'switch', '-q', 'main');
+  return git(checkout, 'rev-parse', branch);
+}
+
+/** A run as `hobkin proof check` leaves it, which only that process writes. */
+const writeRun = (h, id, change) => writeJson(join(h.root, 'proofs', id, 'result.json'), {
+  id,
+  spec: MODEL,
+  specHash: createHash('sha256').update(modelText).digest('hex'),
+  outcome: 'holds',
+  finished: new Date(NOW).toISOString(),
+  stats: { generated: 40, distinct: 12, queue: 0, depth: 4 },
+  rules: [{ name: 'PaidOnce', kind: 'invariant', status: 'holds' }],
+  actions: [{ name: 'Pay', count: 3 }],
+  ...change,
+});
+
+/** A spawn that starts nothing and keeps what hobkin asked for. Its pid names no live process, so one check never holds up the next. */
+function fakeSpawn() {
+  const calls = [];
+  const spawn = (command, args) => {
+    calls.push(args);
+    return { pid: 2 ** 22 + 1, unref() {}, on() {} };
+  };
+  return { spawn, calls };
+}
+
+const survey = h => surveyUnmerged(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
+const itemOf = (h, { slug, id }) => readItems(h.root, slug).find(item => item.id === id);
+const rowOf = (h, { id }) => readyItems(h.root).find(row => row.item === id);
+const onMain = (h, { slug }, head) => git(h.checkouts[slug], 'branch', '--contains', head, '--format=%(refname:short)').split('\n').includes('main');
+const flagOf = (args, flag) => args[args.indexOf(flag) + 1];
+
+/** Two ready projects whose state machines look found Checkout in app.txt, with no model of it anywhere yet. */
+function readyWithAMachine(t) {
+  const h = workspace(t, ['api', 'web']);
+  for (const slug of ['api', 'web']) {
+    readyButModels(h, slug);
+    recordMachines(h.root, slug, { machines: [CHECKOUT] }, { tlc: true, now: NOW });
+  }
+  return h;
+}
+
+test('a finished change to a machine no model covers goes back to its branch for the model, once a review', async t => {
+  const h = readyWithAMachine(t);
+  const touches = finished(h, 'Fix checkout');
+  const unsafe = finished(h, 'Fix totals', { slug: 'web', numbers: { safety: 7 } });
+  await survey(h);
+  assert.deepEqual([readinessOf(h.root, 'api').ready, readinessOf(h.root, 'web').ready], [true, true]);
+
+  assert.deepEqual(await yoloPass(h.root, { now: NOW, spawn: () => assert.fail('there is no model to check yet') }), []);
+
+  const sent = itemOf(h, touches);
+  assert.deepEqual([sent.state, sent.branch, sent.modelAsked, sent.modelAskedFor], ['open', touches.branch, { machines: [CHECKOUT] }, touches.head]);
+  assert.equal(readMode(h.root).queueNext[0], `item:api:${touches.id}`, 'it goes ahead of new work, as a review does');
+  assert.match(planWork(h.root, { now: NOW }).entries.find(({ key }) => key === `item:api:${touches.id}`).why, /model of Checkout first/);
+  assert.equal(onMain(h, touches, touches.head), false);
+  // Only a change nothing else stops goes back: a model would not lift a safety score under its floor.
+  assert.deepEqual([itemOf(h, unsafe).state, itemOf(h, unsafe).modelAsked], ['branch', undefined]);
+
+  const asked = { yolo: { on: true, rate: 8 }, project: {}, readiness: { ready: true }, landable: true, row: { holds: 0 }, unit: { sha: touches.head } };
+  const review = { kind: 'bug-fix', scores: scored(), head: touches.head };
+  assert.equal(whyItAsks({ ...asked, item: { state: 'branch', kind: 'fix', review }, unmodeled: [CHECKOUT] }), 'it changes Checkout, a state machine no model covers yet');
+
+  // A run that ends with no model leaves the change asking. It went back once for this review, and does not go again.
+  updateItem(h.root, 'api', touches.id, { state: 'branch', modelAsked: null }, NOW);
+  await survey(h);
+  assert.deepEqual(await yoloPass(h.root, { now: NOW + 60000 }), []);
+  assert.deepEqual([itemOf(h, touches).state, onMain(h, touches, touches.head)], ['branch', false]);
+});
+
+test('a model written after the review keeps the scores, and the change merges by itself once the model holds', async t => {
+  const h = readyWithAMachine(t);
+  const holds = finished(h, 'Fix checkout');
+  const breaks = finished(h, 'Fix payment', { slug: 'web' });
+  await survey(h);
+  await yoloPass(h.root, { now: NOW, spawn: () => assert.fail('there is no model to check yet') });
+  assert.deepEqual([itemOf(h, holds).state, itemOf(h, breaks).state], ['open', 'open']);
+
+  // Each run commits the model alone and records its branch. Ending it asks for no review: the code the review scored has not changed.
+  const director = new WorkDirector({ root: h.root, now: () => NOW, gh: async () => '[]' });
+  const heads = new Map();
+  for (const change of [holds, breaks]) {
+    heads.set(change.id, modelOnBranch(h, change));
+    updateItem(h.root, change.slug, change.id, { state: 'branch' }, NOW);
+    await director.itemFinished(change.slug, itemOf(h, change));
+    assert.deepEqual([itemOf(h, change).state, itemOf(h, change).reviewAsked, itemOf(h, change).modelAsked], ['branch', false, null]);
+  }
+  const closed = await surveyAndClose(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
+  assert.deepEqual(closed.reviewing, [], 'a commit that only wrote a model asks for no new review');
+  assert.deepEqual([rowOf(h, holds).head, rowOf(h, holds).review.stale], [heads.get(holds.id), false], 'the scores still speak for the new head');
+
+  // hobkin checks the model it asked for itself, at each new head.
+  const { spawn, calls } = fakeSpawn();
+  assert.deepEqual(await yoloPass(h.root, { now: NOW, spawn }), []);
+  assert.deepEqual(calls.map(args => [flagOf(args, 'check'), flagOf(args, '--item'), flagOf(args, '--head')]).toSorted(), [
+    [MODEL, holds.id, heads.get(holds.id)], [MODEL, breaks.id, heads.get(breaks.id)],
+  ].toSorted());
+
+  writeRun(h, 'checkout-held', { project: 'api', item: holds.id, head: heads.get(holds.id) });
+  writeRun(h, 'payment-broke', { project: 'web', item: breaks.id, head: heads.get(breaks.id), outcome: 'broken', broken: 'PaidOnce', traceLength: 5 });
+  const reports = await yoloPass(h.root, { now: NOW + 60000, spawn });
+
+  assert.deepEqual(reports.map(({ item, head }) => [item, head]), [[holds.id, heads.get(holds.id)]]);
+  assert.deepEqual([itemOf(h, holds).state, onMain(h, holds, heads.get(holds.id))], ['merged', true]);
+  assert.deepEqual([itemOf(h, breaks).state, onMain(h, breaks, heads.get(breaks.id))], ['branch', false]);
+  assert.deepEqual(rowOf(h, breaks).review.scores.proof, {
+    score: 3, evidence: `Checkout.tla: TLC: PaidOnce breaks in 5 steps · at ${heads.get(breaks.id).slice(0, 7)}`, by: 'hobkin', run: 'payment-broke',
+  }, 'the broken model is the floor, and the proof score line names it and its run');
 });

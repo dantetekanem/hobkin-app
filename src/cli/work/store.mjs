@@ -570,7 +570,7 @@ export function updateItem(root, slug, id, change, now = Date.now()) {
 }
 
 /** A review or a fix on work already finished. It brings that work closer to landing, so it goes ahead of making more. */
-export const movesFinishedWork = ({ kind, reviewAsked, workNote }) => kind === 'pr-fix' || reviewAsked || workNote;
+export const movesFinishedWork = ({ kind, reviewAsked, workNote, modelAsked }) => kind === 'pr-fix' || reviewAsked || workNote || Boolean(modelAsked);
 
 /**
  * An item goes back in the queue with its count of tries back at zero. One already started stays started, so it still goes before the rest of its project.

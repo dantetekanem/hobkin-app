@@ -164,6 +164,8 @@ function itemEntry(project, item) {
       `${impact} impact`,
       effort,
       triedWords(item.attempts),
+      // A finished change sent back for the model of a state machine it touches (`yolo-pass.mjs`).
+      item.modelAsked && `model of ${item.modelAsked.machines.map(({ name }) => name).join(', ')} first`,
     ]),
   };
 }

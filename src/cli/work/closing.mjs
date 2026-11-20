@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { pulseLaunches } from './launches.mjs';
+import { scoresHoldAt } from './proofs.mjs';
 import { readyItems, saysDoneButWaits, weighedRows } from './reads.mjs';
 import { chosenProjects, fileItem, itemTree, ownerView, paths, readItems, readMode, retryItem, runnableStates, updateItem } from './store.mjs';
 import { realPlace, retireTree } from './tree.mjs';
@@ -43,11 +44,12 @@ export function fillGaps(root, now = Date.now()) {
 
 /**
  * Work that could land with no grade for the commit the survey read. Once a review has been asked for that commit, or has run on it and left its
- * quality, it is not asked for again: no grade came of it, and another would cost a whole run. Markdown alone has nothing for a review to grade.
+ * quality, it is not asked for again: no grade came of it, and another would cost a whole run. Markdown alone has nothing for a review to grade,
+ * and a review of a commit whose code the head still has, since only models changed after it, still speaks for the head.
  */
 const lacksAGrade = row => LANDS.includes(row.gap) && Boolean(row.head) && !row.onlyDocs && (!row.safety || row.safety.stale);
 const askedOrReviewedAt = (item, head) => item.reviewAsked || item.reviewAskedFor === head || item.quality?.head === head || item.review?.head === head;
-const wantsAReview = ({ row, item }) => lacksAGrade(row) && !askedOrReviewedAt(item, row.head);
+const wantsAReview = ({ row, item, unit }) => lacksAGrade(row) && !askedOrReviewedAt(item, row.head) && !scoresHoldAt(item.review?.head, unit);
 
 // A run that has recorded its outcome is still going, and decides on its own review as it ends.
 // A review asked earlier in this pass puts its item back in the queue, so its branch is taken.

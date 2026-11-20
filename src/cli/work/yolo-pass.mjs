@@ -4,19 +4,21 @@ import { postClientNotice } from '../client-notices.mjs';
 import { CRITERIA, scoresOf, SMALL_KINDS } from './classified.mjs';
 import { mergeItem, whyWorkModeWaits } from './controls.mjs';
 import { userTrouble } from './launches.mjs';
+import { readMachines, unmodeledIn } from './machines.mjs';
 import { nameOf } from './names.mjs';
 import { changeHolds } from './patterns.mjs';
 import { startCheck } from './proof-checks.mjs';
-import { changeModels, specName } from './proofs.mjs';
+import { changeModels, scoresHoldAt, specName } from './proofs.mjs';
 import { landingList, weighedRows } from './reads.mjs';
-import { readMode, readProject } from './store.mjs';
+import { readMode, readProject, retryItem, updateItem } from './store.mjs';
 import { holdProject, prepareProjects, readinessOf, readYolo } from './yolo.mjs';
 
 /**
  * The one place a change merges with no yes from the user. It runs after the director's own survey and returns at once while YOLO mode is off.
  * A change goes only on a project that is ready, as a finished local branch the landing list would let go, scored by its review at the exact
- * commit the survey read, of a small kind, with no floor broken and at or above the user's rate. The merge is hobkin's own, pinned to that
- * commit, and every one is written down and said in Chat. Code never deploys: a deploy is handed to the main agent.
+ * commit the survey read, or at one whose code that commit still has because only models changed since, of a small kind, with no floor broken
+ * and at or above the user's rate. The merge is hobkin's own, pinned to the commit the survey read, and every one is written down and said in
+ * Chat. Code never deploys: a deploy is handed to the main agent.
  */
 
 const SHORT_SHA = 7;
@@ -59,9 +61,10 @@ function readJsonLines(file) {
 
 /**
  * Why a finished change keeps asking the user, or null when it may merge by itself. The first reason found is the one said. `models` is what
- * hobkin's own runs say of each TLA+ model covering the change, at its head (`changeModels`).
+ * hobkin's own runs say of each TLA+ model covering the change, at its head (`changeModels`), and `unmodeled` the machines the state machines
+ * look found that it touches with no model naming those files (`unmodeledIn`). Scores given before commits that changed only models still count.
  */
-export function whyItAsks({ yolo, project, readiness, landable, row, item, unit = {}, models = [] }) {
+export function whyItAsks({ yolo, project, readiness, landable, row, item, unit = {}, models = [], unmodeled = [] }) {
   if (!yolo.on) return 'YOLO mode is off';
   if (project?.paused) return 'its project is paused';
   if (!readiness.ready) return 'its project is not ready for YOLO mode';
@@ -70,12 +73,13 @@ export function whyItAsks({ yolo, project, readiness, landable, row, item, unit 
   if (!item.review) return 'no review has scored it';
 
   const { kind, rate, floors, head } = scoresOf(item.review, models);
-  if (!unit.sha || head !== unit.sha) return 'its scores are for an older commit';
+  if (!scoresHoldAt(head, unit)) return 'its scores are for an older commit';
   if (!SMALL_KINDS.includes(kind)) return `its review calls it ${kind}`;
   if (item.kind === 'feature') return 'its item is a feature';
   // A broken model is a floor, said before the proof score of 3 it leaves.
   const model = models.find(({ state }) => state === 'broken') ?? models.find(({ state }) => state !== 'holds');
   if (model) return modelWords[model.state](model);
+  if (unmodeled.length) return `it changes ${unmodeled[0].name}, a state machine no model covers yet`;
   if (floors.length) return `${floors[0].criterion} scored ${floors[0].score}, under ${floors[0].needs}`;
   if (rate < yolo.rate) return `its general rate is ${rate}, under ${yolo.rate}`;
   return changeHolds(item, unit)[0] ?? null;
@@ -138,8 +142,8 @@ export function recordAfterDeploy(root, project, item, sent, now = Date.now()) {
   return { regressed, line };
 }
 
-function report(root, { project, item, target, readiness, handOff, now }) {
-  const { kind, rate, scores, head } = scoresOf(item.review);
+function report(root, { project, item, head, target, readiness, handOff, now }) {
+  const { kind, rate, scores } = scoresOf(item.review);
   const deploys = readiness.parts.deploy.deploys !== false;
   const deploy = deploys ? (handOff ? 'handed on' : 'not handed on') : 'nothing deploys';
   const merged = {
@@ -163,10 +167,13 @@ function report(root, { project, item, target, readiness, handOff, now }) {
   return merged;
 }
 
-/** A merge that cannot go, as when the branch moved since its review, changes nothing, and the change keeps asking the user. */
-async function mergeAlone(root, { row, item, now }) {
+/**
+ * A merge that cannot go, as when the branch moved since the survey read it, changes nothing, and the change keeps asking the user. It is pinned
+ * to the head the survey read, whose scores `whyItAsks` found still count.
+ */
+async function mergeAlone(root, { row, unit, now }) {
   try {
-    return await mergeItem(root, row.slug, row.item, { route: 'yolo', head: item.review.head, now });
+    return await mergeItem(root, row.slug, row.item, { route: 'yolo', head: unit.sha, now });
   } catch {
     return null;
   }
@@ -174,10 +181,12 @@ async function mergeAlone(root, { row, item, now }) {
 
 /**
  * A change heading to a merge by itself that waits only for a model nobody has run at its head, where only the code that model covers changed,
- * gets that model checked by hobkin itself. A change that edited its spec has its own run to cite. `startCheck` keeps it to one at a time.
+ * gets that model checked by hobkin itself. A change that edited its spec has its own run to cite, unless hobkin sent it back for that model.
+ * `startCheck` keeps it to one at a time.
  */
 async function checkWaitingModel(root, { asked, models, spawn, now }) {
-  const waiting = models.filter(({ state, changed }) => state === 'unchecked' && !changed);
+  const askedFor = Boolean(asked.item.modelAskedFor) && asked.item.modelAskedFor === asked.item.review?.head;
+  const waiting = models.filter(({ state, changed }) => state === 'unchecked' && (!changed || askedFor));
   if (!waiting.length) return;
 
   const others = models.filter(model => !waiting.includes(model));
@@ -187,6 +196,21 @@ async function checkWaitingModel(root, { asked, models, spawn, now }) {
   const { row, item, unit } = asked;
   const check = { slug: row.slug, item: item.id, spec: waiting[0].spec, head: unit.sha };
   await startCheck(root, check, { now, ...(spawn ? { spawn } : {}) });
+}
+
+/**
+ * A change heading to a merge by itself that waits only for the model of a machine it touches goes back to its own item and branch for that
+ * model, once for each review. Its run commits the model and nothing else, so the review's scores still count, and hobkin checks the model at
+ * the new head itself, with any model nobody ran yet. Like a review, it goes ahead of new work.
+ */
+function askForModel(root, { asked, models, now }) {
+  const { row, item, unmodeled } = asked;
+  const checked = models.filter(({ state }) => state !== 'unchecked');
+  if (!unmodeled.length || whyItAsks({ ...asked, models: checked, unmodeled: [] })) return;
+  if (item.modelAskedFor === item.review.head) return;
+
+  updateItem(root, row.slug, item.id, { modelAsked: { machines: unmodeled }, modelAskedFor: item.review.head }, now);
+  retryItem(root, row.slug, item.id, now);
 }
 
 /**
@@ -207,16 +231,18 @@ export async function yoloPass(root, { now = Date.now(), handOff, spawn } = {}) 
     const project = readProject(root, row.slug);
     const readiness = readinessOf(root, row.slug);
     const models = changeModels(root, row.slug, unit);
-    const asked = { yolo, project, readiness, landable: landable.has(`${row.slug}:${row.item}`), row, item, unit };
+    const unmodeled = unmodeledIn(readMachines(root, row.slug)?.machines, unit);
+    const asked = { yolo, project, readiness, landable: landable.has(`${row.slug}:${row.item}`), row, item, unit, unmodeled };
     if (whyItAsks({ ...asked, models })) {
       await checkWaitingModel(root, { asked, models, spawn, now });
+      askForModel(root, { asked, models, now });
       continue;
     }
 
-    const landed = await mergeAlone(root, { row, item, now });
+    const landed = await mergeAlone(root, { row, unit, now });
     if (!landed) continue;
     mergedOn.add(row.slug);
-    reports.push(report(root, { project, item, target: landed.target, readiness, handOff, now }));
+    reports.push(report(root, { project, item, head: unit.sha, target: landed.target, readiness, handOff, now }));
   }
   return reports;
 }

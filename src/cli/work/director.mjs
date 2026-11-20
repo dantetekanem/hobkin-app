@@ -25,6 +25,7 @@ import { nameOf } from './names.mjs';
 import { watchPile } from './pairs.mjs';
 import { countsAgainst, ideasWanted, planWork, skipsTheHour } from './plan.mjs';
 import { recheckModels } from './proof-checks.mjs';
+import { sameCodeAs } from './proofs.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
 import {
@@ -826,12 +827,12 @@ export class WorkDirector {
   // The item goes straight back in the queue, and the next run carries on from the branch with what this one said.
   // A review costs a whole run, so a finished branch gets one by itself only once the user turns reviews on: then it is its next run, ahead of new work.
   async itemFinished(slug, item) {
-    const { id, title, kind, state, branch, reviewAsked, workNote } = item;
-    if (reviewAsked || workNote) updateItem(this.root, slug, id, { reviewAsked: false, workNote: null }, this.now());
+    const { id, title, kind, state, branch, reviewAsked, workNote, modelAsked } = item;
+    if (reviewAsked || workNote || modelAsked) updateItem(this.root, slug, id, { reviewAsked: false, workNote: null, modelAsked: null }, this.now());
     if (!['branch', 'pr'].includes(state) || kind === 'pr-fix') return;
 
     const project = readProject(this.root, slug);
-    if (!reviewAsked && state === 'branch' && await this.earnsAReview(project, branch)) {
+    if (!reviewAsked && state === 'branch' && await this.earnsAReview(project, branch, item.review)) {
       updateItem(this.root, slug, id, { reviewAsked: true }, this.now());
       retryItem(this.root, slug, id, this.now());
       return;
@@ -839,11 +840,14 @@ export class WorkDirector {
     this.onDraftDone({ slug, id, title, project: nameOf(project) });
   }
 
-  // With the mode off nothing new starts, and that holds for a review too. A home with no setting is off.
-  async earnsAReview(project, branch) {
+  // With the mode off nothing new starts, and that holds for a review too. A home with no setting is off. A review of a commit whose code the
+  // branch still has, since only models changed after it, still speaks for the branch, so it earns no other.
+  async earnsAReview(project, branch, review) {
     if (!readMode(this.root).enabled || !reviewsByItself(this.root, project.slug)) return false;
     const repo = project.path ?? paths(this.root, project.slug).clone;
-    return !await changesOnlyDocs(repo, await defaultBranch(repo), branch);
+    const base = await defaultBranch(repo);
+    if (await changesOnlyDocs(repo, base, branch)) return false;
+    return !(review?.head && (await sameCodeAs(repo, base, branch)).includes(review.head));
   }
 
   settleItem(slug, id, run, { moved = false, stalled = false, declined = false } = {}) {

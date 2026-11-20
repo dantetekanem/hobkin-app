@@ -1,3 +1,5 @@
+import { specName } from './proofs.mjs';
+
 /**
  * What a review says of a finished change, beside its grade: five scores from 1 to 10, each with a line of evidence, and the kind of change it is.
  * The review sends the scores and hobkin works out the rest here, so no run can send a rate. A score says how well a question is answered, and
@@ -58,7 +60,8 @@ export const brokenFloors = scores => CRITERIA
 
 /**
  * The scores with what hobkin's own model checks at the change's head say (`modelFacts` in `proofs.mjs`). Once any model ran there, the proof
- * score's evidence is those runs and marked as hobkin's, and a model that broke there leaves it at 3 at most. A model nobody ran is no evidence.
+ * score's evidence is those runs, each named by its model, and marked as hobkin's, and a model that broke there leaves it at 3 at most. A model
+ * nobody ran is no evidence.
  */
 export function withModelChecks(scores, models = []) {
   const ran = models.filter(({ run }) => run);
@@ -67,7 +70,7 @@ export function withModelChecks(scores, models = []) {
   const { score } = scores.proof;
   const proof = {
     score: broken ? Math.min(score, BROKEN_MODEL_PROOF) : score,
-    evidence: ran.map(({ line }) => line).join('; ').slice(0, LONGEST_LINE),
+    evidence: ran.map(({ spec, line }) => `${specName(spec)}: ${line}`).join('; ').slice(0, LONGEST_LINE),
     by: 'hobkin',
     run: (broken ?? ran[0]).run,
   };

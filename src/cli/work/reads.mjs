@@ -7,7 +7,7 @@ import { knownSoFar, launchSince, openLaunches } from './launches.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
 import { offerFor, trackRecords } from './patterns.mjs';
 import { canStart, itemGrade, planWork, rowWait, withPending } from './plan.mjs';
-import { changeModels } from './proofs.mjs';
+import { changeModels, scoresHoldAt } from './proofs.mjs';
 import {
   byPriority, byRank, chosenProjects, currentRequest, issueMode, itemStates, landing, nextLookAt, ownerView, prFile, priorityOf, readItems, readLaunches, readMode, readProjects, readTrust, runnableStates,
   tokenLabel,
@@ -283,9 +283,9 @@ function readyRow(root, project, item, items, openUnits = []) {
     conflict,
     size,
     safety,
-    quality: quality && { rating: quality.rating, reason: quality.reason, stale: quality.head !== unit.sha },
-    // A review's scores belong to the commit it read, as its quality does.
-    review: item.review ? { ...scoresOf(item.review, models), stale: item.review.head !== unit.sha } : null,
+    quality: quality && { rating: quality.rating, reason: quality.reason, stale: !scoresHoldAt(quality.head, unit) },
+    // A review's scores belong to the commit it read, as its quality does, and to the commits after it that changed only models.
+    review: item.review ? { ...scoresOf(item.review, models), stale: !scoresHoldAt(item.review.head, unit) } : null,
     // The TLA+ models covering it and what hobkin's own runs at its head say of each, when any covers it.
     ...(models.length ? { models } : {}),
     notices,

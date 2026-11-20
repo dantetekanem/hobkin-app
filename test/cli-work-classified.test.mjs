@@ -84,12 +84,12 @@ test('a model hobkin checked at the change\'s head writes the proof score\'s evi
   const broken = { spec: '_specs/tla/ReviewQueue.tla', state: 'broken', run: 'broke', line: 'TLC: MergedAtReviewedHead breaks in 5 steps · at 3f1a9c2' };
 
   const held = scoresOf(review({}, { proof: 9 }), [holds]);
-  assert.deepEqual(held.scores.proof, { score: 9, evidence: holds.line, by: 'hobkin', run: 'held' }, 'the review\'s score stands, on hobkin\'s own evidence');
+  assert.deepEqual(held.scores.proof, { score: 9, evidence: `WorkItem.tla: ${holds.line}`, by: 'hobkin', run: 'held' }, 'the review\'s score stands, on hobkin\'s own evidence, named by its model');
   assert.deepEqual([held.rate, held.floors], [9, []]);
   assert.equal(held.scores.safety.evidence, 'What the review saw of safety.', 'only the proof score is hobkin\'s');
 
   const broke = scoresOf(review({}, { proof: 9 }), [holds, broken]);
-  assert.deepEqual(broke.scores.proof, { score: 3, evidence: `${holds.line}; ${broken.line}`, by: 'hobkin', run: 'broke' });
+  assert.deepEqual(broke.scores.proof, { score: 3, evidence: `WorkItem.tla: ${holds.line}; ReviewQueue.tla: ${broken.line}`, by: 'hobkin', run: 'broke' });
   assert.deepEqual([broke.rate, broke.floors], [7.8, [{ criterion: 'proof', score: 3, needs: 5 }]]);
   assert.equal(scoresOf(review({}, { proof: 2 }), [broken]).scores.proof.score, 2, 'a cap never raises a score');
 
@@ -165,7 +165,7 @@ test('a finished row\'s proof score is hobkin\'s own once a model covering its f
   await surveyUnmerged(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
 
   const [row] = readyItems(h.root);
-  assert.deepEqual(row.review.scores.proof, { score: 3, evidence: `TLC: MergedAtReviewedHead breaks in 5 steps · at ${head.slice(0, 7)}`, by: 'hobkin', run: 'broke' });
+  assert.deepEqual(row.review.scores.proof, { score: 3, evidence: `WorkItem.tla: TLC: MergedAtReviewedHead breaks in 5 steps · at ${head.slice(0, 7)}`, by: 'hobkin', run: 'broke' });
   assert.deepEqual(row.review.floors, [{ criterion: 'proof', score: 3, needs: 5 }]);
   assert.equal(itemOf(h, id).review.scores.proof.score, 10, 'what the review sent is kept as it was');
 });

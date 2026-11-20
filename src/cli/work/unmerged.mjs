@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { atomicJson } from '../config.mjs';
 import { readReviewGrades, reviewsFolder } from './grades.mjs';
 import { areaOf, isTestPath } from './patterns.mjs';
-import { modelsAt, specsAt } from './proofs.mjs';
+import { modelsAt, sameCodeAs, specsAt } from './proofs.mjs';
 import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, isMerged, realPlace } from './tree.mjs';
 import { chosenProjects, fileItem, paths, readItems, readJson, runnableStates, updateItem } from './store.mjs';
 
@@ -177,9 +177,12 @@ async function nearestGrade(repo, name, grades) {
   return history.map(sha => grades.get(sha)).find(Boolean);
 }
 
-/** A grade belongs to one commit. One from further back says so, and a rebase that changed nothing keeps what it had. With no change to compare, nothing is kept. */
-async function safetyOf({ repo, name, sha, change, grades, before }) {
-  const { modified, ...exact } = grades.get(sha) ?? {};
+/**
+ * A grade belongs to one commit, or to one whose code the head still has (`sameCode`). One from further back says so, and a rebase that changed
+ * nothing keeps what it had. With no change to compare, nothing is kept.
+ */
+async function safetyOf({ repo, name, sha, change, grades, before, sameCode = [] }) {
+  const { modified, ...exact } = [sha, ...sameCode].map(commit => grades.get(commit)).find(grade => grade?.grade) ?? {};
   if (exact.grade) return exact;
   if (before?.safety && change && before.change === change) return before.safety;
 
@@ -251,6 +254,8 @@ async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, 
   const touched = await pathsOf(repo, base, name);
   // The TLA+ models at its head that cover what it touches, whose runs at that head speak for it (`proofs.mjs`).
   const models = await modelsAt(repo, sha, touched.paths);
+  // The commits whose code this head still has, since only models changed after them, so a review of one still counts.
+  const sameCode = await sameCodeAs(repo, base, name);
   return {
     kind: 'branch',
     branch: name,
@@ -260,12 +265,13 @@ async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, 
     size: await sizeOfRange(repo, base, name),
     ...touched,
     ...(models.length ? { models } : {}),
+    ...(sameCode.length ? { sameCode } : {}),
     behind: await commitsBehind(repo, tip, name),
     // Not knowing is an answer, so nothing here can cost a project its survey.
     conflict: await conflictsWith(repo, tip, name).catch(() => null),
     onlyDocs: await changesOnlyDocs(repo, base, name),
     change,
-    safety: await safetyOf({ repo, name, sha, change, grades, before }),
+    safety: await safetyOf({ repo, name, sha, change, grades, before, sameCode }),
     ...await placesOf({ repo, name, sha, finished, others }),
   };
 }

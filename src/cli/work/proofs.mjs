@@ -77,14 +77,34 @@ export async function specsAt(repo, head) {
   return read.filter(Boolean);
 }
 
-/** The specs at a change's head that model a file it touches, or that it edits, and whether it edited the spec or its cfg. */
+/**
+ * The specs at a change's head that model a file it touches, or that it edits, whether it edited the spec or its cfg, and which of the files it
+ * touches each one names in `\* models:`.
+ */
 export async function modelsAt(repo, head, changed = []) {
   const touched = new Set(changed);
   const edits = spec => touched.has(spec) || touched.has(spec.replace(/\.tla$/, '.cfg'));
   return (await specsAt(repo, head))
     .filter(({ spec, models }) => edits(spec) || models.some(file => touched.has(file)))
-    .map(({ spec, sha256 }) => ({ spec, sha256, changed: edits(spec) }));
+    .map(({ spec, sha256, models }) => ({ spec, sha256, changed: edits(spec), covers: models.filter(file => touched.has(file)) }));
 }
+
+/**
+ * The commits on a branch whose code its head still has, because every commit after them changed only TLA+ models. Empty when the head itself
+ * changed code. A review of any of them still speaks for the head (`scoresHoldAt`).
+ */
+export async function sameCodeAs(repo, base, name) {
+  const code = (await gitOrNothing(repo, 'rev-list', '--max-count=1', `${base}..${name}`, '--', '.', `:(exclude)${SPECS_FOLDER}`)).trim();
+  if (!code) return [];
+  const later = (await gitOrNothing(repo, 'rev-list', `${code}..${name}`)).split('\n').filter(Boolean);
+  return later.length ? [code, ...later] : [];
+}
+
+/**
+ * Whether scores given at `head` speak for a change as the survey read it: at that very commit, or at one whose code it still has. A model
+ * written after the review moves the head and leaves alone the code the review scored.
+ */
+export const scoresHoldAt = (head, unit = {}) => Boolean(head && unit.sha) && (head === unit.sha || (unit.sameCode ?? []).includes(head));
 
 const unfired = ({ actions }) => (Array.isArray(actions) ? actions : []).filter(({ count }) => !(count > 0)).map(({ name }) => name);
 

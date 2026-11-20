@@ -54,3 +54,15 @@ export function recordMachines(root, slug, report, { tlc, now = Date.now() } = {
   atomicJson(machinesFile(root, slug), record);
   return record;
 }
+
+/**
+ * The machines a change touches with no model to answer for it: each one with the files it touches that no spec at the change's head names.
+ * `unit` is the survey's, whose `models` say which touched files each covering spec names.
+ */
+export function unmodeledIn(machines = [], unit = {}) {
+  const touched = new Set(unit.paths ?? []);
+  const covered = new Set((unit.models ?? []).flatMap(({ covers = [] }) => covers));
+  return machines
+    .map(({ name, files }) => ({ name, files: files.filter(file => touched.has(file) && !covered.has(file)) }))
+    .filter(({ files }) => files.length);
+}

@@ -500,7 +500,7 @@ test('on a ready project a change whose model broke at its head never merges by 
   assert.deepEqual(reports.map(({ item }) => item), [held.id]);
   assert.deepEqual([stateOf(h, broke), stateOf(h, held)], ['branch', 'merged']);
   assert.deepEqual(readyItems(h.root).find(({ item }) => item === broke.id).review.scores.proof, {
-    score: 3, evidence: `TLC: MergedAtReviewedHead breaks in 5 steps · at ${broke.head.slice(0, 7)}`, by: 'hobkin', run: 'broke',
+    score: 3, evidence: `WorkItem.tla: TLC: MergedAtReviewedHead breaks in 5 steps · at ${broke.head.slice(0, 7)}`, by: 'hobkin', run: 'broke',
   });
 });
 

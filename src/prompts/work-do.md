@@ -108,6 +108,16 @@ When your change touches a state machine, one the code names or one hidden in fl
 
 A model check covers the small world it was given, and it is about the model, not the code. Never write that the code is proved.
 
+## A model hobkin sent back for
+
+When `work.item.modelAsked` is set, your branch is finished and its review has scored it, but it changes a state machine no model covers. `work.item.modelAsked.machines` names each machine and the files of it your branch changes. This takes the place of the steps above:
+
+- Write each machine's model as the section above says, with `\* models:` naming those files. Start from a spec under `_specs/tla/` that already models part of the machine.
+- Commit only files under `_specs/tla/`. The review's scores still count only while the code it read is unchanged, so change no other file.
+- After your last commit, run `work.commands.proof` as above and cite the run in `proof`.
+- If the model breaks because the code is wrong, leave the code alone and say what breaks in `proof` and `left`. The change then waits for the user.
+- Record `{ "id": "<id>", "state": "branch", "summary": "...", "proof": "..." }`.
+
 ## A YOLO readiness item
 
 When `work.item.key` is `yolo:ready`, the job is to make this project ready for YOLO mode, where hobkin merges and deploys small changes by itself. Check each part by running it, and build what is missing on your branch as you would any feature. Never deploy, roll back or flip a flag to find out.
