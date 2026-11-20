@@ -520,6 +520,14 @@ export const COMMANDS = {
     args: nothing,
     outside: true,
   },
+  // The first-run setup runs it by default (050-tla-proofs), so it is the window's alone.
+  'setup.install-proof-tools': {
+    description:
+      "Set up the TLA+ tools proof checks run on, as `hobkin proof setup` does: on a Mac without Java 11 or newer, the pinned Java runtime into tools/java in hobkin's home, then the pinned TLC into tools/tla, each kept only when its pinned checksum matches. What is there already is kept. Answers with whether the tools are ready and hobkin's one line. A failed setup is an answer, not an error.",
+    runs: 'host',
+    args: nothing,
+    outside: true,
+  },
   'github.refresh': {
     description:
       "Read the user's GitHub again through gh, with the login gh already has: the pull requests waiting for their review, their own open pull requests, and their open issues. It only reads. A read already under way answers this one too.",
@@ -1264,6 +1272,8 @@ export interface CommandResults {
   'setup.install-pi': PiSetup
   'setup.install-package': PiSetup
   'setup.install-node': PiSetup
+  /** Whether the TLA+ tools are ready, and what hobkin said, in a line. */
+  'setup.install-proof-tools': { ok: boolean; message: string }
   'setup.launcher': PiSetup
   'setup.projects': ProjectsFound
   /** What the app saved. */

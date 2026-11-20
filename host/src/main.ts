@@ -12,6 +12,7 @@ import { installPackage, installPi, piAgentFolder } from './pi/install.ts'
 import { configLauncher } from './setup-launcher.ts'
 import { refreshPath } from './pi/login-path.ts'
 import { addOwnNode, installNode, nodeBin } from './pi/node.ts'
+import { setupProofTools } from './setup-proof.ts'
 import { openInBrowser } from './signin.ts'
 import { spawnGh } from './review/gh.ts'
 import { stayAwake } from 'hobkin/src/cli/stay-awake.mjs'
@@ -99,6 +100,8 @@ async function main(args: readonly string[]): Promise<void> {
           installPiPackage: (name: string) => installPackage(name, { agentDir: piAgentFolder, ownNode: nodeBin(home.root), launcher: () => configLauncher(home.root) }),
           installNode: () => installNode({ root: home.root }),
           refreshPath: () => refreshPath(),
+          // The first-run setup sets up the TLA+ tools by default, through hobkin's own proof setup (050-tla-proofs).
+          installProofTools: (root: string) => setupProofTools(root),
         }
       : {}),
     // A live host always reads the real GitHub, read only. The scripted one shows made-up data unless asked.

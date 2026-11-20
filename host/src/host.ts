@@ -67,6 +67,7 @@ import { decisionHandlers } from './decisions.ts'
 import { reportHandlers } from './reports.ts'
 import { reminderHandlers, reminderState } from './reminders.ts'
 import { proofHandlers, ProofsKeeper } from './proofs.ts'
+import { proofToolsHandlers } from './setup-proof.ts'
 import { workHandlers } from './work.ts'
 import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
 import { preparedByItself, workReader } from './work-items.ts'
@@ -113,6 +114,11 @@ export interface HostOptions {
   installNode?: () => Promise<void>
   /** Ask the login shell for its PATH again when the setup finds no Pi or no npm. Only the entry passes it, so a test never asks a real shell. */
   refreshPath?: () => Promise<boolean>
+  /**
+   * Set up the TLA+ tools in hobkin's home, as the first-run setup does by default (050-tla-proofs). It downloads, so
+   * only the entry passes the real one (`setupProofTools`), for a live host, and a host without it sets up nothing.
+   */
+  installProofTools?: (home: string) => Promise<unknown>
   /**
    * gh for Change Review: it reads pull requests, and a live host posts a verdict the user confirmed. Without it a
    * pull request reads as the sample change and nothing is posted. The entry passes it for --live and --github.
@@ -563,6 +569,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       installPackage: options.installPiPackage ?? refuseInstall,
       installNode: options.installNode,
       refreshPath: options.refreshPath,
+    }),
+    // The TLA+ tools, set up by the first-run setup by default, then looked for again so the YOLO page sees them.
+    ...proofToolsHandlers({
+      live,
+      home: () => owner.app?.runtime.directory ?? resolveDataRoot(root),
+      install: options.installProofTools,
+      found: () => proofs.findTools(),
     }),
     // A work computer's launcher, asked for and kept in the config (025-onboarding), then the main conversation starts behind it.
     'setup.launcher': async ({ command }) => {
