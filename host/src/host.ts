@@ -66,6 +66,7 @@ import { Nudges } from './nudge.ts'
 import { decisionHandlers } from './decisions.ts'
 import { reportHandlers } from './reports.ts'
 import { reminderHandlers, reminderState } from './reminders.ts'
+import { proofHandlers, ProofsKeeper } from './proofs.ts'
 import { workHandlers } from './work.ts'
 import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
 import { preparedByItself, workReader } from './work-items.ts'
@@ -298,6 +299,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   // The GitHub page reads through gh and only reads. It reads again every few minutes while a UI is connected.
   const github = new GitHub({ source: options.github ?? sampleGitHubSource(), onChange: publish, wanted: connected, log })
   // Integrations reads Pi's MCP servers only when asked, through Pi's own code, and hides their secrets before anything is sent.
+  // TLA+ proof runs, read from hobkin's home when its files change (050-tla-proofs).
+  const proofs = new ProofsKeeper({ home: () => owner.app?.runtime.directory ?? null, onChange: () => publish() })
   const integrations = new Integrations({ source: options.integrations ?? (() => piMcpSourceFor({ live, root })), onChange: publish, log })
   // Skills and Pi extensions read Pi's resources only when a page asks, and change them only through `pi config`'s own code (039-skills-and-extensions).
   const skills = new Skills({ source: () => piSkillSourceFor({ live, root }), log })
@@ -348,6 +351,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     models: signIn.models,
     github: issueWork(github.state, owner.snapshot?.work),
     integrations: integrations.state,
+    proofs: proofs.state,
     canvas: canvases.main,
     canvases: canvases.others(),
     nudge: nudge.state,
@@ -646,6 +650,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // The Work screen's actions, each one of hobkin's own work actions. A yes on a card can merge a pull request on
     // GitHub, and hobkin then closes the issue it fixed, so GitHub is read again once the action is done.
     ...thenReadGitHub(workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }), ['work.change', 'work.group'], () => github.readSoon()),
+    // TLA+ proof runs: read, stopped and repeated through hobkin's own proof functions, when the runtime running has them.
+    ...proofHandlers({ keeper: proofs, home: () => hobkin().runtime.directory }),
     // Add to queue on the GitHub page: the issue is read through gh, only reading, and filed with hobkin's own issue action.
     // Close issue closes it through gh on the user's word, declines hobkin's unfinished item for it, and reads GitHub again.
     ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh, refreshGitHub: () => github.refresh() }),
@@ -791,6 +797,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         github.close()
         backups.close()
         integrations.close()
+        proofs.close()
         reviews.close()
         clearInterval(canvasRead)
         canvases.stop()

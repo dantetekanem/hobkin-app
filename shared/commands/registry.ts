@@ -30,6 +30,7 @@ import {
   type UserProfile,
 } from '../protocol/setup.ts'
 import { PI_PACKAGES } from '../setup/pi-packages.ts'
+import type { ProofRun } from '../protocol/proofs.ts'
 import { GRADES, ISSUE_PICKUPS, PR_MODES } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
@@ -125,6 +126,8 @@ const hobkinEngine = Type.Union([
 /** A work project by hobkin's slug for it, and one of its items by id. */
 const projectSlug = Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' })
 const workItem = words(64)
+/** A proof run's id, the name of its folder in hobkin's home. */
+const proofRunId = Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$' })
 /** The commit a card showed. A merge pinned to it refuses a branch that moved since. */
 const commit = Type.String({ pattern: '^[0-9a-f]{7,64}$' })
 /** A folder on this Mac, written out in full, as `setup.projects` lists them. */
@@ -1018,6 +1021,31 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ slug: projectSlug }, { additionalProperties: false }),
   },
+  // Proof runs of TLA+ models (050-tla-proofs). hobkin's own `hobkin proof` writes them, and these read, stop and repeat them.
+  'proof.get': {
+    description:
+      "Read one TLA+ proof run by its id: its steps, TLC's counts, each rule and action, the counterexample when one broke, the state graph when TLC dumped one, the spec's definitions and the TLAPS proof when it ran. A run still going comes as far as its events say.",
+    runs: 'host',
+    args: Type.Object({ id: proofRunId }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'proof.stop': {
+    description: 'End a proof run that is still going: its process is asked to stop, and killed if it has not ended after 2 seconds, and the run is recorded as stopped.',
+    runs: 'host',
+    args: Type.Object({ id: proofRunId }, { additionalProperties: false }),
+  },
+  'proof.again': {
+    description: 'Start the same proof check again: the same spec, config, project and item, at the project\'s current head. It runs as `hobkin proof check` does, one at a time.',
+    runs: 'host',
+    args: Type.Object({ id: proofRunId }, { additionalProperties: false }),
+  },
+  // It downloads the tools, so only the user's click in the window starts it.
+  'proof.setup': {
+    description: 'Download the pinned TLA+ tools (the TLC jar) so proof checks can run. Only on the user\'s click.',
+    runs: 'host',
+    args: Type.Object({}, { additionalProperties: false }),
+    outside: true,
+  },
   'work.change': {
     description:
       "Act on a finished change, only ever on the user's word: `merge` merges its branch on this machine and pushes nothing, `merge-pr` merges its PR on GitHub, `refresh-merge` has an agent bring it up to date and merges it once that run ends well, `review` has an agent review it, `ask` sends an agent back to it with the user's `note`, `decline` says no, and `done` marks the item done: what it left for the user is cleared and any branch or PR stays as it is. `head` is the commit the card showed, so a change that moved since is refused.",
@@ -1327,6 +1355,13 @@ export interface CommandResults {
   'work.yolo': { on: boolean; rate: number }
   /** What hobkin said: the readiness work starts now, or what still holds it. */
   'work.yolo.ready': { message: string }
+  /** The whole run. */
+  'proof.get': ProofRun
+  /** What happened to the run, in a line. */
+  'proof.stop': { message: string }
+  /** What started, and the new run's id when the runtime said it. */
+  'proof.again': { message: string; id?: string }
+  'proof.setup': { message: string }
   /** What hobkin did, in its own words. */
   'work.change': { message: string }
   /** hobkin's line for each row, in the order they went, and the line that sums them up. */

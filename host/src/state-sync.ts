@@ -10,6 +10,7 @@ import { diffMessages } from '#shared/protocol/message-ops.ts'
 import type { OwnerState, StateMessage } from '#shared/protocol/messages.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import type { Nudge } from '#shared/protocol/nudge.ts'
+import type { ProofsState } from '#shared/protocol/proofs.ts'
 import type { SignInState } from '#shared/protocol/signin.ts'
 import { shellFields, type ChatMessage, type WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
@@ -78,6 +79,8 @@ export interface HostFacts {
   integrations?: IntegrationsState
   /** Work mode as the Work screen draws it, read from the snapshot. Null or left out while the snapshot has none, as in a view the terminal saved. */
   work?: WorkState | null
+  /** TLA+ proof runs, from hobkin's home. Left out by a host that reads none. */
+  proofs?: ProofsState
   /** The canvas panel. Left out by a host that has none. */
   canvas?: CanvasState
   /** Each durable hobkin's canvas by its id. Left out by a host that has none. */
@@ -108,6 +111,7 @@ export class StateSync {
   private github: GitHubState | null
   private integrations: IntegrationsState | null
   private work: WorkState | null = null
+  private proofs: ProofsState | null = null
   private canvas: CanvasState | null = null
   private canvases: Record<string, CanvasState> | null = null
   /** The last one-shot window instruction sent. Kept only so a repeat of the same one is not sent twice. */
@@ -124,7 +128,7 @@ export class StateSync {
   private readonly now: () => number
 
   constructor(
-    { owner, signIn, models, github, integrations, canvas, canvases, appearance, themes }: Omit<HostFacts, 'snapshot'>,
+    { owner, signIn, models, github, integrations, proofs, canvas, canvases, appearance, themes }: Omit<HostFacts, 'snapshot'>,
     { now = Date.now }: { now?: () => number } = {},
   ) {
     this.now = now
@@ -137,6 +141,7 @@ export class StateSync {
     this.models = models
     this.github = github ?? null
     this.integrations = integrations ?? null
+    this.proofs = proofs ?? null
   }
 
   /** The ids of the messages a UI shows now. */
@@ -164,6 +169,7 @@ export class StateSync {
       ...(this.github ? { github: this.github } : {}),
       ...(this.integrations ? { integrations: this.integrations } : {}),
       ...(this.work ? { work: this.work } : {}),
+      ...(this.proofs ? { proofs: this.proofs } : {}),
       ...(this.canvas ? { canvas: this.canvas } : {}),
       ...(this.canvases ? { canvases: this.canvases } : {}),
       appearance: this.appearance,
@@ -172,13 +178,14 @@ export class StateSync {
   }
 
   /** What changed, or null when nothing did. A new owner state starts over, because its snapshot is another source. */
-  update({ owner, signIn, models, github, integrations, work = null, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts): StateMessage | null {
+  update({ owner, signIn, models, github, integrations, work = null, proofs, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts): StateMessage | null {
     const ownerChanged = this.differs('owner', owner, this.owner)
     const signInChanged = this.differs('signIn', signIn, this.signIn)
     const modelsChanged = models !== null && this.differs('models', models, this.models)
     const githubChanged = github !== undefined && this.differs('github', github, this.github)
     const integrationsChanged = integrations !== undefined && this.differs('integrations', integrations, this.integrations)
     const workChanged = this.differs('work', work, this.work)
+    const proofsChanged = proofs !== undefined && this.differs('proofs', proofs, this.proofs)
     const canvasChanged = canvas !== undefined && this.differs('canvas', canvas, this.canvas)
     const canvasesChanged = canvases !== undefined && this.differs('canvases', canvases, this.canvases)
     // A one-shot instruction is only ever sent when it is new, and never on a reset or in a full state, so the
@@ -192,6 +199,7 @@ export class StateSync {
     if (models) this.models = models
     if (github) this.github = github
     if (integrations) this.integrations = integrations
+    if (proofs) this.proofs = proofs
     if (canvas) this.canvas = canvas
     if (canvases) this.canvases = canvases
     if (nudge) this.nudge = nudge
@@ -229,6 +237,7 @@ export class StateSync {
       !githubChanged &&
       !integrationsChanged &&
       !workChanged &&
+      !proofsChanged &&
       !canvasChanged &&
       !canvasesChanged &&
       !nudgeChanged &&
@@ -258,6 +267,7 @@ export class StateSync {
       ...(this.integrations && (integrationsChanged || startOver) ? { integrations: this.integrations } : {}),
       // Work mode goes whole, and null once the snapshot has none, so a UI never keeps one that is gone.
       ...(workChanged || (startOver && this.work) ? { work: this.work } : {}),
+      ...(this.proofs && (proofsChanged || startOver) ? { proofs: this.proofs } : {}),
       ...(this.canvas && (canvasChanged || startOver) ? { canvas: this.canvas } : {}),
       ...(this.canvases && (canvasesChanged || startOver) ? { canvases: this.canvases } : {}),
       // Only when new — never forced on a reset — so a reconnect never re-navigates the window or rewrites the draft.
