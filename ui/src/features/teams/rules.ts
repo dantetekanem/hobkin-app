@@ -30,14 +30,28 @@ export function stillShown(agents: readonly ShownTeamsAgent[]): ShownTeamsAgent[
   return agents.filter((agent) => agent.state !== 'done')
 }
 
+/** How many stand in each state, in the list's order: "1 running, 1 queued, 2 done". */
+export function teamsCounts(agents: readonly TeamsAgent[]): string {
+  return ORDER.flatMap((state) => {
+    const count = agents.filter((agent) => agent.state === state).length
+    return count ? [`${count} ${state}`] : []
+  }).join(', ')
+}
+
 /** "4 teams agents · 1 running, 1 queued, 2 done", or nothing when there are none. */
 export function teamsSummary(agents: readonly TeamsAgent[]): string {
   if (agents.length === 0) return ''
-  const counts = ORDER.flatMap((state) => {
-    const count = agents.filter((agent) => agent.state === state).length
-    return count ? [`${count} ${state}`] : []
-  })
-  return `${agents.length === 1 ? '1 teams agent' : `${agents.length} teams agents`} · ${counts.join(', ')}`
+  return `${agents.length === 1 ? '1 teams agent' : `${agents.length} teams agents`} · ${teamsCounts(agents)}`
+}
+
+/**
+ * The agents in one line, as the tasks line reads: how many, and the names of those in the leading state, such as
+ * "2 agents · running: test-gate, observability", with how many stand otherwise. `agents` come running first.
+ */
+export function teamsLine(agents: readonly TeamsAgent[]): { count: string; lead: TeamsAgentState; names: string; more: number } {
+  const lead = agents[0]?.state ?? 'running'
+  const leading = agents.filter((agent) => agent.state === lead)
+  return { count: agents.length === 1 ? '1 agent' : `${agents.length} agents`, lead, names: leading.map(({ name }) => name).join(', '), more: agents.length - leading.length }
 }
 
 const FIRST_LINE = 96

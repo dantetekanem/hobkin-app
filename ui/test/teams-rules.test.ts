@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { TeamsAgent } from '../../shared/protocol/teams.ts'
 import { stampOf } from '../src/features/agent-activity/stamp.ts'
-import { describeTeamsAgent, firstLine, standing, stillShown, teamsAgentsOf, teamsSummary, whatIsKept, whoSaid } from '../src/features/teams/rules.ts'
+import { describeTeamsAgent, firstLine, standing, stillShown, teamsAgentsOf, teamsLine, teamsSummary, whatIsKept, whoSaid } from '../src/features/teams/rules.ts'
 
 // Local times, so the rules hold in any time zone the tests run in.
 const at = (hour: number, minute: number, second: number) => new Date(2026, 10, 15, hour, minute, second).getTime()
@@ -65,4 +65,10 @@ test('an opened agent says what it was asked and what hobkin has of its work', (
   assert.equal(whoSaid({ by: 'agent', text: '' }, 'scout', 'Nightly digest'), 'scout')
   assert.equal(whoSaid({ by: 'peer', peer: 'fixer', text: '' }, 'scout', 'Nightly digest'), 'fixer')
   assert.equal(whoSaid({ by: 'peer', text: '' }, 'scout', 'Nightly digest'), 'Another teams agent')
+})
+
+test("the agents' one line names the ones in the leading state and counts the rest, as the tasks line does", () => {
+  const shown = teamsAgentsOf({ turn1: [agent('lint', 'failed', at(14, 4, 0)), agent('test-gate', 'running', at(14, 1, 0)), agent('observability', 'running', at(14, 2, 0))] }, ['turn1'])
+  assert.deepEqual(teamsLine(shown), { count: '3 agents', lead: 'running', names: 'test-gate, observability', more: 1 })
+  assert.deepEqual(teamsLine(shown.slice(2)), { count: '1 agent', lead: 'failed', names: 'lint', more: 0 })
 })

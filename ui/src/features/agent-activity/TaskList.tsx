@@ -1,7 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { Check, ChevronDown } from 'lucide-react'
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement, type RefObject } from 'react'
-import { create } from 'zustand'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { inOverlay } from '@/app/key-page.ts'
 import { holdStill, useStill } from '@/app/still.ts'
@@ -9,13 +8,11 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import './agent-activity.css'
+import { useDrop } from './drop.ts'
 import { taskListKey, type TaskKeyPress } from './task-keys.ts'
 import { progressOf, sameTasks, taskLine, tasksOf, titleOf, type AgentTask, type TaskLine, type TaskProgress, type TaskState } from './tasks.ts'
 
 const NO_TASKS: readonly AgentTask[] = []
-
-/** Whether the list is open. Kept while the window is open, the same for every agent, as Control+O keeps its blocks. */
-const useOpen = create<{ open: boolean; setOpen: (open: boolean) => void }>((set) => ({ open: false, setOpen: (open) => set({ open }) }))
 
 /** The list never reaches the bottom of the transcript: the newest step and the way back to it stay in view. */
 const LEAVE = 56
@@ -42,9 +39,9 @@ function shownNow(element: Element): boolean {
 
 /** Opens the list, or closes it. The keyboard inside the list as it closes goes back to its bar. */
 function toggleList(root: HTMLElement | null, bar: HTMLButtonElement | null): void {
-  const { open, setOpen } = useOpen.getState()
+  const open = useDrop.getState().open === 'tasks'
   if (open && root?.querySelector('[data-task-panel]')?.contains(document.activeElement)) bar?.focus({ preventScroll: true })
-  setOpen(!open)
+  useDrop.getState().setOpen('tasks', !open)
 }
 
 /**
@@ -68,7 +65,7 @@ export function TaskList({ entries, hue }: { entries?: readonly ActivityEntry[];
   const progress = useMemo(() => progressOf(tasks), [tasks])
   const line = useMemo(() => taskLine(progress), [progress])
   const any = tasks.length > 0
-  const open = useOpen((state) => state.open) && any
+  const open = useDrop((state) => state.open === 'tasks') && any
   const root = useRef<HTMLDivElement>(null)
   const bar = useRef<HTMLButtonElement>(null)
   const panelId = useId()
@@ -208,7 +205,7 @@ function Count({ value, still }: { value: number | string; still: boolean }) {
 }
 
 /** How tall the open list may be: from where it opens down to a little above the transcript's bottom. */
-function useRoom(outer: RefObject<HTMLElement | null>): number | undefined {
+export function useRoom(outer: RefObject<HTMLElement | null>): number | undefined {
   const [room, setRoom] = useState<number>()
   useLayoutEffect(() => {
     const element = outer.current
