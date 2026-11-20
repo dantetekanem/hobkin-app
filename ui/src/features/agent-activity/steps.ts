@@ -1,4 +1,5 @@
 import { sameEntry, type ActivityEntry } from '#shared/protocol/activity.ts'
+import { proofCheckOf } from '../proofs/proof-match.ts'
 import { isTaskTool } from './tasks.ts'
 
 /**
@@ -367,9 +368,12 @@ export function sameStep(left: Step, right: Step): boolean {
   return left.kind === right.kind && left.entries.length === right.entries.length && left.entries.every((entry, index) => sameEntry(entry, right.entries[index]!))
 }
 
-/** Which commands of a group stay open: the newest, and any that is still running, failed or stopped. The rest fold into one row. */
+/**
+ * Which commands of a group stay open: the newest, any that is still running, failed or stopped, and every
+ * `hobkin proof check`, which draws as the run it started (050-tla-proofs). The rest fold into one row.
+ */
 export function foldOf(commands: readonly Command[]): { folded: Command[]; open: Command[] } {
-  const isOpen = (command: Command, index: number) => index === commands.length - 1 || command.state !== 'done'
+  const isOpen = (command: Command, index: number) => index === commands.length - 1 || command.state !== 'done' || proofCheckOf(command.command) !== null
   return { folded: commands.filter((command, index) => !isOpen(command, index)), open: commands.filter(isOpen) }
 }
 

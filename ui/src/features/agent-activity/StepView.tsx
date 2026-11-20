@@ -20,6 +20,8 @@ import { previewOf } from './preview.ts'
 import { RowStamp, Stamped } from './Stamp.tsx'
 import { atOf, foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
 import { useUnfold } from './unfold.ts'
+import { proofCheckOf } from '@/features/proofs/proof-match.ts'
+import { ProofCheckStep, useCheckRun } from '@/features/proofs/ProofCheckStep.tsx'
 import { useNear } from './use-colors.ts'
 import type { EntryTime } from './use-agent-activity.ts'
 
@@ -242,7 +244,7 @@ function ShellGroup({ commands, timeOf }: { commands: Command[]; timeOf: TimeOf 
               // It gives way to the next command by sliding up into the row above.
               exit={holdStill({ opacity: 0, transform: 'translateY(-18px) scale(0.97)', transition: { transform: spring.screenExit, opacity: { duration: 0.2, ease: 'linear' } } } as const, still)}
             >
-              <CommandCard command={command} time={timeOf(command.id)} />
+              <CommandOrProof command={command} time={timeOf(command.id)} />
             </motion.div>
           ))}
         </AnimatePresence>
@@ -252,6 +254,26 @@ function ShellGroup({ commands, timeOf }: { commands: Command[]; timeOf: TimeOf 
 }
 
 const firstLine = (text: string) => text.split('\n').find((line) => line.trim())?.trim() ?? ''
+
+/**
+ * A command, or, for `hobkin proof check`, the run it started (050-tla-proofs). A check that ended with no run to show
+ * is the command it was, so what it printed can still be read.
+ */
+function CommandOrProof({ command, time }: { command: Command; time?: EntryTime }) {
+  const spec = proofCheckOf(command.command)
+  return spec ? <ProofCommand command={command} time={time} spec={spec} /> : <CommandCard command={command} time={time} />
+}
+
+function ProofCommand({ command, time, spec }: { command: Command; time?: EntryTime; spec: string }) {
+  const run = useCheckRun(spec, command.at ?? time?.started, command.output)
+  if (!run && command.state !== 'running') return <CommandCard command={command} time={time} />
+  return (
+    <div className="relative min-w-0">
+      <RowStamp at={command.at} line="card" />
+      <ProofCheckStep run={run} spec={spec} />
+    </div>
+  )
+}
 
 /** One command: its line, its state and time, and, once opened by its line, the last of its output, all of which opens on request. */
 function CommandCard({ command, time }: { command: Command; time?: EntryTime }) {

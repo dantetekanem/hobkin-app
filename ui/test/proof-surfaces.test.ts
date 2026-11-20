@@ -4,6 +4,7 @@ import type { ProofRunSummary, ProofsState } from '#shared/protocol/proofs.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { brokenOnMain, chipsOf, itemTitle, modelsLine, modelsOnMain, placeOf, proofCheckOf, runForCommand, runsForItem, runWords } from '../src/features/proofs/proof-match.ts'
 import { sampleRun, sampleSummary, type SamplePhase } from '../src/features/proofs/sample.ts'
+import { foldOf, type Command } from '../src/features/agent-activity/steps.ts'
 
 const STARTED = Date.parse('2026-11-20T14:05:00Z')
 const summary = (phase: SamplePhase, change: Partial<ProofRunSummary> = {}, minutes = 0): ProofRunSummary => ({ ...sampleSummary(sampleRun(phase, STARTED + minutes * 60_000)), ...change })
@@ -75,4 +76,11 @@ test("the page's eyebrow and title come from work mode", () => {
   assert.equal(placeOf({ project: 'hobkin', item: '4f2c' }, work), 'Work · hobkin · item 4f2c')
   assert.equal(placeOf({ project: 'hobkin' }, null), 'Work · hobkin · on main')
   assert.equal(placeOf({}, null), 'Proof run')
+})
+
+test("an agent's proof check never folds away with the commands that passed before it", () => {
+  const ran = (id: string, command: string): Command => ({ id, command, state: 'done', output: '' })
+  const { folded, open } = foldOf([ran('a', 'pnpm test'), ran('b', 'hobkin proof check specs/tla/WorkItem.tla'), ran('c', 'git status'), ran('d', 'git diff')])
+  assert.deepEqual(folded.map(({ id }) => id), ['a', 'c'])
+  assert.deepEqual(open.map(({ id }) => id), ['b', 'd'])
 })
