@@ -20,6 +20,8 @@ When an agent in work mode touches a state machine, explicit or hidden in the co
 
 - "I want Hobkin and (Work + YOLO) to support TLA+ natively, i mean the proof run, in the greatest UI/UX ever we have, and during the process. This will be massive preparing and designing systems, and also having a way to see the math proof and a visual proof (node navigation) as where possible. plan and design this now"
 - On the first screens of the design: "yes that is good".
+- On where models live, 2026-11-20: "I prefer `_specs` and not `specs` so is at the top of a folder ... for everything".
+- On a finished change to a state machine that has no model yet, 2026-11-20: "we need to update the proof so it can move along. the score stays".
 
 ### The design
 
@@ -105,8 +107,11 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - The finished card shows proof chips: the model holds, the model broke, or the proof is proved or fails. Each opens the run.
 - The review's `proof` score: when a run at the item's head covers the changed files, hobkin writes that score's evidence line from the run, and marks it "hobkin ran this itself". A covering model that broke caps the proof score at 3.
 - YOLO: a covering model that breaks at the change's head is a floor, so the change never merges by itself. This works like a safety score under 8, in `brokenFloors` (`hobkin/src/cli/work/classified.mjs`) and `whyItAsks` (`hobkin/src/cli/work/yolo-pass.mjs`). When a change touches a modeled file and the spec did not change, hobkin reruns the model itself at the new head. That rerun is a hobkin job, not an agent run.
-- Readiness gains a `models` part. It is ready when each machine the state-machines look found has a spec that holds on main, and not applicable when the project has none.
+- Readiness gains a `models` part. It is ready when each spec on main holds. A machine with no model yet does not hold the project back, because a change to it gets its model first (A19). The part says not applicable only when a state-machines look ran with Java and TLC found and found no machine. Before a look like that, it is not ready (A17).
 - The state-machines look writes the spec for each machine it finds, files the `machine:<name>` item with the spec's path, and hobkin rechecks every spec on main weekly. A model that breaks on main shows in Home's Problems.
+- The look also pipes every machine it found, with the files it lives in, to `hobkin work machines <project>`. hobkin keeps that list in its own work state, `<home>/work/<project>/machines.json`, with the time and whether Java and TLC were found when it came in. It never reads the prose under "State machines" in the project file.
+- A project whose state machines were never looked for with the tools in place has its look due now (A18). hobkin knows this from the time it starts a look with the pinned jar in its home. The jar goes in only after setup found Java or installed it, so the planner does not have to wait for Java to answer.
+- A finished change that touches a machine's file when no spec at its head names that file goes back to its own branch for the model (A19). That happens once for each review, and only when nothing else would stop it merging by itself. The run writes `_specs/tla/<Machine>.tla` and its cfg and commits only those, so the review's scores stand: a review of any commit whose code the head still has, because every later commit changed only `_specs/tla/`, counts as a review of the head (A20).
 
 ## Out of scope
 
@@ -134,6 +139,10 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - A14. The state-machines look writes a spec for each machine it finds, hobkin rechecks every spec on main weekly, and a model that breaks on main shows in Home's Problems.
 - A15. Every new field on the wire is optional, so an older host or window still works.
 - A16. The first-run setup sets up the TLA+ tools by default on a live host, as `hobkin proof setup` does, in the background while the story goes on. Its quiet line says hobkin's one line, a failure never holds the setup up, and Set up TLC on the YOLO page tries again. A scripted host sets up nothing, and hobkin's `client` tool cannot ask for it.
+- A17. Readiness's `models` part says not applicable only when a state-machines look ran with Java and TLC found and recorded no machine. Until a look like that has recorded its machines, the part is not ready and says in one line that the project's state machines have not been looked for with TLC yet.
+- A18. A chosen project whose state machines were never looked for with the TLA+ tools in place has its state-machines look due now, not a week after its last look. Run readiness on the YOLO page puts that look ahead of the project's readiness work when the look is due. Work mode's agent limit paces the looks on the other projects.
+- A19. A finished change that touches a file of a machine the look recorded, where no spec at its head names that file in `\* models:`, does not merge by itself. hobkin sends it back to its own item and branch, once for each review, to write and commit that machine's model under `_specs/tla/`, and checks the model itself at the new head when the run did not.
+- A20. A change's review scores still count after commits that change only `_specs/tla/`, so YOLO mode never calls them scores for an older commit and asks for no new review. A model that holds there lets the change merge by itself at its new head. One that breaks keeps it asking, with a proof score of 3 at most. The finished card's proof score line names the model and opens its run.
 
 ## Proof
 
@@ -153,6 +162,10 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - A14. `hobkin/test/cli-work-look.test.mjs`; check: a look at the live home with the user's go-ahead.
 - A15. `host/test/proofs.test.ts`, with a host that sends none of the new fields.
 - A16. `host/test/setup-proof.test.ts` › "a failed setup is an answer with its one line, never an error, so the setup goes on"
+- A17. `hobkin/test/cli-work-machines.test.mjs` › "the models part is not ready until a look with TLC recorded the machines, and not applicable only when it found none"
+- A18. `hobkin/test/cli-work-machines.test.mjs` › "a project never looked at for its state machines with TLC has that look due now, and Run readiness puts it first"
+- A19. `hobkin/test/cli-work-machines.test.mjs` › "a finished change to a machine no model covers goes back to its branch for the model, once a review"
+- A20. `hobkin/test/cli-work-machines.test.mjs` › "a model written after the review keeps the scores, and the change merges by itself once the model holds"
 
 ## Steps
 
@@ -168,6 +181,9 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 
 - [ ] S10 (A1, A2, A3, A4, A7, A11). What the recorded fixtures cannot show. The fixtures come from TLC 1.7.4 and tlapm 1.6.0-pre source, not real runs. With the user's yes to install Java and the pinned jar: run `HOBKIN_TLC=1 node --test test/cli-proof.test.mjs` in hobkin, check one real model end to end in the live window (live counts, stop, the graph, the math), and fill `TLA2TOOLS.sha256` in `hobkin/src/cli/proof/tools.mjs` from the verified download. Done 2026-11-20: Java and TLC installed in the user's home, the real TLC test passes, and the sha256 is pinned (hobkin b5748be). Left: one real model in the live window.
 - [x] S11 (A16). Host and window: the first-run setup sets up the TLA+ tools by default, on the user's word of 2026-11-20 ("this should come with hobkin by default, while installing in setup"). `setup.install-proof-tools` runs hobkin's `setupProof` through `loadProofRuntime`, only on a live host, and the window asks for it once as the setup opens. Files: new `host/src/setup-proof.ts`, `shared/commands/registry.ts`, `host/src/host.ts`, `host/src/main.ts`, new `ui/src/features/onboarding/use-proof-tools.ts`, `ui/src/features/onboarding/Storyteller.tsx`; tests new `host/test/setup-proof.test.ts`, whose other tests cover the home, one run at a time and the live host. The quiet line is not seen in the window yet: open the setup on a scratch home with a live host.
+- [ ] S12 (A17). Runtime: `hobkin work machines <project>` keeps the look's machines in `machines.json` with whether Java and TLC were found, and readiness's `models` part reads it. The look's prompt pipes the list. Files: new `hobkin/src/cli/work/machines.mjs`, `hobkin/src/cli/work/{yolo,commands,director}.mjs`, `hobkin/src/prompts/work-look.md`.
+- [ ] S13 (A18). Runtime: the look is due now on a project never looked at with the tools in place, a look started with them says so in the project's state, and Run readiness puts a due look first. Files: `hobkin/src/cli/work/{plan,yolo,director}.mjs`.
+- [ ] S14 (A19, A20). Runtime: the survey records which files each covering spec names and the commits whose code the head still has, the YOLO pass sends a change back for its model, a review stands across model-only commits, and the proof score's evidence names its model. The do prompt says how a run writes a model it was sent back for. Files: `hobkin/src/cli/work/{yolo-pass,proofs,unmerged,reads,closing,classified,director,store,plan}.mjs`, `hobkin/src/prompts/work-do.md`.
 
 ## Open questions
 
