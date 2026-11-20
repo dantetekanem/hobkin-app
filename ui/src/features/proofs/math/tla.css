@@ -1,0 +1,26 @@
+/*
+ * Unicode TLA+ as the proof views set it (050-tla-proofs, "The math"). The app's JetBrains Mono has none of TLA+'s math
+ * symbols (≜ ⟨ ⟩ □ ◇ ∀ ∃ ⇒ ∧ ∨ ∈ ↦), so they fall back to Menlo, and the two Menlo lacks (‥ ∖) to Apple Symbols or STIX
+ * Two Math. Each symbol is drawn one column wide (.pf-sym), so conjunctions tlauc aligned stay aligned.
+ */
+.pf-tla {
+  font-family: 'JetBrains Mono Variable', Menlo, 'Apple Symbols', 'STIX Two Math', ui-monospace, monospace;
+  font-variant-ligatures: none;
+  /* Purple, between the code's periwinkle and the red, for numbers: no palette color is purple. */
+  --pf-number: color-mix(in oklab, var(--hb-code-fg) 55%, var(--hb-bad-fg));
+}
+
+.pf-tla .pf-sym {
+  display: inline-block;
+  width: 1ch;
+  text-align: center;
+  /* Menlo draws its math small inside a column; a little larger reads as well as the letters around it. */
+  transform: scale(1.18);
+}
+
+/* A module's ──── line: a rule exactly as wide as its characters, which stay in the text for copying. */
+.pf-tla .pf-rule {
+  display: inline-block;
+  color: transparent;
+  background: linear-gradient(var(--hb-border-strong), var(--hb-border-strong)) center / 100% 1px no-repeat;
+}

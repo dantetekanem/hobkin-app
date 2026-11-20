@@ -12,8 +12,12 @@ type Proof = NonNullable<ProofRun['proof']>
 export type ProofTone = 'ok' | 'bad' | 'warn' | 'quiet' | 'unsure'
 
 export interface ProofRow {
+  /** Its place in the tree. Labels repeat across branches (`<3>1`), so a step is known by its place. */
+  index: number
   id: string
   label: string
+  /** Its label and what it proves, typeset: "⟨2⟩5 CASE YoloMerge(i)". */
+  text: string
   status: ProofObligation['status']
   /** Levels below the top one. */
   indent: number
@@ -27,6 +31,9 @@ export interface ProofRow {
 const MARK: Record<ProofObligation['status'], string> = { proved: '✓', failed: '!', omitted: '–', missing: '?', pending: '·' }
 const HOW: Record<Exclude<ProofObligation['status'], 'proved'>, string> = { failed: 'failed', omitted: 'omitted', missing: 'no proof', pending: 'waits' }
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+
+/** A step's label as TLA+ typesets it: `<2>5` as `⟨2⟩5`. */
+export const stepLabel = (id: string) => id.replace(/<(\d+|\*)>/g, '⟨$1⟩')
 
 function howProved(step: ProofObligation, hasSteps: boolean): string {
   if (step.backend && step.seconds != null) return `${step.backend} ${step.seconds.toFixed(1)} s`
@@ -44,11 +51,32 @@ export function proofRows(proof: Proof): ProofRow[] {
       below.push(next)
     }
     const failing = below.filter((entry) => entry.status === 'failed').length
-    const base = { id: step.id, label: step.label, status: step.status, indent: step.depth - top, counted: proof.strict && step.status === 'proved' }
+    const base = { index, id: step.id, label: step.label, text: `${stepLabel(step.id)} ${step.label}`, status: step.status, indent: step.depth - top, counted: proof.strict && step.status === 'proved' }
     if (failing > 0) return { ...base, tone: 'bad', mark: MARK.failed, how: `${plural(failing, 'step', 'steps')} ${failing === 1 ? 'fails' : 'fail'}` }
     if (step.status === 'proved') return { ...base, tone: proof.strict ? 'ok' : 'unsure', mark: MARK.proved, how: howProved(step, below.length > 0) }
     const tone: ProofTone = step.status === 'failed' ? 'bad' : step.status === 'pending' ? 'quiet' : 'warn'
     return { ...base, tone, mark: MARK[step.status], how: HOW[step.status] }
+  })
+}
+
+/**
+ * The rows a folded tree shows: every step of its top two levels, and deeper steps only in a branch where something
+ * did not prove, so a long proof shows where it fails without scrolling past what is done.
+ */
+export function foldRows(rows: readonly ProofRow[]): ProofRow[] {
+  const open = new Set<number>()
+  let branch = -1
+  for (const row of rows) {
+    if (row.indent <= 1) branch = row.indent === 1 ? row.index : -1
+    if (branch >= 0 && row.status !== 'proved') open.add(branch)
+  }
+  branch = -1
+  return rows.filter((row) => {
+    if (row.indent <= 1) {
+      branch = row.indent === 1 ? row.index : -1
+      return true
+    }
+    return open.has(branch)
   })
 }
 
@@ -101,31 +129,32 @@ export interface ProofNote {
 }
 
 /**
- * The note under the tree: the step the user picked, else the first that failed, else what the whole proof shows. A
- * proof run without --strict says so first, since none of its steps counts.
+ * The note under the tree: the step the user picked (by its place), else the first that failed, else what the whole
+ * proof shows. A proof run without --strict says so first, since none of its steps counts.
  */
-export function proofNote(run: Pick<ProofRun, 'outcome' | 'broken' | 'traceLength' | 'model' | 'definitions'>, proof: Proof, picked: string | null): ProofNote {
+export function proofNote(run: Pick<ProofRun, 'outcome' | 'broken' | 'traceLength' | 'model' | 'definitions'>, proof: Proof, picked: number | null): ProofNote {
   const theorem = theoremOf(run.definitions)
   const statement = theorem?.statement ?? ''
-  const chosen = proof.obligations.find((step) => step.id === picked) ?? (proof.strict ? proof.obligations.find((step) => step.status === 'failed') : undefined)
+  const chosen = (picked != null ? proof.obligations[picked] : undefined) ?? (proof.strict ? proof.obligations.find((step) => step.status === 'failed') : undefined)
+  const label = chosen ? stepLabel(chosen.id) : ''
   if (chosen?.status === 'failed') {
     const echo = run.outcome === 'broken' && run.broken ? `The model check broke ${run.broken} too${run.traceLength ? `, in a ${run.traceLength}-step example` : ''}.` : ''
     return {
       tone: 'bad',
-      title: `${chosen.id} could not be proved`,
+      title: `${label} could not be proved`,
       math: chosen.label,
       ...(chosen.goal ? { goal: chosen.goal } : {}),
       ...(chosen.known ? { known: chosen.known } : {}),
-      words: [`What it knew was not enough to show its goal.`, echo].filter(Boolean).join(' '),
+      words: echo || 'What it knew was not enough to show its goal.',
     }
   }
   if (!proof.strict) {
     return { tone: 'warn', title: 'Not counted: the proof ran without --strict', math: 'tlapm --strict', words: 'Without --strict, tlapm can call a step proved while its proof is missing, so hobkin counts none of these.' }
   }
-  if (chosen && picked) {
-    if (chosen.status === 'proved') return { tone: 'plain', title: `${chosen.id} is proved`, math: chosen.label, words: chosen.backend ? `${chosen.backend} proved it${chosen.seconds != null ? ` in ${chosen.seconds.toFixed(1)} s` : ''}.` : 'Proved by the steps under it.' }
-    if (chosen.status === 'pending') return { tone: 'plain', title: `${chosen.id} waits`, math: chosen.label, words: 'TLAPS has not checked it yet.' }
-    return { tone: 'warn', title: `${chosen.id} has no proof yet`, math: chosen.label, words: 'A step left OMITTED or without a proof leaves the theorem unproved.' }
+  if (chosen && picked != null) {
+    if (chosen.status === 'proved') return { tone: 'plain', title: `${label} is proved`, math: chosen.label, words: chosen.backend ? `${chosen.backend} proved it${chosen.seconds != null ? ` in ${chosen.seconds.toFixed(1)} s` : ''}.` : 'Proved by the steps under it.' }
+    if (chosen.status === 'pending') return { tone: 'plain', title: `${label} waits`, math: chosen.label, words: 'TLAPS has not checked it yet.' }
+    return { tone: 'warn', title: `${label} has no proof yet`, math: chosen.label, words: 'A step left OMITTED or without a proof leaves the theorem unproved.' }
   }
   const { all, proved, pending, omitted, missing } = tally(proof)
   if (all > 0 && proved === all) {
