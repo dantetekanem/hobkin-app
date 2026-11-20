@@ -472,8 +472,8 @@ test('on a ready project a change whose model broke at its head never merges by 
   const broke = modeledChange(h, 'Fix merge');
   const held = modeledChange(h, 'Fix merge again');
   await survey(h);
-  writeRun(h, 'broke', { head: broke.head, ...brokenRun });
-  writeRun(h, 'held', { head: held.head });
+  writeRun(h, 'broke', { head: broke.head, item: broke.id, ...brokenRun });
+  writeRun(h, 'held', { head: held.head, item: held.id });
 
   const reports = await yoloPass(h.root, { now: NOW, spawn: () => assert.fail('a commit already checked is not checked again') });
 
@@ -482,6 +482,32 @@ test('on a ready project a change whose model broke at its head never merges by 
   assert.deepEqual(readyItems(h.root).find(({ item }) => item === broke.id).review.scores.proof, {
     score: 3, evidence: `TLC: MergedAtReviewedHead breaks in 5 steps · at ${broke.head.slice(0, 7)}`, by: 'hobkin', run: 'broke',
   });
+});
+
+test('readiness has a models part: each machine the state machines look found has a model that holds on the default branch', async t => {
+  const h = workspace(t);
+  makeReady(h);
+  assert.deepEqual(readinessOf(h.root, 'api').parts.models, { notApplicable: 'It has no state machine models.' });
+  assert.equal(readinessOf(h.root, 'api').ready, true, 'a project with no machine is ready without one');
+
+  // The look files each machine it modeled with the spec's path, and the model counts once it is on the default branch.
+  fileItem(h.root, 'api', { key: 'machine:work-item', kind: 'chore', title: 'Commit the work item model', brief: 'Its spec, run and how to prove it.', spec: SPEC }, NOW);
+  assert.throws(() => fileItem(h.root, 'api', { key: 'machine:other', kind: 'chore', title: 'Elsewhere', brief: 'A brief.', spec: '../outside.tla' }, NOW), /spec is the model's path/);
+  const needs = () => [readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').needs];
+  assert.deepEqual(needs(), [false, ['Models: WorkItem.tla is not on the default branch yet.']]);
+
+  withSpec(h);
+  await survey(h);
+  assert.deepEqual(needs(), [false, ['Models: WorkItem.tla has not been checked on the default branch yet.']]);
+
+  const tip = git(h.checkouts.api, 'rev-parse', 'main');
+  writeRun(h, 'main-broke', { head: tip, finished: new Date(NOW).toISOString(), ...brokenRun });
+  assert.deepEqual(needs(), [false, ['Models: WorkItem.tla breaks on the default branch: MergedAtReviewedHead.']]);
+  assert.deepEqual(yoloView(h.root).projects[0].models.map(({ spec, state, run }) => [spec, state, run]), [[SPEC, 'broken', 'main-broke']]);
+
+  writeRun(h, 'main-held', { head: tip, finished: new Date(NOW + 3600000).toISOString() });
+  assert.deepEqual(needs(), [true, []]);
+  assert.deepEqual(readinessOf(h.root, 'api').parts.models, { ready: true, how: '1 model holds on the default branch: WorkItem.tla.' });
 });
 
 const HOUR = 3600000;

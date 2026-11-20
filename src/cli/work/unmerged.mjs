@@ -7,7 +7,7 @@ import { promisify } from 'node:util';
 import { atomicJson } from '../config.mjs';
 import { readReviewGrades, reviewsFolder } from './grades.mjs';
 import { areaOf, isTestPath } from './patterns.mjs';
-import { modelsAt } from './proofs.mjs';
+import { modelsAt, specsAt } from './proofs.mjs';
 import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, isMerged, realPlace } from './tree.mjs';
 import { chosenProjects, fileItem, paths, readItems, readJson, runnableStates, updateItem } from './store.mjs';
 
@@ -329,11 +329,14 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
     ...await pullHead({ repo, base, pr, grades, finished, previous }),
   });
   const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(surveyPull));
+  // The TLA+ models on the default branch, which its readiness and the weekly recheck read.
+  const specs = (await specsAt(repo, tip)).map(({ spec, sha256 }) => ({ spec, sha256 }));
   return {
     survey: {
       open: [...openPulls, ...units],
       lastMergeAt: latest(merges),
       trees: await treesHeld(repo, trees),
+      ...(specs.length ? { models: { head: tip, specs } } : {}),
     },
     pulls,
     held: new Set([...branches.filter(branch => branch.merged).map(branch => branch.name), ...landed]),

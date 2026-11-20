@@ -2,8 +2,10 @@ import { join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 import { triggerRow } from './controls.mjs';
 import { nameOf } from './names.mjs';
+import { mainFacts, readRuns, specName } from './proofs.mjs';
 import { chosenProjects, fileItem, ownerView, paths, readItems, readJson, readMode, runnableStates, updateItem, workName, writeMode } from './store.mjs';
 import { BRANCH_PREFIX } from './tree.mjs';
+import { readUnmerged } from './unmerged.mjs';
 
 /**
  * YOLO mode: the user's switch for letting small, well-reviewed changes merge and deploy by themselves, and the lowest general rate they accept.
@@ -20,7 +22,10 @@ const READY_KEY = 'yolo:ready';
 // What a regression has to show up in: exceptions that reach an alert, slow queries and N+1s, request and job timings against a baseline,
 // logs that can be searched, and alerts that reach the user. A project with no use for one says why.
 const MONITORING = ['errors', 'slowQueries', 'performance', 'logs', 'alerts'];
-const PARTS = ['tests', ...MONITORING, 'rollback', 'deploy'];
+// What a readiness run records. `models` is hobkin's to work out, from the state machines look's machines and its own runs of their specs.
+const RECORDED = ['tests', ...MONITORING, 'rollback', 'deploy'];
+const PARTS = [...RECORDED, 'models'];
+const MACHINE_KEY = 'machine:';
 const partWords = {
   tests: 'Tests',
   errors: 'Error tracking',
@@ -30,6 +35,12 @@ const partWords = {
   alerts: 'Alerts',
   rollback: 'Rollback',
   deploy: 'Deploy',
+  models: 'Models',
+};
+const modelOnMain = {
+  broken: ({ spec, why }) => `${specName(spec)} breaks on the default branch${why ? `: ${why}` : ''}`,
+  unproven: ({ spec, why }) => `${specName(spec)} did not hold on the default branch${why ? `: ${why}` : ''}`,
+  unchecked: ({ spec }) => `${specName(spec)} has not been checked on the default branch yet`,
 };
 // The readiness work has landed: the user merged it, or its run found nothing to change.
 const LANDED = ['merged', 'done'];
@@ -137,7 +148,7 @@ const inPlace = part => part?.ready === true || Boolean(part?.notApplicable);
 /** What a readiness run found, part by part. hobkin keeps it only from the run of that project's readiness item, and the date is hobkin's. */
 export function recordReadiness(root, slug, report, now = Date.now()) {
   if (readinessItem(root, slug)?.state !== 'doing') throw Error('Only the run of this project\'s readiness item records it.');
-  const parts = Object.fromEntries(PARTS.map(name => [name, partOf(name, report?.[name])]));
+  const parts = Object.fromEntries(RECORDED.map(name => [name, partOf(name, report?.[name])]));
   atomicJson(readinessFile(root, slug), { parts, at: new Date(now).toISOString() });
   return readinessOf(root, slug);
 }
@@ -149,6 +160,27 @@ export function recordReadiness(root, slug, report, now = Date.now()) {
 export function holdProject(root, slug, { item, title }, now = Date.now()) {
   const record = readJson(readinessFile(root, slug), null) ?? { parts: {}, at: null };
   atomicJson(readinessFile(root, slug), { ...record, held: { item, title, at: new Date(now).toISOString() } });
+}
+
+/** What hobkin's latest run of each TLA+ spec on the project's default branch says of it, as the last survey found them there. */
+export const mainModels = (root, slug) => mainFacts(readRuns(root), { slug, specs: readUnmerged(root).projects[slug]?.models?.specs });
+
+/**
+ * Ready when each machine has a model that holds on the default branch: each spec there, and each spec the state machines look filed with its
+ * machine. A project with none has no use for the part.
+ */
+function modelsPart(root, slug) {
+  const facts = mainModels(root, slug);
+  const filed = readItems(root, slug).filter(({ key, spec, state }) => key?.startsWith(MACHINE_KEY) && spec && !CLOSED_UNLANDED.includes(state));
+  const notThere = [...new Set(filed.map(({ spec }) => spec))].filter(spec => !facts.some(fact => fact.spec === spec));
+  if (!facts.length && !notThere.length) return { notApplicable: 'It has no state machine models.' };
+  const missing = [
+    ...notThere.map(spec => `${specName(spec)} is not on the default branch yet`),
+    ...facts.filter(({ state }) => state !== 'holds').map(fact => modelOnMain[fact.state](fact)),
+  ];
+  if (missing.length) return { ready: false, missing: `${missing.join('; ')}.` };
+  const held = facts.length === 1 ? '1 model holds' : `${facts.length} models hold`;
+  return { ready: true, how: `${held} on the default branch: ${facts.map(({ spec }) => specName(spec)).join(', ')}.` };
 }
 
 function needsOf(record, item) {
@@ -166,7 +198,8 @@ function needsOf(record, item) {
  * readiness work landed: work that waits for the user's yes does not count.
  */
 export function readinessOf(root, slug) {
-  const record = readJson(readinessFile(root, slug), null);
+  const recorded = readJson(readinessFile(root, slug), null);
+  const record = recorded && { ...recorded, parts: { ...recorded.parts, models: modelsPart(root, slug) } };
   const item = readinessItem(root, slug);
   const needs = needsOf(record, item);
   return { ready: needs.length === 0, needs, parts: record?.parts ?? null, at: record?.at ?? null, item: item?.id ?? null };
@@ -189,7 +222,7 @@ function workOf(item, running) {
 
 /**
  * YOLO mode as the window and Home read it: the switch, the rate, how many projects are ready, what each of the others still needs, where each
- * project's readiness work stands and when its readiness was last recorded.
+ * project's readiness work stands, when its readiness was last recorded, and what hobkin's runs say of its models on the default branch.
  */
 export function yoloView(root) {
   const { running } = ownerView(root);
@@ -197,7 +230,8 @@ export function yoloView(root) {
     const { ready, needs, at } = readinessOf(root, project.slug);
     const runs = running.filter(run => run.slug === project.slug);
     const work = workOf(readinessItem(root, project.slug), runs);
-    return { slug: project.slug, name: nameOf(project), ready, needs, work, checkedAt: at };
+    const models = mainModels(root, project.slug);
+    return { slug: project.slug, name: nameOf(project), ready, needs, work, checkedAt: at, ...(models.length ? { models } : {}) };
   });
   return { ...readYolo(root), lowest: LOWEST_RATE, highest: HIGHEST_RATE, ready: projects.filter(({ ready }) => ready).length, projects };
 }

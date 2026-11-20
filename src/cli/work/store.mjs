@@ -491,11 +491,15 @@ function assertSize({ impact, effort }) {
   if (effort !== undefined && !efforts.includes(effort)) throw Error(`effort must be one of: ${efforts.join(', ')}`);
 }
 
+// A TLA+ model's path in its project, as the state machines look files it with its machine.
+const isSpecPath = spec => typeof spec === 'string' && /^specs\/tla\/[\w./-]+\.tla$/.test(spec) && !spec.split('/').includes('..');
+
 function assertItem(item) {
-  const { key, kind, title, brief } = item;
+  const { key, kind, title, brief, spec } = item;
   if (!key) throw Error('An item needs a stable key.');
   if (!itemKinds.includes(kind)) throw Error(`kind must be one of: ${itemKinds.join(', ')}`);
   if (!title || !brief) throw Error('An item needs a title and a brief.');
+  if (spec !== undefined && !isSpecPath(spec)) throw Error('spec is the model\'s path in the project, under specs/tla/ and ending in .tla.');
   assertSize(item);
 }
 
@@ -544,7 +548,7 @@ export const readItems = (root, slug) => readWorkRecords(paths(root, slug).items
 
 /** `issue` is the GitHub issue the item came from, which only hobkin's own issue actions name. */
 export function fileItem(root, slug, item, now = Date.now()) {
-  const { key, kind, title, brief, urgent = false, impact, effort, reopen, causedBy, issue } = item;
+  const { key, kind, title, brief, urgent = false, impact, effort, reopen, causedBy, issue, spec } = item;
   assertItem(item);
 
   const known = readItems(root, slug).find(existing => existing.key === key);
@@ -552,7 +556,7 @@ export function fileItem(root, slug, item, now = Date.now()) {
 
   const id = known?.id ?? createHash('sha256').update(key).digest('hex').slice(0, 6);
   const filed = { id, key, kind, title, brief, urgent, state: 'open', attempts: 0, at: new Date(now).toISOString() };
-  const sized = { ...filed, ...(impact ? { impact } : {}), ...(effort ? { effort } : {}), ...(causedBy ? { causedBy } : {}), ...(issue ? { issue } : {}) };
+  const sized = { ...filed, ...(impact ? { impact } : {}), ...(effort ? { effort } : {}), ...(causedBy ? { causedBy } : {}), ...(issue ? { issue } : {}), ...(spec ? { spec } : {}) };
   appendEvent(paths(root, slug).items, reopen ? { ...sized, reopen } : sized);
   return readItems(root, slug).find(existing => existing.id === id);
 }

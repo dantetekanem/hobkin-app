@@ -126,8 +126,12 @@ export function modelFacts(runs, { slug, head, specs = [] }) {
 /** The same for a change as the survey left it, reading the runs only when a model covers it. */
 export const changeModels = (root, slug, unit = {}) => (unit.models?.length ? modelFacts(readRuns(root), { slug, head: unit.sha, specs: unit.models }) : []);
 
-/** The latest run of one spec as committed, at any commit. `runs` is newest first, as `readRuns` reads them. */
-export const latestRun = (runs, { slug, spec, sha256 }) => runs.find(run => run.project === slug && run.spec === spec && run[SPEC_HASH] === sha256) ?? null;
+/**
+ * The latest run of one spec as the default branch has it: a run made for no item, at any commit of that same spec, such as hobkin's weekly
+ * recheck or the look's own check. `runs` is newest first, as `readRuns` reads them.
+ */
+export const latestMainRun = (runs, { slug, spec, sha256 }) => runs
+  .find(run => run.project === slug && !run.item && run.spec === spec && run[SPEC_HASH] === sha256) ?? null;
 
-/** What the latest run of each spec on the default branch says of it. A model checks its spec, so a run at any commit of the same spec speaks for it. */
-export const mainFacts = (runs, { slug, specs = [] }) => specs.map(({ spec, sha256 }) => factOf(spec, latestRun(runs, { slug, spec, sha256 })));
+/** What the latest run on the default branch says of each spec there. */
+export const mainFacts = (runs, { slug, specs = [] }) => specs.map(({ spec, sha256 }) => factOf(spec, latestMainRun(runs, { slug, spec, sha256 })));
