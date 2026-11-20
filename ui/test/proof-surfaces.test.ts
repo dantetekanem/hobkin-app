@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ProofRunSummary, ProofsState } from '#shared/protocol/proofs.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
-import { brokenOnMain, chipsOf, itemTitle, modelsLine, modelsOnMain, placeOf, proofCheckOf, runForCommand, runsForItem, runWords } from '../src/features/proofs/proof-match.ts'
+import { brokenOnMain, chipsOf, inflowOf, itemTitle, modelsLine, modelsOnMain, placeOf, proofCheckOf, runForCommand, runsForItem, runWords } from '../src/features/proofs/proof-match.ts'
 import { sampleRun, sampleSummary, type SamplePhase } from '../src/features/proofs/sample.ts'
 import { foldOf, type Command } from '../src/features/agent-activity/steps.ts'
 import { homeModel } from '../src/features/home/model.ts'
@@ -56,6 +56,10 @@ test("the step's words, and a project's models on main for the YOLO page and Hom
   assert.deepEqual(runWords(summary('checking')), { title: 'Checking WorkItem.tla', detail: '12,408 states · depth 14 · 3 of 4 holding so far', tone: 'live' })
   assert.deepEqual(runWords(summary('broken')), { title: 'WorkItem.tla: MergedAtReviewedHead breaks', detail: '5 steps · 4,906 states', tone: 'bad' })
   assert.deepEqual(runWords(summary('holds')).title, 'WorkItem.tla holds')
+  // The bar is the share of found states still to explore: a quarter here, nothing once TLC has looked at them all.
+  assert.equal(Math.round(inflowOf(summary('checking')) * 100), 25)
+  assert.equal(inflowOf(summary('holds')), 0)
+  assert.equal(inflowOf({ stats: { generated: 0, distinct: 0, queue: 0, depth: 0 } }), 0)
 
   const queue = summary('holds', { id: 'q', item: undefined, spec: 'specs/tla/ReviewQueue.tla' }, 2)
   const main = summary('holds', { id: 'm', item: undefined }, 1)

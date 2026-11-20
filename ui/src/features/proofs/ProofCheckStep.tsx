@@ -1,10 +1,9 @@
 import { motion } from 'motion/react'
-import { useRef } from 'react'
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRunSummary } from '#shared/protocol/proofs.ts'
-import { runForCommand, runWords, specFile } from './proof-match.ts'
+import { inflowOf, runForCommand, runWords, specFile } from './proof-match.ts'
 import './proofs.css'
 import { resultOf, type Tone } from './run/run-view.ts'
 import { useProofRuns } from './use-proof-run.ts'
@@ -31,17 +30,10 @@ export function useCheckRun(spec: string, at: number | undefined, output: string
  */
 export function ProofCheckStep({ run, spec }: { run: ProofRunSummary | null; spec: string }) {
   const still = useStill()
-  const peak = useRef<{ id: string; rate: number } | null>(null)
   const words = run ? runWords(run) : { title: `Checking ${specFile(spec)}`, detail: 'Waiting for hobkin to start the run', tone: 'live' as const }
   const look = LOOK[words.tone]
   const checking = !run || run.outcome === 'checking'
-
-  // The bar compares the rate now with the fastest this run has gone, so it falls as the model runs out of new states.
-  // Taking the larger of two numbers again changes nothing, so a second render of the same run keeps the same peak.
-  const rate = run?.rate ?? 0
-  const top = Math.max(rate, run && peak.current?.id === run.id ? peak.current.rate : 0)
-  if (run) peak.current = { id: run.id, rate: top }
-  const share = !run ? 0 : checking ? (top ? rate / top : 0) : 1
+  const share = !run ? 0 : checking ? inflowOf(run) : 1
   const note = !run || checking ? 'The bar is how fast new states still come in, not a time left: TLC cannot know that.' : resultOf(run).title
 
   return (

@@ -107,6 +107,12 @@ export function runWords(run: ProofRunSummary): { title: string; detail: string;
   }
 }
 
+/**
+ * How fast new states still come in, from 0 to 1, for the bar under an agent's check: the share of the states found
+ * that TLC has still to explore. It falls to nothing as the model runs out of new states. It is never a time left.
+ */
+export const inflowOf = (run: Pick<ProofRunSummary, 'stats'>): number => (run.stats.distinct > 0 ? Math.min(1, run.stats.queue / run.stats.distinct) : 0)
+
 /** What a project's models say together, for the YOLO page: "Models: 2 machines, both hold". */
 export function modelsLine(runs: readonly ProofRunSummary[]): { title: string; detail: string; tone: Tone } {
   const holding = runs.filter((run) => run.outcome === 'holds' && !neverFired(run).length).length
