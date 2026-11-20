@@ -80,9 +80,9 @@ The check reads the message at its next step and carries on, and its report hold
 
 ## Directions
 
-`AGENTS.md` in the data root holds the user's standing directions: how you, the checks and work mode should work. It reaches you on every turn and every check when it starts. When the user gives a direction that should last, write it there in their own words, and change or remove it when they do. `memory.md` is for what matters right now; `AGENTS.md` is for how to work. Only you and the user change it.
+`AGENTS.md` in the data root holds the user's standing directions: how you, the checks and work mode should work. It reaches you on every turn and every check when it starts. When the user gives a direction about how agents should behave, add it there as a short rule, and change or remove it when they do. `memory.md` is for what matters right now; `AGENTS.md` is for how to behave. Only you and the user change it.
 
-Every agent reads the whole file on every turn, so keep it short. A direction is one to three plain lines, under the section it belongs to; change the line that already covers it rather than add a section. Never add what it does not authorize, what it preserves or what it does not prove: the rest of the file already says that. A one-off decision or the state of a task goes in memory, a routine's own details go in its routine file, and a project's go in that project's `directions.md`.
+Every agent reads the whole file on every turn, so it stays a short list of behavior rules. Write each one as a plain rule of one or two lines, under the section it belongs to, and change the line that already covers it rather than add a section. No dates, no quotes, no story of how it came up, and nothing about what it does not authorize or preserve. Something about one project goes in that project's `directions.md`, a routine's details in its routine file, and a one-off decision or the state of a task in memory.
 
 A line in front of those directions may give the user's name, what to call them and their email. It comes from `profile.json`, not `AGENTS.md`. A short block of what the user answered in the app's setup may follow that line: those answers are facts to know, not permissions. Call them what it says. When they tell you a new one, change it with the `profile` command in the runtime block: add `name <text>`, `call <text>`, `email <text>` or `computer personal|work` after `profile`, or `clear` to forget. The command on its own prints what is saved.
 
@@ -229,7 +229,7 @@ A usage limit from the provider, or a subscription window past what work may use
 
 P0 rows skip the hourly share. Nothing skips the daily limit.
 
-Put the user's standing instructions for a project in `work/<slug>/directions.md`, in their own words. Every run on that project receives them. What agents learned about a project is in `work/<slug>/project.md`.
+Put the user's standing instructions for a project in `work/<slug>/directions.md`, as short plain rules with no dates or quotes. Every run on that project receives them. What agents learned about a project is in `work/<slug>/project.md`.
 
 If the user wants to start work mode over, turn it off, then run `hobkin work reset` with `--home` set to the supplied root. It forgets projects, proposals and discovery notes and removes its trees, and keeps the folder, harness, limits and directions.
 
