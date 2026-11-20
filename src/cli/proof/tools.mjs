@@ -20,11 +20,29 @@ export const TLA2TOOLS = {
 /** TLC needs Java 11 or newer (https://docs.tlapl.us/using:tlc:start). */
 export const MINIMUM_JAVA = 11;
 
+/**
+ * The Java runtime setup installs on a Mac without one: Eclipse Temurin's JRE 21 build for each chip, pinned to a release
+ * with the sha256 Adoptium lists for it (https://api.adoptium.net/v3/assets/release_name/eclipse/jdk-21.0.13.1%2B2).
+ * It lives in hobkin's home, so it needs no admin password and no Homebrew, and changes nothing else on the Mac.
+ */
+const TEMURIN = 'https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.13.1%2B2';
+export const JAVA_RUNTIME = {
+  version: '21.0.13.1+2',
+  major: 21,
+  builds: {
+    arm64: { url: `${TEMURIN}/OpenJDK21U-jre_aarch64_mac_hotspot_21.0.13.1_2.tar.gz`, sha256: '848feb1906c7de79de4f8391636042193fbd46eff86e26299506c4656f62c260', bytes: 47946379 },
+    x64: { url: `${TEMURIN}/OpenJDK21U-jre_x64_mac_hotspot_21.0.13.1_2.tar.gz`, sha256: '10cee6ba4cd83fd4613a3f0bb3ef9dddd68c68d5f3ccfcc7e456707c9e1eafe0', bytes: 41907486 },
+  },
+};
+
 // `java -version` answers at once, but a cold JVM can take a few seconds.
 const ASK_MS = 15000;
 
 export const jarPath = home => join(home, 'tools', 'tla', 'tla2tools.jar');
 export const tlapsFolder = home => join(home, 'tools', 'tlaps');
+/** Where setup unpacks its Java runtime: the archive's one folder, a macOS bundle, becomes `tools/java`. */
+export const javaFolder = home => join(home, 'tools', 'java');
+export const ownJava = home => join(javaFolder(home), 'Contents', 'Home', 'bin', 'java');
 
 const run = promisify(execFile);
 const defaultExec = (command, args) => run(command, args, { timeout: ASK_MS });
@@ -46,10 +64,11 @@ async function askJava(exec, path) {
   }
 }
 
-/** Where a JDK may be: JAVA_HOME, then the one macOS's java_home picks, then `java` on the PATH. */
-async function javaCandidates({ env, platform, exec }) {
+/** Where a JDK may be: JAVA_HOME, then the one setup installed in hobkin's home, then the one macOS's java_home picks, then `java` on the PATH. */
+async function javaCandidates({ home, env, platform, exec }) {
   const candidates = [];
   if (env.JAVA_HOME) candidates.push(join(env.JAVA_HOME, 'bin', 'java'));
+  if (home && existsSync(ownJava(home))) candidates.push(ownJava(home));
   if (platform === 'darwin') {
     try {
       const { stdout } = await exec('/usr/libexec/java_home', []);
@@ -63,8 +82,8 @@ async function javaCandidates({ env, platform, exec }) {
 }
 
 /** The first Java that runs, with its version. Too old or missing gives the reason in a line instead. */
-export async function findJava({ env = process.env, platform = process.platform, exec = defaultExec } = {}) {
-  for (const path of await javaCandidates({ env, platform, exec })) {
+export async function findJava({ home, env = process.env, platform = process.platform, exec = defaultExec } = {}) {
+  for (const path of await javaCandidates({ home, env, platform, exec })) {
     const found = await askJava(exec, path);
     if (!found) continue;
     if (found.major < MINIMUM_JAVA) return { path: null, problem: `Java ${found.major} is too old. TLC needs Java ${MINIMUM_JAVA} or newer.` };
@@ -83,7 +102,7 @@ export function findTlapm(home, { env = process.env } = {}) {
 export async function inspectTools(home, options = {}) {
   const jar = jarPath(home);
   return {
-    java: await findJava(options),
+    java: await findJava({ home, ...options }),
     jar: existsSync(jar) ? jar : null,
     tlapm: findTlapm(home, options),
   };

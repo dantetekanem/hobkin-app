@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setupProof } from '../src/cli/proof/setup.mjs';
-import { findJava, findTools, jarPath, TLA2TOOLS } from '../src/cli/proof/tools.mjs';
+import { findJava, findTools, JAVA_RUNTIME, jarPath, ownJava, TLA2TOOLS } from '../src/cli/proof/tools.mjs';
 
 function temp(t, prefix) {
   const folder = mkdtempSync(join(tmpdir(), prefix));
@@ -50,13 +50,26 @@ test('the tools are found where hobkin keeps them: the jar in tools/tla, tlapm i
     { java: 'java', tlc: join(home, 'tools', 'tla', 'tla2tools.jar'), tlaps: join(home, 'tools', 'tlaps', 'bin', 'tlapm') });
 });
 
-test('setup without Java says so in one line and changes nothing', async t => {
+test('Java hobkin installed itself, in tools/java, is found before the PATH', async t => {
+  const home = temp(t, 'hobkin-proof-java-');
+  const exec = async command => {
+    if (command === ownJava(home)) return { stdout: '', stderr: 'openjdk version "21.0.13.1" 2025-10-21 LTS\n' };
+    throw Object.assign(Error('Command failed'), { code: 1 });
+  };
+  assert.equal((await findJava({ home, env: {}, platform: 'darwin', exec })).path, null, 'only once it is there');
+  mkdirSync(join(home, 'tools', 'java', 'Contents', 'Home', 'bin'), { recursive: true });
+  writeFileSync(ownJava(home), '');
+  assert.deepEqual(await findJava({ home, env: {}, platform: 'darwin', exec }), { path: ownJava(home), version: '21.0.13.1', major: 21 });
+  assert.equal(ownJava(home), join(home, 'tools', 'java', 'Contents', 'Home', 'bin', 'java'));
+});
+
+test('setup without Java off a Mac says so in one line and changes nothing', async t => {
   const home = temp(t, 'hobkin-proof-setup-');
   let fetched = false;
-  const said = await setupProof({ home, fetch: async () => { fetched = true; }, java: async () => ({ path: null, problem: 'Java is not installed. TLC needs Java 11 or newer.' }) });
+  const said = await setupProof({ home, platform: 'linux', arch: 'x64', fetch: async () => { fetched = true; }, java: async () => ({ path: null, problem: 'Java is not installed. TLC needs Java 11 or newer.' }) });
 
   assert.equal(said.ok, false);
-  assert.equal(said.message, 'Java is not installed. TLC needs Java 11 or newer. hobkin downloaded nothing.');
+  assert.equal(said.message, 'Java is not installed. TLC needs Java 11 or newer. hobkin installs Java only on a Mac. hobkin kept nothing.');
   assert.doesNotMatch(said.message, /\n/);
   assert.equal(fetched, false);
   assert.equal(existsSync(join(home, 'tools')), false);
@@ -86,4 +99,48 @@ test('setup downloads the pinned jar into tools/tla and keeps it only when its c
   const again = await setupProof({ home, fetch: async () => assert.fail('the jar is already there'), java, pinned });
   assert.equal(again.ok, true);
   assert.match(again.message, /already/);
+});
+
+test('setup on a Mac without Java installs the pinned Java runtime into tools/java, checked by its sha256, then the jar', async t => {
+  const home = temp(t, 'hobkin-proof-setup-');
+  const runtime = Buffer.from('the pinned runtime');
+  const jarBody = Buffer.from('the pinned jar');
+  const build = { ...JAVA_RUNTIME.builds.arm64, sha256: createHash('sha256').update(runtime).digest('hex') };
+  const java = { ...JAVA_RUNTIME, builds: { ...JAVA_RUNTIME.builds, arm64: build } };
+  const pinned = { ...TLA2TOOLS, sha1: createHash('sha1').update(jarBody).digest('hex') };
+  const asked = [];
+  const fetch = async url => {
+    asked.push(url);
+    return { ok: true, status: 200, arrayBuffer: async () => (url === build.url ? runtime : jarBody) };
+  };
+  // tar is stubbed: it lays out the archive's one top folder, as Temurin's does.
+  const unpack = async (archive, into) => {
+    assert.equal(readFileSync(archive, 'utf8'), 'the pinned runtime');
+    mkdirSync(join(into, 'jdk-21.0.13.1+2-jre', 'Contents', 'Home', 'bin'), { recursive: true });
+    writeFileSync(join(into, 'jdk-21.0.13.1+2-jre', 'Contents', 'Home', 'bin', 'java'), '');
+  };
+  let installed = false;
+  const findJavaStub = async () => (installed || existsSync(ownJava(home)) ? (installed = true, { path: ownJava(home), version: '21.0.13.1', major: 21 }) : { path: null, problem: 'Java is not installed. TLC needs Java 11 or newer.' });
+
+  const tampered = await setupProof({ home, platform: 'darwin', arch: 'arm64', fetch: async () => ({ ok: true, status: 200, arrayBuffer: async () => Buffer.from('something else') }), unpack, java: findJavaStub, javaRuntime: java, pinned });
+  assert.equal(tampered.ok, false);
+  assert.match(tampered.message, /did not match Java 21\.0\.13\.1\+2's pinned sha256/);
+  assert.equal(existsSync(join(home, 'tools', 'java')), false, 'nothing is kept');
+
+  const done = await setupProof({ home, platform: 'darwin', arch: 'arm64', fetch, unpack, java: findJavaStub, javaRuntime: java, pinned });
+  assert.equal(done.ok, true, done.message);
+  assert.deepEqual(asked, [build.url, TLA2TOOLS.url]);
+  assert.equal(existsSync(ownJava(home)), true);
+  assert.equal(readFileSync(jarPath(home), 'utf8'), 'the pinned jar');
+  assert.match(done.message, /^Installed Java 21\.0\.13\.1\+2 into .*tools\/java and TLC 1\.7\.4 into .*tla2tools\.jar, each checked by its pinned checksum\.$/);
+  assert.doesNotMatch(done.message, /\n/);
+});
+
+test('the pinned Java runtime is a Temurin JRE build for each Mac chip, with its sha256', () => {
+  assert.equal(JAVA_RUNTIME.major, 21);
+  for (const arch of ['arm64', 'x64']) {
+    const build = JAVA_RUNTIME.builds[arch];
+    assert.match(build.url, /^https:\/\/github\.com\/adoptium\/temurin21-binaries\/releases\/download\/jdk-21\.0\.13\.1%2B2\/OpenJDK21U-jre_(aarch64|x64)_mac_hotspot_21\.0\.13\.1_2\.tar\.gz$/);
+    assert.match(build.sha256, /^[0-9a-f]{64}$/);
+  }
 });
