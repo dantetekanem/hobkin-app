@@ -820,9 +820,9 @@ function chipsOf(input: HomeInput): HomeModel['header']['chips'] {
   const yolo = input.work?.yolo
   if (yolo?.on) {
     const readiness = yolo.projects.length ? ` · ${yolo.ready} of ${yolo.projects.length} ready` : ''
-    chips.push({ tone: 'accent', label: `YOLO on${readiness}`, target: screen('work') })
+    chips.push({ tone: 'accent', label: `YOLO on${readiness}`, target: screen('yolo') })
   } else if (yolo) {
-    chips.push({ tone: 'quiet', label: 'YOLO off', target: screen('work') })
+    chips.push({ tone: 'quiet', label: 'YOLO off', target: screen('yolo') })
   }
   if (input.agents.length) {
     chips.push({ tone: 'info', label: `${input.agents.length} working`, target: screen('work') })

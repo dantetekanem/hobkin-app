@@ -134,12 +134,12 @@ export function Needs({ needs, unavailable }: { needs: HomeModel['needs']; unava
   )
 }
 
-/** YOLO mode as it stands, and how far each project is. Its switch lives in Work, which the header link opens. */
+/** YOLO mode as it stands, and how far each project is. Its switch and readiness checks live on its own page, which the header link opens. */
 export function Yolo({ yolo }: { yolo: HomeYolo | null }) {
-  const work = screen('work')
+  const page = screen('yolo')
   const allReady = yolo !== null && yolo.projects.length > 0 && yolo.projects.every(project => project.ready)
   return (
-    <Section title="YOLO mode" aside={<HeaderLink target={work}>Open in Work</HeaderLink>}>
+    <Section title="YOLO mode" aside={<HeaderLink target={page}>Open</HeaderLink>}>
       {!yolo ? (
         <Empty icon={<Rocket />}>hobkin has not said how YOLO mode stands yet.</Empty>
       ) : (

@@ -690,8 +690,8 @@ const yolo = (rest: Partial<YoloState> = {}): YoloState => ({
   ...rest,
 })
 
-test('YOLO mode shows as hobkin reports it: a chip to Work, and each project ready or with the first thing it needs', () => {
-  const workScreen = { to: 'screen', screen: 'work' }
+test('YOLO mode shows as hobkin reports it: a chip to its page, and each project ready or with the first thing it needs', () => {
+  const workScreen = { to: 'screen', screen: 'yolo' }
   const model = homeModel(input({ work: { ...work(), yolo: yolo() } }))
   assert.deepEqual(model.header.chips[0], { tone: 'accent', label: 'YOLO on · 1 of 3 ready', target: workScreen })
   assert.equal(model.yolo?.on, true)

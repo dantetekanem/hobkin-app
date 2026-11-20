@@ -55,7 +55,7 @@ export interface HomeInput {
 
 /** Where a button or row goes. Reminder completion uses its separate user-only control, never a navigation target. */
 export type HomeTarget =
-  | { to: 'screen'; screen: 'actions' | 'reports' | 'routines' | 'work' | 'github' | 'integrations' }
+  | { to: 'screen'; screen: 'actions' | 'reports' | 'routines' | 'work' | 'yolo' | 'github' | 'integrations' }
   | { to: 'report'; id: string }
   /** An Action Items row. One that hobkin handles elsewhere (`row.opens`) is resolved by the model, not here. */
   | { to: 'action'; id: string }
