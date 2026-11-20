@@ -1161,6 +1161,18 @@ export const COMMANDS = {
     args: Type.Object({ id: words(256), dwellMs: Type.Integer({ minimum: 3000, maximum: 86400000 }) }, { additionalProperties: false }),
     hobkin: true,
   },
+  'short-reports.read': {
+    description: "Read whether Short reports is on: while it is, hobkin writes a short version of each new report on its fast tier, and the reader shows it first with the full report under it.",
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
+  // Each short version spends a model call, so only the user's click in Settings turns it on or off (051-short-reports).
+  'short-reports.set': {
+    description: "Turn Short reports on or off. On, each report that finishes from now on gets a short version written on hobkin's fast tier. Old reports are left as they are.",
+    runs: 'host',
+    args: Type.Object({ on: Type.Boolean() }, { additionalProperties: false }),
+  },
   // User-only, like a decision answer: agents may read a reminder but cannot claim the user completed it.
   'reminder.resolve': {
     description: 'Record the user’s explicit Done or Dismissed choice for an existing reminder occurrence. Never creates a reminder or sends anything.',
@@ -1392,6 +1404,8 @@ export interface CommandResults {
   /** What hobkin said of the answer, and whether the item went to the main agent in Chat and stays open until done. */
   'report.delete': { id: string; deleted: true }
   'report.read': { ok: true }
+  'short-reports.read': { on: boolean }
+  'short-reports.set': { on: boolean }
   'reminder.resolve': { ok: true }
   'decision.answer': { message: string; handedOff: boolean }
   'learning.answer': { message: string }

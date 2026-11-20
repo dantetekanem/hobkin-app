@@ -1,4 +1,5 @@
 import { deleteReports } from 'hobkin/src/cli/reports.mjs'
+import { readShortReports, setShortReports } from 'hobkin/src/cli/short-reports.mjs'
 import { Unavailable, type HostHandlers } from './commands.ts'
 
 interface ReportApp {
@@ -25,5 +26,8 @@ export function reportHandlers({ app }: { app: () => ReportApp }): HostHandlers 
       current.recordReportRead({ id, dwellMs })
       return { ok: true }
     },
+    // Short reports (051-short-reports): hobkin keeps the switch in its config.json and reads it for each new report.
+    'short-reports.read': () => ({ on: readShortReports(app().runtime.directory).on }),
+    'short-reports.set': ({ on }) => setShortReports(app().runtime.directory, on),
   }
 }
