@@ -99,7 +99,7 @@ export function Widget({ title, icon, target, count, aside, link = 'See all', on
 
 /**
  * A row opens what it names: the whole row is the button, and its verb says where it goes. A dismissable row (a
- * notification the user can wave off) carries a hover "×" instead of the verb; it rides `layout`, so when a sibling
+ * notification the user can wave off) also carries a hover "×" in space kept for it; it rides `layout`, so when a sibling
  * leaves the rest glide up, and fades as it goes.
  */
 export function Row({ row, icon, lead, onDismiss }: { row: HomeRow; icon?: ReactNode; lead?: ReactNode; onDismiss?: () => void }) {
@@ -130,7 +130,7 @@ export function Row({ row, icon, lead, onDismiss }: { row: HomeRow; icon?: React
             </span>
           ) : null}
         </span>
-        {onDismiss ? null : <Go action={row.action} />}
+        <Go action={row.action} />
       </button>
       {onDismiss ? (
         <button

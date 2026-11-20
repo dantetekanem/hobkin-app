@@ -1,0 +1,49 @@
+/*
+ * Home's scene: the sky behind hobkin, the sun or the moon, the stars at night, and the small motions of the agents at
+ * work. Colors come from the palette only. Every loop stops under Still, whether the setting or the Mac asks for it.
+ */
+
+.home-scene {
+  --home-sky: var(--hb-tone-2);
+  background: color-mix(in srgb, var(--home-sky) var(--hb-see), transparent);
+}
+.dark .home-scene {
+  --home-sky: color-mix(in oklab, var(--hb-bg) 82%, var(--hb-ridge-1));
+}
+
+.home-sun {
+  background: var(--hb-sun);
+  box-shadow:
+    0 0 0 12px color-mix(in oklab, var(--hb-sun) 18%, transparent),
+    0 0 60px color-mix(in oklab, var(--hb-sun) 45%, transparent);
+}
+.home-moon {
+  background: var(--hb-mark);
+  box-shadow:
+    inset -14px -6px 0 0 color-mix(in oklab, var(--hb-mark) 78%, var(--hb-bg)),
+    0 0 40px color-mix(in oklab, var(--hb-mark) 25%, transparent);
+}
+
+.home-twinkle { animation: home-twinkle 3s ease-in-out infinite; opacity: 0.6; }
+.home-walk-a { animation: home-walk 16s ease-in-out infinite alternate; }
+.home-walk-b { animation: home-walk 21s ease-in-out infinite alternate-reverse; }
+/* A walker the pointer or the keyboard is on holds still, so it never slides out from under a click. */
+.home-walk-a:hover, .home-walk-a:focus-within,
+.home-walk-b:hover, .home-walk-b:focus-within { animation-play-state: paused; }
+.home-pulse { animation: home-pulse 1.8s ease-out infinite; }
+
+@keyframes home-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@keyframes home-walk { from { transform: translateX(-12px); } to { transform: translateX(12px); } }
+@keyframes home-pulse {
+  from { box-shadow: 0 0 0 0 color-mix(in oklab, var(--hb-sun) 70%, transparent); }
+  to { box-shadow: 0 0 0 14px color-mix(in oklab, var(--hb-sun) 0%, transparent); }
+}
+
+.home-scene[data-still] .home-twinkle,
+.home-scene[data-still] .home-walk-a,
+.home-scene[data-still] .home-walk-b,
+.home-pulse[data-still] { animation: none; }
+:root[data-motion="still"] :is(.home-twinkle, .home-walk-a, .home-walk-b, .home-pulse) { animation: none; }
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="lively"]) :is(.home-twinkle, .home-walk-a, .home-walk-b, .home-pulse) { animation: none; }
+}
