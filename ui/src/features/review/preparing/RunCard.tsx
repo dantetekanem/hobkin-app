@@ -7,13 +7,20 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ReviewLoader } from '../loader.ts'
-import { failureOf, preparingOf, underWay } from '../preparing-model.ts'
+import { elapsedAt, failureOf, preparingOf, underWay, type Preparing } from '../preparing-model.ts'
 import { useReduced } from '../state/context.tsx'
 import { LiveLog } from './LiveLog.tsx'
 import { ProgressLine } from './ProgressLine.tsx'
 import './preparing.css'
 
 const CARD = 'pointer-events-auto w-[min(360px,calc(100vw-2rem))] rounded-2xl bg-popover p-4 text-popover-foreground shadow-float'
+
+/** Which step of how many, the time so far and the time left: the one line of the card that follows the clock. */
+function Facts({ view, startedAt }: { view: Preparing; startedAt: number | null }) {
+  const elapsed = elapsedAt(startedAt, useNow(true, 1000))
+  const facts = [view.position ? `Step ${view.position.step} of ${view.position.of}` : null, elapsed ? `${elapsed} so far` : null, view.left ? `about ${view.left} left` : null].filter(Boolean)
+  return <p className="min-w-0 flex-1 truncate text-[14px] text-muted-foreground tabular-nums">{facts.join(' · ')}</p>
+}
 
 /**
  * A run over the open review, in the corner where "Refresh review" is: its graph being built again, or its change
@@ -27,7 +34,6 @@ export function RunCard({ loader }: { loader: ReviewLoader }) {
   const startedAt = useStore(loader, (state) => state.startedAt)
   const reduced = useReduced()
   const running = underWay(preparation)
-  const now = useNow(running, 1000)
   const [open, setOpen] = useState(false)
   const arrive = reduced
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, transition: tween.enter }
@@ -55,9 +61,9 @@ export function RunCard({ loader }: { loader: ReviewLoader }) {
     )
   }
 
-  const view = preparingOf(preparation, startedAt, now)
+  // Read at this moment: the time it shows reads the clock itself (`Facts`), so the card draws again only for news.
+  const view = preparingOf(preparation, startedAt, Date.now())
   const title = preparation?.phase != null ? 'Building the review again' : view.state === 'queued' ? 'Waiting to review the change' : 'Reviewing the change'
-  const facts = [view.position ? `Step ${view.position.step} of ${view.position.of}` : null, view.elapsed ? `${view.elapsed} so far` : null, view.left ? `about ${view.left} left` : null].filter(Boolean)
   return (
     <motion.section {...arrive} aria-label={title} data-reduced={reduced} className={CARD}>
       <div className="flex items-center gap-2.5">
@@ -70,7 +76,7 @@ export function RunCard({ loader }: { loader: ReviewLoader }) {
         {view.now}
       </p>
       <div className="mt-2 flex items-center gap-2">
-        <p className="min-w-0 flex-1 truncate text-[14px] text-muted-foreground tabular-nums">{facts.join(' · ')}</p>
+        <Facts view={view} startedAt={startedAt} />
         <button
           type="button"
           aria-expanded={open}

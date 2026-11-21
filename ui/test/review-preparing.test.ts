@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AssessmentLogLine, AssessmentStatus } from '../../shared/review/assessment.ts'
 import { IDLE_STATUS, type ReviewStatus } from '../../shared/review/status.ts'
-import { failureOf, preparingOf, underWay } from '../src/features/review/preparing-model.ts'
+import { elapsedAt, failureOf, preparingOf, tookAt, underWay } from '../src/features/review/preparing-model.ts'
 
 const T0 = Date.parse('2026-11-12T16:00:00Z')
 const iso = (seconds: number) => new Date(T0 + seconds * 1000).toISOString()
@@ -91,6 +91,20 @@ test("the running step's time counts from its first line in the log, else from t
   // A full log of its own lines may have lost its first ones: the steps before it ended about when it began.
   const full = Array.from({ length: 40 }, (_, index): AssessmentLogLine => ({ at: iso(10 + index / 4), step: 'map-search', text: `map-search: read file ${index}` }))
   assert.equal(preparingOf(running({ startedAt: iso(0), steps, log: full }), T0, T0 + 30_000).steps[1]!.took, '26s')
+})
+
+test('a view read once tells the time at any later moment, so only the texts of the time follow the clock', () => {
+  const steps = [step('triage', 'done', { seconds: 4 }), step('map-search', 'running')]
+  const log: AssessmentLogLine[] = [{ at: iso(1), text: 'checking the change out' }, { at: iso(7), step: 'map-search', text: 'map-search: asking agentic-search' }]
+  const read = T0 + 30_000
+  const view = preparingOf(running({ startedAt: iso(0), steps, log }), T0, read)
+  // At the moment it was read, the same words as the view's.
+  assert.deepEqual(view.steps.map((line) => tookAt(line, read)), view.steps.map((line) => line.took))
+  assert.equal(elapsedAt(T0, read), view.elapsed)
+  // A minute later the running step and the run have gone on, and the step that ended took what it took.
+  assert.deepEqual(view.steps.map((line) => tookAt(line, read + 60_000)), ['4s', '1m 23s'])
+  assert.equal(elapsedAt(T0, read + 60_000), '1m 30s')
+  assert.equal(elapsedAt(null, read), null, 'a run with no start has no time')
 })
 
 test('a run is under way while the graph is built again or its change review waits or runs, and a stopped one says why', () => {

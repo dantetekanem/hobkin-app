@@ -16,6 +16,8 @@ export interface StepLine {
   status: StepState
   /** How long it took, measured, once it ended. While it runs, how long it has run so far. */
   took: string | null
+  /** While it runs: when it started (ms), so its time is read again as the clock moves (`tookAt`). Null otherwise. */
+  since: number | null
   /** While it runs through several items: how many are done, as "3 of 7". */
   count: string | null
   /** What the run said of it, such as why it was skipped or why it failed. */
@@ -92,6 +94,10 @@ export function clockWords(totalSeconds: number): string {
   const seconds = Math.max(0, Math.round(totalSeconds))
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
 }
+/** How long the run has taken at `now`, from when it started (ms). Null when it has no start. */
+export const elapsedAt = (startedAt: number | null, now: number): string | null => (startedAt == null ? null : clockWords((now - startedAt) / 1000))
+/** A step's time at `now`: so far, for the step that runs and says when it started; what it took, for any other. */
+export const tookAt = (step: Pick<StepLine, 'took' | 'since'>, now: number): string | null => (step.since == null ? step.took : clockWords((now - step.since) / 1000))
 /** A log line's time into the run: 5 seconds -> "0:05", 3725 -> "1:02:05". */
 function logClock(totalSeconds: number): string {
   const seconds = Math.max(0, Math.floor(totalSeconds))
@@ -198,11 +204,13 @@ export function preparingOf(status: ReviewStatus | null, startedAt: number | nul
   const lines = steps.map((step, index): StepLine => {
     const state = STEP_STATES[step.status] ?? 'waiting'
     const since = state === 'running' ? runningSince(index, steps, log, runStart) : null
+    const measured = state === 'running' || step.seconds == null ? null : clockWords(step.seconds)
     return {
       id: step.id,
       label: labelOf(step.id),
       status: state,
-      took: state === 'running' ? (since == null ? null : clockWords((now - since) / 1000)) : step.seconds == null ? null : clockWords(step.seconds),
+      took: tookAt({ took: measured, since }, now),
+      since,
       count: state === 'running' && step.total > 1 ? `${Math.min(step.done, step.total)} of ${step.total}` : null,
       note: step.note ?? null,
     }
@@ -215,7 +223,7 @@ export function preparingOf(status: ReviewStatus | null, startedAt: number | nul
     state,
     now: said || fallback,
     percent: going && run.percent != null ? Math.min(100, Math.max(0, Math.round(run.percent))) : null,
-    elapsed: startedAt == null ? null : clockWords((now - startedAt) / 1000),
+    elapsed: elapsedAt(startedAt, now),
     left: going && run.eta != null && run.eta > 0 ? clockWords(run.eta) : null,
     position: positionOf(lines, state),
     steps: lines,

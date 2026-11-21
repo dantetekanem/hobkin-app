@@ -14,7 +14,7 @@ import { LiveLog } from './preparing/LiveLog.tsx'
 import { ProgressLine } from './preparing/ProgressLine.tsx'
 import { Timeline } from './preparing/Timeline.tsx'
 import './preparing/preparing.css'
-import { preparingOf, type Preparing as Run, type Subject } from './preparing-model.ts'
+import { elapsedAt, preparingOf, type Preparing as Run, type Subject } from './preparing-model.ts'
 import { useReduced } from './state/context.tsx'
 
 const CARD = 'rounded-3xl bg-background p-5'
@@ -24,7 +24,8 @@ const HEADING = 'font-heading text-[14px] font-semibold text-muted-foreground'
  * The review window while a review is being prepared, and the page that waits for "Start AI review" on a pull request.
  * At the top, what is reviewed: the pull request or the project, its title, the commits and the size of the change.
  * Then that the window can be closed, what the run is doing now in large type with how far along it is and the time,
- * its log as it grows, and every step. The loader reads the review's status every second, and the clock moves between.
+ * its log as it grows, and every step. The loader reads the review's status every second, and the view draws again only
+ * when it says something new. The clock moves only the texts of the time: the run's, and its running step's.
  *
  * Purpose of the motion: the view arrives once there is something to say, the sentence of what it does now changes in
  * place, and only the running step breathes. With reduced motion everything is there at once and holds still.
@@ -35,9 +36,9 @@ export function Preparing({ loader, closeReview }: { loader: ReviewLoader; close
   const preparation = useStore(loader, (state) => state.preparation)
   const startedAt = useStore(loader, (state) => state.startedAt)
   const reduced = useReduced()
-  const now = useNow(status === 'preparing', 1000)
   const awaiting = status === 'awaiting'
-  const run = preparingOf(preparation, startedAt, now)
+  // Read at this moment: the texts of the time read it again themselves as the clock moves (`Times`, `Timeline`).
+  const run = preparingOf(preparation, startedAt, Date.now())
   useStops(root)
   // "Start AI review" goes once it is pressed. The keyboard stays in the view, on its first control.
   useEffect(() => {
@@ -58,7 +59,7 @@ export function Preparing({ loader, closeReview }: { loader: ReviewLoader; close
             <CloseLine close={closeReview} />
             {/* Narrow, one column: now, the steps, the log. Wide, the steps go to the right of the other two. */}
             <div className="grid gap-5 @3xl:grid-cols-[minmax(0,1fr)_minmax(280px,340px)] @3xl:grid-rows-[auto_1fr] @3xl:items-start">
-              <Now run={run} reduced={reduced} />
+              <Now run={run} startedAt={startedAt} reduced={reduced} />
               <Steps run={run} className="@3xl:col-start-2 @3xl:row-span-2 @3xl:row-start-1" />
               <Log run={run} className="@3xl:col-start-1 @3xl:row-start-2" />
             </div>
@@ -151,12 +152,18 @@ function CloseLine({ close }: { close: () => void }) {
   )
 }
 
+/** How long the run has taken and about how long is left: the one line of the view that follows the clock. */
+function Times({ startedAt, left }: { startedAt: number | null; left: string | null }) {
+  const elapsed = elapsedAt(startedAt, useNow(true, 1000))
+  const times = [elapsed ? `${elapsed} so far` : 'Just started', left ? `about ${left} left` : null].filter(Boolean).join(' · ')
+  return <p className="mt-3 text-[15px] text-muted-foreground tabular-nums">{times}</p>
+}
+
 /** What the run does right now, large, and how far along it is. */
-function Now({ run, reduced }: { run: Run; reduced: boolean }) {
+function Now({ run, startedAt, reduced }: { run: Run; startedAt: number | null; reduced: boolean }) {
   const change = reduced
     ? { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: tween.fade }
     : { initial: { opacity: 0, transform: 'translateY(10px)' }, animate: { opacity: 1, transform: 'translateY(0px)' }, exit: { opacity: 0, transform: 'translateY(-10px)' }, transition: { transform: spring.push, opacity: tween.enter } }
-  const times = [run.elapsed ? `${run.elapsed} so far` : 'Just started', run.left ? `about ${run.left} left` : null].filter(Boolean).join(' · ')
   return (
     <section aria-label="Now" className={cn(CARD, 'min-w-0 @3xl:col-start-1 @3xl:row-start-1 @3xl:p-6')}>
       <div className="flex items-baseline justify-between gap-3">
@@ -183,7 +190,7 @@ function Now({ run, reduced }: { run: Run; reduced: boolean }) {
         {run.percent != null ? <span className="w-[4ch] shrink-0 font-heading text-[28px] leading-none font-semibold tabular-nums">{run.percent}%</span> : null}
         <ProgressLine percent={run.percent} state={run.state} label="How far along the review is" className="flex-1" />
       </div>
-      <p className="mt-3 text-[15px] text-muted-foreground tabular-nums">{times}</p>
+      <Times startedAt={startedAt} left={run.left} />
     </section>
   )
 }

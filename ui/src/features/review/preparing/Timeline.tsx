@@ -1,6 +1,7 @@
 import { Check, Minus, X } from 'lucide-react'
+import { useNow } from '@/features/chat/use-now.ts'
 import { cn } from '@/lib/utils.ts'
-import type { StepLine, StepState } from '../preparing-model.ts'
+import { tookAt, type StepLine, type StepState } from '../preparing-model.ts'
 
 const MARK: Record<StepState, string> = {
   done: 'border-ok bg-ok/15 text-ok-fg',
@@ -18,6 +19,12 @@ const LABEL: Record<StepState, string> = {
 }
 /** The words a screen reader hears for each mark. */
 const SAYS: Record<StepState, string> = { done: 'Done', running: 'Running', waiting: 'Waiting', skipped: 'Skipped', failed: 'Failed' }
+
+/** A step's time, the one part of the list that follows the clock: the running step counts its seconds, the rest hold still. */
+function StepTime({ step }: { step: StepLine }) {
+  const took = tookAt(step, useNow(step.since != null, 1000))
+  return took ? <span className={cn('shrink-0 text-[14px] tabular-nums', step.status === 'running' ? 'font-semibold text-foreground' : 'text-muted-foreground')}>{took}</span> : null
+}
 
 /**
  * Every step of the run, top to bottom on one line: the finished ones checked with how long they took, the running one
@@ -41,7 +48,7 @@ export function Timeline({ steps }: { steps: StepLine[] }) {
             <div className={cn('mb-3 min-w-0 flex-1 rounded-xl px-3 py-1', step.status === 'running' && 'bg-sun/15', last && 'mb-0')}>
               <div className="flex items-baseline gap-3">
                 <span className={cn('min-w-0 flex-1 text-[15px] leading-snug text-pretty', LABEL[step.status])}>{step.label}</span>
-                {step.took ? <span className={cn('shrink-0 text-[14px] tabular-nums', step.status === 'running' ? 'font-semibold text-foreground' : 'text-muted-foreground')}>{step.took}</span> : null}
+                <StepTime step={step} />
               </div>
               {step.count || step.note ? (
                 <p className={cn('mt-0.5 text-[14px] leading-snug text-pretty [overflow-wrap:anywhere]', step.status === 'failed' ? 'text-bad-fg' : 'text-muted-foreground')}>
