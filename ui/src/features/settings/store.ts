@@ -4,7 +4,8 @@ import type { AppearanceRequest, Background, BorderColors, BuiltInTheme } from '
 import type { StoreApi } from 'zustand/vanilla'
 import type { HostState } from '../../lib/host/state.ts'
 import { DEFAULT_PET, petOr, type PetChoice } from '../../avatar/pets.ts'
-import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, adjustedPalette, migrateSettings, receiveAppearance, stepAgents, stepBudget, stepOpacity, themeRequestText, type BlockKind, type Palette } from './rules.ts'
+import { clampAgents } from '../work/agents-at-once.ts'
+import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, adjustedPalette, migrateSettings, receiveAppearance, stepBudget, stepOpacity, themeRequestText, type BlockKind, type Palette } from './rules.ts'
 
 /** Lively plays movement even when the Mac asks for less. Still never moves. */
 export type Movement = 'lively' | 'system' | 'still'
@@ -65,7 +66,8 @@ interface SettingsState extends BorderColors {
   setSound: (on: boolean) => void
   setTypeFace: (typeFace: TypeFace) => void
   setPet: (pet: PetChoice) => void
-  changeAgents: (delta: -1 | 1) => void
+  /** The number the sample agents follow with no host, and the one kept for when there is none. */
+  setAgents: (agents: number) => void
   setDailyTokens: (tokens: number) => void
   changeDailyTokens: (delta: -1 | 1) => void
   setUsageEvents: (on: boolean) => void
@@ -160,7 +162,7 @@ export const useSettings = create<SettingsState>()(
       setSound: (sound) => set({ sound }),
       setTypeFace: (typeFace) => set({ typeFace }),
       setPet: (pet) => set({ pet: petOr(pet) }),
-      changeAgents: (delta) => set({ agents: stepAgents(get().agents, delta) }),
+      setAgents: (agents) => set({ agents: clampAgents(agents, AGENTS.max) }),
       setDailyTokens: (tokens) => set({ dailyTokens: stepBudget(tokens, 0) }),
       changeDailyTokens: (delta) => set({ dailyTokens: stepBudget(get().dailyTokens, delta) }),
       setUsageEvents: (usageEvents) => set({ usageEvents }),

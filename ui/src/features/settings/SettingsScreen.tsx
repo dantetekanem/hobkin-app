@@ -1,4 +1,4 @@
-import { Minus, Plus, X } from 'lucide-react'
+import { X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useRef, useState, type ReactNode } from 'react'
 import { TIER_IDS, TIER_INFO, resolveTier } from '#shared/tiers/tiers.ts'
@@ -33,6 +33,8 @@ import { SetupAgainTile } from './SetupAgainTile.tsx'
 import { useChat } from '@/features/chat/chat-store.ts'
 import { hostStore } from '@/lib/host/client.ts'
 import { runWork, useWorkUi, useWorkView } from '@/features/work/store.ts'
+import { clampAgents, hoodRow } from '@/features/work/agents-at-once.ts'
+import { AgentsStepper } from '@/features/work/AgentsStepper.tsx'
 import { play } from '@/features/sound/index.ts'
 import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, activeThemeLabel, budgetUse, formatTokens, stepBudget, type ActiveTheme, type BlockKind } from './rules.ts'
 import { useSettings, type Movement, type TypeFace } from './store.ts'
@@ -328,15 +330,32 @@ function OpacityTile() {
 
 const HUES = [262, 200, 86, 20, 320, 150, 40, 290]
 
+/**
+ * Work mode's agents at once. With a host it is hobkin's own number, saved through `work.agents` as the Work screen
+ * saves it, with hobkin's reason when it runs fewer. With none it is the window's number, which the sample agents follow.
+ */
 function AgentsAtOnce() {
-  const agents = useSettings((state) => state.agents)
-  const changeAgents = useSettings((state) => state.changeAgents)
+  const { work, live } = useWorkView()
+  const localAgents = useSettings((state) => state.agents)
+  const setLocalAgents = useSettings((state) => state.setAgents)
+  const said = useWorkUi((state) => state.said['agents'])
+  const [draft, setDraft] = useState<number | null>(null)
+  const most = work?.maxAgents ?? AGENTS.max
+  const agents = clampAgents(live && work ? work.agentsAllowed : localAgents, most)
+  const shown = draft ?? agents
+  const { hoods, more } = hoodRow(shown)
+  const line = said?.tone === 'refused' ? said.text : live ? work?.agentsHeld : null
+
+  const save = (next: number) => {
+    setLocalAgents(next)
+    if (work) return runWork({ do: 'agents', agents: next }, { live, place: 'agents' })
+  }
 
   return (
-    <Tile name="Agents at once" value={agents === 1 ? '1 agent' : `${agents} agents`} className="col-span-2">
+    <Tile name="Agents at once" value={shown === 1 ? '1 agent' : `${shown} agents`} className="col-span-2">
       <div className="flex min-h-[44px] flex-1 flex-wrap items-end gap-1">
         <AnimatePresence initial={false} mode="popLayout">
-          {HUES.slice(0, agents).map((hue) => (
+          {HUES.slice(0, hoods).map((hue) => (
             <motion.span
               key={hue}
               layout
@@ -347,49 +366,30 @@ function AgentsAtOnce() {
               <AgentHood hue={hue} size={30} working />
             </motion.span>
           ))}
+          {more ? (
+            <motion.span
+              key="more"
+              layout
+              initial={{ opacity: 0, transform: 'translateY(18px) scale(0.5)' }}
+              animate={{ opacity: 1, transform: 'translateY(0px) scale(1)', transition: spring.alive }}
+              exit={{ opacity: 0, transform: 'translateY(14px) scale(0.6)', transition: { duration: 0.16 } }}
+              className="grid size-[30px] place-items-center rounded-full bg-tone-1 text-[11px] font-semibold tabular-nums text-muted-foreground"
+              aria-label={`${more} more`}
+            >
+              +{more}
+            </motion.span>
+          ) : null}
         </AnimatePresence>
       </div>
-      <div
-        role="spinbutton"
-        aria-label="Agents at once"
-        aria-valuemin={AGENTS.min}
-        aria-valuemax={AGENTS.max}
-        aria-valuenow={agents}
-        tabIndex={0}
-        data-stop=""
-        className="flex w-fit items-center gap-1 rounded-full bg-tone-1 p-0.5 outline-offset-2"
-        onKeyDown={(event) => {
-          if (event.key === 'ArrowRight' || event.key === '+' || event.key === '=') changeAgents(1)
-          else if (event.key === 'ArrowLeft' || event.key === '-') changeAgents(-1)
-          else return
-          event.preventDefault()
-        }}
-      >
-        <StepButton label="One fewer" disabled={agents <= AGENTS.min} onClick={() => changeAgents(-1)}>
-          <Minus className="size-4" aria-hidden="true" />
-        </StepButton>
-        <span className="w-6 text-center text-[14px] font-semibold tabular-nums">{agents}</span>
-        <StepButton label="One more" disabled={agents >= AGENTS.max} onClick={() => changeAgents(1)}>
-          <Plus className="size-4" aria-hidden="true" />
-        </StepButton>
+      <div className="flex items-center gap-3">
+        <AgentsStepper label="Agents at once" value={agents} most={most} onSave={save} onDraft={setDraft} />
+        {line ? (
+          <p title={line} className={cn('line-clamp-2 min-w-0 text-[12px] leading-[15px]', said?.tone === 'refused' ? 'text-destructive' : 'text-muted-foreground')}>
+            {line}
+          </p>
+        ) : null}
       </div>
     </Tile>
-  )
-}
-
-function StepButton({ label, disabled, onClick, children }: { label: string; disabled: boolean; onClick: () => void; children: ReactNode }) {
-  return (
-    <button
-      type="button"
-      aria-label={label}
-      // The group takes the keyboard and the arrows. These are for the mouse.
-      tabIndex={-1}
-      disabled={disabled}
-      onClick={onClick}
-      className="grid size-8 place-items-center rounded-full transition-[background-color,transform,opacity] duration-[140ms] ease-out hover:bg-surface-2 active:scale-[0.94] disabled:opacity-35"
-    >
-      {children}
-    </button>
   )
 }
 

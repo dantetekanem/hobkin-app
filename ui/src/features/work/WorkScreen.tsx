@@ -21,7 +21,8 @@ import { DelegationMap } from './DelegationMap.tsx'
 import { FinishedSection } from './Finished.tsx'
 import { PageTabs, TabCount } from './PageTabs.tsx'
 import { WhenWorkComes, WorkPage } from './page-arrival.tsx'
-import { SaidLine, Segmented } from './parts.tsx'
+import { AgentsStepper } from './AgentsStepper.tsx'
+import { SaidLine } from './parts.tsx'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
 import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab } from './tab.ts'
@@ -202,23 +203,20 @@ export function WorkScreen() {
 
 /**
  * How many work agents may run at once: hobkin's own setting, as `hobkin work agents` sets it, from one to hobkin's
- * most. Left and Right change it. Running agents finish as they are.
+ * most, with the same control as Settings. Running agents finish as they are.
  */
 function AgentsAtOnce({ work, live }: { work: WorkState; live: boolean }) {
-  const busy = useWorkUi((state) => Boolean(state.busy['agents']))
   const said = useWorkUi((state) => state.said['agents'])
-  const options = Array.from({ length: work.maxAgents }, (_, index) => ({ value: String(index + 1), label: String(index + 1) }))
 
   return (
     <div className="ml-auto flex flex-wrap items-center gap-2">
       <span className="eyebrow">Agents at once</span>
-      <Segmented
+      <AgentsStepper
+        compact
         label="Work agents that may run at once"
-        name="agents-at-once"
-        value={String(work.agentsAllowed)}
-        options={options}
-        disabled={busy}
-        onChoose={(agents) => void runWork({ do: 'agents', agents: Number(agents) }, { live, place: 'agents' })}
+        value={work.agentsAllowed}
+        most={work.maxAgents}
+        onSave={(agents) => runWork({ do: 'agents', agents }, { live, place: 'agents' })}
       />
       {said?.tone === 'refused' ? <SaidLine tone="refused">{said.text}</SaidLine> : null}
     </div>
