@@ -66,10 +66,10 @@ test("an answer goes through hobkin's own decision action, by choice or in the u
 })
 
 test('doing it with hobkin says the item was handed on to the main agent', async () => {
-  const { handlers } = fakeHobkin(() => ({ ok: true, handOff: { id: 'd1' }, message: 'The main agent takes it in Chat, and it stays in Action Items until it is done.' }))
+  const { handlers } = fakeHobkin(() => ({ ok: true, handOff: { id: 'd1' }, message: 'The main agent takes it in Chat, and it leaves Action Items.' }))
   assert.deepEqual(await runCommand(handlers, 'decision.answer', { id: 'd1', value: 'hobkin' }), {
     ok: true,
-    value: { message: 'The main agent takes it in Chat, and it stays in Action Items until it is done.', handedOff: true },
+    value: { message: 'The main agent takes it in Chat, and it leaves Action Items.', handedOff: true },
   })
 })
 

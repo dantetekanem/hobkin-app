@@ -19,7 +19,7 @@ export function decisionHandlers({ app }: { app: () => Pick<WorkApp, 'workAction
   return {
     'decision.answer': async ({ id, value, typed }) => {
       const result = (await (typed === undefined ? app().workAction('decide', id, value) : app().workAction('words', id, typed))) as Said | null
-      // Doing it with hobkin hands the item to the main agent in Chat, and it stays in Action Items until it is done.
+      // Doing it with hobkin hands the item to the main agent in Chat, and it leaves Action Items.
       return { message: messageOf(result), handedOff: Boolean(result?.handOff) }
     },
     'learning.answer': async ({ id, value }) => ({ message: messageOf(await app().workAction('learning', id, value)) }),
