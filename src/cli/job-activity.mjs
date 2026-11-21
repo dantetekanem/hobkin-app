@@ -29,8 +29,12 @@ const endOf = (text, length) => {
 /** A tool's output as a feed keeps it: whole when it fits in `most`, else its first and last halves, with how long the whole is. */
 export function keptOutput(text, most = Infinity) {
   if (text.length <= most) return { output: text };
+
   const half = Math.floor(most / 2);
-  return { output: `${startOf(text, half)}${LEFT_OUT}${endOf(text, half)}`, outputLength: text.length };
+  return {
+    output: `${startOf(text, half)}${LEFT_OUT}${endOf(text, half)}`,
+    outputLength: text.length,
+  };
 }
 
 const CODEMODE_STATUSES = new Set(['running', 'ok', 'error', 'cancelled']);

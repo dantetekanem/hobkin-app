@@ -112,15 +112,21 @@ export function runStepsBefore(file, { before = null, at = null, most = MOST_STE
   const found = end !== -1;
   if (!found && Number.isFinite(at)) end = steps.filter(step => step.at < at).length;
   if (end === -1) return { steps: [], more: false, found };
+
   const start = Math.max(0, end - most);
-  return { steps: steps.slice(start, end), more: start > 0, found };
+  return {
+    steps: steps.slice(start, end),
+    more: start > 0,
+    found,
+  };
 }
 
 /** A tool step's whole output, as the feed reads it before keeping only its ends, and its length. Null when no such tool result is saved. */
 export function runStepOutput(file, id) {
   const callId = typeof id === 'string' && id.startsWith('tool:') ? id.slice('tool:'.length) : null;
   if (!callId) return null;
-  const result = savedBranch(file).map(streamedMessage).findLast(message => message?.role === 'toolResult' && message.toolCallId === callId);
+  const messages = savedBranch(file).map(streamedMessage);
+  const result = messages.findLast(message => message?.role === 'toolResult' && message.toolCallId === callId);
   if (!result) return null;
   const output = outputText(result.content);
   return { id, output, length: output.length };
