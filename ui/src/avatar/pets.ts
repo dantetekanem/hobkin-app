@@ -83,8 +83,13 @@ export type ArtPoint = readonly [x: number, y: number]
  * same share of the box at any size the face is drawn.
  */
 export function originAt([x, y]: ArtPoint): string {
-  const share = (value: number) => `${+(((value - ART_BOX.min) / ART_BOX.size) * 100).toFixed(4)}%`
-  return `${share(x)} ${share(y)}`
+  return `${shareOfBox(x)} ${shareOfBox(y)}`
+}
+
+/** Where a coordinate of the art falls along the face's box, in percent, to four places. */
+function shareOfBox(value: number): string {
+  const percent = ((value - ART_BOX.min) / ART_BOX.size) * 100
+  return `${Number(percent.toFixed(4))}%`
 }
 
 export type Paint = 'fill' | 'stroke' | 'eye'

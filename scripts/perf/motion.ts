@@ -66,8 +66,13 @@ function parse(text: string): Block[] {
   let quote: string | null = null
 
   const settle = (into: Block) => {
-    const at = pending.indexOf(':')
-    if (at > 0) into.declarations.push({ property: pending.slice(0, at).trim().toLowerCase(), value: pending.slice(at + 1).trim() })
+    const colon = pending.indexOf(':')
+    if (colon > 0) {
+      into.declarations.push({
+        property: pending.slice(0, colon).trim().toLowerCase(),
+        value: pending.slice(colon + 1).trim(),
+      })
+    }
     pending = ''
   }
 
@@ -98,7 +103,7 @@ function parse(text: string): Block[] {
   return top.children
 }
 
-/** Splits at commas that are not inside parentheses or brackets. */
+/** Splits at the separator (a comma unless given) where it is not inside parentheses or brackets. */
 function splitTop(text: string, separator = ','): string[] {
   const parts: string[] = []
   let depth = 0
@@ -119,11 +124,16 @@ function words(text: string): string[] {
   return splitTop(text.replace(/\s+/g, ' '), ' ')
 }
 
+const KEYFRAMES = /^@(?:-webkit-)?keyframes\s+(\S+)/
+
+/** Visits every block with the preludes of the style rules it is nested in. A keyframes block's frames are not visited. */
 function walk(blocks: Block[], visit: (block: Block, parents: string[]) => void, parents: string[] = []): void {
   for (const block of blocks) {
     visit(block, parents)
+    if (KEYFRAMES.test(block.prelude)) continue
+    // An at-rule (@media, @layer) wraps rules without adding to their selectors.
     const nested = block.prelude.startsWith('@') ? parents : [...parents, block.prelude]
-    if (!/^@(-webkit-)?keyframes\b/.test(block.prelude)) walk(block.children, visit, nested)
+    walk(block.children, visit, nested)
   }
 }
 
@@ -132,11 +142,15 @@ function keyframesOf(files: string[]): Map<string, Set<string>> {
   const found = new Map<string, Set<string>>()
   for (const file of files) {
     walk(parse(readFileSync(file, 'utf8')), (block) => {
-      const name = /^@(?:-webkit-)?keyframes\s+(\S+)/.exec(block.prelude)?.[1]
+      const name = KEYFRAMES.exec(block.prelude)?.[1]
       if (!name) return
+
       const properties = found.get(name) ?? new Set<string>()
       for (const frame of block.children) {
-        for (const { property } of frame.declarations) if (!property.startsWith('animation-')) properties.add(property)
+        for (const { property } of frame.declarations) {
+          // A frame's own timing function is not something the animation changes.
+          if (!property.startsWith('animation-')) properties.add(property)
+        }
       }
       found.set(name, properties)
     })
@@ -146,9 +160,11 @@ function keyframesOf(files: string[]): Map<string, Set<string>> {
 
 /** A nested rule's selectors, written out in full. */
 function selectorsOf(prelude: string, parents: string[]): string[] {
+  const nest = (outer: string, inner: string) => (inner.includes('&') ? inner.replaceAll('&', outer) : `${outer} ${inner}`)
+
   let selectors = splitTop(prelude)
   for (const parent of [...parents].reverse()) {
-    selectors = splitTop(parent).flatMap((outer) => selectors.map((inner) => (inner.includes('&') ? inner.replaceAll('&', outer) : `${outer} ${inner}`)))
+    selectors = splitTop(parent).flatMap((outer) => selectors.map((inner) => nest(outer, inner)))
   }
   return selectors
 }
@@ -168,38 +184,59 @@ function isSvgPart(selector: string): boolean {
   return classes.some((name) => FACE_PART.test(name) || SVG_PARTS.has(name))
 }
 
+/** The keyframes name in one animation of an `animation` shorthand: a known name, or else the word no keyword claims. */
+function nameIn(tokens: string[], keyframes: Map<string, Set<string>>): string {
+  const known = tokens.find((token) => keyframes.has(token))
+  const unclaimed = tokens.find((token) => /^[a-zA-Z_-][\w-]*$/.test(token) && !KEYWORDS.has(token))
+  return known ?? unclaimed ?? '(no name)'
+}
+
 /** The animations a rule runs forever: each one's keyframes name. */
 function endlessNames(block: Block, keyframes: Map<string, Set<string>>): string[] {
   const declared = new Map(block.declarations.map(({ property, value }) => [property, value]))
   const names: string[] = []
+
   const shorthand = declared.get('animation')
-  if (shorthand) {
-    for (const layer of splitTop(shorthand)) {
-      const tokens = words(layer.replace(/!important/, ''))
-      if (!tokens.includes('infinite')) continue
-      const name = tokens.find((token) => keyframes.has(token)) ?? tokens.find((token) => /^[a-zA-Z_-][\w-]*$/.test(token) && !KEYWORDS.has(token))
-      names.push(name ?? '(no name)')
-    }
+  for (const animation of shorthand ? splitTop(shorthand) : []) {
+    const tokens = words(animation.replace(/!important/, ''))
+    if (tokens.includes('infinite')) names.push(nameIn(tokens, keyframes))
   }
+
   const counts = declared.get('animation-iteration-count')
-  if (counts && /\binfinite\b/.test(counts)) names.push(...splitTop(declared.get('animation-name') ?? '(set elsewhere)'))
+  if (counts && /\binfinite\b/.test(counts)) {
+    names.push(...splitTop(declared.get('animation-name') ?? '(set elsewhere)'))
+  }
   return names
+}
+
+/** What keeps an endless animation off the compositor, if anything. */
+function problemsOf(selector: string, name: string, changes: Set<string> | undefined): string[] {
+  const problems: string[] = []
+  if (!changes) problems.push(`no @keyframes ${name} under ui/src`)
+
+  const offThread = [...(changes ?? [])].filter((property) => !MOVES_ON_THE_COMPOSITOR.has(property))
+  if (offThread.length > 0) problems.push(`changes ${offThread.sort().join(', ')}`)
+
+  if (isSvgPart(selector)) problems.push('set on a part of an SVG')
+  return problems
 }
 
 function endlessIn(file: string, keyframes: Map<string, Set<string>>): Endless[] {
   const found: Endless[] = []
   walk(parse(readFileSync(file, 'utf8')), (block, parents) => {
     if (block.prelude.startsWith('@')) return
+
     for (const name of endlessNames(block, keyframes)) {
       const changes = keyframes.get(name)
       for (const selector of selectorsOf(block.prelude, parents)) {
-        const properties = changes ? [...changes].sort() : []
-        const problems: string[] = []
-        if (!changes) problems.push(`no @keyframes ${name} under ui/src`)
-        const offThread = properties.filter((property) => !MOVES_ON_THE_COMPOSITOR.has(property))
-        if (offThread.length > 0) problems.push(`changes ${offThread.join(', ')}`)
-        if (isSvgPart(selector)) problems.push('set on a part of an SVG')
-        found.push({ file: relative(ROOT, file), line: block.line, selector, keyframes: name, properties, problems })
+        found.push({
+          file: relative(ROOT, file),
+          line: block.line,
+          selector,
+          keyframes: name,
+          properties: [...(changes ?? [])].sort(),
+          problems: problemsOf(selector, name, changes),
+        })
       }
     }
   })
@@ -207,9 +244,12 @@ function endlessIn(file: string, keyframes: Map<string, Set<string>>): Endless[]
 }
 
 const asked = process.argv.slice(2).map((path) => resolve(ROOT, path))
+const isAsked = (file: string) => asked.some((path) => file === path || file.startsWith(`${path}/`))
 const everyFile = cssFiles(SOURCE)
-const judged = asked.length === 0 ? everyFile : everyFile.filter((file) => asked.some((path) => file === path || file.startsWith(`${path}/`)))
-if (asked.length > 0 && judged.length === 0) throw new Error(`No CSS file under ui/src matches ${process.argv.slice(2).join(' ')}.`)
+const judged = asked.length === 0 ? everyFile : everyFile.filter(isAsked)
+if (asked.length > 0 && judged.length === 0) {
+  throw new Error(`No CSS file under ui/src matches ${process.argv.slice(2).join(' ')}.`)
+}
 const keyframes = keyframesOf(everyFile)
 
 let failedFiles = 0

@@ -76,7 +76,7 @@ export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = f
       data-mood={mood}
       data-pet={shown}
       data-still={still || undefined}
-      data-held={motion.parts ? undefined : true}
+      data-held={!motion.parts || undefined}
       data-whole={motion.whole ?? undefined}
       role="img"
       aria-label={title ?? `hobkin, ${mood}`}
@@ -94,11 +94,7 @@ export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = f
         <Layer ref={followRef} className="hob-follow">
           {/* Keyed by mood so each mood's own animation starts at its beginning. */}
           <Layer key={mood} className={['hob-look hob-part', art.look].filter(Boolean).join(' ')} at={eyesAt}>
-            <Layer
-              className={['hob-blink', art.blink].filter(Boolean).join(' ')}
-              at={eyesAt}
-              style={art.eyesOpacity === undefined ? undefined : { opacity: art.eyesOpacity }}
-            >
+            <Layer className={['hob-blink', art.blink].filter(Boolean).join(' ')} at={eyesAt} style={{ opacity: art.eyesOpacity }}>
               <Pieces pieces={art.eyes} />
             </Layer>
           </Layer>

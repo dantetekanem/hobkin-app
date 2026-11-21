@@ -61,9 +61,16 @@ function useCoveredChat(side: RefObject<HTMLElement | null> | undefined, still: 
   const needsModel = useNeedsSignIn()
   const splitShown = split !== null && !needsModel
   const growth = useView((view) =>
-    canvasGrowth({ screen: view.screen, canvasEngaged: view.canvasEngaged, conversationWidth: view.conversationWidth, proofReturn: view.proofReturn, split: splitShown }),
+    canvasGrowth({
+      screen: view.screen,
+      canvasEngaged: view.canvasEngaged,
+      conversationWidth: view.conversationWidth,
+      proofReturn: view.proofReturn,
+      split: splitShown,
+    }),
   )
   const conversationWidth = useView((view) => view.conversationWidth)
+
   // The growth the canvas has finished growing to. A new growth is not settled until its spring has run.
   const [settledAt, setSettledAt] = useState<number | null>(null)
   const settled = settledAt === growth
@@ -79,9 +86,13 @@ function useCoveredChat(side: RefObject<HTMLElement | null> | undefined, still: 
   useEffect(() => {
     const element = side?.current
     if (!element) return
+
     setChatFocused(element.contains(document.activeElement))
     const onFocusIn = () => setChatFocused(true)
-    const onFocusOut = (event: FocusEvent) => setChatFocused(element.contains(event.relatedTarget as Node | null))
+    const onFocusOut = (event: FocusEvent) => {
+      const next = event.relatedTarget
+      setChatFocused(next instanceof Node && element.contains(next))
+    }
     element.addEventListener('focusin', onFocusIn)
     element.addEventListener('focusout', onFocusOut)
     return () => {

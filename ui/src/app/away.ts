@@ -31,17 +31,25 @@ export interface Page {
 
 /** Keeps `data-away` on the page's root as it is hidden, shown, sent to the background and brought back. Returns the stop. */
 export function watchAway({ document, window }: Page): () => void {
-  const focused = document.hasFocus()
-  let state: PageState = { hidden: document.visibilityState === 'hidden', focused, blurredAt: focused ? null : Date.now() }
+  const startsFocused = document.hasFocus()
+  let state: PageState = {
+    hidden: document.visibilityState === 'hidden',
+    focused: startsFocused,
+    blurredAt: startsFocused ? null : Date.now(),
+  }
   let timer: ReturnType<typeof setTimeout> | undefined
 
   const apply = () => {
     const now = Date.now()
     const away = isAway(state, now)
     document.documentElement.toggleAttribute('data-away', away)
+
+    // In the background and not away yet: look again when its minute is up.
     clearTimeout(timer)
-    timer = !away && state.blurredAt !== null ? setTimeout(apply, state.blurredAt + AWAY_AFTER_MS - now) : undefined
+    timer = undefined
+    if (!away && state.blurredAt !== null) timer = setTimeout(apply, state.blurredAt + AWAY_AFTER_MS - now)
   }
+
   // The window's own focus and blur, never an element's.
   const onBlur = (event: Event) => {
     if (event.target !== window) return
@@ -53,11 +61,15 @@ export function watchAway({ document, window }: Page): () => void {
     state = { ...state, focused: true, blurredAt: null }
     apply()
   }
+
   // Showing again is coming back: a window still in the background starts its minute over.
   const onVisibility = () => {
     const hidden = document.visibilityState === 'hidden'
     const focused = document.hasFocus()
-    state = { hidden, focused, blurredAt: focused ? null : hidden ? state.blurredAt : Date.now() }
+    let blurredAt: number | null = null
+    if (!focused) blurredAt = hidden ? state.blurredAt : Date.now()
+
+    state = { hidden, focused, blurredAt }
     apply()
   }
 

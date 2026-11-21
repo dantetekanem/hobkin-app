@@ -35,7 +35,15 @@ export function canvasGrowth({
  * not in the chat. A covered chat holds still and drops the blur over it (ChatDim.tsx). A review leaves a strip of the
  * chat in view, so that chat keeps both.
  */
-export function covered({ growth, conversationWidth, settled, chatFocused }: { growth: number; conversationWidth: number; settled: boolean; chatFocused: boolean }): boolean {
+export function covered({ growth, conversationWidth, settled, chatFocused }: {
+  /** How far the canvas has grown over the chat, in pixels (canvasGrowth). */
+  growth: number
+  conversationWidth: number
+  /** The canvas has finished growing to `growth`. */
+  settled: boolean
+  /** The keyboard is in the chat. */
+  chatFocused: boolean
+}): boolean {
   return settled && !chatFocused && growth >= conversationWidth
 }
 
