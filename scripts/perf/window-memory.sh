@@ -24,5 +24,5 @@ heap_mb = float(heap.group(1)) * {"KB": 1 / 1024, "MB": 1, "GB": 1024}[heap.grou
 tiles = sum(1 for size in surfaces if 4.0 <= size <= 4.1)
 print("%s,%s,%s,%.0f,%d,%d,%.0f" % (time.strftime("%H:%M:%S"), sys.argv[1], whole.group(1) if whole else "?", sum(surfaces), len(surfaces), tiles, heap_mb))
 ' "$pid"
-  [ "$sample" -lt "$samples" ] && sleep "$every"
+  if [ "$sample" -lt "$samples" ]; then sleep "$every"; fi
 done
