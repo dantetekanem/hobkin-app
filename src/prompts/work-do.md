@@ -120,28 +120,32 @@ When `work.item.modelAsked` is set, your branch is finished and its review has s
 
 ## A YOLO readiness item
 
-When `work.item.key` is `yolo:ready`, the job is to make this project ready for YOLO mode, where hobkin merges and deploys small changes by itself. Check each part by running it, and build what is missing on your branch as you would any feature. Never deploy, roll back or flip a flag to find out.
+When `work.item.key` is `yolo:ready`, the job is to make this project ready for YOLO mode, where hobkin merges and deploys small changes by itself, and not to report whether it is. YOLO mode may run on a project once its tests pass on the default branch, its way back is known, and no TLA+ model there breaks. The other parts are improvements hobkin still sets up and shows. Check each part by running it. Never deploy, roll back or flip a flag in production to find out.
 
-| Part | Ready when |
+| Part | In place when |
 |---|---|
-| `tests` | The suite runs here with one command and can cover a change. Say the command and what it printed. |
+| `tests` | The suite runs on the default branch with one command and can cover a change. Say the command and what it printed. |
 | `errors` | Exceptions reach an error tracker, and a new one raises an alert. |
 | `slowQueries` | Slow queries are caught: the database's slow query log or the framework's query timing, with N+1 detection where the stack has it. |
 | `performance` | Request and job timings are measured and kept, with a baseline to compare a deploy against. |
 | `logs` | Logs can be searched, by request or job, for what happened after a deploy. |
 | `alerts` | An alert from any of these reaches the user, by a route that works today. |
 | `rollback` | One named step undoes a change, and the project has a flag mechanism where a rollback alone could not undo the harm. |
-| `deploy` | A deploy path hobkin can run and undo is written down: the command, and the command that takes it back. A project nothing deploys, such as a library, is ready with `"deploys": false`. |
+| `deploy` | A deploy path hobkin can run and undo is written down: the command, and the command that takes it back. A project nothing deploys, such as a library, is in place with `"deploys": false`. |
 
-Before you record the outcome, pipe what you found to `work.commands.yolo`, each part in one line:
+Each part ends in one of these, and never as only what is missing:
+
+- In place on the default branch: `{ "ready": true, "how": "..." }`. A monitoring part this project has no use for, such as slow queries where there is no database, takes `{ "notApplicable": "the reason" }`. Tests, rollback and deploy never do.
+- Not in place: make its change on a branch of its own, so each can be merged alone. Never switch your own place to it, since hobkin stops a run whose folder leaves its branch: make it in a worktree of its own with `git worktree add -b <work.item.branch>-<part> <a new folder outside the project> <default branch>`, commit there, run its proof there, and remove that worktree with `git worktree remove` when you are done. Put small related parts on one branch, such as error tracking and the alert it raises. Set up what is missing for this project's stack with the tools it already uses. Record `{ "branch": "<that branch>", "how": "What it sets up, in a line.", "proof": "What you ran and what it printed, in a line." }`. hobkin pushes each branch and opens its PR, with a description it writes from these lines, so push nothing and open no PR yourself.
+- Needs something only the user can give, such as a secret, an account, a sign-up, a payment or a step that runs only in production: add `"user": { "title": "Put SENTRY_DSN in production", "step": "The exact step: which variable goes where, or which command to run, and where." }`. hobkin files one Action Item for each title, so give the same title to every part that waits on the same step. A part can have a branch and a step at once, such as the code that reports errors and the secret it needs. Then carry on with the other parts.
+
+Before you record the outcome, pipe every part to `work.commands.yolo`:
 
 ```json
-{ "tests": { "ready": true, "how": "pnpm test runs 412 tests in 40 s." }, "errors": { "ready": true, "how": "Sentry takes every exception and mails a new one." }, "slowQueries": { "ready": false, "missing": "No slow query log, and nothing catches an N+1." }, "performance": { "ready": true, "how": "Request and job timings by path, with last week as the baseline." }, "logs": { "ready": true, "how": "kamal app logs --grep finds a request by id." }, "alerts": { "ready": true, "how": "Alerts mail the user within 5 minutes." }, "rollback": { "ready": true, "how": "kamal rollback <version>, and flags are env vars in config/deploy.yml." }, "deploy": { "ready": true, "how": "bin/kamal deploy from main, undone by bin/kamal rollback <version>." } }
+{ "tests": { "ready": true, "how": "pnpm test runs 412 tests in 40 s on the default branch." }, "errors": { "branch": "hobkin/abc123-get-api-ready-monitoring", "how": "Sentry takes every exception.", "proof": "A raised test error reached Sentry's test project.", "user": { "title": "Put SENTRY_DSN in production", "step": "Add SENTRY_DSN under env.secret in config/deploy.yml, and its value from Sentry, Settings, Client Keys, to .kamal/secrets." } }, "slowQueries": { "branch": "hobkin/abc123-get-api-ready-queries", "how": "Queries over 100 ms are logged, and the test suite fails on an N+1.", "proof": "bin/test fails on a planted N+1 and passes without it." }, "performance": { "ready": true, "how": "Request and job timings by path, with last week as the baseline." }, "logs": { "ready": true, "how": "kamal app logs --grep finds a request by id." }, "alerts": { "branch": "hobkin/abc123-get-api-ready-monitoring", "how": "A new Sentry issue mails the user.", "proof": "The alert rule is in config/sentry.yml.", "user": { "title": "Put SENTRY_DSN in production", "step": "Add SENTRY_DSN under env.secret in config/deploy.yml, and its value from Sentry, Settings, Client Keys, to .kamal/secrets." } }, "rollback": { "ready": true, "how": "kamal rollback <version>, and flags are env vars in config/deploy.yml." }, "deploy": { "ready": true, "how": "bin/kamal deploy from main, undone by bin/kamal rollback <version>." } }
 ```
 
-The five monitoring parts are what a regression has to show up in, so set up what is missing for this project's stack with the tools it already uses, and install or sign up for nothing the user has not approved: say that in `missing`. A monitoring part this project has no use for, such as slow queries where there is no database, takes `{ "notApplicable": "the reason" }`. Tests, rollback and deploy never do.
-
-A part you built on your branch is ready once that branch merges, so record it as ready and say in `how` that it is on your branch. What you could not build stays `missing`, in words the user can act on. The project counts as ready only when every part is ready and this item is merged, or done with nothing to change.
+It answers each part as it stands: done, its PR, the Action Item waiting on the user, or why a PR did not open. Fix what it refuses and pipe the whole record again. Install or sign up for nothing the user has not approved: that is their step. These take the place of steps 4, 5, 9, 10 and 11: leave your own branch with nothing on it, and record `{ "id": "<id>", "state": "done", "summary": "...", "proof": "..." }`, naming each PR and each step you asked for in `summary`.
 
 ## A `pr-fix` item
 
