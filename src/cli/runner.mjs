@@ -9,6 +9,7 @@ import { buildContext } from './context.mjs';
 import { readMemory } from './memory.mjs';
 import { imagesProblem } from './paste-image.mjs';
 import { checkHold, keepOnceFile, openCheck, scheduleDefinition } from './checks.mjs';
+import { MOST_CONCURRENCY } from './config.mjs';
 
 function partsAt(formatter, time) {
   return Object.fromEntries(formatter.formatToParts(time)
@@ -190,7 +191,7 @@ export class HobkinRunner {
   receivedNotes = new Map();
 
   constructor({ runtime, root, config, now = () => new Date(), runHarness = defaultRunHarness, compatibilityDue = null, compatibility = null, onActivity = () => {}, onTick = () => {} }) {
-    if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > 4) throw Error('concurrency must be 1–4');
+    if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > MOST_CONCURRENCY) throw Error(`concurrency must be 1–${MOST_CONCURRENCY}`);
     if (!Number.isFinite(new Date(config.initializedAt).getTime())) throw Error('Invalid scheduler configuration bounds');
     Object.assign(this, { runtime, root, config, now, runHarness, compatibilityDue, compatibility, onTick });
     this.onActivity = (id, event) => {

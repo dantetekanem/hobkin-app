@@ -132,6 +132,9 @@ export function applySelection(root, change, catalog) {
   return resourceSelection;
 }
 
+/** The most routines and `hobkin session` jobs that `concurrency` may let run at once. A new home starts at 2 (`initialize`). */
+export const MOST_CONCURRENCY = 16;
+
 export function validateConfig(config, { allowLegacyHarness = false } = {}) {
   if (
     config.version !== 2
@@ -150,7 +153,7 @@ export function validateConfig(config, { allowLegacyHarness = false } = {}) {
   validateTiers(config.tiers);
   validateReview(config.review);
   // Jobs have no automatic deadline; a timeoutMs left in older configs is ignored.
-  if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > 4) {
+  if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > MOST_CONCURRENCY) {
     throw Error('Invalid execution limits.');
   }
   return config;

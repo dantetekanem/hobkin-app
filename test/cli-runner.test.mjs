@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, symlink, rm, realpath } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { HobkinRunner, dueOccurrence, nextOccurrence } from '../src/cli/runner.mjs';
+import { initialize, MOST_CONCURRENCY, validateConfig } from '../src/cli/config.mjs';
 import { scheduleDefinition } from '../src/cli/checks.mjs';
 import { loadSchedules } from '../src/cli/schedules.mjs';
 import { LegacySchedules } from '../src/cli/legacy-schedules.mjs';
@@ -720,7 +721,50 @@ test('capacity is bounded, schedule runs never overlap, and stop cancels only ow
 
   await runner.stop();
   assert.equal(Object.values(fixtureData.runtime.data.runs)[0].status, 'interrupted');
-  assert.throws(() => new HobkinRunner({ ...fixtureData, config: { ...config, concurrency: 5 } }), /concurrency/);
+  assert.throws(() => new HobkinRunner({ ...fixtureData, config: { ...config, concurrency: 17 } }), /concurrency must be 1–16/);
+});
+
+test('sixteen routines run at once and the seventeenth waits for a place, and a saved four still reads as four', async t => {
+  const h = await fixture(t);
+  for (let n = 1; n < 17; n++) await h.save({ ...h.schedule, id: `check-${n}` });
+  const started = [];
+  const runner = new HobkinRunner({
+    ...h,
+    config: { ...config, concurrency: MOST_CONCURRENCY },
+    now: () => new Date('2026-04-27T10:00:00Z'),
+    runHarness: request => new Promise(resolve => {
+      started.push({ resolve });
+      request.signal.addEventListener('abort', () => resolve({ status: 'interrupted' }), { once: true });
+    }),
+  });
+  t.after(() => runner.stop());
+  const running = () => Object.values(h.runtime.data.runs).filter(run => run.status === 'running');
+  const settled = async count => {
+    for (let wait = 0; started.length < count && wait < 200; wait++) await new Promise(resolve => setTimeout(resolve, 5));
+  };
+
+  await runner.tick();
+  await settled(16);
+  await runner.tick();
+  assert.equal(started.length, 16);
+  assert.equal(running().length, 16, 'the seventeenth waits while all sixteen run');
+  const routines = ['check', ...Array.from({ length: 16 }, (_, n) => `check-${n + 1}`)];
+  const waiting = routines.find(id => !h.runtime.data.runs[`${id}:2026-04-27`]);
+  await assert.rejects(runner.trigger(waiting, 'by-hand'), /Background capacity is full\./);
+
+  started[0].resolve({ status: 'completed', text: 'ok' });
+  for (let wait = 0; runner.jobs.size > 15 && wait < 200; wait++) await new Promise(resolve => setTimeout(resolve, 5));
+  await runner.tick();
+  await settled(17);
+  assert.equal(started.length, 17, 'a place that frees takes the one that waited');
+  assert.equal(h.runtime.data.runs[`${waiting}:2026-04-27`].status, 'running');
+
+  const home = await realpath(await mkdtemp(join(tmpdir(), 'hobkin-limits-')));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const saved = initialize(home, { cwd: home, now: '2026-01-01T00:00:00Z' });
+  assert.equal(validateConfig({ ...saved, concurrency: 4 }).concurrency, 4, 'a home that saved the old most keeps it');
+  assert.equal(validateConfig({ ...saved, concurrency: 16 }).concurrency, 16);
+  assert.throws(() => validateConfig({ ...saved, concurrency: 17 }), /execution limits/);
 });
 
 test('steering receipts require the exact completed user body and run, before or after ACK', { timeout: 2000 }, async t => {
