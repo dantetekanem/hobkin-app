@@ -1,6 +1,7 @@
 import { memo, type ComponentProps } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { splitErrorDetails } from './report.ts'
 
 /**
  * A report's Markdown, set for reading. What a run wrote is never markup of ours: raw HTML shows as the text it
@@ -17,6 +18,9 @@ const styled =
     const Element = Tag as React.ElementType
     return <Element {...props} className={given ? `${given} ${className}` : className} />
   }
+
+const PRE =
+  'my-4 overflow-x-auto rounded-2xl bg-code-bg px-4 py-3 font-mono text-[13px] leading-[1.7] text-code-text [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[13px]'
 
 const LINK = 'underline decoration-border-strong underline-offset-[3px] transition-colors duration-[160ms] ease-[ease] hover:decoration-foreground'
 
@@ -35,10 +39,7 @@ const components: Components = {
   em: styled('em', 'italic'),
   // Inline code. Inside a block, `pre` takes the look over.
   code: styled('code', 'rounded-md bg-surface-2 px-1 py-0.5 font-mono text-[0.86em]'),
-  pre: styled(
-    'pre',
-    'my-4 overflow-x-auto rounded-2xl bg-code-bg px-4 py-3 font-mono text-[13px] leading-[1.7] text-code-text [&_code]:bg-transparent [&_code]:p-0 [&_code]:text-[13px]',
-  ),
+  pre: styled('pre', PRE),
   th: styled('th', 'border-b border-border-strong px-3 py-2 text-left font-heading text-[13px] font-semibold first:pl-0'),
   td: styled('td', 'border-b border-border px-3 py-2 align-top tabular-nums first:pl-0'),
   // A wide table scrolls by itself and never widens the reader.
@@ -58,10 +59,20 @@ const components: Components = {
 
 const plugins = [remarkGfm]
 
+/** A failed run's raw error, which hobkin collapses at the end of its report, stays folded under "Error details" as plain text. */
 export const ReportMarkdown = memo(function ReportMarkdown({ text }: { text: string }) {
+  const { markdown, errorDetails } = splitErrorDetails(text)
   return (
-    <ReactMarkdown remarkPlugins={plugins} components={components}>
-      {text}
-    </ReactMarkdown>
+    <>
+      <ReactMarkdown remarkPlugins={plugins} components={components}>
+        {markdown}
+      </ReactMarkdown>
+      {errorDetails === null ? null : (
+        <details className="my-4">
+          <summary className="cursor-pointer text-sm text-muted-foreground">Error details</summary>
+          <pre className={PRE}>{errorDetails}</pre>
+        </details>
+      )}
+    </>
   )
 })
