@@ -61,3 +61,8 @@ declare module 'hobkin/src/cli/work/proofs.mjs' {
     change: { slug: string; head: string; specs: readonly { spec: string; sha256: string; changed?: boolean }[] },
   ): { spec: string; state: 'holds' | 'broken' | 'unproven' | 'unchecked'; run?: string; why?: string; line?: string; changed?: boolean }[]
 }
+
+declare module 'hobkin/src/cli/work/controls.mjs' {
+  /** Why work mode starts nothing on a project now, in hobkin's words: "work mode is off", "shop is paused". Null while it runs. */
+  export function whyProjectWaits(root: string, project: { slug: string; name?: string; [key: string]: unknown }, now?: number): string | null
+}

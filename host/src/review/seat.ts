@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { paths, readItems, readProject, readProjects } from 'hobkin/src/cli/work/store.mjs'
 import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
+import { whyProjectWaits } from 'hobkin/src/cli/work/controls.mjs'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
 import type { GrammarAsk } from '#shared/review/grammar.ts'
@@ -29,6 +30,7 @@ import { peopleFinder, pullPeople } from './people.ts'
 import type { GhCall } from './gh.ts'
 import { pullCheckout, pullRefs, type PullTarget, type Say } from './pull-checkout.ts'
 import { Reviews, type Watched } from './reviews.ts'
+import type { RiskWork } from './risk-fix.ts'
 import { sampleReviewSource } from './sample-source.ts'
 import { gitPublisher } from './publish.ts'
 import { changeSource, pullSource } from './sources.ts'
@@ -60,6 +62,10 @@ export interface ReviewSeat {
 }
 
 const finishedIn = (work: WorkState | null): FinishedChange[] => (work?.finished ?? []).flatMap((group) => group.changes)
+
+/** Item states in which hobkin's work on an item is back in the queue or running (`runnableStates` in hobkin's store), and those of finished work. */
+const WORKING = ['open', 'doing', 'stuck']
+const FINISHED = ['branch', 'pr']
 
 /** The folders hobkin keeps its projects in: the one each was chosen from, or hobkin's own copy of it. */
 const projectFolders = (data: string) => readProjects(data).map((project) => project.path ?? paths(data, project.slug).clone)
@@ -174,6 +180,16 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     const at = item.mergeWhenFresh?.at
     return { state: 'refreshing', ...(at ? { at } : {}), ...(branch ? { into: branch } : {}), message: `An agent is bringing it up to date with ${branch ?? 'its default branch'}, and hobkin merges it once that run ends well.` }
   }
+  /** Where hobkin's own work on a finished change stands, for what hobkin does when its AI review says risky (spec 032, A37). */
+  const ownWork = (target: Extract<ReviewTarget, { kind: 'change' }>): RiskWork | null => {
+    const data = seat.data()
+    const project = readProject(data, target.slug)
+    const item = readItems(data, target.slug).find((entry) => entry.id === target.item)
+    if (!project || !item) return null
+    const change = find(target.slug, target.item)
+    const at = WORKING.includes(item.state) ? 'working' : FINISHED.includes(item.state) ? 'finished' : 'over'
+    return { at, head: change?.head ?? null, left: change?.left ?? null, held: whyProjectWaits(data, project) }
+  }
   // A pull request is reviewed on this Mac: in the user's clone of its repository, else in a clone of hobkin's own.
   const checkout = seat.gh ? pullCheckout({ root: seat.root, folders: () => projectFolders(seat.data()), gh: seat.gh, credentialHelper: ghCredentialHelper(), hostOf: hosts.hostOf }) : undefined
   // The change review of each finished change and each pull request asked for (spec 032): their own tests run in a
@@ -199,15 +215,19 @@ export function hostReviews(seat: ReviewSeat): Reviews {
           const about = describe(target)
           const named = target.kind === 'change' ? { title: target.item, project: target.slug } : { title: `#${target.number}`, project: `${target.owner}/${target.repo}` }
           void tell?.({ id: reviewIdOf(target), kind: target.kind, title: request?.title ?? about?.title ?? named.title, project: request?.project ?? about?.project ?? named.project, head, at: summary.at, summary })
+          // Risky on hobkin's own change: an agent goes back to make it safe, or the user hears what is left (A37, A38).
+          void reviews.settleRisk(reviewIdOf(target))
         },
         log: seat.log,
       })
     : undefined
   const store = reviewStore(seat.root)
-  return new Reviews({
+  const reviews: Reviews = new Reviews({
     ...(assessments ? { assessments } : {}),
     describe,
     landing,
+    // Only a live host sends hobkin's agent back to a change its AI review found risky, as only a live host reviews.
+    ...(seat.live ? { ownWork } : {}),
     // What moved on a pull request since its review: read from its checkout, fetching its new head first when needed.
     ...(checkout ? { pullMoved: async (target: PullTarget, from: string, to: string) => movedSince({ repo: await checkout.repoFor(target, to), from, to, tip: pullRefs(target).base }) } : {}),
     // A yes merges a change that merges cleanly straight away, whatever its card would do, at the commit its branch is at.
@@ -279,6 +299,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     },
     log: seat.log,
   })
+  return reviews
 }
 
 /** The quick tier, as the grammar check asks it: the model the blind check runs on. */

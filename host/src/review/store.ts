@@ -9,6 +9,7 @@ import { reviewFolder, targetOfReviewFolder, type ReviewTarget } from '#shared/r
 import type { NoteEntry } from '#shared/review/notes.ts'
 import type { MergeAsked, PullOwner } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
+import { NO_RISK_RECORD, type RiskRecord } from './risk-fix.ts'
 
 /** The reviewer's notes, sent and not, and the note they were writing. */
 export interface NotesFile {
@@ -68,6 +69,9 @@ export interface ReviewStore {
   /** When the user's yes merged it, as an ISO time, or null. A merged review is kept and leaves the list of reviews. */
   landedAt(target: ReviewTarget): string | null
   saveLanded(target: ReviewTarget, at: string | null): void
+  /** What hobkin did about the change's risky answers: the agents it sent back, the commits the user answered, and whether it waits on them. */
+  riskFix(target: ReviewTarget): RiskRecord
+  saveRiskFix(target: ReviewTarget, record: RiskRecord): void
 }
 
 const short = (head: string) => head.slice(0, 12)
@@ -182,6 +186,19 @@ export function reviewStore(root: string): ReviewStore {
       if (!at) return rmSync(join(folder, 'landed.json'), { force: true })
       mkdirSync(folder, { recursive: true, mode: 0o700 })
       writeWhole(join(folder, 'landed.json'), JSON.stringify({ at }))
+    },
+    riskFix(target) {
+      const saved = readJson<Partial<RiskRecord>>(join(folderOf(target), 'risk-fix.json'))
+      if (!saved) return NO_RISK_RECORD
+      const heads = (list: unknown) => (Array.isArray(list) ? list.filter((head): head is string => typeof head === 'string') : [])
+      const rounds = Array.isArray(saved.rounds) ? saved.rounds.filter((round) => typeof round?.head === 'string' && typeof round.at === 'string') : []
+      const waiting = typeof saved.waiting?.head === 'string' ? saved.waiting : null
+      return { rounds, answered: heads(saved.answered), waiting }
+    },
+    saveRiskFix(target, record) {
+      const folder = folderOf(target)
+      mkdirSync(folder, { recursive: true, mode: 0o700 })
+      writeWhole(join(folder, 'risk-fix.json'), JSON.stringify(record))
     },
     remove(target) {
       const folder = folderOf(target)

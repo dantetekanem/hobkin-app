@@ -13,7 +13,7 @@ import { CLIENT_PRODUCER_VERSION } from '../producer-version.ts'
 import { completeReview, draftReview } from '#shared/review/prepare.ts'
 import { reviewIdOf, targetOfReviewId, type NamedCodeHost, type ReviewTarget } from '#shared/review/ids.ts'
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
-import type { AssessmentLogLine, AssessmentRequest, AssessmentStatus } from '#shared/review/assessment.ts'
+import { deployOf, deployWhy, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus } from '#shared/review/assessment.ts'
 import { count } from '#shared/review/prose.ts'
 import { IDLE_STATUS, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewPeople, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
@@ -25,6 +25,8 @@ import { Unavailable } from '../commands.ts'
 import { LOG_LINES, pendingSteps, type Assessments } from './assessment.ts'
 import { ghText, type GhCall } from './gh.ts'
 import type { MergePlan, Moved } from './landing.ts'
+import { fixBrief } from '../../../packages/change-review/src/fix.ts'
+import { riskShown, riskStep, type RiskWork } from './risk-fix.ts'
 import type { ReviewSource } from './sources.ts'
 import type { Prepared, ReviewStore } from './store.ts'
 
@@ -124,6 +126,12 @@ export interface ReviewsOptions {
   merging?: (target: ChangeTarget, change: { reviewed: string; current: string; pr: boolean }) => Promise<MergePlan>
   /** What moved on a pull request since the commit its review read, from a checkout of it. Without it, only that it moved is said. */
   pullMoved?: (target: PullTarget, from: string, to: string) => Promise<Moved>
+  /**
+   * Where hobkin's own work on a finished change stands, for what hobkin does when its AI review says risky to deploy
+   * (A37 to A39): back at work, finished at a commit with what its run left for the user, or over, and why work mode
+   * starts nothing on its project now. A host given none sends no agent back by itself.
+   */
+  ownWork?: (target: ChangeTarget) => RiskWork | null
 }
 
 /** A pull request, as a review target. */
@@ -401,6 +409,10 @@ export class Reviews {
   private readonly posted = new Set<string>()
   /** The grammar check of each set of words, so a confirmation and its yes post the same words, checked once. */
   private readonly grammared = new Map<string, Promise<GrammarResult>>()
+  /** What hobkin is doing about a risky answer on each change, while it asks hobkin: one at a time for a change. */
+  private readonly settling = new Map<string, Promise<'done' | 'later'>>()
+  /** The commit each finished change was last looked at for a risky answer, and when: done looks are not repeated, others after a minute. */
+  private readonly riskLooked = new Map<string, { head: string; at: number }>()
   private readonly options: ReviewsOptions
 
   constructor(options: ReviewsOptions) {
@@ -458,7 +470,7 @@ export class Reviews {
   private assessmentOf(id: string, target: ReviewTarget, head: string | null): AssessmentStatus | undefined {
     const { assessments } = this.options
     if (!assessments) return undefined
-    const known = assessments.status(target, head)
+    const known = this.withFix(target, assessments.status(target, head))
     const run = this.runs.get(id)
     if (!run || known.state === 'queued' || known.state === 'running' || (head && run.head && run.head !== head)) return known
     const preparing = this.preparing(id)
@@ -466,6 +478,110 @@ export class Reviews {
     const shared = { head: run.head ?? head, startedAt: run.startedAt, ...(run.request ? { request: run.request } : {}), log: [...run.lines] }
     if (!preparing) return { state: 'failed', ...shared, error: run.error }
     return { state: 'queued', ...shared, percent: 0, eta: null, now: run.lines.at(-1)?.text ?? 'Waiting for its turn.', steps: pendingSteps() }
+  }
+
+  /** Where hobkin's own work on a finished change stands, or null for a pull request, a host that cannot say, or a read that failed. */
+  private ownWorkOf(target: ReviewTarget): RiskWork | null {
+    if (target.kind !== 'change' || !this.options.ownWork) return null
+    try {
+      return this.options.ownWork(target)
+    } catch (error) {
+      this.options.log?.(`Review ${reviewIdOf(target)} could not read hobkin's work on it: ${messageOf(error)}`)
+      return null
+    }
+  }
+
+  /** A ready answer of risky to deploy on hobkin's own change, with what hobkin does about it (A39). Anything else as it is. */
+  private withFix(target: ReviewTarget, known: AssessmentStatus): AssessmentStatus {
+    if (known.state !== 'ready' || !known.summary || !known.head || deployOf(known.summary) !== 'risky') return known
+    const work = this.ownWorkOf(target)
+    const fix = work && riskShown(this.options.store.riskFix(target), known.head, work)
+    return fix ? { ...known, fix } : known
+  }
+
+  /**
+   * Sends hobkin's agent back to its own finished change whose AI review at the commit its card is at says risky to
+   * deploy, with what the review found, or leaves the change to the user once hobkin has done what it may (A37, A38).
+   * A pull request is never sent back. Called when a review finishes, and by the background as the host publishes its
+   * state, so a restart, a hobkin that was not open and work mode running again each send what waited. One at a time
+   * for a change. Never throws: what hobkin refuses is logged, and tried again later.
+   */
+  async settleRisk(id: string): Promise<void> {
+    await this.riskTurn(id)
+  }
+
+  /** Waits for every look at a risky answer under way. For tests and for closing. */
+  async settledRisk(): Promise<void> {
+    while (this.settling.size) await Promise.all([...this.settling.values()])
+  }
+
+  /** One look at a change's risky answer: `done` when nothing is left to try at this commit, `later` when something should be tried again. */
+  private riskTurn(id: string): Promise<'done' | 'later'> {
+    const under = this.settling.get(id)
+    if (under) return under
+    const turn = this.riskLook(id).finally(() => this.settling.delete(id))
+    this.settling.set(id, turn)
+    return turn
+  }
+
+  private async riskLook(id: string): Promise<'done' | 'later'> {
+    const target = targetOfReviewId(id)
+    const { assessments, store } = this.options
+    if (target?.kind !== 'change' || !assessments || !this.options.ownWork || this.closedOn(target) || this.landingOf(target)) return 'done'
+    const work = this.ownWorkOf(target)
+    const head = work?.head
+    if (!work || !head) return 'later'
+    const known = assessments.status(target, head)
+    if (known.state !== 'ready' || !known.summary || deployOf(known.summary) !== 'risky') return 'done'
+    const record = store.riskFix(target)
+    const step = riskStep(record, head, work)
+    // Work mode starts nothing on its project now: what would go, goes once it runs.
+    if (!step) return work.held ? 'later' : 'done'
+    const findings = fixBrief(assessments.read(target, head)?.units ?? { units: [] }) ?? deployWhy(known.summary)
+    const at = new Date(this.now()).toISOString()
+    try {
+      if (step.do === 'send') {
+        await this.options.work().workAction('fixRisk', target.slug, target.item, { head, findings })
+        store.saveRiskFix(target, { ...store.riskFix(target), rounds: [...record.rounds, { head, at }] })
+      } else {
+        const answer = (await this.options.work().workAction('riskStays', target.slug, target.item, { head, rounds: record.rounds.length, why: step.why, findings })) as { action?: unknown } | null
+        const action = typeof answer?.action === 'string' ? answer.action : null
+        store.saveRiskFix(target, { ...store.riskFix(target), waiting: { head, at, why: step.why, action } })
+      }
+    } catch (error) {
+      this.options.log?.(`Review ${id}: hobkin did not ${step.do === 'send' ? 'send an agent back to make it safe' : 'leave it to you'}: ${messageOf(error)}`)
+      return 'later'
+    }
+    this.options.onChange?.()
+    return 'done'
+  }
+
+  /**
+   * The background's look at the risky answers of the finished changes on Work: each change once for each commit its
+   * card is at, and again a minute later while something stopped it, as hobkin not being open or work mode starting
+   * nothing. A change that leaves Work, as when an agent goes back to it, is looked at afresh when it comes back.
+   */
+  private watchRisk(wanted: readonly Watched[]) {
+    if (!this.options.ownWork || !this.options.assessments) return
+    const now = this.now()
+    const shown = new Set(wanted.map(({ id }) => id))
+    for (const id of this.riskLooked.keys()) if (!shown.has(id)) this.riskLooked.delete(id)
+    for (const { id, head } of wanted) {
+      if (!head || !id.startsWith('change:')) continue
+      const looked = this.riskLooked.get(id)
+      if (looked?.head === head && now - looked.at < LOOK_AGAIN_MS) continue
+      this.riskLooked.set(id, { head, at: now })
+      void this.riskTurn(id).then((done) => {
+        if (done === 'done' && this.riskLooked.get(id)?.head === head) this.riskLooked.set(id, { head, at: Number.POSITIVE_INFINITY })
+      })
+    }
+  }
+
+  /** The user gave a verdict on this commit of hobkin's own change: hobkin sends no agent back to it by itself (A37). */
+  private answered(target: ReviewTarget, head: string) {
+    if (target.kind !== 'change') return
+    const record = this.options.store.riskFix(target)
+    if (!record.answered.includes(head)) this.options.store.saveRiskFix(target, { ...record, answered: [...record.answered, head] })
   }
 
   /**
@@ -1307,7 +1423,11 @@ export class Reviews {
     const done = this.decide(id, verdict, summary, confirm, head)
     this.deciding.set(key, { confirm, done })
     try {
-      return await done
+      const said = await done
+      // The user's word on this commit of hobkin's own change: hobkin sends nothing of its own for it.
+      const target = this.target(id)
+      if (target.kind === 'change') this.answered(target, this.loaded(id).review.change.head)
+      return said
     } finally {
       this.deciding.delete(key)
     }
@@ -1565,6 +1685,7 @@ export class Reviews {
     } catch (error) {
       this.options.log?.(`Reviews: stopping the reviews of merged changes failed: ${messageOf(error)}`)
     }
+    this.watchRisk(wanted)
     for (const { id, head = null, updatedAt = null } of wanted) {
       if (this.queue.length + this.running.size >= limit) return
       const version = `${head ?? ''}@${updatedAt ?? ''}`

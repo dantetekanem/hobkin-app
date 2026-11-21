@@ -112,6 +112,46 @@ export interface AssessmentStatus {
   steps?: { id: string; status: string; done: number; total: number; seconds: number | null; note?: string }[]
   summary?: AssessmentSummary
   error?: string
+  /** For a ready review of hobkin's own change that says risky to deploy: what hobkin does about it. */
+  fix?: RiskFix
+}
+
+/**
+ * What hobkin does when the AI review of its own finished change says risky to deploy (spec 032, A37 to A39).
+ * `fixing`: an agent of hobkin's is making it safe, or goes to it once work mode runs again (`held`). `fixed`: that
+ * agent moved the change to a newer commit, which has a review of its own. `waiting`: hobkin stopped, and the change
+ * is the user's: after its rounds, after a round that left it as it was, or because its agent left a step only the user
+ * can take.
+ */
+export interface RiskFix {
+  state: 'fixing' | 'fixed' | 'waiting'
+  /** The round it is on, or the last one sent, from 1. 0 when none was sent. */
+  round: number
+  /** The most rounds hobkin sends to one change. */
+  rounds: number
+  /** Why nothing starts now, in hobkin's words: "work mode is off", "shop is paused". */
+  held?: string
+  why?: 'rounds' | 'unchanged' | 'left'
+  /** The Action Item that says what the user must do, by its id, once hobkin filed it. */
+  action?: string
+}
+
+const roundOf = ({ round, rounds }: RiskFix) => `round ${Math.max(1, round)} of ${rounds}`
+
+/** What hobkin is doing about a risky answer, in a sentence: "hobkin is fixing it (round 1 of 2)." */
+export function riskFixWords(fix: RiskFix): string {
+  if (fix.state === 'fixing') return fix.held ? `Nothing starts while ${fix.held}: hobkin fixes it after that (${roundOf(fix)}).` : `hobkin is fixing it (${roundOf(fix)}).`
+  if (fix.state === 'fixed') return `hobkin's fix is in a newer commit, which gets its own review (${roundOf(fix)}).`
+  if (fix.why === 'left') return "Waiting on you: hobkin's agent left a step only you can take."
+  if (fix.why === 'unchanged') return "Still risky: hobkin's fix left it as it was. Waiting on you."
+  return `Still risky after ${fix.rounds} rounds: waiting on you.`
+}
+
+/** The same, short enough for a card's badge: "Risky: hobkin is fixing it". */
+export function riskFixLabel(fix: RiskFix): string {
+  if (fix.state === 'fixing') return fix.held ? 'Risky: fix waits for work mode' : 'Risky: hobkin is fixing it'
+  if (fix.state === 'fixed') return 'Risky: fixed in a newer commit'
+  return fix.why === 'rounds' ? `Still risky after ${fix.rounds} rounds` : 'Still risky: waiting on you'
 }
 
 /** A finished change review, for the Review screen to show first. */
