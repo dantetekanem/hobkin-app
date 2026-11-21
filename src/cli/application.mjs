@@ -50,7 +50,7 @@ import { prView } from './work/reads.mjs';
 import { LandOffers, lastOfferAt, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { fileFirstPair } from './work/pairs.mjs';
 import { stalled } from './checks.mjs';
-import { fileDecision, findDecision, findOpenDecision, markShown, openDecisions, QUESTION_WAIT_MS } from './decisions.mjs';
+import { fileDecision, findDecision, findOpenDecision, markShown, openDecisions, QUESTION_WAIT_MS, waitingDecisions } from './decisions.mjs';
 import { isPresent } from './pending.mjs';
 import { readPending, readWaiting } from './pending-read.mjs';
 import { arrivedCount, arrivedSince, asksForBrief, BRIEF_BAR, briefMaterial, briefNote, briefSince, offerLine, readBriefState, returnedSince, seenMoved, withoutBriefNote, writeBriefState } from './brief.mjs';
@@ -691,7 +691,7 @@ export class HobkinApplication {
       reportAttention: this.telemetry.attention(runs.filter(run => !run.hobkin), this.now()),
       work,
       hobkins: hobkinSummaries(state),
-      decisions: openDecisions(this.runtime.directory),
+      decisions: waitingDecisions(this.runtime.directory),
       waiting: this.waitingNow(visible.reports),
       wins: this.winsToday(),
       connection: 'connected',
@@ -896,7 +896,7 @@ export class HobkinApplication {
     const root = this.runtime.directory;
     const watched = {
       work: workStatus(root, this.director.outlook()),
-      decisions: openDecisions(root),
+      decisions: waitingDecisions(root),
       learning: learningEnabled(root),
       // At least once a minute, for whatever else in the dashboard moves with the clock alone.
       minute: Math.floor(this.now() / 60_000),
@@ -1167,7 +1167,7 @@ export class HobkinApplication {
     const result = await carryOutAnswer(root, id, { value }, this.now());
     // A question the main agent asked and the user put off is answered here, and the main agent hears the choice in Chat, as if said there.
     if (answerTo?.kind === 'chat') this.tellMain(decision, choice.label);
-    // Doing it with hobkin hands the item to the main agent in Chat, and it stays in Action Items until it is done.
+    // Doing it with hobkin hands the item to the main agent in Chat, and it leaves Action Items. The main agent closes it once it is done.
     if (result.handOff) {
       this.showRow?.({ tab: 'chat' });
       const { tldr, question, why, links = [], from, at, answerTo } = result.handOff;
@@ -1303,7 +1303,7 @@ export class HobkinApplication {
   /** The offer for a return, or none when too little came in while the user was away. */
   offerAfter(root, since, now) {
     const arrived = arrivedSince({
-      decisions: openDecisions(root),
+      decisions: waitingDecisions(root),
       reports: this.snapshot.reports ?? [],
       read: readReportIds(root),
       since,
@@ -1322,7 +1322,7 @@ export class HobkinApplication {
       const material = briefMaterial({
         since: briefSince(readBriefState(root), now),
         now,
-        decisions: openDecisions(root),
+        decisions: waitingDecisions(root),
         reports,
         read: readReportIds(root),
         waiting: readPending(root, { now, reports }),

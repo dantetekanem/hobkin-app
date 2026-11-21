@@ -55,13 +55,13 @@ export async function carryOutAnswer(root, id, { value = null, typed = null } = 
   // A routine's action item tells that routine. One YOLO readiness filed names no routine, and its next check reads the answer itself.
   if (answerTo?.kind === 'action' && answerTo.id) noteForCheck(root, answerTo.id, `The user answered the action item "${decision.tldr}": ${choice?.label ?? words}.`);
   if (answerTo?.kind === 'outside') handAnswer(root, { from, question, answer: words ?? choice.label }, now);
-  // Doing it with hobkin keeps an action item open while the main agent helps, so it is handed on, not answered.
+  // Doing it with hobkin keeps an action item open while the main agent helps, so it is handed on, not answered. It no longer waits on the user.
   const asked = words ? null : ROUTINE_ASKS[value];
   if (!words && value === 'hobkin' && isActionItem(decision)) {
-    if (decision.handedAt) return { ok: true, message: 'hobkin already has it. Mark it done here once it is.' };
+    if (decision.handedAt) return { ok: true, message: 'hobkin already has it in Chat.' };
     handDecision(root, id, now);
     recordEvent(root, 'action_handed', { id, routine: answerTo?.id }, now);
-    return { ok: true, handOff: decision, message: 'The main agent takes it in Chat, and it stays in Action Items until it is done.' };
+    return { ok: true, handOff: decision, message: 'The main agent takes it in Chat, and it leaves Action Items.' };
   }
   if (words) await holdWhileTheyAct(root, decision, now);
   const came = words ? null : await carryOutChoice(root, decision, value, now);

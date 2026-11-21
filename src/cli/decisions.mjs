@@ -66,8 +66,11 @@ function readAll(root) {
   return [...byId.values()];
 }
 
-/** What still waits for the user, oldest first. */
+/** What is still open, oldest first, including what the user handed to the main agent. */
 export const openDecisions = root => readAll(root).filter(({ answer }) => answer === undefined);
+
+/** What waits on the user: open, less what they handed to the main agent, which closes it once it is done. */
+export const waitingDecisions = root => openDecisions(root).filter(({ handedAt }) => !handedAt);
 
 /** When hobkin last filed a decision of this kind, answered or not. A quiet between them that lives here survives a restart. */
 export function lastFiledAt(root, kind) {
@@ -156,7 +159,7 @@ function linkReports(root, id, reports, evidence, now) {
   return { ok: true, id, message: 'Linked report calls; the action and its answer are unchanged.' };
 }
 
-/** What the user can do with something a routine found for them to do. With hobkin, it stays open until one of the other two. */
+/** What the user can do with something a routine found for them to do. With hobkin, it leaves Action Items and stays open until the main agent closes it. */
 export const ACTION_CHOICES = [
   { value: 'done', label: 'Done' },
   { value: 'hobkin', label: 'Do it with hobkin' },

@@ -1993,7 +1993,7 @@ test('a learning proposal answered in Action Items is recorded at once, and a ye
   }
 });
 
-test('an action item done or turned down closes, and its routine hears, while doing it with hobkin keeps it open and hands it to the main agent', async t => {
+test('an action item done or turned down closes, and its routine hears, while doing it with hobkin hands it to the main agent and takes it off what waits on the user', async t => {
   const h = fixture(t);
   const filed = title => fileActionItem(h.root, { key: title, from: 'Routine quality', title, detail: `${title}, on the payments dashboard.`, answerTo: { kind: 'action', id: 'quality' }, links: [{ label: 'Dashboard', url: 'https://example.com/d' }] }).id;
   const [done, dropped, helped] = ['Count failed retries', 'Alert on refunds', 'Graph the queue'].map(filed);
@@ -2007,12 +2007,13 @@ test('an action item done or turned down closes, and its routine hears, while do
     await app.outgoing;
     await app.runtime.idle();
 
-    assert.match(handed.message, /stays in Action Items/);
+    assert.match(handed.message, /leaves Action Items/);
     assert.match(again.message, /already has it/);
     assert.equal(app.runtime.messages().filter(message => message.role === 'user').length, 1, 'a second press sends nothing more');
     const [open, ...rest] = openDecisions(h.root);
     assert.deepEqual([open.id, rest], [helped, []]);
     assert.ok(open.handedAt);
+    assert.deepEqual((await app.refresh()).decisions, [], 'it waits on hobkin now, not on the user');
     const sent = app.runtime.messages().find(message => message.role === 'user').content;
     assert.match(sent, /Routine quality: Graph the queue\nGraph the queue, on the payments dashboard\.\nDashboard: https:\/\/example\.com\/d/);
     assert.match(sent, new RegExp(`Action item ID: ${helped}`));
