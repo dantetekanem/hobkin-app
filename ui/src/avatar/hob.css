@@ -1,6 +1,11 @@
 /*
  * The hobkin character. Ported from ~/Poetry/hobkin/assets/animations/{light,dark}/*.svg,
  * with every class prefixed "hob-" so it cannot collide with the app's own names.
+ *
+ * A face is a stack of HTML boxes (Hob.tsx, Layer.tsx), each the art's square with one SVG in it. Everything that loops
+ * is a box, `.hob-layer`, which WebKit moves on the compositor; no endless animation is set on a part of an SVG (spec
+ * 052, A6, checked by scripts/perf/motion.ts). The art's square runs 256 units from -28, so a length of the art is a
+ * share of the box, one unit is 0.390625%, and a point of the art is an origin in the same shares (pets.ts, originAt).
  */
 
 .hob {
@@ -18,42 +23,9 @@
 @layer base {
   span.hob { width: var(--hob-size); height: var(--hob-size); }
 }
-span.hob { display: grid; grid-template: 100% / 100%; }
-span.hob > * { grid-area: 1 / 1; width: 100%; height: 100%; }
+span.hob, .hob-layer { display: grid; grid-template: 100% / 100%; }
+span.hob > *, .hob-layer > * { grid-area: 1 / 1; width: 100%; height: 100%; }
 .hob svg { overflow: visible; }
-
-/*
- * A small face (avatar/face-motion.ts) holds its parts in the mood's pose and moves its whole box in the mood's loop,
- * about where the pet stands, (100, 197.5) in the art's units. The box is the art's square, 256 units from -28, so a
- * length of the art is a share of the box: one unit is 0.390625%. A working face bobs a pixel.
- */
-.hob[data-whole] { transform-origin: 50% 88.0859375%; }
-.hob[data-whole='idle'] { animation: hob-breathe 3.2s ease-in-out infinite; }
-.hob[data-whole='hello'] { animation: hob-whole-hello 1s ease-in-out infinite; }
-.hob[data-whole='listening'] { animation: hob-lean 3s ease-in-out infinite; }
-.hob[data-whole='thinking'] { animation: hob-sway 3s ease-in-out infinite; }
-.hob[data-whole='searching'] { animation: hob-whole-slide 1.6s ease-in-out infinite; }
-.hob[data-whole='working'] { animation: hob-whole-bob 0.35s ease-in-out infinite; }
-.hob[data-whole='focused'] { animation: hob-breathe 5s ease-in-out infinite; }
-.hob[data-whole='happy'] { animation: hob-whole-hop 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob[data-whole='celebrating'] { animation: hob-whole-hop 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob[data-whole='love'] { animation: hob-sway 2.4s ease-in-out infinite; }
-.hob[data-whole='wink'] { animation: hob-tilt 2s ease-in-out infinite; }
-.hob[data-whole='surprised'] { animation: hob-whole-pop 2.4s ease-out infinite; }
-.hob[data-whole='confused'] { animation: hob-puzzle 2.4s ease-in-out infinite; }
-.hob[data-whole='sad'] { animation: hob-sad 4s ease-in-out infinite; }
-.hob[data-whole='grumpy'] { animation: hob-whole-tremble 0.18s linear infinite; }
-.hob[data-whole='error'] { animation: hob-whole-shake 1.6s ease-in-out infinite; }
-.hob[data-whole='dizzy'] { animation: hob-wobble 1.2s ease-in-out infinite; }
-.hob[data-whole='sleepy'] { animation: hob-sleep 4.5s ease-in-out infinite; }
-
-@keyframes hob-whole-hello { 0%, 100% { transform: rotate(3deg); } 50% { transform: rotate(5deg) translateY(-1.171875%); } }
-@keyframes hob-whole-slide { 0%, 100% { transform: translateX(-1.5625%); } 50% { transform: translateX(1.5625%); } }
-@keyframes hob-whole-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
-@keyframes hob-whole-hop { 0% { transform: translateY(0) scale(1.06, 0.94); } 30% { transform: translateY(-7.03125%) scale(0.96, 1.05); } 55% { transform: translateY(0) scale(1.08, 0.92); } 75%, 100% { transform: translateY(0) scale(1, 1); } }
-@keyframes hob-whole-pop { 0% { transform: scale(1, 1); } 8% { transform: translateY(-5.46875%) scale(0.94, 1.12); } 16% { transform: translateY(0) scale(1.05, 0.96); } 24%, 85% { transform: translateY(0) scale(1, 1.04); } 100% { transform: scale(1, 1); } }
-@keyframes hob-whole-tremble { 0%, 100% { transform: translateX(-0.5859375%); } 50% { transform: translateX(0.5859375%); } }
-@keyframes hob-whole-shake { 0%, 60%, 100% { transform: translateX(0); } 10%, 30%, 50% { transform: translateX(-2.34375%); } 20%, 40% { transform: translateX(2.34375%); } }
 
 .hob-fm { fill: var(--hob-mark); }
 .hob-fe { fill: var(--hob-eye); }
@@ -63,12 +35,8 @@ span.hob > * { grid-area: 1 / 1; width: 100%; height: 100%; }
 /* A part drawn over the body: filled like the body, outlined in the color behind it. */
 .hob-cut { fill: var(--hob-mark); stroke: var(--hob-stage); }
 
-.hob-body, .hob-look, .hob-blink, .hob-dot, .hob-z, .hob-hand, .hob-key, .hob-pulse, .hob-twinkle,
-.hob-spin, .hob-narrow, .hob-wavehand, .hob-qfloat, .hob-puff { transform-box: fill-box; }
-.hob-body { transform-origin: 50% 100%; }
-.hob-look, .hob-blink, .hob-pulse, .hob-twinkle, .hob-spin, .hob-narrow { transform-origin: 50% 50%; }
-.hob-wavehand { transform-origin: 20% 100%; }
-.hob-confetti { transform-box: view-box; transform-origin: 100px 46px; }
+/* The body turns and grows about where the pet stands, (100, 197.5). A small face's whole box does the same. */
+.hob-body, .hob[data-whole] { transform-origin: 50% 88.0859375%; }
 
 /* The eyes follow the pointer. The component sets this transform on the element itself. */
 .hob-follow { transition: transform 180ms ease-out; }
@@ -77,81 +45,85 @@ span.hob > * { grid-area: 1 / 1; width: 100%; height: 100%; }
 .hob-part { animation: hob-part-in 180ms var(--ease-out) both; }
 @keyframes hob-part-in { from { opacity: 0; } }
 
-.hob-m-idle { animation: hob-breathe 3.2s ease-in-out infinite; }
-.hob-m-hello { animation: hob-hello 1s ease-in-out infinite; }
-.hob-m-listening { animation: hob-lean 3s ease-in-out infinite; }
-.hob-m-thinking { animation: hob-sway 3s ease-in-out infinite; }
-.hob-m-searching { animation: hob-slide 1.6s ease-in-out infinite; }
-.hob-m-working { animation: hob-bob 0.35s ease-in-out infinite; }
-.hob-m-focused { animation: hob-breathe 5s ease-in-out infinite; }
-.hob-m-happy { animation: hob-hop 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-celebrating { animation: hob-hop 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-love { animation: hob-sway 2.4s ease-in-out infinite; }
-.hob-m-wink { animation: hob-tilt 2s ease-in-out infinite; }
-.hob-m-surprised { animation: hob-pop 2.4s ease-out infinite; }
-.hob-m-confused { animation: hob-puzzle 2.4s ease-in-out infinite; }
-.hob-m-sad { animation: hob-sad 4s ease-in-out infinite; }
-.hob-m-grumpy { animation: hob-tremble 0.18s linear infinite; }
-.hob-m-error { animation: hob-shake 1.6s ease-in-out infinite; }
-.hob-m-dizzy { animation: hob-wobble 1.2s ease-in-out infinite; }
-.hob-m-sleepy { animation: hob-sleep 4.5s ease-in-out infinite; }
+.hob-layer.hob-m-idle { animation: hob-breathe 3.2s ease-in-out infinite; }
+.hob-layer.hob-m-hello { animation: hob-hello 1s ease-in-out infinite; }
+.hob-layer.hob-m-listening { animation: hob-lean 3s ease-in-out infinite; }
+.hob-layer.hob-m-thinking { animation: hob-sway 3s ease-in-out infinite; }
+.hob-layer.hob-m-searching { animation: hob-slide 1.6s ease-in-out infinite; }
+.hob-layer.hob-m-working { animation: hob-bob 0.35s ease-in-out infinite; }
+.hob-layer.hob-m-focused { animation: hob-breathe 5s ease-in-out infinite; }
+.hob-layer.hob-m-happy { animation: hob-hop 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-layer.hob-m-celebrating { animation: hob-hop 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-layer.hob-m-love { animation: hob-sway 2.4s ease-in-out infinite; }
+.hob-layer.hob-m-wink { animation: hob-tilt 2s ease-in-out infinite; }
+.hob-layer.hob-m-surprised { animation: hob-pop 2.4s ease-out infinite; }
+.hob-layer.hob-m-confused { animation: hob-puzzle 2.4s ease-in-out infinite; }
+.hob-layer.hob-m-sad { animation: hob-sad 4s ease-in-out infinite; }
+.hob-layer.hob-m-grumpy { animation: hob-tremble 0.18s linear infinite; }
+.hob-layer.hob-m-error { animation: hob-shake 1.6s ease-in-out infinite; }
+.hob-layer.hob-m-dizzy { animation: hob-wobble 1.2s ease-in-out infinite; }
+.hob-layer.hob-m-sleepy { animation: hob-sleep 4.5s ease-in-out infinite; }
 
-.hob-l-up { animation: hob-lookup 3s ease-in-out infinite; }
-.hob-l-left { animation: hob-listen 2s ease-in-out infinite; }
-.hob-l-search { animation: hob-search 1.6s ease-in-out infinite; }
-.hob-l-type { animation: hob-typelook 1s ease-in-out infinite; }
-.hob-l-focus { transform: translate(0, 2px); }
-.hob-l-down { transform: translate(0, 6px); }
-.hob-l-big { animation: hob-big 2.4s ease-out infinite; }
+.hob-layer.hob-l-up { animation: hob-lookup 3s ease-in-out infinite; }
+.hob-layer.hob-l-left { animation: hob-listen 2s ease-in-out infinite; }
+.hob-layer.hob-l-search { animation: hob-search 1.6s ease-in-out infinite; }
+.hob-layer.hob-l-type { animation: hob-typelook 1s ease-in-out infinite; }
+.hob-layer.hob-l-focus { transform: translate(0, 0.78125%); }
+.hob-layer.hob-l-down { transform: translate(0, 2.34375%); }
+.hob-layer.hob-l-big { animation: hob-big 2.4s ease-out infinite; }
 
-.hob-b-on { animation: hob-blink 4s infinite; }
-.hob-b-slow { animation: hob-blink 6s infinite; }
+.hob-layer.hob-b-on { animation: hob-blink 4s infinite; }
+.hob-layer.hob-b-slow { animation: hob-blink 6s infinite; }
 
-.hob-pulse { animation: hob-beat 1s ease-in-out infinite; }
-.hob-twinkle { animation: hob-twinkle 1.2s ease-in-out infinite; }
-.hob-spin { animation: hob-spin 1.2s linear infinite; }
-.hob-narrow { animation: hob-narrow 3s ease-in-out infinite; }
-.hob-dot { animation: hob-fade 1.2s ease-in-out infinite; }
-.hob-d2 { animation-delay: 0.2s; }
-.hob-d3 { animation-delay: 0.4s; }
-.hob-z { opacity: 0; animation: hob-z 3s ease-out infinite; }
-.hob-z2 { animation-delay: 1s; }
-.hob-z3 { animation-delay: 2s; }
-.hob-hand { animation: hob-tap 0.5s ease-in-out infinite; }
-.hob-h2 { animation-delay: -0.25s; }
-.hob-key { opacity: 0; animation: hob-key 1s steps(1) infinite; }
-.hob-k2 { animation-delay: 0.25s; }
-.hob-k3 { animation-delay: 0.5s; }
-.hob-k4 { animation-delay: 0.75s; }
-.hob-wavehand { animation: hob-wave 0.6s ease-in-out infinite; }
-.hob-wl { animation: hob-fade 0.6s ease-in-out infinite; }
-.hob-snd { animation: hob-snd 1.5s ease-in-out infinite; }
-.hob-s2 { animation-delay: 0.2s; }
-.hob-s1 { animation-delay: 0.4s; }
-.hob-qfloat { animation: hob-qfloat 2.4s ease-in-out infinite; }
-.hob-confetti { animation: hob-burst 1.2s ease-out infinite; }
-.hob-puff { opacity: 0; animation: hob-puff 1.4s ease-out infinite; }
-.hob-p2 { animation-delay: 0.7s; }
+.hob-layer.hob-pulse { animation: hob-beat 1s ease-in-out infinite; }
+.hob-layer.hob-twinkle { animation: hob-twinkle 1.2s ease-in-out infinite; }
+.hob-layer.hob-spin { animation: hob-spin 1.2s linear infinite; }
+.hob-layer.hob-narrow { animation: hob-narrow 3s ease-in-out infinite; }
+.hob-layer.hob-dot { animation: hob-fade 1.2s ease-in-out infinite; }
+.hob-layer.hob-d2 { animation-delay: 0.2s; }
+.hob-layer.hob-d3 { animation-delay: 0.4s; }
+.hob-layer.hob-z { opacity: 0; animation: hob-z 3s ease-out infinite; }
+.hob-layer.hob-z2 { animation-delay: 1s; }
+.hob-layer.hob-z3 { animation-delay: 2s; }
+.hob-layer.hob-hand { animation: hob-tap 0.5s ease-in-out infinite; }
+.hob-layer.hob-h2 { animation-delay: -0.25s; }
+.hob-layer.hob-key { opacity: 0; animation: hob-key 1s steps(1) infinite; }
+.hob-layer.hob-k2 { animation-delay: 0.25s; }
+.hob-layer.hob-k3 { animation-delay: 0.5s; }
+.hob-layer.hob-k4 { animation-delay: 0.75s; }
+.hob-layer.hob-wavehand { animation: hob-wave 0.6s ease-in-out infinite; }
+.hob-layer.hob-wl { animation: hob-fade 0.6s ease-in-out infinite; }
+.hob-layer.hob-snd { animation: hob-snd 1.5s ease-in-out infinite; }
+.hob-layer.hob-s2 { animation-delay: 0.2s; }
+.hob-layer.hob-s1 { animation-delay: 0.4s; }
+.hob-layer.hob-qfloat { animation: hob-qfloat 2.4s ease-in-out infinite; }
+.hob-layer.hob-confetti { animation: hob-burst 1.2s ease-out infinite; }
+.hob-layer.hob-puff { opacity: 0; animation: hob-puff 1.4s ease-out infinite; }
+.hob-layer.hob-p2 { animation-delay: 0.7s; }
 
+/*
+ * Lengths are shares of the box: 3 units is 1.171875%. Every frame of a loop with a share lists the same functions,
+ * padded with a translate of 0: WebKit loses a share when it has to blend two different lists as matrices.
+ */
 @keyframes hob-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.02, 1.04); } }
-@keyframes hob-hello { 0%, 100% { transform: rotate(3deg); } 50% { transform: rotate(5deg) translateY(-3px); } }
+@keyframes hob-hello { 0%, 100% { transform: rotate(3deg) translateY(0); } 50% { transform: rotate(5deg) translateY(-1.171875%); } }
 @keyframes hob-lean { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(-5deg) scale(1.01, 1.03); } }
 @keyframes hob-sway { 0%, 100% { transform: rotate(-3deg); } 50% { transform: rotate(3deg); } }
-@keyframes hob-slide { 0%, 100% { transform: translateX(-4px); } 50% { transform: translateX(4px); } }
-@keyframes hob-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
-@keyframes hob-hop { 0% { transform: translateY(0) scale(1.06, 0.94); } 30% { transform: translateY(-18px) scale(0.96, 1.05); } 55% { transform: translateY(0) scale(1.08, 0.92); } 75%, 100% { transform: translateY(0) scale(1, 1); } }
+@keyframes hob-slide { 0%, 100% { transform: translateX(-1.5625%); } 50% { transform: translateX(1.5625%); } }
+@keyframes hob-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.171875%); } }
+@keyframes hob-hop { 0% { transform: translateY(0) scale(1.06, 0.94); } 30% { transform: translateY(-7.03125%) scale(0.96, 1.05); } 55% { transform: translateY(0) scale(1.08, 0.92); } 75%, 100% { transform: translateY(0) scale(1, 1); } }
 @keyframes hob-tilt { 0%, 100% { transform: rotate(0); } 30%, 70% { transform: rotate(6deg); } }
-@keyframes hob-pop { 0% { transform: scale(1, 1); } 8% { transform: translateY(-14px) scale(0.94, 1.12); } 16% { transform: translateY(0) scale(1.05, 0.96); } 24%, 85% { transform: translateY(0) scale(1, 1.04); } 100% { transform: scale(1, 1); } }
+@keyframes hob-pop { 0% { transform: translateY(0) scale(1, 1); } 8% { transform: translateY(-5.46875%) scale(0.94, 1.12); } 16% { transform: translateY(0) scale(1.05, 0.96); } 24%, 85% { transform: translateY(0) scale(1, 1.04); } 100% { transform: translateY(0) scale(1, 1); } }
 @keyframes hob-puzzle { 0%, 100% { transform: rotate(6deg); } 50% { transform: rotate(9deg); } }
 @keyframes hob-sad { 0%, 100% { transform: scale(1.04, 0.92); } 50% { transform: scale(1.05, 0.9); } }
-@keyframes hob-tremble { 0%, 100% { transform: translateX(-1.5px); } 50% { transform: translateX(1.5px); } }
-@keyframes hob-shake { 0%, 60%, 100% { transform: translateX(0); } 10%, 30%, 50% { transform: translateX(-6px); } 20%, 40% { transform: translateX(6px); } }
+@keyframes hob-tremble { 0%, 100% { transform: translateX(-0.5859375%); } 50% { transform: translateX(0.5859375%); } }
+@keyframes hob-shake { 0%, 60%, 100% { transform: translateX(0); } 10%, 30%, 50% { transform: translateX(-2.34375%); } 20%, 40% { transform: translateX(2.34375%); } }
 @keyframes hob-wobble { 0%, 100% { transform: rotate(-7deg); } 50% { transform: rotate(7deg); } }
 @keyframes hob-sleep { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.04, 1.06); } }
-@keyframes hob-lookup { 0%, 100% { transform: translate(5px, -6px); } 50% { transform: translate(8px, -8px); } }
-@keyframes hob-listen { 0%, 100% { transform: translate(-6px, -2px); } 50% { transform: translate(-8px, -4px); } }
-@keyframes hob-search { 0%, 100% { transform: translate(-12px, 0); } 50% { transform: translate(10px, 2px); } }
-@keyframes hob-typelook { 0%, 100% { transform: translate(-3px, 6px); } 50% { transform: translate(3px, 6px); } }
+@keyframes hob-lookup { 0%, 100% { transform: translate(1.953125%, -2.34375%); } 50% { transform: translate(3.125%, -3.125%); } }
+@keyframes hob-listen { 0%, 100% { transform: translate(-2.34375%, -0.78125%); } 50% { transform: translate(-3.125%, -1.5625%); } }
+@keyframes hob-search { 0%, 100% { transform: translate(-4.6875%, 0); } 50% { transform: translate(3.90625%, 0.78125%); } }
+@keyframes hob-typelook { 0%, 100% { transform: translate(-1.171875%, 2.34375%); } 50% { transform: translate(1.171875%, 2.34375%); } }
 @keyframes hob-big { 0% { transform: scale(1); } 10%, 85% { transform: scale(1.35); } 100% { transform: scale(1); } }
 @keyframes hob-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
 @keyframes hob-beat { 0%, 100% { transform: scale(1); } 15% { transform: scale(1.25); } 30% { transform: scale(1); } 45% { transform: scale(1.15); } }
@@ -159,54 +131,69 @@ span.hob > * { grid-area: 1 / 1; width: 100%; height: 100%; }
 @keyframes hob-spin { to { transform: rotate(360deg); } }
 @keyframes hob-narrow { 0%, 100% { transform: scaleY(1); } 50% { transform: scaleY(0.55); } }
 @keyframes hob-fade { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
-@keyframes hob-z { 0% { opacity: 0; transform: translate(0, 0); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(16px, -28px); } }
-@keyframes hob-tap { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+@keyframes hob-z { 0% { opacity: 0; transform: translate(0, 0); } 20% { opacity: 1; } 100% { opacity: 0; transform: translate(6.25%, -10.9375%); } }
+@keyframes hob-tap { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2.34375%); } }
 @keyframes hob-key { 0% { opacity: 1; } 20% { opacity: 0; } }
 @keyframes hob-wave { 0%, 100% { transform: rotate(-12deg); } 50% { transform: rotate(24deg); } }
 @keyframes hob-snd { 0%, 100% { opacity: 0.15; } 30% { opacity: 1; } }
-@keyframes hob-qfloat { 0%, 100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-6px) rotate(6deg); } }
+@keyframes hob-qfloat { 0%, 100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-2.34375%) rotate(6deg); } }
 @keyframes hob-burst { 0% { transform: scale(0.2); opacity: 0; } 15% { opacity: 1; } 70% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1.2); opacity: 0; } }
-@keyframes hob-puff { 0% { opacity: 0; transform: translate(0, 0) scale(0.6); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(0, -16px) scale(1.3); } }
+@keyframes hob-puff { 0% { opacity: 0; transform: translate(0, 0) scale(0.6); } 25% { opacity: 1; } 100% { opacity: 0; transform: translate(0, -6.25%) scale(1.3); } }
 
 /*
- * A pet's part (spec 047, avatar/pets.tsx): ears, an antenna or a sprout, drawn behind the body. Each piece turns
- * about its base, given in the art's units. A mood either poses it, and the change eases in, or loops it.
+ * A small face (avatar/face-motion.ts) holds its parts in the mood's pose and moves its whole box in the mood's loop.
+ * A working face bobs a pixel, where the body's bob would move it less than one.
+ */
+.hob[data-whole='idle'] { animation: hob-breathe 3.2s ease-in-out infinite; }
+.hob[data-whole='hello'] { animation: hob-hello 1s ease-in-out infinite; }
+.hob[data-whole='listening'] { animation: hob-lean 3s ease-in-out infinite; }
+.hob[data-whole='thinking'] { animation: hob-sway 3s ease-in-out infinite; }
+.hob[data-whole='searching'] { animation: hob-slide 1.6s ease-in-out infinite; }
+.hob[data-whole='working'] { animation: hob-whole-bob 0.35s ease-in-out infinite; }
+.hob[data-whole='focused'] { animation: hob-breathe 5s ease-in-out infinite; }
+.hob[data-whole='happy'] { animation: hob-hop 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob[data-whole='celebrating'] { animation: hob-hop 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob[data-whole='love'] { animation: hob-sway 2.4s ease-in-out infinite; }
+.hob[data-whole='wink'] { animation: hob-tilt 2s ease-in-out infinite; }
+.hob[data-whole='surprised'] { animation: hob-pop 2.4s ease-out infinite; }
+.hob[data-whole='confused'] { animation: hob-puzzle 2.4s ease-in-out infinite; }
+.hob[data-whole='sad'] { animation: hob-sad 4s ease-in-out infinite; }
+.hob[data-whole='grumpy'] { animation: hob-tremble 0.18s linear infinite; }
+.hob[data-whole='error'] { animation: hob-shake 1.6s ease-in-out infinite; }
+.hob[data-whole='dizzy'] { animation: hob-wobble 1.2s ease-in-out infinite; }
+.hob[data-whole='sleepy'] { animation: hob-sleep 4.5s ease-in-out infinite; }
+@keyframes hob-whole-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+
+/*
+ * A pet's part (spec 047, avatar/pets.ts): ears, an antenna or a sprout, drawn behind the body. Each piece turns
+ * about its base (PartShape.pivot, PART_PIVOT). A mood either poses it, and the change eases in, or loops it.
  * A pose stays when movement is still; only the loops stop.
  */
 .hob-ear, .hob-acc-antenna, .hob-acc-sprout, .hob-leaf {
-  transform-box: view-box;
   transition: transform 360ms cubic-bezier(0.3, 0.7, 0.4, 1);
 }
 .hob-bulb {
-  transform-box: fill-box;
-  transform-origin: 50% 50%;
   transition: transform 360ms cubic-bezier(0.3, 0.7, 0.4, 1), opacity 360ms ease;
 }
-.hob-ear-l { transform-origin: 74px 90px; }
-.hob-ear-r { transform-origin: 126px 90px; }
-.hob-acc-antenna { transform-origin: 100.5px 74px; }
-.hob-acc-sprout { transform-origin: 100px 72px; }
-.hob-leaf-r { transform-origin: 101px 52px; }
-.hob-leaf-l { transform-origin: 100px 56px; }
 
 /* Ears. A negative turn drops the left ear outward, a positive one the right. */
-.hob-m-idle .hob-ear-r { animation: hob-ear-flick 5s ease-in-out infinite; }
-.hob-m-hello .hob-ear-l { animation: hob-ear-wag-l 1s ease-in-out infinite; }
-.hob-m-hello .hob-ear-r { animation: hob-ear-wag-r 1s ease-in-out infinite; }
-.hob-m-listening .hob-ear-l { animation: hob-ear-listen 2s ease-in-out infinite; }
+.hob-m-idle .hob-layer.hob-ear-r { animation: hob-ear-flick 5s ease-in-out infinite; }
+.hob-m-hello .hob-layer.hob-ear-l { animation: hob-ear-wag-l 1s ease-in-out infinite; }
+.hob-m-hello .hob-layer.hob-ear-r { animation: hob-ear-wag-r 1s ease-in-out infinite; }
+.hob-m-listening .hob-layer.hob-ear-l { animation: hob-ear-listen 2s ease-in-out infinite; }
 .hob-m-listening .hob-ear-r { transform: rotate(4deg); }
 .hob-m-thinking .hob-ear-l { transform: rotate(-14deg); }
-.hob-m-searching .hob-ear { animation: hob-part-swivel 1.6s ease-in-out infinite; }
+.hob-m-searching .hob-layer.hob-ear { animation: hob-part-swivel 1.6s ease-in-out infinite; }
 .hob-m-working .hob-ear-l, .hob-m-focused .hob-ear-l { transform: rotate(-7deg); }
 .hob-m-working .hob-ear-r, .hob-m-focused .hob-ear-r { transform: rotate(7deg); }
-.hob-m-happy .hob-ear-l { animation: hob-ear-bounce-l 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-happy .hob-ear-r { animation: hob-ear-bounce-r 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-celebrating .hob-ear-l { animation: hob-ear-bounce-l 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-celebrating .hob-ear-r { animation: hob-ear-bounce-r 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-happy .hob-layer.hob-ear-l { animation: hob-ear-bounce-l 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-happy .hob-layer.hob-ear-r { animation: hob-ear-bounce-r 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-layer.hob-ear-l { animation: hob-ear-bounce-l 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-layer.hob-ear-r { animation: hob-ear-bounce-r 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
 .hob-m-love .hob-ear-l { transform: rotate(-8deg); }
 .hob-m-love .hob-ear-r { transform: rotate(8deg); }
-.hob-m-wink .hob-ear-r { animation: hob-ear-wink 2s ease-in-out infinite; }
-.hob-m-surprised .hob-ear { animation: hob-part-pop 2.4s ease-out infinite; }
+.hob-m-wink .hob-layer.hob-ear-r { animation: hob-ear-wink 2s ease-in-out infinite; }
+.hob-m-surprised .hob-layer.hob-ear { animation: hob-part-pop 2.4s ease-out infinite; }
 .hob-m-confused .hob-ear-l { transform: rotate(-26deg); }
 .hob-m-confused .hob-ear-r { transform: rotate(-4deg); }
 .hob-m-sad .hob-ear-l { transform: rotate(-40deg); }
@@ -215,55 +202,55 @@ span.hob > * { grid-area: 1 / 1; width: 100%; height: 100%; }
 .hob-m-grumpy .hob-ear-r { transform: rotate(48deg); }
 .hob-m-error .hob-ear-l { transform: rotate(-34deg); }
 .hob-m-error .hob-ear-r { transform: rotate(22deg); }
-.hob-m-dizzy .hob-ear-l { animation: hob-ear-dizzy-l 1.2s ease-in-out infinite; }
-.hob-m-dizzy .hob-ear-r { animation: hob-ear-dizzy-r 1.2s ease-in-out infinite; }
+.hob-m-dizzy .hob-layer.hob-ear-l { animation: hob-ear-dizzy-l 1.2s ease-in-out infinite; }
+.hob-m-dizzy .hob-layer.hob-ear-r { animation: hob-ear-dizzy-r 1.2s ease-in-out infinite; }
 .hob-m-sleepy .hob-ear-l { transform: rotate(-28deg); }
 .hob-m-sleepy .hob-ear-r { transform: rotate(28deg); }
 
 /* Antenna. The whole antenna turns about where it leaves the body; a positive turn drops the bulb to the right. */
-.hob-m-idle .hob-acc-antenna { animation: hob-part-sway 3.2s ease-in-out infinite; }
-.hob-m-hello .hob-acc-antenna { animation: hob-part-wobble 0.5s ease-in-out infinite; }
+.hob-m-idle .hob-layer.hob-acc-antenna { animation: hob-part-sway 3.2s ease-in-out infinite; }
+.hob-m-hello .hob-layer.hob-acc-antenna { animation: hob-part-wobble 0.5s ease-in-out infinite; }
 .hob-m-listening .hob-acc-antenna { transform: rotate(-10deg); }
-.hob-m-listening .hob-bulb { animation: hob-fade 1.5s ease-in-out infinite; }
+.hob-m-listening .hob-layer.hob-bulb { animation: hob-fade 1.5s ease-in-out infinite; }
 .hob-m-thinking .hob-acc-antenna { transform: rotate(-6deg); }
-.hob-m-thinking .hob-bulb { animation: hob-bulb-glow 1.2s ease-in-out infinite; }
-.hob-m-searching .hob-acc-antenna { animation: hob-part-swivel 1.6s ease-in-out infinite; }
-.hob-m-searching .hob-bulb { animation: hob-bulb-blink 0.8s steps(1) infinite; }
-.hob-m-working .hob-bulb { animation: hob-bulb-blink 0.5s steps(1) infinite; }
-.hob-m-focused .hob-bulb { animation: hob-bulb-glow 3s ease-in-out infinite; }
-.hob-m-happy .hob-acc-antenna { animation: hob-part-bounce 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-celebrating .hob-acc-antenna { animation: hob-part-bounce 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-celebrating .hob-bulb { animation: hob-bulb-glow 0.4s ease-in-out infinite; }
-.hob-m-love .hob-bulb { animation: hob-beat 1s ease-in-out infinite; }
-.hob-m-wink .hob-acc-antenna { animation: hob-tilt 2s ease-in-out infinite; }
-.hob-m-surprised .hob-bulb { animation: hob-bulb-pop 2.4s ease-out infinite; }
+.hob-m-thinking .hob-layer.hob-bulb { animation: hob-bulb-glow 1.2s ease-in-out infinite; }
+.hob-m-searching .hob-layer.hob-acc-antenna { animation: hob-part-swivel 1.6s ease-in-out infinite; }
+.hob-m-searching .hob-layer.hob-bulb { animation: hob-bulb-blink 0.8s steps(1) infinite; }
+.hob-m-working .hob-layer.hob-bulb { animation: hob-bulb-blink 0.5s steps(1) infinite; }
+.hob-m-focused .hob-layer.hob-bulb { animation: hob-bulb-glow 3s ease-in-out infinite; }
+.hob-m-happy .hob-layer.hob-acc-antenna { animation: hob-part-bounce 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-layer.hob-acc-antenna { animation: hob-part-bounce 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-layer.hob-bulb { animation: hob-bulb-glow 0.4s ease-in-out infinite; }
+.hob-m-love .hob-layer.hob-bulb { animation: hob-beat 1s ease-in-out infinite; }
+.hob-m-wink .hob-layer.hob-acc-antenna { animation: hob-tilt 2s ease-in-out infinite; }
+.hob-m-surprised .hob-layer.hob-bulb { animation: hob-bulb-pop 2.4s ease-out infinite; }
 .hob-m-confused .hob-acc-antenna { transform: rotate(-24deg); }
-.hob-m-confused .hob-bulb { animation: hob-fade 2.4s ease-in-out infinite; }
+.hob-m-confused .hob-layer.hob-bulb { animation: hob-fade 2.4s ease-in-out infinite; }
 .hob-m-sad .hob-acc-antenna { transform: rotate(42deg); }
 .hob-m-sad .hob-bulb { opacity: 0.5; }
 .hob-m-grumpy .hob-acc-antenna { transform: rotate(-4deg); }
-.hob-m-grumpy .hob-bulb { animation: hob-bulb-blink 0.36s steps(1) infinite; }
+.hob-m-grumpy .hob-layer.hob-bulb { animation: hob-bulb-blink 0.36s steps(1) infinite; }
 .hob-m-error .hob-acc-antenna { transform: rotate(28deg); }
-.hob-m-error .hob-bulb { animation: hob-bulb-blink 0.6s steps(1) infinite; }
-.hob-m-dizzy .hob-acc-antenna { animation: hob-part-dizzy 0.6s ease-in-out infinite; }
+.hob-m-error .hob-layer.hob-bulb { animation: hob-bulb-blink 0.6s steps(1) infinite; }
+.hob-m-dizzy .hob-layer.hob-acc-antenna { animation: hob-part-dizzy 0.6s ease-in-out infinite; }
 .hob-m-sleepy .hob-acc-antenna { transform: rotate(34deg); }
 .hob-m-sleepy .hob-bulb { opacity: 0.35; }
 
 /* Sprout. The stem turns about where it leaves the body, each leaf about where it meets the stem. */
-.hob-m-idle .hob-acc-sprout { animation: hob-part-sway 3.2s ease-in-out infinite; }
-.hob-m-hello .hob-leaf-r { animation: hob-leaf-wave-r 1s ease-in-out infinite; }
-.hob-m-hello .hob-leaf-l { animation: hob-leaf-wave-l 1s ease-in-out infinite; }
+.hob-m-idle .hob-layer.hob-acc-sprout { animation: hob-part-sway 3.2s ease-in-out infinite; }
+.hob-m-hello .hob-layer.hob-leaf-r { animation: hob-leaf-wave-r 1s ease-in-out infinite; }
+.hob-m-hello .hob-layer.hob-leaf-l { animation: hob-leaf-wave-l 1s ease-in-out infinite; }
 .hob-m-listening .hob-acc-sprout { transform: rotate(-8deg); }
-.hob-m-thinking .hob-acc-sprout { animation: hob-part-sway 3s ease-in-out infinite; }
-.hob-m-searching .hob-acc-sprout { animation: hob-part-swivel 1.6s ease-in-out infinite; }
-.hob-m-working .hob-acc-sprout { animation: hob-part-sway 0.7s ease-in-out infinite; }
-.hob-m-happy .hob-leaf-r { animation: hob-leaf-flap-r 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-happy .hob-leaf-l { animation: hob-leaf-flap-l 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-celebrating .hob-leaf-r { animation: hob-leaf-flap-r 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-celebrating .hob-leaf-l { animation: hob-leaf-flap-l 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
-.hob-m-love .hob-leaf { animation: hob-beat 1s ease-in-out infinite; }
-.hob-m-wink .hob-leaf-r { animation: hob-leaf-wink 2s ease-in-out infinite; }
-.hob-m-surprised .hob-acc-sprout { animation: hob-part-pop 2.4s ease-out infinite; }
+.hob-m-thinking .hob-layer.hob-acc-sprout { animation: hob-part-sway 3s ease-in-out infinite; }
+.hob-m-searching .hob-layer.hob-acc-sprout { animation: hob-part-swivel 1.6s ease-in-out infinite; }
+.hob-m-working .hob-layer.hob-acc-sprout { animation: hob-part-sway 0.7s ease-in-out infinite; }
+.hob-m-happy .hob-layer.hob-leaf-r { animation: hob-leaf-flap-r 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-happy .hob-layer.hob-leaf-l { animation: hob-leaf-flap-l 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-layer.hob-leaf-r { animation: hob-leaf-flap-r 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-celebrating .hob-layer.hob-leaf-l { animation: hob-leaf-flap-l 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob-m-love .hob-layer.hob-leaf { animation: hob-beat 1s ease-in-out infinite; }
+.hob-m-wink .hob-layer.hob-leaf-r { animation: hob-leaf-wink 2s ease-in-out infinite; }
+.hob-m-surprised .hob-layer.hob-acc-sprout { animation: hob-part-pop 2.4s ease-out infinite; }
 .hob-m-confused .hob-acc-sprout { transform: rotate(-18deg); }
 .hob-m-sad .hob-acc-sprout { transform: rotate(22deg); }
 .hob-m-sad .hob-leaf-r { transform: rotate(38deg); }
@@ -272,7 +259,7 @@ span.hob > * { grid-area: 1 / 1; width: 100%; height: 100%; }
 .hob-m-grumpy .hob-leaf-l { transform: rotate(-20deg); }
 .hob-m-error .hob-acc-sprout { transform: rotate(-20deg); }
 .hob-m-error .hob-leaf-l { transform: rotate(-30deg); }
-.hob-m-dizzy .hob-acc-sprout { animation: hob-part-dizzy 1.2s ease-in-out infinite; }
+.hob-m-dizzy .hob-layer.hob-acc-sprout { animation: hob-part-dizzy 1.2s ease-in-out infinite; }
 .hob-m-sleepy .hob-acc-sprout { transform: rotate(16deg); }
 .hob-m-sleepy .hob-leaf-r { transform: rotate(30deg); }
 .hob-m-sleepy .hob-leaf-l { transform: rotate(-28deg); }

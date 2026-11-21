@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { faceMotion } from './face-motion.ts'
-import { MOOD_ART, type Mood } from './moods.tsx'
-import { BODY_PATH, FEET, drawingOf, type Pet, type PetChoice } from './pets.ts'
-import { PetPart } from './PetPart.tsx'
+import { Art, Layer } from './Layer.tsx'
+import { MOOD_LAYERS, type Mood, type Piece } from './moods.tsx'
+import { ART_BOX, BODY_PATH, FEET, drawingOf, type ArtPoint, type Pet, type PetChoice } from './pets.ts'
+import { PetLayers } from './PetPart.tsx'
 import { usePetChoice } from './use-pet.ts'
 import { FaceReactions, type AppReaction } from './reactions.ts'
 import './hob.css'
@@ -27,18 +28,23 @@ export interface HobProps {
   title?: string
 }
 
+/** The middle of the round eyes, which most moods' look and blink scale about. */
+const EYES_AT: ArtPoint = [100, 138]
+
 /**
- * The hobkin character, drawn as the chosen pet, every mood from hobkin's own art. An HTML box holds the drawing, so a
- * small face moves as a whole on the compositor (face-motion.ts).
+ * The hobkin character, drawn as the chosen pet, every mood from hobkin's own art. The face is a stack of HTML boxes,
+ * each with one SVG, so every loop moves a box on the compositor. A small face holds its parts and moves as a whole
+ * (face-motion.ts).
  */
 export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = false, followWithin, className, title }: HobProps) {
-  const art = MOOD_ART[mood]
+  const art = MOOD_LAYERS[mood]
   const chosen = usePetChoice()
   const followRef = useEyeFollow(followWithin)
   const style = { '--hob-stage': stage, '--hob-mark': tint, '--hob-eye': eye } as CSSProperties
   const drawing = drawingOf({ choice: chosen, pet, tint })
   const shown = pet ?? chosen
   const motion = faceMotion({ size, mood, still })
+  const eyesAt = art.eyesAt ?? EYES_AT
 
   if (drawing === 'nothing') return null
 
@@ -76,39 +82,59 @@ export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = f
       aria-label={title ?? `hobkin, ${mood}`}
       style={{ ...style, '--hob-size': `${size}px` } as CSSProperties}
     >
-      <svg viewBox="-28 -28 256 256" aria-hidden="true">
-        <g className={`hob-body hob-m-${mood}`}>
-          {/* The pet's part goes behind the body, so it can turn about its base without a gap. */}
-          <PetPart pet={shown as Pet} />
+      <Layer className={`hob-body hob-m-${mood}`}>
+        {/* The pet's part goes behind the body, so it can turn about its base without a gap. */}
+        <PetLayers pet={shown as Pet} />
+        <Art>
           {FEET.map((foot) => (
             <ellipse key={foot.cx} className="hob-fm" {...foot} />
           ))}
           <path className="hob-fm" d={BODY_PATH} />
-          <g ref={followRef} className="hob-follow">
-            {/* Keyed by mood so each mood's own animation starts at its beginning. */}
-            <g key={mood} className={['hob-look hob-part', art.look].filter(Boolean).join(' ')}>
-              <g className={['hob-blink', art.blink].filter(Boolean).join(' ')} opacity={art.eyesOpacity ?? 1}>
-                {art.eyes}
-              </g>
-            </g>
-          </g>
-        </g>
-        {art.extras ? (
-          <g key={mood} className="hob-part">
-            {art.extras}
-          </g>
-        ) : null}
-      </svg>
+        </Art>
+        <Layer ref={followRef} className="hob-follow">
+          {/* Keyed by mood so each mood's own animation starts at its beginning. */}
+          <Layer key={mood} className={['hob-look hob-part', art.look].filter(Boolean).join(' ')} at={eyesAt}>
+            <Layer
+              className={['hob-blink', art.blink].filter(Boolean).join(' ')}
+              at={eyesAt}
+              style={art.eyesOpacity === undefined ? undefined : { opacity: art.eyesOpacity }}
+            >
+              <Pieces pieces={art.eyes} />
+            </Layer>
+          </Layer>
+        </Layer>
+      </Layer>
+      {art.extras ? (
+        <Layer key={mood} className="hob-part">
+          <Pieces pieces={art.extras} />
+        </Layer>
+      ) : null}
     </span>
   )
 }
 
+/** A mood's pieces in the order they were drawn: a piece that loops in a box of its own, a still one as plain art. */
+function Pieces({ pieces }: { pieces: readonly Piece[] }) {
+  return pieces.map((piece, index) =>
+    piece.loop ? (
+      <Layer key={index} className={piece.loop} at={piece.at}>
+        <Art>{piece.art}</Art>
+      </Layer>
+    ) : (
+      <Art key={index}>{piece.art}</Art>
+    ),
+  )
+}
+
+/** A share of the face's box, in percent, for one unit of the art. */
+const UNIT = 100 / ART_BOX.size
+
 /**
  * Moves the eyes toward the pointer. The transform is set on the element itself, not through a
- * variable on a parent, so only this one node restyles as the pointer moves.
+ * variable on a parent, so only this one box moves as the pointer moves.
  */
 function useEyeFollow(within?: RefObject<HTMLElement | null>) {
-  const ref = useRef<SVGGElement | null>(null)
+  const ref = useRef<HTMLSpanElement | null>(null)
 
   useEffect(() => {
     const area = within?.current
@@ -121,13 +147,14 @@ function useEyeFollow(within?: RefObject<HTMLElement | null>) {
     let y = 0
     const apply = () => {
       frame = 0
-      eyes.style.transform = `translate(${(x * 7).toFixed(2)}px, ${(y * 5).toFixed(2)}px)`
+      // At most 7 units across and 5 down, as shares of the face's box.
+      eyes.style.transform = `translate(${(x * 7 * UNIT).toFixed(3)}%, ${(y * 5 * UNIT).toFixed(3)}%)`
     }
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(apply)
     }
     const onMove = (event: PointerEvent) => {
-      const box = eyes.ownerSVGElement?.getBoundingClientRect()
+      const box = eyes.closest('.hob')?.getBoundingClientRect()
       if (!box) return
       // Full deflection is reached a few avatar-widths away, so nearby movement still reads.
       const reach = Math.max(box.width * 4, 160)

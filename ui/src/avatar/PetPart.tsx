@@ -1,6 +1,32 @@
-import { PET_PARTS, type Paint, type PartShape, type Pet } from './pets.ts'
+import { Art, Layer } from './Layer.tsx'
+import { PART_PIVOT, PET_PARTS, type Paint, type PartShape, type Pet } from './pets.ts'
 
 const PAINT_CLASS: Record<Paint, string> = { fill: 'hob-fm', stroke: 'hob-sm', eye: 'hob-fe' }
+
+/** A pet's part as boxes, to stack before the body: the whole part turns in one, and each piece that moves on its own in another. */
+export function PetLayers({ pet }: { pet: Pet }) {
+  const shapes = PET_PARTS[pet]
+  if (shapes.length === 0) return null
+
+  return (
+    <Layer className={`hob-acc hob-acc-${pet}`} at={PART_PIVOT[pet] ?? undefined}>
+      {shapes.map((shape) => {
+        const art = (
+          <Art key={shape.name}>
+            <path className={PAINT_CLASS[shape.paint]} d={shape.d} strokeWidth={shape.strokeWidth} />
+          </Art>
+        )
+        return shape.pivot ? (
+          <Layer key={shape.name} className={shape.name} at={shape.pivot}>
+            {art}
+          </Layer>
+        ) : (
+          art
+        )
+      })}
+    </Layer>
+  )
+}
 
 /** Plain colors for a still mark, which carries none of the avatar's classes. */
 export interface MarkPaint {
@@ -8,28 +34,15 @@ export interface MarkPaint {
   eye: string
 }
 
-/**
- * A pet's part as SVG, to draw before the body. Without `paint` it takes the avatar's classes, so the moods in
- * hob.css move it. With `paint` it is a still drawing in those colors.
- */
-export function PetPart({ pet, paint }: { pet: Pet; paint?: MarkPaint }) {
+/** A pet's part as SVG, to draw before the body of a still mark, in the colors given. */
+export function PetPart({ pet, paint }: { pet: Pet; paint: MarkPaint }) {
   const shapes = PET_PARTS[pet]
   if (shapes.length === 0) return null
 
-  if (paint) {
-    return (
-      <g>
-        {shapes.map((shape) => (
-          <path key={shape.name} d={shape.d} {...stillColors(shape, paint)} />
-        ))}
-      </g>
-    )
-  }
-
   return (
-    <g className={`hob-acc hob-acc-${pet}`}>
+    <g>
       {shapes.map((shape) => (
-        <path key={shape.name} className={`${PAINT_CLASS[shape.paint]} ${shape.name}`} d={shape.d} strokeWidth={shape.strokeWidth} />
+        <path key={shape.name} d={shape.d} {...stillColors(shape, paint)} />
       ))}
     </g>
   )

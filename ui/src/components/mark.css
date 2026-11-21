@@ -15,8 +15,8 @@
 
 /* Each face starts its loops at its own point (--agent-delay), so a row of them never moves in step. */
 .agent-hood .hob[data-whole],
-.agent-hood .hob-body,
-.agent-hood .hob-look {
+.agent-hood .hob-layer.hob-body,
+.agent-hood .hob-layer.hob-look {
   animation-delay: var(--agent-delay, 0s);
 }
 

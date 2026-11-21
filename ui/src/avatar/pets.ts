@@ -72,6 +72,21 @@ export const PET_TOP: Record<Pet, number> = { round: 70, ears: 37.5, antenna: 28
 /** A square box around every pet, for still marks and icons. The same box for all four, so they share a baseline. */
 export const MARK_BOX = { x: 12, y: 25, size: 176 } as const
 
+/** The art's own square, the viewBox every face is drawn in: 256 units from -28 on both axes. */
+export const ART_BOX = { min: -28, size: 256 } as const
+
+/** A point of the art, in its units. */
+export type ArtPoint = readonly [x: number, y: number]
+
+/**
+ * A point of the art as a transform origin on one of a face's boxes. Each box is the art's square, so the point is the
+ * same share of the box at any size the face is drawn.
+ */
+export function originAt([x, y]: ArtPoint): string {
+  const share = (value: number) => `${+(((value - ART_BOX.min) / ART_BOX.size) * 100).toFixed(4)}%`
+  return `${share(x)} ${share(y)}`
+}
+
 export type Paint = 'fill' | 'stroke' | 'eye'
 
 export interface PartShape {
@@ -80,25 +95,30 @@ export interface PartShape {
   d: string
   paint: Paint
   strokeWidth?: number
+  /** Where a shape that moves on its own turns: its base, or the middle of the bulb. */
+  pivot?: ArtPoint
 }
 
 /**
  * Each pet's part. Drawn behind the body: every shape reaches below the body's edge, so it can turn about its base
- * without opening a gap. The pivots in hob.css are these bases.
+ * without opening a gap.
  */
 export const PET_PARTS: Record<Pet, readonly PartShape[]> = {
   round: [],
   ears: [
-    { name: 'hob-ear hob-ear-l', paint: 'fill', d: 'M92 78 C88 60 74 42 64 39 Q58 37.5 56 43 C49 58 46 80 53 102 L66 112 L98 88 Z' },
-    { name: 'hob-ear hob-ear-r', paint: 'fill', d: 'M108 78 C112 60 126 42 136 39 Q142 37.5 144 43 C151 58 154 80 147 102 L134 112 L102 88 Z' },
+    { name: 'hob-ear hob-ear-l', paint: 'fill', pivot: [74, 90], d: 'M92 78 C88 60 74 42 64 39 Q58 37.5 56 43 C49 58 46 80 53 102 L66 112 L98 88 Z' },
+    { name: 'hob-ear hob-ear-r', paint: 'fill', pivot: [126, 90], d: 'M108 78 C112 60 126 42 136 39 Q142 37.5 144 43 C151 58 154 80 147 102 L134 112 L102 88 Z' },
   ],
   antenna: [
     { name: 'hob-stalk', paint: 'stroke', strokeWidth: 4.5, d: 'M100.5 84 V63 Q100.5 50 110 40' },
-    { name: 'hob-bulb', paint: 'eye', d: 'M107 36 a8 8 0 1 0 16 0 a8 8 0 1 0 -16 0 Z' },
+    { name: 'hob-bulb', paint: 'eye', pivot: [115, 36], d: 'M107 36 a8 8 0 1 0 16 0 a8 8 0 1 0 -16 0 Z' },
   ],
   sprout: [
     { name: 'hob-stem', paint: 'stroke', strokeWidth: 4, d: 'M100 84 V51' },
-    { name: 'hob-leaf hob-leaf-r', paint: 'fill', d: 'M101 52 C100 40 108 31 124.5 28 C124 40 116 50 101 52 Z' },
-    { name: 'hob-leaf hob-leaf-l', paint: 'fill', d: 'M100 60 C88 61 77 52 75 38.5 C86 40 96 46 100 52 Z' },
+    { name: 'hob-leaf hob-leaf-r', paint: 'fill', pivot: [101, 52], d: 'M101 52 C100 40 108 31 124.5 28 C124 40 116 50 101 52 Z' },
+    { name: 'hob-leaf hob-leaf-l', paint: 'fill', pivot: [100, 56], d: 'M100 60 C88 61 77 52 75 38.5 C86 40 96 46 100 52 Z' },
   ],
 }
+
+/** Where a pet's whole part turns, where it leaves the body. Ears have no whole: each ear turns on its own. */
+export const PART_PIVOT: Record<Pet, ArtPoint | null> = { round: null, ears: null, antenna: [100.5, 74], sprout: [100, 72] }
