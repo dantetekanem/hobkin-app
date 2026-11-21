@@ -19,9 +19,14 @@ export interface UnitPlace {
   symbol?: string
   path: string
   lines: [number, number]
+  /** `none`: unchanged code the Reviewer added beside the change, which the graph shows as context. */
   change: 'added' | 'modified' | 'removed' | 'none'
   /** A removed definition something still refers to: its lines say nothing, so only its file places it. */
   broken?: boolean
+  /** The Reviewer's own name and line for it. */
+  told?: { title?: string; what?: string }
+  /** The Reviewer took it out of the map, for this reason: it is in no unit. */
+  hidden?: string
 }
 
 /**
@@ -73,8 +78,10 @@ function holdsPlace(review: Review): (node: ReviewNode, place: UnitPlace) => boo
 }
 
 /**
- * The graph's nodes in the change review's words. Code that belongs to a unit says what the unit says of it: its own
- * member line when the unit groups several, else the unit's "what changed". A test says what it covers and how the
+ * The graph's nodes in the change review's words. Code that belongs to a unit says what the unit says of it: the
+ * Reviewer's line for it, its own member line when the unit groups several, else the unit's "what changed"; and it
+ * takes the Reviewer's name for it when that part alone of the unit is on it. Unchanged code the Reviewer put in a unit
+ * says the same. Code whose only parts the Reviewer took out of the map says so, and why. A test says what it covers and how the
  * change review's runs went: it proves the change (it fails when the change is put back), it fails at the change's
  * commit, it passes, or it was not run, and why. A test proves the change only when the run failed in that test: where
  * a run says which places failed, another test of the same file passed, and says so.
@@ -86,13 +93,20 @@ export function unitWords(review: Review, parts: UnitWordsParts): ReviewNode[] {
   const symbolOf = new Map(parts.places.map((place) => [place.id, place.symbol ?? place.id]))
   const code = parts.places.filter((place) => place.kind !== 'test' && !place.broken)
   return review.nodes.map((node) => {
-    if (node.kind === 'code' || node.kind === 'file') {
-      const place = code.find((entry) => unitOf.has(entry.id) && holds(node, entry))
+    if (node.kind === 'code' || node.kind === 'file' || node.kind === 'context') {
+      // A context node of the graph holds only the unchanged code the Reviewer added; changed code holds the rest.
+      const mine = code.filter((entry) => (node.kind === 'context') === (entry.change === 'none') && holds(node, entry))
+      const told = mine.filter((entry) => unitOf.has(entry.id))
+      const place = told[0]
       const unit = place && unitOf.get(place.id)
-      if (!unit) return node
+      if (!unit) {
+        const gone = mine.find((entry) => entry.hidden)
+        return gone ? { ...node, summary: cleanProse(`Left out of the story by the Reviewer: ${gone.hidden!.replace(/\.$/, '')}.`, PROSE_LIMIT.summary) } : node
+      }
       const member = unit.members?.find((entry) => entry.node === place!.id)?.what
-      const said = member ?? parts.words?.units?.[unit.id]?.what ?? unit.what
-      return said ? { ...node, summary: cleanProse(said, PROSE_LIMIT.summary) } : node
+      const said = place!.told?.what ?? member ?? parts.words?.units?.[unit.id]?.what ?? unit.what
+      const title = told.length === 1 && place!.told?.title ? cleanProse(place!.told.title, PROSE_LIMIT.title) : ''
+      return { ...node, ...(title ? { title } : {}), ...(said ? { summary: cleanProse(said, PROSE_LIMIT.summary) } : {}) }
     }
     if (node.kind !== 'test' || node.status == null || !node.subtitle) return node
     const path = node.subtitle
@@ -131,6 +145,8 @@ function openingOf(story: string): { title?: string; does?: string } {
 function focusFinder(review: Review, parts: UnitStoryParts): (unit: Unit) => string[] {
   const files = new Map(review.files.map((file) => [file.id, file]))
   const changed = review.nodes.filter((node) => node.kind === 'code' || node.kind === 'file')
+  // Unchanged code the Reviewer put in a unit is framed where the graph shows it, as context.
+  const context = review.nodes.filter((node) => node.kind === 'context')
   const placeOf = new Map(parts.places.map((place) => [place.id, place]))
   const bucketPaths = new Map(parts.buckets.map((bucket) => [bucket.id, bucket.paths]))
   /** The path an anchor's lines are in, on its side: a renamed file is at its old path at base. */
@@ -151,7 +167,7 @@ function focusFinder(review: Review, parts: UnitStoryParts): (unit: Unit) => str
       const place = placeOf.get(id)
       return place && place.kind !== 'test' ? [place] : []
     })
-    for (const place of places.filter((entry) => !entry.broken)) for (const node of changed) if (holds(node, place)) add(node.id)
+    for (const place of places.filter((entry) => !entry.broken)) for (const node of place.change === 'none' ? context : changed) if (holds(node, place)) add(node.id)
     // A unit of files, a broken reference, or definitions the graph shows only as whole files: the nodes of its files.
     if (focus.length === 0) {
       const paths = new Set([...(unit.buckets ?? []).flatMap((id) => bucketPaths.get(id) ?? []), ...places.map((place) => place.path)])

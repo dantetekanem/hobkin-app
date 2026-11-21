@@ -70,6 +70,10 @@ interface GraphNode {
   critical: boolean
   /** A removed definition something still refers to says so here. */
   extras?: { broken?: string }
+  /** The Reviewer's own name and line for it. */
+  told?: { title?: string; what?: string }
+  /** The Reviewer took it out of the map, for this reason. */
+  hidden?: string
   /** The test runs that concern it. */
   runs?: { kind: string; node?: string; tests?: string[]; failed?: string[]; failed_at?: { path: string; line: number }[] }[]
   /** Its proof, with what it rests on: `tests were not run: …` when no test could run. */
@@ -261,7 +265,7 @@ const STEP_WORDS: Record<string, string> = {
   'map-search': 'Finding every changed definition',
   'map-proof': "Running the project's tests",
   'risk-floor': 'Rating each definition',
-  'risk-model': 'The careful model pass',
+  'risk-model': 'Reviewing and reorganizing the map',
   shape: 'Grouping the definitions into units',
   story: 'Writing the story',
   'blind-check': 'The blind check',
@@ -697,7 +701,17 @@ export class Assessments {
     if (!assessment?.units) return null
     const folder = assessmentFolder(this.options.root, target, review.change.head)
     const graph = readJson<{ nodes?: GraphNode[] }>(join(folder, 'graph.json'))
-    const places: UnitPlace[] = (graph?.nodes ?? []).map(({ id, kind, symbol, path, lines, change, extras }) => ({ id, kind, symbol, path, lines, change, ...(extras?.broken ? { broken: true } : {}) }))
+    const places: UnitPlace[] = (graph?.nodes ?? []).map(({ id, kind, symbol, path, lines, change, extras, told, hidden }) => ({
+      id,
+      kind,
+      symbol,
+      path,
+      lines,
+      change,
+      ...(extras?.broken ? { broken: true } : {}),
+      ...(told ? { told } : {}),
+      ...(hidden ? { hidden } : {}),
+    }))
     // Every run once: a run that concerns several definitions is listed under each of them.
     const runs = new Map<string, UnitRun>()
     for (const node of graph?.nodes ?? []) {

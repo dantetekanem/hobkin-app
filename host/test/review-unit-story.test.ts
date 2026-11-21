@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { Unit } from '#shared/review/assessment.ts'
 import { captureChange, type ChangeReader } from '#shared/review/capture.ts'
 import { prepareReview } from '#shared/review/prepare.ts'
-import { NO_SPEC_NOTICE } from '#shared/review/types.ts'
+import { NO_SPEC_NOTICE, type ReviewNode } from '#shared/review/types.ts'
 import { unitStory, unitWords, type UnitPlace } from '../src/review/unit-story.ts'
 
 /** A change in memory: the cart's total rounds, an old total goes, a locale changes, and its test changes. */
@@ -174,4 +174,31 @@ test('a unit whose nodes an earlier step showed goes back to them, so no step of
   assert.equal(walks.length, 2)
   assert.ok(walks.every((step) => step.focus.length > 0), 'every step of the walk has a node')
   assert.deepEqual(walks[1]!.focus, walks[0]!.focus, 'it goes back to the node that holds its code')
+})
+
+test('a part the Reviewer renamed takes its words, one it took out says why, and unchanged code it put in a unit is in that step', async () => {
+  const graph = await review()
+  const cart = graph.files.find((file) => file.path === 'app/models/cart.rb')!
+  // Unchanged code the graph shows beside the change, as the call-graph scan finds it.
+  const context: ReviewNode = { id: 'c9', kind: 'context', title: 'Cart', subtitle: 'app/models/cart.rb', change: 'unchanged', summary: 'Unchanged. It calls the change.', anchors: [{ fileId: cart.id, side: 'added', startLine: 1, endLine: 1, hash: '' }], position: { x: 0, y: 0 } }
+  const shown = { ...graph, nodes: [...graph.nodes, context] }
+  const reshaped: UnitPlace[] = [
+    { id: 'n1', kind: 'function', path: 'app/models/cart.rb', lines: [2, 2], change: 'modified', told: { title: 'The rounded total', what: 'It rounds the total now.' } },
+    { id: 'n2', kind: 'function', path: 'app/models/cart.rb', lines: [4, 4], change: 'removed', hidden: 'nothing calls it any more' },
+    { id: 'm1', kind: 'general', path: 'app/models/cart.rb', lines: [1, 1], change: 'none', told: { what: 'The class the total lives in.' } },
+  ]
+  const units = [unit('u1', 1, { nodes: ['n1', 'm1'], grouping: 'regrouped' })]
+  const nodes = unitWords(shown, { units, places: reshaped, words: null, runs: [] })
+  const of = (id: string) => nodes.find((node) => node.id === id)!
+  const idOf = (title: string) => graph.nodes.find((node) => node.title === title)!.id
+
+  assert.deepEqual([of(idOf('total')).title, of(idOf('total')).summary], ['The rounded total', 'It rounds the total now.'])
+  assert.equal(of(idOf('old_total')).summary, 'Left out of the story by the Reviewer: nothing calls it any more.')
+  assert.equal(of(idOf('old_total')).title, 'old_total')
+  assert.deepEqual([of('c9').title, of('c9').summary], ['Cart', 'The class the total lives in.'])
+
+  const story = unitStory({ ...shown, nodes }, { units, places: reshaped, words: null, story: STORY, buckets: [] })
+  const step = story.find((item) => item.unit === 'u1')!
+  assert.ok(step.focus.includes(idOf('total')) && step.focus.includes('c9'), `the step frames the change and the context put with it: ${step.focus.join(', ')}`)
+  assert.ok(!story.some((item) => item.focus.includes(idOf('old_total'))), 'no step goes to the part taken out')
 })
