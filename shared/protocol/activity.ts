@@ -66,16 +66,63 @@ function sameCodemode(left: CodemodeMetadata | undefined, right: CodemodeMetadat
   return left.calls.every((call, index) => fields.every(field => call[field] === right.calls[index]![field]))
 }
 
+/**
+ * Lists known to hold each id once. hobkin never changes a list or an entry it handed out (`JobActivity.snapshot`),
+ * so a list checked once stays checked, and so does one that only grew from a checked list with new ids at its end.
+ */
+const distinct = new WeakSet<readonly ActivityEntry[]>()
+
+function distinctIds(entries: readonly ActivityEntry[]): boolean {
+  if (distinct.has(entries)) return true
+  if (new Set(entries.map((entry) => entry.id)).size !== entries.length) return false
+  distinct.add(entries)
+  return true
+}
+
+/**
+ * The steps of the usual change, found by identity. hobkin keeps an entry it did not change as the same copy, so the
+ * walk skips it without reading it, updates an entry whose id lines up and whose fields changed, and appends the new
+ * entries at the end. Null for any other shape (a shorter list, an id out of line, a repeated id), which `comparedSteps`
+ * works out the same way as for any change.
+ */
+function grownSteps(job: string, previous: readonly ActivityEntry[], next: readonly ActivityEntry[]): ActivityStep[] | null {
+  if (next.length < previous.length) return null
+  const steps: ActivityStep[] = []
+  for (let index = 0; index < previous.length; index++) {
+    const before = previous[index]!
+    const after = next[index]!
+    if (before === after) continue
+    if (before.id !== after.id) return null
+    if (!sameEntry(before, after)) steps.push({ op: 'update', job, entry: after })
+  }
+  if (next.length > previous.length) {
+    const ids = new Set(previous.map((entry) => entry.id))
+    if (ids.size !== previous.length) return null
+    for (let index = previous.length; index < next.length; index++) {
+      const { id } = next[index]!
+      if (ids.has(id)) return null
+      ids.add(id)
+    }
+    steps.push({ op: 'append', job, entries: next.slice(previous.length) })
+  } else if (!distinctIds(previous)) return null
+  distinct.add(next)
+  return steps
+}
+
 function jobSteps(job: string, previous: readonly ActivityEntry[], next: readonly ActivityEntry[]): ActivityStep[] {
   if (previous === next) return []
-  const reset: ActivityStep[] = [{ op: 'reset', job, entries: [...next] }]
+  return grownSteps(job, previous, next) ?? comparedSteps(job, previous, next)
+}
+
+function comparedSteps(job: string, previous: readonly ActivityEntry[], next: readonly ActivityEntry[]): ActivityStep[] {
+  const reset = (): ActivityStep[] => [{ op: 'reset', job, entries: [...next] }]
   const before = new Set(previous.map((entry) => entry.id))
   const after = new Set(next.map((entry) => entry.id))
-  if (before.size !== previous.length || after.size !== next.length) return reset
+  if (before.size !== previous.length || after.size !== next.length) return reset()
 
   // hobkin only adds at the end and sometimes drops a text, so what both hold leads the new list in the same order.
   const kept = previous.filter((entry) => after.has(entry.id))
-  if (next.slice(0, kept.length).some((entry, index) => entry.id !== kept[index]!.id)) return reset
+  if (next.slice(0, kept.length).some((entry, index) => entry.id !== kept[index]!.id)) return reset()
 
   const steps: ActivityStep[] = []
   const removed = previous.filter((entry) => !after.has(entry.id)).map((entry) => entry.id)
