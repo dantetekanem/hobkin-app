@@ -132,6 +132,8 @@ export function applySample(state: WorkState, action: WorkAction): SampleOutcome
       return { state: { ...state, projects: state.projects.map((project) => (project.slug === action.slug ? { ...project, prMode: action.prs } : project)) }, message: '' }
     case 'issues':
       return { state: { ...state, projects: state.projects.map((project) => (project.slug === action.slug ? { ...project, issues: action.issues } : project)) }, message: '' }
+    case 'paused':
+      return { state: { ...state, projects: state.projects.map((project) => (project.slug === action.slug ? { ...project, paused: action.paused } : project)) }, message: '' }
     case 'issue':
       return { state, message: SAMPLE_ADDED }
     case 'change': {

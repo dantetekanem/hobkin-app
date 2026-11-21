@@ -87,6 +87,7 @@ declare module 'hobkin/src/cli/work/store.mjs' {
   export function startWork(root: string, requested?: string, options?: { autoPick?: boolean }): { enabled: boolean; folder: string | null; autoPick: boolean; [key: string]: unknown }
   export function setProjectPriority(root: string, slug: string, priority: string): unknown
   export function setProjectPrMode(root: string, slug: string, prMode: string): unknown
+  export function setProjectPaused(root: string, slug: string, paused: boolean): unknown
 }
 
 declare module 'hobkin/src/cli/work/commands.mjs' {

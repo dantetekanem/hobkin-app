@@ -17,6 +17,8 @@ export type WorkAction =
   | { do: 'priority'; slug: string; priority: Grade }
   | { do: 'prs'; slug: string; prs: PrMode }
   | { do: 'issues'; slug: string; issues: IssuePickup }
+  /** The project's switch: work mode stops there alone, or starts again. */
+  | { do: 'paused'; slug: string; paused: boolean }
   /** Add to queue on the GitHub page: hobkin files the issue on the project whose repository it is in. */
   | { do: 'issue'; repo: string; number: number }
   | { do: 'proposal'; slug: string; answer: 'take' | 'skip' }
@@ -224,6 +226,8 @@ export function commandFor(action: WorkAction): WorkCall {
       return { name: 'work.project', args: { slug: action.slug, prs: action.prs } }
     case 'issues':
       return { name: 'work.project', args: { slug: action.slug, issues: action.issues } }
+    case 'paused':
+      return { name: 'work.project', args: { slug: action.slug, paused: action.paused } }
     case 'issue':
       return { name: 'work.issue', args: { repo: action.repo, number: action.number } }
     case 'proposal':

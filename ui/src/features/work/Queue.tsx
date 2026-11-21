@@ -3,6 +3,7 @@ import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { useState, type KeyboardEvent, type Ref } from 'react'
 import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { Switch } from '@/components/ui/switch.tsx'
 import { rowLayout } from '@/features/reports/list-motion.ts'
 import { timeOf, waited } from '@/features/reports/time.ts'
 import type { IssuePickup } from '#shared/protocol/work.ts'
@@ -321,12 +322,19 @@ function ProjectItem({ project, live, now, variants, order }: { project: WorkPro
   return (
     <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
       <div data-world-project={project.slug} data-stop="" data-work-item="" data-work-main="" tabIndex={-1} role="group" aria-label={`${project.name} project controls`} className="flex scroll-mt-[124px] flex-wrap items-center gap-x-6 gap-y-3 rounded-3xl bg-background px-5 py-4 outline-offset-2">
-        <div className="min-w-[180px] flex-1">
+        {/* Work mode on this project alone. Off, its running agents finish and nothing new starts there; the rest of work mode carries on. */}
+        <Switch
+          aria-label={`Work mode on ${project.name}`}
+          checked={!project.paused}
+          disabled={busy}
+          onCheckedChange={(on) => void runWork({ do: 'paused', slug: project.slug, paused: !on }, place)}
+        />
+        <div className={cn('min-w-[180px] flex-1', project.paused && 'text-muted-foreground')}>
           <p className="flex items-baseline gap-2 font-heading text-[15px] leading-tight font-semibold tracking-[-0.015em]">
             {project.name}
             {project.paused ? <span className="eyebrow">Paused</span> : null}
           </p>
-          <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{factsOf(project, now)}</p>
+          <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{project.paused ? 'Nothing new starts here until you switch it back on.' : factsOf(project, now)}</p>
           {project.lookError ? <p className="mt-1 text-[12.5px] leading-snug text-bad-fg">Last look failed: {project.lookError}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">

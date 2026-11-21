@@ -985,13 +985,20 @@ export const COMMANDS = {
   },
   'work.project': {
     description:
-      'Change one setting of a project work mode works on: `priority`, P0 to P3, sets how often it runs and its place in the queue, `prs` sets where its finished work goes: `off` keeps it on a local branch, `draft` opens a draft PR, `published` opens a PR, and `issues` sets which of its open GitHub issues hobkin files as work by itself, every 15 minutes: `off`, `labeled` (only those labeled hobkin) or `all`.',
+      'Change one setting of a project work mode works on: `priority`, P0 to P3, sets how often it runs and its place in the queue, `prs` sets where its finished work goes: `off` keeps it on a local branch, `draft` opens a draft PR, `published` opens a PR, `issues` sets which of its open GitHub issues hobkin files as work by itself, every 15 minutes: `off`, `labeled` (only those labeled hobkin) or `all`, and `paused` stops work mode on this project alone (`true`: its running agents finish and nothing new starts there) or starts it again (`false`).',
     runs: 'host',
     args: Type.Object(
-      { slug: projectSlug, priority: Type.Optional(oneOf(GRADES)), prs: Type.Optional(oneOf(PR_MODES)), issues: Type.Optional(oneOf(ISSUE_PICKUPS)) },
+      {
+        slug: projectSlug,
+        priority: Type.Optional(oneOf(GRADES)),
+        prs: Type.Optional(oneOf(PR_MODES)),
+        issues: Type.Optional(oneOf(ISSUE_PICKUPS)),
+        paused: Type.Optional(Type.Boolean()),
+      },
       { additionalProperties: false },
     ),
-    rule: ({ priority, prs, issues }) => ([priority, prs, issues].filter((setting) => setting !== undefined).length === 1 ? null : 'need "priority", "prs" or "issues", and only one of them'),
+    rule: ({ priority, prs, issues, paused }) =>
+      [priority, prs, issues, paused].filter((setting) => setting !== undefined).length === 1 ? null : 'need "priority", "prs", "issues" or "paused", and only one of them',
     hobkin: true,
   },
   'work.proposal': {

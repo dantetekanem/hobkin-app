@@ -434,9 +434,10 @@ export function workHandlers({ app, root }: WorkSeat): Pick<HostHandlers, WorkCo
       // Start now says whether the row started, or what still holds it.
       return message ? { ...done, message } : done
     },
-    'work.project': async ({ slug, priority, prs, issues }) => {
+    'work.project': async ({ slug, priority, prs, issues, paused }) => {
       if (priority) await app().workAction('priority', slug, priority)
       else if (prs) await app().workAction('prs', slug, prs)
+      else if (paused !== undefined) await app().workAction(paused ? 'pauseProject' : 'resumeProject', slug)
       else await app().workAction('issues', slug, issues)
       return done
     },

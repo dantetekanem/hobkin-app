@@ -5,7 +5,7 @@ import { test } from 'node:test'
 import { setTimeout as pause } from 'node:timers/promises'
 import { runWorkCommand } from 'hobkin/src/cli/work/commands.mjs'
 import { approvalGroups, groupPlan } from 'hobkin/src/cli/work/groups.mjs'
-import { chooseProject, setProjectPrMode, setProjectPriority } from 'hobkin/src/cli/work/store.mjs'
+import { chooseProject, setProjectPaused, setProjectPrMode, setProjectPriority } from 'hobkin/src/cli/work/store.mjs'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { checkArguments } from '#shared/commands/registry.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
@@ -252,18 +252,20 @@ test('project settings round trip', async (t) => {
   const folder = join(root, 'code', 'storefront')
   mkdirSync(folder, { recursive: true })
   const { slug } = chooseProject(root, folder, 'important')
-  // hobkin's `workAction` for these two keys, as its application has them.
+  // hobkin's `workAction` for these keys, as its application has them.
   const { app, calls } = fakeHobkin({
     priority: (project, value) => setProjectPriority(root, String(project), String(value)),
     prs: (project, value) => setProjectPrMode(root, String(project), String(value)),
+    pauseProject: (project) => setProjectPaused(root, String(project), true),
+    resumeProject: (project) => setProjectPaused(root, String(project), false),
   })
   const handlers = handlersOf(app, root)
 
   const reported = async () => {
     const project = workFrom({ work: await runWorkCommand(root, []), waiting: null })!.projects.find((entry) => entry.slug === slug)!
-    return { priority: project.priority, prMode: project.prMode }
+    return { priority: project.priority, prMode: project.prMode, paused: project.paused }
   }
-  assert.deepEqual(await reported(), { priority: 'P1', prMode: 'off' })
+  assert.deepEqual(await reported(), { priority: 'P1', prMode: 'off', paused: false })
 
   assert.equal((await runCommand(handlers, 'work.project', { slug, priority: 'P0' })).ok, true)
   assert.equal((await runCommand(handlers, 'work.project', { slug, prs: 'draft' })).ok, true)
@@ -272,13 +274,19 @@ test('project settings round trip', async (t) => {
     ['prs', slug, 'draft'],
   ])
   // What `hobkin work` reports afterwards is the change, and the screen reads the same.
-  assert.deepEqual(await reported(), { priority: 'P0', prMode: 'draft' })
+  assert.deepEqual(await reported(), { priority: 'P0', prMode: 'draft', paused: false })
+
+  // The project's switch: off pauses work mode there alone, on resumes it.
+  assert.equal((await runCommand(handlers, 'work.project', { slug, paused: true })).ok, true)
+  assert.equal((await reported()).paused, true)
+  assert.equal((await runCommand(handlers, 'work.project', { slug, paused: false })).ok, true)
+  assert.equal((await reported()).paused, false)
 
   const both = await runCommand(handlers, 'work.project', { slug, priority: 'P2', prs: 'off' })
   assert.equal(!both.ok && both.error.code, 'invalid-arguments', 'one setting at a time')
   const wrong = await runCommand(handlers, 'work.project', { slug, priority: 'P9' })
   assert.equal(!wrong.ok && wrong.error.code, 'invalid-arguments')
-  assert.equal(calls.length, 2)
+  assert.equal(calls.length, 4)
 })
 
 test('projects show their state, and a proposal is answered as in the terminal', async () => {
