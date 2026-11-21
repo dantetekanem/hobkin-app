@@ -157,13 +157,17 @@ const Track = memo(function Track({ tasks, still }: { tasks: readonly AgentTask[
   )
 })
 
-/** The task the line names: the one in progress, or the next one, or that all are done. A new one takes the place of the last by rising into it. */
+/**
+ * The task the line names: the one in progress, or the next one, or that all are done. A new one takes the place of
+ * the last by rising into it. The two share the grid's one cell, so the swap adds no style sheet to the page, as
+ * popLayout does; the swaps of `Count` and `Mark` work the same way.
+ */
 function NowWords({ progress, line, still }: { progress: TaskProgress; line: TaskLine; still: boolean }) {
   const named = progress.now[0] ?? progress.next
   const key = named ? `${line.lead}:${named.id}` : 'done'
   return (
     <span className="relative grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)] text-left">
-      <AnimatePresence initial={false} mode="popLayout">
+      <AnimatePresence initial={false}>
         <motion.span
           key={key}
           initial={holdStill({ opacity: 0, transform: 'translateY(8px)' }, still)}
@@ -190,12 +194,13 @@ function NowWords({ progress, line, still }: { progress: TaskProgress; line: Tas
 function Count({ value, still }: { value: number | string; still: boolean }) {
   return (
     <span className="relative inline-grid overflow-hidden tabular-nums">
-      <AnimatePresence initial={false} mode="popLayout">
+      <AnimatePresence initial={false}>
         <motion.span
           key={value}
           initial={holdStill({ opacity: 0, transform: 'translateY(70%)' }, still)}
           animate={holdStill({ opacity: 1, transform: 'translateY(0%)', transition: { transform: spring.rise, opacity: tween.enter } }, still)}
           exit={holdStill({ opacity: 0, transform: 'translateY(-70%)', transition: tween.exit }, still)}
+          className="col-start-1 row-start-1"
         >
           {value}
         </motion.span>
@@ -324,7 +329,7 @@ const MARK: Record<TaskState, string> = {
 function Mark({ state, still }: { state: TaskState; still: boolean }) {
   return (
     <span className="relative mt-px grid size-4 shrink-0 place-items-center" aria-hidden="true">
-      <AnimatePresence initial={false} mode="popLayout">
+      <AnimatePresence initial={false}>
         <motion.span
           key={state}
           initial={holdStill({ opacity: 0, transform: 'scale(0.96)' }, still)}

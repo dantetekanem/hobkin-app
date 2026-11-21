@@ -385,13 +385,14 @@ function Glance({ agentId, hue, question, waiting, activity }: { agentId: string
 /**
  * What the agent is doing this moment, in one or two lines: the tool it runs or just ran, or the last thing it
  * said. A new step takes the place of the last one by rising into it. Words arriving in the same sentence do not move it.
+ * The leaving line and the new one share the grid's one cell, so the swap adds no style sheet to the page (popLayout does).
  */
 function NowLine({ doing }: { doing: Doing }) {
   const still = useStill()
   const key = doing.subject === undefined ? 'says' : `${doing.lead}:${doing.subject}`
   return (
     <div className="relative grid min-h-[3.4em] w-full max-w-[72%] place-items-center">
-      <AnimatePresence initial={false} mode="popLayout">
+      <AnimatePresence initial={false}>
         <motion.p
           key={key}
           initial={holdStill({ opacity: 0, transform: 'translateY(14px)' }, still)}

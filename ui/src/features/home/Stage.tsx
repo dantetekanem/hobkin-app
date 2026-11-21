@@ -248,8 +248,9 @@ function StageCard({ model, unavailable, onDismiss, className }: { model: HomeMo
           </button>
         ))}
       </div>
-      <div className="relative h-[158px] overflow-hidden">
-        <AnimatePresence mode="popLayout" initial={false} custom={direction}>
+      {/* The leaving card and the new one share the box's one grid cell, so the swap adds no style sheet to the page. */}
+      <div className="relative grid h-[158px] grid-cols-1 grid-rows-1 overflow-hidden">
+        <AnimatePresence initial={false} custom={direction}>
           <motion.div
             key={card?.id ?? (unavailable ? 'waiting' : 'calm')}
             custom={direction}
@@ -257,7 +258,7 @@ function StageCard({ model, unavailable, onDismiss, className }: { model: HomeMo
             initial="from"
             animate="shown"
             exit="gone"
-            className="flex h-full min-w-0 flex-col gap-1.5"
+            className="col-start-1 row-start-1 flex h-full min-w-0 flex-col gap-1.5"
           >
             <CardWords {...words} />
           </motion.div>
