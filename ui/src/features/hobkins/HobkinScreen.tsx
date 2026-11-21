@@ -408,6 +408,7 @@ function Conversation({ id, turns, activity, cwd, sending, problem, loading }: C
     newest.toCome()
     older.loadMore()
   }
+  scroll.note()
   useLayoutEffect(scroll.settle, [newest.shown, scroll.settle])
 
   return (

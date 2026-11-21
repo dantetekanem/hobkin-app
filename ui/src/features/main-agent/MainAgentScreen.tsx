@@ -174,6 +174,7 @@ function Exchange({ entries, timeOf, turnStart, ended, cwd, word, sample }: { en
   const scroll = useFollow(still)
   // The tasks line above the steps is where task calls show.
   const steps = useMemo(() => stepsOf(entries, { ended, cwd, tasksOnLine: true }), [entries, ended, cwd])
+  scroll.note()
   useLayoutEffect(scroll.settle, [steps, word, scroll.settle])
   useEffect(() => (scroll.scroller.current ? handOffCanvasFocus(scroll.scroller.current) : undefined), [scroll.scroller])
 
