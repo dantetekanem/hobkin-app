@@ -6,16 +6,14 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { agentGroups } from '@/features/hobkins/list.ts'
-import { listedAgents } from '@/features/hobkins/list.ts'
 import { useTiers } from '@/features/tiers/store.ts'
 import { ChildCluster, ChildFaces } from '@/features/work/ChildAgents.tsx'
 import { agentEntry } from '@/features/work/agent-entry.ts'
 import { childrenSummary, helpersNow, HOBKIN_HUE } from '@/features/work/child-summary.ts'
 import { useMainChildren } from '@/features/work/children.ts'
 import { cn } from '@/lib/utils.ts'
-import { useHasHost, useHost } from '@/lib/host/index.ts'
 import { requestCanvasFocus } from './focus.ts'
-import { agentControls, askAgent, useAgentControl, useRunningAgents, type RunningAgent } from './running-agents.ts'
+import { agentControls, askAgent, useAgentControl, useAgentWords, useRunningAgents, type RunningAgent } from './running-agents.ts'
 import { type Tier } from './sample.ts'
 import { holdStill, useStill } from './still.ts'
 import { useView } from './view-store.ts'
@@ -312,9 +310,7 @@ const AgentRow = memo(function AgentRow({ agent, selected, still, listId: id, li
  * page's layout each time it draws, does not draw again for each of them.
  */
 const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) {
-  const live = useHasHost()
-  const said = useHost((state) => (live ? listedAgents(state.snapshot).find((entry) => entry.id === agent.id)?.update : undefined))
-  const update = live ? said : agent.update
+  const update = useAgentWords(agent)
   const asks = agent.asks
   const waits = agent.durable?.state === 'waiting'
   return asks ? (
