@@ -1401,6 +1401,7 @@ test('owned-publication application publishes terminal and unknown descendants a
   assert.deepEqual(app.snapshot.mainChildren, []);
   runtime.main = { model: { provider: 'fixture', id: 'local' }, thinkingLevel: 'medium' };
   runtime.state = async () => ({ runs: { job: { id: 'job', kind: 'background', status: 'completed', result: { text: 'Done.' } } } });
+  runtime.runIndex = async () => ({ runs: {}, evidenceDue: false });
   app.config = config; app.snapshot.history = { reports: [] }; app.noticeRunIds = new Set();
   app.delivery = { syncEvidence: async () => {} };
   app.runner = { snapshot: async () => ({ schedules: [], errors: [] }), steeringReceipts: () => ({}) };

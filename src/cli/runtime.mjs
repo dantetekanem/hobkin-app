@@ -195,6 +195,7 @@ export class HobkinRuntime {
   /**
    * Each run's bookkeeping, for what only counts and matches runs, as the scheduler's tick does every second: its id,
    * kind, status, routine and occurrence, and whether it is Work's or a durable hobkin's, never its prompt or result.
+   * `evidenceDue` says whether a finished run still waits for its evidence (`collectEvidence` in compatibility.mjs).
    * Worked out once per commit, as `state()` encodes, and frozen, since every caller gets this same object.
    */
   async runIndex() {
@@ -202,7 +203,9 @@ export class HobkinRuntime {
     if (document !== this.indexedDocument) {
       const runs = Object.entries(document.runs ?? {}).map(([id, { kind, status, scheduleId, scheduledAt, work, hobkin }]) =>
         [id, Object.freeze({ id, kind, status, scheduleId, scheduledAt, work: Boolean(work), hobkin: Boolean(hobkin) })]);
-      this.indexed = Object.freeze({ runs: Object.freeze(Object.fromEntries(runs)) });
+      const receipts = document.evidenceReceipts ?? {};
+      const evidenceDue = Object.values(document.runs ?? {}).some(run => run.status !== 'running' && !receipts[run.id]);
+      this.indexed = Object.freeze({ runs: Object.freeze(Object.fromEntries(runs)), evidenceDue });
       this.indexedDocument = document;
     }
     return this.indexed;

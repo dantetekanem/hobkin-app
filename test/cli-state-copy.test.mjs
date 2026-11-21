@@ -66,7 +66,7 @@ test('the run index gives each run\'s bookkeeping without its prompt or result, 
   assert.deepEqual(index, { runs: {
     check: { id: 'check', kind: 'background', status: 'running', scheduleId: 'mail', scheduledAt: '2026-01-02T09:00:00.000Z', work: true, hobkin: false },
     turn: { id: 'turn', kind: 'main', status: 'completed', scheduleId: undefined, scheduledAt: undefined, work: false, hobkin: true },
-  } });
+  }, evidenceDue: true });
   assert.equal(await runtime.runIndex(), index, 'nothing was committed');
   assert.throws(() => { index.runs.check.status = 'changed'; }, TypeError, 'an index is read, never written');
 

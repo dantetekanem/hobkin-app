@@ -77,6 +77,9 @@ export class CompatibilityDelivery {
   }
 
   async collectEvidence() {
+    // The run index says, once per commit, whether any finished run still waits for its evidence, so a rebuild with none reads nothing here.
+    const index = await this.runtime.runIndex?.();
+    if (index && !index.evidenceDue) return;
     const snapshot = await this.runtime.state();
     const runs = Object.values(snapshot.runs).filter(run => run.status !== 'running' && !snapshot.evidenceReceipts?.[run.id]);
     if (!runs.length) return;

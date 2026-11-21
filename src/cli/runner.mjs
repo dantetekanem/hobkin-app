@@ -440,8 +440,9 @@ export class HobkinRunner {
     return true;
   }
 
-  async snapshot() {
-    const state = await this.runtime.state();
+  /** `given` is a copy of the state the caller just read, which this reads and never changes. Without one it reads its own. */
+  async snapshot(given = null) {
+    const state = given ?? await this.runtime.state();
     const runs = Object.values(state.runs);
     const reports = runs
       .filter(run => run.kind === 'background' && run.result?.text && (run.status !== 'no_change' || run.trigger === 'manual'))

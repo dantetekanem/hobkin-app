@@ -12,6 +12,7 @@ import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.m
 import { restartingAfterCodeToolCrash } from './code-tool-crash.mjs';
 import { withShippedSkills } from './skills-extension.mjs';
 import { UsageLedger } from './usage.mjs';
+import { copyJson } from './file-version.mjs';
 import { Telemetry } from './telemetry.mjs';
 import { RemoteSender, uploadNotice } from './telemetry/sender.mjs';
 import { feedbackQuestion } from './feedback/draft.mjs';
@@ -429,8 +430,10 @@ export class HobkinApplication {
 
   async project(workAsRead = null) {
     await this.delivery.syncEvidence();
+    // The run index changes with every commit. Read before the document, it can only be older than the copy, never newer.
+    const version = await this.runtime.runIndex?.();
     const state = await this.runtime.state();
-    const loaded = await this.runner.snapshot();
+    const loaded = await this.runner.snapshot(state);
     const runs = Object.values(state.runs).sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''));
     const deleted = deletedReportIds(this.runtime.directory);
     const sessionsEnded = sessionsToPost(this.runtime.directory);
@@ -701,7 +704,7 @@ export class HobkinApplication {
       completedJobReports,
       counts: loaded.counts,
       schedules: loaded.schedules,
-      usage: this.ledger.sync(state),
+      usage: this.usageOf(state, version),
       memoryBytes: memoryBytes(this.runtime.directory),
       reportAttention: this.telemetry.attention(runs.filter(run => !run.hobkin), this.now()),
       work,
@@ -730,6 +733,18 @@ export class HobkinApplication {
       ? active
       : new Set([...this.activeJobIds, ...active]);
     return this.snapshot;
+  }
+
+  /**
+   * The usage ledger as `state` makes it. It is worked out from every run, so it is worked out again only when a commit changed the document
+   * or something else changed the ledger, and each caller gets a copy of its own.
+   */
+  usageOf(state, version) {
+    const kept = this.keptUsage;
+    if (version && kept?.version === version && kept.data === this.ledger.data) return copyJson(kept.usage);
+    const usage = this.ledger.sync(state);
+    this.keptUsage = { version, data: this.ledger.data, usage: copyJson(usage) };
+    return usage;
   }
 
   notePause(kind) {
