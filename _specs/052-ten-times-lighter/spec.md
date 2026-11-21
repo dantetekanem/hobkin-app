@@ -25,6 +25,7 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - The daily app wraps the window in React's StrictMode only when `VITE_STRICT=1` is set. StrictMode draws every component twice in the development build.
 - A protocol change keeps an older window or host working: a new kind of step goes only to a window that says it reads it.
 - The largest measured cost goes first. Each lane commits its benchmark, with the numbers of 2026-11-21, before its first fix.
+- While the window is hidden the face makes no sound of its own: its babble and its hop chirp wait until the window shows. Notices and their chime are as before.
 
 ## Out of scope
 
@@ -84,24 +85,24 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 
 ## Steps
 
-- [ ] S1 (A2, A11, A13, A15). The benchmarks, committed with the numbers of 2026-11-21: the window's frame replay, the host load lab, the runtime's tick, main chat and work scripts, and the live windows reading.
-- [ ] S2 (A1, A2). Window store: one agents list per message, an agent's words cached per entry, and a summary line that stops at its first line.
-- [ ] S3 (A3). Window store: what the screen reads follows the host store once per frame, five times a second for lists of agents, and not while hidden.
-- [ ] S4 (A2, A18). Home's model, the work store, thread notes and step times stop recomputing for every message, and go with their run.
-- [ ] S5 (A1, A4). The dock: a row reads its own agent, and only the rows in view are mounted.
-- [ ] S6 (A2, A5). The menu's agents row, the chat's rows and streaming Markdown draw only what changed.
-- [ ] S7 (A6). Faces: small ones move as a whole, large ones as layers.
+- [x] S1 (A2, A11, A13, A15). The benchmarks, committed with the numbers of 2026-11-21: the window's frame replay, the host load lab, the runtime's tick, main chat and work scripts, and the live windows reading. 7a0d54c, 81d030e, bd2c1fd, 9d6510d, 09113c5; hobkin 17f6f1a.
+- [x] S2 (A1, A2). Window store: one agents list per message, an agent's words cached per entry, and a summary line that stops at its first line. cffacdd, dc1ffc1: 43 ms to 1.5 ms per message.
+- [x] S3 (A3). Window store: what the screen reads follows the host store once per frame, five times a second for lists of agents, and not while hidden. ab2e3df: 1.5 ms to 0.40 ms.
+- [x] S4 (A2, A18). Home's model, the work store, thread notes and step times stop recomputing for every message, and go with their run. e5c5644: 0.40 ms to 0.27 ms.
+- [x] S5 (A1, A4). The dock: a row reads its own agent, and only the rows in view are mounted. 96d3501, 01814a7: a full draw at 100 agents 14.8 ms to 0.32 ms.
+- [x] S6 (A2, A5). The menu's agents row, the chat's rows and streaming Markdown draw only what changed. e0f5e5a, c669272, 9a32434, f4fca37, e095f69: a reveal step of a 20 KB reply 22.7 ms to 0.15 ms.
+- [x] S7 (A6). Faces: small ones move as a whole, large ones as layers. 5c692b3, bb0ee9e, a36224f: a working face 9 animations on SVG parts to 1 move of its box.
 - [ ] S8 (A6, A8). Home's pulse and the review's wires move on the compositor, and the per-step swaps leave `popLayout`.
-- [ ] S9 (A7). Away: a hidden, covered or background window stops moving.
+- [x] S9 (A7). Away: a hidden, covered or background window stops moving. a503efd, d098851.
 - [ ] S10 (A6). Transitions move transform and opacity (canvas, menu, backdrops), and the page canvas follows events instead of every frame.
-- [ ] S11 (A10, A11). Host: the identity path in the activity diff, and the small allocations of each publish.
+- [x] S11 (A10). Host: the identity path in the activity diff, and the small allocations of each publish. 7fe096c, f617267: at 100 agents of 1,000 steps 44.5% to 23.5% of a core, 9.5 ms to 1.0 ms per publish.
 - [ ] S12 (A12, A13). Runtime: main chat events that are not ends travel as activity.
 - [ ] S13 (A14). Runtime: token counts leave the tick's signature and travel the light way.
 - [ ] S14 (A13, A15). Runtime: a cheaper rebuild: one read of the document, routine rows once a minute, usage and evidence only on change.
 - [ ] S15 (A15). Runtime: the tick's reads cached by file version, and routine times computed once.
 - [ ] S16 (A11). Runtime: a feed's snapshot patches what changed.
 - [ ] S17 (A19). Agent processes at utility priority, Pi and Claude Code.
-- [ ] S18 (A16, A17). Activity on demand: growth sent as growth, bounded feeds, whole steps only for watched agents, older steps read from the saved session.
+- [ ] S18 (A11, A16, A17). Activity on demand: growth sent as growth, bounded feeds, whole steps only for watched agents, older steps read from the saved session.
 - [ ] S19 (A9, A20). The restart batch as one patch: an opaque window at opacity 1, optimized dev dependencies, the inline-style fix for every other `popLayout`. Without a restart: StrictMode behind its flag and the screens that load on first use.
 - [ ] S20 (A21). Post-processing of the changed code, a review by someone who did not write it, and the closing numbers in `notes.md`.
 
