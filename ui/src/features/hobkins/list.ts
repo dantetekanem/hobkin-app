@@ -1,7 +1,7 @@
 import { hobkinAgentId, type HobkinEngine, type HobkinSummary } from '#shared/protocol/hobkins.ts'
-import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
+import type { RunSummary, WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { SampleAgent, Tier } from '../../app/sample.ts'
-import { TIER_BY_EFFORT, agentsFrom, doingOf, folderName, hueOf, updateOf } from '../../lib/host/frame.ts'
+import { TIER_BY_EFFORT, agentsFrom, doingOf, folderName, hueOf, isAgentRun, updateOf } from '../../lib/host/frame.ts'
 
 /**
  * Durable hobkins as agents of the list under the input (`034-durable-hobkins`). A durable hobkin stays listed for as long
@@ -74,6 +74,36 @@ export function durableAgents(snapshot: WireSnapshot): ListedAgent[] {
 /** The agents list: the user's durable hobkins first, then the agents at work now. */
 export function listedAgents(snapshot: WireSnapshot): ListedAgent[] {
   return [...durableAgents(snapshot), ...agentsFrom(snapshot)]
+}
+
+/** Each value of a list by its key, the first one where two share it, made once per list. */
+function indexOf<Value>(index: WeakMap<readonly Value[], Map<string, Value>>, values: readonly Value[], key: (value: Value) => string): Map<string, Value> {
+  let byKey = index.get(values)
+  if (!byKey) {
+    byKey = new Map()
+    for (const value of values) if (!byKey.has(key(value))) byKey.set(key(value), value)
+    index.set(values, byKey)
+  }
+  return byKey
+}
+
+const hobkinsByAgent = new WeakMap<readonly HobkinSummary[], Map<string, HobkinSummary>>()
+const runsById = new WeakMap<readonly RunSummary[], Map<string, RunSummary>>()
+
+/**
+ * One agent's latest words, the `update` the agents list gives it, read from that agent alone: the activity of its own
+ * run, or for a durable hobkin that waits the one line of what it said last. A row reads this, so a message costs it
+ * one lookup instead of the whole list.
+ */
+export function wordsOf(snapshot: WireSnapshot, agentId: string): string | undefined {
+  const activity = (snapshot.jobActivity ?? {}) as Activity
+  const hobkin = snapshot.hobkins && indexOf(hobkinsByAgent, snapshot.hobkins, (each) => hobkinAgentId(each.id)).get(agentId)
+  if (hobkin) {
+    const run = hobkin.state === 'working' ? hobkin.run : null
+    return run ? updateOf(activity[run]) : oneLine(hobkin.last?.said)
+  }
+  const run = snapshot.runs && indexOf(runsById, snapshot.runs, (each) => String(each.id)).get(agentId)
+  return run && isAgentRun(run) ? updateOf(activity[agentId]) : undefined
 }
 
 /**

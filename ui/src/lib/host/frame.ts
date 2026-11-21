@@ -62,6 +62,10 @@ function kindOf(run: RunSummary): SampleAgent['kind'] {
   return run.scheduleId && !run.scheduleId.startsWith('session.') ? 'routine' : 'session'
 }
 
+/** A run that is an agent of the list: running, or ended too when asked, and neither the main conversation nor a durable hobkin's turn. */
+export const isAgentRun = (run: RunSummary, includeEnded = false): run is RunSummary & { id: string } =>
+  (includeEnded || run.state === 'running') && run.kind !== 'main' && typeof run.id === 'string' && !isHobkinTurn(run)
+
 /**
  * Agents for the dock, or also ended runs for a reopened canvas. The main conversation is never an agent, and nor is a
  * durable hobkin's turn: the hobkin itself stands for its turns (`features/hobkins/list.ts`).
@@ -69,7 +73,7 @@ function kindOf(run: RunSummary): SampleAgent['kind'] {
 export function agentsFrom(snapshot: WireSnapshot, { includeEnded = false }: { includeEnded?: boolean } = {}): SampleAgent[] {
   const activity = (snapshot.jobActivity ?? {}) as Record<string, ActivityEntry[]>
   return (snapshot.runs ?? [])
-    .filter((run): run is RunSummary & { id: string } => (includeEnded || run.state === 'running') && run.kind !== 'main' && typeof run.id === 'string' && !isHobkinTurn(run))
+    .filter((run): run is RunSummary & { id: string } => isAgentRun(run, includeEnded))
     .map((run) => {
       const kind = kindOf(run)
       const update = run.state === 'running' ? updateOf(activity[run.id]) : undefined

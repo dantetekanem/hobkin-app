@@ -4,11 +4,13 @@
  * `window/probes.ts`), with animation frames every 16.7 ms on a made-up clock, and prints the script time and React
  * commits per message. No page is drawn, so the times are a floor. Run from the repository root:
  *
- *   NODE_ENV=production node scripts/perf/window-frames.ts [--agents 100] [--frames 200] [--entries 60] [--screen home|agent]
+ *   NODE_ENV=production node scripts/perf/window-frames.ts [--agents 100] [--frames 200] [--entries 60] [--screen home|agent] [--rows list|own]
  *
  * `--frames` is how many messages are timed, after 40 that warm up. `--entries` is how many steps each agent holds.
- * Without NODE_ENV=production it measures React's development build.
+ * `--rows` is how a dock row reads its words; it defaults to what `ui/src/app/AgentsDock.tsx` does now. Without
+ * NODE_ENV=production it measures React's development build.
  */
+import { readFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { mock } from 'node:test'
 
@@ -27,6 +29,9 @@ const FRAMES = count('frames', 200)
 const ENTRIES = count('entries', 60)
 const SCREEN = flag('screen', 'home')
 if (SCREEN !== 'home' && SCREEN !== 'agent') throw new Error('--screen is home or agent.')
+const dock = readFileSync(new URL('../../ui/src/app/AgentsDock.tsx', import.meta.url), 'utf8')
+const ROWS = flag('rows', dock.includes('useAgentWords(') ? 'own' : 'list')
+if (ROWS !== 'list' && ROWS !== 'own') throw new Error('--rows is list or own.')
 const WARM_UP = 40
 const MESSAGE_MS = 25
 const FRAME_MS = 1000 / 60
@@ -97,7 +102,7 @@ const ignore = () => {}
 const page = { nodeType: 9, addEventListener: ignore, removeEventListener: ignore }
 const container = { nodeType: 1, nodeName: 'DIV', tagName: 'DIV', namespaceURI: 'http://www.w3.org/1999/xhtml', ownerDocument: page, addEventListener: ignore, removeEventListener: ignore, textContent: '' }
 const root = createRoot(container as never)
-root.render(createElement(Fragment, null, screenTree(SCREEN, data.ids[1]!)))
+root.render(createElement(Fragment, null, screenTree(SCREEN, data.ids[1]!, ROWS)))
 await settle()
 
 /** Replays `messages` messages 25 ms apart, with every animation frame due between them. Answers the script time of each, and the bytes. */
@@ -131,7 +136,7 @@ const total = took.reduce((sum, value) => sum + value, 0)
 const perMessage = total / FRAMES
 const sorted = took.toSorted((a, b) => a - b)
 const react = process.env.NODE_ENV === 'production' ? 'production' : 'development'
-console.log(`${AGENTS} agents of ${ENTRIES} steps, ${FRAMES} messages 25 ms apart (about ${Math.round(bytes / 1000)} KB each), screen ${SCREEN}, ${react} React`)
+console.log(`${AGENTS} agents of ${ENTRIES} steps, ${FRAMES} messages 25 ms apart (about ${Math.round(bytes / 1000)} KB each), screen ${SCREEN}, rows read ${ROWS === 'own' ? 'their own agent' : 'the agents list'}, ${react} React`)
 console.log(`script per message: ${perMessage.toFixed(2)} ms (median ${sorted[Math.floor(FRAMES / 2)]!.toFixed(2)}, worst ${sorted.at(-1)!.toFixed(2)}), ${(perMessage * 4).toFixed(1)}% of a core at 40 messages a second`)
 console.log(`React commits per message: ${(commits / FRAMES).toFixed(2)}`)
 console.log(`draws per message: ${Object.entries(draws).map(([name, value]) => `${name} ${(value / FRAMES).toFixed(2)}`).join(', ')}`)

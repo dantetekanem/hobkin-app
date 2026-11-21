@@ -6,11 +6,11 @@ import { useSettings } from '@/features/settings/store.ts'
 import { useAgentThreads } from '@/features/work/agent-threads.ts'
 import { createAgentControls, executionTargets, receiptText, type AgentControlState } from '@/features/work/actions.ts'
 import { runExecution } from '@/features/work/store.ts'
-import { listedAgents, type ListedAgent } from '@/features/hobkins/list.ts'
+import { listedAgents, wordsOf, type ListedAgent } from '@/features/hobkins/list.ts'
 import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import { hasHost, keepEachEqual, sameAgentsQuietly, sameFields } from '@/lib/host/frame.ts'
-import { hostStore, useHasHost, useHostEqual, useHostKept } from '@/lib/host/index.ts'
+import { hostStore, useHasHost, useHost, useHostEqual, useHostKept } from '@/lib/host/index.ts'
 import { agentQuestionId, answeredAgents, nextAsking, waitingFirst } from './asking.ts'
 import { useView } from './view-store.ts'
 
@@ -119,6 +119,16 @@ export function useAgent(id: string | null): RunningAgent | undefined {
     const agent = POOL.find((entry) => entry.id === id)
     return agent && settle(agent, answered)
   }, [id, live, hosted, answered])
+}
+
+/**
+ * What one agent of the list said last, in one line, for its row: read from that agent alone (`wordsOf`), so a row
+ * costs a lookup per host message, not the whole list. Without a host, the sample agent's own words.
+ */
+export function useAgentWords(agent: Pick<RunningAgent, 'id' | 'update'>): string | undefined {
+  const live = useHasHost()
+  const said = useHost((state) => (live ? wordsOf(state.snapshot, agent.id) : undefined))
+  return live ? said : agent.update
 }
 
 /** The running agents as they are this instant, for code outside a component. */

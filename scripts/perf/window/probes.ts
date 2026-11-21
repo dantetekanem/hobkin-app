@@ -5,7 +5,7 @@
  */
 import { createElement, memo, useMemo, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useAgent, useRunningAgents, type RunningAgent } from '../../../ui/src/app/running-agents.ts'
+import { useAgent, useAgentWords, useRunningAgents, type RunningAgent } from '../../../ui/src/app/running-agents.ts'
 import { useAgentActivity } from '../../../ui/src/features/agent-activity/use-agent-activity.ts'
 import { exchangeOf } from '../../../ui/src/features/agent-activity/steps.ts'
 import { canStopConversation } from '../../../ui/src/features/chat/availability.ts'
@@ -21,6 +21,8 @@ import { useHasHost, useHost, useHostEqual } from '../../../ui/src/lib/host/hook
 import type { HostState } from '../../../ui/src/lib/host/state.ts'
 
 export type Screen = 'home' | 'agent'
+/** How a dock row reads its words: `list` builds the agents list and finds its agent, `own` reads its agent alone (`useAgentWords`). */
+export type RowWords = 'list' | 'own'
 
 /** Draws per probe since the last `resetDraws`. */
 export const draws: Record<string, number> = {}
@@ -29,13 +31,21 @@ export const resetDraws = () => {
   for (const name of Object.keys(draws)) draws[name] = 0
 }
 
-/** A dock row's words, read as `AgentsDock.tsx` reads them today: the whole agents list, then this agent in it. */
-function Words({ agent }: { agent: RunningAgent }) {
+/** A dock row's words, read the whole agents list, then this agent in it, as `AgentsDock.tsx` read them before `useAgentWords`. */
+function ListWords({ agent }: { agent: RunningAgent }) {
   drew('dock.AgentWords')
   const live = useHasHost()
   useHost((state) => (live ? listedAgents(state.snapshot).find((entry) => entry.id === agent.id)?.update : undefined))
   return null
 }
+
+function OwnWords({ agent }: { agent: RunningAgent }) {
+  drew('dock.AgentWords')
+  useAgentWords(agent)
+  return null
+}
+
+let Words = ListWords
 
 function Helpers({ runId }: { runId: string }) {
   drew('dock.ChildCluster')
@@ -122,7 +132,8 @@ function Page({ id }: { id: string }) {
 const CHAT = ['composer', 'avatar', 'status', 'chat'] as const
 
 /** What a screen keeps mounted: the dock and the chat always, then Home, or the menu's agents row and an agent's page. */
-export function screenTree(screen: Screen, open: string): ReactNode {
+export function screenTree(screen: Screen, open: string, words: RowWords): ReactNode {
+  Words = words === 'own' ? OwnWords : ListWords
   const chat = [Composer, Avatar, Status, Chat].map((probe, index) => createElement(probe, { key: CHAT[index] }))
   const rest = screen === 'home' ? [createElement(Home, { key: 'home' })] : [createElement(Menu, { key: 'menu' }), createElement(Page, { key: 'page', id: open })]
   return [createElement(Dock, { key: 'dock' }), ...chat, ...rest]
