@@ -161,6 +161,8 @@ export class WorkDirector {
   async stopFromScreen(id, how, stopOperation) {
     const decline = how === 'decline';
     const run = await this.stopRun(id, { decline, stopOperation });
+    // The user's stop is one of work's numbers (`metrics.mjs`), and nothing else writes it down.
+    if (run) recordEvent(this.root, 'work_stopped', { id, project: run.slug, item: run.item, lane: run.lane, how: decline ? 'decline' : 'later' });
     return toldStop(this.root, run, { decline });
   }
 
@@ -1029,9 +1031,9 @@ export class WorkDirector {
       this.active.delete(key);
       const { tokens, cached, usageIncomplete, cleanupUnknown, incompleteEvents } = entry;
       recordEvent(this.root, 'run_tokens', { id, tokens, cached, usageIncomplete, cleanupUnknown });
-      // When it began goes with what it spent, so the forecast can time the next run like it.
+      // When it began goes with what it spent, so the forecast can time the next run like it, and its item, so a change's cost can be told.
       const estimated = !tokens && !entry.children.length;
-      const facts = { slug, lane, kind, startedAt, ...(!estimated && level ? { level } : {}) };
+      const facts = { slug, lane, kind, startedAt, ...(item ? { item } : {}), ...(!estimated && level ? { level } : {}) };
       recordTokens(this.root, { ...facts, tokens, cached, usageIncomplete, cleanupUnknown, incompleteEvents,
         ...(estimated ? { estimated: true } : {}) }, this.now());
       if (run?.status === 'completed') this.clearUsagePause();

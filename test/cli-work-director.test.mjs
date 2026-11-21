@@ -76,6 +76,21 @@ test('user Work Stop waits for settlement and refuses failed or stale kills', { 
   assert.match((await director.stopFromScreen(run.id, 'later')).message, /Stopped "Exact Work run"/);
 });
 
+test('a stop from the window is written down with its run, project, item and how it stopped, and a stop that stopped nothing is not', { timeout: 10000 }, async t => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-stop-record-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  let stops = true;
+  const director = new WorkDirector({ root, config, runtime: {}, runner: { kill: async () => stops } });
+  director.active.set('do:api', { id: 'work:api:do:1', title: 'Fix rack', lane: 'do', slug: 'api', item: 'a1' });
+
+  await director.stopFromScreen('work:api:do:1', 'decline');
+  stops = false;
+  await assert.rejects(director.stopFromScreen('work:api:do:1', 'later'));
+
+  const stopped = readEvents(root).filter(({ type }) => type === 'work_stopped').map(({ at, ...facts }) => facts);
+  assert.deepEqual(stopped, [{ type: 'work_stopped', id: 'work:api:do:1', project: 'api', item: 'a1', lane: 'do', how: 'decline' }]);
+});
+
 test('user Work cancel request reaches the exact run once without blocking the owner tick', { timeout: 10000 }, async t => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-stop-work-')));
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -1491,6 +1506,19 @@ test('what a run spent is recorded against its own id, once its session can be c
   const spent = readEvents(h.root).filter(({ type }) => type === 'run_tokens').at(-1);
   assert.match(spent.id, /^work:api:do:/);
   assert.deepEqual([spent.tokens, spent.cached], [20, 0]);
+});
+
+test('each line of the token record carries the item its run worked on, and a look names none', async t => {
+  const h = fixture(t);
+  await readyToDo(h);
+  h.agent = request => { writeFileSync(request.sessionFile, sessionLine); };
+
+  await h.tick();
+
+  const [{ id }] = readItems(h.root, 'api');
+  assert.equal(tokenEvents(h.root).findLast(({ lane }) => lane === 'do').item, id);
+  const looks = tokenEvents(h.root).filter(({ lane }) => lane === 'look');
+  assert.ok(looks.length && looks.every(line => !('item' in line)), JSON.stringify(looks));
 });
 const untilStarted = async h => {
   await h.director.tick();
