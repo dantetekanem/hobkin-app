@@ -6,6 +6,7 @@ import { sameFields } from '@/lib/host/frame.ts'
 import { shell, type BrowserShell, type BrowserShown } from '@/lib/native.ts'
 import { PanelButton } from './PanelButton.tsx'
 import { addressFrom, areaOf, barOf, covered, createNativeView, nativeShown, type NativeView } from './browser.ts'
+import { everyWhileVisible, followArea } from './placement.ts'
 
 /** The shell's browser, once it has said whether it has one. Asked when this module first loads, so it is known by the time a page opens. */
 let known: BrowserShell | null = null
@@ -56,18 +57,22 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
   const [refusal, setRefusal] = useState<string | null>(null)
   const bar = barOf({ url, title, shown, editing })
 
-  // What the pane wants of the native view, read on every frame.
+  // What the pane wants of the native view, read at each look.
   const wanted = useRef({ url, visit: revision ?? 0, present })
   wanted.current = { url, visit: revision ?? 0, present }
+  const following = useRef<{ cue(): void } | null>(null)
 
-  // The native view lives as long as this pane. Each frame: where the page area is, and whether anything covers it.
-  // Only a change reaches the shell.
+  // The native view lives as long as this pane. It follows the page area: where it is and whether anything covers it,
+  // looked at when something can have changed that and every frame only while something moves (placement.ts). Only a
+  // change reaches the shell.
   useEffect(() => {
+    const element = area.current
     const native = createNativeView(browser)
     view.current = native
-    let frame = 0
-    const tick = () => {
-      const element = area.current
+    // The first look always counts as a change, so the pane also looks on the frame after it, once the slide of the
+    // screen it arrives with has started and shows as running.
+    let placed = ''
+    const look = () => {
       const at = element ? areaOf(element.getBoundingClientRect(), { width: innerWidth, height: innerHeight }) : null
       const ours = ({ x, y }: { x: number; y: number }) => {
         const hit = document.elementFromPoint(x, y)
@@ -75,17 +80,28 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
       }
       const show = at !== null && nativeShown({ open: wanted.current.present, covered: covered(at, ours), area: at })
       void native.sync({ url: wanted.current.url, visit: wanted.current.visit, area: show ? at : null })
-      frame = requestAnimationFrame(tick)
+      const now = show ? `${at.x},${at.y},${at.width},${at.height}` : 'hidden'
+      const changed = now !== placed
+      placed = now
+      return changed
     }
-    frame = requestAnimationFrame(tick)
+    const follow = element ? followArea(element, look) : null
+    following.current = follow
     return () => {
-      cancelAnimationFrame(frame)
+      follow?.stop()
+      following.current = null
       view.current = null
       void native.close()
     }
   }, [browser])
 
-  // What the browser shows: as it says, and once a second, since a page can change its address without loading.
+  // The pane leaving, or hobkin showing another page, is looked at on the next frame.
+  useEffect(() => {
+    following.current?.cue()
+  }, [present, url, revision])
+
+  // What the browser shows: as it says, and once a second while the window is visible, since a page can change its
+  // address without loading.
   useEffect(() => {
     let mounted = true
     // The once-a-second look mostly finds the page as it was: the pane draws again only when it changed.
@@ -93,10 +109,10 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
       if (mounted && next) setShown((held) => (sameFields(held, next) ? held : next))
     }
     const stop = browser.onShown(take)
-    const timer = setInterval(() => void browser.shown().then(take, () => {}), 1000)
+    const stopReading = everyWhileVisible(1000, () => void browser.shown().then(take, () => {}))
     return () => {
       mounted = false
-      clearInterval(timer)
+      stopReading()
       void stop.then((unlisten) => unlisten(), () => {})
     }
   }, [browser])
