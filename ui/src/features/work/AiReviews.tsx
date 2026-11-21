@@ -27,8 +27,6 @@ import type { ReviewListView } from './use-review-list.ts'
  */
 export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewListView }) {
   const groups = groupReviews(reviews.list)
-  // A running review's clock counts seconds; otherwise "finished 3 minutes ago" is enough.
-  const now = useNow(true, groups.running.length ? 1_000 : 30_000)
   const none = groups.unmerged.length + groups.running.length + groups.ready.length + groups.failed.length === 0
 
   return (
@@ -45,10 +43,10 @@ export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewLis
       ) : null}
       {reviews.list && none ? <NoReviews /> : null}
       {/* What the user said yes to and has not merged: first, so a yes that did not land is never out of sight. */}
-      <Group label="Asked to merge, not merged" rows={groups.unmerged} now={now} live={live} onAgain={reviews.refresh} />
-      <Group label="Running" rows={groups.running} now={now} live={live} onAgain={reviews.refresh} />
-      <Group label="Ready" rows={groups.ready} now={now} live={live} onAgain={reviews.refresh} />
-      <Group label="Failed" rows={groups.failed} now={now} live={live} onAgain={reviews.refresh} />
+      <Group label="Asked to merge, not merged" rows={groups.unmerged} live={live} onAgain={reviews.refresh} />
+      <Group label="Running" rows={groups.running} live={live} onAgain={reviews.refresh} />
+      <Group label="Ready" rows={groups.ready} live={live} onAgain={reviews.refresh} />
+      <Group label="Failed" rows={groups.failed} live={live} onAgain={reviews.refresh} />
     </div>
   )
 }
@@ -68,14 +66,14 @@ function NoReviews() {
   )
 }
 
-function Group({ label, rows, now, live, onAgain }: { label: string; rows: ReviewRow[]; now: number; live: boolean; onAgain: () => void }) {
+function Group({ label, rows, live, onAgain }: { label: string; rows: ReviewRow[]; live: boolean; onAgain: () => void }) {
   if (!rows.length) return null
   return (
     <section aria-label={label} className="flex flex-col gap-3">
       <SectionHeading label={label} count={rows.length} />
       <ul className="flex flex-col gap-2">
         {rows.map((row) => (
-          <Card key={row.item.id} row={row} now={now} live={live} onAgain={onAgain} />
+          <Card key={row.item.id} row={row} live={live} onAgain={onAgain} />
         ))}
       </ul>
     </section>
@@ -88,6 +86,15 @@ function whenOf({ group, startedAt, at }: ReviewRow, now: number): string {
   if (at === null) return ''
   if (group === 'unmerged') return `asked ${waited(at, now)} ago`
   return `${group === 'ready' ? 'finished' : 'stopped'} ${waited(at, now)} ago`
+}
+
+/**
+ * The row's time, the one part of it that follows the clock: a running review counts seconds, otherwise "finished 3
+ * minutes ago" is enough. Only this draws again as the time moves.
+ */
+function When({ row }: { row: ReviewRow }) {
+  const now = useNow(true, row.group === 'running' ? 1_000 : 30_000)
+  return <span className="ml-auto shrink-0 pl-2 tabular-nums">{whenOf(row, now)}</span>
 }
 
 /**
@@ -163,7 +170,7 @@ function StopReview({ id, live, onStopped, more }: { id: string; live: boolean; 
   )
 }
 
-function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: boolean; onAgain: () => void }) {
+function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: () => void }) {
   const { item } = row
   const Kind = item.kind === 'pull' ? GitPullRequest : GitBranch
   // Who it is from, as words: the row is itself a button, so its names are no links. The host is asked once for each
@@ -206,7 +213,7 @@ function Card({ row, now, live, onAgain }: { row: ReviewRow; now: number; live: 
           <span className="min-w-0 truncate font-medium text-foreground">{row.where}</span>
           <span className="shrink-0">· {item.kind === 'pull' ? 'Pull request' : 'Finished change'}</span>
           {byLine ? <span className="min-w-0 truncate">· {byLine}</span> : null}
-          <span className="ml-auto shrink-0 pl-2 tabular-nums">{whenOf(row, now)}</span>
+          <When row={row} />
         </span>
         <span className="flex items-start gap-3">
           <span className="min-w-0 flex-1 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{item.title}</span>

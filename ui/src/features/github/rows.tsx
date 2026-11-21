@@ -219,6 +219,13 @@ function aiWhen(ai: PullAi, now: number): string | null {
   return null
 }
 
+/** The AI review's time, the one part of its card that follows the clock: seconds while it runs, half minutes after. */
+function AiWhen({ ai }: { ai: PullAi }) {
+  const now = useNow(true, ai.state === 'running' ? 1_000 : 30_000)
+  const when = aiWhen(ai, now)
+  return when ? <span className="text-[12.5px] text-muted-foreground tabular-nums">{when}</span> : null
+}
+
 /**
  * A pull request's AI review, on its card. None yet: Start AI review, which asks the host to prepare it and opens it.
  * Running: how far along it is and what it is doing now. Ready: its level, its units at each level, and Open review.
@@ -227,8 +234,6 @@ function aiWhen(ai: PullAi, now: number): string | null {
 function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boolean; title: string }) {
   const [starting, setStarting] = useState(false)
   const [refusal, setRefusal] = useState<string | null>(null)
-  const now = useNow(true, ai.state === 'running' ? 1_000 : 30_000)
-  const when = aiWhen(ai, now)
   const openReview = (reviewId: string) => useView.getState().openReviewFor(reviewId)
 
   const start = async (again: boolean) => {
@@ -286,7 +291,7 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
           </Button>
         </>
       ) : null}
-      {when ? <span className="text-[12.5px] text-muted-foreground tabular-nums">{when}</span> : null}
+      <AiWhen ai={ai} />
       {refusal ? (
         <p role="alert" className="text-[13px] leading-snug text-bad-fg">
           {refusal}
