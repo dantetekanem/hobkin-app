@@ -1,5 +1,5 @@
-import { childrenFrom, mainChildrenFrom } from '@/lib/host/frame.ts'
-import { useHasHost, useHost } from '@/lib/host/index.ts'
+import { childrenFrom, keepEachEqual, mainChildrenFrom, sameFields } from '@/lib/host/frame.ts'
+import { useHasHost, useHostKept, type HostState } from '@/lib/host/index.ts'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 
 /**
@@ -31,16 +31,23 @@ export const sampleMainChildren: readonly RunChild[] = [
 
 const NO_CHILDREN: readonly RunChild[] = []
 
+/**
+ * The host sends every run's helpers again whenever one of them moves, so each list is kept while its helpers say the
+ * same: a helper that moves draws its own run's helpers again, not those of every run and of hobkin's own.
+ */
+const keepSame = (held: readonly RunChild[], next: readonly RunChild[]) => keepEachEqual(held, next, sameFields)
+const mainChildren = (state: HostState) => mainChildrenFrom(state.snapshot, state)
+
 /** The agents a run spawned: the host's for a live window, the sample's before a host has answered. */
 export function useRunChildren(runId: string): readonly RunChild[] {
   const live = useHasHost()
-  const children = useHost((state) => childrenFrom(state.snapshot, runId, state))
+  const children = useHostKept((state) => childrenFrom(state.snapshot, runId, state), keepSame)
   return live ? children : (sampleChildren[runId] ?? NO_CHILDREN)
 }
 
 /** The agents hobkin's own chat spawned: the host's for a live window, the sample's before a host has answered. */
 export function useMainChildren(): readonly RunChild[] {
   const live = useHasHost()
-  const children = useHost((state) => mainChildrenFrom(state.snapshot, state))
+  const children = useHostKept(mainChildren, keepSame)
   return live ? children : sampleMainChildren
 }

@@ -19,6 +19,7 @@ mock.method(HostConnection.prototype, 'command', async () => { throw new Error('
 const { hostStore } = await import('../src/lib/host/client.ts')
 const { useAgents } = await import('../src/lib/host/hooks.ts')
 const { useHomeModel } = await import('../src/features/home/use-home.ts')
+const { useMainChildren, useRunChildren } = await import('../src/features/work/children.ts')
 const { useReports } = await import('../src/features/reports/store.ts')
 after(() => {
   mock.restoreAll()
@@ -85,5 +86,32 @@ test('Home draws again when what it shows of an agent changes, not for every ste
   await mounted.change(() => send(step('other', { id: 'tool:2', kind: 'tool', name: 'read', state: 'running', input: '{"path":"a.ts"}' })))
   assert.equal(draws, before + 1)
   assert.deepEqual(model!.running.rows.map(({ detail }) => detail), ['running bash', 'running read'])
+  await mounted.unmount()
+})
+
+test('a helper that moves draws the helpers of its own run again, not those of every other run', async () => {
+  const helper = (name: string, state: 'running' | 'reported', activeTool = 'bash') => ({ id: name, name, state, activeTool })
+  const children = (worker: ReturnType<typeof helper>) => ({ type: 'state' as const, rev: rev++, set: {
+    jobChildren: { worker: [worker], other: [helper('other-helper', 'running')] },
+    mainChildren: [helper('main-helper', 'running', 'read')],
+  } })
+  send(children(helper('worker-helper', 'running')))
+  const draws = { worker: 0, other: 0, main: 0 }
+  const Run = ({ id }: { id: 'worker' | 'other' }) => {
+    draws[id] += 1
+    useRunChildren(id)
+    return null
+  }
+  const Main = () => {
+    draws.main += 1
+    useMainChildren()
+    return null
+  }
+  const mounted = await mountCounting(() => [createElement(Run, { key: 'worker', id: 'worker' }), createElement(Run, { key: 'other', id: 'other' }), createElement(Main, { key: 'main' })])
+
+  await mounted.change(() => send(children(helper('worker-helper', 'running', 'read'))))
+  assert.deepEqual(draws, { worker: 2, other: 1, main: 1 })
+  await mounted.change(() => send(children(helper('worker-helper', 'reported'))))
+  assert.deepEqual(draws, { worker: 3, other: 1, main: 1 })
   await mounted.unmount()
 })
