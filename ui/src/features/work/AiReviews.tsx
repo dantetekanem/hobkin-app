@@ -234,8 +234,8 @@ const sampleOnly = (async () => {
 }) as RowCommands
 
 /**
- * A row's actions, always shown under it (spec 032): Remove and Remove and delete branch, the review's own noes as its
- * panel gives them, without opening it, or the plain Remove that takes the review out of this list and nothing else.
+ * A row's actions, always shown under it (spec 032): Remove, which takes the review out of this list and nothing else,
+ * and Remove and delete branch, the review's own no as its panel gives it, without opening it.
  * Each asks first: the first click says what it will do, a second within ten seconds does it, and after that it goes
  * back. Escape takes back the one waiting. A button keeps its width while it asks, so the one beside it never moves.
  */

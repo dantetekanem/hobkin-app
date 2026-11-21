@@ -4,33 +4,33 @@ import { CONFIRM_MS, createVerdictChoices } from '../review/verdict.ts'
 import { canReviewAgain, type ReviewRow } from './ai-reviews.ts'
 
 /**
- * The actions on a row of the AI Reviews tab (spec 032), shown on the row: Remove and Remove and delete branch, the
- * review's own two noes (`discard` and `discard-branch`), done from the row without opening it. A row with no no to give
- * has a plain Remove (`remove`), which takes the review out of the list and nothing else. Each is asked in place: the
- * first click says what it will do, a second within ten seconds does it, and after that it goes back. Only one waits at
- * a time. Pure, so it is tested without a window.
+ * The actions on a row of the AI Reviews tab (spec 032), shown on the row. Remove (`remove`) takes the review out of the
+ * list and nothing else: no pull request is closed, hobkin is told nothing, and the change keeps its branch. Remove and
+ * delete branch is the review's own no (`discard-branch`), done from the row without opening it. Each is asked in
+ * place: the first click says what it will do, a second within ten seconds does it, and after that it goes back. Only
+ * one waits at a time. Pure, so it is tested without a window.
  */
 
-export type RowAction = 'remove' | 'discard' | 'discard-branch'
+export type RowAction = 'remove' | 'discard-branch'
 
 type RowCommand = 'review.preview' | 'review.verdict' | 'review.remove'
 export type RowCommands = <Name extends RowCommand>(name: Name, args: CommandArgs<Name>) => Promise<CommandResults[Name]>
 
 /**
- * What a row offers, in the order it shows them. A finished change, and a pull request its review recorded as the
- * user's own, are removed with the no: hobkin's no (which stops a merge waiting after its refresh) or the pull request
- * closed, and the review leaves the list. Someone else's pull request is closed by its author, and a review that was
- * never built has nothing to say no from: those get the plain Remove, once nothing of them is being built.
+ * What a row offers, in the order it shows them. Remove is on every row whose review is not being built, since the
+ * host removes none that is. A finished change, and a pull request its review recorded as the user's own, also give the
+ * no that deletes the branch. Someone else's pull request is closed by its author, and a review that was never built
+ * has nothing to say no from: those have Remove alone.
  */
 export function rowActions(row: ReviewRow): RowAction[] {
   const { kind, owner, state, assessment } = row.item
   const built = !(state === 'failed' && !assessment)
-  if ((kind === 'change' || owner?.mine) && built) return ['discard', 'discard-branch']
-  return canReviewAgain(row) ? ['remove'] : []
+  const remove: RowAction[] = canReviewAgain(row) ? ['remove'] : []
+  return (kind === 'change' || owner?.mine) && built ? [...remove, 'discard-branch'] : remove
 }
 
-/** Each action's name on the row. The plain Remove and the no share one, since both take the row off the list. */
-export const ACTION_LABEL: Record<RowAction, string> = { remove: 'Remove', discard: 'Remove', 'discard-branch': 'Remove and delete branch' }
+/** Each action's name on the row. */
+export const ACTION_LABEL: Record<RowAction, string> = { remove: 'Remove', 'discard-branch': 'Remove and delete branch' }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
