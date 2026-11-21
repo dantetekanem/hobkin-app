@@ -85,8 +85,8 @@ export function Frame() {
 
 /**
  * The first-run setup and the tour, mounted from the first time either opens. A window whose setup is done never
- * loads their code. On a first run the setup's cover, the window's own background, is there from the first draw, so
- * the app never shows before the setup does.
+ * loads their code. On a first run the setup's cover is there from the first draw, so the app never shows before
+ * the setup does.
  */
 function SetupLayer() {
   const setupOpen = useSetup((state) => state.open)
@@ -94,10 +94,15 @@ function SetupLayer() {
   const tourOpen = useTour((state) => state.open)
   const mounted = useWantedOnce(setupOpen || tourOpen)
   if (!mounted) return null
-  const cover = setupOpen && firstRun ? createPortal(<div aria-hidden className="fixed inset-0 z-[45] bg-background" />, document.body) : null
+
   return (
-    <Suspense fallback={cover}>
+    <Suspense fallback={setupOpen && firstRun ? <SetupCover /> : null}>
       <FirstRunSetup />
     </Suspense>
   )
+}
+
+/** The setup's own cover, the window's background at the setup's layer, while the setup's code arrives. */
+function SetupCover() {
+  return createPortal(<div aria-hidden className="fixed inset-0 z-[45] bg-background" />, document.body)
 }

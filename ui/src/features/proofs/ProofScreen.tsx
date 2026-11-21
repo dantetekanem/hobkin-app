@@ -43,7 +43,9 @@ export function ProofScreen() {
   const id = useView((view) => view.openProof)
   const { run, live, now, problem } = useProofRun(id)
   const [tab, setTab] = useState<ProofTab>('run')
-  useEffect(() => void loadGraphView(), [])
+  useEffect(() => {
+    void loadGraphView()
+  }, [])
   // A tab change is a transition: should the graph's code still be on its way, the tab shown stays until it is there.
   const choose = (next: ProofTab) => startTransition(() => setTab(next))
 
