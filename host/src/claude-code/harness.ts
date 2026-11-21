@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { accessSync, appendFileSync, constants, existsSync, mkdirSync, statSync } from 'node:fs'
-import { dirname } from 'node:path'
+import { delimiter, dirname, resolve } from 'node:path'
 import type { Readable } from 'node:stream'
 import { stripVTControlCharacters } from 'node:util'
 import type { ImageContent } from 'hobkin/src/cli/application.mjs'
@@ -230,17 +230,25 @@ function sessionWriter(file: string): (lines: SessionLine[]) => void {
   }
 }
 
+/** Whether `program` is a file that can run where spawn finds it: a path from the run's folder, or a name on its PATH. */
+function runnable(program: string, cwd: string, path: string | undefined): boolean {
+  const places = program.includes('/') ? [resolve(cwd, program)] : (path ?? '').split(delimiter).filter(Boolean).map((folder) => resolve(cwd, folder, program))
+  return places.some((place) => {
+    try {
+      accessSync(place, constants.X_OK)
+      return statSync(place).isFile()
+    } catch {
+      return false
+    }
+  })
+}
+
 /**
  * Claude, and what it starts, run at utility priority on macOS (hobkin's `priority.mjs`), so the window and the host keep
  * the fast cores. A claude that cannot run starts as it is, so it fails to start as before (`startFailure`).
  */
-function claudeCommand(claude: string, args: string[]): { command: string; args: string[] } {
-  try {
-    accessSync(claude, constants.X_OK)
-  } catch {
-    return { command: claude, args }
-  }
-  return atUtilityPriority(claude, args)
+function claudeCommand(claude: string, args: string[], { cwd = process.cwd(), path = process.env.PATH }: { cwd?: string; path?: string } = {}): { command: string; args: string[] } {
+  return runnable(claude, cwd, path) ? atUtilityPriority(claude, args) : { command: claude, args }
 }
 
 function startFailure(error: unknown, claude: string, cwd: string): string {
@@ -322,7 +330,7 @@ async function runTurn(request: ClaudeHarnessRequest, options: ClaudeHarnessOpti
   let child: ChildProcess
   // A stand-in a test passes gets the command as given.
   const args = claudeArguments(settings, request, sessionId, setup.directions)
-  const started = setup.spawnProcess ? { command: setup.claude, args } : claudeCommand(setup.claude, args)
+  const started = setup.spawnProcess ? { command: setup.claude, args } : claudeCommand(setup.claude, args, { cwd: request.cwd, path: env.PATH })
   try {
     child = (setup.spawnProcess ?? spawn)(started.command, started.args, {
       cwd: request.cwd,

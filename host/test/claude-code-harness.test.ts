@@ -178,6 +178,37 @@ test('claude starts through taskpolicy at utility priority on macOS, and plainly
   assert.equal(priority, execFileSync('/usr/sbin/taskpolicy', ['-c', 'utility', '/bin/sh', '-c', 'ps -o pri= -p $$'], { encoding: 'utf8' }).trim())
 })
 
+test("a claude named bare is found on the run's PATH and lowered too, and one found nowhere fails to start as before", async (t) => {
+  const home = temporaryDirectory(t)
+  const bin = join(home, 'bin')
+  const said = join(home, 'said')
+  const cwd = join(home, 'project')
+  mkdirSync(bin)
+  mkdirSync(cwd)
+  writeFileSync(join(bin, 'claude-standin'), `#!/bin/sh\necho started > '${said}'\nexec cat > /dev/null\n`, { mode: 0o755 })
+  const request = { id: RUN_ID, cwd, prompt: 'Fix it.', sessionFile: join(home, 'jobs', 'run.jsonl'), effort: 'high' }
+  const setup = { settings: SETTINGS, title: TITLE, directions: DIRECTIONS, ask: async () => undefined }
+
+  const signalled: string[][] = []
+  let control: ClaudeChild | undefined
+  const finished = runClaudeHarness(request, { onControl: (given) => (control = given) }, {
+    ...setup,
+    claude: 'claude-standin',
+    env: { PATH: `${bin}:/usr/bin:/bin` },
+    signalGroup: (child, signal) => {
+      signalled.push(child.spawnargs)
+      process.kill(-child.pid!, signal)
+    },
+  })
+  await until(() => existsSync(said), 'claude to start')
+  control!.terminate()
+  await finished
+  assert.deepEqual(signalled[0]?.slice(0, 4), process.platform === 'darwin' ? ['/usr/sbin/taskpolicy', '-c', 'utility', 'claude-standin'] : ['claude-standin', '-p', '--input-format', 'stream-json'])
+
+  const nowhere = await runClaudeHarness(request, {}, { ...setup, claude: 'claude-nowhere', env: { PATH: `${bin}:/usr/bin:/bin` } })
+  assert.equal(nowhere.error, 'Claude Code could not start: there is no program at claude-nowhere.')
+})
+
 test("starts claude headless with the run's settings", async (t) => {
   const run = launch(t, { setup: { env: { PATH: '/usr/bin:/bin', HOME: '/Users/someone', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' } } })
   await until(() => run.fake.written.length === 1 && run.send(), 'the prompt')
