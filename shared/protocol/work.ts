@@ -207,6 +207,35 @@ export interface YoloPart {
   problem?: string
   /** The Action Item for the step only the user can take. */
   action?: string
+  /** On the deploy part, false when nothing deploys on the project. */
+  deploys?: boolean
+}
+
+/** A finished change waiting on a project, as YOLO mode reads it (`yoloStatus` in hobkin's `src/cli/work/yolo-report.mjs`). */
+export interface YoloChange {
+  item: string
+  title: string
+  /** What its review calls it, in hobkin's words ("a bug fix"), and its general rate. Null with no review yet. */
+  kind: string | null
+  rate: number | null
+  /** Why it keeps asking the user, in hobkin's words, or null when it merges by itself on the next pass. On a project still getting ready, what it would meet once ready. */
+  why: string | null
+}
+
+/** A change YOLO mode merged by itself, from its ledger. */
+export interface YoloMerge {
+  /** When it merged, as an ISO time. */
+  at: string
+  item: string
+  title: string
+  kind: string
+  rate: number
+  /** The commit it merged at, short. */
+  head: string
+  /** What became of its deploy, in hobkin's words: with the main agent, nothing deployed and why, or what the monitoring showed after it. */
+  deploy: string
+  /** Whether the latest reading after its deploy held: false on a regression, null with no reading yet. */
+  held: boolean | null
 }
 
 /** One project's place in YOLO mode: whether changes may merge there by themselves, and what holds it back when not. */
@@ -225,6 +254,10 @@ export interface YoloProject {
   checkedAt?: string | null
   /** Its TLA+ models on the default branch, the readiness part YOLO mode needs to hold, when it has any. A hobkin older than them does not send it. */
   models?: ModelFact[]
+  /** The finished changes waiting on it, in the order hobkin weighs them. A hobkin older than this does not send it. */
+  changes?: YoloChange[]
+  /** What YOLO mode merged by itself here, newest first. A hobkin older than this does not send it. */
+  merged?: YoloMerge[]
 }
 
 /**
@@ -238,6 +271,8 @@ export interface YoloState {
   highest: number
   /** How many of `projects` are ready. */
   ready: number
+  /** Why nothing merges by itself anywhere, while work mode is off or paused, in hobkin's words. A hobkin older than this does not send it. */
+  waits?: string | null
   projects: YoloProject[]
 }
 

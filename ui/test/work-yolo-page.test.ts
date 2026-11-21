@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { FinishedChange, FinishedGroup, FinishedGroupName, YoloPart, YoloProject, YoloState } from '#shared/protocol/work.ts'
-import { partGroups, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance, yoloReportId } from '../src/features/work/yolo-page.ts'
+import type { FinishedChange, FinishedGroup, FinishedGroupName, YoloChange, YoloMerge, YoloPart, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import { changeRows, mergedDays, partGroups, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance, yoloReportId, yoloVerdict, type VerdictContext } from '../src/features/work/yolo-page.ts'
 
 const NOW = Date.parse('2026-11-20T15:00:00Z')
 const project = (change: Partial<YoloProject> = {}): YoloProject => ({
@@ -135,4 +135,90 @@ test("a project's YOLO report is the one hobkin lists as that project's yolo wor
 
   assert.equal(yoloReportId(project(), reports), 'yolo:api:2')
   assert.equal(yoloReportId(project({ slug: 'docs' }), reports), null)
+})
+
+// What YOLO mode does on a project, at a glance: whether it merges and deploys there, and if not, exactly why and the one press that moves it.
+const READY: Partial<YoloProject> = { ready: true, needs: [], work: 'landed', checkedAt: '2026-11-21T04:45:00Z' }
+const DEPLOY_TAKEN = part('deploy', 'doing', { line: 'You took its step, and the next check confirms it.', action: 'f0f8' })
+const DEPLOY_ASKS = part('deploy', 'user', { line: 'Make space for the RpsLeague release build', action: 'f0f8' })
+const DEPLOY_DONE = part('deploy', 'done', { line: 'bin/deploy from main.' })
+const change = (title: string, rate: number | null, why: string | null, item = title.slice(0, 2)): YoloChange => ({ item, title, kind: rate === null ? null : 'a bug fix', rate, why })
+const verdictOf = (change: Partial<YoloProject>, context: Partial<VerdictContext> = {}) => {
+  const shown = project({ ...READY, ...change })
+  return yoloVerdict(shown, { on: true, rate: 8, lowest: 6, waits: null, paused: false, prMode: 'off', readiness: readinessRow(shown, { workOn: true, now: NOW, zone: 'UTC' }), ...context })
+}
+
+test("rpsleague's case: ready, nothing waiting, and its deploys wait for the check that confirms the step the user took", () => {
+  const verdict = verdictOf({ name: 'rpsleague', parts: [part('tests', 'done', { needed: true }), DEPLOY_TAKEN], changes: [], merged: [] })
+  assert.deepEqual(verdict.merges, { state: 'Idle', tone: 'quiet', text: 'Nothing waits to merge. The next small change rated 8 or more merges by itself.' })
+  assert.deepEqual(verdict.deploys, { state: 'Not set up', tone: 'warn', text: 'Nothing deploys yet. You took its step, and the next check confirms it.' })
+  assert.deepEqual(verdict.action, { label: 'Check again', press: { do: 'readiness' } })
+
+  // Before the user took the step, the step itself is the one press.
+  assert.deepEqual(verdictOf({ parts: [DEPLOY_ASKS] }).action, { label: 'Answer item', press: { do: 'action', id: 'f0f8' } })
+  assert.equal(verdictOf({ parts: [DEPLOY_ASKS] }).deploys.text, 'Nothing deploys yet. It waits on you: Make space for the RpsLeague release build.')
+})
+
+test("changes that cannot merge by themselves say hobkin's exact reason, with their rate against the user's", () => {
+  const landing = 'it still has work left: The independent review still needs to cover the committed range'
+  const stuck = verdictOf({ parts: [DEPLOY_DONE], changes: [change('Difficulty multipliers', 7.4, landing, 'fd'), change('Selling more than owned', 7.6, landing, '0c')] })
+  assert.deepEqual(stuck.merges, { state: 'Stuck', tone: 'warn', text: `Nothing can merge by itself. "Selling more than owned" asks you: ${landing}.` })
+  assert.deepEqual(stuck.action, { label: 'Open review', press: { do: 'review', slug: 'api', item: '0c' } })
+  assert.deepEqual(stuck.deploys, { state: 'Ready', tone: 'ok', text: 'Each merge goes to the main agent to deploy by its recorded path.' })
+
+  const rows = changeRows(project({ ...READY, changes: [change('Difficulty multipliers', 7.4, landing), change('Fix login', 9.2, null), change('No review', null, 'no review has scored it')] }), 8)
+  assert.deepEqual(rows.map(({ title, rate, against, tone, why }) => [title, rate, against, tone, why]), [
+    ['Fix login', '9.2', 'merges next pass', 'ok', 'It merges by itself on the next pass.'],
+    ['Difficulty multipliers', '7.4', '0.6 under 8', 'warn', `It asks you: ${landing}.`],
+    ['No review', '–', 'no rate yet', 'warn', 'It asks you: no review has scored it.'],
+  ])
+
+  // When the rate is all that holds it, the press sets the rate it would pass at.
+  const underRate = verdictOf({ changes: [change('Fix logout', 7.6, 'its general rate is 7.6, under 8', 'lo')] })
+  assert.deepEqual(underRate.action, { label: 'Set rate to 7', press: { do: 'rate', rate: 7 }, title: 'Lower your rate to 7, so "Fix logout" merges by itself' })
+  const belowLowest = verdictOf({ changes: [change('Fix logout', 5.2, 'its general rate is 5.2, under 8', 'lo')] })
+  assert.equal(belowLowest.action?.press.do, 'review', 'a rate under the lowest the user can pick is not offered')
+})
+
+test('a change that merges on the next pass says so, and the deploy that still needs setting up is the press', () => {
+  const merging = verdictOf({ parts: [DEPLOY_ASKS], changes: [change('Fix login', 9.2, null, 'fl')] })
+  assert.deepEqual(merging.merges, { state: 'Merging', tone: 'live', text: '"Fix login" merges by itself on the next pass: a bug fix rated 9.2.' })
+  assert.deepEqual(merging.action, { label: 'Answer item', press: { do: 'action', id: 'f0f8' } })
+  assert.deepEqual(verdictOf({ parts: [DEPLOY_DONE], changes: [change('Fix login', 9.2, null, 'fl')] }).action, { label: 'Open review', press: { do: 'review', slug: 'api', item: 'fl' } })
+})
+
+test('nothing merges while YOLO mode is off, work mode waits, the project is paused, or it is in PR mode, and each says so', () => {
+  const off = verdictOf({}, { on: false })
+  assert.deepEqual([off.merges.state, off.merges.text, off.action], ['Off', 'YOLO mode is off, so every change here asks you.', null])
+  assert.deepEqual(verdictOf({ ...project(), ready: false }, { on: false }).action, { label: 'Run readiness', press: { do: 'readiness' } }, 'readiness still runs with it off')
+
+  const waits = verdictOf({}, { waits: 'work mode is paused' })
+  assert.deepEqual([waits.merges.state, waits.merges.text, waits.action], ['Stuck', 'Nothing merges by itself while work mode is paused.', { label: 'Open Work', press: { do: 'work', key: null } }])
+  assert.equal(verdictOf({}, { paused: true }).merges.text, 'Nothing merges by itself while api is paused on Work.')
+  assert.equal(verdictOf({ changes: [] }, { prMode: 'published' }).merges.text, 'PR mode is on here, so each change goes up as a PR for your merge, and YOLO mode merges no PR.')
+})
+
+test('a project getting ready says what holds it, and the press is the part that holds it', () => {
+  const pull = 'https://github.com/acme/api/pull/9'
+  const held = verdictOf({ ready: false, needs: ['Tests: its PR waits for your merge.'], parts: [part('tests', 'pr', { needed: true, blocks: true, pr: pull }), DEPLOY_DONE] })
+  assert.deepEqual(held.merges, { state: 'Getting ready', tone: 'warn', text: 'Nothing merges by itself until it is ready. Tests: its PR waits for your merge.' })
+  assert.deepEqual(held.action, { label: 'Open PR', press: { do: 'pr', url: pull } })
+
+  const asks = verdictOf({ ready: false, needs: ['Rollback: waits on you: Keep two releases.'], parts: [part('rollback', 'user', { needed: true, blocks: true, action: 'a9' })] })
+  assert.deepEqual(asks.action, { label: 'Answer item', press: { do: 'action', id: 'a9' } })
+  const running = verdictOf({ ready: false, work: 'running' })
+  assert.deepEqual([running.merges.state, running.action], ['Getting ready', null], 'nothing to press while its run sets it up')
+})
+
+test('what merged by itself is grouped by day, newest first, with how each deploy held', () => {
+  const merge = (title: string, at: string, held: boolean | null, deploy: string): YoloMerge => ({ at, item: title.slice(0, 2), title, kind: 'a bug fix', rate: 9.2, head: 'abc1234', deploy, held })
+  const days = mergedDays(project({ merged: [
+    merge('Fix login', '2026-11-20T14:00:00Z', true, 'It deployed and held for 30 minutes: Nothing new.'),
+    merge('Fix logout', '2026-11-20T09:00:00Z', false, 'Problem after its deploy: p95 doubled.'),
+    merge('Fix search', '2026-11-18T09:00:00Z', null, 'Its deploy is with the main agent.'),
+  ] }), { zone: 'UTC', now: NOW })
+  assert.deepEqual(days.map(({ day, rows }) => [day, rows.map(({ title, what, held, tone }) => [title, what, held, tone])]), [
+    ['Today', [['Fix login', 'a bug fix rated 9.2 at abc1234', 'Held', 'ok'], ['Fix logout', 'a bug fix rated 9.2 at abc1234', 'Regressed', 'bad']]],
+    ['Wed, Nov 18', [['Fix search', 'a bug fix rated 9.2 at abc1234', null, 'quiet']]],
+  ])
 })
