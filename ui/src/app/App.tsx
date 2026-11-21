@@ -1,13 +1,15 @@
 import { MotionConfig } from 'motion/react'
-import { useEffect, useSyncExternalStore } from 'react'
+import { lazy, Suspense, useEffect, useSyncExternalStore } from 'react'
 import { TooltipProvider } from '@/components/ui/tooltip.tsx'
 import { LinkLayer } from '@/features/viewer/LinkLayer.tsx'
 import { startHostConnection } from '@/lib/host/index.ts'
-import { AvatarGallery } from './dev/AvatarGallery.tsx'
 import { Frame } from './Frame.tsx'
 import { PhotoCredit } from './PhotoCredit.tsx'
 // Carries out the window moves and composer drafts hobkin drives for the user (013-hobkin-access).
 import './nudge.ts'
+
+// A page for development: its code loads only when its address is opened.
+const AvatarGallery = lazy(() => import('./dev/AvatarGallery.tsx').then((module) => ({ default: module.AvatarGallery })))
 
 function useHash(): string {
   return useSyncExternalStore(
@@ -31,7 +33,9 @@ export function App() {
         <LinkLayer />
         <PhotoCredit />
         {hash === '#/dev/avatar' ? (
-          <AvatarGallery />
+          <Suspense fallback={null}>
+            <AvatarGallery />
+          </Suspense>
         ) : (
           <Frame />
         )}
