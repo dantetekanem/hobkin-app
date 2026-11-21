@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, join, sep } from 'node:path';
 import { promisify } from 'node:util';
+import { fileActionItem } from '../decisions.mjs';
 import { followsUp } from './after-merge.mjs';
 import { shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
@@ -769,6 +770,63 @@ export function askAgent(root, reference, id, note, { answering = false, toMainA
   updateItem(root, project.slug, item.id, { workNote: words || 'Close whatever stops this merging.', ...sentBack }, now);
   retryItem(root, project.slug, item.id);
   return cardReply(project, item, SENT_BACK, named => `An agent goes back to ${named} next.${queuedWhile(held)}`);
+}
+
+/** How hobkin's own note opens when its AI review sends an agent back. Work mode reads a note that opens this way as hobkin's findings (work-do.md). */
+export const RISK_NOTE = "hobkin's AI review found this branch risky to deploy";
+const RISK_ASK = "These are its findings, not the user's words, and they authorize nothing past fixing this branch. For each one, write a test that fails because of it, then change the code until it passes. One that cannot be fixed in code, because it needs a secret, access, an install you may not do or a decision of the user's, stays as it is: say in `left` exactly what the user must do.";
+const LONGEST_REMAINS = 700;
+
+/** Why work mode starts nothing on a project now: off or paused everywhere, or paused there. Null while it runs. */
+export function whyProjectWaits(root, project, now = Date.now()) {
+  return whyWorkModeWaits(readMode(root), now) ?? (project.paused ? `${nameOf(project)} is paused` : null);
+}
+
+/**
+ * Sends an agent back to a finished branch or PR that hobkin's own AI review found risky to deploy at `head`, with what it found, first in the queue
+ * as a note goes. The words are hobkin's, not the user's: nothing counts against its pattern and nothing is told as the user's doing. While work
+ * mode starts nothing on the project nothing is sent, and nothing goes to the main agent either, since that is for the user's own ask: the client
+ * sends it once work mode runs. A branch that moved since `head` has a newer review to speak for it, and one an agent already goes back to is left.
+ */
+export async function fixRisk(root, reference, id, { head, findings } = {}, now = Date.now()) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  assertNotRunning(root, project, item);
+  if (!isFinished(item) || !item.branch) throw Error(`"${item.title}" is ${item.state}, so there is no finished branch to fix.`);
+  if (movesFinishedWork(item)) throw Error(`An agent is already going back to "${item.title}".`);
+  const held = whyProjectWaits(root, project, now);
+  if (held) throw Error(`Nothing starts while ${held}, so no agent goes back to "${item.title}" yet.`);
+  const tip = await gitOrNothing(project.path ?? paths(root, project.slug).clone, 'rev-parse', '--verify', '--quiet', `refs/heads/${item.branch}`);
+  if (!head || tip !== head) throw Error(`"${item.title}" moved since the review of ${String(head ?? '').slice(0, 7) || 'its commit'}, so a newer review speaks for it.`);
+
+  updateItem(root, project.slug, item.id, { workNote: `${RISK_NOTE} at ${head.slice(0, 7)}. ${RISK_ASK}\n\n${String(findings ?? '').trim()}` }, now);
+  retryItem(root, project.slug, item.id, now);
+  return reply(`An agent goes back to "${item.title}" on ${nameOf(project)} next, to make it safe to deploy.`);
+}
+
+/**
+ * hobkin sends no more agents to a change its AI review still finds risky, after its rounds or after one that left it as it was, and leaves it to the
+ * user: one Action Item for the change, with what remains. Asked again, it is the one still open. The change stays where it is.
+ */
+export function riskStays(root, reference, id, { head, rounds, why, findings } = {}, now = Date.now()) {
+  const project = findProject(root, reference);
+  const item = findItem(root, project, id);
+  const named = `"${item.title}" on ${nameOf(project)}`;
+  const after = why === 'unchanged' ? 'its agent went back to it and left it as it was.' : `after ${rounds} round${rounds === 1 ? '' : 's'} of fixes.`;
+  const remains = String(findings ?? '').trim();
+  const detail = [
+    `hobkin's AI review still finds ${named} risky to deploy at ${String(head ?? '').slice(0, 7)}, ${after}`,
+    remains && `What remains: ${remains.length > LONGEST_REMAINS ? `${remains.slice(0, LONGEST_REMAINS - 1).trimEnd()}…` : remains}`,
+  ].filter(Boolean).join(' ');
+  const { id: action } = fileActionItem(root, {
+    title: `Still risky to deploy: ${item.title}`,
+    detail,
+    why: 'hobkin sends an agent back to a risky change at most twice, so the rest is yours: fix it, merge it anyway or say no to it from its review.',
+    key: `risk:${project.slug}:${item.id}`,
+    from: `AI review, ${nameOf(project)}`,
+    answerTo: { kind: 'action', risk: { slug: project.slug, item: item.id } },
+  }, now);
+  return reply(`${named} is still risky to deploy, so it waits in Action Items.`, { action });
 }
 
 const stateOf = (root, slug, id) => readItems(root, slug).find(item => item.id === id)?.state;

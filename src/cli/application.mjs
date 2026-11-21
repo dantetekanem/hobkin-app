@@ -39,7 +39,7 @@ import { clientNotice, clientNoticesToPost, markClientNoticesPosted } from './cl
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { workStatus } from './work/commands.mjs';
-import { askAgent, declineItem, deleteItemBranch, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, pauseWork, publishItem, requestReview, resumeWork, triggerRow } from './work/controls.mjs';
+import { askAgent, declineItem, deleteItemBranch, fixRisk, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, pauseWork, publishItem, requestReview, resumeWork, riskStays, triggerRow } from './work/controls.mjs';
 import { addIssue } from './work/issues.mjs';
 import { mergeGroup } from './work/merge-group.mjs';
 import { filePickUp, retirePickUp } from './work/pick-up.mjs';
@@ -1141,6 +1141,9 @@ export class HobkinApplication {
       // `k` on an agent at work names the run, and how it stops: `decline` or `later`.
       stop: () => this.director.stopFromScreen(slug, value),
       ask: () => askAgent(root, slug, value, extra),
+      // The client's AI review found hobkin's own finished change risky: an agent goes back to make it safe, or the user hears what is left.
+      fixRisk: () => fixRisk(root, slug, value, extra, this.now()),
+      riskStays: () => riskStays(root, slug, value, extra, this.now()),
       pr: () => prView(root, slug, value),
       decide: () => this.decide(slug, value),
       words: () => this.answerWords(slug, value),
