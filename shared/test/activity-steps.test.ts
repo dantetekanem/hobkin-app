@@ -113,10 +113,13 @@ function comparedSteps(previous: JobActivity, next: JobActivity): ActivityStep[]
     }
     const ids = new Set(after.map((entry) => entry.id))
     const kept = before.filter((entry) => ids.has(entry.id))
-    if (new Set(before.map((entry) => entry.id)).size !== before.length || ids.size !== after.length || after.slice(0, kept.length).some((entry, index) => entry.id !== kept[index]!.id)) {
+    const repeated = new Set(before.map((entry) => entry.id)).size !== before.length || ids.size !== after.length
+    const moved = after.slice(0, kept.length).some((entry, index) => entry.id !== kept[index]!.id)
+    if (repeated || moved) {
       steps.push(reset)
       continue
     }
+
     const removed = before.filter((entry) => !ids.has(entry.id)).map((entry) => entry.id)
     if (removed.length) steps.push({ op: 'remove', job, ids: removed })
     after.slice(0, kept.length).forEach((entry, index) => {
@@ -133,10 +136,12 @@ test('on any mix of kept, grown, copied, added, dropped, moved and repeated entr
   let made = 0
   const fresh = (): ActivityEntry => (random(2) ? said(`${made++}`, 'Reading') : ran(`${made++}`, 'running'))
   // What hobkin hands over next: most entries kept as the same copy, and now and then any other change.
+  const grown = (entry: ActivityEntry): ActivityEntry =>
+    entry.kind === 'assistant' ? { ...entry, text: `${entry.text} more` } : { ...entry, state: 'completed', output: `${entry.output}ok` }
   const change = (entries: readonly ActivityEntry[]): ActivityEntry[] => {
     let next = entries.map((entry) => {
       const roll = random(20)
-      if (roll === 0) return entry.kind === 'assistant' ? { ...entry, text: `${entry.text} more` } : { ...entry, state: 'completed' as const, output: `${entry.output}ok` }
+      if (roll === 0) return grown(entry)
       if (roll === 1) return { ...entry }
       return entry
     })
@@ -146,10 +151,17 @@ test('on any mix of kept, grown, copied, added, dropped, moved and repeated entr
     if (!random(12) && next.length) next.push({ ...next[random(next.length)]!, text: 'repeated' })
     return next
   }
+  // Some jobs come and go, and now and then one starts over with a single new entry.
+  const nextOf = (previous: JobActivity): JobActivity => {
+    const jobs = ['r1', 'r2', 'r3'].filter(() => random(6))
+    return Object.fromEntries(jobs.map((job) => [job, random(15) ? change(previous[job] ?? []) : [fresh()]]))
+  }
+
   let previous: JobActivity = {}
   for (let round = 0; round < 2000; round += 1) {
-    const next: JobActivity = Object.fromEntries(['r1', 'r2', 'r3'].filter(() => random(6)).map((job) => [job, random(15) ? change(previous[job] ?? []) : [fresh()]]))
+    const next = nextOf(previous)
     if (random(10) === 0) Object.assign(next, previous)
+
     const steps = diffActivity(previous, next)
     assert.deepEqual(steps, comparedSteps(previous, next), `round ${round}`)
     assert.deepEqual(applyActivity(previous, steps), next, `round ${round}`)

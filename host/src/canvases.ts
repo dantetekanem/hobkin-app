@@ -122,7 +122,8 @@ export class Canvases {
    * there is nothing to read. Otherwise (hobkin not open yet, another home, a watch that failed) it reads the store.
    */
   poll(): void {
-    if (this.watching && this.watcher && this.attached === this.folder() && this.readFollowing === this.attached) return
+    const followed = this.watching && this.watcher !== null && this.attached === this.folder()
+    if (followed && this.readFollowing === this.attached) return
     this.refresh()
   }
 

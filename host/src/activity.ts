@@ -35,9 +35,11 @@ function lastKnown(children: unknown): unknown {
 function sameFields(left: unknown, right: unknown): boolean {
   if (left === right) return true
   if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
+
   const keys = Object.keys(left)
   const others = Object.keys(right)
-  return keys.length === others.length && keys.every((key, index) => key === others[index] && (left as Record<string, unknown>)[key] === (right as Record<string, unknown>)[key])
+  if (keys.length !== others.length) return false
+  return keys.every((key, index) => key === others[index] && (left as Jobs)[key] === (right as Jobs)[key])
 }
 
 /**
@@ -45,8 +47,8 @@ function sameFields(left: unknown, right: unknown): boolean {
  * that same list, so the host does not encode them again and a publish with nothing new sends nothing.
  */
 function sameRowsAs(held: unknown, rows: unknown): unknown {
-  const same = Array.isArray(held) && Array.isArray(rows) && held.length === rows.length && rows.every((row, index) => sameFields(held[index], row))
-  return same ? held : rows
+  if (!Array.isArray(held) || !Array.isArray(rows) || held.length !== rows.length) return rows
+  return rows.every((row, index) => sameFields(held[index], row)) ? held : rows
 }
 
 export class ActivityKeeper {
@@ -71,8 +73,9 @@ export class ActivityKeeper {
     const { jobActivity: now, jobChildren, mainChildren } = snapshot as { jobActivity?: unknown; jobChildren?: unknown; mainChildren?: unknown }
     // Saved views with neither key change nothing kept. Children can outlive their parent's feed.
     const activity = now && typeof now === 'object' ? now as Jobs : undefined
+    const given = (id: string) => (this.running[id] ?? this.ended.get(id))?.children
     const children = jobChildren && typeof jobChildren === 'object'
-      ? Object.fromEntries(Object.entries(jobChildren).map(([id, rows]) => [id, sameRowsAs((this.running[id] ?? this.ended.get(id))?.children, withoutSteps(rows))]))
+      ? Object.fromEntries(Object.entries(jobChildren).map(([id, rows]) => [id, sameRowsAs(given(id), withoutSteps(rows))]))
       : undefined
     if (activity || children) this.follow(activity ?? {}, children ?? {})
     if (Array.isArray(mainChildren)) this.mainChildren = sameRowsAs(this.mainChildren, withoutSteps(mainChildren))

@@ -112,24 +112,38 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   })
 }
 
-const percent = (share: number) => `${(share * 100).toFixed(1)}%`
 const fixed = (number: number, digits = 2) => number.toFixed(digits)
+
+/** The measured run as a few lines: what ran, then the host's share of a core, its publishes, the socket and memory. */
+function summary(result: Record<string, any>): string {
+  const what = [
+    `${agents} agents`,
+    ...(history ? [`each with ${history * 2 + 1} steps`] : []),
+    `${fixed(result.seconds, 0)} s`,
+    result.window ? 'a window connected' : 'no window',
+    ...(result.session ? [] : ['no session growth']),
+  ]
+  const { socket, memory } = result
+  const publishes = `activity ${fixed(result.activityPublishMs)} ms, others ${fixed(result.otherPublishMs)} ms, slowest ${fixed(result.maxPublishMs, 1)} ms`
+  return [
+    `host-load: ${what.join(', ')}`,
+    `  host CPU        ${fixed(result.cpuPerWall * 100, 1)}% of a core`,
+    `  publishes       ${fixed(result.publishesPerSecond, 1)} a second, ${fixed(result.hostPublishMs)} ms each (${publishes})`,
+    ...(socket ? [`  socket          ${fixed(socket.bytesPerSecond / 1024, 0)} KB a second in ${fixed(socket.messagesPerSecond, 1)} messages, median ${fixed(socket.p50 / 1024, 1)} KB`] : []),
+    `  full refreshes  ${fixed(result.refreshesPerSecond)} a second, ${fixed(result.refreshWallMs, 1)} ms each; tick ${fixed(result.tickWallMs, 1)} ms`,
+    `  memory          RSS ${fixed(memory.rssStartMB, 0)} to ${fixed(memory.rssEndMB, 0)} MB, heap ${fixed(memory.heapStartMB, 0)} to ${fixed(memory.heapEndMB, 0)} MB`,
+  ].join('\n')
+}
 
 let failed = false
 try {
   const seed = (await runLab(['--seed'], 300)).result!
   process.stderr.write(`host-load: home seeded in ${fixed(seed.seconds, 0)} s\n`)
-  const result = (await runLab([...passed, ...switches, ...(profile ? ['--profile', profile] : [])], seconds + history / 20 + 180)).result!
+
+  const measuring = [...passed, ...switches, ...(profile ? ['--profile', profile] : [])]
+  const result = (await runLab(measuring, seconds + history / 20 + 180)).result!
   if (argv.includes('--json')) console.log(JSON.stringify(result, null, 2))
-  const socket = result.socket as Record<string, number> | null
-  console.log([
-    `host-load: ${agents} agents${history ? `, each with ${history * 2 + 1} steps` : ''}, ${fixed(result.seconds, 0)} s${result.window ? ', a window connected' : ', no window'}${result.session ? '' : ', no session growth'}`,
-    `  host CPU        ${percent(result.cpuPerWall)} of a core`,
-    `  publishes       ${fixed(result.publishesPerSecond, 1)} a second, ${fixed(result.hostPublishMs)} ms each (activity ${fixed(result.activityPublishMs)} ms, others ${fixed(result.otherPublishMs)} ms, slowest ${fixed(result.maxPublishMs, 1)} ms)`,
-    ...(socket ? [`  socket          ${fixed(socket.bytesPerSecond / 1024, 0)} KB a second in ${fixed(socket.messagesPerSecond, 1)} messages, median ${fixed(socket.p50 / 1024, 1)} KB`] : []),
-    `  full refreshes  ${fixed(result.refreshesPerSecond)} a second, ${fixed(result.refreshWallMs, 1)} ms each; tick ${fixed(result.tickWallMs, 1)} ms`,
-    `  memory          RSS ${fixed(result.memory.rssStartMB, 0)} to ${fixed(result.memory.rssEndMB, 0)} MB, heap ${fixed(result.memory.heapStartMB, 0)} to ${fixed(result.memory.heapEndMB, 0)} MB`,
-  ].join('\n'))
+  console.log(summary(result))
   if (profile) console.log(`\n${analyze(profile)}`)
 } catch (error) {
   failed = true

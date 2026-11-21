@@ -101,7 +101,9 @@ function runnable(program: string, cwd: string, env: NodeJS.ProcessEnv): boolean
  * as it is, so it fails to start as before.
  */
 function atUtilityPriority(program: string, args: readonly string[], { cwd, env, group }: { cwd: string; env: NodeJS.ProcessEnv; group: boolean }) {
-  if (!group || process.platform !== 'darwin' || !existsSync(TASKPOLICY) || !runnable(program, cwd, env)) return { program, args: [...args] }
+  const asItIs = { program, args: [...args] }
+  if (!group || process.platform !== 'darwin' || !existsSync(TASKPOLICY)) return asItIs
+  if (!runnable(program, cwd, env)) return asItIs
   return { program: TASKPOLICY, args: ['-c', 'utility', program, ...args] }
 }
 

@@ -243,7 +243,22 @@ async function measured() {
   await window?.opened
 
   // Counters around the real methods (instance wrappers; nothing in either repository changes).
-  const counts = { onChange: 0, hostPublishMs: 0, publishActivity: 0, publishActivityMs: 0, project: 0, projectWallMs: 0, ticks: 0, tickWallMs: 0, events: 0, activityHostPublishMs: 0, otherPublishes: 0, otherHostPublishMs: 0 }
+  const counts = {
+    events: 0,
+    // Host publishes, all of them and those after an activity-only refresh or any other.
+    onChange: 0,
+    hostPublishMs: 0,
+    activityHostPublishMs: 0,
+    otherPublishes: 0,
+    otherHostPublishMs: 0,
+    // The runtime's own side: its activity publishes, its full refreshes and its scheduler ticks.
+    publishActivity: 0,
+    publishActivityMs: 0,
+    project: 0,
+    projectWallMs: 0,
+    ticks: 0,
+    tickWallMs: 0,
+  }
   let maxHostPublishMs = 0
   let inActivity = false
   const onChange = app.onChange
