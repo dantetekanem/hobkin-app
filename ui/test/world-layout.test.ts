@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { GLOBE, worldLayout, sceneFrame, activityObservation, type Island } from '../src/features/work/world-layout.ts'
+import { GLOBE, worldLayout, sceneFrame, activityObservation, sameObservations, type Island } from '../src/features/work/world-layout.ts'
 
 type Point = { x: number; y: number }
 type Facts = { merged?: number; prs?: number; branches?: number }
@@ -198,6 +198,17 @@ test('activity evidence uses actual entry identity/state, not text streaming or 
 
   const words = { id: 'words', kind: 'assistant' as const, text: 'a' }
   assert.equal(activityObservation([words]), activityObservation([{ ...words, text: 'ab' }]))
+})
+
+test('activity that only streams words says the same to the globe, so it does not draw it again', () => {
+  const words = { id: 'words', kind: 'assistant' as const, text: 'a' }
+  const held = { one: [toolCall('call')], two: [words] }
+  assert.equal(sameObservations(held, { one: [{ ...toolCall('call'), output: 'more' }], two: [{ ...words, text: 'ab' }] }), true)
+  assert.equal(sameObservations(undefined, undefined), true)
+  assert.equal(sameObservations(held, { ...held, one: [toolCall('call', 'completed')] }), false, 'a call that ended')
+  assert.equal(sameObservations(held, { ...held, two: [words, toolCall('next')] }), false, 'a new step')
+  assert.equal(sameObservations(held, { one: held.one }), false, 'a job gone')
+  assert.equal(sameObservations(held, { ...held, three: [] }), false, 'a job new')
 })
 
 test('only observed live assignment/activity changes travel; new arrivals and incidental layout snap', () => {

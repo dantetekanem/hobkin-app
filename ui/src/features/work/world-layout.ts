@@ -79,6 +79,14 @@ export function activityObservation(entries: readonly ActivityEntry[] | undefine
   return last ? JSON.stringify([last.id, last.kind, last.state ?? null]) : null
 }
 
+/** Two activities give the globe the same evidence: the same jobs, each with the same `activityObservation`. */
+export function sameObservations(left: JobActivity | undefined, right: JobActivity | undefined): boolean {
+  if (left === right) return true
+  const jobs = Object.keys(left ?? {})
+  if (jobs.length !== Object.keys(right ?? {}).length) return false
+  return jobs.every((job) => right?.[job] !== undefined && activityObservation(left?.[job]) === activityObservation(right[job]))
+}
+
 const TURN = Math.PI * 2
 /** The angle between one seed of a sunflower and the next: any number of them fill a disc evenly. */
 const GOLDEN = Math.PI * (3 - Math.sqrt(5))

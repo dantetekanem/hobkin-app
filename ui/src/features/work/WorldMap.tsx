@@ -6,13 +6,17 @@ import type { RunningAgent } from '@/app/running-agents.ts'
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
-import { useConnection, useHost, type WorkState } from '@/lib/host/index.ts'
+import { useConnection, useHost, useHostKept, type HostState, type WorkState } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
-import { GLOBE, sceneFrame, type AgentPlace, type Island, type Point, type SceneFrame } from './world-layout.ts'
+import { GLOBE, sameObservations, sceneFrame, type AgentPlace, type Island, type Point, type SceneFrame } from './world-layout.ts'
 import { visitWorldAgent, visitWorldProject, worldFrom } from './world.ts'
 import './world.css'
 
 type OpenProject = (slug: string, discover: boolean) => void
+
+const jobActivity = (state: HostState) => state.snapshot.jobActivity as JobActivity | undefined
+// The globe reads only each agent's newest step and how it stands, so the activity held stays while those do.
+const keepObserved = (held: JobActivity | undefined, next: JobActivity | undefined) => (sameObservations(held, next) ? held : next)
 
 interface WorldMapProps {
   work: WorkState
@@ -23,7 +27,8 @@ interface WorldMapProps {
 /** The entry gate belongs to Work. An already-open world can have one island, or none. */
 export function WorldMap({ work, agents, onProject }: WorldMapProps) {
   const runs = useHost((state) => state.snapshot.runs)
-  const activity = useHost((state) => state.snapshot.jobActivity as JobActivity | undefined)
+  // Not for each word an agent streams: only a new step, or a step that ends, moves it on the globe.
+  const activity = useHostKept(jobActivity, keepObserved)
   const home = useHost((state) => state.home)
   const epoch = useHost((state) => state.epoch)
   const connection = useConnection()
