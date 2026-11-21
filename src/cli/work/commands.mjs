@@ -25,6 +25,7 @@ import { gitOrNothing, prepareTree } from './tree.mjs';
 import { unmergedNow } from './unmerged.mjs';
 import { readWatch } from './watcher.mjs';
 import { recordAfterDeploy } from './yolo-pass.mjs';
+import { openReadinessPulls, partSaid, partWords, RECORDED } from './yolo-parts.mjs';
 import { mainModels, readinessOf, recordReadiness, yoloView } from './yolo.mjs';
 
 const HELP = `Usage: hobkin work [command] [--home folder]. With no command, the full status.
@@ -115,8 +116,8 @@ async function signalsCommand(root, reference, input) {
 
 /**
  * With no project this reads YOLO mode, and with one it reads that project's readiness. Piped JSON is what a readiness run found, or, with an
- * item, what the monitoring showed after that change was deployed. Nothing here turns YOLO mode on or off or sets its rate: that is the
- * user's alone, in the window.
+ * item, what the monitoring showed after that change was deployed. A readiness record opens each PR its branches need at once, and the run
+ * hears every part back. Nothing here turns YOLO mode on or off or sets its rate: that is the user's alone, in the window.
  */
 async function yoloCommand(root, [reference, change], input) {
   if (!reference) return yoloView(root);
@@ -129,9 +130,12 @@ async function yoloCommand(root, [reference, change], input) {
   }
   if (!report.trim()) return readinessOf(root, project.slug);
 
-  const { ready, needs } = recordReadiness(root, project.slug, JSON.parse(report));
-  const said = needs.length ? `It still needs: ${needs.join(' ')}` : 'Every part is in place, and it counts once this item lands.';
-  return reply(`Recorded the readiness of ${nameOf(project)}. ${said}`, { ready, needs });
+  recordReadiness(root, project.slug, JSON.parse(report));
+  await openReadinessPulls(root, { slug: project.slug, lastTry: false });
+  const { ready, needs, parts } = readinessOf(root, project.slug);
+  const bar = ready ? 'YOLO mode can run on it.' : `YOLO mode waits on: ${needs.join(' ')}`;
+  const each = RECORDED.map(name => `${partWords[name]}: ${partSaid(parts[name])}`).join('; ');
+  return reply(`Recorded the readiness of ${nameOf(project)}. ${bar} Each part: ${each}.`, { ready, needs, parts });
 }
 
 /**

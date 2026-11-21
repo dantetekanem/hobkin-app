@@ -52,7 +52,8 @@ export async function carryOutAnswer(root, id, { value = null, typed = null } = 
     : `The user was asked: ${question} They answered: ${choice.label}`;
   if (answerTo?.kind === 'work') askAgent(root, answerTo.slug, answerTo.item, said, { answering: true });
   if (answerTo?.kind === 'routine') noteForCheck(root, answerTo.id, said);
-  if (answerTo?.kind === 'action') noteForCheck(root, answerTo.id, `The user answered the action item "${decision.tldr}": ${choice?.label ?? words}.`);
+  // A routine's action item tells that routine. One YOLO readiness filed names no routine, and its next check reads the answer itself.
+  if (answerTo?.kind === 'action' && answerTo.id) noteForCheck(root, answerTo.id, `The user answered the action item "${decision.tldr}": ${choice?.label ?? words}.`);
   if (answerTo?.kind === 'outside') handAnswer(root, { from, question, answer: words ?? choice.label }, now);
   // Doing it with hobkin keeps an action item open while the main agent helps, so it is handed on, not answered.
   const asked = words ? null : ROUTINE_ASKS[value];

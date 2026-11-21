@@ -8,56 +8,38 @@ import { mainFacts, readRuns, specName } from './proofs.mjs';
 import { chosenProjects, fileItem, ownerView, paths, pickNow, readItems, readJson, readMode, runnableStates, updateItem, workName, writeMode } from './store.mjs';
 import { BRANCH_PREFIX } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
+import { fileParts, needOf, PARTS, partOf, partsOf, partWords, READY_KEY, RECORDED, WAITS_FOR_A_YES } from './yolo-parts.mjs';
 
 /**
  * YOLO mode: the user's switch for letting small, well-reviewed changes merge and deploy by themselves, and the lowest general rate they accept.
- * It is off until they turn it on in the window, and turning it on merges nothing. Its first job on each project is to get that project ready,
- * which is work filed as a feature and landed on the user's yes, and the user can run that work on one project before turning it on. This file
- * holds the switch and each project's readiness. What merges is the pass's (`yolo-pass.mjs`).
+ * It is off until they turn it on in the window, and turning it on merges nothing. Its first job on each project is to get that project ready:
+ * readiness work, filed as a feature, sets up what is missing as PRs and asks the user for what only they can give, and the user can run it on
+ * one project before turning YOLO mode on. A project may have changes merge by themselves once its tests pass on the default branch, its way
+ * back is known and no model there breaks. This file holds the switch and that bar. The parts are `yolo-parts.mjs`'s, and what merges is the
+ * pass's (`yolo-pass.mjs`).
  */
 
 // The floors already put every change that passes them above 6, so a lower rate would ask for nothing.
 export const LOWEST_RATE = 6;
 export const HIGHEST_RATE = 10;
 const USUAL_RATE = 8;
-const READY_KEY = 'yolo:ready';
-// What a regression has to show up in: exceptions that reach an alert, slow queries and N+1s, request and job timings against a baseline,
-// logs that can be searched, and alerts that reach the user. A project with no use for one says why.
-const MONITORING = ['errors', 'slowQueries', 'performance', 'logs', 'alerts'];
-// What a readiness run records. `models` is hobkin's to work out, from the machines the state machines look recorded and its own runs of the specs.
-const RECORDED = ['tests', ...MONITORING, 'rollback', 'deploy'];
-const PARTS = [...RECORDED, 'models'];
-const partWords = {
-  tests: 'Tests',
-  errors: 'Error tracking',
-  slowQueries: 'Slow queries',
-  performance: 'Performance metrics',
-  logs: 'Searchable logs',
-  alerts: 'Alerts',
-  rollback: 'Rollback',
-  deploy: 'Deploy',
-  models: 'Models',
-};
 const modelOnMain = {
   broken: ({ spec, why }) => `${specName(spec)} breaks on the default branch${why ? `: ${why}` : ''}`,
   unproven: ({ spec, why }) => `${specName(spec)} did not hold on the default branch${why ? `: ${why}` : ''}`,
   unchecked: ({ spec }) => `${specName(spec)} has not been checked on the default branch yet`,
 };
-// The readiness work has landed: the user merged it, or its run found nothing to change.
+// The readiness work has landed: the user merged it, or its run had nothing to put on its own branch.
 const LANDED = ['merged', 'done'];
-const WAITS_FOR_A_YES = ['branch', 'pr'];
-const CLOSED_UNLANDED = ['declined', 'dropped'];
-const LONGEST_LINE = 400;
 
 // The user may run it before turning YOLO mode on, so it never says the switch is on.
-const READY_BRIEF = 'With YOLO mode on, hobkin merges and deploys small changes by itself, and only on a project that is ready for it. '
-  + 'Check that this project has tests that can cover a change, monitoring a regression would show up in (error tracking that reaches an alert, slow query '
-  + 'and N+1 detection, request and job timings with a baseline, logs that can be searched, alerts that reach the user), a way back with a flag mechanism '
-  + 'where one makes sense, and a deploy path hobkin can run and undo. Build what is missing for this project\'s stack, and record what you found as the '
-  + 'YOLO readiness section of your directions says.';
+const READY_BRIEF = 'With YOLO mode on, hobkin merges and deploys small changes by itself, on a project whose tests pass on the default branch, whose '
+  + 'way back is known and whose models there hold. Make this project ready rather than report on it: tests that can cover a change, monitoring a '
+  + 'regression would show up in (error tracking that reaches an alert, slow query and N+1 detection, request and job timings with a baseline, logs '
+  + 'that can be searched, alerts that reach the user), a way back with a flag mechanism where one makes sense, and a deploy path hobkin can run and '
+  + 'undo. Set up each part that is missing on a branch of its own for hobkin to open as a PR, ask the user for each step only they can take, and '
+  + 'record every part as the YOLO readiness section of your directions says.';
 
 const isRate = rate => Number.isInteger(rate) && rate >= LOWEST_RATE && rate <= HIGHEST_RATE;
-const isOneLine = text => typeof text === 'string' && text.trim().length > 0 && text.length <= LONGEST_LINE && !/[\r\n]/.test(text.trim());
 
 /** The switch as it stands. A home that never set it has it off. */
 export function readYolo(root) {
@@ -139,21 +121,16 @@ export function setYolo(root, { on, rate } = {}, now = Date.now()) {
   return { ...next, filed: next.on ? prepareProjects(root, now) : [] };
 }
 
-function partOf(name, part) {
-  const { ready, how, missing, deploys, notApplicable } = part ?? {};
-  const mayNotApply = MONITORING.includes(name);
-  if (ready === true && isOneLine(how)) return { ready, how: how.trim(), ...(name === 'deploy' && deploys === false ? { deploys } : {}) };
-  if (ready === false && isOneLine(missing)) return { ready, missing: missing.trim() };
-  if (mayNotApply && isOneLine(notApplicable)) return { notApplicable: notApplicable.trim() };
-  throw Error(`${name} needs ready: true with how it works in a line, or ready: false with what is missing in a line${mayNotApply ? ', or notApplicable with the reason' : ''}.`);
-}
-
-const inPlace = part => part?.ready === true || Boolean(part?.notApplicable);
-
-/** What a readiness run found, part by part. hobkin keeps it only from the run of that project's readiness item, and the date is hobkin's. */
+/**
+ * What a readiness run found and did, part by part. hobkin keeps it only from the run of that project's readiness item, and the date is hobkin's.
+ * Every part is checked before anything is filed, then each branch becomes finished work for a PR and each step for the user one action item.
+ */
 export function recordReadiness(root, slug, report, now = Date.now()) {
-  if (readinessItem(root, slug)?.state !== 'doing') throw Error('Only the run of this project\'s readiness item records it.');
-  const parts = Object.fromEntries(RECORDED.map(name => [name, partOf(name, report?.[name])]));
+  const own = readinessItem(root, slug);
+  if (own?.state !== 'doing') throw Error('Only the run of this project\'s readiness item records it.');
+  const found = Object.fromEntries(RECORDED.map(name => [name, partOf(name, report?.[name])]));
+  const project = chosenProjects(root).find(chosen => chosen.slug === slug);
+  const parts = fileParts(root, project, found, own, now);
   atomicJson(readinessFile(root, slug), { parts, at: new Date(now).toISOString() });
   return readinessOf(root, slug);
 }
@@ -176,47 +153,52 @@ export const mainModels = (root, slug) => mainFacts(readRuns(root), { slug, spec
 const machineCount = count => (count === 1 ? '1 machine has' : `${count} machines have`);
 
 /**
- * Not ready until a state machines look ran with Java and TLC found and recorded what it found (`machines.mjs`), since a look without them
- * could check no model. Then ready when each spec on the default branch holds there, and not applicable when the look found no machine and no
- * spec is there. A machine with no model yet holds nothing back: a change to it is sent back for its model first (`yolo-pass.mjs`).
+ * In progress until a state machines look ran with Java and TLC found and recorded what it found (`machines.mjs`), since a look without them
+ * could check no model. Then done when each spec on the default branch holds there, and when the look found no machine and no spec is there.
+ * Only a spec that breaks on the default branch holds YOLO mode back. One hobkin has not checked there yet is in progress, since its own weekly
+ * check runs it, and one that did not hold is to do. A machine with no model yet holds nothing back: a change to it is sent back for its model
+ * first (`yolo-pass.mjs`).
  */
 function modelsPart(root, slug) {
   const looked = readMachines(root, slug);
-  if (looked?.tlc !== true) return { ready: false, missing: 'Its state machines have not been looked for with TLC yet.' };
+  if (looked?.tlc !== true) return { state: 'doing', line: 'Its state machines have not been looked for with TLC yet.', blocks: false };
   const facts = mainModels(root, slug);
-  if (!facts.length && !looked.machines.length) return { notApplicable: 'Its state machines look found none.' };
+  if (!facts.length && !looked.machines.length) return { state: 'done', line: 'Its state machines look found none.', blocks: false };
 
-  const missing = facts.filter(({ state }) => state !== 'holds').map(fact => modelOnMain[fact.state](fact));
-  if (missing.length) return { ready: false, missing: `${missing.join('; ')}.` };
+  const said = state => facts.filter(fact => fact.state === state).map(fact => modelOnMain[state](fact));
+  const [broken, unproven, unchecked] = ['broken', 'unproven', 'unchecked'].map(said);
+  if (broken.length) return { state: 'todo', line: `${broken.join('; ')}.`, blocks: true };
+  if (unproven.length) return { state: 'todo', line: `${unproven.join('; ')}.`, blocks: false };
+  if (unchecked.length) return { state: 'doing', line: `${unchecked.join('; ')}.`, blocks: false };
 
   const modeled = new Set(mainSpecs(root, slug).flatMap(({ models = [] }) => models));
   const unmodeled = looked.machines.filter(({ files }) => !files.every(file => modeled.has(file))).length;
   const held = facts.length === 1 ? '1 model holds' : `${facts.length} models hold`;
   const holding = facts.length ? `${held} on the default branch: ${facts.map(({ spec }) => specName(spec)).join(', ')}.` : '';
   const waiting = unmodeled ? `${machineCount(unmodeled)} no model on the default branch yet, so a change to it gets its model first.` : '';
-  return { ready: true, how: [holding, waiting].filter(Boolean).join(' ') };
+  return { state: 'done', line: [holding, waiting].filter(Boolean).join(' '), blocks: false };
 }
 
-function needsOf(record, item) {
+/** What holds YOLO mode back on a project: no check yet, a regression after a deploy, or a part of the bar not in place, each in a line. */
+function needsOf(record, parts) {
   if (!record) return ['Its readiness has not been checked yet.'];
   if (record.held) return [`A regression showed after "${record.held.title}" deployed. Retry its readiness work once that is fixed.`];
-  const missing = PARTS.filter(name => !inPlace(record.parts[name])).map(name => `${partWords[name]}: ${record.parts[name]?.missing ?? 'Not recorded yet.'}`);
-  if (missing.length || LANDED.includes(item?.state)) return missing;
-  if (WAITS_FOR_A_YES.includes(item?.state)) return ['Its readiness work waits for your yes.'];
-  if (!item || CLOSED_UNLANDED.includes(item.state)) return ['Its readiness work was closed without landing.'];
-  return ['Its readiness work is still under way.'];
+  return PARTS.filter(name => parts[name].blocks).map(name => `${partWords[name]}: ${needOf(parts[name])}`);
 }
 
 /**
- * Whether a project may have changes merge by themselves, and what it still needs when it may not. Every part has to be in place and the
- * readiness work landed: work that waits for the user's yes does not count.
+ * Whether a project may have changes merge by themselves, what holds it back when it may not, and every part as it stands. The bar is tests that
+ * pass on the default branch, a known way back, and no model there that breaks. Monitoring, the deploy path and models still to be looked at or
+ * checked are improvements: shown and worked on, never holding it back. A change that lives on a branch still waiting for the user's yes is not
+ * on the default branch yet, so it counts once that branch lands.
  */
 export function readinessOf(root, slug) {
-  const recorded = readJson(readinessFile(root, slug), null);
-  const record = recorded && { ...recorded, parts: { ...recorded.parts, models: modelsPart(root, slug) } };
-  const item = readinessItem(root, slug);
-  const needs = needsOf(record, item);
-  return { ready: needs.length === 0, needs, parts: record?.parts ?? null, at: record?.at ?? null, item: item?.id ?? null };
+  const record = readJson(readinessFile(root, slug), null);
+  const items = readItems(root, slug);
+  const own = items.find(({ key }) => key === READY_KEY) ?? null;
+  const parts = partsOf(root, { record, items, own, models: modelsPart(root, slug) });
+  const needs = needsOf(record, parts);
+  return { ready: needs.length === 0, needs, parts, at: record?.at ?? null, item: own?.id ?? null };
 }
 
 /**
@@ -235,18 +217,20 @@ function workOf(item, running) {
 }
 
 /**
- * YOLO mode as the window and Home read it: the switch, the rate, how many projects are ready, what each of the others still needs, where each
- * project's readiness work stands and its item, so the window can offer the yes to its branch, when its readiness was last recorded, and what hobkin's runs say of its models on the default branch.
+ * YOLO mode as the window and Home read it: the switch, the rate, how many projects are ready, what holds each of the others back, every part of
+ * each project as it stands with its PR or action item, where each project's readiness work stands and its item, so the window can offer the yes
+ * to its branch, when its readiness was last recorded, and what hobkin's runs say of its models on the default branch.
  */
 export function yoloView(root) {
   const { running } = ownerView(root);
   const projects = chosenProjects(root).map(project => {
-    const { ready, needs, at } = readinessOf(root, project.slug);
+    const { ready, needs, parts, at } = readinessOf(root, project.slug);
     const runs = running.filter(run => run.slug === project.slug);
     const item = readinessItem(root, project.slug);
     const work = workOf(item, runs);
     const models = mainModels(root, project.slug);
-    return { slug: project.slug, name: nameOf(project), ready, needs, work, item: item?.id ?? null, checkedAt: at, ...(models.length ? { models } : {}) };
+    const each = PARTS.map(name => ({ name, label: partWords[name], ...parts[name] }));
+    return { slug: project.slug, name: nameOf(project), ready, needs, parts: each, work, item: item?.id ?? null, checkedAt: at, ...(models.length ? { models } : {}) };
   });
   return { ...readYolo(root), lowest: LOWEST_RATE, highest: HIGHEST_RATE, ready: projects.filter(({ ready }) => ready).length, projects };
 }

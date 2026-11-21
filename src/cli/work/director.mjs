@@ -39,6 +39,7 @@ import { lookAfterHarness, stampUpkeep, upkeepDue } from './upkeep.mjs';
 import { offerSubscriptionPause, retireSubscriptionPause } from './subscription.mjs';
 import { nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
+import { openReadinessPulls } from './yolo-parts.mjs';
 import { yoloPass } from './yolo-pass.mjs';
 import { reviewsByItself } from './yolo.mjs';
 
@@ -411,6 +412,12 @@ export class WorkDirector {
       .then(() => yoloPass(this.root, { now: this.now(), ...(this.onHandOff ? { handOff: this.onHandOff } : {}) }))
       .then(merged => {
         if (merged.length) this.onChange();
+      })
+      .catch(() => {})
+      // Each branch readiness made is offered as a PR by itself, YOLO mode on or off, since the user asked readiness to open them (`yolo-parts.mjs`).
+      .then(() => openReadinessPulls(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}) }))
+      .then(opened => {
+        if (opened.length) this.onChange();
       })
       .catch(() => {})
       // hobkin's own weekly check of each TLA+ model on a default branch, one at a time (`proof-checks.mjs`).

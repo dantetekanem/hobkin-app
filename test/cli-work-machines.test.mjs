@@ -54,15 +54,17 @@ test('the models part is not ready until a look with TLC recorded the machines, 
   const models = () => readinessOf(h.root, 'api').parts.models;
   const notLooked = 'Its state machines have not been looked for with TLC yet.';
 
-  assert.deepEqual(models(), { ready: false, missing: notLooked });
-  assert.deepEqual([readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').needs], [false, [`Models: ${notLooked}`]]);
+  // A look still to come is hobkin's own work, and holds the project back from nothing.
+  const lookFirst = { state: 'doing', line: notLooked, needed: true, blocks: false };
+  assert.deepEqual(models(), lookFirst);
+  assert.deepEqual([readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').needs], [true, []]);
 
   // A look that ran without Java and TLC found nothing a model could check.
   recordMachines(h.root, 'api', { machines: [] }, { tlc: false, now: NOW });
-  assert.deepEqual(models(), { ready: false, missing: notLooked });
+  assert.deepEqual(models(), lookFirst);
 
   recordMachines(h.root, 'api', { machines: [] }, { tlc: true, now: NOW });
-  assert.deepEqual(models(), { notApplicable: 'Its state machines look found none.' });
+  assert.deepEqual(models(), { state: 'done', line: 'Its state machines look found none.', needed: true, blocks: false });
   assert.deepEqual([readinessOf(h.root, 'api').ready, readinessOf(h.root, 'api').needs], [true, []]);
 
   // A machine with no model yet does not hold the project back: a change to it gets its model first.
@@ -71,7 +73,7 @@ test('the models part is not ready until a look with TLC recorded the machines, 
   assert.deepEqual(readMachines(h.root, 'api'), {
     at: new Date(NOW).toISOString(), tlc: true, machines: [{ name: 'Checkout', files: ['app/order.rb', 'app/payment.rb'] }],
   });
-  assert.deepEqual(models(), { ready: true, how: '1 machine has no model on the default branch yet, so a change to it gets its model first.' });
+  assert.deepEqual(models(), { state: 'done', line: '1 machine has no model on the default branch yet, so a change to it gets its model first.', needed: true, blocks: false });
 
   assert.throws(() => recordMachines(h.root, 'api', {}, { tlc: true }), /machines is a list of each state machine the look found/);
   assert.throws(() => recordMachines(h.root, 'api', { machines: [{ name: 'Checkout', files: ['../outside.rb'] }] }, { tlc: true }), /files are the paths/);
@@ -81,7 +83,7 @@ test('the models part is not ready until a look with TLC recorded the machines, 
   // The look pipes its list. Without the pinned jar in this home, the tools were not found, so it is kept but counts for nothing.
   const reply = await runWorkCommand(h.root, ['machines', 'api'], piped({ machines: [] }));
   assert.match(reply.message, /^Recorded no state machine on api, without Java and TLC/);
-  assert.deepEqual([readMachines(h.root, 'api').tlc, models()], [false, { ready: false, missing: notLooked }]);
+  assert.deepEqual([readMachines(h.root, 'api').tlc, models()], [false, lookFirst]);
 });
 
 /** A studied project whose looks are all fresh, and whose state machines were looked for a day ago, before the TLA+ tools were here. */

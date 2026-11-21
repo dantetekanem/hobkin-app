@@ -37,6 +37,7 @@ const deployWords = {
   'handed on': 'Its deploy is with the main agent.',
   'not handed on': 'Nothing was deployed.',
   'nothing deploys': 'Nothing deploys on this project.',
+  'no deploy path': 'Nothing was deployed: its deploy path is not set up yet.',
 };
 
 const ledgerPath = root => join(root, 'work', 'yolo.jsonl');
@@ -86,14 +87,14 @@ export function whyItAsks({ yolo, project, readiness, landable, row, item, unit 
 }
 
 /** The deploy of one merge, for the main agent to hand to one session, as it hands on work a card could not start. */
-const deployJob = ({ project, item, target, parts }) => ({
+const deployJob = ({ project, item, target, path, back }) => ({
   project: nameOf(project),
   item: item.id,
   title: item.title,
   branch: item.branch,
   commit: target,
   asked: `YOLO mode merged this change into the default branch at ${target} by itself, and nothing was pushed. `
-    + `Deploy exactly that commit by the project's recorded path: ${parts.deploy.how} Its way back: ${parts.rollback.how} `
+    + `Deploy exactly that commit by the project's recorded path: ${path} Its way back: ${back} `
     + 'Prove it with the live revision and a real health check, report what deployed, and deploy nothing else. '
     + `Then watch its monitoring for ${AFTER_DEPLOY_MINUTES} minutes and record what it showed: pipe `
     + '{ "minutes": 30, "errors": { "regressed": false, "saw": "one line" }, "slowQueries": { "regressed": false, "saw": "one line" }, '
@@ -142,10 +143,16 @@ export function recordAfterDeploy(root, project, item, sent, now = Date.now()) {
   return { regressed, line };
 }
 
+// A deploy path is an improvement, so a project can be ready without one, and then nothing is deployed.
+function deployOf({ parts: { deploy } }, handOff) {
+  if (deploy.state !== 'done') return 'no deploy path';
+  if (deploy.deploys === false) return 'nothing deploys';
+  return handOff ? 'handed on' : 'not handed on';
+}
+
 function report(root, { project, item, head, target, readiness, handOff, now }) {
   const { kind, rate, scores } = scoresOf(item.review);
-  const deploys = readiness.parts.deploy.deploys !== false;
-  const deploy = deploys ? (handOff ? 'handed on' : 'not handed on') : 'nothing deploys';
+  const deploy = deployOf(readiness, handOff);
   const merged = {
     at: new Date(now).toISOString(),
     slug: project.slug,
@@ -163,7 +170,7 @@ function report(root, { project, item, head, target, readiness, handOff, now }) 
 
   const line = `YOLO mode merged "${item.title}" on ${nameOf(project)} by itself: ${kindWords[kind]} rated ${rate}, at ${head.slice(0, SHORT_SHA)}. ${deployWords[deploy]}`;
   postClientNotice(root, { key: `yolo:${project.slug}:${item.id}`, line, tone: 'useful' }, now);
-  if (deploy === 'handed on') handOff(deployJob({ project, item, target, parts: readiness.parts }));
+  if (deploy === 'handed on') handOff(deployJob({ project, item, target, path: readiness.parts.deploy.line, back: readiness.parts.rollback.line }));
   return merged;
 }
 
