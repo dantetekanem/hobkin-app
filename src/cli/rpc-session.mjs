@@ -15,6 +15,7 @@ import { MAX_SESSION_BYTES, readSessionHeader } from './migration/ownership.mjs'
 import { createQuestionTool } from './questions.mjs';
 import { startRpcProcess } from './rpc-process.mjs';
 import { startMainSessionChild } from './main-session-child.mjs';
+import { SHIPPED_SKILLS } from './skills-extension.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 
 export const extensionPath = fileURLToPath(new URL('./hobkin-extension.mjs', import.meta.url));
@@ -438,6 +439,7 @@ export async function openRpcSession(
     '--thinking', config.main.effort,
     '--extension', extensionPath,
     ...(clientBridge ? ['--extension', clientBridge.extensionPath] : []),
+    ...SHIPPED_SKILLS.flatMap(path => ['--skill', path]),
     ...prompts.flatMap(text => ['--append-system-prompt', text]),
   ]);
   const startProcess = bootstrap ? options => startMainSessionChild(bootstrap, { ...options, startupTimeoutMs }) : startRpcProcess;

@@ -10,6 +10,7 @@ import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import * as owned from '../src/cli/owned-agent-tool.mjs';
 import hobkin from '../src/cli/hobkin-extension.mjs';
 import { serveBridge } from '../src/cli/bridge.mjs';
+import { TLA_SKILL } from '../src/cli/skills-extension.mjs';
 import { fakePiRpc, hobkinTools } from './helpers/fake-rpc-pi.mjs';
 
 const toolName = 'owned_agent';
@@ -81,7 +82,7 @@ test('SDK registration uses the strict shared definition and forwards host callb
   assert.equal(resourceOptions.noContextFiles, true);
   assert.equal(resourceOptions.noThemes, true);
   assert.deepEqual(resourceOptions.additionalExtensionPaths, ['builtin:codemode', 'builtin:tool-search']);
-  assert.deepEqual(resourceOptions.additionalSkillPaths, []);
+  assert.deepEqual(resourceOptions.additionalSkillPaths, [TLA_SKILL]);
   assert.deepEqual(resourceOptions.additionalPromptTemplatePaths, []);
   assert.deepEqual(resourceOptions.agentsFilesOverride(), { agentsFiles: [] });
   assert.ok(fake.options().tools.includes(toolName));

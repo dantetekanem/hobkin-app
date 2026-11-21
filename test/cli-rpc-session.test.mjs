@@ -7,6 +7,7 @@ import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { closePiSession, openImportedPiSession, openPiSession } from '../src/cli/pi-session.mjs';
 import { readAnswers } from '../src/cli/questions.mjs';
 import { extensionPath } from '../src/cli/rpc-session.mjs';
+import { TLA_SKILL } from '../src/cli/skills-extension.mjs';
 import { HobkinRuntime } from '../src/cli/runtime.mjs';
 import { dialog, fakePiRpc } from './helpers/fake-rpc-pi.mjs';
 
@@ -174,6 +175,7 @@ test('the main chat starts as `<launcher> --mode rpc` with its session, binding,
     'pi', '--mode', 'rpc', '--session', join(h.root, 'sessions', 'main.jsonl'),
     '--model', 'fixture/local', '--thinking', 'medium', '--extension', extensionPath,
   ]);
+  assert.equal(args[args.indexOf('--skill') + 1], TLA_SKILL, 'the skills hobkin ships load in the main chat');
   assert.equal(args.filter(value => value === '--append-system-prompt').length, 5);
   assert.ok(args.some(value => value.includes('"background"')), 'the runtime prompt carries the bindings');
   assert.ok(!args.includes('--no-extensions'));

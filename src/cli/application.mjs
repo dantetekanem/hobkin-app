@@ -9,6 +9,7 @@ import { JobActivity } from './job-activity.mjs';
 import { TeamsAgents } from './teams-agents.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
 import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
+import { withShippedSkills } from './skills-extension.mjs';
 import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
 import { RemoteSender, uploadNotice } from './telemetry/sender.mjs';
@@ -219,7 +220,7 @@ export class HobkinApplication {
       const run = runHarness ?? defaultRunHarness;
       runHarness = (request, options) => run({ ...request, launcher }, options);
     }
-    runHarness ??= namingExtensions(readingUsage(defaultRunHarness));
+    runHarness ??= namingExtensions(readingUsage(withShippedSkills(defaultRunHarness)));
     app.snapshot = readLocalView(root);
     // The agents a run's own Pi starts with pi-extended-teams, shown and never controlled or counted (046-teams-layer).
     app.teamsAgents = new TeamsAgents({ now: app.now, onChange: () => app.requestRefresh(true) });

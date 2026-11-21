@@ -3,6 +3,7 @@ import { lstatSync, readFileSync } from 'node:fs';
 import { resolveResourcePolicy } from './resource-policy.mjs';
 import { fileURLToPath } from 'node:url';
 import { ownedRoleTools } from './owned-agent-extension.mjs';
+import { SHIPPED_SKILLS } from './skills-extension.mjs';
 
 // Naming extensions turns off the ones Pi adds by itself, so its built-in ones are named too.
 const PI_BUILT_INS = ['llama.cpp', 'codemode', 'tool-search', 'mcp'];
@@ -41,6 +42,8 @@ export function mainSdkResources(selection, candidates = []) {
   const builtinPaths = ['builtin:codemode', 'builtin:tool-search'];
   const instructions = paths('instructions').map(path => ({ path, content: readFileSync(path, 'utf8') }));
   const skills = paths('skills'), templates = paths('templates'), extensions = paths('extensions');
+  // hobkin's own skills load whatever is chosen. Only the chosen ones must load for the chat to start.
+  const loadedSkills = [...SHIPPED_SKILLS, ...skills];
   const selectedOnly = (items, allowed, key) => {
     if (items.some(item => !allowed.includes(item[key]))) throw Error('Unexpected inherited resource re-enabled.');
     return items;
@@ -62,10 +65,10 @@ export function mainSdkResources(selection, candidates = []) {
     loader: {
       noExtensions: true, noSkills: true, noPromptTemplates: true, noContextFiles: true, noThemes: true,
       additionalExtensionPaths: [...builtinPaths, ...extensions],
-      additionalSkillPaths: skills, additionalPromptTemplatePaths: templates,
+      additionalSkillPaths: loadedSkills, additionalPromptTemplatePaths: templates,
       agentsFilesOverride: () => ({ agentsFiles: instructions }),
       systemPrompt: '', systemPromptOverride: () => undefined,
-      skillsOverride: base => ({ ...base, skills: selectedOnly(base.skills, skills, 'filePath') }),
+      skillsOverride: base => ({ ...base, skills: selectedOnly(base.skills, loadedSkills, 'filePath') }),
       promptsOverride: base => ({ ...base, prompts: selectedOnly(base.prompts, templates, 'filePath') }),
       themesOverride: base => ({ ...base, themes: [] }),
     },

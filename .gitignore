@@ -12,6 +12,7 @@
 !/src/*.mjs
 !/src/prompts/
 !/src/cli/
+!/src/skills/
 !/docs/
 /docs/*
 !/docs/*.md
