@@ -501,9 +501,13 @@ export class HomeOwner {
     this.options.onChange()
   }
 
+  /** The lock is held while its holder refreshes it and still runs. hobkin takes over the lock of one that was killed. */
   private async lockIsHeld(): Promise<boolean> {
-    const lock = statSync(join(await this.dataRoot(), 'runtime.lock'), { throwIfNoEntry: false })
-    return lock !== undefined && Date.now() - lock.mtimeMs < LOCK_STALE_MS
+    const runtime = join(await this.dataRoot(), 'runtime')
+    const lock = statSync(`${runtime}.lock`, { throwIfNoEntry: false })
+    if (lock === undefined || Date.now() - lock.mtimeMs >= LOCK_STALE_MS) return false
+    const { lockHolderGone } = await import('hobkin/src/cli/home-lock.mjs')
+    return !lockHolderGone(runtime)
   }
 
   private retryLater() {

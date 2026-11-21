@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
+import { existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as pause } from 'node:timers/promises'
 import { test } from 'node:test'
@@ -54,4 +56,32 @@ test('a home another process holds is a fault until it lets go, then the host op
 
   const sent = await client.command('conversation.send', { text: 'And now from the client' })
   assert.equal(sent.ok, true)
+})
+
+test('a home whose holder was killed outright opens in the host within seconds, not five minutes later', async (t) => {
+  const root = join(temporaryDirectory(t), 'home')
+  initialize(root, { cwd: root })
+  const runtime = join(root, 'runtime')
+  mkdirSync(runtime, { recursive: true })
+
+  // Another process holds hobkin's lock, as a host does until it is killed for taking too long to close.
+  const holder = spawn(process.execPath, ['--input-type=module', '-e', `
+    const { lockHome } = await import(${JSON.stringify(import.meta.resolve('hobkin/src/cli/home-lock.mjs'))});
+    await lockHome(${JSON.stringify(runtime)}, { onCompromised: () => {} });
+    console.log('locked');
+    setInterval(() => {}, 1000);
+  `], { stdio: ['ignore', 'pipe', 'inherit'] })
+  afterTest(t, () => void holder.kill('SIGKILL'))
+  await once(holder.stdout, 'data')
+
+  const host = await hostFor(t, { root, lockRetryMs: 200 })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.until((view) => view.owner?.state === 'failed', 'the fault')
+
+  const killedAt = performance.now()
+  holder.kill('SIGKILL')
+  await once(holder, 'exit')
+  await client.live()
+  assert.ok(performance.now() - killedAt < 5000, 'live within five seconds of the kill')
 })

@@ -348,6 +348,11 @@ declare module 'hobkin/src/cli/events.mjs' {
   export function recordEvent(root: string, type: string, facts?: Record<string, unknown>, now?: number): void
 }
 
+declare module 'hobkin/src/cli/home-lock.mjs' {
+  /** hobkin's lock on a home is there, and the process that wrote it down as its own no longer runs. */
+  export function lockHolderGone(runtimeDirectory: string): boolean
+}
+
 declare module 'hobkin/src/cli/migration/admission.mjs' {
   /** The folder a home's data is in: the home itself, or the data folder of a home that was upgraded in place. */
   export function resolveDataRoot(root: string): string
