@@ -39,7 +39,7 @@ import { clientNotice, clientNoticesToPost, markClientNoticesPosted } from './cl
 import { finishedLine, foldFinishedLines, withoutWorkNote, workNote } from './work/chat.mjs';
 import { WorkDirector } from './work/director.mjs';
 import { workStatus } from './work/commands.mjs';
-import { askAgent, declineItem, deleteItemBranch, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, publishItem, requestReview, triggerRow } from './work/controls.mjs';
+import { askAgent, declineItem, deleteItemBranch, markDone, mergeItem, mergePullRequest, openDiff, openPullRequest, pauseWork, publishItem, requestReview, resumeWork, triggerRow } from './work/controls.mjs';
 import { addIssue } from './work/issues.mjs';
 import { mergeGroup } from './work/merge-group.mjs';
 import { filePickUp, retirePickUp } from './work/pick-up.mjs';
@@ -1108,6 +1108,9 @@ export class HobkinApplication {
       prs: () => setProjectPrMode(root, slug, value),
       // Which of the project's open GitHub issues it files as work by itself: `off`, `labeled` or `all`.
       issues: () => setProjectIssues(root, slug, value),
+      // Work mode on one project only: paused, its agents finish and nothing new starts there; resumed, its work is back in the queue.
+      pauseProject: () => pauseWork(root, slug),
+      resumeProject: () => resumeWork(root, slug),
       // A GitHub issue the user added from the client's GitHub page, as `{ repo, number, title, body, url, labels }`. It goes first in the queue.
       issue: () => addIssue(root, slug, value, this.now()),
       grade: () => updateItem(root, slug, value, { grade: extra }),

@@ -2418,6 +2418,24 @@ test('the Work tab sets a project\'s priority and PR mode and an item\'s grade, 
   }
 });
 
+test('the Work tab stops work mode on one project and starts it again, and the view says it is paused', async t => {
+  const h = fixture(t);
+  chooseProject(h.root, '/repos/api', 'casual');
+  const app = await h.openApp();
+  try {
+    const paused = await app.workAction('pauseProject', 'api');
+    assert.equal(readProject(h.root, 'api').paused, true);
+    assert.match(paused.message, /Paused api/);
+    assert.equal((await app.refresh()).work.projects.find(({ slug }) => slug === 'api').paused, true);
+
+    await app.workAction('resumeProject', 'api');
+    assert.equal(readProject(h.root, 'api').paused, false);
+    assert.equal((await app.refresh()).work.projects.find(({ slug }) => slug === 'api').paused, false);
+  } finally {
+    await app.close();
+  }
+});
+
 const usefulReport = () => backgroundRun('useful', {
   title: 'Health progress',
   result: { status: 'completed', text: 'Useful: Resting heart rate fell 3 bpm over two weeks.\n\nDetails.' },
