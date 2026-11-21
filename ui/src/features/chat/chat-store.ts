@@ -12,7 +12,7 @@ import { runExecution, useExecution } from '../work/store.ts'
 import { useReportReply, withRoutineReference } from '@/features/reports/reply.ts'
 import { draftReducer, emptyDraft, storedDraft, type DraftAction, type DraftState } from './draft.ts'
 import { attachImages, forgetPreviews as forget } from './image-uploads.ts'
-import { emptyOutbox, settleOutbox, type Outbox } from './outbox.ts'
+import { emptyOutbox, settleOutbox, settleStored, type Outbox } from './outbox.ts'
 import { transientLine } from './transient-line.ts'
 import { closedSlash, slashCommandIn, slashKey, slashTyped, type SlashKey, type SlashState } from './slash.ts'
 import { firstWord } from './use-first-word.ts'
@@ -61,6 +61,7 @@ const recovered = new Set<string>()
 const problemLine = transientLine(() => useChat.setState({ problem: null }))
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error))
 // The outbox settles against the conversation the screen shows, so a sent row and its stored copy swap in one draw.
+// Whether a turn ended without a message is read only from a state the screen takes after hobkin took it.
 const settled = (outbox: Outbox) => {
   const shown = screenStore.getState()
   return settleOutbox(outbox, shown.messages, shown.snapshot.busy === true)
@@ -126,8 +127,10 @@ export const useChat = create<ChatState>()(
           (said) => {
             firstWord.accepted(measure, said)
             forget(attachments)
-            // hobkin took it. It stays on screen, without the queued mark, until the stored conversation shows it.
-            set(({ outbox }) => ({ outbox: settled({ ...outbox, entries: outbox.entries.map((sent) => (sent.id === entry.id ? { ...sent, accepted: true } : sent)) }) }))
+            // hobkin took it. It stays on screen, without the queued mark, until the stored conversation shows it. The
+            // screen may still show hobkin idle from before it took it, so only a stored copy takes the row away here.
+            const taken = (outbox: Outbox) => ({ ...outbox, entries: outbox.entries.map((sent) => (sent.id === entry.id ? { ...sent, accepted: true } : sent)) })
+            set(({ outbox }) => ({ outbox: settleStored(taken(outbox), screenStore.getState().messages) }))
             return true
           },
           (error) => {

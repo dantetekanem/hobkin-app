@@ -42,5 +42,11 @@ export function settleOutbox(outbox: Outbox, messages: readonly ChatMessage[], b
   return kept.length ? { entries: kept, delivered: [...matched] } : emptyOutbox
 }
 
+/**
+ * The outbox once the stored conversation shows what was sent: only a stored copy takes an entry away. hobkin taking a
+ * message says nothing yet about its turn, so whether the turn ended without it waits for the next state.
+ */
+export const settleStored = (outbox: Outbox, messages: readonly ChatMessage[]): Outbox => settleOutbox(outbox, messages, true)
+
 /** What goes back into the input after a stop: what hobkin never read, ahead of what was being typed. */
 export const draftAfterStop = (unsent: readonly string[], draft: string): string => [...unsent, draft].filter((text) => text.trim()).join('\n\n')
