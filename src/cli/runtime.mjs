@@ -194,18 +194,20 @@ export class HobkinRuntime {
 
   /**
    * Each run's bookkeeping, for what only counts and matches runs, as the scheduler's tick does every second: its id,
-   * kind, status, routine and occurrence, and whether it is Work's or a durable hobkin's, never its prompt or result.
-   * `evidenceDue` says whether a finished run still waits for its evidence (`collectEvidence` in compatibility.mjs).
-   * Worked out once per commit, as `state()` encodes, and frozen, since every caller gets this same object.
+   * kind, status, routine, occurrence and harness, and whether it is Work's or a durable hobkin's, never its prompt or result.
+   * `evidenceDue` says whether a finished run still waits for its evidence (`collectEvidence` in compatibility.mjs), `finished` how many
+   * runs have finished, as the learner counts them, and `toTitle` whether an open hobkin is still named by its first message. Worked out once per commit, as `state()` encodes, and frozen, since every caller gets this same object.
    */
   async runIndex() {
     const document = await this.harness.snapshot(RuntimeDoc, this.root.id, context);
     if (document !== this.indexedDocument) {
-      const runs = Object.entries(document.runs ?? {}).map(([id, { kind, status, scheduleId, scheduledAt, work, hobkin }]) =>
-        [id, Object.freeze({ id, kind, status, scheduleId, scheduledAt, work: Boolean(work), hobkin: Boolean(hobkin) })]);
+      const runs = Object.entries(document.runs ?? {}).map(([id, { kind, status, scheduleId, scheduledAt, harnessId, work, hobkin }]) =>
+        [id, Object.freeze({ id, kind, status, scheduleId, scheduledAt, harnessId, work: Boolean(work), hobkin: Boolean(hobkin) })]);
       const receipts = document.evidenceReceipts ?? {};
       const evidenceDue = Object.values(document.runs ?? {}).some(run => run.status !== 'running' && !receipts[run.id]);
-      this.indexed = Object.freeze({ runs: Object.freeze(Object.fromEntries(runs)), evidenceDue });
+      const finished = Object.values(document.runs ?? {}).filter(run => run.finishedAt).length;
+      const toTitle = Object.values(document.hobkins ?? {}).some(record => record.state !== 'ended' && record.titleBy === 'message');
+      this.indexed = Object.freeze({ runs: Object.freeze(Object.fromEntries(runs)), evidenceDue, finished, toTitle });
       this.indexedDocument = document;
     }
     return this.indexed;
@@ -676,6 +678,8 @@ export class HobkinRuntime {
       logRun(this.directory, finished);
       recordRunFinished(this.directory, finished);
     }
+    // The run as committed, a copy of its own, or null when it had already ended.
+    return finished;
   }
 
   // Every check and work run passes here, whichever agent wrote its report, before anything saves or shows it. A durable hobkin's answer is not a report.
@@ -706,8 +710,8 @@ export class HobkinRuntime {
           error: String(error.message ?? error),
         };
       }
-      await this.finish(request.id, await this.edited(request, result, controller.signal));
-      return (await this.state()).runs[request.id];
+      const ended = await this.finish(request.id, await this.edited(request, result, controller.signal));
+      return ended ?? (await this.state()).runs[request.id];
     });
     active.completion = completion;
     this.active.set(request.id, active);
@@ -1062,9 +1066,10 @@ export class HobkinRuntime {
     if (!run) return false;
     active.controller.abort();
     if (run.kind === 'main') await this.main?.abort();
-    await active.completion;
+    // The run as its finish committed it, which no later commit changes once it has ended.
+    const completed = await active.completion;
     if (run.kind === 'main') await this.mainWork;
-    const ended = (await this.state()).runs[id];
+    const ended = completed ?? (await this.state()).runs[id];
     if (ended.status !== 'interrupted') return false;
     return true;
   }

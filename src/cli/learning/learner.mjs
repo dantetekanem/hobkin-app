@@ -64,12 +64,18 @@ export class Learner {
 
   enabled() { return learningEnabled(this.root); }
 
+  /** What has moved since the last pass, from how many runs have finished and how much telemetry there is. */
+  movedAt(finished) { return `${finished}:${this.telemetry.events.length}`; }
+
+  /** Whether `settle` would make a real pass, from how many runs have finished, so a caller need not read every run to find out. */
+  due(finished) { return this.movedAt(finished) !== this.moved || this.now() - this.settledAt >= SETTLE_EVERY_MS; }
+
   /** Cheap enough for every tick. A real pass waits for something to have moved, or for evidence to have aged. */
   settle({ runs, schedules, attention = [] }) {
     if (!this.enabled()) return false;
 
     const now = this.now();
-    const moved = `${runs.filter(run => run.finishedAt).length}:${this.telemetry.events.length}`;
+    const moved = this.movedAt(runs.filter(run => run.finishedAt).length);
     if (moved === this.moved && now - this.settledAt < SETTLE_EVERY_MS) return false;
     Object.assign(this, { moved, settledAt: now });
 

@@ -577,6 +577,9 @@ export class Hobkins {
    * asked, and what it first answered, once it has. One the user named, or that has a title already, is not listed.
    */
   async toTitle() {
+    // The host asks every few seconds, and most of the time no hobkin is still named by its first message.
+    const index = await this.runtime.runIndex?.();
+    if (index?.toTitle === false) return [];
     const state = await this.runtime.state();
     return Object.values(state.hobkins ?? {})
       .filter(record => record.state !== 'ended' && record.titleBy === 'message')

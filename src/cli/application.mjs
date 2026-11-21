@@ -358,7 +358,9 @@ export class HobkinApplication {
   ownedHarness(run) {
     const app = this, metricsRoot = app.runtime.directory;
     return async (request, options) => {
-      const admission = Object.values((await app.runtime.state()).runs).find(item => item.harnessId === request.id && item.status === 'running');
+      // Only the running run of this harness is wanted, which the run index names as the whole document would.
+      const { runs } = await (app.runtime.runIndex?.() ?? app.runtime.state());
+      const admission = Object.values(runs).find(item => item.harnessId === request.id && item.status === 'running');
       // Checks prohibit helpers; Work stays closed until child accounting is integrated.
       const ownedScope = admission && app.runtime.ownedLifecycle.register({ id: admission.id, allowHelpers: false, binding: request, beforeSpawn: options?.beforeSpawn });
       const cancel = () => { void ownedScope?.cancel(); };
@@ -982,6 +984,9 @@ export class HobkinApplication {
   async learn() {
     try {
       if (!this.learner.enabled()) return;
+      // Every run whole is read only for a pass the learner would make: a run finished, telemetry moved, or its evidence aged.
+      const index = await this.runtime.runIndex?.();
+      if (Number.isInteger(index?.finished) && !this.learner.due(index.finished)) return;
       const { runs } = await this.runtime.state();
       const { schedules } = this.runner.loaded;
       if (this.learner.settle({ runs: Object.values(runs), schedules, attention: this.snapshot.reportAttention })) this.requestRefresh();

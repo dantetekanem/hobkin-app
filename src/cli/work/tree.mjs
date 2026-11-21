@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, realpathSync, renameSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -151,6 +151,24 @@ export async function retireTree({ repo, tree }) {
 }
 
 export const currentBranch = repo => gitOrNothing(repo, 'branch', '--show-current');
+
+/**
+ * The branch a checkout is on, read from the HEAD file git keeps, so a look every second starts no git. Empty on a detached HEAD, as during
+ * a rebase, as `git branch --show-current` says. A worktree's `.git` is a file naming its own git folder. Anything else asks git.
+ */
+export async function headBranch(repo) {
+  try {
+    const dotGit = join(repo, '.git');
+    const folder = statSync(dotGit).isDirectory() ? dotGit : resolve(repo, /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'))[1].trim());
+    const head = readFileSync(join(folder, 'HEAD'), 'utf8').trim();
+    const branch = /^ref: refs\/heads\/(.+)$/.exec(head)?.[1];
+    if (branch) return branch;
+    if (/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head)) return '';
+  } catch {
+    // Not the top of a checkout, or not one git keeps this way: git itself answers.
+  }
+  return currentBranch(repo);
+}
 
 /** A folder by its real path, the way git names it, so two names for one folder compare as one. A folder that is gone keeps the name it was given. */
 export function realPlace(folder) {

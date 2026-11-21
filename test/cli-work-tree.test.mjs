@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { gitOrNothing, gitWithin, prepareTree, releaseTree, retireTree } from '../src/cli/work/tree.mjs';
+import { gitOrNothing, gitWithin, headBranch, prepareTree, releaseTree, retireTree } from '../src/cli/work/tree.mjs';
 
 const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 const WORK_KEPT = 'Work in progress kept by Hobkin';
@@ -696,4 +696,28 @@ test('a folder that is gone, or is no tree at all, is nothing to take away', asy
 
   assert.deepEqual([gone, plain], [false, false]);
   assert.equal(existsSync(tree), true);
+});
+
+test('the branch a checkout or a worktree is on is read from its HEAD, as git would say it, without starting git', async t => {
+  const { checkout } = repository(t, { remote: false });
+  const tree = join(dirname(checkout), 'tree');
+  git(checkout, 'worktree', 'add', '-q', '-b', 'hobkin/one', tree);
+  git(checkout, 'switch', '-qc', 'my-work');
+  const said = [git(checkout, 'branch', '--show-current'), git(tree, 'branch', '--show-current')];
+  git(checkout, 'switch', '-q', '--detach');
+  said.push(git(checkout, 'branch', '--show-current'));
+  git(checkout, 'switch', '-q', 'my-work');
+
+  // With no git on the path, only the HEAD files can answer.
+  const path = process.env.PATH;
+  process.env.PATH = '';
+  t.after(() => { process.env.PATH = path; });
+  const read = [await headBranch(checkout), await headBranch(tree)];
+  process.env.PATH = path;
+  git(checkout, 'switch', '-q', '--detach');
+  process.env.PATH = '';
+  read.push(await headBranch(checkout));
+  process.env.PATH = path;
+  assert.deepEqual(read, said);
+  assert.deepEqual(said, ['my-work', 'hobkin/one', '']);
 });

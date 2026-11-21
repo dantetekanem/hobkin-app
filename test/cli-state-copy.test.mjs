@@ -64,9 +64,9 @@ test('the run index gives each run\'s bookkeeping without its prompt or result, 
   const { result: index, encodings } = await encodingsWhile(t, () => runtime.runIndex());
   assert.equal(encodings, 0);
   assert.deepEqual(index, { runs: {
-    check: { id: 'check', kind: 'background', status: 'running', scheduleId: 'mail', scheduledAt: '2026-01-02T09:00:00.000Z', work: true, hobkin: false },
-    turn: { id: 'turn', kind: 'main', status: 'completed', scheduleId: undefined, scheduledAt: undefined, work: false, hobkin: true },
-  }, evidenceDue: true });
+    check: { id: 'check', kind: 'background', status: 'running', scheduleId: 'mail', scheduledAt: '2026-01-02T09:00:00.000Z', harnessId: undefined, work: true, hobkin: false },
+    turn: { id: 'turn', kind: 'main', status: 'completed', scheduleId: undefined, scheduledAt: undefined, harnessId: undefined, work: false, hobkin: true },
+  }, evidenceDue: true, finished: 0, toTitle: false });
   assert.equal(await runtime.runIndex(), index, 'nothing was committed');
   assert.throws(() => { index.runs.check.status = 'changed'; }, TypeError, 'an index is read, never written');
 

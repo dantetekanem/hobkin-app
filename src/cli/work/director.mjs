@@ -33,7 +33,7 @@ import {
   prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, roomToFill, runnableStates, takeHanded,
   sessionError, sessionUsage, skipInQueue, tokenLabel, updateItem, workName, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
-import { BRANCH_PREFIX, changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
+import { BRANCH_PREFIX, changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, headBranch, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { lookAfterHarness, stampUpkeep, upkeepDue } from './upkeep.mjs';
 import { offerSubscriptionPause, retireSubscriptionPause } from './subscription.mjs';
@@ -365,7 +365,7 @@ export class WorkDirector {
     for (const run of this.running()) {
       const { folder } = run;
       if (!folder?.branch || run.moved) continue;
-      const branch = await currentBranch(folder.repo);
+      const branch = await headBranch(folder.repo);
       if (!branch || branch === folder.branch) continue;
       run.moved = true;
       this.killRun(run.id);
