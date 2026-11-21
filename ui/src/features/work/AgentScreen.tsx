@@ -15,6 +15,8 @@ import { EarlierSteps, StepItem } from '@/features/agent-activity/StepView.tsx'
 import { TaskList } from '@/features/agent-activity/TaskList.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
+import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
+import { releaseImages } from '@/features/chat/image-uploads.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { spring, tween } from '@/lib/motion.ts'
@@ -28,6 +30,8 @@ import { useRunChildren } from './children.ts'
 import { changeLine } from '@/features/chat/change-line.ts'
 import { sendChange } from '@/features/chat/send-change.ts'
 import { sayToAgent } from './say.ts'
+import { useAgentImages } from './agent-images.ts'
+import { useAgentImageInput } from './use-agent-image-input.ts'
 import { agentEntry, agentReading, keepsPreview } from './agent-entry.ts'
 import { executionKey, executionTargets } from './actions.ts'
 import { useExecution } from './store.ts'
@@ -651,6 +655,7 @@ function Said({ note }: { note: AgentNote }) {
     >
       <Stamped at={note.at} line="bubble">
         <div className="ml-auto w-fit max-w-[72%] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-left text-[15px] leading-relaxed whitespace-pre-wrap group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
+          {note.images ? <SentImages attachments={note.images} /> : null}
           {note.text}
           {note.delivery ? (
             <p role="status" className={cn('mt-1 text-[11px] leading-normal', note.delivery === 'refused' || note.delivery === 'unconfirmed' ? 'text-bad-fg' : 'text-muted-foreground')}>
@@ -671,21 +676,24 @@ function Said({ note }: { note: AgentNote }) {
 /**
  * The input for talking to one agent, always at the bottom of its canvas. It takes the keyboard when the user clicks
  * it or presses Enter on the agent in the list, never on its own, so walking the list keeps the keyboard there.
+ * Images pasted or dropped on it go with the words, as in the main input.
  */
 function TalkInput({ agentId, name, hue, mood, answering, finished }: { agentId: string; name: string; hue: number; mood: Mood; answering: boolean; finished: boolean }) {
   const sendNote = useAgentThreads((threads) => threads.send)
   const live = useHasHost()
+  const images = useAgentImageInput(agentId, !finished)
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   /** What a /model or /effort line did, under the box. */
   const [said, setSaid] = useState<string | null>(null)
-  const canSend = draft.trim().length > 0 && !finished
+  const canSend = (draft.trim().length > 0 || images.attachments.length > 0) && images.ready && !finished
 
   const send = async () => {
     if (!canSend) return
     const text = draft.trim()
     setProblem(null)
     setSaid(null)
+    useAgentImages.getState().clearProblem(agentId)
     // A /model or /effort line changes how the agent works instead of being sent to it.
     const change = changeLine(text)
     if (change) {
@@ -699,10 +707,15 @@ function TalkInput({ agentId, name, hue, mood, answering, finished }: { agentId:
       }
       return
     }
-    // Record before awaiting: changing canvases must not hide a pending message or lose a refusal.
+    // Record before awaiting: changing canvases must not hide a pending message or lose a refusal. The images go
+    // with the words, and the note keeps them to show.
     setDraft('')
-    const result = await sendNote(agentId, text, (noteId) => sayToAgent(agentId, text, { live, noteId }))
+    const attached = useAgentImages.getState().take(agentId)
+    const handles = attached.flatMap(({ handle }) => (handle ? [handle] : []))
+    const result = await sendNote(agentId, text, (noteId) => sayToAgent(agentId, text, { live, noteId, images: handles }), attached)
     if (!result.sent) {
+      // hobkin lets go of images that did not reach the agent. The note still shows them.
+      releaseImages(attached)
       setProblem(result.why)
       return
     }
@@ -715,56 +728,65 @@ function TalkInput({ agentId, name, hue, mood, answering, finished }: { agentId:
   return (
     <div className="pointer-events-auto mt-auto shrink-0 px-[10%] pt-2 pb-5">
       <form
-        className="flex items-end gap-2 rounded-[26px] border-[1.5px] border-input bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring"
+        className={cn(
+          'rounded-[26px] border-[1.5px] bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring',
+          images.dropping ? 'border-ring' : 'border-input',
+        )}
+        {...images.dropTarget}
         onSubmit={(event) => {
           event.preventDefault()
           void send()
         }}
       >
-        <span className="grid size-9 shrink-0 place-items-center">
-          <AgentHood hue={hue} size={26} mood={finished ? 'idle' : answering ? 'listening' : mood} working={!finished} />
-        </span>
-        <textarea
-          // macOS would offer its own corrections in a bubble over the field; the user writes as they mean.
-          autoCorrect="off"
-          autoCapitalize="off"
-          data-agent-input
-          value={draft}
-          readOnly={finished}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              // Back onto the same agent in the list. One the list no longer holds leaves the key to the frame,
-              // which leaves the canvas.
-              if (!finished && focusAgentsDock()) event.preventDefault()
-            } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault()
-              void send()
-            } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
-              // Up from an empty input walks the agent's steps, newest first, or else goes to the agents list.
-              if (focusNewestStep(event.currentTarget) || (!finished && focusAgentsDock())) event.preventDefault()
-            }
-          }}
-          rows={1}
-          placeholder={label}
-          aria-label={label}
-          className="field-sizing-content max-h-40 min-h-9 flex-1 resize-none self-center bg-transparent py-1.5 text-[15px] leading-snug outline-none placeholder:text-muted-foreground"
-        />
-        <button
-          type="submit"
-          disabled={!canSend}
-          aria-label={answering ? 'Send the answer' : 'Send to this agent'}
-          className={cn(
-            'grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground',
-            'transition-[transform,opacity] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40',
-          )}
-        >
-          <ArrowUp className="size-4" aria-hidden="true" />
-        </button>
+        <AttachmentTray attachments={images.attachments} onRemove={images.remove} />
+        <div className="flex items-end gap-2">
+          <span className="grid size-9 shrink-0 place-items-center">
+            <AgentHood hue={hue} size={26} mood={finished ? 'idle' : answering ? 'listening' : mood} working={!finished} />
+          </span>
+          <textarea
+            // macOS would offer its own corrections in a bubble over the field; the user writes as they mean.
+            autoCorrect="off"
+            autoCapitalize="off"
+            data-agent-input
+            value={draft}
+            readOnly={finished}
+            onChange={(event) => setDraft(event.target.value)}
+            onPaste={images.onPaste}
+            onKeyDown={(event) => {
+              if (images.removeLast(event)) return
+              if (event.key === 'Escape') {
+                // Back onto the same agent in the list. One the list no longer holds leaves the key to the frame,
+                // which leaves the canvas.
+                if (!finished && focusAgentsDock()) event.preventDefault()
+              } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                void send()
+              } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
+                // Up from an empty input walks the agent's steps, newest first, or else goes to the agents list.
+                if (focusNewestStep(event.currentTarget) || (!finished && focusAgentsDock())) event.preventDefault()
+              }
+            }}
+            rows={1}
+            placeholder={images.dropping ? 'Drop the image to attach it' : label}
+            aria-label={label}
+            className="field-sizing-content max-h-40 min-h-9 flex-1 resize-none self-center bg-transparent py-1.5 text-[15px] leading-snug outline-none placeholder:text-muted-foreground"
+          />
+          <button
+            type="submit"
+            disabled={!canSend}
+            aria-label={answering ? 'Send the answer' : 'Send to this agent'}
+            className={cn(
+              'grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground',
+              'transition-[transform,opacity] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40',
+            )}
+          >
+            <ArrowUp className="size-4" aria-hidden="true" />
+          </button>
+        </div>
       </form>
-      {problem ? (
+      {problem || images.problem ? (
         <p role="alert" className="mt-1.5 px-3 text-[11px] text-bad-fg">
-          {problem}
+          {problem ?? images.problem}
         </p>
       ) : said ? (
         <p role="status" className="mt-1.5 px-3 text-[11px] text-muted-foreground">

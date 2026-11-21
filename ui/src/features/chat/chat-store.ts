@@ -9,8 +9,8 @@ import type { ChatMessage } from '#shared/protocol/snapshot.ts'
 import { executionKey, executionTargets, type ExecutionControl } from '../work/actions.ts'
 import { runExecution, useExecution } from '../work/store.ts'
 import { useReportReply, withRoutineReference } from '@/features/reports/reply.ts'
-import { attachmentRefusal, fileAsBase64 } from './attachments.ts'
-import { draftReducer, emptyDraft, storedDraft, type Attachment, type DraftAction, type DraftState } from './draft.ts'
+import { draftReducer, emptyDraft, storedDraft, type DraftAction, type DraftState } from './draft.ts'
+import { attachImages, forgetPreviews as forget } from './image-uploads.ts'
 import { emptyOutbox, settleOutbox, type Outbox } from './outbox.ts'
 import { transientLine } from './transient-line.ts'
 import { closedSlash, slashCommandIn, slashKey, slashTyped, type SlashKey, type SlashState } from './slash.ts'
@@ -54,18 +54,12 @@ interface ChatState {
 }
 
 let sends = 0
-let uploads = 0
 let notes = 0
 const recovered = new Set<string>()
 // A problem is not kept: it goes by itself, and never reaches the conversation or its history.
 const problemLine = transientLine(() => useChat.setState({ problem: null }))
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error))
 const settled = (outbox: Outbox) => settleOutbox(outbox, hostStore.getState().messages, hostStore.getState().snapshot.busy === true)
-const limitsNow = () => {
-  const { link, owner } = hostStore.getState()
-  return link === 'open' && owner?.state === 'live' ? owner.limits : null
-}
-const forget = (attachments: readonly Attachment[]) => attachments.forEach(({ preview }) => URL.revokeObjectURL(preview))
 const retainsAttachment = (draft: DraftState, id: string) =>
   draft.attachments.some((attachment) => attachment.id === id) ||
   draft.kept.some((entry) => entry.attachments.some((attachment) => attachment.id === id))
@@ -186,33 +180,15 @@ export const useChat = create<ChatState>()(
         })
       },
 
-      attach: (files) => {
-        for (const file of files) {
-          const refusal = attachmentRefusal(file, get().draft.attachments.length, limitsNow())
-          if (refusal) {
-            set({ problem: refusal })
-            continue
-          }
-          // It shows at once, from the file itself. hobkin gets its bytes in the background.
-          const attachment: Attachment = { id: `local:${++uploads}`, name: file.name || 'image', mimeType: file.type, preview: URL.createObjectURL(file) }
-          get().change({ type: 'attached', attachment })
-          fileAsBase64(file)
-            .then((data) => runCommand('conversation.attach', { name: attachment.name, data }))
-            .then(
-              ({ id: handle }) => {
-                if (!retainsAttachment(get().draft, attachment.id)) {
-                  void runCommand('conversation.detach', { id: handle }).catch(() => {})
-                  return
-                }
-                set(({ draft }) => ({ draft: draftReducer(draft, { type: 'uploaded', id: attachment.id, handle }) }))
-              },
-              (error) => {
-                forget([attachment])
-                set(({ draft }) => ({ draft: draftReducer(draft, { type: 'detached', id: attachment.id }), problem: reason(error) }))
-              },
-            )
-        }
-      },
+      attach: (files) =>
+        attachImages(files, {
+          count: () => get().draft.attachments.length,
+          holds: (id) => retainsAttachment(get().draft, id),
+          add: (attachment) => get().change({ type: 'attached', attachment }),
+          uploaded: (id, handle) => set(({ draft }) => ({ draft: draftReducer(draft, { type: 'uploaded', id, handle }) })),
+          lost: (id, why) => set(({ draft }) => ({ draft: draftReducer(draft, { type: 'detached', id }), problem: why })),
+          refused: (why) => set({ problem: why }),
+        }),
 
       detach: (id) => {
         const attachment = get().draft.attachments.find((attached) => attached.id === id)

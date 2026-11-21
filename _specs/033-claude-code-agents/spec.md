@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["011-work", "020-settings", "021-agent-rendering", "022-questions"],
-  "updated": "2026-11-12"
+  "updated": "2026-11-21"
 }
 ---
 # hobkin's other agents on Claude Code
@@ -46,7 +46,7 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - A2. With Claude Code on for Work, a Work "do" run starts `claude -p` in the item's folder with stream-json in and out, the chosen model and permission mode, the tier's effort and the run's id as its session id, and Pi does not start.
 - A3. A run's kind decides its route: with Work on and routines off, a routine starts on Pi, and reflection, compatibility checks and the humanizer start on Pi whatever the settings.
 - A4. A Claude run draws on the agent canvas as a Pi run does: its text streams into a Says block, a Bash call shows its command, output and exit code, an edit shows as a code change of its file, and no thinking shows.
-- A5. A message sent from the agent canvas reaches Claude as a user message, and the note's receipt arrives once Claude takes it in.
+- A5. A message sent from the agent canvas reaches Claude as a user message, and the note's receipt arrives once Claude takes it in. Images attached to it, or to the run's first prompt, reach Claude as its own image blocks, and the receipt counts them.
 - A6. A question Claude asks with AskUserQuestion shows on the sheet from the agent, with its options as choices and a field for the user's own words. The chosen label, or the words, go back to Claude as its answer. Two questions show one after the other.
 - A7. A question put off, or one that cannot be asked, tells Claude the user put it off and to go on with its best judgment, and the run carries on.
 - A8. Under "ask", a command Claude wants to run asks Allow or Don't allow on the sheet. Don't allow, or the user's words, deny it and Claude hears why.
@@ -62,7 +62,7 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - A2. `host/test/claude-code-harness.test.ts` › "starts claude headless with the run's settings"; `host/test/claude-code-agents.test.ts` › "a live home's harness is hobkin's own for Pi runs and Claude Code's for the rest"
 - A3. `host/test/claude-code-route.test.ts` › "a run's kind decides its route"
 - A4. `host/test/claude-code-stream.test.ts` › "Claude's stream becomes the activity a Pi run gives"; check: watch a Claude Work run's canvas.
-- A5. `host/test/claude-code-harness.test.ts` › "a message reaches Claude and its receipt follows"
+- A5. `host/test/claude-code-harness.test.ts` › "a message reaches Claude and its receipt follows" and › "images the user attached go to Claude as image blocks, and the receipt counts them"
 - A6. `host/test/claude-code-asking.test.ts` › "each question goes to the sheet and the answers go back"
 - A7. `host/test/claude-code-asking.test.ts` › "a question put off or unaskable lets Claude go on"; check: in the live run (S6), put a question off and see Claude carry on.
 - A8. `host/test/claude-code-asking.test.ts` › "a permission prompt asks allow or don't allow"; check: in the live run (S6) under "ask", answer Don't allow and see Claude hear why.

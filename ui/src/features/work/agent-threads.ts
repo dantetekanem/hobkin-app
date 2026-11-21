@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
+import type { Attachment } from '@/features/chat/draft.ts'
 import { hostStore } from '../../lib/host/client.ts'
 
 export interface AgentNote {
@@ -9,6 +10,8 @@ export interface AgentNote {
   delivery?: 'sending' | 'waiting' | 'received' | 'refused' | 'unconfirmed' | 'local'
   receivedAt?: number
   why?: string
+  /** The images that went with the words. The note keeps their previews. */
+  images?: readonly Attachment[]
 }
 
 export type AgentSendResult = { sent: true; local?: boolean } | { sent: false; why: string; uncertain?: boolean }
@@ -17,7 +20,7 @@ interface AgentThreads {
   /** What the user has said to each agent, by agent id. */
   notes: Record<string, AgentNote[]>
   say: (agentId: string, text: string) => void
-  send: (agentId: string, text: string, deliver: (noteId: string) => Promise<AgentSendResult>) => Promise<AgentSendResult>
+  send: (agentId: string, text: string, deliver: (noteId: string) => Promise<AgentSendResult>, images?: readonly Attachment[]) => Promise<AgentSendResult>
   sync: (snapshot: WireSnapshot) => void
 }
 
@@ -31,8 +34,8 @@ export const useAgentThreads = create<AgentThreads>()((set, get) => ({
     const note = { id: crypto.randomUUID(), text, at: Date.now() }
     set({ notes: { ...get().notes, [agentId]: [...(get().notes[agentId] ?? []), note] } })
   },
-  send: async (agentId, text, deliver) => {
-    const note: AgentNote = { id: crypto.randomUUID(), text, at: Date.now(), delivery: 'sending' }
+  send: async (agentId, text, deliver, images) => {
+    const note: AgentNote = { id: crypto.randomUUID(), text, at: Date.now(), delivery: 'sending', ...(images?.length ? { images } : {}) }
     set({ notes: { ...get().notes, [agentId]: [...(get().notes[agentId] ?? []), note] } })
     let result: AgentSendResult
     try {

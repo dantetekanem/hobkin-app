@@ -42,6 +42,20 @@ export function AttachmentTray({ attachments, onRemove }: { attachments: readonl
   )
 }
 
+/** The images that went with a message the window keeps, as the same thumbnails, each opening larger. */
+export function SentImages({ attachments }: { attachments: readonly Attachment[] }) {
+  if (!attachments.length) return null
+  return (
+    <ul aria-label="Images sent" className="mb-1.5 flex flex-wrap gap-2">
+      {attachments.map((attachment) => (
+        <li key={attachment.id} className="size-14">
+          <ImagePreview attachment={attachment} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
 export interface AttachButtonProps {
   /** The hidden file input. The composer opens it from the keyboard too. */
   picker: RefObject<HTMLInputElement | null>
