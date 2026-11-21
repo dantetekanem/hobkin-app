@@ -454,6 +454,8 @@ export async function openRpcSession(
     // A reply never exceeds the transcript it describes.
     maxRecordBytes: MAX_SESSION_BYTES,
     name: 'Main Pi',
+    // The user waits on the main chat's first word, so it keeps normal priority, and its session child passes this on.
+    utility: false,
     onRecord: record => session.accept(record),
   }));
   const wait = promise => startup ? startup.wait(promise) : promise;

@@ -26,9 +26,11 @@ const reapAtExit = () => {
  */
 export function startRpcProcess({
   command, args, cwd, env, ipc = false, onControl = () => {}, spawnProcess = spawn, signalProcess = signalGroup, maxRecordBytes = 1048576, maxKeptBytes = maxRecordBytes, name = 'Harness', onRecord = () => {}, onFail = () => {},
+  utility = true,
 }) {
-  // The system's own processes start at utility priority (`priority.mjs`). A stand-in that a caller passes gets the command as given.
-  const started = spawnProcess === spawn ? atUtilityPriority(command, args) : { command, args };
+  // A background agent's process starts at utility priority (`priority.mjs`); `utility: false` is for one the user waits on, the main chat.
+  // A stand-in that a caller passes gets the command as given.
+  const started = utility && spawnProcess === spawn ? atUtilityPriority(command, args) : { command, args };
   const child = spawnProcess(started.command, started.args, {
     cwd,
     shell: false,
