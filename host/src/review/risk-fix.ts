@@ -54,17 +54,30 @@ export function riskStep(record: RiskRecord, head: string, work: RiskWork): Risk
 /** What the window says hobkin does about a risky answer at `head`, or undefined when it does nothing for it. */
 export function riskShown(record: RiskRecord, head: string, work: RiskWork | null): RiskFix | undefined {
   if (!work || work.at === 'over' || record.answered.includes(head)) return undefined
-  const base = { rounds: RISK_ROUNDS }
-  const sent = record.rounds.findIndex((round) => round.head === head)
-  const round = sent >= 0 ? sent + 1 : record.rounds.length
-  if (record.waiting?.head === head) return { ...base, state: 'waiting', round, why: record.waiting.why, ...(record.waiting.action ? { action: record.waiting.action } : {}) }
-  if (work.at === 'finished' && work.left && (sent >= 0 || work.head === head)) return { ...base, state: 'waiting', round, why: 'left' }
-  if (sent >= 0) {
-    if (work.at === 'working') return { ...base, state: 'fixing', round, ...(work.held ? { held: work.held } : {}) }
-    return work.head === head ? { ...base, state: 'waiting', round, why: 'unchanged' } : { ...base, state: 'fixed', round }
+
+  const rounds = RISK_ROUNDS
+  const sentIndex = record.rounds.findIndex((round) => round.head === head)
+  const sentHere = sentIndex >= 0
+  const round = sentHere ? sentIndex + 1 : record.rounds.length
+  const finishedHere = work.at === 'finished' && work.head === head
+
+  const { waiting } = record
+  if (waiting?.head === head) {
+    return { state: 'waiting', round, rounds, why: waiting.why, ...(waiting.action ? { action: waiting.action } : {}) }
   }
-  // Not sent for this commit: what is sent next, or why not yet.
-  if (work.at !== 'finished' || work.head !== head) return undefined
-  if (record.rounds.length >= RISK_ROUNDS) return { ...base, state: 'waiting', round, why: 'rounds' }
-  return work.held ? { ...base, state: 'fixing', round: round + 1, held: work.held } : undefined
+  if (work.at === 'finished' && work.left && (sentHere || finishedHere)) {
+    return { state: 'waiting', round, rounds, why: 'left' }
+  }
+
+  if (sentHere) {
+    if (work.at === 'working') return { state: 'fixing', round, rounds, ...(work.held ? { held: work.held } : {}) }
+    if (finishedHere) return { state: 'waiting', round, rounds, why: 'unchanged' }
+    return { state: 'fixed', round, rounds }
+  }
+
+  // Not sent for this commit yet: what goes next, or why it waits.
+  if (!finishedHere) return undefined
+  if (record.rounds.length >= RISK_ROUNDS) return { state: 'waiting', round, rounds, why: 'rounds' }
+  if (work.held) return { state: 'fixing', round: round + 1, rounds, held: work.held }
+  return undefined
 }

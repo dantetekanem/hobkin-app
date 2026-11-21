@@ -50,10 +50,20 @@ function seated(t: TestContext) {
   const asked: ReviewTarget[] = []
   const hobkin = { refuse: null as string | null }
   let clock = START
+  // A finished review at each commit the test answered, with its one unit: the part that can break.
+  const finished = (head: string): ChangeAssessment => ({
+    head,
+    summary: summaryOf(answers.get(head)!),
+    story: '',
+    units: { schema: 'review-units/1', map: 'node-level', attention: { units: 1, reading_minutes: 2 }, units: [BREAK] },
+    triage: null,
+    blind: null,
+    progress: null,
+    nodes: [],
+  })
   const assessments = {
     status: (_target: ReviewTarget, head: string | null): AssessmentStatus => (head && answers.has(head) ? { state: 'ready', head, summary: summaryOf(answers.get(head)!) } : { state: 'idle', head }),
-    read: (_target: ReviewTarget, head: string): ChangeAssessment | null =>
-      answers.has(head) ? { head, summary: summaryOf(answers.get(head)!), story: '', units: { schema: 'review-units/1', map: 'node-level', attention: { units: 1, reading_minutes: 2 }, units: [BREAK] }, triage: null, blind: null, progress: null, nodes: [] } : null,
+    read: (_target: ReviewTarget, head: string): ChangeAssessment | null => (answers.has(head) ? finished(head) : null),
     start: () => ({ state: 'queued', head: null }),
     stop: () => false,
     pending: () => [],
@@ -84,13 +94,13 @@ function seated(t: TestContext) {
   t.after(() => reviews.close())
   /** What the window is told hobkin does about the answer at the change's commit now. */
   const fixNow = () => reviews.status(id).assessment?.fix
-  /** The same for the review of `H1` as its opened page reads it, wherever the change is now. */
-  const fixAt = (_head: typeof H1) => reviews.get(id).status.assessment?.fix
-  return { reviews, store, target, answers, work, actions, asked, hobkin, fixNow, fixAt, later: (ms: number) => (clock += ms) }
+  /** The same for the review of the first commit, as its opened page reads it, wherever the change is now. */
+  const fixOfFirstReview = () => reviews.get(id).status.assessment?.fix
+  return { reviews, answers, work, actions, asked, hobkin, fixNow, fixOfFirstReview, later: (ms: number) => (clock += ms) }
 }
 
 test("a finished change whose AI review says risky gets hobkin's agent back with what was found, once for its commit, twice at most, then it is the user's", async (t) => {
-  const { reviews, answers, work, actions, fixNow, fixAt } = seated(t)
+  const { reviews, answers, work, actions, fixNow, fixOfFirstReview } = seated(t)
   answers.set(H1, 'risky')
 
   await reviews.settleRisk(id)
@@ -102,14 +112,14 @@ test("a finished change whose AI review says risky gets hobkin's agent back with
 
   // hobkin put it back in the queue: the window says an agent is on it, and nothing goes twice for this commit.
   work.at = 'working'
-  assert.deepEqual(fixAt(H1), { state: 'fixing', round: 1, rounds: 2 })
+  assert.deepEqual(fixOfFirstReview(), { state: 'fixing', round: 1, rounds: 2 })
   await reviews.settleRisk(id)
   assert.equal(actions.length, 1)
 
   // The agent moved it on, and the new commit's review is risky too: the second round, the last.
   Object.assign(work, { at: 'finished', head: H2 })
   answers.set(H2, 'risky')
-  assert.deepEqual(fixAt(H1), { state: 'fixed', round: 1, rounds: 2 }, 'the older review says its fix is in a newer commit')
+  assert.deepEqual(fixOfFirstReview(), { state: 'fixed', round: 1, rounds: 2 }, 'the older review says its fix is in a newer commit')
   await reviews.settleRisk(id)
   assert.deepEqual(actions.map(([name, , , value]) => [name, (value as { head: string }).head]), [['fixRisk', H1], ['fixRisk', H2]])
 

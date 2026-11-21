@@ -527,16 +527,20 @@ export class Reviews {
   private async riskLook(id: string): Promise<'done' | 'later'> {
     const target = targetOfReviewId(id)
     const { assessments, store } = this.options
-    if (target?.kind !== 'change' || !assessments || !this.options.ownWork || this.closedOn(target) || this.landingOf(target)) return 'done'
+    if (target?.kind !== 'change' || !assessments || !this.options.ownWork) return 'done'
+    if (this.closedOn(target) || this.landingOf(target)) return 'done'
+
     const work = this.ownWorkOf(target)
     const head = work?.head
     if (!work || !head) return 'later'
     const known = assessments.status(target, head)
     if (known.state !== 'ready' || !known.summary || deployOf(known.summary) !== 'risky') return 'done'
+
     const record = store.riskFix(target)
     const step = riskStep(record, head, work)
     // Work mode starts nothing on its project now: what would go, goes once it runs.
     if (!step) return work.held ? 'later' : 'done'
+
     const findings = fixBrief(assessments.read(target, head)?.units ?? { units: [] }) ?? deployWhy(known.summary)
     const at = new Date(this.now()).toISOString()
     try {
@@ -544,7 +548,8 @@ export class Reviews {
         await this.options.work().workAction('fixRisk', target.slug, target.item, { head, findings })
         store.saveRiskFix(target, { ...store.riskFix(target), rounds: [...record.rounds, { head, at }] })
       } else {
-        const answer = (await this.options.work().workAction('riskStays', target.slug, target.item, { head, rounds: record.rounds.length, why: step.why, findings })) as { action?: unknown } | null
+        const asked = { head, rounds: record.rounds.length, why: step.why, findings }
+        const answer = (await this.options.work().workAction('riskStays', target.slug, target.item, asked)) as { action?: unknown } | null
         const action = typeof answer?.action === 'string' ? answer.action : null
         store.saveRiskFix(target, { ...store.riskFix(target), waiting: { head, at, why: step.why, action } })
       }

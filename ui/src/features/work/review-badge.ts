@@ -25,7 +25,10 @@ export function reviewBadge(status: AssessmentStatus | undefined): ReviewBadge {
     const deploy = deployOf(summary)
     // A risky answer on hobkin's own change says what hobkin does about it, not a bare "Risky" (spec 032, A39).
     const { fix } = status
-    if (fix) return { label: riskFixLabel(fix), tone: TONE[deploy], title: `${riskFixWords(fix)}${fix.state === 'waiting' ? ' It waits in Action Items.' : ''} ${deployWhy(summary)}`, critical: summary.critical }
+    if (fix) {
+      const where = fix.state === 'waiting' ? ' It waits in Action Items.' : ''
+      return { label: riskFixLabel(fix), tone: TONE[deploy], title: `${riskFixWords(fix)}${where} ${deployWhy(summary)}`, critical: summary.critical }
+    }
     return { label: DEPLOY_WORDS[deploy], tone: TONE[deploy], title: deployWhy(summary), critical: summary.critical }
   }
   if (status?.state === 'running') {

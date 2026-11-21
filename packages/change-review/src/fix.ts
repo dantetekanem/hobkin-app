@@ -23,7 +23,12 @@ const factWords = (name: string, { value, evidence }: Fact) => `${name} ${value}
 
 /** Where a part is: its place on the path, then the lines it changed, at most two files. */
 function whereOf(unit: Unit): string {
-  const places = [...new Set(unit.code.map(({ path, lines }) => (lines ? `${path}:${lines[0] === lines[1] ? lines[0] : `${lines[0]}-${lines[1]}`}` : path)))].slice(0, 2)
+  const placeOf = ({ path, lines }: Unit['code'][number]) => {
+    if (!lines) return path
+    const [start, end] = lines
+    return start === end ? `${path}:${start}` : `${path}:${start}-${end}`
+  }
+  const places = [...new Set(unit.code.map(placeOf))].slice(0, 2)
   const at = places.length ? `, at ${places.join(' and ')}` : ''
   return `Where: ${plain(unit.where)}${at}.`
 }

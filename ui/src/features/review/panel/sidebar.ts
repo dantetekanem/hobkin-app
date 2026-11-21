@@ -34,12 +34,20 @@ export interface HeaderFix {
 const capitalized = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
 const percentOf = (status: AssessmentStatus | null | undefined) => (status?.state === 'running' && status.percent != null ? ` ${Math.round(status.percent)}%` : '')
 
+function headerFix(fix: RiskFix): HeaderFix {
+  return {
+    state: fix.state,
+    words: riskFixWords(fix),
+    opens: fix.state === 'waiting' ? { action: fix.action ?? null } : null,
+  }
+}
+
 export function headerBadge(assessment: Pick<ChangeAssessment, 'summary'> | null | undefined, status: AssessmentStatus | null | undefined): HeaderBadge {
   const badge = riskBadge(assessment, status)
   if (badge?.kind === 'rated') {
     const { deploy, label, why, since, critical, fix } = badge
-    const told = fix ? { fix: { state: fix.state, words: riskFixWords(fix), opens: fix.state === 'waiting' ? { action: fix.action ?? null } : null } } : {}
-    return { kind: 'rated', deploy, label, why, since, critical, again: badge.again ? `Reviewing again…${percentOf(status)}` : null, ...told }
+    const again = badge.again ? `Reviewing again…${percentOf(status)}` : null
+    return { kind: 'rated', deploy, label, why, since, critical, again, ...(fix ? { fix: headerFix(fix) } : {}) }
   }
   if (badge?.kind === 'rating') {
     const { percent } = badge
