@@ -56,7 +56,7 @@ const handedPath = root => join(workRoot(root), 'handed.json');
 const cancelsPath = root => join(workRoot(root), 'cancels.jsonl');
 const trustPath = root => join(workRoot(root), 'trust.jsonl');
 
-export const paths = (root, slug) => {
+const joinPaths = (root, slug) => {
   const directory = join(workRoot(root), slug);
   const trees = join(directory, 'trees');
   return {
@@ -75,6 +75,20 @@ export const paths = (root, slug) => {
     oldDoTree: join(trees, 'do'),
     clone: join(directory, 'repo'),
   };
+};
+
+// Every Work status asks for each project's paths many times over, and they never change, so each is joined once.
+const knownPaths = new Map();
+const MOST_KNOWN_PATHS = 1000;
+
+export const paths = (root, slug) => {
+  const key = `${root}\0${slug}`;
+  const known = knownPaths.get(key);
+  if (known) return known;
+  if (knownPaths.size >= MOST_KNOWN_PATHS) knownPaths.clear();
+  const joined = Object.freeze(joinPaths(root, slug));
+  knownPaths.set(key, joined);
+  return joined;
 };
 
 export const slugOf = name => String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, MAX_NAME_LENGTH);
