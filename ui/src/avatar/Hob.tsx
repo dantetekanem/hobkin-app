@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { faceMotion } from './face-motion.ts'
 import { MOOD_ART, type Mood } from './moods.tsx'
 import { BODY_PATH, FEET, drawingOf, type Pet, type PetChoice } from './pets.ts'
 import { PetPart } from './PetPart.tsx'
@@ -26,7 +27,10 @@ export interface HobProps {
   title?: string
 }
 
-/** The hobkin character, drawn as the chosen pet. One inline SVG, every mood from hobkin's own art. */
+/**
+ * The hobkin character, drawn as the chosen pet, every mood from hobkin's own art. An HTML box holds the drawing, so a
+ * small face moves as a whole on the compositor (face-motion.ts).
+ */
 export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = false, followWithin, className, title }: HobProps) {
   const art = MOOD_ART[mood]
   const chosen = usePetChoice()
@@ -34,6 +38,7 @@ export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = f
   const style = { '--hob-stage': stage, '--hob-mark': tint, '--hob-eye': eye } as CSSProperties
   const drawing = drawingOf({ choice: chosen, pet, tint })
   const shown = pet ?? chosen
+  const motion = faceMotion({ size, mood, still })
 
   if (drawing === 'nothing') return null
 
@@ -60,40 +65,41 @@ export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = f
   }
 
   return (
-    <svg
+    <span
       className={['hob', className].filter(Boolean).join(' ')}
       data-mood={mood}
       data-pet={shown}
       data-still={still || undefined}
-      width={size}
-      height={size}
-      viewBox="-28 -28 256 256"
+      data-held={motion.parts ? undefined : true}
+      data-whole={motion.whole ?? undefined}
       role="img"
       aria-label={title ?? `hobkin, ${mood}`}
-      style={style}
+      style={{ ...style, '--hob-size': `${size}px` } as CSSProperties}
     >
-      <g className={`hob-body hob-m-${mood}`}>
-        {/* The pet's part goes behind the body, so it can turn about its base without a gap. */}
-        <PetPart pet={shown as Pet} />
-        {FEET.map((foot) => (
-          <ellipse key={foot.cx} className="hob-fm" {...foot} />
-        ))}
-        <path className="hob-fm" d={BODY_PATH} />
-        <g ref={followRef} className="hob-follow">
-          {/* Keyed by mood so each mood's own animation starts at its beginning. */}
-          <g key={mood} className={['hob-look hob-part', art.look].filter(Boolean).join(' ')}>
-            <g className={['hob-blink', art.blink].filter(Boolean).join(' ')} opacity={art.eyesOpacity ?? 1}>
-              {art.eyes}
+      <svg viewBox="-28 -28 256 256" aria-hidden="true">
+        <g className={`hob-body hob-m-${mood}`}>
+          {/* The pet's part goes behind the body, so it can turn about its base without a gap. */}
+          <PetPart pet={shown as Pet} />
+          {FEET.map((foot) => (
+            <ellipse key={foot.cx} className="hob-fm" {...foot} />
+          ))}
+          <path className="hob-fm" d={BODY_PATH} />
+          <g ref={followRef} className="hob-follow">
+            {/* Keyed by mood so each mood's own animation starts at its beginning. */}
+            <g key={mood} className={['hob-look hob-part', art.look].filter(Boolean).join(' ')}>
+              <g className={['hob-blink', art.blink].filter(Boolean).join(' ')} opacity={art.eyesOpacity ?? 1}>
+                {art.eyes}
+              </g>
             </g>
           </g>
         </g>
-      </g>
-      {art.extras ? (
-        <g key={mood} className="hob-part">
-          {art.extras}
-        </g>
-      ) : null}
-    </svg>
+        {art.extras ? (
+          <g key={mood} className="hob-part">
+            {art.extras}
+          </g>
+        ) : null}
+      </svg>
+    </span>
   )
 }
 

@@ -11,6 +11,50 @@
   overflow: visible;
 }
 
+/*
+ * The face's box, an HTML element the drawing fills. Its size sits in a layer under Tailwind's utilities, so a
+ * caller's size class (size-[110px], size-[118%]) still wins, as it did over the old SVG's width attribute.
+ */
+@layer base {
+  span.hob { width: var(--hob-size); height: var(--hob-size); }
+}
+span.hob { display: grid; grid-template: 100% / 100%; }
+span.hob > * { grid-area: 1 / 1; width: 100%; height: 100%; }
+.hob svg { overflow: visible; }
+
+/*
+ * A small face (avatar/face-motion.ts) holds its parts in the mood's pose and moves its whole box in the mood's loop,
+ * about where the pet stands, (100, 197.5) in the art's units. The box is the art's square, 256 units from -28, so a
+ * length of the art is a share of the box: one unit is 0.390625%. A working face bobs a pixel.
+ */
+.hob[data-whole] { transform-origin: 50% 88.0859375%; }
+.hob[data-whole='idle'] { animation: hob-breathe 3.2s ease-in-out infinite; }
+.hob[data-whole='hello'] { animation: hob-whole-hello 1s ease-in-out infinite; }
+.hob[data-whole='listening'] { animation: hob-lean 3s ease-in-out infinite; }
+.hob[data-whole='thinking'] { animation: hob-sway 3s ease-in-out infinite; }
+.hob[data-whole='searching'] { animation: hob-whole-slide 1.6s ease-in-out infinite; }
+.hob[data-whole='working'] { animation: hob-whole-bob 0.35s ease-in-out infinite; }
+.hob[data-whole='focused'] { animation: hob-breathe 5s ease-in-out infinite; }
+.hob[data-whole='happy'] { animation: hob-whole-hop 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob[data-whole='celebrating'] { animation: hob-whole-hop 0.8s cubic-bezier(0.3, 0.7, 0.4, 1) infinite; }
+.hob[data-whole='love'] { animation: hob-sway 2.4s ease-in-out infinite; }
+.hob[data-whole='wink'] { animation: hob-tilt 2s ease-in-out infinite; }
+.hob[data-whole='surprised'] { animation: hob-whole-pop 2.4s ease-out infinite; }
+.hob[data-whole='confused'] { animation: hob-puzzle 2.4s ease-in-out infinite; }
+.hob[data-whole='sad'] { animation: hob-sad 4s ease-in-out infinite; }
+.hob[data-whole='grumpy'] { animation: hob-whole-tremble 0.18s linear infinite; }
+.hob[data-whole='error'] { animation: hob-whole-shake 1.6s ease-in-out infinite; }
+.hob[data-whole='dizzy'] { animation: hob-wobble 1.2s ease-in-out infinite; }
+.hob[data-whole='sleepy'] { animation: hob-sleep 4.5s ease-in-out infinite; }
+
+@keyframes hob-whole-hello { 0%, 100% { transform: rotate(3deg); } 50% { transform: rotate(5deg) translateY(-1.171875%); } }
+@keyframes hob-whole-slide { 0%, 100% { transform: translateX(-1.5625%); } 50% { transform: translateX(1.5625%); } }
+@keyframes hob-whole-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1px); } }
+@keyframes hob-whole-hop { 0% { transform: translateY(0) scale(1.06, 0.94); } 30% { transform: translateY(-7.03125%) scale(0.96, 1.05); } 55% { transform: translateY(0) scale(1.08, 0.92); } 75%, 100% { transform: translateY(0) scale(1, 1); } }
+@keyframes hob-whole-pop { 0% { transform: scale(1, 1); } 8% { transform: translateY(-5.46875%) scale(0.94, 1.12); } 16% { transform: translateY(0) scale(1.05, 0.96); } 24%, 85% { transform: translateY(0) scale(1, 1.04); } 100% { transform: scale(1, 1); } }
+@keyframes hob-whole-tremble { 0%, 100% { transform: translateX(-0.5859375%); } 50% { transform: translateX(0.5859375%); } }
+@keyframes hob-whole-shake { 0%, 60%, 100% { transform: translateX(0); } 10%, 30%, 50% { transform: translateX(-2.34375%); } 20%, 40% { transform: translateX(2.34375%); } }
+
 .hob-fm { fill: var(--hob-mark); }
 .hob-fe { fill: var(--hob-eye); }
 .hob-fs { fill: var(--hob-stage); }
@@ -257,17 +301,26 @@
 @keyframes hob-leaf-flap-l { 0%, 75%, 100% { transform: rotate(0); } 30% { transform: rotate(-14deg); } 55% { transform: rotate(10deg); } }
 @keyframes hob-leaf-wink { 0%, 100% { transform: rotate(0); } 30%, 70% { transform: rotate(-18deg); } }
 
-/* Reduced motion: the character holds its pose. Parts that only show mid-animation stay visible. */
+/*
+ * Reduced motion: the character holds its pose, its box too. Parts that only show mid-animation stay visible. A small
+ * face's parts (data-held) hold the same pose while its box moves.
+ */
 @media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion="lively"]) .hob,
   :root:not([data-motion="lively"]) .hob * { animation: none !important; transition: none !important; }
   :root:not([data-motion="lively"]) .hob-follow { transition: none; }
   :root:not([data-motion="lively"]) .hob-z,
   :root:not([data-motion="lively"]) .hob-puff { opacity: 1; }
 }
+:root[data-motion="still"] .hob,
 :root[data-motion="still"] .hob *,
-.hob[data-still="true"] * { animation: none !important; }
+.hob[data-still="true"],
+.hob[data-still="true"] *,
+.hob[data-held] * { animation: none !important; }
 :root[data-motion="still"] .hob * { transition: none !important; }
 :root[data-motion="still"] .hob-z,
 :root[data-motion="still"] .hob-puff { opacity: 1; }
 .hob[data-still="true"] .hob-z,
-.hob[data-still="true"] .hob-puff { opacity: 1; }
+.hob[data-still="true"] .hob-puff,
+.hob[data-held] .hob-z,
+.hob[data-held] .hob-puff { opacity: 1; }
