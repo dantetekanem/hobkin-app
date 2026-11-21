@@ -8,10 +8,13 @@ import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
 import { ENTRANCE } from './entrance-plan.ts'
 import { useWireEntrance } from './entrance.tsx'
 import { hoverShown, isUnchanged } from './levels.ts'
-import { wireCurve } from './wire-path.ts'
+import { pulseLap } from './pulse-lap.ts'
+import { wireCurve, type WireCurve } from './wire-path.ts'
 
 /** How long a wire takes to draw in when the story reaches it. */
 const DRAW = { duration: 0.42, ease: ease.out } as const
+/** Seconds the pulse takes to run a wire from end to end, whatever its length. */
+const PULSE_LAP = 1.5
 
 /**
  * One wire. It leaves the right pin of its source and arrives at the left pin of its target.
@@ -67,6 +70,8 @@ function WireComponent({ id, source, target }: EdgeProps) {
   const fromTarget = grows.endsWith(':target')
   // A dashed wire cannot be drawn by its dash offset, so a proposed wire lights up in place instead.
   const drawsIn = grows !== '' && !edge.proposed && !reduced
+  const pulses = active && !reduced
+  const chip = level === 'bright' || open || (notes > 0 && level !== 'folded')
 
   return (
     <>
@@ -99,37 +104,54 @@ function WireComponent({ id, source, target }: EdgeProps) {
             />
           ) : null}
         </AnimatePresence>
-        {active && !reduced ? (
-          <circle className="rv-pulse" r="3.4">
-            <animateMotion dur="1.5s" repeatCount="indefinite" path={curve.d} />
-          </circle>
-        ) : null}
       </g>
-      {level === 'bright' || open || (notes > 0 && level !== 'folded') ? (
+      {pulses || chip ? (
         <EdgeLabelRenderer>
-          <button
-            type="button"
-            className="rv-chip nodrag nopan"
-            data-proposed={edge.proposed}
-            data-wire-chip={id}
-            style={{ left: chipAt.x, top: chipAt.y }}
-            aria-label={`${WIRE_PHRASE[edge.kind]}${edge.label ? `: ${edge.label}` : ''}${edge.proposed ? '. Proposed.' : ''}`}
-            onClick={(event) => {
-              event.stopPropagation()
-              store.getState().openWire(open ? null : id)
-            }}
-          >
-            <span>{WIRE_PHRASE[edge.kind]}</span>
-            {edge.label ? <em>{edge.label}</em> : null}
-            {notes > 0 ? (
-              <b className="rv-chip-notes" aria-label={`${notes} ${notes === 1 ? 'note' : 'notes'}`}>
-                {notes}
-              </b>
-            ) : null}
-          </button>
+          {/* Before the chip, so the pulse passes under its own wire's words, as it did in the SVG. */}
+          {pulses ? <Pulse curve={curve} /> : null}
+          {chip ? (
+            <button
+              type="button"
+              className="rv-chip nodrag nopan"
+              data-proposed={edge.proposed}
+              data-wire-chip={id}
+              style={{ left: chipAt.x, top: chipAt.y }}
+              aria-label={`${WIRE_PHRASE[edge.kind]}${edge.label ? `: ${edge.label}` : ''}${edge.proposed ? '. Proposed.' : ''}`}
+              onClick={(event) => {
+                event.stopPropagation()
+                store.getState().openWire(open ? null : id)
+              }}
+            >
+              <span>{WIRE_PHRASE[edge.kind]}</span>
+              {edge.label ? <em>{edge.label}</em> : null}
+              {notes > 0 ? (
+                <b className="rv-chip-notes" aria-label={`${notes} ${notes === 1 ? 'note' : 'notes'}`}>
+                  {notes}
+                </b>
+              ) : null}
+            </button>
+          ) : null}
         </EdgeLabelRenderer>
       ) : null}
     </>
+  )
+}
+
+/**
+ * The pulse on an active wire, from its source to its target and round again at one speed. It is an HTML dot in the
+ * layer of the wires' words, moved by its transform through the Web Animations API, so the compositor runs the loop.
+ * Its size and colors are the SVG dot's: a 2.9 px fill inside a 1 px ring of the active wire's color.
+ */
+function Pulse({ curve }: { curve: WireCurve }) {
+  const lap = useMemo(() => pulseLap(curve.pointAt), [curve])
+  return (
+    <motion.span
+      aria-hidden="true"
+      className="pointer-events-none absolute top-0 left-0 -mt-[3.9px] -ml-[3.9px] size-[7.8px] rounded-full border border-[color:var(--hb-wire-active)] bg-[var(--hb-wire-pulse)]"
+      initial={{ transform: lap.transforms[0] }}
+      animate={{ transform: lap.transforms }}
+      transition={{ duration: PULSE_LAP, ease: 'linear', times: lap.times, repeat: Infinity }}
+    />
   )
 }
 
