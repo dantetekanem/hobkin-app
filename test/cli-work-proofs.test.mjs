@@ -8,7 +8,7 @@ import { initialize } from '../src/cli/config.mjs';
 import { workStatus } from '../src/cli/work/commands.mjs';
 import { recordMachines } from '../src/cli/work/machines.mjs';
 import { recheckModels } from '../src/cli/work/proof-checks.mjs';
-import { modeledFiles } from '../src/cli/work/proofs.mjs';
+import { modeledFiles, readRuns } from '../src/cli/work/proofs.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, paths, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
@@ -255,4 +255,28 @@ test('hobkin checks each model on the default branch itself once a week, and one
   writeMode(h.root, { enabled: false });
   await recheck(NOW + 2 * WEEK + 60000);
   assert.equal(calls.length, 3, 'nothing is checked while work mode is off');
+});
+
+test('work mode reads each proof result once while its file is unchanged, and keeps it without its state graph', t => {
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-proof-runs-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const result = (id, outcome) => {
+    mkdirSync(join(root, 'proofs', id), { recursive: true });
+    // A TLC run of a real model keeps its whole state graph, tens of megabytes of it.
+    const graph = { states: Array.from({ length: 150_000 }, (_, index) => ({ id: index, label: `state ${index}`, next: [index + 1] })) };
+    writeJson(join(root, 'proofs', id, 'result.json'), { id, project: 'app', spec: '_specs/tla/Door.tla', outcome, finished: `2026-11-20T10:0${id.length % 10}:00Z`, graph });
+  };
+  result('run-1', 'holds');
+
+  const first = readRuns(root);
+  assert.equal(first[0].outcome, 'holds');
+  assert.equal('graph' in first[0], false);
+
+  // Every work tick reads them again, once for each project.
+  const startedAt = performance.now();
+  for (let tick = 0; tick < 40; tick += 1) readRuns(root);
+  assert.ok(performance.now() - startedAt < 400, 'an unchanged result is not parsed again');
+
+  result('run-1', 'broken');
+  assert.equal(readRuns(root)[0].outcome, 'broken', 'a result written again is read again');
 });

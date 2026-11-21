@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
 import { gitOrNothing } from './tree.mjs';
@@ -29,12 +29,27 @@ export const modeledFiles = text => [...String(text).matchAll(/^\s*\\\*\s*models
   .map(path => path.trim().replace(/^\.\//, ''))
   .filter(Boolean);
 
+/**
+ * Each result as last read, by its file, and the size and time it had then. Work mode reads every run on each tick, once for each project,
+ * and a run of a real model keeps its whole state graph, tens of megabytes, so a result is parsed again only once its file changed, and kept
+ * without the graph, which work mode never reads.
+ */
+const results = new Map();
+
 /** A run's result, or null for a run still going, or one that never ended. */
 function readResult(folder, id) {
+  const file = join(folder, id, 'result.json');
   try {
-    const result = JSON.parse(readFileSync(join(folder, id, 'result.json'), 'utf8'));
-    return result && typeof result === 'object' ? { ...result, id: result.id ?? id } : null;
+    const { mtimeMs, size } = statSync(file);
+    const held = results.get(file);
+    if (held?.mtimeMs === mtimeMs && held.size === size) return held.result;
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    const { graph, ...result } = parsed && typeof parsed === 'object' ? parsed : {};
+    const kept = parsed && typeof parsed === 'object' ? { ...result, id: result.id ?? id } : null;
+    results.set(file, { mtimeMs, size, result: kept });
+    return kept;
   } catch {
+    results.delete(file);
     return null;
   }
 }
