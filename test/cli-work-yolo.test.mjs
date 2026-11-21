@@ -238,6 +238,7 @@ test('each part a readiness run set up goes in a PR hobkin opens, and each step 
   answerDecision(h.root, asked[0].id, 'done', NOW);
   answerDecision(h.root, asked[1].id, 'done', NOW);
   assert.deepEqual([readinessOf(h.root, 'api').parts.errors.state, readinessOf(h.root, 'api').parts.deploy.state], ['pr', 'doing']);
+  assert.equal(readinessOf(h.root, 'api').parts.deploy.line, 'You took its step, "Free space on the builder", and the next check confirms it.');
 
   // Each branch is offered once.
   await openReadinessPulls(h.root, { gh, now: NOW });

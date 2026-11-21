@@ -152,7 +152,7 @@ function stepOn(root, user, open) {
   if (!user?.action) return null;
   if (open.has(user.action)) return { state: 'user' };
   if (latestAnswer(root, user.key)?.answer === 'drop') return { state: 'todo', said: 'You are not taking its step.' };
-  return { state: 'doing', said: 'You took its step, and the next check confirms it.' };
+  return { state: 'doing', said: `You took its step, "${user.title}", and the next check confirms it.` };
 }
 
 /**
