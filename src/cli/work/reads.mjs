@@ -5,6 +5,7 @@ import { scoresOf } from './classified.mjs';
 import { forecastWork } from './forecast.mjs';
 import { knownSoFar, launchSince, openLaunches } from './launches.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
+import { readOnce } from './one-read.mjs';
 import { offerFor, trackRecords } from './patterns.mjs';
 import { canStart, itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { changeModels, scoresHoldAt } from './proofs.mjs';
@@ -335,8 +336,15 @@ function weighedRow({ root, project, item, items, units, records }) {
   return { row: { ...row, like: offer ? likeOf(offer, slug) : null }, item, unit, offer };
 }
 
-/** Each waiting row beside what it can be offered, top first. `offer` is null with learning off, and rows stay light because a unit's paths go no further than this. */
+/**
+ * Each waiting row beside what it can be offered, top first. `offer` is null with learning off, and rows stay light because a unit's paths go no
+ * further than this. One look at work mode, such as the plan and the status around it, works them out once.
+ */
 export function weighedRows(root, now = Date.now()) {
+  return readOnce(`weighed:${root}`, () => weighRows(root, now));
+}
+
+function weighRows(root, now) {
   const { projects: surveyed } = readUnmerged(root);
   const records = learningEnabled(root) ? readTrackRecords(root, now) : null;
   return chosenProjects(root)

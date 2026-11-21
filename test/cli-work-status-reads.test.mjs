@@ -27,11 +27,17 @@ function home(t) {
     id, project: 'api', spec: SPEC, specHash: HASH, outcome, finished, rules: [], actions: [{ name: 'Open', count: 2 }],
   });
   run('older', 'holds', '2026-11-20T09:00:00Z');
+  // Finished work waiting on a branch, with the description its run wrote: each ready row reads it.
+  fs.mkdirSync(join(root, 'work', 'api', 'prs'), { recursive: true });
+  fs.writeFileSync(join(root, 'work', 'api', 'items.jsonl'), `${JSON.stringify({ id: 'abc123', key: 'fix:door', kind: 'fix', title: 'Fix the door', state: 'branch', branch: 'hobkin/abc123-fix-the-door', attempts: 0 })}\n`);
+  const described = join(root, 'work', 'api', 'prs', 'abc123.md');
+  fs.writeFileSync(described, '# Fix the door\n\nThe door closes again.\n');
 
-  const counted = { survey: 0, runs: 0 };
+  const counted = { survey: 0, runs: 0, ready: 0 };
   const { readFileSync, readdirSync } = fs;
   t.mock.method(fs, 'readFileSync', (...args) => {
     if (String(args[0]) === survey) counted.survey += 1;
+    if (String(args[0]) === described) counted.ready += 1;
     return readFileSync(...args);
   });
   t.mock.method(fs, 'readdirSync', (...args) => {
@@ -48,6 +54,7 @@ function home(t) {
     const now = { ...counted };
     counted.survey = 0;
     counted.runs = 0;
+    counted.ready = 0;
     return now;
   };
   return { root, run, reads };
@@ -55,11 +62,12 @@ function home(t) {
 
 const modelsOf = (status, slug) => status.projects.find(project => project.slug === slug).models?.map(({ spec, state, run }) => [spec, state, run]);
 
-test('one Work status reads the survey and lists the proof runs once, however many projects the home has', t => {
+test('one Work status reads the survey, lists the proof runs and works out the finished work once, however many projects the home has', t => {
   const h = home(t);
   const status = workStatus(h.root);
 
-  assert.deepEqual(h.reads(), { survey: 1, runs: 1 });
+  assert.deepEqual(h.reads(), { survey: 1, runs: 1, ready: 1 });
+  assert.deepEqual(status.ready.map(({ item, about }) => [item, about]), [['abc123', 'The door closes again.']]);
   assert.deepEqual(modelsOf(status, 'api'), [[SPEC, 'holds', 'older']]);
   assert.deepEqual(status.yolo.projects.find(project => project.slug === 'api').models, status.projects.find(project => project.slug === 'api').models);
   assert.equal(modelsOf(status, 'web'), undefined, 'a project with no model has none');
@@ -72,5 +80,5 @@ test('the next Work status reads again, so a run that ended since shows', t => {
   h.run('newer', 'broken', '2026-11-20T11:00:00Z');
 
   assert.deepEqual(modelsOf(workStatus(h.root), 'api'), [[SPEC, 'broken', 'newer']]);
-  assert.deepEqual(h.reads(), { survey: 1, runs: 1 });
+  assert.deepEqual(h.reads(), { survey: 1, runs: 1, ready: 1 });
 });
