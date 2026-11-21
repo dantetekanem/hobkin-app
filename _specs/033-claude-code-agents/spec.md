@@ -31,6 +31,11 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - Stop interrupts Claude and closes its input, sends SIGTERM if it has not gone within two seconds and SIGKILL at four. Force sends SIGTERM at once and SIGKILL a second later. Claude Code starts its shell commands in process groups of their own and ends them itself on SIGTERM, so a SIGKILL alone would leave a running command behind. A host that exits sends SIGTERM to each Claude run still going.
 - Subscriptions is a tile: one row per provider Pi can reach, with how it is connected, and a Claude Code row with its version and plan, "Used by agents" while agents run on it, and "Get Claude Code" when it is missing.
 - The Claude Code tile holds the settings above. It says in one line that agents on Claude Code spend the Claude subscription. With Claude Code missing, it says so instead of offering choices that cannot run.
+- A tier on Claude Code (2026-11-21). In the Models lightbox (`017-model-tiers`) each of the four tiers can be set to a model Pi can use, as before, or to Claude Code with one of its models (default, opus, sonnet, haiku, fable), from a "Claude Code" group after Pi's providers in the model list. Its thinking levels are Claude Code's, low to max, and a level below low moves to low.
+- The tier keeps its Pi model in hobkin's config, so hobkin's own tier rules are unchanged (2026-11-21). That it runs on Claude Code, with which model and level, the host keeps in `claude-code.json` under `tiers`, beside the settings above. Choosing a Pi model for the tier, or letting it follow again, takes Claude Code off it. A file from before has no `tiers` and reads as no tier on Claude Code.
+- A run of a kind that routes (above) at a tier on Claude Code runs there with the tier's model and level, whatever the tile's switches say (2026-11-21). A kind switched on in the tile still runs at every tier on Claude Code, with the tile's model and effort unless its tier names its own. A run's tier is the one its record names, as a delegated job's does, and for a Work look or do the one its project's level gives that kind of run (hobkin's `levels`, and max for an item made max and for the state-machines look). Discover runs and routines name none, so only the tile's switches move them. The tier's Pi model runs everything that cannot run on Claude Code.
+- The lead stays on Pi (2026-11-21): its list offers Pi's models only and says so in one line where the Claude Code group would be. With Claude Code not found, the group says so and offers nothing. The window offers the group only when `claude-code.read` reports `tiers`, so it never offers what a host from before cannot keep. A tier is set on Claude Code through `claude-code.apply`, so only the window sets it.
+- A tier on Claude Code reads so wherever its model is named (2026-11-21): "Claude Code · opus" and its level in the Models tile and on its card. The Claude Code tile's heading names the tiers on Claude Code while no kind is switched on, and Subscriptions says Claude Code is used by agents while a tier is on it.
 
 ## Out of scope
 
@@ -38,7 +43,6 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - hobkin's own helpers (`owned_agent`) and the theme child on Claude Code. They depend on Pi's bridge for `owned_agent` and `custom_style`.
 - Opening a Claude run's full transcript through `agent.session`, which reads Pi sessions only.
 - Signing in to Claude Code from the app. `claude` does that itself.
-- A harness per tier in the Models lightbox (`017-model-tiers` keeps external harnesses out).
 
 ## Acceptance
 
@@ -55,6 +59,10 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - A11. Claude Code missing, or failing to start, ends the run failed with a reason the user can read.
 - A12. Subscriptions lists each provider Pi can reach and how, and Claude Code with its version and plan when it is installed and signed in. When it is missing, "Get Claude Code" opens its install page in the browser.
 - A13. The Claude Code tile turns agents on Claude Code on and off and picks which agents, the model, the effort and the permissions, and the choices hold after the host restarts. hobkin can read them and cannot change them.
+- A14. A delegated job, and a Work look or do, at a tier set to Claude Code starts `claude -p` with the tier's Claude model and level, also with the tile's switches off, and at a tier not set it starts as before. A kind switched on in the tile goes to Claude Code at every tier, with the tile's model unless its tier names its own. Reflection, checks and the humanizer stay on Pi. (2026-11-21)
+- A15. The tiers on Claude Code hold after the host restarts, a `claude-code.json` from before reads as none, and hobkin's client tool is refused when it tries to set one. (2026-11-21)
+- A16. A tier's model list offers the Claude Code group only when the host reports tiers on Claude Code and found Claude Code, and with Claude Code missing it says so and offers nothing. Choosing a Claude model keeps the tier's Pi model, and choosing a Pi model takes Claude Code off. The lead's list never offers it. When the group appears with the list open, nothing above it moves. (2026-11-21)
+- A17. A tier on Claude Code reads "Claude Code · " and its model, with its level, in the Models tile and on its card, and its card offers Claude Code's levels, low to max. (2026-11-21)
 
 ## Proof
 
@@ -71,6 +79,10 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - A11. `host/test/claude-code-harness.test.ts` › "a claude that cannot start fails the run with its reason"
 - A12. `host/test/claude-code-install.test.ts` › "finds claude, its version and its sign-in"; `ui/test/subscriptions.test.ts` › "lists what Pi reaches and how" and "the Claude Code row says what is true of it"; check: Settings with Claude Code installed, and with it missing. Seen 2026-11-13 as a still render (server markup with the app's built CSS, no browser), on, off and missing, dark and light: each provider's row with how it connects, Claude Code with its version and plan or "Get Claude Code", and one keyboard stop per control.
 - A13. `host/test/claude-code-settings.test.ts` › "settings hold across a restart and only the window changes them"; `ui/test/claude-code-save.test.ts` › "two quick changes send one merged change and the settings follow each at once" (a choice only passed through on the arrow keys, such as Everything, is never saved); check: change each control, restart the host, read the tile.
+- A14. `host/test/claude-code-route.test.ts` › "a run at a tier on Claude Code goes there with the tier's model and level" and › "the tile's switch still sends every tier, with the tile's model unless the tier names its own"; `host/test/claude-code-tier.test.ts` › "a Work run's tier is the one its project's level gives it"
+- A15. `host/test/claude-code-settings.test.ts` › "settings hold across a restart and only the window changes them" (with a tier on Claude Code) and › "a file from before has no tier on Claude Code"
+- A16. `shared/test/tiers-claude-code.test.ts` › "the Claude Code group is offered only when the host keeps tiers on it and found Claude Code" and › "choosing a Claude model keeps the tier's Pi model, and a Pi model takes Claude Code off"; check: read the list against Pi's groups (the group comes last, so nothing above it moves).
+- A17. `shared/test/tiers-claude-code.test.ts` › "a tier on Claude Code reads so, with Claude Code's levels"; check: read the Models tile's rows and the card.
 
 ## Steps
 
@@ -80,6 +92,7 @@ hobkin's other agents, the Work runs, the jobs it delegates and its routines, ca
 - [x] S4 (A1, A3). Routing runs by kind through the host's `runHarness`.
 - [ ] S5 (A12, A13). The Subscriptions and Claude Code tiles.
 - [ ] S6 (A4, A6). One live run on the real Claude Code, with the user's go-ahead, since it spends their subscription.
+- [ ] S7 (A14, A15, A16, A17). Tiers on Claude Code: the host keeps them and routes by them, and the lightbox and the Models tile offer and show them (2026-11-21).
 
 ## Open questions
 

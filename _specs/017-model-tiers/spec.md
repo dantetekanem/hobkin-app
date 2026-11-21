@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "draft",
   "depends": ["002-host", "004-signin"],
-  "updated": "2026-11-10"
+  "updated": "2026-11-21"
 }
 ---
 # Model tiers for delegated work
@@ -62,7 +62,7 @@ The idea comes from pi-extended-teams, which maps eight tiers to models (`~/Poet
 ## Out of scope
 
 - Per-project tiers.
-- External harnesses per tier, which pi-extended-teams supports.
+- External harnesses per tier, which pi-extended-teams supports, other than Claude Code. Since 2026-11-21 a tier may run on Claude Code, chosen from the model list's Claude Code group, and keeps its Pi model here (`033-claude-code-agents`).
 - Cost budgets per tier. Work mode's daily token budget stays as it is.
 
 ## Acceptance
