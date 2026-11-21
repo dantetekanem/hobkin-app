@@ -1,6 +1,6 @@
 import { ChevronRight, Download, ExternalLink, Presentation, RotateCw, X, type LucideIcon } from 'lucide-react'
 import { AnimatePresence, motion, type Transition } from 'motion/react'
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { MAIN_CANVAS, type CanvasState } from '#shared/protocol/canvas.ts'
 import { agentEntry, entryTransition } from '@/features/work/agent-entry.ts'
 import { AgentHood } from '@/components/Mark.tsx'
@@ -272,10 +272,20 @@ const sameRow = (left: RowGeometry, right: RowGeometry) =>
   left.open === right.open &&
   left.gap === right.gap
 
+/** Opens an agent from the menu: its canvas comes in from the open agent's side, with the keyboard in it. */
+function openFromMenu(agentId: string, toward: 1 | -1) {
+  useView.getState().previewAgent(agentId, toward)
+  // A menu choice stays open when focus leaves the agents list, keeping the preview's travel direction.
+  useView.getState().openAgentCanvas(agentId)
+  requestCanvasFocus()
+}
+
+const labelOf = (agent: RunningAgent) => (agent.asks ? `${agent.title}, waiting for you` : agent.title)
+
 /**
  * The agents working now. The one on the canvas carries its name, and one that is waiting for the user says so. With
- * more agents than the window is wide, only the ones on screen are drawn, and a gap holds the place of the rest
- * (`menu-agents.ts`).
+ * more agents than the window is wide, only the ones on screen are drawn whole, and every other is a bare button in
+ * its place (`menu-agents.ts`). One the keyboard reaches is drawn whole and keeps the keyboard.
  */
 function Agents({ drawn }: { drawn: object }) {
   const still = useStill()
@@ -293,10 +303,10 @@ function Agents({ drawn }: { drawn: object }) {
   })
 
   const [geometry, setGeometry] = useState<RowGeometry | null>(null)
-  const measure = () => {
+  const measure = useCallback(() => {
     const next = measuredRow()
     if (next) setGeometry((current) => (current && sameRow(current, next) ? current : next))
-  }
+  }, [])
   // Read again whenever the row may have moved, before the page shows it, and while the menu's room changes size.
   useLayoutEffect(measure, [moved, geometry])
   useEffect(() => {
@@ -307,13 +317,64 @@ function Agents({ drawn }: { drawn: object }) {
     return () => observer.disconnect()
   }, [])
 
-  const pieces = rowPieces(agents.length, at, geometry ?? estimatedRow(agents.length, window.innerWidth))
+  /** The agent the keyboard reached while it was a bare button. Focusing it may scroll the page, so the row is read again. */
+  const [keyboard, setKeyboard] = useState<string | null>(null)
+  const reached = useCallback(
+    (id: string) => {
+      setKeyboard(id)
+      measure()
+    },
+    [measure],
+  )
+  const blurred = useCallback((id: string) => setKeyboard((current) => (current === id ? null : current)), [])
+
+  const row = geometry ?? estimatedRow(agents.length, window.innerWidth)
+  const keyboardAt = agents.findIndex((agent) => agent.id === keyboard)
+  const pieces = rowPieces(agents.length, at, row, keyboardAt < 0 ? null : keyboardAt)
   return pieces.map((piece) => {
-    if (piece.kind === 'gap') return <span key={`gap:${piece.from}`} aria-hidden="true" className="shrink-0" style={{ width: piece.width }} />
     const agent = agents[piece.index]!
-    return <AgentItem key={agent.id} agent={agent} index={piece.index} at={at} moved={moved} known={known} still={still} />
+    if (piece.kind === 'bare') return <BareItem key={agent.id} agent={agent} index={piece.index} at={at} width={row.item} onFocused={reached} />
+    return (
+      <AgentItem
+        key={agent.id}
+        agent={agent}
+        index={piece.index}
+        at={at}
+        moved={moved}
+        known={known}
+        still={still}
+        keyboard={agent.id === keyboard}
+        onBlurred={blurred}
+      />
+    )
   })
 }
+
+interface BareItemProps {
+  agent: RunningAgent
+  index: number
+  at: number
+  /** An item's width, so the bare button holds its place. */
+  width: number
+  onFocused: (id: string) => void
+}
+
+/** An agent of the row that is off screen: a button with its name in the item's place, and nothing drawn in it. */
+const BareItem = memo(function BareItem({ agent, index, at, width, onFocused }: BareItemProps) {
+  return (
+    <button
+      type="button"
+      data-menu-bare
+      aria-label={labelOf(agent)}
+      title={agent.title}
+      onMouseDown={(event) => event.preventDefault()}
+      onFocus={() => onFocused(agent.id)}
+      onClick={() => openFromMenu(agent.id, index > at ? 1 : -1)}
+      className="h-8 shrink-0 rounded-full"
+      style={{ width }}
+    />
+  )
+})
 
 interface AgentItemProps {
   agent: RunningAgent
@@ -324,30 +385,34 @@ interface AgentItemProps {
   moved: object
   known: RefObject<ReadonlySet<string>>
   still: boolean
+  /** The keyboard reached it as a bare button, so it takes the keyboard once drawn whole. */
+  keyboard: boolean
+  onBlurred: (id: string) => void
 }
 
 /** One agent of the row. It draws again only for its own agent, or when the row may have moved it. */
-const AgentItem = memo(function AgentItem({ agent, index, at, moved, known, still }: AgentItemProps) {
+const AgentItem = memo(function AgentItem({ agent, index, at, moved, known, still, keyboard, onBlurred }: AgentItemProps) {
   const active = index === at
   // It measures its layout only when it may have moved: its place, whether it is open, or the row around it changed.
   const layoutDependency = useMemo(() => ({}), [index, active, moved])
+  const element = useRef<HTMLButtonElement | null>(null)
+  useLayoutEffect(() => {
+    if (keyboard) element.current?.focus()
+  }, [keyboard])
   return (
     <motion.button
+      ref={element}
       layout={!still}
       layoutDependency={layoutDependency}
       transition={agentEntry(still)}
       type="button"
       data-menu-agent
       aria-current={active ? 'page' : undefined}
-      aria-label={agent.asks ? `${agent.title}, waiting for you` : agent.title}
+      aria-label={labelOf(agent)}
       title={agent.title}
       onMouseDown={(event) => event.preventDefault()}
-      onClick={() => {
-        useView.getState().previewAgent(agent.id, index > at ? 1 : -1)
-        // A menu choice stays open when focus leaves the agents list, keeping the preview's travel direction.
-        useView.getState().openAgentCanvas(agent.id)
-        requestCanvasFocus()
-      }}
+      onBlur={() => onBlurred(agent.id)}
+      onClick={() => openFromMenu(agent.id, index > at ? 1 : -1)}
       className={cn(ITEM, 'px-2', active ? 'pr-3 text-foreground' : 'text-muted-foreground hover:text-foreground')}
     >
       {active ? <Marker /> : null}

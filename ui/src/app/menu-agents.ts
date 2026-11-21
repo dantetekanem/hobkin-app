@@ -1,7 +1,8 @@
 /**
- * Which items of the screen menu's agents row are drawn. The row is as wide as its agents and centered, so with many
- * agents it runs past the window's edges. Items past them are not drawn: a gap as wide as they were keeps every other
- * item where it was. The open agent's item is always drawn. Pure, so the rule is tested without a window.
+ * Which items of the screen menu's agents row are drawn whole. The row is as wide as its agents and centered, so with
+ * many agents it runs past the window's edges. An item past them is a bare button as wide as the item, with no face:
+ * it keeps every other item where it was, and Tab and a screen reader still reach its agent. The open agent's item,
+ * and one the keyboard reached, are always drawn whole. Pure, so the rule is tested without a window.
  */
 
 /** Where the row lies on screen, in the window's pixels, as the menu measured it. */
@@ -16,7 +17,11 @@ export interface RowGeometry {
   gap: number
 }
 
-export type RowPiece = { kind: 'agent'; index: number } | { kind: 'gap'; from: number; width: number }
+/** An agent's item drawn whole, or a bare button in its place. */
+export interface RowPiece {
+  kind: 'agent' | 'bare'
+  index: number
+}
 
 /** An item's width and the row's gap before the menu measures them: 8 px of padding each side of a 20 px face, and gap-0.5. */
 const ITEM = 36
@@ -29,25 +34,17 @@ export function estimatedRow(count: number, width: number): RowGeometry {
   return { left: (width - (count * (ITEM + GAP) - GAP)) / 2, width, item: ITEM, open: ITEM, gap: GAP }
 }
 
-/** The row's pieces in order: each item drawn, and a gap for each run of items that are not. */
-export function rowPieces(count: number, open: number, geometry: RowGeometry): RowPiece[] {
+/** The row's pieces, one for each agent in order. `keyboard` is the place of an agent the keyboard reached. */
+export function rowPieces(count: number, open: number, geometry: RowGeometry, keyboard: number | null = null): RowPiece[] {
   const pitch = geometry.item + geometry.gap
   const margin = PAST_EDGE * pitch
   // The items after the open one sit further right by as much as its name makes it wider.
   const widening = geometry.open - geometry.item
-  const pieces: RowPiece[] = []
 
-  for (let index = 0; index < count; index++) {
+  return Array.from({ length: count }, (_, index) => {
     const start = geometry.left + index * pitch + (open >= 0 && index > open ? widening : 0)
     const onScreen = start + geometry.item > -margin && start < geometry.width + margin
-    if (index === open || onScreen) {
-      pieces.push({ kind: 'agent', index })
-      continue
-    }
-
-    const last = pieces.at(-1)
-    if (last?.kind === 'gap') last.width += pitch
-    else pieces.push({ kind: 'gap', from: index, width: geometry.item })
-  }
-  return pieces
+    const whole = onScreen || index === open || index === keyboard
+    return { kind: whole ? 'agent' : 'bare', index }
+  })
 }
