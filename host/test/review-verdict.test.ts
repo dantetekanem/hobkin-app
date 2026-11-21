@@ -300,8 +300,8 @@ test('a stale window save keeps a posted comment out of later verdicts', async (
     { op: 'put', note: fresh },
   ])
   const later = await reviews.preview(id, 'comment', '')
-  assert.doesNotMatch(later.post!.body, /Already posted/)
-  assert.match(later.post!.body, /New feedback/)
+  assert.doesNotMatch(later.post!.body!, /Already posted/)
+  assert.match(later.post!.body!, /New feedback/)
 })
 
 /** A pull request's review in the home, with a gh that answers as GitHub would and writes down every call. */
