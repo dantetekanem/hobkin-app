@@ -443,7 +443,7 @@ export class Assessments {
   private readonly turns = new Map<string, Promise<void>>()
   private readonly controller = new AbortController()
   /** The reviews under way, each with the way to stop that one alone. */
-  private readonly active = new Map<string, { run: Promise<void>; stop: AbortController }>()
+  private readonly active = new Map<string, { run: Promise<void>; stop: AbortController; target: ReviewTarget; why?: string }>()
   private readonly options: AssessmentsOptions
 
   constructor(options: AssessmentsOptions) {
@@ -511,7 +511,7 @@ export class Assessments {
       const signal = AbortSignal.any([this.controller.signal, stop.signal])
       const run = this.one(job, signal)
         .catch((error: unknown) => {
-          const message = stop.signal.aborted ? STOPPED_BY_USER : messageOf(error)
+          const message = stop.signal.aborted ? (this.active.get(key)?.why ?? STOPPED_BY_USER) : messageOf(error)
           this.options.log?.(`Change review of ${reviewIdOf(job.target)} at ${job.head.slice(0, 7)} failed: ${message}`)
           this.say(job.target, job.head, `Stopped: ${message}`)
           this.set(job.target, job.head, { state: 'failed', head: job.head, error: message })
@@ -520,28 +520,37 @@ export class Assessments {
           this.active.delete(key)
           this.pump()
         })
-      this.active.set(key, { run, stop })
+      this.active.set(key, { run, stop, target: job.target })
     }
+  }
+
+  /** The targets with a change review waiting or under way, each once. */
+  pending(): ReviewTarget[] {
+    const targets = new Map<string, ReviewTarget>()
+    for (const { target } of [...this.queue, ...this.active.values()]) targets.set(reviewIdOf(target), target)
+    return [...targets.values()]
   }
 
   /**
    * Stops the change review of a target, waiting or under way, at whatever commit. Its tests are stopped where they
-   * are and its checkout is put back. Returns whether there was one to stop.
+   * are and its checkout is put back. `why` is what its status says: the user's word unless another is given. Returns
+   * whether there was one to stop.
    */
-  stop(target: ReviewTarget): boolean {
+  stop(target: ReviewTarget, why: string = STOPPED_BY_USER): boolean {
     const mine = `${reviewIdOf(target)}@`
     let stopped = false
     for (let index = this.queue.length - 1; index >= 0; index -= 1) {
       const job = this.queue[index]!
       if (!this.key(job.target, job.head).startsWith(mine)) continue
       this.queue.splice(index, 1)
-      this.say(job.target, job.head, `Stopped: ${STOPPED_BY_USER}`)
-      this.set(job.target, job.head, { state: 'failed', head: job.head, error: STOPPED_BY_USER })
+      this.say(job.target, job.head, `Stopped: ${why}`)
+      this.set(job.target, job.head, { state: 'failed', head: job.head, error: why })
       stopped = true
     }
-    for (const [key, { stop }] of this.active) {
+    for (const [key, entry] of this.active) {
       if (!key.startsWith(mine)) continue
-      stop.abort()
+      entry.why = why
+      entry.stop.abort()
       stopped = true
     }
     return stopped

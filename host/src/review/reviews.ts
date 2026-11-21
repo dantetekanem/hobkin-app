@@ -345,6 +345,10 @@ function landingLines(plan: MergePlan, pr: string | null): string[] {
   return [how, ...(moved ? [moved] : []), moved ? `This merges ${at}, the commit shown here.` : `At commit ${at}, the one this review was built from.`]
 }
 
+/** Why a review's change review stops, or never starts, once its change is done on its host. */
+const closedWords = (target: ReviewTarget) =>
+  target.kind === 'change' ? 'Its change merged, so its AI review is not needed.' : 'Its pull request is closed, so its AI review is not needed.'
+
 /** A merged change, in the words a verdict on it answers with. */
 const mergedWords = (landing: ReviewLanding) => `Already merged${landing.into ? ` into ${landing.into}` : ''}${landing.sha ? ` at ${landing.sha.slice(0, 7)}` : ''}.`
 
@@ -481,6 +485,45 @@ export class Reviews {
     return { ...known, head, stale, ...(assessment ? { assessment } : {}), ...(landing ? { landing } : {}), ...(mergeAsked ? { mergeAsked } : {}) }
   }
 
+  /**
+   * Whether there is nothing left to review: a finished change hobkin's records say merged, or a pull request the home
+   * marks closed, because it merged or closed on its host or on the user's yes. No AI review is queued for one.
+   */
+  private closedOn(target: ReviewTarget): boolean {
+    return target.kind === 'change' ? this.landingOf(target)?.state === 'merged' : this.options.store.landedAt(target) != null
+  }
+
+  /**
+   * Ends what waits or runs for a review that `closedOn` says is done: its map leaves the queue, one being drawn
+   * starts no change review, and its change review stops where it is, as a stop the user asks for does. What it wrote
+   * stays in the home, marked closed, so it leaves the lists. Says whether anything was waiting or running.
+   */
+  private retire(id: string, target: ReviewTarget): boolean {
+    const why = closedWords(target)
+    const waiting = this.queue.findIndex((job) => reviewIdOf(job.target) === id)
+    if (waiting >= 0) this.queue.splice(waiting, 1)
+    const drawing = this.running.has(id)
+    if (drawing) this.halted.add(id)
+    this.asked.delete(id)
+    const stopped = this.options.assessments?.stop(target, why) ?? false
+    if (!this.options.store.landedAt(target)) this.options.store.saveLanded(target, new Date(this.now()).toISOString())
+    if (!(waiting >= 0 || drawing || stopped)) return false
+    this.say(id, `Stopped: ${why}`)
+    if (waiting >= 0) this.set(id, { state: this.options.store.newest(target) ? 'ready' : 'idle', phase: null })
+    return true
+  }
+
+  /** Retires every review waiting or running whose change merged, or whose pull request closed, since it was queued. */
+  private retireClosed() {
+    const ids = new Map<string, ReviewTarget>()
+    for (const job of this.queue) ids.set(reviewIdOf(job.target), job.target)
+    for (const id of this.running.keys()) ids.set(id, this.target(id))
+    for (const target of this.options.assessments?.pending() ?? []) ids.set(reviewIdOf(target), target)
+    let retired = false
+    for (const [id, target] of ids) if (this.closedOn(target) && this.retire(id, target)) retired = true
+    if (retired) this.options.onChange?.()
+  }
+
   /** Where a finished change stands after a yes, as hobkin's records say. Null for a pull request, or when nothing was said yet. */
   private landingOf(target: ReviewTarget): ReviewLanding | null {
     if (target.kind !== 'change' || !this.options.landing) return null
@@ -560,8 +603,8 @@ export class Reviews {
   prepare(id: string, { refresh = false, asked = false }: { refresh?: boolean; asked?: boolean } = {}): ReviewStatus {
     const target = this.target(id)
     const now = this.status(id)
-    // Merged: there is nothing left to review, and its status says so.
-    if (now.landing?.state === 'merged') return now
+    // Merged, or closed on its host: there is nothing left to review, and its status says so.
+    if (this.closedOn(target)) return now
     if (asked) this.asked.add(id)
     const waiting = this.queue.find((job) => reviewIdOf(job.target) === id)
     if (waiting) {
@@ -674,7 +717,7 @@ export class Reviews {
 
   private assess(target: ReviewTarget, review: Review, { again = false }: { again?: boolean } = {}) {
     const { assessments } = this.options
-    if (!assessments || !this.reviewsChange(target)) return
+    if (!assessments || !this.reviewsChange(target) || this.closedOn(target)) return
     // The user stopped this review while its map was being prepared.
     if (this.halted.delete(reviewIdOf(target))) return
     const { change } = review
@@ -788,6 +831,7 @@ export class Reviews {
         const head = await this.options.sources.pull.head(target).catch(() => undefined)
         if (head !== null) continue
         this.options.store.saveLanded(target, new Date(this.now()).toISOString())
+        this.retire(reviewIdOf(target), target)
         gone = true
       }
     } finally {
@@ -1285,8 +1329,12 @@ export class Reviews {
       }
       const waits = this.landingOf(target)?.state === 'refreshing'
       this.options.store.saveMergeAsked(target, waits ? { at, state: 'waiting' } : null)
-      // Merged: it leaves the list of reviews, so nothing stays on screen that reads as if it had not gone through.
-      if (!waits) this.options.store.saveLanded(target, at)
+      // Merged: it leaves the list of reviews, so nothing stays on screen that reads as if it had not gone through, and
+      // an AI review still waiting or running for it stops.
+      if (!waits) {
+        this.options.store.saveLanded(target, at)
+        if (this.closedOn(target)) this.retire(id, target)
+      }
       this.options.onChange?.()
       return done
     } catch (error) {
@@ -1386,9 +1434,10 @@ export class Reviews {
     const closed = pull ? await this.closePull(pull, comment) : null
 
     const leave = () => {
-      // What closed on GitHub leaves the lists at once, as what merged does.
+      // What closed on GitHub leaves the lists at once, as what merged does, and no AI review runs for it any more.
       if (pull) this.merged(id)
       this.options.store.saveLanded(target, new Date(this.now()).toISOString())
+      if (target.kind === 'pull') this.retire(id, target)
       this.options.onChange?.()
     }
     let said = closed ?? 'Discarded.'
@@ -1508,15 +1557,22 @@ export class Reviews {
    */
   watch(wanted: readonly Watched[], limit = 3): void {
     const { store } = this.options
-    // The host calls this as it publishes its state: the moment to see which reviewed pull requests have closed.
+    // The host calls this as it publishes its state: the moment to see which reviewed pull requests have closed, and
+    // to stop what waits or runs for a change that merged since it was queued.
     void this.sweepPulls().catch((error: unknown) => this.options.log?.(`Reviews: asking GitHub which pull requests closed failed: ${messageOf(error)}`))
+    try {
+      this.retireClosed()
+    } catch (error) {
+      this.options.log?.(`Reviews: stopping the reviews of merged changes failed: ${messageOf(error)}`)
+    }
     for (const { id, head = null, updatedAt = null } of wanted) {
       if (this.queue.length + this.running.size >= limit) return
       const version = `${head ?? ''}@${updatedAt ?? ''}`
       const target = targetOfReviewId(id)
       if (!target || this.watched.get(id) === version || this.statuses.get(id)?.phase) continue
-      // A change being brought up to date or merged on the user's word is not reviewed again for its new commit.
-      if (this.landingOf(target)) continue
+      // A change being brought up to date or merged on the user's word is not reviewed again for its new commit, and a
+      // pull request closed on its host is not reviewed at all.
+      if (this.landingOf(target) || this.closedOn(target)) continue
       this.watched.set(id, version)
       // The host calls this as it publishes its state. Nothing here may stop that.
       try {
