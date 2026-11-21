@@ -21,11 +21,14 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - Endless motion runs on the compositor: transform and opacity of HTML boxes only. A face under 40 px moves as a whole. Larger faces keep their moods, drawn as stacked layers. A face nobody can see is not mounted or holds still.
 - The runtime rebuilds its whole view when a message, a turn or a run ends, or when a file it reads changes. Words and tool steps travel as activity.
 - Tests hold budgets as counts: list builds, draws, rebuilds, reads. Times come from the scripts under `scripts/perf/` in each repository, which the test run does not include.
-- Agent processes, and what they start, run at utility priority on macOS (`taskpolicy -c utility`), so the window and the host keep the fast cores when every core is busy.
+- Background agent processes, and what they start, run at utility priority on macOS (`taskpolicy -c utility`): work agents, routines, helpers, a hobkin's turns, Claude Code runs and change review's test runs. The window, the host and the main chat's own process keep normal priority, so they keep the fast cores when every core is busy.
 - The daily app wraps the window in React's StrictMode only when `VITE_STRICT=1` is set. StrictMode draws every component twice in the development build.
 - A protocol change keeps an older window or host working: a new kind of step goes only to a window that says it reads it.
 - The largest measured cost goes first. Each lane commits its benchmark, with the numbers of 2026-11-21, before its first fix.
 - While the window is hidden the face makes no sound of its own: its babble and its hop chirp wait until the window shows. Notices and their chime are as before.
+- Activity reaches the window at most ten times a second after its first publish, which goes out as fast as before. The window shows growing text on a 100 ms cadence anyway.
+- A window in the background for a minute holds its endless loops still and nothing else. A pointer, a wheel or a key over it brings them back at once.
+- The audio context is left running. Suspending it when quiet could silence the notice chime, which plays with no press.
 
 ## Out of scope
 
@@ -55,7 +58,7 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - A16. The window holds whole steps only for the agents on screen and one line for every other agent. Connecting to a host with 100 agents of 1,000 steps each sends 9.5 MB or less. It sent 95 MB.
 - A17. A run's feed keeps at most 200 steps and 8 KB of each tool's output in memory. The agent's page still opens older steps and whole outputs, read from the run's saved session.
 - A18. What the window keeps for a run (step times, thread notes) goes when the run goes.
-- A19. Every agent process hobkin starts runs at utility priority on macOS, and plainly on any other system.
+- A19. Every background agent process hobkin starts runs at utility priority on macOS, and plainly on any other system. The main chat's own process keeps normal priority.
 - A20. While the background opacity is 1 the window is opaque with no blur behind it. A lower opacity turns both back on.
 - A21. Nothing else the user sees changes: the time to the first word, notifications, completion sounds, keyboard walks and the agent's page read as before. The focused tests of every changed module pass and typecheck adds no error.
 
