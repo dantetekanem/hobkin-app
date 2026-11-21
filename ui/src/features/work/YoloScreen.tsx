@@ -41,7 +41,6 @@ export function YoloScreen() {
   const { work, live } = useWorkView()
   const [sample, setSample] = useState(SAMPLE_YOLO)
   const yolo = live ? (work?.yolo ?? null) : sample
-  const now = useNow(true, 30_000)
 
   return (
     <div ref={root} className={SCREEN_SCROLLER}>
@@ -55,7 +54,7 @@ export function YoloScreen() {
         {yolo ? (
           <>
             <Switchboard yolo={yolo} live={live} setSample={setSample} />
-            <Readiness yolo={yolo} live={live} workOn={work?.enabled ?? false} finished={work?.finished ?? []} now={now} setSample={setSample} />
+            <Readiness yolo={yolo} live={live} workOn={work?.enabled ?? false} finished={work?.finished ?? []} setSample={setSample} />
           </>
         ) : (
           <p className="text-[13.5px] text-muted-foreground">This hobkin has not said how YOLO mode stands yet.</p>
@@ -116,16 +115,15 @@ function Switchboard({ yolo, live, setSample }: { yolo: YoloState; live: boolean
   )
 }
 
-/** What every readiness row needs besides its project: where the data comes from, whether work mode is on, Work's finished changes, and the time now. */
+/** What every readiness row needs besides its project: where the data comes from, whether work mode is on, and Work's finished changes. */
 interface ReadinessContext {
   live: boolean
   workOn: boolean
   finished: FinishedGroup[]
-  now: number
   setSample: SetSample
 }
 
-function Readiness({ yolo, live, workOn, finished, now, setSample }: ReadinessContext & { yolo: YoloState }) {
+function Readiness({ yolo, live, workOn, finished, setSample }: ReadinessContext & { yolo: YoloState }) {
   return (
     <section aria-label="Readiness" className="flex flex-col gap-3">
       <SectionHeading label="Readiness" count={readyCount(yolo)} />
@@ -136,7 +134,7 @@ function Readiness({ yolo, live, workOn, finished, now, setSample }: ReadinessCo
       {yolo.projects.length ? (
         <ul aria-label="Projects" className="flex flex-col gap-2">
           {yolo.projects.map((project) => (
-            <ProjectReadiness key={project.slug} project={project} live={live} workOn={workOn} finished={finished} now={now} setSample={setSample} />
+            <ProjectReadiness key={project.slug} project={project} live={live} workOn={workOn} finished={finished} setSample={setSample} />
           ))}
         </ul>
       ) : (
@@ -165,7 +163,9 @@ interface Said {
  * when it needs the user. The row has one height and its words two lines, so the button never moves while its status
  * changes live.
  */
-function ProjectReadiness({ project, live, workOn, finished, now, setSample }: ReadinessContext & { project: YoloProject }) {
+function ProjectReadiness({ project, live, workOn, finished, setSample }: ReadinessContext & { project: YoloProject }) {
+  // The row says when it was last checked, so it follows the clock itself: the page around it does not.
+  const now = useNow(true, 30_000)
   const row = readinessRow(project, { workOn, now, zone: ZONE, waiting: waitingChange(project, finished) })
   const reportId = useReports((state) => yoloReportId(project, state.inbox.reports))
   const [busy, setBusy] = useState(false)

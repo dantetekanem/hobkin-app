@@ -5,6 +5,7 @@ import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { rowLayout } from '@/features/reports/list-motion.ts'
+import { useNow } from '@/features/chat/use-now.ts'
 import { timeOf, waited } from '@/features/reports/time.ts'
 import type { IssuePickup } from '#shared/protocol/work.ts'
 import type { Grade, PrMode, QueueRow, WorkProject, WorkState } from '@/lib/host/index.ts'
@@ -231,7 +232,13 @@ function factsOf(project: WorkProject, now: number): string {
   return [project.level, ...(facts.length ? facts : ['not looked at yet'])].join(' · ')
 }
 
-export function ProjectsSection({ work, live, now, variants, turn, onDiscover, discoverRef }: { work: WorkState; now: number; onDiscover: () => void; discoverRef: Ref<HTMLButtonElement> } & Shared) {
+/** A project's facts, the one part of its row that follows the clock: when work mode looks at it next. */
+function Facts({ project }: { project: WorkProject }) {
+  const now = useNow(true, 30_000)
+  return factsOf(project, now)
+}
+
+export function ProjectsSection({ work, live, variants, turn, onDiscover, discoverRef }: { work: WorkState; onDiscover: () => void; discoverRef: Ref<HTMLButtonElement> } & Shared) {
   const tracked = trackedProjects(work.projects)
   const waiting = discoverableProjects(work.projects)
   const proposed = waiting.filter(({ state }) => state === 'proposed').length
@@ -247,7 +254,7 @@ export function ProjectsSection({ work, live, now, variants, turn, onDiscover, d
         <ul className="relative flex flex-col gap-2">
           <AnimatePresence mode="popLayout">
             {tracked.map((project) => (
-              <ProjectItem key={project.slug} project={project} live={live} now={now} variants={variants} order={turn()} />
+              <ProjectItem key={project.slug} project={project} live={live} variants={variants} order={turn()} />
             ))}
           </AnimatePresence>
         </ul>
@@ -324,7 +331,7 @@ export function ProposalItem({ project, live, variants, order }: { project: Work
   )
 }
 
-function ProjectItem({ project, live, now, variants, order }: { project: WorkProject; live: boolean; now: number; variants: Variants; order: number }) {
+function ProjectItem({ project, live, variants, order }: { project: WorkProject; live: boolean; variants: Variants; order: number }) {
   const still = useStill()
   const busy = useWorkUi((state) => Boolean(state.busy[project.slug]))
   const said = useWorkUi((state) => state.said[project.slug])
@@ -345,7 +352,7 @@ function ProjectItem({ project, live, now, variants, order }: { project: WorkPro
             {project.name}
             {project.paused ? <span className="eyebrow">Paused</span> : null}
           </p>
-          <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{project.paused ? 'Nothing new starts here until you switch it back on.' : factsOf(project, now)}</p>
+          <p className="mt-1 text-[12.5px] leading-snug text-muted-foreground">{project.paused ? 'Nothing new starts here until you switch it back on.' : <Facts project={project} />}</p>
           {project.lookError ? <p className="mt-1 text-[12.5px] leading-snug text-bad-fg">Last look failed: {project.lookError}</p> : null}
         </div>
         <div className="flex flex-wrap items-center gap-x-5 gap-y-2">

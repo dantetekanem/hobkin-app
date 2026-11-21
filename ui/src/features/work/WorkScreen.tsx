@@ -9,7 +9,6 @@ import { useRunningAgents } from '@/app/running-agents.ts'
 import { useStill } from '@/app/still.ts'
 import { useStops } from '@/app/stops.ts'
 import { Button } from '@/components/ui/button.tsx'
-import { useNow } from '@/features/chat/use-now.ts'
 import { SAMPLE_YOLO } from '@/features/settings/yolo.ts'
 import { rowVariants, useArriving } from '@/features/reports/list-motion.ts'
 import type { WorkState } from '@/lib/host/index.ts'
@@ -58,7 +57,6 @@ export function WorkScreen() {
   const listed = useRunningAgents()
   const agents = useMemo(() => listed.filter((agent) => !agent.durable), [listed])
   const still = useStill()
-  const now = useNow(true, 30_000)
   const arriving = useArriving()
   const variants = useMemo(() => rowVariants(still), [still])
   const tab = useWorkTab((state) => state.tab)
@@ -188,7 +186,7 @@ export function WorkScreen() {
                     <FinishedSection work={work} onRowsLeft={keepKeyboard} {...shared} />
                   </Rise>
                   <Rise>
-                    <ProjectsSection work={work} now={now} onDiscover={() => setDiscovering(true)} discoverRef={trigger} {...shared} />
+                    <ProjectsSection work={work} onDiscover={() => setDiscovering(true)} discoverRef={trigger} {...shared} />
                   </Rise>
                 </WhenWorkComes>
               ) : null}
