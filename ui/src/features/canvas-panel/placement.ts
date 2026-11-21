@@ -32,13 +32,16 @@ export function decide(moment: Moment): 'next frame' | 'now' | 'rest' {
 
 interface AnimationLike {
   playState: string
-  effect: { getComputedTiming(): { endTime?: number | unknown } } | null
+  effect: { getComputedTiming(): { endTime?: unknown } } | null
 }
 
 /** Whether a transition or animation that will end is running. An endless loop, or a paused one, moves nothing that matters here. */
 export function movingNow(animations: Iterable<AnimationLike>): boolean {
   for (const { playState, effect } of animations) {
-    if (playState === 'running' && effect && Number.isFinite(Number(effect.getComputedTiming().endTime))) return true
+    if (playState !== 'running' || !effect) continue
+
+    const endsAt = Number(effect.getComputedTiming().endTime)
+    if (Number.isFinite(endsAt)) return true
   }
   return false
 }
@@ -58,21 +61,26 @@ const thePage = (): FollowPage => ({ window, document, ResizeObserver, MutationO
 /** Runs `read` every `ms` while the page is visible, and once at once whenever it shows again. Returns the stop. */
 export function everyWhileVisible(ms: number, read: () => void, page: Pick<FollowPage, 'window' | 'document'> = thePage()): () => void {
   let timer: number | null = null
-  const follow = () => {
+  const visible = () => page.document.visibilityState === 'visible'
+
+  const stopTimer = () => {
     if (timer !== null) page.window.clearInterval(timer)
     timer = null
-    if (page.document.visibilityState !== 'visible') return
-    timer = page.window.setInterval(read, ms)
+  }
+  const startWhileVisible = () => {
+    stopTimer()
+    if (visible()) timer = page.window.setInterval(read, ms)
   }
   const onVisibility = () => {
-    follow()
-    if (page.document.visibilityState === 'visible') read()
+    startWhileVisible()
+    if (visible()) read()
   }
-  follow()
+
+  startWhileVisible()
   page.document.addEventListener('visibilitychange', onVisibility)
+
   return () => {
-    if (timer !== null) page.window.clearInterval(timer)
-    timer = null
+    stopTimer()
     page.document.removeEventListener('visibilitychange', onVisibility)
   }
 }
@@ -93,9 +101,9 @@ export function followArea(area: Element, look: () => boolean, page: FollowPage 
     const changed = look()
     // Asked only when the look found nothing new: reading every animation of the page is not free.
     const moving = !changed && movingNow(page.document.getAnimations())
-    if (decide({ cue: 'looked', changed, moving }) === 'next frame') ask()
+    if (decide({ cue: 'looked', changed, moving }) === 'next frame') askForFrame()
   }
-  const ask = () => {
+  const askForFrame = () => {
     if (asked()) return
     frame = page.window.requestAnimationFrame(() => {
       frame = null
@@ -103,7 +111,7 @@ export function followArea(area: Element, look: () => boolean, page: FollowPage 
     })
   }
   const cue = () => {
-    if (decide({ cue: 'change', asked: asked(), visible: visible() }) === 'next frame') ask()
+    if (decide({ cue: 'change', asked: asked(), visible: visible() }) === 'next frame') askForFrame()
   }
   const tick = () => {
     if (decide({ cue: 'tick', asked: asked(), visible: visible() }) === 'now') lookNow()

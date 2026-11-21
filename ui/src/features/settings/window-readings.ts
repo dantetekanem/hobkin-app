@@ -7,14 +7,21 @@ import { useEffect, useState } from 'react'
 
 type AddedNode = { nodeName: string; rel?: string }
 
-/** How many of the added nodes are style sheets: a style element, or a link that loads one. */
+const LOADS_STYLE_SHEET = /(^|\s)stylesheet(\s|$)/i
+
+/** A style element (an SVG's names itself in lower case), or a link that loads a style sheet. */
+function isStyleSheet({ nodeName, rel }: AddedNode): boolean {
+  const name = nodeName.toUpperCase()
+  if (name === 'STYLE') return true
+  return name === 'LINK' && LOADS_STYLE_SHEET.test(rel ?? '')
+}
+
+/** How many of the added nodes are style sheets. */
 export function addedStyleSheets(records: Iterable<{ addedNodes: ArrayLike<AddedNode> }>): number {
   let count = 0
   for (const { addedNodes } of records) {
     for (let index = 0; index < addedNodes.length; index++) {
-      const { nodeName, rel } = addedNodes[index]!
-      const name = nodeName.toUpperCase()
-      if (name === 'STYLE' || (name === 'LINK' && /(^|\s)stylesheet(\s|$)/i.test(rel ?? ''))) count += 1
+      if (isStyleSheet(addedNodes[index]!)) count += 1
     }
   }
   return count
@@ -32,11 +39,13 @@ export function watchStyleSheets(
 ): () => void {
   let count = 0
   const observer = new Observer((records) => {
-    const more = addedStyleSheets(records as Iterable<{ addedNodes: ArrayLike<AddedNode> }>)
+    const more = addedStyleSheets(records)
     if (!more) return
+
     count += more
     onCount(count)
   })
+
   for (const target of [page.head, page.body]) observer.observe(target, { childList: true, subtree: true })
   return () => observer.disconnect()
 }

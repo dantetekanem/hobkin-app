@@ -28,7 +28,11 @@ test('only a running transition or animation that will end is moving; an endless
 /** A page that records what the canvas listens to, and lets the test fire it. */
 function fakePage() {
   const listeners = new Map<string, Set<() => void>>()
-  const on = (type: string, listener: () => void) => void (listeners.get(type) ?? listeners.set(type, new Set()).get(type)!).add(listener)
+  const on = (type: string, listener: () => void) => {
+    const ofType = listeners.get(type) ?? new Set()
+    ofType.add(listener)
+    listeners.set(type, ofType)
+  }
   const off = (type: string, listener: () => void) => void listeners.get(type)?.delete(listener)
   const fire = (type: string) => [...(listeners.get(type) ?? [])].forEach((listener) => listener())
   let frames: (() => void)[] = []
@@ -110,7 +114,11 @@ function fakePage() {
 test('an idle page canvas looks once as it opens and then asks for no frame, while a resize, a transition or a dialog added asks for one', () => {
   const fake = fakePage()
   let looks = 0
-  const follow = followArea('area' as never, () => (looks += 1, false), fake.follow)
+  const lookFindingNothingNew = () => {
+    looks += 1
+    return false
+  }
+  const follow = followArea('area' as never, lookFindingNothingNew, fake.follow)
   assert.deepEqual(fake.observed, [{ target: 'area', options: 'size' }, { target: 'body', options: { childList: true, subtree: true } }])
 
   assert.equal(fake.frame(), true)
@@ -136,7 +144,14 @@ test('it follows every frame while the area moves or a transition runs, and the 
   const fake = fakePage()
   let changes = 0
   let looks = 0
-  followArea('area' as never, () => (looks += 1, changes-- > 0), fake.follow)
+  // Each look finds a change while `changes` lasts.
+  const look = () => {
+    looks += 1
+    const changed = changes > 0
+    changes -= 1
+    return changed
+  }
+  followArea('area' as never, look, fake.follow)
 
   // The canvas slides in: the look finds a new place on three frames in a row, then the same.
   changes = 3

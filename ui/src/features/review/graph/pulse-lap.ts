@@ -16,14 +16,20 @@ const rounded = (value: number) => Math.round(value * 100) / 100
  */
 export function pulseLap(pointAt: (t: number) => Point, points = LAP_POINTS): { transforms: string[]; times: number[] } {
   const along = Array.from({ length: points }, (_, index) => pointAt(index / (points - 1)))
+
+  // How far along the wire each point is.
   const lengths = [0]
   for (let index = 1; index < along.length; index++) {
-    const [from, to] = [along[index - 1]!, along[index]!]
+    const from = along[index - 1]!
+    const to = along[index]!
     lengths.push(lengths[index - 1]! + Math.hypot(to.x - from.x, to.y - from.y))
   }
   const total = lengths.at(-1)!
+  // A wire of no length still needs times the browser takes: evenly spread.
+  const shareOf = (length: number, index: number) => (total > 0 ? length / total : index / (points - 1))
+
   return {
     transforms: along.map(({ x, y }) => `translate(${rounded(x)}px, ${rounded(y)}px)`),
-    times: lengths.map((length, index) => (total > 0 ? length / total : index / (points - 1))),
+    times: lengths.map(shareOf),
   }
 }

@@ -49,23 +49,59 @@ function contextNow(): AudioContext | null {
   return context
 }
 
-/** The audio is running: it may resume without a press from now on, and is suspended once quiet for `ms` and QUIET_MS. */
-function running(audio: AudioContext, ms: number): void {
+/** The audio runs: from now on a sound may resume it without a press, and it is suspended once quiet for `ms` and QUIET_MS. */
+function runUntilQuiet(audio: AudioContext, ms: number): void {
   ran = true
   waiting = false
   clearTimeout(quiet)
   if (keepRunning) return
+
   quiet = setTimeout(() => {
-    if (audio === context && audio.state === 'running' && !keepRunning) audio.suspend().catch(() => {})
+    const ours = audio === context && audio.state === 'running'
+    if (ours && !keepRunning) audio.suspend().catch(() => {})
   }, ms + QUIET_MS)
 }
 
 function sound(audio: AudioContext, name: SoundName, detail: { word?: string } | undefined, at: number): void {
   if (!mayPlay(name, at, playedAt.get(name))) return
   playedAt.set(name, at)
+
   const tones = tonesOf(name, detail)
   playTones(audio, tones)
-  running(audio, soundLength(tones) * 1000)
+  runUntilQuiet(audio, soundLength(tones) * 1000)
+}
+
+/**
+ * Plays a sound once audio that is not running has resumed. Audio that has run was suspended while quiet: it resumes
+ * first and the sound plays then, so its start is not clipped. A resume the page holds back past RESUMED_IN_MS drops the
+ * sound and keeps the audio running from then on. Audio that has never run is still waiting for the user to do
+ * something. Before then nothing plays, and nothing waits to burst out later: only a sound asked for in the very press
+ * that starts audio gets through.
+ */
+function resumeAndPlay(audio: AudioContext, name: SoundName, detail: { word?: string } | undefined, asked: number): void {
+  const hasRun = ran
+  let late = false
+  const heldBack = hasRun
+    ? setTimeout(() => {
+        late = true
+        if (audio.state !== 'running') keepRunning = true
+      }, RESUMED_IN_MS)
+    : undefined
+  waiting = true
+  clearTimeout(quiet)
+
+  audio
+    .resume()
+    .then(() => {
+      clearTimeout(heldBack)
+      if (audio.state !== 'running') return
+
+      const now = performance.now()
+      const onTime = hasRun ? !late : now - asked <= ON_TIME_MS
+      if (onTime) sound(audio, name, detail, now)
+      else runUntilQuiet(audio, 0)
+    })
+    .catch(() => {})
 }
 
 /** Plays a sound if sound is on and the page may play audio. Never throws, and does nothing on a server or in a test. */
@@ -74,32 +110,10 @@ export function play(name: SoundName, detail?: { word?: string }): void {
     if (!useSettings.getState().sound) return
     const audio = contextNow()
     if (!audio) return
+
     const asked = performance.now()
-    if (audio.state === 'running') return sound(audio, name, detail, asked)
-    // Audio that has run was suspended while quiet. It resumes first and the sound plays then, so its start is not
-    // clipped. A resume the page holds back past RESUMED_IN_MS drops the sound and keeps the audio running from then on.
-    // Audio that has never run is still waiting for the user to do something. Before then nothing plays, and nothing
-    // waits to burst out later: only a sound asked for in the very press that starts audio gets through.
-    const resumed = ran
-    let late = false
-    const held = resumed
-      ? setTimeout(() => {
-          late = true
-          if (audio.state !== 'running') keepRunning = true
-        }, RESUMED_IN_MS)
-      : undefined
-    waiting = true
-    clearTimeout(quiet)
-    audio
-      .resume()
-      .then(() => {
-        clearTimeout(held)
-        const now = performance.now()
-        const onTime = resumed ? !late : now - asked <= ON_TIME_MS
-        if (audio.state === 'running' && onTime) sound(audio, name, detail, now)
-        else if (audio.state === 'running') running(audio, 0)
-      })
-      .catch(() => {})
+    if (audio.state === 'running') sound(audio, name, detail, asked)
+    else resumeAndPlay(audio, name, detail, asked)
   } catch {
     // A page that cannot make a sound stays quiet.
   }
@@ -118,7 +132,7 @@ function wake(): void {
     audio
       .resume()
       .then(() => {
-        if (audio.state === 'running') running(audio, 0)
+        if (audio.state === 'running') runUntilQuiet(audio, 0)
       })
       .catch(() => {})
   } catch {
