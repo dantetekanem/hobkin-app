@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { FinishedChange, FinishedGroup, FinishedGroupName, YoloChange, YoloMerge, YoloPart, YoloProject, YoloState } from '#shared/protocol/work.ts'
-import { changeRows, mergedDays, partGroups, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance, yoloReportId, yoloVerdict, type VerdictContext } from '../src/features/work/yolo-page.ts'
+import { changeRows, inPlace, mergedDays, partGroups, stillToSetUp, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance, yoloReportId, yoloVerdict, type VerdictContext } from '../src/features/work/yolo-page.ts'
 
 const NOW = Date.parse('2026-11-20T15:00:00Z')
 const project = (change: Partial<YoloProject> = {}): YoloProject => ({
@@ -152,7 +152,8 @@ test("rpsleague's case: ready, nothing waiting, and its deploys wait for the che
   const verdict = verdictOf({ name: 'rpsleague', parts: [part('tests', 'done', { needed: true }), DEPLOY_TAKEN], changes: [], merged: [] })
   assert.deepEqual(verdict.merges, { state: 'Idle', tone: 'quiet', text: 'Nothing waits to merge. The next small change rated 8 or more merges by itself.' })
   assert.deepEqual(verdict.deploys, { state: 'Not set up', tone: 'warn', text: 'Nothing deploys yet. You took its step, and the next check confirms it.' })
-  assert.deepEqual(verdict.action, { label: 'Check again', press: { do: 'readiness' } })
+  // Said apart from a model's own Check again, which sits on the same card.
+  assert.deepEqual(verdict.action, { label: 'Check readiness', press: { do: 'readiness' } })
 
   // Before the user took the step, the step itself is the one press.
   assert.deepEqual(verdictOf({ parts: [DEPLOY_ASKS] }).action, { label: 'Answer item', press: { do: 'action', id: 'f0f8' } })
@@ -166,12 +167,19 @@ test("changes that cannot merge by themselves say hobkin's exact reason, with th
   assert.deepEqual(stuck.action, { label: 'Open review', press: { do: 'review', slug: 'api', item: '0c' } })
   assert.deepEqual(stuck.deploys, { state: 'Ready', tone: 'ok', text: 'Each merge goes to the main agent to deploy by its recorded path.' })
 
-  const rows = changeRows(project({ ...READY, changes: [change('Difficulty multipliers', 7.4, landing), change('Fix login', 9.2, null), change('No review', null, 'no review has scored it')] }), 8)
+  const rows = changeRows(project({ ...READY, changes: [change('Difficulty multipliers', 7.4, landing), change('Fix login', 9.2, null), change('No review', null, 'no review has scored it')] }), { rate: 8, holds: null })
   assert.deepEqual(rows.map(({ title, rate, against, tone, why }) => [title, rate, against, tone, why]), [
     ['Fix login', '9.2', 'merges next pass', 'ok', 'It merges by itself on the next pass.'],
     ['Difficulty multipliers', '7.4', '0.6 under 8', 'warn', `It asks you: ${landing}.`],
-    ['No review', '–', 'no rate yet', 'warn', 'It asks you: no review has scored it.'],
+    ['No review', '–', 'no rate yet', 'quiet', 'It asks you: no review has scored it.'],
   ])
+
+  // A change that would merge by itself says what it still waits for: the project's readiness, or what holds every merge.
+  const would = [change('Fix login', 9.2, null)]
+  const gettingReady = changeRows(project({ changes: would }), { rate: 8, holds: null })[0]!
+  assert.deepEqual([gettingReady.against, gettingReady.tone, gettingReady.why], ['once ready', 'ok', 'It merges by itself once api is ready.'])
+  const held = changeRows(project({ ...READY, changes: would }), { rate: 8, holds: 'work mode is paused' })[0]!
+  assert.deepEqual([held.against, held.tone, held.why], ['held', 'ok', 'It would merge by itself, but nothing merges while work mode is paused.'])
 
   // When the rate is all that holds it, the press sets the rate it would pass at.
   const underRate = verdictOf({ changes: [change('Fix logout', 7.6, 'its general rate is 7.6, under 8', 'lo')] })
@@ -221,4 +229,15 @@ test('what merged by itself is grouped by day, newest first, with how each deplo
     ['Today', [['Fix login', 'a bug fix rated 9.2 at abc1234', 'Held', 'ok'], ['Fix logout', 'a bug fix rated 9.2 at abc1234', 'Regressed', 'bad']]],
     ['Wed, Nov 18', [['Fix search', 'a bug fix rated 9.2 at abc1234', null, 'quiet']]],
   ])
+})
+
+test('readiness lists only the parts that still need work, each with its PR or Action Item, and names the ones in place', () => {
+  const shown = project({ ...READY, parts: PARTS })
+  assert.deepEqual(stillToSetUp(shown).map(({ heading, rows }) => [heading, rows.map(({ name }) => name)]), [
+    ['Needed for YOLO mode', ['models']],
+    ['Improvements', ['errors', 'slowQueries', 'logs', 'alerts', 'deploy']],
+  ])
+  assert.equal(inPlace(shown), 'In place: tests and rollback.')
+  assert.equal(inPlace(project({ ...READY, parts: [part('tests', 'todo')] })), null)
+  assert.deepEqual(stillToSetUp(project({ ...READY, parts: [part('tests', 'done', { needed: true })] })), [])
 })

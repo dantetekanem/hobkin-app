@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
+import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStops } from '@/app/stops.ts'
@@ -6,18 +6,38 @@ import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
-import { openOnGitHub } from '@/features/github/open.ts'
+import { openGitHubPage, openOnGitHub } from '@/features/github/open.ts'
 import { openTarget } from '@/features/home/navigate.ts'
+import { ProjectModels, ProofSetup } from '@/features/proofs/ProjectModels.tsx'
 import { useReports } from '@/features/reports/store.ts'
+import { finishedReviewId } from '@/features/review/entry.ts'
 import { rateChoices, readyCount, SAMPLE_YOLO, sampleAfter, yoloSays } from '@/features/settings/yolo.ts'
 import { runCommand } from '@/lib/host/client.ts'
 import { cn } from '@/lib/utils.ts'
-import type { FinishedGroup, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import type { FinishedGroup, WorkProject, YoloProject, YoloState } from '#shared/protocol/work.ts'
 import { SectionHeading, Segmented } from './parts.tsx'
 import { runWork, useWorkView } from './store.ts'
 import { openOnWork } from './work-target.ts'
-import { partGroups, readinessRow, sampleReadiness, waitingChange, yoloReportId, type PartOpen, type PartRow, type ReadinessPress, type ReadinessTone } from './yolo-page.ts'
-import { ProjectModels, ProofSetup } from '@/features/proofs/ProjectModels.tsx'
+import {
+  changeRows,
+  inPlace,
+  mergedDays,
+  mergesHeld,
+  readinessRow,
+  sampleReadiness,
+  stillToSetUp,
+  waitingChange,
+  yoloReportId,
+  yoloVerdict,
+  type ChangeRow,
+  type MergedRow,
+  type PartOpen,
+  type PartRow,
+  type ReadinessPress,
+  type StatusLine,
+  type VerdictAction,
+  type VerdictTone,
+} from './yolo-page.ts'
 
 type SetSample = Dispatch<SetStateAction<YoloState>>
 
@@ -29,11 +49,41 @@ export function backToWork() {
   requestCanvasFocus('[data-opens="yolo"]')
 }
 
+/** The switch and the rate, which the page's header and a project's "Set rate" both change. */
+interface Setting {
+  saving: boolean
+  problem: string | null
+  change: (next: { on?: boolean; rate?: number }) => Promise<void>
+}
+
+function useSetting(live: boolean, setSample: SetSample): Setting {
+  const [saving, setSaving] = useState(false)
+  const [problem, setProblem] = useState<string | null>(null)
+  const change = async (next: { on?: boolean; rate?: number }) => {
+    if (saving) return
+    setProblem(null)
+    if (!live) {
+      setSample((before) => sampleAfter(before, next))
+      return
+    }
+    setSaving(true)
+    try {
+      // The host answers by publishing work mode's status again, which is what this draws.
+      await runCommand('work.yolo', next)
+    } catch (error) {
+      setProblem(error instanceof Error ? error.message : String(error))
+    } finally {
+      setSaving(false)
+    }
+  }
+  return { saving, problem, change }
+}
+
 /**
- * YOLO mode, a page of its own opened from Work's header, as World is (049-yolo-mode): the switch that lets small,
- * well-reviewed changes merge and deploy by themselves, the lowest general rate it accepts, and each project's
- * readiness, which runs from here whether the switch is on or off. Everything shown is hobkin's work status, live.
- * Without a host it shows sample data, and a click changes only that.
+ * YOLO mode, a page of its own opened from Work's header, as World is (049-yolo-mode). Each project says first what YOLO
+ * mode does there: whether it merges and deploys, and if not, hobkin's exact reason and the one press that moves it. Then
+ * what waits to merge at what rate, what merged by itself and how its deploy held, and the readiness parts still to set
+ * up. The switch and the lowest rate sit on top. Without a host it shows sample data, and a click changes only that.
  */
 export function YoloScreen() {
   const root = useRef<HTMLDivElement | null>(null)
@@ -41,6 +91,7 @@ export function YoloScreen() {
   const { work, live } = useWorkView()
   const [sample, setSample] = useState(SAMPLE_YOLO)
   const yolo = live ? (work?.yolo ?? null) : sample
+  const setting = useSetting(live, setSample)
 
   return (
     <div ref={root} className={SCREEN_SCROLLER}>
@@ -53,8 +104,8 @@ export function YoloScreen() {
         </header>
         {yolo ? (
           <>
-            <Switchboard yolo={yolo} live={live} setSample={setSample} />
-            <Readiness yolo={yolo} live={live} workOn={work?.enabled ?? false} finished={work?.finished ?? []} setSample={setSample} />
+            <Switchboard yolo={yolo} setting={setting} />
+            <Projects yolo={yolo} live={live} workOn={live ? (work?.enabled ?? false) : true} workProjects={work?.projects ?? []} finished={work?.finished ?? []} setting={setting} setSample={setSample} />
           </>
         ) : (
           <p className="text-[13.5px] text-muted-foreground">This hobkin has not said how YOLO mode stands yet.</p>
@@ -66,29 +117,7 @@ export function YoloScreen() {
 }
 
 /** The switch and the lowest rate. What the switch means sits in two lines whatever it says, so nothing under it moves. */
-function Switchboard({ yolo, live, setSample }: { yolo: YoloState; live: boolean; setSample: SetSample }) {
-  const [saving, setSaving] = useState(false)
-  const [problem, setProblem] = useState<string | null>(null)
-
-  const change = async (next: { on?: boolean; rate?: number }) => {
-    if (saving) return
-    setProblem(null)
-    if (!live) {
-      setSample((before) => sampleAfter(before, next))
-      return
-    }
-
-    setSaving(true)
-    try {
-      // The host answers by publishing work mode's status again, which is what this draws.
-      await runCommand('work.yolo', next)
-    } catch (error) {
-      setProblem(error instanceof Error ? error.message : String(error))
-    } finally {
-      setSaving(false)
-    }
-  }
-
+function Switchboard({ yolo, setting: { saving, problem, change } }: { yolo: YoloState; setting: Setting }) {
   return (
     <section aria-label="YOLO mode" className="flex flex-col gap-3 rounded-3xl bg-surface px-5 py-4">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
@@ -115,26 +144,29 @@ function Switchboard({ yolo, live, setSample }: { yolo: YoloState; live: boolean
   )
 }
 
-/** What every readiness row needs besides its project: where the data comes from, whether work mode is on, and Work's finished changes. */
-interface ReadinessContext {
+/** What every project card needs besides its project. */
+interface CardContext {
+  yolo: YoloState
   live: boolean
   workOn: boolean
   finished: FinishedGroup[]
+  setting: Setting
   setSample: SetSample
 }
 
-function Readiness({ yolo, live, workOn, finished, setSample }: ReadinessContext & { yolo: YoloState }) {
+function Projects({ workProjects, ...context }: CardContext & { workProjects: WorkProject[] }) {
+  const { yolo, live } = context
   return (
-    <section aria-label="Readiness" className="flex flex-col gap-3">
-      <SectionHeading label="Readiness" count={readyCount(yolo)} />
+    <section aria-label="Projects" className="flex flex-col gap-3">
+      <SectionHeading label="Projects" count={readyCount(yolo)} />
       <p className="px-1 text-[13px] leading-snug text-muted-foreground">
-        YOLO mode can run on a project once its tests pass, its way back is known and no model there breaks. Readiness sets up the rest as PRs for your merge and asks you only for what you alone can give. It merges and deploys nothing, so a project can be got ready before YOLO mode is on.
+        Each project says what YOLO mode does there and, when it does nothing, why and the one thing that moves it. Readiness sets up the rest as PRs for your merge and asks you only for what you alone can give, with YOLO mode on or off.
       </p>
       <ProofSetup live={live} />
       {yolo.projects.length ? (
-        <ul aria-label="Projects" className="flex flex-col gap-2">
+        <ul aria-label="Projects" className="flex flex-col gap-3">
           {yolo.projects.map((project) => (
-            <ProjectReadiness key={project.slug} project={project} live={live} workOn={workOn} finished={finished} setSample={setSample} />
+            <ProjectCard key={project.slug} project={project} workProject={workProjects.find(({ slug }) => slug === project.slug)} {...context} />
           ))}
         </ul>
       ) : (
@@ -144,11 +176,16 @@ function Readiness({ yolo, live, workOn, finished, setSample }: ReadinessContext
   )
 }
 
-const TONES: Record<ReadinessTone, string> = {
+const TONES: Record<VerdictTone, string> = {
   ok: 'bg-ok/15 text-ok-fg',
   live: 'bg-sun/20 text-sun-fg',
   warn: 'bg-warn/15 text-warn-fg',
   quiet: 'bg-surface-2 text-muted-foreground',
+  bad: 'bg-bad/15 text-bad-fg',
+}
+
+function Chip({ tone, children, className }: { tone: VerdictTone; children: string; className?: string }) {
+  return <span className={cn('inline-flex h-5 shrink-0 items-center rounded-full px-2 font-heading text-[11px] font-semibold whitespace-nowrap', TONES[tone], className)}>{children}</span>
 }
 
 /** What hobkin said to the last press. */
@@ -158,15 +195,24 @@ interface Said {
 }
 
 /**
- * One project: where its readiness stands, when it was last checked, and the button that runs it now. While its branch
- * waits for the user's yes, the button is that yes, as the branch's card on Work offers it, or opens the card there
- * when it needs the user. The row has one height and its words two lines, so the button never moves while its status
- * changes live.
+ * One project, in the order the user reads it: what YOLO mode does there and the one press that moves it, what waits to
+ * merge, what merged by itself, then its readiness. The header and the two status lines keep their height whatever they
+ * say, so the press never moves while the status changes live.
  */
-function ProjectReadiness({ project, live, workOn, finished, setSample }: ReadinessContext & { project: YoloProject }) {
-  // The row says when it was last checked, so it follows the clock itself: the page around it does not.
+function ProjectCard({ project, workProject, yolo, live, workOn, finished, setting, setSample }: CardContext & { project: YoloProject; workProject: WorkProject | undefined }) {
+  // The card says when readiness was last checked, so it follows the clock itself: the page around it does not.
   const now = useNow(true, 30_000)
-  const row = readinessRow(project, { workOn, now, zone: ZONE, waiting: waitingChange(project, finished) })
+  const readiness = readinessRow(project, { workOn, now, zone: ZONE, waiting: waitingChange(project, finished) })
+  const context = {
+    on: yolo.on,
+    rate: yolo.rate,
+    lowest: yolo.lowest,
+    waits: yolo.waits ?? (workOn ? null : 'work mode is off'),
+    paused: workProject?.paused ?? false,
+    prMode: workProject?.prMode ?? 'off',
+    readiness,
+  }
+  const verdict = yoloVerdict(project, context)
   const reportId = useReports((state) => yoloReportId(project, state.inbox.reports))
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<Said | null>(null)
@@ -176,8 +222,8 @@ function ProjectReadiness({ project, live, workOn, finished, setSample }: Readin
     setSaid((current) => (current?.tone === 'done' && project.work === 'queued' ? current : null))
   }, [project.work])
 
-  const run = async (press: ReadinessPress) => {
-    if (busy || !row.canRun) return
+  const runReadiness = async (press: ReadinessPress) => {
+    if (busy || !readiness.canRun) return
     if (press.do === 'open') {
       if (press.key) openOnWork(`[data-change="${press.key}"]`)
       else backToWork()
@@ -188,13 +234,11 @@ function ProjectReadiness({ project, live, workOn, finished, setSample }: Readin
       setSample((before) => sampleReadiness(before, project.slug))
       return
     }
-
     setBusy(true)
     try {
       if (press.do === 'yes') {
-        // The same yes as its card on Work, at the commit the card shows. What hobkin says is the row's until the work moves on.
-        const said = await runWork({ do: 'change', change: press.change, choice: press.choice }, { live, place: press.change.key })
-        setSaid(said)
+        // The same yes as its card on Work, at the commit the card shows. What hobkin says is the card's until the work moves on.
+        setSaid(await runWork({ do: 'change', change: press.change, choice: press.choice }, { live, place: press.change.key }))
       } else {
         const { message } = await runCommand('work.yolo.ready', { slug: project.slug })
         setSaid({ text: message, tone: 'done' })
@@ -206,90 +250,219 @@ function ProjectReadiness({ project, live, workOn, finished, setSample }: Readin
     }
   }
 
-  const detail = said?.text || row.detail
+  const act = ({ press }: VerdictAction) => {
+    switch (press.do) {
+      case 'readiness':
+        return void runReadiness(readiness.press)
+      case 'action':
+        return openTarget({ to: 'action', id: press.id })
+      case 'pr':
+        return openGitHubPage(press.url)
+      case 'work':
+        return press.key ? openOnWork(`[data-change="${press.key}"]`) : backToWork()
+      case 'review':
+        return openReview(project.slug, press.item, live)
+      case 'rate':
+        return void setting.change({ rate: press.rate })
+    }
+  }
+
+  const changes = changeRows(project, { rate: yolo.rate, holds: mergesHeld(project, context) })
+  const days = mergedDays(project, { zone: ZONE, now })
+  const setUp = stillToSetUp(project)
+  const placed = inPlace(project)
 
   return (
-    <li className="flex flex-col rounded-2xl bg-surface px-4 has-[[data-models]:not(:empty)]:pb-3">
-      <div className="grid h-[84px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4">
-        <div className="flex min-w-0 flex-col gap-1">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate font-heading text-[14px] font-medium">{project.name}</span>
-            <span className={cn('inline-flex h-5 shrink-0 items-center rounded-full px-2 font-heading text-[11px] font-semibold whitespace-nowrap', TONES[row.tone])}>{row.state}</span>
-            <span className="shrink-0 truncate text-[12px] text-muted-foreground tabular-nums">{row.checked}</span>
-            {/* Last on the line, so nothing before it moves when hobkin writes the first one. */}
-            {reportId ? (
-              <Button
-                variant="ghost"
-                size="xs"
-                data-stop=""
-                aria-label={`YOLO report on ${project.name}`}
-                onClick={() => openTarget({ to: 'report', id: reportId })}
-                className="shrink-0"
-              >
-                Report
-              </Button>
-            ) : null}
-          </div>
-          <p
-            role={said?.tone === 'refused' ? 'alert' : undefined}
-            title={detail}
-            className={cn('line-clamp-2 h-9 text-[12.5px] leading-[18px] break-words', said?.tone === 'refused' ? 'text-bad-fg' : 'text-muted-foreground')}
-          >
-            {detail}
-          </p>
+    <li aria-label={project.name} className="flex flex-col gap-3 rounded-2xl bg-surface px-4 py-3">
+      <div className="grid h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4">
+        <div className="flex min-w-0 items-center gap-2">
+          <h3 className="truncate font-heading text-[15px] font-semibold">{project.name}</h3>
+          <Chip tone={readiness.tone}>{readiness.state}</Chip>
+          {/* Last on the line, so nothing before it moves when hobkin writes the first one. */}
+          {reportId ? (
+            <Button variant="ghost" size="xs" data-stop="" aria-label={`YOLO report on ${project.name}`} onClick={() => openTarget({ to: 'report', id: reportId })} className="shrink-0">
+              Report
+            </Button>
+          ) : null}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          data-stop=""
-          disabled={busy || !row.canRun}
-          focusableWhenDisabled
-          title={row.title}
-          aria-label={`${row.title ?? row.action} on ${project.name}`}
-          onClick={() => void run(row.press)}
-          className="w-[120px] data-disabled:opacity-50"
-        >
-          {row.action}
-        </Button>
+        <PrimaryPress action={verdict.action} busy={busy || setting.saving} name={project.name} onPress={act} />
       </div>
-      <ProjectParts project={project} />
-      {/* Its state machines' models on main, a part of its readiness when it has any (050-tla-proofs). */}
-      <div data-models="" className="empty:hidden">
-        <ProjectModels models={project.models ?? []} live={live} />
-      </div>
+      <dl className="grid grid-cols-[64px_88px_minmax(0,1fr)] items-start gap-x-3 gap-y-2">
+        <Status label="Merges" line={verdict.merges} said={said} />
+        <Status label="Deploys" line={verdict.deploys} said={null} />
+      </dl>
+      {changes.length ? (
+        <Part heading="Next to merge" count={changes.length}>
+          {changes.map((row) => (
+            <ChangeLine key={row.item} row={row} name={project.name} onReview={() => openReview(project.slug, row.item, live)} />
+          ))}
+        </Part>
+      ) : null}
+      {days.length ? (
+        <Part heading="Merged by itself" count={project.merged?.length ?? 0}>
+          {days.map(({ day, rows }) => (
+            <li key={day} className="flex flex-col">
+              <h5 className="pt-1 pb-0.5 text-[11.5px] font-medium text-muted-foreground">{day}</h5>
+              <ul className="flex flex-col">
+                {rows.map((row) => (
+                  <MergedLine key={row.item} row={row} />
+                ))}
+              </ul>
+            </li>
+          ))}
+        </Part>
+      ) : null}
+      <section aria-label={`Readiness of ${project.name}`} className="flex flex-col gap-1">
+        <div className="flex h-7 items-center gap-2">
+          <h4 className="eyebrow">Readiness</h4>
+          <span className="truncate text-[12px] text-muted-foreground tabular-nums">{readiness.checked}</span>
+          <Button
+            variant="ghost"
+            size="xs"
+            data-stop=""
+            disabled={busy || !readiness.canRun}
+            focusableWhenDisabled
+            title={readiness.title}
+            aria-label={`${readiness.title ?? readiness.action} on ${project.name}`}
+            onClick={() => void runReadiness(readiness.press)}
+            className="ml-auto data-disabled:opacity-50"
+          >
+            {readiness.action}
+          </Button>
+        </div>
+        {setUp.map(({ heading, rows }) => (
+          <section key={heading} aria-label={heading} className="flex flex-col">
+            <h5 className="pt-1 pb-0.5 text-[11.5px] font-medium text-muted-foreground">{heading}</h5>
+            <ul className="flex flex-col">
+              {rows.map((row) => (
+                <PartLine key={row.name} row={row} />
+              ))}
+            </ul>
+          </section>
+        ))}
+        {placed ? (
+          <p title={placed} className="truncate pt-1 text-[12.5px] text-muted-foreground">
+            {placed}
+          </p>
+        ) : null}
+        {/* Its state machines' models on main, a part of its readiness when it has any (050-tla-proofs). */}
+        <div data-models="" className="empty:hidden">
+          <ProjectModels models={project.models ?? []} live={live} />
+        </div>
+      </section>
     </li>
   )
 }
 
-/**
- * Each part of a project's readiness, what YOLO mode needs first, then the improvements: where it stands, hobkin's line,
- * and its PR, its Action Item or its branch's card. Every line has the same columns, so a button that comes or goes
- * moves nothing beside it.
- */
-function ProjectParts({ project }: { project: YoloProject }) {
-  const groups = partGroups(project).filter(({ rows }) => rows.length)
-  if (!groups.length) return null
+/** A change's review in Change Review, or its card on Work when the window cannot name its review. */
+function openReview(slug: string, item: string, live: boolean) {
+  const reviewId = finishedReviewId({ slug, item }, live)
+  if (reviewId && live) useView.getState().openReviewFor(reviewId)
+  else openOnWork(`[data-change="${slug}:${item}"]`)
+}
+
+/** The one press that moves YOLO mode on the project. Its place keeps its width when there is none, so the line beside it never moves. */
+function PrimaryPress({ action, busy, name, onPress }: { action: VerdictAction | null; busy: boolean; name: string; onPress: (action: VerdictAction) => void }) {
+  if (!action) return <span aria-hidden="true" className="w-[136px]" />
   return (
-    <div className="flex flex-col gap-2 pb-3">
-      {groups.map(({ heading, rows }) => (
-        <section key={heading} aria-label={heading} className="flex flex-col">
-          <h3 className="eyebrow px-0.5 pb-1">{heading}</h3>
-          <ul className="flex flex-col">
-            {rows.map((row) => (
-              <PartLine key={row.name} row={row} />
-            ))}
-          </ul>
-        </section>
-      ))}
-    </div>
+    <Button
+      variant="default"
+      size="sm"
+      data-stop=""
+      disabled={busy}
+      focusableWhenDisabled
+      title={action.title}
+      aria-label={`${action.title ?? action.label} on ${name}`}
+      onClick={() => onPress(action)}
+      className="w-[136px] data-disabled:opacity-50"
+    >
+      {action.label}
+    </Button>
   )
 }
 
+/** One status line: what, where it stands, and why, in two lines at most. hobkin's answer to the last press takes the line until the work moves on. */
+function Status({ label, line, said }: { label: string; line: StatusLine; said: Said | null }) {
+  const text = said?.text || line.text
+  return (
+    <>
+      <dt className="eyebrow flex h-5 items-center">{label}</dt>
+      <dd className="flex h-5 items-center">
+        <Chip tone={line.tone}>{line.state}</Chip>
+      </dd>
+      <dd
+        role={said?.tone === 'refused' ? 'alert' : undefined}
+        title={text}
+        className={cn('line-clamp-2 h-10 text-[13px] leading-5 break-words', said?.tone === 'refused' ? 'text-bad-fg' : 'text-foreground/85')}
+      >
+        {text}
+      </dd>
+    </>
+  )
+}
+
+function Part({ heading, count, children }: { heading: string; count: number; children: ReactNode }) {
+  return (
+    <section aria-label={heading} className="flex flex-col gap-0.5">
+      <h4 className="eyebrow flex h-6 items-center gap-2">
+        {heading}
+        <span className="tabular-nums">{count}</span>
+      </h4>
+      <ul className="flex flex-col">{children}</ul>
+    </section>
+  )
+}
+
+/** A change waiting to merge: its title, kind and rate against the user's on the first line, and why it asks on the second. Every row has the same columns. */
+function ChangeLine({ row, name, onReview }: { row: ChangeRow; name: string; onReview: () => void }) {
+  return (
+    <li className="grid h-12 grid-cols-[minmax(0,1fr)_136px_40px_112px_72px] grid-rows-2 items-center gap-x-3 border-t border-border/60 first:border-t-0">
+      <span title={row.title} className="truncate text-[13px] font-medium">
+        {row.title}
+      </span>
+      <span title={row.kind} className="truncate text-right text-[12px] text-muted-foreground">
+        {row.kind}
+      </span>
+      <Chip tone={row.tone} className="justify-self-center tabular-nums">
+        {row.rate}
+      </Chip>
+      <span className="truncate text-[12px] text-muted-foreground tabular-nums">{row.against}</span>
+      <Button variant="ghost" size="xs" data-stop="" aria-label={`Review "${row.title}" on ${name}`} onClick={onReview} className="row-span-2 justify-self-end">
+        Review
+      </Button>
+      <span title={row.why} className="col-span-4 truncate text-[12.5px] text-muted-foreground">
+        {row.why}
+      </span>
+    </li>
+  )
+}
+
+/** A change YOLO mode merged by itself: what it was and at which commit, then what became of its deploy, with how it held. */
+function MergedLine({ row }: { row: MergedRow }) {
+  return (
+    <li className="grid h-12 grid-cols-[minmax(0,1fr)_minmax(0,auto)_84px] grid-rows-2 items-center gap-x-3 border-t border-border/60 first:border-t-0">
+      <span title={row.title} className="truncate text-[13px] font-medium">
+        {row.title}
+      </span>
+      <span title={row.what} className="truncate text-right text-[12px] text-muted-foreground tabular-nums">
+        {row.what}
+      </span>
+      <span className="row-span-2 justify-self-end">{row.held ? <Chip tone={row.tone}>{row.held}</Chip> : null}</span>
+      <span title={row.deploy} className="col-span-2 truncate text-[12.5px] text-muted-foreground">
+        {row.deploy}
+      </span>
+    </li>
+  )
+}
+
+/** A part still to set up: where it stands, hobkin's line, and its PR, its Action Item or its branch's card. Every line has the same columns. */
 function PartLine({ row }: { row: PartRow }) {
   return (
-    <li className="grid h-7 grid-cols-[128px_140px_minmax(0,1fr)_72px] items-center gap-x-3 text-[12.5px]">
+    <li className="grid h-7 grid-cols-[128px_140px_minmax(0,1fr)_80px] items-center gap-x-3 text-[12.5px]">
       <span className="truncate font-medium">{row.label}</span>
-      <span className={cn('inline-flex h-5 items-center justify-self-start rounded-full px-2 font-heading text-[11px] font-semibold whitespace-nowrap', TONES[row.tone])}>{row.state}</span>
+      <Chip tone={row.tone} className="justify-self-start">
+        {row.state}
+      </Chip>
       <span title={row.line} className="truncate text-muted-foreground">
         {row.line}
       </span>

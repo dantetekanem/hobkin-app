@@ -170,6 +170,21 @@ export function partGroups(project: YoloProject): { heading: string; rows: PartR
   ]
 }
 
+/** A project's parts that still need work, in the same two groups, with the groups that have none left out. */
+export function stillToSetUp(project: YoloProject): { heading: string; rows: PartRow[] }[] {
+  const done = new Set((project.parts ?? []).filter(({ state }) => state === 'done').map(({ name }) => name))
+  return partGroups(project)
+    .map(({ heading, rows }) => ({ heading, rows: rows.filter(({ name }) => !done.has(name)) }))
+    .filter(({ rows }) => rows.length)
+}
+
+/** The parts in place, in a line: "In place: Tests, Slow queries and Rollback." Null when none is. */
+export function inPlace({ parts = [] }: YoloProject): string | null {
+  const labels = parts.filter(({ state }) => state === 'done').map(({ label }) => label)
+  if (!labels.length) return null
+  return `In place: ${labels.length > 1 ? `${labels.slice(0, -1).join(', ')} and ${labels.at(-1)}` : labels[0]}.`
+}
+
 /**
  * The yes on the row itself when hobkin rates the branch ready to merge, or ready once it is brought up to date. When
  * its card needs the user, or the window cannot find it, the button opens it on Work to be read there first.
@@ -236,6 +251,9 @@ function firstChange(changes: readonly YoloChange[]): YoloChange | undefined {
   return changes.find(({ why }) => !why) ?? changes.toSorted((a, b) => (b.rate ?? -1) - (a.rate ?? -1))[0]
 }
 
+// The readiness row's own press, named apart from a model's Check again on the same card.
+const readinessLabel = ({ action }: ReadinessRow) => (action === 'Check again' ? 'Check readiness' : action)
+
 /** The press that sets a part up: its Action Item, its PR, its branch's card on Work, or readiness itself to confirm a step or redo it. */
 function partPress(project: YoloProject, part: YoloPart, readiness: ReadinessRow): VerdictAction | null {
   if (part.state === 'user' && part.action) return { label: 'Answer item', press: { do: 'action', id: part.action } }
@@ -243,7 +261,7 @@ function partPress(project: YoloProject, part: YoloPart, readiness: ReadinessRow
   if (part.state === 'pr' && part.item) return { label: 'Open on Work', press: { do: 'work', key: `${project.slug}:${part.item}` } }
   // A step the user took is confirmed by the next check, and a part still to do is redone by one.
   const checks = part.state === 'todo' || (part.state === 'doing' && part.action)
-  return checks && readiness.canRun ? { label: readiness.action, press: { do: 'readiness' } } : null
+  return checks && readiness.canRun ? { label: readinessLabel(readiness), press: { do: 'readiness' } } : null
 }
 
 /** Whether its deploys run: by the recorded path, never on this project, or not yet, with what that waits on. */
@@ -274,7 +292,7 @@ function mergesOf(project: YoloProject, context: VerdictContext): StatusLine {
 function actionOf(project: YoloProject, context: VerdictContext): VerdictAction | null {
   const { readiness } = context
   const parts = project.parts ?? []
-  const readinessPress = readiness.canRun ? { label: readiness.action, press: { do: 'readiness' }, ...(readiness.title ? { title: readiness.title } : {}) } as const : null
+  const readinessPress = readiness.canRun ? ({ label: readinessLabel(readiness), press: { do: 'readiness' }, ...(readiness.title ? { title: readiness.title } : {}) } as const) : null
   if (!context.on) return project.ready ? null : readinessPress
   if (context.waits || context.paused) return { label: 'Open Work', press: { do: 'work', key: null } }
   if (!project.ready) {
@@ -312,24 +330,41 @@ export interface ChangeRow {
   why: string
 }
 
-/** The changes waiting on a project, the ones that merge by themselves on the next pass first, then by rate. */
-export function changeRows(project: YoloProject, rate: number): ChangeRow[] {
+/** Where a change that passes every rule stands: it merges on the next pass, once its project is ready, or when what holds every merge lets go. */
+function passes(project: YoloProject, holds: string | null): Pick<ChangeRow, 'against' | 'why'> {
+  if (holds) return { against: 'held', why: `It would merge by itself, but nothing merges while ${holds}.` }
+  if (!project.ready) return { against: 'once ready', why: `It merges by itself once ${project.name} is ready.` }
+  return { against: 'merges next pass', why: 'It merges by itself on the next pass.' }
+}
+
+/**
+ * The changes waiting on a project, the ones that pass every rule first, then by rate. `holds` is why nothing merges by itself
+ * anywhere or on this project, such as YOLO mode being off, and null when nothing does.
+ */
+export function changeRows(project: YoloProject, { rate, holds }: { rate: number; holds: string | null }): ChangeRow[] {
   const changes = project.changes ?? []
   const ordered = [...changes.filter(({ why }) => !why), ...changes.filter(({ why }) => why).toSorted((a, b) => (b.rate ?? -1) - (a.rate ?? -1))]
   return ordered.map((change) => {
     const scored = change.rate !== null
     const under = scored ? tenths(rate - change.rate!) : 0
-    const against = !change.why ? 'merges next pass' : !scored ? 'no rate yet' : under > 0 ? `${under} under ${rate}` : `at or above ${rate}`
+    const asks = { against: !scored ? 'no rate yet' : under > 0 ? `${under} under ${rate}` : `at or above ${rate}`, why: `It asks you: ${sentence(change.why ?? '')}` }
     return {
       item: change.item,
       title: change.title,
       kind: change.kind ?? 'no review yet',
       rate: scored ? String(change.rate) : '–',
-      against,
-      tone: change.why ? 'warn' : 'ok',
-      why: change.why ? `It asks you: ${sentence(change.why)}` : 'It merges by itself on the next pass.',
+      // The rate's own tone: at or above the user's, under it, or none yet.
+      tone: !scored ? 'quiet' : under > 0 ? 'warn' : 'ok',
+      ...(change.why ? asks : passes(project, holds)),
     }
   })
+}
+
+/** Why nothing merges by itself on a project whatever its changes say: YOLO mode off, work mode waiting, or the project paused. Null when nothing holds. */
+export function mergesHeld(project: YoloProject, { on, waits, paused }: Pick<VerdictContext, 'on' | 'waits' | 'paused'>): string | null {
+  if (!on) return 'YOLO mode is off'
+  if (waits) return waits
+  return paused ? `${project.name} is paused on Work` : null
 }
 
 export interface MergedRow {

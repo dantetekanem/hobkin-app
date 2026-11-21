@@ -28,13 +28,17 @@ const sampleParts = (change: Record<string, Partial<YoloPart>> = {}): YoloPart[]
 
 const SAMPLE_PR = 'https://github.com/acme/billing-api/pull/42'
 
-/** What the page draws with no host: a few projects, so the count, what holds them back and each part can be seen. */
+const STEP_TAKEN = 'You took its step, "Verify the Sentry alert route", and the next check confirms it.'
+const WORK_LEFT = 'it still has work left: The independent review still needs to cover the committed range.'
+
+/** What the page draws with no host: a few projects, so what YOLO mode does on each, what holds it back and each part can be seen. */
 export const SAMPLE_YOLO: YoloState = {
   on: true,
   rate: 8,
   lowest: 6,
   highest: 10,
-  ready: 1,
+  ready: 2,
+  waits: null,
   projects: [
     {
       slug: 'storefront',
@@ -44,10 +48,29 @@ export const SAMPLE_YOLO: YoloState = {
       work: 'landed',
       checkedAt: '2026-11-18T16:20:00Z',
       parts: sampleParts({
-        errors: { state: 'pr', line: 'Sentry takes every exception.', pr: 'https://github.com/acme/storefront/pull/18', branch: 'hobkin/r1-monitoring', item: 's1' },
-        alerts: { state: 'user', line: 'Put SENTRY_DSN in production', action: 'sample-action', pr: 'https://github.com/acme/storefront/pull/18' },
-        models: { state: 'doing', line: 'Its state machines have not been looked for with TLC yet.' },
+        errors: { state: 'doing', line: STEP_TAKEN, action: 'sample-action' },
+        alerts: { state: 'doing', line: STEP_TAKEN, action: 'sample-action' },
+        deploy: { state: 'user', line: 'Make space for the release build', action: 'sample-action' },
       }),
+      changes: [
+        { item: 's2', title: 'Selling more than owned returns an error', kind: 'a bug fix', rate: 7.6, why: WORK_LEFT },
+        { item: 's3', title: 'Difficulty multipliers apply to rewards', kind: 'a state machine fix', rate: 7.4, why: WORK_LEFT },
+      ],
+      merged: [],
+    },
+    {
+      slug: 'search-api',
+      name: 'search-api',
+      ready: true,
+      needs: [],
+      work: 'landed',
+      checkedAt: '2026-11-19T08:10:00Z',
+      parts: sampleParts({ performance: { state: 'pr', line: 'Request timings with last week as the baseline.', pr: 'https://github.com/acme/search-api/pull/12', branch: 'hobkin/q1-metrics', item: 'q1' } }),
+      changes: [{ item: 'q4', title: 'Cache the facet counts', kind: 'performance work', rate: 9.2, why: null }],
+      merged: [
+        { at: '2026-11-19T15:30:00Z', item: 'q3', title: 'Drop the N+1 on saved searches', kind: 'performance work', rate: 9, head: '4be71c2', deploy: 'It deployed and held for 30 minutes: No new errors. No slow queries. p95 112 ms against a baseline of 140 ms.', held: true },
+        { at: '2026-11-18T11:05:00Z', item: 'q2', title: 'Bump the HTTP client', kind: 'a package update', rate: 8.4, head: '9a0d3f1', deploy: 'It deployed and held for 30 minutes: No new errors. No slow queries. p95 139 ms against a baseline of 140 ms.', held: true },
+      ],
     },
     {
       slug: 'billing-api',
@@ -61,6 +84,8 @@ export const SAMPLE_YOLO: YoloState = {
         slowQueries: { state: 'pr', line: 'Queries over 100 ms are logged, and the suite fails on an N+1.', pr: SAMPLE_PR, branch: 'hobkin/b1-tests', item: 'b1' },
         deploy: { state: 'todo', line: 'No deploy path is written down yet.' },
       }),
+      changes: [{ item: 'b4', title: 'Round invoice totals once', kind: 'a bug fix', rate: 8.8, why: null }],
+      merged: [],
     },
     {
       slug: 'docs-site',
@@ -72,7 +97,10 @@ export const SAMPLE_YOLO: YoloState = {
       parts: sampleParts({
         tests: { state: 'pr', line: 'pnpm test runs the link checker.', branch: 'hobkin/d1', item: 'd1' },
         slowQueries: { state: 'done', line: 'It has no database.' },
+        deploy: { state: 'done', line: 'Nothing deploys: the site is built by its host.', deploys: false },
       }),
+      changes: [],
+      merged: [],
     },
   ],
 }

@@ -31,6 +31,6 @@ test('the tile says how many projects are ready and what the others need', () =>
   assert.equal(readyCount({ ...five, ready: 0, projects: [] }), 'No projects yet')
 
   // With no host the tile shows sample data, and a click changes it as hobkin would.
-  assert.equal(readyCount(SAMPLE_YOLO), '1 of 3 projects ready')
+  assert.equal(readyCount(SAMPLE_YOLO), '2 of 4 projects ready')
   assert.deepEqual([sampleAfter(SAMPLE_YOLO, { rate: 10 }).rate, sampleAfter(SAMPLE_YOLO, { rate: 10 }).on], [10, true])
 })
