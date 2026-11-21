@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { sampleGitHub, type GitHubPull } from '#shared/protocol/github.ts'
-import type { ReviewListItem } from '#shared/review/status.ts'
+import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
 import { aiOf, pullReviewId, pullSections, startAiReview } from '../src/features/github/pull-reviews.ts'
 import { rowsOf } from '../src/features/work/ai-reviews.ts'
+import { followReviewList } from '../src/features/work/review-list-follow.ts'
 import { SAMPLE_REVIEW_LIST } from '../src/features/work/sample-reviews.ts'
 
 const HEAD = 'f3a9c1e7'.padEnd(40, '0')
@@ -55,7 +56,7 @@ test('review requested, your pull requests, and the others reviewed by AI, each 
       review('pr:acme/web/11', { updatedAt: ago(40) }),
     ],
   })
-  const sections = pullSections({ reviews: [both, pull('acme/web', 8)], pulls: [both, pull('acme/api', 3)] }, rows, 2)
+  const sections = pullSections({ reviews: [both, pull('acme/web', 8)], pulls: [both, pull('acme/api', 3)] }, rows, { most: 2 })
 
   assert.deepEqual(sections.requested.map(({ id }) => id), ['pr:acme/web/7', 'pr:acme/web/8'], "in GitHub's order")
   assert.deepEqual(sections.mine.map(({ id }) => id), ['pr:acme/api/3'], 'one already asked of the user is not listed again')
@@ -76,6 +77,46 @@ test("a pull request GitHub lists shows GitHub's own count of its lines and file
   assert.deepEqual(sections.requested[0]!.size, { added: 70, removed: 15, files: 4 })
   assert.deepEqual(sections.mine[0]!.size, { added: 2, removed: 0, files: 1 }, 'before any review has read it')
   assert.deepEqual(pullSections({ reviews: [pull('acme/web', 9)], pulls: [] }, rows).requested[0]!.size, { added: 64, removed: 12, files: 3 }, 'from a host that does not send the count, the review says it')
+})
+
+test('a failed review-list refresh hides previous AI reviews until a successful refresh', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const github = { reviews: [pull('acme/web', 7)], pulls: [] }
+  const first = { reviews: [review('pr:acme/web/7', {}), review('pr:acme/web/9', {})] }
+  const recovered = { reviews: [review('pr:acme/web/7', { state: 'failed', error: 'Review stopped' })] }
+  const replies = [first, new Error('Host disconnected'), recovered]
+  let list: ReviewList | null = null
+  let reviewError: string | null = null
+  const sections = () => pullSections(github, rowsOf(list), { reviewError })
+  const follow = followReviewList({
+    run: async () => {
+      const reply = replies.shift()
+      if (!reply) throw new Error('Unexpected review.list request')
+      if (reply instanceof Error) throw reply
+      return reply
+    },
+    onList: (next) => {
+      list = next
+      reviewError = null
+    },
+    onError: (message) => { reviewError = message },
+  })
+  t.after(() => follow.stop())
+
+  await Promise.resolve()
+  assert.equal(sections().requested[0]?.ai.state, 'ready')
+  assert.deepEqual(sections().reviewed.map(({ number }) => number), [9])
+
+  follow.askNow()
+  await Promise.resolve()
+  assert.equal(reviewError, 'Host disconnected')
+  assert.equal(sections().requested[0]?.ai.state, 'unavailable', 'the GitHub PR stays but no AI badge or start action is shown')
+  assert.deepEqual(sections().reviewed, [], 'PRs from the stale review list alone are hidden')
+
+  follow.askNow()
+  await Promise.resolve()
+  assert.equal(reviewError, null)
+  assert.equal(sections().requested[0]?.ai.state, 'failed', 'the latest review status is visible again')
 })
 
 test('the sample shows every state the page has: running, none, ready, failed, and two that left the lists', () => {

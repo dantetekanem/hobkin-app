@@ -119,7 +119,9 @@ export function GitHubScreen() {
   // Each pull request's AI review, from the host's list of reviews, or the sample's without a host.
   const reviews = useReviewList(hasHost)
   // Every other pull request the AI reviewed: the project's tab lists the most recent of its own (`pageIn`).
-  const all = { sections: pullSections(github, rowsOf(reviews.list), Number.POSITIVE_INFINITY), issues: github.issues }
+  const reviewListUnavailable = reviews.error !== null
+  const sections = pullSections(github, rowsOf(reviews.list), { most: Number.POSITIVE_INFINITY, reviewError: reviews.error })
+  const all = { sections, issues: github.issues }
   // The quick filter: All, then each project hobkin works on. A project that is no longer one falls back to All.
   const projects = projectTabs(work?.projects ?? [], all)
   const inProject = chosenTab(projects, project)
@@ -153,7 +155,7 @@ export function GitHubScreen() {
   }
 
   // The lists go away at once when gh signs out, so no row's exit says so.
-  useEffect(keepKeyboard, [github.connection])
+  useEffect(keepKeyboard, [github.connection, reviewListUnavailable])
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const modified = event.metaKey || event.ctrlKey || event.altKey || event.shiftKey
@@ -192,15 +194,15 @@ export function GitHubScreen() {
               { value: 'issues', label: 'Issues', extra: connected && shown.issues.length ? <TabCount>{shown.issues.length}</TabCount> : null },
             ]}
           />
-          {reviews.error && connected ? (
+          {reviewListUnavailable && connected ? (
             <p role="alert" className="px-1 text-[13.5px] leading-snug text-bad-fg">
-              The AI reviews could not be read, so no row shows one: {reviews.error}
+              AI reviews are hidden because the list could not be refreshed. {reviews.error}
             </p>
           ) : null}
           {(['pulls', 'issues'] as const).map((key) => (
             <section key={key} id={`github-panel-${key}`} role="tabpanel" aria-labelledby={`github-tab-${key}`} hidden={tab !== key}>
               {connected && tab === key ? (
-                <Lists tab={key} github={{ ...github, issues: shown.issues }} sections={shown.sections} project={narrowed} live={hasHost} still={still} now={now} onRowsLeft={keepKeyboard} />
+                <Lists tab={key} github={{ ...github, issues: shown.issues }} sections={shown.sections} reviewListUnavailable={reviewListUnavailable} project={narrowed} live={hasHost} still={still} now={now} onRowsLeft={keepKeyboard} />
               ) : null}
             </section>
           ))}
@@ -297,6 +299,7 @@ function Lists({
   tab,
   github,
   sections,
+  reviewListUnavailable,
   project = null,
   live,
   still,
@@ -306,6 +309,7 @@ function Lists({
   tab: 'pulls' | 'issues'
   github: GitHubState
   sections: PullSections
+  reviewListUnavailable: boolean
   project?: Narrowed | null
   live: boolean
   still: boolean
@@ -385,7 +389,7 @@ function Lists({
       about: 'Other pull requests the AI reviewed: merged or closed since, or opened from a link. Work’s AI Reviews tab lists every review.',
       items: sections.reviewed,
       row: (entry, order) => <PullCard key={`ai:${entry.id}`} entry={entry} mine={false} live={live} now={now} variants={variants} order={order} />,
-      empty: `No other pull request${where} has an AI review yet.`,
+      empty: reviewListUnavailable ? 'AI reviews are unavailable.' : `No other pull request${where} has an AI review yet.`,
       more: false,
     })
   } else {
@@ -400,7 +404,8 @@ function Lists({
   }
 
   return (
-    <ul aria-label="GitHub" className="relative flex flex-col gap-2">
+    // Hide stale review content immediately, even on rows still mounted for their exit animation.
+    <ul aria-label="GitHub" className={cn('relative flex flex-col gap-2', reviewListUnavailable && '[&_[data-ai-only]]:hidden [&_[data-ai-review]]:hidden')}>
       <AnimatePresence mode="popLayout" onExitComplete={onRowsLeft}>
         {pieces}
       </AnimatePresence>
