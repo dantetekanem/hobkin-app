@@ -1,0 +1,76 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { workStatus } from '../src/cli/work/commands.mjs';
+import { writeJson } from './helpers/work-fixture.mjs';
+
+const SPEC = '_specs/tla/Door.tla';
+const HASH = 'a'.repeat(64);
+
+/**
+ * A home with many projects, as a real one has: three chosen, the rest skipped or dropped, one with a model on its default branch, and runs
+ * of that model. Every read of the survey and every listing of the runs is counted.
+ */
+function home(t) {
+  const root = fs.mkdtempSync(join(tmpdir(), 'hobkin-status-reads-'));
+  const projects = ['api', 'web', 'cli', 'old-1', 'old-2', 'old-3', 'old-4', 'old-5'].map((slug, index) => (
+    { slug, name: slug, path: join(root, 'repos', slug), level: 'important', state: index < 3 ? 'chosen' : 'skipped', at: '2026-11-01T00:00:00Z' }
+  ));
+  fs.mkdirSync(join(root, 'work'), { recursive: true });
+  fs.writeFileSync(join(root, 'work', 'projects.jsonl'), projects.map(project => JSON.stringify(project)).join('\n') + '\n');
+  const survey = join(root, 'work', 'unmerged.json');
+  writeJson(survey, { at: '2026-11-20T10:00:00Z', projects: { api: { open: [], models: { head: 'b'.repeat(40), specs: [{ spec: SPEC, sha256: HASH, models: ['door.rb'] }] } } } });
+  const run = (id, outcome, finished) => writeJson(join(root, 'proofs', id, 'result.json'), {
+    id, project: 'api', spec: SPEC, specHash: HASH, outcome, finished, rules: [], actions: [{ name: 'Open', count: 2 }],
+  });
+  run('older', 'holds', '2026-11-20T09:00:00Z');
+
+  const counted = { survey: 0, runs: 0 };
+  const { readFileSync, readdirSync } = fs;
+  t.mock.method(fs, 'readFileSync', (...args) => {
+    if (String(args[0]) === survey) counted.survey += 1;
+    return readFileSync(...args);
+  });
+  t.mock.method(fs, 'readdirSync', (...args) => {
+    if (String(args[0]) === join(root, 'proofs')) counted.runs += 1;
+    return readdirSync(...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+  const reads = () => {
+    const now = { ...counted };
+    counted.survey = 0;
+    counted.runs = 0;
+    return now;
+  };
+  return { root, run, reads };
+}
+
+const modelsOf = (status, slug) => status.projects.find(project => project.slug === slug).models?.map(({ spec, state, run }) => [spec, state, run]);
+
+test('one Work status reads the survey and lists the proof runs once, however many projects the home has', t => {
+  const h = home(t);
+  const status = workStatus(h.root);
+
+  assert.deepEqual(h.reads(), { survey: 1, runs: 1 });
+  assert.deepEqual(modelsOf(status, 'api'), [[SPEC, 'holds', 'older']]);
+  assert.deepEqual(status.yolo.projects.find(project => project.slug === 'api').models, status.projects.find(project => project.slug === 'api').models);
+  assert.equal(modelsOf(status, 'web'), undefined, 'a project with no model has none');
+});
+
+test('the next Work status reads again, so a run that ended since shows', t => {
+  const h = home(t);
+  workStatus(h.root);
+  h.reads();
+  h.run('newer', 'broken', '2026-11-20T11:00:00Z');
+
+  assert.deepEqual(modelsOf(workStatus(h.root), 'api'), [[SPEC, 'broken', 'newer']]);
+  assert.deepEqual(h.reads(), { survey: 1, runs: 1 });
+});

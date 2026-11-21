@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { promisify } from 'node:util';
+import { readOnce } from './one-read.mjs';
 import { gitOrNothing } from './tree.mjs';
 
 /**
@@ -57,7 +58,7 @@ function readResult(folder, id) {
 const endOf = ({ finished, started }) => String(finished ?? started ?? '');
 
 /** Every run that ended, newest first. */
-export function readRuns(root) {
+export const readRuns = root => readOnce(`runs:${root}`, () => {
   const folder = join(root, 'proofs');
   if (!existsSync(folder)) return [];
 
@@ -66,7 +67,7 @@ export function readRuns(root) {
     .map(entry => entry.name);
   const runs = ids.map(id => readResult(folder, id)).filter(Boolean);
   return runs.toSorted((first, second) => endOf(second).localeCompare(endOf(first)));
-}
+});
 
 /** One spec as committed at `head`, read as bytes so its sha256 matches the file the check read. Null when git cannot show it. */
 async function readSpec(repo, head, spec) {

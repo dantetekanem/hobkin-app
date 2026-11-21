@@ -11,6 +11,7 @@ import { offersView } from './land-offer.mjs';
 import { assertLaunch, recordWatch } from './launches.mjs';
 import { readMachines, recordMachines, toolsFound } from './machines.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
+import { oneRead } from './one-read.mjs';
 import { fileFirstPair, setShipFirst } from './pairs.mjs';
 import { filePickUp } from './pick-up.mjs';
 import { finishesWork, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
@@ -194,8 +195,15 @@ function startWithPile(root, args) {
   return { ...started, message: [started.message, pile, pickUp].filter(Boolean).join(' ') };
 }
 
-/** Status for agents and for the Work tab. `open`, `prs`, `branches` and `left` count what each project has going. `outlook` is what only the owner knows. */
+/**
+ * Status for agents and for the Work tab. `open`, `prs`, `branches` and `left` count what each project has going. `outlook` is what only the owner knows.
+ * Each project's counts, models and readiness read the same survey and proof runs, so the whole status reads each of them once.
+ */
 export function workStatus(root, outlook = {}) {
+  return oneRead(() => statusOf(root, outlook));
+}
+
+function statusOf(root, outlook) {
   const mode = readMode(root);
   const plan = planWork(root, { mode, ...outlook });
   const { budget, entries, pause, subscription } = plan;
