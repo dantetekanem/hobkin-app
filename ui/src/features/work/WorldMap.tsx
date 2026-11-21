@@ -315,7 +315,8 @@ function Worker({ place, agent, live, still, travels, pointing, onOpen }: Worker
       animate={{ transform: `translate(${left}, ${top})` }}
       transition={travels ? spring.travel : { duration: 0 }}
     >
-      <Hob size={40} className="size-[118%]" still={still || !live} mood={agent.presentation?.mood ?? 'idle'} tint={hoodColor(agent)} stage="var(--hb-surface)" />
+      {/* Its class sets the drawn size; `size` only picks the motion: the most it can measure, 118% of its place on a 780 px globe. */}
+      <Hob size={Math.round((place.size / GLOBE) * 780 * 1.18)} className="size-[118%]" still={still || !live} mood={agent.presentation?.mood ?? 'idle'} tint={hoodColor(agent)} stage="var(--hb-surface)" />
     </motion.button>
   )
 }
