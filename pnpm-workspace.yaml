@@ -1,0 +1,4 @@
+# pnpm 11 reads its settings only from this file. With no `packages` the root stays the one project.
+patchedDependencies:
+  # framer-motion's popLayout pins a leaving element with its own inline style instead of a <style> element (052, S19).
+  framer-motion@14.10.1: patches/framer-motion@14.10.1.patch

@@ -193,7 +193,7 @@ fn step<R: Runtime>(webview: &Webview<R>, forward: bool) -> Result<(), String> {
 #[tauri::command]
 pub fn shell_features<R: Runtime>(webview: Webview<R>) -> Result<serde_json::Value, String> {
     from_main(&webview)?;
-    Ok(serde_json::json!({ "notices": true, "browser": true }))
+    Ok(serde_json::json!({ "notices": true, "browser": true, "backdrop": true }))
 }
 
 /// Opens the page over the area, or takes the browser that is open there and to the page.

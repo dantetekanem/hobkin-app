@@ -23,6 +23,25 @@ tauri-plugin-notification = "2"
 # Updates for a release build, from hobkin.dev (src/updates.rs). A development build never registers it.
 tauri-plugin-updater = "2"
 
+# The shell's own code keeps a debug build's checks, with line numbers only. Its dependencies (Tauri, wry, tao, objc2)
+# are built optimized and without their debug assertions, so the daily `tauri dev` window does not check every
+# Objective-C message they send. `"*"` names dependencies only (052, S19).
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+opt-level = 2
+debug = false
+debug-assertions = false
+overflow-checks = false
+
+# A panic still unwinds: one in a background thread ends that thread, not the app.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"
+panic = "unwind"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 # The Mac's own notification permission (037-notifications): asked and read through UNUserNotificationCenter.

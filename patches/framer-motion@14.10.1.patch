@@ -1,0 +1,154 @@
+diff --git a/dist/es/components/AnimatePresence/PopChild.mjs b/dist/es/components/AnimatePresence/PopChild.mjs
+index 9ccae05d4a11e085ef1566d8df313ab4ac5c971d..d2f841f76bc43bb82d9ffc1ce4e521c2a16c5024 100644
+--- a/dist/es/components/AnimatePresence/PopChild.mjs
++++ b/dist/es/components/AnimatePresence/PopChild.mjs
+@@ -2,10 +2,27 @@
+ import { jsx } from 'react/jsx-runtime';
+ import { microtask, isHTMLElement } from 'motion-dom';
+ import * as React from 'react';
+-import { useId, useRef, useContext, useInsertionEffect } from 'react';
+-import { MotionConfigContext } from '../../context/MotionConfigContext.mjs';
++import { useId, useRef, useInsertionEffect } from 'react';
+ import { useComposedRefs } from '../../utils/use-composed-ref.mjs';
+ 
++/**
++ * The inline properties the pop sets, each remembered as the element had
++ * it (value and priority) so it can be put back exactly.
++ */
++const rememberInline = (element, names) => names.map((name) => [
++    name,
++    element.style.getPropertyValue(name),
++    element.style.getPropertyPriority(name),
++]);
++const restoreInline = (element, remembered) => {
++    for (const [name, value, priority] of remembered) {
++        if (value)
++            element.style.setProperty(name, value, priority);
++        else
++            element.style.removeProperty(name);
++    }
++};
++
+ /**
+  * How much an element's transforms, and its ancestors', scale it on screen.
+  */
+@@ -84,7 +101,7 @@ class PopChildMeasure extends React.Component {
+         return this.props.children;
+     }
+ }
+-function PopChild({ children, isPresent, anchorX, anchorY, root, pop, popNode }) {
++function PopChild({ children, isPresent, anchorX, anchorY, pop, popNode }) {
+     const id = useId();
+     const ref = useRef(null);
+     const size = useRef({
+@@ -96,7 +113,6 @@ function PopChild({ children, isPresent, anchorX, anchorY, root, pop, popNode })
+         bottom: 0,
+         direction: "ltr",
+     });
+-    const { nonce } = useContext(MotionConfigContext);
+     /**
+      * In React 19, refs are passed via props.ref instead of element.ref.
+      * We check props.ref first (React 19) and fall back to element.ref (React 18).
+@@ -116,23 +132,40 @@ function PopChild({ children, isPresent, anchorX, anchorY, root, pop, popNode })
+      * forward it), its outermost motion component's element (#2503).
+      */
+     const getElement = () => ref.current || popNode?.current?.current;
+-    const insertPopRule = (sheet) => {
++    /**
++     * The pop rule as declarations: absolute, at its measured size, pinned
++     * by the two offsets its anchors name.
++     */
++    const popDeclarations = () => {
+         const { width, height, top, left, right, bottom, direction } = size.current;
+         const isRTL = direction === "rtl";
+         const x = anchorX === "left"
+-            ? (isRTL ? `right:${right}` : `left:${left}`)
+-            : (isRTL ? `left:${left}` : `right:${right}`);
+-        const y = anchorY === "bottom" ? `bottom:${bottom}` : `top:${top}`;
+-        sheet?.insertRule(`[data-motion-pop-id="${id}"]{position:absolute!important;width:${width}px!important;height:${height}px!important;${x}px!important;${y}px!important}`);
++            ? (isRTL ? ["right", right] : ["left", left])
++            : (isRTL ? ["left", left] : ["right", right]);
++        const y = anchorY === "bottom" ? ["bottom", bottom] : ["top", top];
++        return [
++            ["position", "absolute"],
++            ["width", `${width}px`],
++            ["height", `${height}px`],
++            [x[0], `${x[1]}px`],
++            [y[0], `${y[1]}px`],
++        ];
++    };
++    const pin = (element) => {
++        for (const [name, value] of popDeclarations()) {
++            element.style.setProperty(name, value, "important");
++        }
+     };
+     /**
+-     * We create and inject a style block so we can apply this explicit
+-     * sizing in a non-destructive manner by just deleting the style block.
++     * The explicit sizing goes on the element's own inline style, marked
++     * important as the rule was. Adding a <style> element instead, and
++     * removing it after, made WebKit reset the whole page's style resolver
++     * on every exit.
+      *
+      * We can't apply size via render as the measurement happens
+-     * in getSnapshotBeforeUpdate (post-render), likewise if we apply the
+-     * styles directly on the DOM node, we might be overwriting
+-     * styles set via the style prop.
++     * in getSnapshotBeforeUpdate (post-render). The inline values these
++     * properties had, from the style prop or anything else, are remembered
++     * and put back on cleanup, so nothing set on the element is lost.
+      */
+     useInsertionEffect(() => {
+         const { width, height } = size.current;
+@@ -140,17 +173,9 @@ function PopChild({ children, isPresent, anchorX, anchorY, root, pop, popNode })
+         if (isPresent || pop === false || !element || !width || !height)
+             return;
+         element.dataset.motionPopId = id;
+-        /**
+-         * Use the element's own document so this works when rendering
+-         * into another window or iframe (e.g. via window.open()).
+-         */
+-        const doc = element.ownerDocument;
+-        const style = doc.createElement("style");
+-        if (nonce)
+-            style.nonce = nonce;
+-        const parent = root ?? doc.head;
+-        parent.appendChild(style);
+-        insertPopRule(style.sheet);
++        const remembered = rememberInline(element, popDeclarations().map(([name]) => name));
++        let pinned = true;
++        pin(element);
+         /**
+          * Popping the element out of the layout can move its offsetParent,
+          * which we've pinned it to. For instance, a bottom-anchored or
+@@ -174,25 +199,21 @@ function PopChild({ children, isPresent, anchorX, anchorY, root, pop, popNode })
+         });
+         microtask.read(() => {
+             /**
+-             * The style has no sheet if it's been removed since, because
+-             * the element is present again.
++             * Nothing is pinned any more if the element is present again.
+              */
+-            const { sheet } = style;
+-            if (!sheet || (!dx && !dy))
++            if (!pinned || (!dx && !dy))
+                 return;
+             const s = size.current;
+             s.left += dx;
+             s.right -= dx;
+             s.top += dy;
+             s.bottom -= dy;
+-            sheet.deleteRule(0);
+-            insertPopRule(sheet);
++            pin(element);
+         });
+         return () => {
++            pinned = false;
+             element.removeAttribute("data-motion-pop-id");
+-            if (parent.contains(style)) {
+-                parent.removeChild(style);
+-            }
++            restoreInline(element, remembered);
+         };
+     }, [isPresent]);
+     return (jsx(PopChildMeasure, { isPresent: isPresent, getElement: getElement, sizeRef: size, pop: pop, children: pop === false

@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  framer-motion@14.10.1: efbec27715a008134058825e894318215f8b4ddd28979e3088515ffcf85e5de6
+
 importers:
 
   .:
@@ -3258,7 +3261,7 @@ snapshots:
     dependencies:
       locate-path: 3.0.0
 
-  framer-motion@14.10.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
+  framer-motion@14.10.1(patch_hash=efbec27715a008134058825e894318215f8b4ddd28979e3088515ffcf85e5de6)(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:
       motion-dom: 14.10.1
       motion-utils: 14.7.0
@@ -3890,7 +3893,7 @@ snapshots:
 
   motion@14.10.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:
-      framer-motion: 14.10.1(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+      framer-motion: 14.10.1(patch_hash=efbec27715a008134058825e894318215f8b4ddd28979e3088515ffcf85e5de6)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       tslib: 2.9.1
     optionalDependencies:
       react: 19.3.1

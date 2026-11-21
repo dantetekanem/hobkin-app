@@ -13,6 +13,7 @@ use tauri::webview::PageLoadEvent;
 use tauri::{AppHandle, Manager, RunEvent, Wry, WindowEvent};
 use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 
+mod backdrop;
 mod browser;
 mod host_file;
 mod login_path;
@@ -235,29 +236,6 @@ fn stop_host(child: &mut Child) {
     let _ = child.wait();
 }
 
-/// How far the desktop behind the transparent window is blurred, like Ghostty's background-blur.
-#[cfg(target_os = "macos")]
-const BACKGROUND_BLUR_RADIUS: i32 = 20;
-
-#[cfg(target_os = "macos")]
-extern "C" {
-    // Undocumented CoreGraphics calls, the ones Ghostty and Terminal.app use for a blurred translucent window.
-    fn CGSDefaultConnectionForThread() -> *mut std::ffi::c_void;
-    fn CGSSetWindowBackgroundBlurRadius(connection: *mut std::ffi::c_void, window: usize, radius: i32) -> i32;
-}
-
-/// Blurs what is behind the window. The window stays transparent, so the app's own background opacity decides how much shows.
-#[cfg(target_os = "macos")]
-fn blur_behind(window: &tauri::WebviewWindow) {
-    let Ok(ns_window) = window.ns_window() else { return };
-    // SAFETY: ns_window is the live NSWindow of this window; windowNumber takes no arguments and returns an NSInteger.
-    unsafe {
-        let ns_window = &*(ns_window as *const objc2::runtime::AnyObject);
-        let number: isize = objc2::msg_send![ns_window, windowNumber];
-        CGSSetWindowBackgroundBlurRadius(CGSDefaultConnectionForThread(), number as usize, BACKGROUND_BLUR_RADIUS);
-    }
-}
-
 /// The menu bar: the standard Mac menus as Tauri's default gives them, with an About item that says what hobkin is,
 /// who made it and where it lives, and carries the app's icon. The Mac's panel shows the name, version, copyright,
 /// credits and icon; the other fields are for platforms that show them.
@@ -369,10 +347,11 @@ pub fn run() {
         .manage(Host(Mutex::new(None)))
         .manage(browser::Browser::default())
         .manage(updates::Ready::default())
-        // The window's own commands: what this shell offers, notifications, the canvas's browser (036-canvas-browser),
-        // where the host is, and updates. Each answers the main window's webview only.
+        // The window's own commands: what this shell offers, what is behind the page (052), notifications, the canvas's
+        // browser (036-canvas-browser), where the host is, and updates. Each answers the main window's webview only.
         .invoke_handler(tauri::generate_handler![
             browser::shell_features,
+            backdrop::window_backdrop,
             browser::browser_open,
             browser::browser_place,
             browser::browser_navigate,
@@ -405,7 +384,7 @@ pub fn run() {
             browser::escape::watch(app.handle());
             #[cfg(target_os = "macos")]
             if let Some(window) = app.get_webview_window("main") {
-                blur_behind(&window);
+                backdrop::blur_behind(&window);
             }
             Ok(())
         })

@@ -3,10 +3,10 @@ import { listen } from '@tauri-apps/api/event'
 import type { HostAddress } from './host/connection.ts'
 
 /**
- * The Mac shell's own commands for the window (src-tauri/src/notices.rs and browser.rs): notifications, and the
- * canvas's browser. In a browser tab there are none, and neither are there in a Mac window whose shell was built
- * before them: `shell()` then answers null for each, and the window goes on exactly as it does without them. What
- * uses them takes these shapes, so tests hand it fakes.
+ * The Mac shell's own commands for the window (src-tauri/src/notices.rs, browser.rs and backdrop.rs): notifications,
+ * the canvas's browser, and what is behind the page. In a browser tab there are none, and neither are there in a Mac
+ * window whose shell was built before them: `shell()` then answers null for each, and the window goes on exactly as
+ * it does without them. What uses them takes these shapes, so tests hand it fakes.
  */
 
 /** What the Mac allows hobkin: asked and allowed, refused, not asked yet, or unknown. */
@@ -59,12 +59,26 @@ export interface BrowserShell {
   onKey(listener: (key: BrowserKey) => void): Promise<() => void>
 }
 
+/** How much of the page's own background shows, and its color: what the window shows behind the page. */
+export interface Backdrop {
+  /** From 0 to 1. At 1 the window is opaque in `color` with nothing blurred behind it. */
+  opacity: number
+  /** Red, green and blue, from 0 to 255. */
+  color: [number, number, number]
+}
+
+export interface BackdropShell {
+  set(backdrop: Backdrop): Promise<void>
+}
+
 export interface Shell {
   notices: NoticeShell | null
   browser: BrowserShell | null
+  /** None in a shell from before it: the window stays as it opens, transparent with the desktop blurred behind it. */
+  backdrop: BackdropShell | null
 }
 
-const NONE: Shell = { notices: null, browser: null }
+const NONE: Shell = { notices: null, browser: null, backdrop: null }
 const MAIN = 'main'
 
 export const inMacWindow = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
@@ -75,6 +89,10 @@ const notices: NoticeShell = {
   onOpen: (open) => listen<string>('notice:open', ({ payload }) => {
     if (typeof payload === 'string') open(payload)
   }),
+}
+
+const backdrop: BackdropShell = {
+  set: ({ opacity, color }) => invoke<void>('window_backdrop', { opacity, color }),
 }
 
 /** The browser's commands go one after another, so a close always lands before the next open. */
@@ -105,8 +123,12 @@ let asked: Promise<Shell> | null = null
 /** What this window's shell offers, asked once. A shell without the commands refuses the question, and offers nothing. */
 export function shell(): Promise<Shell> {
   asked ??= inMacWindow()
-    ? invoke<{ notices?: boolean; browser?: boolean }>('shell_features').then(
-        (has) => ({ notices: has.notices === true ? notices : null, browser: has.browser === true ? browser : null }),
+    ? invoke<{ notices?: boolean; browser?: boolean; backdrop?: boolean }>('shell_features').then(
+        (has) => ({
+          notices: has.notices === true ? notices : null,
+          browser: has.browser === true ? browser : null,
+          backdrop: has.backdrop === true ? backdrop : null,
+        }),
         () => NONE,
       )
     : Promise.resolve(NONE)
