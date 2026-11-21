@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { guardCodeToolAbort } from './code-tool-crash.mjs';
 import { defaultRoot } from './config.mjs';
 import { directionsSection, readDirections } from './directions.mjs';
 
@@ -15,9 +16,11 @@ export const AGENTS_ENVIRONMENT = Object.freeze({ PI_EXTENDED_TEAMS_AGENT_EXTENS
 /**
  * The main chat's directions section, read once as the agent starts, so an edit reaches the next agent and never
  * changes one mid-task. The home is the one a `hobkin` command the agent runs would use (`defaultRoot`): hobkin on any
- * home but the real one names it in `HOBKIN_HOME` for every process it starts.
+ * home but the real one names it in `HOBKIN_HOME` for every process it starts. Each agent also gets the guard against
+ * Pi's code tool crash (`code-tool-crash.mjs`).
  */
 export default function agentDirections(pi, { root = defaultRoot() } = {}) {
+  guardCodeToolAbort();
   let section;
   pi.on('before_agent_start', event => {
     section ??= directionsSection(readDirections(root));

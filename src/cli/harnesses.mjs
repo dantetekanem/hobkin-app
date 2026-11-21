@@ -14,6 +14,7 @@ import { recordEvent } from './events.mjs';
 import { promptFactsIn } from './work/usage.mjs';
 import { agentsOut, defaultTeamsDir } from './teams-agents.mjs';
 import { AGENTS_ENVIRONMENT } from './agent-directions-extension.mjs';
+import { codeToolGuardExtension } from './code-tool-crash.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
@@ -88,11 +89,14 @@ export function buildInvocation(request) {
   return piCommand(request.launcher, args);
 }
 
-/** A job that loads tools gets its extensions named up front, so Pi leaves out what Hobkin does not use. */
+/**
+ * A job that loads tools gets its extensions named up front, so Pi leaves out what Hobkin does not use. Its Pi also
+ * loads hobkin's guard against the code tool crash (`code-tool-crash.mjs`).
+ */
 export const namingExtensions = run => async (request, options) => {
   if (!usesTools(request.purpose)) return run(request, options);
   const asked = Date.now();
-  const extensions = await extensionPaths(request.cwd);
+  const extensions = [...await extensionPaths(request.cwd), codeToolGuardExtension];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
   const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };
   return run({ ...request, extensions }, { ...options, turn });

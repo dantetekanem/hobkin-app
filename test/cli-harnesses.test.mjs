@@ -8,6 +8,7 @@ import { buildInvocation, closeKept, namingExtensions, runHarness } from '../src
 import { extensionPaths, LEFT_OUT_OF_THE_MAIN_CHAT } from '../src/cli/pi-extensions.mjs';
 import { readEvents } from '../src/cli/events.mjs';
 import { startRpcProcess } from '../src/cli/rpc-process.mjs';
+import { codeToolGuardExtension } from '../src/cli/code-tool-crash.mjs';
 
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
 function request(t, harness = 'pi') {
@@ -797,6 +798,7 @@ test('every job that loads tools leaves pi-emote behind, and the user\'s Pi sett
   for (const job of [check, work]) {
     assert.ok(job.extensions.includes(join(agentDir, 'extensions/own.ts')));
     assert.deepEqual(job.extensions.filter(path => path.includes('pi-emote')), []);
+    assert.ok(job.extensions.includes(codeToolGuardExtension), "it loads hobkin's guard against Pi's code tool crash");
   }
   assert.equal(toolFree.extensions, undefined, 'a tool-free job already loads no extensions');
 });

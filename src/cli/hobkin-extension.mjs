@@ -1,4 +1,5 @@
 import { BRIDGE, callBridge } from './bridge.mjs';
+import { guardCodeToolAbort } from './code-tool-crash.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { decidedSection } from './decided.mjs';
 import { composePersonaPrompt } from './persona.mjs';
@@ -10,9 +11,11 @@ import { createCheckMessageTool, createScheduleTool, createSettingsTool, createS
 /**
  * Loaded with --extension by the Pi child that Hobkin starts for its main chat. The tools keep their
  * names, schemas and descriptions; each call runs in Hobkin, which owns the questions, schedules,
- * settings and memory. The model is Pi's, under whatever launcher started it.
+ * settings and memory. The model is Pi's, under whatever launcher started it. The chat's Pi also gets the guard against
+ * Pi's code tool crash (`code-tool-crash.mjs`).
  */
 export default function hobkin(pi) {
+  guardCodeToolAbort();
   const tools = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool()];
   for (const tool of tools) {
     pi.registerTool({
