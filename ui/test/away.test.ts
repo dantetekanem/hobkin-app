@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
 
 mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 })
-const { AWAY_AFTER_MS, startAway, watchAway } = await import('../src/app/away.ts')
+const { AWAY_AFTER_MS, holdLoops, startAway, watchAway } = await import('../src/app/away.ts')
 const { canvasGrowth, covered, CONVERSATION_WIDTH } = await import('../src/app/view-store.ts')
 after(() => mock.timers.reset())
 
@@ -19,15 +19,27 @@ test('the chat is covered once the canvas has grown over all of it, and not whil
   assert.equal(covered({ ...settled, growth: 0 }), false)
 })
 
-/** A page with a window that can go to the background and come back, and the root `data-away` is set on. */
+/** A running animation, as `getAnimations()` gives it: a loop runs forever, a one-shot (an entrance, a fade) once. */
+function fakeAnimation(iterations: number) {
+  return { playbackRate: 1, playState: 'running', effect: { getTiming: () => ({ iterations }) } }
+}
+const loop = () => fakeAnimation(Infinity)
+const oneShot = () => fakeAnimation(1)
+type FakeAnimation = ReturnType<typeof fakeAnimation>
+
+const moving = (animation: FakeAnimation) => animation.playbackRate !== 0
+
+/** A page with a window that can go to the background and come back, and its running animations. */
 function fakePage({ focused = true } = {}) {
   const window = new EventTarget()
   let hasFocus = focused
   const root = new Set<string>()
   let writes = 0
+  const animations: FakeAnimation[] = []
   const document = Object.assign(new EventTarget(), {
     visibilityState: 'visible' as DocumentVisibilityState,
     hasFocus: () => hasFocus,
+    getAnimations: () => animations,
     documentElement: {
       toggleAttribute(name: string, force: boolean) {
         if (force && !root.has(name)) writes += 1
@@ -45,6 +57,12 @@ function fakePage({ focused = true } = {}) {
     get writes() {
       return writes
     },
+    /** An animation that starts on the page now, as a new face, a log line or a tooltip starts one. */
+    start(animation: FakeAnimation) {
+      animations.push(animation)
+      document.dispatchEvent(new Event('animationstart'))
+      return animation
+    },
     blur() {
       hasFocus = false
       window.dispatchEvent(new Event('blur'))
@@ -60,6 +78,10 @@ function fakePage({ focused = true } = {}) {
     show() {
       document.visibilityState = 'visible'
       document.dispatchEvent(new Event('visibilitychange'))
+    },
+    /** The user moves the pointer over the window, scrolls it or presses a key in it. */
+    use(type: 'pointermove' | 'wheel' | 'keydown') {
+      window.dispatchEvent(new Event(type))
     },
   }
 }
@@ -94,14 +116,30 @@ test('the page is away when hidden or a minute in the background, and back at on
   mock.timers.tick(1)
   assert.equal(fake.away, true)
 
+  for (const type of ['pointermove', 'wheel', 'keydown'] as const) {
+    fake.use(type)
+    assert.equal(fake.away, false, `a ${type} over the background window brings it back at once`)
+    mock.timers.tick(60_000)
+    assert.equal(fake.away, true, 'and a quiet minute sends it away again')
+  }
+
+  fake.use('pointermove')
+  mock.timers.tick(30_000)
+  fake.use('wheel')
+  mock.timers.tick(59_999)
+  assert.equal(fake.away, false, 'the minute counts from the last movement')
+  mock.timers.tick(1)
+  assert.equal(fake.away, true)
+
   stop()
-  fake.focus()
-  assert.equal(fake.away, true, 'a stopped watcher leaves the page alone')
+  assert.equal(fake.away, false, 'a stopped watcher takes its mark away')
 })
 
-test('a page that starts in the background is away a minute later', () => {
+test('a page that starts in the background is away a minute later, unless the user moves over it', () => {
   const fake = fakePage({ focused: false })
   const stop = watchAway(fake.page)
+  mock.timers.tick(59_999)
+  fake.use('pointermove')
   mock.timers.tick(59_999)
   assert.equal(fake.away, false)
   mock.timers.tick(1)
@@ -109,8 +147,32 @@ test('a page that starts in the background is away a minute later', () => {
   stop()
 })
 
-test('starting again, as a hot update does, stops the watcher before it', () => {
+test('while away only endless loops hold still, one-shot animations run, and the held loops play again on return', () => {
   const fake = fakePage()
+  const spinner = fake.start(loop())
+  const fadeIn = fake.start(oneShot())
+  const stop = watchAway(fake.page)
+
+  fake.blur()
+  mock.timers.tick(60_000)
+  assert.equal(moving(spinner), false, 'a loop holds still')
+  assert.equal(moving(fadeIn), true, 'a one-shot runs to its end')
+
+  const newLoop = fake.start(loop())
+  const newEntrance = fake.start(oneShot())
+  assert.equal(moving(newLoop), false, 'a loop that starts while away holds still too')
+  assert.equal(moving(newEntrance), true, 'an entrance that starts while away runs, so nothing stays blank')
+
+  fake.focus()
+  assert.deepEqual([spinner, fadeIn, newLoop, newEntrance].map(moving), [true, true, true, true], 'back, every held loop plays again')
+  const later = fake.start(loop())
+  assert.equal(moving(later), true, 'and a loop that starts once back is left alone')
+  stop()
+})
+
+test('starting again, as a hot update does, stops the watcher before it and leaves nothing held', () => {
+  const fake = fakePage()
+  const spinner = fake.start(loop())
   startAway(fake.page)
   startAway(fake.page)
   fake.blur()
@@ -119,5 +181,23 @@ test('starting again, as a hot update does, stops the watcher before it', () => 
   fake.blur()
   mock.timers.tick(60_000)
   assert.equal(fake.writes, 2, 'one watcher marks the page each time it goes away')
+  assert.equal(moving(spinner), false)
+
+  startAway(fake.page)
+  assert.equal(moving(spinner), true, 'the copy a hot update replaces plays what it held')
   fake.focus()
+})
+
+test('a loop held by both the away page and the covered chat plays again only when both let go', () => {
+  const spinner = loop()
+  const scope = new EventTarget()
+  const releaseAway = holdLoops(scope, () => [spinner])
+  const releaseCovered = holdLoops(scope, () => [spinner])
+  assert.equal(moving(spinner), false)
+
+  releaseAway()
+  assert.equal(moving(spinner), false, 'the chat is still covered')
+  releaseCovered()
+  assert.equal(moving(spinner), true)
+  assert.equal(spinner.playbackRate, 1, 'at the speed it had')
 })

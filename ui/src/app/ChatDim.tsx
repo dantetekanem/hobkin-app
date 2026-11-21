@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useState, type RefObject } from 'react'
 import { useSplit } from '@/features/canvas-panel/use-board.ts'
 import { useNeedsSignIn } from '@/features/signin/SignInGate.tsx'
 import { agentEntry } from '@/features/work/agent-entry.ts'
+import { holdLoops } from './away.ts'
 import { useStill } from './still.ts'
 import { spring } from '@/lib/motion.ts'
 import { focusInput } from './keys.ts'
@@ -51,9 +52,10 @@ export function ChatDim({ side }: { side?: RefObject<HTMLElement | null> }) {
 const GROW_MS = spring.screen.duration * 1000
 
 /**
- * Marks `side` with `data-covered` while the canvas covers the whole chat (`covered` in view-store.ts), so nothing in it
- * moves and the blur over it goes (globals.css). The mark comes once the canvas has grown, and leaves in the same draw
- * that starts it shrinking, or as soon as the keyboard goes into the chat.
+ * While the canvas covers the whole chat (`covered` in view-store.ts), the chat's endless loops hold still (holdLoops in
+ * away.ts) and `side` is marked `data-covered`, which takes the blur over it away (globals.css). Animations that run
+ * once still run. It all comes once the canvas has grown, and goes in the same draw that starts it shrinking, or as soon
+ * as the keyboard goes into the chat.
  */
 function useCoveredChat(side: RefObject<HTMLElement | null> | undefined, still: boolean) {
   // The canvas's own growth, with the same inputs Canvas.tsx gives it.
@@ -103,8 +105,13 @@ function useCoveredChat(side: RefObject<HTMLElement | null> | undefined, still: 
 
   useLayoutEffect(() => {
     const element = side?.current
-    if (!element) return
-    element.toggleAttribute('data-covered', isCovered)
-    return () => element.removeAttribute('data-covered')
+    if (!element || !isCovered) return
+
+    element.setAttribute('data-covered', '')
+    const letGo = holdLoops(element, () => element.getAnimations({ subtree: true }))
+    return () => {
+      letGo()
+      element.removeAttribute('data-covered')
+    }
   }, [side, isCovered])
 }
