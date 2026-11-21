@@ -137,6 +137,42 @@ function revealPoints(text: string): number[] {
   return points
 }
 
+/** A line that starts a list item, which a blank line does not end when the list above carries on with it. */
+const LIST_ITEM = /^(?:[-*+]|\d{1,9}[.)])(?:\s|$)/
+/** What can reach across blank lines into other blocks: raw HTML, a link's reference, a footnote. */
+const REACHES = /^ {0,3}(?:<|\[[^\]]+\]:)|\[\^/m
+
+/**
+ * Where Markdown splits into blocks that parse alone as they parse together, so the blocks of a reply that is still
+ * growing are not parsed again: at a blank line outside a code block, before a line at the margin that does not carry
+ * on the list above it. Text with raw HTML, link references or footnotes stays one block. The first start is 0.
+ */
+export function blockStarts(text: string): number[] {
+  const starts = [0]
+  if (REACHES.test(text)) return starts
+  let fence: string | null = null
+  let blank = false
+  let listAbove = false
+  for (let start = 0; start < text.length; ) {
+    const end = text.indexOf('\n', start)
+    const stop = end < 0 ? text.length : end
+    const line = text.slice(start, stop)
+    if (fence) {
+      if (closes(line, fence)) fence = null
+    } else if (!line.trim()) {
+      blank = true
+    } else {
+      const atMargin = !/^\s/.test(line)
+      if (blank && atMargin && !(listAbove && LIST_ITEM.test(line))) starts.push(start)
+      blank = false
+      if (atMargin) listAbove = LIST_ITEM.test(line)
+      fence = FENCE.exec(line)?.[1] ?? null
+    }
+    start = stop + 1
+  }
+  return starts
+}
+
 /**
  * What to show next of a reply, given what is shown now. `done`: the reply ended, or failed, and all of it shows.
  * Otherwise the next piece shows, or a few when many wait. Text the model rewrote goes back to the last place

@@ -3,7 +3,7 @@ import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, 
 import { Fragment, memo, useMemo, type ReactNode } from 'react'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { holdStill, useStill } from '@/app/still.ts'
-import { MessageText, risen, sunk } from '@/features/chat/markdown.ts'
+import { GrowingMarkdown, risen, sunk } from '@/features/chat/markdown.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { usePaced } from '@/features/chat/use-paced.ts'
 import { diffOf, startView, unifiedRows, type Diff, type FileSides } from '@/features/review/code/diff-rows.ts'
@@ -113,7 +113,7 @@ function Says({ text }: { text: string }) {
   const shown = usePaced(text, true)
   return (
     <div className="max-w-[92%] text-[15px] leading-relaxed break-words">
-      <MessageText text={shown} role="assistant" />
+      <GrowingMarkdown text={shown} />
     </div>
   )
 }
