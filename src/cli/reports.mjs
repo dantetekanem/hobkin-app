@@ -135,13 +135,35 @@ export function readShortReport(root, id) {
   }
 }
 
+// Each refresh lists every report and most never change again, so a body is read again only once its file is another or has changed.
+const readBodies = new Map();
+const MOST_KEPT_BYTES = 64 * 1024 * 1024;
+let keptBytes = 0;
+
+function keepBody(file, stat, body) {
+  keptBytes -= readBodies.get(file)?.body.length ?? 0;
+  readBodies.delete(file);
+  if (body.length > MOST_KEPT_BYTES) return;
+  readBodies.set(file, { ino: stat.ino, size: stat.size, mtimeMs: stat.mtimeMs, body });
+  keptBytes += body.length;
+  for (const [oldest, { body: dropped }] of readBodies) {
+    if (keptBytes <= MOST_KEPT_BYTES) break;
+    readBodies.delete(oldest);
+    keptBytes -= dropped.length;
+  }
+}
+
 export function readReport(root, id, fallback) {
   reportDirectory(root);
   const file = reportPath(root, id);
   const stat = statOrMissing(file);
   if (!stat) return fallback;
   if (!stat.isFile() || (stat.mode & 0o077) || stat.size > 16777216) throw Error('Saved report must be a private bounded regular file.');
-  return readFileSync(file, 'utf8');
+  const kept = readBodies.get(file);
+  if (kept && kept.ino === stat.ino && kept.size === stat.size && kept.mtimeMs === stat.mtimeMs) return kept.body;
+  const body = readFileSync(file, 'utf8');
+  keepBody(file, stat, body);
+  return body;
 }
 
 /** Removes a report hobkin replaced with a newer one of its own, and its short version. The user's deleted list stays as it is. */

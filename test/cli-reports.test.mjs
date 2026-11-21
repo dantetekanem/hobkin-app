@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, chmodSync } from 'node:fs';
+import fs, { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, chmodSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { saveReport, readReport, reportText, reportTriage } from '../src/cli/reports.mjs';
@@ -34,6 +35,32 @@ test('ordinary Markdown is saved whole in a private file and read ahead of legac
   assert.equal(readReport(root, 'schedule:one', 'stale cached text'), body);
   assert.deepEqual(readdirSync(join(root, 'reports')), [file.split('/').at(-1)]);
   assert.equal(readReport(root, 'historical', 'Preserved imported body'), 'Preserved imported body');
+});
+
+test('a saved report is read from disk once while it stays the same, and again once it changes', t => {
+  const root = fixture(t);
+  const file = saveReport(root, 'session:one', '# One\n\nFirst words.\n');
+  let reads = 0;
+  const { readFileSync: read } = fs;
+  t.mock.method(fs, 'readFileSync', (...args) => {
+    if (String(args[0]) === file) reads += 1;
+    return read(...args);
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+
+  // Every refresh lists every report, and most never change again.
+  for (let refresh = 0; refresh < 5; refresh += 1) assert.equal(readReport(root, 'session:one', null), '# One\n\nFirst words.\n');
+  assert.equal(reads, 1);
+
+  saveReport(root, 'session:one', '# One\n\nWords written again.\n');
+  assert.equal(readReport(root, 'session:one', null), '# One\n\nWords written again.\n');
+  writeFileSync(file, '# One\n\nEdited where it lies.\n');
+  assert.equal(readReport(root, 'session:one', null), '# One\n\nEdited where it lies.\n');
+  assert.equal(reads, 3);
 });
 
 test('saved reports reject symlinks and public files rather than reading another source', t => {
