@@ -30,20 +30,36 @@
 /* A walker the pointer or the keyboard is on holds still, so it never slides out from under a click. */
 .home-walk-a:hover, .home-walk-a:focus-within,
 .home-walk-b:hover, .home-walk-b:focus-within { animation-play-state: paused; }
-.home-pulse { animation: home-pulse 1.8s ease-out infinite; }
+/*
+ * The now mark's pulse: a halo that grows out of the dot and fades. It is a disc of the halo's full size on a
+ * pseudo-element, scaled up from the dot's size, so only its transform and opacity move and the compositor runs it.
+ * The dot is 12 px and the halo reaches 14 px past its edge: scale 0.3 of 40 px is the dot, scale 1 the whole halo.
+ */
+.home-pulse::after {
+  content: '';
+  position: absolute;
+  inset: -14px;
+  border-radius: 999px;
+  background: var(--hb-sun);
+  opacity: 0;
+  pointer-events: none;
+  animation: home-pulse 1.8s ease-out infinite;
+}
 
 @keyframes home-twinkle { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
 @keyframes home-walk { from { transform: translateX(-12px); } to { transform: translateX(12px); } }
 @keyframes home-pulse {
-  from { box-shadow: 0 0 0 0 color-mix(in oklab, var(--hb-sun) 70%, transparent); }
-  to { box-shadow: 0 0 0 14px color-mix(in oklab, var(--hb-sun) 0%, transparent); }
+  from { transform: scale(0.3); opacity: 0.7; }
+  to { transform: scale(1); opacity: 0; }
 }
 
 .home-scene[data-still] .home-twinkle,
 .home-scene[data-still] .home-walk-a,
 .home-scene[data-still] .home-walk-b,
-.home-pulse[data-still] { animation: none; }
-:root[data-motion="still"] :is(.home-twinkle, .home-walk-a, .home-walk-b, .home-pulse) { animation: none; }
+.home-pulse[data-still]::after { animation: none; }
+:root[data-motion="still"] :is(.home-twinkle, .home-walk-a, .home-walk-b) { animation: none; }
+:root[data-motion="still"] .home-pulse::after { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  :root:not([data-motion="lively"]) :is(.home-twinkle, .home-walk-a, .home-walk-b, .home-pulse) { animation: none; }
+  :root:not([data-motion="lively"]) :is(.home-twinkle, .home-walk-a, .home-walk-b) { animation: none; }
+  :root:not([data-motion="lively"]) .home-pulse::after { animation: none; }
 }
