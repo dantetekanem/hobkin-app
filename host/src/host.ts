@@ -328,6 +328,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   })
   // The window moves and the composer draft hobkin drives for the user (013-hobkin-access). The window carries each out.
   const nudge = new Nudges({ onChange: publish })
+  // hobkin's application while it is open. Declared before the reviews, which read through it as they are made.
+  const hobkin = () => {
+    if (!owner.app) throw new Unavailable(whyNotLive(owner.state))
+    return owner.app
+  }
   // An agent's last steps stay readable after it has finished, though hobkin drops them (011-work A3).
   const activity = new ActivityKeeper()
   // Work mode for the Work screen and Change Review, from the snapshot with hobkin's own rules and hobkin's items (011-work).
@@ -401,10 +406,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const sync = new StateSync(facts())
   const lookAgain = () => void signIn.refresh().catch((error: unknown) => log(`Could not ask Pi about models: ${error instanceof Error ? error.message : String(error)}`))
 
-  const hobkin = () => {
-    if (!owner.app) throw new Unavailable(whyNotLive(owner.state))
-    return owner.app
-  }
   const limits = () => {
     if (owner.state.state !== 'live') throw new Unavailable(whyNotLive(owner.state))
     return owner.state.limits

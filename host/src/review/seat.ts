@@ -140,6 +140,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
   const hosts = codeHostsSeat(seat)
   // This side learns the named hosts' pages at once, when hobkin is open, so their pull requests read as reviews.
   try {
+    seat.data()
     hosts.named()
   } catch {
     // hobkin is not open yet: they are learned the first time the file is read.

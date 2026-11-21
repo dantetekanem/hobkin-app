@@ -4,6 +4,15 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
 
+test('a host start logs nothing', async (t) => {
+  const lines: string[] = []
+  const host = await hostFor(t, { log: (line) => lines.push(line) })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.live()
+  assert.deepEqual(lines, [])
+})
+
 test('opens an empty home and sends the first state', async (t) => {
   const root = join(temporaryDirectory(t), 'home')
   assert.equal(existsSync(root), false)
