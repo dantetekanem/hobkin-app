@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { centeredOn, MOST_ROWS, ROW, rowsInView, rowTop, stepped, viewHeight, type DockShape } from '../src/app/dock-rows.ts'
+import { centeredOn, followedAgent, MOST_ROWS, ROW, rowsInView, rowTop, stepped, viewHeight, type DockShape } from '../src/app/dock-rows.ts'
 
 /** The dock's list as the user walks it: what Up and Down select, where the list scrolls, and which rows it mounts. */
 function walk(shape: DockShape) {
@@ -50,4 +50,17 @@ test('100 agents mount six rows and the keys walk all of them', () => {
   }
   // A short list mounts every row.
   assert.deepEqual(rowsInView({ durable: 1, others: 2, row: ROW }, 0, null), [0, 1, 2])
+})
+
+test('an agent opened before the list has it is followed once the list has it, and only then', () => {
+  const listed = (...ids: string[]) => ids.map((id) => ({ id }))
+  // The view opens the new hobkin at once; the list that the dock reads has it up to 200 ms later.
+  const opened = followedAgent(true, 'new', listed('a', 'b'))
+  const arrived = followedAgent(true, 'new', listed('a', 'b', 'new'))
+  assert.equal(opened, null)
+  assert.equal(arrived, 'new')
+  // The list moving it to another place is not a reason to follow it again.
+  assert.equal(followedAgent(true, 'new', listed('new', 'a', 'b')), arrived)
+  // Off the agent's screen the dock follows nothing.
+  assert.equal(followedAgent(false, 'new', listed('new')), null)
 })

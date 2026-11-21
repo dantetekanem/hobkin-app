@@ -82,3 +82,11 @@ export function stepped(current: number, key: 'ArrowUp' | 'ArrowDown', count: nu
   if (key === 'ArrowDown') return Math.min(current + 1, count - 1)
   return current === 0 ? 'input' : current - 1
 }
+
+/**
+ * The agent the list brings to the middle: the one on the canvas, once the list has it. An agent opened at once, as a
+ * new hobkin is, reaches the list a moment later, and is followed then. Its place changing is no reason to follow it again.
+ */
+export function followedAgent(onAgent: boolean, openAgent: string | null, agents: readonly { id: string }[]): string | null {
+  return onAgent && openAgent !== null && agents.some((agent) => agent.id === openAgent) ? openAgent : null
+}

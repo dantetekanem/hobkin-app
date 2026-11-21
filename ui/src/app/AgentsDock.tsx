@@ -12,7 +12,7 @@ import { agentEntry } from '@/features/work/agent-entry.ts'
 import { childrenSummary, helpersNow, HOBKIN_HUE } from '@/features/work/child-summary.ts'
 import { useMainChildren } from '@/features/work/children.ts'
 import { cn } from '@/lib/utils.ts'
-import { centeredOn, dockHeight, headsOf, listHeight, ROW, rowsInView, rowTop, stepped, type DockShape } from './dock-rows.ts'
+import { centeredOn, dockHeight, followedAgent, headsOf, listHeight, ROW, rowsInView, rowTop, stepped, type DockShape } from './dock-rows.ts'
 import { requestCanvasFocus } from './focus.ts'
 import { agentControls, askAgent, useAgentControl, useAgentWords, useRunningAgents, type RunningAgent } from './running-agents.ts'
 import { type Tier } from './sample.ts'
@@ -94,10 +94,12 @@ export function AgentsDock() {
     const height = element ? Number.parseFloat(getComputedStyle(element).height) : 0
     if (height > 0) setRow(height)
   }, [hasRows])
-  // Whatever chose the agent on the canvas, the list brings its row to the middle, drawn there before the page shows it.
+  // Whatever chose the agent on the canvas, the list brings its row to the middle, drawn there before the page shows it,
+  // as soon as the list has it.
+  const followed = followedAgent(onAgent, openAgent, agents)
   useLayoutEffect(() => {
-    if (onAgent && openAgent) follow(agents.findIndex((agent) => agent.id === openAgent))
-  }, [onAgent, openAgent])
+    if (followed) follow(agents.findIndex((agent) => agent.id === followed))
+  }, [followed])
 
   /** Selection is visible immediately; browser-defined smooth scrolling has no entry deadline. */
   const follow = (index: number) => {
