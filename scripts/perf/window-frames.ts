@@ -44,10 +44,11 @@ registerHooks({ resolve: (specifier, context, next) => next(specifier.startsWith
 const storage = new Map<string, string>()
 const localStorage = { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => void storage.set(key, value), removeItem: (key: string) => void storage.delete(key) }
 const frames: FrameRequestCallback[] = []
+const requestAnimationFrame = (run: FrameRequestCallback) => frames.push(run)
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: localStorage })
 Object.assign(globalThis, {
-  window: { localStorage, HTMLIFrameElement: class {} },
-  requestAnimationFrame: (run: FrameRequestCallback) => frames.push(run),
+  window: { localStorage, requestAnimationFrame, HTMLIFrameElement: class {} },
+  requestAnimationFrame,
   cancelAnimationFrame: () => {},
   IS_REACT_ACT_ENVIRONMENT: false,
 })

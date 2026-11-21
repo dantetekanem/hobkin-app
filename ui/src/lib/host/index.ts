@@ -14,6 +14,8 @@ export {
   useHost,
   useHostEqual,
   useHostKept,
+  useListHost,
+  useListHostKept,
   useMainModel,
   useModels,
   usePendingQuestion,

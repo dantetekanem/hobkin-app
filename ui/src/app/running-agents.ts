@@ -10,7 +10,7 @@ import { listedAgents, wordsOf, type ListedAgent } from '@/features/hobkins/list
 import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import { hasHost, keepEachEqual, sameAgentsQuietly, sameFields } from '@/lib/host/frame.ts'
-import { hostStore, useHasHost, useHost, useHostEqual, useHostKept } from '@/lib/host/index.ts'
+import { hostStore, useHasHost, useHostEqual, useListHost, useListHostKept } from '@/lib/host/index.ts'
 import { agentQuestionId, answeredAgents, nextAsking, waitingFirst } from './asking.ts'
 import { useView } from './view-store.ts'
 
@@ -89,14 +89,15 @@ function running(limit: number, answered: readonly string[]): RunningAgent[] {
 }
 
 /**
- * hobkin's agents with a host: the user's durable hobkins, then every run at work that is not the main conversation.
+ * hobkin's agents with a host: the user's durable hobkins, then every run at work that is not the main conversation,
+ * taken from the host at most five times a second (`listStore`). The open agent's page follows every frame (`useAgent`).
  * Each agent keeps its identity while it says the same, and the list while every agent does, so a row draws again
  * only for its own agent. `withUpdate` says whether the reader draws an agent's latest words: one that does not is
  * left alone while only those change, which is most of the time while agents stream.
  */
 function useHostedAgents(withUpdate: boolean): RunningAgent[] {
   const same = withUpdate ? sameFields : sameAgentsQuietly
-  return useHostKept((state) => listedAgents(state.snapshot), (held, next) => keepEachEqual(held, next, same) as RunningAgent[])
+  return useListHostKept((state) => listedAgents(state.snapshot), (held, next) => keepEachEqual(held, next, same) as RunningAgent[])
 }
 
 /** The agents at work. Pass `withUpdate` only to draw what each said last: the others do not draw again as it changes. */
@@ -123,11 +124,12 @@ export function useAgent(id: string | null): RunningAgent | undefined {
 
 /**
  * What one agent of the list said last, in one line, for its row: read from that agent alone (`wordsOf`), so a row
- * costs a lookup per host message, not the whole list. Without a host, the sample agent's own words.
+ * costs a lookup, not the whole list. It takes new words with the list, at most five times a second. Without a host,
+ * the sample agent's own words.
  */
 export function useAgentWords(agent: Pick<RunningAgent, 'id' | 'update'>): string | undefined {
   const live = useHasHost()
-  const said = useHost((state) => (live ? wordsOf(state.snapshot, agent.id) : undefined))
+  const said = useListHost((state) => (live ? wordsOf(state.snapshot, agent.id) : undefined))
   return live ? said : agent.update
 }
 

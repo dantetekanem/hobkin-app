@@ -1,5 +1,6 @@
 import { useMemo, useRef } from 'react'
 import { useStore } from 'zustand'
+import type { StoreApi } from 'zustand/vanilla'
 import { sampleAgents, sampleModels, sampleProjects, sampleSessions, sampleStatus, type SampleAgent, type SampleProject, type SampleSession } from '@/app/sample.ts'
 import { GITHUB_UNKNOWN, sampleGitHub, type GitHubState } from '#shared/protocol/github.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
@@ -7,12 +8,21 @@ import type { ProofsState } from '#shared/protocol/proofs.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { hostStore } from './client.ts'
+import { listStore, screenStore } from './screen.ts'
 import { actionItemCountFrom, agentsFrom, connectionFrom, hasHost, keepEachEqual, keepEqual, mainModelFrom, projectsFrom, sameAgentsQuietly, type Connection } from './frame.ts'
 import { canUseModel, type HostState } from './state.ts'
 
-/** Reads the host's state. The component draws again only when what it selected changes. */
+/**
+ * Reads the host's state as the screen draws it, once per animation frame and not while the window is hidden
+ * (`screen.ts`). The component draws again only when what it selected changes.
+ */
 export function useHost<Selected>(selector: (state: HostState) => Selected): Selected {
-  return useStore(hostStore, selector)
+  return useStore(screenStore, selector)
+}
+
+/** Like `useHost`, for a reader that lists agents: it takes the host's state at most five times a second. */
+export function useListHost<Selected>(selector: (state: HostState) => Selected): Selected {
+  return useStore(listStore, selector)
 }
 
 /**
@@ -25,8 +35,17 @@ export function useHostEqual<Selected>(selector: (state: HostState) => Selected,
 
 /** Like `useHostEqual`, with `keep` choosing what stays of the value held: a list can keep each of its items that says the same. */
 export function useHostKept<Selected>(selector: (state: HostState) => Selected, keep: (held: Selected, next: Selected) => Selected): Selected {
+  return useKept(screenStore, selector, keep)
+}
+
+/** Like `useHostKept`, for a reader that lists agents: it takes the host's state at most five times a second. */
+export function useListHostKept<Selected>(selector: (state: HostState) => Selected, keep: (held: Selected, next: Selected) => Selected): Selected {
+  return useKept(listStore, selector, keep)
+}
+
+function useKept<Selected>(store: StoreApi<HostState>, selector: (state: HostState) => Selected, keep: (held: Selected, next: Selected) => Selected): Selected {
   const held = useRef<{ value: Selected } | null>(null)
-  return useStore(hostStore, (state) => {
+  return useStore(store, (state) => {
     const value = held.current ? keep(held.current.value, selector(state)) : selector(state)
     held.current = { value }
     return value
@@ -51,13 +70,14 @@ const hostAgents = (state: HostState) => agentsFrom(state.snapshot)
 const keepQuietly = (held: SampleAgent[], next: SampleAgent[]) => keepEachEqual(held, next, sameAgentsQuietly) as SampleAgent[]
 
 /**
- * Every agent and routine running now. Each agent stays the one held while it says the same apart from its latest words
- * (`update`), and the list while every agent does, so a reader draws again when an agent starts or ends, or starts a
- * tool, not for each word the agents stream. A reader that draws `update` reads `useRunningAgents({ withUpdate: true })`.
+ * Every agent and routine running now, at most five times a second. Each agent stays the one held while it says the
+ * same apart from its latest words (`update`), and the list while every agent does, so a reader draws again when an
+ * agent starts or ends, or starts a tool, not for each word the agents stream. A reader that draws `update` reads
+ * `useRunningAgents({ withUpdate: true })`.
  */
 export function useAgents(): SampleAgent[] {
   const live = useHasHost()
-  const hosted = useHostKept(hostAgents, keepQuietly)
+  const hosted = useListHostKept(hostAgents, keepQuietly)
   return live ? hosted : sampleAgents
 }
 
