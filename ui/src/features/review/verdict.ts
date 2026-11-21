@@ -165,17 +165,17 @@ export const VERDICT_CHOICES: Record<'change' | 'pull', readonly VerdictChoice[]
     { verdict: 'approve-merge', label: 'Approve and merge', doing: 'Merging…', keys: 'M' },
     { verdict: 'request-changes', label: 'Send fixes', doing: 'Sending…', keys: 'X' },
     // The no. It has no key of its own, so it is never one slip away: it is clicked, or walked to, and then confirmed.
-    { verdict: 'discard', label: 'Discard', doing: 'Discarding…' },
+    { verdict: 'discard', label: 'Remove', doing: 'Removing…' },
     // The no, and its branch deleted too. Last, and with no key either.
-    { verdict: 'discard-branch', label: 'Discard and delete branch', doing: 'Deleting…' },
+    { verdict: 'discard-branch', label: 'Remove and delete branch', doing: 'Deleting…' },
   ],
   pull: [
     { verdict: 'approve', label: 'Approve', doing: 'Posting…', keys: 'A' },
     { verdict: 'approve-merge', label: 'Approve and merge', doing: 'Merging…', keys: 'M' },
     // A pull request is only commented on or approved: the user does not send one back from here.
     { verdict: 'comment', label: 'Comment', doing: 'Posting…' },
-    { verdict: 'discard', label: 'Discard', doing: 'Closing…' },
-    { verdict: 'discard-branch', label: 'Discard and delete branch', doing: 'Deleting…' },
+    { verdict: 'discard', label: 'Remove', doing: 'Closing…' },
+    { verdict: 'discard-branch', label: 'Remove and delete branch', doing: 'Deleting…' },
   ],
 }
 

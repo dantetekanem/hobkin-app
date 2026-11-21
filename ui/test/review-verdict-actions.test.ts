@@ -240,10 +240,10 @@ test("a pull request's verdict takes only the user's own comments, and a finishe
   assert.deepEqual(verdictComments(CHANGE, notes), ['mine', 'hobkins'])
 })
 
-test('Discard comes after every yes for a finished change and for a pull request, shown before it goes, and takes no comments with it', async () => {
+test('Remove comes after every yes for a finished change and for a pull request, shown before it goes, and takes no comments with it', async () => {
   for (const [id, kind] of [[CHANGE, 'change'], [PULL, 'pull']] as const) {
     const no = VERDICT_CHOICES[kind].at(-2)!
-    assert.deepEqual([no.verdict, no.label, no.keys], ['discard', 'Discard', undefined], `${kind}: it comes after the yeses and no single key gives it`)
+    assert.deepEqual([no.verdict, no.label, no.keys], ['discard', 'Remove', undefined], `${kind}: it comes after the yeses and no single key gives it`)
 
     const sent: string[][] = []
     const { choices, calls } = panel(id, host, { comments: () => ['n1'], markSent: (ids) => sent.push([...ids]) })
@@ -261,10 +261,10 @@ test('Discard comes after every yes for a finished change and for a pull request
   }
 })
 
-test('Discard and delete branch is the last choice for both kinds, with no key of its own, shown before it goes, and takes no comments with it', async () => {
+test('Remove and delete branch is the last choice for both kinds, with no key of its own, shown before it goes, and takes no comments with it', async () => {
   for (const [id, kind] of [[CHANGE, 'change'], [PULL, 'pull']] as const) {
     const last = VERDICT_CHOICES[kind].at(-1)!
-    assert.deepEqual([last.verdict, last.label, last.keys], ['discard-branch', 'Discard and delete branch', undefined], `${kind}: it is last and no single key gives it`)
+    assert.deepEqual([last.verdict, last.label, last.keys], ['discard-branch', 'Remove and delete branch', undefined], `${kind}: it is last and no single key gives it`)
 
     const { choices, calls } = panel(id, host, { comments: () => ['n1'] })
     await choices.press('discard-branch')

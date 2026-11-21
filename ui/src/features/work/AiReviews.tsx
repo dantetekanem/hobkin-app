@@ -1,4 +1,4 @@
-import { Ellipsis, GitBranch, GitPullRequest, RotateCcw, Square, TriangleAlert } from 'lucide-react'
+import { GitBranch, GitPullRequest, RotateCcw, Square, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import { useView } from '@/app/view-store.ts'
@@ -13,7 +13,7 @@ import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { canReviewAgain, groupReviews, reviewToOpen, type ReviewRow } from './ai-reviews.ts'
 import { DeployWhy, ReviewBadge, ReviewProgress, SectionHeading } from './parts.tsx'
-import { createRowActions, moreTitle, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
+import { ACTION_LABEL, createRowActions, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
 import type { ReviewListView } from './use-review-list.ts'
 
 /**
@@ -23,7 +23,7 @@ import type { ReviewListView } from './use-review-list.ts'
  * it finished. A click opens it.
  * One that is ready or stopped can be run again from its row: the review is built once more at the change's commit.
  * One that is waiting or running can be stopped from its row, alone: several run at a time.
- * The rarer actions sit behind one small "More" on the row: Remove, Discard, and Discard and delete branch.
+ * Under it, on every row that has them: Remove, and Remove and delete branch.
  */
 export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewListView }) {
   const groups = groupReviews(reviews.list)
@@ -101,7 +101,7 @@ function When({ row }: { row: ReviewRow }) {
  * "Review again" on a row: the host builds the review once more at the change's commit, tests and model pass
  * included, and the row moves to Running. It says so while the host is asked, and says why when the host refuses.
  */
-function ReviewAgain({ id, live, onAgain, more }: { id: string; live: boolean; onAgain: () => void; more?: ReactNode }) {
+function ReviewAgain({ id, live, onAgain }: { id: string; live: boolean; onAgain: () => void }) {
   const [asking, setAsking] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
 
@@ -126,7 +126,6 @@ function ReviewAgain({ id, live, onAgain, more }: { id: string; live: boolean; o
           {refused}
         </span>
       ) : null}
-      {more}
       <Button variant="outline" size="sm" data-stop="" disabled={asking} title="Builds this review again at the change's commit: its tests and one model pass." onClick={() => void again()} className="shrink-0">
         <RotateCcw aria-hidden="true" />
         {asking ? 'Starting…' : 'Review again'}
@@ -136,7 +135,7 @@ function ReviewAgain({ id, live, onAgain, more }: { id: string; live: boolean; o
 }
 
 /** "Stop" on a row that is waiting or running: the host stops that review alone, where it is, tests included. */
-function StopReview({ id, live, onStopped, more }: { id: string; live: boolean; onStopped: () => void; more?: ReactNode }) {
+function StopReview({ id, live, onStopped }: { id: string; live: boolean; onStopped: () => void }) {
   const [asking, setAsking] = useState(false)
   const [refused, setRefused] = useState<string | null>(null)
 
@@ -161,7 +160,6 @@ function StopReview({ id, live, onStopped, more }: { id: string; live: boolean; 
           {refused}
         </span>
       ) : null}
-      {more}
       <Button variant="outline" size="sm" data-stop="" disabled={asking} title="Stops this review where it is. Others keep running." onClick={() => void stop()} className="shrink-0">
         <Square aria-hidden="true" className="fill-current" />
         {asking ? 'Stopping…' : 'Stop'}
@@ -178,26 +176,8 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
   const people = usePullPeople(item.id, live && item.kind === 'pull')
   const byLine = item.kind === 'pull' ? byLineWords(people ?? peopleOfOwner(item.owner)) : null
   const again = canReviewAgain(row)
-  const [more, setMore] = useState(false)
-  const toggle = useRef<HTMLButtonElement>(null)
-  // "More" sits before the row's main button, so that button keeps the right edge the time and the badge hold. A row
-  // with nothing in it, as someone else's pull request while its review runs, has none.
-  const held = rowActions(row)
-  const moreToggle = held.length === 0 ? null : (
-    <Button
-      ref={toggle}
-      variant="ghost"
-      size="icon-sm"
-      data-stop=""
-      aria-expanded={more}
-      aria-label={more ? 'Fewer actions' : 'More actions'}
-      title={moreTitle(held)}
-      onClick={() => setMore((open) => !open)}
-      className="shrink-0"
-    >
-      <Ellipsis aria-hidden="true" />
-    </Button>
-  )
+  // A row with no action, as someone else's pull request while its review runs, has no row of them.
+  const actions = rowActions(row)
   return (
     // The row is the card: opening it and running it again are two buttons, side by side, never one inside the other.
     <li className="flex flex-col rounded-3xl bg-background transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 has-[[data-review-id]:focus-visible]:bg-tone-2">
@@ -241,37 +221,25 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
         {row.summary ? <DeployWhy summary={row.summary} head={item.head} /> : null}
         {row.group === 'failed' ? <span className="min-w-0 text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}
         {row.group === 'unmerged' ? <span className={row.item.mergeAsked?.state === 'failed' ? 'min-w-0 text-[14px] leading-snug text-bad-fg' : 'min-w-0 text-[14px] leading-snug text-muted-foreground'}>{row.line}</span> : null}
-        {again ? <ReviewAgain id={item.id} live={live} onAgain={onAgain} more={moreToggle} /> : <StopReview id={item.id} live={live} onStopped={onAgain} more={moreToggle} />}
+        {again ? <ReviewAgain id={item.id} live={live} onAgain={onAgain} /> : <StopReview id={item.id} live={live} onStopped={onAgain} />}
       </div>
-      {more ? (
-        <RowMore
-          row={row}
-          live={live}
-          onChanged={onAgain}
-          onClose={() => {
-            setMore(false)
-            toggle.current?.focus({ preventScroll: true })
-          }}
-        />
-      ) : null}
+      {actions.length ? <RowActions row={row} actions={actions} live={live} onChanged={onAgain} /> : null}
     </li>
   )
 }
 
-const ACTION_LABEL: Record<RowAction, string> = { remove: 'Remove', discard: 'Discard', 'discard-branch': 'Discard and delete branch' }
-
-/** Sample rows have no host: an action says so on its second click, and nothing is removed or discarded. */
+/** Sample rows have no host: an action says so on its second click, and nothing is removed. */
 const sampleOnly = (async () => {
-  throw new Error('This is sample data, so nothing is removed or discarded here.')
+  throw new Error('This is sample data, so nothing is removed here.')
 }) as RowCommands
 
 /**
- * The rarer actions of a row, opened in place by "More" (spec 032). Remove takes the review out of this list and nothing
- * else. Discard and Discard and delete branch are the review's own noes, as its panel gives them, without opening it.
+ * A row's actions, always shown under it (spec 032): Remove and Remove and delete branch, the review's own noes as its
+ * panel gives them, without opening it, or the plain Remove that takes the review out of this list and nothing else.
  * Each asks first: the first click says what it will do, a second within ten seconds does it, and after that it goes
- * back. The keyboard lands on the first of them; Escape takes back the one waiting, then closes them.
+ * back. Escape takes back the one waiting. A button keeps its width while it asks, so the one beside it never moves.
  */
-function RowMore({ row, live, onChanged, onClose }: { row: ReviewRow; live: boolean; onChanged: () => void; onClose: () => void }) {
+function RowActions({ row, actions: offered, live, onChanged }: { row: ReviewRow; actions: RowAction[]; live: boolean; onChanged: () => void }) {
   const { item } = row
   // Read when the host has done one, so a list that reads itself again with a new function never starts this over.
   const changed = useRef(onChanged)
@@ -286,8 +254,6 @@ function RowMore({ row, live, onChanged, onClose }: { row: ReviewRow; live: bool
   const armed: RowAction | null = removal.armed ? 'remove' : ((flow.preview?.verdict as RowAction | undefined) ?? null)
   // The action whose second click the host is doing now.
   const [doing, setDoing] = useState<RowAction | null>(null)
-  const first = useRef<HTMLButtonElement>(null)
-  useEffect(() => first.current?.focus({ preventScroll: true }), [])
 
   const press = async (action: RowAction) => {
     if (armed === action) setDoing(action)
@@ -301,21 +267,19 @@ function RowMore({ row, live, onChanged, onClose }: { row: ReviewRow; live: bool
   return (
     <div
       role="group"
-      aria-label={`More for ${item.title}`}
-      className="flex flex-col gap-2.5 px-5 pb-4"
+      aria-label={`Actions for ${item.title}`}
+      className="flex flex-col px-5 pb-4"
       onKeyDown={(event) => {
-        if (event.key !== 'Escape') return
+        if (event.key !== 'Escape' || !actions.armed()) return
         event.preventDefault()
         event.stopPropagation()
-        if (actions.armed()) actions.cancel()
-        else onClose()
+        actions.cancel()
       }}
     >
       <div className="flex flex-wrap items-center gap-2">
-        {rowActions(row).map((action, index) => (
+        {offered.map((action) => (
           <Button
             key={action}
-            ref={index === 0 ? first : undefined}
             variant="outline"
             size="sm"
             data-stop=""
@@ -327,7 +291,11 @@ function RowMore({ row, live, onChanged, onClose }: { row: ReviewRow; live: bool
             onClick={() => void press(action)}
             className={cn('shrink-0', action !== 'remove' && 'text-destructive hover:text-destructive')}
           >
-            {armed === action ? 'Click again to confirm' : ACTION_LABEL[action]}
+            {/* Both words hold the button's place; only the one that applies shows, and only it is read. */}
+            <span className="grid justify-items-center">
+              <span className={cn('col-start-1 row-start-1', armed === action && 'invisible')}>{ACTION_LABEL[action]}</span>
+              <span className={cn('col-start-1 row-start-1', armed !== action && 'invisible')}>Click again to confirm</span>
+            </span>
           </Button>
         ))}
       </div>
@@ -374,10 +342,10 @@ function RowSaid({ kind, removal, flow, armed, doing }: {
       </div>
     )
   } else if (flow.message) said = <p className="text-pretty">{flow.message}</p>
-  if (!said) return null
+  // The status region is always there, so what it comes to say is read out; only its words come and go.
   return (
-    <div role="status" className="max-w-[72ch] rounded-xl bg-surface-2 px-3 py-2.5 text-[14px] leading-[1.45] [overflow-wrap:anywhere]">
-      {said}
+    <div role="status">
+      {said ? <div className="mt-2.5 max-w-[72ch] rounded-xl bg-surface-2 px-3 py-2.5 text-[14px] leading-[1.45] [overflow-wrap:anywhere]">{said}</div> : null}
     </div>
   )
 }

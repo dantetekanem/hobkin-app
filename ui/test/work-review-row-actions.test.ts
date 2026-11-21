@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { ReviewListItem } from '#shared/review/status.ts'
 import { CONFIRM_MS } from '../src/features/review/verdict.ts'
 import { rowsOf } from '../src/features/work/ai-reviews.ts'
-import { createRowActions, moreTitle, rowActions, type RowCommands } from '../src/features/work/review-row-actions.ts'
+import { createRowActions, rowActions, type RowCommands } from '../src/features/work/review-row-actions.ts'
 
 const HEAD = '7d02c99f8c61be4291e0c2046d29787cbc1c010a'
 const item = (id: string, over: Partial<ReviewListItem> = {}): ReviewListItem => ({ id, kind: 'change', title: id, project: 'hobkin', head: HEAD, state: 'ready', phase: null, error: null, updatedAt: '2026-11-13T10:00:00Z', ...over })
@@ -24,20 +24,22 @@ function row(id: string, { head = HEAD as string | null, refuse = null as string
   return { actions, calls, changed: () => changed }
 }
 
-test('a row offers Remove, Discard and Discard and delete branch, and no Remove while its review runs', () => {
-  const [running, ready, failed] = rowsOf({
+test('a row says no with Remove and Remove and delete branch, running or not; one whose review was never built offers Remove alone', () => {
+  const [running, ready, unbuilt, failed] = rowsOf({
     reviews: [
       item('change:hobkin:a1', { assessment: { state: 'running', head: HEAD, percent: 10, startedAt: '2026-11-13T10:00:00Z' } }),
       item('change:hobkin:b1', { updatedAt: '2026-11-13T09:00:00Z' }),
+      item('change:hobkin:c1', { state: 'failed', error: 'git could not read it', updatedAt: '2026-11-13T08:30:00Z' }),
       item('pr:acme/shop/482', { kind: 'pull', state: 'failed', error: 'gh is not signed in', updatedAt: '2026-11-13T08:00:00Z' }),
     ],
   })
   assert.deepEqual(rowActions(running!), ['discard', 'discard-branch'])
-  assert.deepEqual(rowActions(ready!), ['remove', 'discard', 'discard-branch'])
+  assert.deepEqual(rowActions(ready!), ['discard', 'discard-branch'], 'the no takes it off the list, so there is no second Remove')
+  assert.deepEqual(rowActions(unbuilt!), ['remove'], 'with no review to say no from, Remove only takes it off the list')
   assert.deepEqual(rowActions(failed!), ['remove'], 'a pull request nobody recorded as the user’s offers no discard')
 })
 
-test("only the user's own pull request offers its noes; someone else's offers Remove alone, and More is named by what it holds", () => {
+test("only the user's own pull request offers its noes; someone else's offers Remove alone", () => {
   const rows = rowsOf({
     reviews: [
       item('pr:acme/shop/1', { kind: 'pull', owner: { author: 'me', mine: true } }),
@@ -46,8 +48,7 @@ test("only the user's own pull request offers its noes; someone else's offers Re
     ],
   })
   const [mine, theirs, building] = ['pr:acme/shop/1', 'pr:acme/shop/2', 'pr:acme/shop/3'].map((id) => rows.find((entry) => entry.item.id === id))
-  assert.deepEqual([rowActions(mine!), rowActions(theirs!), rowActions(building!)], [['remove', 'discard', 'discard-branch'], ['remove'], []])
-  assert.deepEqual([moreTitle(rowActions(mine!)), moreTitle(rowActions(theirs!)), moreTitle(['discard', 'discard-branch'])], ['Remove, Discard, or Discard and delete branch', 'Remove', 'Discard, or Discard and delete branch'])
+  assert.deepEqual([rowActions(mine!), rowActions(theirs!), rowActions(building!)], [['discard', 'discard-branch'], ['remove'], []])
 })
 
 test('Remove asks in place: the first click only asks, a second takes the review out of the list alone, and after ten seconds it goes back', async (t) => {
@@ -75,7 +76,7 @@ test("a removal the host refuses shows its reason in the row, and the list is no
   assert.equal(changed(), 0)
 })
 
-test('Discard and Discard and delete branch from a row are the review’s own verdicts: shown by the host first, done with its token on the second click', async () => {
+test('Remove and Remove and delete branch from a row are the review’s own verdicts: shown by the host first, done with its token on the second click', async () => {
   for (const verdict of ['discard', 'discard-branch'] as const) {
     const { actions, calls, changed } = row('pr:acme/shop/482')
     await actions.press(verdict)
