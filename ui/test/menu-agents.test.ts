@@ -3,8 +3,11 @@ import { test } from 'node:test'
 import { estimatedRow, rowPieces, type RowGeometry, type RowPiece } from '../src/app/menu-agents.ts'
 
 /** How wide the pieces lay out, gaps between them included: as wide as the whole row when every gap keeps its items' places. */
-const laidOut = (pieces: RowPiece[], geometry: RowGeometry, open: number) =>
-  pieces.reduce((sum, piece) => sum + (piece.kind === 'gap' ? piece.width : piece.index === open ? geometry.open : geometry.item), 0) + (pieces.length - 1) * geometry.gap
+function laidOut(pieces: RowPiece[], geometry: RowGeometry, open: number): number {
+  const widthOf = (piece: RowPiece) => (piece.kind === 'gap' ? piece.width : piece.index === open ? geometry.open : geometry.item)
+  const gaps = (pieces.length - 1) * geometry.gap
+  return pieces.reduce((sum, piece) => sum + widthOf(piece), 0) + gaps
+}
 
 test("the menu's agents row draws the items on screen and the open one, and its gaps keep every other item in place", () => {
   const width = 1400

@@ -110,7 +110,16 @@ function liveEntryOf(reply: LiveReply): MessageEntry | null {
   let entry = liveEntries.get(reply)
   if (entry === undefined) {
     const text = replyText(reply)
-    entry = text.trim() ? { kind: 'message', key: `live:${reply.serial}`, role: 'assistant', text, at: null, ...(reply.done ? {} : { state: 'writing' as const }) } : null
+    entry = text.trim()
+      ? {
+          kind: 'message',
+          key: `live:${reply.serial}`,
+          role: 'assistant',
+          text,
+          at: null,
+          ...(reply.done ? {} : { state: 'writing' as const }),
+        }
+      : null
     liveEntries.set(reply, entry)
   }
   return entry
@@ -119,7 +128,15 @@ function liveEntryOf(reply: LiveReply): MessageEntry | null {
 function sentEntryOf(sent: OutboxEntry): MessageEntry {
   let entry = sentEntries.get(sent)
   if (!entry) {
-    entry = { kind: 'message', key: `outbox:${sent.id}`, role: 'user', ...asked(sent.text, sent.about), at: sent.at, ...(sent.images ? { images: sent.images } : {}), ...(sent.accepted ? {} : { state: 'queued' as const }) }
+    entry = {
+      kind: 'message',
+      key: `outbox:${sent.id}`,
+      role: 'user',
+      ...asked(sent.text, sent.about),
+      at: sent.at,
+      ...(sent.images ? { images: sent.images } : {}),
+      ...(sent.accepted ? {} : { state: 'queued' as const }),
+    }
     sentEntries.set(sent, entry)
   }
   return entry

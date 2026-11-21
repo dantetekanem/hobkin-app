@@ -256,11 +256,21 @@ function measuredRow(): RowGeometry | null {
   const item = row?.querySelector<HTMLElement>('[data-menu-agent]:not([aria-current])')?.offsetWidth
   if (!row || item === undefined) return null
   const open = row.querySelector<HTMLElement>('[data-menu-agent][aria-current]')?.offsetWidth ?? item
-  return { left: row.getBoundingClientRect().left, width: window.innerWidth, item, open, gap: Number.parseFloat(getComputedStyle(row).columnGap) || 0 }
+  return {
+    left: row.getBoundingClientRect().left,
+    width: window.innerWidth,
+    item,
+    open,
+    gap: Number.parseFloat(getComputedStyle(row).columnGap) || 0,
+  }
 }
 
 const sameRow = (left: RowGeometry, right: RowGeometry) =>
-  left.left === right.left && left.width === right.width && left.item === right.item && left.open === right.open && left.gap === right.gap
+  left.left === right.left &&
+  left.width === right.width &&
+  left.item === right.item &&
+  left.open === right.open &&
+  left.gap === right.gap
 
 /**
  * The agents working now. The one on the canvas carries its name, and one that is waiting for the user says so. With
@@ -278,14 +288,15 @@ function Agents({ drawn }: { drawn: object }) {
   const moved = useMemo(() => ({}), [drawn, agents.length, openAgent, openTitle])
   /** The agents the row has drawn. One of them coming on screen does not drop in again. */
   const known = useRef<ReadonlySet<string>>(new Set())
+  useEffect(() => {
+    known.current = new Set(agents.map((agent) => agent.id))
+  })
+
   const [geometry, setGeometry] = useState<RowGeometry | null>(null)
   const measure = () => {
     const next = measuredRow()
     if (next) setGeometry((current) => (current && sameRow(current, next) ? current : next))
   }
-  useEffect(() => {
-    known.current = new Set(agents.map((agent) => agent.id))
-  })
   // Read again whenever the row may have moved, before the page shows it, and while the menu's room changes size.
   useLayoutEffect(measure, [moved, geometry])
   useEffect(() => {
@@ -296,13 +307,12 @@ function Agents({ drawn }: { drawn: object }) {
     return () => observer.disconnect()
   }, [])
 
-  return rowPieces(agents.length, at, geometry ?? estimatedRow(agents.length, window.innerWidth)).map((piece) =>
-    piece.kind === 'gap' ? (
-      <span key={`gap:${piece.from}`} aria-hidden="true" className="shrink-0" style={{ width: piece.width }} />
-    ) : (
-      <AgentItem key={agents[piece.index]!.id} agent={agents[piece.index]!} index={piece.index} at={at} moved={moved} known={known} still={still} />
-    ),
-  )
+  const pieces = rowPieces(agents.length, at, geometry ?? estimatedRow(agents.length, window.innerWidth))
+  return pieces.map((piece) => {
+    if (piece.kind === 'gap') return <span key={`gap:${piece.from}`} aria-hidden="true" className="shrink-0" style={{ width: piece.width }} />
+    const agent = agents[piece.index]!
+    return <AgentItem key={agent.id} agent={agent} index={piece.index} at={at} moved={moved} known={known} still={still} />
+  })
 }
 
 interface AgentItemProps {

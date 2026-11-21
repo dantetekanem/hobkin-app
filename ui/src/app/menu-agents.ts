@@ -30,19 +30,24 @@ export function estimatedRow(count: number, width: number): RowGeometry {
 }
 
 /** The row's pieces in order: each item drawn, and a gap for each run of items that are not. */
-export function rowPieces(count: number, open: number, { left, width, item, open: wide, gap }: RowGeometry): RowPiece[] {
-  const pitch = item + gap
+export function rowPieces(count: number, open: number, geometry: RowGeometry): RowPiece[] {
+  const pitch = geometry.item + geometry.gap
   const margin = PAST_EDGE * pitch
+  // The items after the open one sit further right by as much as its name makes it wider.
+  const widening = geometry.open - geometry.item
   const pieces: RowPiece[] = []
+
   for (let index = 0; index < count; index++) {
-    const start = left + index * pitch + (open >= 0 && index > open ? wide - item : 0)
-    if (index === open || (start + item > -margin && start < width + margin)) {
+    const start = geometry.left + index * pitch + (open >= 0 && index > open ? widening : 0)
+    const onScreen = start + geometry.item > -margin && start < geometry.width + margin
+    if (index === open || onScreen) {
       pieces.push({ kind: 'agent', index })
       continue
     }
+
     const last = pieces.at(-1)
     if (last?.kind === 'gap') last.width += pitch
-    else pieces.push({ kind: 'gap', from: index, width: item })
+    else pieces.push({ kind: 'gap', from: index, width: geometry.item })
   }
   return pieces
 }

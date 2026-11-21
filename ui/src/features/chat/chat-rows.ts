@@ -12,10 +12,21 @@ const said = new WeakMap<Entry, string>()
 export function wordsOf(entry: Entry): string {
   let words = said.get(entry)
   if (words === undefined) {
-    words = entry.kind === 'shell' ? `shell\n${entry.command}\n${entry.text}` : entry.kind === 'message' ? `${entry.role}\n${entry.text}` : `${entry.tone}\n${entry.text}`
+    words = saying(entry)
     said.set(entry, words)
   }
   return words
+}
+
+function saying(entry: Entry): string {
+  switch (entry.kind) {
+    case 'shell':
+      return `shell\n${entry.command}\n${entry.text}`
+    case 'message':
+      return `${entry.role}\n${entry.text}`
+    case 'notice':
+      return `${entry.tone}\n${entry.text}`
+  }
 }
 
 /** A reply still held live: being written, or finished and waiting for hobkin to store it. Its blocks do the moving. */

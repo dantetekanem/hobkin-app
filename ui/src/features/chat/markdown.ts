@@ -113,7 +113,11 @@ const BLOCK_CHARS = 500
  */
 export function blocksOf(text: string, marks: readonly number[] = []): Block[] {
   const starts: number[] = []
-  for (const start of blockStarts(text)) if (!starts.length || start - starts.at(-1)! >= BLOCK_CHARS) starts.push(start)
+  for (const start of blockStarts(text)) {
+    const last = starts.at(-1)
+    if (last === undefined || start - last >= BLOCK_CHARS) starts.push(start)
+  }
+
   return starts.map((offset, key) => {
     const end = starts[key + 1] ?? text.length
     let before: number | undefined

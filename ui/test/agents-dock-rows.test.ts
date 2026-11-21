@@ -19,11 +19,18 @@ function walk(shape: DockShape) {
     }
     visits.push(at)
   }
-  // Down from an empty message enters the list on its first agent.
+  // Down from an empty message enters the list on its first agent, and Down walks on until the last.
   let at = 0
   look(at)
-  for (let next = stepped(at, 'ArrowDown', count); next !== at; next = stepped(at, 'ArrowDown', count)) look((at = next as number))
-  for (let next = stepped(at, 'ArrowUp', count); next !== 'input'; next = stepped(at, 'ArrowUp', count)) look((at = next))
+  for (let next = stepped(at, 'ArrowDown', count); next !== 'input' && next !== at; next = stepped(at, 'ArrowDown', count)) {
+    at = next
+    look(at)
+  }
+  // Up walks back to the first agent, and from there leaves for the input.
+  for (let next = stepped(at, 'ArrowUp', count); next !== 'input'; next = stepped(at, 'ArrowUp', count)) {
+    at = next
+    look(at)
+  }
   return visits
 }
 

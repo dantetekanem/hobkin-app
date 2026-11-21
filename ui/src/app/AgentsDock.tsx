@@ -88,12 +88,12 @@ export function AgentsDock() {
     known.current = present
   })
   // A row is as tall as its lines; the first one drawn says how tall, before the page shows the list.
-  const drawn = agents.length > 0
+  const hasRows = agents.length > 0
   useLayoutEffect(() => {
     const element = list.current?.querySelector('[data-agent-row]')
     const height = element ? Number.parseFloat(getComputedStyle(element).height) : 0
     if (height > 0) setRow(height)
-  }, [drawn])
+  }, [hasRows])
   // Whatever chose the agent on the canvas, the list brings its row to the middle, drawn there before the page shows it.
   useLayoutEffect(() => {
     if (onAgent && openAgent) follow(agents.findIndex((agent) => agent.id === openAgent))
