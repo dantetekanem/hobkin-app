@@ -195,19 +195,23 @@ export class HobkinRuntime {
   /**
    * Each run's bookkeeping, for what only counts and matches runs, as the scheduler's tick does every second: its id,
    * kind, status, routine, occurrence and harness, and whether it is Work's or a durable hobkin's, never its prompt or result.
-   * `evidenceDue` says whether a finished run still waits for its evidence (`collectEvidence` in compatibility.mjs), `finished` how many
-   * runs have finished, as the learner counts them, and `toTitle` whether an open hobkin is still named by its first message. Worked out once per commit, as `state()` encodes, and frozen, since every caller gets this same object.
+   * `evidenceDue` says whether a finished run still waits for its evidence (`collectEvidence` in compatibility.mjs), `finished` how
+   * many runs have finished, as the learner counts them, and `toTitle` whether an open hobkin is still named by its first message.
+   * Worked out once per commit, as `state()` encodes, and frozen, since every caller gets this same object.
    */
   async runIndex() {
     const document = await this.harness.snapshot(RuntimeDoc, this.root.id, context);
     if (document !== this.indexedDocument) {
       const runs = Object.entries(document.runs ?? {}).map(([id, { kind, status, scheduleId, scheduledAt, harnessId, work, hobkin }]) =>
         [id, Object.freeze({ id, kind, status, scheduleId, scheduledAt, harnessId, work: Boolean(work), hobkin: Boolean(hobkin) })]);
+      const records = Object.values(document.runs ?? {});
       const receipts = document.evidenceReceipts ?? {};
-      const evidenceDue = Object.values(document.runs ?? {}).some(run => run.status !== 'running' && !receipts[run.id]);
-      const finished = Object.values(document.runs ?? {}).filter(run => run.finishedAt).length;
-      const toTitle = Object.values(document.hobkins ?? {}).some(record => record.state !== 'ended' && record.titleBy === 'message');
-      this.indexed = Object.freeze({ runs: Object.freeze(Object.fromEntries(runs)), evidenceDue, finished, toTitle });
+      this.indexed = Object.freeze({
+        runs: Object.freeze(Object.fromEntries(runs)),
+        evidenceDue: records.some(run => run.status !== 'running' && !receipts[run.id]),
+        finished: records.filter(run => run.finishedAt).length,
+        toTitle: Object.values(document.hobkins ?? {}).some(record => record.state !== 'ended' && record.titleBy === 'message'),
+      });
       this.indexedDocument = document;
     }
     return this.indexed;

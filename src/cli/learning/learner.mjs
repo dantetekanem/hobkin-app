@@ -68,7 +68,11 @@ export class Learner {
   movedAt(finished) { return `${finished}:${this.telemetry.events.length}`; }
 
   /** Whether `settle` would make a real pass, from how many runs have finished, so a caller need not read every run to find out. */
-  due(finished) { return this.movedAt(finished) !== this.moved || this.now() - this.settledAt >= SETTLE_EVERY_MS; }
+  due(finished) {
+    const moved = this.movedAt(finished) !== this.moved;
+    const aged = this.now() - this.settledAt >= SETTLE_EVERY_MS;
+    return moved || aged;
+  }
 
   /** Cheap enough for every tick. A real pass waits for something to have moved, or for evidence to have aged. */
   settle({ runs, schedules, attention = [] }) {

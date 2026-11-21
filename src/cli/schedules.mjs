@@ -198,7 +198,8 @@ function parseRoutine(path, cadence) {
     if (!stat.isFile()) throw Error('routine must be a regular file, not a symlink');
     if (stat.size > (cadence === 'compatibility' ? 1048576 : 65536)) throw Error('routine is too large');
     const source = readFileSync(path, 'utf8');
-    return { schedule: cadence === 'compatibility' ? parseCompatibility(source, path) : parseSchedule(source, cadence, path) };
+    const schedule = cadence === 'compatibility' ? parseCompatibility(source, path) : parseSchedule(source, cadence, path);
+    return { schedule };
   } catch (error) {
     return { error: { path, message: error.message } };
   }

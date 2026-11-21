@@ -246,21 +246,24 @@ function oneLine(text, most) {
 // Every look at what is ready reads each finished branch's description, so each is read once per version of its file, or of its absence.
 const describedAs = new Map();
 
+/** The first paragraph of a description past its title, the issue line and headings, or null when there is none. */
+function describedBody(file) {
+  try {
+    const paragraphs = readFileSync(file, 'utf8')
+      .slice(0, MOST_DESCRIPTION_READ)
+      .split(/\n\s*\n/)
+      .map(part => part.trim())
+      .filter(Boolean);
+    return paragraphs.slice(1).find(part => !/^(#|issue id:)/i.test(part)) ?? null;
+  } catch {
+    // An item that wrote no description still has its summary.
+    return null;
+  }
+}
+
 /** What the work did, in its own words: the first paragraph of its description past the title, the issue line and headings, or else its summary. */
 function aboutOf(file, summary) {
-  const body = readVersioned(describedAs, file, () => {
-    try {
-      const paragraphs = readFileSync(file, 'utf8')
-        .slice(0, MOST_DESCRIPTION_READ)
-        .split(/\n\s*\n/)
-        .map(part => part.trim())
-        .filter(Boolean);
-      return paragraphs.slice(1).find(part => !/^(#|issue id:)/i.test(part)) ?? null;
-    } catch {
-      // An item that wrote no description still has its summary.
-      return null;
-    }
-  }, 1024);
+  const body = readVersioned(describedAs, file, () => describedBody(file), 1024);
   if (body) return oneLine(body, LONGEST_ABOUT);
   return summary ? oneLine(summary, LONGEST_ABOUT) : null;
 }

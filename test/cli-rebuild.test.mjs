@@ -46,7 +46,7 @@ test('a rebuild reads the runtime document once, a commit shows in the next one,
   // A caller that edits what a rebuild handed it changes nothing the next rebuild shows.
   shown.runs.length = 0;
   shown.usage.edited = true;
-  shown.schedules?.push?.({ id: 'edited' });
+  shown.schedules.push({ id: 'edited' });
   const again = await app.project();
   assert.ok(again.runs.some(run => run.id === 'one'));
   assert.equal(JSON.stringify(again.usage), usageText);

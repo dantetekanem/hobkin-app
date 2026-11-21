@@ -152,15 +152,21 @@ export async function retireTree({ repo, tree }) {
 
 export const currentBranch = repo => gitOrNothing(repo, 'branch', '--show-current');
 
+/** Where a checkout keeps its git data: its `.git` folder, or for a worktree, the folder its `.git` file names. */
+function gitFolder(repo) {
+  const dotGit = join(repo, '.git');
+  if (statSync(dotGit).isDirectory()) return dotGit;
+  const named = /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'));
+  return resolve(repo, named[1].trim());
+}
+
 /**
  * The branch a checkout is on, read from the HEAD file git keeps, so a look every second starts no git. Empty on a detached HEAD, as during
- * a rebase, as `git branch --show-current` says. A worktree's `.git` is a file naming its own git folder. Anything else asks git.
+ * a rebase, as `git branch --show-current` says. Anything else asks git.
  */
 export async function headBranch(repo) {
   try {
-    const dotGit = join(repo, '.git');
-    const folder = statSync(dotGit).isDirectory() ? dotGit : resolve(repo, /^gitdir: (.+)$/m.exec(readFileSync(dotGit, 'utf8'))[1].trim());
-    const head = readFileSync(join(folder, 'HEAD'), 'utf8').trim();
+    const head = readFileSync(join(gitFolder(repo), 'HEAD'), 'utf8').trim();
     const branch = /^ref: refs\/heads\/(.+)$/.exec(head)?.[1];
     if (branch) return branch;
     if (/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head)) return '';

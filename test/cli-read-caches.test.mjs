@@ -27,7 +27,8 @@ function fixture(t) {
   let missing = 0;
   t.mock.method(fs, 'readFileSync', (...args) => {
     const file = String(args[0]);
-    if (file.startsWith(root)) reads.set(file.slice(root.length + 1), (reads.get(file.slice(root.length + 1)) ?? 0) + 1);
+    const name = file.slice(root.length + 1);
+    if (file.startsWith(root)) reads.set(name, (reads.get(name) ?? 0) + 1);
     try {
       return original(...args);
     } catch (error) {
@@ -129,15 +130,15 @@ test('the mode, a project\'s state, the branch survey and the settings are read 
   writeMode(h.root, { enabled: true, queueNext: ['item:api:one'] });
   writeState(h.root, 'api', { lastLookAt: 'then' });
   atomicJson(join(h.root, 'work', 'unmerged.json'), { at: 'then', projects: {} });
-  const before = ['work/mode.json', 'work/api/state.json', 'work/unmerged.json', 'config.json'].map(h.reads);
+  const files = ['work/mode.json', 'work/api/state.json', 'work/unmerged.json', 'config.json'];
+  const before = new Map(files.map(file => [file, h.reads(file)]));
   for (let i = 0; i < 20; i++) {
     assert.equal(readMode(h.root).enabled, true);
     assert.equal(readState(h.root, 'api').lastLookAt, 'then');
     assert.equal(readUnmerged(h.root).at, 'then');
     assert.equal(learningEnabled(h.root), false);
   }
-  const after = ['work/mode.json', 'work/api/state.json', 'work/unmerged.json', 'config.json'].map(h.reads);
-  assert.deepEqual(after.map((n, i) => n - before[i] <= 1), [true, true, true, true], 'unchanged files are not read again');
+  for (const file of files) assert.ok(h.reads(file) - before.get(file) <= 1, `${file} is not read again while it is unchanged`);
   readMode(h.root).queueNext.push('item:api:two');
   readState(h.root, 'api').lastLookAt = 'changed';
   assert.deepEqual(readMode(h.root).queueNext, ['item:api:one'], 'each reader gets a copy of its own to change');

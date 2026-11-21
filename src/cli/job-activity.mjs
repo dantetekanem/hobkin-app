@@ -115,7 +115,8 @@ export class JobActivity {
     try {
       this.reduce(event);
       if (this.entries.length > this.most) {
-        for (const { id } of this.entries.splice(0, this.entries.length - this.most)) this.byId.delete(id);
+        const dropped = this.entries.splice(0, this.entries.length - this.most);
+        for (const { id } of dropped) this.byId.delete(id);
         this.changed();
       }
     } catch {
@@ -220,22 +221,29 @@ export class JobActivity {
    * copy, so a reader that compares by identity skips them. A list or copy handed out is never changed afterwards.
    */
   snapshot() {
-    if (this.shown && !this.whole && !this.touched.size) return this.shown;
-    if (!this.shown || this.whole) this.shown = this.entries.map(entry => this.copyOf(entry));
-    else {
-      // Entries only move when some are dropped, which builds the list whole, so the rest keep their places: a touched entry is replaced
-      // where it stands, found from the end where writing happens, and new ones follow.
-      const next = this.shown.slice();
-      for (const entry of this.touched) {
-        const index = this.entries.lastIndexOf(entry);
-        if (index !== -1 && index < next.length) next[index] = this.copyOf(entry);
-      }
-      for (let index = next.length; index < this.entries.length; index++) next.push(this.copyOf(this.entries[index]));
-      this.shown = next;
-    }
+    const unchanged = this.shown && !this.whole && !this.touched.size;
+    if (unchanged) return this.shown;
+
+    this.shown = !this.shown || this.whole ? this.entries.map(entry => this.copyOf(entry)) : this.patched(this.shown);
     this.touched.clear();
     this.whole = false;
     return this.shown;
+  }
+
+  /**
+   * `last` with a new copy of each entry written to since, where it stands, and the new entries after it. Entries only move when some are
+   * dropped, which builds the list whole, so everything else keeps its place. A touched entry is looked for from the end, where writing happens.
+   */
+  patched(last) {
+    const next = last.slice();
+    for (const entry of this.touched) {
+      const index = this.entries.lastIndexOf(entry);
+      if (index !== -1 && index < next.length) next[index] = this.copyOf(entry);
+    }
+    for (let index = next.length; index < this.entries.length; index++) {
+      next.push(this.copyOf(this.entries[index]));
+    }
+    return next;
   }
 
   copyOf(entry) {

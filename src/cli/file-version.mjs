@@ -23,9 +23,13 @@ export function copyJson(value) {
   if (Array.isArray(value)) return value.map(copyJson);
   const copy = {};
   for (const key of Object.keys(value)) {
+    const part = copyJson(value[key]);
     // JSON can name a key `__proto__`, which an assignment would take as the copy's prototype.
-    if (key === '__proto__') Object.defineProperty(copy, key, { value: copyJson(value[key]), enumerable: true, writable: true, configurable: true });
-    else copy[key] = copyJson(value[key]);
+    if (key === '__proto__') {
+      Object.defineProperty(copy, key, { value: part, enumerable: true, writable: true, configurable: true });
+    } else {
+      copy[key] = part;
+    }
   }
   return copy;
 }
@@ -38,9 +42,11 @@ export function readVersioned(kept, file, read, most = 256) {
   const version = fileVersion(file);
   const known = kept.get(file);
   if (known && known.version === version) return known.value;
+
   const value = deepFreeze(read());
   kept.delete(file);
-  if (version === fileVersion(file)) {
+  const unchangedWhileRead = version === fileVersion(file);
+  if (unchangedWhileRead) {
     kept.set(file, { version, value });
     if (kept.size > most) kept.delete(kept.keys().next().value);
   }

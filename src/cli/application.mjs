@@ -743,7 +743,9 @@ export class HobkinApplication {
    */
   usageOf(state, version) {
     const kept = this.keptUsage;
-    if (version && kept?.version === version && kept.data === this.ledger.data) return copyJson(kept.usage);
+    const unchanged = version && kept?.version === version && kept.data === this.ledger.data;
+    if (unchanged) return copyJson(kept.usage);
+
     const usage = this.ledger.sync(state);
     this.keptUsage = { version, data: this.ledger.data, usage: copyJson(usage) };
     return usage;

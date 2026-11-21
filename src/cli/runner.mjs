@@ -33,7 +33,10 @@ const keep = (kept, key, value) => {
 };
 
 function calendarFormatter(timeZone) {
-  return formatters.get(timeZone) ?? keep(formatters, timeZone, new Intl.DateTimeFormat('en-CA', {
+  const known = formatters.get(timeZone);
+  if (known) return known;
+
+  const formatter = new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
@@ -41,7 +44,8 @@ function calendarFormatter(timeZone) {
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
-  }));
+  });
+  return keep(formatters, timeZone, formatter);
 }
 
 /** The wall clock in `timeZone` at `time`, to the minute, as `partsAt` gives it. Frozen, since every caller in that minute gets it. */
