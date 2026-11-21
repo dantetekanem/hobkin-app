@@ -202,6 +202,17 @@
     outline-offset: 2px;
   }
 
+  /* What acts on a click says so under the pointer (spec 053). Tailwind 4 leaves a button with the arrow. */
+  button:not(:disabled),
+  a[href],
+  summary,
+  select,
+  label[for],
+  [data-opens],
+  :is([role='button'], [role='link'], [role='tab'], [role='menuitem'], [role='option'], [role='switch'], [role='checkbox'], [role='radio']):not([aria-disabled='true']) {
+    cursor: pointer;
+  }
+
   ::selection {
     background: color-mix(in oklab, var(--hb-accent) 55%, transparent);
     color: var(--hb-text);
@@ -279,6 +290,57 @@
     -webkit-user-select: none;
     user-select: none;
     cursor: default;
+  }
+
+  /*
+   * A row or card that acts on a click (spec 053): one hover, focus and pressed layer for all of them. The layer is
+   * drawn over the row's own background and moves nothing. Never put it on something a click does nothing to.
+   */
+  :where(.pressable) {
+    position: relative;
+  }
+
+  .pressable {
+    cursor: pointer;
+  }
+
+  .pressable::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--hb-text);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 120ms ease;
+  }
+
+  .pressable:hover::after {
+    opacity: 0.05;
+  }
+
+  .pressable:focus-visible::after {
+    opacity: 0.06;
+  }
+
+  .pressable:active::after {
+    opacity: 0.09;
+  }
+
+  /* The arrow at the end of a row that opens something. Its place is always kept: it only shows and hides. */
+  .open-arrow {
+    opacity: 0;
+    transform: translateX(-3px);
+    transition:
+      opacity 120ms ease,
+      transform 120ms ease;
+  }
+
+  .pressable:hover .open-arrow,
+  .pressable:focus-visible .open-arrow,
+  .pressable:focus-within .open-arrow {
+    opacity: 1;
+    transform: none;
   }
 
   /* Thin scrollbars that stay out of the way. */
