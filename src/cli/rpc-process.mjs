@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { atUtilityPriority } from './priority.mjs';
 
 export const clean = value => String(value ?? '').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
 
@@ -26,7 +27,9 @@ const reapAtExit = () => {
 export function startRpcProcess({
   command, args, cwd, env, ipc = false, onControl = () => {}, spawnProcess = spawn, signalProcess = signalGroup, maxRecordBytes = 1048576, maxKeptBytes = maxRecordBytes, name = 'Harness', onRecord = () => {}, onFail = () => {},
 }) {
-  const child = spawnProcess(command, args, {
+  // The system's own processes start at utility priority (`priority.mjs`). A stand-in that a caller passes gets the command as given.
+  const started = spawnProcess === spawn ? atUtilityPriority(command, args) : { command, args };
+  const child = spawnProcess(started.command, started.args, {
     cwd,
     shell: false,
     detached: process.platform !== 'win32',
