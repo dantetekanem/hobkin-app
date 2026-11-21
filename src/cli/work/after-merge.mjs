@@ -25,8 +25,22 @@ const flat = text => String(text ?? '').replace(/\s+/g, ' ').trim();
 const firstLine = text => String(text ?? '').trim().split('\n', 1)[0].trim();
 const atAWord = (text, most) => (text.length <= most ? text : `${text.slice(0, most - 1).replace(/\s*\S*$/, '')}…`);
 
-/** What fixed it, for the issue's closing comment: the PR the work merged as, or else the commit it landed as. */
-const fixedBy = ({ pr, landed, branch }) => pr ?? landed?.sha ?? branch;
+/** How a closing comment names other work: by its issue, else its PR, else its title. */
+function workNamed(other, { repo }) {
+  if (other.issue) return other.issue.repo === repo ? `#${other.issue.number}` : `${other.issue.repo}#${other.issue.number}`;
+  return /^https?:\/\//.test(other.pr ?? '') ? other.pr : `"${flat(other.title)}"`;
+}
+
+/**
+ * What fixed it, for the issue's closing comment: the PR the work merged as, or else the commit it landed as. A change that landed through
+ * another commit (`sameChange`) names that commit, and the other work it came with when there is one.
+ */
+function fixedBy({ pr, landed, branch, issue }, items) {
+  const same = landed?.sameChange;
+  if (!same) return pr ?? landed?.sha ?? branch;
+  const other = same.item && items.find(entry => entry.id === same.item);
+  return `${landed.sha}, which landed the same change${other ? ` as ${workNamed(other, issue)}` : ''}`;
+}
 
 /** The state `gh issue view --json state` printed, or null when its answer says none. */
 function stateOf(answer) {
@@ -41,7 +55,7 @@ function stateOf(answer) {
  * Closes the issue as completed, unless GitHub has closed it already, as it does once a PR that fixes it merges into the default branch. What
  * happened comes back as a sentence for Chat. A failure is one of those sentences, so it never undoes the merge.
  */
-async function closeIssue(item, gh) {
+async function closeIssue(item, items, gh) {
   const { repo, number } = item.issue;
   const named = `${repo}#${number}`;
   try {
@@ -49,7 +63,7 @@ async function closeIssue(item, gh) {
     if (!state) throw Error('gh did not say whether it is still open.');
     if (state === 'CLOSED') return { issue: 'already', said: `GitHub had already closed ${named}.` };
 
-    const comment = `Fixed by ${fixedBy(item)}, merged by hobkin.`;
+    const comment = `Fixed by ${fixedBy(item, items)}, merged by hobkin.`;
     await gh(['issue', 'close', String(number), '--repo', repo, '--reason', 'completed', '--comment', comment]);
     return { issue: 'closed', said: `Closed ${named} on GitHub.` };
   } catch (error) {
@@ -95,15 +109,16 @@ function tellFollowUp(root, { project, item, closing, now }) {
  * once: an issue gh is slow to answer holds back no other merge's line.
  */
 export async function afterMerges(root, { now = Date.now(), gh = defaultGh } = {}) {
-  const due = readProjects(root).flatMap(project => readItems(root, project.slug)
-    .filter(isDue)
-    .map(item => ({ project, item })));
+  const due = readProjects(root).flatMap(project => {
+    const items = readItems(root, project.slug);
+    return items.filter(isDue).map(item => ({ project, item, items }));
+  });
   const needsGh = ({ item }) => Boolean(item.issue);
   const inTurn = [...due.filter(entry => !needsGh(entry)), ...due.filter(needsGh)];
 
   const followed = [];
-  for (const { project, item } of inTurn) {
-    const closing = item.issue ? await closeIssue(item, gh) : null;
+  for (const { project, item, items } of inTurn) {
+    const closing = item.issue ? await closeIssue(item, items, gh) : null;
     tellFollowUp(root, { project, item, closing, now });
 
     const came = closing ? { issue: closing.issue } : {};

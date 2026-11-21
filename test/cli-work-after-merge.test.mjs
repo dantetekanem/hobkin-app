@@ -147,6 +147,31 @@ test('a gh that cannot close the issue is told once in plain words, and the merg
   assert.deepEqual([read(h, item).state, read(h, item).afterMerge.issue], ['merged', 'failed']);
 });
 
+test('an issue whose change landed through other work is closed naming that merge and that work, and what its run left is told once', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/112-fix', 'sale.txt', 'reject negative quantities\n', 'Reject negative sale quantities');
+  branched(h.checkout, 'hobkin/129-fix', 'sale.txt', 'reject negative quantities\n', 'Return an error for selling more than owned');
+  const first = fromIssue(h, 112, 'hobkin/112-fix');
+  const duplicate = fromIssue(h, 129, 'hobkin/129-fix', { left: 'Watch the sale errors after the deploy.' });
+  const { gh, asked } = fakeGh();
+
+  await mergeItem(h.root, 'api', first.id, { now: NOW });
+  const { sha } = read(h, first).landed;
+  await survey(h);
+  await afterMerges(h.root, { now: NOW + 1000, gh });
+  await afterMerges(h.root, { now: NOW + 2000, gh });
+
+  assert.deepEqual(asked.filter(args => args[1] === 'close').map(args => args.at(-1)), [
+    `Fixed by ${sha}, merged by hobkin.`,
+    `Fixed by ${sha}, which landed the same change as #112, merged by hobkin.`,
+  ]);
+  assert.deepEqual(lines(h), [
+    ['Merged "Issue 112" on api. Closed acme/api#112 on GitHub.', 'useful'],
+    ['Merged "Issue 129" on api. Closed acme/api#129 on GitHub. Still for you: Watch the sale errors after the deploy.', 'useful'],
+  ]);
+  assert.equal(read(h, duplicate).afterMerge.issue, 'closed');
+});
+
 test('work merged before this pass existed is left alone, and a note that only says what was not delivered is not told', async t => {
   const h = workspace(t);
   const before = fromIssue(h, 3, 'hobkin/3-fix', { state: 'merged', left: 'Deploy it.' });
