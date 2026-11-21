@@ -17,6 +17,19 @@ const MOST_PRS = 200;
 const DAY_MS = 24 * 3600000;
 // One survey runs at a time, so a `gh` that never answers would stop every survey after it until Hobkin restarts.
 const GH_TIMEOUT_MS = 2 * 60000;
+// The line hobkin's own commits start with, which says who made them and is never what the change is.
+const ATTRIBUTION = /^\W*\[?\s*made by hobkin\b/i;
+
+/** A commit's summary as a title: its first line that says something, past the attribution line, blank lines and markup. */
+export function commitTitle(message) {
+  for (const raw of String(message ?? '').split('\n')) {
+    const line = raw.trim().replace(/^#+\s*/, '').replace(/^(\*\*|__)(.*)\1$/, '$2').trim();
+    if (!line || ATTRIBUTION.test(line) || line.startsWith('<')) continue;
+    return line;
+  }
+  return '';
+}
+
 const PR_FIELDS = 'number,title,url,state,isDraft,createdAt,mergedAt,mergeCommit,additions,deletions,changedFiles,reviewDecision,statusCheckRollup,mergeable,headRefName,headRefOid';
 // A branch proves a merge only for these: a new branch with no commits also counts as merged into the default branch.
 export const finishedOnBranch = ['pr', 'branch'];
@@ -260,7 +273,7 @@ async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, 
     kind: 'branch',
     branch: name,
     sha,
-    title: await gitOrNothing(repo, 'log', '-1', '--format=%s', name),
+    title: commitTitle(await gitOrNothing(repo, 'log', '-1', '--format=%B', name)),
     openedAt: new Date(at).toISOString(),
     size: await sizeOfRange(repo, base, name),
     ...touched,
