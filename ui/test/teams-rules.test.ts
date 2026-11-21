@@ -40,16 +40,6 @@ test('a done agent leaves the strip, and a failed or unknown one stays', () => {
   assert.deepEqual(stillShown(teamsAgentsOf({ turn1: [agent('scout', 'done', at(14, 0, 0))] }, ['turn1'])), [])
 })
 
-test('the line under an agent keeps the ones that finished, as its tasks line keeps finished tasks', () => {
-  const all = { turn1: [agent('scout', 'done', at(14, 0, 0), { endedAt: at(14, 3, 0) }), agent('fixer', 'running', at(14, 1, 0))] }
-  const shown = stillShown(teamsAgentsOf(all, ['turn1']), 'line')
-  assert.deepEqual(shown.map((row) => `${row.name}:${row.state}`), ['fixer:running', 'scout:done'])
-  assert.deepEqual(teamsLine(shown), { count: '2 agents', lead: 'running', names: 'fixer', more: 1 })
-
-  const finished = stillShown(teamsAgentsOf({ turn1: [agent('scout', 'done', at(14, 0, 0), { endedAt: at(14, 3, 0) })] }, ['turn1']), 'line')
-  assert.deepEqual(teamsLine(finished), { count: '1 agent', lead: 'done', names: 'scout', more: 0 })
-})
-
 test('an opened agent says what it was asked and what hobkin has of its work', () => {
   const now = at(15, 0, 0)
   assert.equal(firstLine('\n  Find the bug in the login flow\nthen fix it'), 'Find the bug in the login flow')

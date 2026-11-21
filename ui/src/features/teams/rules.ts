@@ -25,13 +25,9 @@ export function teamsAgentsOf(all: TeamsAgents | undefined, runs: readonly strin
     .map(({ row }) => row)
 }
 
-/**
- * What a screen still shows. The line under an agent's header keeps every one, as the tasks line beside it keeps the
- * finished tasks, so an agent that finishes stays in its list. A page's rows let a done agent leave, and keep a failed
- * or unknown one, since it may need the user.
- */
-export function stillShown(agents: readonly ShownTeamsAgent[], variant: 'rows' | 'line' = 'rows'): ShownTeamsAgent[] {
-  return variant === 'line' ? [...agents] : agents.filter((agent) => agent.state !== 'done')
+/** What a screen still shows: a done agent leaves, and a failed or unknown one stays, since it may need the user. */
+export function stillShown(agents: readonly ShownTeamsAgent[]): ShownTeamsAgent[] {
+  return agents.filter((agent) => agent.state !== 'done')
 }
 
 /** How many stand in each state, in the list's order: "1 running, 1 queued, 2 done". */

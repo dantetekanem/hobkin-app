@@ -17,7 +17,7 @@ import { useTeamsAgents } from './use-teams-agents.ts'
  *
  * `rows`: a short list with what each was asked and its times, where the page has room (a durable hobkin's page, an
  * agent's small screen). `line`: one line beside the tasks line under an agent's shrunken header, that opens the
- * whole list under it as the tasks line does, and keeps the ones that finished as that line keeps finished tasks.
+ * whole list under it as the tasks line does.
  */
 type Variant = 'rows' | 'line'
 
@@ -27,7 +27,7 @@ const ROWS = 3
 const FACES = 3
 
 export function TeamsStrip({ runs, hue, runName, variant, className }: { runs: readonly (string | null | undefined)[]; hue: number; runName: string; variant: Variant; className?: string }) {
-  const agents = useTeamsAgents(runs, variant)
+  const agents = useTeamsAgents(runs)
   if (agents.length === 0) return null
   return <TeamsStripView agents={agents} hue={hue} runName={runName} variant={variant} className={className} />
 }
