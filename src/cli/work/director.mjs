@@ -35,7 +35,8 @@ import {
 } from './store.mjs';
 import { BRANCH_PREFIX, changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, headBranch, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
-import { copyJson } from '../file-version.mjs';
+import { copyJson, unchangedSince, withVersions } from '../file-version.mjs';
+import { oneRead } from './one-read.mjs';
 import { lookAfterHarness, stampUpkeep, upkeepDue } from './upkeep.mjs';
 import { offerSubscriptionPause, retireSubscriptionPause } from './subscription.mjs';
 import { nextPause, usageLimitIn } from './usage.mjs';
@@ -91,6 +92,7 @@ const declineMutations = new WeakMap();
 export class WorkDirector {
   constructor({ root, config, runtime, runner, runHarness = defaultRunHarness, now = Date.now, onChange = () => {}, onDraftDone = () => {}, onHandOff, gh, fetch, ownFolder = HOBKIN_FOLDER }) {
     Object.assign(this, { root, config, runtime, runner, runHarness, now, onChange, onDraftDone, onHandOff, gh, fetch, ownFolder });
+    this.planWork = planWork;
     this.active = new Map();
     // When the last run started survives a restart, so a new owner keeps the gap instead of starting two at once.
     this.lastStartAt = Date.parse(readMode(root).lastStartAt) || null;
@@ -174,6 +176,8 @@ export class WorkDirector {
 
   // Turning work mode off starts nothing new. Project agents finish, but a look stops: it only reads, it carries on from its notes, and nothing shows what it spends once the tab is gone.
   async tick() {
+    // A look is this tick's alone.
+    this.tickLook = null;
     this.pickUpHanded();
     this.recoverDiscovery();
     this.tellNewProposals();
@@ -199,8 +203,15 @@ export class WorkDirector {
     this.watchChanges(mode);
 
     const current = readMode(this.root);
-    const { pause, budget, next, shipFirst, subscription } = planWork(this.root, { mode: current, now: this.now(), ...this.outlook() });
-    watchPile(this.root, shipFirst, this.now());
+    const outlook = this.outlook();
+    const now = this.now();
+    // The plan, and what follows from it at once, read in one look. What it read, and the version of each file, can serve this tick's Work
+    // status (`sharedLook`).
+    const kept = new Map();
+    const { value: plan, versions } = withVersions(() => oneRead(() => this.planWork(this.root, { mode: current, now, ...outlook }), kept));
+    this.tickLook = { plan, kept, versions, now, outlookKey: JSON.stringify(outlook) };
+    const { pause, budget, next, shipFirst, subscription } = plan;
+    oneRead(() => watchPile(this.root, shipFirst, now), kept);
     if (['day', 'hour'].includes(pause?.kind)) this.holdDiscovery();
     // New issues come in only while nothing holds work: no pause, no stop and budget left.
     if (!pause) this.pickUpIssues();
@@ -211,6 +222,17 @@ export class WorkDirector {
     if (pause?.kind === 'day') this.askForAllowance(current, budget);
     // Schedules are not held. Only new work waits, and the next tick picks it up.
     if (next && !this.runtime.workWaitsForChat) this.begin(next, budget, current);
+  }
+
+  /**
+   * This tick's plan and what its look read, for the Work status of the same tick, once: only while the director's outlook is what the plan
+   * saw and every file it read has the version it had. A start, a stop or any write since makes the status plan again, as before.
+   */
+  sharedLook(outlook) {
+    const look = this.tickLook;
+    this.tickLook = null;
+    if (!look || look.outlookKey !== JSON.stringify(outlook) || !unchangedSince(look.versions)) return null;
+    return look;
   }
 
   // The next tick can find the look still stopping, and it only needs telling once.

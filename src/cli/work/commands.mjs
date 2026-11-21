@@ -203,13 +203,15 @@ function startWithPile(root, args) {
  * Status for agents and for the Work tab. `open`, `prs`, `branches` and `left` count what each project has going. `outlook` is what only the owner knows.
  * Each project's counts, models and readiness read the same survey and proof runs, so the whole status reads each of them once.
  */
-export function workStatus(root, outlook = {}) {
-  return oneRead(() => statusOf(root, outlook));
+export function workStatus(root, outlook = {}, { shared = null, plan: planner = planWork } = {}) {
+  // A look this tick's director already made, while nothing it read has changed (`sharedLook` in director.mjs): its plan, at its moment.
+  if (shared) return oneRead(() => statusOf(root, { ...outlook, now: shared.now }, () => shared.plan), shared.kept);
+  return oneRead(() => statusOf(root, outlook, mode => planner(root, { mode, ...outlook })));
 }
 
-function statusOf(root, outlook) {
+function statusOf(root, outlook, planFor) {
   const mode = readMode(root);
-  const plan = planWork(root, { mode, ...outlook });
+  const plan = planFor(mode);
   const { budget, entries, pause, subscription } = plan;
   const unmerged = unmergedNow(root);
   const projects = readProjects(root).map(project => {

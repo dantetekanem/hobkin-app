@@ -77,3 +77,48 @@ test('a filed item, a decision, a pause notice, a finished run and a new minute 
   assert.equal(await h.tick(MINUTE), 6, 'a new minute');
   assert.equal(h.published.length, 0, 'every one of them went as a rebuild');
 });
+
+// A bare application around a real director (test/helpers/work-director.mjs), its planner counted. Work is paused by hand, so a tick starts
+// nothing and only looks.
+async function withDirector(t) {
+  const { director, studied } = await import('./helpers/work-director.mjs');
+  const h = director(t);
+  studied(h, 'api');
+  fileItem(h.root, 'api', { key: 'fix', kind: 'fix', title: 'Fix it', brief: 'Evidence, who benefits, the first change, the proof.', impact: 'high', effort: 'small' }, h.clock);
+  writeMode(h.root, { pausedAt: new Date(h.clock).toISOString() });
+  const plans = [];
+  const planWork = h.director.planWork;
+  h.director.planWork = (root, options) => {
+    const plan = planWork(root, options);
+    plans.push(plan);
+    return plan;
+  };
+  const app = new HobkinApplication();
+  Object.assign(app, { now: () => h.clock, runtime: { directory: h.root }, director: h.director, moods: { notice() {} }, learner: { enabled: () => false } });
+  app.requestRefresh = (_activityOnly, work) => { app.shownWork = work; };
+  return { h, app, plans };
+}
+
+test('a tick plans once, and its director, Work status and YOLO view read that one plan', async t => {
+  const { h, app, plans } = await withDirector(t);
+  await app.tickWork();
+  assert.equal(plans.length, 1, 'one plan for the whole tick');
+  const work = app.shownWork;
+  assert.deepEqual(work.plan.filter(row => !row.skipped).map(row => row.key), plans[0].entries.filter(entry => !entry.skipped).map(entry => entry.key));
+  assert.equal(work.pause.kind, plans[0].pause.kind);
+  assert.equal(work.queued, plans[0].entries.filter(entry => !entry.skipped).length);
+  assert.ok(work.yolo, 'the YOLO view comes from the same look');
+  await app.tickWork();
+  assert.equal(plans.length, 2, 'the next tick plans again: nothing is kept past its tick');
+  await h.settled();
+});
+
+test('a file the plan read that changes before the status is read makes the status plan again, and shows the change', async t => {
+  const { h, app, plans } = await withDirector(t);
+  // Between the director's look and the status, as another process or a run's own call could write.
+  app.learn = async () => { fileItem(h.root, 'api', { key: 'later', kind: 'fix', title: 'Filed meanwhile', brief: 'Evidence, who benefits, the first change, the proof.', impact: 'high', effort: 'small' }, h.clock); };
+  await app.tickWork();
+  assert.equal(plans.length, 2);
+  assert.ok(app.shownWork.plan.some(row => row.title === 'Filed meanwhile'));
+  await h.settled();
+});

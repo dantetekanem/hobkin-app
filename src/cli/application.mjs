@@ -930,8 +930,10 @@ export class HobkinApplication {
     await this.director.tick();
     await this.learn();
     const root = this.runtime.directory;
+    // The director's look of this tick serves its Work status too, while nothing it read has changed since.
+    const outlook = this.director.outlook();
     const watched = {
-      work: workStatus(root, this.director.outlook()),
+      work: workStatus(root, outlook, { shared: this.director.sharedLook?.(outlook), plan: this.director.planWork }),
       decisions: waitingDecisions(root),
       learning: learningEnabled(root),
       // At least once a minute, for whatever else in the dashboard moves with the clock alone.

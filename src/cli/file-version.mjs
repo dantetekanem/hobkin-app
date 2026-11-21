@@ -6,8 +6,27 @@ import { lstatSync } from 'node:fs';
  */
 export function fileVersion(file) {
   const stat = lstatSync(file, { throwIfNoEntry: false, bigint: true });
-  return stat?.isFile() ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : null;
+  const version = stat?.isFile() ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : null;
+  if (recorded && !recorded.has(file)) recorded.set(file, version);
+  return version;
 }
+
+let recorded = null;
+
+/** What `look` gives, with the version of every file it looked at through `fileVersion`, as it first saw each. */
+export function withVersions(look) {
+  if (recorded) return { value: look(), versions: recorded };
+  recorded = new Map();
+  const versions = recorded;
+  try {
+    return { value: look(), versions };
+  } finally {
+    recorded = null;
+  }
+}
+
+/** Whether every file in `versions` still has the version it had. */
+export const unchangedSince = versions => [...versions].every(([file, version]) => fileVersion(file) === version);
 
 /** Freezes `value` and everything in it, so a value kept for every caller cannot be changed by one of them. */
 export function deepFreeze(value) {

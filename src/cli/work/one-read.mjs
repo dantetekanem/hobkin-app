@@ -4,10 +4,13 @@
  */
 let held = null;
 
-/** Runs `look` with each `readOnce` key read at most once. A look inside another one shares the outer one's reads. */
-export function oneRead(look) {
+/**
+ * Runs `look` with each `readOnce` key read at most once. A look inside another one shares the outer one's reads. `kept`, a Map a caller
+ * holds, carries what one look read into a later one, which the caller gives only while nothing those reads saw has changed.
+ */
+export function oneRead(look, kept = null) {
   if (held) return look();
-  held = new Map();
+  held = kept ?? new Map();
   try {
     return look();
   } finally {
