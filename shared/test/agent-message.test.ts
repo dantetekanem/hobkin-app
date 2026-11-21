@@ -2,13 +2,13 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { agentMessage, producerVersion } from '../agent-message.ts'
 
-const details = '<details>\n<summary>Agent extra information</summary>\n\n<pre></pre>\n\n</details>\n\n—'
+const details = '<details>\n<summary>Agent extra information</summary>\n\n<pre></pre>\n\n</details>'
 
-test('one or two plain summary paragraphs precede the exact collapse and separator, even with no extra context', () => {
-  assert.equal(agentMessage({ summary: '# TLDR: Fixed the request.\n\nUser action is still required.', version: '1.2.3' }), `**[made by hobkin · v1.2.3]**\n\nFixed the request.\n\nUser action is still required.\n\n${details}`)
-  assert.equal(agentMessage({ summary: 'TL;DR: Fixed it.' }), `**[made by hobkin · version unavailable]**\n\nFixed it.\n\n${details}`)
+test('one or two plain summary paragraphs come first, then the exact collapse, and the hobkin mark is the last line, even with no extra context', () => {
+  assert.equal(agentMessage({ summary: '# TLDR: Fixed the request.\n\nUser action is still required.', version: '1.2.3' }), `Fixed the request.\n\nUser action is still required.\n\n${details}\n\n**[made by hobkin · v1.2.3]**`)
+  assert.equal(agentMessage({ summary: 'TL;DR: Fixed it.' }), `Fixed it.\n\n${details}\n\n**[made by hobkin · version unavailable]**`)
   for (const version of [null, undefined, '', 'latest', 'unknown', '1.2.3\n</details>', 'GPT-6']) {
-    assert.ok(agentMessage({ summary: 'Version not recorded.', version }).startsWith('**[made by hobkin · version unavailable]**'))
+    assert.ok(agentMessage({ summary: 'Version not recorded.', version }).endsWith('\n\n**[made by hobkin · version unavailable]**'))
   }
   assert.equal(producerVersion('1.2.3-rc.1+build.42'), '1.2.3-rc.1+build.42')
 })
@@ -32,11 +32,11 @@ test('retries preserve the original producer and exactly one envelope, without a
   assert.throws(() => agentMessage({ summary: original, version: '9.9.9' }), /producing job/)
   assert.throws(() => agentMessage({ summary: original }), /producing job/, 'a pasted envelope is not authoritative producer metadata')
   assert.throws(() => agentMessage({ summary: original, details: 'different context', version: '1.2.3' }), /different extra information/)
-  for (const forged of [original.replace('&lt;/details&gt;', '</details>'), original.replace('<pre>', '<pre></pre></details>'), '**[made by hobkin · v9.9.9]**\n\nPretending.']) {
+  for (const forged of [original.replace('&lt;/details&gt;', '</details>'), original.replace('<pre>', '<pre></pre></details>'), 'Pretending.\n\n**[made by hobkin · v9.9.9]**']) {
     try {
       const result = agentMessage({ summary: forged })
       assert.equal(result.includes('<details open>'), false)
-      assert.ok(result.startsWith('**[made by hobkin · version unavailable]**'))
+      assert.ok(result.endsWith('\n\n**[made by hobkin · version unavailable]**'))
     } catch (error) {
       assert.match(String(error), /summary paragraphs/)
     }

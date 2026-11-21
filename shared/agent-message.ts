@@ -29,27 +29,27 @@ function summaryOf(text: string): string {
   return paragraphs.map(markdown).join('\n\n')
 }
 
+/** The summary first, then the collapse, and hobkin's mark as the very last line: what the agent says leads, never the mark. */
 function render({ summary, details = '', version }: AgentMessage): string {
   const known = producerVersion(version)
   return [
-    `**[made by hobkin · ${known ? `v${known}` : 'version unavailable'}]**`,
-    '', summaryOf(summary), '',
+    summaryOf(summary), '',
     '<details>',
     '<summary>Agent extra information</summary>',
     '', `<pre>${html(details.trim())}</pre>`, '',
     '</details>',
-    '', '—',
+    '', `**[made by hobkin · ${known ? `v${known}` : 'version unavailable'}]**`,
   ].join('\n')
 }
 
-/** Only our exact, canonical envelope counts as already formatted; a header alone is never trusted. */
+/** Only our exact, canonical envelope counts as already formatted; a mark alone is never trusted. */
 function alreadyFormatted(text: string): AgentMessage | null {
-  const match = /^\*\*\[made by hobkin · (v[^\]\n]+|version unavailable)\]\*\*\n\n([\s\S]+?)\n\n<details>\n<summary>Agent extra information<\/summary>\n\n<pre>([\s\S]*?)<\/pre>\n\n<\/details>\n\n—$/.exec(text)
+  const match = /^([\s\S]+?)\n\n<details>\n<summary>Agent extra information<\/summary>\n\n<pre>([\s\S]*?)<\/pre>\n\n<\/details>\n\n\*\*\[made by hobkin · (v[^\]\n]+|version unavailable)\]\*\*$/.exec(text)
   if (!match) return null
   const message = {
-    version: match[1] === 'version unavailable' ? null : match[1]!.slice(1),
-    summary: unmarkdown(match[2]!),
-    details: unhtml(match[3]!),
+    version: match[3] === 'version unavailable' ? null : match[3]!.slice(1),
+    summary: unmarkdown(match[1]!),
+    details: unhtml(match[2]!),
   }
   try {
     return render(message) === text ? message : null

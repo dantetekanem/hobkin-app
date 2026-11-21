@@ -30,10 +30,10 @@ const noWork = () => { throw Error('No work action is allowed.') }
 const card = () => ({ landing: 'merge' as const, yes: 'Merge it.', branch: 'hobkin/word', pr: null })
 
 function envelope(body: string, version: string) {
-  assert.ok(body.startsWith(`**[made by hobkin · ${version}]**\n\n`), body)
+  assert.ok(body.endsWith(`\n\n**[made by hobkin · ${version}]**`), body)
+  assert.ok(body.indexOf('made by hobkin') > body.indexOf('</details>'), 'the mark is last, after the collapse')
   assert.equal(body.match(/<details>/g)?.length, 1)
   assert.equal(body.match(/<summary>Agent extra information<\/summary>/g)?.length, 1)
-  assert.ok(body.endsWith('\n\n—'))
 }
 
 test('confirmed PR publication sends exactly its preview with the generating job version, not the current package version', async (t) => {
