@@ -5,7 +5,8 @@ import { loadProofRuntime, type ProofRuntime } from './proofs.ts'
 /**
  * The TLA+ tools in the first-run setup (050-tla-proofs, 025-onboarding). The setup sets them up by default, as one
  * more step beside Pi, through hobkin's own `setupProof`, the one the YOLO page's Set up button runs: on a Mac without
- * Java 11 or newer it installs the pinned Java runtime into the home's tools folder, then the pinned TLC. What is there
+ * Java 11 or newer it installs the pinned Java runtime into the home's tools folder, then the pinned TLC and, on an
+ * Apple-silicon Mac, the pinned TLAPS that checks proofs. What is there
  * already is kept, so a setup run again is cheap. A failure is an answer with hobkin's line, so it never holds the setup up.
  */
 

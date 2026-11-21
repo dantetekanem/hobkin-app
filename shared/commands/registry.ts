@@ -523,7 +523,7 @@ export const COMMANDS = {
   // The first-run setup runs it by default (050-tla-proofs), so it is the window's alone.
   'setup.install-proof-tools': {
     description:
-      "Set up the TLA+ tools proof checks run on, as `hobkin proof setup` does: on a Mac without Java 11 or newer, the pinned Java runtime into tools/java in hobkin's home, then the pinned TLC into tools/tla, each kept only when its pinned checksum matches. What is there already is kept. Answers with whether the tools are ready and hobkin's one line. A failed setup is an answer, not an error.",
+      "Set up the TLA+ tools proof checks run on, as `hobkin proof setup` does: on a Mac without Java 11 or newer, the pinned Java runtime into tools/java in hobkin's home, then the pinned TLC into tools/tla and, on an Apple-silicon Mac, the pinned TLAPS proof system into tools/tlaps, each kept only when its pinned checksum matches. What is there already is kept. Answers with whether the tools are ready and hobkin's one line. A failed setup is an answer, not an error.",
     runs: 'host',
     args: nothing,
     outside: true,
@@ -1056,7 +1056,7 @@ export const COMMANDS = {
   },
   // It downloads the tools, so only the user's click in the window starts it.
   'proof.setup': {
-    description: 'Download the pinned TLA+ tools (the TLC jar) so proof checks can run. Only on the user\'s click.',
+    description: 'Download the pinned TLA+ tools (the TLC model checker and the TLAPS proof system) so model checks and proofs can run. Only on the user\'s click.',
     runs: 'host',
     args: Type.Object({}, { additionalProperties: false }),
     outside: true,

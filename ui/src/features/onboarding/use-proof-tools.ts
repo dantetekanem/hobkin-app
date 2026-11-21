@@ -2,9 +2,9 @@ import { useEffect, useRef, useState } from 'react'
 import { runCommand, useHost } from '@/lib/host/index.ts'
 
 /** What the quiet line says while the tools are set up. */
-const SETTING_UP = "I'm setting up the TLA+ tools in the background, so my agents can check their models."
+const SETTING_UP = "I'm setting up the TLA+ tools in the background, so my agents can check their models and proofs."
 /** Said after a failure, since the YOLO page's button is the way to try again. */
-const RETRY = 'Set up TLC on the YOLO page tries again.'
+const RETRY = 'Set up TLA+ tools on the YOLO page tries again.'
 
 const reasonOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
 

@@ -127,7 +127,7 @@ export function ProofSetup({ live }: { live: boolean }) {
       </p>
       {tools.java ? (
         <Button variant="outline" size="sm" data-stop="" disabled={busy} focusableWhenDisabled onClick={() => void setUp()} className="w-[120px] data-disabled:opacity-50">
-          {busy ? 'Setting up…' : 'Set up TLC'}
+          {busy ? 'Setting up…' : 'Set up TLA+ tools'}
         </Button>
       ) : null}
     </div>
