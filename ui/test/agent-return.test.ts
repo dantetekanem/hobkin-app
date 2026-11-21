@@ -20,6 +20,26 @@ test('a click on an agent in the list shows its canvas to stay as it is, and the
   useView.setState({ screen: 'routines', canvasEngaged: false })
 })
 
+test("a TLA+ run opened from a review keeps the review's room, and one opened elsewhere does not take it", () => {
+  useView.setState({ screen: 'work', conversationWidth: 460, canvasEngaged: false, proofReturn: null })
+  view().openReviewFor('r1')
+  const reviewing = canvasGrowth(view())
+  assert.ok(reviewing > 0)
+  view().openProofRun('run-1')
+  assert.equal(view().screen, 'proof')
+  assert.equal(canvasGrowth(view()), reviewing, 'the window stays as wide as the review was')
+  view().closeProof()
+  assert.equal(view().screen, 'review')
+  assert.equal(canvasGrowth(view()), reviewing)
+
+  view().closeReview()
+  useView.setState({ screen: 'work', canvasEngaged: true })
+  view().openProofRun('run-2')
+  assert.equal(canvasGrowth(view()), 0, 'from Work it opens at the usual width')
+  view().closeProof()
+  useView.setState({ screen: 'routines', canvasEngaged: false, openReview: null })
+})
+
 for (const screen of ['reports', 'routines', 'actions', 'github', 'work', 'mind'] as const) {
   test(`promoting a dock preview returns to ${screen}, even after switching agents`, () => {
     useView.setState({ screen, openAgent: null, previewReturn: null, agentReturn: null })

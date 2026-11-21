@@ -17,9 +17,17 @@ export const DIVIDER_WIDTH = 10
  * window, and a durable hobkin's split takes all of it: its page lies where the chat was. Every other screen, an
  * agent's however it was opened, leaves the chat its room.
  */
-export function canvasGrowth({ screen, canvasEngaged, conversationWidth, split = false }: Pick<ViewState, 'screen' | 'canvasEngaged' | 'conversationWidth'> & { split?: boolean }): number {
+export function canvasGrowth({
+  screen,
+  canvasEngaged,
+  conversationWidth,
+  proofReturn = null,
+  split = false,
+}: Pick<ViewState, 'screen' | 'canvasEngaged' | 'conversationWidth'> & { proofReturn?: Place | null; split?: boolean }): number {
   if (split) return conversationWidth + DIVIDER_WIDTH
-  return screen === 'review' && canvasEngaged ? Math.max(0, conversationWidth - REVIEW_KEEPS) : 0
+  // A TLA+ run opened from a review is part of reading it, so it keeps the review's room.
+  const reviewing = screen === 'review' || (screen === 'proof' && proofReturn?.screen === 'review')
+  return reviewing && canvasEngaged ? Math.max(0, conversationWidth - REVIEW_KEEPS) : 0
 }
 
 /**

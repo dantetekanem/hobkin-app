@@ -167,7 +167,8 @@ export function Canvas() {
   const splitNow = useSplit()
   const split = needsModel ? null : splitNow
   const sizes = useSplitSizes()
-  const grow = canvasGrowth({ screen, canvasEngaged: engaged, conversationWidth, split: split !== null })
+  const proofReturn = useView((view) => view.proofReturn)
+  const grow = canvasGrowth({ screen, canvasEngaged: engaged, conversationWidth, proofReturn, split: split !== null })
   // The main canvas moves the view, unless the right side covers the chat right then.
   useCanvasPlace({ covered: grow > 0, split: split ? { owner: split.owner, revision: split.canvas.revision } : null })
   const growth = useGrowth(split !== null, enteringAgent, still)
