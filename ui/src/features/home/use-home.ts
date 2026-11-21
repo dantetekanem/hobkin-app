@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useActionItems } from '@/features/actions/store.ts'
+import { useNow } from '@/features/chat/use-now.ts'
 import { useReports } from '@/features/reports/store.ts'
 import { useRoutines } from '@/features/routines/store.ts'
 import { useAgents, useHost } from '@/lib/host/hooks.ts'
@@ -11,16 +12,6 @@ import { homeModel } from './model.ts'
 import type { HomeModel } from './types.ts'
 
 const MINUTE_MS = 60_000
-
-/** The time, once a minute, so "12 min ago" and the day strip stay true while Home is open. */
-function useMinute(): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const timer = setInterval(() => setNow(Date.now()), MINUTE_MS)
-    return () => clearInterval(timer)
-  }, [])
-  return now
-}
 
 /**
  * What `gatherHomeInput` reads of the host's state, and nothing more, so a message that changes none of it, such as
@@ -49,7 +40,8 @@ export function homeHost({ home, question, work, github, integrations, ...snapsh
 
 /** Everything Home draws, from what the app already holds. */
 export function useHomeModel(): HomeModel {
-  const now = useMinute()
+  // The time, once a minute, so "12 min ago" and the day strip stay true while Home is open.
+  const now = useNow(true, MINUTE_MS)
   const fields = useHost(useShallow(homeHostFields))
   const agents = useAgents()
   const reports = useReports()
