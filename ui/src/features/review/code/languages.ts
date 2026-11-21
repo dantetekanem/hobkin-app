@@ -24,6 +24,9 @@ export const GRAMMARS: Record<string, () => Promise<Grammar>> = {
   swift: () => import('shiki/langs/swift.mjs'),
   shellscript: () => import('shiki/langs/shellscript.mjs'),
   sql: () => import('shiki/langs/sql.mjs'),
+  // Shiki has neither: TLA+ models under `_specs/tla/` and the TLC config beside each.
+  tlaplus: () => import('./grammars/tlaplus.ts'),
+  'tlc-config': () => import('./grammars/tlc-config.ts'),
 }
 
 const BY_EXTENSION: Record<string, keyof typeof GRAMMARS> = {
@@ -33,6 +36,7 @@ const BY_EXTENSION: Record<string, keyof typeof GRAMMARS> = {
   css: 'css', html: 'html', htm: 'html', yml: 'yaml', yaml: 'yaml', toml: 'toml',
   rb: 'ruby', rake: 'ruby', py: 'python', rs: 'rust', go: 'go', swift: 'swift',
   sh: 'shellscript', bash: 'shellscript', zsh: 'shellscript', sql: 'sql',
+  tla: 'tlaplus', cfg: 'tlc-config',
 }
 
 /** The language of a file, by its extension. Null for a language that is not known: it shows as plain text. */

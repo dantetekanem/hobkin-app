@@ -91,3 +91,49 @@ test('a long file comes in parts that add up to the same tokens', async () => {
   const resolved = (highlighted: { lines: Highlighted['lines']; styles: Highlighted['styles'] }) => highlighted.lines.map((line) => line.map(([text, style]) => `${text}@${highlighted.styles[style]!.dark}`))
   assert.deepEqual(resolved({ lines, styles }), resolved(whole))
 })
+
+test('a TLA+ model and its TLC config are colored, not plain', async () => {
+  assert.equal(languageOf('_specs/tla/inventory/InventorySale.tla'), 'tlaplus')
+  assert.equal(languageOf('_specs/tla/inventory/InventorySale.cfg'), 'tlc-config')
+
+  const model = String.raw`---- MODULE InventorySale ----
+EXTENDS Integers
+
+\* models: app/models/inventory.rb
+CONSTANTS InitialStock, Price
+VARIABLES stock, outcome
+
+(* A block
+   comment *)
+Init ==
+    /\ stock = InitialStock
+    /\ outcome = "none"
+
+Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
+====`
+  const tla = await highlightCode(model, 'tlaplus')
+  assert.equal(textOf(tla), model)
+  // The token that is exactly this text, or else the first one holding it.
+  const darkOf = (highlighted: Highlighted, text: string) => {
+    const tokens = highlighted.lines.flat()
+    const [, style] = tokens.find(([token]) => token.trim() === text) ?? tokens.find(([token]) => token.includes(text))!
+    return highlighted.styles[style]!.dark.toLowerCase()
+  }
+  assert.equal(darkOf(tla, 'EXTENDS'), '#ff79c6', 'a keyword')
+  assert.equal(darkOf(tla, 'VARIABLES'), '#ff79c6', 'a keyword')
+  assert.equal(darkOf(tla, 'Init'), '#50fa7b', 'a definition')
+  assert.equal(darkOf(tla, '"none"'), '#f1fa8c', 'a string')
+  assert.equal(darkOf(tla, 'models: app'), '#6272a4', 'a line comment')
+  assert.equal(darkOf(tla, 'A block'), '#6272a4', 'a block comment')
+  assert.equal(darkOf(tla, '/\\'), '#ff79c6', 'an operator')
+
+  const config = String.raw`SPECIFICATION Spec
+CONSTANTS InitialStock = 3
+INVARIANT TypeOK
+\* three units`
+  const cfg = await highlightCode(config, 'tlc-config')
+  assert.equal(textOf(cfg), config)
+  assert.equal(darkOf(cfg, 'SPECIFICATION'), '#ff79c6', 'a section')
+  assert.equal(darkOf(cfg, '3'), '#bd93f9', 'a number')
+  assert.equal(darkOf(cfg, 'three units'), '#6272a4', 'a comment')
+})
