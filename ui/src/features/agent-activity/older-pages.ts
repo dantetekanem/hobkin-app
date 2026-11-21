@@ -56,7 +56,14 @@ export class OlderSteps {
     const now = this.store.getState()[job]
     if (!now || now.asked !== asked) return
     if (!page) return this.put(job, { ...now, loading: false })
-    this.put(job, { steps: [...page.steps, ...now.steps], more: page.more, loading: false, joins: now.joins ?? feed[0]?.id ?? null, asked })
+    this.put(job, {
+      steps: [...page.steps, ...now.steps],
+      more: page.more,
+      loading: false,
+      // The first page ends right before the feed's oldest step.
+      joins: now.joins ?? feed[0]?.id ?? null,
+      asked,
+    })
   }
 
   /**
@@ -75,8 +82,13 @@ export class OlderSteps {
     if (!page) return this.put(job, { ...now, loading: false })
     const fetched = new Set(page.steps.map(({ id }) => id))
     const meets = fetched.has(now.steps.at(-1)!.id)
-    const steps = meets ? [...now.steps.filter(({ id }) => !fetched.has(id)), ...page.steps] : page.steps
-    this.put(job, { steps, more: meets ? now.more : page.more, loading: false, joins: oldest.id, asked })
+    this.put(job, {
+      steps: meets ? [...now.steps.filter(({ id }) => !fetched.has(id)), ...page.steps] : page.steps,
+      more: meets ? now.more : page.more,
+      loading: false,
+      joins: oldest.id,
+      asked,
+    })
   }
 
   /** Lets go of the pages of every job not in `jobs`. */
