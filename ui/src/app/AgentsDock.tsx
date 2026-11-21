@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useEffect, useId, useMemo, useRef, useState, type ReactNode, type Ref, type RefObject } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Hob } from '@/avatar/Hob.tsx'
 import { usePetChoice } from '@/avatar/use-pet.ts'
 import { AgentHood } from '@/components/Mark.tsx'
@@ -12,6 +12,7 @@ import { agentEntry } from '@/features/work/agent-entry.ts'
 import { childrenSummary, helpersNow, HOBKIN_HUE } from '@/features/work/child-summary.ts'
 import { useMainChildren } from '@/features/work/children.ts'
 import { cn } from '@/lib/utils.ts'
+import { centeredOn, dockHeight, headsOf, listHeight, ROW, rowsInView, rowTop, stepped, type DockShape } from './dock-rows.ts'
 import { requestCanvasFocus } from './focus.ts'
 import { agentControls, askAgent, useAgentControl, useAgentWords, useRunningAgents, type RunningAgent } from './running-agents.ts'
 import { type Tier } from './sample.ts'
@@ -44,7 +45,8 @@ const TIER_LABEL: Record<Tier, string> = { fast: 'fast', mid: 'mid', high: 'high
  *
  * A new agent pops up into the list like a bubble rising, and the others make room. The list is not drawn
  * when nothing is running. It shows four agents at a time. With more, it follows the selection like a
- * camera: the selected agent glides to the middle, and the edges fade where the list goes on.
+ * camera: the selected agent glides to the middle, and the edges fade where the list goes on. Only the rows in view
+ * are drawn, each at its place in the whole list, with the selected one wherever it is (`dock-rows.ts`).
  */
 export function AgentsDock() {
   const still = useStill()
@@ -59,6 +61,14 @@ export function AgentsDock() {
   const list = useRef<HTMLDivElement | null>(null)
   /** Whether the list goes on above and below what is in view. */
   const [more, setMore] = useState({ above: false, below: false })
+  /** How far the list is scrolled, which says which rows it draws. */
+  const [scrollTop, setScrollTop] = useState(0)
+  /** One row's height as the page draws it, which every row's place follows. */
+  const [row, setRow] = useState(ROW)
+  const shape: DockShape = { durable: durable.length, others: others.length, row }
+  /** The agents now, and the ones the list has drawn before: a row of one of those that comes into view does not arrive again. */
+  const present = useMemo(() => new Set(agents.map((agent) => agent.id)), [agents])
+  const known = useRef<ReadonlySet<string>>(present)
   const id = useId()
   const helpers = helpersNow(useMainChildren())
   // With No Pet, hobkin's own face is not drawn, so its row starts at the words.
@@ -67,20 +77,35 @@ export function AgentsDock() {
   const measure = () => {
     const element = list.current
     if (!element) return
+    setScrollTop(element.scrollTop)
     const above = element.scrollTop > 2
     const below = element.scrollTop + element.clientHeight < element.scrollHeight - 2
     setMore((current) => (current.above === above && current.below === below ? current : { above, below }))
   }
   // Agents arriving or leaving change how far the list goes on.
   useEffect(measure, [agents.length])
-  // Whatever chose the agent on the canvas, the list brings its row to the middle.
   useEffect(() => {
-    if (onAgent && openAgent) follow(openAgent)
+    known.current = present
+  })
+  // A row is as tall as its lines; the first one drawn says how tall, before the page shows the list.
+  const drawn = agents.length > 0
+  useLayoutEffect(() => {
+    const element = list.current?.querySelector('[data-agent-row]')
+    const height = element ? Number.parseFloat(getComputedStyle(element).height) : 0
+    if (height > 0) setRow(height)
+  }, [drawn])
+  // Whatever chose the agent on the canvas, the list brings its row to the middle, drawn there before the page shows it.
+  useLayoutEffect(() => {
+    if (onAgent && openAgent) follow(agents.findIndex((agent) => agent.id === openAgent))
   }, [onAgent, openAgent])
 
   /** Selection is visible immediately; browser-defined smooth scrolling has no entry deadline. */
-  const follow = (agentId: string) => {
-    list.current?.querySelector(`[data-agent-row="${agentId}"]`)?.scrollIntoView({ block: 'center', behavior: 'instant' })
+  const follow = (index: number) => {
+    const element = list.current
+    if (!element || index < 0) return
+    const top = centeredOn(shape, index)
+    element.scrollTop = top
+    setScrollTop(top)
   }
 
   if (agents.length === 0 && helpers.length === 0) return null
@@ -88,10 +113,11 @@ export function AgentsDock() {
   const shown = onAgent ? agents.findIndex((agent) => agent.id === openAgent) : -1
   const at = shown < 0 ? null : shown
   const waiting = others.filter((agent) => agent.asks).length
+  const heads = headsOf(shape)
 
   const select = (index: number, direction: 1 | -1) => {
     previewAgent(agents[index]!.id, direction)
-    follow(agents[index]!.id)
+    follow(index)
   }
 
   // A durable hobkin is never ended from here: x stops only its turn in flight, and while it waits there is none.
@@ -149,11 +175,14 @@ export function AgentsDock() {
               tabIndex={-1}
               data-agents-dock
               // Four rows tall, with room for the headers and the line between the groups. The fades at the edges say the
-              // list goes on, instead of a row cut in half.
+              // list goes on, instead of a row cut in half. A list that goes on nowhere has no fade to draw.
               className="overflow-x-hidden overflow-y-auto rounded-2xl outline-none [scrollbar-width:none]"
               style={{
-                maxHeight: FOUR_ROWS + (others.length ? GROUP_HEAD : 0) + (durable.length && others.length ? GROUP_LINE : 0),
-                maskImage: `linear-gradient(to bottom, ${more.above ? 'transparent' : 'black'}, black 30px, black calc(100% - 30px), ${more.below ? 'transparent' : 'black'})`,
+                maxHeight: dockHeight(shape),
+                maskImage:
+                  more.above || more.below
+                    ? `linear-gradient(to bottom, ${more.above ? 'transparent' : 'black'}, black 30px, black calc(100% - 30px), ${more.below ? 'transparent' : 'black'})`
+                    : undefined,
               }}
               onScroll={measure}
               onFocus={() => {
@@ -174,12 +203,11 @@ export function AgentsDock() {
               }}
               onKeyDown={(event) => {
                 const current = at ?? 0
-                if (event.key === 'ArrowDown') {
-                  if (current < agents.length - 1) select(current + 1, 1)
-                } else if (event.key === 'ArrowUp') {
+                if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
                   // Up from the first agent goes back to the input, the way the list was entered.
-                  if (current === 0) backToInput()
-                  else select(current - 1, -1)
+                  const next = stepped(current, event.key, agents.length)
+                  if (next === 'input') backToInput()
+                  else if (next !== current) select(next, event.key === 'ArrowDown' ? 1 : -1)
                 } else if (event.key === 'Enter') enter(current)
                 else if (event.key === 'Escape') backToInput()
                 else if (event.key === 'x' && !event.metaKey && !event.ctrlKey && !event.altKey) stop(agents[current]!)
@@ -188,32 +216,31 @@ export function AgentsDock() {
                 event.preventDefault()
               }}
             >
-              <AnimatePresence initial={false} mode="popLayout">
-                {agents.flatMap((agent, index) => {
-                  const selected = index === at
-                  // The agents that come and go start under their count, and under a line when durable hobkins sit above.
-                  const heads =
-                    index === durable.length
-                      ? [
-                          durable.length ? <GroupLine key="line" still={still} /> : null,
-                          <OthersHead key="head:others" still={still} count={others.length} waiting={waiting} />,
-                        ]
-                      : []
-                  return [
-                    ...heads,
-                    <AgentRow
-                      key={agent.id}
-                      agent={agent}
-                      selected={selected}
-                      still={still}
-                      listId={id}
-                      list={list}
-                      openAgentCanvas={openAgentCanvas}
-                      openTiers={openTiers}
-                    />,
-                  ]
-                })}
-              </AnimatePresence>
+              {/* The whole list's height, with each piece at its own place in it, so rows out of view need not be drawn. */}
+              <div className="relative" style={{ height: listHeight(shape) }}>
+                <AnimatePresence initial={false} custom={present}>
+                  {/* The agents that come and go start under their count, and under a line when durable hobkins sit above. */}
+                  {heads.line === null ? null : <GroupLine key="line" still={still} top={heads.line} />}
+                  {heads.head === null ? null : <OthersHead key="head:others" still={still} top={heads.head} count={others.length} waiting={waiting} />}
+                  {rowsInView(shape, scrollTop, at).map((index) => {
+                    const agent = agents[index]!
+                    return (
+                      <AgentRow
+                        key={agent.id}
+                        agent={agent}
+                        top={rowTop(shape, index)}
+                        known={known}
+                        selected={index === at}
+                        still={still}
+                        listId={id}
+                        list={list}
+                        openAgentCanvas={openAgentCanvas}
+                        openTiers={openTiers}
+                      />
+                    )
+                  })}
+                </AnimatePresence>
+              </div>
             </div>
           </>
         ) : null}
@@ -224,26 +251,27 @@ export function AgentsDock() {
 
 interface AgentRowProps {
   agent: RunningAgent
+  /** Where the row sits in the whole list, in pixels. */
+  top: number
+  /** The agents the list drew before this row was drawn. */
+  known: RefObject<ReadonlySet<string>>
   selected: boolean
   still: boolean
   listId: string
   list: RefObject<HTMLDivElement | null>
   openAgentCanvas: (id: string) => void
   openTiers: (tier: Tier) => void
-  /** AnimatePresence passes the row's element up through this to measure it as it leaves. */
-  ref?: Ref<HTMLDivElement>
 }
 
 /**
  * One agent's row. It draws again only when its own agent, or whether it is selected, changes: every row with a
  * layout prop reads the page's layout for each draw, and the list draws for every agent's latest words.
  */
-const AgentRow = memo(function AgentRow({ agent, selected, still, listId: id, list, openAgentCanvas, openTiers, ref }: AgentRowProps) {
+const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, listId: id, list, openAgentCanvas, openTiers }: AgentRowProps) {
   const asks = agent.asks
   const waits = agent.durable?.state === 'waiting'
   return (
     <motion.div
-      ref={ref}
       layout={still ? false : 'position'}
       transition={agentEntry(still)}
       id={`${id}-${agent.id}`}
@@ -253,10 +281,17 @@ const AgentRow = memo(function AgentRow({ agent, selected, still, listId: id, li
       aria-describedby={`${id}-${agent.id}-children`}
       data-agent-row={agent.id}
       data-asking={asks ? true : undefined}
-      // A new agent bubbles up from below and overshoots a little, like a bubble reaching the surface.
-      initial={holdStill({ opacity: 0, transform: 'translateY(34px) scale(0.5)' }, still)}
+      // A new agent bubbles up from below and overshoots a little, like a bubble reaching the surface. One the list
+      // drew before, scrolled into view, is simply there.
+      initial={known.current.has(agent.id) ? false : holdStill({ opacity: 0, transform: 'translateY(34px) scale(0.5)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)', transition: agentEntry(still) }, still)}
-      exit={holdStill({ opacity: 0, transform: 'translateY(0px) scale(0.7)', transition: { duration: 0.18 } }, still)}
+      // An agent that leaves shrinks away where it stood. A row only scrolled out of view goes at once.
+      variants={{
+        gone: (present?: ReadonlySet<string>) =>
+          present?.has(agent.id) ? {} : holdStill({ opacity: 0, transform: 'translateY(0px) scale(0.7)', transition: { duration: 0.18 } }, still),
+      }}
+      exit="gone"
+      style={{ top }}
       // The row keeps the keyboard where it is: a click must not blur the list and end a preview first.
       onMouseDown={(event) => event.preventDefault()}
       // Clicking an agent puts the keyboard on it in the list (once the open has re-rendered), so Up walks
@@ -267,7 +302,7 @@ const AgentRow = memo(function AgentRow({ agent, selected, still, listId: id, li
       }}
       // The question mark on the face is the only sign that an agent waits. The row itself stays as any other.
       className={cn(
-        'flex cursor-default items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors duration-[160ms] ease-[ease]',
+        'absolute inset-x-0 flex cursor-default items-center gap-2.5 rounded-xl px-2 py-1.5 transition-colors duration-[160ms] ease-[ease]',
         selected ? 'bg-surface-2' : 'hover:bg-tone-1',
       )}
     >
@@ -341,13 +376,8 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
     )
 })
 
-/** Four rows of the list, in pixels. Each group's header and the line between the groups add their own height. */
-const FOUR_ROWS = 188
-const GROUP_HEAD = 24
-const GROUP_LINE = 13
-
 /** A group's small header in the list. It walks with its rows, and Up and Down pass it by. */
-function GroupHead({ still, children }: { still: boolean; children: ReactNode }) {
+function GroupHead({ still, top, children }: { still: boolean; top: number; children: ReactNode }) {
   return (
     <motion.div
       aria-hidden="true"
@@ -356,7 +386,8 @@ function GroupHead({ still, children }: { still: boolean; children: ReactNode })
       initial={holdStill({ opacity: 0 }, still)}
       animate={holdStill({ opacity: 1 }, still)}
       exit={holdStill({ opacity: 0, transition: { duration: 0.18 } }, still)}
-      className="flex h-6 items-center gap-2 px-2"
+      style={{ top }}
+      className="absolute inset-x-0 flex h-6 items-center gap-2 px-2"
     >
       {children}
     </motion.div>
@@ -364,7 +395,7 @@ function GroupHead({ still, children }: { still: boolean; children: ReactNode })
 }
 
 /** The thin line between the durable hobkins and the other agents. */
-const GroupLine = memo(function GroupLine({ still }: { still: boolean }) {
+const GroupLine = memo(function GroupLine({ still, top }: { still: boolean; top: number }) {
   return (
     <motion.div
       aria-hidden="true"
@@ -373,15 +404,16 @@ const GroupLine = memo(function GroupLine({ still }: { still: boolean }) {
       initial={holdStill({ opacity: 0 }, still)}
       animate={holdStill({ opacity: 1 }, still)}
       exit={holdStill({ opacity: 0, transition: { duration: 0.18 } }, still)}
-      className="mx-2 my-1.5 h-px bg-border"
+      style={{ top }}
+      className="absolute inset-x-0 mx-2 my-1.5 h-px bg-border"
     />
   )
 })
 
 /** The header over the agents that come and go: how many work, and how many need the user. Draws again only for those two. */
-const OthersHead = memo(function OthersHead({ still, count, waiting }: { still: boolean; count: number; waiting: number }) {
+const OthersHead = memo(function OthersHead({ still, top, count, waiting }: { still: boolean; top: number; count: number; waiting: number }) {
   return (
-    <GroupHead still={still}>
+    <GroupHead still={still} top={top}>
       <span className="eyebrow">{count} working</span>
       {waiting ? (
         <span className="flex items-center gap-1.5 text-[11px] font-medium text-sun-fg">
