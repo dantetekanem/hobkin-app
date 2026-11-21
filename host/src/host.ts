@@ -34,6 +34,7 @@ import { Titles, titleHobkins } from './titles.ts'
 import { piModelRunner } from './review/agent.ts'
 import { mainImage } from './message-images.ts'
 import { readJobSession } from './job-session.ts'
+import { olderStepsHandlers } from './older-steps.ts'
 import { removeHostFile, runningHost, writeHostFile } from './host-file.ts'
 import { Integrations, type McpSource } from './integrations.ts'
 import { piMcpSourceFor } from './integrations-pi.ts'
@@ -708,6 +709,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // Change Review: prepared reviews, the reviewer's notes, and verdicts (005, 009).
     ...reviewHandlers(reviews),
     'agent.session': ({ report }) => readJobSession({ data: () => hobkin().runtime.directory, snapshot: () => ({ reports: owner.snapshot?.reports, completedJobReports: owner.snapshot?.completedJobReports }), state: () => hobkin().runtime.state() }, report),
+    // A run's steps its feed let go, and a tool's whole output, read back from its saved session (052 S18).
+    ...olderStepsHandlers({ data: () => hobkin().runtime.directory, state: () => hobkin().runtime.state() }),
     'history.list': () => history.list(),
     'history.open': ({ id }) => history.open(id),
   }

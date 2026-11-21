@@ -20,11 +20,14 @@ declare module 'hobkin/src/cli/work/usage.mjs' {
 }
 
 declare module 'hobkin/src/cli/job-activity.mjs' {
+  /** The most steps a background run's feed keeps, and the most of one tool's output it keeps: its first and last halves. */
+  export const MOST_STEPS: number
+  export const MOST_OUTPUT: number
   /** Allowlisted display data for one run, reduced from Pi's events. */
   export class JobActivity {
-    constructor(options?: { most?: number })
+    constructor(options?: { most?: number; mostOutput?: number; now?: () => number })
     accept(event: unknown): void
-    snapshot(): { id: string; kind: 'assistant' | 'tool'; text?: string; name?: string; state?: string; input?: string; output?: string }[]
+    snapshot(): { id: string; kind: 'assistant' | 'tool'; text?: string; name?: string; state?: string; input?: string; output?: string; outputLength?: number; at?: number }[]
   }
 }
 

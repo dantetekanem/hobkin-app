@@ -48,6 +48,11 @@ export function watchJob(job: string): () => void {
   return watched.hold(job)
 }
 
+/** Calls `listener` with the jobs watched each time they change. Returns how to stop. */
+export function onWatchedChange(listener: (jobs: readonly string[]) => void): () => void {
+  return watched.subscribe(() => listener(watched.jobs()))
+}
+
 /**
  * Connects to the host and keeps the connection up. Returns how to let go of it. It closes a moment after the last
  * hold lets go, so a hot update, which lets go and takes hold again at once, keeps it open.

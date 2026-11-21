@@ -31,6 +31,7 @@ import {
 } from '../protocol/setup.ts'
 import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import type { ProofRun } from '../protocol/proofs.ts'
+import type { ActivityEntry } from '../protocol/activity.ts'
 import { GRADES, ISSUE_PICKUPS, PR_MODES } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
@@ -1112,6 +1113,17 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ report: words(256) }, { additionalProperties: false }),
   },
+  'activity.before': {
+    description:
+      "Read the steps a background run's feed let go, from the run's saved Pi session: up to 200 right before the step `before` (a feed entry's id), or the newest with no `before`. `at`, that step's time in milliseconds, places the page when the session numbers the step otherwise. Read-only.",
+    runs: 'host',
+    args: Type.Object({ job: words(256), before: Type.Optional(words(512)), at: Type.Optional(Type.Number({ minimum: 0 })) }, { additionalProperties: false }),
+  },
+  'activity.output': {
+    description: "Read a tool step's whole output from its run's saved Pi session, for a step whose feed keeps only the output's first and last halves (`outputLength`). Read-only.",
+    runs: 'host',
+    args: Type.Object({ job: words(256), id: words(512) }, { additionalProperties: false }),
+  },
   'agent.stop': {
     description:
       "Stop an agent or routine that is running, by its run's id. A work agent stops the two ways hobkin's k stops one: `for-now` puts its item at the end of the queue, and `not-approved` records a no, so it does not run again. Its branch stays either way. Anything else is cancelled.",
@@ -1417,6 +1429,9 @@ export interface CommandResults {
   /** What the agent works on now, in words. */
   'agent.change': { message: string }
   'agent.session': SavedJobSession
+  'activity.before': OlderSteps
+  /** Null when the session saved no such tool result. */
+  'activity.output': WholeOutput | null
   /** The run hobkin started. */
   'routine.run': { run: string }
   'routine.enable': { ok: true }
@@ -1435,6 +1450,23 @@ export interface CommandResults {
   /** `titling`: how many of the listed conversations are having a title made for them now, so the window looks again. None from a host that makes no titles. */
   'history.list': { conversations: HistoryEntry[]; titling?: number }
   'history.open': HistoryConversation
+}
+
+/** Steps a run's feed let go, read back from its saved Pi session in the feed's own shape. */
+export interface OlderSteps {
+  /** Up to 200 steps right before the one asked about, oldest first. */
+  steps: ActivityEntry[]
+  /** Older steps than these remain. */
+  more: boolean
+  /** The step asked about is in the saved session. When it is not, `at` placed the page. */
+  found: boolean
+}
+
+/** A tool step's whole output, as its saved session has it, and how long it is. */
+export interface WholeOutput {
+  id: string
+  output: string
+  length: number
 }
 
 /** Raw saved entries, in active-branch order. Unknown fields stay intact; this is not model input. */

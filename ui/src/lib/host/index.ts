@@ -2,7 +2,7 @@
  * The UI's side of the host: the connection, the state it feeds, and hooks that read it.
  * Each hook answers with the host's data, and with the frame's sample data only in a browser tab no host has answered.
  */
-export { answerQuestion, deferQuestion, hostStore, reportPresence, runCommand, selectMainModel, startHostConnection, type MainEffort } from './client.ts'
+export { answerQuestion, deferQuestion, hostStore, onWatchedChange, reportPresence, runCommand, selectMainModel, startHostConnection, type MainEffort } from './client.ts'
 export { CommandError, type HostAddress } from './connection.ts'
 export type { Connection, ConnectionStatus } from './frame.ts'
 export {

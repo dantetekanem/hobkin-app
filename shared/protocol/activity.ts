@@ -21,6 +21,11 @@ export interface ActivityEntry {
   input?: string
   /** What the tool gave back so far, as text. A failed tool's output is its error. */
   output?: string
+  /**
+   * How long the whole output is, when the feed keeps only its first and last halves, with a marker between, in `output`.
+   * The whole of it is read from the run's saved session (`activity.output`). Left out when `output` is whole.
+   */
+  outputLength?: number
   /** Bounded codemode operation previews, never nested result bodies. */
   codemode?: CodemodeMetadata
   /** When hobkin first saw it, in milliseconds since the epoch: when the agent began saying it, or made the call. A runtime from before 2026-11-15 leaves it out. */
@@ -29,6 +34,12 @@ export interface ActivityEntry {
 
 /** Every job's activity, by run id. */
 export type JobActivity = Record<string, readonly ActivityEntry[]>
+
+/**
+ * The most steps a background run's feed keeps (hobkin's `MOST_STEPS`). A feed this long may have let older steps go,
+ * which its run's saved session still has (`activity.before`).
+ */
+export const FEED_STEPS = 200
 
 /**
  * The main chat's own activity (the snapshot's `mainActivity`) rides the same steps as one more job under this id,
@@ -216,7 +227,7 @@ function brief(entry: ActivityEntry): ActivityEntry {
   const held = briefs.get(entry)
   if (held) return held
 
-  const { input: _input, output: _output, codemode: _codemode, ...rest } = entry
+  const { input: _input, output: _output, outputLength: _length, codemode: _codemode, ...rest } = entry
   const copy = rest.text !== undefined && rest.text.length > TAIL_TEXT ? { ...rest, text: cut(rest.text) } : rest
   briefs.set(entry, copy)
   return copy

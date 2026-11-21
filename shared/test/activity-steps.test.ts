@@ -191,6 +191,7 @@ test('a tail is the newest entry without its input, output and codemode, after t
     { id: 'tool:3', kind: 'tool', name: 'codemode', state: 'running', at: 7 },
   ])
   assert.deepEqual(tailOf([reading]), [{ id: 'tool:2', kind: 'tool', name: 'bash', state: 'running' }], 'no words yet')
+  assert.deepEqual(tailOf([{ ...reading, outputLength: 90000 }]), [{ id: 'tool:2', kind: 'tool', name: 'bash', state: 'running' }], 'nor how long its whole output is')
 
   const feed = [words, reading]
   assert.equal(tailOf(feed)[1], tailOf([...feed])[1], 'an entry that did not change keeps its tail copy')
