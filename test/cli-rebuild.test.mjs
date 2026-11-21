@@ -29,8 +29,10 @@ test('a rebuild reads the runtime document once, a commit shows in the next one,
   const app = await open(t);
   await app.project();
   const state = t.mock.method(app.runtime, 'state');
+  const document = t.mock.method(app.runtime, 'document');
   await app.project();
-  assert.equal(state.mock.callCount(), 1, 'one read of the document for the whole rebuild');
+  assert.equal(document.mock.callCount(), 1, 'one read of the document for the whole rebuild');
+  assert.equal(state.mock.callCount(), 0, 'and no copy of it');
 
   // With its evidence already taken, so the rebuild has nothing to collect first.
   await app.runtime.change(document => {
@@ -38,7 +40,7 @@ test('a rebuild reads the runtime document once, a commit shows in the next one,
     document.evidenceReceipts = { ...document.evidenceReceipts, one: true };
   });
   const shown = await app.project();
-  assert.equal(state.mock.callCount(), 2);
+  assert.equal(document.mock.callCount(), 2);
   assert.ok(shown.runs.some(run => run.id === 'one'), 'the commit shows in the next rebuild');
   assert.equal(shown.usage.usd, 0.5, 'usage counts the finished run');
   const usageText = JSON.stringify(shown.usage);
@@ -70,4 +72,36 @@ test('a rebuild with nothing committed since the last one collects no evidence a
   await app.project();
   assert.equal(synced.mock.callCount(), 1, 'a commit works it out again');
   assert.equal((await app.runtime.state()).evidenceReceipts.two, true, 'and takes the new run\'s evidence');
+});
+
+const deepFreeze = value => {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const part of Object.values(value)) deepFreeze(part);
+  }
+  return value;
+};
+
+test('a rebuild reads the committed document with no copy, writes nothing to it, and hands out nothing of it', async t => {
+  const app = await open(t);
+  await app.runtime.change(document => {
+    document.runs.one = finished('one');
+    document.runs.work = { ...finished('work'), scheduleId: 'work.api.do', work: { slug: 'api', lane: 'do', item: 'abc', planKey: 'item:api:abc' } };
+    document.runs.quiet = { ...finished('quiet'), status: 'no_change' };
+    document.runs.live = { id: 'live', kind: 'background', scheduleId: 'news', title: 'News', harness: 'pi', status: 'running', startedAt: '2026-01-02T10:00:00.000Z' };
+    document.evidenceReceipts = { one: true, work: true, quiet: true };
+  });
+  // Frozen through and through, so any writer throws. A frozen copy, so pi-durable's own document is untouched.
+  const committed = await app.runtime.document();
+  const frozen = deepFreeze(structuredClone(committed));
+  t.mock.method(app.runtime, 'document', async () => frozen);
+  const state = t.mock.method(app.runtime, 'state');
+
+  const shown = await app.project();
+  assert.equal(state.mock.callCount(), 0, 'no copy of the document is made');
+  const work = shown.runs.find(run => run.id === 'work');
+  assert.deepEqual(work.work, frozen.runs.work.work);
+  assert.notEqual(work.work, frozen.runs.work.work, 'what a rebuild hands out is a copy of its own');
+  assert.equal(Object.isFrozen(work.work), false);
+  assert.ok(shown.runs.some(run => run.id === 'live' && run.state === 'running'));
 });

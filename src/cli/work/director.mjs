@@ -35,6 +35,7 @@ import {
 } from './store.mjs';
 import { BRANCH_PREFIX, changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, headBranch, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
+import { copyJson } from '../file-version.mjs';
 import { lookAfterHarness, stampUpkeep, upkeepDue } from './upkeep.mjs';
 import { offerSubscriptionPause, retireSubscriptionPause } from './subscription.mjs';
 import { nextPause, usageLimitIn } from './usage.mjs';
@@ -949,10 +950,12 @@ export class WorkDirector {
     const runIn = async (place, signal) => {
       const here = place.cwd;
       const schedule = { id: scheduleId, title, prompt: instructions, cwd: here, harness: 'pi', model, context: [] };
-      const { runs } = await this.runtime.state();
-      const previous = Object.values(runs)
+      // Only the latest finished run of this schedule is wanted: the committed document is read with no copy, and only that run is copied.
+      const { runs } = await (this.runtime.document?.() ?? this.runtime.state());
+      const latest = Object.values(runs)
         .filter(run => run.scheduleId === scheduleId && run.status !== 'running')
         .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
+      const previous = latest && copyJson(latest);
       const prompt = await buildContext(schedule, previous, readMemory(this.root), openCheck(this.root, scheduleId), work(place.folder ? 'folder' : 'tree'));
       mkdirSync(join(this.root, 'jobs'), { recursive: true, mode: 0o700 });
       return this.runHarness({

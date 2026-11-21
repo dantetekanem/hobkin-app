@@ -128,3 +128,26 @@ test('a run in the user\'s folder stops on the next look once the folder leaves 
   assert.deepEqual(killed, ['one', 'two']);
   assert.deepEqual(runs.map(run => run.moved), [true, true]);
 });
+
+test('a work run that starts reads the previous run of its schedule from the committed document, copying only that run', async t => {
+  const { director, studied } = await import('./helpers/work-director.mjs');
+  const { fileItem } = await import('../src/cli/work/store.mjs');
+  const h = director(t);
+  studied(h, 'api');
+  fileItem(h.root, 'api', { key: 'fix', kind: 'fix', title: 'Fix it', brief: 'Evidence, who benefits, the first change, the proof.', impact: 'high', effort: 'small' }, h.clock);
+  // The document as pi-durable keeps it, frozen through, so a writer would throw.
+  const deepFreeze = value => {
+    if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+      Object.freeze(value);
+      for (const part of Object.values(value)) deepFreeze(part);
+    }
+    return value;
+  };
+  h.runtime.document = async () => deepFreeze(structuredClone(h.runtime.data));
+  const state = t.mock.method(h.runtime, 'state');
+  await h.startedRun();
+  assert.equal(state.mock.callCount(), 0, 'no copy of the whole document');
+  assert.equal(h.calls.length, 1, 'and the run started');
+  await h.runner.kill(h.director.running()[0].id);
+  await h.settled();
+});

@@ -487,12 +487,12 @@ export class HobkinRunner {
         finishedAt: run.finishedAt,
       }));
     const now = new Date(this.now());
-    const stillToCome = schedule => {
-      const own = runs.filter(run => run.scheduleId === schedule.id);
-      return !isFinishedOnce(schedule, own, now, notBeforeFor(schedule, this.config));
-    };
+    // Each routine's runs, in one pass over every run, in the order they were listed.
+    const byRoutine = runsOfRoutines({ runs: state.runs });
+    const runsOf = schedule => [...(byRoutine.get(schedule.id) ?? [])];
+    const stillToCome = schedule => !isFinishedOnce(schedule, runsOf(schedule), now, notBeforeFor(schedule, this.config));
     const schedules = this.loaded.schedules.filter(stillToCome).map(schedule => {
-      const related = runs.filter(run => run.scheduleId === schedule.id);
+      const related = runsOf(schedule);
       let nextRun = { state: 'paused', at: null };
       if (schedule.enabled) {
         if (this.loaded.errors.some(error => error.path === schedule.path)) {

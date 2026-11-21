@@ -51,14 +51,30 @@ const nextLine = /^(?:\*\*)?next(?:\*\*)?:(?:\*\*)?\s+(.+)$/i;
 const LONGEST_NEXT = 300;
 const withoutBold = text => text.replace(/\*\*$/, '').trim();
 
+/** The text's lines one at a time, each trimmed, so a reader that needs the first two never cuts up a long report. */
+function* trimmedLines(text) {
+  for (let start = 0; start <= text.length;) {
+    const end = text.indexOf('\n', start);
+    const stop = end === -1 ? text.length : end;
+    yield text.slice(start, stop).trim();
+    start = stop + 1;
+  }
+}
+
+const firstLineAfter = lines => {
+  for (const line of lines) if (line) return line;
+  return undefined;
+};
+
 export const reportTriage = run => {
   if (run.status !== 'completed') return null;
-  const [firstLine, ...rest] = String(run.result?.text ?? '').trim().split('\n').map(line => line.trim());
+  const lines = trimmedLines(String(run.result?.text ?? '').trim());
+  const firstLine = lines.next().value;
   if (nothingNewLine.test(firstLine)) return { level: 'nothing' };
 
   const match = firstLine.match(talkBackLine);
   if (!match) return null;
-  const next = rest.find(Boolean)?.match(nextLine)?.[1];
+  const next = firstLineAfter(lines)?.match(nextLine)?.[1];
   return {
     level: match[1].toLowerCase(),
     message: withoutBold(match[2]).slice(0, 1024),
@@ -73,7 +89,16 @@ export const isQuietRun = run => run.trigger !== 'manual' && reportTriage(run)?.
 const usefulWord = /^\s*useful:[ \t]+/i;
 export const readerText = text => String(text ?? '').replace(usefulWord, '');
 
-const reportPath = (root, id) => join(root, 'reports', `${createHash('sha256').update(String(id)).digest('hex')}.md`);
+// A report's file is named by a hash of its run's id, and every rebuild asks for every report's, so each name is worked out once.
+const reportPaths = new Map();
+const reportPath = (root, id) => {
+  const key = `${root}\0${id}`;
+  if (!reportPaths.has(key)) {
+    if (reportPaths.size >= 8192) reportPaths.clear();
+    reportPaths.set(key, join(root, 'reports', `${createHash('sha256').update(String(id)).digest('hex')}.md`));
+  }
+  return reportPaths.get(key);
+};
 const statOrMissing = file => {
   try { return lstatSync(file); } catch (error) {
     if (error.code === 'ENOENT') return null;

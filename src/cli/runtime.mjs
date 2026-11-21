@@ -193,6 +193,15 @@ export class HobkinRuntime {
   }
 
   /**
+   * The committed document itself, with no copy, for a reader that never changes it, such as the view's rebuild. pi-durable swaps in a
+   * new document at each commit and never changes one in place, so what this hands out stays as it was. A caller that changes what it
+   * reads, or keeps it, takes `state()` or copies what it keeps.
+   */
+  document() {
+    return this.harness.snapshot(RuntimeDoc, this.root.id, context);
+  }
+
+  /**
    * Each run's bookkeeping, for what only counts and matches runs, as the scheduler's tick does every second: its id,
    * kind, status, routine, occurrence and harness, and whether it is Work's or a durable hobkin's, never its prompt or result.
    * `evidenceDue` says whether a finished run still waits for its evidence (`collectEvidence` in compatibility.mjs), `finished` how

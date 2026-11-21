@@ -513,6 +513,8 @@ test('activity projection keeps live scheduled jobs visible beyond history limit
     };
   }
   app.runtime.state = async () => ({ ...await state(), runs });
+  // A rebuild reads the committed document, with no copy.
+  app.runtime.document = app.runtime.state;
   try {
     const view = await app.refresh();
     assert.equal(view.counts.daily, 2);
@@ -1402,6 +1404,7 @@ test('owned-publication application publishes terminal and unknown descendants a
   runtime.main = { model: { provider: 'fixture', id: 'local' }, thinkingLevel: 'medium' };
   runtime.state = async () => ({ runs: { job: { id: 'job', kind: 'background', status: 'completed', result: { text: 'Done.' } } } });
   runtime.runIndex = async () => ({ runs: {}, evidenceDue: false });
+  runtime.document = runtime.state;
   app.config = config; app.snapshot.history = { reports: [] }; app.noticeRunIds = new Set();
   app.delivery = { syncEvidence: async () => {} };
   app.runner = { snapshot: async () => ({ schedules: [], errors: [] }), steeringReceipts: () => ({}) };

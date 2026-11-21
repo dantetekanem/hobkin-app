@@ -433,9 +433,10 @@ export class HobkinApplication {
 
   async project(workAsRead = null) {
     await this.delivery.syncEvidence();
-    // The run index changes with every commit. Read before the document, it can only be older than the copy, never newer.
+    // The run index changes with every commit. Read before the document, it can only be older than the document, never newer.
     const version = await this.runtime.runIndex?.();
-    const state = await this.runtime.state();
+    // A rebuild only reads the document, so it reads the committed one with no copy, and copies what it hands out.
+    const state = await (this.runtime.document?.() ?? this.runtime.state());
     const loaded = await this.runner.snapshot(state);
     const runs = Object.values(state.runs).sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''));
     const deleted = deletedReportIds(this.runtime.directory);
@@ -631,7 +632,7 @@ export class HobkinApplication {
           harnessId: run.harnessId,
           cwd: run.cwd ?? (run.kind === 'main' ? this.config.main.cwd : undefined),
           startedAt: run.startedAt,
-          work: run.work,
+          work: copyJson(run.work),
           stalled: stalled(run),
           stopReason: run.result?.stopReason,
         })),

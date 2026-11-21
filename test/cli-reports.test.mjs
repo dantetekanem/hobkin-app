@@ -19,6 +19,36 @@ test('a Next line after the triage line is the one call the report asks for', ()
   assert.equal(triaged('**Critical:** Rent is due.\n**Next:** Pay it today.').next, 'Pay it today.');
 });
 
+test('the triage of a long report reads only its first lines, and says what reading every line said', () => {
+  // What the triage said when it split and trimmed every line of the report first.
+  const everyLine = text => {
+    const [first, ...rest] = String(text ?? '').trim().split('\n').map(line => line.trim());
+    return [first, rest.find(Boolean) ?? null];
+  };
+  const texts = [
+    'Nothing new.', '**Nothing new**', '  Useful: the build passed\n\nNext: merge it', 'Critical: a key leaked\r\n  \r\n**Next:** rotate it\n', 'Blocked: no access',
+    'useful: lower case\n\n\n   \nnext: later\nmore', '\n\n  Useful:   spaced\nNext:', 'Plain text with no triage', '', null, `Useful: long\n${'body line\n'.repeat(50000)}`,
+  ];
+  const split = String.prototype.split;
+  for (const text of texts) {
+    const run = { status: 'completed', result: { text } };
+    const [first, next] = everyLine(text);
+    const triage = reportTriage(run);
+    if (/^(?:\*\*)?nothing new\.?(?:\*\*)?$/i.test(first)) assert.deepEqual(triage, { level: 'nothing' }, JSON.stringify(text));
+    else if (!/^(?:\*\*)?(critical|useful|blocked)(?:\*\*)?:(?:\*\*)?\s+(.+)$/i.test(first)) assert.equal(triage, null, JSON.stringify(text));
+    else assert.equal(triage.next ?? null, next?.match(/^(?:\*\*)?next(?:\*\*)?:(?:\*\*)?\s+(.+)$/i)?.[1].replace(/\*\*$/, '').trim().slice(0, 300) ?? null, JSON.stringify(text));
+    assert.equal(String.prototype.split, split);
+  }
+  let lines = 0;
+  String.prototype.split = function (...args) { lines++; return split.apply(this, args); };
+  try {
+    reportTriage({ status: 'completed', result: { text: texts.at(-1) } });
+  } finally {
+    String.prototype.split = split;
+  }
+  assert.equal(lines, 0, 'the report is not cut into its 50,000 lines');
+});
+
 test('a report with no Next line asks for no call, wherever the word appears later', () => {
   assert.deepEqual(triaged('Useful: The bank wrote.\n\nDetails.\n\nNext: not this one.'), { level: 'useful', message: 'The bank wrote.' });
   assert.deepEqual(triaged('Nothing new.\n\nNext: not this one.'), { level: 'nothing' });
@@ -61,6 +91,21 @@ test('a saved report is read from disk once while it stays the same, and again o
   writeFileSync(file, '# One\n\nEdited where it lies.\n');
   assert.equal(readReport(root, 'session:one', null), '# One\n\nEdited where it lies.\n');
   assert.equal(reads, 3);
+});
+
+test('a report read again while it stays the same costs a look at its file and no hash of its id', async t => {
+  const root = fixture(t);
+  saveReport(root, 'session:two', '# Two\n');
+  readReport(root, 'session:two', null);
+  const crypto = (await import('node:crypto')).default;
+  const hashes = t.mock.method(crypto, 'createHash');
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  for (let refresh = 0; refresh < 5; refresh += 1) assert.equal(readReport(root, 'session:two', null), '# Two\n');
+  assert.equal(hashes.mock.callCount(), 0);
 });
 
 test('saved reports reject symlinks and public files rather than reading another source', t => {
