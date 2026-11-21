@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { MAIN_CANVAS, type CanvasState } from '#shared/protocol/canvas.ts'
 import { agentEntry, entryTransition } from '@/features/work/agent-entry.ts'
 import { AgentHood } from '@/components/Mark.tsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useActionCount } from '@/features/actions/store.ts'
 import { useShellBrowser } from '@/features/canvas-panel/BrowserPane.tsx'
 import { canOpenInBrowser, closeCanvas, openInBrowser, reloadCanvas, saveCanvas } from '@/features/canvas-panel/controls.ts'
@@ -137,33 +138,41 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
     >
       <Surface>
         <nav aria-label="Screens" className={ROW}>
-          {main.map((tab) => {
+          {main.map((tab, at) => {
             const active = tab.id === screen || ((screen === 'world' || screen === 'yolo' || screen === 'proof') && tab.id === 'work')
             const badge = badges[tab.id]
             return (
-              <button
-                key={tab.id}
-                type="button"
-                aria-current={active ? 'page' : undefined}
-                aria-label={tab.label}
-                title={tab.label}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
-                  openScreen(tab.id)
-                  useView.getState().engageCanvas()
-                  requestCanvasFocus()
-                }}
-                className={cn(ITEM, active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
-              >
-                {active ? <Marker /> : null}
-                <tab.icon className="relative size-3.5" aria-hidden="true" />
-                {tab.id === 'home' ? null : <span className={cn('relative', !active && '@max-[680px]:hidden')}>{tab.label}</span>}
-                {badge ? (
-                  <span className="relative grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                    {badge}
-                  </span>
-                ) : null}
-              </button>
+              <Tooltip key={tab.id}>
+                <TooltipTrigger
+                  render={
+                    <button
+                      type="button"
+                      aria-current={active ? 'page' : undefined}
+                      aria-label={tab.label}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => {
+                        openScreen(tab.id)
+                        useView.getState().engageCanvas()
+                        requestCanvasFocus()
+                      }}
+                      className={cn(ITEM, active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
+                    />
+                  }
+                >
+                  {active ? <Marker /> : null}
+                  <tab.icon className="relative size-3.5" aria-hidden="true" />
+                  {tab.id === 'home' ? null : <span className={cn('relative', !active && '@max-[680px]:hidden')}>{tab.label}</span>}
+                  {badge ? (
+                    <span className="relative grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
+                      {badge}
+                    </span>
+                  ) : null}
+                </TooltipTrigger>
+                {/* The first row leads Command with a number's walk (`walkScreens`), so the tab at this place opens with this number. */}
+                <TooltipContent side="bottom">
+                  {tab.label} ⌘{at + 1}
+                </TooltipContent>
+              </Tooltip>
             )
           })}
         </nav>
