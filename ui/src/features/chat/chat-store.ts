@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { navigationGuide } from '@/app/key-list.ts'
 import { useView } from '@/app/view-store.ts'
 import { hostStore, runCommand } from '@/lib/host/client.ts'
+import { screenStore } from '@/lib/host/screen.ts'
 import { isLive, sentAtArg } from '@/lib/host/state.ts'
 import type { SlashCommand } from '#shared/protocol/slash.ts'
 import type { ChatMessage } from '#shared/protocol/snapshot.ts'
@@ -59,7 +60,11 @@ const recovered = new Set<string>()
 // A problem is not kept: it goes by itself, and never reaches the conversation or its history.
 const problemLine = transientLine(() => useChat.setState({ problem: null }))
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error))
-const settled = (outbox: Outbox) => settleOutbox(outbox, hostStore.getState().messages, hostStore.getState().snapshot.busy === true)
+// The outbox settles against the conversation the screen shows, so a sent row and its stored copy swap in one draw.
+const settled = (outbox: Outbox) => {
+  const shown = screenStore.getState()
+  return settleOutbox(outbox, shown.messages, shown.snapshot.busy === true)
+}
 const retainsAttachment = (draft: DraftState, id: string) =>
   draft.attachments.some((attachment) => attachment.id === id) ||
   draft.kept.some((entry) => entry.attachments.some((attachment) => attachment.id === id))
@@ -261,14 +266,20 @@ useChat.subscribe((state, before) => {
   else problemLine.clear()
 })
 
-// The outbox follows the stored conversation, whoever changes it. The commands are asked for each time hobkin opens.
-let wasLive = false
-hostStore.subscribe((state) => {
-  const { outbox, loadCommands } = useChat.getState()
-  const next = settleOutbox(outbox, state.messages, state.snapshot.busy === true)
+// The outbox follows the stored conversation as the screen shows it, whoever changes it: a sent message leaves the
+// outbox in the same draw that shows its stored copy, so the copy takes its row without rising in again.
+const stopSettling = screenStore.subscribe(() => {
+  const { outbox } = useChat.getState()
+  const next = settled(outbox)
   if (next !== outbox) useChat.setState({ outbox: next })
+})
+import.meta.hot?.dispose(stopSettling)
 
+// The commands are asked for each time hobkin opens.
+let wasLive = false
+const stopCommands = hostStore.subscribe((state) => {
   const live = isLive(state)
-  if (live && !wasLive) loadCommands()
+  if (live && !wasLive) useChat.getState().loadCommands()
   wasLive = live
 })
+import.meta.hot?.dispose(stopCommands)
