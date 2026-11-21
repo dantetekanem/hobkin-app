@@ -95,13 +95,19 @@ function applyState(state: HostState, message: StateMessage): HostState {
   const base = message.reset ? { snapshot: {}, messages: [] } : state
   const snapshot: WireSnapshot = { ...base.snapshot, ...message.set }
   for (const key of message.unset ?? []) delete snapshot[key]
-  // Job activity comes as steps. A host from before them sends the whole key in `set`, applied just above.
+  // Job activity comes as steps. A host from before them sends the whole key in `set`, applied just above. The main
+  // chat's steps go to its own key, so the jobs are copied once, and not at all for a message of main steps alone.
   if (message.activity) {
-    const held = { ...(snapshot.jobActivity as JobActivity | undefined), ...(snapshot.mainActivity ? { [MAIN_ACTIVITY]: snapshot.mainActivity } : {}) }
-    const { [MAIN_ACTIVITY]: main, ...jobs } = applyActivity(held, message.activity)
-    snapshot.jobActivity = jobs
-    if (main) snapshot.mainActivity = main
-    else delete snapshot.mainActivity
+    const steps = message.activity
+    const mainSteps = steps.some((step) => step.job === MAIN_ACTIVITY) ? steps.filter((step) => step.job === MAIN_ACTIVITY) : []
+    const jobSteps = mainSteps.length ? steps.filter((step) => step.job !== MAIN_ACTIVITY) : steps
+    const jobs = snapshot.jobActivity as JobActivity | undefined
+    if (jobSteps.length || !jobs) snapshot.jobActivity = applyActivity(jobs ?? {}, jobSteps)
+    if (mainSteps.length) {
+      const main = applyActivity(snapshot.mainActivity ? { [MAIN_ACTIVITY]: snapshot.mainActivity } : {}, mainSteps)[MAIN_ACTIVITY]
+      if (main) snapshot.mainActivity = main
+      else delete snapshot.mainActivity
+    }
   }
   const messages = message.messages ? applyMessageOps(base.messages, message.messages) : base.messages
 
@@ -133,6 +139,15 @@ function applyState(state: HostState, message: StateMessage): HostState {
   }
 }
 
+/** The ids of the stored conversation, made once per list: a reply's every word reads them. */
+const storedIds = new WeakMap<readonly ChatMessage[], readonly string[]>()
+
+function idsOf(messages: readonly ChatMessage[]): readonly string[] {
+  let ids = storedIds.get(messages)
+  if (!ids) storedIds.set(messages, (ids = messages.map(({ id }) => id)))
+  return ids
+}
+
 export function applyHostMessage(state: HostState, message: HostMessage): HostState {
   switch (message.type) {
     case 'hello':
@@ -154,7 +169,7 @@ export function applyHostMessage(state: HostState, message: HostMessage): HostSt
     case 'state':
       return applyState(state, message)
     case 'turn':
-      return { ...state, live: applyTurnEvent(state.live, message.event, state.messages.map(({ id }) => id)) }
+      return { ...state, live: applyTurnEvent(state.live, message.event, idsOf(state.messages)) }
     case 'ask':
       return { ...state, question: message.question }
     default:

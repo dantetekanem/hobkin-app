@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
+import { registerHooks } from 'node:module'
 import { test } from 'node:test'
-import type { ActivityEntry } from '#shared/protocol/activity.ts'
-import type { HelloMessage, StateMessage } from '#shared/protocol/messages.ts'
+import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
+import type { HelloMessage, HostMessage, StateMessage } from '#shared/protocol/messages.ts'
 import { applyHostMessage, initialHostState } from '../src/lib/host/state.ts'
 
 const hello: HelloMessage = {
@@ -51,4 +52,44 @@ test('a host that sends activity as steps builds the same activity, a job at a t
   assert.deepEqual(state.snapshot.jobActivity, { r2: [] })
   state = applyHostMessage(state, startOver(0))
   assert.equal(state.snapshot.jobActivity, undefined, 'a reset with no activity holds none')
+})
+
+test('steps for the main chat leave the jobs activity as it was', () => {
+  let state = applyHostMessage(initialHostState, hello)
+  state = applyHostMessage(state, startOver(0, { activity: [{ op: 'reset', job: 'r1', entries: [said('1:0', 'Looking')] }] }))
+  const jobs = state.snapshot.jobActivity
+  state = applyHostMessage(state, { type: 'state', rev: 1, activity: [{ op: 'append', job: MAIN_ACTIVITY, entries: [ran('m', 'running')] }] })
+  assert.deepEqual(state.snapshot.mainActivity, [ran('m', 'running')])
+  assert.equal(state.snapshot.jobActivity, jobs)
+})
+
+/** The window's step times, with the host store and its listener, loaded the way the window loads them. */
+async function stepTimes() {
+  registerHooks({ resolve: (specifier, context, next) => next(specifier.startsWith('@/') ? new URL(`../src/${specifier.slice(2)}`, import.meta.url).href : specifier, context) })
+  Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: { getItem: () => null, setItem() {}, removeItem() {} } } })
+  const { hostStore } = await import('../src/lib/host/client.ts')
+  const { entryTimeOf } = await import('../src/features/agent-activity/use-agent-activity.ts')
+  const send = (message: HostMessage) => hostStore.setState((state) => applyHostMessage(state, message), true)
+  send(hello)
+  return { send, entryTimeOf }
+}
+
+test('a run that left takes its step times with it', async () => {
+  const { send, entryTimeOf } = await stepTimes()
+  send(startOver(0, { activity: [{ op: 'reset', job: 'r1', entries: [said('1:0', 'Looking'), ran('a', 'running')] }, { op: 'reset', job: 'r2', entries: [said('1:0', 'Here')] }] }))
+  assert.ok(entryTimeOf('r1', 'tool:a')?.started !== undefined)
+  send({ type: 'state', rev: 1, activity: [{ op: 'remove', job: 'r1' }] })
+  assert.equal(entryTimeOf('r1', 'message:1:0'), undefined)
+  assert.equal(entryTimeOf('r1', 'tool:a'), undefined)
+  assert.ok(entryTimeOf('r2', 'message:1:0'), 'a run that stays keeps its times')
+  send(startOver(0))
+  assert.equal(entryTimeOf('r2', 'message:1:0'), undefined, 'a reset without a run lets go of its times too')
+})
+
+test('a call that ends before the one after it still gets its end time', async () => {
+  const { send, entryTimeOf } = await stepTimes()
+  send(startOver(0, { activity: [{ op: 'reset', job: 'r3', entries: [ran('a', 'running'), ran('b', 'running')] }] }))
+  send({ type: 'state', rev: 1, activity: [{ op: 'update', job: 'r3', entry: ran('a', 'completed') }] })
+  assert.ok(entryTimeOf('r3', 'tool:a')?.ended !== undefined)
+  assert.equal(entryTimeOf('r3', 'tool:b')?.ended, undefined)
 })

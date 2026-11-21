@@ -84,9 +84,11 @@ test('Home draws again when what it shows of an agent changes, not for every ste
   await chatter(mounted)
   assert.equal(draws, before, 'Home does not draw an agent\'s words')
 
+  const { needs, week, upcoming } = model!
   await mounted.change(() => send(step('other', { id: 'tool:2', kind: 'tool', name: 'read', state: 'running', input: '{"path":"a.ts"}' })))
   assert.equal(draws, before + 1)
   assert.deepEqual(model!.running.rows.map(({ detail }) => detail), ['running bash', 'running read'])
+  assert.ok(model!.needs === needs && model!.week === week && model!.upcoming === upcoming, 'what Home shows apart from its agents is not made again for an agent')
   await mounted.unmount()
 })
 

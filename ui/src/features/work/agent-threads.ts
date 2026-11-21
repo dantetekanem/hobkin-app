@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { JobActivity } from '#shared/protocol/activity.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { Attachment } from '@/features/chat/draft.ts'
 import { hostStore } from '../../lib/host/client.ts'
@@ -76,6 +77,15 @@ export const useAgentThreads = create<AgentThreads>()((set, get) => ({
   },
 }))
 
-// Receipt handling outlives the open canvas; hot updates release only their own listener.
-const unsubscribe = hostStore.subscribe(({ snapshot }) => useAgentThreads.getState().sync(snapshot))
+// Receipt handling outlives the open canvas; hot updates release only their own listener. A message that changes
+// neither the runs nor the receipts has nothing new for the notes. A run whose activity the host lets go of, which is
+// when its page can no longer show the exchange, takes its notes with it.
+const unsubscribe = hostStore.subscribe(({ snapshot }, { snapshot: before }) => {
+  if (snapshot.jobActivity !== before.jobActivity) {
+    const [now, then] = [snapshot.jobActivity, before.jobActivity] as (JobActivity | undefined)[]
+    const gone = Object.keys(useAgentThreads.getState().notes).filter((runId) => then?.[runId] !== undefined && now?.[runId] === undefined)
+    if (gone.length) useAgentThreads.setState(({ notes }) => ({ notes: Object.fromEntries(Object.entries(notes).filter(([runId]) => !gone.includes(runId))) }))
+  }
+  if (snapshot.runs !== before.runs || snapshot.steeringReceipts !== before.steeringReceipts) useAgentThreads.getState().sync(snapshot)
+})
 import.meta.hot?.dispose(unsubscribe)

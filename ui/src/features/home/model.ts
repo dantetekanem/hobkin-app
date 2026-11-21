@@ -600,30 +600,20 @@ function reviewRequestCard(row: NeedRow, pull: GitHubPull): Candidate {
   })
 }
 
-function stackOf(input: HomeInput, needs: Need[]): StackCard[] {
-  const candidates: Candidate[] = []
+/** The stack's cards that do not come from the agents at work, in the order they are weighed: the agents' come in between. */
+interface StackParts {
+  needs: Candidate[]
+  middle: Candidate[]
+  last: Candidate[]
+}
 
+function stackParts(input: HomeInput, needs: Need[]): StackParts {
+  const needCards: Candidate[] = []
   for (const item of needs) {
     const card = needCard(item, input.now)
-    if (card) candidates.push(card)
+    if (card) needCards.push(card)
   }
-
-  for (const agent of input.agents.filter(agent => agent.asks)) {
-    candidates.push(candidate(1, null, {
-      id: `agent:${agent.id}`,
-      kind: 'agent',
-      label: `Agent asks · ${agent.project}`,
-      reason: 'Waiting for you',
-      tone: 'accent',
-      title: agent.asks!,
-      detail: agent.title,
-      choices: labelsOf(agent.choices),
-      pick: pickOf(agent.choices, agent.recommended),
-      why: agent.why ?? null,
-      primary: open({ to: 'agent', id: agent.id }, 'Answer agent'),
-    }))
-  }
-
+  const candidates: Candidate[] = []
   for (const { row, pull } of needs) {
     if (row.kind === 'github' && pull) candidates.push(reviewRequestCard(row, pull))
   }
@@ -689,22 +679,10 @@ function stackOf(input: HomeInput, needs: Need[]): StackCard[] {
     }))
   }
 
-  for (const agent of input.agents.filter(agent => !agent.asks)) {
-    candidates.push(candidate(4, null, {
-      id: `agent:${agent.id}`,
-      kind: 'agent',
-      label: `Agent at work · ${agent.project}`,
-      reason: 'Working now',
-      tone: 'info',
-      title: agent.title,
-      detail: agent.doing,
-      primary: open({ to: 'agent', id: agent.id }, 'Watch'),
-    }))
-  }
-
+  const last: Candidate[] = []
   const wins = winsOf(input.wins)
   if (new Date(input.now).getHours() >= 17 && wins && wins.merged + wins.decided > 0) {
-    candidates.push(candidate(5, null, {
+    last.push(candidate(5, null, {
       id: 'today:wins',
       kind: 'today',
       label: 'Today',
@@ -715,7 +693,34 @@ function stackOf(input: HomeInput, needs: Need[]): StackCard[] {
       primary: open(screen('work'), 'See Work'),
     }))
   }
+  return { needs: needCards, middle: candidates, last }
+}
 
+function stackOf({ needs, middle, last }: StackParts, agents: HomeInput['agents']): StackCard[] {
+  const asking = agents.filter(agent => agent.asks).map(agent => candidate(1, null, {
+    id: `agent:${agent.id}`,
+    kind: 'agent',
+    label: `Agent asks · ${agent.project}`,
+    reason: 'Waiting for you',
+    tone: 'accent',
+    title: agent.asks!,
+    detail: agent.title,
+    choices: labelsOf(agent.choices),
+    pick: pickOf(agent.choices, agent.recommended),
+    why: agent.why ?? null,
+    primary: open({ to: 'agent', id: agent.id }, 'Answer agent'),
+  }))
+  const working = agents.filter(agent => !agent.asks).map(agent => candidate(4, null, {
+    id: `agent:${agent.id}`,
+    kind: 'agent',
+    label: `Agent at work · ${agent.project}`,
+    reason: 'Working now',
+    tone: 'info',
+    title: agent.title,
+    detail: agent.doing,
+    primary: open({ to: 'agent', id: agent.id }, 'Watch'),
+  }))
+  const candidates = [...needs, ...asking, ...middle, ...working, ...last]
   candidates.sort((a, b) => {
     if (a.tier !== b.tier) return a.tier - b.tier
     if (a.tier === -2 || a.tier === 2) return (b.at ?? -Infinity) - (a.at ?? -Infinity)
@@ -773,8 +778,8 @@ function upcomingOf(input: HomeInput, start: number, end: number): HomeModel['up
   }
 }
 
-function runningOf(input: HomeInput): HomeModel['running'] {
-  const rows = input.agents.map(agent => ({
+function runningOf(agents: HomeInput['agents'], work: HomeInput['work']): HomeModel['running'] {
+  const rows = agents.map(agent => ({
     ...row({
       id: `agent:${agent.id}`,
       title: agent.title,
@@ -786,7 +791,7 @@ function runningOf(input: HomeInput): HomeModel['running'] {
     }),
     face: { hue: agent.hue, mood: agent.mood, asking: Boolean(agent.asks) },
   }))
-  const queue = (input.work?.queue ?? [])
+  const queue = (work?.queue ?? [])
     .filter(item => !item.skipped)
     .slice(0, 3)
     .map(item => row({
@@ -798,11 +803,11 @@ function runningOf(input: HomeInput): HomeModel['running'] {
       aside: item.grade,
       label: 'See',
     }))
-  const working = input.agents.filter(agent => agent.kind === 'work').length
+  const working = agents.filter(agent => agent.kind === 'work').length
   return {
     rows,
-    held: input.work?.held ?? null,
-    slots: input.work ? `${working} of ${input.work.agents} slots · ${input.work.queued} queued` : null,
+    held: work?.held ?? null,
+    slots: work ? `${working} of ${work.agents} slots · ${work.queued} queued` : null,
     queue,
   }
 }
@@ -824,18 +829,19 @@ function yoloOf(yolo: YoloState | null | undefined): HomeYolo | null {
   }
 }
 
-function chipsOf(input: HomeInput): HomeModel['header']['chips'] {
-  const chips: HomeModel['header']['chips'] = []
+type Chips = HomeModel['header']['chips']
+
+/** The header's chips that do not count the agents at work: the ones before that count, and the ones after it. */
+function chipParts(input: HomeInput): { first: Chips; rest: Chips } {
+  const first: Chips = []
+  const chips: Chips = []
   const next = forecasts(input)[0]
   const yolo = input.work?.yolo
   if (yolo?.on) {
     const readiness = yolo.projects.length ? ` · ${yolo.ready} of ${yolo.projects.length} ready` : ''
-    chips.push({ tone: 'accent', label: `YOLO on${readiness}`, target: screen('yolo') })
+    first.push({ tone: 'accent', label: `YOLO on${readiness}`, target: screen('yolo') })
   } else if (yolo) {
-    chips.push({ tone: 'quiet', label: 'YOLO off', target: screen('yolo') })
-  }
-  if (input.agents.length) {
-    chips.push({ tone: 'info', label: `${input.agents.length} working`, target: screen('work') })
+    first.push({ tone: 'quiet', label: 'YOLO off', target: screen('yolo') })
   }
   if (next) {
     chips.push({ tone: 'quiet', label: `Next: ${next.routine.title} · ${clockTime(next.next!.at)}`, target: { to: 'routine', id: next.routine.id } })
@@ -847,14 +853,38 @@ function chipsOf(input: HomeInput): HomeModel['header']['chips'] {
   if (held) {
     chips.push({ tone: 'warn', label: `${plural(held, 'routine')} held`, target: screen('routines') })
   }
-  return chips
+  return { first, rest: chips }
 }
 
-export function homeModel(input: HomeInput): HomeModel {
+const chipsOf = ({ first, rest }: { first: Chips; rest: Chips }, agents: HomeInput['agents']): Chips =>
+  agents.length ? [...first, { tone: 'info', label: `${agents.length} working`, target: screen('work') }, ...rest] : [...first, ...rest]
+
+/**
+ * What Home draws apart from the agents at work, which change far more often than the rest: `homeParts` makes it from
+ * everything but the agents, and `withAgents` adds them. Home's hook keeps the parts while only the agents change.
+ */
+export type HomeParts =
+  | { idle: HomeModel }
+  | {
+      idle: null
+      rest: Omit<HomeModel, 'widgets' | 'header' | 'stack' | 'running'>
+      header: Omit<HomeModel['header'], 'chips'>
+      chips: { first: Chips; rest: Chips }
+      stack: StackParts
+      work: HomeInput['work']
+      dismissed: ReadonlySet<string>
+      layout: ReturnType<typeof layoutOf>
+      custom: ReturnType<typeof customWidgetsOf>
+    }
+
+export const homeModel = (input: HomeInput): HomeModel => withAgents(homeParts(input), input.agents)
+
+/** Home's parts from everything it reads but the agents at work, which it leaves alone. */
+export function homeParts(input: HomeInput): HomeParts {
   const day = new Date(input.now)
   const start = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime()
   const end = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime()
-  if (!input.live) return {
+  if (!input.live) return { idle: {
     widgets: [],
     strip: [],
     header: { title: 'Home is not available yet', line: null, chips: [], mood: 'idle' },
@@ -868,7 +898,7 @@ export function homeModel(input: HomeInput): HomeModel {
     connections: { known: false, tiles: [], summary: null },
     week: { days: [], completed: 0, unfinished: 0, wins: null },
     yolo: null,
-  }
+  } }
 
   // A dismissed id ("seen it / not now") is dropped wherever it would show: its need row, its problem row and its stack
   // card all carry the same id, so one dismissal quiets the thing across the whole dashboard. The item itself still
@@ -884,34 +914,61 @@ export function homeModel(input: HomeInput): HomeModel {
   const problems = problemsOf(input).filter(row => kept(row.id))
   const fresh = sinceLastLook(input.reports, input.read, input.attention)
   const days = outcomeWeek(input.reports, input.now)
-  const base: Omit<HomeModel, 'widgets'> = {
-    // Tips and hobkin's thoughts for the top strip: dismissed ones drop out here; the strip rotates a window over the rest.
-    strip: stripItems(TIPS, thoughtsOf(input.thoughts), input.dismissed),
+  return {
+    idle: null,
     header: {
       title: needs.length || atLeast
         ? `${atLeast ? 'At least ' : ''}${needs.length} ${needs.length === 1 ? 'thing needs' : 'things need'} you` : 'Nothing needs you',
       line: fresh?.count ? `${fresh.count} ${fresh.count === 1 ? 'report' : 'reports'} since you looked` : null,
-      chips: chipsOf(input),
       mood: needs.length ? 'listening' : problems.length ? 'focused' : 'idle',
     },
-    stack: stackOf(input, needs).filter(card => kept(card.id)),
-    needs: { rows: needs.slice(0, 5).map(need => need.row), more: Math.max(0, needs.length - 5) },
-    running: runningOf(input),
-    upcoming: upcomingOf(input, start, end),
-    problems: { rows: problems.slice(0, 4), more: Math.max(0, problems.length - 4) },
-    projects: { rows: projectsOf(input) },
-    github: githubOf(input),
-    connections: connectionsOf(input),
-    week: {
-      days,
-      completed: days.reduce((sum, day) => sum + day.completed, 0),
-      unfinished: days.reduce((sum, day) => sum + day.failed + day.stopped, 0),
-      wins: winsOf(input.wins),
+    chips: chipParts(input),
+    stack: stackParts(input, needs),
+    work: input.work,
+    dismissed: input.dismissed,
+    layout: layoutOf(input.layout),
+    custom: customWidgetsOf(input.custom),
+    rest: {
+      // Tips and hobkin's thoughts for the top strip: dismissed ones drop out here; the strip rotates a window over the rest.
+      strip: stripItems(TIPS, thoughtsOf(input.thoughts), input.dismissed),
+      needs: { rows: needs.slice(0, 5).map(need => need.row), more: Math.max(0, needs.length - 5) },
+      upcoming: upcomingOf(input, start, end),
+      problems: { rows: problems.slice(0, 4), more: Math.max(0, problems.length - 4) },
+      projects: { rows: projectsOf(input) },
+      github: githubOf(input),
+      connections: connectionsOf(input),
+      week: {
+        days,
+        completed: days.reduce((sum, day) => sum + day.completed, 0),
+        unfinished: days.reduce((sum, day) => sum + day.failed + day.stopped, 0),
+        wins: winsOf(input.wins),
+      },
+      yolo: yoloOf(input.work?.yolo),
     },
-    yolo: yoloOf(input.work?.yolo),
+  }
+}
+
+/** Home's model: its parts with the agents at work, which make its running rows, their stack cards and a chip. */
+export function withAgents(parts: HomeParts, agents: HomeInput['agents']): HomeModel {
+  if (parts.idle) return parts.idle
+  const { rest, header, dismissed } = parts
+  const kept = (id: string) => !dismissed.has(id)
+  const base: Omit<HomeModel, 'widgets'> = {
+    strip: rest.strip,
+    header: { title: header.title, line: header.line, chips: chipsOf(parts.chips, agents), mood: header.mood },
+    stack: stackOf(parts.stack, agents).filter(card => kept(card.id)),
+    needs: rest.needs,
+    running: runningOf(agents, parts.work),
+    upcoming: rest.upcoming,
+    problems: rest.problems,
+    projects: rest.projects,
+    github: rest.github,
+    connections: rest.connections,
+    week: rest.week,
+    yolo: rest.yolo,
   }
   // Custom widgets ride the same manifest, ordering, animation and dismissal as the built-ins; a dismissed one leaves
   // by its `custom:<id>`, which never collides with a built-in's bare-kind id.
-  const widgets = orderWidgets(base, layoutOf(input.layout), customWidgetsOf(input.custom))
+  const widgets = orderWidgets(base, parts.layout, parts.custom)
   return { ...base, widgets: widgets.filter(widget => kept(widget.id)) }
 }

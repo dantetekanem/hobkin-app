@@ -97,7 +97,9 @@ const unsubscribeHost = hostStore.subscribe((state, previous) => {
     const target = state.owner?.startup?.target
     if (!state.owner?.startup || (target && startupKey(target) !== startupKey(previous.owner?.startup?.target ?? null))) {
       startupAttempt = null
-      useStartup.setState({ pending: null, receipt: null, text: null })
+      // Most messages have no startup in them: one that finds nothing to clear tells no reader.
+      const { pending, receipt, text } = useStartup.getState()
+      if (pending !== null || receipt !== null || text !== null) useStartup.setState({ pending: null, receipt: null, text: null })
     }
     const published = state.owner?.startup?.receipt
     if (

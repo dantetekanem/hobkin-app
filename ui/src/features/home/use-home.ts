@@ -8,8 +8,8 @@ import { useAgents, useHost } from '@/lib/host/hooks.ts'
 import { initialHostState, type HostState } from '@/lib/host/state.ts'
 import { useDismissals } from './dismissals.ts'
 import { gatherHomeInput } from './input.ts'
-import { homeModel } from './model.ts'
-import type { HomeModel } from './types.ts'
+import { homeParts, withAgents } from './model.ts'
+import type { HomeInput, HomeModel } from './types.ts'
 
 const MINUTE_MS = 60_000
 
@@ -38,7 +38,9 @@ export function homeHost({ home, question, work, github, integrations, ...snapsh
   return { ...initialHostState, home, question, work, github, integrations, snapshot }
 }
 
-/** Everything Home draws, from what the app already holds. */
+const NO_AGENTS: HomeInput['agents'] = []
+
+/** Everything Home draws, from what the app already holds. A change of the agents at work makes only their parts again. */
 export function useHomeModel(): HomeModel {
   // The time, once a minute, so "12 min ago" and the day strip stay true while Home is open.
   const now = useNow(true, MINUTE_MS)
@@ -48,8 +50,9 @@ export function useHomeModel(): HomeModel {
   const actions = useActionItems()
   const routines = useRoutines()
   const dismissed = useDismissals((state) => state.ids)
-  return useMemo(
-    () => homeModel(gatherHomeInput(now, homeHost(fields), reports, actions, routines, dismissed, agents)),
-    [now, fields, reports, actions, routines, dismissed, agents],
+  const parts = useMemo(
+    () => homeParts(gatherHomeInput(now, homeHost(fields), reports, actions, routines, dismissed, NO_AGENTS)),
+    [now, fields, reports, actions, routines, dismissed],
   )
+  return useMemo(() => withAgents(parts, agents), [parts, agents])
 }
