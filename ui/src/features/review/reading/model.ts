@@ -3,7 +3,7 @@
  * and the unit of what is in focus, which the code panel explains beside its code. Nothing here draws, so all of it
  * can be tested without a screen.
  */
-import { DEPLOY_WORDS, deployOf, deployWhy, sinceLastReview, type AssessmentStatus, type ChangeAssessment, type Deploy, type Level, type Unit } from '#shared/review/assessment.ts'
+import { DEPLOY_WORDS, deployOf, deployWhy, sinceLastReview, type AssessmentStatus, type ChangeAssessment, type Deploy, type Level, type RiskFix, type Unit } from '#shared/review/assessment.ts'
 import type { Review, ReviewLevel } from '#shared/review/types.ts'
 
 /**
@@ -49,12 +49,12 @@ export function changeDescription(review: Pick<Review, 'summary' | 'change'>, as
 /**
  * The review's one answer for the whole change, as the badge under the title. `rated`: risky or safe to deploy, why,
  * what happened since the review before this one when there was one, and whether anything is critical; `again` while
- * it is reviewed once more. `rating`: none yet, and how far along the first one is. `failed`: it stopped, and why.
+ * it is reviewed once more; `fix`, for hobkin's own change found risky, what hobkin does about it. `rating`: none yet, and how far along the first one is. `failed`: it stopped, and why.
  * Null when no change review is coming, as for a pull request nobody asked to review. Risk is said here, once, for the
  * change: a node or a step has none of its own.
  */
 export type RiskBadge =
-  | { kind: 'rated'; deploy: Deploy; label: string; why: string; since: string | null; critical: boolean; again: boolean }
+  | { kind: 'rated'; deploy: Deploy; label: string; why: string; since: string | null; critical: boolean; again: boolean; fix?: RiskFix }
   | { kind: 'rating'; percent: number | null; now: string | null; queued: boolean }
   | { kind: 'failed'; error: string | null }
 
@@ -63,7 +63,8 @@ export function riskBadge(assessment: Pick<ChangeAssessment, 'summary'> | null |
   const underWay = status?.state === 'queued' || status?.state === 'running'
   if (summary) {
     const deploy = deployOf(summary)
-    return { kind: 'rated', deploy, label: DEPLOY_WORDS[deploy], why: deployWhy(summary), since: sinceLastReview(summary, status?.head), critical: summary.critical, again: underWay }
+    const fix = deploy === 'risky' && status?.state === 'ready' ? status.fix : undefined
+    return { kind: 'rated', deploy, label: DEPLOY_WORDS[deploy], why: deployWhy(summary), since: sinceLastReview(summary, status?.head), critical: summary.critical, again: underWay, ...(fix ? { fix } : {}) }
   }
   if (underWay) {
     return { kind: 'rating', percent: status.state === 'running' && status.percent != null ? Math.round(status.percent) : null, now: status.now ?? null, queued: status.state === 'queued' }

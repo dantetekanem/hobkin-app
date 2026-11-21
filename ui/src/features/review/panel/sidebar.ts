@@ -5,7 +5,7 @@
  * never again here (the user, 2026-11-12: "step is just duplicating side bar", "Sidebar should be a constant
  * explanation of what this does. not long."). Nothing here draws, so all of it can be tested without a screen.
  */
-import type { AssessmentStatus, ChangeAssessment, Deploy, Level, Unit } from '#shared/review/assessment.ts'
+import { riskFixWords, type AssessmentStatus, type ChangeAssessment, type Deploy, type Level, type RiskFix, type Unit } from '#shared/review/assessment.ts'
 import type { Note } from '#shared/review/notes.ts'
 import type { Review, ReviewLevel, ReviewNode, StoryStep } from '#shared/review/types.ts'
 import { changeDescription, riskBadge, unitInFocus } from '../reading/model.ts'
@@ -14,14 +14,22 @@ import { unitAsk } from './ask.ts'
 /**
  * The badge beside the title, which is always there. `rated`: the review's one answer for the whole change, risky or
  * safe to deploy, why, what happened since the review before it, and whether anything is critical, with `again` while
- * it is reviewed once more. `reviewing`: none yet,
+ * it is reviewed once more, and `fix` for what hobkin does about a risky answer on its own change. `reviewing`: none yet,
  * how far along the first one is and what it is doing. `failed`: it stopped, and why. `none`: there is none.
  */
 export type HeaderBadge =
-  | { kind: 'rated'; deploy: Deploy; label: string; why: string; since: string | null; critical: boolean; again: string | null }
+  | { kind: 'rated'; deploy: Deploy; label: string; why: string; since: string | null; critical: boolean; again: string | null; fix?: HeaderFix }
   | { kind: 'reviewing'; label: string; percent: number | null; now: string | null }
   | { kind: 'failed'; label: string; reason: string }
   | { kind: 'none'; label: string }
+
+/** What hobkin does about a risky answer on its own change, as the header says it, and the Action Item it opens once the change is the user's. */
+export interface HeaderFix {
+  state: RiskFix['state']
+  words: string
+  /** Waiting on the user: the Action Item that says what to do, or null for Action Items as a whole. */
+  opens: { action: string | null } | null
+}
 
 const capitalized = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
 const percentOf = (status: AssessmentStatus | null | undefined) => (status?.state === 'running' && status.percent != null ? ` ${Math.round(status.percent)}%` : '')
@@ -29,8 +37,9 @@ const percentOf = (status: AssessmentStatus | null | undefined) => (status?.stat
 export function headerBadge(assessment: Pick<ChangeAssessment, 'summary'> | null | undefined, status: AssessmentStatus | null | undefined): HeaderBadge {
   const badge = riskBadge(assessment, status)
   if (badge?.kind === 'rated') {
-    const { deploy, label, why, since, critical } = badge
-    return { kind: 'rated', deploy, label, why, since, critical, again: badge.again ? `Reviewing again…${percentOf(status)}` : null }
+    const { deploy, label, why, since, critical, fix } = badge
+    const told = fix ? { fix: { state: fix.state, words: riskFixWords(fix), opens: fix.state === 'waiting' ? { action: fix.action ?? null } : null } } : {}
+    return { kind: 'rated', deploy, label, why, since, critical, again: badge.again ? `Reviewing again…${percentOf(status)}` : null, ...told }
   }
   if (badge?.kind === 'rating') {
     const { percent } = badge

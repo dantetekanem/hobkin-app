@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronsLeft, FolderGit2, GitPullRequest, RefreshCw, TriangleAlert, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronsLeft, FolderGit2, GitCommitHorizontal, GitPullRequest, Hand, Inbox, RefreshCw, TriangleAlert, Wrench, X } from 'lucide-react'
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import type { ChangeAssessment } from '#shared/review/assessment.ts'
 import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
@@ -8,9 +8,10 @@ import { Markdown } from '@/features/chat/markdown.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
+import { openTarget } from '@/features/home/navigate.ts'
 import { cn } from '@/lib/utils.ts'
 import { usePullPeople } from '../use-people.ts'
-import { headerBadge, type HeaderBadge } from './sidebar.ts'
+import { headerBadge, type HeaderBadge, type HeaderFix } from './sidebar.ts'
 
 /**
  * The frame's menu floats over the top middle of the canvas: about this wide, reaching this far down. Where it lies over
@@ -142,7 +143,8 @@ function ByLine({ id, live }: { id: string; live: boolean }) {
 
 /**
  * The review's one answer for the whole change, as a badge under the title, which is always there. Rated: Risky to
- * deploy or Safe to deploy, Critical beside it when something is, and why in a sentence under it. Under way: how
+ * deploy or Safe to deploy, Critical beside it when something is, what hobkin does about a risky answer on its own
+ * change, and why in a sentence under it. Under way: how
  * far along it is, the badge filling as it goes, and what it is doing. Failed: why, in plain words, and a way to try
  * again. None: "Not reviewed". A change that merged says "Merged" beside it, whatever it says.
  */
@@ -157,7 +159,9 @@ function Risk({ badge, live, merged, rebuild }: { badge: HeaderBadge; live: bool
           </span>
           {badge.critical ? <span className="rv-risk rv-risk-critical">Critical</span> : null}
           {landed}
+          {badge.fix?.opens ? <ActionItemButton action={badge.fix.opens.action} /> : null}
         </div>
+        {badge.fix ? <FixLine fix={badge.fix} /> : null}
         {/* Why, for the whole change. What a part is shows on the part; risk is said here only. */}
         <p className="text-[13.5px] leading-snug text-pretty [overflow-wrap:anywhere]">{badge.why}</p>
         {badge.since ? <p className="text-[12.5px] leading-snug text-pretty text-muted-foreground [overflow-wrap:anywhere]">{badge.since}</p> : null}
@@ -213,6 +217,29 @@ function Risk({ badge, live, merged, rebuild }: { badge: HeaderBadge; live: bool
         </>
       }
     />
+  )
+}
+
+const FIX_ICON = { fixing: Wrench, fixed: GitCommitHorizontal, waiting: Hand } as const
+
+/** What hobkin does about a risky answer on its own change, right under the answer: fixing it with the round, fixed in a newer commit, or waiting on the user. */
+function FixLine({ fix }: { fix: HeaderFix }) {
+  const Icon = FIX_ICON[fix.state]
+  return (
+    <p className="flex min-w-0 items-start gap-1.5 text-[13.5px] leading-snug font-medium text-pretty [overflow-wrap:anywhere]" role="status">
+      <Icon aria-hidden="true" className="mt-[3px] size-3.5 shrink-0 text-muted-foreground" />
+      <span>{fix.words}</span>
+    </p>
+  )
+}
+
+/** Once the change is the user's, its Action Item is a click away, beside the answer as "Try again" is beside a failed one. */
+function ActionItemButton({ action }: { action: string | null }) {
+  return (
+    <Button size="sm" variant="outline" data-stop className="h-7 px-2.5 text-[13px]" onClick={() => openTarget(action ? { to: 'action', id: action } : { to: 'screen', screen: 'actions' })}>
+      <Inbox />
+      Open in Action Items
+    </Button>
   )
 }
 
