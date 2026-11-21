@@ -264,7 +264,7 @@ function judge(seen, ended, rules) {
   return { outcome: 'error', message, statuses: every('unchecked') };
 }
 
-/** How a run with no model to check ends: as its proof did, or with nothing checked. */
+/** How a run ends by its proof: as the proof did, or, with no model either, with nothing checked. */
 function proofEnding(proof, hasProof) {
   if (!proof) {
     const missing = hasProof ? 'TLAPS is not installed for its proof' : 'no proof';
@@ -273,6 +273,12 @@ function proofEnding(proof, hasProof) {
   if (proof.proved) return { outcome: 'holds' };
   if (proof.obligations.length) return { outcome: 'broken', broken: 'the proof' };
   return { outcome: 'error', message: 'TLAPS proved nothing: it found no steps to prove.' };
+}
+
+/** How a run with a model ends: as TLC ended it, unless TLAPS then ran and did not prove the spec. */
+function modelEnding(model, proof) {
+  if (model.outcome === 'holds' && proof && !proof.proved) return proofEnding(proof, true);
+  return model;
 }
 
 const CLOSING = {
@@ -559,7 +565,7 @@ export async function runCheck({
 
     const proof = await prove(model);
     if (stopping) return;
-    Object.assign(ending, model ?? proofEnding(proof, parts.hasProof));
+    Object.assign(ending, model ? modelEnding(model, proof) : proofEnding(proof, parts.hasProof));
   };
 
   /** Ends the record: the steps still open, the closing line, the end event and `result.json`. */

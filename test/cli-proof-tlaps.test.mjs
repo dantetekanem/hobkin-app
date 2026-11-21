@@ -130,6 +130,26 @@ test('a spec with a proof and no cfg is proved by TLAPS, and the run says what t
   assert.equal(failed.proof.proved, false);
 });
 
+test('with a cfg, a model that holds and a proof that fails ends broken by the proof and does not count', async t => {
+  const failing = provedSpec(t, { tlc: { stdout: 'tlc-holds.out' }, tlapm: { stderr: 'tlapm-failed.err', code: 10 } });
+  writeFileSync(join(failing.project, 'Proved.cfg'), 'INIT Init\nNEXT Next\nINVARIANT TypeOK\n');
+
+  const failed = await runCheck({ home: failing.home, spec: failing.spec, head: 'abc1234', workers: 1, tools: failing.tools });
+
+  assert.deepEqual(failed.steps.map(({ id, state }) => [id, state]), [['parse', 'done'], ['check', 'done'], ['prove', 'failed']]);
+  assert.equal(failed.outcome, 'broken');
+  assert.equal(failed.broken, 'the proof');
+  assert.equal(failed.counts, false);
+
+  const proving = provedSpec(t, { tlc: { stdout: 'tlc-holds.out' }, tlapm: { stderr: 'tlapm-proved.err' } });
+  writeFileSync(join(proving.project, 'Proved.cfg'), 'INIT Init\nNEXT Next\nINVARIANT TypeOK\n');
+
+  const proved = await runCheck({ home: proving.home, spec: proving.spec, head: 'abc1234', workers: 1, tools: proving.tools });
+
+  assert.equal(proved.outcome, 'holds');
+  assert.equal(proved.counts, true, 'the model and the proof both hold');
+});
+
 test('without tlapm the proof step is skipped and says why', async t => {
   const place = provedSpec(t, {});
   const run = await runCheck({ home: place.home, spec: place.spec, workers: 1, tools: { ...place.tools, tlapm: null } });
