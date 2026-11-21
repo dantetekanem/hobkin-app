@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import type { JobActivity } from '#shared/protocol/activity.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { Attachment } from '@/features/chat/draft.ts'
 import { hostStore } from '../../lib/host/client.ts'
@@ -77,15 +76,28 @@ export const useAgentThreads = create<AgentThreads>()((set, get) => ({
   },
 }))
 
+/** The runs hobkin listed last. A state that does not say, such as a start-over before its snapshot is read, keeps them. */
+let listed: WireSnapshot['runs'] = hostStore.getState().snapshot.runs
+
+/** A run that was listed and is no longer takes the user's notes to it along. Notes to anything never listed stay. */
+function forgetRunsThatLeft(runs: WireSnapshot['runs']): void {
+  if (!Array.isArray(runs)) return
+  const before = listed
+  listed = runs
+  if (!before) return
+
+  const { notes } = useAgentThreads.getState()
+  const isListed = (list: NonNullable<WireSnapshot['runs']>, runId: string) => list.some((run) => run.id === runId)
+  const gone = Object.keys(notes).filter((runId) => isListed(before, runId) && !isListed(runs, runId))
+  if (gone.length === 0) return
+  const kept = Object.entries(notes).filter(([runId]) => !gone.includes(runId))
+  useAgentThreads.setState({ notes: Object.fromEntries(kept) })
+}
+
 // Receipt handling outlives the open canvas; hot updates release only their own listener. A message that changes
-// neither the runs nor the receipts has nothing new for the notes. A run whose activity the host lets go of, which is
-// when its page can no longer show the exchange, takes its notes with it.
+// neither the runs nor the receipts has nothing new for the notes.
 const unsubscribe = hostStore.subscribe(({ snapshot }, { snapshot: before }) => {
-  if (snapshot.jobActivity !== before.jobActivity) {
-    const [now, then] = [snapshot.jobActivity, before.jobActivity] as (JobActivity | undefined)[]
-    const gone = Object.keys(useAgentThreads.getState().notes).filter((runId) => then?.[runId] !== undefined && now?.[runId] === undefined)
-    if (gone.length) useAgentThreads.setState(({ notes }) => ({ notes: Object.fromEntries(Object.entries(notes).filter(([runId]) => !gone.includes(runId))) }))
-  }
+  if (snapshot.runs !== before.runs) forgetRunsThatLeft(snapshot.runs)
   if (snapshot.runs !== before.runs || snapshot.steeringReceipts !== before.steeringReceipts) useAgentThreads.getState().sync(snapshot)
 })
 import.meta.hot?.dispose(unsubscribe)

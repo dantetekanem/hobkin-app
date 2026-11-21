@@ -26,7 +26,7 @@ test('a host message with no startup in it leaves the startup state alone', () =
   assert.equal(told, 0)
 })
 
-test('agent threads read receipts only when the runs or the receipts change, and a run whose activity leaves takes its notes', async () => {
+test('agent threads read receipts only when the runs or the receipts change', async () => {
   // Receipts that count each read of a run's own.
   let reads = 0
   const receipts = () =>
@@ -45,8 +45,21 @@ test('agent threads read receipts only when the runs or the receipts change, and
   assert.equal(reads, 0, 'five messages of words read no receipts')
   send({ type: 'state', rev: rev++, set: { steeringReceipts: receipts() } })
   assert.equal(reads, 1, 'new receipts are read')
+})
 
-  useAgentThreads.getState().say('r2', 'A run with no activity keeps its words')
-  send({ type: 'state', rev: rev++, activity: [{ op: 'remove', job: 'r1' }] })
-  assert.deepEqual(Object.keys(useAgentThreads.getState().notes), ['r2'])
+test('a start-over that does not say which runs there are keeps the notes, and a run that leaves the list takes its own', () => {
+  const run = (id: string) => ({ id, title: `Run ${id}`, state: 'running' })
+  send({ type: 'state', rev: rev++, reset: true, set: { runs: [run('r1'), run('r2')] }, activity: [{ op: 'reset', job: 'r1', entries: [] }] })
+  useAgentThreads.setState({ notes: {} })
+  useAgentThreads.getState().say('r1', 'Use the staging database')
+  useAgentThreads.getState().say('r2', 'Take your time')
+  useAgentThreads.getState().say('hobkin:0a1b2c3d', 'A durable hobkin is never a run of the list')
+
+  // hobkin starts over: its state comes before its snapshot is read, with no runs and no activity in it.
+  send({ type: 'state', rev: rev++, reset: true, set: {} })
+  assert.deepEqual(Object.keys(useAgentThreads.getState().notes), ['r1', 'r2', 'hobkin:0a1b2c3d'], 'nothing is forgotten')
+
+  send({ type: 'state', rev: rev++, reset: true, set: { runs: [run('r1'), run('r2')] }, activity: [{ op: 'reset', job: 'r1', entries: [] }] })
+  send({ type: 'state', rev: rev++, set: { runs: [run('r1')] } })
+  assert.deepEqual(Object.keys(useAgentThreads.getState().notes), ['r1', 'hobkin:0a1b2c3d'], 'r2 left the list')
 })
