@@ -7,7 +7,7 @@ import type { ProofsState } from '#shared/protocol/proofs.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { hostStore } from './client.ts'
-import { actionItemCountFrom, agentsFrom, connectionFrom, hasHost, keepEqual, mainModelFrom, projectsFrom, type Connection } from './frame.ts'
+import { actionItemCountFrom, agentsFrom, connectionFrom, hasHost, keepEachEqual, keepEqual, mainModelFrom, projectsFrom, sameAgentsQuietly, type Connection } from './frame.ts'
 import { canUseModel, type HostState } from './state.ts'
 
 /** Reads the host's state. The component draws again only when what it selected changes. */
@@ -47,12 +47,18 @@ export function useConnection(): Connection {
   return useMemo(() => connectionFrom({ ...hostStore.getState(), link, home, owner, model }), [link, home, owner, model])
 }
 
-/** Every agent and routine running now. */
+const hostAgents = (state: HostState) => agentsFrom(state.snapshot)
+const keepQuietly = (held: SampleAgent[], next: SampleAgent[]) => keepEachEqual(held, next, sameAgentsQuietly) as SampleAgent[]
+
+/**
+ * Every agent and routine running now. Each agent stays the one held while it says the same apart from its latest words
+ * (`update`), and the list while every agent does, so a reader draws again when an agent starts or ends, or starts a
+ * tool, not for each word the agents stream. A reader that draws `update` reads `useRunningAgents({ withUpdate: true })`.
+ */
 export function useAgents(): SampleAgent[] {
   const live = useHasHost()
-  const runs = useHost((state) => state.snapshot.runs)
-  const jobActivity = useHost((state) => state.snapshot.jobActivity)
-  return useMemo(() => (live ? agentsFrom({ runs, jobActivity }) : sampleAgents), [live, runs, jobActivity])
+  const hosted = useHostKept(hostAgents, keepQuietly)
+  return live ? hosted : sampleAgents
 }
 
 export function useRunningCount(): number {

@@ -19,6 +19,7 @@ const { useReports } = await import('../src/features/reports/store.ts')
 const { useActionItems } = await import('../src/features/actions/store.ts')
 const { useRoutines } = await import('../src/features/routines/store.ts')
 const { gatherHomeInput } = await import('../src/features/home/input.ts')
+const { agentsFrom } = await import('../src/lib/host/frame.ts')
 const { homeHost, homeHostFields } = await import('../src/features/home/use-home.ts')
 after(() => {
   mock.restoreAll()
@@ -86,25 +87,28 @@ const full: HostState = {
 useReports.setState({ ready: true, sample: false })
 useActionItems.setState({ sample: false })
 useRoutines.setState({ sample: null })
-const gather = (host: HostState) => gatherHomeInput(1000, host, useReports.getState(), useActionItems.getState(), useRoutines.getState())
+const gather = (host: HostState, agents?: ReturnType<typeof agentsFrom>) => gatherHomeInput(1000, host, useReports.getState(), useActionItems.getState(), useRoutines.getState(), undefined, agents)
 
-test('Home gathers the same input from the fields it selects as from the whole host state', () => {
+test('Home gathers the same input from the fields it selects, with the agents it keeps, as from the whole host state', () => {
   for (const key of Object.keys(initialHostState) as (keyof HostState)[]) assert.notDeepEqual(full[key], initialHostState[key], `the state sets ${key}`)
   const whole = gather(full)
   assert.equal(whole.live, true)
   assert.deepEqual(whole.agents.map(({ id, update }) => [id, update]), [['worker', 'Reading the tests']])
 
-  assert.deepEqual(gather(homeHost(homeHostFields(full))), whole)
+  assert.deepEqual(gather(homeHost(homeHostFields(full)), agentsFrom(full.snapshot)), whole)
 })
 
 test('a message that changes nothing Home reads leaves its selection as it was, and one that does changes it', () => {
   const selected = homeHostFields(full)
   const word = applyHostMessage(full, { type: 'turn', seq: 1, event: { kind: 'message-start', role: 'assistant' } })
   const busy = applyHostMessage(full, { type: 'state', rev: 2, set: { busy: false, doing: 'thinking' } })
+  // Home's agents come from `useAgents`, so an agent's steps leave the fields alone (ui/test/agent-redraws.test.ts).
+  const step = applyHostMessage(full, { type: 'state', rev: 2, activity: [{ op: 'update', job: 'worker', entry: { id: 'message:1:0', kind: 'assistant', text: 'Reading more' } }] })
   assert.notEqual(word.live, full.live)
   assert.notEqual(busy.snapshot, full.snapshot)
   assert.equal(shallow(homeHostFields(word), selected), true)
   assert.equal(shallow(homeHostFields(busy), selected), true)
+  assert.equal(shallow(homeHostFields(step), selected), true)
 
   const won = applyHostMessage(full, { type: 'state', rev: 3, set: { wins: { today: { merged: 2, decided: 2 }, streak: 3 } } })
   assert.equal(shallow(homeHostFields(won), selected), false)

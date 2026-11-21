@@ -13,8 +13,11 @@ type Routines = ReturnType<typeof useRoutines.getState>
 
 const NONE: ReadonlySet<string> = new Set()
 
-/** Read-only Home inputs; source stores keep their own sample behavior for other screens. */
-export function gatherHomeInput(now: number, host: HostState, reports: Reports, actions: Actions, routines: Routines, dismissed: ReadonlySet<string> = NONE): HomeInput {
+/**
+ * Read-only Home inputs; source stores keep their own sample behavior for other screens. `agents` are the agents at
+ * work, read from the host's snapshot unless given: Home's own hook gives the ones `useAgents` keeps.
+ */
+export function gatherHomeInput(now: number, host: HostState, reports: Reports, actions: Actions, routines: Routines, dismissed: ReadonlySet<string> = NONE, agents: HomeInput['agents'] = agentsFrom(host.snapshot)): HomeInput {
   // Reports clears ready on a new-home hello and accepts only its following publication.
   // Unlike link status, this preserves accepted same-home facts through a disconnect.
   const live = host.home !== null && reports.ready && !reports.sample
@@ -41,7 +44,7 @@ export function gatherHomeInput(now: number, host: HostState, reports: Reports, 
     work: host.work,
     github: host.github && !host.github.sample ? host.github : GITHUB_UNKNOWN,
     routines: routines.sample === null ? routines.prepared.facts : [],
-    agents: agentsFrom(host.snapshot),
+    agents,
     wins: host.snapshot.wins,
     integrations: host.integrations,
   }

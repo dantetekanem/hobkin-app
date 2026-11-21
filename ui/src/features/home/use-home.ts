@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useActionItems } from '@/features/actions/store.ts'
 import { useReports } from '@/features/reports/store.ts'
 import { useRoutines } from '@/features/routines/store.ts'
-import { useHost } from '@/lib/host/hooks.ts'
+import { useAgents, useHost } from '@/lib/host/hooks.ts'
 import { initialHostState, type HostState } from '@/lib/host/state.ts'
 import { useDismissals } from './dismissals.ts'
 import { gatherHomeInput } from './input.ts'
@@ -25,7 +25,8 @@ function useMinute(): number {
 /**
  * What `gatherHomeInput` reads of the host's state, and nothing more, so a message that changes none of it, such as
  * the `turn` message for each word of a reply, does not draw Home again. `ui/test/home-host-fields.test.ts` fails when
- * `gatherHomeInput` reads a field this leaves out.
+ * `gatherHomeInput` reads a field this leaves out. The agents at work come from `useAgents` instead of the runs and
+ * their activity, which change with every step an agent streams.
  */
 export const homeHostFields = (state: HostState) => ({
   home: state.home,
@@ -33,9 +34,6 @@ export const homeHostFields = (state: HostState) => ({
   work: state.work,
   github: state.github,
   integrations: state.integrations,
-  // `agentsFrom` reads these two.
-  runs: state.snapshot.runs,
-  jobActivity: state.snapshot.jobActivity,
   reportAttention: state.snapshot.reportAttention,
   reminderOccurrences: state.snapshot.reminderOccurrences,
   wins: state.snapshot.wins,
@@ -53,12 +51,13 @@ export function homeHost({ home, question, work, github, integrations, ...snapsh
 export function useHomeModel(): HomeModel {
   const now = useMinute()
   const fields = useHost(useShallow(homeHostFields))
+  const agents = useAgents()
   const reports = useReports()
   const actions = useActionItems()
   const routines = useRoutines()
   const dismissed = useDismissals((state) => state.ids)
   return useMemo(
-    () => homeModel(gatherHomeInput(now, homeHost(fields), reports, actions, routines, dismissed)),
-    [now, fields, reports, actions, routines, dismissed],
+    () => homeModel(gatherHomeInput(now, homeHost(fields), reports, actions, routines, dismissed, agents)),
+    [now, fields, reports, actions, routines, dismissed, agents],
   )
 }
