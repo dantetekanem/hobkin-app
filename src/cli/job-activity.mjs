@@ -4,13 +4,35 @@ const clean = value => typeof value === 'string'
   ? stripVTControlCharacters(value).replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '') : '';
 const inputText = value => clean(typeof value === 'string' ? value : JSON.stringify(value, null, 2));
 // Only public content blocks, never result details or internal event records.
-const outputText = value => {
+export const outputText = value => {
   const content = Array.isArray(value) ? value : value?.content ?? value;
   if (typeof content === 'string') return clean(content);
   if (!Array.isArray(content)) return '';
   return content.filter(part => part?.type === 'text' && part.display !== false)
     .map(part => clean(part.text)).join('\n');
 };
+/** A run's feed keeps its newest steps, and what it lets go stays in the run's saved session (`run-steps.mjs`). */
+export const MOST_STEPS = 200;
+/** How much of a tool's output a run's feed keeps: all of a shorter one, else its start and its end, each half of this. */
+export const MOST_OUTPUT = 8192;
+const LEFT_OUT = '\n…\n';
+
+// A cut never splits a character made of two UTF-16 units.
+const isHighSurrogate = code => code >= 0xd800 && code <= 0xdbff;
+const isLowSurrogate = code => code >= 0xdc00 && code <= 0xdfff;
+const startOf = (text, length) => text.slice(0, isHighSurrogate(text.charCodeAt(length - 1)) ? length - 1 : length);
+const endOf = (text, length) => {
+  const from = text.length - length;
+  return text.slice(isLowSurrogate(text.charCodeAt(from)) ? from + 1 : from);
+};
+
+/** A tool's output as a feed keeps it: whole when it fits in `most`, else its first and last halves, with how long the whole is. */
+export function keptOutput(text, most = Infinity) {
+  if (text.length <= most) return { output: text };
+  const half = Math.floor(most / 2);
+  return { output: `${startOf(text, half)}${LEFT_OUT}${endOf(text, half)}`, outputLength: text.length };
+}
+
 const CODEMODE_STATUSES = new Set(['running', 'ok', 'error', 'cancelled']);
 const boundedText = (value, limit) => typeof value === 'string' ? clean(value).slice(0, limit) : undefined;
 const boundedNumber = value => Number.isFinite(value) && value >= 0 ? value : undefined;
@@ -85,11 +107,13 @@ export class JobActivity {
   byId = new Map();
 
   /**
-   * `most` keeps only the latest entries, for a feed with no end such as the main chat's. `now` is the clock each
-   * entry is stamped with when it is first seen (`at`, milliseconds since the epoch), so the window can say when it happened.
+   * `most` keeps only the latest entries, for a feed with no end such as the main chat's. `mostOutput` bounds each tool's output
+   * (`keptOutput`). `now` is the clock each entry is stamped with when it is first seen (`at`, milliseconds since the epoch), so the
+   * window can say when it happened.
    */
-  constructor({ most = Infinity, now = Date.now } = {}) {
+  constructor({ most = Infinity, mostOutput = Infinity, now = Date.now } = {}) {
     this.most = most;
+    this.mostOutput = mostOutput;
     this.now = now;
   }
 
@@ -146,7 +170,12 @@ export class JobActivity {
     }
     entry.state = state;
     if (input !== undefined) entry.input = inputText(input);
-    if (output !== undefined) entry.output = outputText(output);
+    if (output !== undefined) {
+      const { output: kept, outputLength } = keptOutput(outputText(output), this.mostOutput);
+      entry.output = kept;
+      if (outputLength === undefined) delete entry.outputLength;
+      else entry.outputLength = outputLength;
+    }
     if (name === 'codemode') {
       const metadata = codemodeDetails(output?.details);
       if (metadata) entry.codemode = metadata;

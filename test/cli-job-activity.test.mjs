@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { JobActivity } from '../src/cli/job-activity.mjs';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SessionManager } from '@earendil-works/pi-coding-agent';
+import { JobActivity, MOST_OUTPUT, MOST_STEPS } from '../src/cli/job-activity.mjs';
+import { runStepOutput, runStepsBefore } from '../src/cli/run-steps.mjs';
 import * as activity from '../src/cli/job-activity.mjs';
 
 const update = (type, extra = {}) => ({ type: 'message_update', assistantMessageEvent: { type, contentIndex: 0, ...extra } });
@@ -354,4 +359,80 @@ test('a word on the last of 1,000 entries reads only the end of the feed, and it
   assert.equal(next[0], kept[1]);
   assert.notEqual(next[1], kept[2]);
   assert.equal(next[1].output, 'half');
+});
+
+// What a step reads as, without when hobkin or Pi first saw it.
+const timeless = ({ at, ...step }) => step;
+
+test('a feed keeps 200 steps and a bounded output, and the saved session still has the rest', t => {
+  const folder = mkdtempSync(join(tmpdir(), 'hobkin-run-steps-'));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const file = join(folder, 'run.jsonl');
+  const session = SessionManager.open(file, folder, folder);
+  const feed = new JobActivity({ most: MOST_STEPS, mostOutput: MOST_OUTPUT });
+  // As a run streams through Pi, which saves each message when it ends.
+  const say = message => {
+    feed.accept({ type: 'message_start', message });
+    feed.accept({ type: 'message_end', message });
+    session.appendMessage(message);
+  };
+  const long = 'a line of test output\n'.repeat(2000);
+  say({ role: 'user', content: 'Fix the job.', timestamp: Date.now() });
+  for (let i = 0; i < 150; i++) {
+    const call = { type: 'toolCall', id: `call-${i}`, name: 'bash', arguments: { command: `npm test -- ${i}` } };
+    say({ role: 'assistant', content: [{ type: 'text', text: `Running part ${i}.` }, call], stopReason: 'toolUse', timestamp: Date.now() });
+    feed.accept({ type: 'tool_execution_start', toolCallId: call.id, toolName: 'bash', args: call.arguments });
+    const content = [{ type: 'text', text: i === 149 ? long : `ok ${i}` }];
+    feed.accept({ type: 'tool_execution_end', toolCallId: call.id, toolName: 'bash', result: { content }, isError: false });
+    say({ role: 'toolResult', toolCallId: call.id, toolName: 'bash', content, isError: false, timestamp: Date.now() });
+  }
+
+  const kept = feed.snapshot();
+  assert.equal(kept.length, 200, 'the newest 200 of 300 steps');
+  const last = kept.at(-1);
+  assert.equal(last.outputLength, long.length);
+  assert.ok(last.output.length <= MOST_OUTPUT + 3);
+  assert.ok(last.output.startsWith(long.slice(0, 4096)) && last.output.endsWith(long.slice(-4096)), 'its first and last 4 KB');
+  assert.equal(kept.at(-3).outputLength, undefined, 'a short output is whole');
+
+  const older = runStepsBefore(file, { before: kept[0].id });
+  assert.equal(older.steps.length, 100, 'the saved session has the 100 steps the feed let go');
+  assert.equal(older.more, false);
+  assert.deepEqual([older.steps[0].id, older.steps.at(-1).id], ['message:3:0', 'tool:call-49']);
+  const page = runStepsBefore(file, { before: kept[0].id, most: 30 });
+  assert.deepEqual(page.steps.map(timeless), older.steps.slice(-30).map(timeless), 'a page is the steps right before, newest last');
+  assert.equal(page.more, true);
+  const newest = runStepsBefore(file, { most: 200 });
+  assert.deepEqual(newest.steps.map(timeless), kept.map(timeless), 'a saved step reads as the live one did');
+  assert.deepEqual(runStepOutput(file, 'tool:call-149'), { id: 'tool:call-149', output: long, length: long.length });
+  assert.equal(runStepOutput(file, 'tool:nowhere'), null);
+
+  // A word on the newest step leaves every other step the same object.
+  feed.accept({ type: 'message_start', message: { role: 'assistant' } });
+  feed.accept({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'Done' } });
+  const next = feed.snapshot();
+  assert.ok(next.slice(0, 198).every((step, i) => step === kept[i + 1]));
+});
+
+test('a saved run cut short in its last line still reads, a file that is not a session is refused, and a step it numbers otherwise is found by time', async t => {
+  const { appendFileSync, writeFileSync } = await import('node:fs');
+  const folder = mkdtempSync(join(tmpdir(), 'hobkin-run-steps-'));
+  t.after(() => rmSync(folder, { recursive: true, force: true }));
+  const file = join(folder, 'run.jsonl');
+  const session = SessionManager.open(file, folder, folder);
+  session.appendMessage({ role: 'user', content: 'Look.', timestamp: Date.now() });
+  for (const id of ['a', 'b']) {
+    session.appendMessage({ role: 'assistant', content: [{ type: 'toolCall', id, name: 'read', arguments: { path: id } }], timestamp: Date.now() });
+    session.appendMessage({ role: 'toolResult', toolCallId: id, toolName: 'read', content: [{ type: 'text', text: `file ${id}` }], isError: id === 'b', timestamp: Date.now() });
+  }
+  appendFileSync(file, '{"type":"message","id":"half');
+
+  const { steps } = runStepsBefore(file);
+  assert.deepEqual(steps.map(({ id, state, output }) => [id, state, output]), [['tool:a', 'completed', 'file a'], ['tool:b', 'failed', 'file b']]);
+  const later = runStepsBefore(file, { before: 'message:99:0', at: steps[1].at + 1000 });
+  assert.deepEqual([later.found, later.steps.map(step => step.id)], [false, ['tool:a', 'tool:b']], 'what was saved before that time');
+  assert.equal(runStepsBefore(file, { before: 'message:99:0' }).found, false);
+
+  writeFileSync(join(folder, 'other.jsonl'), '{"type":"note"}\n');
+  assert.throws(() => runStepsBefore(join(folder, 'other.jsonl')), /Unsupported Pi session format/);
 });

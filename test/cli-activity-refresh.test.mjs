@@ -149,3 +149,15 @@ test('the end of a turn, a settle and a compaction each rebuild, and so does its
   }
   assert.equal(h.projects(), 4);
 });
+
+test('a background run\'s feed keeps its newest 200 steps and the ends of a long output', async t => {
+  const h = fixture(t);
+  for (let i = 0; i < 250; i++) h.app.observeActivity('job', { type: 'tool_execution_start', toolCallId: `c${i}`, toolName: 'read' });
+  h.app.observeActivity('job', { type: 'tool_execution_end', toolCallId: 'c249', toolName: 'read', result: { content: [{ type: 'text', text: 'x'.repeat(20000) }] } });
+  await h.flush();
+  const steps = h.published.at(-1).jobActivity.job;
+  assert.equal(steps.length, 200);
+  assert.equal(steps[0].id, 'tool:c50');
+  assert.equal(steps.at(-1).outputLength, 20000);
+  assert.ok(steps.at(-1).output.length < 8200);
+});

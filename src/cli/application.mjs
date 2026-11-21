@@ -5,7 +5,7 @@ import { setTimeout as wait } from 'node:timers/promises';
 import { HobkinRuntime, MAIN_BUSY, MAX_MESSAGE_BYTES, controlWait, descendantReceipt } from './runtime.mjs';
 import { createOwnedLifecycle } from './owned-agent-lifecycle.mjs';
 import { HobkinRunner } from './runner.mjs';
-import { JobActivity } from './job-activity.mjs';
+import { JobActivity, MOST_OUTPUT, MOST_STEPS } from './job-activity.mjs';
 import { TeamsAgents } from './teams-agents.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
 import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
@@ -181,7 +181,8 @@ export class HobkinApplication {
   observeActivity(id, event) {
     try {
       if (!this.jobActivity.has(id)) {
-        this.jobActivity.set(id, new JobActivity({ now: this.now }));
+        // A run's newest steps and the ends of each long output. The rest stays in its saved session (`run-steps.mjs`).
+        this.jobActivity.set(id, new JobActivity({ now: this.now, most: MOST_STEPS, mostOutput: MOST_OUTPUT }));
       }
       this.jobActivity.get(id).accept(event);
       // Read only, after the run's own feed has it. It catches its own errors.
