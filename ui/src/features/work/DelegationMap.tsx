@@ -14,6 +14,7 @@ import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { ChildFaces, ChildHood } from './ChildAgents.tsx'
 import { childHue, childLine, childrenSummary, describeChild, helpersNow, HOBKIN_HUE, satellitesOf } from './child-summary.ts'
 import { useMainChildren, useRunChildren } from './children.ts'
+import { mapPlaces } from './map-places.ts'
 import { SaidLine } from './parts.tsx'
 import { confirmExecution, createStopConfirmationAuthority, executionFeedbackRows, executionKey, executionTargets, type ExecutionControl } from './actions.ts'
 import { runExecution, runWork, useExecution, useWorkUi } from './store.ts'
@@ -23,7 +24,8 @@ import { useChat } from '../chat/chat-store.ts'
  * hobkin delegating to many: hobkin on the left, wired to every agent and routine running now, each a node with
  * its small face, what it is on, and its tier. A wire carries a pulse back to hobkin when its agent reports, a new
  * agent bubbles up into its place, and while work mode is on the room for every agent hobkin may run at once is
- * drawn, free or taken. A node opens the agent's canvas. A work agent can be stopped from its node, the two ways
+ * drawn, free or taken, the free ones until the map has eight places and then one row that counts the rest
+ * (`mapPlaces`). A node opens the agent's canvas. A work agent can be stopped from its node, the two ways
  * hobkin's k stops one.
  *
  * The agents an agent spawned through pi-extended-teams sit to its right as small satellites, wired to it the way
@@ -110,9 +112,12 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
   currentAgents.current = agents
   const said = useWorkUi((state) => lastStop ? state.said[`stop:${lastStop}`] : undefined)
   const helpers = helpersNow(useMainChildren())
-  const places = Math.max(agents.length, enabled ? capacity : 0)
+  // Every running agent, and free workers while the map has fewer than eight places; past that, one row counts the rest.
+  const drawn = mapPlaces(enabled ? capacity : 0, agents.length)
+  const places = drawn.places
   const { height, hobkinY, placeY } = layoutFor(places, helpers.length > 0)
-  const free = Array.from({ length: places - agents.length }, (_, index) => agents.length + index)
+  const free = Array.from({ length: drawn.free }, (_, index) => agents.length + index)
+  const moreAt = agents.length + drawn.free
   const pinX = size.left - 4
   const nodeLeft = size.left + size.wire
   const wire = { from: { x: pinX, y: hobkinY }, width: nodeLeft - pinX, still }
@@ -174,6 +179,7 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
               {free.map((index) => (
                 <Wire key={`free:${index}`} {...wire} toY={placeY(index) + NODE_H / 2} />
               ))}
+              {drawn.more ? <Wire key="free:more" {...wire} toY={placeY(moreAt) + NODE_H / 2} /> : null}
             </AnimatePresence>
           </svg>
 
@@ -200,6 +206,13 @@ export function DelegationMap({ agents, capacity, enabled, live }: MapProps) {
                 </div>
               </Placed>
             ))}
+            {drawn.more ? (
+              <Placed key="free:more" y={placeY(moreAt)} left={nodeLeft} still={still} from={{ lift: 0, scale: 0.96 }}>
+                <div className="flex items-center rounded-[14px] border border-dashed border-border px-4 text-[12.5px] text-muted-foreground" style={{ height: NODE_H }}>
+                  {drawn.more === 1 ? '1 more free worker' : `${drawn.more} more free workers`}
+                </div>
+              </Placed>
+            ) : null}
           </AnimatePresence>
 
           {places === 0 ? (
