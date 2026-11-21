@@ -2,6 +2,7 @@ import { isHobkinTurn } from '#shared/protocol/hobkins.ts'
 import type { RunChild, RunSummary, WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { SampleAgent, SampleProject, Tier } from '../../app/sample.ts'
 import type { HostState } from './state.ts'
+import { summaryLine } from '../summary-line.ts'
 
 /**
  * What the frame draws around the conversation, read from hobkin's snapshot: who is working, what waits on the
@@ -48,9 +49,9 @@ export function updateOf(activity: ActivityEntry[] | undefined): string | undefi
   if (!activity) return undefined
   for (let index = activity.length - 1; index >= 0; index--) {
     const entry = activity[index]!
-    if (entry.kind === 'assistant' && entry.text && entry.text.trim()) {
-      return entry.text.replace(/\s+/g, ' ').trim()
-    }
+    // One plain line: an agent's message can be pages of Markdown, and a row and its hover say one line of it.
+    const line = entry.kind === 'assistant' && entry.text ? summaryLine(entry.text) : undefined
+    if (line) return line
   }
   return undefined
 }
