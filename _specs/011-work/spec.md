@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["002-host", "017-model-tiers"],
-  "updated": "2026-11-10"
+  "updated": "2026-11-21"
 }
 ---
 # Work mode on the canvas
@@ -71,6 +71,7 @@ The Work screen shows one hobkin delegating to many. hobkin sits on the left of 
 - A28. A finished branch whose run left the user a note shows under "Left for you", right after "Needs you", with the note whole, Review, Ask for changes and Close without merging. Close without merging takes a second click within ten seconds and runs hobkin's own `done`: nothing merges and the branch stays. No merge is offered on the card, and Change Review does not prepare a review for it by itself.
 - A29. What the user said yes to that an agent is still bringing up to date before it merges is listed under "You said yes, merging", with when they said yes, until it merges.
 - A30. On the GitHub page, an issue's chip says what its work waits on and leads to where the user can act on it: "Read its note" opens its Left for you card, "Review its change" and "Approve its change" its finished card, "Merging after your yes" its row there, and "In queue" its queue row. A chip for work the Work screen shows nowhere is quiet and is not a button.
+- A31. A finished change whose AI review says risky to deploy goes back into hobkin's queue by itself, ahead of new work as a note does, with hobkin's own note of what the review found (032 A37). The note is never the user's: it counts against no pattern, is not told as something the user did, and the agent reads it as findings that authorize nothing past the fix, leaving in `left` what only the user can do. While work mode is off or paused, everywhere or on the project, nothing is sent and nothing is handed to the main agent. A change still risky after two rounds waits in Action Items, once.
 
 ## Proof
 
@@ -104,6 +105,7 @@ The Work screen shows one hobkin delegating to many. hobkin sits on the left of 
 - A28. `host/test/work-items.test.ts` › "a finished branch whose run left a note is a Left for you card: the note whole, Review and Close without merging, and no merge" and "Change Review prepares by itself only what waits in hobkin groups, and a Left for you card only once the user asks"; `ui/test/work-left.test.ts`; `ui/test/work-finished-cards.test.ts`; check: rpsleague #75, #68 and #80 show under Left for you, and Close without merging asks for its second click.
 - A29. `host/test/work-items.test.ts` › "what the user said yes to that is still being brought up to date is listed until it merges"; check: after Refresh and merge, the change shows under You said yes, merging until it merges.
 - A30. `ui/test/github-issue-work.test.ts`; check: on the GitHub page, rpsleague #75 reads Read its note and opens its card on the Work screen.
+- A31. In hobkin, `test/cli-work-risk-fix.test.mjs` › "hobkin's AI review sends an agent back to its own risky change with the findings, in hobkin's words and first in the queue", › "no agent goes back to a branch that moved since its review, one an agent is already going back to, or one that is not finished", › "with work mode off or paused, everywhere or on the project, nothing is sent and nothing goes to the main agent" and › "a change still risky after its rounds is the user's: one Action Item for it, with what remains, the same one when asked again"; `host/test/review-risk-fix.test.ts`; check: a risky change's card leaves Finished for the queue, and comes back at its new commit.
 
 ## Steps
 
@@ -114,6 +116,7 @@ The Work screen shows one hobkin delegating to many. hobkin sits on the left of 
 - [ ] S7 (A16, A17). Moods and waiting agents. Done on sample data; the host has to report each run's mood and what it waits on.
 - [ ] S10 (A27). The issue and the PR on every finished card and queue row. Done: the host's `workReader` (`host/src/work-items.ts`) adds each item's issue from hobkin's items, read once per snapshot of the work, and `IssueLink` and `PullLink` (`ui/src/features/work/parts.tsx`) draw them; the A27 test passes (2026-11-12). Left: the check.
 - [ ] S11 (A28, A29, A30). The finished work that vanished: hobkin's `waiting.yours` rows that are finished branches become the "Left for you" group, and `work.closing` rows the user said yes to become `merging`, both in the same reader. The GitHub page's chip reads where Work shows the item (`placeOnWork` in `ui/src/features/github/issue-work.ts`). The A28 to A30 tests pass (2026-11-12). Left: the checks.
+- [ ] S12 (A31). hobkin's own fix of a risky change: `fixRisk` and `riskStays` in hobkin (42bcb0d), sent by the host from the change review (spec 032 S16). The A31 tests pass (2026-11-21). Left: the check.
 - [x] S3 (A4, A8, A9). Queue, projects, and the on and off state. Proof: `node --test host/test/work.test.ts` passes "queue actions call hobkin's work actions", "turning work mode on starts nothing" (a real host on a test home) and "project settings round trip" (2026-11-10). Seen live against a scripted host on a scratch home: the folder question, hobkin's own start, and its forecast saying nothing starts.
 - [x] S4 (A5, A6, A7). Finished changes: groups, cards, actions, and the link to Change Review. Proof: `node --test host/test/work.test.ts` passes "finished changes keep hobkin's groups and reasons", "merge passes hobkin's refusal through" and "a group action lists its targets before acting" (2026-11-10).
 - [x] S8 (A20, A21, A22, A23). The Work screen (`ui/src/features/work/WorkScreen.tsx`): sample and live data, the keyboard, the map's movement, and the links to pull requests. Proof: `node --test ui/test/work.test.ts` passes, and the checks under A21 to A23 (2026-11-10).

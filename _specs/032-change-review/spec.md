@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["005-review-model", "006-review-graph", "007-review-story", "009-review-notes"],
-  "updated": "2026-11-20"
+  "updated": "2026-11-21"
 }
 ---
 # Change review: levels, units and a story for every shipped change
@@ -89,6 +89,9 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - A34. On the Review page a node takes the Reviewer's name and line for its part, a context node the Reviewer put in a unit is in that unit's step, and a node whose parts it took out says so, with the reason, and is in no step.
 - A35. A change review of a hobkin change is given hobkin's TLC run at its head of each model it adds, edits or touches a file of, and never says no checker result is shown when one is. A model the diff adds or edits is `safe` when its check holds with every action run and `high` and critical when a rule is violated; a file the model names keeps the level its own rules give it, with the model's result in its reasons; and a risky answer names the models that hold and says a hold lowers no break. A pull request, or runs that cannot be read, give the review none.
 - A36. The review panel lists each of the change's TLA+ models with its file, its result and its states at the reviewed head, each row with a run opening it on the proof screen, and `T` opens the first. Each row keeps its height as a check runs and ends.
+- A37. When the change review of a finished hobkin change says risky to deploy at the commit its Work card is at, hobkin sends an agent back to that change by itself, through hobkin's own work queue, with a brief built from the review: each part that can break, critical first, with what breaks, where, the four facts and their evidence, why it is high (the floor row or finding) and what would lower it. The brief is hobkin's, not the user's words: it asks for a test that fails first for each finding, and for what cannot be fixed in code (a secret, access, an install the agent may not do, a decision) to be said in `left`. It goes once for each commit and twice for a change at most, and never for a pull request, a commit the user gave a verdict on, a change being merged or brought up to date, a branch that moved since the review, or a change whose run left a step for the user. While work mode is off or paused, everywhere or on its project, nothing is sent and nothing is handed to the main agent; it goes once work mode runs. The next commit's review runs the way finished work gets its review.
+- A38. A change still risky after two rounds, or one whose round came back at the commit it went for, gets no more agents and one Action Item saying it is still risky to deploy and what remains. What was sent and filed is kept in the home, so a restart sends nothing twice.
+- A39. The review header and the change's Work card never show a bare "Risky to deploy" for hobkin's own change while hobkin acts on it: they say hobkin is fixing it with the round, that nothing starts until work mode runs, that the fix is in a newer commit, or that it waits on the user, and the header opens its Action Item from a button beside the answer. A pull request's answer reads as before.
 
 ## Proof
 
@@ -128,6 +131,9 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - A34. `host/test/review-unit-story.test.ts` › "a part the Reviewer renamed takes its words, one it took out says why, and unchanged code it put in a unit is in that step"; check: open a finished change whose Reviewer reshaped its map, and walk its steps.
 - A35. `packages/change-review/test/pipeline.test.ts` › "a TLA+ model TLC checked at the head is evidence the Reviewer is given: its lines are shown holding, and the code it models keeps its level" and › "a TLA+ model whose rule TLC found broken at the head is a break the change carries, and the code it models is told so"; `packages/change-review/test/floor.test.ts` › "a TLA+ model TLC checked at this commit: holding is safe, a broken rule is a break, and anything else is said beside the row that decides"; `packages/change-review/test/answer.test.ts` › "a risky answer says which models hold at this commit, and that a model holding lowers no break found in the code"; `host/test/review-model-checks.test.ts`; check: review a finished change whose model holds and read its step and its answer.
 - A36. `ui/test/review-model-checks.test.ts` › "the panel lists each of the change's models by file, with what TLC said at the reviewed head and the run that says so, in a steady order"; `ui/test/review-panel.test.ts` › "T opens the run of the change's first TLA+ model check in the panel"; check: a still render of the rows at the panel's narrowest and widest, and a press and `T` in the live window.
+- A37. `packages/change-review/test/fix.test.ts` › "the brief names each part that can break, the critical first: what breaks, where, the evidence and why it is high"; `host/test/review-risk-fix.test.ts` › "a finished change whose AI review says risky gets hobkin's agent back with what was found, once for its commit, twice at most, then it is the user's", › "nothing is sent for a safe answer, a pull request, a step left for the user, a commit the user gave a verdict on, or while work mode starts nothing" and › "the background sends what waited: once hobkin is open again, and once work mode runs again"; in hobkin, `test/cli-work-risk-fix.test.mjs`; check: let a review find a finished change risky in the live app and watch its agent go back to it.
+- A38. `host/test/review-risk-fix.test.ts` › "a round that comes back at the commit it went for changed nothing, so the change is the user's" and the first test's third round; in hobkin, `test/cli-work-risk-fix.test.mjs` › "a change still risky after its rounds is the user's: one Action Item for it, with what remains, the same one when asked again".
+- A39. check: a still render of the header in each state, light and dark (2026-11-21), then the live window on a change hobkin is fixing and on one waiting on the user.
 
 ## Steps
 
@@ -146,6 +152,7 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - [ ] S13 (A25, A26, A27, A28, A29). The review's findings on the discards: no hand-over to hobkin, the pinned GitHub delete and its refusals, the review kept with its notes, and one verdict at a time.
 - [ ] S14 (A32, A33, A34). Review and reorganize the map: the step's name, the map operations in the Reviewer's answer and the rules that check them, and the Review page showing them. Built and tested in the engine and the host; not yet seen in the window.
 - [x] S15 (A35, A36). TLC runs in the review: `modelChecks` in the engine (floor, Reviewer data and prompt, unit titles, the answer), the host reading hobkin's runs at the head, and the panel's rows with `T`. Engine 4a953c8, host ee0c71f, window 58c8663. Seen only as a still render: not yet in the live window, and no review has run with it yet.
+- [x] S16 (A37, A38, A39). Risky is acted on: the fix brief in the engine (0e969de), hobkin's `fixRisk` and `riskStays` (hobkin 42bcb0d), the host sending and filing with `risk-fix.json` (25ad77a), and the header and card words (fecab09). Seen only as a still render: not yet in the live window, and no live review has sent an agent yet.
 
 ## Open questions
 
