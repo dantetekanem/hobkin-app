@@ -75,9 +75,14 @@ export class JobActivity {
   entries = [];
   message = 0;
   hidden = false;
-  /** The last snapshot, while nothing has changed since, and each entry's copy until that entry changes (`snapshot`). */
+  /** The last snapshot handed out, and each entry's copy until that entry changes (`snapshot`). */
   shown = null;
   copies = new WeakMap();
+  /** What changed since `shown`: the entries written to, and whether entries were dropped, which builds the next list whole. */
+  touched = new Set();
+  whole = true;
+  /** Each entry by its id, so the entry an event writes to is found without walking the feed. */
+  byId = new Map();
 
   /**
    * `most` keeps only the latest entries, for a feed with no end such as the main chat's. `now` is the clock each
@@ -90,8 +95,10 @@ export class JobActivity {
 
   /** The next snapshot is a new list, with a new copy of `entry` when one is given. Every change to the feed says so here. */
   changed(entry) {
-    if (entry) this.copies.delete(entry);
-    this.shown = null;
+    if (entry) {
+      this.copies.delete(entry);
+      this.touched.add(entry);
+    } else this.whole = true;
   }
 
   /** A new entry, stamped with when it was first seen. A clock that gives no time leaves the stamp out. */
@@ -99,7 +106,8 @@ export class JobActivity {
     const at = this.now();
     if (Number.isFinite(at)) entry.at = at;
     this.entries.push(entry);
-    this.changed();
+    this.byId.set(entry.id, entry);
+    this.changed(entry);
     return entry;
   }
 
@@ -107,7 +115,7 @@ export class JobActivity {
     try {
       this.reduce(event);
       if (this.entries.length > this.most) {
-        this.entries.splice(0, this.entries.length - this.most);
+        for (const { id } of this.entries.splice(0, this.entries.length - this.most)) this.byId.delete(id);
         this.changed();
       }
     } catch {
@@ -118,10 +126,10 @@ export class JobActivity {
   text(index, value, append = false) {
     if (!Number.isInteger(index) || index < 0 || typeof value !== 'string') return;
     const id = `message:${this.message}:${index}`;
-    let entry = this.entries.find(item => item.id === id);
+    let entry = this.byId.get(id);
     if (!entry) entry = this.add({ id, kind: 'assistant', text: '' });
-    const previousText = append ? entry.text : '';
-    const text = clean(previousText + clean(value));
+    // The kept text is already clean, and two clean texts make a clean one, so only the new part is cleaned.
+    const text = append ? entry.text + clean(value) : clean(value);
     if (text === entry.text) return;
     entry.text = text;
     this.changed(entry);
@@ -130,7 +138,7 @@ export class JobActivity {
   tool(id, name, state, input, output) {
     if (typeof id !== 'string' || !id) return;
     const key = `tool:${id}`;
-    let entry = this.entries.find(item => item.id === key);
+    let entry = this.byId.get(key);
     if (!entry) {
       if (typeof name !== 'string' || !name) return;
       entry = this.add({ id: key, kind: 'tool', name: clean(name), state });
@@ -184,6 +192,7 @@ export class JobActivity {
           !entry.id.startsWith(`message:${this.message}:`) || ids.has(entry.id));
         if (kept.length !== this.entries.length) {
           this.entries = kept;
+          this.byId = new Map(kept.map(entry => [entry.id, entry]));
           this.changed();
         }
         content.forEach((part, index) => {
@@ -211,20 +220,36 @@ export class JobActivity {
    * copy, so a reader that compares by identity skips them. A list or copy handed out is never changed afterwards.
    */
   snapshot() {
-    this.shown ??= this.entries.map(entry => {
-      let copy = this.copies.get(entry);
-      if (!copy) {
-        copy = {
-          ...entry,
-          ...(entry.codemode ? { codemode: {
-            ...entry.codemode,
-            calls: entry.codemode.calls.map(call => ({ ...call })),
-          } } : {}),
-        };
-        this.copies.set(entry, copy);
+    if (this.shown && !this.whole && !this.touched.size) return this.shown;
+    if (!this.shown || this.whole) this.shown = this.entries.map(entry => this.copyOf(entry));
+    else {
+      // Entries only move when some are dropped, which builds the list whole, so the rest keep their places: a touched entry is replaced
+      // where it stands, found from the end where writing happens, and new ones follow.
+      const next = this.shown.slice();
+      for (const entry of this.touched) {
+        const index = this.entries.lastIndexOf(entry);
+        if (index !== -1 && index < next.length) next[index] = this.copyOf(entry);
       }
-      return copy;
-    });
+      for (let index = next.length; index < this.entries.length; index++) next.push(this.copyOf(this.entries[index]));
+      this.shown = next;
+    }
+    this.touched.clear();
+    this.whole = false;
     return this.shown;
+  }
+
+  copyOf(entry) {
+    let copy = this.copies.get(entry);
+    if (!copy) {
+      copy = {
+        ...entry,
+        ...(entry.codemode ? { codemode: {
+          ...entry.codemode,
+          calls: entry.codemode.calls.map(call => ({ ...call })),
+        } } : {}),
+      };
+      this.copies.set(entry, copy);
+    }
+    return copy;
   }
 }

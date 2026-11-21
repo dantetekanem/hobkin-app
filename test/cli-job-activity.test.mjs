@@ -303,3 +303,55 @@ test('codemode metadata is bounded and private details from other tools remain e
   assert.equal(Object.hasOwn(entries[3].codemode.calls[0], 'cost'), false);
   assert.doesNotMatch(JSON.stringify(entries), /SECRET|private|Infinity/);
 });
+
+// Every read of an entry by its place in the feed, counted. A snapshot or a delta that walks the whole feed reads all of them.
+const counted = feed => {
+  let reads = 0;
+  feed.entries = new Proxy(feed.entries, {
+    get(target, key, receiver) {
+      if (typeof key === 'string' && /^\d+$/.test(key)) reads++;
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  return () => { const n = reads; reads = 0; return n; };
+};
+
+test('a word on the last of 1,000 entries reads only the end of the feed, and its snapshot replaces only that entry', () => {
+  const feed = new JobActivity();
+  for (let i = 0; i < 999; i++) feed.accept({ type: 'tool_execution_end', toolCallId: `t${i}`, toolName: 'read', result: { content: [{ type: 'text', text: 'ok' }] } });
+  feed.accept({ type: 'message_start', message: { role: 'assistant' } });
+  feed.accept(update('text_delta', { delta: 'Reading' }));
+  const before = feed.snapshot();
+  const reads = counted(feed);
+
+  feed.accept(update('text_delta', { delta: ' on' }));
+  const after = feed.snapshot();
+  assert.ok(reads() < 10, 'the delta and the snapshot read only the end');
+  assert.notEqual(after, before);
+  assert.equal(after.length, 1000);
+  assert.equal(after.at(-1).text, 'Reading on');
+  assert.equal(before.at(-1).text, 'Reading', 'a list handed out is never rewritten');
+  assert.ok(after.slice(0, 999).every((entry, i) => entry === before[i]), 'every entry that did not change keeps its object');
+
+  feed.accept({ type: 'tool_execution_start', toolCallId: 'new', toolName: 'grep' });
+  const grown = feed.snapshot();
+  assert.ok(reads() < 10, 'a new entry is added at the end');
+  assert.equal(grown.length, 1001);
+  assert.equal(grown[999], after[999]);
+  assert.equal(grown.at(-1).id, 'tool:new');
+
+  // The message's end drops nothing here, a filter that keeps every entry, and the list is built whole again with the same objects.
+  feed.accept({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'Reading on' }] } });
+  const ended = feed.snapshot();
+  assert.ok(ended.every((entry, i) => entry === grown[i]), 'a rebuilt list keeps the objects of what stayed the same');
+  const trimmed = new JobActivity({ most: 3 });
+  for (const id of ['a', 'b', 'c']) trimmed.accept({ type: 'tool_execution_start', toolCallId: id, toolName: 'read' });
+  const kept = trimmed.snapshot();
+  trimmed.accept({ type: 'tool_execution_update', toolCallId: 'c', toolName: 'read', partialResult: { content: [{ type: 'text', text: 'half' }] } });
+  trimmed.accept({ type: 'tool_execution_start', toolCallId: 'd', toolName: 'read' });
+  const next = trimmed.snapshot();
+  assert.deepEqual(next.map(entry => entry.id), ['tool:b', 'tool:c', 'tool:d'], 'after a trim the list is built whole');
+  assert.equal(next[0], kept[1]);
+  assert.notEqual(next[1], kept[2]);
+  assert.equal(next[1].output, 'half');
+});
