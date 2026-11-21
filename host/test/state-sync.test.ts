@@ -292,3 +292,16 @@ test('the same schedule list keeps its rows between full checks, and a new list 
   assert.notEqual(again[0], rows[0])
   assert.deepEqual(again, rows)
 })
+
+test('hobkin\'s work status reaches the window as its projects alone, so a running agent\'s token count sends nothing', () => {
+  const facts = { owner: { state: 'opening' } as const, signIn: { status: 'unknown' } as const, models: null }
+  const sync = new StateSync(facts, { now: () => 0 })
+  const project = { slug: 'api', name: 'API', path: '/fake/api', state: 'chosen', priority: 'P1', open: 2, prs: 1, branches: 0, left: 0, summary: 'A long summary.', nextLookAt: null, models: [] }
+  const status = (tokens: number, open = 2) => ({ enabled: true, running: [{ id: 'run', tokens }], plan: [{ key: 'item:api:abc', title: 'Fix it' }], projects: [{ ...project, open }] })
+  const shown = { projects: [{ slug: 'api', name: 'API', path: '/fake/api', state: 'chosen', priority: 'P1', open: 2, prs: 1, branches: 0, left: 0 }] }
+
+  assert.deepEqual(sync.update({ ...facts, snapshot: { busy: false, work: status(100) } })?.set, { busy: false, work: shown })
+  assert.equal(sync.update({ ...facts, snapshot: { busy: false, work: status(200) } }), null, 'the Work screen gets the rest as its own slice')
+  assert.deepEqual(sync.update({ ...facts, snapshot: { busy: false, work: status(300, 3) } })?.set, { work: { projects: [{ ...shown.projects[0], open: 3 }] } })
+  assert.deepEqual(sync.full().set?.work, { projects: [{ ...shown.projects[0], open: 3 }] })
+})

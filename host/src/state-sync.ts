@@ -42,20 +42,43 @@ export function wireSchedules(schedules: unknown[]): unknown[] {
   })
 }
 
+/** What the window reads of each project in hobkin's work status: the project lists and the new hobkin sheet's folders. */
+const WINDOW_PROJECT_FIELDS = ['slug', 'name', 'path', 'state', 'priority', 'open', 'prs', 'branches', 'left']
+
+/**
+ * hobkin's work status as the window gets it in the snapshot: its projects, each with only what the window reads. The
+ * Work screen gets the whole of work mode as its own slice (`work` in the host facts), so the plan, the running agents'
+ * tokens and the rest stay here, and a token count that moves every second sends nothing.
+ */
+export function wireWork(work: unknown): unknown {
+  if (!work || typeof work !== 'object') return work
+  const projects = (work as { projects?: unknown }).projects
+  return {
+    projects: (Array.isArray(projects) ? projects : []).map((project: unknown) => {
+      if (!project || typeof project !== 'object') return project
+      const row = project as Record<string, unknown>
+      return Object.fromEntries(WINDOW_PROJECT_FIELDS.filter((field) => row[field] !== undefined).map((field) => [field, row[field]]))
+    }),
+  }
+}
+
 /**
  * hobkin's snapshot as the UI gets it: its top-level keys, and the conversation as the terminal app shows it,
  * without what the user cleared and without messages that have nothing to read, such as a reply stopped
- * before its first word (`isVisible` in hobkin's `src/cli/ui.mjs`). `schedules` gives the routines' rows.
+ * before its first word (`isVisible` in hobkin's `src/cli/ui.mjs`). `schedules` gives the routines' rows, and
+ * `work` the work status's projects.
  */
 export function toWire(
   snapshot: HobkinSnapshot,
   cleared: ReadonlySet<string> = new Set(),
   schedules: (rows: unknown[]) => unknown[] = wireSchedules,
+  work: (status: unknown) => unknown = wireWork,
 ): { values: WireSnapshot; messages: ChatMessage[] } {
   // hobkin reads what was cleared when it opens. What is cleared after that is known here.
   const hidden = new Set([...(snapshot.presentation?.hiddenMessageIds ?? []), ...cleared])
   const values = Object.fromEntries(Object.entries(snapshot).filter(([key, value]) => !HOST_ONLY.has(key) && value !== undefined))
   if (Array.isArray(values.schedules)) values.schedules = schedules(values.schedules)
+  if ('work' in values) values.work = work(values.work)
   const messages = ((snapshot.messages ?? []) as ChatMessage[]).flatMap((message): ChatMessage[] => {
     if (hidden.has(message.id)) return []
     if (message.role === 'bashExecution') {
@@ -123,6 +146,8 @@ export class StateSync {
   private readonly seen = new Map<keyof HostFacts, string>()
   /** The routines last given rows, with those rows. */
   private schedules: { list: unknown[]; rows: unknown[] } | null = null
+  /** hobkin's work status last made the window's, with what the window got. */
+  private wiredWork: { status: unknown; wired: unknown } | null = null
   /** When every key was last encoded. */
   private encodedAt = -Infinity
   private readonly now: () => number
@@ -213,7 +238,9 @@ export class StateSync {
     const now = this.now()
     const encodeAll = now - this.encodedAt >= FULL_ENCODING_MS
     if (encodeAll) this.encodedAt = now
-    const { values, messages } = snapshot ? toWire(snapshot, this.cleared, (list) => this.rowsOf(list, encodeAll)) : { values: {}, messages: [] }
+    const { values, messages } = snapshot
+      ? toWire(snapshot, this.cleared, (list) => this.rowsOf(list, encodeAll), (status) => this.workOf(status, encodeAll))
+      : { values: {}, messages: [] }
     const encoded = new Map(Object.entries(values).map(([key, value]) => {
       const kept = this.sent.get(key)
       const sameObject = kept !== undefined && value === this.values[key]
@@ -288,6 +315,14 @@ export class StateSync {
     const before = this.seen.has(fact) ? this.seen.get(fact) : JSON.stringify(held)
     this.seen.set(fact, json)
     return json !== before
+  }
+
+  /** The window's work status. The same status keeps what it gave, so its encoding is kept too, unless `rebuild` asks for it anew. */
+  private workOf(status: unknown, rebuild: boolean): unknown {
+    if (!rebuild && this.wiredWork && this.wiredWork.status === status) return this.wiredWork.wired
+    const wired = wireWork(status)
+    this.wiredWork = { status, wired }
+    return wired
   }
 
   /** The routines' rows. Each row hashes its definition, so a list hobkin kept keeps its rows, unless `rebuild` asks for them anew. */
