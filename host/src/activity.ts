@@ -20,13 +20,33 @@ function withoutSteps(rows: unknown): unknown {
   })
 }
 
-/** A missing source is not proof of termination. Legacy reports keep their original meanings. */
+const LIVE = ['queued', 'running', 'cancelling']
+
+/** A missing source is not proof of termination. Legacy reports keep their original meanings. A list with nothing live stays the same list. */
 function lastKnown(children: unknown): unknown {
-  if (!Array.isArray(children)) return children
+  if (!Array.isArray(children) || !children.some((child) => LIVE.includes(child?.state))) return children
   return children.map((child) => {
-    if (!['queued', 'running', 'cancelling'].includes(child?.state)) return child
+    if (!LIVE.includes(child?.state)) return child
     return { ...child, state: 'unknown' }
   })
+}
+
+/** Two values that encode alike as JSON: the same keys in the same order, each with the same value. */
+function sameFields(left: unknown, right: unknown): boolean {
+  if (left === right) return true
+  if (!left || !right || typeof left !== 'object' || typeof right !== 'object') return false
+  const keys = Object.keys(left)
+  const others = Object.keys(right)
+  return keys.length === others.length && keys.every((key, index) => key === others[index] && (left as Record<string, unknown>)[key] === (right as Record<string, unknown>)[key])
+}
+
+/**
+ * hobkin copies every helper row on each publish. Rows that read the same as the ones given last time are given as
+ * that same list, so the host does not encode them again and a publish with nothing new sends nothing.
+ */
+function sameRowsAs(held: unknown, rows: unknown): unknown {
+  const same = Array.isArray(held) && Array.isArray(rows) && held.length === rows.length && rows.every((row, index) => sameFields(held[index], row))
+  return same ? held : rows
 }
 
 export class ActivityKeeper {
@@ -34,6 +54,9 @@ export class ActivityKeeper {
   /** Jobs that ended, the one that ended last at the end, with the last of each that hobkin sent. */
   private readonly ended = new Map<string, Job>()
   private running: Record<string, Job> = {}
+  /** The main chat's helper rows and every job's, as last given, so the same rows are given as the same objects. */
+  private mainChildren: unknown = undefined
+  private jobChildren: Jobs = {}
 
   constructor({ most = 20 }: { most?: number } = {}) {
     this.most = most
@@ -41,24 +64,28 @@ export class ActivityKeeper {
 
   /**
    * The snapshot with the activity and agents of the jobs running now and of those that ended most recently. Helpers'
-   * rows, a job's and the main chat's, come without their steps (`withoutSteps`).
+   * rows, a job's and the main chat's, come without their steps (`withoutSteps`), and as the lists given last time
+   * while they read the same (`sameRowsAs`).
    */
   keep<Snapshot extends object>(snapshot: Snapshot): Snapshot & { jobActivity: Jobs; jobChildren: Jobs } {
     const { jobActivity: now, jobChildren, mainChildren } = snapshot as { jobActivity?: unknown; jobChildren?: unknown; mainChildren?: unknown }
     // Saved views with neither key change nothing kept. Children can outlive their parent's feed.
     const activity = now && typeof now === 'object' ? now as Jobs : undefined
     const children = jobChildren && typeof jobChildren === 'object'
-      ? Object.fromEntries(Object.entries(jobChildren).map(([id, rows]) => [id, withoutSteps(rows)]))
+      ? Object.fromEntries(Object.entries(jobChildren).map(([id, rows]) => [id, sameRowsAs((this.running[id] ?? this.ended.get(id))?.children, withoutSteps(rows))]))
       : undefined
     if (activity || children) this.follow(activity ?? {}, children ?? {})
+    if (Array.isArray(mainChildren)) this.mainChildren = sameRowsAs(this.mainChildren, withoutSteps(mainChildren))
 
     const jobs = [...this.ended, ...Object.entries(this.running)]
+    // hobkin lists only the jobs that spawned agents, and so does this.
+    const kept = Object.fromEntries(jobs.filter(([, job]) => job.children !== undefined).map(([id, job]) => [id, job.children]))
+    this.jobChildren = sameFields(this.jobChildren, kept) ? this.jobChildren : kept
     return {
       ...snapshot,
-      ...(Array.isArray(mainChildren) ? { mainChildren: withoutSteps(mainChildren) } : {}),
+      ...(Array.isArray(mainChildren) ? { mainChildren: this.mainChildren } : {}),
       jobActivity: Object.fromEntries(jobs.filter(([, job]) => job.activity !== undefined).map(([id, job]) => [id, job.activity])),
-      // hobkin lists only the jobs that spawned agents, and so does this.
-      jobChildren: Object.fromEntries(jobs.filter(([, job]) => job.children !== undefined).map(([id, job]) => [id, job.children])),
+      jobChildren: this.jobChildren,
     }
   }
 

@@ -95,6 +95,8 @@ export class HomeOwner {
   snapshot: HobkinSnapshot | null = null
   app: HobkinApplication | null = null
   private execution: { app: HobkinApplication; home: string; epoch: string } | null = null
+  /** hobkin's stop controls as the window last got them, kept while hobkin's and the execution stay the same. */
+  private stops: { source: unknown; execution: object; wired: NonNullable<WireSnapshot['stopControls']> } | null = null
   /** Another process holds the home's lock, and this looks again until it lets go. */
   held = false
 
@@ -329,7 +331,11 @@ export class HomeOwner {
     const { stopControls, ...snapshot } = this.snapshot
     const captured = this.captureExecution()
     if (!captured || this.snapshot !== captured.app.snapshot || snapshot.connection !== 'connected' || !stopControls) return snapshot
-    return { ...snapshot, stopControls: { home: captured.home, epoch: captured.epoch, targets: stopControls.targets } }
+    // An activity publish keeps hobkin's stop controls, so they keep their object and are not encoded again.
+    if (this.stops?.source !== stopControls || this.stops.execution !== captured) {
+      this.stops = { source: stopControls, execution: captured, wired: { home: captured.home, epoch: captured.epoch, targets: stopControls.targets } }
+    }
+    return { ...snapshot, stopControls: this.stops.wired }
   }
 
   /**

@@ -117,6 +117,30 @@ test("a helper's steps stay in the host: its words and tool calls alone send not
   assert.doesNotMatch(JSON.stringify(sync.full()), /Reading the login tests|export const login/)
 })
 
+test('helper rows that did not change keep their lists, so a publish with nothing new encodes nothing and sends nothing', () => {
+  const keeper = new ActivityKeeper()
+  const sync = new StateSync({ owner, signIn, models: null })
+  const row = (state: RunChild['state']): RunChild => ({ id: 'h', parentId: 'r', rootId: 'r', depth: 1, name: 'scout', state })
+  // hobkin copies every helper row on each publish.
+  const published = (state: RunChild['state']) => keeper.keep({ jobActivity: { r: [] }, jobChildren: { r: [row(state)] }, mainChildren: [row(state)] })
+  const first = published('running')
+  sync.update({ owner, signIn, models: null, snapshot: first })
+  const again = published('running')
+  assert.equal(again.jobChildren, first.jobChildren, 'the same lists')
+  assert.equal(again.mainChildren, first.mainChildren)
+  assert.equal(sync.update({ owner, signIn, models: null, snapshot: again }), null)
+
+  const moved = published('completed')
+  assert.notEqual(moved.jobChildren, first.jobChildren)
+  assert.deepEqual(sync.update({ owner, signIn, models: null, snapshot: moved })?.set, { jobChildren: { r: [row('completed')] }, mainChildren: [row('completed')] })
+
+  // A run still writing whose helpers hobkin no longer lists keeps them as last known, and they stay the same list.
+  const gone = () => keeper.keep({ jobActivity: { r: [] }, jobChildren: {} })
+  const known = gone()
+  assert.deepEqual(known.jobChildren, { r: [row('completed')] })
+  assert.equal(gone().jobChildren, known.jobChildren)
+})
+
 test('child-only roots retain twenty copied last-known groups without source mutation or resurrection', () => {
   const keeper = new ActivityKeeper()
   const source: RunChild[] = [

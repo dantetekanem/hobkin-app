@@ -65,7 +65,7 @@ import { Canvases, canvasHandlers } from './canvases.ts'
 import { Nudges } from './nudge.ts'
 import { decisionHandlers } from './decisions.ts'
 import { reportHandlers } from './reports.ts'
-import { reminderHandlers, reminderState } from './reminders.ts'
+import { ReminderReader, reminderHandlers } from './reminders.ts'
 import { proofHandlers, ProofsKeeper } from './proofs.ts'
 import { proofToolsHandlers } from './setup-proof.ts'
 import { workHandlers } from './work.ts'
@@ -212,8 +212,12 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const send = (socket: WebSocket, message: HostMessage) => {
     if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(message))
   }
+  // One encoding for every window connected.
   const broadcast = (message: HostMessage) => {
-    for (const socket of server?.sockets() ?? []) send(socket, message)
+    const open = [...(server?.sockets() ?? [])].filter((socket) => socket.readyState === socket.OPEN)
+    if (!open.length) return
+    const text = JSON.stringify(message)
+    for (const socket of open) socket.send(text)
   }
   const publish = () => {
     const now = facts()
@@ -343,9 +347,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   })
   // Each issue on the GitHub page carries the hobkin work filed for it, read from hobkin's items when GitHub or hobkin's work changes.
   const issueWork = issueWorkReader(() => hobkin().runtime.directory)
+  const reminderReader = new ReminderReader()
   const reminders = () => {
     const home = owner.app?.runtime.directory ?? resolveDataRoot(root)
-    try { return reminderState(home) }
+    try { return reminderReader.read(home) }
     catch (error) {
       log(`Could not read reminder metadata: ${error instanceof Error ? error.message : String(error)}`)
       return { home, entries: [] }

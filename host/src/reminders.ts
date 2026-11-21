@@ -46,6 +46,31 @@ export function reminderState(home: string): ReminderState {
   } finally { closeSync(fd) }
 }
 
+/**
+ * The reminders as each publish reads them: the file again only when its stat changed, and otherwise what was read
+ * last, the same object, so the host does not encode it again either. A resolve reads the file itself.
+ */
+export class ReminderReader {
+  private last: { home: string; stamp: string; state: ReminderState } | null = null
+
+  read(home: string): ReminderState {
+    const path = metadataPath(home)
+    let stamp = path ? 'missing' : 'no folder'
+    if (path) {
+      try {
+        const { dev, ino, mode, nlink, uid, size, mtimeMs, ctimeMs } = lstatSync(path)
+        stamp = [dev, ino, mode, nlink, uid, size, mtimeMs, ctimeMs].join(':')
+      } catch (error) {
+        if (!missing(error)) throw error
+      }
+    }
+    if (this.last?.home === home && this.last.stamp === stamp) return this.last.state
+    const state = reminderState(home)
+    this.last = { home, stamp, state }
+    return state
+  }
+}
+
 /** The first explicit terminal choice wins. No TTL, read receipt or archival can reopen it. */
 function resolveReminder(home: string, id: string, status: 'done' | 'dismissed'): void {
   const state = reminderState(home)

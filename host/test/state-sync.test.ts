@@ -5,7 +5,10 @@ import type { CanvasState } from '#shared/protocol/canvas.ts'
 import { applyMessageOps, diffMessages } from '#shared/protocol/message-ops.ts'
 import type { StateMessage } from '#shared/protocol/messages.ts'
 import type { ChatMessage, RunTelemetry } from '#shared/protocol/snapshot.ts'
+import type { HobkinApplication } from 'hobkin/src/cli/application.mjs'
+import { HomeOwner } from '../src/owner.ts'
 import { StateSync, type HostFacts } from '../src/state-sync.ts'
+import { afterTest, Client, hostFor } from './support.ts'
 
 import { DARK_PALETTE } from '../../ui/src/features/settings/rules.ts'
 import { applyHostMessage, initialHostState } from '../../ui/src/lib/host/state.ts'
@@ -291,6 +294,39 @@ test('the same schedule list keeps its rows between full checks, and a new list 
   assert.notEqual(again, rows, 'a new list gives new rows')
   assert.notEqual(again[0], rows[0])
   assert.deepEqual(again, rows)
+})
+
+test("the stop controls keep their object while hobkin's and the app's stay the same, so a publish does not encode them again", () => {
+  const owner = new HomeOwner({ root: '/isolated/home', live: false, real: false, onChange() {}, onSessionEvent() {} })
+  const control = { kind: 'run' as const, runId: 'run', parentId: null, rootId: 'run', label: 'Fix login', canStop: true, canForce: true }
+  const app = { snapshot: { connection: 'connected', busy: false, stopControls: { targets: [control] } } } as unknown as HobkinApplication
+  const publish = (snapshot: HobkinApplication['snapshot']) => {
+    app.snapshot = owner.snapshot = snapshot
+    return owner.wireSnapshot()!.stopControls
+  }
+  owner.app = app
+  const first = publish(app.snapshot)
+  const { home, epoch } = owner.captureExecution()!
+  assert.deepEqual(first, { home, epoch, targets: [control] })
+  // An activity publish: a new snapshot that keeps hobkin's stop controls.
+  assert.equal(publish({ ...app.snapshot, busy: true }), first)
+
+  assert.deepEqual(publish({ ...app.snapshot, stopControls: { targets: [] } }), { home, epoch, targets: [] }, 'a refresh with other controls')
+  owner.app = { ...app, snapshot: app.snapshot } as HobkinApplication
+  const next = publish({ ...app.snapshot })
+  assert.notEqual(next?.epoch, epoch, 'another app is another epoch')
+})
+
+test('a broadcast encodes its message once for every window connected', async (t) => {
+  const host = await hostFor(t)
+  const windows = await Promise.all([Client.connect(host), Client.connect(host)])
+  afterTest(t, () => windows.forEach((window) => window.close()))
+  await Promise.all(windows.map((window) => window.live()))
+  const encode = t.mock.method(JSON, 'stringify')
+  await windows[0]!.run('view.back')
+  await Promise.all(windows.map((window) => window.until(() => window.received.some((message) => message.type === 'state' && message.nudge), 'the nudge')))
+  const states = encode.mock.calls.filter(({ arguments: [value] }) => (value as { type?: string } | null)?.type === 'state')
+  assert.equal(states.length, 1)
 })
 
 test('hobkin\'s work status reaches the window as its projects alone, so a running agent\'s token count sends nothing', () => {

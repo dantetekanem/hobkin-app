@@ -3,7 +3,7 @@ import test from 'node:test'
 import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync, symlinkSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { reminderHandlers, reminderState } from '../src/reminders.ts'
+import { ReminderReader, reminderHandlers, reminderState } from '../src/reminders.ts'
 import { runCommand } from '../src/commands.ts'
 import { COMMANDS } from '../../shared/commands/registry.ts'
 
@@ -24,6 +24,23 @@ function fixture(t: test.TestContext, entries = [occurrence()]) {
 test('a saved occurrence references the original report without making a decision, inbox notice or routine', t => {
   const { root } = fixture(t)
   assert.deepEqual(reminderState(root), { home: root, entries: [occurrence()] })
+})
+
+test('each publish reads the reminders again only when their file changed', t => {
+  const { root, file } = fixture(t)
+  const reader = new ReminderReader()
+  const first = reader.read(root)
+  assert.deepEqual(first, { home: root, entries: [occurrence()] })
+  assert.equal(reader.read(root), first, 'an unchanged file gives what was read')
+
+  writeFileSync(file, JSON.stringify({ version: 1, entries: [occurrence({ status: 'done', resolvedAt: '2026-11-12T15:00:00.000Z' })] }))
+  assert.equal(reader.read(root).entries[0]?.status, 'done')
+  rmSync(file)
+  const none = reader.read(root)
+  assert.deepEqual(none, { home: root, entries: [] })
+  assert.equal(reader.read(root), none)
+  const other = fixture(t)
+  assert.deepEqual(reader.read(other.root), { home: other.root, entries: [occurrence()] }, 'another home is read')
 })
 for (const status of ['done', 'dismissed'] as const) {
   test(`explicit ${status} persists across a new reader, retention and root changes`, async t => {
