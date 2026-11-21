@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { inspect } from 'node:util';
 
@@ -41,3 +42,52 @@ export function guardCodeToolAbort(target = process) {
 export default function codeToolGuard() {
   guardCodeToolAbort();
 }
+
+/** Whether a run's error says its Pi exited on that abort, from the stack Pi printed (`rpc-process.mjs` keeps its tail). */
+export const crashedInCodeTool = error => /exited before completion/.test(error ?? '')
+  && /This operation was aborted/.test(error) && ABORTED_BY_FINISH.test(error);
+
+const RESTART_NOTE = 'Your previous attempt at this task stopped because Pi crashed in its code tool, and hobkin restarted you on the same session. Carry on from where you stopped and finish the task.';
+
+/**
+ * A run whose Pi still exits on that abort (a Pi without the guard, or another way out) starts again once, on its own
+ * session file, told why: a saved session already holds the task, and one not saved yet is given it again. Its result
+ * says it was restarted (`restarted`), and its cost still counts from the session it began. A run the user stopped, any
+ * other failure and a process started ahead of its turn are never restarted. The run's process handle (`onControl`) and
+ * its inbox (`onReady`) are each given once and reach whichever attempt is running.
+ */
+export const restartingAfterCodeToolCrash = run => async (request, options = {}) => {
+  if (request.warm === true) return run(request, options);
+  let current, send;
+  const closed = Promise.withResolvers();
+  const handle = {
+    closed: closed.promise,
+    force: () => current.force(),
+    terminate: () => current.terminate(),
+    changeBinding: change => current.changeBinding(change),
+  };
+  const attempt = asked => run(asked, {
+    ...options,
+    // Binding can force the process at once (`bindHarness`), so the handle reaches this attempt before it is given.
+    ...(options.onControl && { onControl: child => {
+      const first = !current;
+      current = child;
+      if (first) options.onControl(handle);
+    } }),
+    ...(options.onReady && { onReady: given => {
+      if (!send) options.onReady((...message) => send(...message));
+      send = given;
+    } }),
+  });
+  try {
+    const first = await attempt(request);
+    if (first?.status !== 'failed' || !crashedInCodeTool(first.error) || request.signal?.aborted) return first;
+    const { images: _images, ...rest } = request;
+    const again = await attempt(existsSync(request.sessionFile)
+      ? { ...rest, prompt: RESTART_NOTE }
+      : { ...request, prompt: `${RESTART_NOTE}\n\n${request.prompt}` });
+    return { ...again, freshSession: first.freshSession, restarted: { error: first.error } };
+  } finally {
+    Promise.resolve(current?.closed).then(closed.resolve, closed.resolve);
+  }
+};

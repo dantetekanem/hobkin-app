@@ -9,6 +9,7 @@ import { JobActivity } from './job-activity.mjs';
 import { TeamsAgents } from './teams-agents.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
 import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
+import { restartingAfterCodeToolCrash } from './code-tool-crash.mjs';
 import { withShippedSkills } from './skills-extension.mjs';
 import { UsageLedger } from './usage.mjs';
 import { Telemetry } from './telemetry.mjs';
@@ -245,7 +246,8 @@ export class HobkinApplication {
       onChange: activityOnly => app.requestRefresh(activityOnly),
     });
     try {
-      runHarness = app.ownedHarness(runHarness);
+      // A run whose Pi crashed in its code tool starts again once (`code-tool-crash.mjs`).
+      runHarness = app.ownedHarness(restartingAfterCodeToolCrash(runHarness));
       // A report's short version comes in the background once the report is listed, and the list refreshes when it does (051-short-reports).
       app.shortReports = new ShortReports({ root: app.runtime.directory, runHarness, onMade: () => app.requestRefresh() });
       moveRoutinesFolder(app.runtime.directory);

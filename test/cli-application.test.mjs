@@ -2705,3 +2705,28 @@ test("a run's teams agents travel in teamsAgents, never in jobChildren", async t
   assert.deepEqual(spawn, copies, "the run's events reach the reader unchanged");
   assert.equal(app.snapshot.jobActivity.job[0].name, 'spawn_agent', "the run's own feed still has the call as a step");
 });
+
+test("a check whose Pi crashed in its code tool is restarted once on its own session and ends as the restart does", async t => {
+  const h = fixture(t);
+  const crashed = 'Harness exited before completion (1). or]: This operation was aborted\n      at new DOMException (node:internal/per_context/domexception:76:18)\n      at AbortController.abort (node:internal/abort_controller:504:18)\n      at Execution.finish (file:///pi/dist/bundle/chunks/execute-L2EEDV3L.js:2:8423)';
+  // The check's own attempts; its report's edit is another run.
+  const calls = [];
+  const app = await h.openApp({ intervalMs: 60000, runHarness: async request => {
+    if (request.purpose !== undefined) return { status: 'completed', text: 'Useful: checked.' };
+    calls.push(request);
+    return calls.length === 1 ? { status: 'failed', error: crashed } : { status: 'completed', text: 'Useful: checked.' };
+  } });
+  t.after(() => app.close());
+  const schedule = { id: 'check', title: 'Check', at: '09:00', timezone: 'UTC', cwd: h.root,
+    context: [], enabled: true, harness: 'pi', model: 'fixture/check', effort: 'medium' };
+  writeFileSync(join(h.root, 'routines/daily/check.md'), `---\n${JSON.stringify(schedule)}\n---\nCheck local state.\n`);
+
+  const { id } = await app.runner.trigger('check', 'crashed-routine');
+  await app.runtime.idle();
+
+  assert.equal(calls.length, 2);
+  assert.equal(calls[1].sessionFile, calls[0].sessionFile);
+  const run = (await app.runtime.state()).runs[id];
+  assert.equal(run.status, 'completed');
+  assert.equal(run.result.restarted.error, crashed);
+});
