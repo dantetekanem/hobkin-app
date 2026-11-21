@@ -1,0 +1,632 @@
+diff --git a/patches/framer-motion@14.10.1.patch b/patches/framer-motion@14.10.1.patch
+new file mode 100644
+index 0000000..260dca1
+--- /dev/null
++++ b/patches/framer-motion@14.10.1.patch
+@@ -0,0 +1,154 @@
++diff --git a/dist/es/components/AnimatePresence/PopChild.mjs b/dist/es/components/AnimatePresence/PopChild.mjs
++index 9ccae05d4a11e085ef1566d8df313ab4ac5c971d..d2f841f76bc43bb82d9ffc1ce4e521c2a16c5024 100644
++--- a/dist/es/components/AnimatePresence/PopChild.mjs
+++++ b/dist/es/components/AnimatePresence/PopChild.mjs
++@@ -2,10 +2,27 @@
++ import { jsx } from 'react/jsx-runtime';
++ import { microtask, isHTMLElement } from 'motion-dom';
++ import * as React from 'react';
++-import { useId, useRef, useContext, useInsertionEffect } from 'react';
++-import { MotionConfigContext } from '../../context/MotionConfigContext.mjs';
+++import { useId, useRef, useInsertionEffect } from 'react';
++ import { useComposedRefs } from '../../utils/use-composed-ref.mjs';
++ 
+++/**
+++ * The inline properties the pop sets, each remembered as the element had
+++ * it (value and priority) so it can be put back exactly.
+++ */
+++const rememberInline = (element, names) => names.map((name) => [
+++    name,
+++    element.style.getPropertyValue(name),
+++    element.style.getPropertyPriority(name),
+++]);
+++const restoreInline = (element, remembered) => {
+++    for (const [name, value, priority] of remembered) {
+++        if (value)
+++            element.style.setProperty(name, value, priority);
+++        else
+++            element.style.removeProperty(name);
+++    }
+++};
+++
++ /**
++  * How much an element's transforms, and its ancestors', scale it on screen.
++  */
++@@ -84,7 +101,7 @@ class PopChildMeasure extends React.Component {
++         return this.props.children;
++     }
++ }
++-function PopChild({ children, isPresent, anchorX, anchorY, root, pop, popNode }) {
+++function PopChild({ children, isPresent, anchorX, anchorY, pop, popNode }) {
++     const id = useId();
++     const ref = useRef(null);
++     const size = useRef({
++@@ -96,7 +113,6 @@ function PopChild({ children, isPresent, anchorX, anchorY, root, pop, popNode })
++         bottom: 0,
++         direction: "ltr",
++     });
++-    const { nonce } = useContext(MotionConfigContext);
++     /**
++      * In React 19, refs are passed via props.ref instead of element.ref.
++      * We check props.ref first (React 19) and fall back to element.ref (React 18).
++@@ -116,23 +132,40 @@ function PopChild({ children, isPresent, anchorX, anchorY, root, pop, popNode })
++      * forward it), its outermost motion component's element (#2503).
++      */
++     const getElement = () => ref.current || popNode?.current?.current;
++-    const insertPopRule = (sheet) => {
+++    /**
+++     * The pop rule as declarations: absolute, at its measured size, pinned
+++     * by the two offsets its anchors name.
+++     */
+++    const popDeclarations = () => {
++         const { width, height, top, left, right, bottom, direction } = size.current;
++         const isRTL = direction === "rtl";
++         const x = anchorX === "left"
++-            ? (isRTL ? `right:${right}` : `left:${left}`)
++-            : (isRTL ? `left:${left}` : `right:${right}`);
++-        const y = anchorY === "bottom" ? `bottom:${bottom}` : `top:${top}`;
++-        sheet?.insertRule(`[data-motion-pop-id="${id}"]{position:absolute!important;width:${width}px!important;height:${height}px!important;${x}px!important;${y}px!important}`);
+++            ? (isRTL ? ["right", right] : ["left", left])
+++            : (isRTL ? ["left", left] : ["right", right]);
+++        const y = anchorY === "bottom" ? ["bottom", bottom] : ["top", top];
+++        return [
+++            ["position", "absolute"],
+++            ["width", `${width}px`],
+++            ["height", `${height}px`],
+++            [x[0], `${x[1]}px`],
+++            [y[0], `${y[1]}px`],
+++        ];
+++    };
+++    const pin = (element) => {
+++        for (const [name, value] of popDeclarations()) {
+++            element.style.setProperty(name, value, "important");
+++        }
++     };
++     /**
++-     * We create and inject a style block so we can apply this explicit
++-     * sizing in a non-destructive manner by just deleting the style block.
+++     * The explicit sizing goes on the element's own inline style, marked
+++     * important as the rule was. Adding a <style> element instead, and
+++     * removing it after, made WebKit reset the whole page's style resolver
+++     * on every exit.
++      *
++      * We can't apply size via render as the measurement happens
++-     * in getSnapshotBeforeUpdate (post-render), likewise if we apply the
++-     * styles directly on the DOM node, we might be overwriting
++-     * styles set via the style prop.
+++     * in getSnapshotBeforeUpdate (post-render). The inline values these
+++     * properties had, from the style prop or anything else, are remembered
+++     * and put back on cleanup, so nothing set on the element is lost.
++      */
++     useInsertionEffect(() => {
++         const { width, height } = size.current;
++@@ -140,17 +173,9 @@ function PopChild({ children, isPresent, anchorX, anchorY, root, pop, popNode })
++         if (isPresent || pop === false || !element || !width || !height)
++             return;
++         element.dataset.motionPopId = id;
++-        /**
++-         * Use the element's own document so this works when rendering
++-         * into another window or iframe (e.g. via window.open()).
++-         */
++-        const doc = element.ownerDocument;
++-        const style = doc.createElement("style");
++-        if (nonce)
++-            style.nonce = nonce;
++-        const parent = root ?? doc.head;
++-        parent.appendChild(style);
++-        insertPopRule(style.sheet);
+++        const remembered = rememberInline(element, popDeclarations().map(([name]) => name));
+++        let pinned = true;
+++        pin(element);
++         /**
++          * Popping the element out of the layout can move its offsetParent,
++          * which we've pinned it to. For instance, a bottom-anchored or
++@@ -174,25 +199,21 @@ function PopChild({ children, isPresent, anchorX, anchorY, root, pop, popNode })
++         });
++         microtask.read(() => {
++             /**
++-             * The style has no sheet if it's been removed since, because
++-             * the element is present again.
+++             * Nothing is pinned any more if the element is present again.
++              */
++-            const { sheet } = style;
++-            if (!sheet || (!dx && !dy))
+++            if (!pinned || (!dx && !dy))
++                 return;
++             const s = size.current;
++             s.left += dx;
++             s.right -= dx;
++             s.top += dy;
++             s.bottom -= dy;
++-            sheet.deleteRule(0);
++-            insertPopRule(sheet);
+++            pin(element);
++         });
++         return () => {
+++            pinned = false;
++             element.removeAttribute("data-motion-pop-id");
++-            if (parent.contains(style)) {
++-                parent.removeChild(style);
++-            }
+++            restoreInline(element, remembered);
++         };
++     }, [isPresent]);
++     return (jsx(PopChildMeasure, { isPresent: isPresent, getElement: getElement, sizeRef: size, pop: pop, children: pop === false
+diff --git a/pnpm-workspace.yaml b/pnpm-workspace.yaml
+new file mode 100644
+index 0000000..30521dc
+--- /dev/null
++++ b/pnpm-workspace.yaml
+@@ -0,0 +1,4 @@
++# pnpm 11 reads its settings only from this file. With no `packages` the root stays the one project.
++patchedDependencies:
++  # framer-motion's popLayout pins a leaving element with its own inline style instead of a <style> element (052, S19).
++  framer-motion@14.10.1: patches/framer-motion@14.10.1.patch
+diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
+index 83d0983..faf1f7b 100644
+--- a/src-tauri/Cargo.toml
++++ b/src-tauri/Cargo.toml
+@@ -23,6 +23,25 @@ tauri-plugin-notification = "2"
+ # Updates for a release build, from hobkin.dev (src/updates.rs). A development build never registers it.
+ tauri-plugin-updater = "2"
+ 
++# The shell's own code keeps a debug build's checks, with line numbers only. Its dependencies (Tauri, wry, tao, objc2)
++# are built optimized and without their debug assertions, so the daily `tauri dev` window does not check every
++# Objective-C message they send. `"*"` names dependencies only (052, S19).
++[profile.dev]
++debug = "line-tables-only"
++
++[profile.dev.package."*"]
++opt-level = 2
++debug = false
++debug-assertions = false
++overflow-checks = false
++
++# A panic still unwinds: one in a background thread ends that thread, not the app.
++[profile.release]
++lto = "thin"
++codegen-units = 1
++strip = "symbols"
++panic = "unwind"
++
+ [target.'cfg(target_os = "macos")'.dependencies]
+ objc2 = "0.6"
+ # The Mac's own notification permission (037-notifications): asked and read through UNUserNotificationCenter.
+diff --git a/src-tauri/src/backdrop.rs b/src-tauri/src/backdrop.rs
+new file mode 100644
+index 0000000..404d01b
+--- /dev/null
++++ b/src-tauri/src/backdrop.rs
+@@ -0,0 +1,70 @@
++//! What is behind the window's page (_specs/052-ten-times-lighter, A20). The window starts transparent with the desktop
++//! blurred behind it, so a background opacity below 1 lets the desktop show. While the page paints a solid background
++//! that only costs: WindowServer blends and blurs the window on every update, and never treats the windows behind it
++//! as covered. So the window says how much of its own background shows, and at 1 the window becomes opaque in the
++//! theme's color with nothing blurred behind it.
++
++#[cfg(target_os = "macos")]
++use objc2::msg_send;
++#[cfg(target_os = "macos")]
++use objc2::runtime::AnyObject;
++use tauri::window::Color;
++use tauri::{Runtime, Webview};
++
++use crate::browser::from_main;
++
++/// How far the desktop behind the transparent window is blurred, like Ghostty's background-blur.
++#[cfg(target_os = "macos")]
++const BACKGROUND_BLUR_RADIUS: i32 = 20;
++
++#[cfg(target_os = "macos")]
++extern "C" {
++    // Undocumented CoreGraphics calls, the ones Ghostty and Terminal.app use for a blurred translucent window.
++    fn CGSDefaultConnectionForThread() -> *mut std::ffi::c_void;
++    fn CGSSetWindowBackgroundBlurRadius(connection: *mut std::ffi::c_void, window: usize, radius: i32) -> i32;
++}
++
++/// Blurs what is behind the window by `radius` points, or not at all with 0.
++#[cfg(target_os = "macos")]
++fn blur(ns_window: &AnyObject, radius: i32) {
++    // SAFETY: ns_window is the live NSWindow of this window; windowNumber takes no arguments and returns an NSInteger.
++    unsafe {
++        let number: isize = msg_send![ns_window, windowNumber];
++        CGSSetWindowBackgroundBlurRadius(CGSDefaultConnectionForThread(), number as usize, radius);
++    }
++}
++
++/// Blurs what is behind the window as it opens. The window stays transparent, so the app's own background opacity
++/// decides how much shows, until the page says otherwise with `window_backdrop`.
++#[cfg(target_os = "macos")]
++pub fn blur_behind(window: &tauri::WebviewWindow) {
++    let Ok(ns_window) = window.ns_window() else { return };
++    // SAFETY: Tauri hands the live NSWindow of this window.
++    blur(unsafe { &*(ns_window as *const AnyObject) }, BACKGROUND_BLUR_RADIUS);
++}
++
++/// How much of the page's own background shows, from 0 to 1, and its color. At 1 the window is opaque in that color
++/// with no blur behind it. Below 1 it is transparent with the desktop blurred behind it, as it opens.
++#[tauri::command]
++pub fn window_backdrop<R: Runtime>(webview: Webview<R>, opacity: f64, color: [u8; 3]) -> Result<(), String> {
++    from_main(&webview)?;
++    let solid = opacity >= 1.0;
++    let [red, green, blue] = color;
++    // The webview draws no background of its own, so this is what shows wherever the page has not drawn yet, as in a
++    // resize: the theme's color, or nothing at all.
++    let under = if solid { Color(red, green, blue, 255) } else { Color(0, 0, 0, 0) };
++    let window = webview.window();
++    window.set_background_color(Some(under)).map_err(|error| error.to_string())?;
++    #[cfg(target_os = "macos")]
++    if let Ok(ns_window) = window.ns_window() {
++        // SAFETY: Tauri hands the live NSWindow of this window, and a command that is not async runs on the main
++        // thread, where AppKit takes these. setOpaque: takes a BOOL and invalidateShadow nothing; neither returns a value.
++        let ns_window = unsafe { &*(ns_window as *const AnyObject) };
++        unsafe {
++            let _: () = msg_send![ns_window, setOpaque: solid];
++            let _: () = msg_send![ns_window, invalidateShadow];
++        }
++        blur(ns_window, if solid { 0 } else { BACKGROUND_BLUR_RADIUS });
++    }
++    Ok(())
++}
+diff --git a/src-tauri/src/browser.rs b/src-tauri/src/browser.rs
+index 3e32249..1da1ddc 100644
+--- a/src-tauri/src/browser.rs
++++ b/src-tauri/src/browser.rs
+@@ -193,7 +193,7 @@ fn step<R: Runtime>(webview: &Webview<R>, forward: bool) -> Result<(), String> {
+ #[tauri::command]
+ pub fn shell_features<R: Runtime>(webview: Webview<R>) -> Result<serde_json::Value, String> {
+     from_main(&webview)?;
+-    Ok(serde_json::json!({ "notices": true, "browser": true }))
++    Ok(serde_json::json!({ "notices": true, "browser": true, "backdrop": true }))
+ }
+ 
+ /// Opens the page over the area, or takes the browser that is open there and to the page.
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index f608fb3..017cabd 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -13,6 +13,7 @@ use tauri::webview::PageLoadEvent;
+ use tauri::{AppHandle, Manager, RunEvent, Wry, WindowEvent};
+ use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+ 
++mod backdrop;
+ mod browser;
+ mod host_file;
+ mod login_path;
+@@ -235,29 +236,6 @@ fn stop_host(child: &mut Child) {
+     let _ = child.wait();
+ }
+ 
+-/// How far the desktop behind the transparent window is blurred, like Ghostty's background-blur.
+-#[cfg(target_os = "macos")]
+-const BACKGROUND_BLUR_RADIUS: i32 = 20;
+-
+-#[cfg(target_os = "macos")]
+-extern "C" {
+-    // Undocumented CoreGraphics calls, the ones Ghostty and Terminal.app use for a blurred translucent window.
+-    fn CGSDefaultConnectionForThread() -> *mut std::ffi::c_void;
+-    fn CGSSetWindowBackgroundBlurRadius(connection: *mut std::ffi::c_void, window: usize, radius: i32) -> i32;
+-}
+-
+-/// Blurs what is behind the window. The window stays transparent, so the app's own background opacity decides how much shows.
+-#[cfg(target_os = "macos")]
+-fn blur_behind(window: &tauri::WebviewWindow) {
+-    let Ok(ns_window) = window.ns_window() else { return };
+-    // SAFETY: ns_window is the live NSWindow of this window; windowNumber takes no arguments and returns an NSInteger.
+-    unsafe {
+-        let ns_window = &*(ns_window as *const objc2::runtime::AnyObject);
+-        let number: isize = objc2::msg_send![ns_window, windowNumber];
+-        CGSSetWindowBackgroundBlurRadius(CGSDefaultConnectionForThread(), number as usize, BACKGROUND_BLUR_RADIUS);
+-    }
+-}
+-
+ /// The menu bar: the standard Mac menus as Tauri's default gives them, with an About item that says what hobkin is,
+ /// who made it and where it lives, and carries the app's icon. The Mac's panel shows the name, version, copyright,
+ /// credits and icon; the other fields are for platforms that show them.
+@@ -369,10 +347,11 @@ pub fn run() {
+         .manage(Host(Mutex::new(None)))
+         .manage(browser::Browser::default())
+         .manage(updates::Ready::default())
+-        // The window's own commands: what this shell offers, notifications, the canvas's browser (036-canvas-browser),
+-        // where the host is, and updates. Each answers the main window's webview only.
++        // The window's own commands: what this shell offers, what is behind the page (052), notifications, the canvas's
++        // browser (036-canvas-browser), where the host is, and updates. Each answers the main window's webview only.
+         .invoke_handler(tauri::generate_handler![
+             browser::shell_features,
++            backdrop::window_backdrop,
+             browser::browser_open,
+             browser::browser_place,
+             browser::browser_navigate,
+@@ -405,7 +384,7 @@ pub fn run() {
+             browser::escape::watch(app.handle());
+             #[cfg(target_os = "macos")]
+             if let Some(window) = app.get_webview_window("main") {
+-                blur_behind(&window);
++                backdrop::blur_behind(&window);
+             }
+             Ok(())
+         })
+diff --git a/ui/src/app/window-backdrop.ts b/ui/src/app/window-backdrop.ts
+new file mode 100644
+index 0000000..59f6a55
+--- /dev/null
++++ b/ui/src/app/window-backdrop.ts
+@@ -0,0 +1,92 @@
++import type { Backdrop, BackdropShell } from '@/lib/native.ts'
++
++/**
++ * What the Mac window shows behind the page follows the page's own background (_specs/052-ten-times-lighter, A20).
++ * While that background is solid (opacity 1, the default, and every photo theme) the window is opaque in the same
++ * color with nothing blurred behind it, so WindowServer stops blending and blurring it and the windows behind it count
++ * as covered. Below 1 it is transparent with the desktop blurred behind, as the window opens.
++ */
++
++const NUMBER = String.raw`(-?[\d.]+(?:e[+-]?\d+)?)`
++const ALPHA = String.raw`(?:\s*[,/]\s*([\d.]+%?))?`
++const RGB = new RegExp(String.raw`^rgba?\(\s*${NUMBER}[\s,]+${NUMBER}[\s,]+${NUMBER}${ALPHA}\s*\)$`, 'i')
++const SRGB = new RegExp(String.raw`^color\(srgb\s+${NUMBER}\s+${NUMBER}\s+${NUMBER}${ALPHA}\s*\)$`, 'i')
++
++/** A channel written out of `full` (255 in `rgb()`, 1 in `color(srgb ...)`), as a whole number from 0 to 255. */
++function channelOf(text: string | undefined, full: number): number {
++  const value = (Number(text) / full) * 255
++  return Math.round(Math.min(255, Math.max(0, value)))
++}
++
++/** An alpha as a number or a percentage, from 0 to 1 in hundredths. None written means solid. */
++function alphaOf(text: string | undefined): number {
++  if (text === undefined) return 1
++  const value = text.endsWith('%') ? Number(text.slice(0, -1)) / 100 : Number(text)
++  return Math.round(Math.min(1, Math.max(0, value)) * 100) / 100
++}
++
++function backdropFrom(match: RegExpExecArray, full: number): Backdrop {
++  return {
++    opacity: alphaOf(match[4]),
++    color: [channelOf(match[1], full), channelOf(match[2], full), channelOf(match[3], full)],
++  }
++}
++
++/**
++ * The page's background as the browser computes it, `rgb()`, `rgba()` or `color(srgb ...)`, read as how much of it
++ * shows and its color. Null for any other form, and then the shell is told nothing.
++ */
++export function backdropOf(css: string): Backdrop | null {
++  const text = css.trim()
++  const rgb = RGB.exec(text)
++  if (rgb) return backdropFrom(rgb, 255)
++  const srgb = SRGB.exec(text)
++  if (srgb) return backdropFrom(srgb, 1)
++  return null
++}
++
++/** Where the page's background is read, and what tells when it may have changed. */
++export interface BackdropPage {
++  read(): string
++  watch(changed: () => void): () => void
++}
++
++/** The window's own page: its root's background, which changes with the theme, the opacity and a photo theme. */
++const PAGE: BackdropPage = {
++  read: () => getComputedStyle(document.documentElement).backgroundColor,
++  watch(changed) {
++    const observer = new MutationObserver(changed)
++    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class', 'style', 'data-photo', 'data-theme-fade', 'data-theme-reveal'] })
++    return () => observer.disconnect()
++  },
++}
++
++/** Tells the backdrop now, and again each time the page's background changes. Returns what stops it. */
++export function followBackdrop(page: BackdropPage, tell: (backdrop: Backdrop) => void): () => void {
++  let told: string | null = null
++  const check = () => {
++    const css = page.read()
++    if (css === told) return
++    const backdrop = backdropOf(css)
++    if (!backdrop) return
++    told = css
++    tell(backdrop)
++  }
++  check()
++  return page.watch(check)
++}
++
++/** Follows the page's background once the shell says it has the command. A shell from before it is never asked. */
++export function startWindowBackdrop(shell: () => Promise<{ backdrop: BackdropShell | null }>, page: BackdropPage = PAGE): () => void {
++  let stop: (() => void) | null = null
++  let stopped = false
++  void shell().then(({ backdrop }) => {
++    if (!backdrop || stopped) return
++    // A refusal leaves the window as it is, which is how it opened.
++    stop = followBackdrop(page, (next) => void backdrop.set(next).catch(() => {}))
++  })
++  return () => {
++    stopped = true
++    stop?.()
++  }
++}
+diff --git a/ui/src/lib/native.ts b/ui/src/lib/native.ts
+index fbd1383..15c3ab2 100644
+--- a/ui/src/lib/native.ts
++++ b/ui/src/lib/native.ts
+@@ -3,10 +3,10 @@ import { listen } from '@tauri-apps/api/event'
+ import type { HostAddress } from './host/connection.ts'
+ 
+ /**
+- * The Mac shell's own commands for the window (src-tauri/src/notices.rs and browser.rs): notifications, and the
+- * canvas's browser. In a browser tab there are none, and neither are there in a Mac window whose shell was built
+- * before them: `shell()` then answers null for each, and the window goes on exactly as it does without them. What
+- * uses them takes these shapes, so tests hand it fakes.
++ * The Mac shell's own commands for the window (src-tauri/src/notices.rs, browser.rs and backdrop.rs): notifications,
++ * the canvas's browser, and what is behind the page. In a browser tab there are none, and neither are there in a Mac
++ * window whose shell was built before them: `shell()` then answers null for each, and the window goes on exactly as
++ * it does without them. What uses them takes these shapes, so tests hand it fakes.
+  */
+ 
+ /** What the Mac allows hobkin: asked and allowed, refused, not asked yet, or unknown. */
+@@ -59,12 +59,26 @@ export interface BrowserShell {
+   onKey(listener: (key: BrowserKey) => void): Promise<() => void>
+ }
+ 
++/** How much of the page's own background shows, and its color: what the window shows behind the page. */
++export interface Backdrop {
++  /** From 0 to 1. At 1 the window is opaque in `color` with nothing blurred behind it. */
++  opacity: number
++  /** Red, green and blue, from 0 to 255. */
++  color: [number, number, number]
++}
++
++export interface BackdropShell {
++  set(backdrop: Backdrop): Promise<void>
++}
++
+ export interface Shell {
+   notices: NoticeShell | null
+   browser: BrowserShell | null
++  /** None in a shell from before it: the window stays as it opens, transparent with the desktop blurred behind it. */
++  backdrop: BackdropShell | null
+ }
+ 
+-const NONE: Shell = { notices: null, browser: null }
++const NONE: Shell = { notices: null, browser: null, backdrop: null }
+ const MAIN = 'main'
+ 
+ export const inMacWindow = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
+@@ -77,6 +91,10 @@ const notices: NoticeShell = {
+   }),
+ }
+ 
++const backdrop: BackdropShell = {
++  set: ({ opacity, color }) => invoke<void>('window_backdrop', { opacity, color }),
++}
++
+ /** The browser's commands go one after another, so a close always lands before the next open. */
+ let queue: Promise<unknown> = Promise.resolve()
+ function inTurn<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+@@ -105,8 +123,12 @@ let asked: Promise<Shell> | null = null
+ /** What this window's shell offers, asked once. A shell without the commands refuses the question, and offers nothing. */
+ export function shell(): Promise<Shell> {
+   asked ??= inMacWindow()
+-    ? invoke<{ notices?: boolean; browser?: boolean }>('shell_features').then(
+-        (has) => ({ notices: has.notices === true ? notices : null, browser: has.browser === true ? browser : null }),
++    ? invoke<{ notices?: boolean; browser?: boolean; backdrop?: boolean }>('shell_features').then(
++        (has) => ({
++          notices: has.notices === true ? notices : null,
++          browser: has.browser === true ? browser : null,
++          backdrop: has.backdrop === true ? backdrop : null,
++        }),
+         () => NONE,
+       )
+     : Promise.resolve(NONE)
+diff --git a/ui/src/main.tsx b/ui/src/main.tsx
+index b331aa6..766825e 100644
+--- a/ui/src/main.tsx
++++ b/ui/src/main.tsx
+@@ -8,10 +8,14 @@ import '@fontsource-variable/jetbrains-mono'
+ import './styles/globals.css'
+ import { App } from './app/App.tsx'
+ import { strictWhenAsked } from './app/strict.ts'
++import { startWindowBackdrop } from './app/window-backdrop.ts'
+ import { startLearningCodeHosts } from './features/review/code-hosts-start.ts'
++import { shell } from './lib/native.ts'
+ 
+ // The window learns the code hosts the home names, so their pull request pages open as reviews.
+ startLearningCodeHosts()
++// The Mac window is opaque while the page's own background is solid, and see-through below that (052, A20).
++startWindowBackdrop(shell)
+ 
+ // StrictMode only with VITE_STRICT=1: in the development build it draws every component twice.
+ createRoot(document.getElementById('root')!).render(strictWhenAsked(<App />))
+diff --git a/ui/test/window-backdrop.test.ts b/ui/test/window-backdrop.test.ts
+new file mode 100644
+index 0000000..af79610
+--- /dev/null
++++ b/ui/test/window-backdrop.test.ts
+@@ -0,0 +1,82 @@
++import assert from 'node:assert/strict'
++import { test } from 'node:test'
++import { backdropOf, followBackdrop, startWindowBackdrop } from '../src/app/window-backdrop.ts'
++
++/** A page whose background the test changes, and that counts what watches it. */
++function fakePage(background: string) {
++  let changed: (() => void) | null = null
++  const page = {
++    background,
++    watching: 0,
++    read: () => page.background,
++    watch(listener: () => void) {
++      page.watching += 1
++      changed = listener
++      return () => {
++        page.watching -= 1
++        changed = null
++      }
++    },
++    change(next: string) {
++      page.background = next
++      changed?.()
++    },
++  }
++  return page
++}
++
++test('the page background reads as how much of it shows and its color, in the forms WebKit gives', () => {
++  assert.deepEqual(backdropOf('rgb(14, 15, 19)'), { opacity: 1, color: [14, 15, 19] })
++  assert.deepEqual(backdropOf('rgba(240, 234, 214, 0.35)'), { opacity: 0.35, color: [240, 234, 214] })
++  assert.deepEqual(backdropOf('rgb(240 234 214 / 50%)'), { opacity: 0.5, color: [240, 234, 214] })
++  assert.deepEqual(backdropOf('color(srgb 0.0549 0.0588 0.0745)'), { opacity: 1, color: [14, 15, 19] })
++  assert.deepEqual(backdropOf('color(srgb 0.941 0.918 0.839 / 0.8)'), { opacity: 0.8, color: [240, 234, 214] })
++  assert.deepEqual(backdropOf('color(srgb 1.2 -0.01 1e-5)'), { opacity: 1, color: [255, 0, 0] })
++  assert.equal(backdropOf('oklab(0.2 0.01 0.02)'), null, 'a form it does not read tells the shell nothing')
++  assert.equal(backdropOf(''), null)
++})
++
++test('the shell hears the backdrop as the window starts, and again only when the page background changes', () => {
++  const page = fakePage('rgb(14, 15, 19)')
++  const told: unknown[] = []
++  const stop = followBackdrop(page, (backdrop) => told.push(backdrop))
++  assert.deepEqual(told, [{ opacity: 1, color: [14, 15, 19] }])
++
++  page.change('rgb(14, 15, 19)')
++  page.change('lab(20 1 2)')
++  assert.equal(told.length, 1, 'the same background, or one it cannot read, tells nothing')
++
++  page.change('color(srgb 0.0549 0.0588 0.0745 / 0.8)')
++  assert.deepEqual(told.at(-1), { opacity: 0.8, color: [14, 15, 19] })
++  page.change('rgb(14, 15, 19)')
++  assert.deepEqual(told.at(-1), { opacity: 1, color: [14, 15, 19] })
++  assert.equal(told.length, 3)
++
++  stop()
++  assert.equal(page.watching, 0)
++})
++
++test('a shell from before the command is never asked, and the page is not watched', async () => {
++  const page = fakePage('rgb(14, 15, 19)')
++  startWindowBackdrop(async () => ({ backdrop: null }), page)
++  await new Promise((resolve) => setTimeout(resolve, 0))
++  assert.equal(page.watching, 0)
++})
++
++test('a shell with the command hears the backdrop, and a refusal changes nothing in the window', async () => {
++  const page = fakePage('rgb(14, 15, 19)')
++  const told: unknown[] = []
++  const stop = startWindowBackdrop(async () => ({
++    backdrop: {
++      set: async (backdrop) => {
++        told.push(backdrop)
++        throw new Error('not the main window')
++      },
++    },
++  }), page)
++  await new Promise((resolve) => setTimeout(resolve, 0))
++  assert.deepEqual(told, [{ opacity: 1, color: [14, 15, 19] }])
++  assert.equal(page.watching, 1)
++  stop()
++  assert.equal(page.watching, 0)
++})
