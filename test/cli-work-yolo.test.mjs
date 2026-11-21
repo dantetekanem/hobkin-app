@@ -684,6 +684,11 @@ test('Work status carries what waits to merge on each project, at what rate and 
     deploy: 'It deployed and held for 30 minutes: Nothing new in errors. Nothing new in slow queries. p95 118 ms against 120 ms.',
     held: true,
   }]);
+  assert.equal(workStatus(h.root).yolo.waits, null);
+
+  // While work mode waits, nothing merges by itself, and the status says why.
+  writeMode(h.root, { pausedAt: new Date(NOW).toISOString() });
+  assert.equal(workStatus(h.root).yolo.waits, 'work mode is paused');
 });
 
 test('Reports lists each project\'s YOLO report as that project\'s work', async t => {

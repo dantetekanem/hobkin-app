@@ -163,6 +163,7 @@ function mergeFact(merge, readings) {
 /**
  * YOLO mode as Work status carries it: `yoloView`, and on each project what waits to merge there, as its report says it, with its kind, its rate
  * and why it asks the user, or null when it merges on the next pass, and what merged by itself, newest first, with what became of its deploy.
+ * `waits` says why nothing merges by itself anywhere while work mode is off or paused.
  */
 export function yoloStatus(root, now = Date.now()) {
   const view = yoloView(root);
@@ -174,7 +175,7 @@ export function yoloStatus(root, now = Date.now()) {
     changes: changes.filter(({ slug }) => slug === project.slug).map(changeFact),
     merged: ledger.filter(line => line.slug === project.slug && line.target).toReversed().map(merge => mergeFact(merge, readings)),
   }));
-  return { ...view, projects };
+  return { ...view, waits: whyWorkModeWaits(readMode(root), now), projects };
 }
 
 /**
