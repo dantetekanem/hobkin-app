@@ -221,6 +221,26 @@ test('a pull request gets one GitHub review through gh, exactly as it was shown,
   assert.equal((await reviews.preview(id, 'comment', '')).post!.body, agentMessage({ summary: 'Commented.', version: CLIENT_PRODUCER_VERSION }))
 })
 
+test('a stale window save keeps a posted comment out of later verdicts', async (t) => {
+  const id = 'pr:acme/shop/482'
+  const { reviews, notes, store, target } = seated(t, id)
+  const stale = note('n1', { text: 'Already posted.' })
+  notes([stale])
+  const preview = await reviews.preview(id, 'comment', '')
+  await reviews.verdict(id, 'comment', '', preview.confirm)
+
+  const fresh = note('n2', { text: 'New feedback.' })
+  notes([stale, fresh])
+
+  assert.deepEqual(store.notes(target).entries, [
+    { op: 'put', note: { ...stale, sent: 1000 } },
+    { op: 'put', note: fresh },
+  ])
+  const later = await reviews.preview(id, 'comment', '')
+  assert.doesNotMatch(later.post!.body, /Already posted/)
+  assert.match(later.post!.body, /New feedback/)
+})
+
 /** A pull request's review in the home, with a gh that answers as GitHub would and writes down every call. */
 function pullSeat(
   t: TestContext,
