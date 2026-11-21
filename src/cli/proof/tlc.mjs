@@ -7,16 +7,20 @@ export const defaultWorkers = (cores = availableParallelism()) => Math.max(1, Ma
 /** TLC's heap cap: a quarter of the memory, between 256 MB and 4 GB. */
 export const heapMegabytes = (total = totalmem()) => Math.max(256, Math.min(4096, Math.floor(total / 4 / 2 ** 20)));
 
-export const sanyArguments = ({ jar, spec }) => ['-cp', jar, 'tla2sany.SANY', spec];
+/** SANY and TLC also read the modules in `library`, such as TLAPS's standard library, when there is one. */
+const libraryFlag = library => (library ? [`-DTLA-Library=${library}`] : []);
+
+export const sanyArguments = ({ jar, spec, library }) => [...libraryFlag(library), '-cp', jar, 'tla2sany.SANY', spec];
 
 /**
  * TLC in tool mode, breadth first so a counterexample is the shortest one, with coverage every minute. Its state files go
  * in the run's folder, never next to the spec. `dot` adds the state graph dump. v1.7.4 has no `-dumpTrace`, so the trace
  * comes from the states TLC prints.
  */
-export const tlcArguments = ({ jar, spec, cfg, workers, heap, metadir, dot }) => [
+export const tlcArguments = ({ jar, spec, cfg, workers, heap, metadir, dot, library }) => [
   `-Xmx${heap}m`,
   '-XX:+UseParallelGC',
+  ...libraryFlag(library),
   '-cp', jar,
   'tlc2.TLC',
   '-tool',

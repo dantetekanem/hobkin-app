@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { existsSync, realpathSync } from 'node:fs';
+import { delimiter, dirname, join } from 'node:path';
 import { promisify } from 'node:util';
 
 /**
@@ -108,6 +108,21 @@ export async function findJava({ home, env = process.env, platform = process.pla
 export function findTlapm(home, { env = process.env } = {}) {
   const folders = [join(tlapsFolder(home), 'bin'), tlapsFolder(home), ...(env.PATH ?? '').split(delimiter).filter(Boolean)];
   return folders.map(folder => join(folder, 'tlapm')).find(path => existsSync(path)) ?? null;
+}
+
+/**
+ * TLAPS's standard library, with TLAPS.tla, beside the tlapm that runs: the tarball keeps it in `lib/tlapm/stdlib` next to
+ * `bin/tlapm`. SANY and TLC need it on their path to parse a spec that EXTENDS TLAPS. A tlapm on the PATH may be a link,
+ * so the library is looked for beside the file it points to. Null when there is none.
+ */
+export function tlapsLibrary(tlapm) {
+  if (!tlapm) return null;
+  try {
+    const stdlib = join(dirname(dirname(realpathSync(tlapm))), 'lib', 'tlapm', 'stdlib');
+    return existsSync(join(stdlib, 'TLAPS.tla')) ? stdlib : null;
+  } catch {
+    return null;
+  }
 }
 
 /** What setup reports and a check uses: Java with its version, the pinned jar and tlapm. */

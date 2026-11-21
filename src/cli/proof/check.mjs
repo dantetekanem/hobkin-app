@@ -11,7 +11,7 @@ import { modelLine, readCfg, readSpec } from './spec.mjs';
 import { proofFrom, readToolbox, tlapmArguments } from './tlaps.mjs';
 import { defaultWorkers, heapMegabytes, sanyArguments, tlcArguments, tlcOutcome } from './tlc.mjs';
 import { messageReader } from './tool-messages.mjs';
-import { inspectTools, jarPath, MINIMUM_JAVA, TLA2TOOLS } from './tools.mjs';
+import { inspectTools, jarPath, MINIMUM_JAVA, TLA2TOOLS, tlapsLibrary } from './tools.mjs';
 import { parseDot, parseState } from './values.mjs';
 
 /**
@@ -304,6 +304,8 @@ export async function runCheck({
 }) {
   const place = locate({ spec, cfg, root, cwd });
   const found = tools ?? await toolsOnMachine(home, env);
+  // A spec with a proof EXTENDS TLAPS, whose module only tlapm brings.
+  const library = tlapsLibrary(found.tlapm);
   const source = readFileSync(place.spec, 'utf8');
   const parts = readSpec(source);
   const cfgInfo = place.cfg ? readCfg(readFileSync(place.cfg, 'utf8')) : null;
@@ -379,7 +381,7 @@ export async function runCheck({
     step('parse', 'running', 'SANY');
     log('Parsing the spec with SANY', 'running');
     const started = Date.now();
-    const { ended, said } = await runAndRead(found.java, sanyArguments({ jar: found.jar, spec: place.spec }));
+    const { ended, said } = await runAndRead(found.java, sanyArguments({ jar: found.jar, spec: place.spec, library }));
     if (stopping) return false;
 
     const sany = readSany(said, ended.code);
@@ -451,6 +453,7 @@ export async function runCheck({
       workers: workerCount,
       heap,
       metadir: join(folder, 'states'),
+      library,
     });
     const ended = await runTool(found.java, args, { onStdout: chunk => reader.push(chunk) });
     reader.end();
@@ -500,6 +503,7 @@ export async function runCheck({
       heap,
       metadir: join(folder, 'states-graph'),
       dot,
+      library,
     });
     await runTool(found.java, args);
     if (stopping) return;

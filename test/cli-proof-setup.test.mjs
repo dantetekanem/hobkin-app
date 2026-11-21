@@ -3,11 +3,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setupProof } from '../src/cli/proof/setup.mjs';
-import { findJava, findTlapm, findTools, JAVA_RUNTIME, jarPath, ownJava, TLA2TOOLS, TLAPS, tlapsFolder } from '../src/cli/proof/tools.mjs';
+import { findJava, findTlapm, findTools, JAVA_RUNTIME, jarPath, ownJava, TLA2TOOLS, TLAPS, tlapsFolder, tlapsLibrary } from '../src/cli/proof/tools.mjs';
 
 function temp(t, prefix) {
   const folder = mkdtempSync(join(tmpdir(), prefix));
@@ -68,6 +68,24 @@ test('the tools are found where hobkin keeps them: the jar in tools/tla, tlapm i
   writeFileSync(join(home, 'tools', 'tlaps', 'bin', 'tlapm'), '');
   assert.deepEqual(await findTools(home, { env: { PATH: '' }, platform: 'linux', exec }),
     { java: 'java', tlc: join(home, 'tools', 'tla', 'tla2tools.jar'), tlaps: join(home, 'tools', 'tlaps', 'bin', 'tlapm') });
+});
+
+test('TLAPS\'s standard library is the one beside the tlapm found, through a link on the PATH too, and none when it is not there', t => {
+  const root = realpathSync(temp(t, 'hobkin-tlaps-root-'));
+  const tlapm = join(root, 'bin', 'tlapm');
+  mkdirSync(join(root, 'bin'));
+  writeFileSync(tlapm, '');
+  assert.equal(tlapsLibrary(tlapm), null, 'only once its TLAPS.tla is there');
+
+  const stdlib = join(root, 'lib', 'tlapm', 'stdlib');
+  mkdirSync(stdlib, { recursive: true });
+  writeFileSync(join(stdlib, 'TLAPS.tla'), '');
+  assert.equal(tlapsLibrary(tlapm), stdlib);
+
+  const onPath = temp(t, 'hobkin-tlaps-path-');
+  symlinkSync(tlapm, join(onPath, 'tlapm'));
+  assert.equal(tlapsLibrary(join(onPath, 'tlapm')), stdlib);
+  assert.equal(tlapsLibrary(null), null);
 });
 
 test('Java hobkin installed itself, in tools/java, is found before the PATH', async t => {

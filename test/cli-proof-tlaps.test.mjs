@@ -81,8 +81,35 @@ function provedSpec(t, plan) {
   writeFileSync(tool, `#!/bin/sh\nHOBKIN_STUB='${join(stubFolder, 'plan.json')}' exec '${process.execPath}' '${fixture('stub-tool.mjs')}' "$@"\n`);
   chmodSync(tool, 0o755);
   const calls = () => readFileSync(log, 'utf8').split('\n').filter(Boolean).map(line => JSON.parse(line));
-  return { home, spec: join(project, 'Proved.tla'), tools: { java: tool, jar: jarPath(home), tlapm: tool }, calls };
+  return { home, project, stubFolder, spec: join(project, 'Proved.tla'), tools: { java: tool, jar: jarPath(home), tlapm: tool }, calls };
 }
+
+/** The stub laid out as TLAPS's tarball is: `bin/tlapm`, with the standard library in `lib/tlapm/stdlib`. */
+function tlapsLayout(place) {
+  const root = join(place.stubFolder, 'tlaps');
+  mkdirSync(join(root, 'bin'), { recursive: true });
+  copyFileSync(place.tools.tlapm, join(root, 'bin', 'tlapm'));
+  chmodSync(join(root, 'bin', 'tlapm'), 0o755);
+  const stdlib = join(root, 'lib', 'tlapm', 'stdlib');
+  mkdirSync(stdlib, { recursive: true });
+  writeFileSync(join(stdlib, 'TLAPS.tla'), '---- MODULE TLAPS ----\n====\n');
+  return { tlapm: join(root, 'bin', 'tlapm'), stdlib: realpathSync(stdlib) };
+}
+
+test('a found tlapm puts its standard library on SANY\'s and TLC\'s path, so a spec that EXTENDS TLAPS parses and is checked', async t => {
+  const place = provedSpec(t, { tlc: { stdout: 'tlc-holds.out' }, tlapm: { stderr: 'tlapm-proved.err' } });
+  writeFileSync(join(place.project, 'Proved.cfg'), 'INIT Init\nNEXT Next\nINVARIANT TypeOK\n');
+  const tlaps = tlapsLayout(place);
+
+  await runCheck({ home: place.home, spec: place.spec, workers: 1, tools: { ...place.tools, tlapm: tlaps.tlapm } });
+
+  const library = `-DTLA-Library=${tlaps.stdlib}`;
+  const sany = place.calls().find(call => call.args.includes('tla2sany.SANY'));
+  assert.deepEqual(sany.args, [library, '-cp', place.tools.jar, 'tla2sany.SANY', place.spec]);
+  const tlc = place.calls().filter(call => call.args.includes('tlc2.TLC'));
+  assert.ok(tlc.length > 0, 'TLC ran');
+  for (const call of tlc) assert.deepEqual(call.args.slice(2, 4), [library, '-cp'], 'after the JVM flags, before the class path');
+});
 
 test('a spec with a proof and no cfg is proved by TLAPS, and the run says what the proof shows', async t => {
   const place = provedSpec(t, { tlapm: { stderr: 'tlapm-proved.err' } });
@@ -106,6 +133,8 @@ test('a spec with a proof and no cfg is proved by TLAPS, and the run says what t
 test('without tlapm the proof step is skipped and says why', async t => {
   const place = provedSpec(t, {});
   const run = await runCheck({ home: place.home, spec: place.spec, workers: 1, tools: { ...place.tools, tlapm: null } });
+  const sany = place.calls().find(call => call.args.includes('tla2sany.SANY'));
+  assert.deepEqual(sany.args, ['-cp', place.tools.jar, 'tla2sany.SANY', place.spec], 'SANY reads only its own modules');
   assert.equal(run.steps[2].state, 'skipped');
   assert.equal(run.steps[2].note, 'TLAPS is not installed, so the proof did not run');
   assert.equal(run.outcome, 'error');
