@@ -16,7 +16,7 @@ import { inOverlay, installFrameKeys } from './key-page.ts'
 import { travel } from './location.ts'
 import { walkScreens, type ScreenId } from './screens.ts'
 import { useView } from './view-store.ts'
-import { focusBoard, focusInput, focusTalk, messageInput, requestCanvasFocus } from './focus.ts'
+import { focusInput, messageInput, requestCanvasFocus } from './focus.ts'
 export { focusCanvas, focusInput } from './focus.ts'
 
 /**
@@ -216,12 +216,6 @@ function perform(action: KeyAction): boolean {
       return true
     case 'save-canvas':
       saveCanvas(action.owner)
-      return true
-    case 'focus-board':
-      return focusBoard(action.owner)
-    case 'focus-canvas-agent':
-      if (action.agent === 'talk') return focusTalk()
-      focusInput()
       return true
   }
 }

@@ -111,6 +111,7 @@ test('a key from a drawing reaches the app only from the set it passes on, and o
     { key: 'j', code: 'KeyJ', meta: true },
     { key: 'y', code: 'KeyY', meta: true },
     { key: 'Tab', code: 'Tab', ctrl: true },
+    { key: 'Tab', code: 'Tab', ctrl: true, shift: true },
   ]
   for (const press of passes) assert.ok(passedKey(message(press), true), JSON.stringify(press))
 

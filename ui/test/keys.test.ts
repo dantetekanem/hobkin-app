@@ -370,19 +370,20 @@ test('command s saves the drawing that has the keyboard, and nothing else', () =
   }
 })
 
-test('control tab moves the keyboard between a canvas on screen and its agent, and keeps its meaning without one', () => {
-  const press = { key: 'Tab', code: 'Tab', ctrl: true }
-  const place = { screen: 'canvas', canvasShowing: { owner: 'main', agent: 'input' } } as const
+test('control tab and control shift tab move right and left through the menu tabs, wrapping round', () => {
+  const right = { key: 'Tab', code: 'Tab', ctrl: true }
+  const left = { ...right, shift: true }
+  const opens = (screen: string) => ({ do: 'open-screen', screen, focusCanvas: true })
+  assert.deepEqual(resolveKey(right, context({ screen: 'reports' })), opens('routines'))
+  assert.deepEqual(resolveKey(left, context({ screen: 'reports' })), opens('home'))
+  assert.deepEqual(resolveKey(right, context({ screen: 'github' })), opens('home'), 'past the last tab, the first')
+  assert.deepEqual(resolveKey(left, context({ screen: 'home' })), opens('github'), 'before the first tab, the last')
+  assert.deepEqual(resolveKey(right, context({ screen: 'yolo' })), opens('github'), "a page of Work's own counts as Work")
+  assert.deepEqual(resolveKey(right, context({ screen: 'agent' })), opens('home'), 'from a page with no tab, the first')
+  assert.deepEqual(resolveKey(left, context({ screen: 'agent' })), opens('github'), 'and the last going left')
   for (const zone of ['input', 'agents', 'other', 'canvas'] as const) {
-    assert.deepEqual(resolveKey(press, context({ ...place, zone })), { do: 'focus-board', owner: 'main' }, `into the canvas from ${zone}`)
+    assert.deepEqual(resolveKey(right, context({ screen: 'work', zone, typing: zone === 'input' })), opens('github'), `from ${zone}`)
   }
-  assert.deepEqual(resolveKey(press, context({ ...place, zone: 'canvas', board: MAIN_BOARD })), { do: 'focus-canvas-agent', agent: 'input' }, 'back to the message input')
-  assert.deepEqual(resolveKey(press, context({ ...SPLIT, zone: 'canvas', typing: true })), { do: 'focus-board', owner: '0123abcd' }, 'from the talk box')
-  assert.deepEqual(resolveKey(press, context({ ...SPLIT, zone: 'canvas', board: { owner: '0123abcd', kind: 'page' } })), { do: 'focus-canvas-agent', agent: 'talk' })
-
-  assert.equal(resolveKey(press, context({ zone: 'canvas', screen: 'work' })), null, 'no canvas on screen')
-  assert.equal(resolveKey(press, context({ ...place, zone: 'other', inOverlay: true })), null, 'a dialog keeps it')
-  for (const other of [{ shift: true }, { alt: true }, { meta: true }, { ctrl: false }]) {
-    assert.equal(resolveKey({ ...press, ...other }, context({ ...place, zone: 'input' })), null, JSON.stringify(other))
-  }
+  assert.equal(resolveKey(right, context({ zone: 'other', inOverlay: true })), null, 'a dialog keeps it')
+  for (const other of [{ alt: true }, { meta: true }, { ctrl: false }]) assert.equal(resolveKey({ ...right, ...other }, context()), null, JSON.stringify(other))
 })

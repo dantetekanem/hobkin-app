@@ -77,13 +77,25 @@ export type KeyAction =
   | { do: 'go-forward' }
   | { do: 'close-canvas'; owner: string }
   | { do: 'save-canvas'; owner: string }
-  | { do: 'focus-board'; owner: string }
-  | { do: 'focus-canvas-agent'; agent: 'input' | 'talk' }
+
+/** Work's own pages sit under its tab, so moving along the tabs from one starts at Work. */
+const UNDER_WORK: readonly ScreenId[] = ['world', 'yolo', 'proof']
+
+/**
+ * The tab beside the screen showing, in the order Command with a number walks: `step` 1 is right, -1 left, wrapping
+ * round. From a page with no tab, such as an agent's, right is the first tab and left the last.
+ */
+function besideTab(tabs: readonly ScreenId[], screen: ScreenId, step: 1 | -1): ScreenId | null {
+  if (!tabs.length) return null
+  const at = tabs.indexOf(UNDER_WORK.includes(screen) ? 'work' : screen)
+  if (at === -1) return step === 1 ? tabs[0]! : tabs.at(-1)!
+  return tabs[(at + step + tabs.length) % tabs.length]!
+}
 
 /**
  * What the frame does for a key, or null when the key is not the frame's. Tab is never the frame's: it moves the
- * keyboard between controls as it does anywhere, and Command with a number changes the screen. Control+Tab is the
- * frame's only while a canvas is on screen.
+ * keyboard between controls as it does anywhere, and Command with a number changes the screen. Control+Tab moves
+ * along the menu's tabs.
  */
 export function resolveKey(press: KeyPress, context: KeyContext): KeyAction | null {
   // Command+R reloads the window, as it does in a browser, and the app reopens where it was (location.ts). A screen's own
@@ -134,11 +146,10 @@ export function resolveKey(press: KeyPress, context: KeyContext): KeyAction | nu
   }
   if (context.inOverlay) return null
 
-  // Control+Tab moves the keyboard between the canvas on screen and its agent. With no canvas showing it keeps its meaning.
-  if (press.ctrl && !press.meta && !press.alt && !press.shift && press.key === 'Tab') {
-    const showing = context.canvasShowing
-    if (!showing) return null
-    return context.board ? { do: 'focus-canvas-agent', agent: showing.agent } : { do: 'focus-board', owner: showing.owner }
+  // Control+Tab and Control+Shift+Tab move right and left through the menu's tabs, as in a browser, from anywhere.
+  if (press.ctrl && !press.meta && !press.alt && press.key === 'Tab') {
+    const screen = besideTab(context.screens, context.screen, press.shift ? -1 : 1)
+    return screen ? { do: 'open-screen', screen, focusCanvas: true } : null
   }
 
   if (press.meta) {

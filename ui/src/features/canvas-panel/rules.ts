@@ -144,8 +144,8 @@ export interface FrameKey {
   shift: boolean
 }
 
-/** The keys a drawing passes on: Escape, Command with S, 1 to 9, K, L, Return, comma, J or Y, and Control+Tab. */
-const PASSED: readonly { key: string; code: string; meta?: true; ctrl?: true }[] = [
+/** The keys a drawing passes on: Escape, Command with S, 1 to 9, K, L, Return, comma, J or Y, and Control+Tab with or without Shift. */
+const PASSED: readonly { key: string; code: string; meta?: true; ctrl?: true; shift?: true }[] = [
   { key: 'Escape', code: 'Escape' },
   { key: 's', code: 'KeyS', meta: true },
   ...'123456789'.split('').map((digit) => ({ key: digit, code: `Digit${digit}`, meta: true as const })),
@@ -156,6 +156,7 @@ const PASSED: readonly { key: string; code: string; meta?: true; ctrl?: true }[]
   { key: 'j', code: 'KeyJ', meta: true },
   { key: 'y', code: 'KeyY', meta: true },
   { key: 'Tab', code: 'Tab', ctrl: true },
+  { key: 'Tab', code: 'Tab', ctrl: true, shift: true },
 ]
 
 /**
@@ -165,9 +166,11 @@ const PASSED: readonly { key: string; code: string; meta?: true; ctrl?: true }[]
  * Control+X with the frame's keys that go by where a key sits.
  */
 export function passedKey(press: FrameKey, frameHasKeyboard: boolean): KeyboardEventInit | null {
-  if (!frameHasKeyboard || press.alt || press.shift) return null
+  if (!frameHasKeyboard || press.alt) return null
   const key = press.key.length === 1 ? press.key.toLowerCase() : press.key
-  const entry = PASSED.find((passed) => passed.key === key && Boolean(passed.meta) === press.meta && Boolean(passed.ctrl) === press.ctrl)
+  const entry = PASSED.find(
+    (passed) => passed.key === key && Boolean(passed.meta) === press.meta && Boolean(passed.ctrl) === press.ctrl && Boolean(passed.shift) === press.shift,
+  )
   if (!entry) return null
   return {
     key: entry.key,
@@ -175,7 +178,7 @@ export function passedKey(press: FrameKey, frameHasKeyboard: boolean): KeyboardE
     metaKey: Boolean(entry.meta),
     ctrlKey: Boolean(entry.ctrl),
     altKey: false,
-    shiftKey: false,
+    shiftKey: Boolean(entry.shift),
     bubbles: true,
     cancelable: true,
   }

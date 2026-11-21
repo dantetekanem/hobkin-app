@@ -39,12 +39,11 @@ test('each frame key in the list resolves in the key map', () => {
 
 test('the canvas keys are listed for the canvas, and each does something there', () => {
   const inCanvas: KeyContext = { ...context, zone: 'canvas', screen: 'canvas', board: { owner: 'main', kind: 'drawing' }, canvasShowing: { owner: 'main', agent: 'input' } }
-  for (const keys of ['esc', '⌘S', '⌃⇥']) {
+  for (const keys of ['esc', '⌘S']) {
     assert.ok(KEY_LIST.some((entry) => entry.keys === keys && !entry.basic && entry.where.includes('canvas')), `${keys} is listed for the canvas`)
   }
   assert.ok(resolveEscape(inCanvas, false), 'esc does something in the canvas')
   assert.ok(resolveKey({ key: 's', code: 'KeyS', meta: true }, inCanvas), '⌘S does something on a drawing')
-  assert.ok(resolveKey({ key: 'Tab', code: 'Tab', ctrl: true }, inCanvas), '⌃⇥ does something while a canvas shows')
 })
 
 test('the hints are in the list and the walkthrough names every key', () => {

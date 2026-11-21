@@ -32,9 +32,9 @@ The canvas becomes a real drawing surface and whiteboard, as big as the right si
 ### Keys
 - Escape closes the canvas when the keyboard is in it: its area, its drawing or its controls in the menu. The main canvas goes back to where it was opened, with the keyboard in the message input; a durable hobkin's split undoes, with the keyboard in its talk box. Escape anywhere else leaves the canvas alone.
 - Command+S saves the drawing when the keyboard is in the canvas.
-- Control+Tab moves the keyboard between the canvas and its agent: the message input for the main canvas, the talk box in a durable hobkin's split.
+- Control+Tab and Control+Shift+Tab move right and left through the menu's tabs from the canvas too, as they do everywhere; a click moves the keyboard between the canvas and its agent.
 - The main canvas is a numbered place while it is open, as Settings and a review are.
-- While a drawing has the keyboard, a key it did not use reaches the app only from this set: Escape, Command+S, Command+1 to 9, Command+K, Command+L, Command+Return, Command+comma, Command+J, Command+Y and Control+Tab. Nothing that ends, stops, sends or reloads (Control+X, Command+R, Command+N) is ever passed on.
+- While a drawing has the keyboard, a key it did not use reaches the app only from this set: Escape, Command+S, Command+1 to 9, Command+K, Command+L, Command+Return, Command+comma, Command+J, Command+Y, Control+Tab and Control+Shift+Tab. Nothing that ends, stops, sends or reloads (Control+X, Command+R, Command+N) is ever passed on.
 - Escape in a web page in the canvas comes from the shell, which sees the key while the page has the keyboard and tells the window, without taking it from the page.
 
 ### Live drawings
@@ -69,7 +69,7 @@ The canvas becomes a real drawing surface and whiteboard, as big as the right si
 - A4. Closing returns to the place it was opened over, Settings or an agent's page included; Command+R on the canvas comes back to it while it is open.
 - A5. On a durable hobkin's page with its canvas open, the right side grows by the chat's width and the divider, the page takes the chat's width and the canvas the right side's usual width; the menu's offset is the growth.
 - A6. Escape closes the canvas only when the keyboard is in it; in the message input or elsewhere it leaves the canvas.
-- A7. Command+S saves a drawing from the canvas; Control+Tab moves between the canvas and its agent.
+- A7. Command+S saves a drawing from the canvas.
 - A8. A key from a drawing reaches the app only from the set above, only from the window's own frame and only while that frame has the keyboard.
 - A9. A drawing is served with the runtime and the kit after its doctype, with `Access-Control-Allow-Origin: *`, the sandbox and no caching; without the runtime's files it is served as before.
 - A10. A revision of a drawing without scripts changes it in place; one with scripts, one that cannot be fetched or read, or any before `ready`, loads fresh behind the one on screen.
