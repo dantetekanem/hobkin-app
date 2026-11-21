@@ -137,6 +137,13 @@ export interface Session {
    * with the whole graph and nothing in focus. The code closes. The choice is remembered for the next review.
    */
   setMode(mode: ReviewMode): void
+  /**
+   * Takes in a newer copy of the same review, at the same commit, such as one whose change review rewrote its story:
+   * the graph, its levels and the story follow it in place. The reviewer stays on the step, the node or the whole graph
+   * they were on, and what they have open stays open, while the review still has it; a step it no longer has puts them
+   * on its first. The camera frames where they are again, and nothing draws in again.
+   */
+  adopt(review: Review): void
 }
 
 /** The node whose code a focus opens: the first that points at lines. */
@@ -169,7 +176,9 @@ function shapeOf(view: ReviewView): Pick<Session, 'nodeOf' | 'edgeOf' | 'pins'> 
 /** Where a node is drawn: a folded test on its card, any other node as itself. */
 export const drawnAs = (view: Pick<ReviewView, 'groupOf'>, nodeId: string): string => view.groupOf[nodeId] ?? nodeId
 
-export function createSession(review: Review, memory: StoreApi<MemoryState>): SessionStore {
+export function createSession(opened: Review, memory: StoreApi<MemoryState>): SessionStore {
+  /** The review on screen: the one opened, then each newer copy of it taken in (`adopt`). */
+  let review = opened
   const viewNow = () => applyMemory(review, memory.getState().of(review))
   const firstView = viewNow()
   // A review opens in the mode chosen last, at that mode's start.
@@ -469,6 +478,48 @@ export function createSession(review: Review, memory: StoreApi<MemoryState>): Se
         set({ mode, code: null, selection: null, finder: false })
         // Its start, as a fresh one: nothing to go back to from before it.
         apply(modeStart(graph(), get().story, mode), mode === 'roam' ? 'whole' : 'jump', undefined, NO_HISTORY)
+      },
+      adopt: (next) => {
+        if (next === review) return
+        const before = get()
+        const was = before.view.story[before.story.step]?.id
+        review = next
+        const view = viewNow()
+        const now = { ...review, ...view }
+        // What the reviewer saw and what drew in, of what the review still has.
+        const steps = new Set(now.story.map((step) => step.id))
+        const known = new Set([...now.nodes.map((node) => node.id), ...now.edges.map((edge) => edge.id)])
+        const kept: StoryState = { ...before.story, seen: before.story.seen.filter((id) => steps.has(id)), revealed: before.story.revealed.filter((id) => known.has(id)) }
+        const index = was == null ? undefined : view.stepOf[was]
+        let story = goToStep(now, kept, index ?? 0).state
+        if (index != null && before.story.detour != null) story = focusNode(now, story, before.story.detour, { alone: before.mode === 'roam' }).state
+        else if (index != null && before.story.group) story = focusGroup(now, story, before.story.group).state
+        else if (index != null && before.story.whole) story = leaveFocus(now, story)
+        // Free Roam has no step to stand on: without its node, it has the whole graph, as it starts.
+        if (before.mode === 'roam' && story.detour == null && story.group == null) story = leaveFocus(now, story)
+
+        const shaped = derive(view, story)
+        const has = (id: string | null): id is string => id != null && shaped.nodeOf.has(id)
+        const code = has(before.code) ? before.code : null
+        const hovered = has(before.hovered) ? before.hovered : null
+        const shown = before.notesShown
+        const sameSteps = before.view.story.length === view.story.length && before.view.story.every((step, at) => step.id === view.story[at]!.id)
+        if (code == null) beforeCode = null
+        set({
+          review,
+          ...shaped,
+          move: { key: before.move.key + 1, fresh: { nodes: [], wires: [] }, travel: null, kind: story.whole ? 'whole' : story.detour != null ? 'detour' : 'jump' },
+          // The places to go back to are steps by their place in the story, so they go with a story that changed.
+          history: sameSteps ? before.history : NO_HISTORY,
+          wire: before.wire != null && shaped.edgeOf.has(before.wire) ? before.wire : null,
+          hovered,
+          hover: hoverLevels(view, hovered),
+          pointed: has(before.pointed) ? before.pointed : null,
+          code,
+          selection: code == null ? null : before.selection,
+          notesShown: shown && (shown.kind === 'node' ? has(shown.node) : view.stepOf[shown.step] != null) ? shown : null,
+          opened: before.opened != null && view.groups[before.opened] ? before.opened : null,
+        })
       },
     }
   })

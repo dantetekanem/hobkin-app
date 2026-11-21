@@ -121,8 +121,11 @@ export function ReviewScreen() {
   const verdict = useMemo<VerdictCommands | null>(() => (live ? commandsOnHost(home) : sampleLanding(reviewId ?? 'sample', live, sampleSource)), [home, live, reviewId])
   const ask = useMemo<AskCommand | null>(() => (live ? commandsOnHost(home) : null), [home, live])
 
+  // One stage for each review, at its commit: another review, or the same one prepared again at a new commit, starts
+  // again, with its entrance when it has not been opened before. A newer copy of the one on screen, as when its change
+  // review lands or it is built again at the same commit, is taken in where it is (`adopt`).
   return <ReviewLoad loader={loader} renderReview={(review) => (
-    <ReactFlowProvider key={`${memoryKey(review)}:${loader.getState().preparation?.preparedAt ?? ''}:${loader.getState().assessment?.head ?? ''}@${loader.getState().assessment?.summary.at ?? ''}${CODE}`}>
+    <ReactFlowProvider key={`${memoryKey(review)}${CODE}`}>
       <Stage review={review} source={loader.source} loader={loader} live={live} close={closeReview} verdict={verdict} ask={ask} />
     </ReactFlowProvider>
   )} renderWaiting={(status, reason) => status === 'preparing' || status === 'awaiting'
@@ -204,6 +207,8 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
   const treatment = useDev((dev) => dev.treatment)
   const [session] = useState(() => createSession(review, reviewMemory))
   useEffect(() => session.connect(), [session])
+  // A newer copy of this review, as when its change review lands, is taken in where the reviewer is.
+  useLayoutEffect(() => session.getState().adopt(review), [review, session])
   // hobkin moves the reviewer's view through the host, to a step or a node. A place it pointed to before the review was
   // opened is shown too: a review opened from Work, Home, a report or the chat lands where hobkin said. Each place once.
   const cursor = preparation?.cursor
@@ -268,8 +273,8 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
     element.classList.add('rv-cut')
   }, [moveKey, reduced])
 
-  // The screen is drawn anew when the review becomes ready and when its AI review lands. Whatever held the keyboard
-  // left with the old one, so the review takes it when it is nowhere, now and once more next frame, never from typing.
+  // When the review becomes ready, and when its AI review lands and what held the keyboard may have gone with the old
+  // story, the review takes the keyboard when it is nowhere, now and once more next frame, never from typing.
   useEffect(() => {
     const element = root.current
     if (!element) return
