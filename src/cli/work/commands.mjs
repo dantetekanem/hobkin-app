@@ -68,7 +68,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   priority <project> <P0..P3>          how often it runs, and its queue place
   prs <project> <off|draft|published>  local PR, draft PR or published PR
   auto, reviews, ship [on|off]         pick alone; review; ship before new work
-  agents <1-${MAX_AGENTS}>                         how many agents work at once
+  agents <1-${MAX_AGENTS}>                       how many agents work at once
   tokens <number>, allow [number|no]   the daily limit; or a yes for today
   reset                                forget what it found; it must be off
 Used by agents inside a run:

@@ -962,6 +962,22 @@ test('only as many agents run as the mode allows, and scheduled checks take thei
   assert.match(plan(root, { checks: 2 }).waitingOn, /Scheduled checks/);
 });
 
+test('a hundred agents can run at once: the 100th is admitted and the 101st waits for a free worker', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  fileItem(root, 'api', item('fix'), now);
+  setAgents(root, 100, now - HOUR);
+  writeMode(root, { dailyTokens: 10000000000 });
+  const running = n => Array.from({ length: n }, (_run, index) => ({ slug: `other-${index}`, lane: 'look' }));
+
+  const hundredth = plan(root, { running: running(99), lastStartAt: now - 30000 });
+  assert.equal(hundredth.agents, 100);
+  assert.equal(hundredth.next.title, 'fix');
+  const full = plan(root, { running: running(100), lastStartAt: now - 30000 });
+  assert.equal(full.free, 0);
+  assert.equal(full.next, null);
+});
+
 test('with a free worker and room in the budget the second start comes 30 seconds after the first, not five minutes', t => {
   const root = dataRoot(t);
   project(root, 'api');

@@ -35,14 +35,17 @@ test('work mode starts off, and a change survives a reread', t => {
   assert.equal(readMode(root).enabled, true);
 });
 
-test('few agents run by default, and eight is the ceiling whatever is asked for', t => {
+test('few agents run by default, and a hundred is the ceiling whatever is asked for', t => {
   const root = dataRoot(t);
   assert.equal(readMode(root).agents, 2);
 
-  assert.equal(setAgents(root, 8).agents, 8);
+  assert.equal(setAgents(root, 100).agents, 100);
 
+  assert.equal(readMode(root).agents, 100);
+  for (const wrong of [0, 101, 2.5, Number('lots')]) assert.throws(() => setAgents(root, wrong), /between 1 and 100/);
+  // The old ceiling saved before stays the user's number.
+  writeMode(root, { agents: 8 });
   assert.equal(readMode(root).agents, 8);
-  for (const wrong of [0, 9, 2.5, Number('lots')]) assert.throws(() => setAgents(root, wrong), /between 1 and 8/);
 });
 
 test('a pool saved by an older version never comes back, because the machine chose it and the user did not', t => {

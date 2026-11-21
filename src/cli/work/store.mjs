@@ -33,7 +33,7 @@ export const doableKinds = ['attention', 'pr-fix', 'security', 'fix', 'update', 
 // `yours` is a step only a person can take, so it is filed like work and no agent ever takes it.
 const itemKinds = [...doableKinds, 'yours'];
 // The most agents work mode will ever run, whatever is asked for. The default sits well below it, and the reason is in docs/guide.md.
-export const MAX_AGENTS = 8;
+export const MAX_AGENTS = 100;
 
 const closedForGood = ['declined', 'dropped'];
 const MAX_NAME_LENGTH = 60;

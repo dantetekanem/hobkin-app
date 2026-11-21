@@ -98,7 +98,7 @@ test('the number of agents and auto-pick change from the command line, and no ke
 
   const mode = readMode(root);
   assert.deepEqual([mode.agents, mode.autoPick], [3, false]);
-  await refused(root, ['agents', '9'], /between 1 and 8/);
+  await refused(root, ['agents', '101'], /between 1 and 100/);
   assert.deepEqual((await work(root, ['auto'])).result, { autoPick: false });
 });
 
