@@ -794,12 +794,16 @@ export async function fixRisk(root, reference, id, { head, findings } = {}, now 
   assertNotRunning(root, project, item);
   if (!isFinished(item) || !item.branch) throw Error(`"${item.title}" is ${item.state}, so there is no finished branch to fix.`);
   if (movesFinishedWork(item)) throw Error(`An agent is already going back to "${item.title}".`);
+
   const held = whyProjectWaits(root, project, now);
   if (held) throw Error(`Nothing starts while ${held}, so no agent goes back to "${item.title}" yet.`);
-  const tip = await gitOrNothing(project.path ?? paths(root, project.slug).clone, 'rev-parse', '--verify', '--quiet', `refs/heads/${item.branch}`);
-  if (!head || tip !== head) throw Error(`"${item.title}" moved since the review of ${String(head ?? '').slice(0, 7) || 'its commit'}, so a newer review speaks for it.`);
 
-  updateItem(root, project.slug, item.id, { workNote: `${RISK_NOTE} at ${head.slice(0, 7)}. ${RISK_ASK}\n\n${String(findings ?? '').trim()}` }, now);
+  const repo = project.path ?? paths(root, project.slug).clone;
+  const tip = head ? await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${item.branch}`) : '';
+  if (!head || tip !== head) throw Error(`"${item.title}" moved since the review of ${head?.slice(0, 7) || 'its commit'}, so a newer review speaks for it.`);
+
+  const note = `${RISK_NOTE} at ${head.slice(0, 7)}. ${RISK_ASK}\n\n${String(findings ?? '').trim()}`;
+  updateItem(root, project.slug, item.id, { workNote: note }, now);
   retryItem(root, project.slug, item.id, now);
   return reply(`An agent goes back to "${item.title}" on ${nameOf(project)} next, to make it safe to deploy.`);
 }
@@ -814,10 +818,12 @@ export function riskStays(root, reference, id, { head, rounds, why, findings } =
   const named = `"${item.title}" on ${nameOf(project)}`;
   const after = why === 'unchanged' ? 'its agent went back to it and left it as it was.' : `after ${rounds} round${rounds === 1 ? '' : 's'} of fixes.`;
   const remains = String(findings ?? '').trim();
+  const remainsShown = remains.length > LONGEST_REMAINS ? `${remains.slice(0, LONGEST_REMAINS - 1).trimEnd()}…` : remains;
   const detail = [
     `hobkin's AI review still finds ${named} risky to deploy at ${String(head ?? '').slice(0, 7)}, ${after}`,
-    remains && `What remains: ${remains.length > LONGEST_REMAINS ? `${remains.slice(0, LONGEST_REMAINS - 1).trimEnd()}…` : remains}`,
+    remainsShown && `What remains: ${remainsShown}`,
   ].filter(Boolean).join(' ');
+
   const { id: action } = fileActionItem(root, {
     title: `Still risky to deploy: ${item.title}`,
     detail,
