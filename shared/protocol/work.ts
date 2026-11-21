@@ -325,6 +325,8 @@ export interface WorkState {
   agents: number
   /** The user's own number of agents that may run at once (`hobkin work agents`), and the most hobkin allows. */
   agentsAllowed: number
+  /** Why work mode runs fewer than the user's own number now, in hobkin's words. Null or missing while it runs their number. */
+  agentsHeld?: string | null
   maxAgents: number
   /** The fresh tokens work mode may spend today, and what it has spent. Null, or missing, from a host that does not report them. */
   dailyTokens?: number | null

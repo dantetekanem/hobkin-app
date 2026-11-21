@@ -134,6 +134,8 @@ interface WorkStatus {
   autoPick?: boolean
   agents?: number
   agentsAllowed?: number
+  /** Whether hobkin has read the subscription's usage. Until it has, work mode runs one agent at a time. */
+  subscription?: { known?: boolean } | null
   /** The day's limit, and what has been spent of it so far, in fresh tokens. */
   dailyTokens?: number
   tokensToday?: number
@@ -150,6 +152,13 @@ interface WorkStatus {
 const gradeOf = (value: unknown): Grade | null => (GRADES.includes(value as Grade) ? (value as Grade) : null)
 const count = (amount: number, noun: string) => `${amount} ${noun}${amount === 1 ? '' : 's'}`
 const sentence = (words: string) => `${words.charAt(0).toUpperCase()}${words.slice(1)}${/[.!?]$/.test(words) ? '' : '.'}`
+
+/** Why work mode runs fewer agents than the user chose, as hobkin's terminal says it (`subscriptionLine` in its `src/cli/ui.mjs`). */
+function agentsHeldBy({ agents = 0, agentsAllowed = agents, subscription }: WorkStatus): string | null {
+  if (agents >= agentsAllowed) return null
+  if (subscription?.known === false) return 'Subscription: not known yet, so one agent runs at a time.'
+  return `Work mode runs ${count(agents, 'agent')} at a time for now.`
+}
 
 /*
  * What an approval card says and offers, in hobkin's terminal words: `reviewLine`, `mergeLine`, `mergeWords` and
@@ -380,6 +389,7 @@ export function workFrom(snapshot: HobkinSnapshot): WorkState | null {
     forecast: work.forecast?.line ?? null,
     agents: work.agents ?? 0,
     agentsAllowed: work.agentsAllowed ?? work.agents ?? 0,
+    agentsHeld: agentsHeldBy(work),
     maxAgents: MAX_AGENTS,
     dailyTokens: typeof work.dailyTokens === 'number' ? work.dailyTokens : null,
     tokensToday: typeof work.tokensToday === 'number' ? work.tokensToday : null,

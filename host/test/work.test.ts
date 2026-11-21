@@ -346,6 +346,14 @@ test('agents at once round trip', async (t) => {
   assert.equal(await reported(), 4)
 })
 
+test("when work mode runs fewer agents than the user chose, the window gets hobkin's reason, and none otherwise", () => {
+  const held = workFrom({ work: status({ agents: 1, agentsAllowed: 8, subscription: { known: false, windows: [] } }), waiting: null })!
+  assert.equal(held.agentsHeld, 'Subscription: not known yet, so one agent runs at a time.')
+  const free = workFrom({ work: status({ agents: 8, agentsAllowed: 8, subscription: { known: true, windows: [] } }), waiting: null })!
+  assert.equal(free.agentsHeld, null)
+  assert.equal(workFrom({ work: status(), waiting: null })!.agentsHeld, null, 'a hobkin that sends no reading holds nothing back')
+})
+
 test("the daily budget is hobkin's own, and a change of it is saved where work mode reads it", async (t) => {
   const root = temporaryDirectory(t)
   const { app, calls } = fakeHobkin()
