@@ -15,6 +15,7 @@ import {
 } from './nerd-stats-data.ts'
 import { useNerdStats } from './nerd-stats-store.ts'
 import { useSettings } from './store.ts'
+import { graphicsCard, useStyleSheetsAdded } from './window-readings.ts'
 
 /** Frames drawn in the last second, the slowest one, and the refresh rate the gaps between frames suggest. Measured only while this is on screen. */
 function useFrames(): { fps: number; slowest: number; hz: number | null } {
@@ -60,17 +61,6 @@ function useEverySecond(): number {
 
 const openedAt = Date.now()
 const inMacWindow = '__TAURI_INTERNALS__' in window
-
-/** The graphics card the window draws with, as the browser names it. */
-function graphicsCard(): string {
-  try {
-    const gl = document.createElement('canvas').getContext('webgl')
-    const info = gl?.getExtension('WEBGL_debug_renderer_info')
-    return info && gl ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '—'
-  } catch {
-    return '—'
-  }
-}
 
 const media = (query: string): boolean => matchMedia(query).matches
 
@@ -149,7 +139,8 @@ function StatsContent() {
   const facts = useHostReading(readFacts, null)
   const backups = useHostReading(readBackups, 15_000)
   const tiers = useHostReading(readTiers, null)
-  const card = useMemo(graphicsCard, [])
+  const card = useMemo(() => graphicsCard(), [])
+  const sheetsAdded = useStyleSheetsAdded()
   const tokens = tokenTotals(snapshot.telemetry)
   const saved = backups ? backupSummary(backups.backups) : null
   const runs = snapshot.runs ?? []
@@ -226,6 +217,7 @@ function StatsContent() {
         ['Viewport', `${innerWidth} × ${innerHeight}`],
         ['Screen', `${screen.width} × ${screen.height}`, `${devicePixelRatio}x · ${screen.colorDepth}-bit`],
         ['Graphics', card],
+        ['Style sheets added', String(sheetsAdded), 'since this opened'],
         ['Engine', engineOf(navigator.userAgent)],
         ['Script heap', maybe(heap, (h) => `${Math.round(h.usedJSHeapSize / 1_048_576)} MB`)],
         ['Open for', formatDuration((now - openedAt) / 1000)],
