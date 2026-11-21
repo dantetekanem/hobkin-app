@@ -149,6 +149,9 @@ const aboutDecision = ({ tldr, question, choices }) => ({ title: tldr, body: [qu
 export class HobkinApplication {
   jobActivity = new Map();
   activeJobIds = new Set();
+  // Which tick read each Work status, in order, so a rebuild never shows Work older than one already published (`keepNewerWork`).
+  workReads = new WeakMap();
+  workReadCount = 0;
   outgoing = Promise.resolve();
   sending = 0;
   // Holds this process has nothing more to do for: one try each, and the next start picks up a turn that was cut off.
@@ -423,7 +426,7 @@ export class HobkinApplication {
   refresh(work = null) {
     if (!this.refreshing) {
       this.refreshDirty = false;
-      this.refreshing = this.project(work).finally(() => {
+      this.refreshing = this.project(work).then(snapshot => this.keepNewerWork(work) ?? snapshot).finally(() => {
         this.refreshing = null;
         if (this.refreshDirty) this.requestRefresh(false, this.workAsRead);
       });
@@ -941,6 +944,7 @@ export class HobkinApplication {
     };
     // How much of a usage window's time has gone moves on every tick, so it counts in whole percent, as Work's words say it.
     const inWholePercent = (key, value) => (key === 'elapsedPercent' && typeof value === 'number' ? Math.round(value) : value);
+    this.workReads.set(watched.work, ++this.workReadCount);
     const signature = JSON.stringify(watched, inWholePercent);
     if (signature === this.workSignature) return;
     // A running agent's token counts move with every message it writes. When nothing else moved, the counts go out the light way.
@@ -955,8 +959,22 @@ export class HobkinApplication {
   /** Work as a tick just read it, published as activity is: the rest of the view stays as the last rebuild made it. */
   publishWork(status) {
     if (this.closing) return;
-    this.snapshot = { ...this.snapshot, work: this.workView(status) };
+    const work = this.workView(status);
+    this.lightWork = { read: this.workReads.get(status) ?? 0, work };
+    this.snapshot = { ...this.snapshot, work };
     this.onChange?.(this.snapshot);
+  }
+
+  /**
+   * A rebuild shows the Work a tick read before it began, and a light publish made while it ran is newer: that one is shown again, so
+   * the window never goes back to older counts. A rebuild that read Work itself read it last, after its own waits, and keeps it.
+   */
+  keepNewerWork(asked) {
+    const light = this.lightWork;
+    if (!asked || this.closing || !light || light.read <= (this.workReads.get(asked) ?? 0)) return null;
+    this.snapshot = { ...this.snapshot, work: light.work };
+    this.onChange?.(this.snapshot);
+    return this.snapshot;
   }
 
   /**

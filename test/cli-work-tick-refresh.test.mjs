@@ -122,3 +122,29 @@ test('a file the plan read that changes before the status is read makes the stat
   assert.ok(app.shownWork.plan.some(row => row.title === 'Filed meanwhile'));
   await h.settled();
 });
+
+test('a rebuild under way never puts back Work older than a light publish made meanwhile', async t => {
+  const h = fixture(t);
+  const { setTimeout: wait } = await import('node:timers/promises');
+  delete h.app.requestRefresh;
+  h.app.runner = {};
+  // The real rebuild awaits evidence, the run index, the document and the runner before it shows the Work it was asked with.
+  const gate = Promise.withResolvers();
+  h.app.project = async work => {
+    await gate.promise;
+    h.app.snapshot = { ...h.app.snapshot, work: h.app.workView(work) };
+    h.app.onChange(h.app.snapshot);
+    return h.app.snapshot;
+  };
+  await h.tick(0);
+  await wait(40);
+  h.grow();
+  await h.tick();
+  assert.equal(h.app.snapshot.work.running[0].tokens, 2500, 'published the light way');
+  gate.resolve();
+  await h.app.refreshing;
+  assert.equal(h.app.snapshot.work.running[0].tokens, 2500, 'the older rebuild did not put back 1,000');
+  assert.equal(h.published.at(-1).work.running[0].tokens, 2500, 'and the window was told the newer one last');
+  await h.tick();
+  assert.equal(h.app.snapshot.work.running[0].tokens, 2500);
+});
