@@ -1138,7 +1138,7 @@ export class HobkinApplication {
       review: () => requestReview(root, slug, value),
       merge: () => mergeItem(root, slug, value, { ...extra, route: 'key' }),
       decline: () => declineItem(root, slug, value),
-      // A review's "Discard and delete branch": `{ look: true }` says what it would delete, and `{ expect }` deletes exactly that.
+      // A review's "Remove and delete branch": `{ look: true }` says what it would delete, and `{ expect }` deletes exactly that.
       deleteBranch: () => deleteItemBranch(root, slug, value, extra),
       // `k` on an agent at work names the run, and how it stops: `decline` or `later`.
       stop: () => this.director.stopFromScreen(slug, value),
