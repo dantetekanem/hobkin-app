@@ -17,6 +17,8 @@ import { useView } from './view-store.ts'
 import { QuestionSheet } from '@/features/questions/QuestionSheet.tsx'
 // The Mac's notifications start with the frame, and only when the shell has them (`037-notifications`).
 import '@/features/notifications/live.ts'
+// A window nobody looks at holds still (052, S9).
+import './away.ts'
 import { TiersLightbox } from '@/features/tiers/TiersLightbox.tsx'
 import { NewHobkin } from '@/features/hobkins/NewHobkin.tsx'
 import { NerdStatsPanel } from '@/features/settings/NerdStats.tsx'

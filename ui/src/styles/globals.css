@@ -226,6 +226,23 @@
 :root[data-theme-reveal] *::after {
   transition: none !important;
 }
+/*
+ * Motion nobody can see holds still (spec 052, S9): everything while the page is away (app/away.ts), and the chat while
+ * the canvas covers all of it (app/ChatDim.tsx). Each animation pauses where it is and goes on from there.
+ */
+:root[data-away] *,
+:root[data-away] *::before,
+:root[data-away] *::after,
+[data-chat-side][data-covered] *,
+[data-chat-side][data-covered] *::before,
+[data-chat-side][data-covered] *::after {
+  animation-play-state: paused !important;
+}
+/* Nothing of a covered chat shows, so the blur over it has nothing to blur. */
+[data-chat-side][data-covered] [data-chat-blur] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
 /* Where the browser has no view transitions, every color eases to its new value instead. */
 :root[data-theme-fade] *,
 :root[data-theme-fade] *::before,
