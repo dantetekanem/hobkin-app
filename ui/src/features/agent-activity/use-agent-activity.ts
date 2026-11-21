@@ -46,9 +46,19 @@ function timeEntries(job: string, entries: readonly ActivityEntry[], now: number
   }
 }
 
+/** The runs running as the host last listed them. A start-over that lists none yet, as when hobkin opens again, changes nothing here. */
+let listed: { runs: unknown; running: ReadonlySet<string> } = { runs: undefined, running: new Set() }
+
+function runningNow(runs: unknown): ReadonlySet<string> {
+  if (!Array.isArray(runs)) return listed.running
+  if (runs !== listed.runs) listed = { runs, running: new Set(runs.filter((run) => run?.state === 'running').map((run) => run.id)) }
+  return listed.running
+}
+
 // Steps are timed as the host sends them, also for agents whose canvas is not open, so their times are right once it
-// is. The main agent's are timed the same way under its own key, whether hobkin's mind is open or not. A job that
-// leaves the host's activity takes its times with it.
+// is. The main agent's are timed the same way under its own key, whether hobkin's mind is open or not. A job takes its
+// times with it once the host holds none of its steps and does not list it as running: not when a start-over lists
+// nothing for a moment, nor while an agent the window does not watch comes as its tail.
 const stopTiming = hostStore.subscribe((state, previous) => {
   const now = Date.now()
   const main = state.snapshot.mainActivity
@@ -56,8 +66,13 @@ const stopTiming = hostStore.subscribe((state, previous) => {
   if (Array.isArray(main) && main !== mainBefore) timeEntries(MAIN_ACTIVITY, main, now, Array.isArray(mainBefore) ? mainBefore : undefined)
   const next = state.snapshot.jobActivity as JobActivity | undefined
   const before = previous.snapshot.jobActivity as JobActivity | undefined
-  if (next === before) return
-  for (const job in before) if (!next || !(job in next)) timings.delete(job)
+  const running = runningNow(state.snapshot.runs)
+  if (next === before && state.snapshot.runs === previous.snapshot.runs) return
+
+  for (const job of timings.keys()) {
+    const kept = job === MAIN_ACTIVITY || job.startsWith('sample:') || (next !== undefined && Object.hasOwn(next, job)) || running.has(job)
+    if (!kept) timings.delete(job)
+  }
   for (const job in next) {
     const entries = next[job]
     if (entries !== before?.[job] && Array.isArray(entries)) timeEntries(job, entries, now, before?.[job])

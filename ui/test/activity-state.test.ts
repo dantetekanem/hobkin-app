@@ -101,6 +101,31 @@ test('a job seen as its tail and then whole keeps hobkin\'s times for its steps,
   assert.equal(entryTimeOf('r4', 'message:1:0')?.seen, 1000)
 })
 
+test('a start-over that lists no runs yet keeps the step times of runs that go on, and a run that ends takes them along', async () => {
+  const { send, entryTimeOf } = await stepTimes()
+  const runs = (state: string) => [{ id: 'r5', state, kind: 'background', title: 'Fix the tests' }] as never
+  const call = ran('a', 'running')
+  send(startOver(0, { set: { runs: runs('running') }, activity: [{ op: 'reset', job: 'r5', entries: [call] }] }))
+  const seen = entryTimeOf('r5', 'tool:a')
+  assert.ok(seen)
+
+  // hobkin opens again: the owner starts over before its snapshot is read, so the reset lists no runs and no activity.
+  send(startOver(1))
+  assert.equal(entryTimeOf('r5', 'tool:a'), seen)
+  send(startOver(2, { set: { runs: runs('running') }, activity: [{ op: 'reset', job: 'r5', entries: [call] }] }))
+  assert.equal(entryTimeOf('r5', 'tool:a'), seen, 'the same running step keeps its clock')
+
+  // A job the window does not watch shrinks to its tail, and the run goes on.
+  send({ type: 'state', rev: 3, activity: [{ op: 'reset', job: 'r5', entries: [said('9:0', 'Later')] }] })
+  assert.equal(entryTimeOf('r5', 'tool:a'), seen)
+
+  // The run ends, and then the host lets go of its activity.
+  send({ type: 'state', rev: 4, set: { runs: runs('completed') } })
+  assert.equal(entryTimeOf('r5', 'tool:a'), seen, 'an ended run whose steps are still held keeps their times')
+  send({ type: 'state', rev: 5, activity: [{ op: 'remove', job: 'r5' }] })
+  assert.equal(entryTimeOf('r5', 'tool:a'), undefined)
+})
+
 test('a call that ends before the one after it still gets its end time', async () => {
   const { send, entryTimeOf } = await stepTimes()
   send(startOver(0, { activity: [{ op: 'reset', job: 'r3', entries: [ran('a', 'running'), ran('b', 'running')] }] }))
