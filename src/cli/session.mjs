@@ -22,7 +22,17 @@ export async function readBrief(input) {
 }
 
 const handoffs = root => join(root, 'runtime', 'handoffs');
-const finishing = report => `\n\n## When you finish\n\nWrite a short report of what you did to \`${report}\`, and make your last reply that report.\n`;
+// A branch or a step that lives only in a report is lost work: nothing reviews, merges, deploys or closes it. So the session files them first.
+const finishing = (root, report) => `\n\n## When you finish
+
+Register each branch you made as finished work before you hand back: pipe \`{ "title": "...", "branch": "<branch>", "state": "branch", "summary": "...", "proof": "..." }\` to \`hobkin work item <project> --home ${root}\`, with \`"issue": { "repo": "owner/name", "number": 12 }\` when it is for a GitHub issue. The project is its name, slug or folder. hobkin then takes the branch through its review, the user's merge and deploy, and the issue's closing, so do not push, open a PR for or merge it unless this brief says to.
+
+File every step still to do as work, never only in your report: pipe \`{ "key": "...", "kind": "fix", "title": "...", "brief": "..." }\` to the same command, or record it as the next action on the item this brief names.
+
+End in one of three ways, and say which: done; waiting on one call only the user can make in the app, named exactly; or carrying on through the work you filed, named by item.
+
+Write a short report of what you did to \`${report}\`, naming each branch and item, and make your last reply that report.
+`;
 const NOTHING_TO_KEEP = "A session runs as a job in hobkin's agents list: it takes messages while it works and ends when its work does, so there is nothing to keep open.";
 
 // A brief can hold a whole conversation, and only a short line fits in the job's first message.
@@ -32,7 +42,7 @@ function saveBrief(root, name, brief, report) {
   const file = join(folder, `${name}.md`);
   const lessons = injectedLessons(root);
   const learned = lessons.length ? `\n\n## Learned\n\n${lessons.join('\n')}\n` : '';
-  writeFileSync(file, `${brief}${learned}${finishing(report)}`, { mode: 0o600 });
+  writeFileSync(file, `${brief}${learned}${finishing(root, report)}`, { mode: 0o600 });
   return file;
 }
 
