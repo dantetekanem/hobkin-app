@@ -558,6 +558,13 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
   const reading = readSubscription(root);
   const context = { root, mode, now, running, budget, reading, spent: outOfStarts(mode.countedStarts, now) };
   const history = costHistory(root);
+  // Every row of one kind and level gets the same estimate from the same history, so each is worked out once.
+  const estimates = new Map();
+  const estimateOf = (kind, level) => {
+    const key = `${kind}\0${level}`;
+    if (!estimates.has(key)) estimates.set(key, estimateRun(history, { kind, level }));
+    return estimates.get(key);
+  };
   const projects = chosenProjects(root).map(project => withPending(root, project));
   const shipping = shipFirst(readyItems(root, Infinity), mode, now);
   const sorted = [...discoveryEntry(context), ...projects.flatMap(project => projectEntries(context, project))]
@@ -569,7 +576,7 @@ export function planWork(root, { mode = readMode(root), now = Date.now(), runnin
         picked,
         // A mark to start now goes with its pick, so it never starts anything by itself.
         pickedNow: picked && mode.queueNow.includes(entry.key),
-        estimate: estimateRun(history, { kind: entry.lane === 'do' ? 'do' : entry.kind, level: entry.level }),
+        estimate: estimateOf(entry.lane === 'do' ? 'do' : entry.kind, entry.level),
       };
       return { ...row, held: shipping.holding && startsNewWork(row) };
     })
