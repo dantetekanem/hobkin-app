@@ -14,7 +14,7 @@ import { closePiSession, openPiSession, withPiCancellation } from './pi-session.
 import { assertRuntimeAdmission } from './migration/admission.mjs';
 import { lockHome } from './home-lock.mjs';
 import { MAX_SESSION_BYTES } from './migration/ownership.mjs';
-import { isQuietRun, saveReport } from './reports.mjs';
+import { isQuietRun, runReport, saveReport } from './reports.mjs';
 import { logRun } from './checks.mjs';
 import { readDirections } from './directions.mjs';
 import { recordEvent, recordRunFinished, recordRunStarted } from './events.mjs';
@@ -652,9 +652,7 @@ export class HobkinRuntime {
       if (result.status === 'interrupted' && this.active.get(id)?.userStop) run.userStop = this.active.get(id).userStop;
       // A durable hobkin's turn answers on its own page and keeps no report.
       if (run.kind !== 'main' && !run.hobkin && !isQuietRun({ trigger: run.trigger, status: result.status, result })) {
-        const report = result.text || result.error || 'No result text.';
-        const failure = result.text && result.error ? `\n\n---\n\n**Execution failure:** ${result.error}` : '';
-        saveReport(this.directory, id, `${report}${failure}`);
+        saveReport(this.directory, id, runReport(result));
       }
       Object.assign(run, {
         status: result.status,

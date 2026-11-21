@@ -1,12 +1,48 @@
 import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { crashedInCodeTool } from './code-tool-crash.mjs';
 
 export const reportText = value => String(value ?? '')
   .replace(/<!--\s*hobkin-(?:publication|question):[\s\S]*?(?:-->|$)/gi, '')
   .trim();
 
 export const runOutcomeText = run => run.result?.text || run.result?.error || run.error || '';
+
+const RESTARTED = 'Pi crashed in its code tool, and hobkin restarted it.';
+
+/** A raw error, collapsed under "Error details". Its fence is longer than any run of backticks in it, so it stays whole. */
+export function errorDetails(raw) {
+  const text = String(raw).trim();
+  const fence = '`'.repeat(Math.max(3, ...[...text.matchAll(/`+/g)].map(([run]) => run.length + 1)));
+  return `<details><summary>Error details</summary>\n\n${fence}text\n${text}\n${fence}\n\n</details>`;
+}
+
+/** What went wrong, in a few words: what the crash was, or the first sentence of the error before its stack. */
+function failureLine(error) {
+  if (crashedInCodeTool(error)) return 'Pi crashed in its code tool';
+  const line = String(error ?? '').split('\n').map(part => part.trim()).find(part => part && !part.startsWith('at ')) ?? '';
+  return line.split(/(?<=\.)\s/)[0].replace(/\.$/, '').slice(0, 200) || 'it gave no reason';
+}
+
+/**
+ * The report a finished run saves. A failed run's opens with one plain sentence of what happened, then what it wrote
+ * before it failed, then its raw error collapsed when there is more of it than that sentence says. A run hobkin
+ * restarted after Pi crashed in its code tool (`code-tool-crash.mjs`) says so: first when it failed again, last when it
+ * finished, so its own first line still leads.
+ */
+export function runReport(result) {
+  if (result.status === 'failed') {
+    const line = failureLine(result.error);
+    const opening = result.restarted ? `${RESTARTED} The restarted run failed: ${line}.` : `The run failed: ${line}.`;
+    const raw = [result.restarted?.error, result.error].filter(Boolean).join('\n\n').trim();
+    return [opening, result.text?.trim(), raw && raw !== line && raw !== `${line}.` && errorDetails(raw)].filter(Boolean).join('\n\n');
+  }
+  const report = result.text || result.error || 'No result text.';
+  const failure = result.text && result.error ? `\n\n---\n\n**Execution failure:** ${result.error}` : '';
+  const restarted = result.restarted ? `\n\n---\n\n${RESTARTED}\n\n${errorDetails(result.restarted.error)}` : '';
+  return `${report}${failure}${restarted}`;
+}
 
 // Background reports open with a triage line (prompts/background.md).
 const nothingNewLine = /^(?:\*\*)?nothing new\.?(?:\*\*)?$/i;

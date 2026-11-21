@@ -467,7 +467,7 @@ test('background dispatch commits final receipts once and a second call cannot r
     const failureRun = (await runtime.state()).runs['job:failure'];
     assert.equal(failureRun.status, 'failed');
     assert.equal(failureRun.cost, null);
-    assert.equal(readReport(root, 'job:failure'), '# Partial evidence\n\nCollected before failure.\n\n---\n\n**Execution failure:** Tool failed');
+    assert.equal(readReport(root, 'job:failure'), 'The run failed: Tool failed.\n\n# Partial evidence\n\nCollected before failure.');
     await runtime.admit({ id: 'job:unsaved', kind: 'background' });
     await assert.rejects(runtime.finish('job:unsaved', { status: 'completed', text: 'x'.repeat(16777217) }), /bounded/);
     assert.equal((await runtime.state()).runs['job:unsaved'].status, 'running');

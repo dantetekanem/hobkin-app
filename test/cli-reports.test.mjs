@@ -4,7 +4,7 @@ import fs, { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSy
 import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { saveReport, readReport, reportText, reportTriage } from '../src/cli/reports.mjs';
+import { runReport, saveReport, readReport, reportText, reportTriage } from '../src/cli/reports.mjs';
 
 function fixture(t) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-report-'));
@@ -76,4 +76,43 @@ test('saved reports reject symlinks and public files rather than reading another
 test('visible legacy reports strip private publication markers without dropping the report', () => {
   const body = '# Finding\n<!-- hobkin-publication:scope:id:hash -->\nUseful evidence.\n<!-- hobkin-question:id:unfinished';
   assert.equal(reportText(body), '# Finding\n\nUseful evidence.');
+});
+
+const crashed = `Harness exited before completion (1). or]: This operation was aborted
+      at new DOMException (node:internal/per_context/domexception:76:18)
+      at AbortController.abort (node:internal/abort_controller:504:18)
+      at Execution.finish (file:///pi/dist/bundle/chunks/execute-L2EEDV3L.js:2:8423)`;
+const details = raw => `<details><summary>Error details</summary>\n\n\`\`\`text\n${raw}\n\`\`\`\n\n</details>`;
+
+test("a failed run's report opens with one plain line, and the raw error with its stack is collapsed below it", () => {
+  const error = 'Harness exited before completion (1). Error: boom\n    at tool (file:///tool.js:1:1)';
+
+  assert.equal(runReport({ status: 'failed', error }), `The run failed: Harness exited before completion (1).\n\n${details(error)}`);
+  assert.equal(runReport({ status: 'failed', error: crashed }), `The run failed: Pi crashed in its code tool.\n\n${details(crashed)}`);
+  assert.equal(runReport({ status: 'failed' }), 'The run failed: it gave no reason.');
+});
+
+test("a failed run's partial report follows its line, and an error that is only that line is not repeated", () => {
+  assert.equal(runReport({ status: 'failed', text: '# Partial evidence\n\nCollected before failure.', error: 'Tool failed' }),
+    'The run failed: Tool failed.\n\n# Partial evidence\n\nCollected before failure.');
+});
+
+test('a restarted run says Pi crashed in its code tool and hobkin restarted it, whether the restart worked or failed', () => {
+  assert.equal(runReport({ status: 'completed', text: 'Useful: registered.', restarted: { error: crashed } }),
+    `Useful: registered.\n\n---\n\nPi crashed in its code tool, and hobkin restarted it.\n\n${details(crashed)}`);
+  assert.equal(runReport({ status: 'failed', error: 'Pi did not finish a response (length).', restarted: { error: crashed } }),
+    `Pi crashed in its code tool, and hobkin restarted it. The restarted run failed: Pi did not finish a response (length).\n\n${details(`${crashed}\n\nPi did not finish a response (length).`)}`);
+});
+
+test('collapsed error details keep an error with backticks whole', () => {
+  const report = runReport({ status: 'failed', error: 'Failed: ```oops```\n    at x (file:///x.js:1:1)' });
+
+  assert.match(report, /\n````text\nFailed: ```oops```\n    at x \(file:\/\/\/x\.js:1:1\)\n````\n/);
+});
+
+test('other runs keep their report as before', () => {
+  assert.equal(runReport({ status: 'completed', text: 'Done.' }), 'Done.');
+  assert.equal(runReport({ status: 'interrupted', text: 'Partial.', error: 'Harness cancelled.' }), 'Partial.\n\n---\n\n**Execution failure:** Harness cancelled.');
+  assert.equal(runReport({ status: 'interrupted', error: 'Harness cancelled.' }), 'Harness cancelled.');
+  assert.equal(runReport({ status: 'incomplete' }), 'No result text.');
 });

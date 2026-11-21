@@ -27,7 +27,7 @@ const { initialize, atomicJson, loadConfig, setLearning } = await import('../src
 const { HobkinApplication, readLocalView } = await import('../src/cli/application.mjs');
 const { HobkinRuntime, IMAGE_ROOM_BYTES, MAIN_BUSY } = await import('../src/cli/runtime.mjs');
 const { MAX_SESSION_BYTES } = await import('../src/cli/migration/ownership.mjs');
-const { deleteReports, saveReport } = await import('../src/cli/reports.mjs');
+const { deleteReports, readReport, saveReport } = await import('../src/cli/reports.mjs');
 const { readPresentationState, savePresentationState } = await import('../src/cli/view.mjs');
 const { fakePi } = await import('./helpers/pi-session.mjs');
 import { png } from './helpers/png.mjs';
@@ -353,7 +353,7 @@ test('connected application serves input while a background check waits, saves r
   let calls = 0;
   const answer = '# Findings\n\nA useful detail\n';
   const failure = 'Pi session identity changed during the job.';
-  const failureBody = `${answer}\n\n---\n\n**Execution failure:** ${failure}`;
+  const failureBody = `The run failed: ${failure}\n\n${answer.trim()}`;
   const runHarness = async request => {
     const call = ++calls;
     if (call === 2) started.resolve();
@@ -2729,4 +2729,5 @@ test("a check whose Pi crashed in its code tool is restarted once on its own ses
   const run = (await app.runtime.state()).runs[id];
   assert.equal(run.status, 'completed');
   assert.equal(run.result.restarted.error, crashed);
+  assert.match(readReport(h.root, id), /^Useful: checked\.\n\n---\n\nPi crashed in its code tool, and hobkin restarted it\.\n\n<details><summary>Error details<\/summary>\n\n```text\nHarness exited before completion \(1\)/);
 });
