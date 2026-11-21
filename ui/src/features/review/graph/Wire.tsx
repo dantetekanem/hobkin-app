@@ -1,6 +1,6 @@
 import { EdgeLabelRenderer, useStore, type EdgeProps } from '@xyflow/react'
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useCallback, useMemo } from 'react'
+import { memo, useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { NODE_SIZE } from '#shared/review/layout.ts'
 import { WIRE_PHRASE } from '#shared/review/types.ts'
 import { ease, tween } from '@/lib/motion.ts'
@@ -8,13 +8,11 @@ import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
 import { ENTRANCE } from './entrance-plan.ts'
 import { useWireEntrance } from './entrance.tsx'
 import { hoverShown, isUnchanged } from './levels.ts'
-import { pulseLap } from './pulse-lap.ts'
+import { pulseLap, runLap } from './pulse-lap.ts'
 import { wireCurve, type WireCurve } from './wire-path.ts'
 
 /** How long a wire takes to draw in when the story reaches it. */
 const DRAW = { duration: 0.42, ease: ease.out } as const
-/** Seconds the pulse takes to run a wire from end to end, whatever its length. */
-const PULSE_LAP = 1.5
 
 /**
  * One wire. It leaves the right pin of its source and arrives at the left pin of its target.
@@ -140,17 +138,34 @@ function WireComponent({ id, source, target }: EdgeProps) {
 /**
  * The pulse on an active wire, from its source to its target and round again at one speed. It is an HTML dot in the
  * layer of the wires' words, moved by its transform through the Web Animations API, so the compositor runs the loop.
- * Its size and colors are the SVG dot's: a 2.9 px fill inside a 1 px ring of the active wire's color.
+ * It keeps one animation while it shows: a wire that moves only changes its keyframes (`runLap`). Its size and colors
+ * are the SVG dot's: a 2.9 px fill inside a 1 px ring of the active wire's color.
  */
 function Pulse({ curve }: { curve: WireCurve }) {
+  const dot = useRef<HTMLSpanElement>(null)
+  const running = useRef<ReturnType<typeof runLap> | null>(null)
   const lap = useMemo(() => pulseLap(curve.pointAt), [curve])
+
+  // Before the first paint, so the dot is never seen off its wire.
+  useLayoutEffect(() => {
+    const element = dot.current
+    if (!element) return
+    if (running.current) running.current.follow(lap)
+    else running.current = runLap(element, lap)
+  }, [lap])
+  useLayoutEffect(
+    () => () => {
+      running.current?.stop()
+      running.current = null
+    },
+    [],
+  )
+
   return (
-    <motion.span
+    <span
+      ref={dot}
       aria-hidden="true"
       className="pointer-events-none absolute top-0 left-0 -mt-[3.9px] -ml-[3.9px] size-[7.8px] rounded-full border border-[color:var(--hb-wire-active)] bg-[var(--hb-wire-pulse)]"
-      initial={{ transform: lap.transforms[0] }}
-      animate={{ transform: lap.transforms }}
-      transition={{ duration: PULSE_LAP, ease: 'linear', times: lap.times, repeat: Infinity }}
     />
   )
 }

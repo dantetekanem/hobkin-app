@@ -33,3 +33,29 @@ export function pulseLap(pointAt: (t: number) => Point, points = LAP_POINTS): { 
     times: lengths.map(shareOf),
   }
 }
+
+/** How long the dot takes to run a wire from end to end, whatever its length, in milliseconds. */
+export const LAP_MS = 1500
+
+type Lap = ReturnType<typeof pulseLap>
+
+const keyframesOf = ({ transforms, times }: Lap): Keyframe[] => transforms.map((transform, index) => ({ transform, offset: times[index] }))
+
+/**
+ * Runs the lap on the dot, round and round, as one animation for the dot's whole life. A wire that moves (a node
+ * dragged or laid out again) gets new keyframes on that same animation, so the dot keeps its place in the lap instead
+ * of starting again from the source pin, and no new animation is built for each move.
+ */
+export function runLap(dot: Pick<Element, 'animate'>, lap: Lap): { follow(next: Lap): void; stop(): void } {
+  const animation = dot.animate(keyframesOf(lap), { duration: LAP_MS, iterations: Infinity, easing: 'linear' })
+  return {
+    follow(next) {
+      // Element.animate always makes a keyframe effect.
+      const effect = animation.effect as KeyframeEffect | null
+      effect?.setKeyframes(keyframesOf(next))
+    },
+    stop() {
+      animation.cancel()
+    },
+  }
+}
