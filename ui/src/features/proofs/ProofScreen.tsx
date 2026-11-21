@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { lazy, startTransition, Suspense, useEffect, useRef, useState } from 'react'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStill } from '@/app/still.ts'
 import { useStops } from '@/app/stops.ts'
@@ -15,13 +15,16 @@ import type { ProofRun } from '#shared/protocol/proofs.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { itemTitle, placeOf, specFile } from './proof-match.ts'
 import './proofs.css'
-import { GraphView } from './graph/GraphView.tsx'
 import { MathView } from './math/MathView.tsx'
 import { RunView, type ProofTab } from './run/RunView.tsx'
 import { controlOf, phaseOf, type Tone } from './run/run-view.ts'
 import { useProofRun } from './use-proof-run.ts'
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+// The state graph brings React Flow and dagre, so its code loads when a proof page opens and not at startup.
+const loadGraphView = () => import('./graph/GraphView.tsx')
+const GraphView = lazy(() => loadGraphView().then((module) => ({ default: module.GraphView })))
 
 const TABS: readonly PageTab<ProofTab>[] = [
   { value: 'run', label: 'Run' },
@@ -40,6 +43,9 @@ export function ProofScreen() {
   const id = useView((view) => view.openProof)
   const { run, live, now, problem } = useProofRun(id)
   const [tab, setTab] = useState<ProofTab>('run')
+  useEffect(() => void loadGraphView(), [])
+  // A tab change is a transition: should the graph's code still be on its way, the tab shown stays until it is there.
+  const choose = (next: ProofTab) => startTransition(() => setTab(next))
 
   return (
     <div ref={root} className={SCREEN_SCROLLER}>
@@ -47,9 +53,12 @@ export function ProofScreen() {
         {run ? (
           <>
             <Header run={run} live={live} />
-            <PageTabs id="proof" label="Proof run views" tabs={TABS} value={tab} onChoose={setTab} />
+            <PageTabs id="proof" label="Proof run views" tabs={TABS} value={tab} onChoose={choose} />
             <div role="tabpanel" id={`proof-panel-${tab}`} aria-labelledby={`proof-tab-${tab}`}>
-              <Panel tab={tab} run={run} now={now} onTab={setTab} />
+              {/* The graph's height at its widest, held empty in the one case a transition does not cover. */}
+              <Suspense fallback={<div aria-hidden className="h-[610px]" />}>
+                <Panel tab={tab} run={run} now={now} onTab={choose} />
+              </Suspense>
             </div>
             {problem ? <p className="text-[12px] text-muted-foreground">Only the latest counts show: {problem}</p> : null}
           </>
