@@ -24,7 +24,8 @@ import { HobkinApplication } from 'hobkin/src/cli/application.mjs'
 import { initialize, setTelemetryUpload } from 'hobkin/src/cli/config.mjs'
 import { DEV_UI_ORIGIN } from '../../../host/src/access.ts'
 import { startHost, type RunningHost } from '../../../host/src/host.ts'
-import { descendants, type Running } from './processes.ts'
+import { descendants, machineCpu, therm, type Running } from './processes.ts'
+import { cpuShare, piHarness, REAL_MODEL, startModel, usageOf, writePiFolder } from './real-pi.ts'
 
 const argv = process.argv.slice(2)
 const flag = (name: string) => argv.includes(name)
@@ -48,6 +49,11 @@ const WATCHED = Number(value('--watch', '1'))
 // Pi writes each finished message to the run's session file, with its usage, and hobkin's director meters tokens from
 // it every tick. The lab does the same at each message end, unless --no-session.
 const SESSION = !flag('--no-session')
+// --pi real: the agents are real `pi --mode rpc` children started through hobkin's own harness, streaming from the fake
+// model on this machine (`model.ts`). The run stops once their memory or CPU passes these limits.
+const REAL_PI = value('--pi', 'lab') === 'real'
+const LIMIT_RSS_MB = Number(value('--limit-rss-mb', '16384'))
+const LIMIT_CORES = Number(value('--limit-cores', '8'))
 
 const log = (line: string) => process.stderr.write(`[host-load ${SEED ? 'seed' : 'run'}] ${line}\n`)
 
@@ -81,6 +87,7 @@ const harness = async (request: Request, options: Callbacks) => {
     return result({ status: 'completed', text: purpose === 'short-report' ? 'A short version.' : 'Useful: done.' })
   }
   if (mode === 'seed') return result({ status: 'completed', text: nextText() })
+  if (REAL_PI) return piHarness(request, options)
   return new Promise((resolve) => {
     streaming.push({ id: request.id, request, callbacks: options, end: (outcome) => resolve(result(outcome)) })
   })
@@ -175,9 +182,15 @@ function startWindow(host: RunningHost) {
 function directorStart(key: string, title: string, home: string) {
   app.director.start({
     key, lane: 'do', slug: 'lab', item: key, title, purpose: 'work-do', cwd: home, level: 'important',
-    model: 'lab/model', effort: 'high', instructions: 'Lab only.', work: () => ({}),
+    model: REAL_PI && mode === 'stream' ? REAL_MODEL : 'lab/model', effort: 'high', instructions: 'Lab only. Read notes.md, then say what it says.', work: () => ({}),
   })
 }
+
+/**
+ * The real Pi agents' processes: each `pi --mode rpc` this process started, through taskpolicy, which became Pi. Pi
+ * names its process `pi`, so that is what ps shows of its command.
+ */
+const piChildren = () => descendants(process.pid).filter(({ command }) => command.trim() === 'pi' || command.includes('--mode rpc')).map(({ pid }) => pid)
 
 /** Every process this one started, as they run now. The orchestrator checks that none outlives the run. */
 const started: Running[] = []
@@ -300,16 +313,30 @@ async function measured() {
     try { return await performTick() } finally { counts.tickWallMs += performance.now() - t }
   }
 
-  // Start N agents and wait until every one is streaming.
+  // Real Pi agents ask the fake model, which Pi's folder names, and read a file of the home.
+  const model = REAL_PI ? startModel(SECONDS + AGENTS * 3 + 600, HOME) : null
+  if (model) {
+    writePiFolder(process.env.PI_CODING_AGENT_DIR!, `http://127.0.0.1:${await model.ready}/v1`)
+    writeFileSync(join(root, 'notes.md'), 'The lab agent reads this file and says what it found.\n')
+  }
+  const machine = { cpuDuring: null as number | null, thermAfter: [] as string[] }
+
+  // Start N agents and wait until every one is streaming: for real Pi, until the fake model has begun an answer for each.
   mode = 'stream'
   const startT = performance.now()
   const startCpu = process.cpuUsage()
   for (let index = 0; index < AGENTS; index++) directorStart(`agent:${index}`, `Lab agent ${index}`, root)
-  if (AGENTS) await until(() => streaming.length >= AGENTS, `${AGENTS} agents to start`, 60_000)
+  if (AGENTS && model) {
+    const end = Date.now() + 60_000 + AGENTS * 3000
+    while ((await model.answers()) < AGENTS) {
+      if (Date.now() > end) throw Error(`Timed out waiting for ${AGENTS} Pi agents to ask the model: ${piChildren().length} Pi processes, ${await model.answers()} answers.`)
+      await sleep(500)
+    }
+  } else if (AGENTS) await until(() => streaming.length >= AGENTS, `${AGENTS} agents to start`, 60_000)
   const startCpuUsed = process.cpuUsage(startCpu)
   const startup = { ms: Math.round(performance.now() - startT), cpuSeconds: (startCpuUsed.user + startCpuUsed.system) / 1e6 }
   await sleep(1500)
-  log(`${streaming.length} agents streaming; startup ${JSON.stringify(startup)}`)
+  log(`${REAL_PI ? piChildren().length : streaming.length} agents streaming; startup ${JSON.stringify(startup)}`)
   // Let the start burst's garbage go before the window opens.
   gc()
   await sleep(500)
@@ -386,9 +413,9 @@ async function measured() {
   }
   delay.enable()
   const startCounts = { ...counts }
-  // Drift-free driver: emits as many steps as are due.
+  // Drift-free driver for the synthetic agents: emits as many steps as are due. Real Pi agents drive themselves.
   let due = 0
-  const driver = setInterval(() => {
+  const driver = REAL_PI ? undefined : setInterval(() => {
     const should = Math.floor((performance.now() - t0) / period)
     while (due < should) {
       due++
@@ -396,9 +423,32 @@ async function measured() {
     }
   }, Math.max(1, Math.floor(period)))
   const sampler = setInterval(() => samples.push(sample(t0)), 5000)
-  await sleep(SECONDS * 1000)
+
+  // Real Pi agents are read every five seconds, and the run stops once they pass the memory or CPU it was given.
+  const pis = REAL_PI ? piChildren() : []
+  const atStart = usageOf(pis)
+  const guarded = { peakRssKB: 0, stoppedFor: null as string | null }
+  let stop = () => {}
+  const guard = REAL_PI ? setInterval(() => {
+    const now = usageOf(pis)
+    const rssKB = now.reduce((sum, { rssKB }) => sum + rssKB, 0)
+    const cores = cpuShare(atStart, now, (performance.now() - t0) / 1000)
+    guarded.peakRssKB = Math.max(guarded.peakRssKB, rssKB)
+    if (machine.cpuDuring === null && performance.now() - t0 >= (SECONDS * 1000) / 2) machine.cpuDuring = machineCpu()
+    if (rssKB / 1024 > LIMIT_RSS_MB) guarded.stoppedFor = `memory: ${Math.round(rssKB / 1024)} MB over ${LIMIT_RSS_MB}`
+    else if (cores > LIMIT_CORES) guarded.stoppedFor = `CPU: ${cores.toFixed(1)} cores over ${LIMIT_CORES}`
+    if (guarded.stoppedFor) stop()
+  }, 5000) : undefined
+  await new Promise<void>((resolve) => {
+    stop = resolve
+    setTimeout(resolve, SECONDS * 1000)
+  })
+  if (guarded.stoppedFor) log(`stopped early, ${guarded.stoppedFor}`)
   clearInterval(driver)
+  clearInterval(guard)
   clearInterval(sampler)
+  const atEnd = usageOf(pis)
+  if (REAL_PI) machine.thermAfter = therm()
   delay.disable()
   samples.push(sample(t0))
   const elu = performance.eventLoopUtilization(elu0)
@@ -438,15 +488,27 @@ async function measured() {
       activityEntries: Object.values(snapshot.jobActivity ?? {}).reduce((sum: number, list) => sum + (list as unknown[]).length, 0),
       wireSnapshotBytes: JSON.stringify(snapshot).length,
     },
+    pi: REAL_PI ? {
+      children: atEnd.length,
+      cores: cpuShare(atStart, atEnd, wall),
+      rssMB: atEnd.reduce((sum, { rssKB }) => sum + rssKB, 0) / 1024,
+      peakRssMB: guarded.peakRssKB / 1024,
+      priorities: Object.fromEntries([...new Set(atEnd.map(({ priority }) => priority))].map((priority) => [priority, atEnd.filter((child) => child.priority === priority).length])),
+      answers: await model!.answers(),
+      stoppedFor: guarded.stoppedFor,
+      machine,
+    } : null,
   }
 
-  // Wind down: end every agent, close the window and the host.
+  // Wind down: end every agent (real Pi ones get "Done." from the model and finish), close the window and the host.
   for (const agent of streaming) agent.end({ status: 'completed', text: 'Useful: lab agent finished.' })
+  model?.end()
   await Promise.race([Promise.resolve(app.director.closing).catch(() => {}), sleep(30_000).then(() => log('the director did not settle in 30 s'))])
   await Promise.race([app.refresh(), sleep(10_000)])
   log(`other model calls ${JSON.stringify(otherCalls)}`)
   window?.close()
   await running.close()
+  model?.close()
   return result
 }
 

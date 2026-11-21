@@ -39,6 +39,21 @@ export function leftOver(seen: readonly Running[], mark: string): Running[] {
     (seen.some(({ pid, command }) => pid === running.pid && command === running.command) || running.command.includes(mark)))
 }
 
+/** What the whole machine is doing: every process's CPU share as ps reports it, summed, 100 for one core. */
+export function machineCpu(): number {
+  const listed = execFileSync('ps', ['-A', '-o', '%cpu='], { encoding: 'utf8', timeout: 5000, maxBuffer: 16 * 2 ** 20 })
+  return listed.split('\n').reduce((sum, line) => sum + (Number(line.trim()) || 0), 0)
+}
+
+/** What macOS says of the machine's heat and its CPU's speed limit (`pmset -g therm`), which needs no sudo. */
+export function therm(): string[] {
+  try {
+    return execFileSync('pmset', ['-g', 'therm'], { encoding: 'utf8', timeout: 5000 }).split('\n').map((line) => line.trim()).filter(Boolean)
+  } catch {
+    return []
+  }
+}
+
 /** Stops each one at once. One already gone is fine. */
 export function kill(running: readonly Running[]): void {
   for (const { pid } of running) {

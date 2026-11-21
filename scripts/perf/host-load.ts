@@ -12,6 +12,10 @@
  *   --no-client     no window connected
  *   --old-window    a window from before tails, which gets every feed whole
  *   --watch N       the jobs a window that reads tails watches, as N agents' pages open (1)
+ *   --pi real       the agents are real `pi --mode rpc` children through hobkin's own harness (so through taskpolicy),
+ *                   each streaming from a fake model on this machine (`host/model.ts`); it adds what they cost
+ *   --limit-rss-mb M  with --pi real, stop once the children hold more than M MB together (16384)
+ *   --limit-cores C   with --pi real, stop once the children use more than C cores together (8)
  *   --profile FILE  also write a CPU profile of the measured window to FILE and print where its time went
  *   --json          print the whole result as JSON
  *
@@ -27,7 +31,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { analyze } from './host/analyze.ts'
-import { descendants, kill, leftOver, type Running } from './host/processes.ts'
+import { descendants, kill, leftOver, machineCpu, therm, type Running } from './host/processes.ts'
 
 const argv = process.argv.slice(2)
 const value = (name: string, fallback: string) => (argv.includes(name) ? argv[argv.indexOf(name) + 1]! : fallback)
@@ -35,7 +39,7 @@ const agents = Number(value('--agents', '1'))
 const history = Number(value('--history', '0'))
 const seconds = Number(value('--seconds', '60'))
 const profile = argv.includes('--profile') ? value('--profile', '') : ''
-const passed = ['--agents', '--history', '--seconds', '--rate', '--cycle', '--watch'].flatMap((name) => (argv.includes(name) ? [name, value(name, '')] : []))
+const passed = ['--agents', '--history', '--seconds', '--rate', '--cycle', '--watch', '--pi', '--limit-rss-mb', '--limit-cores'].flatMap((name) => (argv.includes(name) ? [name, value(name, '')] : []))
 const switches = ['--no-session', '--no-client', '--old-window'].filter((name) => argv.includes(name))
 for (const number of [agents, history, seconds]) if (!(number >= 0)) throw Error('--agents, --history and --seconds take a number.')
 
@@ -45,8 +49,19 @@ const home = join(run, 'home')
 const backups = join(run, 'backups')
 const piFolder = join(run, 'pi-agent')
 mkdirSync(piFolder)
-// Pi's folder for anything that asks is this run's own, and nothing reaches a terminal multiplexer.
-const env = Object.fromEntries(Object.entries({ ...process.env, PI_CODING_AGENT_DIR: piFolder }).filter(([name]) => !name.startsWith('HERDR_')))
+const realPi = value('--pi', 'lab') === 'real'
+// The machine before this run starts anything, for real Pi agents: what it was doing, and its heat.
+const machineBefore = realPi ? { cpu: machineCpu(), therm: therm() } : null
+// Pi's folder for anything that asks is this run's own, and nothing reaches a terminal multiplexer. Real Pi agents get a
+// home folder of their own too, so they read no skills or settings of the user's, no keys from the environment, and
+// Pi's own catalog only.
+const userHome = join(run, 'user-home')
+mkdirSync(userHome)
+const KEYS = /(_API_KEY|_TOKEN|_SECRET|_KEY_ID)$|^(AWS|GOOGLE|GCLOUD|AZURE|CLOUDFLARE|ANTHROPIC|OPENAI|DEEPSEEK)_/
+const env = Object.fromEntries(
+  Object.entries({ ...process.env, PI_CODING_AGENT_DIR: piFolder, ...(realPi ? { HOME: userHome, PI_OFFLINE: '1', PI_TELEMETRY: '0' } : {}) })
+    .filter(([name]) => !name.startsWith('HERDR_') && !(realPi && KEYS.test(name))),
+)
 
 const seen: Running[] = []
 let current: ChildProcess | null = null
@@ -106,7 +121,7 @@ setTimeout(() => {
   process.stderr.write('host-load: the run went past its ceiling and is stopped\n')
   cleanUp()
   process.exit(1)
-}, (300 + seconds + history / 20 + 240) * 1000).unref()
+}, (300 + seconds + history / 20 + (realPi ? agents * 3 : 0) + 240) * 1000).unref()
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
   process.on(signal, () => {
     cleanUp()
@@ -135,7 +150,23 @@ function summary(result: Record<string, any>): string {
     ...(socket ? [`  socket          ${fixed(socket.bytesPerSecond / 1024, 0)} KB a second in ${fixed(socket.messagesPerSecond, 1)} messages, median ${fixed(socket.p50 / 1024, 1)} KB`] : []),
     `  full refreshes  ${fixed(result.refreshesPerSecond)} a second, ${fixed(result.refreshWallMs, 1)} ms each; tick ${fixed(result.tickWallMs, 1)} ms`,
     `  memory          RSS ${fixed(memory.rssStartMB, 0)} to ${fixed(memory.rssEndMB, 0)} MB, heap ${fixed(memory.heapStartMB, 0)} to ${fixed(memory.heapEndMB, 0)} MB`,
+    ...(result.pi ? piLines(result.pi) : []),
   ].join('\n')
+}
+
+/** What real Pi agents cost: their CPU and memory, together and each, the priority they run at, and the machine. */
+function piLines(pi: Record<string, any>): string[] {
+  const each = (total: number) => (pi.children ? total / pi.children : 0)
+  const priorities = Object.entries(pi.priorities as Record<string, number>).map(([priority, count]) => `${count} at ${priority}`).join(', ')
+  return [
+    `  Pi children     ${pi.children}, at priority ${priorities} (31 is normal, 20 is utility); ${pi.answers} model answers begun`,
+    `  their CPU       ${fixed(pi.cores * 100, 1)}% of a core together, ${fixed(each(pi.cores) * 100, 1)}% each`,
+    `  their memory    ${fixed(pi.rssMB, 0)} MB resident together (peak ${fixed(pi.peakRssMB, 0)}), ${fixed(each(pi.rssMB), 0)} MB each`,
+    `  the machine     ${fixed(machineBefore!.cpu, 0)}% before the run, ${pi.machine.cpuDuring === null ? 'not read' : `${fixed(pi.machine.cpuDuring, 0)}%`} during (ps -A %cpu summed, 100 a core)`,
+    `  pmset before    ${machineBefore!.therm.join(' | ')}`,
+    `  pmset after     ${pi.machine.thermAfter.join(' | ')}`,
+    ...(pi.stoppedFor ? [`  stopped early   ${pi.stoppedFor}`] : []),
+  ]
 }
 
 let failed = false
@@ -144,7 +175,7 @@ try {
   process.stderr.write(`host-load: home seeded in ${fixed(seed.seconds, 0)} s\n`)
 
   const measuring = [...passed, ...switches, ...(profile ? ['--profile', profile] : [])]
-  const result = (await runLab(measuring, seconds + history / 20 + 180)).result!
+  const result = (await runLab(measuring, seconds + history / 20 + (realPi ? agents * 3 : 0) + 180)).result!
   if (argv.includes('--json')) console.log(JSON.stringify(result, null, 2))
   console.log(summary(result))
   if (profile) console.log(`\n${analyze(profile)}`)
