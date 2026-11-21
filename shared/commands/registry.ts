@@ -31,6 +31,7 @@ import {
 } from '../protocol/setup.ts'
 import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import type { ProofRun } from '../protocol/proofs.ts'
+import { METRICS_DAYS_MAX, type WorkMetrics } from '../protocol/metrics.ts'
 import type { ActivityEntry } from '../protocol/activity.ts'
 import { GRADES, ISSUE_PICKUPS, PR_MODES } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
@@ -1029,6 +1030,14 @@ export const COMMANDS = {
     args: Type.Object({ tokens: Type.Integer({ minimum: 1 }) }, { additionalProperties: false }),
     hobkin: true,
   },
+  // Work in numbers (053-work-control-room), folded from the records hobkin and the host already keep, so it has history from the first read.
+  'work.metrics': {
+    description:
+      "Read what work mode did on each local day of the last `days`, 30 unless asked and 180 at most, for all projects and for each: runs started, changes finished, merged by hobkin by itself or on the user's yes, declined, sent back and approved the first time, AI review answers, proofs, questions, stops, tokens and regressions after a deploy, with how long changes waited for the user, how long they took from their first run to their merge and how long AI reviews took. What could not be read is named, and the rest still counts. It only reads.",
+    runs: 'host',
+    args: Type.Object({ days: Type.Optional(Type.Integer({ minimum: 1, maximum: METRICS_DAYS_MAX })) }, { additionalProperties: false }),
+    hobkin: true,
+  },
   // YOLO mode lets small, well-reviewed changes merge and deploy with no yes, so only the user's click in the window changes it (049-yolo-mode).
   'work.yolo': {
     description:
@@ -1406,6 +1415,7 @@ export interface CommandResults {
   'work.agents': { agents: number }
   /** The daily limit now. */
   'work.tokens': { tokens: number }
+  'work.metrics': WorkMetrics
   /** YOLO mode as it stands now. */
   'work.yolo': { on: boolean; rate: number }
   /** What hobkin said: the readiness work starts now, or what still holds it. */

@@ -71,6 +71,7 @@ import { ReminderReader, reminderHandlers } from './reminders.ts'
 import { proofHandlers, ProofsKeeper } from './proofs.ts'
 import { proofToolsHandlers } from './setup-proof.ts'
 import { workHandlers } from './work.ts'
+import { metricsHandlers } from './metrics.ts'
 import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
 import { preparedByItself, workReader } from './work-items.ts'
 import type { GhCall } from './review/gh.ts'
@@ -681,6 +682,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // The Work screen's actions, each one of hobkin's own work actions. A yes on a card can merge a pull request on
     // GitHub, and hobkin then closes the issue it fixed, so GitHub is read again once the action is done.
     ...thenReadGitHub(workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }), ['work.change', 'work.group'], () => github.readSoon()),
+    // Work in numbers: hobkin's fold of its own records, with the AI reviews the host keeps, kept for a minute (053).
+    ...metricsHandlers({ data: () => hobkin().runtime.directory, root, reviews }),
     // TLA+ proof runs: read, stopped and repeated through hobkin's own proof functions, when the runtime running has them.
     ...proofHandlers({ keeper: proofs, home: () => hobkin().runtime.directory }),
     // Add to queue on the GitHub page: the issue is read through gh, only reading, and filed with hobkin's own issue action.
