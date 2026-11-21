@@ -962,18 +962,37 @@ test('only as many agents run as the mode allows, and scheduled checks take thei
   assert.match(plan(root, { checks: 2 }).waitingOn, /Scheduled checks/);
 });
 
-test('while a run is going work starts spaced out, and the plan says when the next one can', t => {
+test('with a free worker and room in the budget the second start comes 30 seconds after the first, not five minutes', t => {
   const root = dataRoot(t);
   project(root, 'api');
   project(root, 'site');
   fileItem(root, 'api', item('fix'), now);
   const running = [{ slug: 'site', lane: 'look' }];
 
-  const { next, nextStartAt } = plan(root, { running, lastStartAt: now - 60000 });
+  const { next, nextStartAt } = plan(root, { running, lastStartAt: now - 10000 });
 
   assert.equal(next, null);
-  assert.equal(Date.parse(nextStartAt), now - 60000 + 5 * 60000);
-  assert.ok(plan(root, { running, lastStartAt: now - 5 * 60000 }).next);
+  assert.equal(Date.parse(nextStartAt), now - 10000 + 30000);
+  assert.equal(plan(root, { running, lastStartAt: now - 30000 }).next.title, 'fix');
+});
+
+test('a home that saved the old five-minute wait waits 30 seconds too, and a row over the hour\'s share still waits and says so', t => {
+  const root = dataRoot(t);
+  project(root, 'api');
+  project(root, 'site');
+  fileItem(root, 'api', item('fix'), now);
+  const running = [{ slug: 'site', lane: 'look' }];
+  // Every write of the mode carried the default whole, so a home from before has it saved.
+  writeMode(root, { startGapMs: 300000 });
+
+  assert.equal(readMode(root).startGapMs, 30000);
+  assert.equal(plan(root, { running, lastStartAt: now - 30000 }).next.title, 'fix');
+
+  writeMode(root, { dailyTokens: 100000000 });
+  recordTokens(root, { slug: 'api', lane: 'do', tokens: 8400000 }, now - HOUR / 2);
+  const held = plan(root, { running, lastStartAt: now - 30000 });
+  assert.equal(held.next, null);
+  assert.equal(held.entries[0].waiting, 'over this hour\'s share');
 });
 
 test('room the user adds is filled right away: the gap between starts does not hold what the new workers take', t => {
@@ -982,20 +1001,20 @@ test('room the user adds is filled right away: the gap between starts does not h
   project(root, 'site');
   fileItem(root, 'api', item('fix'), now);
   const running = [{ slug: 'site', lane: 'look' }];
-  assert.equal(plan(root, { running, lastStartAt: now - 60000 }).next, null, 'a start a minute ago holds the next one');
+  assert.equal(plan(root, { running, lastStartAt: now - 10000 }).next, null, 'a start ten seconds ago holds the next one');
 
   // The user raises the number of agents: they made room because they want more running now.
   setAgents(root, 4, now);
   assert.deepEqual(readMode(root).roomAdded, { count: 2, at: new Date(now).toISOString() });
-  const filled = plan(root, { running, lastStartAt: now - 60000 });
+  const filled = plan(root, { running, lastStartAt: now - 10000 });
   assert.equal(filled.next.title, 'fix');
   assert.equal(filled.nextStartAt, null);
 
   // Once the added room is taken, starts are spaced again. Room nobody took within ten minutes is no longer waiting to be filled.
   writeMode(root, { roomAdded: { count: 0, at: new Date(now).toISOString() } });
-  assert.equal(plan(root, { running, lastStartAt: now - 60000 }).next, null);
+  assert.equal(plan(root, { running, lastStartAt: now - 10000 }).next, null);
   writeMode(root, { roomAdded: { count: 2, at: new Date(now - 11 * 60000).toISOString() } });
-  assert.equal(plan(root, { running, lastStartAt: now - 60000 }).next, null);
+  assert.equal(plan(root, { running, lastStartAt: now - 10000 }).next, null);
   // Taking room away asks for nothing to start.
   setAgents(root, 2, now);
   assert.equal(readMode(root).roomAdded, null);
@@ -1017,10 +1036,10 @@ test('while a run is going the whole gap holds however long the queue, and a pic
   const filed = Array.from({ length: 60 }, (_row, index) => fileItem(root, 'api', { ...item(`fix ${index}`), key: `fix:${index}` }, now));
   const running = [{ slug: 'site', lane: 'look' }];
 
-  assert.equal(plan(root, { running, lastStartAt: now - 4 * 60000 }).next, null, 'sixty rows do not shorten it');
+  assert.equal(plan(root, { running, lastStartAt: now - 20000 }).next, null, 'sixty rows do not shorten it');
   pickNext(root, `item:api:${filed[59].id}`);
-  assert.equal(plan(root, { running, lastStartAt: now - 4 * 60000 }).next, null, 'nor does a pick');
-  assert.equal(plan(root, { running, lastStartAt: now - 5 * 60000 }).next.title, 'fix 59', 'and once it is over the pick goes first');
+  assert.equal(plan(root, { running, lastStartAt: now - 20000 }).next, null, 'nor does a pick');
+  assert.equal(plan(root, { running, lastStartAt: now - 30000 }).next.title, 'fix 59', 'and once it is over the pick goes first');
 });
 
 test('a row that keeps failing waits its own turn longer, and everything else goes past it', t => {

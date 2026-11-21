@@ -44,8 +44,11 @@ const HOUR_MS = 3600000;
 // An open owner refreshes its lock every 10 seconds, so a minute without one means it is gone.
 const OWNER_FRESH_MS = 60000;
 const HOURS_IN_DAY = 24;
-// Long enough for a run's first replies to show what it costs before the next one starts.
-const START_GAP_MS = HOUR_MS / 12;
+// The wait after a start before the next one, running or not. The daily budget and its hourly share pace work; this only keeps a run that
+// dies at once from spinning.
+const START_GAP_MS = 30000;
+// Every write of the mode carried the earlier five-minute default whole, so a saved 300000 is that default and nobody's choice.
+const EARLIER_START_GAP_MS = 300000;
 export const DISCOVERY_EVERY_MS = HOURS_IN_DAY * HOUR_MS;
 
 const workRoot = root => join(root, 'work');
@@ -199,6 +202,7 @@ export function readMode(root) {
   };
   // `pool` came from the size of the machine and was saved on any change. Nobody chose it, so it does not carry over.
   const { pool, ...saved } = readKeptJson(modePath(root), {});
+  if (saved.startGapMs === EARLIER_START_GAP_MS) delete saved.startGapMs;
   return { ...defaults, ...saved };
 }
 

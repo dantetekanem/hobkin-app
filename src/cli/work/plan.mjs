@@ -547,7 +547,7 @@ function budgetPause(entries, budget, now) {
   return { kind: 'hour', line: hourLine(budget, smallest, now) };
 }
 
-/** While a run is going each start waits the whole gap, however long the queue, so work spreads out instead of racing. With nothing running only a breath. */
+/** Each start waits the mode's gap after the last one, however long the queue, and with nothing running no more than a breath. Both are 30 seconds by default. */
 export const startGap = ({ startGapMs }, running) => (running.length ? startGapMs : Math.min(startGapMs, SHORTEST_START_GAP_MS));
 
 /**
