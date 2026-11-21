@@ -34,6 +34,19 @@ export const JAVA_RUNTIME = {
   },
 };
 
+/**
+ * The TLAPS setup installs into `tools/tlaps`: tlapm's 1.6.0-pre tarball, the only one with a macOS build, for Apple silicon
+ * alone (https://github.com/tlaplus/tlapm/releases/tag/1.6.0-pre). It is relocatable and brings its backends (Z3, Zenon,
+ * Isabelle, LS4). The pre-release is rebuilt in place, so the sha256 is the one GitHub listed for the build of 2026-11-20,
+ * and a later build does not match it until the pin here is updated.
+ */
+export const TLAPS = {
+  version: '1.6.0-pre',
+  builds: {
+    arm64: { url: 'https://github.com/tlaplus/tlapm/releases/download/1.6.0-pre/tlapm-1.6.0-pre-arm64-darwin.tar.gz', sha256: '1e8cc2fa6be352528d52611e1b77ad004e6ccd7f1264b119df17599179601e26', bytes: 40942818 },
+  },
+};
+
 // `java -version` answers at once, but a cold JVM can take a few seconds.
 const ASK_MS = 15000;
 
