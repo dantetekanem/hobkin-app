@@ -170,6 +170,10 @@ export async function stopExecution(owner: Pick<HomeOwner, 'captureExecution'>, 
 /** The most jobs one window may watch at once. */
 const MAX_WATCHED = 1000
 
+/** A watch message's jobs: a list of run ids, and not too many. */
+const watchedJobs = (jobs: unknown): jobs is string[] =>
+  Array.isArray(jobs) && jobs.length <= MAX_WATCHED && jobs.every((job) => typeof job === 'string' && job.length <= 200)
+
 const whyNotLive = (owner: OwnerState): string => {
   if (owner.state === 'failed') return `hobkin could not start: ${owner.message}`
   return 'hobkin is still starting.'
@@ -740,7 +744,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     } else if (message?.type === 'watch') {
       // The jobs whose whole steps this window shows. A list that is not one is no message this host knows.
       const { jobs } = message as { jobs?: unknown }
-      if (!Array.isArray(jobs) || jobs.length > MAX_WATCHED || !jobs.every((job) => typeof job === 'string' && job.length <= 200)) return socket.close(CLOSE.badMessage, 'Bad watch')
+      if (!watchedJobs(jobs)) return socket.close(CLOSE.badMessage, 'Bad watch')
       windows.watch(socket, jobs)
     } else if (message?.type === 'shown') {
       // How soon a reply's first words showed in the window, kept as facts in hobkin's event log. One not kept is

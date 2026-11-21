@@ -21,7 +21,10 @@ export class Watched {
       if (!held) return
       held = false
       const left = this.holds.get(job)! - 1
-      if (left > 0) return void this.holds.set(job, left)
+      if (left > 0) {
+        this.holds.set(job, left)
+        return
+      }
       this.holds.delete(job)
       this.changed()
     }

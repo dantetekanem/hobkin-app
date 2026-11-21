@@ -12,7 +12,7 @@ export interface EntryTime {
   ended?: number
 }
 
-/** By job, then by entry id. hobkin's activity carries no times, so these are the window's own. */
+/** By job, then by entry id. hobkin says when it first saw an entry (`at`); when a call began and ended is the window's own. */
 const timings = new Map<string, Map<string, EntryTime>>()
 
 const isRunning = (entry: ActivityEntry) => entry.kind === 'tool' && entry.state === 'running'
@@ -41,8 +41,12 @@ function timeEntries(job: string, entries: readonly ActivityEntry[], now: number
     const time = known.get(entry.id)
     const running = isRunning(entry)
     const seen = entry.at ?? now
-    if (!time) known.set(entry.id, running ? { seen, started: seen } : { seen })
-    else if (!running && time.started !== undefined && time.ended === undefined && heldRunning(before, index, entry.id)) time.ended = now
+    if (!time) {
+      known.set(entry.id, running ? { seen, started: seen } : { seen })
+      continue
+    }
+    const sawItEnd = !running && time.started !== undefined && time.ended === undefined && heldRunning(before, index, entry.id)
+    if (sawItEnd) time.ended = now
   }
 }
 
@@ -51,7 +55,10 @@ let listed: { runs: unknown; running: ReadonlySet<string> } = { runs: undefined,
 
 function runningNow(runs: unknown): ReadonlySet<string> {
   if (!Array.isArray(runs)) return listed.running
-  if (runs !== listed.runs) listed = { runs, running: new Set(runs.filter((run) => run?.state === 'running').map((run) => run.id)) }
+  if (runs !== listed.runs) {
+    const running = runs.filter((run) => run?.state === 'running').map((run) => run.id)
+    listed = { runs, running: new Set(running) }
+  }
   return listed.running
 }
 
@@ -70,7 +77,8 @@ const stopTiming = hostStore.subscribe((state, previous) => {
   if (next === before && state.snapshot.runs === previous.snapshot.runs) return
 
   for (const job of timings.keys()) {
-    const kept = job === MAIN_ACTIVITY || job.startsWith('sample:') || (next !== undefined && Object.hasOwn(next, job)) || running.has(job)
+    const held = next !== undefined && Object.hasOwn(next, job)
+    const kept = job === MAIN_ACTIVITY || job.startsWith('sample:') || held || running.has(job)
     if (!kept) timings.delete(job)
   }
   for (const job in next) {

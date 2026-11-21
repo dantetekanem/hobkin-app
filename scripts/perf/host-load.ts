@@ -120,7 +120,7 @@ const fixed = (number: number, digits = 2) => number.toFixed(digits)
 function summary(result: Record<string, any>): string {
   const what = [
     `${agents} agents`,
-    ...(history ? [`each with ${history * 2 + 1} steps`] : []),
+    ...(history ? [`each after ${history * 2 + 1} steps`] : []),
     `${fixed(result.seconds, 0)} s`,
     result.window === 'old' ? 'a window from before tails' : result.window ? `a window watching ${result.watched.length} of them` : 'no window',
     ...(result.session ? [] : ['no session growth']),

@@ -72,19 +72,31 @@ class ActivityView {
       const whole = !this.reads.tails || this.watched.has(job)
       const shown = whole ? entries : tailOf(entries)
       const held = this.held[job]
+
+      // A job whose watching turned goes at once, as one reset. So does a job the window holds whole, or does not hold yet.
       if (this.turned.has(job) && held) {
         resets.push({ op: 'reset', job, entries: [...shown] })
         before[job] = shown
-      } else if (!whole && held && !sameEntries(held, shown)) {
-        const due = (this.sentAt.get(job) ?? -Infinity) + TAIL_MS
-        if (now < due) {
-          next[job] = held
-          this.due = Math.min(this.due ?? due, due)
-          continue
-        }
       }
-      if (!whole && !(held && sameEntries(held, shown))) this.sentAt.set(job, now)
-      next[job] = !whole && held && sameEntries(held, shown) ? held : shown
+      if ((this.turned.has(job) && held) || whole || !held) {
+        if (!whole) this.sentAt.set(job, now)
+        next[job] = shown
+        continue
+      }
+
+      // A tail that reads the same stays the list held. One that changed waits until TAIL_MS after the last one sent.
+      if (sameEntries(held, shown)) {
+        next[job] = held
+        continue
+      }
+      const due = (this.sentAt.get(job) ?? -Infinity) + TAIL_MS
+      if (now < due) {
+        next[job] = held
+        this.due = Math.min(this.due ?? due, due)
+        continue
+      }
+      this.sentAt.set(job, now)
+      next[job] = shown
     }
     this.turned.clear()
     for (const job of this.sentAt.keys()) if (!(job in next)) this.sentAt.delete(job)
