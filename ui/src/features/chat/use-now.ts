@@ -27,3 +27,12 @@ export function useWakeAt(at: number | null): void {
     return () => clearTimeout(timer)
   }, [at, woken])
 }
+
+const MINUTE_MS = 60_000
+const watchMinutes = (listener: () => void) => subscribeClock(MINUTE_MS, listener)
+const today = () => new Date(readClock(MINUTE_MS)).setHours(0, 0, 0, 0)
+
+/** When today began, on this Mac's clock: for day labels. It looks each minute and draws its caller only when the day turns. */
+export function useToday(): number {
+  return useSyncExternalStore(watchMinutes, today, today)
+}

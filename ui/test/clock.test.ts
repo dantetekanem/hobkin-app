@@ -16,7 +16,7 @@ const show = (now: 'visible' | 'hidden') => {
 }
 mock.timers.enable({ apis: ['setInterval', 'Date'], now: 1_000_000 })
 const { readClock, subscribeClock } = await import('../src/lib/clock.ts')
-const { useNow } = await import('../src/features/chat/use-now.ts')
+const { useNow, useToday } = await import('../src/features/chat/use-now.ts')
 after(() => {
   mock.timers.reset()
   Reflect.deleteProperty(globalThis, 'document')
@@ -66,5 +66,24 @@ test('a screen whose clock is in the leaf that shows the time does not draw for 
   const mounted = await mountCounting(() => createElement(Screen))
   for (let second = 0; second < 3; second++) await mounted.change(() => mock.timers.tick(1000))
   assert.deepEqual(draws, { screen: 1, time: 4, resting: 1 })
+  await mounted.unmount()
+})
+
+test('day labels draw again when the day turns, not each minute', async () => {
+  mock.timers.setTime(new Date(2026, 10, 21, 23, 57, 30).getTime())
+  let draws = 0
+  let today = 0
+  const Column = () => {
+    draws += 1
+    today = useToday()
+    return null
+  }
+  const mounted = await mountCounting(() => createElement(Column))
+  assert.equal(today, new Date(2026, 10, 21).getTime())
+  for (let minute = 0; minute < 2; minute++) await mounted.change(() => mock.timers.tick(60_000))
+  assert.equal(draws, 1, 'the minutes before midnight draw nothing')
+  await mounted.change(() => mock.timers.tick(60_000))
+  assert.equal(draws, 2)
+  assert.equal(today, new Date(2026, 10, 22).getTime())
   await mounted.unmount()
 })

@@ -6,7 +6,7 @@ import { useChat } from './chat-store.ts'
 import { Composer } from './Composer.tsx'
 import { buildConversation } from './conversation.ts'
 import { MessageList } from './MessageList.tsx'
-import { useNow } from './use-now.ts'
+import { useToday } from './use-now.ts'
 import { usePinnedScroll } from './use-pinned-scroll.ts'
 import { usePresence } from './use-presence.ts'
 
@@ -39,8 +39,8 @@ export function ChatColumn() {
   const outbox = useChat((chat) => chat.outbox.entries)
   const local = useChat((chat) => chat.local)
   usePresence(useChat((chat) => chat.draft.text.length > 0))
-  // Only the day labels depend on the clock, so a look every minute is enough.
-  const now = useNow(true, MINUTE_MS)
+  // Only the day labels depend on the clock: the column draws again when the day turns, not each minute.
+  const now = useToday()
 
   const days = useMemo(
     () => (hasHost ? buildConversation({ messages, local, live, outbox, now }) : buildConversation({ messages: SAMPLE, now })),
