@@ -38,7 +38,8 @@ export interface ActionItem {
 /** What is waiting, in the user's terms. `question` is hobkin's own, or one the screen has no other name for. */
 export type ItemKind = 'routine' | 'work' | 'yours' | 'approval' | 'merge' | 'pickup' | 'question'
 
-// `action` is a to-do a routine found, `routines` is hobkin asking about a routine itself.
+// `action` is a to-do a routine found, `routines` is hobkin asking about a routine itself, and `deploy` is its
+// "Deploy now?" for what merged on a project since its last deploy.
 const KINDS = new Map<string, ItemKind>([
   ['routine', 'routine'],
   ['action', 'routine'],
@@ -47,6 +48,7 @@ const KINDS = new Map<string, ItemKind>([
   ['yours', 'yours'],
   ['merge', 'merge'],
   ['pickup', 'pickup'],
+  ['deploy', 'approval'],
 ])
 
 export function kindOf(item: ActionItem): ItemKind {

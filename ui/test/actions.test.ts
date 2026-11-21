@@ -66,6 +66,7 @@ test('says what kind of thing is waiting', () => {
   assert.equal(kindOf(item('a', { answerTo: { kind: 'yours', slug: 'billing-api', item: 'a41c07' } })), 'yours')
   assert.equal(kindOf(merge), 'merge')
   assert.equal(kindOf(item('a', { answerTo: { kind: 'pickup', keys: ['storefront:3fa9c1'] } })), 'pickup')
+  assert.equal(kindOf(item('a', { answerTo: { kind: 'deploy', slug: 'storefront', items: ['3fa9c1'] } })), 'approval', 'Deploy now? asks to ship')
   assert.equal(kindOf(item('a', { answerTo: { kind: 'outside' } })), 'question', 'a kind this screen has no name for is still a question')
   assert.equal(kindOf(item('a', { answerTo: null })), 'question')
 
