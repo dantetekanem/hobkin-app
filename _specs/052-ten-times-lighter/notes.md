@@ -56,6 +56,21 @@ Read in code, with the content sample above as the measured part.
 - P11. A visible window in the background runs at full rate. Nothing in the app reacts to focus.
 - Not found: the app has no SVG gradients, filters or masks, and no code writes CSS rules at runtime.
 
+## Window: memory
+
+Read with `footprint` on the window's content process, 18 hours after it started (`scripts/perf/window-memory.sh`).
+
+| | Size |
+| --- | ---: |
+| Whole footprint | 3,227 MB |
+| Graphics surfaces the page owns | 3,113 MB in 1,315 surfaces |
+| Script heap in use | 85 MB (1,126 MB more freed and not yet given back) |
+
+- The window's memory is drawing surfaces, not script. 2.6 GB of it is compressed, so nothing has touched it for a long time.
+- 469 surfaces are 1024 by 1024 pixels, the tile WebKit uses for a layer too large for one surface: 1.9 GB. Another 210, 98 and 39 surfaces are the narrow second column of such tiles. Read together they are a few very tall layers kept whole: about 594 px wide and 107,000 px tall, 626 px by 50,000 px, and 910 px by 20,000 px. Those are the widths of the chat's list and of an agent's steps. Inferred from the sizes; no tool here lists layers.
+- The counts did not change by one surface over 20 minutes in which the page hot-reloaded many times, and not after a full reload of the window at 16:32 either (3,113 MB, 1,315 surfaces and 469 tiles before, and the same 90 seconds after). So these surfaces do not belong to the page on screen: the WebKit process leaked them over its 18 hours, and only a restart of the app frees them.
+- What leaked them is not proven. Before S6 every chat row measured and moved on each token of a reply, and a row taller than 1,024 px is a tiled layer while it moves, which fits the tile sizes. To know whether the leak is gone, read `scripts/perf/window-memory.sh` after a restart and again after hours of use.
+
 ## Host
 
 From a load lab that starts the real host on a temporary home and feeds synthetic Pi events into real work agents. 60-second runs.
