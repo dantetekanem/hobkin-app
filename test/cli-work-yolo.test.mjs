@@ -630,7 +630,7 @@ Your rate is 8.
   // A project still getting ready says what holds it and what hobkin is doing about it, and what each change would meet once it is ready.
   const web = yoloReportOf(h, 'web').body;
   assert.match(web, /^Useful: web is getting ready for YOLO mode\.\n\n## What holds it\n\n- Its readiness has not been checked yet\.\n\nIts readiness work is queued to run\.\n\n## The plan once it is ready\n/);
-  assert.match(web, /- Nothing is deployed until its deploy path is set up\.\n/);
+  assert.match(web, /- Nothing is deployed until its deploy path is set up\. Its readiness run sets this up\.\n/);
   assert.match(web, /## What will merge once it is ready\n\nYour rate is 8\.\n\nNothing waits to merge on web\.\n\n## Merged and deployed\n\nNothing has merged by itself on web yet\.\n$/);
   assert.doesNotMatch(`${web}${yoloReportOf(h).body}`, /not ready/);
 
@@ -638,6 +638,21 @@ Your rate is 8.
   writeMode(h.root, { pausedAt: new Date(NOW).toISOString() });
   writeYoloReports(h.root, { now: NOW + 3000 });
   assert.match(yoloReportOf(h).body, /Your rate is 8\. Nothing merges while work mode is paused\.\n/);
+});
+
+test('a change that cannot land says the landing list\'s own reason, and a deploy path still being set up says what it waits on', async t => {
+  const h = workspace(t);
+  makeReady(h, 'api', allReady({ deploy: { user: { title: 'Make space for the release build', step: 'Expand the Docker disk image limit.' } } }));
+  const unfinished = finished(h, 'Fix login');
+  updateItem(h.root, 'api', unfinished.id, { left: 'The independent review still needs to cover the committed range.' }, NOW);
+  await survey(h);
+
+  assert.deepEqual(await yoloPass(h.root, { now: NOW, handOff: () => {} }), []);
+  writeYoloReports(h.root, { now: NOW });
+  const { body } = yoloReportOf(h);
+  assert.match(body, /\n- "Fix login": a bug fix rated 10\. It asks you: it still has work left: The independent review still needs to cover the committed range\.\n/);
+  assert.match(body, /\n- Nothing is deployed until its deploy path is set up\. It waits on you: Make space for the release build\.\n/);
+  assert.doesNotMatch(body, /cannot land as a local branch/);
 });
 
 test('Reports lists each project\'s YOLO report as that project\'s work', async t => {

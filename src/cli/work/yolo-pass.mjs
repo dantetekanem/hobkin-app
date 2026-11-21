@@ -66,12 +66,14 @@ function readJsonLines(file) {
  * Why a finished change keeps asking the user, or null when it may merge by itself. The first reason found is the one said. `models` is what
  * hobkin's own runs say of each TLA+ model covering the change, at its head (`changeModels`), and `unmodeled` the machines the state machines
  * look found that it touches with no model naming those files (`unmodeledIn`). Scores given before commits that changed only models still count.
+ * `leftOut` is why the landing list leaves it out, in that list's words, when it does.
  */
-export function whyItAsks({ yolo, project, readiness, landable, row, item, unit = {}, models = [], unmodeled = [] }) {
+export function whyItAsks({ yolo, project, readiness, landable, leftOut = null, row, item, unit = {}, models = [], unmodeled = [] }) {
   if (!yolo.on) return 'YOLO mode is off';
   if (project?.paused) return 'its project is paused';
   if (!readiness.ready) return 'its project is not ready for YOLO mode';
-  if (item.state !== 'branch' || !landable) return 'it cannot land as a local branch yet';
+  if (!landable) return leftOut ?? 'the last survey did not list it to land, and hobkin work sync reads it again';
+  if (item.state !== 'branch') return 'it is not a finished local branch';
   if (row.holds) return 'it brings earlier branches with it';
   if (!item.review) return 'no review has scored it';
 
@@ -225,16 +227,21 @@ function askForModel(root, { asked, models, now }) {
   retryItem(root, row.slug, item.id, now);
 }
 
-/** The finished local branches the landing list would let go, each as `<project>:<item>`. */
-export const landableKeys = root => new Set(landingList(root).landable.map(({ slug, item }) => `${slug}:${item}`));
+/** Each change the landing list names, as `<project>:<item>`: null for one it would let go, and otherwise why it leaves it out. */
+export function landingReasons(root) {
+  const { landable, leftOut } = landingList(root);
+  return new Map([...landable.map(({ slug, item }) => [`${slug}:${item}`, null]), ...leftOut.map(({ slug, item, why }) => [`${slug}:${item}`, why])]);
+}
 
 /** What `whyItAsks` reads of one waiting row, with the models covering it apart, as the pass and YOLO mode's report read it. */
-export function askedOf(root, { yolo, landable, row, item, unit }) {
+export function askedOf(root, { yolo, landing, row, item, unit }) {
+  const key = `${row.slug}:${row.item}`;
   const asked = {
     yolo,
     project: readProject(root, row.slug),
     readiness: readinessOf(root, row.slug),
-    landable: landable.has(`${row.slug}:${row.item}`),
+    landable: landing.get(key) === null,
+    leftOut: landing.get(key) ?? null,
     row,
     item,
     unit,
@@ -253,12 +260,12 @@ export async function yoloPass(root, { now = Date.now(), handOff, spawn } = {}) 
   prepareProjects(root, now);
   if (whyWorkModeWaits(readMode(root), now)) return [];
 
-  const landable = landableKeys(root);
+  const landing = landingReasons(root);
   const reports = [];
   const mergedOn = new Set();
   for (const { row, item, unit } of weighedRows(root, now)) {
     if (mergedOn.has(row.slug)) continue;
-    const { asked, models } = askedOf(root, { yolo, landable, row, item, unit });
+    const { asked, models } = askedOf(root, { yolo, landing, row, item, unit });
     if (whyItAsks({ ...asked, models })) {
       await checkWaitingModel(root, { asked, models, spawn, now });
       askForModel(root, { asked, models, now });

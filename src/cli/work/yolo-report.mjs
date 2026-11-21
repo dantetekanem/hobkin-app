@@ -7,7 +7,7 @@ import { whyWorkModeWaits } from './controls.mjs';
 import { weighedRows } from './reads.mjs';
 import { readJson, readMode } from './store.mjs';
 import { needOf } from './yolo-parts.mjs';
-import { AFTER_DEPLOY_MINUTES, askedOf, deployOf, deployWords, kindWords, landableKeys, READINGS, readLedger, whyItAsks } from './yolo-pass.mjs';
+import { AFTER_DEPLOY_MINUTES, askedOf, deployOf, deployWords, kindWords, landingReasons, READINGS, readLedger, whyItAsks } from './yolo-pass.mjs';
 import { readYolo, yoloView } from './yolo.mjs';
 
 /**
@@ -52,12 +52,21 @@ function readinessBlocks({ ready, needs, parts, work, checkedAt }) {
   return [`## What holds it\n\n${listed(needs)}`, ...(doing ? [doing] : []), ...still];
 }
 
+const sentence = text => (/[.!?]$/.test(text) ? text : `${text}.`);
+
+// What a deploy path not set up yet waits on: the user's step, their merge, or hobkin's own work or next check, in the part's line.
+function deployWaits({ state, line, pr }) {
+  if (state === 'user') return `It waits on you: ${sentence(line)}`;
+  if (state === 'pr') return pr ? `Its PR waits for your merge: ${pr}` : 'Its branch waits for your merge.';
+  return sentence(line);
+}
+
 function planBlock({ name, ready, parts }, yolo) {
   const deploy = parts.find(part => part.name === 'deploy');
   const deploys = {
     'handed on': `The main agent deploys each one by its deploy path and watches the monitoring for ${AFTER_DEPLOY_MINUTES} minutes: ${deploy.line}`,
     'nothing deploys': deployWords['nothing deploys'],
-    'no deploy path': 'Nothing is deployed until its deploy path is set up.',
+    'no deploy path': `Nothing is deployed until its deploy path is set up. ${deployWaits(deploy)}`,
   };
   const plan = [
     `hobkin merges a small change on ${name} by itself once its review rates it ${yolo.rate} or more: ${smallKinds}.`,
@@ -70,7 +79,7 @@ function planBlock({ name, ready, parts }, yolo) {
 }
 
 function nextFor(why, { name, ready }) {
-  if (why) return `It asks you: ${why}.`;
+  if (why) return `It asks you: ${sentence(why)}`;
   return ready ? 'It merges by itself on the next pass.' : `It merges by itself once ${name} is ready.`;
 }
 
@@ -128,11 +137,11 @@ function reportText(project, facts) {
  * it. On a project still getting ready, it is what the change would meet once the project is ready.
  */
 function waitingChanges(root, yolo, now) {
-  const landable = landableKeys(root);
+  const landing = landingReasons(root);
   return weighedRows(root, now)
     .filter(({ item }) => item.state === 'branch' && !String(item.key ?? '').startsWith(READINESS_KEYS))
     .map(({ row, item, unit }) => {
-      const { asked, models } = askedOf(root, { yolo, landable, row, item, unit });
+      const { asked, models } = askedOf(root, { yolo, landing, row, item, unit });
       const readiness = { ...asked.readiness, ready: true };
       return { slug: row.slug, item, models, why: whyItAsks({ ...asked, models, readiness }) };
     });
