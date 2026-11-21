@@ -147,6 +147,36 @@ function waitingChanges(root, yolo, now) {
     });
 }
 
+function changeFact({ item, models, why }) {
+  const { kind, rate } = item.review?.scores ? scoresOf(item.review, models) : {};
+  return { item: item.id, title: item.title, kind: kind ? kindWords[kind] : null, rate: rate ?? null, why };
+}
+
+// `held` is what the latest reading after its deploy showed: true when it held, false on a regression, null with no reading yet.
+function mergeFact(merge, readings) {
+  const reading = readings.findLast(line => line.item === merge.item);
+  const held = reading ? !reading.regressed.length : null;
+  const { at, item, title, kind, rate, head } = merge;
+  return { at, item, title, kind: kindWords[kind], rate, head: head.slice(0, SHORT_SHA), deploy: deployedWords(merge, readings), held };
+}
+
+/**
+ * YOLO mode as Work status carries it: `yoloView`, and on each project what waits to merge there, as its report says it, with its kind, its rate
+ * and why it asks the user, or null when it merges on the next pass, and what merged by itself, newest first, with what became of its deploy.
+ */
+export function yoloStatus(root, now = Date.now()) {
+  const view = yoloView(root);
+  const changes = waitingChanges(root, view, now);
+  const ledger = readLedger(root);
+  const readings = ledger.filter(line => line.after);
+  const projects = view.projects.map(project => ({
+    ...project,
+    changes: changes.filter(({ slug }) => slug === project.slug).map(changeFact),
+    merged: ledger.filter(line => line.slug === project.slug && line.target).toReversed().map(merge => mergeFact(merge, readings)),
+  }));
+  return { ...view, projects };
+}
+
 /**
  * Writes each project's report again where its words changed, or only `slug`'s, and answers what it wrote. Nothing is written while YOLO mode is
  * off. Called after the owner's pass and after a deploy's reading, never on a timer of its own.

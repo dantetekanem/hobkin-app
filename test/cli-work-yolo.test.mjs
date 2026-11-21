@@ -10,7 +10,7 @@ import { clientNoticesToPost } from '../src/cli/client-notices.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { answerDecision, openDecisions } from '../src/cli/decisions.mjs';
 import { surveyAndClose } from '../src/cli/work/closing.mjs';
-import { runWorkCommand } from '../src/cli/work/commands.mjs';
+import { runWorkCommand, workStatus } from '../src/cli/work/commands.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import { recordMachines } from '../src/cli/work/machines.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
@@ -653,6 +653,37 @@ test('a change that cannot land says the landing list\'s own reason, and a deplo
   assert.match(body, /\n- "Fix login": a bug fix rated 10\. It asks you: it still has work left: The independent review still needs to cover the committed range\.\n/);
   assert.match(body, /\n- Nothing is deployed until its deploy path is set up\. It waits on you: Make space for the release build\.\n/);
   assert.doesNotMatch(body, /cannot land as a local branch/);
+});
+
+test('Work status carries what waits to merge on each project, at what rate and why it asks, and what merged by itself with its deploy', async t => {
+  const h = workspace(t);
+  makeReady(h);
+  const shipped = finished(h, 'Speed up search', { kind: 'performance', numbers: { coverage: 9, proof: 9, safety: 9, visibility: 9, rollback: 10 } });
+  await survey(h);
+  await yoloPass(h.root, { now: NOW, handOff: () => {} });
+  const calm = part => ({ regressed: false, saw: `Nothing new in ${part}.` });
+  const reading = { minutes: 30, errors: calm('errors'), slowQueries: calm('slow queries'), latency: { regressed: false, saw: 'p95 118 ms against 120 ms.' } };
+  await runWorkCommand(h.root, ['yolo', 'api', shipped.id], Readable.from([JSON.stringify(reading)]));
+
+  const due = finished(h, 'Fix login');
+  const underRate = finished(h, 'Fix logout', { numbers: { coverage: 7, proof: 7, safety: 9, visibility: 7, rollback: 8 } });
+  await survey(h);
+
+  const api = workStatus(h.root).yolo.projects.find(({ slug }) => slug === 'api');
+  assert.deepEqual(api.changes, [
+    { item: due.id, title: 'Fix login', kind: 'a bug fix', rate: 10, why: null },
+    { item: underRate.id, title: 'Fix logout', kind: 'a bug fix', rate: 7.6, why: 'its general rate is 7.6, under 8' },
+  ]);
+  assert.deepEqual(api.merged, [{
+    at: new Date(NOW).toISOString(),
+    item: shipped.id,
+    title: 'Speed up search',
+    kind: 'performance work',
+    rate: 9.2,
+    head: shipped.head.slice(0, 7),
+    deploy: 'It deployed and held for 30 minutes: Nothing new in errors. Nothing new in slow queries. p95 118 ms against 120 ms.',
+    held: true,
+  }]);
 });
 
 test('Reports lists each project\'s YOLO report as that project\'s work', async t => {

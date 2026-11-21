@@ -26,7 +26,7 @@ import { gitOrNothing, prepareTree } from './tree.mjs';
 import { unmergedNow } from './unmerged.mjs';
 import { readWatch } from './watcher.mjs';
 import { recordAfterDeploy } from './yolo-pass.mjs';
-import { writeYoloReports } from './yolo-report.mjs';
+import { writeYoloReports, yoloStatus } from './yolo-report.mjs';
 import { openReadinessPulls, partSaid, partWords, RECORDED } from './yolo-parts.mjs';
 import { mainModels, readinessOf, recordReadiness, yoloView } from './yolo.mjs';
 
@@ -269,7 +269,7 @@ function statusOf(root, outlook) {
     nextDiscoveryAt: folderSearched(root, folder) ? null : nextDiscoveryAt(mode),
     projects,
     ready: readyItems(root),
-    yolo: yoloView(root),
+    yolo: yoloStatus(root, outlook.now),
     closing: closingItems(root),
     watching: watchingView(root),
   };
