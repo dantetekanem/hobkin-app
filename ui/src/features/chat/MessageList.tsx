@@ -1,6 +1,6 @@
 import { ArrowDown, Reply } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useRef } from 'react'
 import { shellFields } from '#shared/protocol/snapshot.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
@@ -13,14 +13,12 @@ import type { DayGroup, Entry, MessageEntry, NoticeEntry } from './conversation.
 import { heldBy, type Holder } from './doing.ts'
 import { MessageText, risen, StreamingMarkdown, sunk } from './markdown.ts'
 import { nextReveal } from './stream-buffer.ts'
+import { usePaced } from './use-paced.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
 import { useFirstWordShown } from './use-first-word.ts'
 import { StoredImages } from './StoredImages.tsx'
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
-
-/** The least time between two pieces of a reply appearing. A word slower than this shows as soon as it is whole. */
-const CADENCE_MS = 100
 
 // What is above a new message glides up to make room. No bounce: it is the new message that lands.
 const makeRoom = { layout: spring.sheet }
@@ -228,18 +226,7 @@ function Message({ entry, mine }: { entry: MessageEntry; mine: boolean }) {
  * (`stream-buffer.ts`). The first step shows at once. A finished reply shows whole at once.
  */
 function useRevealed(text: string, writing: boolean): string {
-  const [shown, setShown] = useState(() => nextReveal(text, '', !writing))
-  const last = useRef(0)
-  const next = writing ? nextReveal(text, shown, false) : text
-  useEffect(() => {
-    if (!writing || next === shown) return
-    const timer = setTimeout(() => {
-      last.current = performance.now()
-      setShown(next)
-    }, Math.max(0, last.current + CADENCE_MS - performance.now()))
-    return () => clearTimeout(timer)
-  }, [writing, next, shown])
-  return writing ? shown : text
+  return usePaced(text, writing, (all, shown) => nextReveal(all, shown, false))
 }
 
 /**

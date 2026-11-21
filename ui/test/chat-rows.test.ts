@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
 import { after, mock, test } from 'node:test'
-import { createElement, memo, useEffect, useMemo } from 'react'
+import { createElement, memo, useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { HostMessage } from '../../shared/protocol/messages.ts'
 import type { ChatMessage } from '../../shared/protocol/snapshot.ts'
 import type { TurnEvent } from '../../shared/protocol/turn.ts'
@@ -85,5 +85,55 @@ test('a token draws the writing row only', async () => {
     await mounted.change(() => send(turn({ kind: 'text-delta', index: 0, delta: word })))
   }
   assert.deepEqual([...draws], [['live:0', 9]])
+  await mounted.unmount()
+})
+
+/** Text that changes from outside React, as a host message changes a step's words. */
+function changing(first: string) {
+  let value = first
+  const listeners = new Set<() => void>()
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener)
+    return () => listeners.delete(listener)
+  }
+  return {
+    get value() {
+      return value
+    },
+    set(next: string) {
+      value = next
+      for (const listener of listeners) listener()
+    },
+    use: () => useSyncExternalStore(subscribe, () => value),
+  }
+}
+
+test("the agent page's streaming step shows its words at most ten times a second", async () => {
+  let now = 1000
+  mock.method(performance, 'now', () => now)
+  const { usePaced } = await import('../src/features/chat/use-paced.ts')
+  const words = changing('Reading')
+  const shown: string[] = []
+  function Step() {
+    shown.push(usePaced(words.use(), true))
+    return null
+  }
+  const mounted = await mountCounting(() => createElement(Step))
+  // Forty updates in a second, as the host sends an agent's words.
+  for (let update = 0; update < 40; update++) {
+    await mounted.change(() => {
+      now += 25
+      mock.timers.tick(25)
+      words.set(`${words.value} more`)
+    })
+  }
+  const changes = shown.filter((text, at) => at > 0 && text !== shown[at - 1]).length
+  assert.ok(changes <= 10, `${changes} changes shown`)
+  // Once the words stop, the last of them shows.
+  await mounted.change(() => {
+    now += 100
+    mock.timers.tick(100)
+  })
+  assert.equal(shown.at(-1), words.value)
   await mounted.unmount()
 })

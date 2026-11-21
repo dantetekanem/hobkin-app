@@ -5,6 +5,7 @@ import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { MessageText, risen, sunk } from '@/features/chat/markdown.ts'
 import { useNow } from '@/features/chat/use-now.ts'
+import { usePaced } from '@/features/chat/use-paced.ts'
 import { diffOf, startView, unifiedRows, type Diff, type FileSides } from '@/features/review/code/diff-rows.ts'
 import { languageOf } from '@/features/review/code/languages.ts'
 import { spring, tween } from '@/lib/motion.ts'
@@ -95,11 +96,7 @@ function StepBody({ step, timeOf }: { step: Step; timeOf: TimeOf }) {
     case 'codemode':
       return <CodemodeStep entry={step.entries[0]!} state={step.state} />
     case 'says':
-      return (
-        <div className="max-w-[92%] text-[15px] leading-relaxed break-words">
-          <MessageText text={step.text} role="assistant" />
-        </div>
-      )
+      return <Says text={step.text} />
     case 'shell':
       return <ShellGroup commands={step.commands} timeOf={timeOf} />
     case 'change':
@@ -109,6 +106,16 @@ function StepBody({ step, timeOf }: { step: Step; timeOf: TimeOf }) {
     case 'tool':
       return <OtherTool name={step.name} summary={step.summary} state={step.state} output={step.output} failure={step.failure} />
   }
+}
+
+/** What the agent said, as Markdown. While it is being written its words change at most ten times a second, as the chat's do. */
+function Says({ text }: { text: string }) {
+  const shown = usePaced(text, true)
+  return (
+    <div className="max-w-[92%] text-[15px] leading-relaxed break-words">
+      <MessageText text={shown} role="assistant" />
+    </div>
+  )
 }
 
 /** Seconds as the canvas says them: 8s, 1m 05s. */
