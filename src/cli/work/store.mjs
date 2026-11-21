@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { atomicJson } from '../config.mjs';
+import { forgetRead, readOnce } from './one-read.mjs';
 
 // A level names the tier of each kind of run (`tiers.mjs`): a look reads, and a do writes what gets merged, so a do is
 // never on the fast tier. The efforts are what a run takes while its tier has no model of its own.
@@ -124,6 +125,7 @@ function parseEvents(file) {
 function appendEvent(file, event) {
   mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   appendFileSync(file, `${JSON.stringify(event)}\n`, { mode: 0o600 });
+  forgetRead(`records:${file}`);
 }
 
 function fold(events, identify) {
@@ -141,7 +143,12 @@ const MAX_CACHED_WORK_BYTES = 8 * 1024 * 1024;
 const workVersion = stat => stat?.isFile()
   ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : null;
 
+// One look at work mode reads each history once, and the same records serve every part of it (`one-read.mjs`).
 function readWorkRecords(file, key) {
+  return readOnce(`records:${file}`, () => readFolded(file, key));
+}
+
+function readFolded(file, key) {
   const version = workVersion(lstatSync(file, { throwIfNoEntry: false, bigint: true }));
   const cached = workRecords.get(file);
   workRecords.delete(file);

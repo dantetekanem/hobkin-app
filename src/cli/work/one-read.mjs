@@ -21,3 +21,8 @@ export function readOnce(key, read) {
   if (!held.has(key)) held.set(key, read());
   return held.get(key);
 }
+
+/** A write made during a look: what the look kept under `key` is read again the next time it is asked for. */
+export function forgetRead(key) {
+  held?.delete(key);
+}

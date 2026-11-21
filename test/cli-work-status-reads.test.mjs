@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { workStatus } from '../src/cli/work/commands.mjs';
+import { oneRead } from '../src/cli/work/one-read.mjs';
+import { fileItem, readItems } from '../src/cli/work/store.mjs';
 import { writeJson } from './helpers/work-fixture.mjs';
 
 const SPEC = '_specs/tla/Door.tla';
@@ -33,8 +35,14 @@ function home(t) {
   const described = join(root, 'work', 'api', 'prs', 'abc123.md');
   fs.writeFileSync(described, '# Fix the door\n\nThe door closes again.\n');
 
-  const counted = { survey: 0, runs: 0, ready: 0 };
-  const { readFileSync, readdirSync } = fs;
+  const counted = { survey: 0, runs: 0, ready: 0, items: 0 };
+  const items = join(root, 'work', 'api', 'items.jsonl');
+  const { readFileSync, readdirSync, lstatSync } = fs;
+  // Each read of a project's items looks at its file first, to tell whether the copy it keeps is still true.
+  t.mock.method(fs, 'lstatSync', (...args) => {
+    if (String(args[0]) === items) counted.items += 1;
+    return lstatSync(...args);
+  });
   t.mock.method(fs, 'readFileSync', (...args) => {
     if (String(args[0]) === survey) counted.survey += 1;
     if (String(args[0]) === described) counted.ready += 1;
@@ -55,6 +63,7 @@ function home(t) {
     counted.survey = 0;
     counted.runs = 0;
     counted.ready = 0;
+    counted.items = 0;
     return now;
   };
   return { root, run, reads };
@@ -62,11 +71,14 @@ function home(t) {
 
 const modelsOf = (status, slug) => status.projects.find(project => project.slug === slug).models?.map(({ spec, state, run }) => [spec, state, run]);
 
-test('one Work status reads the survey, lists the proof runs and works out the finished work once, however many projects the home has', t => {
+test('one Work status reads the survey, each project\'s items and the proof runs, and works out the finished work, once each', t => {
   const h = home(t);
+  // The first read of a file in this process also checks it did not change while it was read.
+  workStatus(h.root);
+  h.reads();
   const status = workStatus(h.root);
 
-  assert.deepEqual(h.reads(), { survey: 1, runs: 1, ready: 1 });
+  assert.deepEqual(h.reads(), { survey: 1, runs: 1, ready: 1, items: 1 });
   assert.deepEqual(status.ready.map(({ item, about }) => [item, about]), [['abc123', 'The door closes again.']]);
   assert.deepEqual(modelsOf(status, 'api'), [[SPEC, 'holds', 'older']]);
   assert.deepEqual(status.yolo.projects.find(project => project.slug === 'api').models, status.projects.find(project => project.slug === 'api').models);
@@ -80,5 +92,15 @@ test('the next Work status reads again, so a run that ended since shows', t => {
   h.run('newer', 'broken', '2026-11-20T11:00:00Z');
 
   assert.deepEqual(modelsOf(workStatus(h.root), 'api'), [[SPEC, 'broken', 'newer']]);
-  assert.deepEqual(h.reads(), { survey: 1, runs: 1, ready: 1 });
+  assert.deepEqual(h.reads(), { survey: 1, runs: 1, ready: 1, items: 1 });
+});
+
+test('an item filed during one look at work mode shows in the rest of that look', t => {
+  const h = home(t);
+  const titles = oneRead(() => {
+    const before = readItems(h.root, 'api').map(({ title }) => title);
+    fileItem(h.root, 'api', { key: 'fix:hinge', kind: 'fix', title: 'Fix the hinge', brief: 'It squeaks.' });
+    return [before, readItems(h.root, 'api').map(({ title }) => title)];
+  });
+  assert.deepEqual(titles, [['Fix the door'], ['Fix the door', 'Fix the hinge']]);
 });
