@@ -12,7 +12,7 @@ import type { ReviewRow } from '../work/ai-reviews.ts'
 export const RECENT_MOST = 8
 
 export type PullAi =
-  | { state: 'none' }
+  | { state: 'none' | 'unavailable' }
   | { state: 'running'; percent: number | null; line: string; startedAt: number | null }
   | { state: 'ready'; row: ReviewRow }
   | { state: 'failed'; line: string }
@@ -64,8 +64,9 @@ function countedBy({ additions, deletions, changedFiles }: GitHubPull): PullEntr
 }
 
 /** The page's three lists. `rows` are every review that ran, newest first, as `rowsOf` gives them; only pull requests' count. */
-export function pullSections(lists: Pick<GitHubLists, 'reviews' | 'pulls'>, rows: readonly ReviewRow[], most = RECENT_MOST): PullSections {
-  const pulls = rows.filter(({ item }) => item.kind === 'pull')
+export function pullSections(lists: Pick<GitHubLists, 'reviews' | 'pulls'>, rows: readonly ReviewRow[], { most = RECENT_MOST, reviewError = null }: { most?: number; reviewError?: string | null } = {}): PullSections {
+  const unavailable = reviewError !== null
+  const pulls = unavailable ? [] : rows.filter(({ item }) => item.kind === 'pull')
   const byId = new Map(pulls.map((row) => [row.item.id, row]))
   const listed = new Set<string>()
 
@@ -73,7 +74,7 @@ export function pullSections(lists: Pick<GitHubLists, 'reviews' | 'pulls'>, rows
     const id = pullReviewId(pull.url)
     const row = id ? byId.get(id) : undefined
     if (id) listed.add(id)
-    return { id, pull, ai: aiOf(row), title: pull.title, repo: pull.repo, number: pull.number, size: countedBy(pull) ?? sizeOf(row) }
+    return { id, pull, ai: unavailable ? { state: 'unavailable' } : aiOf(row), title: pull.title, repo: pull.repo, number: pull.number, size: countedBy(pull) ?? sizeOf(row) }
   }
   const unlisted = (pull: GitHubPull) => {
     const id = pullReviewId(pull.url)

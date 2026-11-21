@@ -101,10 +101,10 @@ interface Placed {
  * A piece of the list that moves with its rows: it rises in, slides into the place a neighbor left, and fades out.
  * With Movement set to Still it does not slide: Motion's own reduced motion leaves layout animations running.
  */
-function Piece({ variants, order, className, children }: Placed & { className?: string; children: ReactNode }) {
+function Piece({ variants, order, className, children, aiOnly }: Placed & { className?: string; children: ReactNode; aiOnly?: boolean }) {
   const still = useStill()
   return (
-    <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className={className}>
+    <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className={className} data-ai-only={aiOnly || undefined}>
       {children}
     </motion.li>
   )
@@ -176,7 +176,7 @@ export function PullCard({ entry, mine, live, now, ...placed }: Placed & { entry
   }
 
   return (
-    <Piece {...placed} className="relative">
+    <Piece {...placed} className="relative" aiOnly={!pull}>
       <div className={CARD}>
         <div className="min-w-[240px] flex-1">
           <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground">
@@ -206,7 +206,7 @@ export function PullCard({ entry, mine, live, now, ...placed }: Placed & { entry
             </Button>
           ) : null}
         </div>
-        {id ? <AiReview id={id} ai={entry.ai} live={live} title={entry.title} /> : null}
+        {id && entry.ai.state !== 'unavailable' ? <AiReview id={id} ai={entry.ai} live={live} title={entry.title} /> : null}
       </div>
     </Piece>
   )
@@ -240,7 +240,7 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
   }
 
   return (
-    <div className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col items-start gap-2">
+    <div data-ai-review className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col items-start gap-2">
       {ai.state === 'none' ? (
         <>
           <span className="text-[13px] text-muted-foreground">Not reviewed by AI yet</span>
