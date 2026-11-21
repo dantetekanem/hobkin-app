@@ -13,6 +13,14 @@ export function yoloAtAGlance({ on, ready, projects }: YoloState): string {
   return projects.length ? `On · ${ready} of ${projects.length} ready` : 'On'
 }
 
+/**
+ * The report hobkin keeps on a project while YOLO mode is on: ready or what holds it, the plan, what will merge and what
+ * merged and deployed. Reports lists it as that project's `yolo` work. Null before its first.
+ */
+export function yoloReportId({ slug }: YoloProject, reports: ReadonlyArray<{ id: string; scheduleId?: string }>): string | null {
+  return reports.find(({ scheduleId }) => scheduleId === `work.${slug}.yolo`)?.id ?? null
+}
+
 export type ReadinessTone = 'ok' | 'live' | 'warn' | 'quiet'
 
 /** The branch a project's readiness waits on, as its card on Work shows it, and the group hobkin put that card in. */

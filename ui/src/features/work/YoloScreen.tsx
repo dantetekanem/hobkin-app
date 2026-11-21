@@ -8,6 +8,7 @@ import { Switch } from '@/components/ui/switch.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { openOnGitHub } from '@/features/github/open.ts'
 import { openTarget } from '@/features/home/navigate.ts'
+import { useReports } from '@/features/reports/store.ts'
 import { rateChoices, readyCount, SAMPLE_YOLO, sampleAfter, yoloSays } from '@/features/settings/yolo.ts'
 import { runCommand } from '@/lib/host/client.ts'
 import { cn } from '@/lib/utils.ts'
@@ -15,7 +16,7 @@ import type { FinishedGroup, YoloProject, YoloState } from '#shared/protocol/wor
 import { SectionHeading, Segmented } from './parts.tsx'
 import { runWork, useWorkView } from './store.ts'
 import { openOnWork } from './work-target.ts'
-import { partGroups, readinessRow, sampleReadiness, waitingChange, type PartOpen, type PartRow, type ReadinessPress, type ReadinessTone } from './yolo-page.ts'
+import { partGroups, readinessRow, sampleReadiness, waitingChange, yoloReportId, type PartOpen, type PartRow, type ReadinessPress, type ReadinessTone } from './yolo-page.ts'
 import { ProjectModels, ProofSetup } from '@/features/proofs/ProjectModels.tsx'
 
 type SetSample = Dispatch<SetStateAction<YoloState>>
@@ -166,6 +167,7 @@ interface Said {
  */
 function ProjectReadiness({ project, live, workOn, finished, now, setSample }: ReadinessContext & { project: YoloProject }) {
   const row = readinessRow(project, { workOn, now, zone: ZONE, waiting: waitingChange(project, finished) })
+  const reportId = useReports((state) => yoloReportId(project, state.inbox.reports))
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<Said | null>(null)
 
@@ -214,6 +216,19 @@ function ProjectReadiness({ project, live, workOn, finished, now, setSample }: R
             <span className="truncate font-heading text-[14px] font-medium">{project.name}</span>
             <span className={cn('inline-flex h-5 shrink-0 items-center rounded-full px-2 font-heading text-[11px] font-semibold whitespace-nowrap', TONES[row.tone])}>{row.state}</span>
             <span className="shrink-0 truncate text-[12px] text-muted-foreground tabular-nums">{row.checked}</span>
+            {/* Last on the line, so nothing before it moves when hobkin writes the first one. */}
+            {reportId ? (
+              <Button
+                variant="ghost"
+                size="xs"
+                data-stop=""
+                aria-label={`YOLO report on ${project.name}`}
+                onClick={() => openTarget({ to: 'report', id: reportId })}
+                className="shrink-0"
+              >
+                Report
+              </Button>
+            ) : null}
           </div>
           <p
             role={said?.tone === 'refused' ? 'alert' : undefined}

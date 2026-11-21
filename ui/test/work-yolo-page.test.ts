@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { FinishedChange, FinishedGroup, FinishedGroupName, YoloPart, YoloProject, YoloState } from '#shared/protocol/work.ts'
-import { partGroups, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance } from '../src/features/work/yolo-page.ts'
+import { partGroups, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance, yoloReportId } from '../src/features/work/yolo-page.ts'
 
 const NOW = Date.parse('2026-11-20T15:00:00Z')
 const project = (change: Partial<YoloProject> = {}): YoloProject => ({
@@ -124,4 +124,15 @@ test('readiness whose branch needs the user opens its card on Work instead of me
     const row = readinessRow(waits, { workOn: true, now: NOW, zone: 'UTC', waiting: waitingChange(waits, groups(name, card(MERGE))) })
     assert.deepEqual([row.action, row.press, row.detail], ['Open on Work', { do: 'open', key: 'api:r1' }, 'Rated risky.'], name)
   }
+})
+
+test("a project's YOLO report is the one hobkin lists as that project's yolo work", () => {
+  const reports = [
+    { id: 'run:1', scheduleId: 'work.api.do' },
+    { id: 'yolo:web:1', scheduleId: 'work.web.yolo' },
+    { id: 'yolo:api:2', scheduleId: 'work.api.yolo' },
+  ]
+
+  assert.equal(yoloReportId(project(), reports), 'yolo:api:2')
+  assert.equal(yoloReportId(project({ slug: 'docs' }), reports), null)
 })
