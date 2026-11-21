@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm'
 import { stillVariants } from '../../app/still-rule.ts'
 import { spring, tween } from '../../lib/motion.ts'
 import { localPathOf, remarkFilePaths } from '../viewer/paths.ts'
-import { blockStarts } from './stream-buffer.ts'
+import { blockScan, type Definition } from './stream-buffer.ts'
 
 /**
  * Markdown as the conversation and the prompt editor draw it. What a model writes is never markup of ours:
@@ -35,14 +35,19 @@ const BLOCKS = {
 const TABLE_WRAP = 'mb-3 overflow-x-auto last:mb-0'
 const TABLE = 'w-full border-collapse text-[14px]'
 
+/** Whether `freshSpans` found an element on screen before. Drawn again, it starts where it is and does not arrive again. */
+const wasShown = (node: unknown): boolean =>
+  typeof node === 'object' && node !== null && 'data' in node && typeof node.data === 'object' && node.data !== null && 'shown' in node.data
+
 /**
  * A plain element with the app's classes. A class Markdown itself set, such as a code block's `language-ts`,
- * is kept for the highlighter. react-markdown's own `node` prop stays out of the DOM.
+ * is kept for the highlighter. react-markdown's own `node` prop stays out of the DOM. An element that moves as it
+ * arrives does not move again if it was on screen before.
  */
 const styled =
   <Name extends Tag>(tag: ElementType, className: string, motionProps?: object) =>
-  ({ node: _node, className: given, ...props }: ComponentProps<Name> & { node?: unknown }) =>
-    createElement(tag, { ...props, ...motionProps, className: given ? `${given} ${className}` : className })
+  ({ node, className: given, ...props }: ComponentProps<Name> & { node?: unknown }) =>
+    createElement(tag, { ...props, ...motionProps, ...(motionProps && wasShown(node) ? { initial: false } : {}), className: given ? `${given} ${className}` : className })
 
 const LINK = 'underline decoration-border-strong underline-offset-2 transition-colors duration-[160ms] ease-[ease] hover:decoration-foreground'
 
@@ -101,21 +106,60 @@ export interface Block {
   offset: number
   /** In the whole text: the last mark before the block, whose piece may run into it, and every mark inside it. */
   marks: readonly number[]
+  /** The definitions of the rest of the text, which the block parses with and does not draw (`ownText`). */
+  prefix: string
+  /** Where the newest piece of the whole text begins: what starts before it was on screen already. */
+  drawn: number
 }
 
 /** A block shorter than this takes in the ones after it, so a long reply is a few dozen blocks to draw, not hundreds. */
 const BLOCK_CHARS = 500
 
+/** How CommonMark matches a label: case and runs of white space do not count. */
+const labelKey = (label: string) => label.trim().replace(/\s+/g, ' ').toLowerCase()
+
 /**
- * Markdown that may still grow, in blocks it parses the same in alone (`blockStarts`), each at least BLOCK_CHARS long
+ * Whether the text parses only whole. A footnote is numbered and listed for the whole text, and a label defined twice
+ * takes its first definition, wherever the reference is.
+ */
+function parsesWhole(definitions: readonly Definition[]): boolean {
+  const labels = new Set<string>()
+  for (const { label } of definitions) {
+    const key = labelKey(label)
+    if (key.startsWith('^') || labels.has(key)) return true
+    labels.add(key)
+  }
+  return false
+}
+
+/** Whether a stretch of the text holds only definitions and blank lines. */
+function onlyDefines(text: string, from: number, to: number, definitions: readonly Definition[]): boolean {
+  let at = from
+  for (const line of text.slice(from, to).split('\n')) {
+    if (line.trim() && !definitions.some((definition) => definition.at === at)) return false
+    at += line.length + 1
+  }
+  return true
+}
+
+/** What ends whatever the definitions above it left open, before the block that reads them. */
+const AFTER_DEFINITIONS = '\n\n***\n\n'
+
+/**
+ * Markdown that may still grow, in blocks it parses the same in alone (`blockScan`), each at least BLOCK_CHARS long
  * but the last. A finished block keeps its text and its marks, so it is not drawn, or parsed, again: only the block
- * still being written is.
+ * still being written is. A link's definition reaches every block, so each block parses with the definitions of the
+ * others, and one that arrives parses the blocks again once, where they are.
  */
 export function blocksOf(text: string, marks: readonly number[] = []): Block[] {
+  const drawn = Math.max(0, ...marks)
+  const { starts: found, definitions } = blockScan(text)
+  const whole = parsesWhole(definitions)
   const starts: number[] = []
-  for (const start of blockStarts(text)) {
+  for (const [at, start] of (whole ? [0] : found).entries()) {
     const last = starts.at(-1)
-    if (last === undefined || start - last >= BLOCK_CHARS) starts.push(start)
+    // Definitions alone draw nothing, so they stay with the block before them, as the whole text draws no break there.
+    if (last === undefined || (start - last >= BLOCK_CHARS && !onlyDefines(text, start, found[at + 1] ?? text.length, definitions))) starts.push(start)
   }
 
   return starts.map((offset, key) => {
@@ -126,26 +170,69 @@ export function blocksOf(text: string, marks: readonly number[] = []): Block[] {
       if (mark <= offset) before = before === undefined ? mark : Math.max(before, mark)
       else if (mark < end) within.push(mark)
     }
-    return { key, text: text.slice(offset, end), offset, marks: before === undefined ? within : [before, ...within] }
+    const elsewhere = whole ? [] : definitions.filter(({ at }) => at < offset || at >= end)
+    return {
+      key,
+      text: text.slice(offset, end),
+      offset,
+      marks: before === undefined ? within : [before, ...within],
+      prefix: elsewhere.length ? `${elsewhere.map(({ line }) => line).join('\n')}${AFTER_DEFINITIONS}` : '',
+      drawn,
+    }
   })
 }
+
+interface TreeRoot {
+  type: string
+  children?: TreeRoot[]
+  position?: { start: { offset?: number } }
+}
+
+/**
+ * Keeps of a block parsed after its prefix only what the block itself says, and the prefix's definitions, which draw
+ * nothing and make the block's references links.
+ */
+function ownText(prefix: number) {
+  return () => (tree: TreeRoot) => {
+    const definitions: TreeRoot[] = []
+    const collect = (node: TreeRoot) => {
+      if (node.type === 'definition') definitions.push(node)
+      else node.children?.forEach(collect)
+    }
+    const own = (tree.children ?? []).filter((child) => {
+      if ((child.position?.start.offset ?? 0) >= prefix) return true
+      collect(child)
+      return false
+    })
+    tree.children = [...definitions, ...own]
+  }
+}
+
+/** The remark plugins of a block parsed after a prefix of definitions. */
+const pluginsAfter = (prefix: string) => (prefix ? [ownText(prefix.length), ...plugins] : plugins)
 
 type BlockProps = Omit<Block, 'key'> & { still: boolean }
 
 /** Blocks one after another, with the line break that Markdown parsed whole puts between its blocks. */
 const joined = (blocks: ReactElement[]): ReactElement => createElement(Fragment, null, blocks.flatMap((block, at) => (at ? ['\n', block] : [block])))
 
-/** Whether a block draws as it drew last: the same text at the same place, with the same fresh pieces. */
+/** Whether a block draws as it drew last: the same text at the same place, with the same fresh pieces. What was drawn before matters only when it draws. */
 export const sameBlock = (left: BlockProps, right: BlockProps): boolean =>
   left.text === right.text &&
   left.offset === right.offset &&
+  left.prefix === right.prefix &&
   left.still === right.still &&
   left.marks.length === right.marks.length &&
   left.marks.every((mark, at) => mark === right.marks[at])
 
+/** One block of Markdown that may still grow, parsed after the definitions of the rest. */
+const BlockMarkdown = memo(function BlockMarkdown({ text, prefix }: { text: string; prefix: string }): ReactElement {
+  return createElement(ReactMarkdown, { remarkPlugins: pluginsAfter(prefix), components }, prefix + text)
+})
+
 /** Markdown that may still grow, such as what an agent is saying on its page. Only its last block parses again as it grows. */
 export function GrowingMarkdown({ text }: { text: string }): ReactElement {
-  return joined(blocksOf(text).map(({ key, text: block }) => createElement(Markdown, { key, text: block })))
+  return joined(blocksOf(text).map(({ key, text: block, prefix }) => createElement(BlockMarkdown, { key, text: block, prefix })))
 }
 
 /**
@@ -168,10 +255,13 @@ function streamingComponentsWith(arrival: typeof rising): Components {
   return {
   ...inline,
   ...Object.fromEntries(blockNames.map((tag) => [tag, styled(moving[tag]!, BLOCKS[tag], arrival)])),
-  table: ({ node: _node, ...props }) => createElement(motion.div, { ...arrival, className: TABLE_WRAP }, createElement('table', { ...props, className: TABLE })),
+  table: ({ node, ...props }) =>
+    createElement(motion.div, { ...arrival, ...(wasShown(node) ? { initial: false } : {}), className: TABLE_WRAP }, createElement('table', { ...props, className: TABLE })),
   // Text that just arrived fades in. Only opacity moves, so the block around it never jumps.
-  span: ({ node: _node, ...props }) =>
-    'data-fresh' in props ? createElement(motion.span, { ...(props as object), initial: { opacity: 0 }, animate: { opacity: 1 }, transition: tween.enter }) : createElement('span', props),
+  span: ({ node, ...props }) =>
+    'data-fresh' in props
+      ? createElement(motion.span, { ...(props as object), initial: wasShown(node) ? false : { opacity: 0 }, animate: { opacity: 1 }, transition: tween.enter })
+      : createElement('span', props),
   }
 }
 
@@ -185,16 +275,29 @@ interface TreeNode {
   properties?: Record<string, unknown>
   children?: TreeNode[]
   position?: { start: { offset?: number } }
+  data?: Record<string, unknown>
 }
+
+/** The elements that rise into place as they first appear. */
+const ARRIVING = new Set<string>([...blockNames, 'table'])
 
 /**
  * Wraps the text that arrived lately in spans of its own. `marks` are the places in the source where the
  * recent pieces began, so a piece is wrapped from its first letter, wherever in the structure that falls. A block
- * parsed alone starts `offset` into the source.
+ * parsed alone starts `offset` into the source. What starts before `drawn`, where the newest piece begins, was on
+ * screen already: it is marked shown, so drawn again, as when a definition arrives, it does not rise or fade in again.
  */
-function freshSpans(marks: readonly number[], offset = 0) {
+function freshSpans(marks: readonly number[], offset = 0, drawn = 0) {
   const sorted = [...marks].sort((left, right) => left - right)
-  const span = (mark: number, value: string): TreeNode => ({ type: 'element', tagName: 'span', properties: { dataFresh: mark }, children: [{ type: 'text', value }] })
+  const newest = drawn
+  const shown = (node: TreeNode) => {
+    node.data = { ...node.data, shown: true }
+  }
+  const span = (mark: number, value: string): TreeNode => {
+    const node = { type: 'element', tagName: 'span', properties: { dataFresh: mark }, children: [{ type: 'text', value }] }
+    if (mark < newest) shown(node)
+    return node
+  }
 
   const split = (node: TreeNode): TreeNode[] => {
     const at = node.position?.start.offset
@@ -217,6 +320,8 @@ function freshSpans(marks: readonly number[], offset = 0) {
   const walk = (parent: TreeNode) => {
     parent.children = (parent.children ?? []).flatMap((child) => {
       if (child.type === 'text') return split(child)
+      const at = child.position?.start.offset
+      if (child.tagName && ARRIVING.has(child.tagName) && at !== undefined && offset + at < newest) shown(child)
       walk(child)
       return [child]
     })
@@ -227,8 +332,16 @@ function freshSpans(marks: readonly number[], offset = 0) {
 }
 
 /** One block of a reply being written. It draws, and parses, again only when its text or its fresh pieces change. */
-const StreamingBlock = memo(function StreamingBlock({ text, offset, marks, still }: BlockProps): ReactElement {
-  return createElement(ReactMarkdown, { remarkPlugins: plugins, rehypePlugins: [freshSpans(marks, offset)], components: still ? stillStreamingComponents : streamingComponents }, text)
+const StreamingBlock = memo(function StreamingBlock({ text, offset, marks, prefix, drawn, still }: BlockProps): ReactElement {
+  return createElement(
+    ReactMarkdown,
+    {
+      remarkPlugins: pluginsAfter(prefix),
+      rehypePlugins: [freshSpans(marks, offset - prefix.length, drawn)],
+      components: still ? stillStreamingComponents : streamingComponents,
+    },
+    prefix + text,
+  )
 }, sameBlock)
 
 /**

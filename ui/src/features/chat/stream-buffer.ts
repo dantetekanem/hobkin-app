@@ -139,19 +139,57 @@ function revealPoints(text: string): number[] {
 
 /** A line that starts a list item, which a blank line does not end when the list above carries on with it. */
 const LIST_ITEM = /^(?:[-*+]|\d{1,9}[.)])(?:\s|$)/
-/** What can reach across blank lines into other blocks: raw HTML, a link's reference, a footnote. */
-const REACHES = /^ {0,3}(?:<|\[[^\]]+\]:)|\[\^/m
+
+/**
+ * Raw HTML that runs on across blank lines until its own end (CommonMark's HTML blocks 1 to 5), with what ends it: a
+ * script, pre, style or textarea, a comment, a processing instruction, a declaration, a CDATA section.
+ */
+const HTML_BLOCKS: readonly (readonly [opens: RegExp, ends: RegExp])[] = [
+  [/^[ \t>]*<(?:script|pre|style|textarea)(?=[\s>]|$)/i, /<\/(?:script|pre|style|textarea)>/i],
+  [/^[ \t>]*<!--/, /-->/],
+  [/^[ \t>]*<\?/, /\?>/],
+  [/^[ \t>]*<![A-Za-z]/, />/],
+  [/^[ \t>]*<!\[CDATA\[/, /\]\]>/],
+]
+
+/** What ends the raw HTML a line opens and does not close itself, or null. */
+function htmlOpened(line: string): RegExp | null {
+  for (const [opens, ends] of HTML_BLOCKS) {
+    const opened = opens.exec(line)
+    if (opened) return ends.test(line.slice(opened[0].length)) ? null : ends
+  }
+  return null
+}
+
+/** A line that defines a link's reference or a footnote, at the margin, indented, or in a quote. It captures its label. */
+const DEFINITION = /^[ \t>]*\[((?:[^\]\\\n]|\\.)+)\]:/
+
+/** A definition found in Markdown: where its line starts, its label, and the line as it reads at the margin. */
+export interface Definition {
+  at: number
+  label: string
+  line: string
+}
+
+/** Where the blocks of Markdown start, and the definitions that reach across them. */
+export interface BlockScan {
+  starts: number[]
+  definitions: Definition[]
+}
 
 /**
  * Where Markdown splits into blocks that parse alone as they parse together, so the blocks of a reply that is still
- * growing are not parsed again: at a blank line outside a code block, before a line at the margin that does not carry
- * on the list above it. Text with raw HTML, link references or footnotes stays one block. The first start is 0.
+ * growing are not parsed again: at a blank line outside a code block or raw HTML, before a line at the margin that does
+ * not carry on the list above it. The first start is 0. A link's definition reaches across blocks, so the definitions
+ * are found too: after a blank line or another definition, outside code and raw HTML.
  */
-export function blockStarts(text: string): number[] {
+export function blockScan(text: string): BlockScan {
   const starts = [0]
-  if (REACHES.test(text)) return starts
+  const definitions: Definition[] = []
   let fence: string | null = null
-  let blank = false
+  let html: RegExp | null = null
+  let blank = true
+  let defined = false
   let listAbove = false
   for (let start = 0; start < text.length; ) {
     const end = text.indexOf('\n', start)
@@ -159,19 +197,30 @@ export function blockStarts(text: string): number[] {
     const line = text.slice(start, stop)
     if (fence) {
       if (closes(line, fence)) fence = null
+    } else if (html) {
+      if (html.test(line)) html = null
     } else if (!line.trim()) {
       blank = true
+      defined = false
     } else {
       const atMargin = !/^\s/.test(line)
-      if (blank && atMargin && !(listAbove && LIST_ITEM.test(line))) starts.push(start)
+      if (blank && atMargin && start > 0 && !(listAbove && LIST_ITEM.test(line))) starts.push(start)
+      // Indented four or more under no list, it is code.
+      const code = /^(?: {4}|\t)/.test(line) && !listAbove
+      const definition: RegExpExecArray | null = (blank || defined) && !code ? DEFINITION.exec(line) : null
+      if (definition) definitions.push({ at: start, label: definition[1]!, line: line.replace(/^[ \t>]*/, '') })
+      defined = definition !== null
       blank = false
       if (atMargin) listAbove = LIST_ITEM.test(line)
       fence = FENCE.exec(line)?.[1] ?? null
+      html = fence ? null : htmlOpened(line)
     }
     start = stop + 1
   }
-  return starts
+  return { starts, definitions }
 }
+
+export const blockStarts = (text: string): number[] => blockScan(text).starts
 
 /**
  * What to show next of a reply, given what is shown now. `done`: the reply ended, or failed, and all of it shows.

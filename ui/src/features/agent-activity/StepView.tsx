@@ -1,9 +1,9 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, Search, SquareTerminal, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react'
-import { Fragment, memo, useMemo, type ReactNode } from 'react'
+import { Fragment, memo, useMemo, useState, type ReactNode } from 'react'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { holdStill, useStill } from '@/app/still.ts'
-import { GrowingMarkdown, risen, sunk } from '@/features/chat/markdown.ts'
+import { GrowingMarkdown, MessageText, risen, sunk } from '@/features/chat/markdown.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { usePaced } from '@/features/chat/use-paced.ts'
 import { diffOf, startView, unifiedRows, type Diff, type FileSides } from '@/features/review/code/diff-rows.ts'
@@ -44,7 +44,7 @@ const arriving = { transform: spring.rise, opacity: tween.enter }
  * change is not drawn again, and one out of view is not drawn at all.
  */
 export const StepItem = memo(
-  function StepItem({ step, timeOf }: { step: Step; timeOf: TimeOf; ended: boolean }) {
+  function StepItem({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: boolean }) {
     const still = useStill()
     return (
       <motion.li
@@ -62,7 +62,7 @@ export const StepItem = memo(
       >
         {/* On a page that shows times, the step's first row has its time beside it. A group of commands times each of its rows. */}
         <Stamped at={step.kind === 'shell' ? undefined : atOf(step)} line={step.kind === 'says' ? 'text' : 'row'}>
-          <StepBody step={step} timeOf={timeOf} />
+          <StepBody step={step} timeOf={timeOf} ended={ended} />
         </Stamped>
       </motion.li>
     )
@@ -91,12 +91,12 @@ export function EarlierSteps({ count, onMore }: { count: number; onMore: () => v
   )
 }
 
-function StepBody({ step, timeOf }: { step: Step; timeOf: TimeOf }) {
+function StepBody({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: boolean }) {
   switch (step.kind) {
     case 'codemode':
       return <CodemodeStep entry={step.entries[0]!} state={step.state} />
     case 'says':
-      return <Says text={step.text} />
+      return <Says text={step.text} ended={ended} />
     case 'shell':
       return <ShellGroup commands={step.commands} timeOf={timeOf} />
     case 'change':
@@ -108,12 +108,18 @@ function StepBody({ step, timeOf }: { step: Step; timeOf: TimeOf }) {
   }
 }
 
-/** What the agent said, as Markdown. While it is being written its words change at most ten times a second, as the chat's do. */
-function Says({ text }: { text: string }) {
+/**
+ * What the agent said, as Markdown. While it is being written its words change at most ten times a second, as the
+ * chat's do, and only its last block parses again. Words that were already whole when drawn, or that the run has
+ * finished, parse whole, as a stored message does.
+ */
+function Says({ text, ended }: { text: string; ended: boolean }) {
   const shown = usePaced(text, true)
+  const [first] = useState(text)
+  const growing = !ended && text !== first
   return (
     <div className="max-w-[92%] text-[15px] leading-relaxed break-words">
-      <GrowingMarkdown text={shown} />
+      {growing ? <GrowingMarkdown text={shown} /> : <MessageText text={shown} role="assistant" />}
     </div>
   )
 }
