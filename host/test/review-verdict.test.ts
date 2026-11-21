@@ -8,7 +8,7 @@ import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import { GRAMMAR_EDITOR, type GrammarAsk } from '#shared/review/grammar.ts'
 import { hashLines } from '#shared/review/lines.ts'
 import type { Note } from '#shared/review/notes.ts'
-import type { PullOwner } from '#shared/review/status.ts'
+import type { PullOwner, ReviewLanding } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import type { GhOutcome } from '../src/github-gh.ts'
 import type { Moved } from '../src/review/landing.ts'
@@ -28,7 +28,7 @@ const NEWER = 'f'.repeat(40)
  * `plan` is what hobkin says deleting the change's branch takes; `branch` lets a test refuse that look, change it, or fail the deletion.
  * `timeline` is every call to either, in the order they came.
  */
-function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'Merge hobkin/7d02c9 into main on this machine. Nothing is pushed.', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr: null } as ChangeCard | null, publish, plan = null as unknown, grammar }: { card?: ChangeCard | null; publish?: Publisher; plan?: unknown; grammar?: GrammarAsk } = {}) {
+function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'Merge hobkin/7d02c9 into main on this machine. Nothing is pushed.', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr: null } as ChangeCard | null, publish, plan = null as unknown, grammar, landing }: { card?: ChangeCard | null; publish?: Publisher; plan?: unknown; grammar?: GrammarAsk; landing?: ReviewLanding } = {}) {
   const home = temporaryDirectory(t)
   const store = reviewStore(home)
   const target = targetOfReviewId(id)!
@@ -57,6 +57,7 @@ function seated(t: TestContext, id: string, { card = { landing: 'merge', yes: 'M
       },
     }),
     card: () => card,
+    ...(landing ? { landing: () => landing } : {}),
     ...(publish ? { publish } : {}),
     ...(grammar ? { grammar } : {}),
     gh: async (args, input): Promise<GhOutcome> => {
@@ -639,11 +640,11 @@ test('a push to the branch while the pull request closes keeps the branch: the d
   assert.equal(github.deleted, false)
 })
 
-test('a protected branch, the branch of another open pull request and one open pull requests merge into are not deleted, and Discard alone still closes', async (t) => {
+test('a protected branch, the branch of another open pull request and one open pull requests merge into are not deleted, and Remove alone still closes', async (t) => {
   const refusals: [Parameters<typeof pullSeat>[1], RegExp][] = [
-    [{ protectedBranch: true }, /Its branch feature\/rounding is protected in acme\/shop, so it is not deleted from here\. Discard closes the pull request and keeps the branch\.$/],
-    [{ sharing: { heads: [490], bases: [] } }, /Its branch feature\/rounding is also the branch of acme\/shop#490, which is open, so it is not deleted\. Discard closes this pull request and keeps the branch\.$/],
-    [{ sharing: { heads: [], bases: [501, 502, 503] } }, /Its branch feature\/rounding is what acme\/shop#501 and 2 more open pull requests merge into, so it is not deleted\. Discard closes this pull request and keeps the branch\.$/],
+    [{ protectedBranch: true }, /Its branch feature\/rounding is protected in acme\/shop, so it is not deleted from here\. Remove closes the pull request and keeps the branch\.$/],
+    [{ sharing: { heads: [490], bases: [] } }, /Its branch feature\/rounding is also the branch of acme\/shop#490, which is open, so it is not deleted\. Remove closes this pull request and keeps the branch\.$/],
+    [{ sharing: { heads: [], bases: [501, 502, 503] } }, /Its branch feature\/rounding is what acme\/shop#501 and 2 more open pull requests merge into, so it is not deleted\. Remove closes this pull request and keeps the branch\.$/],
   ]
   for (const [options, refused] of refusals) {
     const seat = pullSeat(t, options)
@@ -671,17 +672,17 @@ test('one verdict at a time on a review: the same yes again joins the one under 
   assert.deepEqual(sentTo(calls).map(([method, path]) => [method, path]), [['POST', 'repos/acme/shop/issues/482/comments'], ['PATCH', 'repos/acme/shop/pulls/482']], 'one comment and one close')
 
   // A window still showing it gives the same yes once more: it is closed already, and nothing is sent again.
-  await assert.rejects(reviews.verdict(id, 'discard', 'Superseded.', preview.confirm), /acme\/shop#482 is closed already, so there is nothing left to discard\./)
+  await assert.rejects(reviews.verdict(id, 'discard', 'Superseded.', preview.confirm), /acme\/shop#482 is closed already, so there is nothing left to close\./)
   assert.equal(sentTo(calls).length, 2)
 })
 
 test('a branch in a fork or a repository’s default branch is never deleted from here, one that moved since is refused, and a delete GitHub refuses says what was done', async (t) => {
   const fork = pullSeat(t, { headRepo: 'dev/shop' })
-  await assert.rejects(fork.reviews.preview(fork.id, 'discard-branch', ''), /Its branch feature\/rounding lives in dev\/shop, a fork, and is not deleted from here\. Discard closes the pull request and keeps the branch\.$/)
+  await assert.rejects(fork.reviews.preview(fork.id, 'discard-branch', ''), /Its branch feature\/rounding lives in dev\/shop, a fork, and is not deleted from here\. Remove closes the pull request and keeps the branch\.$/)
   const gone = pullSeat(t, { headRepo: null })
-  await assert.rejects(gone.reviews.preview(gone.id, 'discard-branch', ''), /The repository its branch lived in is gone, so there is no branch to delete\. Discard closes the pull request\.$/)
+  await assert.rejects(gone.reviews.preview(gone.id, 'discard-branch', ''), /The repository its branch lived in is gone, so there is no branch to delete\. Remove closes the pull request\.$/)
   const main = pullSeat(t, { headRef: 'main' })
-  await assert.rejects(main.reviews.preview(main.id, 'discard-branch', ''), /Its branch is main, the default branch of acme\/shop, which is never deleted\. Discard closes the pull request and keeps the branch\.$/)
+  await assert.rejects(main.reviews.preview(main.id, 'discard-branch', ''), /Its branch is main, the default branch of acme\/shop, which is never deleted\. Remove closes the pull request and keeps the branch\.$/)
   assert.deepEqual([...sentTo(fork.calls), ...sentTo(gone.calls), ...sentTo(main.calls)], [])
 
   // A commit pushed to the branch after the preview: deleting it now would take that too, so the yes no longer goes.
@@ -702,6 +703,35 @@ const TREE = join(homedir(), '.hobkin/work/hobkin/trees/7d02c9-say-what-hobkin-i
 /** What hobkin says deleting the change's branch takes: here and on GitHub, with its worktree and the files git ignores in it, and two commits only on it. */
 const PLAN = { branch: BRANCH, here: sample.change.head, remote: { name: 'origin', url: 'git@github.com:acme/shop.git', sha: sample.change.head }, worktree: TREE, ignored: ['.env', 'build/', 'dist/', 'node_modules/', 'tmp/'], lost: 2 }
 const WITH_PULL: ChangeCard = { landing: 'mergePr', yes: 'Merge its pull request.', branch: BRANCH, pr: 'https://github.com/acme/shop/pull/482' }
+
+test('a no on a change hobkin no longer lists as finished: one waiting to merge after its refresh gets the no, so it never merges; one hobkin is done with only leaves the list', async (t) => {
+  const id = reviewIdOf({ kind: 'change', slug: 'hobkin', item: '7d02c9' })
+  // The user said merge: hobkin took the item back to bring it up to date, so no finished card lists it until that run ends.
+  const asked = seated(t, id, { card: null, landing: { state: 'refreshing', at: '2026-11-21T10:00:00.000Z', message: 'An agent is bringing it up to date with main, and hobkin merges it once that run ends well.' } })
+  const preview = await asked.reviews.preview(id, 'discard', '')
+  assert.deepEqual(preview.lines, ['Say no to this change. hobkin does not work on it again, and learns from the no.', 'The merge you asked for does not happen.', 'Its branch stays.'])
+  assert.deepEqual(asked.actions, [], 'a preview does nothing')
+  assert.deepEqual(await asked.reviews.verdict(id, 'discard', '', preview.confirm), { message: 'hobkin did decline.' })
+  assert.deepEqual(asked.actions, [['decline', 'hobkin', '7d02c9']])
+  assert.equal(asked.reviews.list().reviews.some((item) => item.id === id), false, 'and its review leaves the list')
+
+  // Said no to, closed or dropped elsewhere: there is no no to give, so only the review goes, and its branch with it when asked.
+  const over = seated(t, id, { card: null, plan: PLAN })
+  const quiet = await over.reviews.preview(id, 'discard', '')
+  assert.deepEqual(quiet.lines, ['hobkin is done with this change already, so it only leaves this list.', 'Its branch stays.'])
+  assert.deepEqual(await over.reviews.verdict(id, 'discard', '', quiet.confirm), { message: 'hobkin was done with this change already, so it only left the list.' })
+  assert.deepEqual(over.actions, [], 'hobkin is told nothing')
+  assert.equal(over.reviews.list().reviews.some((item) => item.id === id), false)
+
+  const gone = seated(t, id, { card: null, plan: PLAN })
+  const branch = await gone.reviews.preview(id, 'discard-branch', '')
+  assert.deepEqual(branch.lines.slice(0, 2), ['hobkin is done with this change already, so it only leaves this list.', `Then delete its branch ${BRANCH} on this Mac and on GitHub, in acme/shop.`])
+  assert.equal((await gone.reviews.verdict(id, 'discard-branch', '', branch.confirm)).message, 'It left the list. hobkin did deleteBranch.')
+  assert.deepEqual(gone.actions.map((action) => action[0]), ['deleteBranch', 'deleteBranch', 'deleteBranch'], 'no decline: only the look, the look again, and the delete')
+
+  // Anything but a no still needs the finished card.
+  await assert.rejects(seated(t, id, { card: null }).reviews.preview(id, 'approve', ''), /hobkin no longer lists this change as finished/)
+})
 
 test("discarding a finished change and deleting its branch: its pull request closed, hobkin's no, then the branch hobkin deletes, exactly as shown", async (t) => {
   const id = reviewIdOf({ kind: 'change', slug: 'hobkin', item: '7d02c9' })

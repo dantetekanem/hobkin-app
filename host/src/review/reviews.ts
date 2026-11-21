@@ -217,6 +217,8 @@ interface Discard {
   branch?: PullBranch
   /** For `discard-branch` on a finished change: what hobkin said deleting its branch takes, which it deletes once it took the no. */
   deletes?: BranchPlan
+  /** For a finished change: whether hobkin takes the no. False once hobkin is done with it, when it only leaves the list. */
+  declines?: boolean
 }
 
 /** A pull request's head branch as GitHub had it when it was shown: its name, its commit, and its repository's node id. */
@@ -1153,12 +1155,12 @@ export class Reviews {
         const closing = [`Close ${name} on ${where} without merging it, as you${target.host ? `, ${how}` : ''}.`, ...(comment ? ['Your words go on it as a comment first.', ...checked] : [])]
         const pull = { owner: target.owner, repo: target.repo, number: target.number, ...(target.host ? { host: target.host } : {}), named: name }
         // Closed already, by this yes from another window or on GitHub: there is no second comment and no second delete.
-        if (this.options.store.landedAt(target)) throw new Unavailable(`${name} is closed already, so there is nothing left to discard.`)
+        if (this.options.store.landedAt(target)) throw new Unavailable(`${name} is closed already, so there is nothing left to close.`)
         if (verdict === 'discard') {
           const discard: Discard = { pull, comment }
           return { review, card: null, discard, preview: { verdict, lines: [...closing, 'Its branch stays.'], confirm: token('discard', comment) } }
         }
-        if (target.host && !this.options.hostWays?.(target)) throw new Unavailable(`${target.host} gives hobkin no way to delete a branch there, so Discard closes the pull request and keeps it.`)
+        if (target.host && !this.options.hostWays?.(target)) throw new Unavailable(`${target.host} gives hobkin no way to delete a branch there, so Remove closes the pull request and keeps the branch.`)
         // The branch as its host has it now, commit and all: one that gains a commit after this is not the one shown.
         const branch = await this.pullHead(target)
         const lines = target.host
@@ -1215,21 +1217,27 @@ export class Reviews {
     }
 
     const card = this.options.card(target.slug, target.item)
-    if (!card) throw new Unavailable('hobkin no longer lists this change as finished.')
-    if (verdict === 'comment') throw new Unavailable('A finished change has nobody to comment to. Approve it, approve and merge it, or ask for changes.')
     if (no) {
-      const place = card.pr ? pullOfAddress(card.pr) : null
-      if (card.pr && !place) throw new Unavailable(`Its pull request is not one this host can close: ${card.pr}. Close it on GitHub, then discard the change.`)
+      const pr = card?.pr ?? null
+      const place = pr ? pullOfAddress(pr) : null
+      if (pr && !place) throw new Unavailable(`Its pull request is not one this host can close: ${pr}. Close it on GitHub, then remove the change.`)
+      // With no finished card, hobkin still has the change only while it means to merge it after its refresh or works on it
+      // again: the no stops that. Once hobkin is done with it, the no has nothing to stop, and the review only leaves the list.
+      const refreshing = landing?.state === 'refreshing'
+      const declines = card != null || refreshing || this.ownWorkOf(target)?.at === 'working'
       // hobkin says what deleting the branch takes, and refuses there, before anything is done, when it is not one to delete.
       const deletes = verdict === 'discard-branch' ? await this.branchPlan(target) : null
       const lines = [
-        'Say no to this change. hobkin does not work on it again, and learns from the no.',
-        ...(card.pr ? [`Close its pull request on GitHub without merging it, as you: ${card.pr}`] : []),
+        declines ? 'Say no to this change. hobkin does not work on it again, and learns from the no.' : 'hobkin is done with this change already, so it only leaves this list.',
+        ...(declines && refreshing ? ['The merge you asked for does not happen.'] : []),
+        ...(pr ? [`Close its pull request on GitHub without merging it, as you: ${pr}`] : []),
         ...(deletes ? deletionLines(deletes) : ['Its branch stays.']),
       ]
-      const discard: Discard = { pull: card.pr && place ? { ...place, named: card.pr } : null, comment: null, ...(deletes ? { deletes } : {}) }
-      return { review, card, discard, preview: { verdict, lines, confirm: deletes ? token('discard-branch', card.pr, deletes) : token('discard', card.pr) } }
+      const discard: Discard = { pull: pr && place ? { ...place, named: pr } : null, comment: null, declines, ...(deletes ? { deletes } : {}) }
+      return { review, card, discard, preview: { verdict, lines, confirm: deletes ? token('discard-branch', pr, declines, deletes) : token('discard', pr, declines) } }
     }
+    if (!card) throw new Unavailable('hobkin no longer lists this change as finished.')
+    if (verdict === 'comment') throw new Unavailable('A finished change has nobody to comment to. Approve it, approve and merge it, or ask for changes.')
     if (verdict === 'approve') {
       const publication = await this.publication(target.slug, card, prepared, meta?.producerVersion)
       const { plan, pull } = publication
@@ -1334,8 +1342,8 @@ export class Reviews {
     const home = `${target.owner}/${target.repo}`
     const ref = pull.head?.ref
     const from = pull.head?.repo?.full_name
-    const keeps = 'Discard closes the pull request and keeps the branch.'
-    if (!ref || !from) throw new Unavailable('The repository its branch lived in is gone, so there is no branch to delete. Discard closes the pull request.')
+    const keeps = 'Remove closes the pull request and keeps the branch.'
+    if (!ref || !from) throw new Unavailable('The repository its branch lived in is gone, so there is no branch to delete. Remove closes the pull request.')
     if (from.toLowerCase() !== (pull.base?.repo?.full_name ?? home).toLowerCase()) throw new Unavailable(`Its branch ${ref} lives in ${from}, a fork, and is not deleted from here. ${keeps}`)
     if (ref === settings.default_branch) throw new Unavailable(`Its branch is ${ref}, the default branch of ${home}, which is never deleted. ${keeps}`)
     const sha = pull.head?.sha
@@ -1347,7 +1355,7 @@ export class Reviews {
       api(`${repo}/pulls?state=open&head=${encodeURIComponent(`${target.owner}:${ref}`)}`),
       api(`${repo}/pulls?state=open&base=${encodeURIComponent(ref)}`),
     ])
-    const others = 'Discard closes this pull request and keeps the branch.'
+    const others = 'Remove closes this pull request and keeps the branch.'
     if (branch.protected) throw new Unavailable(`Its branch ${ref} is protected in ${home}, so it is not deleted from here. ${keeps}`)
     const sharing = heads.find((open) => open.number !== target.number)
     if (sharing) throw new Unavailable(`Its branch ${ref} is also the branch of ${home}#${sharing.number}, which is open, so it is not deleted. ${others}`)
@@ -1553,9 +1561,10 @@ export class Reviews {
    * behind it. A finished change then gets hobkin's own no, the one its card gives. With `discard-branch` the branch goes
    * last: a pull request's head branch on GitHub, or the change's own branch, which hobkin deletes exactly as it was shown.
    * A step that fails says what was already done and stops there. Once the no went, the review leaves the list and is
-   * kept in the home, as a merged one is, with the notes written on it. Remove is what deletes a review.
+   * kept in the home, as a merged one is, with the notes written on it. A change hobkin is done with gets no no: it only
+   * leaves the list. `remove` is what deletes a review.
    */
-  private async discarded(id: string, target: ReviewTarget, { pull, comment, branch, deletes }: Discard): Promise<{ message: string }> {
+  private async discarded(id: string, target: ReviewTarget, { pull, comment, branch, deletes, declines = true }: Discard): Promise<{ message: string }> {
     const closed = pull ? await this.closePull(pull, comment) : null
 
     const leave = () => {
@@ -1565,7 +1574,7 @@ export class Reviews {
       if (target.kind === 'pull') this.retire(id, target)
       this.options.onChange?.()
     }
-    let said = closed ?? 'Discarded.'
+    let said = closed ?? 'Removed.'
     if (target.kind === 'pull' && pull && branch) {
       const done = said.replace(/\.$/, '')
       try {
@@ -1577,17 +1586,19 @@ export class Reviews {
       said = `${done}, and deleted its branch ${branch.ref}.`
     }
     if (target.kind === 'change') {
-      let answer: unknown
-      try {
-        answer = await this.options.work().workAction('decline', target.slug, target.item)
-      } catch (error) {
-        if (closed) throw new Error(`Its pull request was closed on GitHub, but hobkin did not take the no: ${messageOf(error)}`)
-        throw error
-      }
-      const no = String((answer as { message?: unknown } | null)?.message ?? 'Said no to it.')
-      said = closed ? `${no} ${closed}` : no
+      if (declines) {
+        let answer: unknown
+        try {
+          answer = await this.options.work().workAction('decline', target.slug, target.item)
+        } catch (error) {
+          if (closed) throw new Error(`Its pull request was closed on GitHub, but hobkin did not take the no: ${messageOf(error)}`)
+          throw error
+        }
+        const no = String((answer as { message?: unknown } | null)?.message ?? 'Said no to it.')
+        said = closed ? `${no} ${closed}` : no
+      } else said = 'hobkin was done with this change already, so it only left the list.'
       if (deletes) {
-        const done = closed ? `${closed} hobkin took the no` : 'hobkin took the no'
+        const done = !declines ? 'It left the list' : closed ? `${closed} hobkin took the no` : 'hobkin took the no'
         try {
           const gone = await this.options.work().workAction('deleteBranch', target.slug, target.item, { expect: deletes })
           said = `${done}. ${String((gone as { message?: unknown } | null)?.message ?? `Deleted ${deletes.branch}.`)}`
