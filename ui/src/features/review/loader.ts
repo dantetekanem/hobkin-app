@@ -88,6 +88,21 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
   /** The finished change review last fetched (`finishedOf`), so each one is fetched once, a run again at the same commit too. */
   let assessed: string | null = null
   const notesKey = JSON.stringify([scope, id])
+  /**
+   * Sets what changed, and nothing when nothing did. The host's replies are parsed anew each time, so a status, review
+   * or change review equal to the one held is kept as it was: what reads the loader draws again only when the host says
+   * something new, not each second it is asked.
+   */
+  const patch = (next: Partial<LoadState>) => {
+    const held = store.getState()
+    const changed = Object.entries(next).filter(([key, value]) => {
+      const before = held[key as keyof LoadState]
+      if (Object.is(value, before)) return false
+      const replied = key === 'review' || key === 'preparation' || key === 'assessment'
+      return !(replied && value && before && JSON.stringify(value) === JSON.stringify(before))
+    })
+    if (changed.length) store.setState(Object.fromEntries(changed) as Partial<LoadState>)
+  }
   const notesOf = (review: Review): ReviewNotes => {
     const saved = memory.getState().of(review)
     return { entries: saved.notes, draft: saved.draft }
@@ -95,7 +110,7 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
   const flushNotes = (): Promise<void> => {
     if (!command || writing || !pending) return writing ?? Promise.resolve()
     writing = (async () => {
-      store.setState({ saving: true })
+      patch({ saving: true })
       while (pending) {
         const notes = pending
         pending = null
@@ -107,14 +122,14 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
               return { unsyncedNotes }
             })
           }
-          store.setState({ notesError: null })
+          patch({ notesError: null })
         } catch (error) {
           pending ??= notes
-          store.setState({ notesError: reason(error) })
+          patch({ notesError: reason(error) })
           break
         }
       }
-      store.setState({ saving: false })
+      patch({ saving: false })
     })().finally(() => {
       writing = null
     })
@@ -159,7 +174,7 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
     const unsavedAtStart = memory.getState().unsyncedNotes[notesKey]
     const current = store.getState()
     // Polling a review being prepared keeps its view; only a first look shows "loading".
-    store.setState({ error: null, ...(current.review || current.status === 'preparing' || current.status === 'awaiting' ? {} : { status: 'loading' as const }) })
+    patch({ error: null, ...(current.review || current.status === 'preparing' || current.status === 'awaiting' ? {} : { status: 'loading' as const }) })
     try {
       let review: Review
       let notes: ReviewNotes | null = null
@@ -174,24 +189,24 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
         if (preparation.landing && open) {
           // The review on screen holds still while its change lands: nothing newer is fetched for it.
           const held = heldStill(preparation, open, store.getState().preparation)
-          store.setState({ preparation: held, status: 'ready', ...clock(held) })
+          patch({ preparation: held, status: 'ready', ...clock(held) })
           return
         }
         // Nothing prepared and nothing under way, its change review included.
         const idle = preparation.state === 'idle' && !underWay(preparation)
         if (idle && !startsByItself(id) && !refresh) {
           // Opening a pull request asks nothing of the host; "Start AI review" does.
-          store.setState({ preparation, status: open ? 'ready' : 'awaiting', startedAt: null })
+          patch({ preparation, status: open ? 'ready' : 'awaiting', startedAt: null })
           return
         }
         if (idle && !preparation.landing) preparation = await command('review.prepare', { id })
         if (disposed || turn !== generation) return
-        store.setState({ preparation, ...clock(preparation) })
+        patch({ preparation, ...clock(preparation) })
         if (!opens(preparation)) {
           // One that lands with no review kept, and none under way, waits for none: none is prepared for it.
           const noReview = preparation.landing && !underWay(preparation) ? whyNoReview(preparation.landing) : null
           const unfinished = preparation.state === 'failed' || noReview ? 'error' : 'preparing'
-          store.setState({ status: store.getState().review ? 'ready' : unfinished, error: noReview ?? preparation.error })
+          patch({ status: store.getState().review ? 'ready' : unfinished, error: noReview ?? preparation.error })
           return
         }
         const opened = await command('review.get', { id })
@@ -230,11 +245,11 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
         assessed = null
       }
       const kept = preparation && heldStill(preparation, review, null)
-      store.setState({ status: 'ready', review, preparation: kept, assessment, error: null, ...(kept ? clock(kept) : {}) })
+      patch({ status: 'ready', review, preparation: kept, assessment, error: null, ...(kept ? clock(kept) : {}) })
     } catch (error) {
       if (!disposed && turn === generation) {
         const unopened = error instanceof ReviewRefused ? 'refused' : 'error'
-        store.setState({ status: store.getState().review ? 'ready' : unopened, error: reason(error) })
+        patch({ status: store.getState().review ? 'ready' : unopened, error: reason(error) })
       }
     }
   }
@@ -254,10 +269,10 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
       const preparation = await command('review.prepare', { id })
       if (disposed || turn !== generation) return
       const ready = opens(preparation)
-      store.setState({ preparation, status: preparation.state === 'failed' ? 'error' : ready ? 'loading' : 'preparing', error: preparation.error, ...clock(preparation) })
+      patch({ preparation, status: preparation.state === 'failed' ? 'error' : ready ? 'loading' : 'preparing', error: preparation.error, ...clock(preparation) })
       if (ready) await load()
     } catch (error) {
-      if (!disposed && turn === generation) store.setState({ status: 'error', error: reason(error) })
+      if (!disposed && turn === generation) patch({ status: 'error', error: reason(error) })
     }
   }
   /** One poll: a review still being prepared is asked about again until it opens; an open one is checked. */
@@ -302,7 +317,7 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
       if (finished) assessed = finished
       const opened = await command('review.get', { id })
       if (disposed || store.getState().review !== review) return
-      if (finished && opened.assessment) store.setState({ review: { ...opened.review, memoryScope: scope } as Review, assessment: opened.assessment })
+      if (finished && opened.assessment) patch({ review: { ...opened.review, memoryScope: scope } as Review, assessment: opened.assessment })
       const key = memoryKey(review)
       memory.setState((state) => {
         const mine = state.of(review)
@@ -316,10 +331,7 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
     }
   }
   /** Keeps a status for the open review, only when something changed, so an open review does not draw again every second. */
-  const keep = (status: ReviewStatus) => {
-    if (JSON.stringify(status) === JSON.stringify(store.getState().preparation)) return
-    store.setState({ preparation: status, ...clock(status) })
-  }
+  const keep = (status: ReviewStatus) => patch({ preparation: status, ...clock(status) })
   /**
    * Asks the host now how the change lands, and keeps what it says for the open review: null when it says nothing. A
    * verdict that has just landed asks, even once the review has closed.
