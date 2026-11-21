@@ -1,11 +1,12 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
-import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
+import { accessSync, appendFileSync, constants, existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Readable } from 'node:stream'
 import { stripVTControlCharacters } from 'node:util'
 import type { ImageContent } from 'hobkin/src/cli/application.mjs'
 import { recordEvent } from 'hobkin/src/cli/events.mjs'
+import { atUtilityPriority } from 'hobkin/src/cli/priority.mjs'
 import { PERMISSION_MODE, type ClaudeCodeSettings } from '#shared/protocol/claude-code.ts'
 import type { Ask } from '../questions.ts'
 import { answerToolRequest, type ToolRequest } from './asking.ts'
@@ -229,6 +230,19 @@ function sessionWriter(file: string): (lines: SessionLine[]) => void {
   }
 }
 
+/**
+ * Claude, and what it starts, run at utility priority on macOS (hobkin's `priority.mjs`), so the window and the host keep
+ * the fast cores. A claude that cannot run starts as it is, so it fails to start as before (`startFailure`).
+ */
+function claudeCommand(claude: string, args: string[]): { command: string; args: string[] } {
+  try {
+    accessSync(claude, constants.X_OK)
+  } catch {
+    return { command: claude, args }
+  }
+  return atUtilityPriority(claude, args)
+}
+
 function startFailure(error: unknown, claude: string, cwd: string): string {
   const code = (error as NodeJS.ErrnoException | null)?.code
   const why = code === 'ENOENT'
@@ -306,8 +320,11 @@ async function runTurn(request: ClaudeHarnessRequest, options: ClaudeHarnessOpti
   // Set when a Claude Code session started the host. This run is a session of its own, not that one's child.
   const { CLAUDECODE: _code, CLAUDE_CODE_ENTRYPOINT: _entry, ...env } = setup.env ?? process.env
   let child: ChildProcess
+  // A stand-in a test passes gets the command as given.
+  const args = claudeArguments(settings, request, sessionId, setup.directions)
+  const started = setup.spawnProcess ? { command: setup.claude, args } : claudeCommand(setup.claude, args)
   try {
-    child = (setup.spawnProcess ?? spawn)(setup.claude, claudeArguments(settings, request, sessionId, setup.directions), {
+    child = (setup.spawnProcess ?? spawn)(started.command, started.args, {
       cwd: request.cwd,
       env,
       // Its own process group, so a signal reaches Claude and what it starts in that group. Claude starts its Bash

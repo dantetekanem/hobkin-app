@@ -6,7 +6,9 @@
  * This file also holds `runProgram`, the one way this package starts a program. The scan and the proof use it too.
  */
 import { spawn, type StdioOptions } from 'node:child_process'
+import { accessSync, constants as files, existsSync, statSync } from 'node:fs'
 import { constants } from 'node:os'
+import { delimiter, join, resolve } from 'node:path'
 import type { ChangedFile, ChangeMeta, Commit, FileDiff, FileStatus, Hunk, RepoReader } from './types.ts'
 
 // ───────────────────────── Running a program ─────────────────────────
@@ -75,6 +77,34 @@ function keeper(limit: number) {
   }
 }
 
+/** macOS's program for starting another at a lower priority. */
+const TASKPOLICY = '/usr/sbin/taskpolicy'
+
+/** Whether `program` is a file that can run where spawn would find it: a path from `cwd`, or a name on the PATH. */
+function runnable(program: string, cwd: string, env: NodeJS.ProcessEnv): boolean {
+  const places = program.includes('/') ? [program] : (env.PATH ?? '').split(delimiter).filter(Boolean).map((folder) => join(folder, program))
+  return places.some((place) => {
+    try {
+      accessSync(resolve(cwd, place), files.X_OK)
+      return statSync(resolve(cwd, place)).isFile()
+    } catch {
+      return false
+    }
+  })
+}
+
+/**
+ * A group run (a test run, a scan, an agent: programs that start programs of their own) runs at utility priority on
+ * macOS, as hobkin's agents do, so the window and the host keep the fast cores when every core is busy. It is the rule
+ * of hobkin's `src/cli/priority.mjs`, which this package does not import. taskpolicy replaces itself with the program,
+ * so its process id, its group, its signals and its pipes stay the program's own. A program that is not there starts
+ * as it is, so it fails to start as before.
+ */
+function atUtilityPriority(program: string, args: readonly string[], { cwd, env, group }: { cwd: string; env: NodeJS.ProcessEnv; group: boolean }) {
+  if (!group || process.platform !== 'darwin' || !existsSync(TASKPOLICY) || !runnable(program, cwd, env)) return { program, args: [...args] }
+  return { program: TASKPOLICY, args: ['-c', 'utility', program, ...args] }
+}
+
 /**
  * Runs a program with no shell. It is stopped with SIGTERM, then SIGKILL, when it outlives `timeoutMs` or `signal`
  * aborts. With `group`, the stop reaches everything it started, and whatever it leaves running when it exits is
@@ -100,7 +130,8 @@ export function runProgram(program: string, args: readonly string[], options: Ru
     let child: ReturnType<typeof spawn>
     try {
       const stdio: StdioOptions = [input === undefined ? 'ignore' : 'pipe', ignoreStdout ? 'ignore' : 'pipe', 'pipe']
-      child = spawn(program, [...args], { cwd, env, detached: group, windowsHide: true, stdio })
+      const started = atUtilityPriority(program, args, { cwd, env, group })
+      child = spawn(started.program, started.args, { cwd, env, detached: group, windowsHide: true, stdio })
     } catch (error) {
       return resolve({ started: false, reason: error instanceof Error ? error.message : String(error) })
     }

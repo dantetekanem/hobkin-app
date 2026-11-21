@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import type { spawn } from 'node:child_process'
+import { execFileSync, type spawn } from 'node:child_process'
 import { EventEmitter, once } from 'node:events'
-import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PassThrough, Writable } from 'node:stream'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -145,6 +145,38 @@ const withoutUuid = ({ uuid, ...line }: Line) => {
 }
 const canUseTool = (id: string, tool: string, input: Line) => ({ type: 'control_request', request_id: id, request: { subtype: 'can_use_tool', tool_name: tool, input, tool_use_id: `toolu_${id}` } })
 const answerTo = (lines: Line[], id: string) => lines.find((line) => line.type === 'control_response' && line.response?.request_id === id)
+
+test('claude starts through taskpolicy at utility priority on macOS, and plainly elsewhere, as the same process with its pipes', async (t) => {
+  const home = temporaryDirectory(t)
+  const claude = join(home, 'claude')
+  const said = join(home, 'said')
+  // A stand-in for claude: it says its process id and priority, then reads its input until it is ended.
+  writeFileSync(claude, `#!/bin/sh\necho "$$ $(ps -o pri= -p $$)" > '${said}'\nexec cat > /dev/null\n`, { mode: 0o755 })
+  const cwd = join(home, 'project')
+  mkdirSync(cwd)
+  const signalled: { args: string[]; pid: number | undefined }[] = []
+  let control: ClaudeChild | undefined
+  const finished = runClaudeHarness({ id: RUN_ID, cwd, prompt: 'Fix it.', sessionFile: join(home, 'jobs', 'run.jsonl'), effort: 'high' }, { onControl: (given) => (control = given) }, {
+    claude,
+    settings: SETTINGS,
+    title: TITLE,
+    directions: DIRECTIONS,
+    ask: async () => undefined,
+    env: { PATH: '/usr/bin:/bin' },
+    signalGroup: (child, signal) => {
+      signalled.push({ args: child.spawnargs, pid: child.pid })
+      process.kill(-child.pid!, signal)
+    },
+  })
+  await until(() => existsSync(said) && readFileSync(said, 'utf8').trim().includes(' '), 'claude to start')
+  control!.terminate()
+  await finished
+  const [pid, priority] = readFileSync(said, 'utf8').trim().split(/\s+/)
+  assert.equal(Number(pid), signalled[0]?.pid, 'the process started is claude itself, and its group is the one signalled')
+  if (process.platform !== 'darwin') return assert.equal(signalled[0]?.args[0], claude)
+  assert.deepEqual(signalled[0]?.args.slice(0, 4), ['/usr/sbin/taskpolicy', '-c', 'utility', claude])
+  assert.equal(priority, execFileSync('/usr/sbin/taskpolicy', ['-c', 'utility', '/bin/sh', '-c', 'ps -o pri= -p $$'], { encoding: 'utf8' }).trim())
+})
 
 test("starts claude headless with the run's settings", async (t) => {
   const run = launch(t, { setup: { env: { PATH: '/usr/bin:/bin', HOME: '/Users/someone', CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' } } })
