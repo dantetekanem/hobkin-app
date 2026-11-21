@@ -29,6 +29,10 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - Activity reaches the window at most ten times a second after its first publish, which goes out as fast as before. The window shows growing text on a 100 ms cadence anyway.
 - A window in the background for a minute holds its endless loops still and nothing else. A pointer, a wheel or a key over it brings them back at once.
 - The audio context is left running. Suspending it when quiet could silence the notice chime, which plays with no press.
+- Limits, on the user's word of 2026-11-21 ("raise to 100"): work mode may run up to 100 agents at once, 16 routines and session jobs, and 48 durable hobkins. The defaults stay as they were. "Agents at once" in Settings is hobkin's own number, with the same stepper on the Work screen.
+- Starts come 30 seconds apart whether or not something runs (it was five minutes while a run was going), on the user's word that work mode was too slow. The budget paces work from there: the hour's share and the day.
+- On an agent's page a step's words appear the moment the window has them, with no pacing and no motion of their own, and the transcript follows new steps by reading its place while drawing, as before this work. The user reported both changes as a "weird movement like bubbling and filling".
+- A backup holds what hobkin and the client write by design and nothing an agent leaves in the home. The user: "this should never be in the backup path".
 
 ## Out of scope
 
@@ -60,6 +64,10 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - A18. What the window keeps for a run (step times, thread notes) goes when the run goes.
 - A19. Every background agent process hobkin starts runs at utility priority on macOS, and plainly on any other system. The main chat's own process keeps normal priority.
 - A20. While the background opacity is 1 the window is opaque with no blur behind it. A lower opacity turns both back on.
+- A22. Work mode can run 100 agents at once, routines 16 and durable hobkins 48, with the defaults as they were, and "Agents at once" in Settings sets hobkin's own number.
+- A23. With a free worker and room in the budget, the next start comes 30 seconds after the last, also in a home that saved the old five minutes.
+- A24. A backup leaves out what is not hobkin's own at the home's root, in `runtime/` and in a project's folder, lists it with its size, and never counts a socket as a failure.
+- A25. On an agent's page a step that arrives during a glide does not move the list, and a step's words carry no motion of their own.
 - A21. Nothing else the user sees changes: the time to the first word, notifications, completion sounds, keyboard walks and the agent's page read as before. The focused tests of every changed module pass and typecheck adds no error.
 
 ## Proof
@@ -85,6 +93,10 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - A19. hobkin `test/cli-priority.test.mjs` › "a command starts through taskpolicy at utility priority on macOS and plainly elsewhere"
 - A20. check: after the restart, at opacity 1 a busy page behind hobkin stops drawing, and at 0.8 the desktop shows through.
 - A21. check: `pnpm typecheck`, and the focused tests named in each commit.
+- A22. hobkin `test/cli-work-plan.test.mjs` › "a hundred agents can run at once: the 100th is admitted and the 101st waits for a free worker"
+- A23. hobkin `test/cli-work-plan.test.mjs` › "with a free worker and room in the budget the second start comes 30 seconds after the first, not five minutes"
+- A24. `host/test/backup-strays.test.ts` › "what is not hobkin's own at the root, in runtime/ and in a project's folder is left out, told with its size, and is no failure"
+- A25. `ui/test/agent-follow-place.test.ts` › "a step during a glide, before the page has drawn its new offset, does not make the next step glide for nothing"
 
 ## Steps
 
@@ -106,14 +118,18 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - [x] S16 (A10). Runtime: a feed's snapshot patches what changed. hobkin e41e208: a publish of 100 feeds 1.7 ms to 0.04 ms.
 - [x] S17 (A19). Agent processes at utility priority, Pi and Claude Code. hobkin 7bd554d, client 5d0a29b.
 - [ ] S18 (A11, A16, A17). Done: client 2ea87f5, 0f876f7, 8f5a32e, e785721; hobkin bfc780b, 4e39f60. A16 and A17 are met: a new window gets 0.5 MB where it got 95 MB. A11 is not: the host is at 6.3% of a core against 4.5% (44.5% before). Activity on demand: growth sent as growth, bounded feeds, whole steps only for watched agents, older steps read from the saved session.
-- [ ] S19 (A9, A20). Done without a restart: b7ec90d, 366e5fe, ac4bd86, 46d423a, 6c9c928 (startup script 2,446 to 1,940 kB). Waiting for the user's word in `restart-batch.patch` (bc5f9eb): the restart batch as one patch: an opaque window at opacity 1, optimized dev dependencies, the inline-style fix for every other `popLayout`. Without a restart: StrictMode behind its flag and the screens that load on first use.
+- [ ] S19 (A9, A20). Done without a restart: b7ec90d, 366e5fe, ac4bd86, 46d423a, 6c9c928 (startup script 2,446 to 1,940 kB). Applied on the user's word at 18:00 (ad2b0d1, with `pnpm install`), and the version is 0.1.23 (085378e). After the restart the window holds 560 MB where it held 3,227 MB. A9 is not met: with one agent running and the user in the window, content and GPU together used 11 to 17% of a core. A20 waits for a look at the window. What was applied: the restart batch as one patch: an opaque window at opacity 1, optimized dev dependencies, the inline-style fix for every other `popLayout`. Without a restart: StrictMode behind its flag and the screens that load on first use.
+- [x] S21 (A22, A23). Limits and the pace of starts: hobkin d668d5d, 54d815d, 6fa5932, d37922f; client 198c746, e47e347, 636dc01, 4f2bc10, a77ec7b.
+- [x] S22 (A24). Backups hold only hobkin's own: b53c75c, 341504a, acc9d2b, e549b45; hobkin 322ae19 tells agents to keep builds and virtual machines out of the home.
+- [x] S23 (A25). An agent's page moves as it did before this work: 5f4ce62, e8738de.
 - [x] S20 (A21). Post-processing of the changed code, a review by someone who did not write it, and the closing numbers in `notes.md`. Three reviews, twelve defects found and fixed; 178 client and 232 runtime tests of the changed files pass, typecheck is clean, and the 3 runtime tests that fail did so before this work.
 
 ## Open questions
 
-- Limits. hobkin runs about 25 agents at most today: 1 main chat, 8 work agents and routines together, 12 hobkins, 4 helpers (`notes.md`, Limits). 100 at once needs higher ceilings. The proposal: keep today's defaults and raise what Settings allows to 100 work agents, 16 routines and 48 hobkins. Each agent is a process of 113 MB or more.
 - The daily app. `pnpm tauri dev` runs React's development build, which costs about twice the production build after StrictMode is off. A production window that rebuilds on save loses hot reload: every save reloads the window after a 2 to 6 second build.
 - Keep awake. `caffeinate` holds the Mac awake for the host's whole life, on battery too. Holding it only while something runs or a routine is due within minutes lets the Mac sleep, and a routine due during sleep runs late.
 - Old runs. The runtime document keeps every run. Each 1,000 runs add 29 MB of memory and 38 ms to every rebuild. Archiving runs past a window changes what history can show.
 - A rendered measurement. Frame times and paint cost can only be read in a real window. That needs a browser or a second app window on a throwaway home.
-- The restart and the version number for S19.
+- The hour's share. One hour may use a 12th of the daily budget, which at the default of 100M is about 8 agents at once and at ten times that about 83. It is what paces work now that the gap is 30 seconds. A 6th, or no hourly share, would let work mode spend the day's budget sooner.
+- The virtual machine a work run left running on 2026-11-20 (`limactl hostagent`, a Postgres in `/tmp/rps-ee8d-gate.d1hlix`) and its 3.5 GB in `~/.hobkin/runtime/rps-ee8d-build.OwUqoa8K`: stop and delete, or keep.
+- A run's leftover processes are not ended when the run ends. Ending them needs each run's processes tracked to the run's end.
