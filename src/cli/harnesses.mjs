@@ -13,6 +13,7 @@ import { assertPromptBytes, promptByteLimit } from './prompt-bounds.mjs';
 import { recordEvent } from './events.mjs';
 import { promptFactsIn } from './work/usage.mjs';
 import { agentsOut, defaultTeamsDir } from './teams-agents.mjs';
+import { AGENTS_ENVIRONMENT } from './agent-directions-extension.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
@@ -361,8 +362,9 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     freshSession: !existsSync(request.sessionFile),
   };
   const durable = request.purpose === 'durable';
-  // What hobkin gives this run's own process, such as a durable hobkin's turn token (`hobkin-tell.mjs`).
-  const env = { ...piEnvironment(request.launcher), ...request.env };
+  // What hobkin gives this run's own process, such as a durable hobkin's turn token (`hobkin-tell.mjs`), and what has
+  // every agent the run spawns follow the user's directions (`agent-directions-extension.mjs`).
+  const env = { ...piEnvironment(request.launcher), ...AGENTS_ENVIRONMENT, ...request.env };
   // Everything a durable turn's process starts with. The conversation's next turn reuses it only when all of it is the same.
   const key = durable && JSON.stringify([invocation.command, invocation.args, request.cwd, env]);
   if (request.warm === true) {
