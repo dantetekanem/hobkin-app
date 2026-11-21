@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { closeSync, existsSync, lstatSync, mkdirSync, openSync, readdirSync, readFileSync, readSync, realpathSync, renameSync, rmdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve, isAbsolute } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import { BACKUP_CADENCES, BACKUP_LIMIT_MAX, BACKUP_NAME, BACKUP_SAFETY_KEPT, DEFAULT_BACKUP_CONFIG, type BackupCadence, type BackupConfig, type BackupEntry, type BackupState } from '#shared/backup/types.ts'
+import { BACKUP_CADENCES, BACKUP_LIMIT_MAX, BACKUP_NAME, BACKUP_SAFETY_KEPT, DEFAULT_BACKUP_CONFIG, type BackupCadence, type BackupConfig, type BackupEntry, type BackupState, type BackupStray } from '#shared/backup/types.ts'
 
 /**
  * Local backup of hobkin's own records in the home: its conversations, routines, reports, notes, decisions, the work
@@ -19,8 +19,15 @@ import { BACKUP_CADENCES, BACKUP_LIMIT_MAX, BACKUP_NAME, BACKUP_SAFETY_KEPT, DEF
  * Left out too, because they are not hobkin's records (the user, 2026-11-13: "i said only hobkin data"; a first backup
  * of the whole home was 5.4 GB, most of it installed dependencies): the working copies of projects and what agents
  * built in them, the clones hobkin makes and every other git checkout, the checkouts a change review is made from, the artifacts and evidence a run leaves (its brief and its
- * report are records), the transcripts of agent runs, and the index that is built again from the notes. `leftOut` is
- * the one rule for all of it. A restore never moves, deletes or rolls back any of it, and never takes it from an archive.
+ * report are records), the transcripts of agent runs, and the index that is built again from the notes.
+ *
+ * Left out as well is whatever hobkin did not write (the user, 2026-11-21, of a 2.3 GB backup that held an agent's Linux
+ * VM: "this should never be in the backup path"): at the home's root, in `runtime/` and in each project's folder in
+ * `work/`, a backup takes only the names hobkin and this client write there by design, and anything else at those
+ * levels is left out with everything under it, whatever it is called, and told with its size (see `OWN_AT_HOME`).
+ *
+ * `leftOut` is the one rule for all of it. A restore never moves, deletes or rolls back any of it, and never takes it
+ * from an archive.
  */
 const PROCESS_FILES = ['runtime.lock', 'client/host.json']
 const NOT_RECORDS: readonly RegExp[] = [
@@ -40,29 +47,153 @@ const NOT_RECORDS: readonly RegExp[] = [
   // named like that elsewhere, such as `memory/tax-evidence`, is a record.
   /^(?:runtime\/handoffs|work\/[^/]+|work\/[^/]+\/prs)\/[^/]+[-.](?:evidence|artifacts)$/,
 ]
+
+/**
+ * What hobkin and this client write by design at the home's root, in `runtime/` and in each project's folder: there a
+ * backup takes these and nothing else, and `PROCESS_FILES` and `NOT_RECORDS` still leave out what they name. Each name
+ * comes with the code that writes it, in hobkin's `src/cli/` or this client's `host/src/`. A name the code joins at
+ * those levels that is not here fails `host/test/backup-guard.test.ts`, so it is decided before a backup drops it.
+ */
+const OWN_AT_HOME: readonly (string | RegExp)[] = [
+  'AGENTS.md', // directions.mjs; host/src/directions.ts
+  'answers.jsonl', // questions.mjs
+  'canvas', // canvas.mjs; host/src/canvases.ts
+  'checks', // checks.mjs, holds.mjs, memory.mjs
+  'client', // this client: host-file.ts, slash.ts, reminders.ts, review/, pi/node.ts and the rest
+  'config.json', // config.mjs, settings.mjs
+  'decisions.jsonl', // decisions.mjs
+  'feedback', // feedback/outbox.mjs
+  'hobkins', // hobkins.mjs
+  'imported', // history.mjs, delivery.mjs, pi-session.mjs: what `hobkin import` brought
+  'memory.md', // memory.mjs
+  'migration', // migration/journal.mjs: a migration's journal and its data
+  'active.json', // migration/admission.mjs: which migrated data is the home's
+  'notes', // pi-session.mjs, memory-index.mjs
+  'profile.json', // profile.mjs
+  'proofs', // proof/record.mjs; host/src/proofs.ts
+  'reports', // reports.mjs
+  'resources', // resource-use.mjs
+  'reviews', // patterns.mjs
+  'routines', // schedules.mjs
+  'schedules', // schedules.mjs: the routines' old folder, a link to `routines` once they move
+  'runtime', // runtime.mjs
+  'sessions', // pi-session.mjs, main-session-child.mjs
+  'setup.json', // setup-facts.mjs
+  'telemetry', // telemetry/sender.mjs
+  'tools', // proof/setup.mjs, proof/tools.mjs: the Java, TLA+ and TLAPS that proofs run
+  'work', // work/store.mjs
+  // No code writes it: a dated copy of `AGENTS.md`, taken as a file at the root until someone decides.
+  /^AGENTS\.before-\d{4}-\d\d-\d\d\.md$/,
+]
+const OWN_IN_RUNTIME: readonly (string | RegExp)[] = [
+  'answers.md', // decided.mjs
+  'brief.json', // brief.mjs
+  'client-notices.jsonl', // client-notices.mjs
+  'deleted-reports.json', // reports.mjs
+  'events', // events.mjs
+  'handoffs', // session.mjs, session-jobs.mjs, session-log.mjs
+  'hobkin.sqlite', // runtime.mjs, and beside it SQLite's own files, which `backupNow` leaves out
+  /^hobkin\.sqlite-(?:wal|shm|journal)$/,
+  'imported-reports.json', // history.mjs
+  'inbox.jsonl', // inbox.mjs
+  'learning.json', // learning/store.mjs
+  'learning-actions.jsonl', // learning/store.mjs
+  'lessons.md', // learning/store.mjs
+  'lock-holder.json', // home-lock.mjs
+  'memory-index.json', // memory-index.mjs
+  'pasted', // paste-image.mjs
+  'presentation.json', // view.mjs
+  'remote.json', // remote/credentials.mjs
+  'report-attention.json', // telemetry.mjs
+  'session-requests', // session.mjs, session-jobs.mjs
+  'telemetry.jsonl', // telemetry.mjs
+  'tell-requests', // hobkin-tell.mjs
+  'templates-seen.json', // routine-templates.mjs
+  'upkeep.json', // work/upkeep.mjs
+  'usage.json', // usage.mjs
+  'view.json', // view.mjs, patterns.mjs, application.mjs
+  'wins-told.json', // work/wins.mjs
+  /^work-reset-\d{4}-\d\d-\d\dT\d\d-\d\d-\d\d-\d{3}Z$/, // work/commands.mjs: what a reset of work mode set aside
+  // No code writes it: credentials beside `remote.json`, for a hobkin-api on this Mac it seems. Taken until someone decides.
+  'remote.local-dev.json',
+]
+const OWN_IN_PROJECT: readonly (string | RegExp)[] = [
+  // work/store.mjs, `paths`
+  'project.md',
+  'directions.md',
+  'items.jsonl',
+  'launches.jsonl',
+  'signals.json',
+  'state.json',
+  'prs',
+  'yolo.json', // work/yolo.mjs
+  'machines.json', // work/machines.mjs
+  'runs', // work/director.mjs, until hobkin's cd6f3cc of 2026-11-10: the briefs and reports of runs
+]
+
+/** Which of hobkin's names a path's folder may hold, when it is one of the three levels, and the path's own name. */
+function level(path: string): { own: readonly (string | RegExp)[]; name: string; home: boolean } | null {
+  const slash = path.lastIndexOf('/')
+  const folder = slash < 0 ? '' : path.slice(0, slash)
+  const own = folder === '' ? OWN_AT_HOME : folder === 'runtime' ? OWN_IN_RUNTIME : /^work\/[^/]+$/.test(folder) ? OWN_IN_PROJECT : null
+  return own && { own, name: path.slice(slash + 1), home: folder === '' }
+}
+
+const named = (own: readonly (string | RegExp)[], name: string) => own.some((each) => (typeof each === 'string' ? each === name : each.test(name)))
+
+/**
+ * Whether a path at one of the three levels is a file of hobkin's that is being written at that moment, under a passing
+ * name, before it takes its own name's place: `<name>.<random>.tmp` or `<name>.tmp` beside one of hobkin's names
+ * (config.mjs, settings.mjs, reports.mjs and others), or `.AGENTS.md-<random>` (host/src/directions.ts). It is half of
+ * a record, and the whole one is taken, so it is left out without a word.
+ */
+function beingWritten(path: string): boolean {
+  const at = level(path)
+  if (!at) return false
+  if (at.home && /^\.AGENTS\.md-[\w-]+$/.test(at.name)) return true
+  return at.name.endsWith('.tmp') && [at.name.slice(0, -4), at.name.replace(/\.[\w-]+\.tmp$/, '')].some((name) => named(at.own, name))
+}
+
+const onPurpose = (path: string) => PROCESS_FILES.includes(path) || NOT_RECORDS.some((rule) => rule.test(path)) || beingWritten(path)
+
+/**
+ * Whether a path inside the home, written with `/`, is at the home's root, in `runtime/` or in a project's folder and is
+ * not hobkin's own: no code of hobkin's or this client's writes that name there, and no rule leaves it out on purpose.
+ */
+export function notHobkins(path: string): boolean {
+  const at = level(path)
+  return at !== null && !named(at.own, at.name) && !onPurpose(path)
+}
+
 /** Names zip cannot be handed one to a line: it splits its list at line breaks and at carriage returns. */
 const UNNAMEABLE = /[\x00-\x1f\x7f]/
 const BEFORE_RESTORE = '-before-restore'
 
 /** Whether a path inside the home, written with `/`, is left out of a backup, with everything under it. */
-export const leftOut = (path: string): boolean => PROCESS_FILES.includes(path) || NOT_RECORDS.some((rule) => rule.test(path))
+export const leftOut = (path: string): boolean => onPurpose(path) || notHobkins(path)
 
 /**
  * What a home holds, by `leftOut`: `records` are the paths a backup takes, files and links as they are and folders
- * with a `/` after them, and `kept` the paths it leaves out, each the topmost of what it leaves. A folder that holds
- * `.git` is kept too, wherever it is: a checkout is code, and rolled back it would lose the commits made since.
- * `skipped` are records whose names zip cannot be given (a line break or another control character in them): no backup
- * holds them, so a restore leaves them where they are. Nothing under a kept folder is read, so a working copy with a
- * hundred thousand files costs one look. A link is never followed.
+ * with a `/` after them, and `kept` the paths it leaves out, each the topmost of what it leaves. `strays` are those of
+ * `kept` that are not hobkin's own (`notHobkins`). A folder that holds `.git` is kept too, wherever it is: a checkout is
+ * code, and rolled back it would lose the commits made since. So is a socket, a named pipe or a device: it holds nothing
+ * to copy, so leaving it is no failure. `skipped` are records whose names zip cannot be given (a line break or another
+ * control character in them): no backup holds them, so a restore leaves them where they are. Nothing under a kept
+ * folder is read, so a working copy with a hundred thousand files costs one look. A link is never followed.
  */
-export function homeContents(source: string): { records: string[]; kept: string[]; skipped: string[] } {
+export function homeContents(source: string): { records: string[]; kept: string[]; skipped: string[]; strays: string[] } {
   const records: string[] = []
   const kept: string[] = []
   const skipped: string[] = []
+  const strays: string[] = []
   const walk = (folder: string) => {
     for (const entry of readdirSync(join(source, folder), { withFileTypes: true })) {
       const path = folder ? `${folder}/${entry.name}` : entry.name
-      if (leftOut(path)) {
+      const stray = notHobkins(path)
+      if (stray || onPurpose(path)) {
+        kept.push(path)
+        if (stray) strays.push(path)
+      } else if (!entry.isFile() && !entry.isSymbolicLink() && !entry.isDirectory()) {
         kept.push(path)
       } else if (UNNAMEABLE.test(entry.name)) {
         skipped.push(path)
@@ -77,7 +208,26 @@ export function homeContents(source: string): { records: string[]; kept: string[
     }
   }
   walk('')
-  return { records, kept, skipped }
+  return { records, kept, skipped, strays }
+}
+
+/**
+ * How much each path inside `source` takes on disk, by `du` at low priority, largest first: null for one it could not
+ * measure. A link is measured as itself, not followed. Never fails: a backup is made, and only a size is missing.
+ */
+async function measured(source: string, paths: readonly string[]): Promise<BackupStray[]> {
+  const sizes: BackupStray[] = []
+  for (const path of paths) {
+    const bytes = await new Promise<number | null>((done) =>
+      // A folder with something du may not read still gets its total, with a failing exit.
+      execFile('nice', ['-n', '10', 'du', '-sk', '--', path], { cwd: source, timeout: 120_000 }, (_error, out) => {
+        const kilobytes = /^(\d+)\s/.exec(String(out))?.[1]
+        done(kilobytes === undefined ? null : Number(kilobytes) * 1024)
+      }),
+    )
+    sizes.push({ path, bytes })
+  }
+  return sizes.sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1))
 }
 
 /**
@@ -195,8 +345,11 @@ export function pruneBackups(directory: string, limit: number): string[] {
   return old.map(({ name }) => name)
 }
 
-/** A backup just made, and the paths in the home it could not take: files it could not read, and names zip cannot be given. */
-export type BackupMade = BackupEntry & { skipped: string[] }
+/**
+ * A backup just made, the paths in the home it could not take (files it could not read, and names zip cannot be given),
+ * and what it left out as not hobkin's own, with sizes, largest first.
+ */
+export type BackupMade = BackupEntry & { skipped: string[]; strays: BackupStray[] }
 
 const STORE_NAME = /\.(?:sqlite3?|db)$/
 
@@ -245,7 +398,7 @@ export async function backupNow(source: string, directory: string, now: number, 
   const name = backupName(at, suffix)
   const partial = join(directory, `${name}.partial`)
   const copies = join(directory, `${name}.stores`)
-  const { records, skipped } = homeContents(source)
+  const { records, skipped, strays } = homeContents(source)
   const stores = records.filter((path) => STORE_NAME.test(path) && isStore(join(source, path)))
   const theirs = new Set(stores.flatMap((path) => [path, `${path}-wal`, `${path}-shm`, `${path}-journal`]))
   try {
@@ -259,7 +412,7 @@ export async function backupNow(source: string, directory: string, now: number, 
     const missed = [...((await archiver.create(source, partial, records.filter((path) => !theirs.has(path)))) ?? [])]
     if (stores.length) missed.push(...((await archiver.create(join(copies, basename(source)), partial, stores)) ?? []))
     renameSync(partial, join(directory, name))
-    return { name, at, bytes: statSync(join(directory, name)).size, skipped: [...skipped, ...missed] }
+    return { name, at, bytes: statSync(join(directory, name)).size, skipped: [...skipped, ...missed], strays: await measured(source, strays) }
   } catch (error) {
     rmSync(partial, { force: true })
     throw error
@@ -452,16 +605,26 @@ export interface BackupsOptions {
 
 const RETRY_MS = 15 * 60_000
 
-/** What the newest backup could not take, kept beside the backups so it is still told after the host restarts. */
+/**
+ * What the newest backup could not take, and what it left out as not hobkin's own, kept beside the backups so it is still
+ * told after the host restarts.
+ */
 const skippedFile = (directory: string) => join(directory, 'skipped.json')
 
-function readSkipped(directory: string, backups: readonly BackupEntry[]): BackupState['skipped'] {
+const isStray = (entry: unknown): entry is BackupStray => {
+  const { path, bytes } = (entry ?? {}) as Partial<BackupStray>
+  return typeof path === 'string' && (bytes === null || Number.isFinite(bytes))
+}
+
+function readNote(directory: string, backups: readonly BackupEntry[]): Pick<BackupState, 'skipped' | 'strays'> {
   try {
-    const saved = JSON.parse(readFileSync(skippedFile(directory), 'utf8')) as { name?: unknown; paths?: unknown }
+    const saved = JSON.parse(readFileSync(skippedFile(directory), 'utf8')) as { name?: unknown; paths?: unknown; strays?: unknown }
+    if (typeof saved.name !== 'string' || backups[0]?.name !== saved.name) return { skipped: null, strays: null }
     const paths = Array.isArray(saved.paths) ? saved.paths.filter((path): path is string => typeof path === 'string') : []
-    return backups[0]?.name === saved.name && paths.length ? { name: saved.name, paths } : null
+    const strays = Array.isArray(saved.strays) ? saved.strays.filter(isStray) : []
+    return { skipped: paths.length ? { name: saved.name, paths } : null, strays: strays.length ? { name: saved.name, entries: strays } : null }
   } catch {
-    return null
+    return { skipped: null, strays: null }
   }
 }
 
@@ -506,7 +669,7 @@ export class Backups {
       lastError: this.failure,
       nextAt: this.next,
       directory: this.directory,
-      skipped: readSkipped(this.directory, backups),
+      ...readNote(this.directory, backups),
     }
   }
 
@@ -519,15 +682,16 @@ export class Backups {
     this.arm()
   }
 
-  /** Says what a backup just made could not take: in the state, beside the backups, and in the log. */
-  private noteSkipped({ name, skipped }: BackupMade): void {
+  /** Says what a backup just made could not take, and what it left out as not hobkin's own: in the state, beside the backups, and in the log. */
+  private noteSkipped({ name, skipped, strays }: BackupMade): void {
     try {
-      if (skipped.length) writeFileSync(skippedFile(this.directory), JSON.stringify({ name, paths: skipped }))
+      if (skipped.length || strays.length) writeFileSync(skippedFile(this.directory), JSON.stringify({ name, paths: skipped, strays }))
       else rmSync(skippedFile(this.directory), { force: true })
     } catch {
       // The backup is made; only the note of what it missed is lost, and the log still has it.
     }
     if (skipped.length) this.log(`The backup ${name} could not take ${skipped.length} file${skipped.length === 1 ? '' : 's'}: ${skipped.slice(0, 5).join(', ')}`)
+    if (strays.length) this.log(`The backup ${name} left out what hobkin did not write: ${strays.slice(0, 5).map(({ path }) => path).join(', ')}`)
   }
 
   close(): void {

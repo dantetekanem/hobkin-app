@@ -1,6 +1,7 @@
 /**
  * Local automatic backup of hobkin's own records in its home, each a timestamped .zip. Working copies of projects, what
- * runs leave beside their reports, run transcripts and the search index are left out. The host does the work; the window shows it.
+ * runs leave beside their reports, run transcripts and the search index are left out, and so is anything hobkin did not
+ * write that agents or other programs left in the home. The host does the work; the window shows it.
  */
 export const BACKUP_CADENCES = ['hourly', 'daily'] as const
 export type BackupCadence = (typeof BACKUP_CADENCES)[number]
@@ -41,6 +42,18 @@ export interface BackupState {
    * home, while that backup is kept. A restore leaves those files as they are. Null when it took everything.
    */
   skipped: { name: string; paths: string[] } | null
+  /**
+   * What the newest backup left out because hobkin did not write it (an agent's build, a VM, a download) at the home's
+   * root, in `runtime/` or in a project's folder, largest first, while that backup is kept. Not a failure: a restore
+   * leaves them where they are. Null when there was none.
+   */
+  strays: { name: string; entries: BackupStray[] } | null
+}
+
+/** Something a backup left out as not hobkin's own, by path in the home, with its size on disk when it could be measured. */
+export interface BackupStray {
+  path: string
+  bytes: number | null
 }
 
 /** A backup file's name: UTC time to the second, and a mark for the copy a restore takes of the data it replaces. */

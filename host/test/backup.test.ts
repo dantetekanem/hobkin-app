@@ -38,7 +38,7 @@ function fakeArchiver(): Archiver & { created: string[]; extracted: string[]; fa
     async extract(archive: string, into: string) {
       archiver.extracted.push(archive)
       mkdirSync(join(into, 'home'), { recursive: true })
-      writeFileSync(join(into, 'home', 'from-backup.txt'), 'restored')
+      writeFileSync(join(into, 'home', 'memory.md'), 'restored')
     },
   }
   return archiver
@@ -100,12 +100,12 @@ test('a real zip round trip restores the home and keeps the running process\'s o
   symlinkSync('config.json', join(source, 'link'))
   // Change the home after the backup: the restore must undo this.
   writeFileSync(join(source, 'config.json'), '{"a":2}')
-  writeFileSync(join(source, 'new.txt'), 'later')
+  writeFileSync(join(source, 'memory.md'), 'later')
   writeFileSync(join(source, 'client', 'host.json'), '{"pid":2}')
   await restoreBackup(join(directory, entry.name), source)
   assert.equal(readFileSync(join(source, 'config.json'), 'utf8'), '{"a":1}')
   assert.equal(readFileSync(join(source, 'sessions', 'one.jsonl'), 'utf8'), 'hello\n')
-  assert.equal(existsSync(join(source, 'new.txt')), false)
+  assert.equal(existsSync(join(source, 'memory.md')), false)
   // Left out of the archive; the live ones stay.
   assert.equal(readFileSync(join(source, 'client', 'host.json'), 'utf8'), '{"pid":2}')
   assert.ok(existsSync(join(source, 'runtime.lock')))
@@ -202,7 +202,7 @@ test('a restore takes a copy of the current data first, and only one thing runs 
   await assert.rejects(engine.restore(backupName(AT - 86_400_000)), /already running/)
   const done = await restoring
   assert.equal(done.safety, backupName(AT, '-before-restore'))
-  assert.equal(readFileSync(join(source, 'from-backup.txt'), 'utf8'), 'restored')
+  assert.equal(readFileSync(join(source, 'memory.md'), 'utf8'), 'restored')
   await assert.rejects(engine.restore('../../etc/passwd'), /not one of the backups/)
   assert.equal(engine.state().busy, null)
 })
@@ -268,7 +268,7 @@ test("a backup holds hobkin's own records, and leaves out working copies, artifa
   for (const path of ['work/app/trees', 'work/app/runs/r1', 'work/app/reviews', 'work/app/releases', 'client/review-trees', 'jobs', 'runtime/.qmd', 'runtime/handoffs/x.artifacts', 'runtime/handoffs/x.evidence', 'work/app/release-1-evidence', 'runtime.lock', 'client/host.json']) {
     assert.equal(leftOut(path), true, path)
   }
-  for (const path of ['work', 'work/app', 'work/app/items.jsonl', 'work/app/prs', 'work/app/runs', 'client', 'client/reviews', 'runtime', 'runtime/handoffs', 'runtime/handoffs/job.md', 'sessions', 'hobkins', 'notes/trees', 'reviews', 'evidence.md']) {
+  for (const path of ['work', 'work/app', 'work/app/items.jsonl', 'work/app/prs', 'work/app/runs', 'client', 'client/reviews', 'runtime', 'runtime/handoffs', 'runtime/handoffs/job.md', 'sessions', 'hobkins', 'notes/trees', 'reviews', 'notes/evidence.md']) {
     assert.equal(leftOut(path), false, path)
   }
 })
@@ -487,21 +487,21 @@ test('the zip takes names as they are, empty folders, and links as links, and a 
   const odd = ['with space.txt', ' leading space', 'trailing space ', 'quote"d', "apos'd", 'café ünï', '-dash', 'star*', 'br[1]', 'back\\slash']
   mkdirSync(join(source, 'notes'))
   for (const name of odd) writeFileSync(join(source, 'notes', name), `named ${name}`)
-  mkdirSync(join(source, 'empty'))
-  symlinkSync('config.json', join(source, 'to-file'))
-  symlinkSync('sessions', join(source, 'to-folder'))
+  mkdirSync(join(source, 'notes/empty'))
+  symlinkSync('../config.json', join(source, 'notes/to-file'))
+  symlinkSync('../sessions', join(source, 'notes/to-folder'))
   const entry = await backupNow(source, directory, AT)
   const inside = execFileSync('unzip', ['-Z1', join(directory, entry.name)], { encoding: 'utf8' }).split('\n').filter(Boolean)
   for (const name of odd) assert.ok(inside.includes(`home/notes/${name}`), name)
-  for (const name of ['home/empty/', 'home/to-file', 'home/to-folder']) assert.ok(inside.includes(name), name)
-  assert.equal(inside.includes('home/to-folder/one.jsonl'), false, 'a link to a folder is not followed')
-  for (const name of ['notes', 'empty', 'to-file', 'to-folder']) rmSync(join(source, name), { recursive: true })
+  for (const name of ['home/notes/empty/', 'home/notes/to-file', 'home/notes/to-folder']) assert.ok(inside.includes(name), name)
+  assert.equal(inside.includes('home/notes/to-folder/one.jsonl'), false, 'a link to a folder is not followed')
+  rmSync(join(source, 'notes'), { recursive: true })
 
   await restoreBackup(join(directory, entry.name), source)
   for (const name of odd) assert.equal(readFileSync(join(source, 'notes', name), 'utf8'), `named ${name}`, name)
-  assert.ok(lstatSync(join(source, 'empty')).isDirectory())
-  assert.equal(readlinkSync(join(source, 'to-file')), 'config.json')
-  assert.equal(readlinkSync(join(source, 'to-folder')), 'sessions')
+  assert.ok(lstatSync(join(source, 'notes/empty')).isDirectory())
+  assert.equal(readlinkSync(join(source, 'notes/to-file')), '../config.json')
+  assert.equal(readlinkSync(join(source, 'notes/to-folder')), '../sessions')
 })
 
 test('a home with no records still backs up, and restoring that backup takes only the records away', async (t) => {
