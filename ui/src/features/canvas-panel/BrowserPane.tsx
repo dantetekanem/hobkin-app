@@ -2,6 +2,7 @@ import { useIsPresent } from 'motion/react'
 import { ArrowLeft, ArrowRight, ExternalLink, RotateCw } from 'lucide-react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useStill } from '@/app/still.ts'
+import { sameFields } from '@/lib/host/frame.ts'
 import { shell, type BrowserShell, type BrowserShown } from '@/lib/native.ts'
 import { PanelButton } from './PanelButton.tsx'
 import { addressFrom, areaOf, barOf, covered, createNativeView, nativeShown, type NativeView } from './browser.ts'
@@ -87,8 +88,9 @@ export function BrowserPane({ browser, url, title, revision, onEscape, onOpenInB
   // What the browser shows: as it says, and once a second, since a page can change its address without loading.
   useEffect(() => {
     let mounted = true
+    // The once-a-second look mostly finds the page as it was: the pane draws again only when it changed.
     const take = (next: BrowserShown | null) => {
-      if (mounted && next) setShown(next)
+      if (mounted && next) setShown((held) => (sameFields(held, next) ? held : next))
     }
     const stop = browser.onShown(take)
     const timer = setInterval(() => void browser.shown().then(take, () => {}), 1000)
