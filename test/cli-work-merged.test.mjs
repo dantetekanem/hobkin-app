@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { chooseProject, fileItem, paths, readItems, updateItem } from '../src/cli/work/store.mjs';
 import { ghWithin, readUnmerged, surveyUnmerged, unmergedNow } from '../src/cli/work/unmerged.mjs';
-import { branched, git, pull, repository, withOrigin } from './helpers/work-fixture.mjs';
+import { branched, commit, git, pull, repository, withOrigin } from './helpers/work-fixture.mjs';
 
 const HOUR = 3600000;
 const NOW = Date.parse('2026-06-01T12:00:00Z');
@@ -191,6 +192,80 @@ test('a branch the default branch holds closes finished work, dated now because 
   assert.deepEqual([finished, recorded].map(entry => [read(h, entry).state, read(h, entry).mergedAt]), [['merged', iso(NOW)], ['merged', iso(NOW)]]);
   assert.equal(read(h, unmerged).state, 'branch');
   assert.deepEqual(settled.map(({ id }) => id), [finished.id, recorded.id]);
+});
+
+// The same change made twice, as two runs on duplicate issues leave it: one commit each, worded differently.
+const SALE = ['sale.txt', 'reject negative quantities\n'];
+const twins = checkout => {
+  branched(checkout, 'hobkin/112-fix', ...SALE, 'Reject negative sale quantities');
+  branched(checkout, 'hobkin/129-fix', ...SALE, 'Return an error for selling more than owned');
+};
+
+test('a branch whose every commit the default branch holds by patch closes its item, naming the merge and the work that landed it', async t => {
+  const h = workspace(t);
+  twins(h.checkout);
+  mergeHere(h.checkout, 'hobkin/112-fix');
+  const merge = git(h.checkout, 'rev-parse', 'main');
+  const first = item(h, { state: 'merged', branch: 'hobkin/112-fix', landed: { sha: merge } });
+  const duplicate = item(h, { state: 'branch', branch: 'hobkin/129-fix' });
+
+  const { settled, projects } = await surveyWithNoGh(h);
+
+  const { state, mergedAt, afterMerge, landed } = read(h, duplicate);
+  assert.deepEqual({ state, mergedAt, afterMerge }, { state: 'merged', mergedAt: iso(NOW), afterMerge: 'due' });
+  assert.deepEqual([landed.sha, landed.sameChange], [merge, { commit: git(h.checkout, 'rev-parse', 'hobkin/112-fix'), item: first.id }]);
+  assert.deepEqual(settled.map(({ id }) => id), [duplicate.id]);
+  assert.deepEqual(projects.api.open, [], 'neither branch is open work any more');
+});
+
+test('a cherry-picked change closes its item naming the commit, and a branch with one commit still its own stays open', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/picked');
+  git(h.checkout, 'switch', '-qc', 'hobkin/partly');
+  commit(h.checkout, 'one.txt', 'one\n');
+  commit(h.checkout, 'two.txt', 'two\n');
+  git(h.checkout, 'switch', '-q', 'main');
+  git(h.checkout, 'cherry-pick', '-x', 'hobkin/picked', 'hobkin/partly~1');
+  const picked = item(h, { state: 'branch', branch: 'hobkin/picked' });
+  const partly = item(h, { state: 'branch', branch: 'hobkin/partly' });
+
+  const { projects } = await surveyWithNoGh(h);
+
+  const pick = git(h.checkout, 'rev-parse', 'main~1');
+  assert.deepEqual([read(h, picked).state, read(h, picked).landed.sha, read(h, picked).landed.sameChange], ['merged', pick, { commit: pick, item: null }]);
+  assert.equal(read(h, partly).state, 'branch');
+  assert.deepEqual(projects.api.open.map(unit => unit.branch), ['hobkin/partly']);
+});
+
+/** Counts the patch checks the survey asks git for, through a git of the test's own that runs the real one. */
+function countPatchChecks(t, h) {
+  const real = execFileSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).trim();
+  const bin = join(dirname(h.checkout), 'bin');
+  const log = join(bin, 'checks.log');
+  mkdirSync(bin);
+  writeFileSync(log, '');
+  writeFileSync(join(bin, 'git'), `#!/bin/sh\ncase "$*" in *--cherry-mark*) echo >> "${log}";; esac\nexec "${real}" "$@"\n`, { mode: 0o755 });
+  const saved = process.env.PATH;
+  process.env.PATH = `${bin}:${saved}`;
+  t.after(() => { process.env.PATH = saved; });
+  return () => readFileSync(log, 'utf8').length;
+}
+
+test('a branch is checked for its patches again only once the default branch or the branch moves, and only while an item waits on it', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/waiting');
+  branched(h.checkout, 'hobkin/dropped');
+  item(h, { state: 'branch', branch: 'hobkin/waiting' });
+  item(h, { state: 'dropped', branch: 'hobkin/dropped' });
+  const checks = countPatchChecks(t, h);
+
+  await surveyWithNoGh(h);
+  await surveyWithNoGh(h, NOW + HOUR);
+  const unmoved = checks();
+  commit(h.checkout, 'other.txt', 'other\n');
+  await surveyWithNoGh(h, NOW + 2 * HOUR);
+
+  assert.deepEqual([unmoved, checks()], [1, 2]);
 });
 
 test('a branch deleted after its merge closes its item, because the last survey saw where it ended', async t => {

@@ -9,7 +9,7 @@ import { readReviewGrades, reviewsFolder } from './grades.mjs';
 import { areaOf, isTestPath } from './patterns.mjs';
 import { readOnce } from './one-read.mjs';
 import { modelsAt, sameCodeAs, specsAt } from './proofs.mjs';
-import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, isMerged, realPlace } from './tree.mjs';
+import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, gitWithin, isMerged, realPlace } from './tree.mjs';
 import { chosenProjects, fileItem, paths, readItems, readJson, runnableStates, updateItem } from './store.mjs';
 
 export const SHIP_KIND = 'pr-fix';
@@ -51,8 +51,12 @@ const BACKUP_BRANCH = /-before-(?:(?:rebase|refresh)-)?[0-9a-f]{6,40}$/;
 const SURVEY_KEY = /^(?:branch|ship):/;
 const BACKUP_REASON = 'Its branch is only a backup of another branch, so there is no work of its own here.';
 
+const PATCH_CHECK_TIMEOUT_MS = 60000;
+
 const run = promisify(execFile);
 export const ghWithin = timeout => async (args, cwd) => (await run('gh', args, { cwd, timeout, maxBuffer: 16 * 1024 * 1024 })).stdout;
+// A patch check that fails must say so, because an empty answer would read as a branch with nothing left to land.
+const gitOrFail = gitWithin(PATCH_CHECK_TIMEOUT_MS);
 const defaultGh = ghWithin(GH_TIMEOUT_MS);
 const surveyPath = root => join(root, 'work', 'unmerged.json');
 
@@ -150,6 +154,46 @@ export async function landingTip(repo, base) {
   const [local, remote] = await Promise.all([tipOf(`refs/heads/${base}`), tipOf(`refs/remotes/origin/${base}`)]);
   if (local && remote && !await isMerged(repo, local, remote)) return local;
   return remote || local || null;
+}
+
+/**
+ * The commits on `tip` that carry a branch's own commits as patches, newest first, when the tip already holds every one of them: as work landed
+ * through another branch with the same change, a cherry-pick or a group merge leaves it. Empty when the tip holds the branch itself. Null while
+ * even one commit is still only the branch's. A merge commit is never matched, so a branch holding one stays its own.
+ */
+async function samePatchesOn(repo, tip, sha) {
+  const own = lines(await gitOrFail(repo, 'rev-list', '--right-only', '--cherry-mark', `${tip}...${sha}`));
+  if (own.some(line => !line.startsWith('='))) return null;
+  if (!own.length) return [];
+  const theirs = lines(await gitOrFail(repo, 'rev-list', '--left-only', '--cherry-mark', `${tip}...${sha}`));
+  return theirs.filter(line => line.startsWith('=')).map(line => line.slice(1));
+}
+
+// Each answer of `samePatchesOn` by branch, with the two commits it was asked at. It holds until one of them moves, so a survey asks git again only then.
+const patchChecks = new Map();
+
+async function landedByPatch(repo, tip, { name, sha }) {
+  const key = `${repo}\0${name}`;
+  const known = patchChecks.get(key);
+  if (known?.tip === tip && known.sha === sha) return known.commits;
+  // A check git could not finish answers nothing, and is asked again next time.
+  const commits = await samePatchesOn(repo, tip, sha).catch(() => undefined);
+  if (commits !== undefined) patchChecks.set(key, { tip, sha, commits });
+  return commits ?? null;
+}
+
+/**
+ * The branches an item waits on whose every commit has landed on the tip by patch, though not by ancestry, each with the commits that carry it.
+ * Only those can close work, so no other branch costs a check, and one at a time, so many waiting branches never ask git for many checks at once.
+ */
+async function patchLandings({ repo, tip, branches, settling }) {
+  const found = new Map();
+  if (!tip) return found;
+  for (const branch of branches.filter(({ name, merged }) => !merged && settling.has(name) && !BACKUP_BRANCH.test(name))) {
+    const commits = await landedByPatch(repo, tip, branch);
+    if (commits) found.set(branch.name, commits);
+  }
+  return found;
 }
 
 async function commitsBehind(repo, tip, name) {
@@ -325,12 +369,15 @@ async function treesHeld(repo, trees) {
 }
 
 /** Read-only `git` and `gh`, and no model. A PR and its branch are one piece of work, and so is a worktree holding that branch. */
-async function surveyProject({ repo, trees, previous = {}, now, gh, grades, finished }) {
+async function surveyProject({ repo, trees, previous = {}, now, gh, grades, finished, settling }) {
   // `gitOrNothing` hears a missing folder as an empty repository, which would pass for a project with nothing open.
   if (!await gitOrNothing(repo, 'rev-parse', '--git-dir')) throw Error(`Cannot read ${repo}.`);
   const base = await defaultBranch(repo);
   const tip = await landingTip(repo, base);
-  const branches = await localBranches(repo, base, finished);
+  const listed = await localBranches(repo, base, finished);
+  // A branch whose change landed by another commit has landed as surely as one merged, so it is no open work either.
+  const samePatch = await patchLandings({ repo, tip, branches: listed, settling });
+  const branches = listed.map(branch => (samePatch.has(branch.name) ? { ...branch, merged: true } : branch));
   const pulls = await pullRequests(repo, gh) ?? [];
   // An item can name a PR on any head, but only a hobkin head is work to count.
   const ownPulls = pulls.filter(pr => pr.headRefName?.startsWith(BRANCH_PREFIX));
@@ -361,6 +408,7 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
     pulls,
     held: new Set([...branches.filter(branch => branch.merged).map(branch => branch.name), ...landed]),
     tips: new Map(branches.map(branch => [branch.name, branch.sha])),
+    samePatch,
     before: previous.open ?? [],
     base,
     tip,
@@ -388,13 +436,31 @@ export const landedRecord = (item, { safety = null, ...facts }) => ({
   quality: item.quality ? { rating: item.quality.rating } : null,
 });
 
+/**
+ * What carried a change that landed by patch (`samePatch`), for the issue it closes to name. The first of those commits that heads other work's
+ * branch names that work, and the merge that work landed as. With none, it is the newest of those commits.
+ */
+function sameChangeOf(item, { samePatch, tips, before }, items) {
+  const commits = samePatch?.get(item.branch);
+  if (!commits?.length) return null;
+  const heads = [...tips, ...before.map(unit => [unit.branch, unit.sha])].filter(([branch]) => branch !== item.branch);
+  for (const commit of commits) {
+    const other = heads.filter(([, sha]) => sha === commit).flatMap(([branch]) => makersOf({ branch }, items)).find(maker => maker.id !== item.id);
+    if (other) return { sha: other.landed?.sha ?? commit, sameChange: { commit, item: other.id } };
+  }
+  return { sha: commits[0], sameChange: { commit: commits[0], item: null } };
+}
+
 /** A merge on the remote, so all hobkin can say of it is what its host and the last survey know. A fix on a branch is no change of its own. */
-function landedElsewhere(item, pull, { tips, before }, at) {
+function landedElsewhere(item, pull, found, at, items) {
   if (item.kind === SHIP_KIND) return {};
+  const { tips, before } = found;
   const branch = pull?.headRefName ?? item.branch;
   const unit = before.find(known => known.branch === branch);
+  const same = pull?.state === 'MERGED' ? null : sameChangeOf(item, found, items);
   const landed = landedRecord(item, {
-    sha: pull?.mergeCommit?.oid ?? tips.get(branch) ?? unit?.sha ?? null,
+    sha: pull?.mergeCommit?.oid ?? same?.sha ?? tips.get(branch) ?? unit?.sha ?? null,
+    ...(same ? { sameChange: same.sameChange } : {}),
     at: pull?.mergedAt ?? at,
     route: 'remote',
     read: 'none',
@@ -413,11 +479,11 @@ function landedElsewhere(item, pull, { tips, before }, at) {
  */
 export const AFTER_MERGE = { afterMerge: 'due' };
 
-const mergedOutcome = (item, pull, found, at) => ({
+const mergedOutcome = (item, pull, found, at, items = []) => ({
   state: 'merged',
   mergedAt: pull?.mergedAt ?? at,
   ...AFTER_MERGE,
-  ...landedElsewhere(item, pull, found, at),
+  ...landedElsewhere(item, pull, found, at, items),
 });
 
 /** One PR as its host reports it now, with the fields the survey reads, or null when the host cannot say. */
@@ -440,13 +506,13 @@ export function closeMergedPull(root, slug, item, pull, now = Date.now()) {
   return updateItem(root, slug, item.id, outcome, now);
 }
 
-function outcomeOf(item, found, at) {
+function outcomeOf(item, found, at, items) {
   const { pulls, held } = found;
   const pull = pullOf(item, pulls);
   if (pull?.state === 'OPEN') return null;
 
   const landed = pull?.state === 'MERGED' || (branchProvesMerge(item) && held.has(item.branch));
-  if (landed) return mergedOutcome(item, pull, found, at);
+  if (landed) return mergedOutcome(item, pull, found, at, items);
 
   // The user closes a PR to keep its work as a local branch for review, so this declines nothing: the branch stays the record.
   if (item.state !== 'pr' || !pull) return null;
@@ -456,9 +522,10 @@ function outcomeOf(item, found, at) {
 // Read after the survey's waits, with none before the writes, so an item changed during a slow `gh` is judged as it stands now.
 function settleItems(root, slug, found, now) {
   const at = new Date(now).toISOString();
-  const closable = readItems(root, slug).filter(item => closableStates.includes(item.state));
+  const items = readItems(root, slug);
+  const closable = items.filter(item => closableStates.includes(item.state));
   return closable.flatMap(item => {
-    const outcome = outcomeOf(item, found, at);
+    const outcome = outcomeOf(item, found, at, items);
     if (!outcome) return [];
     updateItem(root, slug, item.id, outcome, now);
     return [{ slug, id: item.id, title: item.title, state: outcome.state }];
@@ -549,8 +616,11 @@ export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, r
     // A name alone says a branch is a backup, so this reads nothing from the repository. It goes first, so no item for a backup counts as finished work below.
     retired.push(...retireBackupWork(root, slug, now));
     try {
-      const finished = new Set(readItems(root, slug).filter(item => item.state === 'branch' && item.branch).map(item => item.branch));
-      const found = await surveyProject({ repo: path ?? clone, trees, previous: previous[slug], now, gh, grades, finished });
+      const items = readItems(root, slug);
+      const finished = new Set(items.filter(item => item.state === 'branch' && item.branch).map(item => item.branch));
+      // The branches whose landing would close an item, which are the only ones checked for a change landed by another commit.
+      const settling = new Set(items.filter(item => closableStates.includes(item.state) && branchProvesMerge(item) && item.branch).map(item => item.branch));
+      const found = await surveyProject({ repo: path ?? clone, trees, previous: previous[slug], now, gh, grades, finished, settling });
       projects[slug] = found.survey;
       settled.push(...settleItems(root, slug, found, now));
       filed.push(...fileShipWork(root, slug, found, now));

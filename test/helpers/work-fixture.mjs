@@ -21,16 +21,16 @@ export function repository(base, name) {
   return checkout;
 }
 
-export function commit(checkout, file, text) {
+export function commit(checkout, file, text, message = text.trim()) {
   writeFileSync(join(checkout, file), text);
   git(checkout, 'add', '.');
-  git(checkout, 'commit', '-qm', text.trim());
+  git(checkout, 'commit', '-qm', message);
 }
 
-/** A branch with one commit of its own, with the checkout back on `main`. */
-export function branched(checkout, name, file = `${name.replaceAll('/', '-')}.txt`, text = `${name}\n`) {
+/** A branch with one commit of its own, with the checkout back on `main`. Another `message` for the same change makes a second commit of it. */
+export function branched(checkout, name, file = `${name.replaceAll('/', '-')}.txt`, text = `${name}\n`, message = text.trim()) {
   git(checkout, 'switch', '-qc', name);
-  commit(checkout, file, text);
+  commit(checkout, file, text, message);
   git(checkout, 'switch', '-q', 'main');
 }
 
