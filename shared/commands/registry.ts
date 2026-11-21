@@ -209,7 +209,7 @@ export const COMMANDS = {
   },
   'backup.now': {
     description:
-      "Zip hobkin's own records now (settings, memory, notes, routines, reports, decisions, conversations and each project's work records) into a timestamped file, and delete the oldest backups past the limit (the copies taken before a restore are kept apart). Working copies and clones of projects, any other git checkout, what runs leave beside their reports, run transcripts and the search index are left out, and what it could not read is listed.",
+      "Zip hobkin's own records now (settings, memory, notes, routines, reports, decisions, conversations and each project's work records) into a timestamped file, and delete the oldest backups past the limit (the copies taken before a restore are kept apart). Working copies and clones of projects, any other git checkout, what runs leave beside their reports, run transcripts and the search index are left out. So is anything in the home that hobkin did not write itself, such as a folder an agent left there: it is listed with its size as left out. What hobkin's own could not be read is listed as a failure.",
     runs: 'host', args: nothing,
   },
   'backup.restore': {
