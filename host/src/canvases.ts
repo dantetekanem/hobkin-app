@@ -53,6 +53,9 @@ export class Canvases {
   private readonly options: CanvasesOptions
   private published: Published
   private watcher: FSWatcher | null = null
+  /** The folder the watcher follows, and the one it followed when the store was last read. */
+  private attached: string | null = null
+  private readFollowing: string | null = null
   private timer: NodeJS.Timeout | null = null
   private watching = false
 
@@ -106,11 +109,21 @@ export class Canvases {
 
   /** Reads the store again and tells the window when what it shows changed. The host may call this any time. */
   refresh(): void {
-    if (this.watching && !this.watcher) this.attach()
+    if (this.watching) this.attach()
     const next = this.compute()
+    this.readFollowing = this.attached
     if (JSON.stringify(next) === JSON.stringify(this.published)) return
     this.published = next
     this.options.onChange()
+  }
+
+  /**
+   * The host's timer. While the watcher follows the open home's canvas folder, every change there reaches it, so
+   * there is nothing to read. Otherwise (hobkin not open yet, another home, a watch that failed) it reads the store.
+   */
+  poll(): void {
+    if (this.watching && this.watcher && this.attached === this.folder() && this.readFollowing === this.attached) return
+    this.refresh()
   }
 
   /** Follows the canvas folder, so a change made by the shell command reaches the window. Never throws. */
@@ -125,6 +138,7 @@ export class Canvases {
     this.timer = null
     this.watcher?.close()
     this.watcher = null
+    this.attached = null
   }
 
   /**
@@ -170,12 +184,27 @@ export class Canvases {
     }
   }
 
-  private attach(): void {
-    if (this.watcher) return
+  /** The open home's canvas folder, or null while hobkin is not open. */
+  private folder(): string | null {
     try {
-      const folder = join(this.options.root(), 'canvas')
+      return join(this.options.root(), 'canvas')
+    } catch {
+      return null
+    }
+  }
+
+  /** Follows the open home's canvas folder, and lets go of one that is no longer it. */
+  private attach(): void {
+    const folder = this.folder()
+    if (this.watcher && this.attached === folder) return
+    this.watcher?.close()
+    this.watcher = null
+    this.attached = null
+    if (!folder) return
+    try {
       mkdirSync(folder, { recursive: true, mode: 0o700 })
       this.watcher = watch(folder, () => this.soon())
+      this.attached = folder
       this.watcher.on('error', () => {
         this.watcher?.close()
         this.watcher = null

@@ -145,6 +145,69 @@ test('with no hobkin home at all the keeper holds an empty slice', async (t) => 
   assert.deepEqual(keeper.state, { runs: [] })
 })
 
+/** A keeper on a fast poll that counts its reads of the folder: each one asks the clock once to start. */
+function counted(t: Parameters<typeof temporaryDirectory>[0], options: { home: () => string | null; alive?: (pid: number) => boolean }) {
+  const reads = { count: 0 }
+  const keeper = new ProofsKeeper({ ...options, onChange: () => {}, tools: () => tools, pollMs: 5, now: () => (reads.count++, Date.now()) })
+  t.after(() => keeper.close())
+  return { keeper, reads }
+}
+
+test('with its folder watched and no run checking, the poll reads nothing, and a new run still shows up at once', async (t) => {
+  const { home, folder } = homeWith(t, 'done', [startEvent])
+  writeFileSync(join(folder, 'result.json'), JSON.stringify({ outcome: 'holds', finished: at(1) }))
+  const { keeper, reads } = counted(t, { home: () => home })
+  // The first read, and one more once the watch is set, half a second later.
+  await pause(800)
+  reads.count = 0
+  // Longer than the half second between two reads, so a poll that reads cannot hide.
+  await pause(600)
+  assert.equal(reads.count, 0, 'nothing to see, nothing read')
+
+  writeEvents(join(home, 'proofs', 'new'), [{ ...startEvent, at: at(5) }])
+  writeFileSync(join(home, 'proofs', 'new', 'pid'), String(process.pid))
+  await pause(600)
+  assert.deepEqual(keeper.state.runs.map((run) => run.id), ['new', 'done'])
+})
+
+test('a home with no proofs folder is watched for one, so the poll reads nothing until the first run', async (t) => {
+  const home = temporaryDirectory(t)
+  const { keeper, reads } = counted(t, { home: () => home })
+  await pause(800)
+  reads.count = 0
+  // Longer than the half second between two reads, so a poll that reads cannot hide.
+  await pause(600)
+  assert.equal(reads.count, 0)
+  writeEvents(join(home, 'proofs', 'first'), [startEvent])
+  await pause(600)
+  assert.deepEqual(keeper.state.runs.map((run) => run.id), ['first'])
+})
+
+test('while a run is checking the poll keeps reading, since its process can end without writing anything', async (t) => {
+  const { home } = homeWith(t, 'live', [startEvent], { pid: '4242' })
+  let alive = true
+  const { keeper } = counted(t, { home: () => home, alive: () => alive })
+  await pause(300)
+  assert.equal(keeper.state.runs[0]?.outcome, 'checking')
+  alive = false
+  await pause(900)
+  assert.equal(keeper.state.runs[0]?.outcome, 'error')
+})
+
+test('the poll reads a home that opens later, or another one', async (t) => {
+  const { home } = homeWith(t, 'r1', [startEvent], { 'result.json': JSON.stringify({ outcome: 'holds', finished: at(1) }) })
+  const other = homeWith(t, 'r2', [startEvent], { 'result.json': JSON.stringify({ outcome: 'holds', finished: at(1) }) })
+  let current: string | null = null
+  const { keeper } = counted(t, { home: () => current })
+  await pause(100)
+  current = home
+  await pause(700)
+  assert.deepEqual(keeper.state.runs.map((run) => run.id), ['r1'])
+  current = other.home
+  await pause(700)
+  assert.deepEqual(keeper.state.runs.map((run) => run.id), ['r2'])
+})
+
 test('the state message carries the proofs slice when it changes and with every reset, and not at all from a host that sends none', () => {
   const owner = { state: 'live' } as never
   const base = { owner, signIn: { state: 'signedOut' } as never, models: null, snapshot: null }

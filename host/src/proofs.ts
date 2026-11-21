@@ -255,6 +255,8 @@ export class ProofsKeeper {
   private readonly cache = new Map<string, { at: number; signature: string; run: ProofRunSummary }>()
   private watcher: FSWatcher | null = null
   private watching: string | null = null
+  /** The home whose folder, or the home itself while it has no folder, the watch follows. */
+  private watchedHome: string | null = null
   private timer: NodeJS.Timeout | null = null
   private poll: NodeJS.Timeout
   private last = -Infinity
@@ -264,9 +266,19 @@ export class ProofsKeeper {
 
   constructor(options: KeeperOptions) {
     this.options = options
-    this.poll = setInterval(() => this.schedule(), options.pollMs ?? POLL_MS)
+    this.poll = setInterval(() => {
+      if (this.missable()) this.schedule()
+    }, options.pollMs ?? POLL_MS)
     this.poll.unref()
     this.schedule()
+  }
+
+  /**
+   * Whether the watch could miss something: it does not follow this home yet, or a run is checking, whose process can
+   * end without writing a file. Otherwise every change reaches the watch, and the poll has nothing to read.
+   */
+  private missable(): boolean {
+    return !this.watcher || this.watchedHome !== this.options.home() || this.state.runs.some((run) => run.outcome === 'checking')
   }
 
   private now = () => (this.options.now ?? Date.now)()
@@ -311,17 +323,26 @@ export class ProofsKeeper {
     return { alive: this.options.alive, now: this.options.now, stopped: this.stopped }
   }
 
-  private watchFolder(folder: string): void {
-    if (this.options.watch === false || this.watching === folder) return
+  /** Follows the runs' folder, or the home for that folder alone while it has none. */
+  private watchFolder(home: string, folder: string, exists: boolean): void {
+    const target = exists ? folder : home
+    if (this.options.watch === false || this.watching === target) return
     this.watcher?.close()
     this.watcher = null
-    this.watching = folder
+    this.watching = target
+    this.watchedHome = home
     try {
-      this.watcher = watch(folder, { recursive: true }, () => this.schedule())
+      this.watcher = exists
+        ? watch(folder, { recursive: true }, () => this.schedule())
+        : watch(home, (_event, name) => {
+          if (name === null || name === 'proofs') this.schedule()
+        })
       this.watcher.on('error', () => {
         this.watcher?.close()
         this.watcher = null
       })
+      // Anything made between the last read and the watch is read once more.
+      this.schedule()
     } catch {
       // The poll still looks.
     }
@@ -335,8 +356,9 @@ export class ProofsKeeper {
       this.toolsFor = home
       void this.findTools()
     }
-    const ids = folder && existsSync(folder) ? readdirSync(folder, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name) : []
-    if (folder && ids.length) this.watchFolder(folder)
+    const exists = folder !== null && existsSync(folder)
+    const ids = exists ? readdirSync(folder, { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name) : []
+    if (home && folder) this.watchFolder(home, folder, exists)
 
     const runs: ProofRunSummary[] = []
     for (const id of ids) {

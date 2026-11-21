@@ -768,10 +768,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   lookAgain()
   github.start()
   backups.start()
-  // The canvases are followed on disk. The folder is there only once hobkin's home is open, so they are also read
-  // again every couple of seconds, which picks them up after hobkin opens and whenever a change was missed.
+  // The canvases are followed on disk. The folder is there only once hobkin's home is open, so every couple of
+  // seconds they are read again while the watch does not follow the open home's folder, which picks them up after
+  // hobkin opens and after a watch failed.
   canvases.watch()
-  const canvasRead = setInterval(() => canvases.refresh(), 2000)
+  const canvasRead = setInterval(() => canvases.poll(), 2000)
   canvasRead.unref()
   // A durable hobkin named by its first message is given a title a little after that message, and again once it has answered.
   const hobkinTitles = setInterval(titleHobkinsNow, 5000)

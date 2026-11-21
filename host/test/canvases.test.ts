@@ -109,6 +109,44 @@ test('the window is told each canvas, and a change on disk reaches it', async (t
   assert.deepEqual(canvases.others(), { [DURABLE]: CANVAS_CLOSED })
 })
 
+test("while the canvas folder is followed the host's timer reads nothing, and a change on disk still reaches the window", async (t) => {
+  let reads = 0
+  const { root, changes, canvases } = setup(t, { store: { ...store, readCanvases: (home: string) => (reads++, store.readCanvases(home)) } })
+  canvases.watch()
+  canvases.poll()
+  reads = 0
+  for (let tick = 0; tick < 5; tick++) canvases.poll()
+  assert.equal(reads, 0)
+
+  store.showPage(root, 'main', { url: 'http://localhost:3000/app', title: 'App' })
+  await until(() => changes.length === 1, 'the page to reach the window')
+  assert.equal(canvases.main.url, 'http://localhost:3000/app')
+})
+
+test("the host's timer reads the canvases of a home that opens later, moves, or closes", async (t) => {
+  const first = temporaryDirectory(t)
+  const second = temporaryDirectory(t)
+  store.showPage(first, 'main', { url: 'http://localhost:3000/first' })
+  store.showPage(second, 'main', { url: 'http://localhost:3000/second' })
+  let open: string | null = null
+  const { canvases } = setup(t, { root: () => open ?? assert.fail('hobkin is not open') })
+  canvases.watch()
+  canvases.poll()
+  assert.deepEqual(canvases.main, CANVAS_CLOSED)
+  open = first
+  canvases.poll()
+  assert.equal(canvases.main.url, 'http://localhost:3000/first')
+  open = second
+  canvases.poll()
+  assert.equal(canvases.main.url, 'http://localhost:3000/second')
+  open = null
+  canvases.poll()
+  assert.deepEqual(canvases.main, CANVAS_CLOSED)
+  open = second
+  canvases.poll()
+  assert.equal(canvases.main.url, 'http://localhost:3000/second', 'and again once it opens again')
+})
+
 test('a drawing is served only at its keyed address, sandboxed and uncached', async (t) => {
   const { root, canvases } = setup(t)
   const base = await serving(t, canvases)
