@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -54,4 +55,58 @@ test('a new whole percent of the window, a new used percent and a new minute eac
   assert.equal(await h.tick(), 3, 'more of the window is used');
   assert.equal(await h.tick(MINUTE), 4, 'once a minute, for what moves with the clock alone');
   assert.equal(await h.tick(SECOND), 4);
+});
+
+test('the refresh a tick asks for shows Work as that tick read it, and a refresh for anything else reads it again', async t => {
+  const root = mkdtempSync(join(tmpdir(), 'hobkin-tick-refresh-'));
+  mkdirSync(join(root, 'work'), { recursive: true });
+  const survey = join(root, 'work', 'unmerged.json');
+  writeFileSync(survey, JSON.stringify({ at: null, projects: {} }));
+  // One read of the survey is one read of Work's status.
+  let reads = 0;
+  const { readFileSync } = fs;
+  t.mock.method(fs, 'readFileSync', (...args) => {
+    if (String(args[0]) === survey) reads += 1;
+    return readFileSync(...args);
+  });
+  syncBuiltinESMExports();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+    rmSync(root, { recursive: true, force: true });
+  });
+  const app = new HobkinApplication();
+  app.now = () => Date.parse('2026-11-13T12:00:30.000Z');
+  app.runtime = { directory: root, helpers: () => ({}), mainActivity: () => [] };
+  app.runner = {};
+  app.moods = { notice() {} };
+  app.learner = { enabled: () => false };
+  app.director = { tick: async () => {}, outlook: () => ({}), running: () => [] };
+  const shown = [];
+  app.project = async work => { shown.push(app.workView(work)); };
+  const settle = async () => {
+    t.mock.timers.tick(25);
+    await app.refreshing;
+  };
+
+  await app.tickWork();
+  await settle();
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0].enabled, false);
+  assert.equal(shown[0].discovering, false);
+  assert.equal(reads, 1, 'the refresh used what the tick read');
+
+  app.requestRefresh();
+  await settle();
+  assert.equal(shown.length, 2);
+  assert.equal(reads, 2, 'a refresh for something else reads Work again');
+
+  // A user's action refreshes at once, while the tick's own refresh still waits: it must show the action.
+  app.workSignature = null;
+  await app.tickWork();
+  await app.refresh();
+  assert.equal(reads, 4, 'a refresh called straight after a change reads Work again');
+  await settle();
+  assert.equal(shown.length, 3, 'the tick\'s refresh is already covered');
 });

@@ -369,13 +369,19 @@ export class HobkinApplication {
     };
   }
 
-  requestRefresh(activityOnly = false) {
+  /** `work` is Work's status as a tick just read it, for the refresh it asks for. A refresh asked for anything else reads Work again. */
+  requestRefresh(activityOnly = false, work = null) {
     if (this.closing || !this.runner) return;
-    if (!activityOnly) this.refreshDirty = true;
+    if (!activityOnly) {
+      this.refreshDirty = true;
+      this.workAsRead = work;
+    }
     if (this.refreshTimer) return;
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
-      const update = this.refreshDirty ? this.refresh() : Promise.resolve().then(() => this.publishActivity());
+      const work = this.workAsRead;
+      this.workAsRead = null;
+      const update = this.refreshDirty ? this.refresh(work) : Promise.resolve().then(() => this.publishActivity());
       void update.catch(error => {
         this.snapshot = { ...this.snapshot, error: error.message };
         recordEvent(this.runtime.directory, 'error_shown', { from: 'refresh' });
@@ -402,18 +408,19 @@ export class HobkinApplication {
     this.onChange?.(this.snapshot);
   }
 
-  refresh() {
+  /** `work` is Work as the tick that asked for this refresh read it. Any other caller changed something, so Work is read again. */
+  refresh(work = null) {
     if (!this.refreshing) {
       this.refreshDirty = false;
-      this.refreshing = this.project().finally(() => {
+      this.refreshing = this.project(work).finally(() => {
         this.refreshing = null;
-        if (this.refreshDirty) this.requestRefresh();
+        if (this.refreshDirty) this.requestRefresh(false, this.workAsRead);
       });
     }
     return this.refreshing;
   }
 
-  async project() {
+  async project(workAsRead = null) {
     await this.delivery.syncEvidence();
     const state = await this.runtime.state();
     const loaded = await this.runner.snapshot();
@@ -453,7 +460,7 @@ export class HobkinApplication {
     this.noticesCounted ??= new Set(notices.map(({ id }) => id));
     const noticeIds = new Set(notices.map(message => message.id));
     const noticedRunIds = new Set(this.noticeRunIds);
-    const work = this.workView();
+    const work = this.workView(workAsRead);
     const asked = work.allowanceRequest;
     const askedId = asked && `notice:work-allowance:${asked.at}`;
     if (asked && !noticeIds.has(askedId)) {
@@ -884,9 +891,9 @@ export class HobkinApplication {
     return receipt;
   }
 
-  workView() {
+  workView(status = null) {
     const discovering = this.director.running().some(run => run.lane === 'discover');
-    return { ...workStatus(this.runtime.directory, this.director.outlook()), discovering };
+    return { ...(status ?? workStatus(this.runtime.directory, this.director.outlook())), discovering };
   }
 
   // Agents file work from their own processes, and nothing else tells the dashboard it changed.
@@ -907,7 +914,7 @@ export class HobkinApplication {
     const signature = JSON.stringify(watched, inWholePercent);
     if (signature === this.workSignature) return;
     this.workSignature = signature;
-    this.requestRefresh();
+    this.requestRefresh(false, watched.work);
   }
 
   /**
