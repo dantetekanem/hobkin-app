@@ -762,8 +762,13 @@ export class Reviews {
     const target = this.target(id)
     const saved = this.options.store.notes(target).entries as NoteEntry[]
     // Folded, so the file holds each note once however often it was changed.
-    const merged = foldNotes([...saved, ...notes.entries])
-    this.options.store.saveNotes(target, { entries: merged.map((note) => ({ op: 'put', note })), draft: notes.draft })
+    const receipts = new Map(foldNotes(saved).map((note) => [note.id, note.sent]))
+    const entries = foldNotes([...saved, ...notes.entries]).map((note) => {
+      // A window may have loaded this note before the host recorded its delivery.
+      const sent = receipts.get(note.id)
+      return { op: 'put' as const, note: sent == null ? note : { ...note, sent } }
+    })
+    this.options.store.saveNotes(target, { entries, draft: notes.draft })
   }
 
   /**
