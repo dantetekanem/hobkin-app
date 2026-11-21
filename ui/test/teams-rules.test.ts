@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { TeamsAgent } from '../../shared/protocol/teams.ts'
 import { stampOf } from '../src/features/agent-activity/stamp.ts'
-import { describeTeamsAgent, firstLine, standing, stillShown, teamsAgentsOf, teamsLine, teamsSummary, whatIsKept, whoSaid } from '../src/features/teams/rules.ts'
+import { describeTeamsAgent, firstLine, standing, stillRead, stillShown, teamsAgentsOf, teamsLine, teamsSummary, whatIsKept, whoSaid } from '../src/features/teams/rules.ts'
 
 // Local times, so the rules hold in any time zone the tests run in.
 const at = (hour: number, minute: number, second: number) => new Date(2026, 10, 15, hour, minute, second).getTime()
@@ -38,6 +38,30 @@ test('a done agent leaves the strip, and a failed or unknown one stays', () => {
   const shown = stillShown(teamsAgentsOf(all, ['turn1', 'turn2']))
   assert.deepEqual(shown.map((row) => `${row.name}:${row.state}`), ['fixer:running', 'waiting:queued', 'lost:unknown', 'lint:failed'])
   assert.deepEqual(stillShown(teamsAgentsOf({ turn1: [agent('scout', 'done', at(14, 0, 0))] }, ['turn1'])), [])
+})
+
+test('an agent the user is reading stays, marked done, until they close it, and then it leaves', () => {
+  const before = teamsAgentsOf({ turn1: [agent('scout', 'running', at(14, 0, 0)), agent('fixer', 'running', at(14, 1, 0))] }, ['turn1'])
+  const after = teamsAgentsOf({ turn1: [agent('scout', 'done', at(14, 0, 0), { endedAt: at(14, 3, 0) }), agent('fixer', 'running', at(14, 1, 0))] }, ['turn1'])
+  const names = (agents: readonly { name: string; state: string }[]) => agents.map((row) => `${row.name}:${row.state}`)
+
+  // The list is open while scout finishes: scout stays in it, done.
+  let read = stillRead(new Set(), before, { list: true })
+  read = stillRead(read, after, { list: true })
+  assert.deepEqual(names(stillShown(after, read)), ['fixer:running', 'scout:done'])
+  // The list closes: scout leaves.
+  read = stillRead(read, after, { list: false })
+  assert.deepEqual(names(stillShown(after, read)), ['fixer:running'])
+  // A list opened after it finished does not bring it back.
+  assert.deepEqual(names(stillShown(after, stillRead(new Set(), after, { list: true }))), ['fixer:running'])
+
+  // Scout's own sheet is open while it finishes, with no list: it stays, the last one too, until the sheet closes.
+  const scout = before[0]!.id
+  const alone = after.filter((row) => row.id === scout)
+  read = stillRead(new Set(), before, { list: false, agent: scout })
+  read = stillRead(read, alone, { list: false, agent: scout })
+  assert.deepEqual(names(stillShown(alone, read)), ['scout:done'])
+  assert.deepEqual(stillShown(alone, stillRead(read, alone, { list: false })), [])
 })
 
 test('an opened agent says what it was asked and what hobkin has of its work', () => {

@@ -27,25 +27,28 @@ const ROWS = 3
 const FACES = 3
 
 export function TeamsStrip({ runs, hue, runName, variant, className }: { runs: readonly (string | null | undefined)[]; hue: number; runName: string; variant: Variant; className?: string }) {
-  const agents = useTeamsAgents(runs)
+  const [open, setOpen] = useState<SheetOpen>(null)
+  const lineListOpen = useDrop((state) => state.open === 'agents') && variant === 'line'
+  const sheetAgent = open !== null && open !== 'all' ? open.agent : undefined
+  // What the user reads stays until they close it: the open list and the agent in the sheet.
+  const agents = useTeamsAgents(runs, { list: lineListOpen || open === 'all', agent: sheetAgent })
   if (agents.length === 0) return null
-  return <TeamsStripView agents={agents} hue={hue} runName={runName} variant={variant} className={className} />
+  return <TeamsStripView agents={agents} open={open} onOpen={setOpen} hue={hue} runName={runName} variant={variant} className={className} />
 }
 
 /** The strip for given agents, with no host: what `TeamsStrip` draws, and what a still render draws. */
-export function TeamsStripView({ agents, hue, runName, variant, className }: { agents: readonly ShownTeamsAgent[]; hue: number; runName: string; variant: Variant; className?: string }) {
-  const [open, setOpen] = useState<SheetOpen>(null)
+export function TeamsStripView({ agents, open, onOpen, hue, runName, variant, className }: { agents: readonly ShownTeamsAgent[]; open: SheetOpen; onOpen: (next: SheetOpen) => void; hue: number; runName: string; variant: Variant; className?: string }) {
   const opener = useRef<HTMLElement | null>(null)
   const openFrom = (element: HTMLElement, next: SheetOpen) => {
     opener.current = element
-    setOpen(next)
+    onOpen(next)
   }
   // Read as it is drawn, as a step's time is: a strip drawn yesterday that has not changed keeps its look.
   const now = Date.now()
   const shown = agents.slice(0, ROWS)
   const more = agents.length - shown.length
   const summary = teamsSummary(agents)
-  const sheet = <TeamsAgentSheet agents={agents} open={open} onOpen={setOpen} hue={hue} runName={runName} opener={() => opener.current} />
+  const sheet = <TeamsAgentSheet agents={agents} open={open} onOpen={onOpen} hue={hue} runName={runName} opener={() => opener.current} />
 
   if (variant === 'line') return <TeamsLine agents={agents} hue={hue} now={now} summary={summary} onOpen={(element, agent) => openFrom(element, { agent })} sheet={sheet} className={className} />
 

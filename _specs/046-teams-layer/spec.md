@@ -56,6 +56,7 @@ A durable hobkin's turn or a routine run runs in its own Pi process, and the age
 - Statuses: `queued`; `running`, with teams' phase or tool when its runtime file has one; `done`, it reported, which does not say whether the work is right; `failed`, it could not start or it reported a failure; `unknown`, no report was seen and either the run has ended or teams no longer lists it, so hobkin cannot tell how it ended.
 - Running first, then queued and unknown, then failed and done. Within each, in the order they were spawned.
 - A done agent leaves a screen's teams strip; a failed or unknown one stays, since it may need the user. Changed on 2026-11-19, the user's words: "done sub-sub agents should disappear"; until then a done agent stayed in the strip with its end time.
+- What the user is reading does not leave under them. While the line's list or the sheet's list is open, every agent it showed stays in it, marked done once it finishes; while an agent's sheet is open, that agent stays. Once they close it, a done one leaves. Added on 2026-11-21, after the user's report that the agents "vanish" when clicked.
 - At most 24 rows for a run. hobkin keeps the rows of the 20 runs that ended last, so a finished run's screen and a waiting durable hobkin's page still show theirs until hobkin restarts.
 
 ### Opening one
@@ -66,7 +67,7 @@ A durable hobkin's turn or a routine run runs in its own Pi process, and the age
 
 ### Where it shows
 
-- An agent's screen (`AgentScreen.tsx`), for a routine run or any other: one line of chips under the shrunken header, beside where the helpers' strip and the tasks' line sit. A spawn call is a step, so a run with teams agents always shows its exchange and this line.
+- An agent's screen (`AgentScreen.tsx`), for a routine run or any other: one line under the shrunken header, beside where the helpers' strip and the tasks' line sit, with their faces, how many and who leads. A click opens every one in a list under it, as the tasks line does, and the line stays where it is, open or closed. A spawn call is a step, so a run with teams agents always shows its exchange and this line.
 - A durable hobkin's page (`HobkinScreen.tsx`): rows under its header, for every turn whose run hobkin still holds, with a line above them that counts them by status.
 - Quiet: small faces, names and times in muted text. Three at most, running ones first, and "+N more" opens the whole list in the sheet. The chips take `HelpersGlance`'s look, not its data.
 
@@ -97,7 +98,7 @@ A durable hobkin's turn or a routine run runs in its own Pi process, and the age
 
 ## Proof
 
-- A1. `hobkin/test/cli-teams-agents.test.mjs` › "a run's own spawn calls give each agent its name, task, status and times"; `ui/test/teams-rules.test.ts` › "running agents come first, then queued and unknown, then failed and done"; check: still renders of a routine run's screen and a durable hobkin's page with four teams agents, light and dark.
+- A1. `hobkin/test/cli-teams-agents.test.mjs` › "a run's own spawn calls give each agent its name, task, status and times"; `ui/test/teams-rules.test.ts` › "running agents come first, then queued and unknown, then failed and done" and "an agent the user is reading stays, marked done, until they close it, and then it leaves"; `ui/test/teams-agents-read.test.ts` › "the line's last agent stays in its open list once it finishes, marked done, and leaves when the list closes"; check: still renders of a routine run's screen and a durable hobkin's page with four teams agents, light and dark.
 - A2. `hobkin/test/cli-teams-agents.test.mjs` › "without teams' files, or with broken ones, the rows stand on the run's own events"
 - A3. `hobkin/test/cli-teams-agents.test.mjs` › "teams' files count only for the session the run named, and a name alone never matches"
 - A4. `hobkin/test/cli-teams-agents.test.mjs` › "an agent never seen to end reads unknown once its run ended or teams no longer lists it"
