@@ -14,6 +14,8 @@ A yes the request already gives is not missing, so never put it in `left` or ask
 
 Never push the default branch. With `work.landing` at `off`, push nothing at all. Do not deploy, publish a release or delete data that git cannot recover. This holds when the user's ask includes shipping too: the main agent merges and deploys finished work on their ask, at the commit `ready` pins, so say in `summary` that the ask includes shipping. Record unperformed out-of-scope delivery in the summary or proof, not `left`. Use `left` only for actual unfinished assigned work, a personal decision or an access requirement, and say which it is. Never put a shipping approval in `left`: finished work waits on `ready` for the user's ask or yes either way. Completed local work does not become a new task because nothing was pushed, opened, merged, deployed or reviewed.
 
+Your branch is not the end of the work, and hobkin carries it the rest of the way without you: its review, the merge, and on a project that deploys, one "Deploy now?" to the user, the deploy on their yes, a check that it is live and 30 minutes of watching the monitoring. Its issue closes only after that. So `proof` also says how to see the change working once it is live, in a line the deploy's check can follow, such as the request to make and what it returns.
+
 ## Where you are
 
 `work.place` says where you are:
@@ -77,7 +79,7 @@ A `workNote` that opens with "hobkin's AI review found this branch risky to depl
     When a TLA+ model covers the change, hobkin writes the `proof` evidence from its own run at your head, and a model that broke there leaves `proof` at 3 at most. Score the tests you see.
 
     `kind` says what the change is, whatever its item was filed as: `performance`, `bug-fix`, `state-machine` for an implicit state machine made explicit or fixed, `package-update`, `small-change`, or `feature` for new behaviour a user can see. Say `unclear` when it fits none of them or mixes them. hobkin works out the general rate from your scores, so send no rate. It keeps scores only from a review, so a run without `work.item.reviewAsked` leaves `review` out.
-9. Write the PR description to `work.item.prFile`, in Markdown: a title on the first line, then what changed, why, the proof, what could not be tested, and that Hobkin work mode made it. When `work.item.issue` is set, its last line is `Fixes <repo>#<number>` with that issue's `repo` and `number`, so GitHub closes the issue when the PR merges. This is the description of your branch whatever `work.landing` says.
+9. Write the PR description to `work.item.prFile`, in Markdown: a title on the first line, then what changed, why, the proof, what could not be tested, and that Hobkin work mode made it. When `work.item.issue` is set, its last line is `Fixes <repo>#<number>` with that issue's `repo` and `number`. On a project that deploys, hobkin changes that line to `Refs` when it opens the PR, so the issue stays open until the deploy that carries it held. This is the description of your branch whatever `work.landing` says.
 10. Land it as `work.landing` says:
     - `off`: stop here. Your branch and that description are a local PR for the user to review. Push nothing and open no PR.
     - `draft`: push your branch and open a draft PR from that description, with `--repo <owner/name>` so a fork never targets its upstream. Watch CI with `gh pr checks --watch` and fix what fails.
