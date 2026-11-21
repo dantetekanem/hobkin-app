@@ -1,6 +1,6 @@
 import { ChevronRight, Download, ExternalLink, Presentation, RotateCw, X, type LucideIcon } from 'lucide-react'
 import { AnimatePresence, motion, type Transition } from 'motion/react'
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { MAIN_CANVAS, type CanvasState } from '#shared/protocol/canvas.ts'
 import { agentEntry, entryTransition } from '@/features/work/agent-entry.ts'
 import { AgentHood } from '@/components/Mark.tsx'
@@ -15,8 +15,9 @@ import { useHasHost, useHost } from '@/lib/host/index.ts'
 import { ease, spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { focusBoard, focusTalk, keyboardInCanvas, requestCanvasFocus } from './focus.ts'
+import { estimatedRow, rowPieces, type RowGeometry } from './menu-agents.ts'
 import { isUnderSettings, type PageUnderSettings } from './overlays.ts'
-import { useRunningAgents } from './running-agents.ts'
+import { useRunningAgents, type RunningAgent } from './running-agents.ts'
 import { inMenu, SCREENS, type ScreenId } from './screens.ts'
 import { holdStill, useStill } from './still.ts'
 import { useView } from './view-store.ts'
@@ -64,17 +65,18 @@ function secondFor(screen: ScreenId, githubInMenu: boolean, canvasOpen: boolean)
 const BEFORE_PILL: Record<Second, number> = { agents: 0, review: 2, settings: 4, github: 2, canvas: 0 }
 
 /** The pieces the second row holds before the main canvas's pill. `canvas` is the main canvas as the window shows it. */
-function secondPieces({ second, screen, canvas, split }: {
+function secondPieces({ second, screen, canvas, split, drawn }: {
   second: Second | null
   screen: ScreenId
   canvas: CanvasState | null
   split: ReturnType<typeof useSplit>
+  drawn: object
 }): ReactNode {
   switch (second) {
     case 'agents':
       return (
         <>
-          <Agents />
+          <Agents drawn={drawn} />
           {/* A durable hobkin's split: its canvas's group after the agents. */}
           {split ? <CanvasGroup owner={split.owner} canvas={split.canvas} active={false} start={0} /> : null}
         </>
@@ -128,9 +130,12 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
   const second = secondFor(screen, githubInMenu, isOpen(canvas))
   const pill = mainPill({ screen, split: split !== null, main: canvas, seen })
   const row = second ?? (pill ? 'pill' : null)
+  // New each time the menu draws. The second row is centered, so what the menu draws again for can move its agents.
+  const drawn = {}
 
   return (
     <motion.div
+      data-screen-menu
       className="@container select-none-chrome pointer-events-none absolute inset-x-0 top-3.5 z-20 flex justify-center"
       initial={false}
       animate={{ left: shift }}
@@ -180,7 +185,7 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
         <AnimatePresence mode="popLayout" initial={false}>
           {row ? (
             <Born key={row} label={row === 'agents' ? 'Agents' : 'Open now'}>
-              {secondPieces({ second, screen, canvas, split })}
+              {secondPieces({ second, screen, canvas, split, drawn })}
               {pill && isOpen(canvas) ? <CanvasPill canvas={canvas} dot={pill.dot} index={second ? BEFORE_PILL[second] : 0} /> : null}
             </Born>
           ) : null}
@@ -245,59 +250,121 @@ function Born({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-/** The agents working now. The one on the canvas carries its name, and one that is waiting for the user says so. */
-function Agents() {
+/** Where the agents row lies on screen now, read from the page. Null until an item that is not open is drawn. */
+function measuredRow(): RowGeometry | null {
+  const row = document.querySelector('[data-menu-agent]')?.parentElement
+  const item = row?.querySelector<HTMLElement>('[data-menu-agent]:not([aria-current])')?.offsetWidth
+  if (!row || item === undefined) return null
+  const open = row.querySelector<HTMLElement>('[data-menu-agent][aria-current]')?.offsetWidth ?? item
+  return { left: row.getBoundingClientRect().left, width: window.innerWidth, item, open, gap: Number.parseFloat(getComputedStyle(row).columnGap) || 0 }
+}
+
+const sameRow = (left: RowGeometry, right: RowGeometry) =>
+  left.left === right.left && left.width === right.width && left.item === right.item && left.open === right.open && left.gap === right.gap
+
+/**
+ * The agents working now. The one on the canvas carries its name, and one that is waiting for the user says so. With
+ * more agents than the window is wide, only the ones on screen are drawn, and a gap holds the place of the rest
+ * (`menu-agents.ts`).
+ */
+function Agents({ drawn }: { drawn: object }) {
   const still = useStill()
   const agents = useRunningAgents()
   const openAgent = useView((view) => view.openAgent)
-  const previewAgent = useView((view) => view.previewAgent)
   const at = agents.findIndex((agent) => agent.id === openAgent)
+  const openTitle = agents[at]?.title
+  // The row is centered: an agent coming or going, another one opening, its name, or the menu drawing again can move
+  // every item. Only then do the items measure where they are.
+  const moved = useMemo(() => ({}), [drawn, agents.length, openAgent, openTitle])
+  /** The agents the row has drawn. One of them coming on screen does not drop in again. */
+  const known = useRef<ReadonlySet<string>>(new Set())
+  const [geometry, setGeometry] = useState<RowGeometry | null>(null)
+  const measure = () => {
+    const next = measuredRow()
+    if (next) setGeometry((current) => (current && sameRow(current, next) ? current : next))
+  }
+  useEffect(() => {
+    known.current = new Set(agents.map((agent) => agent.id))
+  })
+  // Read again whenever the row may have moved, before the page shows it, and while the menu's room changes size.
+  useLayoutEffect(measure, [moved, geometry])
+  useEffect(() => {
+    const menu = document.querySelector('[data-screen-menu]')
+    if (!menu) return
+    const observer = new ResizeObserver(measure)
+    observer.observe(menu)
+    return () => observer.disconnect()
+  }, [])
 
-  return (
-    <>
-      {agents.map((agent, index) => {
-        const active = agent.id === openAgent
-        return (
-          <motion.button
-            key={agent.id}
-            layout={!still}
-            transition={agentEntry(still)}
-            type="button"
-            aria-current={active ? 'page' : undefined}
-            aria-label={agent.asks ? `${agent.title}, waiting for you` : agent.title}
-            title={agent.title}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => {
-              previewAgent(agent.id, index > at ? 1 : -1)
-              // A menu choice stays open when focus leaves the agents list, keeping the preview's travel direction.
-              useView.getState().openAgentCanvas(agent.id)
-              requestCanvasFocus()
-            }}
-            className={cn(ITEM, 'px-2', active ? 'pr-3 text-foreground' : 'text-muted-foreground hover:text-foreground')}
-          >
-            {active ? <Marker /> : null}
-            <motion.span layout={still ? false : 'position'} transition={agentEntry(still)} className="relative">
-              <motion.span className="block" initial={holdStill({ opacity: 0, transform: 'translateY(-18px) scale(0.96)' }, still)} animate={{ opacity: 1, transform: 'translateY(0px) scale(1)', transition: agentEntry(still) }}>
-                <AgentHood hue={agent.hue} size={20} mood={agent.mood} asking={Boolean(agent.asks)} />
-              </motion.span>
-            </motion.span>
-            {active ? (
-              <motion.span
-                layout={still ? false : 'position'}
-                transition={agentEntry(still)}
-                className="relative max-w-[24ch] truncate"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1, transition: agentEntry(still) }}
-              >
-                {agent.title}
-              </motion.span>
-            ) : null}
-          </motion.button>
-        )
-      })}
-    </>
+  return rowPieces(agents.length, at, geometry ?? estimatedRow(agents.length, window.innerWidth)).map((piece) =>
+    piece.kind === 'gap' ? (
+      <span key={`gap:${piece.from}`} aria-hidden="true" className="shrink-0" style={{ width: piece.width }} />
+    ) : (
+      <AgentItem key={agents[piece.index]!.id} agent={agents[piece.index]!} index={piece.index} at={at} moved={moved} known={known} still={still} />
+    ),
   )
 }
+
+interface AgentItemProps {
+  agent: RunningAgent
+  index: number
+  /** The open agent's place, which says which way the canvas travels to this one. */
+  at: number
+  /** New whenever the row may have moved this item. */
+  moved: object
+  known: RefObject<ReadonlySet<string>>
+  still: boolean
+}
+
+/** One agent of the row. It draws again only for its own agent, or when the row may have moved it. */
+const AgentItem = memo(function AgentItem({ agent, index, at, moved, known, still }: AgentItemProps) {
+  const active = index === at
+  // It measures its layout only when it may have moved: its place, whether it is open, or the row around it changed.
+  const layoutDependency = useMemo(() => ({}), [index, active, moved])
+  return (
+    <motion.button
+      layout={!still}
+      layoutDependency={layoutDependency}
+      transition={agentEntry(still)}
+      type="button"
+      data-menu-agent
+      aria-current={active ? 'page' : undefined}
+      aria-label={agent.asks ? `${agent.title}, waiting for you` : agent.title}
+      title={agent.title}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => {
+        useView.getState().previewAgent(agent.id, index > at ? 1 : -1)
+        // A menu choice stays open when focus leaves the agents list, keeping the preview's travel direction.
+        useView.getState().openAgentCanvas(agent.id)
+        requestCanvasFocus()
+      }}
+      className={cn(ITEM, 'px-2', active ? 'pr-3 text-foreground' : 'text-muted-foreground hover:text-foreground')}
+    >
+      {active ? <Marker /> : null}
+      <motion.span layout={still ? false : 'position'} layoutDependency={layoutDependency} transition={agentEntry(still)} className="relative">
+        <motion.span
+          className="block"
+          initial={known.current.has(agent.id) ? false : holdStill({ opacity: 0, transform: 'translateY(-18px) scale(0.96)' }, still)}
+          animate={{ opacity: 1, transform: 'translateY(0px) scale(1)', transition: agentEntry(still) }}
+        >
+          <AgentHood hue={agent.hue} size={20} mood={agent.mood} asking={Boolean(agent.asks)} />
+        </motion.span>
+      </motion.span>
+      {active ? (
+        <motion.span
+          layout={still ? false : 'position'}
+          layoutDependency={layoutDependency}
+          transition={agentEntry(still)}
+          className="relative max-w-[24ch] truncate"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1, transition: agentEntry(still) }}
+        >
+          {agent.title}
+        </motion.span>
+      ) : null}
+    </motion.button>
+  )
+})
 
 /**
  * One step of a trail. The step that is open carries the marker. One above it is a way back up.
