@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["011-work", "017-model-tiers", "019-keyboard", "021-agent-rendering", "033-claude-code-agents"],
-  "updated": "2026-11-14"
+  "updated": "2026-11-21"
 }
 ---
 # Durable hobkins: a hobkin of your own with Command+N
@@ -79,7 +79,7 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 
 ### Commands
 
-- `hobkin.start { text, cwd, engine, title? }`, `hobkin.say { id, text, noteId? }`, `hobkin.end { id }`, `hobkin.rename { id, title }` and `hobkin.seen { id }` are the window's.
+- `hobkin.start { text, cwd, engine, title? }`, `hobkin.say { id, text?, images?, noteId? }` (words, the images attached for it, or both), `hobkin.end { id }`, `hobkin.rename { id, title }` and `hobkin.seen { id }` are the window's.
 - `hobkin.shown { id }` is the window's alone: the main hobkin's tool neither lists nor runs it. The page sends it while it is on screen, the window is showing and the hobkin waits on Pi (a tier or a model; not Claude Code), each time that becomes true again: the page opens, the window shows again, or a turn ends. hobkin then starts that hobkin's Pi process if none is kept, as for a first message, and a kept one stays another ten idle minutes. A working hobkin, an ended one and one on Claude Code start nothing, and a refusal is ignored.
 - `hobkin.change { id, model?, effort? }` is the window's alone too, behind a `/model` or `/effort` line in the talk box (a short model name only one model Pi can use matches, and a level the model offers). The turn in flight takes it from its next step, and a hobkin on Pi keeps it for every later turn.
 - `hobkin.read { id }` returns the hobkin and its turns, and the main hobkin may run it.
@@ -89,7 +89,6 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 ## Out of scope
 
 - A durable hobkin that is a second main hobkin: memory, routines, the question sheet, the `client` tool and delegation stay the main hobkin's.
-- Images in a message to a durable hobkin.
 - Changing the folder or what it runs on after the start.
 - Drawing the steps of earlier turns. The page shows what was asked and answered, and the steps of the turn in flight.
 - A separate native window. The page is the agent screen.
@@ -132,6 +131,7 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 - A31. On Pi, a hobkin started with no first message has its process started at once and kept, with nothing asked of the model and no run recorded, and its first turn starts none. A first message that comes while the process starts waits for it and uses it. A process that fails to start, or is started with anything the first turn would not start it with, is closed, and the turn starts its own. Ending the hobkin or closing hobkin stops a process that is still starting. A hobkin on Claude Code, or one started with its first message, has nothing started ahead. Only a harness that says it takes the request is asked: hobkin's own does, and so does the host's.
 - A32. While a waiting hobkin on Pi has its page on screen in a showing window, the window tells the host, and its Pi process is started if none is kept. A working hobkin, an ended one and one on Claude Code start nothing, and the main hobkin cannot send it. A runtime from before answers yes and starts nothing.
 - A33. A `/model` or `/effort` line in the talk box changes the hobkin's model or thinking level instead of being sent, and its answer shows under the box.
+- A34. Images pasted or dropped on the talk box go with the message, as in the main input and an agent's input: while it waits they start the next turn with the words, and while it works they reach the turn in flight, on Pi and on Claude Code. A message can be images alone. One that fails gives its images back to the box, and the page shows the images with the message they went with.
 
 ## Proof
 
@@ -168,6 +168,7 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 - A31. `hobkin/test/cli-harnesses.test.mjs` › "a durable conversation's process can be started ahead of its turn, which then only prompts it", "a turn that comes while its process is still starting ahead waits for it and takes it", "a process started ahead with anything else than the turn starts with is replaced, and one that fails its check is not kept" and "closing a conversation stops a process that is still starting ahead, and only a durable conversation starts one". `hobkin/test/cli-hobkins.test.mjs` › "a hobkin started with no message starts its Pi process at once, and its first message only prompts it" and "nothing is started ahead for a hobkin with its first message or one on Claude Code, and ending one stops a process still starting". `host/test/claude-code-route.test.ts` › "a request to start a durable hobkin's Pi process ahead of its turn goes to Pi as given, whatever the settings". With real Pi and a fake model: `host/test/first-word-live.test.ts`, where the first turn of a hobkin started with no message has no process start among its stages and the model has been asked nothing before it.
 - A32. `ui/test/hobkin-page-shown.test.ts` › "the hobkin's id comes back when its page is on screen, the window shows, and it waits on Pi" and › "nothing comes back while the page is away, the window is hidden, it works, runs on Claude Code or is missing"; `host/test/change-model.test.ts` › "a page shown reaches the runtime with the id, a runtime from before answers yes, and the main hobkin neither lists nor runs it"; check: restart the app, open a waiting hobkin's page, wait five seconds and send a short question (not seen live yet).
 - A33. `ui/test/change-line.test.ts` › "a line that starts with /model or /effort is a change, with the one word it takes"; `host/test/change-model.test.ts` › "a durable hobkin is changed through the hobkin, and the answer tells whether its turn took it"; check: type /effort high in a working hobkin's box (not seen live yet).
+- A34. `hobkin/test/cli-hobkins.test.mjs` › "a message to a durable hobkin takes the images the user attached, as its next turn or in the turn in flight"; `host/test/agent-images.test.ts` › "a message to a durable hobkin carries the images attached for it"; `ui/test/agent-images.test.ts` › "sent images go with the note and stay drawn there, and a message that did not go gives them back"; `ui/test/hobkins-page.test.ts` › "images sent from the page show with their message, on its way, once sent and once read"; check: paste a screenshot into a waiting hobkin's box and send it alone (not seen live yet).
 
 ## Steps
 
@@ -181,6 +182,7 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 - [x] S8 (A30). A durable hobkin's Pi process stays up between turns.
 - [x] S9 (A31). A hobkin started with no first message has its Pi process started while the user writes it.
 - [x] S10 (A32, A33). The page tells the host it is on screen, and a /model or /effort line changes a hobkin's model.
+- [ ] S11 (A34). Images in a message to a durable hobkin: `hobkins.say` with `images` (hobkin 25f94c7), `hobkin.say` with the images attached for it, and the talk box's tray. The A34 tests pass (2026-11-21). Left: the check.
 
 ## Open questions
 

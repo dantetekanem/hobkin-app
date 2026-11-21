@@ -1,6 +1,7 @@
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSender, HobkinSummary, HobkinTurn } from '#shared/protocol/hobkins.ts'
 import { exchangeOf, pauseOf, type Step } from '../agent-activity/steps.ts'
+import type { Attachment } from '../chat/draft.ts'
 import { timeOf } from '../reports/time.ts'
 
 /**
@@ -16,12 +17,15 @@ export interface SentNote {
   at: number
   run: string
   started: boolean
+  /** The images that went with it. The window keeps their previews; hobkin keeps no copy apart from the turn. */
+  images?: readonly Attachment[]
 }
 
-/** A message on its way to the host: what the user typed, and when they pressed Enter. */
+/** A message on its way to the host: what the user typed, the images attached to it, and when they pressed Enter. */
 export interface SendingNote {
   text: string
   at: number
+  images?: readonly Attachment[]
 }
 
 export interface ShownTurn extends HobkinTurn {
@@ -33,6 +37,8 @@ export interface ShownTurn extends HobkinTurn {
   askedKey: string
   /** When it was asked: hobkin's time once a read has the turn, and until then when the user pressed Enter. */
   askedWhen: number | null
+  /** The images that went with the message that began it, when this window sent it. */
+  askedImages: readonly Attachment[]
   /** What the user added to it while it worked, as this window sent it. hobkin keeps no copy apart from the turn. */
   notes: readonly SentNote[]
 }
@@ -109,6 +115,7 @@ export function pageTurns(conversation: HobkinConversation | null, hobkin: Hobki
       ending: live && ending,
       askedKey: opening ? saidKey(opening.at) : `${turn.run}:asked`,
       askedWhen: timeOf(turn.askedAt) ?? opening?.at ?? null,
+      askedImages: opening?.images ?? [],
       notes: notesOf(turn.run),
     }
   })
@@ -130,7 +137,7 @@ export interface LiveActivity {
  * step's time is its own (`atOf`).
  */
 export type PageRow =
-  | { kind: 'said'; key: string; text: string; tag: 'added' | 'sending' | null; from: string | null; at: number | null }
+  | { kind: 'said'; key: string; text: string; tag: 'added' | 'sending' | null; from: string | null; at: number | null; images?: readonly Attachment[] }
   | { kind: 'step'; key: string; step: Step; ended: boolean }
   | { kind: 'answer'; key: string; turn: ShownTurn; at: number | null }
   | { kind: 'thinking'; key: 'working' }
@@ -147,11 +154,12 @@ export function pageRows(turns: readonly ShownTurn[], { sending, activity }: { s
   const sent = (at: number) => turns.some((turn) => turn.askedKey === saidKey(at) || turn.notes.some((note) => note.at === at))
   const pending = sending && !sent(sending.at) ? sending : null
   // Whatever the page sends is the user's own.
-  const said = ({ text, at }: SendingNote): PageRow => ({ kind: 'said', key: saidKey(at), text, tag: at === pending?.at ? 'sending' : 'added', from: null, at })
+  const said = ({ text, at, images }: SendingNote): PageRow => ({ kind: 'said', key: saidKey(at), text, tag: at === pending?.at ? 'sending' : 'added', from: null, at, ...(images?.length ? { images } : {}) })
 
   const rows: PageRow[] = []
   for (const turn of turns) {
-    if (turn.asked) rows.push({ kind: 'said', key: turn.askedKey, text: turn.asked, tag: null, from: senderName(turn.from), at: turn.askedWhen })
+    const images = turn.askedImages.length ? { images: turn.askedImages } : {}
+    if (turn.asked || images.images) rows.push({ kind: 'said', key: turn.askedKey, text: turn.asked, tag: null, from: senderName(turn.from), at: turn.askedWhen, ...images })
     const notes: readonly SendingNote[] = turn === into && pending ? [...turn.notes, pending] : turn.notes
     if (!turn.live) {
       rows.push(...notes.map(said), { kind: 'answer', key: `${turn.run}:answer`, turn, at: timeOf(turn.endedAt) })

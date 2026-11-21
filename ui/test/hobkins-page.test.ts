@@ -91,6 +91,27 @@ test('a hobkin started with no message shows no conversation and waits for its f
   assert.equal(firstMessageNext({ hobkin: begun, started: true }), false)
 })
 
+test('images sent from the page show with their message, on its way, once sent and once read', () => {
+  const fresh: HobkinSummary = { ...summary, title: 'New hobkin', state: 'waiting', turns: 0, run: null, last: null }
+  const begun: HobkinSummary = { ...fresh, state: 'working', turns: 1, run: 'hobkin:0a1b2c3d:1' }
+  const chart = { id: 'local:1', name: 'chart.png', mimeType: 'image/png', preview: 'blob:chart', handle: 'host-chart' }
+  const saidRows = (rows: ReturnType<typeof pageRows>) => rows.flatMap((row) => (row.kind === 'said' ? [[row.text, row.images ?? []]] : []))
+
+  // Pictures alone, on their way, show as the user's message.
+  assert.deepEqual(saidRows(pageRows([], { sending: { text: '', at: 1, images: [chart] }, activity: null })), [['', [chart]]])
+  // Once sent they start the first turn, which shows them before any read has its words.
+  const first: SentNote = { text: '', at: 1, run: 'hobkin:0a1b2c3d:1', started: true, images: [chart] }
+  const turns = pageTurns({ hobkin: fresh, turns: [] }, begun, [first])
+  assert.deepEqual(saidRows(pageRows(turns, { sending: null, activity: null })), [['', [chart]]])
+  // A read has hobkin's words for them, and the row keeps the images the window sent.
+  const read = pageTurns({ hobkin: begun, turns: [{ ...turn(1, 'running'), asked: 'Look at what I pasted.' }] }, begun, [first])
+  assert.deepEqual(saidRows(pageRows(read, { sending: null, activity: null })), [['Look at what I pasted.', [chart]]])
+  // Added while it works, they stay with the note.
+  const added: SentNote = { text: 'and this', at: 2, run: 'hobkin:0a1b2c3d:1', started: false, images: [chart] }
+  const later = pageTurns({ hobkin: begun, turns: [{ ...turn(1, 'running'), asked: 'Look at what I pasted.' }] }, begun, [first, added])
+  assert.deepEqual(saidRows(pageRows(later, { sending: null, activity: null })).at(-1), ['and this', [chart]])
+})
+
 test('a turn that ends on screen is marked seen', () => {
   const wait = { ...summary, state: 'waiting' as const, run: null, waiting: { since: '2026-11-13T10:05:00.000Z', seen: false } }
   assert.equal(seenToSend({ hobkin: summary, onScreen: true, told: null }), null, 'not while it works')

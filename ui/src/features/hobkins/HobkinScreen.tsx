@@ -15,10 +15,14 @@ import { useNewest } from '@/features/agent-activity/newest.ts'
 import { EarlierSteps, StepItem } from '@/features/agent-activity/StepView.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
+import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
+import type { Attachment } from '@/features/chat/draft.ts'
 import { MessageText } from '@/features/chat/markdown.ts'
 import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { AgentStopControl, upToAgents, walkSteps } from '@/features/work/AgentScreen.tsx'
+import { useAgentImages } from '@/features/work/agent-images.ts'
+import { useAgentImageInput } from '@/features/work/use-agent-image-input.ts'
 import { doingOf, folderName, hasHost, hueOf } from '@/lib/host/frame.ts'
 import { changeLine } from '@/features/chat/change-line.ts'
 import { sendChange } from '@/features/chat/send-change.ts'
@@ -404,7 +408,7 @@ function Conversation({ id, turns, activity, cwd, sending, problem, loading }: C
           <AnimatePresence initial={false}>
             {newest.shown.map((row) =>
               row.kind === 'said' ? (
-                <Said key={row.key} text={row.text} at={row.at} added={row.tag === 'added'} sending={row.tag === 'sending'} from={row.from} />
+                <Said key={row.key} text={row.text} images={row.images} at={row.at} added={row.tag === 'added'} sending={row.tag === 'sending'} from={row.from} />
               ) : row.kind === 'step' ? (
                 <StepItem key={row.key} step={row.step} timeOf={activity!.timeOf} ended={row.ended} />
               ) : row.kind === 'answer' ? (
@@ -452,7 +456,7 @@ const STEP = 'rounded-[18px] outline-none [content-visibility:auto] focus-visibl
  * hobkin sent (`from`) are an agent's, so they keep to the left, outlined, under who sent them. The row spans the
  * page, so its time stands in the column with the others, and the bubble takes the keyboard's ring.
  */
-function Said({ text, at, added = false, sending = false, from = null }: { text: string; at: number | null; added?: boolean; sending?: boolean; from?: string | null }) {
+function Said({ text, images, at, added = false, sending = false, from = null }: { text: string; images?: readonly Attachment[]; at: number | null; added?: boolean; sending?: boolean; from?: string | null }) {
   const still = useStill()
   return (
     <motion.li
@@ -471,6 +475,7 @@ function Said({ text, at, added = false, sending = false, from = null }: { text:
           )}
         >
           {from ? <p className="mb-1 text-[11px] leading-normal text-muted-foreground">From {from}</p> : null}
+          {images ? <SentImages attachments={images} /> : null}
           <MessageText text={text} role="user" />
           {added || sending ? <p className="mt-1 text-[11px] leading-normal text-muted-foreground">{sending ? 'Sending' : 'Added while it worked'}</p> : null}
         </div>
@@ -541,6 +546,9 @@ function Working() {
  */
 function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; onSending: (note: SendingNote | null) => void; onSent: (note: SentNote) => void }) {
   const { hobkin, state, connected, fresh } = useHobkin(id)
+  // Images pasted or dropped on the box go with the words, as in the main input.
+  const agent = hobkinAgentId(id)
+  const images = useAgentImageInput(agent, true)
   const [draft, setDraft] = useState('')
   const [problem, setProblem] = useState<string | null>(null)
   /** What a /model or /effort line did, under the box. */
@@ -549,7 +557,7 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
   const name = hobkin?.title ?? 'the new hobkin'
   const working = hobkin?.state === 'working'
   const text = draft.trim()
-  const canSend = connected && !busy && text.length > 0 && text.length <= HOBKIN_MESSAGE_MAX
+  const canSend = connected && !busy && (text.length > 0 || images.attachments.length > 0) && images.ready && text.length <= HOBKIN_MESSAGE_MAX
 
   if (!talkOpen(state)) {
     return <p className="shrink-0 px-[10%] pt-2 pb-6 text-center text-[13px] text-muted-foreground">This hobkin has ended. Its conversation stays on disk.</p>
@@ -558,6 +566,7 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
   const send = async () => {
     if (!canSend) return
     setSaid(null)
+    useAgentImages.getState().clearProblem(agent)
     // A /model or /effort line changes how the hobkin works instead of being sent to it.
     const change = changeLine(text)
     if (change) {
@@ -574,20 +583,24 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
       setBusy(false)
       return
     }
-    // When Enter was pressed keys the message's row, on its way and once sent.
+    // When Enter was pressed keys the message's row, on its way and once sent. The images go with the words.
     const at = Date.now()
+    const attached = useAgentImages.getState().take(agent)
+    const pictures = attached.length ? { images: attached } : {}
     setBusy(true)
     setProblem(null)
     setDraft('')
-    onSending({ text, at })
+    onSending({ text, at, ...pictures })
     try {
       // When Enter was pressed goes with the words, for the timing of the turn, to a host that takes it.
-      const said = await runCommand('hobkin.say', { id, text, ...sentAtArg(hostStore.getState(), at) })
-      onSent({ text, at, run: said.run, started: said.started })
+      const handles = attached.flatMap(({ handle }) => (handle ? [handle] : []))
+      const said = await runCommand('hobkin.say', { id, ...(text ? { text } : {}), ...(handles.length ? { images: handles } : {}), ...sentAtArg(hostStore.getState(), at) })
+      onSent({ text, at, run: said.run, started: said.started, ...pictures })
     } catch (error) {
       setProblem(message(error))
-      // Nothing was sent: the words come back to the box, unless the user has typed again.
+      // Nothing was sent: the words and images come back to the box, unless the user has written or attached again.
       setDraft((now) => now || text)
+      useAgentImages.getState().restore(agent, attached)
     } finally {
       onSending(null)
       setBusy(false)
@@ -595,63 +608,72 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
   }
 
   const label = working ? `Add to what ${name} is doing` : `Message ${name}`
-  const placeholder = fresh && !working ? 'What should it do first?' : label
+  const placeholder = images.dropping ? 'Drop the image to attach it' : fresh && !working ? 'What should it do first?' : label
 
   return (
     <div className="shrink-0 px-[10%] pt-2 pb-5">
       <form
-        className="flex items-end gap-2 rounded-[26px] border-[1.5px] border-input bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring"
+        className={cn(
+          'rounded-[26px] border-[1.5px] bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring',
+          images.dropping ? 'border-ring' : 'border-input',
+        )}
+        {...images.dropTarget}
         onSubmit={(event) => {
           event.preventDefault()
           void send()
         }}
       >
-        <span className="grid size-9 shrink-0 place-items-center">
-          <AgentHood hue={hueOf(id)} size={26} mood={working ? 'working' : 'listening'} working={working} />
-        </span>
-        <textarea
-          // macOS would offer its own corrections in a bubble over the field; the user writes as they mean.
-          autoCorrect="off"
-          autoCapitalize="off"
-          data-agent-input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              // Back onto the hobkin in the list. Without the list, or with the split over it, the frame leaves the page.
-              if (!split && focusAgentsDock()) event.preventDefault()
-            } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-              event.preventDefault()
-              void send()
-            } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
-              if (focusNewestStep(event.currentTarget) || (!split && focusAgentsDock())) event.preventDefault()
-            }
-          }}
-          rows={1}
-          maxLength={HOBKIN_MESSAGE_MAX}
-          placeholder={placeholder}
-          aria-label={label}
-          // In the split the page is the chat's width, where a hobkin's long name would wrap the placeholder out of sight.
-          className={cn(
-            'field-sizing-content max-h-40 min-h-9 flex-1 resize-none self-center bg-transparent py-1.5 text-[15px] leading-snug outline-none placeholder:text-muted-foreground',
-            split && 'placeholder:truncate',
-          )}
-        />
-        <button
-          type="submit"
-          disabled={!canSend}
-          aria-label={working ? 'Send to the turn in flight' : 'Send'}
-          className={cn(
-            'grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground',
-            'transition-[transform,opacity] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40',
-          )}
-        >
-          <ArrowUp className="size-4" aria-hidden="true" />
-        </button>
+        <AttachmentTray attachments={images.attachments} onRemove={images.remove} />
+        <div className="flex items-end gap-2">
+          <span className="grid size-9 shrink-0 place-items-center">
+            <AgentHood hue={hueOf(id)} size={26} mood={working ? 'working' : 'listening'} working={working} />
+          </span>
+          <textarea
+            // macOS would offer its own corrections in a bubble over the field; the user writes as they mean.
+            autoCorrect="off"
+            autoCapitalize="off"
+            data-agent-input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onPaste={images.onPaste}
+            onKeyDown={(event) => {
+              if (images.removeLast(event)) return
+              if (event.key === 'Escape') {
+                // Back onto the hobkin in the list. Without the list, or with the split over it, the frame leaves the page.
+                if (!split && focusAgentsDock()) event.preventDefault()
+              } else if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                void send()
+              } else if (event.key === 'ArrowUp' && !draft && !event.defaultPrevented) {
+                if (focusNewestStep(event.currentTarget) || (!split && focusAgentsDock())) event.preventDefault()
+              }
+            }}
+            rows={1}
+            maxLength={HOBKIN_MESSAGE_MAX}
+            placeholder={placeholder}
+            aria-label={label}
+            // In the split the page is the chat's width, where a hobkin's long name would wrap the placeholder out of sight.
+            className={cn(
+              'field-sizing-content max-h-40 min-h-9 flex-1 resize-none self-center bg-transparent py-1.5 text-[15px] leading-snug outline-none placeholder:text-muted-foreground',
+              split && 'placeholder:truncate',
+            )}
+          />
+          <button
+            type="submit"
+            disabled={!canSend}
+            aria-label={working ? 'Send to the turn in flight' : 'Send'}
+            className={cn(
+              'grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground',
+              'transition-[transform,opacity] duration-[140ms] ease-out active:scale-[0.97] disabled:opacity-40',
+            )}
+          >
+            <ArrowUp className="size-4" aria-hidden="true" />
+          </button>
+        </div>
       </form>
-      {problem ? (
+      {problem || images.problem ? (
         <p role="alert" className="mt-1.5 px-3 text-[11px] text-bad-fg">
-          {problem}
+          {problem ?? images.problem}
         </p>
       ) : said ? (
         <p role="status" className="mt-1.5 px-3 text-[11px] text-muted-foreground">
