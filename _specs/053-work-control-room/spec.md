@@ -34,7 +34,8 @@ Numbers
 - `work.metrics` is a read-only host command. It answers with `WorkMetrics` (`shared/protocol/metrics.ts`): one `MetricsDay` for each local day of the period, for all projects and for each, and three spans. The period is 30 days unless asked, and 180 at most.
 - The numbers are folded from records that exist already (`notes.md`, "Records the numbers can be folded from"), so the first read shows history. A source that cannot be read is named in `gaps` and the rest still counts.
 - hobkin folds its own records in a new module and the host adds what only it keeps (the AI reviews). Neither reads the other's files.
-- Two records are added so the numbers stay right from now on: a stop from the window, and the item on each line of `tokens.jsonl`.
+- Two records are added so the numbers stay right from now on: a stop from the window (`work_stopped`), and the item on each line of `tokens.jsonl`. Stops have no history before 2026-11-21.
+- Merges, declines and send-backs are read from each item's own record (`landed.route`, the declined state, its pushbacks), which covers a yes given in chat or on another machine. A missing file is not a gap: nothing was written yet. A pull request's AI review counts in the total for all projects only.
 - A change counts as merged by itself when its route is `yolo`, and by the user for every other route. First pass means merged or declined without `done_sent_back` before it.
 - A rate with nothing under it reads "no data yet", never 0% or 100% (`ratesOf`).
 - The window reads the numbers when Work, YOLO mode, World or a project opens, and again at most once a minute while one of them shows. The host keeps the last fold for a minute.
@@ -166,8 +167,8 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A2. unproven
 - A3. unproven
 - A4. unproven
-- A5. unproven
-- A6. unproven
+- A5. In hobkin, `test/cli-work-metrics.test.mjs` › "work.metrics has one day for each local day of the period, zeros included, for all projects and for each" and › "a line or a file that cannot be read is named in gaps, and the rest still counts"; here, `host/test/metrics.test.ts` › "work.metrics adds the AI reviews the host keeps to hobkin fold: each answer on its day, one that stopped before it, and how long they took"
+- A6. In hobkin, `test/cli-work-metrics.test.mjs` › "a change merged by YOLO mode counts as merged by itself and any other as merged by the user, and one merged after being sent back is not first pass"
 - A7. `shared/test/metrics-rates.test.ts` › "a rate with nothing under it is null, never 0 or 100 percent of nothing"
 - A8. unproven
 - A9. unproven
@@ -201,7 +202,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 ## Steps
 
 - [x] S1 (A7). The numbers contract: `shared/protocol/metrics.ts` and its rates.
-- [ ] S2 (A5, A6). hobkin folds its records by day, records a stop from the window and the item on each token line; the host adds the AI reviews and answers `work.metrics`.
+- [x] S2 (A5, A6). hobkin folds its records by day, records a stop from the window and the item on each token line; the host adds the AI reviews and answers `work.metrics`.
 - [ ] S3 (A1, A2, A3). The trail: one return stack, places that restore, the trail in the frame, Escape.
 - [ ] S4 (A33). The pointer and hover rule, `pressable`, the arrow on rows that open, and no hover on what does not act.
 - [ ] S5 (A19, A20, A22). The host lays attention and buckets on a review's nodes, and detail goes to what matters.
