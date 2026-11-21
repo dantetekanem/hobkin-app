@@ -1,13 +1,19 @@
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { registerHooks, syncBuiltinESMExports } from 'node:module'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import childProcess from 'node:child_process'
 import net from 'node:net'
 import http from 'node:http'
 import https from 'node:https'
-import { test } from 'node:test'
+import { after, test } from 'node:test'
 import type { MainSession, MainSessionOptions, MainStartup, OpenOptions, HobkinApplication } from 'hobkin/src/cli/application.mjs'
 import type { Binding } from 'hobkin/src/cli/settings.mjs'
+
+const home = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-main-isolation-')))
+after(() => rmSync(home, { recursive: true, force: true }))
 
 const refuse = () => { throw Error('Unexpected real SDK/resource/session/provider/process/network operation') }
 Object.assign(childProcess, Object.fromEntries(['spawn', 'spawnSync', 'exec', 'execSync', 'execFile', 'execFileSync', 'fork'].map(key => [key, refuse])))
@@ -47,7 +53,7 @@ function deferred<T = void>() {
 }
 function owner(live = true) {
   const changes: ReturnType<InstanceType<typeof HomeOwner>['wireState']>[] = []
-  const value = new HomeOwner({ root: process.env.HOBKIN_HOME!, live, real: false, tools: [createClientTool({ run: async () => refuse() })], onChange() { changes.push(value.wireState()) }, onSessionEvent() {} })
+  const value = new HomeOwner({ root: home, live, real: false, tools: [createClientTool({ run: async () => refuse() })], onChange() { changes.push(value.wireState()) }, onSessionEvent() {} })
   const seam = value as unknown as { open(): Promise<void>; prepareHome(): Promise<void>; model(): Promise<OpenOptions>; tapped(create: NonNullable<OpenOptions['createMain']>): NonNullable<OpenOptions['createMain']> }
   seam.prepareHome = async () => {}
   if (live) seam.model = async () => ({})
@@ -69,13 +75,13 @@ const request = (value: InstanceType<typeof HomeOwner>, attemptId: string = rand
 
 test('scripted main selects captured transport before any SDK work and keeps jobs nonexecuting', { timeout: 10000 }, async (t) => {
   const { createScriptedModel } = await import('../src/scripted.ts')
-  await assert.rejects(createScriptedModel(process.env.HOBKIN_HOME!), /captured client/)
-  await assert.rejects(createScriptedModel(process.env.HOBKIN_HOME!, { tools: [{ name: 'bash' }] }), /captured client/)
+  await assert.rejects(createScriptedModel(home), /captured client/)
+  await assert.rejects(createScriptedModel(home, { tools: [{ name: 'bash' }] }), /captured client/)
   let sdkLoads = 0
   fixture.pi = () => { sdkLoads++; return { ModelRuntime: { create: async () => ({}) } } }
   fixture.ai = () => ({})
   t.after(() => { fixture.pi = fixture.ai = fixture.openPiSession = refuse })
-  const client = createClientTool({ run: async () => refuse() }), model = await createScriptedModel(process.env.HOBKIN_HOME!, { tools: [client] })
+  const client = createClientTool({ run: async () => refuse() }), model = await createScriptedModel(home, { tools: [client] })
   assert.equal(sdkLoads, 0, 'constructing shipped scripted mode must not load the SDK before capturing a child')
   fixture.openPiSession = (input, dependencies) => {
     const options = input as MainSessionOptions, deps = dependencies as Record<string, unknown>
@@ -92,7 +98,7 @@ test('scripted main selects captured transport before any SDK work and keeps job
     finally { childProcess.spawn = original; syncBuiltinESMExports() }
     return app().runtime.main
   }
-  await model.createMain({ root: process.env.HOBKIN_HOME!, config: { main: { cwd: '/fake', model: 'real/provider', effort: 'high' }, launcher: { command: 'real' } }, saved: { sessionId: 'real-history' }, fresh: false })
+  await model.createMain({ root: home, config: { main: { cwd: '/fake', model: 'real/provider', effort: 'high' }, launcher: { command: 'real' } }, saved: { sessionId: 'real-history' }, fresh: false })
   assert.equal(sdkLoads, 0)
   assert.match(JSON.stringify(await model.runHarness({ id: 'job', launcher: 'real' })), /ran nothing/)
   assert.match(JSON.stringify(await model.runHarness({ id: 'job', signal: AbortSignal.abort() })), /interrupted/)
@@ -103,7 +109,7 @@ test('fixed scripted child binds native services to the actual client-only zero-
   const settings = { compaction: { enabled: false }, retry: { enabled: false } }
   const loader = {}, manager = {}, channel = {}
   const session = { agent: { streamFunction: undefined as unknown } }, events: Record<string, unknown>[] = [], ended = deferred()
-  const agentDir = `${process.env.HOBKIN_HOME}/client/scripted-agent`, dataRoot = `${process.env.HOBKIN_HOME}/migration/data`
+  const agentDir = join(home, 'client', 'scripted-agent'), dataRoot = join(home, 'migration', 'data')
   let calls = 0
   fixture.pi = () => ({ ModelRuntime: { create: async (options: Record<string, unknown>) => {
     assert.equal(options.allowModelNetwork, false); assert.equal(options.refreshOnCreate, false); assert.equal(options.modelsPath, null)
@@ -150,7 +156,7 @@ test('only an explicitly injected reply can keep a test main local', { timeout: 
     return session
   }
   t.after(() => { fixture.pi = fixture.ai = fixture.openPiSession = refuse })
-  const model = await createScriptedModel(process.env.HOBKIN_HOME!, { reply: async () => ({ text: 'injected' }), tools: [{ name: 'fixture' }] })
+  const model = await createScriptedModel(home, { reply: async () => ({ text: 'injected' }), tools: [{ name: 'fixture' }] })
   assert.equal(await model.createMain({ config: { main: {} } } as MainSessionOptions), session)
 })
 
