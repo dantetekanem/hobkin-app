@@ -1,7 +1,6 @@
 import { chmodSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import lockfile from 'proper-lockfile';
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context';
 import { createModels } from '@earendil-works/pi-ai';
 import { createRegistry, defineDoc, Harness } from '@earendil-works/pi-durable';
@@ -13,6 +12,7 @@ import { skipInQueue } from './work/store.mjs';
 import { JobActivity, OwnedActivity } from './job-activity.mjs';
 import { closePiSession, openPiSession, withPiCancellation } from './pi-session.mjs';
 import { assertRuntimeAdmission } from './migration/admission.mjs';
+import { lockHome } from './home-lock.mjs';
 import { MAX_SESSION_BYTES } from './migration/ownership.mjs';
 import { isQuietRun, saveReport } from './reports.mjs';
 import { logRun } from './checks.mjs';
@@ -113,20 +113,12 @@ export class HobkinRuntime {
     const runtime = new HobkinRuntime(root, config, options);
     const directory = join(root, 'runtime');
     mkdirSync(directory, { recursive: true, mode: 0o700 });
-    try {
-      runtime.release = await lockfile.lock(directory, {
-        retries: 0,
-        stale: 300000,
-        update: 10000,
-        onCompromised: error => {
-          runtime.fault = error;
-          void runtime.close().catch(() => {});
-        },
-      });
-    } catch (error) {
-      if (error.code === 'ELOCKED') throw Error('Hobkin is already running for this home.');
-      throw error;
-    }
+    runtime.release = await lockHome(directory, {
+      onCompromised: error => {
+        runtime.fault = error;
+        void runtime.close().catch(() => {});
+      },
+    });
     let storage;
     try {
       const file = join(directory, 'hobkin.sqlite');
