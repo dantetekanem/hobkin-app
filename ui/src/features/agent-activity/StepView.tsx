@@ -154,14 +154,18 @@ export function StateMark({ state, time, exitCode }: { state: CallState; time?: 
   )
 }
 
-/** A number that changes by sliding: the old one leaves upward as the new one rises in. */
+/**
+ * A number that changes by sliding: the old one leaves upward as the new one rises in. Both sit in the grid's one
+ * cell while they pass, so the count keeps its height and nothing leaves the flow (no style sheet is added for it).
+ */
 function Count({ value }: { value: number }) {
   const still = useStill()
   return (
     <span className="relative inline-grid overflow-hidden tabular-nums">
-      <AnimatePresence initial={false} mode="popLayout">
+      <AnimatePresence initial={false}>
         <motion.span
           key={value}
+          className="col-start-1 row-start-1"
           initial={holdStill({ opacity: 0, transform: 'translateY(70%)' }, still)}
           animate={holdStill({ opacity: 1, transform: 'translateY(0%)', transition: arriving }, still)}
           exit={holdStill({ opacity: 0, transform: 'translateY(-70%)', transition: tween.exit }, still)}
