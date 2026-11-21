@@ -610,6 +610,9 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
           <AgentHood hue={hueOf(id)} size={26} mood={working ? 'working' : 'listening'} working={working} />
         </span>
         <textarea
+          // macOS would offer its own corrections in a bubble over the field; the user writes as they mean.
+          autoCorrect="off"
+          autoCapitalize="off"
           data-agent-input
           value={draft}
           onChange={(event) => setDraft(event.target.value)}

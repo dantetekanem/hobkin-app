@@ -219,6 +219,9 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
               <div className="flex items-end gap-1">
                 <AttachButton picker={picker} disabled={!ready} onPick={attach} />
                 <textarea
+                  // macOS would offer its own corrections in a bubble over the field; the user writes as they mean.
+                  autoCorrect="off"
+                  autoCapitalize="off"
                   ref={input}
                   value={text}
                   onChange={(event) => change({ type: 'typed', text: event.target.value })}

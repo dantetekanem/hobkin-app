@@ -65,6 +65,9 @@ export function LiveMarkdownField({ value, ref, className, onScroll, ...props }:
         {value === '' || value.endsWith('\n') ? '​' : null}
       </div>
       <textarea
+        // macOS would offer its own corrections in a bubble over the field; the user writes as they mean.
+        autoCorrect="off"
+        autoCapitalize="off"
         {...props}
         ref={(node) => {
           field.current = node

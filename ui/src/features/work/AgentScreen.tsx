@@ -725,6 +725,9 @@ function TalkInput({ agentId, name, hue, mood, answering, finished }: { agentId:
           <AgentHood hue={hue} size={26} mood={finished ? 'idle' : answering ? 'listening' : mood} working={!finished} />
         </span>
         <textarea
+          // macOS would offer its own corrections in a bubble over the field; the user writes as they mean.
+          autoCorrect="off"
+          autoCapitalize="off"
           data-agent-input
           value={draft}
           readOnly={finished}
