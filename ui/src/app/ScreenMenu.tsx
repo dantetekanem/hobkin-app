@@ -168,9 +168,10 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
                     </span>
                   ) : null}
                 </TooltipTrigger>
-                {/* The first row leads Command with a number's walk (`walkScreens`), so the tab at this place opens with this number. */}
+                {/* The first row leads Command with a number's walk (`walkScreens`), so the tab at this place opens with this number.
+                    A tab that shows its name gets the shortcut alone; Home is only an icon, so it gets its name too. */}
                 <TooltipContent side="bottom">
-                  {tab.label} ⌘{at + 1}
+                  {tab.id === 'home' ? `${tab.label} ` : ''}⌘{at + 1}
                 </TooltipContent>
               </Tooltip>
             )
