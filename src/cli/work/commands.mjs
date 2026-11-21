@@ -25,6 +25,7 @@ import { gitOrNothing, prepareTree } from './tree.mjs';
 import { unmergedNow } from './unmerged.mjs';
 import { readWatch } from './watcher.mjs';
 import { recordAfterDeploy } from './yolo-pass.mjs';
+import { writeYoloReports } from './yolo-report.mjs';
 import { openReadinessPulls, partSaid, partWords, RECORDED } from './yolo-parts.mjs';
 import { mainModels, readinessOf, recordReadiness, yoloView } from './yolo.mjs';
 
@@ -126,6 +127,7 @@ async function yoloCommand(root, [reference, change], input) {
   if (change) {
     if (!report.trim()) throw Error('Pipe what the monitoring showed after the deploy, as JSON.');
     const { regressed, line } = recordAfterDeploy(root, project, findItem(root, project, change), JSON.parse(report));
+    writeYoloReports(root, { slug: project.slug });
     return reply(line, { regressed });
   }
   if (!report.trim()) return readinessOf(root, project.slug);

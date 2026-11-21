@@ -17,7 +17,9 @@ import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, paths, prFile, readItems, readMode, skipProject, updateItem, writeMode, writeOwnerView, writeState } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { openReadinessPulls } from '../src/cli/work/yolo-parts.mjs';
+import { savedReportPath } from '../src/cli/reports.mjs';
 import { whyItAsks, yoloPass } from '../src/cli/work/yolo-pass.mjs';
+import { writeYoloReports, yoloReports } from '../src/cli/work/yolo-report.mjs';
 import { holdProject, readinessOf, readYolo, recordReadiness, runReadiness, setYolo, yoloView } from '../src/cli/work/yolo.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 import { branched, commit, git, repository, withOrigin, writeJson } from './helpers/work-fixture.mjs';
@@ -461,6 +463,7 @@ test('the director runs the pass after its own survey, and hands the deploy on',
   assert.equal(stateOf(h, first), 'merged');
   assert.deepEqual(handed.map(({ item, why }) => [item, why]), [[first.id, 'YOLO mode is on and this project is ready for it']]);
   assert.ok(changes > 0, 'the window hears of a merge at once');
+  assert.match(yoloReportOf(h).body, /- "Fix login": a bug fix rated 10, at [0-9a-f]{7}\. Its deploy is with the main agent\./, 'and its report says it');
 
   // The same survey with the switch off merges nothing.
   setYolo(h.root, { on: false }, NOW);
@@ -569,6 +572,94 @@ test('after a deploy the report says what the monitoring showed, and a regressio
   await survey(h);
   assert.deepEqual(await yoloPass(h.root, { now: NOW }), []);
   assert.equal(stateOf(h, next), 'branch');
+});
+
+const yoloReportOf = (h, slug = 'api') => yoloReports(h.root, new Set()).find(({ scheduleId }) => scheduleId === `work.${slug}.yolo`);
+
+test('YOLO mode keeps a report on each project: whether it is ready, the plan, what will merge at what rate, and what merged and deployed by day', async t => {
+  const h = workspace(t, ['api', 'web']);
+  assert.deepEqual(writeYoloReports(h.root, { now: NOW }), [], 'with YOLO mode off there is no report');
+  makeReady(h);
+  const shipped = finished(h, 'Speed up search', { kind: 'performance', numbers: { coverage: 9, proof: 9, safety: 9, visibility: 9, rollback: 10 } });
+  await survey(h);
+  await yoloPass(h.root, { now: NOW, handOff: () => {} });
+
+  assert.deepEqual(writeYoloReports(h.root, { now: NOW }).map(({ slug }) => slug), ['api', 'web']);
+  const first = yoloReportOf(h);
+  assert.deepEqual([first.title, first.at, first.outcome], ['YOLO mode on api', new Date(NOW).toISOString(), 'completed']);
+  assert.match(first.body, new RegExp(`- "Speed up search": performance work rated 9\\.2, at ${shipped.head.slice(0, 7)}\\. Its deploy is with the main agent\\.`));
+  assert.deepEqual(writeYoloReports(h.root, { now: NOW + 1000 }), [], 'the same report is never written twice');
+
+  // The deploy's reading writes the report again, as a new report, and the one before it goes.
+  const calm = part => ({ regressed: false, saw: `Nothing new in ${part}.` });
+  const reading = { minutes: 30, errors: calm('errors'), slowQueries: calm('slow queries'), latency: { regressed: false, saw: 'p95 118 ms against a baseline of 120 ms.' } };
+  await runWorkCommand(h.root, ['yolo', 'api', shipped.id], Readable.from([JSON.stringify(reading)]));
+  assert.notEqual(yoloReportOf(h).id, first.id);
+  assert.equal(savedReportPath(h.root, first.id), null);
+
+  const due = finished(h, 'Fix login');
+  const underRate = finished(h, 'Fix logout', { numbers: { coverage: 7, proof: 7, safety: 9, visibility: 7, rollback: 8 } });
+  await survey(h);
+  assert.equal(writeYoloReports(h.root, { now: NOW + 2000 }).length, 1, 'only the project that changed');
+
+  assert.equal(yoloReportOf(h).body, `Useful: api is ready for YOLO mode.
+
+## The plan
+
+- hobkin merges a small change on api by itself once its review rates it 8 or more: performance work, a bug fix, a state machine fix, a package update or a small change.
+- At most one change merges on api a pass, at the commit its review scored.
+- The main agent deploys each one by its deploy path and watches the monitoring for 30 minutes: bin/deploy from main, undone by bin/deploy rollback.
+- A regression after a deploy stops merges on api until its readiness is checked again.
+- Still asks you: a feature, a change its review could not place, one under 8 or under a floor, and every PR.
+
+## What will merge
+
+Your rate is 8.
+
+- "Fix login": a bug fix rated 10. It merges by itself on the next pass.
+- "Fix logout": a bug fix rated 7.6. It asks you: its general rate is 7.6, under 8.
+
+## Merged and deployed
+
+### 2026-06-01
+
+- "Speed up search": performance work rated 9.2, at ${shipped.head.slice(0, 7)}. It deployed and held for 30 minutes: Nothing new in errors. Nothing new in slow queries. p95 118 ms against a baseline of 120 ms.
+`);
+  assert.deepEqual([stateOf(h, due), stateOf(h, underRate)], ['branch', 'branch'], 'a report merges nothing');
+
+  // A project still getting ready says what holds it and what hobkin is doing about it, and what each change would meet once it is ready.
+  const web = yoloReportOf(h, 'web').body;
+  assert.match(web, /^Useful: web is getting ready for YOLO mode\.\n\n## What holds it\n\n- Its readiness has not been checked yet\.\n\nIts readiness work is queued to run\.\n\n## The plan once it is ready\n/);
+  assert.match(web, /- Nothing is deployed until its deploy path is set up\.\n/);
+  assert.match(web, /## What will merge once it is ready\n\nYour rate is 8\.\n\nNothing waits to merge on web\.\n\n## Merged and deployed\n\nNothing has merged by itself on web yet\.\n$/);
+  assert.doesNotMatch(`${web}${yoloReportOf(h).body}`, /not ready/);
+
+  // While work mode waits, the report says nothing merges.
+  writeMode(h.root, { pausedAt: new Date(NOW).toISOString() });
+  writeYoloReports(h.root, { now: NOW + 3000 });
+  assert.match(yoloReportOf(h).body, /Your rate is 8\. Nothing merges while work mode is paused\.\n/);
+});
+
+test('Reports lists each project\'s YOLO report as that project\'s work', async t => {
+  const h = workspace(t);
+  makeReady(h);
+  const [{ id }] = writeYoloReports(h.root, { now: NOW });
+  // Nothing for the window's own director to start or survey while the test reads its list.
+  writeMode(h.root, { enabled: false });
+  atomicJson(join(h.root, 'work', 'unmerged.json'), { at: new Date().toISOString(), projects: {} });
+  const config = JSON.parse(readFileSync(join(h.root, 'config.json'), 'utf8'));
+  atomicJson(join(h.root, 'config.json'), { ...config, main: { ...config.main, model: 'fixture/local' }, background: { ...config.background, model: 'fixture/check' } });
+  const runHarness = async () => ({ status: 'interrupted', error: 'Nothing runs in this test.' });
+
+  const app = await HobkinApplication.open(h.root, { createMain: fakePi(h.root).createMain, runHarness, intervalMs: 60000 });
+  try {
+    await app.refresh();
+    const listed = app.snapshot.reports.find(report => report.id === id);
+    assert.deepEqual([listed?.title, listed?.scheduleId, listed?.outcome], ['YOLO mode on api', 'work.api.yolo', 'completed']);
+    assert.match(listed.body, /^Useful: api is ready for YOLO mode\./);
+  } finally {
+    await app.close();
+  }
 });
 
 const SPEC = '_specs/tla/WorkItem.tla';

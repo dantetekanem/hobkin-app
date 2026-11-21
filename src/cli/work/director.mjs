@@ -41,6 +41,7 @@ import { nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
 import { openReadinessPulls } from './yolo-parts.mjs';
 import { yoloPass } from './yolo-pass.mjs';
+import { writeYoloReports } from './yolo-report.mjs';
 import { reviewsByItself } from './yolo.mjs';
 
 function withSessionCost(result, sessionFile) {
@@ -410,8 +411,10 @@ export class WorkDirector {
     this.surveying = surveyAndClose(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}), ...(this.fetch ? { fetch: this.fetch } : {}) })
       // Only this survey, the owner's own, lets a change merge by itself, and only while the user has YOLO mode on (`yolo-pass.mjs`).
       .then(() => yoloPass(this.root, { now: this.now(), ...(this.onHandOff ? { handOff: this.onHandOff } : {}) }))
+      // Each project's YOLO report says what the pass found and did, written only where its words changed (`yolo-report.mjs`).
       .then(merged => {
-        if (merged.length) this.onChange();
+        const reported = writeYoloReports(this.root, { now: this.now() });
+        if (merged.length || reported.length) this.onChange();
       })
       .catch(() => {})
       // Each branch readiness made is offered as a PR by itself, YOLO mode on or off, since the user asked readiness to open them (`yolo-parts.mjs`).

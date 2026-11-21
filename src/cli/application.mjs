@@ -46,6 +46,7 @@ import { filePickUp, retirePickUp } from './work/pick-up.mjs';
 import { mergeRefreshed, refreshThenMerge } from './work/refresh.mjs';
 import { winsNow, yesterdayLine } from './work/wins.mjs';
 import { runReadiness } from './work/yolo.mjs';
+import { yoloReports } from './work/yolo-report.mjs';
 import { prView } from './work/reads.mjs';
 import { LandOffers, lastOfferAt, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { fileFirstPair } from './work/pairs.mjs';
@@ -440,7 +441,7 @@ export class HobkinApplication {
         };
       });
     const reportIds = new Set();
-    const reports = [...runReports, ...sessionReports(this.runtime.directory, deleted)]
+    const reports = [...runReports, ...sessionReports(this.runtime.directory, deleted), ...yoloReports(this.runtime.directory, deleted)]
       .filter(report => {
         if (reportIds.has(report.id)) return false;
         reportIds.add(report.id);

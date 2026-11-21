@@ -144,6 +144,12 @@ export function readReport(root, id, fallback) {
   return readFileSync(file, 'utf8');
 }
 
+/** Removes a report hobkin replaced with a newer one of its own, and its short version. The user's deleted list stays as it is. */
+export function dropReport(root, id) {
+  rmSync(reportPath(root, id), { force: true });
+  rmSync(shortReportPath(root, id), { force: true });
+}
+
 const deletedPath = root => join(root, 'runtime', 'deleted-reports.json');
 
 /** Deleted report IDs hide reports from every inventory source; run receipts stay to prevent replays. */

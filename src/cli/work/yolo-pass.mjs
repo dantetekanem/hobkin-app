@@ -23,17 +23,19 @@ import { holdProject, prepareProjects, readinessOf, readYolo } from './yolo.mjs'
 
 const SHORT_SHA = 7;
 // How long a deploy is watched before its monitoring is called calm.
-const AFTER_DEPLOY_MINUTES = 30;
-const READINGS = ['errors', 'slowQueries', 'latency'];
+export const AFTER_DEPLOY_MINUTES = 30;
+export const READINGS = ['errors', 'slowQueries', 'latency'];
 const LONGEST_LINE = 400;
-const kindWords = {
+export const kindWords = {
   performance: 'performance work',
   'bug-fix': 'a bug fix',
   'state-machine': 'a state machine fix',
   'package-update': 'a package update',
   'small-change': 'a small change',
+  feature: 'a feature',
+  unclear: 'a change its review could not place',
 };
-const deployWords = {
+export const deployWords = {
   'handed on': 'Its deploy is with the main agent.',
   'not handed on': 'Nothing was deployed.',
   'nothing deploys': 'Nothing deploys on this project.',
@@ -112,7 +114,10 @@ function readingOf(name, reading) {
   throw Error(`${name} needs regressed, true or false, with what the monitoring showed in a line as saw, or notApplicable with the reason.`);
 }
 
-const mergedByYolo = (root, slug, id) => readJsonLines(ledgerPath(root)).some(line => line.slug === slug && line.item === id && line.target);
+/** Every line of the ledger, oldest first: each merge by itself, with `target`, and each reading of the monitoring after its deploy, with `after`. */
+export const readLedger = root => readJsonLines(ledgerPath(root));
+
+const mergedByYolo = (root, slug, id) => readLedger(root).some(line => line.slug === slug && line.item === id && line.target);
 
 /**
  * What the monitoring showed after a change YOLO mode merged was deployed: errors, slow queries, and latency against its baseline, over the
@@ -144,7 +149,7 @@ export function recordAfterDeploy(root, project, item, sent, now = Date.now()) {
 }
 
 // A deploy path is an improvement, so a project can be ready without one, and then nothing is deployed.
-function deployOf({ parts: { deploy } }, handOff) {
+export function deployOf({ parts: { deploy } }, handOff) {
   if (deploy.state !== 'done') return 'no deploy path';
   if (deploy.deploys === false) return 'nothing deploys';
   return handOff ? 'handed on' : 'not handed on';
@@ -220,6 +225,24 @@ function askForModel(root, { asked, models, now }) {
   retryItem(root, row.slug, item.id, now);
 }
 
+/** The finished local branches the landing list would let go, each as `<project>:<item>`. */
+export const landableKeys = root => new Set(landingList(root).landable.map(({ slug, item }) => `${slug}:${item}`));
+
+/** What `whyItAsks` reads of one waiting row, with the models covering it apart, as the pass and YOLO mode's report read it. */
+export function askedOf(root, { yolo, landable, row, item, unit }) {
+  const asked = {
+    yolo,
+    project: readProject(root, row.slug),
+    readiness: readinessOf(root, row.slug),
+    landable: landable.has(`${row.slug}:${row.item}`),
+    row,
+    item,
+    unit,
+    unmodeled: unmodeledIn(readMachines(root, row.slug)?.machines, unit),
+  };
+  return { asked, models: changeModels(root, row.slug, unit) };
+}
+
 /**
  * Merges what may merge by itself, at most one change a project, and answers a report of each. `handOff` gives a deploy to the main agent.
  * While YOLO mode is on it also files the readiness work of any project that has none yet.
@@ -230,16 +253,12 @@ export async function yoloPass(root, { now = Date.now(), handOff, spawn } = {}) 
   prepareProjects(root, now);
   if (whyWorkModeWaits(readMode(root), now)) return [];
 
-  const landable = new Set(landingList(root).landable.map(({ slug, item }) => `${slug}:${item}`));
+  const landable = landableKeys(root);
   const reports = [];
   const mergedOn = new Set();
   for (const { row, item, unit } of weighedRows(root, now)) {
     if (mergedOn.has(row.slug)) continue;
-    const project = readProject(root, row.slug);
-    const readiness = readinessOf(root, row.slug);
-    const models = changeModels(root, row.slug, unit);
-    const unmodeled = unmodeledIn(readMachines(root, row.slug)?.machines, unit);
-    const asked = { yolo, project, readiness, landable: landable.has(`${row.slug}:${row.item}`), row, item, unit, unmodeled };
+    const { asked, models } = askedOf(root, { yolo, landable, row, item, unit });
     if (whyItAsks({ ...asked, models })) {
       await checkWaitingModel(root, { asked, models, spawn, now });
       askForModel(root, { asked, models, now });
@@ -249,6 +268,7 @@ export async function yoloPass(root, { now = Date.now(), handOff, spawn } = {}) 
     const landed = await mergeAlone(root, { row, unit, now });
     if (!landed) continue;
     mergedOn.add(row.slug);
+    const { project, readiness } = asked;
     reports.push(report(root, { project, item, head: unit.sha, target: landed.target, readiness, handOff, now }));
   }
   return reports;
