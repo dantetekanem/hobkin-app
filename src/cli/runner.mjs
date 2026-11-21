@@ -153,6 +153,35 @@ const holdStart = (schedule, runs) => {
   return finished[start];
 };
 
+// The run index is the same object until a commit, so what is worked out from it alone is worked out once per commit. A runtime
+// without an index gives a new copy of its state each time, which is worked out each time, as before.
+const routineRuns = new WeakMap();
+const runningChecks = new WeakMap();
+
+/** Each routine's runs, in the index's order, frozen. */
+function runsOfRoutines(index) {
+  if (!routineRuns.has(index)) {
+    const groups = new Map();
+    for (const run of Object.values(index.runs)) {
+      if (!groups.has(run.scheduleId)) groups.set(run.scheduleId, []);
+      groups.get(run.scheduleId).push(run);
+    }
+    for (const runs of groups.values()) Object.freeze(runs);
+    routineRuns.set(index, groups);
+  }
+  return routineRuns.get(index);
+}
+const runsOfRoutine = (index, id) => runsOfRoutines(index).get(id) ?? [];
+
+/** How many ordinary checks are running: background runs that are neither Work's nor a durable hobkin's. */
+function runningCheckCount(index) {
+  if (!runningChecks.has(index)) {
+    const running = Object.values(index.runs).filter(run => run.kind === 'background' && run.status === 'running' && !run.work && !run.hobkin);
+    runningChecks.set(index, running.length);
+  }
+  return runningChecks.get(index);
+}
+
 const noteUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const notQueued = message => Object.assign(Error(message), { notQueued: true });
 
@@ -225,8 +254,9 @@ export class HobkinRunner {
         : dueOccurrence(schedule, now, { notBefore: notBeforeFor(schedule, this.config) });
       if (!occurrence || index.runs[occurrence.id] || this.jobs.has(occurrence.id)) continue;
       // Keep completed admissions when a setting changes between one time and a list.
-      if (Object.values(index.runs).some(run => run.scheduleId === schedule.id && run.scheduledAt === occurrence.scheduledAt)) continue;
-      if (Object.values(index.runs).some(run => run.scheduleId === schedule.id && run.status === 'running')) continue;
+      const own = runsOfRoutine(index, schedule.id);
+      if (own.some(run => run.scheduledAt === occurrence.scheduledAt)) continue;
+      if (own.some(run => run.status === 'running')) continue;
       const state = await wholeState();
       if (checkHold(schedule, Object.values(state.runs), now.getTime())) continue;
       try {
@@ -246,9 +276,9 @@ export class HobkinRunner {
     if (!this.loaded.counts.once) return;
 
     // Whether a time has run needs only each run's routine, occurrence and status.
-    const runs = Object.values((await this.runIndex()).runs);
+    const index = await this.runIndex();
     for (const schedule of this.loaded.schedules) {
-      const own = runs.filter(run => run.scheduleId === schedule.id);
+      const own = runsOfRoutine(index, schedule.id);
       if (!isFinishedOnce(schedule, own, now, notBeforeFor(schedule, this.config))) continue;
       try {
         keepOnceFile(this.root, schedule);
@@ -265,10 +295,8 @@ export class HobkinRunner {
 
   /** Work runs have their own pool, and a durable hobkin's turn is the user's, so neither takes a place from ordinary checks. */
   scheduledJobCount(state) {
-    const running = Object.values(state.runs)
-      .filter(run => run.kind === 'background' && run.status === 'running' && !run.work && !run.hobkin);
     const tracked = [...this.jobs.keys()].filter(id => !id.startsWith('work:') && !isTurnRunId(id));
-    return Math.max(tracked.length, running.length);
+    return Math.max(tracked.length, runningCheckCount(state));
   }
 
   serialize(operation) {

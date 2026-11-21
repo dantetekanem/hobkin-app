@@ -184,3 +184,40 @@ test('a project\'s signals and models, the subscription reading, the upkeep cloc
   readSignals(h.root, 'repo').signal = 3;
   assert.equal(readSignals(h.root, 'repo').signal, 2, 'each reader gets a copy of its own to change');
 });
+
+test('the day\'s budget counts the runs of the local day, a 25-hour day included, with each run\'s time read once', async t => {
+  const { budgetFor } = await import('../src/cli/work/budget.mjs');
+  const zone = process.env.TZ;
+  process.env.TZ = 'America/Toronto';
+  t.after(() => { if (zone === undefined) delete process.env.TZ; else process.env.TZ = zone; });
+  const h = fixture(t);
+  // 1 November 2026 ends daylight time in Toronto, so it runs from 04:00Z to 05:00Z the next day.
+  for (const [at, tokens] of [['2026-11-01T03:59:59.999Z', 1], ['2026-11-01T04:00:00.000Z', 10], ['2026-11-02T04:59:59.999Z', 100], ['2026-11-02T05:00:00.000Z', 1000]]) {
+    recordTokens(h.root, { slug: 'api', lane: 'do', tokens }, Date.parse(at));
+  }
+  const mode = readMode(h.root);
+  const now = Date.parse('2026-11-01T20:00:00Z');
+  assert.equal(budgetFor(h.root, mode, now).used, 110);
+  const parse = t.mock.method(Date, 'parse');
+  assert.equal(budgetFor(h.root, mode, now).used, 110);
+  assert.ok(parse.mock.callCount() <= 2, 'the saved runs\' times are not parsed again');
+});
+
+test('the scheduler walks the run index once per commit to match routines to their runs, however many routines it checks', async t => {
+  const { HobkinRunner } = await import('../src/cli/runner.mjs');
+  const h = fixture(t);
+  let walks = 0;
+  const runs = new Proxy(Object.freeze({
+    a: Object.freeze({ id: 'a', kind: 'background', status: 'running', scheduleId: 'news' }),
+    b: Object.freeze({ id: 'b', kind: 'background', status: 'completed', scheduleId: 'mail' }),
+  }), { ownKeys: target => { walks++; return Reflect.ownKeys(target); } });
+  const index = Object.freeze({ runs });
+  const runner = new HobkinRunner({ runtime: { runIndex: async () => index }, root: h.root, config: { concurrency: 2, initializedAt: '2026-01-01T00:00:00Z' } });
+  const once = id => ({ id, cadence: 'once', enabled: true, date: '2026-11-21', at: '09:00', timezone: 'UTC' });
+  runner.loaded = { schedules: ['one', 'two', 'three'].map(once), errors: [], counts: { once: 3 } };
+  for (let tick = 0; tick < 3; tick++) {
+    assert.equal(runner.scheduledJobCount(index), 1);
+    await runner.retireFinishedOnce(new Date('2026-11-21T12:00:00Z'));
+  }
+  assert.equal(walks, 2, 'one walk to count what runs and one to group by routine, for every tick on this index');
+});

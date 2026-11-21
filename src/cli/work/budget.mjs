@@ -55,12 +55,28 @@ export function estimateRun(history, { kind, level }) {
 const totalOf = (list, field) => list.reduce((sum, entry) => sum + (entry[field] ?? 0), 0);
 const sameDay = (left, right) => new Date(left).toDateString() === new Date(right).toDateString();
 
+// A saved run's record is frozen and shared (`tokenEvents`), so the time it was spent is read once for the life of the record.
+const spentAt = new WeakMap();
+const timeOf = event => {
+  if (!spentAt.has(event)) spentAt.set(event, Date.parse(event.at));
+  return spentAt.get(event);
+};
+
+/** Whether `time` falls on the local day of `now`, from that day's own midnights, so a day of 23 or 25 hours counts as it is. */
+const onDayOf = now => {
+  const day = new Date(now);
+  const start = new Date(day.getFullYear(), day.getMonth(), day.getDate()).getTime();
+  const end = new Date(day.getFullYear(), day.getMonth(), day.getDate() + 1).getTime();
+  return time => time >= start && time < end;
+};
+
 /** Where today stands. A running agent counts for what it has spent so far, and what it is still expected to spend is held for it. */
 export function budgetFor(root, mode, now, running = []) {
   const limit = dailyLimit(mode, now);
   const events = tokenEvents(root);
-  const today = events.filter(event => sameDay(event.at, now));
-  const hour = events.filter(event => now - Date.parse(event.at) < HOUR_MS);
+  const isToday = onDayOf(now);
+  const today = events.filter(event => isToday(timeOf(event)));
+  const hour = events.filter(event => now - timeOf(event) < HOUR_MS);
   const spending = totalOf(running, 'tokens');
   const reserved = running.reduce((sum, run) => sum
     + Math.max(0, (run.estimate?.fresh ?? 0) - (run.meter?.tokens ?? run.tokens ?? 0))

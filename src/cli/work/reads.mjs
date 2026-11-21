@@ -219,7 +219,8 @@ function gapOf(item, unit, items) {
   if (item.kind === 'yours') return 'yours';
   if (unit.landedOn) return 'elsewhere';
   if (unit.stackedUnder) return 'stacked';
-  if (items.some(other => closingNow(other) && other.branch === item.branch)) return 'closing';
+  // The branch first: the clock is read only for the items on it.
+  if (items.some(other => other.branch === item.branch && closingNow(other))) return 'closing';
   if (item.state === 'done') return 'unlanded';
   return unit.conflict ? 'rebase' : 'land';
 }
