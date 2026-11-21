@@ -11,8 +11,10 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { TaskList } from '@/features/agent-activity/TaskList.tsx'
-import { useNewest } from '@/features/agent-activity/newest.ts'
-import { EarlierSteps, StepItem } from '@/features/agent-activity/StepView.tsx'
+import { earlierRow, useNewest, withEarlier } from '@/features/agent-activity/newest.ts'
+import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
+import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
+import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
@@ -26,11 +28,11 @@ import { useAgentImageInput } from '@/features/work/use-agent-image-input.ts'
 import { doingOf, folderName, hasHost, hueOf } from '@/lib/host/frame.ts'
 import { changeLine } from '@/features/chat/change-line.ts'
 import { sendChange } from '@/features/chat/send-change.ts'
-import { hostStore, runCommand, useHost } from '@/lib/host/index.ts'
+import { hostStore, runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
 import { sentAtArg } from '@/lib/host/state.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
-import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
+import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, type PageRow, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
 import { endingOf, pressEndOf, takeBackEnd, useEnding } from './end.ts'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
@@ -359,6 +361,10 @@ function focusNewestStep(input: Element): boolean {
   return Boolean(newest)
 }
 
+/** A row of the conversation, or the row that reads the live turn's older steps from its run's saved session. */
+type ShownRow = PageRow | { kind: 'older'; key: 'older' }
+const OLDER_ROW: ShownRow = { kind: 'older', key: 'older' }
+
 interface ConversationProps {
   /** The hobkin's id: how many of its newest rows are drawn is kept by it. */
   id: string
@@ -379,13 +385,29 @@ interface ConversationProps {
  */
 function Conversation({ id, turns, activity, cwd, sending, problem, loading }: ConversationProps) {
   const still = useStill()
+  const live = useHasHost()
   const scroll = useFollow(still)
-  const rows = useMemo(
-    () => pageRows(turns, { sending, activity: activity ? { entries: activity.entries, cwd: activity.cwd ?? cwd, seenAt: (id) => activity.timeOf(id)?.seen } : null }),
-    [turns, sending, activity, cwd],
-  )
-  // A long conversation draws only its newest rows, with a row above them for the ones before (newest.ts).
+  // The live turn's feed keeps its newest steps. The ones it let go are read from its run's saved session, a page at a
+  // time, and come after the turn's message, where the row that reads them stands.
+  const run = turns.find((turn) => turn.live)?.run ?? null
+  const job = live && activity && !activity.sample ? run : null
+  const older = useOlderSteps(job)
+  const saved = earlierRow(0, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })
+  const offersOlder = saved !== null
+  const rows = useMemo(() => {
+    const entries = activity && older.steps.length ? [...older.steps, ...activity.entries] : activity?.entries
+    const page: readonly ShownRow[] = pageRows(turns, { sending, activity: activity && entries ? { entries, cwd: activity.cwd ?? cwd, seenAt: (id) => activity.timeOf(id)?.seen } : null })
+    return offersOlder && job ? withEarlier(page, (row) => row.kind === 'step' && row.key.startsWith(`${job}:`), OLDER_ROW) : page
+  }, [turns, sending, activity, older.steps, cwd, offersOlder, job])
+  // A long conversation draws only its newest rows, with a row above them for the ones before (newest.ts). The step
+  // being read stays where it was when older steps come.
   const newest = useNewest(id, rows)
+  const holdPlace = useReadingPlace(scroll.scroller, older.steps)
+  const readOlder = () => {
+    holdPlace()
+    newest.toCome()
+    older.loadMore()
+  }
   useLayoutEffect(scroll.settle, [newest.shown, scroll.settle])
 
   return (
@@ -402,21 +424,25 @@ function Conversation({ id, turns, activity, cwd, sending, problem, loading }: C
         aria-label="The conversation"
         className="mt-auto flex flex-col gap-3 pt-2 pb-3"
       >
-        {newest.earlier ? <EarlierSteps count={newest.earlier} onMore={newest.more} /> : null}
+        {newest.earlier ? <EarlierSteps row={{ kind: 'held', count: newest.earlier }} onMore={newest.more} /> : null}
         <ShowStamps>
-          <AnimatePresence initial={false}>
-            {newest.shown.map((row) =>
-              row.kind === 'said' ? (
-                <Said key={row.key} text={row.text} images={row.images} at={row.at} added={row.tag === 'added'} sending={row.tag === 'sending'} from={row.from} />
-              ) : row.kind === 'step' ? (
-                <StepItem key={row.key} step={row.step} timeOf={activity!.timeOf} ended={row.ended} />
-              ) : row.kind === 'answer' ? (
-                <Answer key={row.key} turn={row.turn} at={row.at} />
-              ) : (
-                <Working key={row.key} />
-              ),
-            )}
-          </AnimatePresence>
+          <StepJob.Provider value={job}>
+            <AnimatePresence initial={false}>
+              {newest.shown.map((row) =>
+                row.kind === 'older' ? (
+                  saved ? <EarlierSteps key={row.key} row={saved} onMore={readOlder} /> : null
+                ) : row.kind === 'said' ? (
+                  <Said key={row.key} text={row.text} images={row.images} at={row.at} added={row.tag === 'added'} sending={row.tag === 'sending'} from={row.from} />
+                ) : row.kind === 'step' ? (
+                  <StepItem key={row.key} step={row.step} timeOf={activity!.timeOf} ended={row.ended} />
+                ) : row.kind === 'answer' ? (
+                  <Answer key={row.key} turn={row.turn} at={row.at} />
+                ) : (
+                  <Working key={row.key} />
+                ),
+              )}
+            </AnimatePresence>
+          </StepJob.Provider>
         </ShowStamps>
         {loading ? <li className="self-center text-[13px] text-muted-foreground">Reading the conversation.</li> : null}
         {problem ? (

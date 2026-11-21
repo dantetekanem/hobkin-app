@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, Search, SquareTerminal, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react'
-import { Fragment, memo, useMemo, useState, type ReactNode } from 'react'
+import { createContext, Fragment, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { GrowingMarkdown, MessageText, risen, sunk } from '@/features/chat/markdown.ts'
@@ -16,7 +16,9 @@ import { ChangeDiff } from './ChangeDiff.tsx'
 import { CodeText, MoreButton } from './CodeText.tsx'
 import { BOX } from './boxes.ts'
 import { CodemodeCall } from './CodemodeCall.tsx'
-import { NEWEST_STEPS } from './newest.ts'
+import { cutOf, cutWords, type CutState } from './cut-output.ts'
+import { earlierWords, type EarlierRow } from './newest.ts'
+import { wholeOutput } from './older-steps.ts'
 import { previewOf } from './preview.ts'
 import { RowStamp, Stamped } from './Stamp.tsx'
 import { atOf, foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
@@ -32,6 +34,15 @@ const TAIL_LINES = 12
 const DONE_LINES = 6
 
 type TimeOf = (id: string) => EntryTime | undefined
+
+/**
+ * The run whose steps these are, so an output the feed cut to its ends can be read whole from the run's saved session.
+ * None for the main chat and for teams agents, whose outputs then say only how long they are.
+ */
+export const StepJob = createContext<string | null>(null)
+
+/** The entries the step drawn was made from, so a part of it finds its own. */
+const StepEntries = createContext<readonly ActivityEntry[]>([])
 
 const arriving = { transform: spring.rise, opacity: tween.enter }
 
@@ -49,6 +60,7 @@ export const StepItem = memo(
     return (
       <motion.li
         data-step={step.kind}
+        data-step-key={step.key}
         tabIndex={-1}
         initial={holdStill(sunk, still)}
         animate={holdStill({ ...risen, transition: arriving }, still)}
@@ -62,7 +74,9 @@ export const StepItem = memo(
       >
         {/* On a page that shows times, the step's first row has its time beside it. A group of commands times each of its rows. */}
         <Stamped at={step.kind === 'shell' ? undefined : atOf(step)} line={step.kind === 'says' ? 'text' : 'row'}>
-          <StepBody step={step} timeOf={timeOf} ended={ended} />
+          <StepEntries.Provider value={step.entries}>
+            <StepBody step={step} timeOf={timeOf} ended={ended} />
+          </StepEntries.Provider>
         </Stamped>
       </motion.li>
     )
@@ -72,20 +86,23 @@ export const StepItem = memo(
 
 /**
  * The row above a long conversation's newest steps (newest.ts): how many came before them, and a press that draws forty
- * more. Up and Down walk onto it as onto a step, and Enter or Right presses it.
+ * more, or, with all the steps held drawn, a press that reads forty more from the run's saved session, saying so until
+ * they come. It keeps its place and its one line while it reads. Up and Down walk onto it as onto a step, and Enter or
+ * Right presses it.
  */
-export function EarlierSteps({ count, onMore }: { count: number; onMore: () => void }) {
-  const more = Math.min(count, NEWEST_STEPS)
+export function EarlierSteps({ row, onMore }: { row: EarlierRow; onMore: () => void }) {
+  const reading = row.kind === 'saved' && row.loading
   return (
     <li data-step="earlier" tabIndex={-1} className="flex justify-center rounded-[18px] outline-none focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
       <button
         type="button"
         data-step-toggle
         aria-expanded={false}
-        onClick={onMore}
+        aria-busy={reading || undefined}
+        onClick={reading ? undefined : onMore}
         className="rounded-full px-3 py-1 text-[12px] text-muted-foreground transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 hover:text-foreground"
       >
-        {count === 1 ? '1 earlier step' : `${count.toLocaleString('en-US')} earlier steps`} · Show {more === count ? (count === 1 ? 'it' : 'them') : `${more} more`}
+        {earlierWords(row)}
       </button>
     </li>
   )
@@ -104,7 +121,7 @@ function StepBody({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: 
     case 'looks':
       return <Looks looks={step.looks} />
     case 'tool':
-      return <OtherTool name={step.name} summary={step.summary} state={step.state} output={step.output} failure={step.failure} />
+      return <OtherTool id={step.key} name={step.name} summary={step.summary} state={step.state} output={step.output} failure={step.failure} />
   }
 }
 
@@ -292,10 +309,71 @@ function ProofCommand({ command, time, spec }: { command: Command; time?: EntryT
   )
 }
 
+/** The size and look of the step view's small presses, as CodeText's MoreButton draws them. */
+const PRESS = 'rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70 transition-opacity duration-[160ms] ease-[ease] hover:opacity-100'
+
+interface Whole {
+  /** How long the output is in all, when the feed cut it to its ends. Null when it holds it whole. */
+  length: number | null
+  /** The whole text, once read. */
+  text: string | null
+  state: CutState
+  read: () => void
+}
+
+/**
+ * An output the feed cut to its ends (`outputLength`), by its entry's id: how long it is in all, and its whole text once
+ * a press read it from the run's saved session. The text is kept only while the part showing it is drawn.
+ */
+function useWhole(id: string): Whole {
+  const job = useContext(StepJob)
+  const length = cutOf(useContext(StepEntries).find((entry) => entry.id === id))
+  const [read, setRead] = useState<{ text: string | null } | null>(null)
+  const [reading, setReading] = useState(false)
+  const drawn = useRef(true)
+  useEffect(() => {
+    drawn.current = true
+    return () => {
+      drawn.current = false
+    }
+  }, [])
+
+  const start = () => {
+    if (!job || reading) return
+    setReading(true)
+    void wholeOutput(job, id).then((text) => {
+      if (!drawn.current) return
+      setRead({ text })
+      setReading(false)
+    })
+  }
+  const state: CutState = !job || (read && read.text === null) ? 'unsaved' : reading ? 'reading' : 'cut'
+  return { length, text: read?.text ?? null, state, read: start }
+}
+
+/** Under an output the feed cut: how much there is in all, and a press that reads all of it. It keeps its size while it reads. */
+function CutNote({ whole }: { whole: Whole }) {
+  if (whole.length === null || whole.text !== null) return null
+  const words = cutWords(whole.length, whole.state)
+  if (whole.state === 'cut') {
+    return (
+      <button type="button" onClick={whole.read} className={PRESS}>
+        {words}
+      </button>
+    )
+  }
+  return (
+    <span aria-live="polite" className="rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70">
+      {words}
+    </span>
+  )
+}
+
 /** One command: its line, its state and time, and, once opened by its line, the last of its output, all of which opens on request. */
 function CommandCard({ command, time }: { command: Command; time?: EntryTime }) {
   const { open: shown, toggle: toggleShown } = useBlock('shell')
   const { open: all, toggle, box } = useUnfold<HTMLDivElement>()
+  const whole = useWhole(command.id)
   const tail = tailOf(command.output, all ? Number.MAX_SAFE_INTEGER : command.state === 'done' ? DONE_LINES : TAIL_LINES)
   const lines = command.command.split('\n')
   const more = lines.length > 1
@@ -324,7 +402,12 @@ function CommandCard({ command, time }: { command: Command; time?: EntryTime }) 
           <StateMark state={command.state} time={time} exitCode={command.exitCode} />
         </span>
       </button>
-      {shown && (tail.lines.length || command.failure) ? (
+      {shown && whole.text !== null ? (
+        // The whole output, read from the run's saved session, opens two hundred lines a press as a big read does.
+        <div className="px-3.5 pb-2.5">
+          <CodeText text={whole.text} language={null} label={`Output of ${lines[0]}`} />
+        </div>
+      ) : shown && (tail.lines.length || command.failure) ? (
         <div className="px-3.5 pb-2.5">
           {tail.hidden && !all ? <p className="mb-0.5 text-[11px] opacity-50">{tail.hidden === 1 ? '1 line above' : `${tail.hidden.toLocaleString('en-US')} lines above`}</p> : null}
           {tail.lines.length ? (
@@ -333,9 +416,10 @@ function CommandCard({ command, time }: { command: Command; time?: EntryTime }) 
             </div>
           ) : null}
           {command.failure ? <p className="mt-1 font-mono text-[12px] text-bad-fg">{command.failure}</p> : null}
-          {tail.hidden || all ? (
-            <p className="mt-1.5">
-              <MoreButton open={all} count={tail.lines.length + tail.hidden} onToggle={toggle} />
+          {tail.hidden || all || whole.length !== null ? (
+            <p className="mt-1.5 flex items-center gap-1">
+              {tail.hidden || all ? <MoreButton open={all} count={tail.lines.length + tail.hidden} onToggle={toggle} /> : null}
+              <CutNote whole={whole} />
             </p>
           ) : null}
         </div>
@@ -460,10 +544,18 @@ function LookLine({ look }: { look: Look }) {
 
 /** What a read gave back, as a preview of the file in its colors that opens to the rest. */
 function ReadText({ look, className }: { look: Look; className: string }) {
+  const whole = useWhole(look.id)
   if (!look.text) return null
   return (
     <div className={className}>
-      <CodeText text={look.text} language={languageOf(look.what)} from={look.from} label={`What ${look.what} holds`} note={look.notice} />
+      {whole.text !== null ? (
+        <CodeText text={whole.text} language={languageOf(look.what)} from={look.from} label={`What ${look.what} holds`} />
+      ) : (
+        <>
+          <CodeText text={look.text} language={languageOf(look.what)} from={look.from} label={`What ${look.what} holds`} note={look.notice} />
+          <CutNote whole={whole} />
+        </>
+      )}
     </div>
   )
 }
@@ -530,7 +622,8 @@ function Looks({ looks }: { looks: Look[] }) {
 }
 
 /** A tool the canvas has no words of its own for: its name, what it was given, and its output on request. */
-function OtherTool({ name, summary, state, output, failure }: { name: string; summary: string; state: CallState; output: string; failure?: string }) {
+function OtherTool({ id, name, summary, state, output, failure }: { id: string; name: string; summary: string; state: CallState; output: string; failure?: string }) {
+  const whole = useWhole(id)
   const block = useBlock('other')
   const opens = Boolean(output.trim()) && !failure
   const open = opens && block.open
@@ -545,7 +638,12 @@ function OtherTool({ name, summary, state, output, failure }: { name: string; su
         </span>
       </FoldRow>
       {failure ? <p className="pl-[22px] text-[12px] break-words whitespace-pre-wrap text-bad-fg">{failure}</p> : null}
-      {open ? <CodeText text={output} language={null} label={`Output of ${name}`} /> : null}
+      {open ? (
+        <>
+          <CodeText text={whole.text ?? output} language={null} label={`Output of ${name}`} />
+          <CutNote whole={whole} />
+        </>
+      ) : null}
     </div>
   )
 }

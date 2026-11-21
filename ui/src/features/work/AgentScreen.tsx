@@ -10,8 +10,10 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { doingNow, exchangeOf, pauseOf, stepCount, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
-import { useNewest } from '@/features/agent-activity/newest.ts'
-import { EarlierSteps, StepItem } from '@/features/agent-activity/StepView.tsx'
+import { earlierRow, useNewest } from '@/features/agent-activity/newest.ts'
+import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
+import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
+import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
 import { TaskList } from '@/features/agent-activity/TaskList.tsx'
 import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
@@ -544,16 +546,30 @@ function Exchange({ agentId, hue, question, waiting, activity }: { agentId: stri
   const live = useHasHost()
   const notes = useAgentThreads((threads) => threads.notes[agentId])
   const scroll = useFollow(still)
+  // The run's feed keeps its newest steps. The ones it let go are read from the run's saved session, a page at a time,
+  // and come before them.
+  const job = live && activity && !activity.sample ? agentId : null
+  const older = useOlderSteps(job)
+  const entries = useMemo(() => (activity && older.steps.length ? [...older.steps, ...activity.entries] : activity?.entries), [activity, older.steps])
   const items = useMemo<ExchangeItem[]>(
     () =>
-      activity
+      activity && entries
         ? // The tasks line above the exchange is where task calls show.
-          exchangeOf(activity.entries, notes ?? [], { seenAt: (id) => activity.timeOf(id)?.seen, ended: activity.ended, cwd: activity.cwd, tasksOnLine: true })
+          exchangeOf(entries, notes ?? [], { seenAt: (id) => activity.timeOf(id)?.seen, ended: activity.ended, cwd: activity.cwd, tasksOnLine: true })
         : (notes ?? []).map((note) => ({ kind: 'note', key: `note:${note.id}`, note })),
-    [activity, notes],
+    [activity, entries, notes],
   )
-  // A long run draws only its newest steps, with a row above them for the ones before (newest.ts).
+  // A long run draws only its newest steps, with a row above them for the ones before (newest.ts). Once every step held
+  // is drawn, the row reads older ones, and the step being read stays where it was when they come.
   const newest = useNewest(agentId, items)
+  const earlier = earlierRow(newest.earlier, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })
+  const holdPlace = useReadingPlace(scroll.scroller, older.steps)
+  const showEarlier = () => {
+    if (earlier?.kind === 'held') return newest.more()
+    holdPlace()
+    newest.toCome()
+    older.loadMore()
+  }
   const thinking = activity !== null && !waiting && pauseOf(activity.entries, { ended: activity.ended }) === 'thinking'
   // Once new steps are in place, the list glides from where it was last seen rather than jump.
   useLayoutEffect(scroll.settle, [newest.shown, thinking, scroll.settle])
@@ -575,11 +591,13 @@ function Exchange({ agentId, hue, question, waiting, activity }: { agentId: stri
             <p className="flex h-6 items-center self-start pl-8 text-[12px] text-muted-foreground">{waiting ? 'Your answer goes in the box below.' : 'Answered.'}</p>
           </li>
         ) : null}
-        {newest.earlier ? <EarlierSteps count={newest.earlier} onMore={newest.more} /> : null}
+        {earlier ? <EarlierSteps row={earlier} onMore={showEarlier} /> : null}
         <ShowStamps>
-          <AnimatePresence initial={false}>
-            {newest.shown.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
-          </AnimatePresence>
+          <StepJob.Provider value={job}>
+            <AnimatePresence initial={false}>
+              {newest.shown.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
+            </AnimatePresence>
+          </StepJob.Provider>
           {/* It leaves in the same moment the next step arrives, so the list glides once instead of settling twice. */}
           <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} /> : null}</AnimatePresence>
         </ShowStamps>
