@@ -386,7 +386,6 @@ function Conversation({ id, turns, activity, cwd, sending, problem, loading }: C
   )
   // A long conversation draws only its newest rows, with a row above them for the ones before (newest.ts).
   const newest = useNewest(id, rows)
-  scroll.note()
   useLayoutEffect(scroll.settle, [newest.shown, scroll.settle])
 
   return (

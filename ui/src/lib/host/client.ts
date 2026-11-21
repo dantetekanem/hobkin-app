@@ -1,5 +1,4 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import { MAIN_ACTIVITY } from '#shared/protocol/activity.ts'
 import type { CommandArgs, CommandName, CommandResults } from '#shared/commands/registry.ts'
 import type { PresenceMessage } from '#shared/protocol/messages.ts'
 import type { QuestionReply } from '#shared/protocol/question.ts'
@@ -28,8 +27,6 @@ function keep(): Kept {
     onLink: (link) => store.setState((state) => applyLink(state, link), true),
   })
   const watched = new Watched()
-  // The main chat's feed is short and hobkin's mind reads it whole, so the window always watches it.
-  watched.hold(MAIN_ACTIVITY)
   followWatching(store, watched, (message) => connection.send(message))
   return { store, connection, holds: 0, watched }
 }

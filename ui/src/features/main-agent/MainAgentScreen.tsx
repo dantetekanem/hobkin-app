@@ -1,7 +1,7 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
-import type { ActivityEntry } from '#shared/protocol/activity.ts'
+import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { handOffCanvasFocus } from '@/app/focus.ts'
 import { Rise } from '@/app/Reveal.tsx'
@@ -21,7 +21,7 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { ChildFaces } from '@/features/work/ChildAgents.tsx'
 import { childrenSummary } from '@/features/work/child-summary.ts'
 import { useMainChildren } from '@/features/work/children.ts'
-import { useHasHost, useHost } from '@/lib/host/index.ts'
+import { useHasHost, useHost, useWatchJob } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { mainActivityOf, quietLine, quietSince } from './mind.ts'
 import { SAMPLE_MAIN } from './sample.ts'
@@ -58,6 +58,8 @@ function moodOf(entries: readonly ActivityEntry[], busy: boolean): Mood {
 
 /** The main agent's steps, helpers and turn: the host's while one is connected, the sample's before. */
 function useMain() {
+  // While the mind is open, the host sends the main agent's steps whole. Otherwise they come as their tail.
+  useWatchJob(MAIN_ACTIVITY)
   const live = useHasHost()
   const hosted = useHost((state) => mainActivityOf(state.snapshot))
   const hostedBusy = useHost((state) => state.snapshot.busy === true)
@@ -172,7 +174,6 @@ function Exchange({ entries, timeOf, turnStart, ended, cwd, word, sample }: { en
   const scroll = useFollow(still)
   // The tasks line above the steps is where task calls show.
   const steps = useMemo(() => stepsOf(entries, { ended, cwd, tasksOnLine: true }), [entries, ended, cwd])
-  scroll.note()
   useLayoutEffect(scroll.settle, [steps, word, scroll.settle])
   useEffect(() => (scroll.scroller.current ? handOffCanvasFocus(scroll.scroller.current) : undefined), [scroll.scroller])
 
