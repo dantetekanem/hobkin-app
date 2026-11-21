@@ -13,7 +13,8 @@ export interface ServerOptions {
   origins: readonly string[]
   /** Answer the development UI's handshake with the token. */
   dev: boolean
-  onConnection: (socket: WebSocket) => void
+  /** A window connected. Its address says what it reads (`READS_PARAM`). */
+  onConnection: (socket: WebSocket, request: IncomingMessage) => void
   /** Answers a request that nothing else here does, and returns true when it did. Left false, the 404 stands. */
   serve?: (request: IncomingMessage, response: ServerResponse) => boolean
 }
@@ -68,7 +69,7 @@ export function listen({ port, token, origins, dev, onConnection, serve }: Serve
       socket.end(`HTTP/1.1 ${refusal.status} ${refusal.reason}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`)
       return
     }
-    sockets.handleUpgrade(request, socket, head, (client) => onConnection(client))
+    sockets.handleUpgrade(request, socket, head, (client) => onConnection(client, request))
   })
 
   return new Promise((resolve, reject) => {

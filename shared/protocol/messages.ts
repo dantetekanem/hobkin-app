@@ -52,6 +52,21 @@ export interface HelloMessage {
   viewState: unknown
   /** This host takes the window's timings (`timings.ts`): `sentAt` on a send, and `shown`. A host from before says nothing and is sent neither. */
   timings?: true
+  /** This host takes `watch` (`WatchMessage`). A host from before says nothing and closes the socket on a message it does not know. */
+  watch?: true
+}
+
+/**
+ * The query a window adds to the socket address to say what it reads (`?reads=tails,extend`): `tails`, a job it does not
+ * watch as its tail (`tailOf` in `activity.ts`), and `extend`, words and output that only grew as what was added. A host
+ * from before ignores it, and a window from before sends none and gets every feed whole.
+ */
+export const READS_PARAM = 'reads'
+
+/** Every job whose whole steps the window shows, `#main` for the main chat's own. Sent after a hello that says `watch`, and whenever the set changes. */
+export interface WatchMessage {
+  type: 'watch'
+  jobs: string[]
 }
 
 export interface StateMessage {
@@ -129,7 +144,7 @@ export interface PresenceMessage {
 }
 
 export type HostMessage = HelloMessage | StateMessage | TurnMessage | AskMessage | ResultMessage
-export type ClientMessage = CommandMessage | PresenceMessage | ShownMessage
+export type ClientMessage = CommandMessage | PresenceMessage | ShownMessage | WatchMessage
 
 /** Close codes the host uses. 4000 to 4999 are free for applications. */
 export const CLOSE = {

@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useStore } from 'zustand'
 import type { StoreApi } from 'zustand/vanilla'
 import { sampleAgents, sampleModels, sampleProjects, sampleSessions, sampleStatus, type SampleAgent, type SampleProject, type SampleSession } from '@/app/sample.ts'
@@ -7,10 +7,15 @@ import type { ModelsState } from '#shared/protocol/models.ts'
 import type { ProofsState } from '#shared/protocol/proofs.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
-import { hostStore } from './client.ts'
+import { hostStore, watchJob } from './client.ts'
 import { listStore, screenStore } from './screen.ts'
 import { actionItemCountFrom, agentsFrom, connectionFrom, hasHost, keepEachEqual, keepEqual, mainModelFrom, projectsFrom, sameAgentsQuietly, type Connection } from './frame.ts'
 import { canUseModel, type HostState } from './state.ts'
+
+/** Holds `job` watched while the component is mounted, so a host that takes watching sends its whole steps (`watch.ts`). */
+export function useWatchJob(job: string | null): void {
+  useEffect(() => (job ? watchJob(job) : undefined), [job])
+}
 
 /**
  * Reads the host's state as the screen draws it, once per animation frame and not while the window is hidden

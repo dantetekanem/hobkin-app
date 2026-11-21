@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { WebSocket } from 'ws'
+import { CLOSE, type HelloMessage } from '#shared/protocol/messages.ts'
+import { DEV_UI_ORIGIN } from '../src/access.ts'
 import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
 
 test('a host start logs nothing', async (t) => {
@@ -11,6 +14,25 @@ test('a host start logs nothing', async (t) => {
   afterTest(t, () => client.close())
   await client.live()
   assert.deepEqual(lines, [])
+})
+
+test('a window that says what it reads is answered by a hello that takes watching, and a list of jobs that is not one closes it', async (t) => {
+  const host = await hostFor(t)
+  const open = (reads: string) => new Promise<{ socket: WebSocket; hello: HelloMessage }>((resolve, reject) => {
+    const socket = new WebSocket(`ws://127.0.0.1:${host.port}/?token=${encodeURIComponent(host.token)}${reads}`, { origin: DEV_UI_ORIGIN })
+    afterTest(t, () => socket.close())
+    socket.once('message', (data) => resolve({ socket, hello: JSON.parse(String(data)) as HelloMessage }))
+    socket.once('error', reject)
+  })
+
+  const { socket, hello } = await open('&reads=tails,extend')
+  assert.equal(hello.watch, true)
+  socket.send(JSON.stringify({ type: 'watch', jobs: ['#main', 'work:fixture:do:1'] }))
+  const closed = new Promise<number>((resolve) => socket.once('close', (code) => resolve(code)))
+  socket.send(JSON.stringify({ type: 'presence', focused: true, typing: false }))
+  socket.send(JSON.stringify({ type: 'watch', jobs: 'everything' }))
+  assert.equal(await closed, CLOSE.badMessage)
+  assert.equal((await open('')).hello.watch, true, 'a window from before is told too, and never sends it')
 })
 
 test('opens an empty home and sends the first state', async (t) => {

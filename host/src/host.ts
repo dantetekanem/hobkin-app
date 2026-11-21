@@ -52,6 +52,7 @@ import { listen, socketUrl, type HostServer } from './server.ts'
 import { SignIn } from './signin.ts'
 import { SlashCommands } from './slash.ts'
 import { StateSync } from './state-sync.ts'
+import { readsOf, Windows } from './windows.ts'
 import { TurnRelay } from './turn-relay.ts'
 import { ActivityKeeper } from './activity.ts'
 import { agentHandlers } from './agents.ts'
@@ -166,6 +167,9 @@ export async function stopExecution(owner: Pick<HomeOwner, 'captureExecution'>, 
   return { ...receipt, target }
 }
 
+/** The most jobs one window may watch at once. */
+const MAX_WATCHED = 1000
+
 const whyNotLive = (owner: OwnerState): string => {
   if (owner.state === 'failed') return `hobkin could not start: ${owner.message}`
   return 'hobkin is still starting.'
@@ -221,8 +225,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   }
   const publish = () => {
     const now = facts()
-    const message = sync.update(now)
-    if (message) broadcast(message)
+    windows.publish(now)
     // Finished changes and pull requests waiting for the user get their reviews ready in the background (005 S6).
     // What a run left for the user is reviewed only once the user asks.
     reviews.watch(toPrepare(preparedByItself(now.work), now.github))
@@ -404,6 +407,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   })
   const history = new History(root, () => (owner.app?.runtime.main as { sessionFile?: string } | undefined)?.sessionFile, undefined, titles)
   const sync = new StateSync(facts())
+  // Each window's state messages: whole feeds for a window from before, and for one that reads tails only the jobs it watches.
+  const windows = new Windows({ sync })
   const lookAgain = () => void signIn.refresh().catch((error: unknown) => log(`Could not ask Pi about models: ${error instanceof Error ? error.message : String(error)}`))
 
   const limits = () => {
@@ -713,6 +718,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     models: signIn.models,
     viewState: null,
     timings: true,
+    watch: true,
   })
 
   const receive = async (socket: WebSocket, data: RawData) => {
@@ -731,6 +737,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       if (user.focused) user.seenAt = Date.now()
       // The user may have changed Pi's setup in a terminal while the window was away.
       if (back) lookAgain()
+    } else if (message?.type === 'watch') {
+      // The jobs whose whole steps this window shows. A list that is not one is no message this host knows.
+      const { jobs } = message as { jobs?: unknown }
+      if (!Array.isArray(jobs) || jobs.length > MAX_WATCHED || !jobs.every((job) => typeof job === 'string' && job.length <= 200)) return socket.close(CLOSE.badMessage, 'Bad watch')
+      windows.watch(socket, jobs)
     } else if (message?.type === 'shown') {
       // How soon a reply's first words showed in the window, kept as facts in hobkin's event log. One not kept is
       // dropped with the connection left open, and a write problem never reaches the window.
@@ -751,15 +762,16 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     origins: options.origins ?? [APP_ORIGIN, ...(dev ? [DEV_UI_ORIGIN] : [])],
     dev,
     serve: (request, response) => canvases.serve(request, response),
-    onConnection: (socket) => {
+    onConnection: (socket, request) => {
       owner.reconnectStartup()
       send(socket, hello())
-      send(socket, sync.full())
+      send(socket, windows.open(socket, readsOf(request.url)))
       for (const turn of turns.catchUp()) send(socket, turn)
       if (questions.current()) send(socket, { type: 'ask', question: questions.current() })
       socket.on('message', (data) => void receive(socket, data))
       // With nobody connected, nobody is there. hobkin then keeps its questions for later.
       socket.on('close', () => {
+        windows.close(socket)
         if (!connected()) user.focused = false
       })
     },

@@ -179,15 +179,25 @@ export class StateSync {
     for (const id of ids) this.cleared.add(id)
   }
 
-  /** Everything, for a connection that holds nothing yet. */
-  full(): StateMessage {
+  /** Every job's whole activity as last sent. */
+  activityNow(): JobActivity {
+    return this.activity
+  }
+
+  /** The revision of the last state message. */
+  revision(): number {
+    return this.rev
+  }
+
+  /** Everything, for a connection that holds nothing yet. Without `activity`, the jobs' feeds are left for the caller to send. */
+  full({ activity = true }: { activity?: boolean } = {}): StateMessage {
     return {
       type: 'state',
       rev: this.rev,
       reset: true,
       set: this.values,
       messages: [{ op: 'reset', messages: this.messages }],
-      ...(Object.keys(this.activity).length ? { activity: resetActivity(this.activity) } : {}),
+      ...(activity && Object.keys(this.activity).length ? { activity: resetActivity(this.activity) } : {}),
       owner: this.owner,
       signIn: this.signIn,
       ...(this.models ? { models: this.models } : {}),
@@ -202,8 +212,11 @@ export class StateSync {
     }
   }
 
-  /** What changed, or null when nothing did. A new owner state starts over, because its snapshot is another source. */
-  update({ owner, signIn, models, github, integrations, work = null, proofs, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts): StateMessage | null {
+  /**
+   * What changed, or null when nothing did. A new owner state starts over, because its snapshot is another source.
+   * Without `activity`, the jobs' feeds are only kept, not compared: no window that connects reads them whole.
+   */
+  update({ owner, signIn, models, github, integrations, work = null, proofs, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts, { activity: whole = true }: { activity?: boolean } = {}): StateMessage | null {
     const ownerChanged = this.differs('owner', owner, this.owner)
     const signInChanged = this.differs('signIn', signIn, this.signIn)
     const modelsChanged = models !== null && this.differs('models', models, this.models)
@@ -250,7 +263,7 @@ export class StateSync {
     const unset = startOver ? [] : [...this.sent.keys()].filter((key) => !encoded.has(key))
     const steps = startOver ? [{ op: 'reset' as const, messages }] : diffMessages(this.messages, messages)
     const activity = activityOf(snapshot)
-    const activitySteps = startOver ? resetActivity(activity) : diffActivity(this.activity, activity)
+    const activitySteps = !whole ? [] : startOver ? resetActivity(activity) : diffActivity(this.activity, activity)
     this.sent = encoded
     this.values = values
     this.messages = messages

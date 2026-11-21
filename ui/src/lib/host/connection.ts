@@ -1,5 +1,5 @@
 import type { CommandArgs, CommandName, CommandResults } from '#shared/commands/registry.ts'
-import type { ClientMessage, CommandFailure, HostMessage } from '#shared/protocol/messages.ts'
+import { READS_PARAM, type ClientMessage, type CommandFailure, type HostMessage } from '#shared/protocol/messages.ts'
 import type { Link } from './state.ts'
 
 export interface HostAddress {
@@ -85,7 +85,8 @@ export class HostConnection {
     if (!address) return this.retry(run)
 
     const create = this.options.createSocket ?? ((url: string) => new WebSocket(url) as SocketLike)
-    const socket = create(`${address.url}/?token=${encodeURIComponent(address.token)}`)
+    // What this window reads: a host from before ignores it and sends every feed whole.
+    const socket = create(`${address.url}/?token=${encodeURIComponent(address.token)}&${READS_PARAM}=tails,extend`)
     this.socket = socket
     socket.onmessage = ({ data }) => this.receive(String(data))
     socket.onclose = () => {

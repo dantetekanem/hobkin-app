@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react'
 import { MAIN_ACTIVITY, type ActivityEntry, type JobActivity } from '#shared/protocol/activity.ts'
 import { SAMPLE_ACTIVITY } from '@/app/running-agents.ts'
 import { useNow } from '@/features/chat/use-now.ts'
-import { hostStore, useHasHost, useHost } from '@/lib/host/index.ts'
+import { hostStore, useHasHost, useHost, useWatchJob } from '@/lib/host/index.ts'
 import { sampleAt, sampleLength } from './sample.ts'
 
 /** When this window first saw an entry and, for a tool call it saw start, when the call began and when it ended. */
@@ -15,9 +15,22 @@ export interface EntryTime {
 /** By job, then by entry id. hobkin's activity carries no times, so these are the window's own. */
 const timings = new Map<string, Map<string, EntryTime>>()
 
+const isRunning = (entry: ActivityEntry) => entry.kind === 'tool' && entry.state === 'running'
+
+/**
+ * Whether `before` held the entry as a running call. With no list before, as for a sample's frames, it is taken to.
+ * A window that held a job only as its tail may never have seen a call end, and its end time is then not known.
+ */
+function heldRunning(before: readonly ActivityEntry[] | undefined, index: number, id: string): boolean {
+  if (!before) return true
+  const held = before[index]?.id === id ? before[index] : before.find((entry) => entry.id === id)
+  return held !== undefined && isRunning(held)
+}
+
 /**
  * Times the entries of `entries` that are not the same object at the same place in `before`: the ones the host's
- * steps added or changed. An entry no step touched was timed when it came, so it is passed over.
+ * steps added or changed. An entry no step touched was timed when it came, so it is passed over. hobkin says when it
+ * first saw an entry (`at`), so a step that reaches the window late, as when its page opens, keeps when it happened.
  */
 function timeEntries(job: string, entries: readonly ActivityEntry[], now: number, before?: readonly ActivityEntry[]): void {
   let known = timings.get(job)
@@ -26,9 +39,10 @@ function timeEntries(job: string, entries: readonly ActivityEntry[], now: number
     const entry = entries[index]!
     if (entry === before?.[index]) continue
     const time = known.get(entry.id)
-    const running = entry.kind === 'tool' && entry.state === 'running'
-    if (!time) known.set(entry.id, running ? { seen: now, started: now } : { seen: now })
-    else if (!running && time.started !== undefined && time.ended === undefined) time.ended = now
+    const running = isRunning(entry)
+    const seen = entry.at ?? now
+    if (!time) known.set(entry.id, running ? { seen, started: seen } : { seen })
+    else if (!running && time.started !== undefined && time.ended === undefined && heldRunning(before, index, entry.id)) time.ended = now
   }
 }
 
@@ -83,6 +97,8 @@ export interface AgentActivity {
  * from when their canvas first opened. Null when there is none.
  */
 export function useAgentActivity(agentId: string | null): AgentActivity | null {
+  // While this agent's steps are on screen, the host sends them whole. Every other agent comes as its tail.
+  useWatchJob(agentId)
   const live = useHasHost()
   const hosted = useHost((state) => (agentId ? (state.snapshot.jobActivity as JobActivity | undefined)?.[agentId] : undefined))
   const run = useHost((state) => (agentId ? state.snapshot.runs?.find((summary) => summary.id === agentId) : undefined))

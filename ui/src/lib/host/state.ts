@@ -63,6 +63,8 @@ export interface HostState {
   epoch: number
   /** This host's hello said it takes the window's timings (`#shared/protocol/timings.ts`). Never from a host from before them, and forgotten when the connection goes. */
   timings?: boolean
+  /** This host's hello said it takes `watch` (`WatchMessage`), so the window tells it which jobs it shows whole. Forgotten when the connection goes. */
+  watching?: boolean
 }
 
 export const initialHostState: HostState = {
@@ -88,6 +90,7 @@ export const initialHostState: HostState = {
   question: null,
   epoch: 0,
   timings: false,
+  watching: false,
 }
 
 function applyState(state: HostState, message: StateMessage): HostState {
@@ -173,6 +176,7 @@ export function applyHostMessage(state: HostState, message: HostMessage): HostSt
         live: null,
         question: null,
         timings: message.timings === true,
+        watching: message.watch === true,
       }
     case 'state':
       return applyState(state, message)
@@ -190,7 +194,7 @@ export function applyLink(state: HostState, link: Link): HostState {
   if (state.link === link) return state
   // Without the host nothing is being written and nobody waits for an answer.
   // The next host says again what it takes, in its own hello.
-  return link === 'open' ? { ...state, link } : { ...state, link, live: null, question: null, timings: false }
+  return link === 'open' ? { ...state, link } : { ...state, link, live: null, question: null, timings: false, watching: false }
 }
 
 /** `sentAt` for a send, only to a host that said it takes it: a host from before refuses an argument it does not know. */

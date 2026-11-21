@@ -86,6 +86,21 @@ test('a run that left takes its step times with it', async () => {
   assert.equal(entryTimeOf('r2', 'message:1:0'), undefined, 'a reset without a run lets go of its times too')
 })
 
+test('a job seen as its tail and then whole keeps hobkin\'s times for its steps, and a call whose end the window missed gets none made up', async () => {
+  const { send, entryTimeOf } = await stepTimes()
+  const words = { ...said('1:0', 'Reading'), at: 1000 }
+  const call = { ...ran('a', 'running'), at: 2000 }
+  const brief = ({ input: _input, ...rest }: ActivityEntry) => rest
+  // Its tail: the newest words, then the call. Then newer words come before the window ever saw the call end.
+  send(startOver(0, { activity: [{ op: 'reset', job: 'r4', entries: [words, brief(call)] }] }))
+  send({ type: 'state', rev: 1, activity: [{ op: 'reset', job: 'r4', entries: [{ ...said('2:0', 'Done'), at: 5000 }] }] })
+  // Its page opens: the whole feed.
+  send({ type: 'state', rev: 2, activity: [{ op: 'reset', job: 'r4', entries: [words, { ...call, state: 'completed' }, { ...said('2:0', 'Done'), at: 5000 }] }] })
+
+  assert.deepEqual(entryTimeOf('r4', 'tool:a'), { seen: 2000, started: 2000 }, 'no end the window did not see')
+  assert.equal(entryTimeOf('r4', 'message:1:0')?.seen, 1000)
+})
+
 test('a call that ends before the one after it still gets its end time', async () => {
   const { send, entryTimeOf } = await stepTimes()
   send(startOver(0, { activity: [{ op: 'reset', job: 'r3', entries: [ran('a', 'running'), ran('b', 'running')] }] }))

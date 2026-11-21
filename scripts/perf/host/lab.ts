@@ -42,6 +42,9 @@ const DELTAS_PER_SECOND = Number(value('--rate', '30'))
 const CYCLE_SECONDS = Number(value('--cycle', '2'))
 const PROFILE = value('--profile', '')
 const NO_CLIENT = flag('--no-client')
+// A window from before tails gets every feed whole. Otherwise the window reads tails and watches this many jobs.
+const OLD_WINDOW = flag('--old-window')
+const WATCHED = Number(value('--watch', '1'))
 // Pi writes each finished message to the run's session file, with its usage, and hobkin's director meters tokens from
 // it every tick. The lab does the same at each message end, unless --no-session.
 const SESSION = !flag('--no-session')
@@ -140,14 +143,16 @@ async function until(check: () => boolean, what: string, ms = 60_000) {
   }
 }
 
-interface Counts { type: 'counts'; messages: number; bytes: number; states: number; largest: number; p50: number; p99: number }
+interface Counts { type: 'counts'; messages: number; bytes: number; states: number; largest: number; firstState: number; p50: number; p99: number }
 
+/** The fake window, connected once its first state came, and the jobs it watches. */
 function startWindow(host: RunningHost) {
   const script = fileURLToPath(new URL('./window.ts', import.meta.url))
-  const child = fork(script, [String(host.port), host.token, DEV_UI_ORIGIN, String(SECONDS + HISTORY / 5 + 300), HOME], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] })
-  const opened = new Promise<void>((resolve, reject) => {
-    child.on('message', (message: { type?: string; message?: string }) => {
-      if (message?.type === 'open') resolve()
+  const mode = OLD_WINDOW ? 'old' : `watch:${WATCHED}`
+  const child = fork(script, [String(host.port), host.token, DEV_UI_ORIGIN, String(SECONDS + HISTORY / 5 + 300), HOME, mode], { stdio: ['ignore', 'inherit', 'inherit', 'ipc'] })
+  const opened = new Promise<string[]>((resolve, reject) => {
+    child.on('message', (message: { type?: string; message?: string; watched?: string[] }) => {
+      if (message?.type === 'ready') resolve(message.watched ?? [])
       if (message?.type === 'error') reject(Error(message.message))
     })
   })
@@ -239,8 +244,6 @@ const gc = () => (globalThis as { gc?: () => void }).gc?.()
 async function measured() {
   const root = HOME
   const running = await openHost(root)
-  const window = NO_CLIENT ? null : startWindow(running)
-  await window?.opened
 
   // Counters around the real methods (instance wrappers; nothing in either repository changes).
   const counts = {
@@ -363,6 +366,11 @@ async function measured() {
     log(`history of ${HISTORY} cycles per agent in ${Math.round(performance.now() - t)} ms; heap ${Math.round(process.memoryUsage().heapUsed / 2 ** 20)} MB`)
   }
 
+  // The window connects to a host whose agents have worked a while, so its first state is what such a window gets.
+  const window = NO_CLIENT ? null : startWindow(running)
+  const watched = (await window?.opened) ?? []
+  await sleep(500)
+
   const delay = monitorEventLoopDelay({ resolution: 10 })
   const elu0 = performance.eventLoopUtilization()
   const t0 = performance.now()
@@ -406,7 +414,7 @@ async function measured() {
   const delta = Object.fromEntries(Object.entries(counts).map(([key, count]) => [key, count - startCounts[key as keyof typeof counts]])) as typeof counts
   const snapshot = app.snapshot
   const result = {
-    agents: AGENTS, history: HISTORY, seconds: wall, rate: DELTAS_PER_SECOND, cycleSeconds: CYCLE_SECONDS, window: !NO_CLIENT, session: SESSION, profile: PROFILE || null, startup,
+    agents: AGENTS, history: HISTORY, seconds: wall, rate: DELTAS_PER_SECOND, cycleSeconds: CYCLE_SECONDS, window: NO_CLIENT ? null : OLD_WINDOW ? 'old' : 'tails', watched, session: SESSION, profile: PROFILE || null, startup,
     cpuPerWall: (last.cpuUser + last.cpuSystem - first.cpuUser - first.cpuSystem) / wall,
     cpuUserPerWall: (last.cpuUser - first.cpuUser) / wall,
     eventLoopUtilization: elu.utilization,
@@ -423,7 +431,7 @@ async function measured() {
     refreshesPerSecond: delta.project / wall,
     refreshWallMs: delta.project ? delta.projectWallMs / delta.project : 0,
     tickWallMs: delta.ticks ? delta.tickWallMs / delta.ticks : 0,
-    socket: socket && { messagesPerSecond: socket.messages / wall, bytesPerSecond: socket.bytes / wall, statesPerSecond: socket.states / wall, largest: socket.largest, p50: socket.p50, p99: socket.p99 },
+    socket: socket && { firstStateBytes: socket.firstState, messagesPerSecond: socket.messages / wall, bytesPerSecond: socket.bytes / wall, statesPerSecond: socket.states / wall, largest: socket.largest, p50: socket.p50, p99: socket.p99 },
     memory: { rssStartMB: first.rss / 2 ** 20, rssEndMB: last.rss / 2 ** 20, heapStartMB: first.heapUsed / 2 ** 20, heapEndMB: last.heapUsed / 2 ** 20 },
     sizes: {
       reports: snapshot.reports?.length, messages: snapshot.messages?.length, routines: snapshot.schedules?.length,

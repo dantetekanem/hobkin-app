@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { applyActivity, diffActivity, resetActivity, sameEntry, type ActivityEntry, type ActivityStep, type JobActivity } from '#shared/protocol/activity.ts'
+import { applyActivity, diffActivity, resetActivity, sameEntry, tailOf, type ActivityEntry, type ActivityStep, type JobActivity } from '#shared/protocol/activity.ts'
 
 const said = (id: string, text = id): ActivityEntry => ({ id: `message:${id}`, kind: 'assistant', text })
 const ran = (id: string, state: ActivityEntry['state'] = 'completed', output = ''): ActivityEntry => ({
@@ -130,9 +130,18 @@ function comparedSteps(previous: JobActivity, next: JobActivity): ActivityStep[]
   return steps
 }
 
+/** Whole numbers below `below`, the same ones for the same seed (mulberry32, exact in integer arithmetic). */
+function numbers(seed: number) {
+  return (below: number) => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed)
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
+    return Math.floor((((t ^ (t >>> 14)) >>> 0) / 4294967296) * below)
+  }
+}
+
 test('on any mix of kept, grown, copied, added, dropped, moved and repeated entries the steps are the same and rebuild the next activity', () => {
-  let seed = 23
-  const random = (below: number) => (seed = (seed * 1103515245 + 12345) % 2147483648) % below
+  const random = numbers(23)
   let made = 0
   const fresh = (): ActivityEntry => (random(2) ? said(`${made++}`, 'Reading') : ran(`${made++}`, 'running'))
   // What hobkin hands over next: most entries kept as the same copy, and now and then any other change.
@@ -168,6 +177,90 @@ test('on any mix of kept, grown, copied, added, dropped, moved and repeated entr
     // Now and then a list starts over, as after a reset.
     previous = random(25) ? next : structuredClone(next)
   }
+})
+
+test('a tail is the newest entry without its input, output and codemode, after the newest words, each cut to 1,000 characters', () => {
+  const words = said('1:0', `${'a'.repeat(999)}bc`)
+  const reading = ran('2', 'running', 'export const login = true\n')
+  const calling: ActivityEntry = { ...ran('3', 'running'), name: 'codemode', codemode: { calls: [] }, at: 7 }
+
+  assert.deepEqual(tailOf([]), [])
+  assert.deepEqual(tailOf([said('0'), words]), [{ ...words, text: `${'a'.repeat(999)}b` }], 'the newest words alone when they are the newest entry')
+  assert.deepEqual(tailOf([words, reading, calling]), [
+    { ...words, text: `${'a'.repeat(999)}b` },
+    { id: 'tool:3', kind: 'tool', name: 'codemode', state: 'running', at: 7 },
+  ])
+  assert.deepEqual(tailOf([reading]), [{ id: 'tool:2', kind: 'tool', name: 'bash', state: 'running' }], 'no words yet')
+
+  const feed = [words, reading]
+  assert.equal(tailOf(feed)[1], tailOf([...feed])[1], 'an entry that did not change keeps its tail copy')
+})
+
+test('an entry whose text or output only grew at its end travels as what was added, to a window that reads it', () => {
+  const writing = said('1:0', 'I will')
+  const reading = ran('2', 'running', 'line 1\n')
+  const before: JobActivity = { r1: [writing, reading] }
+  const after: JobActivity = { r1: [{ ...writing, text: 'I will look' }, { ...reading, output: 'line 1\nline 2\n' }] }
+  const extend = { extend: () => true }
+
+  assert.deepEqual(diffActivity(before, after, extend), [
+    { op: 'extend', job: 'r1', id: 'message:1:0', field: 'text', add: ' look' },
+    { op: 'extend', job: 'r1', id: 'tool:2', field: 'output', add: 'line 2\n' },
+  ])
+  assert.deepEqual(applyActivity(before, diffActivity(before, after, extend)), after)
+  assert.deepEqual(diffActivity(before, after).map((step) => step.op), ['update', 'update'], 'a window that does not read it gets the entries')
+  assert.deepEqual(diffActivity(before, after, { extend: (job) => job !== 'r1' }).map((step) => step.op), ['update', 'update'], 'nor a job it was not asked for')
+})
+
+test('extend is never sent when another field changed or the text did not grow at its end', () => {
+  const extend = { extend: () => true }
+  const reading = ran('2', 'running', 'line 1\n')
+  const opsFor = (before: ActivityEntry, after: ActivityEntry) => diffActivity({ r1: [before] }, { r1: [after] }, extend).map((step) => step.op)
+
+  assert.deepEqual(opsFor(reading, { ...reading, state: 'completed', output: 'line 1\nline 2\n' }), ['update'], 'its state changed too')
+  assert.deepEqual(opsFor(said('1', 'I will'), said('1', 'You will look')), ['update'], 'words changed before the end')
+  assert.deepEqual(opsFor(said('1', 'I will look'), said('1', 'I will')), ['update'], 'words taken away')
+  assert.deepEqual(opsFor({ id: 'tool:9', kind: 'tool', state: 'running' }, { id: 'tool:9', kind: 'tool', state: 'running', output: 'first' }), ['update'], 'an output that was not there')
+  assert.deepEqual(opsFor(said('1', 'same'), { ...said('1', 'same') }), [], 'nothing changed')
+})
+
+/** The steps with every extend turned back into the update of the entry it grew. */
+const asUpdates = (steps: readonly ActivityStep[], next: JobActivity): ActivityStep[] =>
+  steps.map((step) => (step.op === 'extend' ? { op: 'update', job: step.job, entry: next[step.job]!.find((entry) => entry.id === step.id)! } : step))
+
+test('on any mix that includes words and output growing, the steps with extend rebuild the next activity and say what the updates say', () => {
+  const random = numbers(31)
+  let made = 0
+  const fresh = (): ActivityEntry => (random(2) ? said(`${made++}`, 'Reading') : ran(`${made++}`, 'running', 'out'))
+  const changed = (entry: ActivityEntry): ActivityEntry => {
+    const roll = random(12)
+    if (roll === 0) return entry.kind === 'assistant' ? { ...entry, text: `${entry.text} more` } : { ...entry, output: `${entry.output ?? ''}+` }
+    if (roll === 1) return { ...entry, state: 'completed', output: `${entry.output ?? ''}done` }
+    if (roll === 2) return { ...entry, text: 'other words' }
+    return entry
+  }
+  const nextOf = (previous: JobActivity): JobActivity => {
+    const jobs = ['r1', 'r2'].filter(() => random(8))
+    return Object.fromEntries(jobs.map((job) => {
+      const entries = (previous[job] ?? []).map(changed)
+      if (random(3) === 0) entries.push(fresh())
+      if (random(15) === 0 && entries.length) entries.splice(random(entries.length), 1)
+      return [job, entries]
+    }))
+  }
+
+  let previous: JobActivity = {}
+  let extended = 0
+  for (let round = 0; round < 2000; round += 1) {
+    const next = nextOf(previous)
+    const steps = diffActivity(previous, next, { extend: () => true })
+    extended += steps.filter((step) => step.op === 'extend').length
+
+    assert.deepEqual(applyActivity(previous, steps), next, `round ${round}`)
+    assert.deepEqual(asUpdates(steps, next), comparedSteps(previous, next), `round ${round}`)
+    previous = next
+  }
+  assert.ok(extended > 100, `${extended} extends`)
 })
 
 test('equivalent codemode metadata avoids churn while nested changes send an update', () => {

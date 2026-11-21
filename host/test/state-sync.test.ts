@@ -322,11 +322,18 @@ test('a broadcast encodes its message once for every window connected', async (t
   const windows = await Promise.all([Client.connect(host), Client.connect(host)])
   afterTest(t, () => windows.forEach((window) => window.close()))
   await Promise.all(windows.map((window) => window.live()))
+  const statesOf = (window: Client) => window.received.filter((message) => message.type === 'state').length
+  const before = windows.map(statesOf)
   const encode = t.mock.method(JSON, 'stringify')
   await windows[0]!.run('view.back')
   await Promise.all(windows.map((window) => window.until(() => window.received.some((message) => message.type === 'state' && message.nudge), 'the nudge')))
-  const states = encode.mock.calls.filter(({ arguments: [value] }) => (value as { type?: string } | null)?.type === 'state')
-  assert.equal(states.length, 1)
+  encode.mock.restore()
+
+  // hobkin may publish something else meanwhile. Each state message is encoded once, however many windows get it,
+  // so the encodings are no more than the messages one window got, and not one per window.
+  const encoded = encode.mock.calls.filter(({ arguments: [value] }) => (value as { type?: string } | null)?.type === 'state').length
+  const got = Math.max(...windows.map((window, index) => statesOf(window) - before[index]!))
+  assert.ok(encoded >= 1 && encoded <= got, `${encoded} encodings for ${got} messages to each of two windows`)
 })
 
 test('hobkin\'s work status reaches the window as its projects alone, so a running agent\'s token count sends nothing', () => {

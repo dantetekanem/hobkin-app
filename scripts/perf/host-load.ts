@@ -10,6 +10,8 @@
  *   --cycle S       seconds from one tool call to the next (2)
  *   --no-session    agents do not grow their session files, so token counts never move
  *   --no-client     no window connected
+ *   --old-window    a window from before tails, which gets every feed whole
+ *   --watch N       the jobs a window that reads tails watches, as N agents' pages open (1)
  *   --profile FILE  also write a CPU profile of the measured window to FILE and print where its time went
  *   --json          print the whole result as JSON
  *
@@ -33,8 +35,8 @@ const agents = Number(value('--agents', '1'))
 const history = Number(value('--history', '0'))
 const seconds = Number(value('--seconds', '60'))
 const profile = argv.includes('--profile') ? value('--profile', '') : ''
-const passed = ['--agents', '--history', '--seconds', '--rate', '--cycle'].flatMap((name) => (argv.includes(name) ? [name, value(name, '')] : []))
-const switches = ['--no-session', '--no-client'].filter((name) => argv.includes(name))
+const passed = ['--agents', '--history', '--seconds', '--rate', '--cycle', '--watch'].flatMap((name) => (argv.includes(name) ? [name, value(name, '')] : []))
+const switches = ['--no-session', '--no-client', '--old-window'].filter((name) => argv.includes(name))
 for (const number of [agents, history, seconds]) if (!(number >= 0)) throw Error('--agents, --history and --seconds take a number.')
 
 const lab = fileURLToPath(new URL('./host/lab.ts', import.meta.url))
@@ -120,7 +122,7 @@ function summary(result: Record<string, any>): string {
     `${agents} agents`,
     ...(history ? [`each with ${history * 2 + 1} steps`] : []),
     `${fixed(result.seconds, 0)} s`,
-    result.window ? 'a window connected' : 'no window',
+    result.window === 'old' ? 'a window from before tails' : result.window ? `a window watching ${result.watched.length} of them` : 'no window',
     ...(result.session ? [] : ['no session growth']),
   ]
   const { socket, memory } = result
@@ -129,6 +131,7 @@ function summary(result: Record<string, any>): string {
     `host-load: ${what.join(', ')}`,
     `  host CPU        ${fixed(result.cpuPerWall * 100, 1)}% of a core`,
     `  publishes       ${fixed(result.publishesPerSecond, 1)} a second, ${fixed(result.hostPublishMs)} ms each (${publishes})`,
+    ...(socket ? [`  first state     ${fixed(socket.firstStateBytes / 2 ** 20, 1)} MB`] : []),
     ...(socket ? [`  socket          ${fixed(socket.bytesPerSecond / 1024, 0)} KB a second in ${fixed(socket.messagesPerSecond, 1)} messages, median ${fixed(socket.p50 / 1024, 1)} KB`] : []),
     `  full refreshes  ${fixed(result.refreshesPerSecond)} a second, ${fixed(result.refreshWallMs, 1)} ms each; tick ${fixed(result.tickWallMs, 1)} ms`,
     `  memory          RSS ${fixed(memory.rssStartMB, 0)} to ${fixed(memory.rssEndMB, 0)} MB, heap ${fixed(memory.heapStartMB, 0)} to ${fixed(memory.heapEndMB, 0)} MB`,

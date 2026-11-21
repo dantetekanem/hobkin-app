@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
+import { MAIN_ACTIVITY, resetActivity, tailOf, type ActivityEntry } from '#shared/protocol/activity.ts'
+import type { StateMessage } from '#shared/protocol/messages.ts'
 import { applyHostMessage, initialHostState } from '../../ui/src/lib/host/state.ts'
 import { ActivityKeeper } from '../src/activity.ts'
 import { StateSync } from '../src/state-sync.ts'
+import { readsOf, Windows } from '../src/windows.ts'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 
 const owner = { state: 'live', limits: { images: 4, imageBytes: 1024 } } as const
@@ -162,6 +164,122 @@ test('child-only roots retain twenty copied last-known groups without source mut
   assert.equal(retained.jobChildren.r0, undefined)
   assert.deepEqual(new ActivityKeeper().keep({ busy: false }).jobChildren, {})
   assert.deepEqual(keeper.keep({ jobChildren: { r: source } }).jobActivity, {})
+})
+
+/** A socket that keeps what it was sent. */
+function windowSocket() {
+  const sent: string[] = []
+  return {
+    socket: { OPEN: 1, readyState: 1, send: (text: string) => void sent.push(text) },
+    sent,
+    last: () => JSON.parse(sent.at(-1)!) as StateMessage,
+  }
+}
+
+const READS = '/?token=t&reads=tails,extend'
+const long = (job: string) => Array.from({ length: 1000 }, (_, index) => read(`${job}-${index}`, 'export const value = 1\n'.repeat(20)))
+const busy = (jobActivity: Record<string, ActivityEntry[]>) => ({ owner, signIn, models: null, snapshot: { busy: true, jobActivity } })
+const quiet = () => () => {}
+
+test('a new window gets whole steps only for the agents it watches', () => {
+  let now = 0
+  const sync = new StateSync({ owner, signIn, models: null })
+  const windows = new Windows({ sync, now: () => now, later: quiet })
+  const activity = { r1: [...long('r1'), said('r1:0', 'Reading the login code')], r2: [...long('r2'), said('r2:0', 'Fixing')] }
+  windows.publish(busy(activity))
+
+  const before = windowSocket()
+  const after = windowSocket()
+  const whole = windows.open(before.socket, readsOf('/?token=t'))
+  const first = windows.open(after.socket, readsOf(READS))
+  assert.deepEqual(whole.activity, resetActivity(activity), 'a window from before gets every feed whole')
+  assert.deepEqual(first.activity, [{ op: 'reset', job: 'r1', entries: tailOf(activity.r1) }, { op: 'reset', job: 'r2', entries: tailOf(activity.r2) }])
+  assert.ok(JSON.stringify(first).length * 100 < JSON.stringify(whole).length, `${JSON.stringify(first).length} bytes against ${JSON.stringify(whole).length}`)
+
+  windows.watch(after.socket, ['r2'])
+  assert.deepEqual(after.last().activity, [{ op: 'reset', job: 'r2', entries: activity.r2 }])
+  assert.equal(before.sent.length, 0, 'what one window watches sends the others nothing')
+
+  now = 1000
+  const grown = { r1: [...activity.r1.slice(0, -1), said('r1:0', 'Reading the login code again')], r2: [...activity.r2.slice(0, -1), said('r2:0', 'Fixing it')] }
+  windows.publish(busy(grown))
+  assert.deepEqual(after.last().activity, [
+    { op: 'update', job: 'r1', entry: tailOf(grown.r1)[0] },
+    { op: 'extend', job: 'r2', id: 'message:r2:0', field: 'text', add: ' it' },
+  ])
+  assert.deepEqual(before.last().activity, [{ op: 'update', job: 'r1', entry: grown.r1.at(-1) }, { op: 'update', job: 'r2', entry: grown.r2.at(-1) }])
+})
+
+test('a window from before gets whole feeds exactly as today, whatever a new window beside it watches', () => {
+  let now = 0
+  const sync = new StateSync({ owner, signIn, models: null }, { now: () => now })
+  const today = new StateSync({ owner, signIn, models: null }, { now: () => now })
+  const windows = new Windows({ sync, now: () => now, later: quiet })
+  const before = windowSocket()
+  const after = windowSocket()
+  const feeds: Record<string, ActivityEntry[]>[] = [
+    { r1: [said('1:0', 'I will')], r2: [read('a', 'text')] },
+    { r1: [said('1:0', 'I will look')], r2: [read('a', 'text'), said('2:0', 'Done')] },
+    { r2: [read('a', 'text'), said('2:0', 'Done.')] },
+  ]
+  windows.publish(busy(feeds[0]!))
+  today.update(busy(feeds[0]!))
+  assert.equal(JSON.stringify(windows.open(before.socket, readsOf(undefined))), JSON.stringify(today.full()))
+  windows.open(after.socket, readsOf(READS))
+  windows.watch(after.socket, ['r1'])
+
+  for (const feed of feeds.slice(1)) {
+    now += 400
+    windows.publish(busy(feed))
+    assert.equal(before.sent.at(-1), JSON.stringify(today.update(busy(feed))))
+  }
+})
+
+test('watching a job sends its whole feed, and no longer watching it sends its tail, each as one reset', () => {
+  const sync = new StateSync({ owner, signIn, models: null })
+  const windows = new Windows({ sync, now: () => 0, later: quiet })
+  const feed = [said('1:0', 'Reading'), read('a', 'export const login = true\n')]
+  windows.publish(busy({ r1: feed }))
+  const window = windowSocket()
+  windows.open(window.socket, readsOf(READS))
+
+  windows.watch(window.socket, ['r1'])
+  assert.deepEqual(window.last().activity, [{ op: 'reset', job: 'r1', entries: feed }])
+  windows.watch(window.socket, [])
+  assert.deepEqual(window.last().activity, [{ op: 'reset', job: 'r1', entries: tailOf(feed) }])
+  const sent = window.sent.length
+  windows.watch(window.socket, [])
+  assert.equal(window.sent.length, sent, 'the same set again sends nothing')
+})
+
+test("a job's tail changes at most four times a second, and a job that starts or goes does so at once", () => {
+  let now = 0
+  const timers: { run: () => void; at: number }[] = []
+  const sync = new StateSync({ owner, signIn, models: null })
+  const windows = new Windows({ sync, now: () => now, later: (run, ms) => (timers.push({ run, at: now + ms }), () => {}) })
+  const window = windowSocket()
+  windows.open(window.socket, readsOf(READS))
+  const words = (text: string) => ({ r1: [said('1:0', text)] })
+
+  windows.publish(busy(words('I')))
+  assert.deepEqual(window.last().activity, [{ op: 'reset', job: 'r1', entries: [said('1:0', 'I')] }], 'a job that starts goes at once')
+  const tails = () => window.sent.filter((text) => text.includes('"op":"update"')).length
+  // A word every 25 ms for a second, the last one 25 ms after a tail went out.
+  for (let tick = 1; tick <= 41; tick++) {
+    now = tick * 25
+    windows.publish(busy(words(`I${' word'.repeat(tick)}`)))
+    const due = timers.filter(({ at }) => at <= now)
+    for (const timer of due) timers.splice(timers.indexOf(timer), 1)
+    for (const timer of due) timer.run()
+  }
+  assert.ok(tails() <= 4, `${tails()} tail changes in a second`)
+  assert.notDeepEqual(window.last().activity, [{ op: 'update', job: 'r1', entry: said('1:0', `I${' word'.repeat(41)}`) }], 'the last words wait')
+  now = 1300
+  for (const timer of timers.splice(0)) timer.run()
+  assert.deepEqual(window.last().activity, [{ op: 'update', job: 'r1', entry: said('1:0', `I${' word'.repeat(41)}`) }], 'and arrive without another message')
+
+  windows.publish(busy({}))
+  assert.deepEqual(window.last().activity, [{ op: 'remove', job: 'r1' }], 'a job that goes goes at once')
 })
 
 test("the main chat's activity travels as steps beside the jobs', and reaches the UI as its own key", () => {

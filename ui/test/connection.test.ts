@@ -75,7 +75,7 @@ test('reconnects and replaces stale state', async () => {
   await settle()
 
   const first = h.sockets[0]!
-  assert.equal(first.url, 'ws://127.0.0.1:5188/?token=first%20token')
+  assert.equal(first.url, 'ws://127.0.0.1:5188/?token=first%20token&reads=tails,extend')
   first.onopen?.()
   first.receive(hello('/home/one'))
   first.receive(everything(1, true, [said('a', 'Before the restart')]))
@@ -105,7 +105,7 @@ test('reconnects and replaces stale state', async () => {
   h.timers.shift()!.run()
   await settle()
   const second = h.sockets[1]!
-  assert.equal(second.url, 'ws://127.0.0.1:5188/?token=second%2Ftoken')
+  assert.equal(second.url, 'ws://127.0.0.1:5188/?token=second%2Ftoken&reads=tails,extend')
   second.onopen?.()
   second.receive(hello('/home/one'))
   assert.equal(h.state().messages.length, 1, 'the old view stays until the new one is here, so nothing flashes empty')

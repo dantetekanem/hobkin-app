@@ -1,4 +1,5 @@
 import { createStore, type StoreApi } from 'zustand/vanilla'
+import { MAIN_ACTIVITY } from '#shared/protocol/activity.ts'
 import type { CommandArgs, CommandName, CommandResults } from '#shared/commands/registry.ts'
 import type { PresenceMessage } from '#shared/protocol/messages.ts'
 import type { QuestionReply } from '#shared/protocol/question.ts'
@@ -8,12 +9,15 @@ import { HostConnection } from './connection.ts'
 import { discoverHost } from './discover.ts'
 import { explainRefusal } from './refusal.ts'
 import { applyHostMessage, applyLink, initialHostState, type HostState } from './state.ts'
+import { followWatching, Watched } from './watch.ts'
 
-/** The window's one store and connection, and how many hold the connection open. */
+/** The window's one store and connection, how many hold the connection open, and the jobs it watches. */
 interface Kept {
   store: StoreApi<HostState>
   connection: HostConnection
   holds: number
+  /** Left out by a pair kept from before watching: its connection reads every feed whole until the window reloads. */
+  watched?: Watched
 }
 
 function keep(): Kept {
@@ -23,7 +27,11 @@ function keep(): Kept {
     onMessage: (message) => store.setState((state) => applyHostMessage(state, message), true),
     onLink: (link) => store.setState((state) => applyLink(state, link), true),
   })
-  return { store, connection, holds: 0 }
+  const watched = new Watched()
+  // The main chat's feed is short and hobkin's mind reads it whole, so the window always watches it.
+  watched.hold(MAIN_ACTIVITY)
+  followWatching(store, watched, (message) => connection.send(message))
+  return { store, connection, holds: 0, watched }
 }
 
 // The pair lives on globalThis, so when a hot update runs this file again it finds the running pair instead of
@@ -33,9 +41,15 @@ const holder = globalThis as { __hobkinHost?: Kept }
 if (!holder.__hobkinHost && typeof document !== 'undefined' && document.getElementById('root')?.hasChildNodes()) location.reload()
 const kept = (holder.__hobkinHost ??= keep())
 const { connection } = kept
+const watched = (kept.watched ??= new Watched())
 
 /** Everything the host has told this window. Components read it through the hooks in `hooks.ts`. */
 export const hostStore = kept.store
+
+/** Holds a job watched, so a host that takes watching sends its whole steps, until the function it returns lets go. */
+export function watchJob(job: string): () => void {
+  return watched.hold(job)
+}
 
 /**
  * Connects to the host and keeps the connection up. Returns how to let go of it. It closes a moment after the last

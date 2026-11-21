@@ -23,6 +23,7 @@ export {
   useProofs,
   useRunningCount,
   useSessions,
+  useWatchJob,
   useWork,
   type Models,
 } from './hooks.ts'
