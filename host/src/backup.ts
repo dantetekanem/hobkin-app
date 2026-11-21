@@ -54,7 +54,9 @@ const NOT_RECORDS: readonly RegExp[] = [
  * comes with the code that writes it, in hobkin's `src/cli/` or this client's `host/src/`. A name the code joins at
  * those levels that is not here fails `host/test/backup-guard.test.ts`, so it is decided before a backup drops it.
  */
-const OWN_AT_HOME: readonly (string | RegExp)[] = [
+type Names = readonly (string | RegExp)[]
+
+const OWN_AT_HOME: Names = [
   'AGENTS.md', // directions.mjs; host/src/directions.ts
   'answers.jsonl', // questions.mjs
   'canvas', // canvas.mjs; host/src/canvases.ts
@@ -85,7 +87,7 @@ const OWN_AT_HOME: readonly (string | RegExp)[] = [
   // No code writes it: a dated copy of `AGENTS.md`, taken as a file at the root until someone decides.
   /^AGENTS\.before-\d{4}-\d\d-\d\d\.md$/,
 ]
-const OWN_IN_RUNTIME: readonly (string | RegExp)[] = [
+const OWN_IN_RUNTIME: Names = [
   'answers.md', // decided.mjs
   'brief.json', // brief.mjs
   'client-notices.jsonl', // client-notices.mjs
@@ -117,7 +119,7 @@ const OWN_IN_RUNTIME: readonly (string | RegExp)[] = [
   // No code writes it: credentials beside `remote.json`, for a hobkin-api on this Mac it seems. Taken until someone decides.
   'remote.local-dev.json',
 ]
-const OWN_IN_PROJECT: readonly (string | RegExp)[] = [
+const OWN_IN_PROJECT: Names = [
   // work/store.mjs, `paths`
   'project.md',
   'directions.md',
@@ -131,15 +133,24 @@ const OWN_IN_PROJECT: readonly (string | RegExp)[] = [
   'runs', // work/director.mjs, until hobkin's cd6f3cc of 2026-11-10: the briefs and reports of runs
 ]
 
-/** Which of hobkin's names a path's folder may hold, when it is one of the three levels, and the path's own name. */
-function level(path: string): { own: readonly (string | RegExp)[]; name: string; home: boolean } | null {
-  const slash = path.lastIndexOf('/')
-  const folder = slash < 0 ? '' : path.slice(0, slash)
-  const own = folder === '' ? OWN_AT_HOME : folder === 'runtime' ? OWN_IN_RUNTIME : /^work\/[^/]+$/.test(folder) ? OWN_IN_PROJECT : null
-  return own && { own, name: path.slice(slash + 1), home: folder === '' }
+/** hobkin's names in a folder inside the home, when the folder is one of the three levels, and null for any other folder. */
+function ownNamesIn(folder: string): Names | null {
+  if (folder === '') return OWN_AT_HOME
+  if (folder === 'runtime') return OWN_IN_RUNTIME
+  if (/^work\/[^/]+$/.test(folder)) return OWN_IN_PROJECT
+  return null
 }
 
-const named = (own: readonly (string | RegExp)[], name: string) => own.some((each) => (typeof each === 'string' ? each === name : each.test(name)))
+/** For a path at one of the three levels: hobkin's names there, the path's own name, and whether it is at the root. */
+function level(path: string): { own: Names; name: string; home: boolean } | null {
+  const slash = path.lastIndexOf('/')
+  const folder = slash < 0 ? '' : path.slice(0, slash)
+  const own = ownNamesIn(folder)
+  if (own === null) return null
+  return { own, name: path.slice(slash + 1), home: folder === '' }
+}
+
+const named = (own: Names, name: string) => own.some((each) => (typeof each === 'string' ? each === name : each.test(name)))
 
 /**
  * Whether a path at one of the three levels is a file of hobkin's that is being written at that moment, under a passing
@@ -189,10 +200,11 @@ export function homeContents(source: string): { records: string[]; kept: string[
   const walk = (folder: string) => {
     for (const entry of readdirSync(join(source, folder), { withFileTypes: true })) {
       const path = folder ? `${folder}/${entry.name}` : entry.name
-      const stray = notHobkins(path)
-      if (stray || onPurpose(path)) {
+      if (notHobkins(path)) {
         kept.push(path)
-        if (stray) strays.push(path)
+        strays.push(path)
+      } else if (onPurpose(path)) {
+        kept.push(path)
       } else if (!entry.isFile() && !entry.isSymbolicLink() && !entry.isDirectory()) {
         kept.push(path)
       } else if (UNNAMEABLE.test(entry.name)) {
@@ -212,21 +224,22 @@ export function homeContents(source: string): { records: string[]; kept: string[
 }
 
 /**
- * How much each path inside `source` takes on disk, by `du` at low priority, largest first: null for one it could not
- * measure. A link is measured as itself, not followed. Never fails: a backup is made, and only a size is missing.
+ * How much `path` inside `source` takes on disk, by `du` at low priority, or null when it could not be measured. A link
+ * is measured as itself, not followed.
  */
+const diskBytes = (source: string, path: string) =>
+  new Promise<number | null>((done) => {
+    // A folder with something du may not read still gets its total, with a failing exit.
+    execFile('nice', ['-n', '10', 'du', '-sk', '--', path], { cwd: source, timeout: 120_000 }, (_error, out) => {
+      const kilobytes = /^(\d+)\s/.exec(String(out))?.[1]
+      done(kilobytes === undefined ? null : Number(kilobytes) * 1024)
+    })
+  })
+
+/** Each path with its size on disk, largest first. Never fails: the backup is made, and at worst a size is missing. */
 async function measured(source: string, paths: readonly string[]): Promise<BackupStray[]> {
   const sizes: BackupStray[] = []
-  for (const path of paths) {
-    const bytes = await new Promise<number | null>((done) =>
-      // A folder with something du may not read still gets its total, with a failing exit.
-      execFile('nice', ['-n', '10', 'du', '-sk', '--', path], { cwd: source, timeout: 120_000 }, (_error, out) => {
-        const kilobytes = /^(\d+)\s/.exec(String(out))?.[1]
-        done(kilobytes === undefined ? null : Number(kilobytes) * 1024)
-      }),
-    )
-    sizes.push({ path, bytes })
-  }
+  for (const path of paths) sizes.push({ path, bytes: await diskBytes(source, path) })
   return sizes.sort((a, b) => (b.bytes ?? -1) - (a.bytes ?? -1))
 }
 
@@ -622,7 +635,10 @@ function readNote(directory: string, backups: readonly BackupEntry[]): Pick<Back
     if (typeof saved.name !== 'string' || backups[0]?.name !== saved.name) return { skipped: null, strays: null }
     const paths = Array.isArray(saved.paths) ? saved.paths.filter((path): path is string => typeof path === 'string') : []
     const strays = Array.isArray(saved.strays) ? saved.strays.filter(isStray) : []
-    return { skipped: paths.length ? { name: saved.name, paths } : null, strays: strays.length ? { name: saved.name, entries: strays } : null }
+    return {
+      skipped: paths.length ? { name: saved.name, paths } : null,
+      strays: strays.length ? { name: saved.name, entries: strays } : null,
+    }
   } catch {
     return { skipped: null, strays: null }
   }

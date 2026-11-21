@@ -28,24 +28,35 @@ const THE_USERS_OWN = new Set(['.claude', '.hobkin-notes', '.hobkin-reports-upda
 /** A project's folder, as hobkin's work store names it. */
 const PROJECT = /^paths\(root, \w+\)\.directory$/
 
-/**
- * Each `join(<the home>, 'a', 'b/c', …)` and `join(paths(root, slug).directory, 'a')` in hobkin's `src/cli` and this
- * host's `src`, as the path inside the home of the entry it names at the root, in `runtime/` or in a project's folder.
- */
+/** `join(<first argument>, 'a', 'b/c', …)`: the first argument, and the plain strings that follow it. */
+const JOIN = /join\(\s*([^,()]*(?:\([^()]*\))?[^,()]*?)\s*,\s*((?:'[^'\n]*'\s*,?\s*)+)/g
+
+/** The entry a join names at the root, in `runtime/` or in a project's folder, by path in the home; null when it joins onto something else. */
+function entryJoined(first: string, parts: string[]): string | null {
+  if (PROJECT.test(first)) return `work/app/${parts[0]}`
+  if (!HOME.test(first) || THE_USERS_OWN.has(parts[0]!)) return null
+  if (parts[0] === 'runtime' && parts[1]) return `runtime/${parts[1]}`
+  return parts[0]!
+}
+
+/** Each entry hobkin's `src/cli` and this host's `src` join at those levels, with the files that join it. */
 function namesTheCodeWrites(): Map<string, Set<string>> {
   const found = new Map<string, Set<string>>()
-  const files = [...sources(join(HOBKIN, 'src/cli'), /\.mjs$/), ...sources(join(CLIENT, 'src'), /\.ts$/)]
-  for (const file of files) {
-    for (const [, root, rest] of readFileSync(file, 'utf8').matchAll(/join\(\s*([^,()]*(?:\([^()]*\))?[^,()]*?)\s*,\s*((?:'[^'\n]*'\s*,?\s*)+)/g)) {
-      const parts = [...rest!.matchAll(/'([^'\n]*)'/g)].flatMap(([, part]) => part!.split('/')).filter(Boolean)
-      let path: string | null = null
-      if (PROJECT.test(root!.trim())) path = `work/app/${parts[0]}`
-      else if (HOME.test(root!.trim()) && !THE_USERS_OWN.has(parts[0]!)) path = parts[0] === 'runtime' && parts[1] ? `runtime/${parts[1]}` : parts[0]!
-      if (path) found.set(path, (found.get(path) ?? new Set()).add(relative(file.startsWith(HOBKIN) ? HOBKIN : CLIENT, file)))
+  const note = (path: string, file: string) => found.set(path, (found.get(path) ?? new Set()).add(file))
+
+  for (const file of [...sources(join(HOBKIN, 'src/cli'), /\.mjs$/), ...sources(join(CLIENT, 'src'), /\.ts$/)]) {
+    const repository = file.startsWith(HOBKIN) ? HOBKIN : CLIENT
+    for (const [, first, strings] of readFileSync(file, 'utf8').matchAll(JOIN)) {
+      const parts = [...strings!.matchAll(/'([^'\n]*)'/g)].flatMap(([, part]) => part!.split('/')).filter(Boolean)
+      const path = entryJoined(first!.trim(), parts)
+      if (path) note(path, relative(repository, file))
     }
   }
+
   // Every path hobkin's work store gives a project.
-  for (const path of Object.values(paths('/home', 'app'))) found.set(relative('/home', path).split('/').slice(0, 3).join('/'), new Set(['src/cli/work/store.mjs']))
+  for (const path of Object.values(paths('/home', 'app'))) {
+    note(relative('/home', path).split('/').slice(0, 3).join('/'), 'src/cli/work/store.mjs')
+  }
   return found
 }
 
