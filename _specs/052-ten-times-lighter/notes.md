@@ -2,6 +2,42 @@
 
 Measured on 2026-11-21 on an Apple M5 Pro (18 cores, 64 GB), hobkin-client at a365ca6 and hobkin at 732105f. Five read-only audits ran that day. A claim here is measured unless it says "read in code" or "inferred". CPU is a share of one core.
 
+## Results at the end of 2026-11-21
+
+Each number comes from the same script as its "before", run alone at 17:22 to 17:30 with the machine's load average between 2.5 and 4.7. A number read alone swings by 30 to 50% with that load, so the factor is rounded down.
+
+| What | Before | After | Times less | Asked |
+| --- | ---: | ---: | ---: | --- |
+| Window script per host message, 100 agents, production React | 43 to 48 ms | 0.27 ms | 160 | A2, met |
+| React commits per host message | 1.00 | 0.13 | 7 | |
+| Endless animations the main thread must draw | 85 of 108 | 0 of 126 | all | A6, met |
+| A working face in a list | 9 animations on SVG parts | 1 move of its box | | |
+| A full draw of the dock at 100 agents | 14.8 ms, 100 rows | 0.32 ms, 6 rows | 46 | A4, met |
+| First state sent to a window, 100 agents of 1,000 steps | 95 MB | 0.5 MB | 190 | A16, met |
+| Socket, same run | 893 KB/s | 130 KB/s | 6 | |
+| Host CPU, same run | 44.5% | 6.3% | 7 | A11 asks 4.5%: not met |
+| One publish, same run | 9.7 ms | 1.0 ms | 9 | |
+| Runtime, main chat at 2 tool steps and 20 words a second | 31.6% | 3.3% (2.0% side by side) | 9 | A13 asks 3.2% |
+| Runtime, eight work agents writing | 19.7% | 1.9% | 10 | A14, met |
+| Runtime, one whole rebuild | 98 ms | 14 ms wall, 22 ms CPU | 4 to 7 | |
+| Runtime, idle tick | 44 to 49 ms CPU, 208 file reads | 8 to 11 ms CPU, 4 file reads | 4 to 5 | A15 asks 4.9 ms: not met |
+| One agent's feed after 300 tool calls of 20 KB | 6.5 MB | 1.8 MB | 3 | A17, met |
+| Startup script | 2,446 kB | 1,940 kB | 1.3 | |
+| Live app with nothing running: host | 11.1% | 2.2 to 2.7% | 4 | A15 asks 1.1%: not met |
+| Live app with nothing running: window content and GPU | 2.8% | 0.3% | 9 | |
+| Live app with nothing running: all four processes | 14.5% | 3.0 to 3.6% | 4 | |
+
+100 real Pi processes for a minute (`node scripts/perf/host-load.ts --pi real --agents 100`, each streaming 30 words a second from a local fake model with a tool call every 2 seconds): the host used 10.1% of a core, the 100 children 170% together (1.7% each) and 12.4 GB (124 MB each), the socket carried 125 KB/s, every child ran at utility priority, and macOS recorded no thermal warning. Memory runs out first: about 400 such agents on this 64 GB Mac, by extrapolation. hobkin's own limits still stop at about 25 (Limits, below).
+
+Not read yet, because each needs something this day did not have:
+- The window with agents running (A9). No agent ran on the live app after the changes. `scripts/perf/live-windows.sh 3 60` reads it.
+- The window's memory after the changes. What it holds today leaked before them and only a restart frees it (Window: memory, below).
+- A8 and A20, which wait for the restart batch, and the look of every changed motion in a real window.
+
+Three independent reviews read the changes and found twelve defects that the authors' tests had passed, all fixed the same day: a sent message rising in twice, away blanking a face's eyes, notes and step times lost on a host restart, streamed Markdown links shown as text, a transcript that could jump, a wire's dot restarting while dragged, a folder guard that would stop every work run in a reftable repository, the main chat's own process lowered with the agents, a light Work publish overwritten by an older rebuild, a symlinked file cached forever, a missing program reported in taskpolicy's words, and a chime that an audio suspend could silence (taken back out).
+
+Older failures this work did not cause and left alone: hobkin `test/cli-application.test.mjs` (3 tests, the same on the code of this morning); the client's `chat`, `connection-host`, `turn` and `work-streaming` host tests (a scripted host refused by hobkin's exact-tools check since 2026-11-14); hobkin's `cli-work-control` and `cli-work-queue` test files, which never end, on this morning's code too.
+
 ## The live app
 
 `ps` CPU time over 60-second windows of the user's running app (`pnpm tauri dev`, so React's development build with StrictMode and a debug shell). Median of three windows each.

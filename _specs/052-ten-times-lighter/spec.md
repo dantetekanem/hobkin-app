@@ -101,13 +101,13 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - [x] S11 (A10). Host: the identity path in the activity diff, and the small allocations of each publish. 7fe096c, f617267: at 100 agents of 1,000 steps 44.5% to 23.5% of a core, 9.5 ms to 1.0 ms per publish.
 - [x] S12 (A12). Runtime: main chat events that are not ends travel as activity. hobkin 97899e6: with S14, the main chat at 2 tool steps and 20 words a second 32.7% to 6.1% of a core.
 - [x] S13 (A14). Runtime: token counts leave the tick's signature and travel the light way. hobkin ab14bae: eight work agents writing 17.6% to 2.3% of a core.
-- [ ] S14 (A13, A15). Runtime: a cheaper rebuild: one read of the document, routine rows once a minute, usage and evidence only on change.
-- [ ] S15 (A15). Runtime: the tick's reads cached by file version, and routine times computed once.
+- [ ] S14 (A13, A15). Runtime: a cheaper rebuild: one read of the document, routine rows once a minute, usage and evidence only on change. hobkin 557474c, ed9ba54, 8fe13a5: a rebuild 98 ms to 14 ms, the main chat 31.6% to 3.3% of a core alone and 2.0% side by side. A15 is not met.
+- [ ] S15 (A15). Runtime: the tick's reads cached by file version, and routine times computed once. hobkin 1290e77, 772f874, 864a835, 622285a: an idle tick 44 to 49 ms to 8 to 11 ms of CPU, 208 file reads to 4, and the live host with nothing running 11.1% to 2.2 to 2.7%. A15 asks 4.9 ms and 1.1%: what is left is planning itself, which can be reused across ticks only once the planner takes the clock as an input.
 - [x] S16 (A10). Runtime: a feed's snapshot patches what changed. hobkin e41e208: a publish of 100 feeds 1.7 ms to 0.04 ms.
 - [x] S17 (A19). Agent processes at utility priority, Pi and Claude Code. hobkin 7bd554d, client 5d0a29b.
-- [ ] S18 (A11, A16, A17). Activity on demand: growth sent as growth, bounded feeds, whole steps only for watched agents, older steps read from the saved session.
+- [ ] S18 (A11, A16, A17). Done: client 2ea87f5, 0f876f7, 8f5a32e, e785721; hobkin bfc780b, 4e39f60. A16 and A17 are met: a new window gets 0.5 MB where it got 95 MB. A11 is not: the host is at 6.3% of a core against 4.5% (44.5% before). Activity on demand: growth sent as growth, bounded feeds, whole steps only for watched agents, older steps read from the saved session.
 - [ ] S19 (A9, A20). Done without a restart: b7ec90d, 366e5fe, ac4bd86, 46d423a, 6c9c928 (startup script 2,446 to 1,940 kB). Waiting for the user's word in `restart-batch.patch` (bc5f9eb): the restart batch as one patch: an opaque window at opacity 1, optimized dev dependencies, the inline-style fix for every other `popLayout`. Without a restart: StrictMode behind its flag and the screens that load on first use.
-- [ ] S20 (A21). Post-processing of the changed code, a review by someone who did not write it, and the closing numbers in `notes.md`.
+- [x] S20 (A21). Post-processing of the changed code, a review by someone who did not write it, and the closing numbers in `notes.md`. Three reviews, twelve defects found and fixed; 178 client and 232 runtime tests of the changed files pass, typecheck is clean, and the 3 runtime tests that fail did so before this work.
 
 ## Open questions
 
