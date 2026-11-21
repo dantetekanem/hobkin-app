@@ -27,7 +27,7 @@ Command+N starts a new hobkin that the user drives themselves. It is durable: it
 - A turn saves no report, takes no humanizer pass and puts no report line in Chat. It does not count against the places routines and delegated jobs share.
 - After a restart, a turn that was running shows as cut off, and the hobkin waits. The next message carries on from the conversation file.
 - Ending is the user's alone, with one confirmation. An ended hobkin leaves the lists. Its conversation file stays on disk.
-- At most 12 durable hobkins are kept at once. Starting a thirteenth is refused and says to end one first.
+- At most 48 durable hobkins are kept at once. Starting a forty-ninth is refused and says there are already 48 and to end one first. (The user, 2026-11-21: this replaces the limit of 12, so that 100 agents can run at once, `052-ten-times-lighter`.)
 
 ### What it runs on
 
@@ -105,7 +105,7 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 - A5. A tier engine runs each turn on the model and thinking the tier has then. A custom engine runs on its model and level. An engine that cannot run is refused at the start with the reason.
 - A6. A Claude engine starts `claude` with `--permission-mode bypassPermissions` whatever the Claude Code tile says, and its second turn resumes the first turn's Claude session. With Claude Code missing, the start is refused and says so.
 - A7. A hobkin that has waited 20 seconds unseen gives the main hobkin one wake turn that names it and what it said. A hobkin the user saw gives none, and a wait is never told twice.
-- A8. Ending stops a turn in flight, takes the hobkin out of the lists and keeps its conversation file. A thirteenth hobkin is refused.
+- A8. Ending stops a turn in flight, takes the hobkin out of the lists and keeps its conversation file. A forty-ninth hobkin is refused (a thirteenth until 2026-11-21).
 - A9. `hobkin.read` returns the turns in order with what was asked and answered, and the main hobkin's `client` tool can run it. The `client` tool cannot run `hobkin.start`, `hobkin.say` or `hobkin.end`, and the main hobkin's `message_check` neither lists a durable hobkin's turn nor reaches it.
 - A10. Command+N opens the New hobkin sheet from any screen and does nothing while a dialog is open. The first time it opens on the explanation, and afterwards on the form.
 - A11. The form offers the four tiers with what each runs on, Claude Code only while it is installed, with every model and thinking level of its own, and a custom model with that model's own thinking levels. It starts with a folder alone, and shows what was chosen last as soon as that can run.
@@ -142,7 +142,7 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 - A5. `hobkin/test/cli-hobkins.test.mjs` › "each engine runs a turn on its own model and thinking"
 - A6. `host/test/hobkins-claude.test.ts` › "a Claude hobkin runs with nothing asked and resumes its session"
 - A7. `hobkin/test/cli-hobkins.test.mjs` › "an unseen wait wakes the main agent once, and a seen one never"
-- A8. `hobkin/test/cli-hobkins.test.mjs` › "ending stops the turn and keeps the conversation, and a thirteenth is refused"
+- A8. `hobkin/test/cli-hobkins.test.mjs` › "ending stops the turn and keeps the conversation, and a forty-ninth is refused"
 - A9. `host/test/hobkins.test.ts` › "the main hobkin reads a hobkin's turns and cannot start one, end one or speak as the user"; the commands over the real host and runtime: `host/test/hobkins.test.ts` › "a hobkin started from the window runs its turn, waits, takes another message and ends"; `hobkin/test/cli-hobkins.test.mjs` › "the main agent's message tool neither lists nor reaches a hobkin's turn"
 - A10. `ui/test/keys.test.ts` › "Command+N opens the New hobkin sheet"; `ui/test/hobkins-intro.test.ts` › "the explanation shows once"
 - A11. `ui/test/hobkins-rules.test.ts` › "the form offers what can run and starts with a folder alone", › "the form shows what the user wanted as soon as it can run, and Mid until then" and › "Claude Code offers every model and effort, and starts on what the last Claude hobkin used"

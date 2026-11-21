@@ -78,8 +78,8 @@ export interface HobkinConversation {
 }
 
 export const HOBKIN_ID = /^[0-9a-f]{8}$/
-/** The most durable hobkins kept at once. */
-export const MOST_HOBKINS = 12
+/** The most durable hobkins kept at once, as hobkin's `MOST_HOBKINS` in `src/cli/hobkins.mjs` has it. */
+export const MOST_HOBKINS = 48
 /** The longest message a durable hobkin takes, in characters. */
 export const HOBKIN_MESSAGE_MAX = 32768
 export const HOBKIN_TITLE_MAX = 120
