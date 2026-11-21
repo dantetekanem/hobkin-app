@@ -15,11 +15,14 @@ import { JobActivity } from './job-activity.mjs';
  * only by that session, its name and a start after the spawn call, never by a name alone. Plain reads, no locks.
  *
  * `agentsOut` is the one read outside the window: a run's harness asks it whether a lead still has agents working
- * before it settles that run, since an agent a `codemode` script started leaves no spawn record of its own.
+ * before it settles that run, since the run's own records can miss one: a spawn seen only inside a `codemode` script's
+ * record, or a member of a group that wakes the lead once per report, still working after the group's first wake.
  */
 
 const SPAWNS = new Set(['spawn_agent', 'spawn_swarm_agents']);
 const OUT = new Set(['queued', 'running']);
+// teams' completion-group slots that have not settled (its `src/results/completion-group.ts`).
+const UNSETTLED = new Set(['pending', 'queued', 'running']);
 const ORDER = ['running', 'queued', 'unknown', 'failed', 'done'];
 const TEAM = /^session-([A-Za-z0-9_-]{1,200})$/;
 // teams' names are letters, digits, `-` and `_` (its `sanitizeName`). Anything else is not a name it made.
@@ -131,6 +134,7 @@ export class TeamsAgents {
       callAt: call.at,
       startedAt: this.now(),
       group: cut(details.completionGroup?.groupId, 200),
+      delivery: cut(call.args.completion_group?.delivery, 40),
     };
     const addRow = (agent, state) => {
       const name = nameOf(agent?.name);
@@ -191,11 +195,22 @@ export class TeamsAgents {
     return true;
   }
 
-  /** A grouped swarm reports once for all its agents, through one wake. */
+  /**
+   * A grouped swarm reports once for all its agents, through one wake, unless its group delivers each report as it
+   * comes (`immediate`). That group wakes once per member, so its agents end only as teams' file for the group, or its
+   * reports, say; the wake has the files read soon.
+   */
   woke(run, group) {
     const rows = group ? run.rows.filter(row => row.group === group && OUT.has(row.state)) : [];
-    for (const row of rows) Object.assign(row, { state: 'done', endedAt: this.now() });
+    const perReport = row => (row.delivery ?? this.groupOf(row)?.delivery) === 'immediate';
+    const endingNow = rows.filter(row => !perReport(row));
+    for (const row of endingNow) Object.assign(row, { state: 'done', endedAt: this.now() });
     return rows.length > 0;
+  }
+
+  /** The completion group a row's agent belongs to, as its file was last read. */
+  groupOf(row) {
+    return row.group ? this.sessions.get(row.team)?.groups?.get(row.group) : undefined;
   }
 
   /**
@@ -289,6 +304,8 @@ export class TeamsAgents {
   standing(run, row, facts) {
     if (facts?.report) return { state: facts.report.status === 'failed' ? 'failed' : 'done' };
     if (!OUT.has(row.state)) return { state: row.state };
+    const slot = this.groupOf(row)?.slots.get(row.name);
+    if (slot && !UNSETTLED.has(slot)) return { state: slot === 'reported' ? 'done' : 'failed' };
 
     const listed = facts?.member && facts.member.isActive !== false;
     if (listed && (run.endedAt === undefined || this.beating(facts.runtime))) {
@@ -401,7 +418,15 @@ export class TeamsAgents {
         messages: messagesOf(row.name, runId, first.at, await inbox(row.name), await inbox('team-lead')),
       });
     }
-    return { valid: true, readAt, facts };
+
+    // Each completion group the rows belong to, by teams' own file for it: how it delivers, and how each slot stands.
+    const groups = new Map();
+    for (const groupId of new Set(rows.map(row => row.group))) {
+      const path = groupFile(dir, groupId);
+      const group = path && await this.json(path);
+      if (group?.sessionId === id) groups.set(groupId, { delivery: group.policy?.delivery, slots: slotsOf(group) });
+    }
+    return { valid: true, readAt, facts, groups };
   }
 
   /** A JSON file teams wrote, parsed again only when its size or time changed. Missing, too big or broken is nothing. */
@@ -444,7 +469,18 @@ export class TeamsAgents {
   }
 }
 
-const UNSETTLED = new Set(['pending', 'queued', 'running']);
+/** Where teams keeps the file of a completion group it made (`group:` and 64 hex digits) in a session folder. */
+function groupFile(dir, groupId) {
+  const hex = typeof groupId === 'string' ? /^group:([a-f0-9]{64})$/.exec(groupId)?.[1] : undefined;
+  return hex && join(dir, 'completion-groups', `${hex}.json`);
+}
+
+/** A completion group's slots, from its file: each member's name and status. */
+function slotsOf(group) {
+  const members = Array.isArray(group?.members) ? group.members : [];
+  const named = members.filter(member => nameOf(member?.name) && typeof member.status === 'string');
+  return new Map(named.map(member => [member.name, member.status]));
+}
 
 /** A JSON file teams wrote, with when it was last written. Missing, too big or broken is nothing. */
 async function jsonFile(path) {
@@ -486,10 +522,10 @@ export async function agentsOut(sessionId, { teamsDir = defaultTeamsDir(), now =
   for (const file of await readdir(groupsDir).catch(() => [])) {
     const group = file.endsWith('.json') ? await jsonFile(join(groupsDir, file)) : undefined;
     if (!fresh(group?.mtimeMs) || group.value?.sessionId !== sessionId) continue;
-    const { members, deliveries } = group.value;
-    for (const member of Array.isArray(members) ? members : []) {
-      if (UNSETTLED.has(member?.status) && nameOf(member.name)) out.add(member.name);
+    for (const [name, status] of slotsOf(group.value)) {
+      if (UNSETTLED.has(status)) out.add(name);
     }
+    const { deliveries } = group.value;
     for (const delivery of Array.isArray(deliveries) ? deliveries : []) {
       const unseen = delivery?.wake?.state !== 'observed';
       if (unseen && typeof delivery?.id === 'string') out.add(`wake:${cut(delivery.id, 200)}`);

@@ -30,7 +30,8 @@ const completionGroup = Symbol('completion group');
 // without a report lets the run go once teams' own heartbeat staleness has passed.
 const TEAMS_CHECK_MS = 15000;
 const dialogMethods = new Set(['select', 'confirm', 'input', 'editor']);
-// A grouped swarm suppresses member reports and answers once, through a wake.
+// A grouped swarm suppresses member reports and answers through wakes. Its first wake lets go of it here; a group that
+// wakes once per report still holds the run through teams' files (`finishUnlessOut`) while a member is out.
 const agentsStarted = ({ toolName, isError, result }) => {
   const details = result?.details;
   if (isError || !details) return [];
@@ -414,7 +415,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     } catch (error) { settled.reject(error); }
     finally { joining = false; }
   };
-  // Agents a `codemode` script started leave no spawn record, so teams' own files for this session are asked too.
+  // Teams' own files for this session are asked too, for agents the records above miss: a spawn seen only inside a
+  // `codemode` script's record, or a group member still working after its group's first wake.
   const finishUnlessOut = async () => {
     const asked = turns;
     const out = await agentsOut(state?.sessionId, { teamsDir }).catch(() => []);

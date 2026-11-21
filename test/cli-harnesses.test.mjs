@@ -403,7 +403,7 @@ function teamsWith(t) {
   writeFileSync(runtime, JSON.stringify({ agentName: 'editor', lifecycleRunId: 'run-1', lastHeartbeatAt: Date.now() }));
   return { teamsDir, config: join(dir, 'config.json'), alone: config([]), runtime };
 }
-// A codemode script's own spawn calls reach hobkin only inside the script's one tool record.
+// A codemode script whose spawn calls reach hobkin only inside the script's one tool record, with no nested record.
 const scripted = `send({ type: 'tool_execution_end', toolName: 'codemode', isError: false,
   result: { content: [], details: { calls: [{ name: 'spawn_swarm_agents', status: 'ok' }] } } });`;
 const write = (path, text) => `process.getBuiltinModule('node:fs').writeFileSync(${JSON.stringify(path)}, ${JSON.stringify(text)});`;
@@ -426,6 +426,42 @@ test('a job waits for agents a script started while teams still lists them as wo
 
   assert.equal(result.status, 'completed');
   assert.equal(result.text, 'Useful: the editor reported.');
+});
+
+test("a group's per-report wake holds the job while its file says another member is still running", { timeout: 3000 }, async t => {
+  const teams = teamsWith(t);
+  const hex = 'b'.repeat(64), groupId = `group:${hex}`;
+  const groupPath = join(teams.teamsDir, 'session-pi-job', 'completion-groups', `${hex}.json`);
+  const group = (editor, delivered) => JSON.stringify({
+    version: 1, groupId, sessionId: 'pi-job', policy: { delivery: 'immediate' }, sealed: true,
+    members: [{ name: 'reader', status: 'reported' }, { name: 'editor', status: editor }],
+    deliveries: delivered.map(id => ({ id, kind: 'member', status: 'enqueued', wake: { state: 'observed', entryId: id } })),
+  });
+  mkdirSync(join(groupPath, '..'));
+  writeFileSync(groupPath, group('running', ['reader-report']));
+  const wakeFor = deliveryId => `delivered('pi-extended-teams-wake', { completionGroup: ${JSON.stringify({ groupId, deliveryId })} });`;
+  const program = rpc(`${teamEvents}
+    started('spawn_swarm_agents', { spawned: [{ name: 'reader' }, { name: 'editor' }], failed: [], completionGroup: { groupId: ${JSON.stringify(groupId)} } });
+    say('Both are working.');
+    settled();
+    later(() => {
+      ${wakeFor('reader-report')}
+      say('');
+      settled();
+      setTimeout(() => {
+        ${write(groupPath, group('reported', ['reader-report', 'editor-report']))}
+        ${write(teams.config, teams.alone)}
+        ${wakeFor('editor-report')}
+        say('Useful: both reported.');
+        settled();
+      }, 200);
+    });
+  `);
+
+  const result = await runHarness(request(t), { spawnProcess: fake(program), teamsDir: teams.teamsDir });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.text, 'Useful: both reported.');
 });
 
 test('a job is let go once teams stops hearing from an agent that never reports', { timeout: 3000 }, async t => {

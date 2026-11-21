@@ -112,6 +112,39 @@ test("a run's own spawn calls give each agent its name, task, status and times",
   ]);
 });
 
+test('a wake from a group that delivers each report as it comes ends only the agents its file says have settled', async t => {
+  const time = clock();
+  const dir = folder(t);
+  const hex = 'a'.repeat(64), groupId = `group:${hex}`;
+  const at = session(dir, 'abc', { members: [member('alpha', 10_100, 'ra'), member('beta', 10_100, 'rb'), member('gamma', 10_100, 'rc')] });
+  mkdirSync(join(at, 'completion-groups'));
+  writeFileSync(join(at, 'completion-groups', `${hex}.json`), JSON.stringify({
+    version: 1, groupId, sessionId: 'abc', policy: { delivery: 'immediate' }, sealed: true,
+    members: [
+      { name: 'alpha', slotId: `${groupId}:0`, status: 'reported', runId: 'ra' },
+      { name: 'beta', slotId: `${groupId}:1`, status: 'running', runId: 'rb' },
+      { name: 'gamma', slotId: `${groupId}:2`, status: 'cancelled', runId: 'rc' },
+    ],
+    deliveries: [{ id: 'd', kind: 'member', slotIds: [`${groupId}:0`], status: 'enqueued', wake: { state: 'observed', entryId: 'e' } }],
+  }));
+  const teams = layer(dir, time);
+  const agents = ['alpha', 'beta', 'gamma'].map(name => ({ name, prompt: `${name} task` }));
+  teams.observe('r1', started('swarm', 'spawn_swarm_agents', { agents, completion_group: { delivery: 'immediate' } }));
+  teams.observe('r1', ended('swarm', 'spawn_swarm_agents', {
+    session: 'session-abc', completionGroup: { groupId }, spawned: agents.map(({ name }) => ({ name })),
+  }));
+  time.tick(3000);
+
+  teams.observe('r1', wake(groupId));
+  await teams.read();
+
+  assert.deepEqual(view(teams.snapshot().r1, ['name', 'state']), [
+    { name: 'beta', state: 'running' },
+    { name: 'gamma', state: 'failed' },
+    { name: 'alpha', state: 'done' },
+  ]);
+});
+
 test('a run keeps at most 24 agents, and the reader the 20 runs that ended last', t => {
   const time = clock();
   const teams = layer(folder(t), time);
