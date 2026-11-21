@@ -100,14 +100,16 @@ export function Widget({ title, icon, target, count, aside, link = 'See all', on
 /**
  * A row opens what it names: the whole row is the button, and its verb says where it goes. A dismissable row (a
  * notification the user can wave off) also carries a hover "×" in space kept for it; it rides `layout`, so when a sibling
- * leaves the rest glide up, and fades as it goes.
+ * leaves the rest glide up, and fades as it goes. `list` is the rows it stands among: the row measures its place only
+ * when that list changes, not on every draw of Home.
  */
-export function Row({ row, icon, lead, onDismiss }: { row: HomeRow; icon?: ReactNode; lead?: ReactNode; onDismiss?: () => void }) {
+export function Row({ row, list, icon, lead, onDismiss }: { row: HomeRow; list?: readonly HomeRow[]; icon?: ReactNode; lead?: ReactNode; onDismiss?: () => void }) {
   const still = useStill()
   const meta = [row.detail, row.aside].filter(Boolean)
   return (
     <motion.li
       layout={still ? false : 'position'}
+      layoutDependency={list}
       initial={still ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={still ? { opacity: 0 } : { opacity: 0, transform: 'translateX(-10px)' }}

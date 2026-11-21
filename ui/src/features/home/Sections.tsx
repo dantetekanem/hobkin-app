@@ -123,7 +123,7 @@ export function Needs({ needs, unavailable }: { needs: HomeModel['needs']; unava
       {needs.rows.length ? (
         <Rows>
           {needs.rows.map(row => (
-            <Row key={row.id} row={row} icon={icon(row)} onDismiss={row.id.startsWith('reminder:') ? undefined : () => dismiss(row.id)} />
+            <Row key={row.id} row={row} list={needs.rows} icon={icon(row)} onDismiss={row.id.startsWith('reminder:') ? undefined : () => dismiss(row.id)} />
           ))}
         </Rows>
       ) : (
