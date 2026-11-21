@@ -281,7 +281,7 @@ test('Shift with the arrows follows a wire to the node it connects to', () => {
 function keyboard() {
   const memory = createReviewMemory(memoryStorage())
   const session = createSession(sample, memory)
-  const press = (key: string, shift = false) => pressKey(session.getState(), { key, shift, alt: false }, { panelKey: () => false, toggleSteps: () => {}, verdict: () => {} })
+  const press = (key: string, shift = false) => pressKey(session.getState(), { key, shift, alt: false }, { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, openModelRun: () => {} })
   return { session, press }
 }
 

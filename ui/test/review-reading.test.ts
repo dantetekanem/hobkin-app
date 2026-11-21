@@ -16,7 +16,7 @@ const story = readFileSync(new URL('../../packages/change-review/skills/change-r
 const idOf = (title: string) => sample.nodes.find((node) => node.title === title)!.id
 const summary = { level: 'high', critical: true, needsYou: 3, worthALook: 2, safe: 3, storyBy: 'model', at: '2026-11-12T10:00:00Z' } as const
 const finished = (): ChangeAssessment => ({ head: sample.change.head, summary, story, units, triage: null, blind: null, progress: null, nodes: [] })
-const effects = { panelKey: () => false, toggleSteps: () => {}, talk: () => {}, verdict: () => {} }
+const effects = { panelKey: () => false, toggleSteps: () => {}, talk: () => {}, verdict: () => {}, openModelRun: () => {} }
 const press = (session: ReturnType<typeof createSession>, key: string) => pressKey(session.getState(), { key, shift: false, alt: false }, effects)
 /** A story as the change review writes its opening, with the sentence on what the change does. */
 const opening = (does: string) => `# Rounding\n\n## Opening\n\n**Claims:** inferred, no description.\n\n**Does:** ${does}\n\n**Size:** 4 files, 45 lines added, 10 removed.\n`
@@ -52,13 +52,11 @@ test('the review gives one answer for the whole change: risky or safe to deploy,
   assert.equal(riskBadge(undefined, { state: 'idle', head: 'h' }), null)
 })
 
-test('the story is no page and no tab: a review is walked in the graph, T is not a key, and G shows the whole graph', () => {
+test('the story is no page and no tab: a review is walked in the graph, and G shows the whole graph', () => {
   const session = createSession(sample, createReviewMemory(memoryStorage()))
   assert.deepEqual(session.getState().focus, sample.story[0]!.focus)
   assert.equal(press(session, 'ArrowRight'), true)
   assert.equal(session.getState().story.step, 1)
-  assert.equal(press(session, 't'), false, 'the key is left alone')
-  assert.equal(press(session, 'T'), false)
   session.getState().goTo(3)
   assert.equal(press(session, 'Enter'), true)
   assert.ok(session.getState().code, 'Enter opens the code of the focus')

@@ -9,7 +9,7 @@ import { createReviewMemory, memoryStorage } from '../src/features/review/state/
 import { createSession } from '../src/features/review/state/session.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
-const effects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {} }
+const effects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, openModelRun: () => {} }
 
 test("a note hobkin left on the host joins the window's notes, unless the window already has it or removed it", () => {
   const note = (id: string, text: string): Note => ({ id, step: 's1', target: { kind: 'step' }, intent: 'comment', text, author: 'hobkin', at: 1 })
@@ -32,6 +32,13 @@ test('A approves, M approves and merges, and X sends the fixes', () => {
     assert.equal(used, true)
   }
   assert.deepEqual(asked, ['approve', 'approve-merge', 'request-changes'])
+})
+
+test("T opens the run of the change's first TLA+ model check in the panel", () => {
+  const session = createSession(sample, createReviewMemory(memoryStorage()))
+  let opened = 0
+  for (const key of ['t', 'T']) assert.equal(pressKey(session.getState(), { key, shift: false, alt: false }, { ...effects, openModelRun: () => (opened += 1) }), true)
+  assert.equal(opened, 2)
 })
 
 test("N and C start a comment, and D and H a question to hobkin, in the review's input, about what the reviewer is on", () => {

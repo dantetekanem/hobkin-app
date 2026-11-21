@@ -8,7 +8,7 @@ import { createSession } from '../src/features/review/state/session.ts'
 import { modeOfKey } from '../src/features/review/story/mode.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
-const effects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {} }
+const effects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, openModelRun: () => {} }
 const press = (session: ReturnType<typeof createSession>, key: string, shift = false) => pressKey(session.getState(), { key, shift, alt: false }, effects)
 const firstFocus = sample.story[0]!.focus
 

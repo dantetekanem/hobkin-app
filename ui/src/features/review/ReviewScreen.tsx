@@ -328,6 +328,8 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
           choice?.focus({ preventScroll: true })
           choice?.click()
         },
+        // T is the click on the panel's first TLA+ model check that has a run: its run opens on the proof screen.
+        openModelRun: () => steps?.querySelector<HTMLElement>('[data-model-run]')?.click(),
       })
       if (used) event.preventDefault()
       if (inCode && session.getState().code == null) element.focus({ preventScroll: true })

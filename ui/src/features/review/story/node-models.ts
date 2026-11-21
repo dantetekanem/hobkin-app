@@ -1,13 +1,13 @@
 /**
  * The TLA+ model checks a review shows (050-tla-proofs in Change Review; the user, 2026-11-20: "I want to see TLA+
  * running in the UI we worked, there in review."): which hobkin change a review is of, which files are models, what
- * TLC said of each at the reviewed head for a node's card, and the finished card's chips for the panel. A pull request
+ * TLC said of each at the reviewed head for a node's card, and a row for each model in the panel. A pull request
  * has no hobkin item, so it shows none. Pure.
  */
 import type { ProofRunSummary, ProofsState } from '#shared/protocol/proofs.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { Review, ReviewFile, ReviewNode } from '#shared/review/types.ts'
-import { chipsOf, runsForItem, sameHead, specFile, type ProofChip } from '../../proofs/proof-match.ts'
+import { runsForItem, sameHead, specFile } from '../../proofs/proof-match.ts'
 import { namesOf, neverFired, stepsToBreak, type Tone } from '../../proofs/run/run-view.ts'
 
 /** A hobkin change as reviewed: its project, its item, and the head the review was made at. */
@@ -96,18 +96,53 @@ export function modelLines(proofs: ProofsState | null, change: ReviewedChange, s
   })
 }
 
+/** One model in the panel: its file, what TLC said of it, and the run it opens. */
+export interface ModelRow {
+  spec: string
+  file: string
+  /** "holds · 15 states", "NoRepost breaks · 5 steps", "checking · 1,204 states", "not checked at this commit". */
+  said: string
+  tone: Tone
+  /** Null when nothing checked it, and the row opens nothing. */
+  run: string | null
+}
+
+/** A run in a panel row's words: the result, then the states or the steps to the break. */
+function rowSaid(run: ProofRunSummary): { said: string; tone: Tone } {
+  const proof = run.steps.find((step) => step.id === 'prove')?.state
+  const proved = proof === 'done' ? ' · proved for every size' : proof === 'failed' ? ' · proof fails' : ''
+  switch (run.outcome) {
+    case 'checking':
+      return { said: `checking · ${plural(run.stats.distinct, 'state')}`, tone: 'live' }
+    case 'holds': {
+      const missed = neverFired(run)
+      if (missed.length) return { said: `holds · ${namesOf(missed)} never ran`, tone: 'warn' }
+      return { said: `holds · ${plural(run.stats.distinct, 'state')}${proved}`, tone: proof === 'failed' ? 'bad' : 'ok' }
+    }
+    case 'broken':
+      return { said: `${run.broken ?? 'a rule'} breaks · ${plural(stepsToBreak(run), 'step')}${proved}`, tone: 'bad' }
+    case 'stopped':
+      return { said: 'stopped before the end', tone: 'quiet' }
+    case 'error':
+      return { said: 'could not run', tone: 'bad' }
+  }
+}
+
 /**
- * The panel's chips, as a finished card draws them (`chipsOf`), at the reviewed head: one for each model hobkin checked
- * for the item, and a quiet one for a model the change edits that nothing checked, so a check that starts takes its
- * place. Ordered by file, so a chip keeps its place as runs come and go.
+ * The panel's TLA+ models, one row each, ordered by file so a row keeps its place as runs come and go: each model the
+ * change edits and each model hobkin checked for the item, with what TLC said of it at the reviewed head. A check of an
+ * older commit still opens, and says it is older. A model nothing checked has a row too, so a check that starts takes
+ * its place.
  */
-export function reviewChips(proofs: ProofsState | null, change: ReviewedChange, specs: readonly string[]): ProofChip[] {
-  const runs = runsForItem(proofs, change.project, change.item, change.head)
-  const all = [...new Set([...specs, ...runs.map((run) => run.spec)])].sort()
-  const named = all.length > 1
-  return all.flatMap((spec) => {
-    const run = runs.find((candidate) => candidate.spec === spec)
-    if (run) return chipsOf([run], change.head, named)
-    return [{ id: null, label: `${named ? specFile(spec).replace(/\.tla$/, '') : 'Model'} not checked at this head`, tone: 'quiet' as const }]
+export function reviewModelRows(proofs: ProofsState | null, change: ReviewedChange, specs: readonly string[]): ModelRow[] {
+  const mine = (proofs?.runs ?? []).filter((run) => run.project === change.project && run.item === change.item)
+  const all = [...new Set([...specs, ...mine.map((run) => run.spec)])].sort()
+  return all.map((spec) => {
+    const file = specFile(spec)
+    const run = runAt(proofs, change, spec)
+    if (run) return { spec, file, run: run.id, ...rowSaid(run) }
+    const older = runsForItem(proofs, change.project, change.item).find((candidate) => candidate.spec === spec)
+    if (older) return { spec, file, run: older.id, said: 'checked at an older commit', tone: 'quiet' }
+    return { spec, file, run: null, said: 'not checked at this commit', tone: 'quiet' }
   })
 }

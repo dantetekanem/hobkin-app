@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { ProofRunSummary, ProofsState } from '#shared/protocol/proofs.ts'
 import type { ReviewFile, ReviewNode } from '#shared/review/types.ts'
 import { useView } from '../src/app/view-store.ts'
-import { changedModels, modelLines, modelOf, modelsIn, reviewChips, reviewedChange } from '../src/features/review/story/node-models.ts'
+import { changedModels, modelLines, modelOf, modelsIn, reviewedChange, reviewModelRows } from '../src/features/review/story/node-models.ts'
 
 const HEAD = 'bad8d2aea42f86679d00392da7d81b6507b5734b'
 const SPEC = '_specs/tla/ReviewSentReceipts.tla'
@@ -86,16 +86,25 @@ test('two models in one focus each name their file', () => {
   assert.deepEqual(modelLines(slice(run()), change, [SPEC, queue]).map(({ text }) => text), ['TLC · ReviewSentReceipts.tla: holds in 7 states', 'TLC · ReviewQueue.tla: not checked at this commit'])
 })
 
-test("the panel draws the change's checks as a finished card's chips, at the reviewed head, in a steady order", () => {
-  assert.deepEqual(reviewChips(slice(run()), change, [SPEC]), [{ id: '20261121-032648-reviewsentreceipts-adug', label: 'Model holds · 7 states', tone: 'ok' }])
-  // A model the change edits that nothing checked still has its chip, so a check that starts takes its place.
-  assert.deepEqual(reviewChips(slice(), change, [SPEC]), [{ id: null, label: 'Model not checked at this head', tone: 'quiet' }])
-  assert.deepEqual(reviewChips(slice(run({ id: 'live', outcome: 'checking', stats: { generated: 9, distinct: 5, queue: 2, depth: 2 } })), change, [SPEC]), [{ id: 'live', label: 'Checking · 5 states', tone: 'live' }])
-  // A check of a model the change does not edit is the change's too. Specs keep their order as runs come and go.
-  const other = run({ id: 'other', spec: '_specs/tla/ReviewQueue.tla', started: '2026-11-21T02:00:00Z' })
-  assert.deepEqual(reviewChips(slice(other, run()), change, [SPEC]).map(({ label }) => label), ['ReviewQueue holds · 7 states', 'ReviewSentReceipts holds · 7 states'])
-  assert.deepEqual(reviewChips(slice(other), change, [SPEC]).map(({ label }) => label), ['ReviewQueue holds · 7 states', 'ReviewSentReceipts not checked at this head'])
-  assert.deepEqual(reviewChips(slice(), change, []), [])
+test("the panel lists each of the change's models by file, with what TLC said at the reviewed head and the run that says so, in a steady order", () => {
+  const row = (said: string, tone: string, run: string | null, spec = SPEC) => ({ spec, file: spec.split('/').at(-1), said, tone, run })
+  assert.deepEqual(reviewModelRows(slice(run()), change, [SPEC]), [row('holds · 7 states', 'ok', '20261121-032648-reviewsentreceipts-adug')])
+  // A model the change edits that nothing checked still has its row, so a check that starts takes its place.
+  assert.deepEqual(reviewModelRows(slice(), change, [SPEC]), [row('not checked at this commit', 'quiet', null)])
+  assert.deepEqual(reviewModelRows(slice(run({ id: 'live', outcome: 'checking', stats: { generated: 9, distinct: 1204, queue: 2, depth: 2 } })), change, [SPEC]), [row('checking · 1,204 states', 'live', 'live')])
+  const broke = run({ id: 'broke', outcome: 'broken', broken: 'NoRepost', traceLength: 6 })
+  assert.deepEqual(reviewModelRows(slice(broke), change, [SPEC]), [row('NoRepost breaks · 5 steps', 'bad', 'broke')])
+  assert.deepEqual(reviewModelRows(slice(run({ id: 'missed', actions: [{ name: 'Post', count: 3 }, { name: 'Save', count: 0 }] })), change, [SPEC]), [row('holds · Save never ran', 'warn', 'missed')])
+  const proved = run({ id: 'proved', steps: [...run().steps.slice(0, 2), { id: 'prove', state: 'done', note: 'TLAPS · 12 of 12' }] })
+  assert.deepEqual(reviewModelRows(slice(proved), change, [SPEC]), [row('holds · 7 states · proved for every size', 'ok', 'proved')])
+  // A check of an older commit of the item still opens, and never says it speaks for this one.
+  assert.deepEqual(reviewModelRows(slice(run({ id: 'older', head: '0d3c53d99913e333731649d0904f54309cdd6b04' })), change, [SPEC]), [row('checked at an older commit', 'quiet', 'older')])
+  // A check of a model the change does not edit is the change's too. Models keep their order as runs come and go.
+  const queue = '_specs/tla/ReviewQueue.tla'
+  const other = run({ id: 'other', spec: queue, started: '2026-11-21T02:00:00Z' })
+  assert.deepEqual(reviewModelRows(slice(other, run()), change, [SPEC]).map(({ file, said }) => `${file} ${said}`), ['ReviewQueue.tla holds · 7 states', 'ReviewSentReceipts.tla holds · 7 states'])
+  assert.deepEqual(reviewModelRows(slice(other), change, [SPEC]).map(({ file, said }) => `${file} ${said}`), ['ReviewQueue.tla holds · 7 states', 'ReviewSentReceipts.tla not checked at this commit'])
+  assert.deepEqual(reviewModelRows(slice(), change, []), [])
 })
 
 test("a run opened from a review goes back to that review", () => {

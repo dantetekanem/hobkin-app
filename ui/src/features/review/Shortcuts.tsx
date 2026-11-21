@@ -36,6 +36,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
       [['↵'], 'In the input: keep the comment, or send the question. ⇧↵ starts a new line'],
       [['esc'], 'In the input: back to the review, the words kept. It never stops Hobkin'],
       [['S'], 'Hide the panel, or bring it back'],
+      [['T'], "Open the run of the change's first TLA+ model check, as its row in the panel does"],
     ],
   },
   {

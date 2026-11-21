@@ -2,7 +2,7 @@ import { ChevronRight, CircleHelp } from 'lucide-react'
 import { useState } from 'react'
 import { Markdown } from '@/features/chat/markdown.ts'
 import { useSessionStore } from '../state/context.tsx'
-import { useModelChips } from '../story/use-model-checks.ts'
+import { useModelRows } from '../story/use-model-checks.ts'
 import { AskLink } from './AskLink.tsx'
 import { InlineCode } from './InlineCode.tsx'
 import { ModelChecks } from './ModelChecks.tsx'
@@ -17,14 +17,14 @@ const SHOWN = 4
  * of what this does. not long."): what the change does, in three sentences at most; one line for each unit that needs
  * a look, its level and its claim, which goes to the step that tells it, with a quick link that asks hobkin about it;
  * and how many questions are open, which goes to the step of the first. The step itself is told on the canvas. For a
- * hobkin change, what its TLA+ model checks found at the reviewed head sits under what it does.
+ * hobkin change, each TLA+ model and what TLC said of it at the reviewed head sits under what it does, each opening its run.
  */
 export function WhatMatters({ matters, ask }: { matters: Matters; ask: ((text: string) => Promise<boolean>) | null }) {
   const store = useSessionStore()
   const [whole, setWhole] = useState(false)
-  const chips = useModelChips()
+  const models = useModelRows()
   const { does, questions } = matters
-  if (!does && matters.units.length === 0 && questions.count === 0 && chips.length === 0) return null
+  if (!does && matters.units.length === 0 && questions.count === 0 && models.length === 0) return null
   const units = whole ? matters.units : matters.units.slice(0, SHOWN)
   const go = (unit: UnitMatter) => {
     if (unit.step != null) store.getState().goTo(unit.step)
@@ -42,7 +42,7 @@ export function WhatMatters({ matters, ask }: { matters: Matters; ask: ((text: s
         </div>
       ) : null}
 
-      {chips.length > 0 ? <ModelChecks chips={chips} heading={HEADING} /> : null}
+      {models.length > 0 ? <ModelChecks rows={models} heading={HEADING} /> : null}
 
       {units.length > 0 ? (
         <div className="flex flex-col gap-0.5">

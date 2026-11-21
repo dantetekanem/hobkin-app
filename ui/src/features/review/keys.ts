@@ -27,6 +27,8 @@ export interface KeyEffects {
   toggleSteps(): void
   /** Shows what a verdict would do, ready for the reviewer's yes. */
   verdict(kind: Verdict): void
+  /** Opens the run of the change's first TLA+ model check, as its row in the panel does (050-tla-proofs). */
+  openModelRun(): void
 }
 
 /**
@@ -81,6 +83,10 @@ function panelKeys(session: Session, key: string, effects: KeyEffects): boolean 
     case 'x':
     case 'X':
       return effects.verdict('request-changes'), true
+    // T for TLA+: the run of the change's first model check, on the proof screen. Back there comes back here.
+    case 't':
+    case 'T':
+      return effects.openModelRun(), true
     default:
       return null
   }
