@@ -48,12 +48,21 @@ export function doingOf(activity: ActivityEntry[] | undefined): Pick<SampleAgent
 export function updateOf(activity: ActivityEntry[] | undefined): string | undefined {
   if (!activity) return undefined
   for (let index = activity.length - 1; index >= 0; index--) {
-    const entry = activity[index]!
-    // One plain line: an agent's message can be pages of Markdown, and a row and its hover say one line of it.
-    const line = entry.kind === 'assistant' && entry.text ? summaryLine(entry.text) : undefined
+    const line = lineOf(activity[index]!)
     if (line) return line
   }
   return undefined
+}
+
+/** Each entry's line, null for one that says nothing. An entry the host did not change is the same object in the next message. */
+const lines = new WeakMap<ActivityEntry, string | null>()
+
+function lineOf(entry: ActivityEntry): string | undefined {
+  if (entry.kind !== 'assistant' || !entry.text) return undefined
+  let line = lines.get(entry)
+  // One plain line: an agent's message can be pages of Markdown, and a row and its hover say one line of it.
+  if (line === undefined) lines.set(entry, (line = summaryLine(entry.text) ?? null))
+  return line ?? undefined
 }
 
 function kindOf(run: RunSummary): SampleAgent['kind'] {
@@ -71,6 +80,32 @@ export const isAgentRun = (run: RunSummary, includeEnded = false): run is RunSum
  * durable hobkin's turn: the hobkin itself stands for its turns (`features/hobkins/list.ts`).
  */
 export function agentsFrom(snapshot: WireSnapshot, { includeEnded = false }: { includeEnded?: boolean } = {}): SampleAgent[] {
+  if (includeEnded) return buildAgents(snapshot, true)
+  return madeOnce(agentsMade, snapshot, () => buildAgents(snapshot, false))
+}
+
+/** Stands for a snapshot without activity, as a key. */
+const NO_ACTIVITY = {}
+
+/** What a list of agents was made from, and the list: the runs, the durable hobkins, and the activity as its key. */
+export type MadeLists<List> = WeakMap<object, { runs: unknown; hobkins: unknown; list: List }>
+
+const agentsMade: MadeLists<SampleAgent[]> = new WeakMap()
+
+/**
+ * The list `make` gives for a snapshot, made once while its runs, durable hobkins and activity are the same objects,
+ * so every reader of one host message shares one list. Readers never change it.
+ */
+export function madeOnce<List>(made: MadeLists<List>, snapshot: WireSnapshot, make: () => List): List {
+  const key = (snapshot.jobActivity as object | undefined) ?? NO_ACTIVITY
+  const held = made.get(key)
+  if (held && held.runs === snapshot.runs && held.hobkins === snapshot.hobkins) return held.list
+  const list = make()
+  made.set(key, { runs: snapshot.runs, hobkins: snapshot.hobkins, list })
+  return list
+}
+
+function buildAgents(snapshot: WireSnapshot, includeEnded: boolean): SampleAgent[] {
   const activity = (snapshot.jobActivity ?? {}) as Record<string, ActivityEntry[]>
   return (snapshot.runs ?? [])
     .filter((run): run is RunSummary & { id: string } => isAgentRun(run, includeEnded))

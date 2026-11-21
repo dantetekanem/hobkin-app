@@ -1,7 +1,7 @@
 import { hobkinAgentId, type HobkinEngine, type HobkinSummary } from '#shared/protocol/hobkins.ts'
 import type { RunSummary, WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { SampleAgent, Tier } from '../../app/sample.ts'
-import { TIER_BY_EFFORT, agentsFrom, doingOf, folderName, hueOf, isAgentRun, updateOf } from '../../lib/host/frame.ts'
+import { TIER_BY_EFFORT, agentsFrom, doingOf, folderName, hueOf, isAgentRun, madeOnce, updateOf, type MadeLists } from '../../lib/host/frame.ts'
 
 /**
  * Durable hobkins as agents of the list under the input (`034-durable-hobkins`). A durable hobkin stays listed for as long
@@ -71,9 +71,14 @@ export function durableAgents(snapshot: WireSnapshot): ListedAgent[] {
   return (snapshot.hobkins ?? []).map((hobkin) => durableAgent(hobkin, activity))
 }
 
-/** The agents list: the user's durable hobkins first, then the agents at work now. */
+const listsMade: MadeLists<ListedAgent[]> = new WeakMap()
+
+/**
+ * The agents list: the user's durable hobkins first, then the agents at work now. Made once for each host message that
+ * changes the runs, the hobkins or the activity, however many readers ask.
+ */
 export function listedAgents(snapshot: WireSnapshot): ListedAgent[] {
-  return [...durableAgents(snapshot), ...agentsFrom(snapshot)]
+  return madeOnce(listsMade, snapshot, () => [...durableAgents(snapshot), ...agentsFrom(snapshot)])
 }
 
 /** Each value of a list by its key, the first one where two share it, made once per list. */

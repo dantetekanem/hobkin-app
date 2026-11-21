@@ -17,7 +17,8 @@ const { HostConnection } = await import('../src/lib/host/connection.ts')
 mock.method(HostConnection.prototype, 'start', () => { throw new Error('Connection must stay stopped') })
 mock.method(HostConnection.prototype, 'command', async () => { throw new Error('Nothing here sends commands') })
 const { hostStore } = await import('../src/lib/host/client.ts')
-const { useAgents } = await import('../src/lib/host/hooks.ts')
+const { useAgents, useRunningCount } = await import('../src/lib/host/hooks.ts')
+const { useAgent, useAgentWords, useRunningAgents } = await import('../src/app/running-agents.ts')
 const { useHomeModel } = await import('../src/features/home/use-home.ts')
 const { useMainChildren, useRunChildren } = await import('../src/features/work/children.ts')
 const { useReports } = await import('../src/features/reports/store.ts')
@@ -113,5 +114,38 @@ test('a helper that moves draws the helpers of its own run again, not those of e
   assert.deepEqual(draws, { worker: 2, other: 1, main: 1 })
   await mounted.change(() => send(children(helper('worker-helper', 'reported'))))
   assert.deepEqual(draws, { worker: 3, other: 1, main: 1 })
+  await mounted.unmount()
+})
+
+test('100 rows and five list readers build the agents list once for a message', async () => {
+  const ids = Array.from({ length: 100 }, (_, index) => `agent-${index}`)
+  const runs = ids.map((id) => ({ id, kind: 'background' as const, state: 'running', title: `Agent ${id}`, cwd: '/fake/app' }))
+  // Building the agents list filters the runs, so a spy on the runs' own filter counts the builds.
+  let builds = 0
+  const filter = runs.filter
+  Object.defineProperty(runs, 'filter', { value: (...args: Parameters<typeof filter>) => ((builds += 1), filter.apply(runs, args)) })
+  send({ type: 'state', rev: rev++, reset: true, set: { runs, reports: [] }, activity: ids.map((job) => ({ op: 'reset', job, entries: [{ id: 'message:1:0', kind: 'assistant', text: 'Starting' }] })) })
+
+  const said: Record<string, string | undefined> = {}
+  const Row = ({ id }: { id: string }) => {
+    said[id] = useAgentWords({ id })
+    return null
+  }
+  const readers = [useRunningAgents, useRunningAgents, useAgents, useRunningCount, () => useAgent('agent-7')].map((read, index) =>
+    createElement(() => {
+      read()
+      return null
+    }, { key: `reader-${index}` }),
+  )
+  const mounted = await mountCounting(() => [...ids.map((id) => createElement(Row, { key: id, id })), ...readers])
+
+  builds = 0
+  await mounted.change(() => send(words('agent-3', 'Reading the index.')))
+  assert.equal(builds, 1, 'one build for a message of words')
+  assert.equal(said['agent-3'], 'Reading the index.')
+
+  builds = 0
+  await mounted.change(() => send(step('agent-7', { id: 'tool:1', kind: 'tool', name: 'bash', state: 'running', input: '{"command":"ls"}' })))
+  assert.equal(builds, 1, 'one build for a message that changes what an agent does, which the list readers draw')
   await mounted.unmount()
 })
