@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readdirSync, renameSync } from 'node:fs';
 import { join } from 'node:path';
 import { resolveDataRoot } from '../migration/admission.mjs';
+import { adoptBranch } from './adopt.mjs';
 import { keptReview } from './classified.mjs';
 import {
   addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, publishItem, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
@@ -71,7 +72,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   tokens <number>, allow [number|no]   the daily limit; or a yes for today
   reset                                forget what it found; it must be off
 Used by agents inside a run:
-  item, signals, watch <project>       JSON on stdin: an item; what a look found
+  item, signals, watch <project>       JSON on stdin: an item, or a branch you made as finished work; what a look found
   propose, progress                    JSON on stdin: a project; a look's place
   tree <project>                       a worktree for a look that needs tests
   yolo <project> [item]                JSON on stdin: its readiness; or, with an item, monitoring after its deploy
@@ -407,6 +408,8 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'item': {
       // Agents file work through this, and `max`, `grade`, `reviewAsked`, `reviewAskedFor`, `modelAsked`, `modelAskedFor`, `workNote`, the issue an item came from and what a merge, an offer or a deploy records are only ever hobkin's or the user's word, so none can arrive here.
       const { max, grade, reviewAsked, reviewAskedFor, modelAsked, modelAskedFor, workNote, landed, closedByUser, offerHeldUntil, pushbacks, withMainAgent, issue, deploy, ...item } = await readJson(input);
+      // A branch an agent already made, with no item yet, is registered as finished work. Its `issue` only finds hobkin's own item for that issue.
+      if (!item.id && item.branch !== undefined) return adoptBranch(root, args[0], { ...item, ...(issue === undefined ? {} : { issue }) });
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
       if (item.launch) assertLaunch(item.launch);
