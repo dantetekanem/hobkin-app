@@ -31,6 +31,15 @@ export function canvasGrowth({
 }
 
 /**
+ * Whether the canvas covers the chat: it has grown over the whole chat column and settled there, and the keyboard is
+ * not in the chat. A covered chat holds still and drops the blur over it (ChatDim.tsx). A review leaves a strip of the
+ * chat in view, so that chat keeps both.
+ */
+export function covered({ growth, conversationWidth, settled, chatFocused }: { growth: number; conversationWidth: number; settled: boolean; chatFocused: boolean }): boolean {
+  return settled && !chatFocused && growth >= conversationWidth
+}
+
+/**
  * A durable hobkin's split (040-canvas-board): the right side grows over the chat by the chat and the divider, the
  * page takes that room, and the canvas keeps the right side's usual width beside it.
  */

@@ -1,5 +1,5 @@
 import { MotionConfig } from 'motion/react'
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { hostStore } from '@/lib/host/client.ts'
 import { useChat } from '@/features/chat/chat-store.ts'
 import { startAgentCompletion } from './agent-completion.ts'
@@ -33,6 +33,7 @@ export function Frame() {
   const conversationWidth = useView((view) => view.conversationWidth)
   const movement = useSettings((state) => state.movement)
   const typeFace = useSettings((state) => state.typeFace)
+  const chatSide = useRef<HTMLDivElement | null>(null)
   useFrameKeys()
   useEffect(() => startAgentCompletion({
     host: hostStore,
@@ -51,7 +52,7 @@ export function Frame() {
     <MotionConfig reducedMotion={movement === 'still' ? 'always' : movement === 'lively' ? 'never' : 'user'}>
     {/* No background of its own: the page paints the one faded background, so the window's opacity is exactly the setting. */}
     <div className="flex h-full text-foreground">
-      <div data-chat-side className="relative flex h-full shrink-0 flex-col" style={{ width: conversationWidth }}>
+      <div ref={chatSide} data-chat-side className="relative flex h-full shrink-0 flex-col" style={{ width: conversationWidth }}>
         <ChatHeader />
         <section aria-label="Conversation" className="relative flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1">
@@ -61,7 +62,7 @@ export function Frame() {
           <KeyHints />
           <ChatVeil />
         </section>
-        <ChatDim />
+        <ChatDim side={chatSide} />
       </div>
       <Divider />
       <Canvas />
