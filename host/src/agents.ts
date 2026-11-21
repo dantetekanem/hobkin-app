@@ -1,5 +1,7 @@
+import type { ImageContent } from 'hobkin/src/cli/application.mjs'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
+import { imageContents, type AgentImages } from './attachments.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
 import { changeFrom } from './model-name.ts'
 
@@ -13,7 +15,7 @@ import { changeFrom } from './model-name.ts'
 export interface AgentsApp {
   workAction(action: string, slug?: unknown, value?: unknown, extra?: unknown): Promise<unknown>
   kill(runId: string): Promise<boolean>
-  runner: { messageCheck(request: { scheduleId?: string; runId?: string; noteId?: string; message?: string }): Promise<unknown> }
+  runner: { messageCheck(request: { scheduleId?: string; runId?: string; noteId?: string; message?: string; images?: ImageContent[] }): Promise<unknown> }
   /** Absent in a runtime from before an agent could change its model while it works. */
   runtime?: { changeRun?(runId: string, change: { model?: string; effort?: string }): Promise<{ model: string | null; effort: string | null }> }
 }
@@ -25,6 +27,8 @@ export interface AgentsSeat {
   runs: () => readonly RunSummary[]
   /** The models Pi can use now, read again, or null while it has not listed them. */
   models?: () => Promise<ModelsState | null>
+  /** The images attached to the messages being written. Without them a message can only be words. */
+  images?: AgentImages
 }
 
 /** The two ways the terminal's k stops a work agent. */
@@ -32,7 +36,7 @@ const STOPS = { 'for-now': 'later', 'not-approved': 'decline' } as const
 
 const messageOf = (result: unknown) => String((result as { message?: unknown } | null)?.message ?? '')
 
-export function agentHandlers({ app, runs, models }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change'> {
+export function agentHandlers({ app, runs, models, images: attached }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change'> {
   /** The run, while it runs. hobkin's own conversation is no agent: its turn stops from the input. */
   const running = (id: string, ended: string): RunSummary => {
     const run = runs().find((entry) => entry.id === id)
@@ -78,15 +82,20 @@ export function agentHandlers({ app, runs, models }: AgentsSeat): Pick<HostHandl
       if (!stopped) throw new Unavailable('It had already finished, so nothing was stopped.')
       return { message: `Stopped "${run.title}".` }
     },
-    'agent.say': async ({ run: id, text, noteId }) => {
+    'agent.say': async ({ run: id, text, images = [], noteId }) => {
       const run = running(id, 'It has finished, so nothing was sent.')
 
       // The exact run is checked again by the runner, so a schedule rollover cannot redirect the note.
       const reachable = run.scheduleId !== undefined && (await takingMessages()).includes(run.scheduleId)
       if (!reachable) throw new Unavailable('hobkin cannot pass a message to this agent while it runs.')
 
+      // The images attached for it go with the words, and a message of pictures alone gets hobkin's own words.
+      const pictures = images.length ? { images: imageContents(attached, images) } : {}
+      const message = text?.trim() ? text : attached?.wordsAlone() ?? ''
       try {
-        const result = await app().runner.messageCheck({ scheduleId: run.scheduleId, runId: id, noteId, message: text }) as { status?: string } | null
+        const result = await app().runner.messageCheck({ scheduleId: run.scheduleId, runId: id, noteId, message, ...pictures }) as { status?: string } | null
+        // Pi has the images now, so they leave the draft.
+        if (images.length) attached?.given(images)
         if (result?.status === 'handled') throw new Unavailable('Pi handled the input without queuing this note.')
         return { queued: result?.status === 'queued' }
       } catch (error) {

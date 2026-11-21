@@ -8,7 +8,7 @@ import { APP_ORIGIN, createToken, DEV_UI_ORIGIN } from './access.ts'
 import { systemMetrics } from './system-metrics.ts'
 import { usageFacts } from './usage-facts.ts'
 import { Backups, type Archiver } from './backup.ts'
-import { Attachments } from './attachments.ts'
+import { agentImages, Attachments } from './attachments.ts'
 import { appStateHandlers } from './app-state.ts'
 import { createClientTool } from './client-tool.ts'
 import { claudeStatus, findClaude } from './claude-code/install.ts'
@@ -428,6 +428,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   })
   // Pi on this Mac. A live host with a launcher in the config reads Pi through it; a scripted one never does.
   const readPi = options.piSetup ?? (() => piSetup({ ownNode: nodeBin(root), ...(live ? { launcher: () => configLauncher(root) } : {}) }))
+  // The images attached to an agent's or a durable hobkin's message go with it as Pi takes them.
+  const imagesForAgents = agentImages(attachments, hobkin, () => owner.imageOnlyText)
   const handlers: HostHandlers = {
     ...appStateHandlers({ root, owner, revision: () => sync.full().rev }),
     'conversation.send': async ({ text, images = [], report, review, item, sentAt }) => {
@@ -456,7 +458,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       const image = await history.image(id, messageId, ordinal)
       return owner.app === app && app?.runtime.main === main && (main as { sessionId?: string } | null)?.sessionId === sessionId ? image : null
     },
-    'conversation.attach': ({ name, data }) => attachments.attach(hobkin(), limits(), { name, bytes: Buffer.from(data, 'base64') }),
+    'conversation.attach': ({ name, data, agent }) => attachments.attach(hobkin(), limits(), { name, bytes: Buffer.from(data, 'base64'), ...(agent ? { agent } : {}) }),
     'conversation.detach': ({ id }) => {
       attachments.detach(hobkin(), id)
       return done
@@ -669,10 +671,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // Close issue closes it through gh on the user's word, declines hobkin's unfinished item for it, and reads GitHub again.
     ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh, refreshGitHub: () => github.refresh() }),
     // Its agents and routines, stopped or told something while they work, by run id (011-work).
-    ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[], models: async () => (await signIn.refresh(), signIn.models ?? null) }),
+    ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[], models: async () => (await signIn.refresh(), signIn.models ?? null), images: imagesForAgents }),
     // Durable hobkins (034-durable-hobkins): hobkin's runtime keeps them, and the host checks only what it knows.
     ...hobkinHandlers({
       app: hobkin,
+      images: imagesForAgents,
       models: async () => (await signIn.refresh(), signIn.models ?? null),
       claudeMissing: async () => (findClaude() ? null : 'Claude Code is not installed on this Mac, so a hobkin cannot run on it. Install it, or pick a tier.'),
       // Only a model Pi can use now: what the models slice lists, asked again.

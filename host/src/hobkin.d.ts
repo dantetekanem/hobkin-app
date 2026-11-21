@@ -13,7 +13,7 @@ declare module 'hobkin/src/cli/application.mjs' {
     /** With no `text` it starts waiting, and `run` is null: its first turn is the first message sent to it. */
     start(args: { cwd: string; engine: HobkinEngine; text?: string; title?: string }): Promise<{ id: string; run: string | null }>
     /** `sentAt` is when the user sent the words, on the window's clock, for the timing of the turn. */
-    say(id: string, args: { text: string; noteId?: string; sentAt?: number }): Promise<{ started: boolean; queued: boolean; run: string }>
+    say(id: string, args: { text: string; noteId?: string; sentAt?: number; images?: ImageContent[] }): Promise<{ started: boolean; queued: boolean; run: string }>
     end(id: string): Promise<{ ok: true }>
     rename(id: string, title: string): Promise<HobkinSummary>
     /** The hobkins named only by their first message, each with the words a better title is made from. */
@@ -93,6 +93,13 @@ declare module 'hobkin/src/cli/application.mjs' {
   /** An image hobkin holds as a private file until its message goes. */
   export interface ImageHandle {
     file: string
+    mimeType: string
+  }
+
+  /** An image as Pi takes it with a message: its bytes in base64. */
+  export interface ImageContent {
+    type: 'image'
+    data: string
     mimeType: string
   }
 
@@ -200,6 +207,13 @@ declare module 'hobkin/src/cli/application.mjs' {
     messageImage(args: { sessionId: string; messageId: string; ordinal: number }): { mimeType: string; data: string } | null
     /** Takes the image on the clipboard into the draft. With no `image`, `notice` says why not. */
     pasteImage(): Promise<{ image?: ImageHandle; notice?: string; tone?: string }>
+    /** The images taken into drafts. `pasteImage` is `paste` with what the main conversation can take. */
+    pastedImages: {
+      /** Takes the image on the clipboard, checked and shrunk, whatever hobkin's own model can see. */
+      paste(): Promise<{ image?: ImageHandle; notice?: string; tone?: string }>
+      /** The images' bytes, read from their files. */
+      contents(images: ImageHandle[]): ImageContent[]
+    }
     /** Deletes images taken into the draft and not sent. */
     dropImages(images: ImageHandle[]): void
     /** What the user sent that the agent never read, or null when no turn was running. */

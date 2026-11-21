@@ -4,6 +4,7 @@ import { isAbsolute, join } from 'node:path'
 import type { DurableHobkins } from 'hobkin/src/cli/application.mjs'
 import type { CommandName } from '#shared/commands/registry.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
+import { imageContents, type AgentImages } from './attachments.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
 import { changeFrom } from './model-name.ts'
 
@@ -25,6 +26,8 @@ export interface HobkinsSeat {
   models?: () => Promise<ModelsState | null>
   /** The user's home folder, for a folder that starts with ~. */
   home?: string
+  /** The images attached to the messages being written. Without them a message can only be words. */
+  images?: AgentImages
 }
 
 type Names = Extract<CommandName, `hobkin.${string}`>
@@ -32,7 +35,7 @@ type Names = Extract<CommandName, `hobkin.${string}`>
 const OLD_RUNTIME = 'This hobkin does not have durable hobkins yet. Restart the app to load them.'
 const NO_MESSAGES = 'This hobkin cannot pass messages between hobkins yet. Restart the app to load them.'
 
-export function hobkinHandlers({ app, claudeMissing, modelProblem, models, home = homedir() }: HobkinsSeat): Pick<HostHandlers, Names> {
+export function hobkinHandlers({ app, claudeMissing, modelProblem, models, home = homedir(), images: attached }: HobkinsSeat): Pick<HostHandlers, Names> {
   const durable = (): DurableHobkins => {
     const hobkins = app().hobkins
     if (!hobkins) throw new Unavailable(OLD_RUNTIME)
@@ -78,7 +81,15 @@ export function hobkinHandlers({ app, claudeMissing, modelProblem, models, home 
       }
       return ask((hobkins) => hobkins.start({ cwd: path, engine, ...(text === undefined ? {} : { text }), ...(title === undefined ? {} : { title }) }))
     },
-    'hobkin.say': ({ id, text, noteId, sentAt }) => ask((hobkins) => hobkins.say(id, { text, ...(noteId === undefined ? {} : { noteId }), ...(sentAt === undefined ? {} : { sentAt }) })),
+    'hobkin.say': ({ id, text, images = [], noteId, sentAt }) => ask(async (hobkins) => {
+      // The images attached for it go with the words, and a message of pictures alone gets hobkin's own words.
+      const pictures = images.length ? { images: imageContents(attached, images) } : {}
+      const words = text?.trim() ? text : attached?.wordsAlone() ?? ''
+      const said = await hobkins.say(id, { text: words, ...pictures, ...(noteId === undefined ? {} : { noteId }), ...(sentAt === undefined ? {} : { sentAt }) })
+      // The hobkin has them now, so they leave the draft.
+      if (images.length) attached?.given(images)
+      return said
+    }),
     'hobkin.end': ({ id }) => ask((hobkins) => hobkins.end(id)),
     'hobkin.rename': ({ id, title }) => ask((hobkins) => hobkins.rename(id, title)),
     'hobkin.seen': ({ id }) => ask((hobkins) => hobkins.seen(id)),

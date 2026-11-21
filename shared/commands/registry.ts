@@ -251,10 +251,11 @@ export const COMMANDS = {
     },
   },
   'conversation.attach': {
-    description: 'Attach an image to the message being written. `data` is the file in base64. PNG, JPEG, GIF and WebP are taken.',
+    description:
+      "Attach an image to the message being written. `data` is the file in base64. PNG, JPEG, GIF and WebP are taken. `agent` names the agent the message is for, by its run id or `hobkin:<id>` for a durable hobkin: its images count against that message alone, and hobkin's own model need not see images. Without it the image is for hobkin's own conversation.",
     runs: 'host',
     // The size is checked against hobkin's own limit once the bytes are here.
-    args: Type.Object({ name: words(255), data: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+    args: Type.Object({ name: words(255), data: Type.String({ minLength: 1 }), agent: Type.Optional(words(256)) }, { additionalProperties: false }),
   },
   'conversation.detach': {
     description: 'Take an attached image back out of the message being written.',
@@ -693,12 +694,19 @@ export const COMMANDS = {
   },
   'hobkin.say': {
     description:
-      "Send the user's words to a durable hobkin. While it waits they start its next turn; while it works they reach the turn in flight.",
+      "Send the user's words to a durable hobkin, with the images attached for it (`conversation.attach` with `agent` as `hobkin:<id>`), by id. While it waits they start its next turn; while it works they reach the turn in flight.",
     runs: 'host',
     args: Type.Object(
-      { id: hobkinId, text: words(HOBKIN_MESSAGE_MAX), noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })), sentAt },
+      {
+        id: hobkinId,
+        text: Type.Optional(words(HOBKIN_MESSAGE_MAX)),
+        images: Type.Optional(Type.Array(words(64), { maxItems: 16 })),
+        noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })),
+        sentAt,
+      },
       { additionalProperties: false },
     ),
+    rule: ({ text, images }) => (text !== undefined || (Array.isArray(images) && images.length > 0) ? null : 'need words in "text" or at least one image'),
   },
   'hobkin.end': {
     description: 'End a durable hobkin: its turn in flight stops and it leaves the lists. Its conversation file stays on disk.',
@@ -1112,9 +1120,15 @@ export const COMMANDS = {
   },
   'agent.say': {
     description:
-      "Queue the user's words for an agent's exact run. Acknowledgement is not a receipt; steeringReceipts reports notes admitted into a Pi turn. Refused once the run has finished.",
+      "Queue the user's words for an agent's exact run, with the images attached for it (`conversation.attach` with `agent`), by id. Acknowledgement is not a receipt; steeringReceipts reports notes admitted into a Pi turn. Refused once the run has finished.",
     runs: 'host',
-    args: Type.Object({ run: words(256), text: words(4096), noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })) }, { additionalProperties: false }),
+    args: Type.Object({
+      run: words(256),
+      text: Type.Optional(words(4096)),
+      images: Type.Optional(Type.Array(words(64), { maxItems: 16 })),
+      noteId: Type.Optional(Type.String({ maxLength: 36, pattern: '^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$' })),
+    }, { additionalProperties: false }),
+    rule: ({ text, images }) => (text !== undefined || (Array.isArray(images) && images.length > 0) ? null : 'need words in "text" or at least one image'),
   },
   'agent.change': {
     description:
