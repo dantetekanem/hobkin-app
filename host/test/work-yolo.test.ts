@@ -73,7 +73,7 @@ test('only the window changes YOLO mode', async (t) => {
   const handlers = workHandlers({ app: () => app, root: () => root })
   const reported = async () => workFrom({ work: await runWorkCommand(root, []), waiting: null })!.yolo!
 
-  assert.deepEqual(await reported(), { on: false, rate: 8, lowest: 6, highest: 10, ready: 0, projects: [] }, 'off until the user turns it on')
+  assert.deepEqual(await reported(), { on: false, rate: 8, lowest: 6, highest: 10, ready: 0, waits: 'work mode is off', projects: [] }, 'off until the user turns it on')
 
   // hobkin's own tool is refused, and does not even list it.
   const tool = createClientTool({ run: (name, args) => runCommand(handlers, name, args) })
