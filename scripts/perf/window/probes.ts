@@ -26,12 +26,16 @@ export type RowWords = 'list' | 'own'
 
 /** Draws per probe since the last `resetDraws`. */
 export const draws: Record<string, number> = {}
-const drew = (name: string) => void (draws[name] = (draws[name] ?? 0) + 1)
-export const resetDraws = () => {
+
+function drew(name: string) {
+  draws[name] = (draws[name] ?? 0) + 1
+}
+
+export function resetDraws() {
   for (const name of Object.keys(draws)) draws[name] = 0
 }
 
-/** A dock row's words, read the whole agents list, then this agent in it, as `AgentsDock.tsx` read them before `useAgentWords`. */
+/** A dock row's words, read through the whole agents list, then this agent in it, as `AgentsDock.tsx` read them before `useAgentWords`. */
 function ListWords({ agent }: { agent: RunningAgent }) {
   drew('dock.AgentWords')
   const live = useHasHost()
@@ -45,25 +49,24 @@ function OwnWords({ agent }: { agent: RunningAgent }) {
   return null
 }
 
-let Words = ListWords
-
 function Helpers({ runId }: { runId: string }) {
   drew('dock.ChildCluster')
   useRunChildren(runId)
   return null
 }
 
-const Row = memo(function Row({ agent }: { agent: RunningAgent }) {
+const Row = memo(function Row({ agent, words }: { agent: RunningAgent; words: RowWords }) {
   drew('dock.AgentRow')
+  const Words = words === 'own' ? OwnWords : ListWords
   return [createElement(Words, { key: 'words', agent }), createElement(Helpers, { key: 'helpers', runId: agent.durable?.run ?? agent.id })]
 })
 
-function Dock() {
+function Dock({ words }: { words: RowWords }) {
   drew('dock.AgentsDock')
   const running = useRunningAgents()
   const { walk } = useMemo(() => agentGroups(running), [running])
   helpersNow(useMainChildren())
-  return walk.map((agent) => createElement(Row, { key: agent.id, agent }))
+  return walk.map((agent) => createElement(Row, { key: agent.id, agent, words }))
 }
 
 function Composer() {
@@ -133,8 +136,7 @@ const CHAT = ['composer', 'avatar', 'status', 'chat'] as const
 
 /** What a screen keeps mounted: the dock and the chat always, then Home, or the menu's agents row and an agent's page. */
 export function screenTree(screen: Screen, open: string, words: RowWords): ReactNode {
-  Words = words === 'own' ? OwnWords : ListWords
   const chat = [Composer, Avatar, Status, Chat].map((probe, index) => createElement(probe, { key: CHAT[index] }))
   const rest = screen === 'home' ? [createElement(Home, { key: 'home' })] : [createElement(Menu, { key: 'menu' }), createElement(Page, { key: 'page', id: open })]
-  return [createElement(Dock, { key: 'dock' }), ...chat, ...rest]
+  return [createElement(Dock, { key: 'dock', words }), ...chat, ...rest]
 }

@@ -59,9 +59,13 @@ const lines = new WeakMap<ActivityEntry, string | null>()
 
 function lineOf(entry: ActivityEntry): string | undefined {
   if (entry.kind !== 'assistant' || !entry.text) return undefined
+
   let line = lines.get(entry)
-  // One plain line: an agent's message can be pages of Markdown, and a row and its hover say one line of it.
-  if (line === undefined) lines.set(entry, (line = summaryLine(entry.text) ?? null))
+  if (line === undefined) {
+    // One plain line: an agent's message can be pages of Markdown, and a row and its hover say one line of it.
+    line = summaryLine(entry.text) ?? null
+    lines.set(entry, line)
+  }
   return line ?? undefined
 }
 
@@ -88,7 +92,7 @@ export function agentsFrom(snapshot: WireSnapshot, { includeEnded = false }: { i
 const NO_ACTIVITY = {}
 
 /** What a list of agents was made from, and the list: the runs, the durable hobkins, and the activity as its key. */
-export type MadeLists<List> = WeakMap<object, { runs: unknown; hobkins: unknown; list: List }>
+export type MadeLists<List> = WeakMap<object, { runs: WireSnapshot['runs']; hobkins: WireSnapshot['hobkins']; list: List }>
 
 const agentsMade: MadeLists<SampleAgent[]> = new WeakMap()
 
@@ -97,11 +101,13 @@ const agentsMade: MadeLists<SampleAgent[]> = new WeakMap()
  * so every reader of one host message shares one list. Readers never change it.
  */
 export function madeOnce<List>(made: MadeLists<List>, snapshot: WireSnapshot, make: () => List): List {
+  const { runs, hobkins } = snapshot
   const key = (snapshot.jobActivity as object | undefined) ?? NO_ACTIVITY
   const held = made.get(key)
-  if (held && held.runs === snapshot.runs && held.hobkins === snapshot.hobkins) return held.list
+  if (held && held.runs === runs && held.hobkins === hobkins) return held.list
+
   const list = make()
-  made.set(key, { runs: snapshot.runs, hobkins: snapshot.hobkins, list })
+  made.set(key, { runs, hobkins, list })
   return list
 }
 

@@ -15,7 +15,8 @@ const sayable = (line: string) => line.length > 0 && !/^[-=_*\s]+$/.test(line) &
 
 /** The first line of `text` that says something, as plain words. It reads lines only up to that one, however long the text. */
 function firstSayable(text: string): string | undefined {
-  for (let start = 0; ; ) {
+  let start = 0
+  while (true) {
     const end = text.indexOf('\n', start)
     const line = plain(end < 0 ? text.slice(start) : text.slice(start, end))
     if (sayable(line)) return line

@@ -834,7 +834,7 @@ type Chips = HomeModel['header']['chips']
 /** The header's chips that do not count the agents at work: the ones before that count, and the ones after it. */
 function chipParts(input: HomeInput): { first: Chips; rest: Chips } {
   const first: Chips = []
-  const chips: Chips = []
+  const rest: Chips = []
   const next = forecasts(input)[0]
   const yolo = input.work?.yolo
   if (yolo?.on) {
@@ -844,20 +844,24 @@ function chipParts(input: HomeInput): { first: Chips; rest: Chips } {
     first.push({ tone: 'quiet', label: 'YOLO off', target: screen('yolo') })
   }
   if (next) {
-    chips.push({ tone: 'quiet', label: `Next: ${next.routine.title} · ${clockTime(next.next!.at)}`, target: { to: 'routine', id: next.routine.id } })
+    rest.push({ tone: 'quiet', label: `Next: ${next.routine.title} · ${clockTime(next.next!.at)}`, target: { to: 'routine', id: next.routine.id } })
   }
   if (input.work?.held) {
-    chips.push({ tone: 'warn', label: 'Work held', target: screen('work') })
+    rest.push({ tone: 'warn', label: 'Work held', target: screen('work') })
   }
   const held = input.routines.filter(facts => facts.state === 'held').length
   if (held) {
-    chips.push({ tone: 'warn', label: `${plural(held, 'routine')} held`, target: screen('routines') })
+    rest.push({ tone: 'warn', label: `${plural(held, 'routine')} held`, target: screen('routines') })
   }
-  return { first, rest: chips }
+  return { first, rest }
 }
 
-const chipsOf = ({ first, rest }: { first: Chips; rest: Chips }, agents: HomeInput['agents']): Chips =>
-  agents.length ? [...first, { tone: 'info', label: `${agents.length} working`, target: screen('work') }, ...rest] : [...first, ...rest]
+/** The header's chips with the count of the agents at work between the two parts, when any work. */
+function chipsOf({ first, rest }: { first: Chips; rest: Chips }, agents: HomeInput['agents']): Chips {
+  if (agents.length === 0) return [...first, ...rest]
+  const working: Chips[number] = { tone: 'info', label: `${agents.length} working`, target: screen('work') }
+  return [...first, working, ...rest]
+}
 
 /**
  * What Home draws apart from the agents at work, which change far more often than the rest: `homeParts` makes it from

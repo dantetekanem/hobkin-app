@@ -42,7 +42,11 @@ registerHooks({ resolve: (specifier, context, next) => next(specifier.startsWith
 
 // What the window's modules read of a page, and animation frames that run when the replay says a frame is due.
 const storage = new Map<string, string>()
-const localStorage = { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => void storage.set(key, value), removeItem: (key: string) => void storage.delete(key) }
+const localStorage = {
+  getItem: (key: string) => storage.get(key) ?? null,
+  setItem: (key: string, value: string) => void storage.set(key, value),
+  removeItem: (key: string) => void storage.delete(key),
+}
 const frames: FrameRequestCallback[] = []
 const requestAnimationFrame = (run: FrameRequestCallback) => frames.push(run)
 Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: localStorage })
@@ -54,9 +58,17 @@ Object.assign(globalThis, {
 })
 // React tells a devtools hook about every commit, in its production build too, which is how commits are counted here.
 let commits = 0
-Object.assign(globalThis, {
-  __REACT_DEVTOOLS_GLOBAL_HOOK__: { supportsFiber: true, isDisabled: false, inject: () => 1, onCommitFiberRoot: () => void (commits += 1), onCommitFiberUnmount: () => {}, onPostCommitFiberRoot: () => {} },
-})
+const devtools = {
+  supportsFiber: true,
+  isDisabled: false,
+  inject: () => 1,
+  onCommitFiberRoot: () => {
+    commits += 1
+  },
+  onCommitFiberUnmount: () => {},
+  onPostCommitFiberRoot: () => {},
+}
+Object.assign(globalThis, { __REACT_DEVTOOLS_GLOBAL_HOOK__: devtools })
 // Timers and Date follow the replay's clock, so a 25 ms message gap is 25 ms to the code under test however long it ran.
 mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: Date.now() })
 

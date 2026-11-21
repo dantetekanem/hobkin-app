@@ -45,21 +45,34 @@ export function mirrorStore<State>(source: Pick<StoreApi<State>, 'getState' | 's
     store.setState(source.getState(), true)
   }
 
+  /** How long until the store may take again: never long for frames, and what is left of `every` for a time. */
+  const untilAllowed = (): number => {
+    if (every === 'frame') return 0
+    const left = last + every - pace.now()
+    return Math.min(every, Math.max(0, left))
+  }
+
   const schedule = (atOnce: boolean) => {
     if (!due || waiting !== 0 || pace.hidden()) return
-    const wait = every === 'frame' ? 0 : Math.min(every, Math.max(0, last + every - pace.now()))
+
+    const wait = untilAllowed()
     if (atOnce && wait === 0) return take()
-    const id = (waiting = ++takes)
+
+    takes += 1
+    const id = takes
+    waiting = id
     const then = () => {
       if (waiting === id) take()
     }
     if (every === 'frame') {
       pace.frame(then)
       pace.timer(then, NO_FRAME_MS)
-    } else pace.timer(then, wait)
+    } else {
+      pace.timer(then, wait)
+    }
   }
 
-  const stop = source.subscribe(() => {
+  const unsubscribe = source.subscribe(() => {
     due = true
     schedule(every !== 'frame')
   })
@@ -71,7 +84,7 @@ export function mirrorStore<State>(source: Pick<StoreApi<State>, 'getState' | 's
     },
     stop: () => {
       waiting = 0
-      stop()
+      unsubscribe()
     },
   }
 }

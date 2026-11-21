@@ -7,6 +7,7 @@ import type { HostMessage } from '../../shared/protocol/messages.ts'
 import type { RunSummary, WireSnapshot } from '../../shared/protocol/snapshot.ts'
 import { listedAgents, wordsOf } from '../src/features/hobkins/list.ts'
 import { applyHostMessage } from '../src/lib/host/state.ts'
+import { countListBuilds } from './list-builds.ts'
 import { mountCounting } from './render-count.ts'
 
 Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: { getItem: () => null, setItem() {}, removeItem() {} } } })
@@ -55,14 +56,13 @@ test("a row's words are what the agents list says of its agent, read without bui
   const snapshot = snapshotOfEveryKind()
   const ids = ['hobkin:0a1b2c3d', 'hobkin:ffff0000', 'hobkin:12345678', 'w1', 'w2', 'hobkin:0a1b2c3d:2', 'silent', 'gone']
   const listed = listedAgents(snapshot)
-  // Building the list filters the runs, so a spy on the runs' own filter counts builds.
-  let builds = 0
-  const runs = snapshot.runs!
-  const filter = runs.filter
-  Object.defineProperty(runs, 'filter', { value: (...args: Parameters<typeof filter>) => ((builds += 1), filter.apply(runs, args)) })
-  assert.deepEqual(ids.map((id) => wordsOf(snapshot, id)), ids.map((id) => listed.find((agent) => agent.id === id)?.update))
-  assert.deepEqual(ids.map((id) => wordsOf(snapshot, id)), ['Tidying the docs.', 'The deploy is green.', undefined, 'Reading the index', undefined, undefined, undefined, undefined])
-  assert.equal(builds, 0, 'no agents list was built')
+  const builds = countListBuilds(snapshot.runs!)
+
+  const words = ids.map((id) => wordsOf(snapshot, id))
+
+  assert.deepEqual(words, ids.map((id) => listed.find((agent) => agent.id === id)?.update))
+  assert.deepEqual(words, ['Tidying the docs.', 'The deploy is green.', undefined, 'Reading the index', undefined, undefined, undefined, undefined])
+  assert.equal(builds.count, 0, 'no agents list was built')
 })
 
 test('useAgentWords follows its own agent from the host, and says the sample words without one', async () => {

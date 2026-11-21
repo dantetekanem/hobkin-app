@@ -99,12 +99,17 @@ function applyState(state: HostState, message: StateMessage): HostState {
   // chat's steps go to its own key, so the jobs are copied once, and not at all for a message of main steps alone.
   if (message.activity) {
     const steps = message.activity
-    const mainSteps = steps.some((step) => step.job === MAIN_ACTIVITY) ? steps.filter((step) => step.job === MAIN_ACTIVITY) : []
-    const jobSteps = mainSteps.length ? steps.filter((step) => step.job !== MAIN_ACTIVITY) : steps
+    const forMain = (step: (typeof steps)[number]) => step.job === MAIN_ACTIVITY
+    const hasMainSteps = steps.some(forMain)
+    const mainSteps = hasMainSteps ? steps.filter(forMain) : []
+    const jobSteps = hasMainSteps ? steps.filter((step) => !forMain(step)) : steps
+
     const jobs = snapshot.jobActivity as JobActivity | undefined
-    if (jobSteps.length || !jobs) snapshot.jobActivity = applyActivity(jobs ?? {}, jobSteps)
-    if (mainSteps.length) {
-      const main = applyActivity(snapshot.mainActivity ? { [MAIN_ACTIVITY]: snapshot.mainActivity } : {}, mainSteps)[MAIN_ACTIVITY]
+    if (jobSteps.length > 0 || !jobs) snapshot.jobActivity = applyActivity(jobs ?? {}, jobSteps)
+
+    if (hasMainSteps) {
+      const heldMain: JobActivity = snapshot.mainActivity ? { [MAIN_ACTIVITY]: snapshot.mainActivity } : {}
+      const main = applyActivity(heldMain, mainSteps)[MAIN_ACTIVITY]
       if (main) snapshot.mainActivity = main
       else delete snapshot.mainActivity
     }
@@ -143,8 +148,11 @@ function applyState(state: HostState, message: StateMessage): HostState {
 const storedIds = new WeakMap<readonly ChatMessage[], readonly string[]>()
 
 function idsOf(messages: readonly ChatMessage[]): readonly string[] {
-  let ids = storedIds.get(messages)
-  if (!ids) storedIds.set(messages, (ids = messages.map(({ id }) => id)))
+  const held = storedIds.get(messages)
+  if (held) return held
+
+  const ids = messages.map(({ id }) => id)
+  storedIds.set(messages, ids)
   return ids
 }
 

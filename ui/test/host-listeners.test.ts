@@ -27,9 +27,16 @@ test('a host message with no startup in it leaves the startup state alone', () =
 })
 
 test('agent threads read receipts only when the runs or the receipts change, and a run whose activity leaves takes its notes', async () => {
-  // A spy on the receipts: each read of a run's receipts counts.
+  // Receipts that count each read of a run's own.
   let reads = 0
-  const receipts = () => Object.defineProperty({}, 'r1', { enumerable: true, get: () => ((reads += 1), []) })
+  const receipts = () =>
+    Object.defineProperty({}, 'r1', {
+      enumerable: true,
+      get: () => {
+        reads += 1
+        return []
+      },
+    })
   send({ type: 'state', rev: rev++, set: { steeringReceipts: receipts() } })
   useAgentThreads.setState({ notes: {} })
   await useAgentThreads.getState().send('r1', 'Wait for me', async () => ({ sent: true }))

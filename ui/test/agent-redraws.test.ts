@@ -5,6 +5,7 @@ import { createElement } from 'react'
 import type { ActivityEntry } from '../../shared/protocol/activity.ts'
 import type { HostMessage } from '../../shared/protocol/messages.ts'
 import { applyHostMessage } from '../src/lib/host/state.ts'
+import { countListBuilds } from './list-builds.ts'
 import { mountCounting } from './render-count.ts'
 
 Object.defineProperty(globalThis, 'window', { configurable: true, value: {
@@ -122,10 +123,7 @@ test('a helper that moves draws the helpers of its own run again, not those of e
 test('100 rows and five list readers build the agents list once for a message', async () => {
   const ids = Array.from({ length: 100 }, (_, index) => `agent-${index}`)
   const runs = ids.map((id) => ({ id, kind: 'background' as const, state: 'running', title: `Agent ${id}`, cwd: '/fake/app' }))
-  // Building the agents list filters the runs, so a spy on the runs' own filter counts the builds.
-  let builds = 0
-  const filter = runs.filter
-  Object.defineProperty(runs, 'filter', { value: (...args: Parameters<typeof filter>) => ((builds += 1), filter.apply(runs, args)) })
+  const builds = countListBuilds(runs)
   send({ type: 'state', rev: rev++, reset: true, set: { runs, reports: [] }, activity: ids.map((job) => ({ op: 'reset', job, entries: [{ id: 'message:1:0', kind: 'assistant', text: 'Starting' }] })) })
 
   const said: Record<string, string | undefined> = {}
@@ -133,21 +131,23 @@ test('100 rows and five list readers build the agents list once for a message', 
     said[id] = useAgentWords({ id })
     return null
   }
-  const readers = [useRunningAgents, useRunningAgents, useAgents, useRunningCount, () => useAgent('agent-7')].map((read, index) =>
-    createElement(() => {
-      read()
-      return null
-    }, { key: `reader-${index}` }),
-  )
-  const mounted = await mountCounting(() => [...ids.map((id) => createElement(Row, { key: id, id })), ...readers])
+  // The dock, the menu, Home, the count and the agent's page: each reader calls one hook, always the same.
+  const Reader = ({ read }: { read: () => unknown }) => {
+    read()
+    return null
+  }
+  const reads = [useRunningAgents, useRunningAgents, useAgents, useRunningCount, () => useAgent('agent-7')]
+  const rows = ids.map((id) => createElement(Row, { key: id, id }))
+  const readers = reads.map((read, index) => createElement(Reader, { key: `reader-${index}`, read }))
+  const mounted = await mountCounting(() => [...rows, ...readers])
 
-  builds = 0
+  builds.reset()
   await mounted.change(() => send(words('agent-3', 'Reading the index.')))
-  assert.equal(builds, 1, 'one build for a message of words')
+  assert.equal(builds.count, 1, 'one build for a message of words')
   assert.equal(said['agent-3'], 'Reading the index.')
 
-  builds = 0
+  builds.reset()
   await mounted.change(() => send(step('agent-7', { id: 'tool:1', kind: 'tool', name: 'bash', state: 'running', input: '{"command":"ls"}' })))
-  assert.equal(builds, 1, 'one build for a message that changes what an agent does, which the list readers draw')
+  assert.equal(builds.count, 1, 'one build for a message that changes what an agent does, which the list readers draw')
   await mounted.unmount()
 })
