@@ -22,6 +22,8 @@ import { createTurnMetrics } from './turn-metrics.mjs';
 
 // The whole conversation is in its messages. This is a view of what it does now, so a long chat keeps only its latest steps.
 const MAIN_ACTIVITY_ENTRIES = 200;
+// The main chat's events after which the whole view reads something new: the conversation, its context, or a compaction under way.
+const WHOLE_VIEW_EVENTS = new Set(['message_end', 'agent_end', 'agent_settled', 'compaction_start', 'compaction_end']);
 
 export const MAIN_BUSY = 'Main conversation is busy.';
 const MAIN_STOPPING = 'Main conversation is stopping.';
@@ -334,7 +336,9 @@ export class HobkinRuntime {
           };
           recordEvent(this.directory, 'compaction_finished', { reason: event.reason, status: this.lastCompaction.status, ms: Date.now() - this.compactingSince });
         }
-        this.notify(event.type === 'message_update' || event.type === 'tool_execution_update');
+        // A message's words, its tools and its turns travel as activity, which carries the busy state, the tool in flight and the doing word.
+        // The whole view is rebuilt only when what it reads changed: a message or a run ended, or a compaction began or ended.
+        this.notify(!WHOLE_VIEW_EVENTS.has(event.type));
       });
       await this.change(state => {
         startup.signal.throwIfAborted();

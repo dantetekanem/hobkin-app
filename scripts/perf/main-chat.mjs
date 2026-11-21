@@ -6,7 +6,8 @@ import { makeHome, openApp, scratch } from './home.mjs';
 
 const [steps = 2, words = 20, seconds = 30] = process.argv.slice(2).map(Number);
 const base = scratch('main-chat', seconds + 120);
-const home = await makeHome(base);
+// Routines stay quiet, so what is measured is the main chat and the tick, not runs that start and end meanwhile.
+const home = await makeHome(base, { quietRoutines: true });
 // Each event goes where the main chat's own listener sends it (`connectMain` in runtime.mjs).
 const listeners = new Set();
 let published = 0, rebuilds = 0;
