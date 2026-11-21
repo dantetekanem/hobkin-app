@@ -5,6 +5,7 @@ export { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, isNotRequestPath, sen
 export { deriveFacts } from './facts.ts'
 export { floor } from './floor.ts'
 export { DEPLOY_WORDS, deployAnswer, type Deploy, type DeployAnswer } from './answer.ts'
+export { BRIEF_PARTS, fixBrief } from './fix.ts'
 export { applyRiskEvents, checkInvariants, nodeLevelOf, type RejectedEvent, type Violation } from './risk.ts'
 export { checkMap, curate, isOnPath, markUnverified, type CurateInput, type MapProblem } from './curate.ts'
 export { levelsInStory, renderStory, type StoryInput } from './story.ts'
