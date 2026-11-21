@@ -3,6 +3,7 @@ import { budgetFor, costHistory, dayLine, estimateRun, fitsDay, fitsHour, hourLi
 import { lookTime } from './chat.mjs';
 import { openLaunches, watchDue } from './launches.mjs';
 import { toolsHere } from './machines.mjs';
+import { oneRead } from './one-read.mjs';
 import { belowWanted, canWatch, readSignals, signalsDue } from './signals.mjs';
 // `reads.mjs` imports this file too. Neither calls the other while loading, so the cycle is safe.
 import { readyItems } from './reads.mjs';
@@ -553,7 +554,12 @@ export const startGap = ({ startGapMs }, running) => (running.length ? startGapM
  * One ranked list of everything that could run next. Pure code over what is on disk, so it spends no tokens and anyone can ask.
  * `running` and `checks` come from the owner. Without them the list is what would run on an idle machine.
  */
-export function planWork(root, { mode = readMode(root), now = Date.now(), running = [], checks = 0, lastStartAt = null } = {}) {
+export function planWork(root, options = {}) {
+  // The director plans on every tick, and each project's rows read the same survey and items: one look reads each once.
+  return oneRead(() => planOf(root, options));
+}
+
+function planOf(root, { mode = readMode(root), now = Date.now(), running = [], checks = 0, lastStartAt = null }) {
   const budget = budgetFor(root, mode, now, running);
   const reading = readSubscription(root);
   const context = { root, mode, now, running, budget, reading, spent: outOfStarts(mode.countedStarts, now) };

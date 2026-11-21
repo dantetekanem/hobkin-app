@@ -5,7 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { workStatus } from '../src/cli/work/commands.mjs';
+import { initialize } from '../src/cli/config.mjs';
+import { readWaiting } from '../src/cli/pending-read.mjs';
 import { oneRead } from '../src/cli/work/one-read.mjs';
+import { planWork } from '../src/cli/work/plan.mjs';
 import { fileItem, readItems } from '../src/cli/work/store.mjs';
 import { writeJson } from './helpers/work-fixture.mjs';
 
@@ -103,4 +106,17 @@ test('an item filed during one look at work mode shows in the rest of that look'
     return [before, readItems(h.root, 'api').map(({ title }) => title)];
   });
   assert.deepEqual(titles, [['Fix the door'], ['Fix the door', 'Fix the hinge']]);
+});
+
+test('the plan the director makes each tick, and the Action Items rows, each read the survey and each project\'s items once', t => {
+  const h = home(t);
+  initialize(h.root, { cwd: h.root });
+  planWork(h.root);
+  readWaiting(h.root);
+  h.reads();
+
+  assert.equal(planWork(h.root).entries.some(({ item }) => item?.id === 'abc123'), false, 'finished work is not planned again');
+  assert.deepEqual(h.reads(), { survey: 1, runs: 0, ready: 1, items: 1 });
+  assert.deepEqual(readWaiting(h.root).branches.map(({ item }) => item), ['abc123']);
+  assert.deepEqual(h.reads(), { survey: 1, runs: 1, ready: 1, items: 1 });
 });

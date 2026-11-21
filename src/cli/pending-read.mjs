@@ -7,6 +7,7 @@ import { pendingCard, waitingRows } from './pending.mjs';
 import { readReportIds } from './telemetry.mjs';
 import { readLocalView } from './view.mjs';
 import { nameOf } from './work/names.mjs';
+import { oneRead } from './work/one-read.mjs';
 import { attentionView, pullRequestRows, readyItems } from './work/reads.mjs';
 import { readItems, readLaunches, readProjects } from './work/store.mjs';
 
@@ -59,6 +60,7 @@ const reportRow = ({ id, title, at, triage }) => ({ id, title, at, level: triage
 
 /** The same rows one by one, for the Action Items tab. */
 export function readWaiting(requestedRoot, { now = Date.now(), reports } = {}) {
-  const rows = waitingRows(pendingInputs(requestedRoot, { now, reports }));
+  // Every full refresh lists these, and the finished work, the PRs and the attention rows read the same survey and items.
+  const rows = waitingRows(oneRead(() => pendingInputs(requestedRoot, { now, reports })));
   return { ...rows, reports: rows.reports.map(reportRow) };
 }
