@@ -6,6 +6,7 @@ import {
   addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, publishItem, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
 } from './controls.mjs';
+import { deployNow, recordDeployed } from './deploys.mjs';
 import { forecastEachMinute } from './forecast.mjs';
 import { offersView } from './land-offer.mjs';
 import { assertLaunch, recordWatch } from './launches.mjs';
@@ -56,6 +57,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   retry, ask <project> <item> [note]    tries reset; ask runs your note first
   done, merge, decline <project> <item>  close; merge locally; or say no
   publish <project> <item> [commit]    approved: push it at that commit, open its PR
+  deploy <project>                     the user's ask: the deploy job for what merged since the last deploy
   trust <pattern> <on|off>             the user's switch for a pattern's offers
   trouble <project> <item> [severe] [why]  a merge went wrong: files the fix
   drop <project> [item]                stop work on it; branches and PRs stay
@@ -73,6 +75,7 @@ Used by agents inside a run:
   propose, progress                    JSON on stdin: a project; a look's place
   tree <project>                       a worktree for a look that needs tests
   yolo <project> [item]                JSON on stdin: its readiness; or, with an item, monitoring after its deploy
+  deployed <project> <commit>          JSON on stdin: the live check and monitoring after a Deploy now? deploy
   machines <project>                   JSON on stdin: each state machine a look found, with its files
 `;
 // What the tab and an agent asking need, and a long plan would otherwise fill the status.
@@ -365,6 +368,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'done': return markDone(root, ...args);
     case 'merge': return mergeItem(root, args[0], args[1]);
     case 'publish': return publishItem(root, args[0], args[1], { head: args[2] ?? null });
+    case 'deploy': return deployNow(root, args[0]);
     case 'decline': return declineItem(root, args[0], args[1]);
     case 'ask': return askAgent(root, args[0], args[1], args.slice(2).join(' '), QUEUED);
     case 'drop': return dropWork(root, ...args);
@@ -401,8 +405,8 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       return proposeProject(root, proposal);
     }
     case 'item': {
-      // Agents file work through this, and `max`, `grade`, `reviewAsked`, `reviewAskedFor`, `modelAsked`, `modelAskedFor`, `workNote`, the issue an item came from and what a merge or an offer records are only ever hobkin's or the user's word, so none can arrive here.
-      const { max, grade, reviewAsked, reviewAskedFor, modelAsked, modelAskedFor, workNote, landed, closedByUser, offerHeldUntil, pushbacks, withMainAgent, issue, ...item } = await readJson(input);
+      // Agents file work through this, and `max`, `grade`, `reviewAsked`, `reviewAskedFor`, `modelAsked`, `modelAskedFor`, `workNote`, the issue an item came from and what a merge, an offer or a deploy records are only ever hobkin's or the user's word, so none can arrive here.
+      const { max, grade, reviewAsked, reviewAskedFor, modelAsked, modelAskedFor, workNote, landed, closedByUser, offerHeldUntil, pushbacks, withMainAgent, issue, deploy, ...item } = await readJson(input);
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
       if (item.launch) assertLaunch(item.launch);
@@ -415,6 +419,11 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'signals': return signalsCommand(root, args[0], input);
     case 'watch': return watchCommand(root, args[0], input);
     case 'yolo': return yoloCommand(root, args, input);
+    case 'deployed': {
+      const report = input && !input.isTTY ? await readText(input) : '';
+      if (!report.trim()) throw Error('Pipe the live check and what the monitoring showed after the deploy, as JSON.');
+      return recordDeployed(root, args[0], args[1], JSON.parse(report));
+    }
     case 'machines': return machinesCommand(root, args[0], input);
     case 'trouble': return callTrouble(root, ...args);
     default: throw new WrongCommand(HELP);

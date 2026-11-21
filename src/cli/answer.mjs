@@ -4,6 +4,7 @@ import { ROUTINE_ASKS } from './routine-care.mjs';
 import { recordEvent } from './events.mjs';
 import { handAnswer, remindTomorrow } from './inbox.mjs';
 import { answerOffer, askAgent } from './work/controls.mjs';
+import { answerDeploy } from './work/deploys.mjs';
 import { answerPair } from './work/pairs.mjs';
 import { answerPickUp } from './work/pick-up.mjs';
 import { answerSubscriptionPause } from './work/subscription.mjs';
@@ -21,6 +22,7 @@ function carryOutChoice(root, { answerTo }, value, now) {
   if (answerTo?.kind === 'reminder' && value === 'tomorrow') return remindTomorrow(root, answerTo.id, now);
   if (answerTo?.kind === 'merge') return answerOffer(root, answerTo, value, now);
   if (answerTo?.kind === 'pair') return answerPair(root, value, answerTo.rows, now);
+  if (answerTo?.kind === 'deploy') return answerDeploy(root, value, answerTo, now);
   if (answerTo?.kind === 'pickup') return answerPickUp(root, value, answerTo.keys);
   if (answerTo?.kind === 'subscription') return answerSubscriptionPause(root, value, answerTo.until, now);
   return null;

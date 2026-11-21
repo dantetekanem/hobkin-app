@@ -382,10 +382,12 @@ export class WorkDirector {
     });
   }
 
-  // Code only: what each merge left for the user is told in Chat, and the GitHub issue it came from is closed. It runs by itself, because gh must not hold a tick.
+  // Code only: what each merge left for the user is told in Chat, and the GitHub issue it came from is closed, at once or once the deploy that
+  // carried it held. "Deploy now?" is asked here, and a yes to it goes to the main agent. It runs by itself, because gh must not hold a tick.
   settleMerges() {
     if (this.settlingMerges) return;
-    this.settlingMerges = afterMerges(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}) })
+    const handOff = this.onHandOff ? { handOff: this.onHandOff } : {};
+    this.settlingMerges = afterMerges(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}), ...handOff })
       .then(followed => {
         if (followed.length) this.onChange();
       })

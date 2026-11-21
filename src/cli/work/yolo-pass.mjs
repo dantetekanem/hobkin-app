@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { postClientNotice } from '../client-notices.mjs';
 import { CRITERIA, scoresOf, SMALL_KINDS } from './classified.mjs';
 import { mergeItem, whyWorkModeWaits } from './controls.mjs';
+import { AFTER_DEPLOY_MINUTES, deployHeld, READINGS, readingFrom, sawIn } from './deploys.mjs';
 import { userTrouble } from './launches.mjs';
 import { readMachines, unmodeledIn } from './machines.mjs';
 import { nameOf } from './names.mjs';
@@ -22,10 +23,7 @@ import { holdProject, prepareProjects, readinessOf, readYolo } from './yolo.mjs'
  */
 
 const SHORT_SHA = 7;
-// How long a deploy is watched before its monitoring is called calm.
-export const AFTER_DEPLOY_MINUTES = 30;
-export const READINGS = ['errors', 'slowQueries', 'latency'];
-const LONGEST_LINE = 400;
+export { AFTER_DEPLOY_MINUTES, READINGS };
 export const kindWords = {
   performance: 'performance work',
   'bug-fix': 'a bug fix',
@@ -101,20 +99,13 @@ const deployJob = ({ project, item, target, path, back }) => ({
     + `Deploy exactly that commit by the project's recorded path: ${path} Its way back: ${back} `
     + 'Prove it with the live revision and a real health check, report what deployed, and deploy nothing else. '
     + `Then watch its monitoring for ${AFTER_DEPLOY_MINUTES} minutes and record what it showed: pipe `
-    + '{ "minutes": 30, "errors": { "regressed": false, "saw": "one line" }, "slowQueries": { "regressed": false, "saw": "one line" }, '
-    + '"latency": { "regressed": false, "saw": "the figure against its baseline" } } '
-    + `to hobkin work yolo ${project.slug} ${item.id}. A regression is recorded the moment it shows, without waiting for the window to end.`,
+    + '{ "live": "the live revision and what showed the change working", "minutes": 30, "errors": { "regressed": false, "saw": "one line" }, '
+    + '"slowQueries": { "regressed": false, "saw": "one line" }, "latency": { "regressed": false, "saw": "the figure against its baseline" } } '
+    + `to hobkin work yolo ${project.slug} ${item.id}. A regression is recorded the moment it shows, without waiting for the window to end. `
+    + 'A reading the project has no monitoring for is { "notApplicable": "the reason" }, and with none at all it is recorded at once. '
+    + 'The issue the change came from closes once that reading says the deploy held.',
   why: 'YOLO mode is on and this project is ready for it',
 });
-
-const isOneLine = text => typeof text === 'string' && text.trim().length > 0 && text.length <= LONGEST_LINE && !/[\r\n]/.test(text.trim());
-
-function readingOf(name, reading) {
-  const { regressed, saw, notApplicable } = reading ?? {};
-  if (typeof regressed === 'boolean' && isOneLine(saw)) return { regressed, saw: saw.trim() };
-  if (isOneLine(notApplicable)) return { regressed: false, notApplicable: notApplicable.trim() };
-  throw Error(`${name} needs regressed, true or false, with what the monitoring showed in a line as saw, or notApplicable with the reason.`);
-}
 
 /** Every line of the ledger, oldest first: each merge by itself, with `target`, and each reading of the monitoring after its deploy, with `after`. */
 export const readLedger = root => readJsonLines(ledgerPath(root));
@@ -124,21 +115,23 @@ const mergedByYolo = (root, slug, id) => readLedger(root).some(line => line.slug
 /**
  * What the monitoring showed after a change YOLO mode merged was deployed: errors, slow queries, and latency against its baseline, over the
  * window. It is written down and said in Chat. A regression is a problem at once: it is told as critical, recorded as trouble on that change
- * so its fix is filed, and the project stops merging by itself until its readiness is checked again. A calm reading has to cover the window.
+ * so its fix is filed, and the project stops merging by itself until its readiness is checked again. A calm reading has to cover the window,
+ * unless the project has no monitoring at all. Its deploy then held, or not, and the pass after merges closes its issue once it held.
  */
 export function recordAfterDeploy(root, project, item, sent, now = Date.now()) {
   const { slug } = project;
   if (!mergedByYolo(root, slug, item.id)) throw Error(`YOLO mode did not merge "${item.title}", so it has no deploy of its own to report on.`);
-  if (!Number.isInteger(sent?.minutes) || sent.minutes < 1) throw Error('minutes is how long the monitoring was watched, as a whole number.');
-  const after = { minutes: sent.minutes, ...Object.fromEntries(READINGS.map(name => [name, readingOf(name, sent[name])])) };
-  const regressed = READINGS.filter(name => after[name].regressed);
-  if (!regressed.length && after.minutes < AFTER_DEPLOY_MINUTES) throw Error(`A reading with no regression covers the whole ${AFTER_DEPLOY_MINUTES} minutes. Record it once they have passed.`);
+  const reading = readingFrom(sent);
+  const { after, regressed, unmonitored } = reading;
 
   appendFileSync(ledgerPath(root), `${JSON.stringify({ at: new Date(now).toISOString(), slug, item: item.id, title: item.title, after, regressed })}\n`, { mode: 0o600 });
+  if (item.deploy) deployHeld(root, slug, item, reading, now);
   const named = `"${item.title}" on ${nameOf(project)}`;
-  const saw = names => names.map(name => after[name].saw).filter(Boolean).join(' ');
+  const saw = names => sawIn(after, names);
   if (!regressed.length) {
-    const line = `After its deploy, ${named} held for ${after.minutes} minutes: ${saw(READINGS)}`;
+    const line = unmonitored
+      ? `After its deploy, ${named} is live, with no monitoring to watch.${after.live ? ` ${after.live}` : ''}`
+      : `After its deploy, ${named} held for ${after.minutes} minutes: ${saw(READINGS)}`;
     postClientNotice(root, { key: `yolo-after:${slug}:${item.id}`, line, tone: 'useful' }, now);
     return { regressed, line };
   }
@@ -177,7 +170,11 @@ function report(root, { project, item, head, target, readiness, handOff, now }) 
 
   const line = `YOLO mode merged "${item.title}" on ${nameOf(project)} by itself: ${kindWords[kind]} rated ${rate}, at ${head.slice(0, SHORT_SHA)}. ${deployWords[deploy]}`;
   postClientNotice(root, { key: `yolo:${project.slug}:${item.id}`, line, tone: 'useful' }, now);
-  if (deploy === 'handed on') handOff(deployJob({ project, item, target, path: readiness.parts.deploy.line, back: readiness.parts.rollback.line }));
+  if (deploy === 'handed on') {
+    // Its deploy is this mode's own, so the pass after merges asks nothing about it, and its issue waits for that deploy's reading.
+    updateItem(root, project.slug, item.id, { deploy: { state: 'deploying', by: 'yolo', commit: target, at: merged.at, handedAt: merged.at } }, now);
+    handOff(deployJob({ project, item, target, path: readiness.parts.deploy.line, back: readiness.parts.rollback.line }));
+  }
   return merged;
 }
 

@@ -104,6 +104,7 @@ function deployedWords(merge, readings) {
   if (!reading) return deployWords[merge.deploy];
   const saw = names => names.map(name => reading.after[name].saw).filter(Boolean).join(' ');
   if (reading.regressed.length) return `Problem after its deploy: ${saw(reading.regressed)}`;
+  if (READINGS.every(name => reading.after[name].notApplicable)) return 'It deployed and is live, with no monitoring to watch.';
   return `It deployed and held for ${reading.after.minutes} minutes: ${saw(READINGS)}`;
 }
 
