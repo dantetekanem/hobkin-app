@@ -93,7 +93,7 @@ function launch(t: TestContext, { settings = SETTINGS, request = {}, setup = {},
   const spawned: { command: string; args: string[]; options: Line }[] = []
   const signals: string[] = []
   const events: Line[] = []
-  let send: ((message: string) => Promise<{ disposition: 'queued' }>) | undefined
+  let send: ((message: string, images?: { type: 'image'; data: string; mimeType: string }[]) => Promise<{ disposition: 'queued' }>) | undefined
   let child: ClaudeChild | undefined
   const run: ClaudeHarnessRequest = {
     id: RUN_ID,
@@ -210,6 +210,31 @@ test('a message reaches Claude and its receipt follows', async (t) => {
   const ended = await run.finished
   assert.equal(ended.status, 'completed')
   assert.equal(ended.text, 'Done, README included.')
+})
+
+test('images the user attached go to Claude as image blocks, and the receipt counts them', async (t) => {
+  const chart = { type: 'image' as const, data: 'aW1hZ2U=', mimeType: 'image/png' }
+  const block = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aW1hZ2U=' } }
+  const run = launch(t, { request: { images: [chart] } })
+  await until(() => run.send(), 'the run to take messages')
+  assert.deepEqual(run.fake.written[0]!.message.content, [{ type: 'text', text: 'Fix the flaky cache test.' }, block], 'the first prompt carries its image')
+
+  run.fake.print(init())
+  await run.send()!('[hobkin-note:7d1f]\nThis one too.', [chart])
+  await until(() => run.fake.written.length === 2, 'the message on stdin')
+  assert.deepEqual(run.fake.written[1]!.message.content, [{ type: 'text', text: '[hobkin-note:7d1f]\nThis one too.' }, block])
+
+  // Claude's replay of it says how many images it took, so hobkin's runner can match the note with its images.
+  run.fake.print({ ...replay('[hobkin-note:7d1f]\nThis one too.'), message: { role: 'user', content: [{ type: 'text', text: '[hobkin-note:7d1f]\nThis one too.' }, block] } })
+  await until(() => run.events.some((event) => event.type === 'message_end' && event.message.role === 'user'), 'the receipt')
+  assert.deepEqual(run.events.find((event) => event.message?.role === 'user')?.message.content, [
+    { type: 'text', text: '[hobkin-note:7d1f]\nThis one too.' },
+    { type: 'image', mimeType: 'image/png' },
+  ])
+  run.fake.print(result('Done.'))
+  await until(() => run.fake.inputClosed, 'the input to close')
+  run.fake.exit(0)
+  assert.equal((await run.finished).status, 'completed')
 })
 
 test('a finished run reports its text, cost and tokens, and records its usage', async (t) => {

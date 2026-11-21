@@ -73,7 +73,13 @@ function piOutput(tool: string, text: string, isError: boolean): string {
 
 const messageStart = (): PiEvent => ({ type: 'message_start', message: { role: 'assistant' } })
 const textDelta = (text: string): PiEvent => ({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: text } })
-const messageEnd = (role: 'assistant' | 'user', text: string): PiEvent => ({ type: 'message_end', message: { role, content: [{ type: 'text', text }] } })
+const messageEnd = (role: 'assistant' | 'user', text: string, images: unknown[] = []): PiEvent => ({ type: 'message_end', message: { role, content: [{ type: 'text', text }, ...images] } })
+
+/** The images in a user message, as Pi names them, without their bytes: hobkin's runner counts them to match a note. */
+const imagesIn = (content: unknown) =>
+  recordsIn(content)
+    .filter((block) => block.type === 'image')
+    .map((block) => ({ type: 'image', mimeType: textOf(isRecord(block.source) ? block.source.media_type : undefined) }))
 
 export class ClaudeStream {
   /** Claude's own session id, from its first `system` `init` record. */
@@ -206,8 +212,9 @@ export class ClaudeStream {
     if (record.isReplay === true) {
       const said = textIn(message.content, '')
       if (!said) return
-      if (this.open) this.held.push(messageEnd('user', said))
-      else events.push(messageEnd('user', said))
+      const end = messageEnd('user', said, imagesIn(message.content))
+      if (this.open) this.held.push(end)
+      else events.push(end)
       return
     }
     const results = recordsIn(message.content).filter((block) => block.type === 'tool_result')

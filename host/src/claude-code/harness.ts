@@ -4,6 +4,7 @@ import { appendFileSync, existsSync, mkdirSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import type { Readable } from 'node:stream'
 import { stripVTControlCharacters } from 'node:util'
+import type { ImageContent } from 'hobkin/src/cli/application.mjs'
 import { recordEvent } from 'hobkin/src/cli/events.mjs'
 import { PERMISSION_MODE, type ClaudeCodeSettings } from '#shared/protocol/claude-code.ts'
 import type { Ask } from '../questions.ts'
@@ -22,6 +23,8 @@ export interface ClaudeHarnessRequest {
   id: string
   cwd: string
   prompt: string
+  /** Images the user attached to the prompt, as Pi takes them. */
+  images?: ImageContent[]
   sessionFile: string
   /** The Claude session an earlier turn of a durable hobkin started. Claude continues it instead of starting one. */
   resume?: string
@@ -41,7 +44,7 @@ export interface ClaudeChild {
 
 export interface ClaudeHarnessOptions {
   onEvent?: (event: Record<string, unknown>) => void
-  onReady?: (send: (message: string) => Promise<{ disposition: 'queued' }>) => void
+  onReady?: (send: (message: string, images?: ImageContent[]) => Promise<{ disposition: 'queued' }>) => void
   onControl?: (child: ClaudeChild) => void
   /** hobkin's data root: the turn's timings go in its event log. */
   metricsRoot?: string
@@ -154,10 +157,16 @@ function claudeArguments({ model, effort, permissions }: ClaudeCodeSettings, req
   ]
 }
 
-/** A user message for Claude's input. Its own id lets Claude acknowledge it even when it merges it with others. */
-const userMessage = (text: string, sessionId: string) => ({
+/**
+ * A user message for Claude's input, with the images the user attached as Claude's own image blocks. Its own id lets
+ * Claude acknowledge it even when it merges it with others.
+ */
+const userMessage = (text: string, sessionId: string, images: readonly ImageContent[] = []) => ({
   type: 'user',
-  message: { role: 'user', content: [{ type: 'text', text }] },
+  message: {
+    role: 'user',
+    content: [{ type: 'text', text }, ...images.map(({ data, mimeType }) => ({ type: 'image', source: { type: 'base64', media_type: mimeType, data } }))],
+  },
   parent_tool_use_id: null,
   session_id: sessionId,
   uuid: randomUUID(),
@@ -477,13 +486,13 @@ async function runTurn(request: ClaudeHarnessRequest, options: ClaudeHarnessOpti
     return { ...result, error: clean((error as Error | null)?.message ?? error).slice(0, MAX_ERROR) }
   }
   if (!stopping && !forced && !exited) {
-    write(userMessage(request.prompt, sessionId))
+    write(userMessage(request.prompt, sessionId, request.images))
     timing.prompted()
     takesMessages = true
     try {
-      onReady(async (message) => {
+      onReady(async (message, images) => {
         if (!takesMessages) throw Object.assign(Error('That check has finished.'), { notQueued: true })
-        write(userMessage(message, sessionId))
+        write(userMessage(message, sessionId, images))
         return { disposition: 'queued' as const }
       })
     } catch {
