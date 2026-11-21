@@ -23,7 +23,7 @@ import { turnFrom } from './turn-metrics.mjs';
  * flight. Only the user ends one. See the client's `_specs/034-durable-hobkins`.
  */
 
-export const MOST_HOBKINS = 12;
+export const MOST_HOBKINS = 48;
 export const MESSAGE_MAX = 32768;
 export const TITLE_MAX = 120;
 /** How long a wait can go unseen before the main agent hears of it. */

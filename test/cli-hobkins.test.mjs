@@ -462,7 +462,7 @@ test('an unseen wait wakes the main agent once, and a seen one never', async t =
   assert.doesNotMatch(sent.mock.calls[1].arguments[0], /Rename/);
 });
 
-test('ending stops the turn and keeps the conversation, and a thirteenth is refused', async t => {
+test('ending stops the turn and keeps the conversation, and a forty-ninth is refused', async t => {
   const h = fixture(t);
   const turns = fakeTurns();
   const app = await h.openApp({ runHarness: turns.runHarness });
@@ -483,9 +483,9 @@ test('ending stops the turn and keeps the conversation, and a thirteenth is refu
   assert.equal(turns.calls.length, 1);
 
   const kept = [];
-  for (let n = 0; n < 12; n++) kept.push(await app.hobkins.start({ text: `Job ${n}.`, cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } }));
-  await assert.rejects(app.hobkins.start({ text: 'One more.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } }), /already 12 hobkins\. End one first\./);
-  assert.equal((await app.refresh()).hobkins.length, 12);
+  for (let n = 0; n < 48; n++) kept.push(await app.hobkins.start({ text: `Job ${n}.`, cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } }));
+  await assert.rejects(app.hobkins.start({ text: 'One more.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } }), /already 48 hobkins\. End one first\./);
+  assert.equal((await app.refresh()).hobkins.length, 48);
   await app.hobkins.end(kept[0].id);
   assert.match((await app.hobkins.start({ text: 'One more.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } })).id, /^[0-9a-f]{8}$/);
 });
