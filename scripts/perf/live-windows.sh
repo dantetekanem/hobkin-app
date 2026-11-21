@@ -24,6 +24,8 @@ echo "# $label $(date '+%Y-%m-%d %H:%M:%S') host=$host shell=$shell content=$con
 echo "window,start,agents_start,agents_end,host%,content%,gpu%,shell%,together%,host_rss_mb,content_rss_mb,content_footprint,gpu_rss_mb"
 for window in $(seq 1 "$windows"); do
   start=$(date '+%H:%M:%S')
+  # The dev host restarts itself onto newer code, so it is looked up again for each window.
+  host=$(pgrep -f "host/src/main.ts" | head -1)
   a0=$(agents "$host")
   h0=$(cpu_secs "$host"); c0=$(cpu_secs "$content"); g0=$(cpu_secs "$gpu"); s0=$(cpu_secs "$shell")
   t0=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
@@ -31,6 +33,10 @@ for window in $(seq 1 "$windows"); do
   t1=$(perl -MTime::HiRes=time -e 'printf "%.3f", time')
   h1=$(cpu_secs "$host"); c1=$(cpu_secs "$content"); g1=$(cpu_secs "$gpu"); s1=$(cpu_secs "$shell")
   a1=$(agents "$host")
+  if [ "$(pgrep -f "host/src/main.ts" | head -1)" != "$host" ]; then
+    echo "$window,$start,$a0,$a1,host restarted: drop this window"
+    continue
+  fi
   awk -v w="$window" -v st="$start" -v a0="$a0" -v a1="$a1" -v h0="$h0" -v h1="$h1" -v c0="$c0" -v c1="$c1" \
     -v g0="$g0" -v g1="$g1" -v s0="$s0" -v s1="$s1" -v t0="$t0" -v t1="$t1" \
     -v hr="$(rss_mb "$host")" -v cr="$(rss_mb "$content")" -v cf="$(footprint "$content")" -v gr="$(rss_mb "$gpu")" 'BEGIN {
