@@ -1,12 +1,13 @@
 /**
  * The TLA+ model checks a review shows (050-tla-proofs in Change Review; the user, 2026-11-20: "I want to see TLA+
- * running in the UI we worked, there in review."): which hobkin change a review is of, which files are models, and what
- * TLC said of each at the reviewed head for a node's card. A pull request has no hobkin item, so it shows none. Pure.
+ * running in the UI we worked, there in review."): which hobkin change a review is of, which files are models, what
+ * TLC said of each at the reviewed head for a node's card, and the finished card's chips for the panel. A pull request
+ * has no hobkin item, so it shows none. Pure.
  */
 import type { ProofRunSummary, ProofsState } from '#shared/protocol/proofs.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { Review, ReviewFile, ReviewNode } from '#shared/review/types.ts'
-import { sameHead, specFile } from '../../proofs/proof-match.ts'
+import { chipsOf, runsForItem, sameHead, specFile, type ProofChip } from '../../proofs/proof-match.ts'
 import { namesOf, neverFired, stepsToBreak, type Tone } from '../../proofs/run/run-view.ts'
 
 /** A hobkin change as reviewed: its project, its item, and the head the review was made at. */
@@ -37,6 +38,12 @@ export function modelOf(path: string | null | undefined): string | null {
 export function modelsIn(nodes: readonly Pick<ReviewNode, 'anchors' | 'subtitle'>[], files: readonly Pick<ReviewFile, 'id' | 'path'>[]): string[] {
   const paths = nodes.map((node) => files.find((file) => file.id === node.anchors[0]?.fileId)?.path ?? node.subtitle)
   return [...new Set(paths.map(modelOf).filter((spec): spec is string => spec != null))]
+}
+
+/** The models the change adds or edits. A file it only shows, or deletes, is not one of its models. */
+export function changedModels(files: readonly Pick<ReviewFile, 'path' | 'status'>[]): string[] {
+  const edited = files.filter((file) => file.status === 'added' || file.status === 'modified' || file.status === 'renamed')
+  return [...new Set(edited.map((file) => modelOf(file.path)).filter((spec): spec is string => spec != null))]
 }
 
 const count = (value: number) => value.toLocaleString('en-US')
@@ -86,5 +93,21 @@ export function modelLines(proofs: ProofsState | null, change: ReviewedChange, s
     const run = runAt(proofs, change, spec)
     const { said, tone } = run ? saidOf(run) : { said: 'not checked at this commit', tone: 'quiet' as const }
     return { spec, run: run?.id ?? null, text: `${named ? `TLC · ${specFile(spec)}` : 'TLC'}: ${said}`, tone }
+  })
+}
+
+/**
+ * The panel's chips, as a finished card draws them (`chipsOf`), at the reviewed head: one for each model hobkin checked
+ * for the item, and a quiet one for a model the change edits that nothing checked, so a check that starts takes its
+ * place. Ordered by file, so a chip keeps its place as runs come and go.
+ */
+export function reviewChips(proofs: ProofsState | null, change: ReviewedChange, specs: readonly string[]): ProofChip[] {
+  const runs = runsForItem(proofs, change.project, change.item, change.head)
+  const all = [...new Set([...specs, ...runs.map((run) => run.spec)])].sort()
+  const named = all.length > 1
+  return all.flatMap((spec) => {
+    const run = runs.find((candidate) => candidate.spec === spec)
+    if (run) return chipsOf([run], change.head, named)
+    return [{ id: null, label: `${named ? specFile(spec).replace(/\.tla$/, '') : 'Model'} not checked at this head`, tone: 'quiet' as const }]
   })
 }

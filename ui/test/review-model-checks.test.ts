@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { ProofRunSummary, ProofsState } from '#shared/protocol/proofs.ts'
 import type { ReviewFile, ReviewNode } from '#shared/review/types.ts'
 import { useView } from '../src/app/view-store.ts'
-import { modelLines, modelOf, modelsIn, reviewedChange } from '../src/features/review/story/node-models.ts'
+import { changedModels, modelLines, modelOf, modelsIn, reviewChips, reviewedChange } from '../src/features/review/story/node-models.ts'
 
 const HEAD = 'bad8d2aea42f86679d00392da7d81b6507b5734b'
 const SPEC = '_specs/tla/ReviewSentReceipts.tla'
@@ -55,6 +55,8 @@ test('a model is a .tla spec, or the spec a tla folder’s .cfg configures, and 
   assert.equal(modelOf(undefined), null)
   // A step on the spec and its cfg is about one model.
   assert.deepEqual(modelsIn([node('_specs/tla/ReviewSentReceipts.cfg'), node(SPEC), node('host/src/review/reviews.ts')], [file(SPEC), file('_specs/tla/ReviewSentReceipts.cfg')]), [SPEC])
+  // The change's own models: what it adds or edits, never a file it only shows or deletes.
+  assert.deepEqual(changedModels([file(SPEC), file('_specs/tla/ReviewSentReceipts.cfg'), file('_specs/tla/Old.tla', 'deleted'), file('_specs/tla/Seen.tla', 'unchanged')]), [SPEC])
 })
 
 test('a model node says what TLC said at the reviewed head, and opens that run', () => {
@@ -82,6 +84,18 @@ test('a check of another commit or item never speaks for the reviewed head', () 
 test('two models in one focus each name their file', () => {
   const queue = '_specs/tla/ReviewQueue.tla'
   assert.deepEqual(modelLines(slice(run()), change, [SPEC, queue]).map(({ text }) => text), ['TLC · ReviewSentReceipts.tla: holds in 7 states', 'TLC · ReviewQueue.tla: not checked at this commit'])
+})
+
+test("the panel draws the change's checks as a finished card's chips, at the reviewed head, in a steady order", () => {
+  assert.deepEqual(reviewChips(slice(run()), change, [SPEC]), [{ id: '20261121-032648-reviewsentreceipts-adug', label: 'Model holds · 7 states', tone: 'ok' }])
+  // A model the change edits that nothing checked still has its chip, so a check that starts takes its place.
+  assert.deepEqual(reviewChips(slice(), change, [SPEC]), [{ id: null, label: 'Model not checked at this head', tone: 'quiet' }])
+  assert.deepEqual(reviewChips(slice(run({ id: 'live', outcome: 'checking', stats: { generated: 9, distinct: 5, queue: 2, depth: 2 } })), change, [SPEC]), [{ id: 'live', label: 'Checking · 5 states', tone: 'live' }])
+  // A check of a model the change does not edit is the change's too. Specs keep their order as runs come and go.
+  const other = run({ id: 'other', spec: '_specs/tla/ReviewQueue.tla', started: '2026-11-21T02:00:00Z' })
+  assert.deepEqual(reviewChips(slice(other, run()), change, [SPEC]).map(({ label }) => label), ['ReviewQueue holds · 7 states', 'ReviewSentReceipts holds · 7 states'])
+  assert.deepEqual(reviewChips(slice(other), change, [SPEC]).map(({ label }) => label), ['ReviewQueue holds · 7 states', 'ReviewSentReceipts not checked at this head'])
+  assert.deepEqual(reviewChips(slice(), change, []), [])
 })
 
 test("a run opened from a review goes back to that review", () => {

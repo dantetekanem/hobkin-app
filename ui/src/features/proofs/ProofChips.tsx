@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useView } from '@/app/view-store.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ModelFact } from '#shared/protocol/work.ts'
-import { chipsOf, factChips, runsForItem } from './proof-match.ts'
+import { chipsOf, factChips, runsForItem, type ProofChip } from './proof-match.ts'
 import './proofs.css'
 import type { Tone } from './run/run-view.ts'
 import { useProofRuns } from './use-proof-run.ts'
@@ -33,10 +33,18 @@ interface ProofChipsProps {
 export function ProofChips({ project, item, head, models }: ProofChipsProps) {
   const { proofs } = useProofRuns()
   const chips = useMemo(() => (models ? factChips(models, proofs.runs) : chipsOf(runsForItem(proofs, project, item, head), head)), [models, proofs, project, item, head])
+  return <ProofChipList chips={chips} />
+}
+
+/**
+ * The chips themselves, each with a run opening it. In a Work row its keys reach them (`inRow`); elsewhere, as in a
+ * review's panel, Tab does, one under the other when `stacked`, so a chip whose words change never moves the next one.
+ */
+export function ProofChipList({ chips, inRow = true, stacked = false }: { chips: readonly ProofChip[]; inRow?: boolean; stacked?: boolean }) {
   if (!chips.length) return null
 
   return (
-    <ul aria-label="Proof" className="flex flex-wrap gap-2">
+    <ul aria-label="Proof" className={cn('flex gap-2', stacked ? 'flex-col items-start' : 'flex-wrap')}>
       {chips.map(({ id, label, tone }) => {
         const look = LOOK[tone]
         const dot = <span aria-hidden="true" className={cn('size-2 rounded-full', look.dot)} />
@@ -45,8 +53,7 @@ export function ProofChips({ project, item, head, models }: ProofChipsProps) {
             {id ? (
               <button
                 type="button"
-                tabIndex={-1}
-                data-row-control=""
+                {...(inRow ? { tabIndex: -1, 'data-row-control': '' } : { 'data-stop': '' })}
                 title="hobkin ran this check itself. Opens the run."
                 onClick={() => useView.getState().openProofRun(id)}
                 className={cn(CHIP, 'transition-colors duration-[160ms] ease-[ease] hover:brightness-[0.97]', look.chip)}

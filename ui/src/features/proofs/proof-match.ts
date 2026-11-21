@@ -47,10 +47,9 @@ export interface ProofChip {
 
 /**
  * A finished card's chips: one for each model's check, and one for its proof when TLAPS ran. With more than one spec,
- * each chip names its file. A check of an older head than the card's is said so, in a quiet chip.
+ * each chip names its file, or when `named` says so. A check of an older head than the card's is said so, in a quiet chip.
  */
-export function chipsOf(runs: readonly ProofRunSummary[], head: string | null = null): ProofChip[] {
-  const named = runs.length > 1
+export function chipsOf(runs: readonly ProofRunSummary[], head: string | null = null, named = runs.length > 1): ProofChip[] {
   return runs.flatMap((run) => {
     const name = named ? `${specFile(run.spec).replace(/\.tla$/, '')} ` : 'Model '
     const older = Boolean(head && run.head && !sameHead(run.head, head))
