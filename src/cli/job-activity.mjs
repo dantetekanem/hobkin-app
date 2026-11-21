@@ -104,8 +104,12 @@ export class JobActivity {
   /** The last snapshot handed out, and each entry's copy until that entry changes (`snapshot`). */
   shown = null;
   copies = new WeakMap();
-  /** What changed since `shown`: the entries written to, and whether entries were dropped, which builds the next list whole. */
+  /**
+   * What changed since `shown`: the entries written to, how many of the oldest the cap let go, and whether entries were dropped from
+   * anywhere else, which builds the next list whole.
+   */
   touched = new Set();
+  trimmed = 0;
   whole = true;
   /** Each entry by its id, so the entry an event writes to is found without walking the feed. */
   byId = new Map();
@@ -143,9 +147,10 @@ export class JobActivity {
     try {
       this.reduce(event);
       if (this.entries.length > this.most) {
+        // The oldest go from the front, so the rest keep their order and their copies.
         const dropped = this.entries.splice(0, this.entries.length - this.most);
         for (const { id } of dropped) this.byId.delete(id);
-        this.changed();
+        this.trimmed += dropped.length;
       }
     } catch {
       /* Display data must not fail execution. */
@@ -254,21 +259,23 @@ export class JobActivity {
    * copy, so a reader that compares by identity skips them. A list or copy handed out is never changed afterwards.
    */
   snapshot() {
-    const unchanged = this.shown && !this.whole && !this.touched.size;
+    const unchanged = this.shown && !this.whole && !this.touched.size && !this.trimmed;
     if (unchanged) return this.shown;
 
-    this.shown = !this.shown || this.whole ? this.entries.map(entry => this.copyOf(entry)) : this.patched(this.shown);
+    this.shown = !this.shown || this.whole ? this.entries.map(entry => this.copyOf(entry)) : this.patched(this.shown.slice(this.trimmed));
     this.touched.clear();
+    this.trimmed = 0;
     this.whole = false;
     return this.shown;
   }
 
   /**
-   * `last` with a new copy of each entry written to since, where it stands, and the new entries after it. Entries only move when some are
-   * dropped, which builds the list whole, so everything else keeps its place. A touched entry is looked for from the end, where writing happens.
+   * `kept`, the last list less the entries the cap let go, with a new copy of each entry written to since, where it stands, and the new
+   * entries after it. Entries only move when some are dropped from the middle, which builds the list whole, so everything else keeps its
+   * place. A touched entry is looked for from the end, where writing happens.
    */
-  patched(last) {
-    const next = last.slice();
+  patched(kept) {
+    const next = kept;
     for (const entry of this.touched) {
       const index = this.entries.lastIndexOf(entry);
       if (index !== -1 && index < next.length) next[index] = this.copyOf(entry);

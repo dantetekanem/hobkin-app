@@ -436,3 +436,22 @@ test('a saved run cut short in its last line still reads, a file that is not a s
   writeFileSync(join(folder, 'other.jsonl'), '{"type":"note"}\n');
   assert.throws(() => runStepsBefore(join(folder, 'other.jsonl')), /Unsupported Pi session format/);
 });
+
+test('a feed at its cap that takes a new step keeps the objects of the steps that stay, and copies only the new one', t => {
+  const feed = new JobActivity({ most: MOST_STEPS, mostOutput: MOST_OUTPUT });
+  const step = i => feed.accept({ type: 'tool_execution_start', toolCallId: `c${i}`, toolName: 'read', args: { path: `f${i}` } });
+  for (let i = 0; i < MOST_STEPS; i++) step(i);
+  const full = feed.snapshot();
+  const copies = t.mock.method(feed, 'copyOf');
+  step(MOST_STEPS);
+  const next = feed.snapshot();
+  assert.equal(next.length, MOST_STEPS);
+  assert.ok(next.slice(0, -1).every((entry, i) => entry === full[i + 1]), 'what stays is the same object, one place up');
+  assert.equal(next.at(-1).id, `tool:c${MOST_STEPS}`);
+  for (let i = MOST_STEPS + 1; i < MOST_STEPS + 1000; i++) {
+    step(i);
+    feed.snapshot();
+  }
+  assert.ok(copies.mock.callCount() <= 1000, `${copies.mock.callCount()} copies for 1,000 steps past the cap`);
+  assert.deepEqual(feed.snapshot().map(entry => entry.id), feed.entries.map(entry => entry.id));
+});
