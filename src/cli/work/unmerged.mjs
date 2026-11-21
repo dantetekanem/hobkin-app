@@ -10,7 +10,7 @@ import { areaOf, isTestPath } from './patterns.mjs';
 import { readOnce } from './one-read.mjs';
 import { modelsAt, sameCodeAs, specsAt } from './proofs.mjs';
 import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, gitWithin, isMerged, realPlace } from './tree.mjs';
-import { chosenProjects, fileItem, paths, readItems, readJson, runnableStates, updateItem } from './store.mjs';
+import { chosenProjects, fileItem, paths, readItems, readKeptJson, runnableStates, updateItem } from './store.mjs';
 
 export const SHIP_KIND = 'pr-fix';
 const SHORT_SHA = 7;
@@ -60,7 +60,7 @@ const gitOrFail = gitWithin(PATCH_CHECK_TIMEOUT_MS);
 const defaultGh = ghWithin(GH_TIMEOUT_MS);
 const surveyPath = root => join(root, 'work', 'unmerged.json');
 
-export const readUnmerged = root => readOnce(`unmerged:${root}`, () => readJson(surveyPath(root), { at: null, projects: {} }));
+export const readUnmerged = root => readOnce(`unmerged:${root}`, () => readKeptJson(surveyPath(root), { at: null, projects: {} }));
 
 const latest = times => times.filter(Boolean).toSorted().at(-1) ?? null;
 

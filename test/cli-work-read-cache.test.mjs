@@ -30,18 +30,24 @@ function fixture(t) {
   return { root, file, write, reads: () => reads, afterRead: callback => { afterRead = callback; } };
 }
 
-test('unchanged Work histories are read once and return independent folded records', t => {
+test('unchanged Work histories are read once, are not parsed again, and no caller can change what another reads', t => {
   const h = fixture(t);
   h.write([{ id: 'one', state: 'open', detail: { proof: ['original'] } }, { id: 'one', state: 'doing' }]);
   const projects = join(h.root, 'work', 'projects.jsonl');
   fs.writeFileSync(projects, '{"slug":"api","level":"casual"}\n{"slug":"api","level":"important"}\n');
+  readItems(h.root, 'api');
+  readProjects(h.root);
+  const parse = t.mock.method(JSON, 'parse');
   for (let i = 0; i < 30; i++) {
     const items = readItems(h.root, 'api');
     assert.equal(items[0].state, 'doing');
     assert.deepEqual(items[0].detail.proof, ['original']);
-    items[0].detail.proof.push('caller mutation');
+    assert.throws(() => items[0].detail.proof.push('caller mutation'), TypeError);
+    assert.throws(() => { items[0].state = 'changed'; }, TypeError);
+    items.length = 0;
     assert.equal(readProjects(h.root)[0].level, 'important');
   }
+  assert.equal(parse.mock.callCount(), 0, 'a cached history is handed out as it is');
   assert.equal(h.reads(), 2);
 });
 

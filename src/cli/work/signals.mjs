@@ -1,5 +1,5 @@
 import { atomicJson } from '../config.mjs';
-import { paths, readJson } from './store.mjs';
+import { paths, readKeptJson } from './store.mjs';
 
 const DAY_MS = 86400000;
 const SIGNALS_EVERY_MS = 30 * DAY_MS;
@@ -35,7 +35,7 @@ const steps = [
   ['errors', ({ errors }) => ran(errors) && errors.grouped === true && errors.release === true],
 ];
 
-export const readSignals = (root, slug) => readJson(paths(root, slug).signals, null);
+export const readSignals = (root, slug) => readKeptJson(paths(root, slug).signals, null);
 
 export function signalOf(signals) {
   const first = steps.findIndex(([, proved]) => !proved(signals));

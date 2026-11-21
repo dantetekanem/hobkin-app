@@ -20,8 +20,20 @@ function utc(parts) {
   return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour ?? 0, parts.minute ?? 0);
 }
 
+// The scheduler asks every routine for its times each second. A formatter is made once per time zone, the clock is read once per zone and
+// minute, and a wall time's instant once per zone, date and time: each is the same pure answer every time it is asked.
+const formatters = new Map();
+const clocks = new Map();
+const instants = new Map();
+const MOST_KEPT = 4096;
+const keep = (kept, key, value) => {
+  if (kept.size >= MOST_KEPT) kept.clear();
+  kept.set(key, value);
+  return value;
+};
+
 function calendarFormatter(timeZone) {
-  return new Intl.DateTimeFormat('en-CA', {
+  return formatters.get(timeZone) ?? keep(formatters, timeZone, new Intl.DateTimeFormat('en-CA', {
     timeZone,
     year: 'numeric',
     month: '2-digit',
@@ -29,7 +41,13 @@ function calendarFormatter(timeZone) {
     hour: '2-digit',
     minute: '2-digit',
     hourCycle: 'h23',
-  });
+  }));
+}
+
+/** The wall clock in `timeZone` at `time`, to the minute, as `partsAt` gives it. Frozen, since every caller in that minute gets it. */
+function clockAt(timeZone, formatter, time) {
+  const key = `${timeZone}\0${Math.floor(time / 60000)}`;
+  return clocks.get(key) ?? keep(clocks, key, Object.freeze(partsAt(formatter, time)));
 }
 
 function matchesDate(schedule, date) {
@@ -40,7 +58,8 @@ function matchesDate(schedule, date) {
     || (schedule.cadence === 'monthly' && schedule.day === date.day);
 }
 
-function occurrenceAt(schedule, formatter, date, at) {
+/** The first instant whose wall time in the formatter's zone is `at` on `date`, or Infinity when the zone skips that time. */
+function wallInstant(formatter, date, at) {
   const [hour, minute] = at.split(':').map(Number);
   const target = utc({ ...date, hour, minute });
   const matches = [];
@@ -52,7 +71,12 @@ function occurrenceAt(schedule, formatter, date, at) {
     if (local.year === date.year && local.month === date.month && local.day === date.day
       && local.hour === hour && local.minute === minute) matches.push(candidate);
   }
-  const due = Math.min(...matches);
+  return Math.min(...matches);
+}
+
+function occurrenceAt(schedule, formatter, date, at) {
+  const key = `${schedule.timezone}\0${date.year}-${date.month}-${date.day}\0${at}`;
+  const due = instants.get(key) ?? keep(instants, key, wallInstant(formatter, date, at));
   if (!Number.isFinite(due)) return null;
   const localDate = `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
   const id = `${schedule.id}:${localDate}${Array.isArray(schedule.at) || schedule.window ? `:${at}` : ''}`;
@@ -66,7 +90,7 @@ export function dueOccurrence(schedule, now = new Date(), { notBefore = null } =
   if (!Number.isFinite(instant)) throw Error('Invalid scheduler time');
   const formatter = calendarFormatter(schedule.timezone);
   const once = schedule.cadence === 'once';
-  const today = once ? scheduleDate(schedule.date) : partsAt(formatter, instant);
+  const today = once ? scheduleDate(schedule.date) : clockAt(schedule.timezone, formatter, instant);
   if (!matchesDate(schedule, today)) return null;
   const localTime = `${String(today.hour).padStart(2, '0')}:${String(today.minute).padStart(2, '0')}`;
   if (!once && schedule.window && localTime > schedule.window.end) return null;
@@ -86,7 +110,7 @@ export function nextOccurrence(schedule, now = new Date(), { runs = [], notBefor
   if (due && !admitted(due)) return due;
   const boundary = Math.max(new Date(now).getTime(), notBefore == null ? 0 : Date.parse(notBefore));
   const formatter = calendarFormatter(schedule.timezone);
-  const today = partsAt(formatter, boundary);
+  const today = clockAt(schedule.timezone, formatter, boundary);
   const midnight = Date.UTC(today.year, today.month - 1, today.day);
   const once = schedule.cadence === 'once';
   // Two months cover the longest gap between valid monthly dates (for example, the 31st).

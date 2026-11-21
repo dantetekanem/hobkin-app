@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { syncBuiltinESMExports } from 'node:module';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -60,20 +59,12 @@ test('a new whole percent of the window, a new used percent and a new minute eac
 test('the refresh a tick asks for shows Work as that tick read it, and a refresh for anything else reads it again', async t => {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-tick-refresh-'));
   mkdirSync(join(root, 'work'), { recursive: true });
-  const survey = join(root, 'work', 'unmerged.json');
-  writeFileSync(survey, JSON.stringify({ at: null, projects: {} }));
-  // One read of the survey is one read of Work's status.
+  writeFileSync(join(root, 'work', 'unmerged.json'), JSON.stringify({ at: null, projects: {} }));
+  // Work's status is read with what only the director knows, so each read of it asks the director once.
   let reads = 0;
-  const { readFileSync } = fs;
-  t.mock.method(fs, 'readFileSync', (...args) => {
-    if (String(args[0]) === survey) reads += 1;
-    return readFileSync(...args);
-  });
-  syncBuiltinESMExports();
   t.mock.timers.enable({ apis: ['setTimeout'] });
   t.after(() => {
     t.mock.restoreAll();
-    syncBuiltinESMExports();
     rmSync(root, { recursive: true, force: true });
   });
   const app = new HobkinApplication();
@@ -82,7 +73,7 @@ test('the refresh a tick asks for shows Work as that tick read it, and a refresh
   app.runner = {};
   app.moods = { notice() {} };
   app.learner = { enabled: () => false };
-  app.director = { tick: async () => {}, outlook: () => ({}), running: () => [] };
+  app.director = { tick: async () => {}, outlook: () => { reads += 1; return {}; }, running: () => [] };
   const shown = [];
   app.project = async work => { shown.push(app.workView(work)); };
   const settle = async () => {

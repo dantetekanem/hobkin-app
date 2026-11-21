@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { readJson } from './store.mjs';
+import { readKeptJson } from './store.mjs';
 import { PROMPT_FACTS } from './usage-extension.mjs';
 
 const MINUTE_MS = 60000;
@@ -43,7 +43,7 @@ export function promptFactsIn(record) {
 }
 
 /** The last reading a job saw, or `null` before any job has seen one. */
-export const readSubscription = root => readJson(join(root, 'work', 'subscription.json'), null);
+export const readSubscription = root => readKeptJson(join(root, 'work', 'subscription.json'), null);
 
 /** Windows that still say something about now. Without a reset time a reading only holds for a while. */
 export function openWindows(reading, now) {

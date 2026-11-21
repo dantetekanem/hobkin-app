@@ -74,14 +74,14 @@ function home(t) {
 
 const modelsOf = (status, slug) => status.projects.find(project => project.slug === slug).models?.map(({ spec, state, run }) => [spec, state, run]);
 
-test('one Work status reads the survey, each project\'s items and the proof runs, and works out the finished work, once each', t => {
+test('one Work status looks at the survey, each project\'s items and the proof runs once each, and reads no file that did not change', t => {
   const h = home(t);
   // The first read of a file in this process also checks it did not change while it was read.
   workStatus(h.root);
   h.reads();
   const status = workStatus(h.root);
 
-  assert.deepEqual(h.reads(), { survey: 1, runs: 1, ready: 1, items: 1 });
+  assert.deepEqual(h.reads(), { survey: 0, runs: 1, ready: 0, items: 1 });
   assert.deepEqual(status.ready.map(({ item, about }) => [item, about]), [['abc123', 'The door closes again.']]);
   assert.deepEqual(modelsOf(status, 'api'), [[SPEC, 'holds', 'older']]);
   assert.deepEqual(status.yolo.projects.find(project => project.slug === 'api').models, status.projects.find(project => project.slug === 'api').models);
@@ -95,7 +95,7 @@ test('the next Work status reads again, so a run that ended since shows', t => {
   h.run('newer', 'broken', '2026-11-20T11:00:00Z');
 
   assert.deepEqual(modelsOf(workStatus(h.root), 'api'), [[SPEC, 'broken', 'newer']]);
-  assert.deepEqual(h.reads(), { survey: 1, runs: 1, ready: 1, items: 1 });
+  assert.deepEqual(h.reads(), { survey: 0, runs: 1, ready: 0, items: 1 });
 });
 
 test('an item filed during one look at work mode shows in the rest of that look', t => {
@@ -108,7 +108,7 @@ test('an item filed during one look at work mode shows in the rest of that look'
   assert.deepEqual(titles, [['Fix the door'], ['Fix the door', 'Fix the hinge']]);
 });
 
-test('the plan the director makes each tick, and the Action Items rows, each read the survey and each project\'s items once', t => {
+test('the plan the director makes each tick, and the Action Items rows, each look at the survey and each project\'s items once', t => {
   const h = home(t);
   initialize(h.root, { cwd: h.root });
   planWork(h.root);
@@ -116,7 +116,7 @@ test('the plan the director makes each tick, and the Action Items rows, each rea
   h.reads();
 
   assert.equal(planWork(h.root).entries.some(({ item }) => item?.id === 'abc123'), false, 'finished work is not planned again');
-  assert.deepEqual(h.reads(), { survey: 1, runs: 0, ready: 1, items: 1 });
+  assert.deepEqual(h.reads(), { survey: 0, runs: 0, ready: 0, items: 1 });
   assert.deepEqual(readWaiting(h.root).branches.map(({ item }) => item), ['abc123']);
-  assert.deepEqual(h.reads(), { survey: 1, runs: 1, ready: 1, items: 1 });
+  assert.deepEqual(h.reads(), { survey: 0, runs: 1, ready: 0, items: 1 });
 });

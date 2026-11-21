@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { learningEnabled } from '../config.mjs';
+import { readVersioned } from '../file-version.mjs';
 import { lookTime } from './chat.mjs';
 import { scoresOf } from './classified.mjs';
 import { forecastWork } from './forecast.mjs';
@@ -242,19 +243,25 @@ function oneLine(text, most) {
   return `${(whole || room).replace(/[\s,;:]+$/, '')}…`;
 }
 
+// Every look at what is ready reads each finished branch's description, so each is read once per version of its file, or of its absence.
+const describedAs = new Map();
+
 /** What the work did, in its own words: the first paragraph of its description past the title, the issue line and headings, or else its summary. */
 function aboutOf(file, summary) {
-  try {
-    const paragraphs = readFileSync(file, 'utf8')
-      .slice(0, MOST_DESCRIPTION_READ)
-      .split(/\n\s*\n/)
-      .map(part => part.trim())
-      .filter(Boolean);
-    const body = paragraphs.slice(1).find(part => !/^(#|issue id:)/i.test(part));
-    if (body) return oneLine(body, LONGEST_ABOUT);
-  } catch {
-    // An item that wrote no description still has its summary.
-  }
+  const body = readVersioned(describedAs, file, () => {
+    try {
+      const paragraphs = readFileSync(file, 'utf8')
+        .slice(0, MOST_DESCRIPTION_READ)
+        .split(/\n\s*\n/)
+        .map(part => part.trim())
+        .filter(Boolean);
+      return paragraphs.slice(1).find(part => !/^(#|issue id:)/i.test(part)) ?? null;
+    } catch {
+      // An item that wrote no description still has its summary.
+      return null;
+    }
+  }, 1024);
+  if (body) return oneLine(body, LONGEST_ABOUT);
   return summary ? oneLine(summary, LONGEST_ABOUT) : null;
 }
 

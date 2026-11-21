@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { atomicJson } from '../config.mjs';
 import { eventsFolder, readEvents, recordEvent } from '../events.mjs';
 import { hobkinCommand } from './chat.mjs';
-import { chosenProjects, fileItem, readItems, readJson, readMode, realFolder, slugOf, writeMode } from './store.mjs';
+import { chosenProjects, fileItem, readItems, readKeptJson, readMode, realFolder, slugOf, writeMode } from './store.mjs';
 
 const DAY_MS = 86400000;
 // Once can be bad luck, and the same failure a third time in a day is hobkin's to fix.
@@ -124,7 +124,7 @@ const hobkinProject = (root, checkout) => chosenProjects(root).find(({ path }) =
 
 // This stays out of `work/`, because import reads anything there as a folder someone has used, and a first start must not look like that.
 const clockPath = root => join(root, 'runtime', 'upkeep.json');
-export const lastUpkeep = root => readJson(clockPath(root), {}).at ?? null;
+export const lastUpkeep = root => readKeptJson(clockPath(root), {}).at ?? null;
 export const stampUpkeep = (root, now) => atomicJson(clockPath(root), { at: iso(now) });
 
 export const upkeepDue = (root, now) => {

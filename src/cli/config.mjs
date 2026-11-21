@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { cadences, routinesFolder, validateBinding } from './schedules.mjs';
 import { validateLauncher } from './launcher.mjs';
 import { resolveDataRoot } from './migration/admission.mjs';
+import { readVersioned } from './file-version.mjs';
 import { validatePersona } from './persona.mjs';
 import { validateReview, validateTiers } from './tiers.mjs';
 import { changeSelection, normalizeSelection, validateResourceSelection, resolveResourcePolicy } from './resource-policy.mjs';
@@ -44,13 +45,22 @@ export function loadConfig(root) {
   return validateConfig(JSON.parse(readFileSync(file, 'utf8')), { allowLegacyHarness: true });
 }
 
-/** Read each time, so `hobkin learning` in another terminal reaches a running dashboard. It is not worth failing a refresh. */
+// The settings as saved, read again whenever the file's version changes, so `hobkin learning` in another terminal reaches a running
+// dashboard on its next look. Null when the file cannot be read, which is not worth failing a refresh. Only the switches below read this.
+const savedSettings = new Map();
+function savedConfig(root) {
+  const home = resolveDataRoot(root);
+  return readVersioned(savedSettings, join(home, 'config.json'), () => {
+    try {
+      return loadConfig(home);
+    } catch {
+      return null;
+    }
+  }, 16);
+}
+
 function settingOn(root, name) {
-  try {
-    return loadConfig(root)[name]?.enabled === true;
-  } catch {
-    return false;
-  }
+  return savedConfig(root)?.[name]?.enabled === true;
 }
 
 function setSetting(root, name, enabled) {
@@ -64,11 +74,8 @@ export const setLearning = (root, enabled) => setSetting(root, 'learning', enabl
 
 /** On unless the user turned it off. A configuration hobkin cannot read sends nothing. */
 function settingNotOff(root, name) {
-  try {
-    return loadConfig(root)[name]?.enabled !== false;
-  } catch {
-    return false;
-  }
+  const config = savedConfig(root);
+  return config ? config[name]?.enabled !== false : false;
 }
 
 /** Feedback goes only on the user's yes to each report. Off stops what waits in the outbox too. */

@@ -5,7 +5,7 @@ import { readMachines } from './machines.mjs';
 import { nameOf } from './names.mjs';
 import { machinesLookDue } from './plan.mjs';
 import { mainFacts, readRuns, specName } from './proofs.mjs';
-import { chosenProjects, fileItem, ownerView, paths, pickNow, readItems, readJson, readMode, runnableStates, updateItem, workName, writeMode } from './store.mjs';
+import { chosenProjects, fileItem, ownerView, paths, pickNow, readItems, readJson, readKeptJson, readMode, runnableStates, updateItem, workName, writeMode } from './store.mjs';
 import { BRANCH_PREFIX } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { fileParts, needOf, PARTS, partOf, partsOf, partWords, READY_KEY, RECORDED, WAITS_FOR_A_YES } from './yolo-parts.mjs';
@@ -193,7 +193,7 @@ function needsOf(record, parts) {
  * on the default branch yet, so it counts once that branch lands.
  */
 export function readinessOf(root, slug) {
-  const record = readJson(readinessFile(root, slug), null);
+  const record = readKeptJson(readinessFile(root, slug), null);
   const items = readItems(root, slug);
   const own = items.find(({ key }) => key === READY_KEY) ?? null;
   const parts = partsOf(root, { record, items, own, models: modelsPart(root, slug) });

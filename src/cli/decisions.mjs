@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { readEvents, recordEvent } from './events.mjs';
+import { readVersioned } from './file-version.mjs';
 
 /** How long a question from a routine or work mode stays on screen before it joins the Action Items tab. */
 export const QUESTION_WAIT_MS = 30000;
@@ -52,7 +53,11 @@ function assertDecision({ question, choices, recommended }) {
   if (recommended && !values.has(recommended)) throw Error('`recommended` has to be the value of one of its choices.');
 }
 
-function readAll(root) {
+// Every tick asks for the log many times over, so it is folded once per version of the file (`file-version.mjs`).
+const folded = new Map();
+const readAll = root => [...readVersioned(folded, logPath(root), () => foldLog(root), 64)];
+
+function foldLog(root) {
   if (!existsSync(logPath(root))) return [];
   const byId = new Map();
   for (const line of readFileSync(logPath(root), 'utf8').split('\n').filter(Boolean)) {

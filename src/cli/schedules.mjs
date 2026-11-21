@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync, readdirSync, renameSync, symlinkSy
 import { isAbsolute, join } from 'node:path';
 import { parseCompatibility } from './legacy-schedules.mjs';
 import { writePrivate } from './reports.mjs';
+import { readVersioned } from './file-version.mjs';
 import { scheduleDefinition } from './checks.mjs';
 
 const OLD_FOLDER = 'schedules';
@@ -188,6 +189,21 @@ export function moveRoutinesFolder(root) {
 /** Runs keep their stored names. What a person or an agent reads says routine, and JSON escapes any quote inside a value, so this only ever matches a key. */
 export const inRoutineWords = json => json.replaceAll('"scheduleId":', '"routineId":').replaceAll('"schedules":', '"routines":');
 
+// The scheduler loads every routine each second, so a file is read and checked again only when its version changes. The parse is frozen,
+// since every caller gets the same one, and so is what was wrong with a file that does not parse.
+const parsedRoutines = new Map();
+function parseRoutine(path, cadence) {
+  try {
+    const stat = lstatSync(path);
+    if (!stat.isFile()) throw Error('routine must be a regular file, not a symlink');
+    if (stat.size > (cadence === 'compatibility' ? 1048576 : 65536)) throw Error('routine is too large');
+    const source = readFileSync(path, 'utf8');
+    return { schedule: cadence === 'compatibility' ? parseCompatibility(source, path) : parseSchedule(source, cadence, path) };
+  } catch (error) {
+    return { error: { path, message: error.message } };
+  }
+}
+
 export function loadSchedules(root) {
   const schedules = [];
   const errors = [];
@@ -205,17 +221,9 @@ export function loadSchedules(root) {
     const files = entries.filter(name => name.endsWith(extension) && name !== 'README.md');
     for (const name of files) {
       const path = join(directory, name);
-      try {
-        const stat = lstatSync(path);
-        if (!stat.isFile()) throw Error('routine must be a regular file, not a symlink');
-        if (stat.size > (cadence === 'compatibility' ? 1048576 : 65536)) throw Error('routine is too large');
-        const source = readFileSync(path, 'utf8');
-        schedules.push(cadence === 'compatibility'
-          ? parseCompatibility(source, path)
-          : parseSchedule(source, cadence, path));
-      } catch (error) {
-        errors.push({ path, message: error.message });
-      }
+      const { schedule, error } = readVersioned(parsedRoutines, path, () => parseRoutine(path, cadence), 1024);
+      if (schedule) schedules.push(schedule);
+      else errors.push({ ...error });
     }
   }
   const ids = new Map();

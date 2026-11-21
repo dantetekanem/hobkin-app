@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 import { findJava, jarPath } from '../proof/tools.mjs';
-import { paths, readJson } from './store.mjs';
+import { paths, readKeptJson } from './store.mjs';
 
 /**
  * The state machines a project's state-machines look found (_specs/050-tla-proofs), as it pipes them to `hobkin work machines <project>`: each
@@ -27,7 +27,7 @@ export const toolsHere = root => existsSync(jarPath(root));
 export const toolsFound = async root => toolsHere(root) && Boolean((await findJava({ home: root })).path);
 
 /** The last list a look recorded, or null when none has. */
-export const readMachines = (root, slug) => readJson(machinesFile(root, slug), null);
+export const readMachines = (root, slug) => readKeptJson(machinesFile(root, slug), null);
 
 const isOneLine = text => typeof text === 'string' && text.trim().length > 0 && !/[\r\n]/.test(text);
 const projectPath = path => (typeof path === 'string' ? path.trim().replace(/^\.\//, '') : '');

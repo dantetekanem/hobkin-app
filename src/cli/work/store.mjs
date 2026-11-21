@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import { atomicJson } from '../config.mjs';
+import { copyJson, deepFreeze, fileVersion, readVersioned } from '../file-version.mjs';
 import { forgetRead, readOnce } from './one-read.mjs';
 
 // A level names the tier of each kind of run (`tiers.mjs`): a look reads, and a do writes what gets merged, so a do is
@@ -107,6 +108,15 @@ export function readJson(file, fallback) {
   }
 }
 
+// What a tick reads many times over: the mode, each project's state and the branch survey. Each is parsed once per version, and every
+// reader gets a copy of its own to change, as a parse gave it. A file that is missing or does not parse gives the caller's fallback.
+const parsedJson = new Map();
+const UNREADABLE = Symbol('unreadable');
+export function readKeptJson(file, fallback) {
+  const value = readVersioned(parsedJson, file, () => readJson(file, UNREADABLE));
+  return value === UNREADABLE ? fallback : copyJson(value);
+}
+
 const parseLines = text => text.split('\n').flatMap(entry => {
   try {
     const event = JSON.parse(entry);
@@ -120,6 +130,10 @@ function parseEvents(file) {
   if (!lstatSync(file, { throwIfNoEntry: false })?.isFile()) return [];
   return parseLines(readFileSync(file, 'utf8'));
 }
+
+// Work's own logs are read on every tick and change far less often, so each is parsed once per version, frozen. A run's session is not one of them.
+const parsedLogs = new Map();
+const parseLog = file => [...readVersioned(parsedLogs, file, () => parseEvents(file))];
 
 // The owner and a run's CLI call can write at once, so these files only ever grow; the last event for an ID wins.
 function appendEvent(file, event) {
@@ -137,11 +151,9 @@ function fold(events, identify) {
   return [...folded.values()];
 }
 
-// Cache folded Work records, not entire histories or time-dependent scheduling decisions.
+// Cache folded Work records, not entire histories or time-dependent scheduling decisions. They are frozen, since every reader gets the same ones.
 const workRecords = new Map();
 const MAX_CACHED_WORK_BYTES = 8 * 1024 * 1024;
-const workVersion = stat => stat?.isFile()
-  ? `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}` : null;
 
 // One look at work mode reads each history once, and the same records serve every part of it (`one-read.mjs`).
 function readWorkRecords(file, key) {
@@ -149,22 +161,21 @@ function readWorkRecords(file, key) {
 }
 
 function readFolded(file, key) {
-  const version = workVersion(lstatSync(file, { throwIfNoEntry: false, bigint: true }));
+  const version = fileVersion(file);
   const cached = workRecords.get(file);
   workRecords.delete(file);
   if (version === null) return [];
   if (cached?.version === version) {
     workRecords.set(file, cached);
-    return JSON.parse(cached.text);
+    return [...cached.records];
   }
 
-  const records = fold(parseEvents(file), event => event[key]);
+  const records = deepFreeze(fold(parseEvents(file), event => event[key]));
   // A concurrent append/replacement must not give a partial read a reusable version.
-  if (version !== workVersion(lstatSync(file, { throwIfNoEntry: false, bigint: true }))) return records;
-  const text = JSON.stringify(records);
-  const bytes = Buffer.byteLength(text);
+  if (version !== fileVersion(file)) return [...records];
+  const bytes = Buffer.byteLength(JSON.stringify(records));
   if (bytes <= MAX_CACHED_WORK_BYTES) {
-    workRecords.set(file, { version, text, bytes });
+    workRecords.set(file, { version, records, bytes });
     let total = [...workRecords.values()].reduce((sum, entry) => sum + entry.bytes, 0);
     while (workRecords.size > 64 || total > MAX_CACHED_WORK_BYTES) {
       const oldest = workRecords.keys().next().value;
@@ -172,7 +183,7 @@ function readFolded(file, key) {
       workRecords.delete(oldest);
     }
   }
-  return records;
+  return [...records];
 }
 
 /**
@@ -187,7 +198,7 @@ export function readMode(root) {
     machinesLook: true,
   };
   // `pool` came from the size of the machine and was saved on any change. Nobody chose it, so it does not carry over.
-  const { pool, ...saved } = readJson(modePath(root), {});
+  const { pool, ...saved } = readKeptJson(modePath(root), {});
   return { ...defaults, ...saved };
 }
 
@@ -315,7 +326,7 @@ export function requestCancel(root, run, now = Date.now(), { decline = false } =
 export const answerCancel = (root, run, now = Date.now()) => appendEvent(cancelsPath(root), { run, answeredAt: new Date(now).toISOString() });
 
 export function pendingCancels(root) {
-  const requests = fold(parseEvents(cancelsPath(root)), event => event.run);
+  const requests = fold(parseLog(cancelsPath(root)), event => event.run);
   return requests
     .filter(request => !request.answeredAt)
     .map(({ run, decline = false }) => ({ run, decline }));
@@ -361,7 +372,7 @@ const folderNames = value => [value].flat().filter(Boolean).map(folder => basena
 
 /** The latest discovery: the event that started it, and everything written since. */
 export function readDiscovery(root) {
-  const events = parseEvents(discoveryPath(root));
+  const events = parseLog(discoveryPath(root));
   return Object.assign({}, ...events.slice(Math.max(0, events.findLastIndex(event => event.startedAt))));
 }
 
@@ -436,7 +447,7 @@ export function recordTokens(root, { slug, lane, tokens, ...details }, now = Dat
   appendEvent(tokensPath(root), { at: new Date(now).toISOString(), slug, lane, tokens, ...details });
 }
 
-export const tokenEvents = root => parseEvents(tokensPath(root));
+export const tokenEvents = root => parseLog(tokensPath(root));
 
 export function tokensToday(root, now = Date.now()) {
   return tokenEvents(root)
@@ -606,12 +617,12 @@ export function retryItem(root, slug, id, now = Date.now()) {
 }
 
 /** What became of a change after it landed, one record for each merged item. A CLI call and the owner can write at once, as they can on items. */
-export const readLaunches = (root, slug) => fold(parseEvents(paths(root, slug).launches), event => event.item);
+export const readLaunches = (root, slug) => fold(parseLog(paths(root, slug).launches), event => event.item);
 
 export const recordLaunch = (root, slug, change, now = Date.now()) => appendEvent(paths(root, slug).launches, { ...change, updatedAt: new Date(now).toISOString() });
 
 /** The user's own word on a pattern, from `hobkin work trust`. The last word on each stands. */
-export const readTrust = root => fold(parseEvents(trustPath(root)), event => event.pattern);
+export const readTrust = root => fold(parseLog(trustPath(root)), event => event.pattern);
 
 export const setTrust = (root, pattern, on, now = Date.now()) => appendEvent(trustPath(root), { pattern, on, at: new Date(now).toISOString() });
 
@@ -620,7 +631,7 @@ export const landing = project => project.prMode ?? 'off';
 
 export const prFile = (root, slug, id) => join(paths(root, slug).prs, `${id}.md`);
 
-export const readState = (root, slug) => readJson(paths(root, slug).state, {});
+export const readState = (root, slug) => readKeptJson(paths(root, slug).state, {});
 
 export function writeState(root, slug, change) {
   atomicJson(paths(root, slug).state, { ...readState(root, slug), ...change });
