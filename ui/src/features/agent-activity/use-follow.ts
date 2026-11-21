@@ -15,10 +15,18 @@ export interface Follow {
   /** Goes to the newest step and follows it again. */
   jumpToLatest: () => void
   onScroll: () => void
-  /** Call while drawing, before new steps are in place: notes where the list is on screen. */
+  /**
+   * Reads nothing now: where the list stood is taken after each change and as the view scrolls, never while drawing.
+   * Kept for the screens that still call it while drawing.
+   */
   note: () => void
   /** Call once new steps are in place (a layout effect): follows them without a jump. */
   settle: () => void
+}
+
+/** The top of the list in its scroller, without the offset it glides by: what only a change of layout or scroll moves. */
+function placeOf(scroller: HTMLElement | null, list: HTMLElement | null, offset: number): number | null {
+  return scroller && list ? list.getBoundingClientRect().top - scroller.getBoundingClientRect().top - offset : null
 }
 
 /**
@@ -34,9 +42,16 @@ export function useFollow(still: boolean): Follow {
   const [pinned, setPinned] = useState(true)
   const y = useMotionValue(0)
   const glide = useRef<AnimationPlaybackControls | null>(null)
+  // Where the list stands while following, and where it stood before the change now in place. Nothing is read while
+  // drawing: the place is taken after each change of this screen, as the list changes size by a step's own drawing,
+  // and as the view scrolls.
   const seen = useRef<number | null>(null)
+  const before = useRef<number | null>(null)
   const holding = useRef(still)
   holding.current = still
+  const remember = useCallback(() => {
+    seen.current = control.current?.following ? placeOf(scroller.current, content.current, y.get()) : null
+  }, [y])
 
   // It opens at the newest step: no scrolling to watch.
   useLayoutEffect(() => {
@@ -45,13 +60,25 @@ export function useFollow(still: boolean): Follow {
     if (!element || !list) return
     const follow = followEnd(element, list, { page: window, Observer: ResizeObserver, still: () => holding.current, now: () => performance.now(), onPinned: setPinned })
     control.current = follow
+    const sizes = new ResizeObserver(remember)
+    sizes.observe(list)
     return () => {
+      sizes.disconnect()
       follow.dispose()
       if (control.current === follow) control.current = null
     }
-  }, [])
+  }, [remember])
 
-  const onScroll = useCallback(() => control.current?.onScroll(), [])
+  // After every change, before the screen settles it: the place it is measured from, and the new one.
+  useLayoutEffect(() => {
+    before.current = seen.current
+    remember()
+  })
+
+  const onScroll = useCallback(() => {
+    control.current?.onScroll()
+    remember()
+  }, [remember])
   // Clear any in-flight shrink-glide and its leftover offset first, so the jump lands on the real newest step
   // instead of a step the transform is still holding below the fold.
   const jumpToLatest = useCallback(() => {
@@ -60,18 +87,16 @@ export function useFollow(still: boolean): Follow {
     control.current?.jumpToLatest()
   }, [y])
 
-  const note = useCallback(() => {
-    seen.current = control.current?.following && content.current ? content.current.getBoundingClientRect().top : null
-  }, [])
+  const note = useCallback(() => {}, [])
 
   const settle = useCallback(() => {
-    const before = seen.current
-    seen.current = null
+    const from = before.current
+    const place = seen.current
     const follow = control.current
     const list = content.current
     if (!follow || !list || !follow.following) return
     // The list moved down: what was below the newest step got shorter. It starts where it was seen.
-    const moved = before === null ? 0 : list.getBoundingClientRect().top - before
+    const moved = from === null || place === null ? 0 : place - from
     glide.current?.stop()
     if (moved > 0.5 && follow.gliding) {
       y.set(y.get() - moved)
@@ -81,7 +106,8 @@ export function useFollow(still: boolean): Follow {
       y.set(0)
     }
     follow.toEnd(true)
-  }, [y])
+    remember()
+  }, [y, remember])
 
   return { scroller, content, y, pinned, jumpToLatest, onScroll, note, settle }
 }

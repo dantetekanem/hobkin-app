@@ -555,8 +555,7 @@ function Exchange({ agentId, hue, question, waiting, activity }: { agentId: stri
   // A long run draws only its newest steps, with a row above them for the ones before (newest.ts).
   const newest = useNewest(agentId, items)
   const thinking = activity !== null && !waiting && pauseOf(activity.entries, { ended: activity.ended }) === 'thinking'
-  // Where the list is on screen before the new steps are in place, so it can glide from there rather than jump.
-  scroll.note()
+  // Once new steps are in place, the list glides from where it was last seen rather than jump.
   useLayoutEffect(scroll.settle, [newest.shown, thinking, scroll.settle])
 
   return (
