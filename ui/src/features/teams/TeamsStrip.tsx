@@ -106,6 +106,10 @@ function TeamsLine({ agents, hue, now, summary, onOpen, sheet, className }: { ag
         aria-controls={open ? panelId : undefined}
         aria-label={`${summary}. ${open ? 'Hide' : 'Show'} every agent.`}
         onClick={toggle}
+        // Its own transform at rest, for a press to spring back to. With none, Motion takes scale(0) as the rest and
+        // the line vanishes once it is clicked.
+        initial={false}
+        animate={{ transform: 'scale(1)' }}
         whileTap={holdStill({ transform: 'scale(0.97)', transition: { duration: 0.14 } }, still)}
         className="flex h-7 w-full min-w-0 items-center gap-2 rounded-full bg-surface-2 pr-1.5 pl-2 text-[12px] outline-none transition-colors duration-[160ms] ease-[ease] hover:bg-secondary focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]"
       >
