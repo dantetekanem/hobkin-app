@@ -8,6 +8,7 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { useHost } from '@/lib/host/index.ts'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
+import { arrangementOf, arrivalsOf, drawnOf, isLive, type Drawn } from './chat-rows.ts'
 import type { DayGroup, Entry, MessageEntry, NoticeEntry } from './conversation.ts'
 import { heldBy, type Holder } from './doing.ts'
 import { MessageText, risen, StreamingMarkdown, sunk } from './markdown.ts'
@@ -18,23 +19,11 @@ import { StoredImages } from './StoredImages.tsx'
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit' })
 
-/** What an entry says, whatever its key. A reply keeps it when its stored copy takes the place of the one written live. */
-const wordsOf = (entry: Entry) => entry.kind === 'shell' ? `shell\n${entry.command}\n${entry.text}` : (entry.kind === 'message' ? `${entry.role}\n${entry.text}` : `${entry.tone}\n${entry.text}`)
-
-/** A reply still held live: being written, or finished and waiting for hobkin to store it. Its blocks do the moving. */
-const isLive = (entry: Entry) => entry.key.startsWith('live:')
-
 /** The least time between two pieces of a reply appearing. A word slower than this shows as soon as it is whole. */
 const CADENCE_MS = 100
 
 // What is above a new message glides up to make room. No bounce: it is the new message that lands.
 const makeRoom = { layout: spring.sheet }
-
-interface Drawn {
-  epoch: number
-  keys: Set<string>
-  words: Set<string>
-}
 
 export interface MessageListProps {
   days: DayGroup[]
@@ -56,26 +45,23 @@ export function MessageList({ days, epoch, scroll, empty, label }: MessageListPr
   const still = useStill()
   // What the last paint showed. Only what is new since then arrives with movement.
   const drawn = useRef<Drawn | null>(null)
-  const before = drawn.current
-  const moves = before !== null && before.epoch === epoch
-  let arriving = 0
-  const orderOf = (entry: Entry): number | null => {
-    if (!moves || isLive(entry) || before.keys.has(entry.key) || before.words.has(wordsOf(entry))) return null
-    return arriving++
-  }
+  const moves = drawn.current !== null && drawn.current.epoch === epoch
+  const arrivals = arrivalsOf(days, epoch, drawn.current)
+  const arriving = arrivals.size
+  // The rows measure where they are only when something arrived, left or was replaced, not as a reply grows.
+  const arrangement = arrangementOf(days)
 
   // Before the browser paints, and before the rows are measured for their move: when a message arrives or the
   // conversation was replaced, the view goes to the newest message, so the rows above it are seen to travel there.
-  // A reply growing inside its row is followed by the scroll itself. `arriving` is counted while the rows are drawn.
+  // A reply growing inside its row is followed by the scroll itself.
   const { stick } = scroll
   useLayoutEffect(() => {
     if (!moves || arriving > 0) stick()
   }, [days, stick])
 
   useEffect(() => {
-    const entries = days.flatMap((day) => day.entries)
-    drawn.current = { epoch, keys: new Set(entries.map(({ key }) => key)), words: new Set(entries.map(wordsOf)) }
-  })
+    drawn.current = drawnOf(days, epoch)
+  }, [days, epoch])
 
   return (
     <div className="relative h-full min-h-0">
@@ -97,6 +83,7 @@ export function MessageList({ days, epoch, scroll, empty, label }: MessageListPr
             <li key={day.key}>
               <motion.h2
                 layout="position"
+                layoutDependency={arrangement}
                 transition={makeRoom}
                 className="eyebrow mb-3 flex items-center gap-3 before:h-px before:flex-1 before:bg-border after:h-px after:flex-1 after:bg-border"
               >
@@ -104,7 +91,7 @@ export function MessageList({ days, epoch, scroll, empty, label }: MessageListPr
               </motion.h2>
               <ol className="flex flex-col gap-4">
                 {day.entries.map((entry) => (
-                  <Row key={entry.key} entry={entry} order={orderOf(entry)} />
+                  <Row key={entry.key} entry={entry} order={arrivals.get(entry.key) ?? null} arrangement={arrangement} />
                 ))}
               </ol>
             </li>
@@ -134,8 +121,11 @@ export function MessageList({ days, epoch, scroll, empty, label }: MessageListPr
   )
 }
 
-/** One entry. `order` is its place among the entries arriving now, or null when it was already there. */
-function Row({ entry, order }: { entry: Entry; order: number | null }) {
+/**
+ * One entry. `order` is its place among the entries arriving now, or null when it was already there. It draws again
+ * only when its own entry changes, so a token draws the reply being written and no other row.
+ */
+const Row = memo(function Row({ entry, order, arrangement }: { entry: Entry; order: number | null; arrangement: string }) {
   const still = useStill()
   const writing = entry.kind === 'message' && entry.state === 'writing'
   const text = useRevealed(entry.text, writing)
@@ -148,7 +138,7 @@ function Row({ entry, order }: { entry: Entry; order: number | null }) {
   const delay = Math.min(order ?? 0, 6) * stagger
   return (
     // The row itself only ever changes place, to make room. The rise is on what it holds.
-    <motion.li layout="position" transition={makeRoom} className="min-w-0">
+    <motion.li layout="position" layoutDependency={arrangement} transition={makeRoom} className="min-w-0">
       <motion.div
         initial={order === null ? false : holdStill(sunk, still)}
         animate={holdStill(risen, still)}
@@ -161,7 +151,7 @@ function Row({ entry, order }: { entry: Entry; order: number | null }) {
       </motion.div>
     </motion.li>
   )
-}
+})
 
 /** Current chat and saved History share the same literal native shell presentation. */
 export function ShellTranscript({ message, at }: { message: unknown; at?: number | null }) {

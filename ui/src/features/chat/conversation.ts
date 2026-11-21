@@ -1,5 +1,5 @@
 import { shellFields, type ChatMessage, type NoticeTone, type ShellFields } from '#shared/protocol/snapshot.ts'
-import { replyText, storedBesideLive, type LiveTurn } from '../../lib/host/live.ts'
+import { replyText, storedBesideLive, type LiveReply, type LiveTurn } from '../../lib/host/live.ts'
 import { splitRoutineReference } from '../reports/reply.ts'
 import type { OutboxEntry } from './outbox.ts'
 
@@ -90,7 +90,51 @@ function asked(content: string, about?: string): { text: string; about?: string 
   return { text: split.text, ...(title ? { about: title } : {}) }
 }
 
+/**
+ * Each entry is made once from what it shows: a stored message, a reply written live, a message sent, a notice folded
+ * onto the one before it. The next build gives a row whose message did not change the same entry, so it does not draw again.
+ */
+const storedEntries = new WeakMap<ChatMessage, Entry>()
+const liveEntries = new WeakMap<LiveReply, MessageEntry | null>()
+const sentEntries = new WeakMap<OutboxEntry, MessageEntry>()
+const foldedEntries = new WeakMap<Entry, { onto: NoticeEntry; folded: NoticeEntry }>()
+
 function entryOf(message: ChatMessage): Entry {
+  let entry = storedEntries.get(message)
+  if (!entry) storedEntries.set(message, (entry = newEntry(message)))
+  return entry
+}
+
+/** A reply being written, or written and not stored yet. Null before its first word: nothing is drawn for it yet. */
+function liveEntryOf(reply: LiveReply): MessageEntry | null {
+  let entry = liveEntries.get(reply)
+  if (entry === undefined) {
+    const text = replyText(reply)
+    entry = text.trim() ? { kind: 'message', key: `live:${reply.serial}`, role: 'assistant', text, at: null, ...(reply.done ? {} : { state: 'writing' as const }) } : null
+    liveEntries.set(reply, entry)
+  }
+  return entry
+}
+
+function sentEntryOf(sent: OutboxEntry): MessageEntry {
+  let entry = sentEntries.get(sent)
+  if (!entry) {
+    entry = { kind: 'message', key: `outbox:${sent.id}`, role: 'user', ...asked(sent.text, sent.about), at: sent.at, ...(sent.images ? { images: sent.images } : {}), ...(sent.accepted ? {} : { state: 'queued' as const }) }
+    sentEntries.set(sent, entry)
+  }
+  return entry
+}
+
+/** A notice that repeats the one before it, folded onto it: it keeps the first one's place and takes the latest time. */
+function foldedOnto(previous: NoticeEntry, next: Entry): NoticeEntry {
+  const kept = foldedEntries.get(next)
+  if (kept?.onto === previous) return kept.folded
+  const folded = { ...previous, count: previous.count + 1, at: next.at ?? previous.at }
+  foldedEntries.set(next, { onto: previous, folded })
+  return folded
+}
+
+function newEntry(message: ChatMessage): Entry {
   const at = timeOf(message.at)
   const shell = shellFields(message)
   if (shell) return { kind: 'shell', key: message.id, ...shell, text: shell.output, at, outcome: shell.cancelled ? 'cancelled' : shell.exitCode === null ? 'unknown' : shell.exitCode === 0 ? 'success' : 'failed' }
@@ -152,10 +196,9 @@ export function buildConversation({ messages, local = [], live = null, outbox = 
       days.push(day)
     }
     const previous = day.entries.at(-1)
-    if (repeats(previous, entry)) {
-      // It keeps its place and takes the latest time, so it does not jump when another one arrives.
-      day.entries[day.entries.length - 1] = { ...previous, count: previous.count + 1, at: entry.at ?? previous.at }
-    } else day.entries.push(entry)
+    // It keeps its place and takes the latest time, so it does not jump when another one arrives.
+    if (repeats(previous, entry)) day.entries[day.entries.length - 1] = foldedOnto(previous, entry)
+    else day.entries.push(entry)
   }
 
   for (const message of withLocal(storedBesideLive(messages, live), local)) {
@@ -163,14 +206,10 @@ export function buildConversation({ messages, local = [], live = null, outbox = 
     place(entry, entry.at)
   }
   for (const reply of live?.replies ?? []) {
-    const text = replyText(reply)
+    const entry = liveEntryOf(reply)
     // Nothing is drawn before the first word: the line above the input already says hobkin is at work.
-    if (!text.trim()) continue
-    place({ kind: 'message', key: `live:${reply.serial}`, role: 'assistant', text, at: null, ...(reply.done ? {} : { state: 'writing' as const }) }, now)
+    if (entry) place(entry, now)
   }
-  for (const sent of outbox) {
-    const waiting = sent.accepted ? {} : { state: 'queued' as const }
-    place({ kind: 'message', key: `outbox:${sent.id}`, role: 'user', ...asked(sent.text, sent.about), at: sent.at, ...(sent.images ? { images: sent.images } : {}), ...waiting }, sent.at)
-  }
+  for (const sent of outbox) place(sentEntryOf(sent), sent.at)
   return days
 }
