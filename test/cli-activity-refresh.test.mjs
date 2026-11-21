@@ -20,8 +20,9 @@ function fixture(t) {
   };
   app.onChange = snapshot => published.push(snapshot);
   app.project = async () => { projects++; };
+  // Activity goes out at most every 100 ms, a rebuild 25 ms after it is asked: a flush waits for either.
   const flush = async () => {
-    t.mock.timers.tick(25);
+    t.mock.timers.tick(100);
     await app.refreshing;
   };
   return { app, published, flush, projects: () => projects, helperLists: () => helperLists };
@@ -160,4 +161,64 @@ test('a background run\'s feed keeps its newest 200 steps and the ends of a long
   assert.equal(steps[0].id, 'tool:c50');
   assert.equal(steps.at(-1).outputLength, 20000);
   assert.ok(steps.at(-1).output.length < 8200);
+});
+
+// The fixture above with the clock mocked too, so the time since the last publish is the timers' own.
+function paced(t) {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const app = new HobkinApplication();
+  const published = [];
+  let projects = 0;
+  Object.assign(app, { now: Date.now, runner: {}, snapshot: {} });
+  app.runtime = { mainActivity: () => [], helpers: () => ({ jobChildren: {}, mainChildren: [] }), mainBusy: false };
+  app.onChange = snapshot => published.push({ at: Date.now(), snapshot });
+  app.project = async () => { projects++; };
+  const word = () => app.observeActivity('job', { type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'a' } });
+  app.observeActivity('job', { type: 'message_start', message: { role: 'assistant' } });
+  // A publish of activity runs just after its timer, so a tick lets it.
+  const tick = async ms => {
+    t.mock.timers.tick(ms);
+    await new Promise(resolve => setImmediate(resolve));
+  };
+  return { app, published, word, projects: () => projects, tick };
+}
+
+test('activity goes out 25 ms after the first event of a quiet moment, then at most ten times a second, and a burst\'s last event within 100 ms', async t => {
+  const h = paced(t);
+  await h.tick(25);
+  await h.tick(1000);
+  h.published.length = 0;
+  const start = Date.now();
+  h.word();
+  await h.tick(25);
+  assert.equal(h.published.length, 1, 'the first event of a quiet moment goes out 25 ms later');
+  assert.equal(h.published[0].at - start, 25);
+
+  // A word every 10 ms for two seconds.
+  for (let i = 0; i < 200; i++) {
+    h.word();
+    await h.tick(10);
+  }
+  const during = h.published.filter(({ at }) => at > start + 25 && at <= start + 2025);
+  assert.ok(during.length <= 20, `${during.length} publishes in two seconds of a steady stream`);
+  assert.ok(during.length >= 18, 'and it still goes out about every 100 ms');
+  for (let i = 1; i < h.published.length; i++) assert.ok(h.published[i].at - h.published[i - 1].at >= 100);
+
+  const last = Date.now();
+  h.word();
+  await h.tick(100);
+  assert.equal(h.published.at(-1).snapshot.jobActivity.job[0].text.length, 202, 'the burst\'s last word is out');
+  assert.ok(h.published.at(-1).at - last <= 100);
+});
+
+test('a rebuild asked while activity waits its turn still goes out 25 ms later, and wins', async t => {
+  const h = paced(t);
+  h.word();
+  await h.tick(25);
+  h.word();
+  await h.tick(10);
+  h.app.requestRefresh(false);
+  await h.tick(25);
+  await h.app.refreshing;
+  assert.equal(h.projects(), 1, 'the rebuild did not wait for the activity cadence');
 });

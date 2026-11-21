@@ -135,6 +135,10 @@ const withoutLiveCounts = ({ tokensToday, tokensCached, tokensThisHour, running,
 });
 
 const BUSY_RETRY_MS = 100;
+// Events that come together go out as one publish this long after the first, and a rebuild is asked for this soon too.
+const REFRESH_DELAY_MS = 25;
+// The window shows growing words every 100 ms, so activity goes out no oftener than this.
+const ACTIVITY_EVERY_MS = 100;
 // How long hobkin waits before it tries again to tell the main agent of a durable hobkin, after a try that failed.
 const HOBKIN_WAKE_RETRY_MS = 5 * 60000;
 // The keys of the Done walk, which only the user presses.
@@ -383,14 +387,25 @@ export class HobkinApplication {
     };
   }
 
-  /** `work` is Work's status as a tick just read it, for the refresh it asks for. A refresh asked for anything else reads Work again. */
+  /**
+   * `work` is Work's status as a tick just read it, for the refresh it asks for. A refresh asked for anything else reads Work again.
+   * A whole rebuild goes out 25 ms after it is asked. Activity does too after a quiet moment, then no sooner than 100 ms after it last
+   * went out, since the window shows growing words every 100 ms: a rebuild asked meanwhile does not wait for that.
+   */
   requestRefresh(activityOnly = false, work = null) {
     if (this.closing || !this.runner) return;
     if (!activityOnly) {
       this.refreshDirty = true;
       this.workAsRead = work;
     }
-    if (this.refreshTimer) return;
+    const now = Date.now();
+    const soonest = now + REFRESH_DELAY_MS;
+    const due = this.refreshDirty ? soonest : Math.max(soonest, (this.activityAt ?? -Infinity) + ACTIVITY_EVERY_MS);
+    if (this.refreshTimer) {
+      if (this.refreshDue <= due) return;
+      clearTimeout(this.refreshTimer);
+    }
+    this.refreshDue = due;
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null;
       const work = this.workAsRead;
@@ -401,13 +416,14 @@ export class HobkinApplication {
         recordEvent(this.runtime.directory, 'error_shown', { from: 'refresh' });
         this.onChange?.(this.snapshot);
       });
-    }, 25);
+    }, due - now);
     this.refreshTimer.unref();
   }
 
   // Streaming does not change receipts, reports or the Work plan. Publish its in-memory feed only.
   publishActivity() {
     if (this.closing) return;
+    this.activityAt = Date.now();
     this.snapshot = {
       ...this.snapshot,
       jobActivity: Object.fromEntries([...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()])),
