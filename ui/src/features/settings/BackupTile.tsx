@@ -16,6 +16,14 @@ const when = (at: number) => new Date(at).toLocaleString(undefined, { dateStyle:
 const reason = (error: unknown) => (error instanceof Error ? error.message : String(error))
 const beforeRestore = (name: string) => name.endsWith('-before-restore.zip')
 
+/** The quiet line of what the newest backup left out as not hobkin's own, largest first, or null when it left out nothing. */
+function strayLine(strays: BackupState['strays'] | undefined): string | null {
+  const entries = strays?.entries ?? []
+  if (entries.length === 0) return null
+  const named = entries.slice(0, 3).map(({ path, bytes }) => (bytes === null ? path : `${path} (${formatBytes(bytes)})`))
+  return `Left out, not hobkin's own: ${named.join(', ')}${entries.length > 3 ? ` and ${entries.length - 3} more` : ''}`
+}
+
 /**
  * Local backup of hobkin's own records into zips kept beside its folder. The host does the work, on a schedule while it
  * runs. A backup taken while hobkin writes is best-effort. Restore puts the records back as they were and leaves working
@@ -91,6 +99,7 @@ export function BackupTile() {
   }
 
   const busy = pending || state?.busy != null
+  const strays = strayLine(state?.strays)
 
   return (
     <Rise className="col-span-6 @max-[820px]:col-span-2">
@@ -99,7 +108,7 @@ export function BackupTile() {
           <h2 className="eyebrow">Backup</h2>
           <p className="mt-1 font-heading text-[20px] leading-tight font-semibold tracking-[-0.022em]">A zip of hobkin's own records</p>
           <p className="mt-1 max-w-[70ch] text-[13px] text-muted-foreground">
-            Holds settings, memory, notes, routines, reports, decisions, conversations and the work queue. Leaves out working copies and clones of projects, what runs leave beside their reports, run transcripts and the search index.
+            Holds settings, memory, notes, routines, reports, decisions, conversations and the work queue. Leaves out working copies and clones of projects, what runs leave beside their reports, run transcripts, the search index, and anything hobkin did not write.
           </p>
           <p className="mt-1 max-w-[70ch] text-[13px] text-muted-foreground">
             Saved on this Mac beside the hobkin folder while the host runs. A copy taken while hobkin writes is best effort, and the oldest are deleted past the limit.
@@ -156,7 +165,13 @@ export function BackupTile() {
               </Button>
             </div>
             <p className="text-[12px] text-muted-foreground">{scheduleLine(state, now)}</p>
-            <p className="text-[12px] text-muted-foreground">Kept in {state.directory}</p>
+            <div className="text-[12px] text-muted-foreground">
+              <p>Kept in {state.directory}</p>
+              {/* Always one line tall, so nothing below it moves when it fills or empties. */}
+              <p className="min-h-lh truncate" title={strays ?? undefined}>
+                {strays}
+              </p>
+            </div>
             {state.lastError ? (
               <p role="alert" className="text-[13px] leading-snug text-bad-fg">
                 The last backup failed. {state.lastError}
