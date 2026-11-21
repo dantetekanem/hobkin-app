@@ -51,6 +51,21 @@ export interface ReviewAnchor {
   hash: string
 }
 
+/** How much of the reviewer's attention a node asks for (spec 053). `safe` nodes fold into groups on a large change. */
+export type AttentionTier = 'needs-you' | 'worth-a-look' | 'safe'
+
+/** What the reviewer is asked to do with a node, from what the change review found, once it has rated the change. */
+export interface NodeAttention {
+  tier: AttentionTier
+  /** Its place among the review's nodes, from 1: the node to read first is 1. */
+  rank: number
+  /** Why, in plain words, the strongest first. At most three. Empty for a safe node with nothing to say. */
+  reasons: string[]
+}
+
+/** What kind of change a node is, for folding the safe ones into groups: real code, or something read at a glance. */
+export type NodeBucket = 'code' | 'test' | 'generated' | 'lockfile' | 'locale' | 'moved' | 'format' | 'docs'
+
 export interface ReviewNode {
   /** `A1` for an acceptance line, `u1` for a unit of the change, `f1` for a file shown whole, `c1` for context. */
   id: string
@@ -78,6 +93,10 @@ export interface ReviewNode {
   level?: ReviewLevel
   /** The unit of the change review's story that tells this node, such as `u2`, once it has rated it. */
   unit?: string
+  /** How much attention it asks for and why (spec 053). A review from an older host has none, and shows every node. */
+  attention?: NodeAttention
+  /** What kind of change it is (spec 053). Missing on a review from an older host. */
+  bucket?: NodeBucket
   /**
    * Where it sits in the request's life cycle: for unchanged context the call-graph scan found, a caller or a callee; for
    * changed code, how far its entry is and the way a request takes to it.
