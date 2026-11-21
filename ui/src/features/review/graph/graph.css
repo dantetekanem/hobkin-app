@@ -789,6 +789,21 @@
   font-size: 12.5px;
   line-height: 19.6px;
 }
+/* A model's check is one line in every state, so the card keeps its height as TLC runs and ends. */
+.rv-step-tests .rv-tests-row[data-model] .rv-tests-name {
+  -webkit-line-clamp: 1;
+}
+.rv-step-tests div.rv-tests-row[data-model] {
+  cursor: default;
+  background: transparent;
+  transform: none;
+}
+.rv-tests-icon[data-tone='warn'] {
+  color: var(--hb-warn-fg);
+}
+.rv-tests-icon[data-tone='live'] {
+  color: var(--hb-sun-fg);
+}
 .rv-step-tests .rv-step-more {
   margin-top: 0;
 }

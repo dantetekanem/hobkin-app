@@ -1,14 +1,20 @@
-import { ArrowLeft, ChevronDown, ChevronUp, CornerDownLeft } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, ChevronUp, CornerDownLeft, LoaderCircle, Minus, TriangleAlert, X, type LucideIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import type { Unit } from '#shared/review/assessment.ts'
 import type { ReviewNode } from '#shared/review/types.ts'
+import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { cn } from '@/lib/utils.ts'
+import type { Tone } from '../../proofs/run/run-view.ts'
 import { isLineCount } from '../graph/arrange.ts'
 import { KIND, LevelBadge, statusOf } from '../graph/kinds.tsx'
 import { AskLink } from '../panel/AskLink.tsx'
 import { questionAsk } from '../panel/ask.ts'
+import { useReduced } from '../state/context.tsx'
+import type { ModelLine } from './node-models.ts'
 import { noTestWords, testsFor, type TestsGraph } from './node-tests.ts'
 import type { CardContent } from './StepCard.tsx'
+import { useModelLines } from './use-model-checks.ts'
 import { isBlindNote, plainSentences, proofWords, reachWords, tldrOf, watchWords } from './words.ts'
 
 /** What the card needs to know of the graph: the review's wires, what each test covers, the cards of folded tests, every node. */
@@ -60,6 +66,7 @@ export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode,
   const level = unit?.level ?? (content.kind === 'step' ? content.step.level : content.node.level)
   const tldr = tldrOf(content.kind === 'step' ? content.step : { text: isLineCount(content.node.summary) ? '' : content.node.summary }, unit)
   const details = unit ? unitDetails(unit, focus, graph, ask) : nodeDetails(content, graph)
+  const models = useModelLines(focus)
 
   return (
     <div className="rv-step-body">
@@ -75,7 +82,7 @@ export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode,
         </>
       )}
       {/* In the same place in the tree with the code open or closed, so its list stays as the reviewer left it. */}
-      <Tests focus={focus} graph={graph} unit={unit} code={code} onShow={actions.showTest} />
+      <Tests focus={focus} graph={graph} unit={unit} models={models} code={code} onShow={actions.showTest} />
       {brief ? null : (
         <>
           {details.length > 0 ? (
@@ -112,9 +119,10 @@ export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode,
 
 /**
  * The tests of what is in focus: each by name and result, a failed one first, and a press on one shows its code without
- * leaving the node. Past four, the rest wait behind "Show N more". When none covers it, the card says so plainly.
+ * leaving the node. Past four, the rest wait behind "Show N more". A model in focus says what TLC said of it at the
+ * reviewed head, under them. When neither covers it, the card says so plainly.
  */
-function Tests({ focus, graph, unit, code, onShow }: { focus: readonly string[]; graph: TestsGraph; unit: Unit | undefined; code: string | null; onShow: (id: string) => void }) {
+function Tests({ focus, graph, unit, models, code, onShow }: { focus: readonly string[]; graph: TestsGraph; unit: Unit | undefined; models: readonly ModelLine[]; code: string | null; onShow: (id: string) => void }) {
   const [all, setAll] = useState(false)
   const tests = testsFor(focus, graph)
   // One test behind a button would take the room of its own row: the list folds only when it hides two or more.
@@ -123,7 +131,7 @@ function Tests({ focus, graph, unit, code, onShow }: { focus: readonly string[];
     <section className="rv-step-tests" aria-label="Tests">
       <h4 className="rv-step-section-title">Tests</h4>
       {tests.length === 0 ? (
-        <p className="rv-step-quiet">{noTestWords(unit)}</p>
+        models.length > 0 ? null : <p className="rv-step-quiet">{noTestWords(unit)}</p>
       ) : (
         <ul className="rv-step-tests-rows">
           {(folds && !all ? tests.slice(0, TESTS_SHOWN) : tests).map((test) => {
@@ -148,7 +156,47 @@ function Tests({ focus, graph, unit, code, onShow }: { focus: readonly string[];
           {all ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
         </button>
       ) : null}
+      {models.length > 0 ? (
+        <ul className="rv-step-tests-rows" aria-label="Model checks">
+          {models.map((model) => (
+            <li key={model.spec}>
+              <ModelRow model={model} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
     </section>
+  )
+}
+
+const MODEL_ICON: Readonly<Record<Tone, LucideIcon>> = { ok: Check, bad: X, warn: TriangleAlert, live: LoaderCircle, quiet: Minus }
+
+/**
+ * One model's check on one line, which keeps its height as the check runs and ends. With a run, a press opens it in the
+ * proof screen, and Back there comes back to the review.
+ */
+function ModelRow({ model }: { model: ModelLine }) {
+  const reduced = useReduced()
+  const Icon = MODEL_ICON[model.tone]
+  const parts = (
+    <>
+      <Icon className={cn('rv-tests-icon', model.tone === 'live' && !reduced && 'animate-spin')} data-tone={model.tone} aria-hidden="true" />
+      <span className="rv-tests-name">{model.text}</span>
+      <span className="rv-tests-result">{model.run ? 'Open run' : ''}</span>
+    </>
+  )
+  if (!model.run) {
+    return (
+      <div className="rv-tests-row" data-model="" title={`${model.text}. hobkin has no check of this model at the reviewed commit.`}>
+        {parts}
+      </div>
+    )
+  }
+  const run = model.run
+  return (
+    <button type="button" className="rv-tests-row" data-model="" title={`${model.text}. hobkin ran this check itself. Opens the run.`} onClick={() => useView.getState().openProofRun(run)}>
+      {parts}
+    </button>
   )
 }
 
