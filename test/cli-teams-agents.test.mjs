@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { TeamsAgents } from '../src/cli/teams-agents.mjs';
+import { agentsOut, TeamsAgents } from '../src/cli/teams-agents.mjs';
 
 // No real Pi and no real ~/.pi: every reader gets a folder of its own and no timers.
 const folder = t => {
@@ -298,6 +298,42 @@ test("reading teams' files writes nothing there", async t => {
   teams.snapshot(new Set());
   await teams.read();
   assert.deepEqual(tree(), before);
+});
+
+test("teams' files say which agents are still out for a session, within teams' heartbeat staleness", async t => {
+  const dir = folder(t), now = Date.now();
+  const at = session(dir, 'abc', { members: [
+    member('beating', 1, 'r1'), member('quiet', 1, 'r2'), member('starting', now - 1000, 'r3'),
+    member('closed', now, 'r4', { isActive: false }), member('rerun', 1, 'r5'),
+  ] });
+  const beat = (name, lifecycleRunId, lastHeartbeatAt) =>
+    writeFileSync(join(at, 'runtime', `${name}.json`), JSON.stringify({ agentName: name, lifecycleRunId, lastHeartbeatAt }));
+  beat('beating', 'r1', now - 89_000);
+  beat('quiet', 'r2', now - 91_000);
+  beat('rerun', 'an-older-run', now);
+  assert.deepEqual(await agentsOut('abc', { teamsDir: dir, now }), ['beating', 'starting']);
+
+  // A completion group written lately also holds a slot that has not settled, and a wake that has not reached the lead.
+  mkdirSync(join(at, 'completion-groups'));
+  const group = (file, members, deliveries = []) =>
+    writeFileSync(join(at, 'completion-groups', file), JSON.stringify({ version: 1, sessionId: 'abc', members, deliveries }));
+  group('fresh.json', [
+    { name: 'beating', status: 'running' },
+    { name: 'waiting', status: 'queued' },
+    { name: 'done', status: 'reported' },
+  ], [
+    { id: 'seen', status: 'enqueued', wake: { state: 'observed', entryId: 'e1' } },
+    { id: 'coming', status: 'enqueued', wake: { state: 'pending' } },
+  ]);
+  group('dead.json', [{ name: 'stuck', status: 'running' }], [{ id: 'lost', status: 'pending' }]);
+  const lastWrittenSeconds = (now - 91_000) / 1000;
+  utimesSync(join(at, 'completion-groups', 'dead.json'), lastWrittenSeconds, lastWrittenSeconds);
+
+  assert.deepEqual(await agentsOut('abc', { teamsDir: dir, now }), ['beating', 'starting', 'waiting', 'wake:coming']);
+
+  // Another lead's folder, a shared session and one that is not there have nothing out.
+  session(dir, 'other', { members: [member('beating', now, 'r1')], lead: 'someone-else' });
+  for (const id of ['other', 'local-session', 'missing', '../abc']) assert.deepEqual(await agentsOut(id, { teamsDir: dir, now }), []);
 });
 
 test("observing a run's events changes none of them", t => {

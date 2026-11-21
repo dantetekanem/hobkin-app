@@ -13,6 +13,9 @@ import { JobActivity } from './job-activity.mjs';
  * wakes that reached it. When teams' own files for the run's session exist, they fill in the status, times, steps and
  * messages. Those files belong to a run only through the session its own spawn result named, and an agent in them
  * only by that session, its name and a start after the spawn call, never by a name alone. Plain reads, no locks.
+ *
+ * `agentsOut` is the one read outside the window: a run's harness asks it whether a lead still has agents working
+ * before it settles that run, since an agent a `codemode` script started leaves no spawn record of its own.
  */
 
 const SPAWNS = new Set(['spawn_agent', 'spawn_swarm_agents']);
@@ -439,6 +442,60 @@ export class TeamsAgents {
     this.waiting?.();
     this.waiting = null;
   }
+}
+
+const UNSETTLED = new Set(['pending', 'queued', 'running']);
+
+/** A JSON file teams wrote, with when it was last written. Missing, too big or broken is nothing. */
+async function jsonFile(path) {
+  try {
+    const { size, mtimeMs } = await stat(path);
+    return size > MOST_JSON_BYTES ? undefined : { mtimeMs, value: JSON.parse(await readFile(path, 'utf8')) };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * What teams still has out for a lead's Pi session, by its own files: each teammate it lists as active that joined or
+ * beat within teams' heartbeat staleness, and, in a completion group written within that time, each slot not settled
+ * and each wake not yet seen by the lead (as `wake:<delivery id>`). A file nothing writes any more stops counting then.
+ */
+export async function agentsOut(sessionId, { teamsDir = defaultTeamsDir(), now = Date.now() } = {}) {
+  const team = teamOf(`session-${sessionId}`);
+  if (!team) return [];
+  const dir = join(teamsDir, team);
+  const config = (await jsonFile(join(dir, 'config.json')))?.value;
+  const ownConfig = config?.name === team && config.leadSessionId === sessionId && Array.isArray(config.members);
+  if (!ownConfig) return [];
+
+  const fresh = at => at !== undefined && now - at <= HEARTBEAT_MS;
+  const out = new Set();
+
+  for (const member of config.members) {
+    const listed = member?.agentType === 'teammate' && member.isActive !== false;
+    const name = listed ? nameOf(member.name) : undefined;
+    if (!name) continue;
+    const runtime = (await jsonFile(join(dir, 'runtime', `${name}.json`)))?.value;
+    const ownRuntime = runtime && (!member.lifecycleRunId || runtime.lifecycleRunId === member.lifecycleRunId);
+    const beating = ownRuntime && fresh(timeOf(runtime.lastHeartbeatAt));
+    if (beating || fresh(timeOf(member.joinedAt))) out.add(name);
+  }
+
+  const groupsDir = join(dir, 'completion-groups');
+  for (const file of await readdir(groupsDir).catch(() => [])) {
+    const group = file.endsWith('.json') ? await jsonFile(join(groupsDir, file)) : undefined;
+    if (!fresh(group?.mtimeMs) || group.value?.sessionId !== sessionId) continue;
+    const { members, deliveries } = group.value;
+    for (const member of Array.isArray(members) ? members : []) {
+      if (UNSETTLED.has(member?.status) && nameOf(member.name)) out.add(member.name);
+    }
+    for (const delivery of Array.isArray(deliveries) ? deliveries : []) {
+      const unseen = delivery?.wake?.state !== 'observed';
+      if (unseen && typeof delivery?.id === 'string') out.add(`wake:${cut(delivery.id, 200)}`);
+    }
+  }
+  return [...out];
 }
 
 /**

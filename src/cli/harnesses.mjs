@@ -12,6 +12,7 @@ import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { assertPromptBytes, promptByteLimit } from './prompt-bounds.mjs';
 import { recordEvent } from './events.mjs';
 import { promptFactsIn } from './work/usage.mjs';
+import { agentsOut, defaultTeamsDir } from './teams-agents.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
@@ -25,6 +26,9 @@ const validCost = value => typeof value === 'number' && Number.isFinite(value) &
 const MAX_KEPT_RECORD_BYTES = 1048576;
 const MAX_LEFT_OUT_BYTES = 268435456;
 const completionGroup = Symbol('completion group');
+// While teams' files list agents out for an idle lead, they are read again this often, so one that stops beating
+// without a report lets the run go once teams' own heartbeat staleness has passed.
+const TEAMS_CHECK_MS = 15000;
 const dialogMethods = new Set(['select', 'confirm', 'input', 'editor']);
 // A grouped swarm suppresses member reports and answers once, through a wake.
 const agentsStarted = ({ toolName, isError, result }) => {
@@ -339,7 +343,7 @@ async function startAndKeep(request, { invocation, env, key, result, startProces
 }
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, turn, keepIdleMs = KEPT_IDLE_MS } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS } = {}) {
   // Before anything else, so a turn nobody timed still counts its process start.
   const entered = Date.now();
   const invocation = buildInvocation(request);
@@ -394,6 +398,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
   let streamingMessage;
   // Agents live in this child and report as later turns, so a settled lead may not be finished.
   const agents = new Set();
+  // A turn that starts or settles makes a read of teams' files begun before it stale.
+  let turns = 0, recheck;
   const extensionErrors = new Set();
   let takesMessages = false, joining = false;
   const tools = { owned_agent: createOwnedAgentSessionTool((params, signal) => ownedScope.request(params, signal)) };
@@ -407,6 +413,14 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       else { takesMessages = false; settled.resolve(); }
     } catch (error) { settled.reject(error); }
     finally { joining = false; }
+  };
+  // Agents a `codemode` script started leave no spawn record, so teams' own files for this session are asked too.
+  const finishUnlessOut = async () => {
+    const asked = turns;
+    const out = await agentsOut(state?.sessionId, { teamsDir }).catch(() => []);
+    if (asked !== turns) return;
+    if (out.length) recheck = setTimeout(finishUnlessOut, teamsCheckMs);
+    else void finishOwned();
   };
   const accept = record => {
     if (metrics) {
@@ -441,9 +455,13 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     if (record.type === 'extension_error') {
       extensionErrors.add(clean(`${record.extensionPath ?? 'An extension'} (${record.event ?? 'event'}): ${record.error ?? 'handler failed'}`));
     }
+    if (record.type === 'agent_start' || record.type === 'agent_settled') {
+      turns++;
+      clearTimeout(recheck);
+    }
     if (record.type === 'agent_settled') {
       if (record.aborted === true) child.fail(Object.assign(Error('Pi agent run was aborted.'), { interrupted: true }));
-      else if (!agents.size) void finishOwned();
+      else if (!agents.size) void finishUnlessOut();
     }
     // What the run's first model request was made of, from the usage extension. Only hashes and sizes are kept.
     promptFacts ??= promptFactsIn(record);
@@ -527,6 +545,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     }
     if (metricsRoot && promptFacts) recordEvent(metricsRoot, 'turn_prompt', { id: request.id, ...promptFacts });
     takesMessages = false;
+    turns++;
+    clearTimeout(recheck);
     request.signal?.removeEventListener('abort', cancel);
     if (durable && result.status === 'completed' && !child.failure && !child.exited) {
       holding = false;

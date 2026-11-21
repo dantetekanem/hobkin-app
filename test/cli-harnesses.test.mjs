@@ -390,6 +390,65 @@ test('a failed spawn leaves nothing to wait for', { timeout: 3000 }, async t => 
   assert.equal(result.text, 'Useful: the agent could not start.');
 });
 
+/** Teams' own files for the fake Pi's session `pi-job`, with `editor` working: listed, joined long ago and beating now. */
+function teamsWith(t) {
+  const teamsDir = mkdtempSync(join(tmpdir(), 'hobkin-teams-'));
+  t.after(() => rmSync(teamsDir, { recursive: true, force: true }));
+  const dir = join(teamsDir, 'session-pi-job');
+  mkdirSync(join(dir, 'runtime'), { recursive: true });
+  const config = members => JSON.stringify({ name: 'session-pi-job', leadSessionId: 'pi-job',
+    members: [{ name: 'team-lead', agentType: 'lead', joinedAt: 1 }, ...members] });
+  writeFileSync(join(dir, 'config.json'), config([{ name: 'editor', agentType: 'teammate', joinedAt: 1, lifecycleRunId: 'run-1', isActive: true }]));
+  const runtime = join(dir, 'runtime', 'editor.json');
+  writeFileSync(runtime, JSON.stringify({ agentName: 'editor', lifecycleRunId: 'run-1', lastHeartbeatAt: Date.now() }));
+  return { teamsDir, config: join(dir, 'config.json'), alone: config([]), runtime };
+}
+// A codemode script's own spawn calls reach hobkin only inside the script's one tool record.
+const scripted = `send({ type: 'tool_execution_end', toolName: 'codemode', isError: false,
+  result: { content: [], details: { calls: [{ name: 'spawn_swarm_agents', status: 'ok' }] } } });`;
+const write = (path, text) => `process.getBuiltinModule('node:fs').writeFileSync(${JSON.stringify(path)}, ${JSON.stringify(text)});`;
+
+test('a job waits for agents a script started while teams still lists them as working', { timeout: 3000 }, async t => {
+  const teams = teamsWith(t);
+  const program = rpc(`${teamEvents}
+    ${scripted}
+    say('');
+    settled();
+    setTimeout(() => {
+      ${write(teams.config, teams.alone)}
+      delivered('pi-extended-teams-wake');
+      say('Useful: the editor reported.');
+      settled();
+    }, 200);
+  `);
+
+  const result = await runHarness(request(t), { spawnProcess: fake(program), teamsDir: teams.teamsDir });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.text, 'Useful: the editor reported.');
+});
+
+test('a job is let go once teams stops hearing from an agent that never reports', { timeout: 3000 }, async t => {
+  const teams = teamsWith(t);
+  const program = rpc(`${teamEvents}
+    ${scripted}
+    say('Partial: the editor went quiet.');
+    settled();
+    setTimeout(() => {
+      ${write(teams.runtime, JSON.stringify({ agentName: 'editor', lifecycleRunId: 'run-1', lastHeartbeatAt: 1 }))}
+      send({ type: 'heartbeat_stopped' });
+    }, 200);
+  `);
+  const seen = [];
+
+  const result = await runHarness(request(t), { spawnProcess: fake(program), teamsDir: teams.teamsDir, teamsCheckMs: 50,
+    onEvent: event => seen.push(event.type) });
+
+  assert.equal(result.status, 'completed');
+  assert.equal(result.text, 'Partial: the editor went quiet.');
+  assert.ok(seen.includes('heartbeat_stopped'), 'the run waited while the editor was beating');
+});
+
 test('a running job takes a message as a steer, until the run is over', async t => {
   const program = rpc(`${teamEvents}
     if (cmd.streamingBehavior === 'steer') {
