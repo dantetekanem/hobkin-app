@@ -8,7 +8,7 @@ export { PALETTE_KEYS, adjustedPalette, asBackground, backgroundImageCss, contra
  * How many agents work mode may run together, for the window with no host: hobkin's own default and most
  * (`DEFAULT_AGENTS` and `MAX_AGENTS` in `src/cli/work/store.mjs`). With a host the most is the one it sends.
  */
-export const AGENTS = { min: 1, max: 8, initial: 2 } as const
+export const AGENTS = { min: 1, max: 100, initial: 2 } as const
 
 /** Tokens work mode may spend in a day. hobkin's default is 100M. */
 export const BUDGET = { min: 10_000_000, max: 200_000_000, step: 10_000_000, initial: 100_000_000 } as const

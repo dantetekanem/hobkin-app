@@ -341,9 +341,13 @@ test('agents at once round trip', async (t) => {
   assert.equal(await reported(), 4)
   assert.deepEqual(calls, [['refresh']])
 
-  const tooMany = await runCommand(handlers, 'work.agents', { agents: 9 })
+  assert.deepEqual(await runCommand(handlers, 'work.agents', { agents: 100 }), { ok: true, value: { agents: 100 } })
+  assert.equal(await reported(), 100, "hobkin's most")
+  assert.equal(workFrom({ work: await runWorkCommand(root, []), waiting: null })!.maxAgents, 100)
+
+  const tooMany = await runCommand(handlers, 'work.agents', { agents: 101 })
   assert.equal(!tooMany.ok && tooMany.error.code, 'invalid-arguments')
-  assert.equal(await reported(), 4)
+  assert.equal(await reported(), 100)
 })
 
 test("when work mode runs fewer agents than the user chose, the window gets hobkin's reason, and none otherwise", () => {

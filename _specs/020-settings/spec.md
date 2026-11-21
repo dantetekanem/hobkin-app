@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["001-foundation", "017-model-tiers", "019-keyboard"],
-  "updated": "2026-11-19"
+  "updated": "2026-11-21"
 }
 ---
 # Settings
@@ -23,7 +23,7 @@ Settings is a screen on the canvas that looks like hobkin's desk, not a form. Ea
   | Tile | Setting | Scene |
   | --- | --- | --- |
   | Day and night | Theme: light, dark, or follow the Mac | Hills with a sun that sets and a moon that rises |
-  | Agents at once | How many agents work mode runs together, 1 to 8 | A row of hoods that grows and shrinks |
+  | Agents at once | How many agents work mode runs together, 1 to 100, saved as hobkin's own through `work.agents` (the user, 2026-11-21: this replaces 1 to 8 and a number only the sample agents followed) | A row of hoods that grows and shrinks, eight places at most |
   | Models | The lead and the four tiers | Five sets of bars. Opens the tiers lightbox of `017-model-tiers` |
   | Daily budget | Tokens work mode may spend in a day | A track with today's use on it |
   | Type | The face for reading text: Space Grotesk, Inter, Geist, DM Sans or Figtree | A message and a line of small text in the chosen face. The whole app changes with it |
@@ -58,7 +58,7 @@ Settings is a screen on the canvas that looks like hobkin's desk, not a form. Ea
 
 - A1. Cmd+comma and the header button open Settings on the canvas with the conversation still visible. Close and Escape return the canvas to the screen it showed before, and the Settings item leaves the menu.
 - A2. Choosing light, dark or follow the Mac changes the theme at once with the reveal of `001-foundation`, the sun and moon move to match, and the choice holds after a reload and after a restart, also when a custom theme was showing before it: the host is told and starts on that base too, and the custom theme stays in its kept list. With follow the Mac, changing the Mac's appearance changes the app.
-- A3. The agents tile shows as many hoods as the setting, between 1 and 8. Plus, minus and the arrow keys change it by one, and it stops at both ends.
+- A3. The agents tile shows as many hoods as the setting while they fit eight places, and past eight seven hoods and the count of the rest, between 1 and 100 (1 and 8 until 2026-11-21). Plus, minus and the arrow keys change it by one, Shift with an arrow by ten, Home and End go to the ends, a held button repeats, and it stops at both ends. With a host the number is hobkin's and the tile says why when hobkin runs fewer.
 - A4. The Models tile shows the lead's and each tier's model and thinking level, and opens the tiers lightbox. After Apply in the lightbox the tile shows the new values.
 - A5. Movement set to still makes screen changes fade without travel and holds the avatar still, whatever the Mac's setting. Set to lively, movement plays even when the Mac asks for less. Follow the Mac does what the Mac says.
 - A6. The daily budget changes in steps with the arrow keys and by dragging, and shows today's use against it.
@@ -89,7 +89,7 @@ Settings is a screen on the canvas that looks like hobkin's desk, not a form. Ea
 
 - A1. `ui/test/keys.test.ts` › "command comma opens settings from anywhere"
 - A2. check: choose each theme, reload, then change the Mac's appearance with follow the Mac chosen. `ui/test/theme-host.test.ts` › "the user's own choice of a built-in theme reaches the host, so a restart does not bring the custom theme back"; `host/test/appearance.test.ts` › "hobkin puts the app back on a built-in theme, and a restart does not bring the custom one back"
-- A3. `ui/test/settings.test.ts` › "agents stay between one and eight"
+- A3. `ui/test/agents-at-once.test.ts` › "agents at once step by one with the arrows, by ten with Shift, and Home and End go to one and the most", "agents at once stop at one and at hobkin's most, and a number from outside is brought into range" and "the row of hoods draws one for each agent up to eight, and past eight seven and the count of the rest"; `host/test/work.test.ts` › "agents at once round trip"
 - A4. check: open the lightbox from the tile, change a tier, Apply, read the tile.
 - A5. `ui/test/still.test.ts` (the rule); check: set still, change screens and watch the avatar. Set lively with the Mac's reduce motion on. Seen 2026-11-10: under still, changing to Routines and to Pages moved the screen and its pieces by 0px in every frame while they faded. Motion's own reduced motion leaves whole `transform` strings alone, so each moving part asks `useStill()` (ui/src/app/still.ts). Done for the screen travel, Hero and Rise, the canvas growing over the chat, the menu's second row, the agents list, the veil, the question sheet, chat messages and the blocks of a reply being written, the agent canvas, and the Reports rows; `holdStill` and `stillVariants` (ui/src/app/still-rule.ts, tested) drop the travel from both ends, so nothing grows from nothing. Seen 2026-11-10 under still: 0px in the question sheet, the menu's second row and an agent preview. GitHub and Integrations hold still on their own. Left: Routines' own movement, not checked.
 - A6. `ui/test/settings.test.ts` › "the budget moves in steps and stays in range"

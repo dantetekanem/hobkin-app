@@ -306,7 +306,7 @@ export function sampleWork(now = Date.now()): WorkState {
     forecast: 'Next 8h: about 5 jobs · 1 P0 · 3 P1 · 1 P2 · 2 agents at a time. Auto-pick is off, so only picks and work on finished branches start.',
     agents: 2,
     agentsAllowed: 2,
-    maxAgents: 8,
+    maxAgents: 100,
     dailyTokens: 100_000_000,
     tokensToday: 38_000_000,
     queue: [

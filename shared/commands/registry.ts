@@ -1018,9 +1018,9 @@ export const COMMANDS = {
     hobkin: true,
   },
   'work.agents': {
-    description: "Set how many work agents may run at once, from 1 to hobkin's most of 8, as `hobkin work agents` sets it. Running agents finish as they are.",
+    description: "Set how many work agents may run at once, from 1 to hobkin's most of 100, as `hobkin work agents` sets it. Running agents finish as they are.",
     runs: 'host',
-    args: Type.Object({ agents: Type.Integer({ minimum: 1, maximum: 8 }) }, { additionalProperties: false }),
+    args: Type.Object({ agents: Type.Integer({ minimum: 1, maximum: 100 }) }, { additionalProperties: false }),
     hobkin: true,
   },
   'work.tokens': {
