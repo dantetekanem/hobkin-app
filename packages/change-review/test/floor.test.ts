@@ -80,6 +80,21 @@ describe('floor table rows', () => {
     const f = run({ exposure: 'nobody-yet', undo: 'rollback', proof: 'not-applicable' })
     assert.deepEqual([f.level, f.rule, f.critical], ['mid', 11, false])
   })
+  it('a TLA+ model TLC checked at this commit: holding is safe, a broken rule is a break, and anything else is said beside the row that decides', () => {
+    const holds = run({ proof: 'unknown', model: { result: 'holds', said: 'TLC checked Sale.tla at this commit: it holds in 15 states' } })
+    assert.deepEqual([holds.level, holds.rule, holds.why], ['safe', 2, 'TLC checked Sale.tla at this commit: it holds in 15 states.'])
+    const broke = run({ proof: 'unknown', model: { result: 'violated', said: 'TLC checked Sale.tla at this commit: StockInBounds breaks in 4 steps' } })
+    assert.deepEqual([broke.level, broke.rule, broke.critical], ['high', 1, true])
+    // A hold with an action that never ran checked nothing that action guards: no evidence, so the rows below decide.
+    const unproven = run({ proof: 'unknown', model: { result: 'unproven', said: 'TLC checked Sale.tla at this commit: it held, but Restock never ran' } })
+    assert.deepEqual([unproven.level, unproven.rule, unproven.why], ['mid', 5, 'No test that ran shows these lines work. TLC checked Sale.tla at this commit: it held, but Restock never ran.'])
+  })
+  it('what a model of a file says is told beside the row that decides, and never decides', () => {
+    const modeledBy = 'Sale.tla models this file and holds in 15 states at this commit'
+    assert.deepEqual([run({ proof: 'unknown', modeledBy }).level, run({ proof: 'unknown', modeledBy }).why], ['mid', `No test that ran shows these lines work. ${modeledBy}.`])
+    const data = run({ effect: 'data', proof: 'unknown', modeledBy })
+    assert.deepEqual([data.level, data.rule], ['high', 4], 'a model that holds lowers no break')
+  })
 })
 
 describe('floor cases', () => {

@@ -4,7 +4,8 @@
  * only to a break that is shown or named, an effect nothing undoes, or a changed contract nothing shows working.
  * Everything else is safe to deploy, and what no test showed is said beside the answer, not turned into a risk.
  */
-import type { Unit } from './types.ts'
+import { heldModels } from './model-checks.ts'
+import type { ModelCheck, Unit } from './types.ts'
 
 export type Deploy = 'risky' | 'safe'
 
@@ -33,16 +34,18 @@ function saidFor(deploy: Deploy, said: string | undefined): string | null {
 /**
  * The answer for a change, from its units. `said` is the Reviewer's own answer in words: it is used as the reason when
  * it opens with the same answer the levels give, and dropped when it does not, since a model's sentence never decides.
+ * A risky answer names the TLA+ models (`checks`) that hold at this commit, and says that holding lowers no break.
  */
-export function deployAnswer(units: readonly (Pick<Unit, 'level' | 'title' | 'critical'> & Partial<Pick<Unit, 'nodes'>>)[], said?: string): DeployAnswer {
+export function deployAnswer(units: readonly (Pick<Unit, 'level' | 'title' | 'critical'> & Partial<Pick<Unit, 'nodes'>>)[], said?: string, checks: readonly ModelCheck[] = []): DeployAnswer {
   const high = units.filter((unit) => unit.level === 'high')
   const deploy: Deploy = high.length ? 'risky' : 'safe'
+  const held = high.length ? heldModels(checks) : null
   const own = saidFor(deploy, said)
-  if (own) return { deploy, why: own }
+  if (own) return { deploy, why: held ? `${own} ${held}` : own }
   if (high.length) {
     const first = high.find((unit) => unit.critical) ?? high[0]!
     const more = high.length - 1
-    return { deploy, why: `${sentence(first.title)}${more ? ` ${more} more part${more === 1 ? '' : 's'} can break.` : ''}` }
+    return { deploy, why: [`${sentence(first.title)}${more ? ` ${more} more part${more === 1 ? '' : 's'} can break.` : ''}`, held].filter(Boolean).join(' ') }
   }
   const look = units.filter((unit) => unit.level === 'mid')
   // One thing worth a look is named. Several are counted: files a test does not apply to are among them, so the

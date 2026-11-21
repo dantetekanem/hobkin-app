@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { deployAnswer } from '../src/answer.ts'
-import type { Unit } from '../src/types.ts'
+import type { ModelCheck, Unit } from '../src/types.ts'
 
 const unit = (level: Unit['level'], title: string, more: Partial<Unit> = {}): Pick<Unit, 'level' | 'title' | 'critical'> => ({ level, title, critical: false, ...more })
 
@@ -23,6 +23,16 @@ test('a review answers one question for the whole change: is it risky or safe to
   assert.equal(deployAnswer([unit('mid', 'A')]).why, 'Nothing found that breaks. 1 part was not shown working by a test that ran.')
   assert.deepEqual(deployAnswer([unit('safe', 'A')]), { deploy: 'safe', why: 'Every part is shown to work, or cannot break anything.' })
   assert.deepEqual(deployAnswer([]), { deploy: 'safe', why: 'Nothing that runs changed.' }, 'no unit: only comments, blank lines or files nothing runs changed')
+})
+
+test('a risky answer says which models hold at this commit, and that a model holding lowers no break found in the code', () => {
+  const holds: ModelCheck = { spec: '_specs/tla/sale/Sale.tla', run: 'r1', result: 'holds', states: 15, rules: [], unfired: [], models: [] }
+  assert.equal(deployAnswer([unit('high', 'A break')], undefined, [holds]).why, 'A break. Sale.tla holds in 15 states at this commit, which lowers no break found in the code.')
+  const stock: ModelCheck = { ...holds, spec: '_specs/tla/sale/Stock.tla', states: 1204 }
+  assert.equal(deployAnswer([unit('high', 'A break')], undefined, [holds, stock]).why, 'A break. Sale.tla and Stock.tla hold at this commit, which lowers no break found in the code.')
+  // Only a hold is said: a model that broke is a part of its own, and one whose action never ran is no evidence.
+  assert.equal(deployAnswer([unit('high', 'A break')], undefined, [{ ...holds, unfired: ['Restock'] }, { ...stock, result: 'violated' }]).why, 'A break.')
+  assert.equal(deployAnswer([unit('mid', 'A')], undefined, [holds]).why, 'Nothing found that breaks. 1 part was not shown working by a test that ran.')
 })
 
 test("the Reviewer's own sentence is the reason only when it gives the same answer", () => {

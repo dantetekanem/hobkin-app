@@ -1,6 +1,7 @@
 /**
  * A whole change review, end to end (skills/change-review): triage, the map by search, proof by the repository's own
- * tests, the floor, the units, one model call that reviews and reorganizes the map, the story and one blind check. Every step is tracked in
+ * tests and by the TLA+ model checks hobkin ran at the head, the floor, the units, one model call that reviews and
+ * reorganizes the map, the story and one blind check. Every step is tracked in
  * progress.json, and everything a step decides is written beside it, so the story never says what the files do not.
  *
  * The checkout at `cwd` must hold the change at `head`, clean: proof changes a definition, runs its tests and puts it
@@ -18,6 +19,7 @@ import { type EntryTestSearch, type EntryTestsOutcome, searchEntryTests } from '
 import { deriveFacts, goneAtHead, guardsPutOn, type CallerSite } from './facts.ts'
 import { gitRepo } from './git.ts'
 import { type ContextEntry, readReviewAnswer, reviewRequest } from './model.ts'
+import { applyModelChecks } from './model-checks.ts'
 import { progressFiles, trackProgress } from './progress.ts'
 import { candidateTests, detectRunbook, runProof, type ProofRequest, type ProofResult, type RunbookOverride, type TestCandidate } from './proof.ts'
 import { addedParts, carryWords, reshapeMap } from './reshape.ts'
@@ -33,6 +35,7 @@ import type {
   FileDiff,
   Graph,
   GraphEdge,
+  ModelCheck,
   ModelRunner,
   Progress,
   ReviewNode,
@@ -64,6 +67,12 @@ export interface ReviewChangeOptions {
   config?: ReviewConfig
   /** How this repository runs one test file, when detection gets it wrong. */
   runbook?: RunbookOverride
+  /**
+   * What TLC said at `head` of the TLA+ models the change adds, edits or touches a file of, from the runs hobkin made
+   * itself (050-tla-proofs). Evidence like a test that ran: the Reviewer is given each one, a model's own lines are
+   * rated by it, and each file a model names hears what it showed in its level's reasons.
+   */
+  modelChecks?: readonly ModelCheck[]
   /** The scan; agentic-search by default. */
   scan?: (request: ScanRequest) => Promise<ScanOutcome>
   /** The test runs; the real ones by default. */
@@ -652,6 +661,9 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       node.extras.offPathProven = (candidates[node.id] ?? []).some((candidate) => candidate.lifecycle && !candidate.changed && answer.stillPass.includes(candidate.path))
     }
   }
+  // The model checks are proof too: of a model's own lines, and words beside the level of each file it models.
+  const modelChecks = options.modelChecks ?? []
+  applyModelChecks(nodes, modelChecks)
   tracker.end('map-proof', proof.refused ? `map-proof: no test ran: ${proof.refused}` : undefined)
   save('graph.json', graphOf(nodes))
 
@@ -691,7 +703,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       .filter((entry) => !mappedIds.has(entry.id) && entry.kind !== 'test' && !testFiles.has(entry.path))
       .sort((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine)
       .map((entry) => ({ symbol: entry.symbol, path: entry.path, lines: [entry.startLine, entry.endLine] }))
-    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code, context })
+    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code, context, modelChecks })
     problems.push(...request.cut.map((cut) => `Left out of what the Reviewer read: ${cut}`))
     const asked = await attempt(() => model({ pass: 'review', system: request.system, prompt: request.prompt, signal }))
     // A call the signal stopped is the review stopping, not the model failing.
@@ -798,7 +810,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const graph = graphOf(applied.nodes)
   save('graph.json', graph)
   if (applied.rejected.length) save('rejected-events.json', applied.rejected)
-  return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy, answer: deployAnswer(units.units, words.answer) }
+  return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy, answer: deployAnswer(units.units, words.answer, modelChecks) }
 }
 
 /** What the blind check leaves on the units: its questions, each on the unit it was asked of. It changes no level. */

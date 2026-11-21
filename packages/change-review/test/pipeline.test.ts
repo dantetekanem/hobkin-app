@@ -8,7 +8,7 @@ import type { EntriesSearch } from '../src/entries.ts'
 import type { ProofRequest, ProofResult } from '../src/proof.ts'
 import { reviewChange } from '../src/pipeline.ts'
 import type { ScanOutcome } from '../src/scan.ts'
-import type { Level, ModelRunner, Progress, Scan, ScanAnchor, Units } from '../src/types.ts'
+import type { Level, ModelCheck, ModelRunner, Progress, Scan, ScanAnchor, Units } from '../src/types.ts'
 
 /** A git repository whose base commit holds `before` and whose head commit holds `after` on top of it. */
 function repoOf(t: TestContext, before: Record<string, string>, after: Record<string, string>) {
@@ -680,4 +680,77 @@ test('an answer with an empty map gives the same review as one with none', async
   assert.equal(empty.story, plain.story)
   assert.deepEqual(empty.problems, plain.problems)
   assert.deepEqual(readFileSync(join(`${out}-empty`, 'story-words.json'), 'utf8'), readFileSync(join(out, 'story-words.json'), 'utf8'))
+})
+
+const SALE_SPEC = '_specs/tla/sale/Sale.tla'
+const SALE_CFG = '_specs/tla/sale/Sale.cfg'
+
+/** A sale that stops selling past the stock, with a TLA+ model of it and its config added beside it. */
+function modeledSale(t: TestContext) {
+  return repoOf(
+    t,
+    { 'src/sale.js': 'export function sell(stock, count) {\n  return stock - count\n}\n' },
+    {
+      'src/sale.js': 'export function sell(stock, count) {\n  return count > stock ? stock : stock - count\n}\n',
+      [SALE_SPEC]: "---- MODULE Sale ----\n\\* models: src/sale.js\nVARIABLE stock\nInit == stock = 3\nSell == stock > 0 /\\ stock' = stock - 1\nStockInBounds == stock >= 0\n====\n",
+      [SALE_CFG]: 'INIT Init\nNEXT Sell\nINVARIANT StockInBounds\n',
+    },
+  )
+}
+
+const saleScan = (): Scan => ({
+  ...scanWith([{ id: 'n1', symbol: 'sell', kind: 'function', path: 'src/sale.js', startLine: 1, endLine: 3, changedLines: [2], language: 'javascript', status: 'modified', tests: [] }]),
+  files: [{ path: 'src/sale.js', kind: 'code', status: 'modified', language: 'javascript' }, { path: SALE_SPEC, kind: 'code', status: 'added' }, { path: SALE_CFG, kind: 'code', status: 'added' }],
+})
+
+/** What hobkin's TLC run of the sale model at the head said. */
+const saleCheck = (more: Partial<ModelCheck> = {}): ModelCheck => ({
+  spec: SALE_SPEC,
+  run: '20261121-060242-sale-3w0w',
+  result: 'holds',
+  states: 15,
+  rules: [{ name: 'StockInBounds', kind: 'invariant', held: true, words: 'Stock never goes below zero.' }],
+  unfired: [],
+  models: ['src/sale.js'],
+  ...more,
+})
+
+/** No test could run, as when a test command cannot start in the review tree. */
+const noTestsRan = async (): Promise<ProofResult> => ({ nodes: {}, runs: [], findings: [], clean: true })
+
+test('a TLA+ model TLC checked at the head is evidence the Reviewer is given: its lines are shown holding, and the code it models keeps its level', async (t) => {
+  const { repo, base, head, out } = modeledSale(t)
+  const { model, shown } = watchingModel()
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(saleScan()), proof: noTestsRan, model, modelChecks: [saleCheck()] })
+
+  assert.ok(shown[0]?.includes('"model_checks":[{"spec":"_specs/tla/sale/Sale.tla","run":"20261121-060242-sale-3w0w","result":"holds","states":15'), 'the Reviewer is given the check')
+  for (const path of [SALE_SPEC, SALE_CFG]) {
+    const { part, unit } = readFromDiff(result, path)
+    assert.deepEqual([part?.level?.current, part?.level?.rule, part?.level?.why[0]], ['safe', 2, 'TLC checked Sale.tla at this commit: it holds in 15 states, and StockInBounds holds.'], path)
+    assert.equal(unit?.level, 'safe', path)
+  }
+  assert.match(readFromDiff(result, SALE_SPEC).unit?.title ?? '', /TLC checked it at this commit, and it holds/)
+  // A model is not a test of the code: what it models stays where the rules put it, and its reason says what the model shows.
+  const sell = result.graph.nodes.find((node) => node.id === 'n1')!
+  assert.deepEqual([sell.level?.current, sell.level?.rule], ['mid', 5])
+  assert.equal(
+    sell.level?.why[0],
+    'No test that ran shows these lines work. Sale.tla models this file and holds in 15 states at this commit: that shows its rules keep in the model, not that these lines work, and it lowers no break found in them.',
+  )
+  assert.equal(result.answer.deploy, 'safe')
+})
+
+test('a TLA+ model whose rule TLC found broken at the head is a break the change carries, and the code it models is told so', async (t) => {
+  const { repo, base, head, out } = modeledSale(t)
+  const broke = saleCheck({ result: 'violated', broken: 'StockInBounds', steps: 4, rules: [{ name: 'StockInBounds', kind: 'invariant', held: false }] })
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(saleScan()), proof: noTestsRan, modelChecks: [broke] })
+
+  const { part } = readFromDiff(result, SALE_SPEC)
+  assert.deepEqual([part?.level?.current, part?.level?.rule, part?.critical, part?.level?.why[0]], ['high', 1, true, 'TLC checked Sale.tla at this commit: StockInBounds breaks in 4 steps.'])
+  assert.equal(result.answer.deploy, 'risky')
+  const sell = result.graph.nodes.find((node) => node.id === 'n1')!
+  assert.deepEqual(
+    [sell.level?.current, sell.findings.find((finding) => finding.rule === 'model-violated')?.text],
+    ['mid', 'Sale.tla models this file, and TLC found StockInBounds broken in 4 steps at this commit: the code or the model is wrong.'],
+  )
 })

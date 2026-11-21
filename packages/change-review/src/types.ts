@@ -378,6 +378,39 @@ export interface FloorExtras {
   offPathProven?: boolean
   /** Rule 2: unchanged code the Reviewer added to the map to show what the change touches. Nothing in it changed. */
   context?: boolean
+  /**
+   * Rules 1 and 2: a TLA+ model this diff adds or edits, its spec or its config, and what TLC said of it at this commit.
+   * `holds` is safe and `violated` a break; otherwise its words are said beside the row that decides.
+   */
+  model?: { result: 'holds' | 'violated' | 'error' | 'unproven'; said: string }
+  /** What TLC said at this commit of the models that name this file in `\* models:`. Said beside the row that decides; it never decides. */
+  modeledBy?: string
+}
+
+/**
+ * What TLC said of a TLA+ model at the reviewed head (050-tla-proofs), from a check hobkin ran itself: evidence, like a
+ * test that ran. The host hands it in; the review runs no checker.
+ */
+export interface ModelCheck {
+  /** The spec, `_specs/tla/<area>/<Machine>.tla`. Its `.cfg` sits beside it. */
+  spec: string
+  /** The run that says so, in hobkin's proofs. */
+  run: string
+  /** `holds`: every rule held in every state TLC reached. `violated`: a rule broke. `error`: TLC could not finish. */
+  result: 'holds' | 'violated' | 'error'
+  /** Distinct states TLC explored. */
+  states: number
+  /** The rules it checked, and whether each held. */
+  rules: { name: string; kind: 'invariant' | 'property' | 'deadlock'; held: boolean; words?: string }[]
+  /** Actions that never fired: nothing they guard was checked, so a hold with any of them is no evidence. */
+  unfired: string[]
+  /** The changed files the spec names in `\* models:`. */
+  models: string[]
+  /** The rule that broke, and in how many steps, for a violation. */
+  broken?: string
+  steps?: number
+  /** Why it could not finish, for an error. */
+  message?: string
 }
 
 export interface FloorInput extends FloorExtras {

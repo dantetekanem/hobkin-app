@@ -234,9 +234,19 @@ const PROVEN: Record<Proof, string> = {
 
 const isBroken = (node: ReviewNode) => Boolean(node.extras?.broken) || node.findings.some((finding) => finding.rule === 'dangling-reference')
 
+/** What TLC said of a TLA+ model the diff adds or edits, as a title ends. */
+const MODEL_SAID: Record<NonNullable<ReviewNode['extras']['model']>['result'], string> = {
+  holds: 'TLC checked it at this commit, and it holds',
+  violated: 'TLC checked it at this commit, and a rule breaks',
+  unproven: 'TLC checked it at this commit, but not every action ran',
+  error: 'TLC could not check it at this commit',
+}
+
 /** The title of a single node, a claim built from its facts. No model words. */
 function titleOf(node: ReviewNode): string {
   const name = `\`${nameOf(node)}\``
+  const model = node.extras?.model
+  if (model) return `${name} ${{ added: 'is new', removed: 'is removed' }[node.change as string] ?? 'changed'}: ${MODEL_SAID[model.result]}`
   if (readFromDiff(node)) return `${name} ${{ added: 'is new', removed: 'is removed' }[node.change as string] ?? 'changed'} and nothing mapped it: it is read from its diff`
   if (node.extras?.context) return `${name} is unchanged: the Reviewer added it for context`
   if (addedByReviewer(node)) return `${name} ${{ added: 'is new', removed: 'is removed' }[node.change as string] ?? 'changed'} and the Reviewer added it to the map: no test was looked for`

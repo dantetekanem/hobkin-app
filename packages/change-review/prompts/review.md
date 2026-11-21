@@ -25,7 +25,7 @@ The message is one line saying the rest is data, then one JSON object:
     - `proof`, whether it is shown to work. A test shows a change when it passes with it and fails without it. `lifecycle-observed`: a test shows the change, and a test added or changed by this diff enters through an entry point and moves through the request life cycle to it, unmocked. `lifecycle`: the same, with a life cycle test that predates the diff. `isolated`: only tests that call it directly show the change, and no life cycle test runs through it; the evidence says whether any was tried. `none`: no test fails without the change, whatever runs through it. `mocked`, `unknown` (tests could not run), `not-applicable`.
     - `exposure`, who runs it the moment it ships: `nobody-yet` (behind a condition that is off by default), `subset`, `everyone`, `at-load`.
     - `undo`, what reverses it: `flag`, `flag-with-residue` (turning it off leaves what was written while on), `rollback`, `none`.
-  - `extras`: what else the floor read: `broken` (what remains refers to something removed), `additiveSchema`, `conditionOnProven`, `offPathProven`, `runsInRequest`.
+  - `extras`: what else the floor read: `broken` (what remains refers to something removed), `additiveSchema`, `conditionOnProven`, `offPathProven`, `runsInRequest`, `model` (what TLC said of this TLA+ model or its config) and `modeledBy` (what TLC said of the models that name this file).
   - `conditions`, `hosts_condition`: condition checks in or in front of the node, the changed lines each one dominates and on which branch, and whether this node holds a check the diff added. A check runs for everyone: its arguments are evaluated on every call.
   - `runs`: the test runs, one line each. `baseline` runs the tests at head. `revert` puts this node's changed lines back to base: when it passes, no test notices the change. `probe` makes the node fail: when it passes, no test executes it. `reach` makes a changed node fail for the life cycle tests that passed with and without its change: one that fails then runs through the node, and one that passes never gets to it.
   - `entries`: entry points above the node. `callers`: how many were found, and whether that list is complete. `sensitive`: money, auth or tenant words in its name or path.
@@ -34,6 +34,7 @@ The message is one line saying the rest is data, then one JSON object:
   - `code`: its changed lines (`+` added, `-` removed, a space for context), at most 40 lines.
 - `units`: what the reviewer decides on, in the order the story walks them: each with its node ids, grouping, level, and the template `title`, `where` and `what` you may replace.
 - `context`: unchanged definitions the search found next to the change, each with its `symbol`, `path` and `lines` at head. You may add one to the map as context.
+- `model_checks`: TLC checks hobkin ran itself, at this commit, of the TLA+ models the change adds, edits or touches a file of: the `spec`, the `run`, the `result` (`holds`, `violated` or `error`), the distinct `states`, each rule and whether it `held`, the actions that never fired (`unfired`), and the changed files the spec names in `\* models:` (`models`).
 - `cut`: what was left out to keep the data short. Something missing from the data is not evidence that it is missing from the code.
 
 ## Levels
@@ -51,6 +52,10 @@ These are not reasons for a level, and never go in `evidence` as one:
 - The size of the change, or how central the code is.
 
 The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a break that search or a test run found. Rule 3 is an effect nothing undoes. Rule 4 is data or an interface changed for everyone. Rule 5 is a change no test that ran shows; rule 6 is one shown only by tests that call it directly: both are `mid`. Rule 9 is a change of behaviour that tests show through a request: `safe`. Rule 10 is a change behind a condition that is off, run by a test with the condition on, with the off path proven by an unchanged test.
+
+## TLA+ model checks
+
+A model check in `model_checks` is a result, like a test that ran. Never say that no checker result is shown when one is there: name the model, its result and its states. A check that holds, with no `unfired` action, shows the model's rules keep in every state TLC reached: the model's own lines are shown working, and it is evidence for the design of the files it models. It is not a test of those lines, so it lowers no level of code and outweighs no break you find in it. Say what the model leaves out when the break lies there. A `violated` rule is a break the check showed: the code or the model is wrong. A check with an `unfired` action, or an `error`, shows nothing about what it did not reach.
 
 ## What you may change
 

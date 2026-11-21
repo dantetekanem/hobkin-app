@@ -9,7 +9,7 @@ import { floor } from './floor.ts'
 import type { MapOp } from './reshape.ts'
 import { nodeLevelOf } from './risk.ts'
 import { EVIDENCE_KINDS, LEVELS } from './types.ts'
-import type { Claim, ClaimStatus, Level, Question, ReviewNode, RiskEvent, Signal, StoryWords, TestRun, Triage, Unit, Watch } from './types.ts'
+import type { Claim, ClaimStatus, Level, ModelCheck, Question, ReviewNode, RiskEvent, Signal, StoryWords, TestRun, Triage, Unit, Watch } from './types.ts'
 
 /** A unit as curate drafted it, before any model words. */
 export type DraftUnit = Pick<Unit, 'id' | 'nodes' | 'grouping' | 'level' | 'title' | 'where' | 'what'>
@@ -22,6 +22,8 @@ export interface ReviewInput {
   code: Readonly<Record<string, string>>
   /** Unchanged definitions the scan found beside the change, which the Reviewer may add to the map as context. */
   context?: readonly ContextEntry[]
+  /** What TLC said at this commit of the TLA+ models the change adds, edits or touches a file of: evidence, like a test that ran. */
+  modelChecks?: readonly ModelCheck[]
   /** Most characters the prompt may hold. */
   limit?: number
 }
@@ -150,6 +152,7 @@ interface RequestData {
   nodes: NodeData[]
   units: DraftUnit[]
   context?: ContextEntry[]
+  model_checks?: ModelCheck[]
   cut: string[]
 }
 
@@ -262,6 +265,9 @@ export function reviewRequest(input: ReviewInput): ReviewRequest {
     nodes: input.nodes.map((node) => nodeData(node, excerpt(node.id, input.code[node.id], cut))).sort(worstFirst),
     units: input.units.map(({ id, nodes, grouping, level, title, where, what }) => ({ id, nodes, grouping, level, title, where, what })),
     ...(context.length ? { context: context.slice(0, MAX_CONTEXT).map(({ symbol, path, lines }) => ({ symbol, path, lines })) } : {}),
+    ...(input.modelChecks?.length
+      ? { model_checks: input.modelChecks.map(({ spec, run, result, states, rules, unfired, models, broken, steps, message }) => ({ spec, run, result, states, rules, unfired, models, broken, steps, message })) }
+      : {}),
     cut,
   }
   fit(data, input.limit ?? PROMPT_LIMIT)
