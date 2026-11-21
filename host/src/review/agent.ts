@@ -1,7 +1,7 @@
 /**
- * The models the change review asks (spec 032). A review uses two: the Reviewer, for its one careful pass, with high
- * thinking; and Quick, for its blind check. Each runs on the tier the user named for it in Settings, the high tier
- * and the fast tier until they do. Each is one question in a Pi session
+ * The models the change review asks (spec 032). A review uses two: the Reviewer, which reviews and reorganizes the
+ * map in one call, with high thinking; and Quick, for its blind check. Each runs on the tier the user named for it in
+ * Settings, the high tier and the fast tier until they do. Each is one question in a Pi session
  * of its own, with no tools: it reads no file, runs nothing and changes nothing. Whatever it answers is checked by the
  * change review before anyone sees it. When the home names a launcher, which gives Pi its credentials, each question
  * is one run of the launcher's Pi instead, as hobkin's own jobs without tools run.
@@ -85,7 +85,7 @@ export function checkerTier(root: string): TierChoice | null {
 }
 
 /**
- * The model runner the change-review engine asks (spec 032): its one careful pass on the review tier, with high
+ * The model runner the change-review engine asks (spec 032): the Reviewer's one call on the review tier, with high
  * thinking, and its blind check on the checker tier. Both run with no tools and an empty context: in a Pi session in
  * this process, or, when the home names a launcher, in one run of the launcher's Pi. A host with no models asks nothing.
  */

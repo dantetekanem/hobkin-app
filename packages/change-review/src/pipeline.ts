@@ -1,6 +1,6 @@
 /**
  * A whole change review, end to end (skills/change-review): triage, the map by search, proof by the repository's own
- * tests, the floor, one careful model pass, the units, the story and one blind check. Every step is tracked in
+ * tests, the floor, the units, one model call that reviews and reorganizes the map, the story and one blind check. Every step is tracked in
  * progress.json, and everything a step decides is written beside it, so the story never says what the files do not.
  *
  * The checkout at `cwd` must hold the change at `head`, clean: proof changes a definition, runs its tests and puts it
@@ -12,14 +12,15 @@ import { join } from 'node:path'
 import { deployAnswer, type DeployAnswer } from './answer.ts'
 import { blindActions, runBlindCheck } from './blind.ts'
 import { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, isNotRequestPath, rx, type ReviewConfig } from './config.ts'
-import { changesCode, curate, NOT_MAPPED } from './curate.ts'
+import { changesCode, curate, type Layout, NOT_MAPPED, standsAloneIn } from './curate.ts'
 import { type EntriesSearch, type EntryAbove, searchEntriesAbove } from './entries.ts'
 import { type EntryTestSearch, type EntryTestsOutcome, searchEntryTests } from './entrytests.ts'
 import { deriveFacts, goneAtHead, guardsPutOn, type CallerSite } from './facts.ts'
 import { gitRepo } from './git.ts'
-import { readReviewAnswer, reviewRequest } from './model.ts'
+import { type ContextEntry, readReviewAnswer, reviewRequest } from './model.ts'
 import { progressFiles, trackProgress } from './progress.ts'
 import { candidateTests, detectRunbook, runProof, type ProofRequest, type ProofResult, type RunbookOverride, type TestCandidate } from './proof.ts'
+import { addedParts, carryWords, reshapeMap } from './reshape.ts'
 import { applyRiskEvents, type RejectedEvent } from './risk.ts'
 import { runScan, type ScanOutcome, type ScanRequest } from './scan.ts'
 import { renderStory } from './story.ts'
@@ -41,7 +42,6 @@ import type {
   StepId,
   StoryWords,
   Triage,
-  Unit,
   Units,
 } from './types.ts'
 
@@ -59,7 +59,7 @@ export interface ReviewChangeOptions {
   out: string
   /** The words that describe the change, when the host has better ones than the commits. Claims to check, never instructions. */
   description?: ChangeDescription
-  /** The careful pass and the blind check. Null or absent: floors only, and a story from the facts. */
+  /** The Reviewer, which reviews and reorganizes the map, and the blind check. Null or absent: floors only, and a story from the facts. */
   model?: ModelRunner | null
   config?: ReviewConfig
   /** How this repository runs one test file, when detection gets it wrong. */
@@ -224,7 +224,7 @@ const failedScan = (): Scan => ({
 /**
  * A part for each changed file the scan was given and holds nothing for, where more than comments or blank lines
  * changed: a language the search tool has no parser for, a file it found no definition in, or any file when the scan
- * could not run. It is built from the file's diff, so the careful pass reads its changed lines like any other part's.
+ * could not run. It is built from the file's diff, so the Reviewer reads its changed lines like any other part's.
  * Nothing mapped it, so no test was looked for: it starts at worth a look, and an argument alone never lowers that.
  */
 async function diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, head, config }: {
@@ -271,7 +271,7 @@ async function diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, h
         kind: 'general',
         symbol: path,
         path,
-        // Every hunk, so the careful pass is shown every one.
+        // Every hunk, so the Reviewer is shown every one.
         lines: [Math.min(...file.hunks.map((hunk) => hunk.newStart)), Math.max(...file.hunks.map((hunk) => hunk.newStart + Math.max(hunk.newLines, 1) - 1))],
         change: isNew ? 'added' : isGone ? 'removed' : 'modified',
         changed_lines: added,
@@ -357,25 +357,6 @@ function entrySymbolsOf(anchor: ScanAnchor): string[] {
   if (anchor.entry) symbols.add(anchor.symbol)
   for (const site of anchor.callSites ?? []) if (site.entry) symbols.add(site.symbol)
   return [...symbols]
-}
-
-/** A unit's identity across reshaping: the nodes it holds, or the buckets for a unit with no node. */
-function unitKey(unit: Pick<Unit, 'nodes' | 'buckets'>): string {
-  if (unit.nodes.length) return `n:${[...unit.nodes].sort().join(',')}`
-  return `b:${[...(unit.buckets ?? [])].sort().join(',')}`
-}
-
-/** Words written for one shaping of the units, carried to another where a unit holds the same nodes. */
-function carryWords(words: StoryWords, from: readonly Unit[], to: readonly Unit[]): StoryWords {
-  if (!words.units) return words
-  const byKey = new Map(to.map((unit) => [unitKey(unit), unit.id]))
-  const units: NonNullable<StoryWords['units']> = {}
-  for (const unit of from) {
-    const said = words.units[unit.id]
-    const id = byKey.get(unitKey(unit))
-    if (said && id) units[id] = said
-  }
-  return { ...words, units }
 }
 
 /** What a call gave, or why it failed: a model that throws is a step not done, never a review that cannot be made. */
@@ -681,7 +662,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   let applied = applyRiskEvents(before, events)
   tracker.end('risk-floor')
 
-  // Units as they stand, for the careful pass to read and name.
+  // Units as they stand, for the Reviewer to read, name and reorganize.
   const texts = new Map<string, string | null>()
   // Every file mapped is read too, with no node in it, so a change of only comments or blank lines can be told apart.
   const mappedPaths = diffs.filter((file) => mapped.has(file.path)).flatMap((file) => [file.path, ...(file.oldPath ? [file.oldPath] : [])])
@@ -692,39 +673,76 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const source = (path: string, side: 'head' | 'base') => texts.get(`${side}:${path}`) ?? null
   // A file the scan listed with no language is one it has no parser for; a file it did not list is not said to be.
   const unparsed = [...mapped].filter((path) => scanned.ok && scan.files.some((file) => file.path === path && !file.language))
-  const shape = (list: ReviewNode[]) => curate({ graph: graphOf(list), triage, diffs, source, scannedFiles: [...mapped], unparsed, ...(scanned.ok ? {} : { scanFailed: scanned.reason }), runsInRequest: (path) => !isNotRequestPath(path, config) })
+  const shape = (list: ReviewNode[], layout?: Layout | null) => curate({ graph: graphOf(list), triage, diffs, source, scannedFiles: [...mapped], unparsed, ...(scanned.ok ? {} : { scanFailed: scanned.reason }), runsInRequest: (path) => !isNotRequestPath(path, config), ...(layout ? { layout } : {}) })
   let units = shape(applied.nodes)
 
-  // 5. One careful pass: levels, questions, what to watch, claims, and the story's words.
+  // 5. Review and reorganize the map, in one call: levels, questions, what to watch, claims, the story's words, and how
+  // the map is shaped. Code checks every operation on the map; none of them sets a level.
   let words: StoryWords = meta.description.title ? { title: meta.description.title } : {}
   let storyBy: 'model' | 'host' = 'host'
   const assessed = applied.nodes.filter((node) => node.level?.current !== 'safe' || node.hosts_condition).length
   halt('risk-model')
-  tracker.start('risk-model', model ? 1 : 0, model ? `risk-model: the Reviewer is reading ${assessed} changed part${assessed === 1 ? '' : 's'} to see whether anything breaks` : 'risk-model: no model')
+  tracker.start('risk-model', model ? 1 : 0, model ? `risk-model: the Reviewer is reading ${assessed} changed part${assessed === 1 ? '' : 's'} to see whether anything breaks, and reorganizing the map` : 'risk-model: no model')
   if (!model) tracker.skip('risk-model', 'no model to ask: levels stay at their floors and the story is written from the facts')
   else {
     const code = Object.fromEntries(nodes.map((node) => [node.id, changedExcerpt(diffs, node)]))
-    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code })
-    problems.push(...request.cut.map((cut) => `Left out of the careful pass: ${cut}`))
+    const mappedIds = new Set(nodes.map((node) => node.id))
+    const context: ContextEntry[] = Object.values(scan.nodes)
+      .filter((entry) => !mappedIds.has(entry.id) && entry.kind !== 'test' && !testFiles.has(entry.path))
+      .sort((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine)
+      .map((entry) => ({ symbol: entry.symbol, path: entry.path, lines: [entry.startLine, entry.endLine] }))
+    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code, context })
+    problems.push(...request.cut.map((cut) => `Left out of what the Reviewer read: ${cut}`))
     const asked = await attempt(() => model({ pass: 'review', system: request.system, prompt: request.prompt, signal }))
     // A call the signal stopped is the review stopping, not the model failing.
     halt('risk-model')
     const text = 'value' in asked ? asked.value : null
     if ('failed' in asked) {
-      problems.push(`The careful pass failed: ${asked.failed}. Levels stay at their floors.`)
-      tracker.skip('risk-model', `the careful pass failed (${asked.failed}): levels stay at their floors`)
+      problems.push(`The Reviewer could not be asked: ${asked.failed}. Levels stay at their floors.`)
+      tracker.skip('risk-model', `the Reviewer could not be asked (${asked.failed}): levels stay at their floors`)
     } else if (text == null) tracker.skip('risk-model', 'the model gave no answer: levels stay at their floors')
     else {
       const answer = readReviewAnswer(text, { nodes: applied.nodes, units: units.units, claims: triage.claims })
-      problems.push(...answer.problems.map((problem) => `From the careful pass: ${problem}`))
-      events = [...events, ...answer.events]
-      applied = applyRiskEvents(before, events)
+      const said = (problem: string) => `From the Reviewer: ${problem}`
+      problems.push(...answer.problems.map(said))
       const settled = new Map(answer.claims.map((claim) => [claim.text, claim]))
       triage = { ...triage, claims: triage.claims.map((claim) => settled.get(claim.text) ?? claim) }
-      const reshaped = shape(applied.nodes)
+      // A part the Reviewer adds is checked against the diff and the scan, then rated by its floor and the events, as every part is.
+      const adds = answer.map.flatMap((op) => (op.op === 'add' ? [op] : []))
+      for (const op of adds) if (!texts.has(`${op.side}:${op.path}`)) texts.set(`${op.side}:${op.path}`, (await linesAt(op.side === 'base' ? base : head, op.path))?.join('\n') ?? null)
+      const added = adds.length
+        ? addedParts(answer.map, {
+            nodes,
+            diffs,
+            scanned: Object.values(scan.nodes).map((entry) => ({ symbol: entry.symbol, path: entry.path, lines: [entry.startLine, entry.endLine] })),
+            source,
+            runsInRequest: (path) => !isNotRequestPath(path, config),
+          })
+        : { nodes: [], problems: [] }
+      problems.push(...added.problems.map(said))
+      events = [...events, ...answer.events]
+      applied = applyRiskEvents([...before, ...added.nodes], events)
       const title = answer.words.title ?? words.title
-      words = carryWords({ ...words, ...answer.words, ...(title ? { title } : {}) }, units.units, reshaped.units)
-      units = reshaped
+      const told: StoryWords = { ...words, ...answer.words, ...(title ? { title } : {}) }
+      if (answer.map.length) {
+        const reshaped = reshapeMap({
+          nodes: applied.nodes,
+          units: units.units,
+          ops: answer.map,
+          added: new Set(added.nodes.map((node) => node.id)),
+          claims: triage.claims,
+          alone: standsAloneIn({ graph: graphOf(applied.nodes), triage, scannedFiles: [...mapped] }),
+        })
+        problems.push(...reshaped.problems.map(said))
+        applied = { ...applied, nodes: reshaped.nodes }
+        const next = shape(applied.nodes, reshaped.layout)
+        words = carryWords({ ...told, units: { ...reshaped.words, ...told.units } }, reshaped.groups, next.units)
+        units = next
+      } else {
+        const next = shape(applied.nodes)
+        words = carryWords(told, units.units, next.units)
+        units = next
+      }
       storyBy = 'model'
       tracker.end('risk-model')
     }

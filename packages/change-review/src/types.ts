@@ -376,6 +376,8 @@ export interface FloorExtras {
   conditionOnProven?: boolean
   /** Rule 11: the off path is still proven by an unchanged test. */
   offPathProven?: boolean
+  /** Rule 2: unchanged code the Reviewer added to the map to show what the change touches. Nothing in it changed. */
+  context?: boolean
 }
 
 export interface FloorInput extends FloorExtras {
@@ -439,6 +441,10 @@ export interface ReviewNode {
   unverified?: string
   /** Model output said it with little confidence. */
   confidence?: 'low' | 'medium' | 'high'
+  /** The Reviewer's own name and one line for this part, when it redefined it. Words only: no level and no fact. */
+  told?: { title?: string; what?: string }
+  /** The Reviewer took it out of the map, for this reason: it stays in graph.json and is in no unit and not in the story. */
+  hidden?: string
 }
 
 export interface GraphEdge {
@@ -507,8 +513,11 @@ export interface Unit {
   nodes: string[]
   buckets?: string[]
   represents?: { nodes?: number; files?: number; lines?: number }
-  /** `new-file-setup`: the lines of a new file that run as it loads (requires, constants, a class line), told once. */
-  grouping: 'single' | 'definition-with-helpers' | 'mechanical' | 'bucket' | 'new-file-setup'
+  /**
+   * `new-file-setup`: the lines of a new file that run as it loads (requires, constants, a class line), told once.
+   * `regrouped`: parts the Reviewer put together, each listed with its own line.
+   */
+  grouping: 'single' | 'definition-with-helpers' | 'mechanical' | 'bucket' | 'new-file-setup' | 'regrouped'
   /** Position along the path the story walks: entry first. */
   story_order: number
   /** Its place on the path, in words. */
@@ -625,7 +634,7 @@ export interface Progress {
 // ───────────────────────── Models ─────────────────────────
 
 /**
- * Asks a model. The host decides which model each pass runs on: `risk` and `story` on a careful tier, `checker` on a
- * cheap one with an empty context and no tools. Answers null when there is no model to ask.
+ * Asks a model. The host decides which model each pass runs on: `review` (the Reviewer, which reviews and reorganizes
+ * the map) on a high tier, `checker` on a cheap one with an empty context and no tools. Answers null when there is no model to ask.
  */
 export type ModelRunner = (call: { pass: 'review' | 'checker'; system: string; prompt: string; signal: AbortSignal }) => Promise<string | null>

@@ -252,7 +252,7 @@ describe('readReviewAnswer', () => {
 
   it('reads nothing from an answer with no JSON object in it, and says so', () => {
     for (const text of ['I could not finish the review.', '{"events": [{"node": "n5", "level": "high"']) {
-      assert.deepEqual(readReviewAnswer(text, known), { events: [], words: {}, claims: [], problems: ['no JSON object with events, words or claims in the answer'] })
+      assert.deepEqual(readReviewAnswer(text, known), { events: [], map: [], words: {}, claims: [], problems: ['no JSON object with events, words, claims or map in the answer'] })
     }
   })
 

@@ -126,7 +126,8 @@ function opening(input: StoryInput, items: Numbered[], title: (unit: Unit) => st
   const high = items.filter((item) => item.unit.level === 'high')
   const critical = [...high.filter((item) => item.unit.critical), ...high.filter((item) => !item.unit.critical)]
   const kinds = [...new Set(triage.buckets.map((bucket) => bucket.kind))].join(', ')
-  const definitions = graph.nodes.filter((node) => node.kind !== 'test').length
+  // What the Reviewer took out of the map, or added beside the change as context, is no changed definition shown below.
+  const definitions = graph.nodes.filter((node) => node.kind !== 'test' && !node.hidden && !node.extras.context).length
   const countedOnly = triage.buckets
     .filter((bucket) => ['sample', 'removal', 'skip', 'parity'].includes(bucket.treatment))
     .reduce((sum, bucket) => sum + bucket.files, 0)

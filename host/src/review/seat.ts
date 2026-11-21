@@ -176,7 +176,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
   // A pull request is reviewed on this Mac: in the user's clone of its repository, else in a clone of hobkin's own.
   const checkout = seat.gh ? pullCheckout({ root: seat.root, folders: () => projectFolders(seat.data()), gh: seat.gh, credentialHelper: ghCredentialHelper(), hostOf: hosts.hostOf }) : undefined
   // The change review of each finished change and each pull request asked for (spec 032): their own tests run in a
-  // review worktree, and the careful pass and the blind check go to the tiers. Only a live host runs it: the scripted one
+  // review worktree, and the Reviewer and the blind check go to the tiers. Only a live host runs it: the scripted one
   // runs no tests and asks no model.
   const assessments = seat.live
     ? new Assessments({

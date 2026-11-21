@@ -1,10 +1,12 @@
 /**
- * The careful model pass (FOUNDATION 5.2, 5.3 and 8): one call that assesses the mid and high nodes and writes the
- * story's words. This module builds what the model is sent and reads what it answers, trusting none of it. It never
- * applies an event: `applyRiskEvents` in risk.ts does, and keeps its own rejections.
+ * The Reviewer's one call, "Review and reorganize the map" (FOUNDATION 5.2, 5.3 and 8, spec 032): it assesses the mid
+ * and high nodes, writes the story's words, and may reshape the map. This module builds what the model is sent and
+ * reads what it answers, trusting none of it. It applies nothing: `applyRiskEvents` in risk.ts applies the events and
+ * reshape.ts the map's operations, each keeping its own refusals.
  */
 import { readFileSync } from 'node:fs'
 import { floor } from './floor.ts'
+import type { MapOp } from './reshape.ts'
 import { nodeLevelOf } from './risk.ts'
 import { EVIDENCE_KINDS, LEVELS } from './types.ts'
 import type { Claim, ClaimStatus, Level, Question, ReviewNode, RiskEvent, Signal, StoryWords, TestRun, Triage, Unit, Watch } from './types.ts'
@@ -18,6 +20,8 @@ export interface ReviewInput {
   units: readonly DraftUnit[]
   /** Each node's changed lines, by node id. */
   code: Readonly<Record<string, string>>
+  /** Unchanged definitions the scan found beside the change, which the Reviewer may add to the map as context. */
+  context?: readonly ContextEntry[]
   /** Most characters the prompt may hold. */
   limit?: number
 }
@@ -31,8 +35,17 @@ export interface ReviewRequest {
   cut: string[]
 }
 
+/** An unchanged definition near the change, by where it is at head. */
+export interface ContextEntry {
+  symbol: string
+  path: string
+  lines: [number, number]
+}
+
 export interface ReviewAnswer {
   events: RiskEvent[]
+  /** How the Reviewer reshapes the map, in its order: well formed, not yet checked against the map. */
+  map: MapOp[]
   words: StoryWords
   /** Triage's claims that the answer settled, with its status and evidence. */
   claims: Claim[]
@@ -48,6 +61,7 @@ const CODE_LINES = 40
 const CODE_LINE_CHARS = 240
 const MAX_CLAIMS = 40
 const MAX_DIRECTIVES = 20
+const MAX_CONTEXT = 40
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
 
 // ───────────────────────── Text from a model ─────────────────────────
@@ -135,6 +149,7 @@ interface RequestData {
   directives: string[]
   nodes: NodeData[]
   units: DraftUnit[]
+  context?: ContextEntry[]
   cut: string[]
 }
 
@@ -204,11 +219,16 @@ const worstFirst = (a: NodeData, b: NodeData) => Number(a.task === 'words') - Nu
 const promptOf = (data: RequestData) => `${DATA_LINE}\n${JSON.stringify(data)}`
 
 /**
- * Shrinks the data until its prompt fits: first the code of the least severe nodes, then the nodes that need only
- * words. Nodes to assess are never dropped; when they alone are too long, the prompt stays long and says so.
+ * Shrinks the data until its prompt fits: first the unchanged context, then the code of the least severe nodes, then
+ * the nodes that need only words. Nodes to assess are never dropped; when they alone are too long, the prompt stays
+ * long and says so.
  */
 function fit(data: RequestData, limit: number) {
   const fits = () => promptOf(data).length <= limit
+  if (data.context && !fits()) {
+    delete data.context
+    data.cut.push('the unchanged definitions near the change left out to fit the size limit')
+  }
   for (const node of data.nodes.toReversed()) {
     if (fits()) return
     if (node.code === undefined) continue
@@ -224,9 +244,8 @@ function fit(data: RequestData, limit: number) {
 }
 
 /**
- * What the careful pass is sent: the system prompt, and one line saying the rest is data followed by the data. Each
- * node says whether it is to be assessed or only needs words. Claims and directives go as claims to check, never as
- * orders.
+ * What the Reviewer is sent: the system prompt, and one line saying the rest is data followed by the data. Each node
+ * says whether it is to be assessed or only needs words. Claims and directives go as claims to check, never as orders.
  */
 export function reviewRequest(input: ReviewInput): ReviewRequest {
   const { triage } = input
@@ -234,12 +253,15 @@ export function reviewRequest(input: ReviewInput): ReviewRequest {
   if (triage.claims.length > MAX_CLAIMS) cut.push(`${triage.claims.length - MAX_CLAIMS} claims left out: the first ${MAX_CLAIMS} sent`)
   const directives = triage.directives ?? []
   if (directives.length > MAX_DIRECTIVES) cut.push(`${directives.length - MAX_DIRECTIVES} directives left out: the first ${MAX_DIRECTIVES} sent`)
+  const context = input.context ?? []
+  if (context.length > MAX_CONTEXT) cut.push(`${context.length - MAX_CONTEXT} unchanged definitions near the change left out: the first ${MAX_CONTEXT} sent`)
   const data: RequestData = {
     change: { range: triage.range, mode: triage.mode, description_source: triage.description_source, totals: triage.totals },
     claims: triage.claims.slice(0, MAX_CLAIMS).map(({ text, source }) => ({ text, source })),
     directives: directives.slice(0, MAX_DIRECTIVES),
     nodes: input.nodes.map((node) => nodeData(node, excerpt(node.id, input.code[node.id], cut))).sort(worstFirst),
     units: input.units.map(({ id, nodes, grouping, level, title, where, what }) => ({ id, nodes, grouping, level, title, where, what })),
+    ...(context.length ? { context: context.slice(0, MAX_CONTEXT).map(({ symbol, path, lines }) => ({ symbol, path, lines })) } : {}),
     cut,
   }
   fit(data, input.limit ?? PROMPT_LIMIT)
@@ -279,7 +301,14 @@ const LIMITS = {
   setting: 160,
   what: 400,
   claim: 300,
+  nodeTitle: 60,
+  nodeWhat: 250,
+  why: 300,
+  path: 300,
 }
+const MAX_MAP_OPS = 60
+const MAX_IN_OP = 50
+const MAP_ID = /^[A-Za-z][\w-]{0,23}$/
 
 type Suggestion = NonNullable<RiskEvent['suggest']>
 
@@ -520,6 +549,86 @@ function wordsOf(value: unknown, units: ReadonlySet<string>, problems: Problems)
   return words
 }
 
+/** A list of ids, as an operation names nodes or units: every one a string, at most `MAX_IN_OP`. */
+function idsOf(value: unknown): string[] | null {
+  if (!Array.isArray(value) || !value.length || value.length > MAX_IN_OP || !value.every((id) => typeof id === 'string' && filled(id))) return null
+  return value.map((id) => clean(id))
+}
+
+const id = (value: unknown) => (typeof value === 'string' && filled(value) ? clean(value) : null)
+
+/** The words an operation gives a part or a unit: a short title and one line, both optional. */
+function opWords(raw: Record<string, unknown>, at: string, problems: Problems, limits: { title: number; what: number }) {
+  const title = problems.text(raw.title, limits.title, `${at}.title`)
+  const what = problems.text(raw.what, limits.what, `${at}.what`)
+  return { ...(title ? { title } : {}), ...(what ? { what } : {}) }
+}
+
+/** One operation of the map, read for its shape only, or null when it was dropped. reshape.ts checks it against the map. */
+function mapOpOf(raw: unknown, at: string, problems: Problems): MapOp | null {
+  if (!isRecord(raw)) return problems.drop(at, 'not an object')
+  const node = id(raw.node)
+  const unit = id(raw.unit)
+  switch (raw.op) {
+    case 'describe': {
+      const words = opWords(raw, at, problems, { title: LIMITS.nodeTitle, what: LIMITS.nodeWhat })
+      if (!node || !Object.keys(words).length) return problems.drop(at, 'describe needs a node and a title or a what')
+      return { op: 'describe', node, ...words }
+    }
+    case 'move':
+      if (!node || !unit) return problems.drop(at, 'move needs a node and a unit')
+      return { op: 'move', node, unit }
+    case 'unit': {
+      const nodes = idsOf(raw.nodes)
+      const made = id(raw.id)
+      if (!made || !MAP_ID.test(made) || !nodes) return problems.drop(at, 'unit needs a short new id (a letter, then letters, digits, - or _) and a list of nodes')
+      return { op: 'unit', id: made, nodes, ...opWords(raw, at, problems, { title: LIMITS.title, what: LIMITS.what }) }
+    }
+    case 'merge': {
+      const units = idsOf(raw.units)
+      if (!units || units.length < 2) return problems.drop(at, 'merge needs a list of at least two units')
+      return { op: 'merge', units, ...opWords(raw, at, problems, { title: LIMITS.title, what: LIMITS.what }) }
+    }
+    case 'order': {
+      const nodes = idsOf(raw.nodes)
+      const units = idsOf(raw.units)
+      if (unit && nodes) return { op: 'order', unit, nodes }
+      if (units && !unit) return { op: 'order', units }
+      return problems.drop(at, 'order needs a unit and its nodes, or a list of units')
+    }
+    case 'add': {
+      const added = id(raw.id)
+      const path = id(raw.path)
+      const lines = Array.isArray(raw.lines) && raw.lines.length === 2 && raw.lines.every((line) => Number.isInteger(line) && line > 0) ? (raw.lines as [number, number]) : null
+      const side = raw.side === undefined ? 'head' : raw.side
+      const why = problems.text(raw.why, LIMITS.why, `${at}.why`)
+      if (!added || !MAP_ID.test(added)) return problems.drop(at, 'add needs a short new id (a letter, then letters, digits, - or _)')
+      if (!path || path.length > LIMITS.path || !lines || lines[0] > lines[1] || (side !== 'head' && side !== 'base') || !why) {
+        return problems.drop(at, 'add needs a path, lines [first, last], a side (head or base) and a why')
+      }
+      const symbol = problems.text(raw.symbol, LIMITS.name, `${at}.symbol`)
+      return { op: 'add', id: added, path, lines: [lines[0], lines[1]], side, ...(symbol ? { symbol } : {}), ...(unit ? { unit } : {}), ...opWords(raw, at, problems, { title: LIMITS.nodeTitle, what: LIMITS.nodeWhat }), why }
+    }
+    case 'remove': {
+      const why = problems.text(raw.why, LIMITS.why, `${at}.why`)
+      if (!node || !why) return problems.drop(at, 'remove needs a node and a why')
+      return { op: 'remove', node, why }
+    }
+    default:
+      return problems.drop(at, `unknown op ${shown(raw.op)}`)
+  }
+}
+
+function mapOf(value: unknown, problems: Problems): MapOp[] {
+  if (value === undefined) return []
+  if (!Array.isArray(value)) {
+    problems.drop('map', 'not a list')
+    return []
+  }
+  if (value.length > MAX_MAP_OPS) problems.note('map', `${value.length} operations, the first ${MAX_MAP_OPS} kept`)
+  return value.slice(0, MAX_MAP_OPS).flatMap((raw, index) => mapOpOf(raw, `map[${index}]`, problems) ?? [])
+}
+
 /** A claim's text as two spellings of it compare: case, spacing, quotes and the closing stop ignored. */
 const claimKey = (text: string) => clean(text).toLowerCase().replace(/^["'`]+|["'`.!?;:,]+$/g, '').trim()
 
@@ -545,22 +654,27 @@ function claimsOf(value: unknown, known: readonly Claim[], problems: Problems): 
 }
 
 /**
- * Reads the careful pass's answer without trust: finds its JSON object, keeps events that follow the risk-event
- * schema for known nodes, words for known units and answers to known claims, removes hidden characters and caps
- * lengths. Everything dropped or cut is listed in `problems`, with why.
+ * Reads the Reviewer's answer without trust: finds its JSON object, keeps events that follow the risk-event schema
+ * for known nodes, words for known units, answers to known claims and map operations of a known shape, removes hidden
+ * characters and caps lengths. A part or a unit the map adds is known to the events and the words of the same answer.
+ * Everything dropped or cut is listed in `problems`, with why. The map is read first, so its problems come first.
  */
 export function readReviewAnswer(
   text: string,
   known: { nodes: readonly { id: string }[]; units: readonly { id: string }[]; claims: readonly Claim[] },
 ): ReviewAnswer {
-  const found = jsonObjectIn(text, ['events', 'words', 'claims'])
+  const found = jsonObjectIn(text, ['events', 'words', 'claims', 'map'])
   if (!found) {
-    return { events: [], words: {}, claims: [], problems: ['no JSON object with events, words or claims in the answer'] }
+    return { events: [], map: [], words: {}, claims: [], problems: ['no JSON object with events, words, claims or map in the answer'] }
   }
   const problems = new Problems()
+  const map = mapOf(found.map, problems)
+  const addedNodes = map.flatMap((op) => (op.op === 'add' ? [op.id] : []))
+  const madeUnits = map.flatMap((op) => (op.op === 'unit' ? [op.id] : []))
   return {
-    events: eventsOf(found.events, new Set(known.nodes.map((node) => node.id)), problems),
-    words: wordsOf(found.words, new Set(known.units.map((unit) => unit.id)), problems),
+    events: eventsOf(found.events, new Set([...known.nodes.map((node) => node.id), ...addedNodes]), problems),
+    map,
+    words: wordsOf(found.words, new Set([...known.units.map((unit) => unit.id), ...madeUnits]), problems),
     claims: claimsOf(found.claims, known.claims, problems),
     problems: problems.list,
   }

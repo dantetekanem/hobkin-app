@@ -69,7 +69,7 @@ const STEP_WORDS: Record<string, string> = {
   'map-search': 'Find every changed definition',
   'map-proof': "Run the project's tests",
   'risk-floor': 'Rate each definition',
-  'risk-model': 'A careful pass with the model',
+  'risk-model': 'Review and reorganize the map',
   shape: 'Group the definitions into units',
   story: 'Write the story',
   'blind-check': 'A blind check of the story',

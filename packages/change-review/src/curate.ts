@@ -203,7 +203,10 @@ const short = (symbol: string) => symbol.split(/#|::|\./).filter(Boolean).pop() 
 
 /** The finding on a part nothing mapped, which is read from its diff. */
 export const NOT_MAPPED = 'not-mapped'
+/** The finding on a part the Reviewer added to the map after the tests ran. */
+export const ADDED_BY_REVIEWER = 'added-by-reviewer'
 const readFromDiff = (node: ReviewNode) => node.findings.some((finding) => finding.rule === NOT_MAPPED)
+const addedByReviewer = (node: ReviewNode) => node.findings.some((finding) => finding.rule === ADDED_BY_REVIEWER)
 /**
  * A part as the review names it: a definition by its short name, and a file read from its diff by its full path, since
  * the short name cuts at dots and would call a Rust file "rs".
@@ -235,6 +238,8 @@ const isBroken = (node: ReviewNode) => Boolean(node.extras?.broken) || node.find
 function titleOf(node: ReviewNode): string {
   const name = `\`${nameOf(node)}\``
   if (readFromDiff(node)) return `${name} ${{ added: 'is new', removed: 'is removed' }[node.change as string] ?? 'changed'} and nothing mapped it: it is read from its diff`
+  if (node.extras?.context) return `${name} is unchanged: the Reviewer added it for context`
+  if (addedByReviewer(node)) return `${name} ${{ added: 'is new', removed: 'is removed' }[node.change as string] ?? 'changed'} and the Reviewer added it to the map: no test was looked for`
   if (node.unverified) return `${name} has an inconsistent map entry, so read it yourself`
   const brokenTest = node.findings.some((finding) => finding.rule === 'breaks-test')
   if (brokenTest) return `${name} breaks a test that passes without this change`
@@ -280,6 +285,7 @@ function whereOf(node: ReviewNode, onPath: boolean): string {
 /** What changed in a unit, in one short sentence: how many lines, in which definition. */
 function whatOf(node: ReviewNode, excerpt: Excerpt): string {
   const name = `\`${nameOf(node)}\``
+  if (node.extras?.context) return `${name} is unchanged: it is shown for context.`
   const count = plural(node.changed_lines.length || excerpt.lines.filter((line) => line[0] === '-' || line[0] === '+').length, 'line')
   const said = node.change === 'added' ? `Adds ${name}, ${count}.` : node.change === 'removed' ? `Removes ${name}.` : `Changes ${count} in ${name}.`
   return `${said}${node.hosts_condition ? ' It adds a check that runs for everyone.' : ''}`
@@ -388,6 +394,33 @@ export interface CurateInput {
   scanFailed?: string
   /** Whether code at a path runs in a request, job or consumer. A script or a build tool does not. Taken as true when not given. */
   runsInRequest?: (path: string) => boolean
+  /** How the Reviewer reorganized the units, when it did. */
+  layout?: Layout
+}
+
+/**
+ * What the Reviewer's reshaping leaves for curate to build (reshape.ts): the units it shaped, each its nodes in its
+ * order, built as given before the rules group the rest; and its walk through the units, each named by `unitKey`.
+ */
+export interface Layout {
+  groups: string[][]
+  order: string[]
+}
+
+/** A unit's identity across reshaping: the nodes it holds, or the buckets for a unit with no node. */
+export function unitKey(unit: Pick<Unit, 'nodes' | 'buckets'>): string {
+  if (unit.nodes.length) return `n:${[...unit.nodes].sort().join(',')}`
+  return `b:${[...(unit.buckets ?? [])].sort().join(',')}`
+}
+
+/** Which nodes are always a unit of their own, once the map is checked: the Reviewer never puts one with others. */
+export function standsAloneIn(input: Pick<CurateInput, 'graph' | 'triage' | 'scannedFiles'>): (id: string) => boolean {
+  const graph = markUnverified(input.graph, checkMap(input.graph, input.triage, input.scannedFiles ?? []))
+  const byId = new Map(graph.nodes.map((node) => [node.id, node]))
+  return (id) => {
+    const node = byId.get(id)
+    return Boolean(node && standsAlone(node, bucketOfNode(input.triage, node)))
+  }
 }
 
 /** A unit before ids and parts, with what ordering needs. */
@@ -398,6 +431,8 @@ interface Draft {
   sensitive: number
   path: string
   line: number
+  /** Where the Reviewer put it in its walk, when it did. */
+  rank?: number
 }
 
 const shown = (path: string, why: string, excerpt: Excerpt): CodeShown => ({
@@ -443,6 +478,12 @@ function neighbourCode(input: CurateInput, owner: ReviewNode, inside: Set<string
 
 /** The node's own changed lines; when the diff has none for it, the lines around its first changed line from the source. */
 function ownCode(input: CurateInput, node: ReviewNode, budget: number, why: string): CodeShown {
+  if (node.extras?.context) {
+    // Unchanged code has no diff: its first lines are shown as they are at head.
+    const text = input.source?.(node.path, 'head')
+    const lines = text ? plainLines(text, node.lines[0], Math.min(node.lines[1], node.lines[0] + budget - 1)) : { lines: [], cut: 0 }
+    return lines.lines.length ? shown(node.path, `${why}, unchanged and shown for context`, lines) : { path: node.path, why: `${why}: no source was available`, diff: '' }
+  }
   const found = nodeExcerpt(input.diffs, node, budget)
   if (found.lines.length) return shown(node.path, why, found)
   const first = node.changed_lines[0] ?? node.lines[0]
@@ -485,20 +526,25 @@ function whyOf(nodes: ReviewNode[]): string[] {
 
 /** One unit from its nodes; the first node is the owner whose facts, reasons and suggestions the unit shows. */
 function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grouping'], context: Context): Draft {
-  const owner = nodes[0]!
   const level = worst(nodes.map(levelOf))
+  // The node the unit's facts and reasons come from: the first, or in a unit the Reviewer shaped, the first at its level.
+  const owner = (grouping === 'regrouped' ? nodes.find((node) => levelOf(node) === level) : undefined) ?? nodes[0]!
   const names = new Set(nodes.map((node) => node.id))
   const critical = level === 'high' && nodes.some((node) => node.critical)
   const memberWhat = (node: ReviewNode) => {
+    if (node.told?.what) return node.told.what
+    if (grouping === 'regrouped') return whatOf(node, nodeExcerpt(input.diffs, node, CODE_BUDGET))
     if (node === owner && grouping === 'definition-with-helpers') return 'the definition'
     if (grouping === 'new-file-setup') return 'runs as the file loads'
     return grouping === 'mechanical' ? 'the same change as the others' : 'a helper changed with it'
   }
   const members = nodes.map((node) => ({ node: node.id, name: nameOf(node), what: memberWhat(node) }))
+  /** The owner's title: the Reviewer's name for it, when it gave one, else a claim from its facts. */
+  const ownerTitle = owner.told?.title ?? titleOf(owner)
   let code: CodeShown[]
-  let title = titleOf(owner)
+  let title = ownerTitle
   let what: string
-  let why = whyOf(nodes)
+  let why = whyOf([owner])
   const own = nodeExcerpt(input.diffs, owner, CODE_BUDGET)
   if (grouping === 'mechanical') {
     const sites = nodes.slice(0, SITES_SHOWN)
@@ -523,13 +569,19 @@ function nodeDraft(input: CurateInput, nodes: ReviewNode[], grouping: Unit['grou
     for (const helper of helpers.slice(0, 3)) code.push(ownCode(input, helper, budget, `the helper \`${nameOf(helper)}\``))
     const neighbour = neighbourCode(input, owner, names)
     if (neighbour) code.push(neighbour)
-    title = `${titleOf(owner)}, with ${plural(helpers.length, 'helper')} changed alongside`
-    what = `${whatOf(owner, own)} Changed with it, and reached only through it: ${helpers.map((helper) => `\`${nameOf(helper)}\``).join(', ')}.`
+    title = `${ownerTitle}, with ${plural(helpers.length, 'helper')} changed alongside`
+    what = `${owner.told?.what ?? whatOf(owner, own)} Changed with it, and reached only through it: ${helpers.map((helper) => `\`${nameOf(helper)}\``).join(', ')}.`
+  } else if (grouping === 'regrouped') {
+    const others = nodes.filter((node) => node !== owner)
+    const budget = Math.max(6, Math.floor(CODE_BUDGET / Math.min(nodes.length, SITES_SHOWN)))
+    code = [ownCode(input, owner, budget, 'the changed lines'), ...others.slice(0, SITES_SHOWN - 1).map((node) => ownCode(input, node, budget, `\`${nameOf(node)}\`, put with it by the Reviewer`))]
+    title = `${ownerTitle}, with ${plural(others.length, 'other part')} the Reviewer put with it`
+    what = `${owner.told?.what ?? whatOf(owner, own)} With it: ${others.map((node) => `\`${nameOf(node)}\``).join(', ')}.`
   } else {
     code = [ownCode(input, owner, CODE_BUDGET, 'the changed lines')]
     const neighbour = neighbourCode(input, owner, names)
     if (neighbour) code.push(neighbour)
-    what = whatOf(owner, own)
+    what = owner.told?.what ?? whatOf(owner, own)
   }
   const onPath = isOnPath(input.graph, owner)
   const unverifiedNode = nodes.find((node) => node.unverified)
@@ -807,8 +859,10 @@ const byPosition = (a: ReviewNode, b: ReviewNode) => a.path.localeCompare(b.path
 export function curate(input: CurateInput): Units {
   const graph = markUnverified(input.graph, checkMap(input.graph, input.triage, input.scannedFiles ?? []))
   const work: CurateInput = { ...input, graph }
-  const code = graph.nodes.filter((node) => node.kind !== 'test')
-  if (!code.length) {
+  // A node the Reviewer took out is still mapped, so its file is never said to be unread, and it is in no unit.
+  const mappedCode = graph.nodes.filter((node) => node.kind !== 'test')
+  const code = mappedCode.filter((node) => !node.hidden)
+  if (!mappedCode.length) {
     // A file with no diff to read is taken as code that runs, as a line that cannot be read is.
     const runs = (path: string) => {
       const file = input.diffs.find((item) => item.path === path)
@@ -832,7 +886,7 @@ export function curate(input: CurateInput): Units {
   const claimed = new Set<string>()
 
   // Buckets that are units of their own take the nodes that sit in them at the bucket's level.
-  const covered = new Set(code.map((node) => node.path))
+  const covered = new Set(mappedCode.map((node) => node.path))
   for (const bucket of input.triage.buckets) {
     const fallback = bucket.treatment === 'scan' && bucket.kind !== 'code' && bucket.kind !== 'test' && !bucket.paths.some((path) => covered.has(path))
     if (bucket.treatment === 'tests' || bucket.kind === 'test') continue
@@ -854,6 +908,18 @@ export function curate(input: CurateInput): Units {
     if (changesCode(input, file)) drafts.push(unreadDraft(bucket, file, input.runsInRequest?.(path) ?? true))
   }
   const fileLevelUnits = drafts.length
+
+  // The units the Reviewer shaped, each as it gave them: a node is in one unit only, and a bucket keeps what it took.
+  const byId = new Map(code.map((node) => [node.id, node]))
+  for (const group of input.layout?.groups ?? []) {
+    const members = [...new Set(group)].flatMap((id) => {
+      const node = byId.get(id)
+      return node && !claimed.has(id) ? [node] : []
+    })
+    if (!members.length) continue
+    drafts.push(nodeDraft(work, members, members.length === 1 ? 'single' : 'regrouped', context))
+    for (const node of members) claimed.add(node.id)
+  }
 
   // The lines of a new file that run as it loads are told once: a require and a constant of a file that did not exist
   // change nothing that loads today, and one unit for each would bury the definitions beside them.
@@ -896,13 +962,24 @@ export function curate(input: CurateInput): Units {
   }
   for (const node of open.filter((item) => !claimed.has(item.id))) drafts.push(nodeDraft(work, [node], 'single', context))
 
+  const ranks = new Map((input.layout?.order ?? []).map((key, index) => [key, index]))
+  for (const draft of drafts) {
+    const rank = ranks.get(unitKey(draft.unit))
+    if (rank !== undefined) draft.rank = rank
+  }
   return finish(drafts, input.triage, drafts.length > fileLevelUnits)
 }
 
-/** Dense stops, ordering inside a level, parts by entry point, ids, and the attention totals. */
+/**
+ * Dense stops, ordering inside a level, parts by entry point, ids, and the attention totals. The units the Reviewer
+ * ordered come first in the walk, in its order; the rest follow by their place on the path.
+ */
 function finish(drafts: Draft[], triage: Triage, hasNodeUnits: boolean): Units {
-  const stops = [...new Set(drafts.map((draft) => draft.stop))].sort((a, b) => a - b)
-  for (const draft of drafts) draft.unit.story_order = stops.indexOf(draft.stop) + 1
+  const ranked = drafts.filter((draft) => draft.rank !== undefined).sort((a, b) => a.rank! - b.rank!)
+  ranked.forEach((draft, index) => (draft.unit.story_order = index + 1))
+  const rest = drafts.filter((draft) => draft.rank === undefined)
+  const stops = [...new Set(rest.map((draft) => draft.stop))].sort((a, b) => a - b)
+  for (const draft of rest) draft.unit.story_order = ranked.length + stops.indexOf(draft.stop) + 1
 
   const inLevel = (a: Draft, b: Draft) =>
     RANK[b.unit.level] - RANK[a.unit.level] ||

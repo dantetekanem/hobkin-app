@@ -263,7 +263,7 @@ The check never changes a level, up or down, and never loops. A reader with no c
 | Floor | The table in 5.1 |
 | Raising a level, marking critical, asking | Model, with evidence |
 | Lowering a level | Model, only with evidence from 5.2 |
-| Grouping into units | Rules on structure |
+| Grouping into units | Rules on structure, then the model's reshaping within those rules, checked by code (spec 032) |
 | The words of the story | Model |
 | Whether the story stands alone | Blind check |
 | Whether to merge | The human |

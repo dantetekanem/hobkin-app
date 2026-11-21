@@ -56,7 +56,7 @@ const STEPS: readonly ScriptStep[] = [
     ],
   },
   { id: 'risk-floor', seconds: 2, estimate: 2, items: 1, says: [[0, 'Rating each of the 14 definitions by the floor table.'], [1, 'Before the model: 2 high, 5 mid and 7 safe.']] },
-  { id: 'risk-model', seconds: 10, estimate: 12, items: 1, says: [[0, 'One careful pass over the 7 definitions that are mid, high or hold a new check.'], [6, 'The ceiling on the backoff has no test, so deliverWebhook stays high.']] },
+  { id: 'risk-model', seconds: 10, estimate: 12, items: 1, says: [[0, 'Reviewing the 7 definitions that are mid, high or hold a new check, and reorganizing the map.'], [6, 'The ceiling on the backoff has no test, so deliverWebhook stays high.']] },
   { id: 'shape', seconds: 2, estimate: 2, items: 1, says: [[0, 'Grouped the definitions into 5 units, the same shape at every level.']] },
   { id: 'story', seconds: 6, estimate: 5, items: 1, says: [[0, 'Writing the story from the units.'], [4, 'The story has 5 steps, the riskiest first.']] },
   { id: 'blind-check', seconds: 5, estimate: 6, items: 1, says: [[0, 'A fresh, cheap model reads only the story and the units.'], [4, 'It told the change back as the story does. Nothing to add.']] },

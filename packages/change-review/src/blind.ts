@@ -128,7 +128,7 @@ function needsOf(value: unknown): string[] {
 }
 
 /**
- * Reads the checker's answer as tolerantly as the careful pass's: the JSON object even with stray text or a fence
+ * Reads the checker's answer as tolerantly as the Reviewer's: the JSON object even with stray text or a fence
  * around it, yes and no in any case. Answers for unknown units are dropped. Null when nothing usable is there: then
  * the check counts as not run, and the caller says so.
  */

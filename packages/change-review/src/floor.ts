@@ -20,6 +20,7 @@ export function floor(input: FloorInput): Floor {
   const shown = THROUGH_A_REQUEST.has(proof)
 
   if (input.broken) return row(1, 'high', sentence(input.broken), { critical: true })
+  if (input.context) return row(2, 'safe', 'Nothing in it changed: it is shown for context.')
   if (effect === 'text') return row(2, 'safe', 'Only comments, whitespace or translations changed.')
   if (input.unreferencedRemoval) return row(2, 'safe', 'Nothing that remains refers to what was removed.')
   if (input.bucketChecksPassed) return row(2, 'safe', 'The checks for this kind of change all passed.')

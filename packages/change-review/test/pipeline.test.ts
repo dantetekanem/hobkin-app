@@ -256,7 +256,7 @@ test('a model that fails leaves every level at its floor, and the review finishe
   const step = (id: string) => result.progress.steps.find((item) => item.id === id)!
 
   assert.deepEqual(levelsOf(result.units), { n1: 'mid', n2: 'mid', n4: 'safe' })
-  assert.ok(result.problems.some((problem) => /careful pass failed: the review model is down/.test(problem)), result.problems.join('\n'))
+  assert.ok(result.problems.some((problem) => /The Reviewer could not be asked: the review model is down/.test(problem)), result.problems.join('\n'))
   assert.deepEqual([step('risk-model').status, step('blind-check').status], ['skipped', 'skipped'])
   assert.match(step('risk-model').note ?? '', /the review model is down/)
   assert.match(step('blind-check').note ?? '', /the checker model is down/)
@@ -630,4 +630,54 @@ test('a scan handed in brings no walk of its own, and a walk that throws is a no
   const result = await reviewChange({ cwd: repo, base, head, out: `${out}-2`, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove: failing })
   assert.ok(result.problems.some((problem) => /The search for entry points failed: boom/.test(problem)), result.problems.join('\n'))
   assert.equal(result.graph.nodes.find((node) => node.id === 'n1')!.facts.proof.value, 'isolated')
+})
+
+/** A Reviewer that answers `answer` in its one call, and a checker that gives nothing to read. */
+function answering(answer: Record<string, unknown>) {
+  const calls = { review: 0, checker: 0 }
+  const model: ModelRunner = async ({ pass }) => {
+    calls[pass] += 1
+    return pass === 'review' ? JSON.stringify(answer) : 'nothing'
+  }
+  return { model, calls }
+}
+
+test('the Reviewer reorganizes the map in its one answer: a part renamed, two units merged, a safe part taken out, a mid one kept', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const { model, calls } = answering({
+    events: [],
+    claims: [],
+    words: { title: 'Round the total', units: { u1: { title: 'The total and its precision change together' } } },
+    map: [
+      { op: 'describe', node: 'n1', title: 'Rounded total', what: '`total` rounds every sum.' },
+      { op: 'merge', units: ['u1', 'u2'] },
+      { op: 'remove', node: 'n4', why: 'only a type changed, and the compiler checks it' },
+      { op: 'remove', node: 'n1', why: 'it is small' },
+    ],
+  })
+  const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), scan: scanning(scanOf()) })
+
+  assert.deepEqual(calls, { review: 1, checker: 1 }, 'still one call to the Reviewer')
+  assert.deepEqual(result.units.units.map((unit) => [unit.nodes, unit.grouping, unit.level]), [[['n2', 'n1'], 'regrouped', 'mid']])
+  assert.deepEqual(levelsOf(result.units), { 'n2,n1': 'mid' }, 'the levels are the floors')
+  const graph = JSON.parse(readFileSync(join(out, 'graph.json'), 'utf8')) as { nodes: { id: string; hidden?: string; told?: unknown }[] }
+  assert.equal(graph.nodes.find((node) => node.id === 'n4')?.hidden, 'only a type changed, and the compiler checks it', 'the part taken out stays in the saved graph with the reason')
+  assert.deepEqual(graph.nodes.find((node) => node.id === 'n1')?.told, { title: 'Rounded total', what: '`total` rounds every sum.' })
+  assert.ok(result.problems.some((problem) => /From the Reviewer: map\[3\] removing n1 was refused: it is mid/.test(problem)), result.problems.join('\n'))
+  assert.match(result.story, /The total and its precision change together/)
+  assert.match(result.story, /- `total`: `total` rounds every sum\./)
+  assert.doesNotMatch(result.story, /Money/, 'the part taken out is not in the story')
+  const words = JSON.parse(readFileSync(join(out, 'story-words.json'), 'utf8'))
+  assert.equal(words.units[result.units.units[0]!.id].title, 'The total and its precision change together')
+})
+
+test('an answer with an empty map gives the same review as one with none', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const answer = { events: [], claims: [], words: { title: 'Round the total', units: { u2: { title: '`total` rounds every sum' } } } }
+  const plain = await reviewChange({ cwd: repo, base, head, out, model: answering(answer).model, clock: steadyClock(), scan: scanning(scanOf()) })
+  const empty = await reviewChange({ cwd: repo, base, head, out: `${out}-empty`, model: answering({ ...answer, map: [] }).model, clock: steadyClock(), scan: scanning(scanOf()) })
+  assert.deepEqual(empty.units, plain.units)
+  assert.equal(empty.story, plain.story)
+  assert.deepEqual(empty.problems, plain.problems)
+  assert.deepEqual(readFileSync(join(`${out}-empty`, 'story-words.json'), 'utf8'), readFileSync(join(out, 'story-words.json'), 'utf8'))
 })
