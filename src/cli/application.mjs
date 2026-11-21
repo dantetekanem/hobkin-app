@@ -127,6 +127,11 @@ const messageTime = message => {
 };
 const DISCOVERY_POST = 'notice:work-discovery:';
 const isOwnPost = message => message.role === 'notice' || message.id?.startsWith('notice:');
+// Work's status less the token counts a running agent's meter raises as its session grows: the day's and the hour's, and each run's own.
+const withoutLiveCounts = ({ tokensToday, tokensCached, tokensThisHour, running, ...status }) => ({
+  ...status,
+  running: running?.map(({ tokens, cached, ...run }) => run),
+});
 
 const BUSY_RETRY_MS = 100;
 // How long hobkin waits before it tries again to tell the main agent of a durable hobkin, after a try that failed.
@@ -915,8 +920,20 @@ export class HobkinApplication {
     const inWholePercent = (key, value) => (key === 'elapsedPercent' && typeof value === 'number' ? Math.round(value) : value);
     const signature = JSON.stringify(watched, inWholePercent);
     if (signature === this.workSignature) return;
+    // A running agent's token counts move with every message it writes. When nothing else moved, the counts go out the light way.
+    const steady = JSON.stringify({ ...watched, work: withoutLiveCounts(watched.work) }, inWholePercent);
+    const countsOnly = this.workSignature != null && steady === this.steadyWorkSignature;
     this.workSignature = signature;
-    this.requestRefresh(false, watched.work);
+    this.steadyWorkSignature = steady;
+    if (countsOnly) this.publishWork(watched.work);
+    else this.requestRefresh(false, watched.work);
+  }
+
+  /** Work as a tick just read it, published as activity is: the rest of the view stays as the last rebuild made it. */
+  publishWork(status) {
+    if (this.closing) return;
+    this.snapshot = { ...this.snapshot, work: this.workView(status) };
+    this.onChange?.(this.snapshot);
   }
 
   /**
