@@ -160,16 +160,22 @@ function gitFolder(repo) {
   return resolve(repo, named[1].trim());
 }
 
+// A repository that keeps its refs in reftable leaves this placeholder in its HEAD file, and the real HEAD in the reftable.
+const REFTABLE_PLACEHOLDER = '.invalid';
+
 /**
  * The branch a checkout is on, read from the HEAD file git keeps, so a look every second starts no git. Empty on a detached HEAD, as during
- * a rebase, as `git branch --show-current` says. Anything else asks git.
+ * a rebase, as `git branch --show-current` says. Only a HEAD file kept the way the files backend keeps it is read: a repository with a
+ * reftable folder, the reftable placeholder, or anything else asks git.
  */
 export async function headBranch(repo) {
   try {
-    const head = readFileSync(join(gitFolder(repo), 'HEAD'), 'utf8').trim();
+    const folder = gitFolder(repo);
+    if (existsSync(join(folder, 'reftable'))) return currentBranch(repo);
+    const head = readFileSync(join(folder, 'HEAD'), 'utf8').trim();
     const branch = /^ref: refs\/heads\/(.+)$/.exec(head)?.[1];
-    if (branch) return branch;
-    if (/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head)) return '';
+    if (branch && branch !== REFTABLE_PLACEHOLDER) return branch;
+    if (!branch && /^[0-9a-f]{40}([0-9a-f]{24})?$/.test(head)) return '';
   } catch {
     // Not the top of a checkout, or not one git keeps this way: git itself answers.
   }

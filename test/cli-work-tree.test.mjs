@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { gitOrNothing, gitWithin, headBranch, prepareTree, releaseTree, retireTree } from '../src/cli/work/tree.mjs';
+import { currentBranch, gitOrNothing, gitWithin, headBranch, prepareTree, releaseTree, retireTree } from '../src/cli/work/tree.mjs';
 
 const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 const WORK_KEPT = 'Work in progress kept by Hobkin';
@@ -720,4 +720,18 @@ test('the branch a checkout or a worktree is on is read from its HEAD, as git wo
   process.env.PATH = path;
   assert.deepEqual(read, said);
   assert.deepEqual(said, ['my-work', 'hobkin/one', '']);
+});
+
+test('a repository that keeps its refs in reftable says its branch as git does, not the placeholder in its HEAD file', async t => {
+  const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-reftable-')));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const repo = join(base, 'repo');
+  execFileSync('git', ['init', '-q', '--ref-format=reftable', '-b', 'hobkin/fix-door', repo]);
+  execFileSync('git', ['-C', repo, '-c', 'user.email=test@example.invalid', '-c', 'user.name=Test', 'commit', '-q', '--allow-empty', '-m', 'start']);
+  const tree = join(base, 'tree');
+  git(repo, 'worktree', 'add', '-q', '-b', 'hobkin/two', tree);
+  assert.equal(readFileSync(join(repo, '.git', 'HEAD'), 'utf8').trim(), 'ref: refs/heads/.invalid', 'git keeps a placeholder there');
+  assert.equal(await headBranch(repo), 'hobkin/fix-door');
+  assert.equal(await headBranch(tree), 'hobkin/two');
+  assert.equal(await headBranch(repo), await currentBranch(repo));
 });
