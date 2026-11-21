@@ -43,8 +43,8 @@ export function useFollow(still: boolean): Follow {
   const y = useMotionValue(0)
   const glide = useRef<AnimationPlaybackControls | null>(null)
   // Where the list stands while following, and where it stood before the change now in place. Nothing is read while
-  // drawing: the place is taken after each change of this screen, as the list changes size by a step's own drawing,
-  // and as the view scrolls.
+  // drawing: the place is taken after each change of this screen, as the list or its box changes size, and as the view
+  // scrolls.
   const seen = useRef<number | null>(null)
   const before = useRef<number | null>(null)
   const holding = useRef(still)
@@ -60,8 +60,11 @@ export function useFollow(still: boolean): Follow {
     if (!element || !list) return
     const follow = followEnd(element, list, { page: window, Observer: ResizeObserver, still: () => holding.current, now: () => performance.now(), onPinned: setPinned })
     control.current = follow
+    // The list changing size by a step's own drawing, or its box changing size (a taller window, the tasks bar going),
+    // moves a short transcript with no scroll.
     const sizes = new ResizeObserver(remember)
     sizes.observe(list)
+    sizes.observe(element)
     return () => {
       sizes.disconnect()
       follow.dispose()
