@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { atUtilityPriority } from './priority.mjs';
+import { atUtilityPriority, canRun } from './priority.mjs';
 
 export const clean = value => String(value ?? '').replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, '');
 
@@ -29,8 +29,9 @@ export function startRpcProcess({
   utility = true,
 }) {
   // A background agent's process starts at utility priority (`priority.mjs`); `utility: false` is for one the user waits on, the main chat.
-  // A stand-in that a caller passes gets the command as given.
-  const started = utility && spawnProcess === spawn ? atUtilityPriority(command, args) : { command, args };
+  // A stand-in that a caller passes, and a command that cannot run, get the command as given.
+  const lowered = utility && spawnProcess === spawn && canRun(command, { cwd, path: env?.PATH ?? process.env.PATH });
+  const started = lowered ? atUtilityPriority(command, args) : { command, args };
   const child = spawnProcess(started.command, started.args, {
     cwd,
     shell: false,

@@ -67,3 +67,17 @@ test('a caller that waits on its child, as the main chat does, starts it at norm
   const { handle: lowered } = await rpcChild(t);
   assert.ok(priorityOf(lowered.pid) < priorityOf(handle.pid), 'a background child still runs below it');
 });
+
+test('a command that is missing or cannot run fails as it always did, naming the program, not through taskpolicy', async t => {
+  for (const [command, code] of [['definitely-not-a-command-hobkin', 'ENOENT'], ['/etc/hosts', 'EACCES']]) {
+    const handle = startRpcProcess({ command, args: [], cwd: process.cwd(), env: process.env });
+    t.after(async () => {
+      handle.force();
+      await handle.closed;
+    });
+    const { error } = await handle.closed;
+    assert.equal(error.code, code, error.message);
+    assert.match(error.message, new RegExp(command.replace(/[./]/g, '\\$&')));
+    assert.doesNotMatch(error.message, /taskpolicy/);
+  }
+});
