@@ -3,9 +3,8 @@ import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, 
 import { createContext, Fragment, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { holdStill, useStill } from '@/app/still.ts'
-import { GrowingMarkdown, MessageText, risen, sunk } from '@/features/chat/markdown.ts'
+import { GrowingMarkdown, risen, sunk } from '@/features/chat/markdown.ts'
 import { useNow } from '@/features/chat/use-now.ts'
-import { usePaced } from '@/features/chat/use-paced.ts'
 import { diffOf, startView, unifiedRows, type Diff, type FileSides } from '@/features/review/code/diff-rows.ts'
 import { languageOf } from '@/features/review/code/languages.ts'
 import { spring, tween } from '@/lib/motion.ts'
@@ -125,18 +124,26 @@ function StepBody({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: 
   }
 }
 
+/** How long the agent's words stay the same before they count as finished and parse whole. */
+const SAID_MS = 1000
+
 /**
- * What the agent said, as Markdown. While it is being written its words change at most ten times a second, as the
- * chat's do, and only its last block parses again. Words that were already whole when drawn, or that the run has
- * finished, parse whole, as a stored message does.
+ * What the agent said, as Markdown, as the window has it: every word the moment it arrives, with nothing rising or
+ * fading in. While it is being written only its last block parses again. Words that were whole when drawn, that have
+ * not changed for a second, or whose run has finished parse whole, as a stored message does.
  */
 function Says({ text, ended }: { text: string; ended: boolean }) {
-  const shown = usePaced(text, true)
-  const [first] = useState(text)
-  const growing = !ended && text !== first
+  const [said, setSaid] = useState({ text, still: true })
+  // Words that changed are being written, until they rest.
+  if (said.text !== text) setSaid({ text, still: false })
+  useEffect(() => {
+    if (said.still) return
+    const timer = setTimeout(() => setSaid((now) => (now.text === said.text ? { ...now, still: true } : now)), SAID_MS)
+    return () => clearTimeout(timer)
+  }, [said])
   return (
     <div className="max-w-[92%] text-[15px] leading-relaxed break-words">
-      {growing ? <GrowingMarkdown text={shown} /> : <MessageText text={shown} role="assistant" />}
+      <GrowingMarkdown text={text} whole={ended || said.still} />
     </div>
   )
 }

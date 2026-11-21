@@ -230,9 +230,14 @@ const BlockMarkdown = memo(function BlockMarkdown({ text, prefix }: { text: stri
   return createElement(ReactMarkdown, { remarkPlugins: pluginsAfter(prefix), components }, prefix + text)
 })
 
-/** Markdown that may still grow, such as what an agent is saying on its page. Only its last block parses again as it grows. */
-export function GrowingMarkdown({ text }: { text: string }): ReactElement {
-  return joined(blocksOf(text).map(({ key, text: block, prefix }) => createElement(BlockMarkdown, { key, text: block, prefix })))
+/**
+ * Markdown that may still grow, such as what an agent is saying on its page, drawn plainly as it arrives: nothing rises
+ * or fades in. While it grows only its last block parses again. `whole` parses it as one, as a stored message is, once
+ * it stops growing. Both are drawn by the same blocks, so the page keeps its elements when it goes from one to the other.
+ */
+export function GrowingMarkdown({ text, whole = false }: { text: string; whole?: boolean }): ReactElement {
+  const blocks = whole ? [{ key: 0, text, prefix: '' }] : blocksOf(text)
+  return joined(blocks.map(({ key, text: block, prefix }) => createElement(BlockMarkdown, { key, text: block, prefix })))
 }
 
 /**

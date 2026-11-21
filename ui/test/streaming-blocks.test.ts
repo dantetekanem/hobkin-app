@@ -158,3 +158,36 @@ test('a definition that arrives late parses the blocks before it again once, and
   assert.doesNotMatch(first, /opacity:0/)
   assert.match(first, /<a href="https:\/\/example.invalid"/)
 })
+
+test("a growing step on an agent's page draws every character that arrived, plainly, as the whole text draws it", () => {
+  for (const [name, text] of Object.entries(CASES)) {
+    for (let length = 1; length <= text.length; length++) {
+      const arrived = text.slice(0, length)
+      const markup = renderToStaticMarkup(createElement(GrowingMarkdown, { text: arrived }))
+      // No word marked fresh to fade in, and no element that moves: Motion writes an inline style on each.
+      assert.doesNotMatch(markup, /data-fresh|style=/, `${name} at ${length}`)
+      assert.equal(markup, whole(arrived), `${name} at ${length}`)
+    }
+  }
+  // The middle of a line shows as it arrives, not held back to its last whole word.
+  assert.match(renderToStaticMarkup(createElement(GrowingMarkdown, { text: 'The agent reads the fi' })), />The agent reads the fi</)
+})
+
+test("one more word of a growing step on an agent's page parses only its last block", async () => {
+  const reply = `${PAD}\n\n${PAD}\n\n${PAD}\n\nThe agent reads the fi`
+  const text = growing(reply)
+  const parsed: string[] = []
+  // The blocks as GrowingMarkdown draws them: one memo block each, drawn again only for its text or its prefix.
+  const Block = memo(function Block({ text }: { text: string; prefix: string }) {
+    parsed.push(text)
+    return null
+  })
+  function Step() {
+    return blocksOf(text.use()).map(({ key, text: block, prefix }) => createElement(Block, { key, text: block, prefix }))
+  }
+  const mounted = await mountCounting(() => createElement(Step))
+  parsed.length = 0
+  await mounted.change(() => text.set(`${reply}le `))
+  assert.deepEqual(parsed, [blocksOf(`${reply}le `).at(-1)!.text])
+  await unmount(mounted)
+})
