@@ -221,3 +221,21 @@ test('the scheduler walks the run index once per commit to match routines to the
   }
   assert.equal(walks, 2, 'one walk to count what runs and one to group by routine, for every tick on this index');
 });
+
+test('a file kept behind a symlink is read again each time, so a change behind the link shows', t => {
+  const h = fixture(t);
+  fs.mkdirSync(join(h.root, 'work'), { recursive: true });
+  const mode = join(h.root, 'mode-elsewhere.json');
+  fs.writeFileSync(mode, JSON.stringify({ enabled: false }));
+  fs.symlinkSync(mode, join(h.root, 'work', 'mode.json'));
+  assert.equal(readMode(h.root).enabled, false);
+  fs.writeFileSync(mode, JSON.stringify({ enabled: true }));
+  assert.equal(readMode(h.root).enabled, true, 'the change behind the link shows');
+
+  const log = join(h.root, 'decisions-elsewhere.jsonl');
+  fs.writeFileSync(log, '');
+  fs.symlinkSync(log, join(h.root, 'decisions.jsonl'));
+  assert.equal(openDecisions(h.root).length, 0);
+  fileDecision(h.root, question('Merge it?'));
+  assert.equal(openDecisions(h.root).length, 1, 'a decision appended through the link shows');
+});

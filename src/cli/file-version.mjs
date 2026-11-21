@@ -55,10 +55,15 @@ export function copyJson(value) {
 
 /**
  * What `read()` makes of `file`, worked out again only when the file's version changes, frozen, since every caller gets the same value.
- * A read that a write overlapped is used once and not kept, so the next call reads again. `kept` is the caller's Map, of at most `most` files.
+ * A read that a write overlapped is used once and not kept, so the next call reads again. So is a read of something that is there but is
+ * no regular file, such as a symlink, whose version cannot be told. `kept` is the caller's Map, of at most `most` files.
  */
 export function readVersioned(kept, file, read, most = 256) {
   const version = fileVersion(file);
+  if (version === null && lstatSync(file, { throwIfNoEntry: false })) {
+    kept.delete(file);
+    return deepFreeze(read());
+  }
   const known = kept.get(file);
   if (known && known.version === version) return known.value;
 
