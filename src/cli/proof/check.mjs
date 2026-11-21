@@ -442,7 +442,8 @@ export async function runCheck({
     const tlc = tlcOutcome({
       onProgress: report,
       onCoverage: coverage => {
-        for (const [name, distinct] of coverage) emit(defined({ type: 'action', name, count: distinct, code: codes[name] }));
+        // `count` is how often TLC took the action, which says whether it fired; `distinct` is the new states it found.
+        for (const [name, { taken, distinct }] of coverage) emit(defined({ type: 'action', name, count: taken, distinct, code: codes[name] }));
       },
     });
     const reader = messageReader(tlc.message);

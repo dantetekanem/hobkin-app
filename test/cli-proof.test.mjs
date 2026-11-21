@@ -259,11 +259,12 @@ test('the events tell the run as it goes, and the record ends with the outcome a
   const record = result(home, run.id);
   assert.equal(record.outcome, 'holds');
   assert.deepEqual(record.stats, { generated: 14, distinct: 8, queue: 0, depth: 5 });
+  // `count` is how often TLC took the action, the second number of its coverage line, and `distinct` the new states it found.
   assert.deepEqual(record.actions, [
-    { name: 'Finish', count: 1, code: 'src/cli/work/runner.mjs:88' },
-    { name: 'Review', count: 3, code: 'src/cli/work/review.mjs:61' },
-    { name: 'Fix', count: 2, code: 'src/cli/work/runner.mjs:203' },
-    { name: 'YoloMerge', count: 2, code: 'src/cli/work/yolo-pass.mjs:165' },
+    { name: 'Finish', count: 1, distinct: 1, code: 'src/cli/work/runner.mjs:88' },
+    { name: 'Review', count: 6, distinct: 3, code: 'src/cli/work/review.mjs:61' },
+    { name: 'Fix', count: 3, distinct: 2, code: 'src/cli/work/runner.mjs:203' },
+    { name: 'YoloMerge', count: 3, distinct: 2, code: 'src/cli/work/yolo-pass.mjs:165' },
   ]);
   assert.deepEqual(record.rules.map(rule => rule.status), ['holds', 'holds']);
   assert.equal(record.counts, true);
@@ -283,9 +284,18 @@ test('an action that never fired is named, and the run does not count as evidenc
   const { run } = await check(t, { ...okParse, tlc: { stdout: 'tlc-never-fired.out' }, graph: { stdout: 'tlc-never-fired.out', dot: 'states.dot' } });
 
   assert.equal(run.outcome, 'holds');
-  assert.deepEqual(run.actions.find(action => action.name === 'YoloMerge'), { name: 'YoloMerge', count: 0, code: 'src/cli/work/yolo-pass.mjs:165' });
+  assert.deepEqual(run.actions.find(action => action.name === 'YoloMerge'), { name: 'YoloMerge', count: 0, distinct: 0, code: 'src/cli/work/yolo-pass.mjs:165' });
   assert.equal(run.counts, false);
   assert.ok(run.log.some(line => line.tone === 'bad' && /YoloMerge never fired/.test(line.text)));
+});
+
+test('an action TLC took that only reached states it had already found has fired, and the run counts', async t => {
+  const { run } = await check(t, { ...okParse, tlc: { stdout: 'tlc-revisits.out' }, graph: { stdout: 'tlc-revisits.out', dot: 'states.dot' } });
+
+  assert.equal(run.outcome, 'holds');
+  assert.deepEqual(run.actions.find(action => action.name === 'Fix'), { name: 'Fix', count: 3, distinct: 0, code: 'src/cli/work/runner.mjs:203' });
+  assert.equal(run.counts, true);
+  assert.ok(!run.log.some(line => /never fired/.test(line.text)));
 });
 
 test('a deadlock and a broken temporal property leave their traces, and a broken initial state its one state', async t => {

@@ -89,10 +89,17 @@ export function tlcOutcome({ onProgress = () => {}, onCoverage = () => {} } = {}
       case 'coverage-start':
         coverage = new Map();
         break;
-      case 'coverage':
-        // An action defined as several disjuncts is reported once for each.
-        if (coverage) coverage.set(event.name, (coverage.get(event.name) ?? 0) + event.distinct);
+      case 'coverage': {
+        // An action defined as several disjuncts is reported once for each. `found` is every state the action led to and
+        // `distinct` only the new ones, so an action that only revisits known states was still taken.
+        if (!coverage) break;
+        const sofar = coverage.get(event.name) ?? { taken: 0, distinct: 0 };
+        coverage.set(event.name, {
+          taken: sofar.taken + event.found,
+          distinct: sofar.distinct + event.distinct,
+        });
         break;
+      }
       case 'coverage-end':
         if (coverage) {
           seen.coverage = coverage;
