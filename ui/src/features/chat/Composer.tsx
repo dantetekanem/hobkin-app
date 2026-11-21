@@ -11,7 +11,7 @@ import { useExecution } from '../work/store.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { AttachButton, AttachmentTray } from './AttachmentTray.tsx'
-import { availabilityOf, canStopConversation } from './availability.ts'
+import { availabilityOf } from './availability.ts'
 import { canSendDraft, useChat } from './chat-store.ts'
 import { ChatAvatar } from './ChatAvatar.tsx'
 import { PromptEditor } from './PromptEditor.tsx'
@@ -20,6 +20,7 @@ import { slashList, type SlashKey } from './slash.ts'
 import { SlashPanel, slashRowId } from './SlashPanel.tsx'
 import { StatusLine } from './StatusLine.tsx'
 import { STOP_ARMED_MS, stopKey } from './stop-key.ts'
+import { armedAt, shownTurn, type ArmedStop } from './stop-turn.ts'
 import type { PinnedScroll } from './use-pinned-scroll.ts'
 
 /** The input stops growing here and scrolls instead. */
@@ -65,7 +66,9 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const models = useHost((state) => state.models)
   const availability = availabilityOf({ link, home, owner, signIn, models })
   const ready = availability.ready
-  const turnRunning = useHost(canStopConversation)
+  // The turn that can be stopped, by its run, so a stop armed during one turn is never armed for the next.
+  const turn = useHost(shownTurn)
+  const turnRunning = turn !== null
   // With link, home and owner above, exactly what `executionTargets` reads, so a word of a reply being written does not
   // draw the input again. Its disconnect boundary (`observeExecutionBoundary`) moves only with link, home and epoch.
   const { epoch, stopControls } = useHost(useShallow((state) => ({ epoch: state.epoch, stopControls: state.snapshot.stopControls })))
@@ -85,17 +88,18 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
   const picker = useRef<HTMLInputElement | null>(null)
   const listId = useId()
   const [dropping, setDropping] = useState(false)
-  // When the first Escape of a stop was pressed, while the second is waited for.
-  const [stopArmedAt, setStopArmedAt] = useState<number | null>(null)
-  const stopArmed = stopArmedAt !== null && turnRunning
+  // When the first Escape of a stop was pressed, and during which turn, while the second is waited for.
+  const [armed, setArmed] = useState<ArmedStop | null>(null)
+  const stopArmedAt = armedAt(armed, turn)
+  const stopArmed = stopArmedAt !== null
 
   // The first Escape waits only so long for the second, and a turn that ended has nothing left to stop.
   useEffect(() => {
-    if (stopArmedAt === null) return
-    if (!turnRunning) return setStopArmedAt(null)
-    const timer = setTimeout(() => setStopArmedAt(null), STOP_ARMED_MS)
+    if (armed === null) return
+    if (stopArmedAt === null) return setArmed(null)
+    const timer = setTimeout(() => setArmed(null), STOP_ARMED_MS)
     return () => clearTimeout(timer)
-  }, [stopArmedAt, turnRunning])
+  }, [armed, stopArmedAt])
 
   // The input is as tall as its text, up to a limit. The height is set, never animated.
   useLayoutEffect(() => {
@@ -152,12 +156,13 @@ export function Composer({ scroll, followWithin }: ComposerProps) {
     } else if (event.key === 'Escape' && turnRunning) {
       // One Escape never stops hobkin: the first asks, a second soon after stops.
       const pressed = stopKey(stopArmedAt, Date.now())
-      if (pressed.stop) stop()
-      setStopArmedAt(pressed.armedAt)
+      // The second press stops the turn the first was pressed during, the one on screen.
+      if (pressed.stop) stop('stop', main)
+      setArmed(pressed.armedAt === null || turn === null ? null : { at: pressed.armedAt, turn })
       used()
     } else if (event.key === 'c' && event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey && turnRunning) {
       // As in a terminal: Control+C stops at once.
-      setStopArmedAt(null)
+      setArmed(null)
       stop()
       used()
     } else if (event.key === 'Escape' && plain && report) {
