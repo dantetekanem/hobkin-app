@@ -67,7 +67,7 @@ Pipe `{ "machines": [] }` when you found none. hobkin reads this list, not your 
 
 ### Model each machine
 
-Write a TLA+ model of each machine so hobkin can check it. Write it in a tree (run `work.commands.tree` if you are in the folder) at `_specs/tla/<Machine>.tla`, with its `<Machine>.cfg`. A spec already on the default branch is where you start: bring it in line with the code instead of writing another.
+Write a TLA+ model of each machine so hobkin can check it. Write it in a tree (run `work.commands.tree` if you are in the folder) at `_specs/tla/<area>/<Machine>.tla`, with its `<Machine>.cfg` beside it. `<area>` is the part of the product the machine belongs to, as a short lowercase folder name such as `accounts`, `checkout` or `notifications`. Group the machines you find into a few areas, and use an area folder that is already there when one fits. A spec already on the default branch is where you start: bring it in line with the code instead of writing another, and leave it where it is.
 
 - Model the code as it is, small enough to check in minutes: two or three of each thing, and a bound on anything that counts up.
 - Near the top, `\* models: <path>, <path>` names the files the machine lives in. Above each action, `\* code: <path>:<line>` names the code it stands for. Above each definition, `\* words:` says what it means in one plain sentence.
@@ -76,7 +76,7 @@ Write a TLA+ model of each machine so hobkin can check it. Write it in a tree (r
 
 A model that breaks is evidence for the finding: cite its run id and the steps of its counterexample.
 
-Your tree does not keep the spec. So each machine whose model is not already on the default branch, holding and true to the code, gets an item with the key `machine:<a-short-name>` and `"spec": "_specs/tla/<Machine>.tla"`. Its brief holds the spec and the cfg whole, the run id and how it ended, and says to commit both files. File it as a `chore` when the machine works, or when its bug goes to a GitHub issue below. Where the bug has nowhere else to go, the same item is its `fix`.
+Your tree does not keep the spec. So each machine whose model is not already on the default branch, holding and true to the code, gets an item with the key `machine:<a-short-name>` and `"spec": "_specs/tla/<area>/<Machine>.tla"`. Its brief holds the spec and the cfg whole, the run id and how it ended, and says to commit both files. File it as a `chore` when the machine works, or when its bug goes to a GitHub issue below. Where the bug has nowhere else to go, the same item is its `fix`.
 
 Beyond those models, file only what is wrong. Something is worth filing when a person using the project can hit it, when it loses or corrupts data, or when it lets through what a rule was written to stop. Say `critical` in the title's first word only for data loss, money, access, or an outage.
 

@@ -98,7 +98,7 @@ Use a flag only if rollback cannot undo the harm, a real named audience exists f
 
 ## A state machine
 
-When your change touches a state machine, one the code names or one hidden in flags, strings or columns, model it in TLA+ and keep the model true to the code. A spec under `_specs/tla/` whose `\* models:` names a file you change is that model, so update it. Otherwise write `_specs/tla/<Machine>.tla` and its `.cfg` on your branch, with the code.
+When your change touches a state machine, one the code names or one hidden in flags, strings or columns, model it in TLA+ and keep the model true to the code. A spec under `_specs/tla/` whose `\* models:` names a file you change is that model, so update it. Otherwise write `_specs/tla/<area>/<Machine>.tla` and its `.cfg` on your branch, with the code. `<area>` is the part of the product the machine belongs to, as a short lowercase folder name such as `accounts`, `checkout` or `notifications`. Use an area folder that is already there when one fits, and keep a machine's model in one area.
 
 - Keep it small enough to check in minutes: two or three of each thing, and a bound on anything that counts up.
 - `\* models: <path>, <path>` names the files it models. Above each action, `\* code: <path>:<line>` names the code it stands for. Above each definition, `\* words:` says what it means in one plain sentence.

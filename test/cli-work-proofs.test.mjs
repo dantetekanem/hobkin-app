@@ -8,7 +8,7 @@ import { initialize } from '../src/cli/config.mjs';
 import { workStatus } from '../src/cli/work/commands.mjs';
 import { recordMachines } from '../src/cli/work/machines.mjs';
 import { recheckModels } from '../src/cli/work/proof-checks.mjs';
-import { modeledFiles, readRuns } from '../src/cli/work/proofs.mjs';
+import { modeledFiles, readRuns, specsAt } from '../src/cli/work/proofs.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, paths, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
@@ -279,4 +279,16 @@ test('work mode reads each proof result once while its file is unchanged, and ke
 
   result('run-1', 'broken');
   assert.equal(readRuns(root)[0].outcome, 'broken', 'a result written again is read again');
+});
+
+test('a model kept in an area folder under _specs/tla is read with the files it models', async t => {
+  const base = mkdtempSync(join(tmpdir(), 'hobkin-area-specs-'));
+  t.after(() => rmSync(base, { recursive: true, force: true }));
+  const checkout = repository(base, 'app');
+  mkdirSync(join(checkout, '_specs', 'tla', 'checkout'), { recursive: true });
+  commit(checkout, '_specs/tla/checkout/Cart.tla', '---- MODULE Cart ----\n\\* models: app/cart.rb, app/order.rb\n====\n');
+  const head = git(checkout, 'rev-parse', 'HEAD').trim();
+
+  const specs = await specsAt(checkout, head);
+  assert.deepEqual(specs.map(({ spec, models }) => ({ spec, models })), [{ spec: '_specs/tla/checkout/Cart.tla', models: ['app/cart.rb', 'app/order.rb'] }]);
 });
