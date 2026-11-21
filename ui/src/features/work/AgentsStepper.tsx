@@ -31,33 +31,20 @@ export function AgentsStepper({
 }) {
   const [draft, setDraftState] = useState<number | null>(null)
   const shown = clampAgents(draft ?? value, most)
+  // Timers and window listeners read these, so they see the number and the callbacks of the latest render.
   const latest = useRef(shown)
   latest.current = shown
-  const keysTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const hold = useRef<{ timer: ReturnType<typeof setTimeout>; stop: () => void } | null>(null)
-  const saving = useRef<Promise<unknown> | null>(null)
-  const waiting = useRef<number | null>(null)
   const props = useRef({ value, onSave, onDraft })
   props.current = { value, onSave, onDraft }
+
+  const keysTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const hold = useRef<{ timer: ReturnType<typeof setTimeout>; release: () => void } | null>(null)
+  const saving = useRef<Promise<unknown> | null>(null)
+  const savesNext = useRef<number | null>(null)
 
   const setDraft = (agents: number | null) => {
     setDraftState(agents)
     props.current.onDraft?.(agents)
-  }
-
-  const save = (agents: number) => {
-    if (saving.current) {
-      waiting.current = agents
-      return
-    }
-    if (agents === props.current.value) return setDraft(null)
-    saving.current = Promise.resolve(props.current.onSave(agents)).finally(() => {
-      saving.current = null
-      const next = waiting.current
-      waiting.current = null
-      if (next !== null && next !== agents) save(next)
-      else setDraft(null)
-    })
   }
 
   const stepTo = (agents: number) => {
@@ -65,10 +52,32 @@ export function AgentsStepper({
     setDraft(agents)
   }
 
+  /** Saves one number at a time. A number set while a save is under way goes once it is in, unless it is the same. */
+  const save = (agents: number) => {
+    if (saving.current) {
+      savesNext.current = agents
+      return
+    }
+    if (agents === props.current.value) {
+      setDraft(null)
+      return
+    }
+
+    saving.current = Promise.resolve(props.current.onSave(agents)).finally(() => {
+      saving.current = null
+      const next = savesNext.current
+      savesNext.current = null
+
+      if (next !== null && next !== agents) save(next)
+      else setDraft(null)
+    })
+  }
+
   const stopHold = () => {
     if (!hold.current) return
+
     clearTimeout(hold.current.timer)
-    hold.current.stop()
+    hold.current.release()
     hold.current = null
     save(latest.current)
   }
@@ -76,23 +85,36 @@ export function AgentsStepper({
   /** One step now, and while the button stays down one after `HOLD_DELAY_MS` and then every `HOLD_REPEAT_MS`, up to the end of the range. */
   const startHold = (delta: -1 | 1) => {
     stopHold()
+
     const step = () => {
       const next = clampAgents(latest.current + delta, most)
       stepTo(next)
-      return delta < 0 ? next > FEWEST_AGENTS : next < clampAgents(most, most)
+      const roomLeft = delta < 0 ? next > FEWEST_AGENTS : next < clampAgents(most, most)
+      return roomLeft
     }
-    if (!step()) return save(latest.current)
-    const later = (wait: number) =>
+    if (!step()) {
+      save(latest.current)
+      return
+    }
+
+    const stepLater = (wait: number) =>
       setTimeout(() => {
         if (!hold.current) return
-        if (step()) hold.current.timer = later(HOLD_REPEAT_MS)
+        if (step()) hold.current.timer = stepLater(HOLD_REPEAT_MS)
         else stopHold()
       }, wait)
+
     // A release anywhere ends the hold, also over a button that turned disabled at the end of the range.
+    const endings = ['pointerup', 'pointercancel', 'blur'] as const
     const end = () => stopHold()
-    const events = ['pointerup', 'pointercancel', 'blur'] as const
-    for (const name of events) window.addEventListener(name, end)
-    hold.current = { timer: later(HOLD_DELAY_MS), stop: () => events.forEach((name) => window.removeEventListener(name, end)) }
+    for (const name of endings) window.addEventListener(name, end)
+
+    hold.current = {
+      timer: stepLater(HOLD_DELAY_MS),
+      release: () => {
+        for (const name of endings) window.removeEventListener(name, end)
+      },
+    }
   }
 
   // Leaving the screen keeps what was set: a save still waiting goes now. What this reads is in refs, so it runs once.
@@ -110,8 +132,10 @@ export function AgentsStepper({
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const next = agentsForKey(latest.current, event, most)
     if (next === null) return
+
     event.preventDefault()
     stepTo(next)
+
     if (keysTimer.current) clearTimeout(keysTimer.current)
     keysTimer.current = setTimeout(() => {
       keysTimer.current = null
@@ -133,6 +157,8 @@ export function AgentsStepper({
     },
   })
 
+  const iconSize = compact ? 'size-3.5' : 'size-4'
+
   return (
     <div
       role="spinbutton"
@@ -147,11 +173,11 @@ export function AgentsStepper({
       onKeyDown={onKeyDown}
     >
       <StepButton label="One fewer" compact={compact} disabled={shown <= FEWEST_AGENTS} {...press(-1)}>
-        <Minus className={compact ? 'size-3.5' : 'size-4'} aria-hidden="true" />
+        <Minus className={iconSize} aria-hidden="true" />
       </StepButton>
       <span className={cn('w-[3ch] text-center tabular-nums', compact ? 'text-[12.5px] font-medium' : 'text-[14px] font-semibold')}>{shown}</span>
       <StepButton label="One more" compact={compact} disabled={shown >= most} {...press(1)}>
-        <Plus className={compact ? 'size-3.5' : 'size-4'} aria-hidden="true" />
+        <Plus className={iconSize} aria-hidden="true" />
       </StepButton>
     </div>
   )
