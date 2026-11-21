@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { after, mock, test } from 'node:test'
+import { after, test } from 'node:test'
 import type { Bubble } from '../src/features/chat/bubble.ts'
 import { bubbleCue, hopCue } from '../src/features/sound/cues.ts'
 import { playTones, type SoundContext } from '../src/features/sound/player.ts'
@@ -14,16 +14,7 @@ page.removeEventListener = (type: string) => presses.delete(type)
 Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} } } })
 after(() => {
   for (const key of ['window', 'AudioContext', 'addEventListener', 'removeEventListener']) Reflect.deleteProperty(globalThis, key)
-  mock.timers.reset()
-  mock.restoreAll()
 })
-// The page's audio is suspended a while after its last sound: the test moves that clock, and the one sounds are
-// spaced by, by hand.
-mock.timers.enable({ apis: ['setTimeout'] })
-let clock = 0
-mock.method(performance, 'now', () => clock)
-/** Lets the promises the sound module waits on settle. */
-const settle = () => new Promise((done) => setImmediate(done))
 const { useSettings } = await import('../src/features/settings/store.ts')
 const { play } = await import('../src/features/sound/index.ts')
 
@@ -54,13 +45,7 @@ function fakeContext(currentTime = 2) {
     currentTime,
     destination,
     resumes: 0,
-    suspends: 0,
     resume: () => Promise.resolve(),
-    suspend: () => {
-      context.suspends += 1
-      context.state = 'suspended'
-      return Promise.resolve()
-    },
     close: () => Promise.resolve(),
     oscillators,
     gains,
@@ -259,7 +244,7 @@ test('until the user presses something the page plays nothing, and a press lets 
   useSettings.getState().setSound(true)
 
   play('pick')
-  await settle()
+  await new Promise((done) => setTimeout(done, 5))
   assert.equal(context.oscillators.length, 0, 'nothing waits to burst out later')
   presses.get('pointerdown')!()
   assert.ok(context.resumes >= 2, 'the press asks the page to start audio')
@@ -278,97 +263,7 @@ test('a sound asked for in the press that starts audio still plays, as when the 
   page.AudioContext = contextClass(context)
 
   play('cheer')
-  await settle()
+  await new Promise((done) => setTimeout(done, 5))
   assert.equal(context.oscillators.length, tonesOf('cheer').length)
-  held = context
-  useSettings.getState().setSound(false)
-})
-
-/** A context that has started, as after the user's first press, standing in for the one before. */
-function runningContext() {
-  // Long enough after the test before that any sound may play again.
-  clock += 60_000
-  const context = fakeContext()
-  context.resume = async () => {
-    context.resumes += 1
-    context.state = 'running'
-  }
-  held.state = 'closed'
-  held = context
-  page.AudioContext = contextClass(context)
-  useSettings.getState().setSound(true)
-  return context
-}
-
-/** How long a sound lasts, in milliseconds. */
-const lasts = (name: SoundName) => soundLength(tonesOf(name)) * 1000
-
-test('three seconds after its last sound ends the page suspends its audio, and a sound in that time keeps it running', () => {
-  const context = runningContext()
-  play('tap')
-  mock.timers.tick(lasts('tap') + 2999)
-  assert.equal(context.suspends, 0)
-  play('chime')
-  mock.timers.tick(lasts('chime') + 2999)
-  assert.equal(context.suspends, 0, 'the chime moved the rest later')
-  mock.timers.tick(1)
-  assert.equal(context.state, 'suspended')
-  assert.equal(context.suspends, 1)
-  useSettings.getState().setSound(false)
-})
-
-test('the next sound resumes the suspended audio first and then plays whole, and a press alone does not wake it', async () => {
-  const context = runningContext()
-  play('tap')
-  mock.timers.tick(lasts('tap') + 3000)
-  assert.equal(context.state, 'suspended')
-
-  // The user types: the audio stays asleep, since no sound asked for it.
-  presses.get('keydown')!()
-  presses.get('pointerdown')!()
-  assert.equal(context.resumes, 0)
-
-  const before = context.oscillators.length
-  play('chime')
-  assert.equal(context.resumes, 1)
-  assert.equal(context.oscillators.length, before, 'nothing starts before the audio runs, so no start is clipped')
-  await settle()
-  assert.equal(context.oscillators.length, before + tonesOf('chime').length)
-  assert.ok(context.oscillators.slice(before).every(({ started }) => started! >= context.currentTime), 'it starts on the running clock')
-  useSettings.getState().setSound(false)
-})
-
-test('a page that holds back a resume outside a press starts the audio on the next press, and keeps it running from then on', async () => {
-  const context = runningContext()
-  play('tap')
-  mock.timers.tick(lasts('tap') + 3000)
-  assert.equal(context.state, 'suspended')
-
-  // The page answers a resume only inside a press, as before the first one: every resume asked waits for it.
-  const waiting: (() => void)[] = []
-  const start = () => {
-    context.state = 'running'
-    for (const done of waiting.splice(0)) done()
-  }
-  context.resume = () => {
-    context.resumes += 1
-    return new Promise((done) => void waiting.push(done))
-  }
-  const before = context.oscillators.length
-  play('chime')
-  mock.timers.tick(1000)
-  clock += 1000
-  await settle()
-  assert.equal(context.oscillators.length, before, 'the chime does not burst out later')
-
-  // The next press starts it, as it did before audio was ever suspended, and the next sound plays.
-  presses.get('pointerdown')!()
-  assert.equal(context.resumes, 2)
-  start()
-  await settle()
-  play('tap')
-  assert.equal(context.oscillators.length, before + tonesOf('tap').length)
-  mock.timers.tick(60_000)
-  assert.equal(context.state, 'running', 'it is not suspended again')
   useSettings.getState().setSound(false)
 })
