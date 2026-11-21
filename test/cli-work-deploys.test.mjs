@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
@@ -10,13 +10,13 @@ import { initialize } from '../src/cli/config.mjs';
 import { openDecisions } from '../src/cli/decisions.mjs';
 import { afterMerges } from '../src/cli/work/after-merge.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
-import { mergeItem } from '../src/cli/work/controls.mjs';
-import { chooseProject, fileItem, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { mergeItem, publishItem } from '../src/cli/work/controls.mjs';
+import { chooseProject, fileItem, paths, prFile, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { yoloPass } from '../src/cli/work/yolo-pass.mjs';
 import { prepareProjects, recordReadiness, setYolo } from '../src/cli/work/yolo.mjs';
 import { recordMachines } from '../src/cli/work/machines.mjs';
-import { branched, git, repository } from './helpers/work-fixture.mjs';
+import { branched, git, repository, withOrigin } from './helpers/work-fixture.mjs';
 
 // A merge is not the end of the work on a project that deploys. hobkin asks "Deploy now?" once a project, with what merged since its last
 // deploy, and keeps that one question up to date as more merges land. A yes hands the main agent the deploy, its live check and 30 minutes of
@@ -286,6 +286,28 @@ test('the user\'s ask in Chat deploys what waits, merged long since or a moment 
 test('a project that does not deploy has nothing to deploy on the user\'s ask', async t => {
   const h = workspace(t);
   await assert.rejects(runWorkCommand(h.root, ['deploy', 'api']), /api has no deploy path recorded/);
+});
+
+test('a PR on a project that deploys only refers to its issue, so GitHub leaves it open until the deploy that carries it held', async t => {
+  const h = workspace(t);
+  withOrigin(h.base, h.checkout);
+  deploysBy(h, { ready: true, how: PATH });
+  const described = finished(h, 'Fix login', { number: 12 });
+  const plain = finished(h, 'Fix logout', { number: 13 });
+  mkdirSync(paths(h.root, 'api').prs, { recursive: true });
+  writeFileSync(prFile(h.root, 'api', described.id), '# Fix login\n\nIt signs in after a reset.\n\nFixes acme/api#12\n');
+  const created = [];
+  const gh = async args => {
+    if (args[1] === 'list') return '[]';
+    created.push(args.slice(-2));
+    return 'https://github.invalid/acme/api/pull/1\n';
+  };
+
+  await publishItem(h.root, 'api', described.id, { gh, now: NOW });
+  await publishItem(h.root, 'api', plain.id, { gh, now: NOW });
+
+  assert.deepEqual(created, [['--body-file', prFile(h.root, 'api', described.id)], ['--body', 'What goes wrong.\n\nRefs acme/api#13']]);
+  assert.equal(readFileSync(prFile(h.root, 'api', described.id), 'utf8'), '# Fix login\n\nIt signs in after a reset.\n\nRefs acme/api#12\n');
 });
 
 // YOLO mode hands on the deploy of its own merge. That merge is not asked about again, and its issue waits for its reading too.

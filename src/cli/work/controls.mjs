@@ -6,6 +6,7 @@ import { fileActionItem } from '../decisions.mjs';
 import { followsUp } from './after-merge.mjs';
 import { shortPath } from './chat.mjs';
 import { surveyAndClose } from './closing.mjs';
+import { deployPathOf } from './deploys.mjs';
 import { forecastWork } from './forecast.mjs';
 import { offeredIn } from './land-offer.mjs';
 import { userTrouble } from './launches.mjs';
@@ -553,13 +554,18 @@ const OPENED_PR = 'opened its PR';
 
 /**
  * A PR's body: its branch's description, or else its brief. Work that came from a GitHub issue says it fixes that issue, so GitHub closes the
- * issue when the PR merges, and its description says so too.
+ * issue when the PR merges, and its description says so too. On a project that deploys, the issue stays open until the deploy that carries it
+ * held (`deploys.mjs`), so the PR only refers to it, and a description that says it fixes the issue is made to refer to it instead.
  */
-function bodyOf(description, { brief, title, issue }) {
-  const fixes = issue ? `Fixes ${issue.repo}#${issue.number}` : null;
-  if (!existsSync(description)) return ['--body', [brief ?? title, fixes].filter(Boolean).join('\n\n')];
+function bodyOf(description, { brief, title, issue }, { deploys }) {
+  const named = issue ? `${issue.repo}#${issue.number}` : null;
+  const line = named ? `${deploys ? 'Refs' : 'Fixes'} ${named}` : null;
+  if (!existsSync(description)) return ['--body', [brief ?? title, line].filter(Boolean).join('\n\n')];
   const text = readFileSync(description, 'utf8');
-  if (fixes && !text.toLowerCase().includes(fixes.toLowerCase())) writeFileSync(description, `${text.trimEnd()}\n\n${fixes}\n`);
+  // The line a run writes, as `work-do.md` asks, is the one changed.
+  const said = deploys && named ? text.split('\n').map(each => (each.trim().toLowerCase() === `fixes ${named}`.toLowerCase() ? line : each)).join('\n') : text;
+  const kept = line && !said.toLowerCase().includes(line.toLowerCase()) ? `${said.trimEnd()}\n\n${line}\n` : said;
+  if (kept !== text) writeFileSync(description, kept);
   return ['--body-file', description];
 }
 
@@ -595,7 +601,7 @@ export async function publishItem(root, reference, id, { head = null, gh = ghWit
   const open = await openPullFor(repo, origin, branch, gh);
   let url = open?.url;
   if (!url) {
-    const body = bodyOf(prFile(root, project.slug, item.id), item);
+    const body = bodyOf(prFile(root, project.slug, item.id), item, { deploys: Boolean(deployPathOf(root, project.slug)) });
     const draft = project.prMode === 'draft' ? ['--draft'] : [];
     const base = await defaultBranch(repo);
     const created = await gh(['pr', 'create', '--repo', origin, '--head', branch, '--base', base, '--title', title, ...body, ...draft], repo).catch(error => {
