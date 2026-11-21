@@ -22,6 +22,16 @@ export function queueInSight(queue: readonly QueueRow[], open: boolean, most = S
   return { rows, hidden: ordered.length - rows.length }
 }
 
+/**
+ * The queue without the rows of paused projects: a paused project starts nothing, so its rows, skipped ones too, leave
+ * the queue until it is switched back on. `paused` is how many went. With nothing paused it is the same list.
+ */
+export function outsidePaused(queue: readonly QueueRow[], pausedSlugs: ReadonlySet<string>): { rows: readonly QueueRow[]; paused: number } {
+  if (!pausedSlugs.size) return { rows: queue, paused: 0 }
+  const rows = queue.filter(({ slug }) => !slug || !pausedSlugs.has(slug))
+  return { rows, paused: queue.length - rows.length }
+}
+
 interface Said {
   tone: 'done' | 'refused'
   text: string

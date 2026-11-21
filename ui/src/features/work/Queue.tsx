@@ -1,6 +1,6 @@
 import { Play } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { useState, type KeyboardEvent, type Ref } from 'react'
+import { useMemo, useState, type KeyboardEvent, type Ref } from 'react'
 import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
@@ -11,7 +11,7 @@ import type { Grade, PrMode, QueueRow, WorkProject, WorkState } from '@/lib/host
 import { cn } from '@/lib/utils.ts'
 import { discoverableProjects, trackedProjects } from './projects.ts'
 import { GradeChip, IssueLink, PullLink, SaidLine, SectionHeading, Segmented } from './parts.tsx'
-import { queueInSight, SHOWN_SHUT, startNowLine } from './queue-rows.ts'
+import { outsidePaused, queueInSight, SHOWN_SHUT, startNowLine } from './queue-rows.ts'
 import { runWork, useWorkUi, type Said } from './store.ts'
 
 /**
@@ -56,15 +56,21 @@ function StartNowTold({ said }: { said: Said }) {
 export function QueueSection({ work, live, variants, turn }: { work: WorkState } & Shared) {
   const [open, setOpen] = useState(false)
   const told = useWorkUi((state) => state.said['queue'])
-  const { rows, hidden } = queueInSight(work.queue, open)
-  const urgent = work.queue.filter(({ grade, skipped }) => grade === 'P0' && !skipped).length
-  // hobkin can count more in its queue than the rows it lists.
-  const unlisted = work.queued - work.queue.filter(({ skipped }) => !skipped).length
-  const toggles = hidden > 0 || (open && work.queue.length > SHOWN_SHUT)
+  // A paused project starts nothing, so its rows leave the queue until it is switched back on.
+  const pausedSlugs = useMemo(() => new Set(work.projects.filter(({ paused }) => paused).map(({ slug }) => slug)), [work.projects])
+  const { rows: queue, paused } = useMemo(() => outsidePaused(work.queue, pausedSlugs), [work.queue, pausedSlugs])
+  const { rows, hidden } = queueInSight(queue, open)
+  const urgent = queue.filter(({ grade, skipped }) => grade === 'P0' && !skipped).length
+  const waiting = queue.filter(({ skipped }) => !skipped).length
+  // hobkin counts the paused projects' waiting rows in its queue too, and can count more than the rows it lists.
+  const pausedWaiting = work.queue.filter(({ skipped }) => !skipped).length - waiting
+  const queued = Math.max(waiting, work.queued - pausedWaiting)
+  const unlisted = queued - waiting
+  const toggles = hidden > 0 || (open && queue.length > SHOWN_SHUT)
 
   return (
     <section aria-label="Queue" className="flex flex-col gap-2">
-      <SectionHeading label="Queue" count={`${urgent ? `${urgent} P0 · ` : ''}${work.queued} queued`} />
+      <SectionHeading label="Queue" count={`${urgent ? `${urgent} P0 · ` : ''}${queued} queued`} />
       <AnimatePresence>{told ? <StartNowTold key={told.text} said={told} /> : null}</AnimatePresence>
       {rows.length ? (
         <ul className="relative flex flex-col">
@@ -77,14 +83,19 @@ export function QueueSection({ work, live, variants, turn }: { work: WorkState }
       ) : (
         <p className="px-1 text-[13.5px] text-muted-foreground">{work.enabled ? 'Nothing is queued. The next look comes round by itself.' : 'Nothing is queued.'}</p>
       )}
-      {toggles || unlisted > 0 ? (
+      {toggles || unlisted > 0 || paused > 0 ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
           {toggles ? (
             <Button variant="ghost" size="sm" data-stop="" aria-expanded={open} onClick={() => setOpen(!open)} className="text-muted-foreground">
-              {open ? 'Show fewer' : `Show all ${work.queue.length}`}
+              {open ? 'Show fewer' : `Show all ${queue.length}`}
             </Button>
           ) : null}
           {unlisted > 0 && !hidden ? <span className="px-2 text-[12.5px] text-muted-foreground">and {unlisted} more queued</span> : null}
+          {paused > 0 ? (
+            <span className="px-2 text-[12.5px] text-muted-foreground">
+              {paused} more wait on {pausedSlugs.size === 1 ? 'a paused project' : 'paused projects'}
+            </span>
+          ) : null}
         </div>
       ) : null}
     </section>

@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { Grade, QueueRow } from '#shared/protocol/work.ts'
-import { queueInSight, startNowLine } from '../src/features/work/queue-rows.ts'
+import { outsidePaused, queueInSight, startNowLine } from '../src/features/work/queue-rows.ts'
 
-const row = (key: string, grade: Grade, skipped = false): QueueRow => ({
+const row = (key: string, grade: Grade, skipped = false, slug = 'storefront'): QueueRow => ({
   key,
   kind: 'item',
-  slug: 'storefront',
-  project: 'storefront',
+  slug,
+  project: slug,
   item: key,
   title: `Item ${key}`,
   grade,
@@ -18,7 +18,7 @@ const row = (key: string, grade: Grade, skipped = false): QueueRow => ({
   tokens: null,
 })
 
-const keys = (rows: QueueRow[]) => rows.map(({ key }) => key)
+const keys = (rows: readonly QueueRow[]) => rows.map(({ key }) => key)
 
 test('a long queue shows its first five rows in hobkin order, every P0 among them, and says how many it holds back', () => {
   const queue = [row('a', 'P1'), row('b', 'P1'), row('c', 'P2'), row('d', 'P2'), row('e', 'P3'), row('urgent', 'P0'), row('f', 'P3'), row('g', 'P3'), row('skipped', 'P2', true)]
@@ -48,4 +48,15 @@ test("Start now says what hobkin said, and a refusal names the row it was for an
     tone: 'refused',
     text: 'Tighten the checkout tests did not start: Work mode is off, so it waits for hobkin work start.',
   })
+})
+
+test('a paused project takes all its rows out of the queue, and the queue says how many it holds for paused projects', () => {
+  const queue = [row('a', 'P0', false, 'client'), row('b', 'P1'), row('c', 'P2', false, 'client'), row('d', 'P2', true, 'client'), row('discover', 'P3', false, '')]
+  const { rows, paused } = outsidePaused(queue, new Set(['client']))
+  assert.deepEqual(keys(rows), ['b', 'discover'], 'every row of the paused project goes, skipped ones too, and a row of no project stays')
+  assert.equal(paused, 3)
+
+  const none = outsidePaused(queue, new Set())
+  assert.equal(none.rows, queue, 'with nothing paused the queue is the same list')
+  assert.equal(none.paused, 0)
 })
