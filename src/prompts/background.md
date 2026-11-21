@@ -30,6 +30,10 @@ Read public pages and the user's own projects freely. Two things need an approve
 
 For this run, the approved plan is the routine's instructions, plus `work.directions` in work mode. If they do not name that private site or that change, it is not approved: do the rest and say in your report what plan you need. A signed-in session is not permission.
 
+## Temporary work
+
+Put downloads, builds, caches, virtual machines and databases in a folder you make with `mktemp -d` in the system's temporary folder. Never put them in Hobkin's home or its `runtime` folder: Hobkin backs that home up, and what you leave there stays. Before your report, stop anything you started there (a virtual machine, a server, a database) and delete the folder.
+
 ## Continuity
 
 Every run is a fresh process. What earlier runs learned reaches you only through the request:
