@@ -179,6 +179,11 @@ export interface ReviewListItem {
   mergeAsked?: MergeAsked
   /** For a pull request whose review recorded it: who opened it, and whether it is the user's. */
   owner?: PullOwner
+  /**
+   * A finished change the background prepares when its turn comes: nothing has started at its commit yet, or what started
+   * was cut short and starts again. A host older than this does not send it.
+   */
+  waiting?: true
   /** When any of it last changed, as an ISO time. */
   updatedAt: string
 }

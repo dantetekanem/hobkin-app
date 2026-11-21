@@ -48,6 +48,25 @@ test('reviews fall into running, ready and failed, and one that never ran is lef
   assert.deepEqual(reviewCounts(groups), { unmerged: 0, running: 3, ready: 2, failed: 2 })
 })
 
+test('a finished change whose review has not started shows as waiting its turn, after those under way; a stopped one that waits for nothing stays out', () => {
+  const groups = groupReviews({
+    reviews: [
+      item('change:storefront:w1', { state: 'idle', waiting: true, updatedAt: at(1) }),
+      item('change:storefront:w2', { state: 'idle', waiting: true, assessment: { state: 'failed', head: HEAD, error: 'An earlier review of this commit stopped before it finished.' } }),
+      item('change:storefront:a2', { assessment: { state: 'running', head: HEAD, percent: 10, startedAt: at(2) } }),
+      item('change:storefront:s1', { state: 'idle', assessment: { state: 'idle', head: HEAD } }),
+    ],
+  })
+
+  assert.deepEqual(groups.running.map((row) => [row.item.id, row.line, row.startedAt]), [
+    ['change:storefront:a2', 'Starting', Date.parse(at(2))],
+    ['change:storefront:w2', 'Waiting its turn', null],
+    ['change:storefront:w1', 'Waiting its turn', null],
+  ])
+  assert.deepEqual(groups.failed, [], 'one cut short that starts again is waiting, not failed')
+  assert.ok(![...groups.running, ...groups.ready].some((row) => row.item.id === 'change:storefront:s1'))
+})
+
 test('a running review says how far along it is, what it is doing now, and when it started; one still waiting comes after those under way', () => {
   const [graph, change, queued] = groupReviews({
     reviews: [

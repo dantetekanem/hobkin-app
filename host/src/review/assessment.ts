@@ -426,6 +426,18 @@ export function toldUnit(unit: Unit, said?: { title?: string; what?: string }): 
 /** How the change review's proof says no test could run, before why. */
 const NOT_RUN = 'tests were not run: '
 
+/**
+ * Why a run failed, kept beside its progress, so a later host tells a run that failed for a reason of its own from one
+ * that was cut short by a quit or a crash, which leaves its progress and nothing else.
+ */
+const FAILED_FILE = 'failed.json'
+/** Written when a run that was cut short is started again, so that happens once for each commit. */
+const RESTARTED_FILE = 'restarted.json'
+/** A run that was cut short, and has not been started again yet. */
+const CUT_SHORT = 'An earlier review of this commit stopped before it finished.'
+/** A run that was cut short again after it was started again. */
+const CUT_SHORT_TWICE = 'This review stopped before it finished twice, so it is not started again by itself.'
+
 /** Why a run that close() stopped failed. */
 const STOPPED = 'The review was stopped before it finished.'
 /** Why a run the user stopped did not finish. */
@@ -481,8 +493,31 @@ export class Assessments {
     const folder = assessmentFolder(this.options.root, target, head)
     const summary = readJson<AssessmentSummary>(join(folder, 'summary.json'))
     if (summary) return { state: 'ready', head, summary }
-    if (existsSync(join(folder, 'progress.json'))) return { state: 'failed', head, error: 'An earlier review of this commit stopped before it finished.' }
+    const failed = readJson<{ error?: unknown }>(join(folder, FAILED_FILE))
+    if (typeof failed?.error === 'string') return { state: 'failed', head, error: failed.error }
+    if (existsSync(join(folder, 'progress.json'))) return { state: 'failed', head, error: existsSync(join(folder, RESTARTED_FILE)) ? CUT_SHORT_TWICE : CUT_SHORT }
     return { state: 'idle', head }
+  }
+
+  /**
+   * Whether the review of this commit was cut short, as by a quit or a crash, and was not started again since: it left
+   * its progress, no answer and no error of its own, and nothing in this host runs it or ran it.
+   */
+  cutShort(target: ReviewTarget, head: string): boolean {
+    if (this.live.has(this.key(target, head))) return false
+    const folder = assessmentFolder(this.options.root, target, head)
+    return existsSync(join(folder, 'progress.json')) && !['summary.json', FAILED_FILE, RESTARTED_FILE].some((name) => existsSync(join(folder, name)))
+  }
+
+  /** Keeps why a run failed beside what it wrote, when it wrote anything. A run that never started its folder leaves nothing to tell apart. */
+  private keepFailure(target: ReviewTarget, head: string, error: string) {
+    const folder = assessmentFolder(this.options.root, target, head)
+    if (!existsSync(folder)) return
+    try {
+      writeWhole(join(folder, FAILED_FILE), JSON.stringify({ error, at: this.clockIso() }))
+    } catch (failure) {
+      this.options.log?.(`Change review of ${reviewIdOf(target)} at ${head.slice(0, 7)}: why it failed could not be kept: ${messageOf(failure)}`)
+    }
   }
 
   /**
@@ -495,6 +530,8 @@ export class Assessments {
     if (now.state === 'ready' && !again) return now
     if (this.queue.some((entry) => this.key(entry.target, entry.head) === this.key(job.target, job.head))) return now
     const startedAt = job.startedAt ?? this.clockIso()
+    // Started again after it was cut short: said beside it, so a run that keeps dying is started again once.
+    if (this.cutShort(job.target, job.head)) writeWhole(join(assessmentFolder(this.options.root, job.target, job.head), RESTARTED_FILE), JSON.stringify({ at: startedAt }))
     this.records.set(this.key(job.target, job.head), { ...(job.request ? { request: job.request } : {}), log: (job.log ?? []).slice(-LOG_LINES), startedAt })
     if (this.active.size >= AT_ONCE) this.say(job.target, job.head, `Waiting its turn: ${AT_ONCE} reviews are running.`)
     this.queue.push(job)
@@ -514,6 +551,8 @@ export class Assessments {
       const run = this.one(job, signal)
         .catch((error: unknown) => {
           const message = stop.signal.aborted ? (this.active.get(key)?.why ?? STOPPED_BY_USER) : messageOf(error)
+          // One the host's close stopped was cut short, and says nothing of its own: a later host starts it again.
+          if (stop.signal.aborted || !this.controller.signal.aborted) this.keepFailure(job.target, job.head, message)
           this.options.log?.(`Change review of ${reviewIdOf(job.target)} at ${job.head.slice(0, 7)} failed: ${message}`)
           this.say(job.target, job.head, `Stopped: ${message}`)
           this.set(job.target, job.head, { state: 'failed', head: job.head, error: message })
@@ -624,6 +663,7 @@ export class Assessments {
         // The run rewrites the story and its units, so a summary of the last one never stands beside them.
         previous = lastSummary(root, target)
         rmSync(join(out, 'summary.json'), { force: true })
+        rmSync(join(out, FAILED_FILE), { force: true })
         let said = ''
         return this.options.run({
           target,

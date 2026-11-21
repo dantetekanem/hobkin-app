@@ -221,7 +221,8 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
         {row.summary ? <DeployWhy summary={row.summary} head={item.head} /> : null}
         {row.group === 'failed' ? <span className="min-w-0 text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}
         {row.group === 'unmerged' ? <span className={row.item.mergeAsked?.state === 'failed' ? 'min-w-0 text-[14px] leading-snug text-bad-fg' : 'min-w-0 text-[14px] leading-snug text-muted-foreground'}>{row.line}</span> : null}
-        {again ? <ReviewAgain id={item.id} live={live} onAgain={onAgain} /> : <StopReview id={item.id} live={live} onStopped={onAgain} />}
+        {/* A row that waits its turn has nothing running to stop. */}
+        {again ? <ReviewAgain id={item.id} live={live} onAgain={onAgain} /> : item.waiting ? null : <StopReview id={item.id} live={live} onStopped={onAgain} />}
       </div>
       {actions.length ? <RowActions row={row} actions={actions} live={live} onChanged={onAgain} /> : null}
     </li>

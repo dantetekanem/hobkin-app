@@ -5,7 +5,7 @@ import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
 /**
  * The AI Reviews tab's data (spec 032): every review the host knows (`review.list`), finished changes and pull
  * requests together, sorted into what is running, what is ready and what failed, each newest first. A review that
- * never ran is left out. Pure, so it is tested without a window.
+ * never ran is left out, unless the host says it waits its turn. Pure, so it is tested without a window.
  */
 
 export type { ReviewList, ReviewListItem }
@@ -46,12 +46,13 @@ const timeOf = (iso: string | null | undefined): number | null => {
 
 /**
  * A merge the user asked for that has not happened comes before all else: it is the one row they are waiting on.
- * Running beats failed, so a review asked for again after it stopped shows as running. One that never ran has no group.
+ * Running beats failed, so a review asked for again after it stopped shows as running, and so does a finished change
+ * the host says waits its turn. One that never ran and waits for nothing has no group.
  */
 export function groupOf(item: ReviewListItem): ReviewGroup | null {
   if (item.mergeAsked) return 'unmerged'
   const assessment = item.assessment?.state
-  if (item.state === 'preparing' || assessment === 'queued' || assessment === 'running') return 'running'
+  if (item.state === 'preparing' || assessment === 'queued' || assessment === 'running' || item.waiting) return 'running'
   if (item.state === 'failed' || assessment === 'failed') return 'failed'
   if (item.state === 'ready' || assessment === 'ready') return 'ready'
   return null
@@ -78,7 +79,7 @@ function rowOf(item: ReviewListItem): ReviewRow | null {
     row.at = timeOf(at)
     row.summary = assessment?.state === 'ready' ? (assessment.summary ?? null) : null
   } else if (group === 'running') {
-    const waiting = assessment?.state === 'queued' ? 'Waiting its turn' : 'Starting'
+    const waiting = assessment?.state === 'queued' || item.waiting ? 'Waiting its turn' : 'Starting'
     row.line = (running ? assessment.now : undefined) ?? (item.phase ? PHASES[item.phase] : undefined) ?? waiting
     row.percent = running && assessment.percent != null ? Math.min(100, Math.max(0, Math.round(assessment.percent))) : null
     // The change review's own start, once it runs; before that, the start of the review it is built on.

@@ -11,7 +11,7 @@ import { whyProjectWaits } from 'hobkin/src/cli/work/controls.mjs'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
 import type { GrammarAsk } from '#shared/review/grammar.ts'
-import { pullUrl, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
+import { pullUrl, reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/ids.ts'
 import type { ReviewLanding } from '#shared/review/status.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
 import type { HostHandlers } from '../commands.ts'
@@ -328,11 +328,31 @@ export function pullVicinity(assessments: Assessments, run?: ScanRun): (target: 
     )
 }
 
-/** What the background prepares: every finished change at its commit. */
-export function toPrepare(work: WorkState | null, _github?: GitHubState): Watched[] {
-  // A pull request from GitHub is reviewed only once the user asks ("Start AI review", spec 032), so only finished
-  // changes are prepared by themselves.
-  return finishedIn(work).map((change) => ({ id: reviewIdOf({ kind: 'change', slug: change.slug, item: change.item }), head: change.head }))
+/**
+ * Which pull requests get an AI review by themselves (spec 053): the user's own, those waiting for the user's review,
+ * both, or none. Any other is reviewed once the user asks ("Start AI review", spec 032).
+ */
+export type PullsByThemselves = 'mine' | 'waiting' | 'both' | 'none'
+
+/**
+ * What the background prepares: every finished change at its commit, then the open pull requests `pulls` names, as
+ * GitHub last listed them, each watched by when it last changed there. A draft is not ready for a review, a pull request
+ * a finished change opened is that change's review, and made-up data is never reviewed.
+ */
+export function toPrepare(work: WorkState | null, github?: GitHubState, { pulls = 'none' }: { pulls?: PullsByThemselves } = {}): Watched[] {
+  const finished = finishedIn(work)
+  const changes = finished.map((change) => ({ id: reviewIdOf({ kind: 'change', slug: change.slug, item: change.item }), head: change.head }))
+  if (pulls === 'none' || !github || github.sample) return changes
+  const theirs = new Set(finished.flatMap((change) => (change.pr ? [change.pr] : [])))
+  const listed = [...(pulls === 'waiting' ? [] : github.pulls), ...(pulls === 'mine' ? [] : github.reviews)]
+  const watched = new Map<string, Watched>()
+  for (const pull of listed) {
+    const target = targetOfReviewId(pull.url)
+    if (pull.draft || theirs.has(pull.url) || target?.kind !== 'pull') continue
+    const id = reviewIdOf(target)
+    if (!watched.has(id)) watched.set(id, { id, updatedAt: pull.updatedAt })
+  }
+  return [...changes, ...watched.values()]
 }
 
 type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'review.codeHosts' | 'review.people' | 'review.remove' | 'review.stop' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'

@@ -387,6 +387,8 @@ export class Reviews {
   private readonly opened = new Map<string, Prepared>()
   /** The version of each watched review last looked at, so the background looks at each version once. */
   private readonly watched = new Map<string, string>()
+  /** The finished changes the background was last handed: those hobkin lists on Work. */
+  private finished = new Set<string>()
   private readonly controller = new AbortController()
   private working = false
   /** When each review last asked where its change is now. */
@@ -602,8 +604,7 @@ export class Reviews {
     const known = this.stored(id)
     // A finished change's card names its commit, and can be a commit behind after an agent reworked the change. What
     // this host looked up, in git or on the code host, stands until the card names another commit than it did then.
-    const card = this.options.head?.(target) ?? null
-    const head = (known.head != null && card === (this.cardAtLook.get(id) ?? null) ? known.head : card) ?? known.head
+    const head = this.headOf(id, this.options.head?.(target) ?? null)
     const at = head ?? this.opened.get(id)?.review.change.head ?? null
     const assessment = this.assessmentOf(id, target, at)
     const landing = this.landingOf(target)
@@ -611,6 +612,27 @@ export class Reviews {
     const stale = known.state === 'ready' && head != null && !this.options.store.has(target, head) && landing?.state !== 'refreshing'
     const mergeAsked = this.mergeAskedOf(target, landing)
     return { ...known, head, stale, ...(assessment ? { assessment } : {}), ...(landing ? { landing } : {}), ...(mergeAsked ? { mergeAsked } : {}) }
+  }
+
+  /** The commit a review's change is at: what this host last looked up, until `card` names another commit than it did then. */
+  private headOf(id: string, card: string | null): string | null {
+    const looked = this.statuses.get(id)?.head ?? null
+    return (looked != null && card === (this.cardAtLook.get(id) ?? null) ? looked : card) ?? looked
+  }
+
+  /**
+   * Whether the background will start this finished change's review when its turn comes: hobkin lists it as finished,
+   * nothing is under way for it, the background has not looked at it at this commit yet, and nothing ran there, or what
+   * ran was cut short. A review the user stopped or removed at this commit is looked at already, so it does not wait.
+   */
+  private waitsItsTurn(id: string, target: ReviewTarget, status: ReviewStatus): boolean {
+    if (target.kind !== 'change' || !this.finished.has(id) || this.preparing(id) || status.phase || status.landing) return false
+    const { head } = status
+    if (this.watched.get(id) === `${head ?? ''}@`) return false
+    if (!head || !this.options.store.has(target, head)) return true
+    const { assessments } = this.options
+    if (!assessments || !this.reviewsChange(target)) return false
+    return assessments.status(target, head).state === 'idle' || assessments.cutShort(target, head)
   }
 
   /**
@@ -670,7 +692,8 @@ export class Reviews {
    */
   list(): ReviewList {
     const stored = new Map(this.options.store.list().map((entry) => [reviewIdOf(entry.target), entry]))
-    const items = [...new Set([...this.statuses.keys(), ...stored.keys()])].flatMap((id): { item: ReviewListItem; at: number }[] => {
+    // A finished change with nothing prepared yet has no status and nothing in the home: it is listed while it waits its turn.
+    const items = [...new Set([...this.statuses.keys(), ...stored.keys(), ...this.finished])].flatMap((id): { item: ReviewListItem; at: number }[] => {
       const target = targetOfReviewId(id)
       if (!target) return []
       const status = this.status(id)
@@ -684,6 +707,9 @@ export class Reviews {
         (time): time is number => time != null && Number.isFinite(time),
       )
       const at = times.length > 0 ? Math.max(...times) : (kept?.at ?? 0)
+      const waiting = this.waitsItsTurn(id, target, status)
+      // Nothing ran, nothing waits: a finished change the background will not prepare at this commit is not listed for it.
+      if (!kept && !this.statuses.has(id) && !waiting) return []
       const item: ReviewListItem = {
         id,
         kind: target.kind,
@@ -697,6 +723,7 @@ export class Reviews {
         ...(known ? { assessment: forList(known) } : {}),
         ...(status.mergeAsked ? { mergeAsked: status.mergeAsked } : {}),
         ...(status.owner ? { owner: status.owner } : {}),
+        ...(waiting ? { waiting: true as const } : {}),
         updatedAt: new Date(at).toISOString(),
       }
       return [{ item, at }]
@@ -732,7 +759,14 @@ export class Reviews {
       const head = await (target.kind === 'change' ? this.options.sources.change : this.options.sources.pull).head(target)
       if (!head) return
       this.cardAtLook.set(id, this.options.head?.(target) ?? null)
-      if (head !== this.stored(id).head) this.set(id, { head }, at)
+      const known = this.stored(id)
+      if (head === known.head) return
+      // A commit learned for the first time is no change to the review, so the time its row shows stays. One that moved is.
+      if (known.head != null) this.set(id, { head }, at)
+      else {
+        this.statuses.set(id, { ...known, head })
+        this.options.onChange?.()
+      }
     } catch (error) {
       this.options.log?.(`Review ${id} could not look up its commit: ${messageOf(error)}`)
     }
@@ -1708,13 +1742,14 @@ export class Reviews {
   }
 
   /**
-   * Prepares in the background what will be reviewed: finished changes and pull requests waiting for the user. Each
-   * version of one is looked at once: a change at a commit with no review yet is prepared, and a pull request that
-   * changed on GitHub since its review is looked at again. No more than `limit` wait or run at a time, so the rest
-   * are looked at as those finish. A failure is not tried again until the change moves.
+   * Prepares in the background what will be reviewed: finished changes, and the pull requests the user's setting names.
+   * Each version of one is looked at once: a change at a commit with no review yet is prepared, a change whose AI review
+   * was cut short is started again, and a pull request that changed on GitHub since its review is looked at again. A
+   * finished change is at the commit its branch is at, asked of git at most once a minute, even while its card names an
+   * older one. No more than `limit` wait or run at a time, so the rest are looked at as those finish. A failure is not
+   * tried again until the change moves.
    */
   watch(wanted: readonly Watched[], limit = 3): void {
-    const { store } = this.options
     // The host calls this as it publishes its state: the moment to see which reviewed pull requests have closed, and
     // to stop what waits or runs for a change that merged since it was queued.
     void this.sweepPulls().catch((error: unknown) => this.options.log?.(`Reviews: asking GitHub which pull requests closed failed: ${messageOf(error)}`))
@@ -1724,27 +1759,55 @@ export class Reviews {
       this.options.log?.(`Reviews: stopping the reviews of merged changes failed: ${messageOf(error)}`)
     }
     this.watchRisk(wanted)
-    for (const { id, head = null, updatedAt = null } of wanted) {
+    this.finished = new Set(wanted.flatMap(({ id }) => (id.startsWith('change:') ? [id] : [])))
+    this.followBranches(wanted, limit)
+    for (const entry of wanted) {
       if (this.queue.length + this.running.size >= limit) return
-      const version = `${head ?? ''}@${updatedAt ?? ''}`
+      this.watchOne(entry)
+    }
+  }
+
+  /**
+   * Asks git where each finished change's branch is, at most once a minute for each, and looks at the change again as
+   * soon as git answers, so a branch an agent moved is reviewed at its new commit while its card names the older one.
+   */
+  private followBranches(wanted: readonly Watched[], limit: number) {
+    const now = this.now()
+    for (const entry of wanted) {
+      if (!entry.id.startsWith('change:')) continue
+      const last = this.lookedAt.get(entry.id)
+      if (last != null && now - last < LOOK_AGAIN_MS) continue
+      void this.lookAgain(entry.id, () => now)
+        .then(() => {
+          if (this.queue.length + this.running.size < limit) this.watchOne(entry)
+        })
+        .catch((error: unknown) => this.options.log?.(`Review ${entry.id}: looking up its branch failed: ${messageOf(error)}`))
+    }
+  }
+
+  /** The background's look at one thing to prepare, at the version it is at now. Never throws: the host publishes around it. */
+  private watchOne({ id, head: card = null, updatedAt = null }: Watched) {
+    const { store, assessments } = this.options
+    try {
       const target = targetOfReviewId(id)
-      if (!target || this.watched.get(id) === version || this.statuses.get(id)?.phase) continue
+      if (!target) return
+      const head = target.kind === 'change' ? this.headOf(id, card) : card
+      const version = `${head ?? ''}@${updatedAt ?? ''}`
+      if (this.watched.get(id) === version || this.statuses.get(id)?.phase) return
       // A change being brought up to date or merged on the user's word is not reviewed again for its new commit, and a
       // pull request closed on its host is not reviewed at all.
-      if (this.landingOf(target) || this.closedOn(target)) continue
+      if (this.landingOf(target) || this.closedOn(target)) return
       this.watched.set(id, version)
-      // The host calls this as it publishes its state. Nothing here may stop that.
-      try {
-        const newest = store.newest(target)
-        const moved = head ? !store.has(target, head) : updatedAt ? Date.parse(updatedAt) > (newest?.at ?? 0) : false
-        if (!newest || moved) this.prepare(id)
-        else if (target.kind === 'change' && head && this.options.assessments?.status(target, head).state === 'idle') {
-          const stored = store.read(target, head)
-          if (stored) this.assess(target, stored.review)
-        }
-      } catch (error) {
-        this.options.log?.(`Review ${id} was not prepared in the background: ${messageOf(error)}`)
+      const newest = store.newest(target)
+      const moved = head ? !store.has(target, head) : updatedAt ? Date.parse(updatedAt) > (newest?.at ?? 0) : false
+      if (!newest || moved) this.prepare(id)
+      else if (target.kind === 'change' && head && assessments && (assessments.status(target, head).state === 'idle' || assessments.cutShort(target, head))) {
+        // Never started at this commit, or cut short by a quit or a crash: it starts, once.
+        const stored = store.read(target, head)
+        if (stored) this.assess(target, stored.review)
       }
+    } catch (error) {
+      this.options.log?.(`Review ${id} was not prepared in the background: ${messageOf(error)}`)
     }
   }
 
