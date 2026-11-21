@@ -10,6 +10,7 @@
  * otherwise the review.
  */
 import type { Verdict } from '#shared/review/verdict.ts'
+import { isFoldGroup } from './graph/focus.ts'
 import { nodeAlongWire, nodeToward, type Direction } from './graph/navigate.ts'
 import { modeOfKey } from './story/mode.ts'
 import type { Session } from './state/session.ts'
@@ -140,9 +141,13 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
       return session.goTo(0), true
     case 'End':
       return session.goTo(session.view.story.length - 1), true
-    // Enter opens the code of the focus, and Enter again closes it, putting the review back as it was.
-    case 'Enter':
+    // Enter opens the code of the focus, and Enter again closes it, putting the review back as it was. On a group card
+    // of a large change, it opens the group in place, and closes it again.
+    case 'Enter': {
+      const only = session.focus.length === 1 ? session.focus[0]! : null
+      if (session.code == null && only != null && isFoldGroup(only)) return session.toggleGroup(only), true
       return session.toggleCode(), true
+    }
     // G for the whole graph: 0 now goes to step 10.
     case 'g':
     case 'G':

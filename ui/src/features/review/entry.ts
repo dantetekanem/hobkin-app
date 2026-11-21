@@ -18,16 +18,21 @@ interface EscapableSession {
   openWire(id: string | null): void
   selectLines(selection: null): void
   closeCode(): void
+  /** Closes the group of a large change opened last. False when none is open. */
+  closeGroup?(): boolean
 }
 
-/** Escape closes the innermost thing first: the note editor, the finder, an open wire, selected lines, then the code. Graph focus never traps the screen's exit. */
+/**
+ * Escape closes the innermost thing first: the note editor, the finder, an open wire, selected lines, the code, then the
+ * group of a large change opened last. Graph focus never traps the screen's exit.
+ */
 export function escapeReview(session: EscapableSession, close: () => void): void {
   if (session.editor) session.closeEditor()
   else if (session.finder) session.closeFinder()
   else if (session.wire) session.openWire(null)
   else if (session.selection) session.selectLines(null)
   else if (session.code != null) session.closeCode()
-  else close()
+  else if (!session.closeGroup?.()) close()
 }
 
 /**

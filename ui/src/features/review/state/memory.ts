@@ -10,6 +10,7 @@ import { createJSONStorage, persist, type StateStorage } from 'zustand/middlewar
 import type { Review, ReviewEdge, ReviewNode } from '#shared/review/types.ts'
 import type { ReviewNotes } from '#shared/review/status.ts'
 import { arrange, isTestGroup, type Arranged, type ViewStep } from '../graph/arrange.ts'
+import { foldArranged, hasAttention, NO_FOCUS, planFocus, type FocusState, type Folded } from '../graph/focus.ts'
 import { foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 import { readMode, type ReviewMode } from '../story/mode.ts'
 
@@ -275,9 +276,10 @@ export interface ViewEdge extends ReviewEdge {
 
 /**
  * The review as the canvas draws it (`graph/arrange.ts`): tests folded into cards, and the graph laid out from them.
- * Each review is arranged once, from all its wires, so removing a proposed wire never moves a node.
+ * Each review is arranged once, from all its wires, so removing a proposed wire never moves a node. A review whose nodes
+ * say what they ask of the reviewer is drawn in Focus (`graph/focus.ts`): its safe nodes fold into group cards.
  */
-export interface ReviewView extends Pick<Arranged, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'stepOf'> {
+export interface ReviewView extends Pick<Folded, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'stepOf' | 'plan' | 'foldOf'> {
   nodes: ReviewNode[]
   edges: ViewEdge[]
   /** Proposed wires the reviewer removed. They are not drawn, and they can be brought back. */
@@ -293,9 +295,29 @@ function arrangedOf(review: Review): Arranged {
   return shape
 }
 
+/** The review folded as Focus has it open, kept for the few ways it was open lately: each is worked out once. */
+const folds = new WeakMap<Review, Map<string, Folded>>()
+const KEPT_FOLDS = 16
+function foldedOf(review: Review, focus: FocusState): Folded {
+  const shape = arrangedOf(review)
+  // A review that says nothing of attention folds nothing, however it is asked.
+  const state = hasAttention(review.nodes) ? focus : NO_FOCUS
+  const key = `${state.opened.join(' ')}|${state.pinned.join(' ')}`
+  let kept = folds.get(review)
+  if (!kept) folds.set(review, (kept = new Map()))
+  let folded = kept.get(key)
+  if (!folded) {
+    const plan = planFocus({ nodes: shape.nodes, groups: shape.groups, nodeOf: new Map(review.nodes.map((node) => [node.id, node])) }, state)
+    folded = foldArranged(shape, plan)
+    if (kept.size >= KEPT_FOLDS) kept.delete(kept.keys().next().value!)
+    kept.set(key, folded)
+  }
+  return folded
+}
+
 /** The review as the reviewer left it: moved nodes in their new places, removed wires gone, confirmed wires solid. */
-export function applyMemory(review: Review, memory: ReviewMemory): ReviewView {
-  const { nodes, edges, story, ...shape } = arrangedOf(review)
+export function applyMemory(review: Review, memory: ReviewMemory, focus: FocusState = NO_FOCUS): ReviewView {
+  const { nodes, edges, story, ...shape } = foldedOf(review, focus)
   const removed = review.edges.filter((edge) => edge.certainty === 'model' && memory.wires[edge.id] === 'removed')
   const gone = new Set(removed.map((edge) => edge.id))
   const drawn = edges.filter((edge) => edge.members.some((id) => !gone.has(id)))

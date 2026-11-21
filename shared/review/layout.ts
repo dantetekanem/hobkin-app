@@ -352,6 +352,51 @@ export function layoutRequest(nodes: readonly WayNode[], edges: readonly LayoutE
   return positions
 }
 
+/** Room between two columns of an open block: its nodes are not wired to each other, so they stand closer. */
+export const BLOCK_GAP = 48
+/** An open block is at least this many rows tall before it takes a second column. */
+const BLOCK_ROWS = 6
+
+/** A node that opens into several, in place: it stays where it stands, at the block's top left, and they follow it. */
+export interface Block {
+  at: string
+  /** What it opens to, in reading order: down each column, then on to the next column to the right. */
+  ids: readonly string[]
+}
+
+/**
+ * Opens blocks in place (spec 053, a group of a large change opened). Each block starts where its node stands and fills
+ * its columns top to bottom, then left to right. What stands beside it on its right moves right by the block's extra
+ * width, and what stands below it moves down by its extra height, so nothing overlaps and the graph still reads left to
+ * right. Every node is as wide as every other (`NODE_SIZE`), which is what keeps the moves apart.
+ */
+export function openBlocks(positions: Positions, kindOf: (id: string) => NodeKind, blocks: readonly Block[]): Positions {
+  const placed: Positions = Object.fromEntries(Object.entries(positions).map(([id, point]) => [id, { ...point }]))
+  const width = Math.max(...Object.values(NODE_SIZE).map((size) => size.width))
+  const height = Math.max(...Object.values(NODE_SIZE).map((size) => size.height))
+  for (const { at, ids } of blocks) {
+    const origin = placed[at]
+    if (!origin || ids.length === 0) continue
+    const count = ids.length + 1
+    const rows = Math.min(count, Math.max(BLOCK_ROWS, Math.ceil(Math.sqrt(count))))
+    const columns = Math.ceil(count / rows)
+    const own = NODE_SIZE[kindOf(at)].height
+    const wider = (columns - 1) * (width + BLOCK_GAP)
+    const taller = rows * height + (rows - 1) * ROW_GAP - own
+    const { x, y } = origin
+    for (const [id, point] of Object.entries(placed)) {
+      if (id === at) continue
+      if (point.y >= y + own) point.y += taller
+      else if (point.x > x) point.x += wider
+    }
+    ids.forEach((id, index) => {
+      const cell = index + 1
+      placed[id] = { x: x + Math.floor(cell / rows) * (width + BLOCK_GAP), y: y + (cell % rows) * (height + ROW_GAP) }
+    })
+  }
+  return placed
+}
+
 /** The box around a set of nodes. */
 export function boundsOf(rects: readonly Rect[]): Rect {
   if (rects.length === 0) return { x: 0, y: 0, width: 0, height: 0 }

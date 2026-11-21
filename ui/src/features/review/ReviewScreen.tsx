@@ -372,7 +372,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close, verdict
     <StageProvider value={stage}>
       <MotionConfig reducedMotion={reduced ? 'always' : 'never'}>
         <EntranceContext.Provider value={entrance}>
-          <div ref={root} tabIndex={-1} className="rv" data-reduced={reduced} data-treatment={treatment} data-far="false" data-rv-root>
+          <div ref={root} tabIndex={-1} className="rv" data-reduced={reduced} data-treatment={treatment} data-far="false" data-entrance={entrance?.quiet ? 'quiet' : undefined} data-rv-root>
             <div ref={graph} className="absolute inset-0">
               <Graph />
             </div>

@@ -149,6 +149,43 @@
     5px 5px 0 -1px var(--hb-tone-2),
     5px 5px 0 0 color-mix(in oklab, var(--hb-bad) 60%, var(--hb-border));
 }
+/*
+ * A group card of a large change (spec 053, GroupCard.tsx): the same stacked edge as a card of tests. It counts its files
+ * and says why it is safe. Open, its edge is drawn in its kind's color, so it reads as the head of what it opened to.
+ */
+.rv-fold-count {
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+  color: var(--hb-text);
+}
+.rv .rv-node.rv-fold[data-open='true'] .rv-card {
+  box-shadow:
+    0 0 0 1.5px color-mix(in oklab, var(--kind) 80%, var(--hb-border)),
+    5px 5px 0 -1px var(--hb-tone-2),
+    5px 5px 0 0 color-mix(in oklab, var(--kind) 50%, var(--hb-border));
+}
+.rv[data-far='true'] .rv-fold-count {
+  font-size: 16px;
+  line-height: 22px;
+}
+/* A large graph's entrance draws no wire: the wires fade in once, together, after the first columns. */
+.rv[data-entrance='quiet'] .react-flow__edges {
+  animation: rv-wires-in 400ms var(--ease-out) 500ms both;
+}
+@keyframes rv-wires-in {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rv[data-entrance='quiet'] .react-flow__edges {
+    animation: none;
+  }
+}
+
 .rv-counts {
   display: flex;
   flex-wrap: wrap;

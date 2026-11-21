@@ -98,7 +98,7 @@ function NodeCardComponent({ id }: NodeProps) {
         ref={inner}
         className="size-full"
         // The entrance: each node rises into place, column by column. Skipped when the review has been seen, or motion is reduced.
-        initial={entrance ? { opacity: 0, transform: 'translateY(34px) scale(0.9)' } : false}
+        initial={entrance ? { opacity: 0, transform: entrance.quiet ? 'translateY(0px) scale(1)' : 'translateY(34px) scale(0.9)' } : false}
         animate={{ opacity: 1, transform: 'translateY(0px) scale(1)' }}
         transition={entrance ? { transform: { ...spring.rise, delay: entrance.delay }, opacity: { ...tween.enter, delay: entrance.delay } } : { duration: 0 }}
       >

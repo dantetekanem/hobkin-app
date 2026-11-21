@@ -7,11 +7,14 @@ import { NODE_SIZE } from '#shared/review/layout.ts'
 import { useTheme } from '@/app/theme.ts'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import { pulsePoint } from '../story/travel.ts'
+import { QUIET_ENTRANCE_ABOVE } from './entrance-plan.ts'
+import { isFoldGroup } from './focus.ts'
+import { GroupCard } from './GroupCard.tsx'
 import { NodeCard } from './NodeCard.tsx'
 import { TestList } from './TestList.tsx'
 import { Wire } from './Wire.tsx'
 
-const nodeTypes = { card: NodeCard }
+const nodeTypes = { card: NodeCard, fold: GroupCard }
 const edgeTypes = { wire: Wire }
 // The user asked for the badge in the corner to go. React Flow is MIT, and its guide on attribution allows hiding it.
 const PRO_OPTIONS = { hideAttribution: true }
@@ -40,11 +43,14 @@ export function Graph() {
       // In reading order, column by column, so the order on screen is the order in the document.
       [...viewNodes]
         .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y)
-        .map((node) => ({ id: node.id, type: 'card', position: node.position, data: {}, ...NODE_SIZE[node.kind], selectable: false, focusable: false })),
+        // A group card of a large change stands where Focus lays it out, at the head of its members: it is not dragged.
+        .map((node) => ({ id: node.id, type: isFoldGroup(node.id) ? 'fold' : 'card', position: node.position, data: {}, ...NODE_SIZE[node.kind], selectable: false, focusable: false, ...(isFoldGroup(node.id) ? { draggable: false } : {}) })),
     [viewNodes],
   )
   const edges = useMemo<Edge[]>(() => viewEdges.map((edge) => ({ id: edge.id, type: 'wire', source: edge.from, target: edge.to, selectable: false, focusable: false })), [viewEdges])
   const [nodes, setNodes, onNodesChange] = useNodesState(placed)
+  // A large graph mounts only what is in view (spec 053), as the proofs canvas does. A small one is drawn whole, as it was.
+  const large = viewNodes.length > QUIET_ENTRANCE_ABOVE
   useEffect(() => setNodes(placed), [placed, setNodes])
 
   const onNodeClick: NodeMouseHandler = (_event, node) => store.getState().focusOn(node.id)
@@ -102,6 +108,7 @@ export function Graph() {
       multiSelectionKeyCode={null}
       panActivationKeyCode={null}
       nodeDragThreshold={4}
+      onlyRenderVisibleElements={large}
       colorMode={theme}
       proOptions={PRO_OPTIONS}
       aria-label="The change as a graph"

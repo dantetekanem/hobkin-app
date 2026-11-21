@@ -51,7 +51,8 @@ function FinderBox() {
     if (!hit) return
     const root = field.current?.closest<HTMLElement>('[data-rv-root]')
     store.getState().closeFinder()
-    store.getState().focusOn(hit.id)
+    // A node folded into a group of a large change opens the group.
+    store.getState().reach(hit.id)
     // A folded test is shown in the list of its card.
     if (view.groupOf[hit.id]) store.getState().openTests(view.groupOf[hit.id]!)
     root?.focus({ preventScroll: true })

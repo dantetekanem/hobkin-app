@@ -1,20 +1,24 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import type { Review } from '#shared/review/types.ts'
+import { nodeRect } from '#shared/review/layout.ts'
+import type { Review, ReviewNode } from '#shared/review/types.ts'
 import { arrange } from '../src/features/review/graph/arrange.ts'
 import { FOCUS_BUDGET, foldArranged, planFocus, type FocusState } from '../src/features/review/graph/focus.ts'
 import { largeReview } from '../src/features/review/sample/large.ts'
+import { escapeReview } from '../src/features/review/entry.ts'
+import { pressKey } from '../src/features/review/keys.ts'
+import { createReviewMemory } from '../src/features/review/state/memory.ts'
+import { createSession } from '../src/features/review/state/session.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const large = largeReview().review
-const nowhere = () => ({})
 
 function focusOn(review: Review, state?: FocusState) {
   const arranged = arrange(review)
   const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
   const plan = planFocus({ nodes: arranged.nodes, groups: arranged.groups, nodeOf }, state)
-  return { arranged, plan, folded: foldArranged(arranged, plan, nowhere) }
+  return { arranged, plan, folded: foldArranged(arranged, plan) }
 }
 /** Where a node of the review is drawn: itself, or the card of tests that holds it. */
 const cardOf = (arranged: ReturnType<typeof arrange>, id: string) => arranged.groupOf[id] ?? id
@@ -114,4 +118,80 @@ test('a folded node is drawn as its group: its wires go to the group card, and a
   for (const id of generated.members) assert.equal(folded.foldOf[id], generated.id)
   assert.ok(folded.hidden.some((node) => node.id === generated.members[0]), 'a folded node is kept for its code and its notes')
   for (const step of folded.story) for (const id of step.focus) assert.ok(folded.nodes.some((node) => node.id === id), `${step.id} focuses ${id}, which is drawn`)
+})
+
+const overlap = (a: ReviewNode, b: ReviewNode) => {
+  const [one, two] = [nodeRect(a.kind, a.position), nodeRect(b.kind, b.position)]
+  return one.x < two.x + two.width && two.x < one.x + one.width && one.y < two.y + two.height && two.y < one.y + one.height
+}
+
+test('an open group opens in place: its members follow its card down and to the right, nothing overlaps, and closing it puts the graph back', () => {
+  const { plan, folded: closed } = focusOn(large)
+  const at = (view: typeof closed, id: string) => view.nodes.find((node) => node.id === id)!.position
+  for (const state of [...plan.order.map((id) => ({ opened: [id], pinned: [] })), { opened: plan.order, pinned: [] }]) {
+    const { folded } = focusOn(large, state)
+    for (let first = 0; first < folded.nodes.length; first += 1) {
+      for (let second = first + 1; second < folded.nodes.length; second += 1) assert.equal(overlap(folded.nodes[first]!, folded.nodes[second]!), false, `${folded.nodes[first]!.id} and ${folded.nodes[second]!.id} with ${state.opened.join(', ')} open`)
+    }
+  }
+  const models = groupNamed(plan, 'Safe code in app/models')
+  const { folded: open } = focusOn(large, { opened: [models.id], pinned: [] })
+  const card = at(open, models.id)
+  assert.deepEqual(card, at(closed, models.id), 'the group card stays where it stood')
+  for (const id of models.members) {
+    const member = at(open, id)
+    assert.ok(member.x >= card.x && member.y >= card.y, `${id} follows its card`)
+  }
+  // Members read down each column, then on to the next.
+  const columns = models.members.map((id) => at(open, id).x)
+  assert.deepEqual(columns, [...columns].sort((a, b) => a - b))
+  assert.deepEqual(focusOn(large).folded.nodes.map((node) => [node.id, node.position]), closed.nodes.map((node) => [node.id, node.position]))
+})
+
+const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, openModelRun: () => {} }
+const press = (session: ReturnType<typeof createSession>, key: string, shift = false) => pressKey(session.getState(), { key, shift, alt: false }, keys)
+
+test('Enter on a group card opens it in place, its members focused with it, and Escape closes it, back on its card', () => {
+  const session = createSession(large, createReviewMemory())
+  const generated = groupNamed(session.getState().view.plan, 'Generated files')
+  session.getState().focusOn(generated.id)
+  assert.deepEqual(session.getState().focus, [generated.id])
+
+  press(session, 'Enter')
+  const open = session.getState()
+  assert.equal(open.code, null, 'a group has no code of its own: Enter opens it')
+  assert.deepEqual(open.view.plan.open, [generated.id])
+  const shown = open.view.plan.shown[generated.id]!
+  assert.ok(shown.length > 0)
+  for (const id of shown) assert.ok(open.view.nodes.some((node) => node.id === id), `${id} is a card`)
+  assert.deepEqual(open.focus, [generated.id, ...shown], 'the group and its members are framed together')
+  assert.ok(open.view.nodes.length <= FOCUS_BUDGET.cards)
+
+  let left = false
+  escapeReview(session.getState(), () => (left = true))
+  const closed = session.getState()
+  assert.equal(left, false, 'Escape closes the group before it closes the review')
+  assert.deepEqual(closed.view.plan.open, [])
+  assert.deepEqual(closed.focus, [generated.id])
+  for (const id of shown) assert.equal(closed.view.nodes.some((node) => node.id === id), false)
+  escapeReview(session.getState(), () => (left = true))
+  assert.equal(left, true, 'with no group open, Escape leaves the review')
+})
+
+test('a node folded into a group is reached: its group opens, it is drawn first in it, and it is focused', () => {
+  const session = createSession(large, createReviewMemory())
+  const generated = groupNamed(session.getState().view.plan, 'Generated files')
+  const last = generated.members.at(-1)!
+  assert.equal(session.getState().view.nodes.some((node) => node.id === last), false)
+  session.getState().reach(last)
+  const reached = session.getState()
+  assert.ok(reached.view.nodes.some((node) => node.id === last))
+  assert.equal(reached.view.plan.shown[generated.id]![0], last)
+  assert.deepEqual(reached.focus, [last])
+  // A node of a card of tests that folded is reached on its card.
+  const tests = groupNamed(reached.view.plan, 'Tests that pass')
+  const card = tests.members.find((id) => reached.view.groups[id])!
+  const test = reached.view.groups[card]!.tests[0]!
+  session.getState().reach(test)
+  assert.deepEqual(session.getState().focus, [card])
 })

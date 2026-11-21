@@ -7,6 +7,7 @@
  * A review whose nodes say nothing about attention (every review an older host prepared) is not folded at all: it
  * draws as it always did. Pure, and the same review in the same state always folds the same way.
  */
+import { layoutRequest, openBlocks, type Positions } from '#shared/review/layout.ts'
 import type { AttentionTier, NodeBucket, ReviewNode } from '#shared/review/types.ts'
 import type { Arranged, ArrangedEdge, TestGroup, ViewStep } from './arrange.ts'
 
@@ -264,11 +265,26 @@ function wireOrder(edges: readonly ArrangedEdge[], plan: FocusPlan, ridden: Read
 }
 
 /**
+ * Where Focus draws its nodes. The graph is laid out as it stands with every group closed, the request's way as always
+ * (`layoutRequest`), from every wire, drawn or not: so opening or closing a group never moves the rest of the graph
+ * about. Each open group then opens in place, its members after its card, and what is beside it and below it makes room.
+ */
+function layoutFolded(arranged: Arranged, nodes: readonly ReviewNode[], plan: FocusPlan): Positions {
+  const opened = new Set(plan.open.flatMap((id) => plan.shown[id]!))
+  const closed = (id: string) => plan.groupOf[id] ?? id
+  const standing = nodes.filter((node) => !opened.has(node.id))
+  const kept = new Set(standing.map((node) => node.id))
+  const wires = arranged.edges.map((edge) => ({ from: closed(edge.from), to: closed(edge.to) })).filter((edge) => edge.from !== edge.to && kept.has(edge.from) && kept.has(edge.to))
+  const kindOf = new Map(nodes.map((node) => [node.id, node.kind]))
+  return openBlocks(layoutRequest(standing, wires), (id) => kindOf.get(id) ?? 'file', plan.open.map((id) => ({ at: id, ids: plan.shown[id]! })))
+}
+
+/**
  * Folds an arranged review as a plan says: the cards and group cards are drawn, a folded node's wires go to its group's
  * card, wires that then join the same two cards become one, and past the budget the least wanted wires are not drawn. A
- * step that focused a folded node focuses its group's card. Positions are laid out by `layout`.
+ * step that focused a folded node focuses its group's card.
  */
-export function foldArranged(arranged: Arranged, plan: FocusPlan, layout: (nodes: readonly ReviewNode[], edges: readonly ArrangedEdge[]) => Record<string, { x: number; y: number }>): Folded {
+export function foldArranged(arranged: Arranged, plan: FocusPlan): Folded {
   if (!plan.active) return { ...arranged, plan, foldOf: {} }
   const drawn = new Set(plan.cards)
   const foldOf: Record<string, string> = {}
@@ -295,9 +311,9 @@ export function foldArranged(arranged: Arranged, plan: FocusPlan, layout: (nodes
   const kept = new Set(wireOrder([...joined.values()], plan, ridden).slice(0, FOCUS_BUDGET.wires).map((edge) => edge.id))
   const edges = [...joined.values()].filter((edge) => kept.has(edge.id))
 
-  const nodeOf = new Map(arranged.nodes.map((node) => [node.id, node]))
-  const nodes = [...plan.cards.filter((id) => !isFoldGroup(id)).map((id) => nodeOf.get(id)!), ...plan.order.map((id) => groupNode(plan.groups[id]!))]
-  const positions = layout(nodes, edges)
+  // In the review's own order, then the groups in the order they are read, so the layout does not hang on what is open.
+  const nodes = [...arranged.nodes.filter((node) => drawn.has(node.id)), ...plan.order.map((id) => groupNode(plan.groups[id]!))]
+  const positions = layoutFolded(arranged, nodes, plan)
   const story: ViewStep[] = arranged.story.map((step) => {
     const { travel, ...rest } = step
     const focus = [...new Set(step.focus.map(end))]

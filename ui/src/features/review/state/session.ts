@@ -5,6 +5,7 @@
  */
 import { createStore, type StoreApi } from 'zustand/vanilla'
 import type { Review, ReviewNode } from '#shared/review/types.ts'
+import { FOCUS_BUDGET, isFoldGroup, NO_FOCUS, type FocusState } from '../graph/focus.ts'
 import { focusLevels, hoverLevels, type HoverLevel, type Levels, type NodeLevel, type WireLevel } from '../graph/levels.ts'
 import { countNotes, noteTarget, type Note, type NoteCounts, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 import { commitDigits, NO_DIGITS, pressDigit } from '../story/digits.ts'
@@ -72,6 +73,8 @@ export interface Session {
   opened: string | null
   /** Story, where the steps lead, or Free Roam, where nothing does (`story/mode.ts`). The window remembers the last chosen. */
   mode: ReviewMode
+  /** Which groups of a large change are open, and the nodes reached in them (`graph/focus.ts`). */
+  fold: FocusState
 
   step(delta: number): void
   goTo(index: number): void
@@ -133,6 +136,20 @@ export interface Session {
   /** Lists the tests of a card under it, or closes the list. A card that is not one closes it. */
   openTests(groupId: string | null): void
   /**
+   * Opens a group of a large change in place: its members become cards while the budget lasts, and they and the group
+   * card are focused, so the camera frames them. False for a group the review does not have.
+   */
+  openGroup(groupId: string): boolean
+  /** Closes an open group, the last opened when none is named, and focuses its card. False when none was open. */
+  closeGroup(groupId?: string): boolean
+  /** Enter on a group card: opens it, or closes it when it is open. */
+  toggleGroup(groupId: string): boolean
+  /**
+   * Goes to any node of the review, drawn or folded: a node folded into a group opens that group, drawn first in it, and
+   * is focused. The outline and the next-unseen key go this way.
+   */
+  reach(nodeId: string): void
+  /**
    * Chooses Story or Free Roam, and starts it from the beginning, whichever was on: Story at its first step, Free Roam
    * with the whole graph and nothing in focus. The code closes. The choice is remembered for the next review.
    */
@@ -173,13 +190,32 @@ function shapeOf(view: ReviewView): Pick<Session, 'nodeOf' | 'edgeOf' | 'pins'> 
   return { nodeOf, edgeOf: new Map(view.edges.map((edge) => [edge.id, edge])), pins }
 }
 
-/** Where a node is drawn: a folded test on its card, any other node as itself. */
-export const drawnAs = (view: Pick<ReviewView, 'groupOf'>, nodeId: string): string => view.groupOf[nodeId] ?? nodeId
+/** Where a node is drawn: a folded test on its card, a node folded into a closed group on the group's card, any other as itself. */
+export const drawnAs = (view: Pick<ReviewView, 'groupOf'> & Partial<Pick<ReviewView, 'foldOf'>>, nodeId: string): string => {
+  const card = view.groupOf[nodeId] ?? nodeId
+  return view.foldOf?.[card] ?? card
+}
+
+/** The same place, among what a view draws: a detour or a group on a node that folded away is on its group's card. */
+function onDrawn(view: ReviewView, story: StoryState): StoryState {
+  const drawn = new Set(view.nodes.map((node) => node.id))
+  const as = (id: string) => (drawn.has(id) ? id : drawnAs(view, id))
+  const detour = story.detour == null ? null : as(story.detour)
+  const group = story.group == null ? null : [...new Set(story.group.map(as))].filter((id) => drawn.has(id))
+  return {
+    ...story,
+    detour: detour != null && drawn.has(detour) ? detour : null,
+    group: group && group.length > 1 ? group : null,
+    ...(group?.length === 1 && story.detour == null ? { detour: group[0]! } : {}),
+  }
+}
 
 export function createSession(opened: Review, memory: StoreApi<MemoryState>): SessionStore {
   /** The review on screen: the one opened, then each newer copy of it taken in (`adopt`). */
   let review = opened
-  const viewNow = () => applyMemory(review, memory.getState().of(review))
+  /** Which of its groups are open. Kept here too, so the view can be worked out before the store holds it. */
+  let fold: FocusState = NO_FOCUS
+  const viewNow = () => applyMemory(review, memory.getState().of(review), fold)
   const firstView = viewNow()
   // A review opens in the mode chosen last, at that mode's start.
   const firstMode = memory.getState().reviewMode
@@ -236,6 +272,23 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
       if (entry.whole) moved = { state: leaveFocus(graph(), moved.state), fresh: moved.fresh }
       return moved
     }
+    /** Folds the review again as `next` says. The reviewer stays where they are, on what is drawn now. */
+    const refold = (next: FocusState) => {
+      fold = next
+      const before = get()
+      const view = viewNow()
+      const shaped = derive(view, onDrawn(view, before.story))
+      const drawn = (id: string | null) => (id != null && shaped.nodeOf.has(id) ? drawnAs(view, id) : null)
+      set({
+        fold,
+        ...shaped,
+        hovered: null,
+        hover: hoverLevels(view, null),
+        wire: before.wire != null && shaped.edgeOf.has(before.wire) ? before.wire : null,
+        pointed: drawn(before.pointed),
+        opened: before.opened != null && view.groups[before.opened] && view.nodes.some((node) => node.id === before.opened) ? before.opened : null,
+      })
+    }
 
     return {
       review,
@@ -259,6 +312,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
       notesShown: null,
       opened: null,
       mode: firstMode,
+      fold,
 
       step: (delta) => {
         const { story } = get()
@@ -472,6 +526,31 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         const opened = groupId != null && get().view.groups[groupId] ? groupId : null
         if (opened !== get().opened) set({ opened })
       },
+      openGroup: (groupId) => {
+        if (!get().view.plan.groups[groupId]) return false
+        refold({ opened: [...fold.opened.filter((id) => id !== groupId), groupId], pinned: fold.pinned })
+        apply(focusGroup(graph(), get().story, [groupId, ...(get().view.plan.shown[groupId] ?? [])]), 'jump')
+        return true
+      },
+      closeGroup: (groupId) => {
+        const id = groupId ?? fold.opened.at(-1)
+        if (id == null || !fold.opened.includes(id)) return false
+        const members = new Set(get().view.plan.groups[id]?.members ?? [])
+        refold({ opened: fold.opened.filter((each) => each !== id), pinned: fold.pinned.filter((pin) => !members.has(pin)) })
+        if (!(get().focus.length === 1 && get().focus[0] === id)) apply(focusNode(graph(), get().story, id, { alone: get().mode === 'roam' }), 'detour')
+        return true
+      },
+      toggleGroup: (groupId) => (fold.opened.includes(groupId) ? get().closeGroup(groupId) : get().openGroup(groupId)),
+      reach: (nodeId) => {
+        const { view } = get()
+        const card = view.groupOf[nodeId] ?? nodeId
+        const group = view.foldOf[card]
+        if (group && isFoldGroup(group)) {
+          const pinned = [card, ...fold.pinned.filter((pin) => pin !== card)].slice(0, FOCUS_BUDGET.cards)
+          refold({ opened: [...fold.opened.filter((id) => id !== group), group], pinned })
+        }
+        get().focusOn(nodeId)
+      },
       setMode: (mode) => {
         memory.getState().setReviewMode(mode)
         beforeCode = null
@@ -507,6 +586,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         if (code == null) beforeCode = null
         set({
           review,
+          fold,
           ...shaped,
           move: { key: before.move.key + 1, fresh: { nodes: [], wires: [] }, travel: null, kind: story.whole ? 'whole' : story.detour != null ? 'detour' : 'jump' },
           // The places to go back to are steps by their place in the story, so they go with a story that changed.

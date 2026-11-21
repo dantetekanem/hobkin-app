@@ -69,6 +69,7 @@ export function DevTools({ onReplay }: { onReplay: () => void }) {
           </Row>
           <div className="flex flex-wrap gap-2 border-t border-border pt-3">
             <DevButton onClick={() => openReviewFor(reviewId === 'stress' ? 'sample' : 'stress')}>{reviewId === 'stress' ? 'Open the sample' : 'Open the 80 node review'}</DevButton>
+            <DevButton onClick={() => openReviewFor(reviewId === 'large' ? 'sample' : 'large')}>{reviewId === 'large' ? 'Open the sample' : 'Open the 200 file review'}</DevButton>
             <DevButton onClick={onReplay}>Replay the entrance</DevButton>
             <DevButton onClick={() => void window.__reviewDev?.panTest()}>Pan for 3 seconds</DevButton>
           </div>
