@@ -661,7 +661,7 @@ export class Reviews {
   /**
    * Every review the host knows, newest first: what it prepared or is preparing since it started, and every review in
    * the home. Each says what it is about, how its preparation stands, and how its change review does, without its steps
-   * or its log.
+   * or its log. One thing is listed once: a pull request a listed finished change opened is that change's row.
    */
   list(): ReviewList {
     const stored = new Map(this.options.store.list().map((entry) => [reviewIdOf(entry.target), entry]))
@@ -696,7 +696,21 @@ export class Reviews {
       }
       return [{ item, at }]
     })
-    return { reviews: items.sort((a, b) => b.at - a.at || a.item.id.localeCompare(b.item.id)).map(({ item }) => item) }
+    const theirs = this.pullsOfChanges(items.map(({ item }) => item.id))
+    const once = items.filter(({ item }) => !theirs.has(item.id))
+    return { reviews: once.sort((a, b) => b.at - a.at || a.item.id.localeCompare(b.item.id)).map(({ item }) => item) }
+  }
+
+  /** The review names of the pull requests these finished changes opened, as their cards give the address. */
+  private pullsOfChanges(ids: readonly string[]): Set<string> {
+    const pulls = new Set<string>()
+    for (const id of ids) {
+      const target = targetOfReviewId(id)
+      if (target?.kind !== 'change') continue
+      const pull = targetOfReviewId(this.options.card(target.slug, target.item)?.pr ?? '')
+      if (pull?.kind === 'pull') pulls.add(reviewIdOf(pull))
+    }
+    return pulls
   }
 
   /**
