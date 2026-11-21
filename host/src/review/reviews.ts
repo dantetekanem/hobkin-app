@@ -391,6 +391,8 @@ export class Reviews {
   private working = false
   /** When each review last asked where its change is now. */
   private readonly lookedAt = new Map<string, number>()
+  /** What each change's card named when this host last looked its commit up. The look stands until the card names another. */
+  private readonly cardAtLook = new Map<string, string | null>()
   /** How many notes hobkin has written, so two in the same millisecond still have their own ids. */
   private written = 0
   /** The reviews someone asked for, by the window or by hobkin, as against what the background prepares by itself. */
@@ -598,7 +600,10 @@ export class Reviews {
   status(id: string): ReviewStatus {
     const target = this.target(id)
     const known = this.stored(id)
-    const head = this.options.head?.(target) ?? known.head
+    // A finished change's card names its commit, and can be a commit behind after an agent reworked the change. What
+    // this host looked up, in git or on the code host, stands until the card names another commit than it did then.
+    const card = this.options.head?.(target) ?? null
+    const head = (known.head != null && card === (this.cardAtLook.get(id) ?? null) ? known.head : card) ?? known.head
     const at = head ?? this.opened.get(id)?.review.change.head ?? null
     const assessment = this.assessmentOf(id, target, at)
     const landing = this.landingOf(target)
@@ -715,7 +720,7 @@ export class Reviews {
 
   /**
    * Asks where the change is now, at most once a minute for each review, so an opened review can say it is outdated.
-   * A pull request is asked of GitHub. Nothing is prepared here: the reviewer chooses when to rebuild.
+   * A pull request is asked of GitHub, a finished change's branch of git. Nothing is prepared here: the reviewer chooses when to rebuild.
    */
   async lookAgain(id: string, now: () => number = this.options.now ?? Date.now): Promise<void> {
     const target = this.target(id)
@@ -725,7 +730,9 @@ export class Reviews {
     this.lookedAt.set(id, at)
     try {
       const head = await (target.kind === 'change' ? this.options.sources.change : this.options.sources.pull).head(target)
-      if (head && head !== this.stored(id).head) this.set(id, { head }, at)
+      if (!head) return
+      this.cardAtLook.set(id, this.options.head?.(target) ?? null)
+      if (head !== this.stored(id).head) this.set(id, { head }, at)
     } catch (error) {
       this.options.log?.(`Review ${id} could not look up its commit: ${messageOf(error)}`)
     }
@@ -798,6 +805,7 @@ export class Reviews {
     if (!head) throw new Error(target.kind === 'change' ? 'This change has no branch to read any more.' : 'This pull request is not open any more.')
     const log = this.runs.get(id)
     if (log) log.head = head
+    this.cardAtLook.set(id, this.options.head?.(target) ?? null)
     // Ready, but for an older commit: it opens while the newer one is prepared.
     this.set(id, { head, stale: this.status(id).state === 'ready' && !store.has(target, head) })
 
@@ -913,8 +921,8 @@ export class Reviews {
   /** The prepared review as the user reads it, with the reviewer's notes. */
   get(id: string): OpenedReview {
     const { review } = this.loaded(id)
-    // Opening a review is when its change is looked up, when the app does not already know where it is.
-    if (!this.options.head?.(this.target(id))) void this.lookAgain(id)
+    // Opening a review is when its change is looked up: a pull request on its host, a finished change's branch in git.
+    void this.lookAgain(id)
     const status = this.status(id)
     const target = this.target(id)
     const { assessments } = this.options
@@ -1014,7 +1022,7 @@ export class Reviews {
     this.options.store.remove(target)
     this.options.assessments?.forget(target)
     // What it is watched at stays, so the background does not build it again until its change moves.
-    for (const kept of [this.statuses, this.opened, this.lookedAt, this.changedAt, this.about, this.runs]) kept.delete(id)
+    for (const kept of [this.statuses, this.opened, this.lookedAt, this.cardAtLook, this.changedAt, this.about, this.runs]) kept.delete(id)
     this.asked.delete(id)
     this.options.onChange?.()
     return { id, removed: true }

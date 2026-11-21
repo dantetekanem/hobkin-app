@@ -98,8 +98,10 @@ export function changeSource({
   return {
     async head(target) {
       const { facts, repo } = where(target)
-      if (facts.head) return facts.head
-      return facts.branch ? git(repo).resolve(facts.branch) : null
+      // Where its branch is now is asked of git. The card can be a commit behind, as right after an agent reworked the
+      // change, and a review built from the card would be of the older code.
+      const tip = facts.branch ? await git(repo).resolve(`refs/heads/${facts.branch}`) : null
+      return tip ?? facts.head
     },
     async read(target, head, watch) {
       const { facts, repo, target: change } = where(target)

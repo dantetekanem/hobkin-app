@@ -3,8 +3,9 @@ import { readFileSync } from 'node:fs'
 import { test, type TestContext } from 'node:test'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
+import type { GitReader } from '../src/review/git.ts'
 import { Reviews } from '../src/review/reviews.ts'
-import type { ReviewSource } from '../src/review/sources.ts'
+import { changeSource, type ReviewSource } from '../src/review/sources.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
 
@@ -53,4 +54,35 @@ test("a pull request's commit is looked up again when its review is opened, at m
   assert.equal(asked(), 1, 'looked up once within the minute')
   await reviews.lookAgain(id, () => (now += 31_000))
   assert.equal(asked(), 2)
+})
+
+test("a finished change is read at the commit its branch is at, even while its card still names an older one", async () => {
+  const CARD = 'a'.repeat(40)
+  const BRANCH = 'hobkin/7d02c9-say-what-hobkin-is-doing'
+  const sourceWith = (tips: Record<string, string>, branch: string | null = BRANCH) =>
+    changeSource({
+      find: () => ({ project: 'hobkin', title: 'Say what hobkin is doing', branch, head: CARD }),
+      repoOf: () => '/repo',
+      baseOf: async () => 'main',
+      git: () => ({ resolve: async (ref: string) => tips[ref] ?? null }) as unknown as GitReader,
+    })
+  const target = targetOfReviewId('change:hobkin:7d02c9')!
+
+  assert.equal(await sourceWith({ [`refs/heads/${BRANCH}`]: NEWER }).head(target), NEWER, 'an agent reworked it since hobkin last published its card')
+  assert.equal(await sourceWith({}).head(target), CARD, 'a branch git no longer has leaves the card’s commit')
+  assert.equal(await sourceWith({}, null).head(target), CARD, 'and so does a change with no branch')
+})
+
+test("once a change's branch was looked up, its review goes by that commit, whatever its card still says", async (t) => {
+  const id = 'change:hobkin:7d02c9'
+  // The card is a commit behind: it still names the one the review was built for.
+  const { reviews, asked } = reviewsAt(t, id, { current: sample.change.head, remote: NEWER })
+  assert.deepEqual([reviews.status(id).stale, reviews.status(id).head], [false, sample.change.head], 'before any look, the card is all there is')
+
+  // Opening the review looks its branch up, as opening a pull request's asks GitHub.
+  reviews.get(id)
+  await new Promise((done) => setImmediate(done))
+  assert.equal(asked(), 1)
+  assert.deepEqual([reviews.status(id).stale, reviews.status(id).head], [true, NEWER], 'the branch moved, so the review says it is outdated')
+  assert.equal(reviews.list().reviews.find((item) => item.id === id)?.head, NEWER)
 })
