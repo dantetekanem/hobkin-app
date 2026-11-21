@@ -8,8 +8,8 @@ import { play } from '@/features/sound/index.ts'
 import { runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
 import { canUseModel } from '@/lib/host/state.ts'
 import { turnStartedAt } from './doing.ts'
-import { shownMood } from './mood.ts'
-import { useNow } from './use-now.ts'
+import { nextMoodChange, shownMood } from './mood.ts'
+import { useWakeAt } from './use-now.ts'
 
 export interface ChatAvatarProps {
   /** The area the eyes follow the pointer in. */
@@ -35,8 +35,9 @@ export function ChatAvatar({ followWithin, typing }: ChatAvatarProps) {
   // With no model to answer there is nothing to react to.
   const signedOut = useHost((state) => state.link === 'open' && (state.models !== null || state.signIn.status !== 'unknown') && !canUseModel(state))
   const asked = useHost((state) => state.question !== null)
-  // A reaction ends by the clock, so the face looks again each second while one is showing or a turn runs.
-  const now = useNow(busy || Boolean(reaction && !reaction.lasting && reaction.until > Date.now()))
+  // A reaction ends by the clock, and a turn becomes long by it, so the face looks again at that moment, and only then.
+  const now = Date.now()
+  useWakeAt(nextMoodChange({ reaction, busy, startedAt }, now))
 
   const shown = shownMood({ reaction, busy, running, typing, asked, waiting, searching, tooling, busyMs: busy && startedAt ? now - startedAt : 0, now })
   // Before anyone has signed in there is nothing to react to: the face just says hello.

@@ -44,3 +44,13 @@ export function shownMood({ reaction, busy, running, typing, asked, waiting, sea
   if (running) return steady('working')
   return steady(waiting ? 'listening' : 'idle')
 }
+
+/**
+ * When the mood `shownMood` gives can next change by the clock alone: a reaction ending, or the turn becoming long.
+ * Null when waiting would change nothing. A lasting reaction ends by the clock only while a turn runs, as before.
+ */
+export function nextMoodChange({ reaction, busy, startedAt }: { reaction: MoodReaction | null | undefined; busy: boolean; startedAt: number | null }, now: number): number | null {
+  const moments = [reaction && (!reaction.lasting || busy) ? reaction.until : null, busy && startedAt ? startedAt + LONG_TURN_MS : null]
+  const ahead = moments.filter((at): at is number => at !== null && at > now)
+  return ahead.length ? Math.min(...ahead) : null
+}

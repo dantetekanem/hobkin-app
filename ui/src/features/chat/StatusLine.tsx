@@ -37,6 +37,12 @@ function useBubbleClock(openedAt: number): number {
   return now
 }
 
+/** How long the turn has run: the one part of the row that counts the seconds, so only it draws again each second. */
+function Elapsed({ since }: { since: number }) {
+  const now = useNow(true)
+  return <span className="tabular-nums">{elapsed(since, now)}</span>
+}
+
 /**
  * The row above the input. hobkin speaks there in a bubble from its face: what its turn is doing, for how long and
  * how to stop it, or, while it waits, the terminal app's greeting and tips. A problem, what a command said, or why
@@ -51,14 +57,13 @@ export function StatusLine({ reason, problem, said, turnRunning, typing, stopArm
   const tips = useMemo(() => tipChoices({ learning }), [learning])
   const reminders = useMemo(() => reminderChoices({ reportAttention: attention }), [attention])
   const working = turnRunning && doing !== null
-  const now = useNow(working)
   const [openedAt] = useState(() => Date.now())
   const clock = useBubbleClock(openedAt)
   const still = useStill()
   // hobkin's runs say when the turn began. Until they do, the moment this line appeared stands in.
   const seenAt = useRef<number | null>(null)
   if (!working) seenAt.current = null
-  else seenAt.current ??= now
+  else seenAt.current ??= Date.now()
 
   const line = stopping ? 'stopping' : problem ? 'problem' : said ? 'said' : reason ? 'reason' : null
   const bubble = bubbleNow({ doing: working ? doing : null, typing, line, userName, openedAt, now: clock, tips, reminders })
@@ -75,7 +80,7 @@ export function StatusLine({ reason, problem, said, turnRunning, typing, stopArm
       <SpeechBubble bubble={shown} onInspect={setInspecting} />
       {bubble?.kind === 'doing' || stopArmed ? (
         <span className="ml-auto flex shrink-0 items-center gap-2 text-[12px] text-muted-foreground">
-          {bubble?.kind === 'doing' && !stopArmed ? <span className="tabular-nums">{elapsed(startedAt ?? seenAt.current ?? now, now)}</span> : null}
+          {bubble?.kind === 'doing' && !stopArmed ? <Elapsed since={startedAt ?? seenAt.current ?? Date.now()} /> : null}
           {/* One Escape never stops hobkin: the first asks, and this says how to go on. */}
           {stopArmed ? (
             <span role="status" className="flex items-center gap-1 text-foreground">

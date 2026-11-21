@@ -1,4 +1,4 @@
-import { useCallback, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useReducer, useSyncExternalStore } from 'react'
 import { readClock, subscribeClock } from '../../lib/clock.ts'
 
 const still = () => () => {}
@@ -12,4 +12,18 @@ export function useNow(active: boolean, everyMs = 1000): number {
   const subscribe = useCallback((listener: () => void) => (active ? subscribeClock(everyMs, listener) : still()), [active, everyMs])
   const read = () => readClock(everyMs)
   return useSyncExternalStore(subscribe, read, read)
+}
+
+/**
+ * Draws the caller again at `at`, for what changes at one known moment, such as a reaction that ends or a turn that
+ * becomes long: nothing ticks in between. The caller reads the time itself as it draws. Null waits for nothing.
+ */
+export function useWakeAt(at: number | null): void {
+  const [woken, wake] = useReducer((count: number) => count + 1, 0)
+  useEffect(() => {
+    if (at === null) return
+    // One past the moment, and set again after each wake, so a timer that fires early cannot leave the caller behind.
+    const timer = setTimeout(wake, Math.max(0, at - Date.now()) + 1)
+    return () => clearTimeout(timer)
+  }, [at, woken])
 }
