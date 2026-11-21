@@ -700,7 +700,7 @@ test('YOLO mode shows as hobkin reports it: a chip to its page, and each project
   assert.deepEqual(model.yolo?.projects, [
     { slug: 'app', name: 'App', ready: true, note: 'Ready' },
     { slug: 'api', name: 'API', ready: false, note: 'Alerts: No alert reaches you.' },
-    { slug: 'docs', name: 'Docs', ready: false, note: 'Not ready yet' },
+    { slug: 'docs', name: 'Docs', ready: false, note: 'Getting ready' },
   ])
 
   const off = homeModel(input({ work: { ...work(), yolo: yolo({ on: false }) } }))

@@ -1,9 +1,10 @@
-import type { ChangeChoice, FinishedChange, FinishedGroup, FinishedGroupName, Landing, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import type { ChangeChoice, FinishedChange, FinishedGroup, FinishedGroupName, Landing, YoloPart, YoloPartState, YoloProject, YoloState } from '#shared/protocol/work.ts'
 import { whenText } from '../routines/words.ts'
 
 /**
- * What the YOLO mode page and the button that opens it say (049-yolo-mode). Where each project's readiness work stands
- * and what it still needs are hobkin's, read from its work status. These are only the words, and which button can be pressed.
+ * What the YOLO mode page and the button that opens it say (049-yolo-mode). Where each project's readiness work stands,
+ * what holds it back and where each of its parts stands are hobkin's, read from its work status. These are only the words,
+ * and which button can be pressed.
  */
 
 /** The button on Work's header, at a glance: "Off", or "On · 2 of 5 ready". */
@@ -69,7 +70,7 @@ export function readinessRow(
         ...base,
         state: 'Running',
         tone: 'live',
-        detail: 'An agent is checking it now, on a branch of its own. Nothing merges or deploys.',
+        detail: 'An agent is setting it up now: a PR for each part it builds, and an Action Item for what only you can give. Nothing merges or deploys.',
         canRun: false,
       }
     case 'queued':
@@ -84,15 +85,81 @@ export function readinessRow(
     case 'none':
       return {
         ...base,
-        state: 'Not ready',
+        state: 'Not started',
         tone: 'quiet',
-        detail: 'An agent checks its tests, monitoring, way back and deploy, and builds what is missing on a branch for your yes.',
+        detail: 'An agent sets up its tests, monitoring, way back and deploy, opens a PR for each part, and asks you only for what you alone can give.',
       }
   }
 
   // Landed, closed, or a hobkin that does not say: the last check's result stands.
-  if (project.ready) return { ...base, state: 'Ready', tone: 'ok', detail: 'Every part is in place.' }
-  return { ...base, state: 'Not ready', tone: 'quiet', detail: project.needs.join(' ') }
+  if (project.ready) return { ...base, state: 'Ready', tone: 'ok', detail: stillSetUp(project.parts ?? []) }
+  return { ...base, state: 'Getting ready', tone: 'warn', detail: project.needs.join(' ') }
+}
+
+const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
+const STILL: [YoloPartState, (count: number) => string][] = [
+  ['pr', (count) => `${count} waiting for your merge`],
+  ['user', (count) => plural(count, 'step for you', 'steps for you')],
+  ['doing', (count) => `${count} in progress`],
+  ['todo', (count) => `${count} to do`],
+]
+
+/** On a ready project, the improvements still being set up, by where they stand. */
+function stillSetUp(parts: readonly YoloPart[]): string {
+  const said = STILL.flatMap(([state, words]) => {
+    const count = parts.filter((part) => part.state === state).length
+    return count ? [words(count)] : []
+  })
+  return said.length ? `YOLO mode can run here. Still being set up: ${said.join(', ')}.` : 'Every part is in place.'
+}
+
+/** Where a part's button goes: its PR on GitHub, its Action Item, or its branch's card on Work. */
+export type PartOpen = { to: 'pr'; url: string; label: 'Open PR' } | { to: 'action'; id: string; label: 'Open item' } | { to: 'work'; key: string; label: 'On Work' }
+
+/** One part's line under its project. */
+export interface PartRow {
+  name: string
+  label: string
+  /** Where it stands, in a word or three. */
+  state: string
+  tone: ReadinessTone
+  /** hobkin's line for it, or why its PR did not open. */
+  line: string
+  open: PartOpen | null
+}
+
+const prOf = ({ pr }: YoloPart): PartOpen | null => (pr ? { to: 'pr', url: pr, label: 'Open PR' } : null)
+
+function partRow(slug: string, part: YoloPart): PartRow {
+  const row = { name: part.name, label: part.label, line: part.line }
+  switch (part.state) {
+    case 'done':
+      return { ...row, state: 'Done', tone: 'ok', open: null }
+    case 'pr':
+      if (part.pr) return { ...row, state: 'PR open', tone: 'live', open: prOf(part) }
+      return { ...row, state: 'Branch for your yes', tone: 'warn', line: part.problem ?? part.line, open: part.item ? { to: 'work', key: `${slug}:${part.item}`, label: 'On Work' } : null }
+    case 'user':
+      return { ...row, state: 'Waiting on you', tone: 'warn', open: part.action ? { to: 'action', id: part.action, label: 'Open item' } : prOf(part) }
+    case 'doing':
+      return { ...row, state: 'In progress', tone: 'live', open: prOf(part) }
+    case 'todo':
+      return { ...row, state: 'To do', tone: 'quiet', open: null }
+  }
+}
+
+/**
+ * A project's parts in two groups: what YOLO mode needs, then the improvements. Before its first check, and with no run
+ * under way, there is nothing to say of them yet, so there are none.
+ */
+export function partGroups(project: YoloProject): { heading: string; rows: PartRow[] }[] {
+  const parts = project.parts ?? []
+  const underWay = project.work === 'running' || project.work === 'queued'
+  if (!parts.length || (!project.checkedAt && !underWay)) return []
+  const rows = (needed: boolean) => parts.filter((part) => part.needed === needed).map((part) => partRow(project.slug, part))
+  return [
+    { heading: 'Needed for YOLO mode', rows: rows(true) },
+    { heading: 'Improvements', rows: rows(false) },
+  ]
 }
 
 /**

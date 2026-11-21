@@ -819,7 +819,7 @@ function yoloOf(yolo: YoloState | null | undefined): HomeYolo | null {
       slug,
       name,
       ready,
-      note: ready ? 'Ready' : needs[0] ?? 'Not ready yet',
+      note: ready ? 'Ready' : needs[0] ?? 'Getting ready',
     })),
   }
 }

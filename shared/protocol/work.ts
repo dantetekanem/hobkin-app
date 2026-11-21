@@ -178,12 +178,45 @@ export interface FinishedChange {
  */
 export type YoloWork = 'none' | 'queued' | 'running' | 'waiting' | 'landed' | 'closed'
 
-/** One project's place in YOLO mode: whether changes may merge there by themselves, and what it still needs when not. */
+/**
+ * Where one part of a project's readiness stands (`partsOf` in hobkin's `src/cli/work/yolo-parts.mjs`): done, its change in a
+ * PR (or on a branch whose PR could not open) for the user's merge, waiting on a step only the user can take, in progress,
+ * or still to do.
+ */
+export type YoloPartState = 'done' | 'pr' | 'user' | 'doing' | 'todo'
+
+/** One part of a project's readiness: tests, the five kinds of monitoring, rollback, deploy, or its models. */
+export interface YoloPart {
+  name: string
+  /** hobkin's name for it: "Tests", "Error tracking". */
+  label: string
+  state: YoloPartState
+  /** How it works, what its branch sets up, the step the user is asked for, or what is still to do, in hobkin's words. */
+  line: string
+  /** Part of the bar YOLO mode needs: tests, rollback and models. The rest are improvements. */
+  needed: boolean
+  /** Whether it holds YOLO mode back on this project now. */
+  blocks: boolean
+  /** The PR its change is in, once open. */
+  pr?: string
+  /** The branch its change is on. */
+  branch?: string
+  /** The work item that holds that branch, whose card is on Work. */
+  item?: string
+  /** Why its PR did not open, while the branch waits without one. */
+  problem?: string
+  /** The Action Item for the step only the user can take. */
+  action?: string
+}
+
+/** One project's place in YOLO mode: whether changes may merge there by themselves, and what holds it back when not. */
 export interface YoloProject {
   slug: string
   name: string
   ready: boolean
   needs: string[]
+  /** Every part as it stands. A hobkin older than them does not send it. */
+  parts?: YoloPart[]
   /** Where its readiness work stands. A hobkin older than this does not send it. */
   work?: YoloWork
   /** Its readiness work's item, so the window can find the branch that waits for the user's yes. A hobkin older than this does not send it. */

@@ -6,6 +6,8 @@ import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
+import { openOnGitHub } from '@/features/github/open.ts'
+import { openTarget } from '@/features/home/navigate.ts'
 import { rateChoices, readyCount, SAMPLE_YOLO, sampleAfter, yoloSays } from '@/features/settings/yolo.ts'
 import { runCommand } from '@/lib/host/client.ts'
 import { cn } from '@/lib/utils.ts'
@@ -13,7 +15,7 @@ import type { FinishedGroup, YoloProject, YoloState } from '#shared/protocol/wor
 import { SectionHeading, Segmented } from './parts.tsx'
 import { runWork, useWorkView } from './store.ts'
 import { openOnWork } from './work-target.ts'
-import { readinessRow, sampleReadiness, waitingChange, type ReadinessPress, type ReadinessTone } from './yolo-page.ts'
+import { partGroups, readinessRow, sampleReadiness, waitingChange, type PartOpen, type PartRow, type ReadinessPress, type ReadinessTone } from './yolo-page.ts'
 import { ProjectModels, ProofSetup } from '@/features/proofs/ProjectModels.tsx'
 
 type SetSample = Dispatch<SetStateAction<YoloState>>
@@ -127,7 +129,7 @@ function Readiness({ yolo, live, workOn, finished, now, setSample }: ReadinessCo
     <section aria-label="Readiness" className="flex flex-col gap-3">
       <SectionHeading label="Readiness" count={readyCount(yolo)} />
       <p className="px-1 text-[13px] leading-snug text-muted-foreground">
-        A check is work mode&apos;s own work, on a branch for your yes. It merges and deploys nothing, so a project can be got ready before YOLO mode is on.
+        YOLO mode can run on a project once its tests pass, its way back is known and no model there breaks. Readiness sets up the rest as PRs for your merge and asks you only for what you alone can give. It merges and deploys nothing, so a project can be got ready before YOLO mode is on.
       </p>
       <ProofSetup live={live} />
       {yolo.projects.length ? (
@@ -235,10 +237,74 @@ function ProjectReadiness({ project, live, workOn, finished, now, setSample }: R
           {row.action}
         </Button>
       </div>
+      <ProjectParts project={project} />
       {/* Its state machines' models on main, a part of its readiness when it has any (050-tla-proofs). */}
       <div data-models="" className="empty:hidden">
         <ProjectModels models={project.models ?? []} live={live} />
       </div>
     </li>
+  )
+}
+
+/**
+ * Each part of a project's readiness, what YOLO mode needs first, then the improvements: where it stands, hobkin's line,
+ * and its PR, its Action Item or its branch's card. Every line has the same columns, so a button that comes or goes
+ * moves nothing beside it.
+ */
+function ProjectParts({ project }: { project: YoloProject }) {
+  const groups = partGroups(project).filter(({ rows }) => rows.length)
+  if (!groups.length) return null
+  return (
+    <div className="flex flex-col gap-2 pb-3">
+      {groups.map(({ heading, rows }) => (
+        <section key={heading} aria-label={heading} className="flex flex-col">
+          <h3 className="eyebrow px-0.5 pb-1">{heading}</h3>
+          <ul className="flex flex-col">
+            {rows.map((row) => (
+              <PartLine key={row.name} row={row} />
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function PartLine({ row }: { row: PartRow }) {
+  return (
+    <li className="grid h-7 grid-cols-[128px_140px_minmax(0,1fr)_72px] items-center gap-x-3 text-[12.5px]">
+      <span className="truncate font-medium">{row.label}</span>
+      <span className={cn('inline-flex h-5 items-center justify-self-start rounded-full px-2 font-heading text-[11px] font-semibold whitespace-nowrap', TONES[row.tone])}>{row.state}</span>
+      <span title={row.line} className="truncate text-muted-foreground">
+        {row.line}
+      </span>
+      <PartButton open={row.open} label={row.label} />
+    </li>
+  )
+}
+
+/** A part's PR opens on GitHub, its Action Item under Action Items, and a branch whose PR did not open its card on Work. */
+function PartButton({ open, label }: { open: PartOpen | null; label: string }) {
+  if (!open) return <span aria-hidden="true" />
+  if (open.to === 'pr') {
+    return (
+      <a
+        href={open.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-stop=""
+        aria-label={`${open.label} for ${label}`}
+        onClick={(event) => openOnGitHub(event, open.url)}
+        className="justify-self-end text-[12px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+      >
+        {open.label}
+      </a>
+    )
+  }
+  const go = () => (open.to === 'action' ? openTarget({ to: 'action', id: open.id }) : openOnWork(`[data-change="${open.key}"]`))
+  return (
+    <Button variant="ghost" size="xs" data-stop="" aria-label={`${open.label} for ${label}`} onClick={go} className="justify-self-end">
+      {open.label}
+    </Button>
   )
 }
