@@ -9,6 +9,7 @@ import { turnRunId, turnSchedule } from './hobkin-ids.mjs';
 import { answerTell, takeTellRequests, TELL_MAX, TOO_LONG, TURN_HOME, TURN_TOKEN, turnToken } from './hobkin-tell.mjs';
 import { MAX_MESSAGE_BYTES } from './runtime.mjs';
 import { messagesBrief } from './wake.mjs';
+import { imagesProblem } from './paste-image.mjs';
 import { efforts, validateBinding } from './schedules.mjs';
 import { tierBinding, tierNames } from './tiers.mjs';
 import { turnFrom } from './turn-metrics.mjs';
@@ -350,12 +351,16 @@ export class Hobkins {
 
   /**
    * A waiting hobkin takes the words as its next turn. A working one hears them in the turn it is on. Either way the
-   * user's words give that turn a fresh count of messages between hobkins.
+   * user's words give that turn a fresh count of messages between hobkins. `images` are the pictures the user attached,
+   * as Pi's image content, and go with the words either way.
    */
-  async say(id, { text, noteId, sentAt } = {}) {
+  async say(id, { text, noteId, sentAt, images } = {}) {
     // Where the turn these words start begins: the user's Enter, when the window said when that was.
     const began = turnFrom(sentAt);
     const asked = message(text);
+    const unsendable = imagesProblem(images);
+    if (unsendable) throw Error(unsendable);
+    const pictures = images?.length ? { images } : {};
     for (let tries = 0; tries < SAY_TRIES; tries++) {
       const record = live(await this.runtime.state(), id);
       if (record.state === 'waiting') {
@@ -369,7 +374,7 @@ export class Hobkins {
           return current;
         });
         if (!next) continue;
-        this.startTurn(next, asked, null, began);
+        this.startTurn(next, asked, null, began, pictures);
         return { started: true, queued: false, run: next.run };
       }
       if (asked.length > NOTE_MAX) throw Error(`While it works, a message is at most ${NOTE_MAX} characters. Send the rest when it waits.`);
@@ -379,6 +384,7 @@ export class Hobkins {
           runId: record.run,
           ...(noteId === undefined ? {} : { noteId }),
           message: asked,
+          ...pictures,
         };
         const { status } = await this.runner.messageCheck(note, { durable: true });
         await this.change(hobkins => {
@@ -414,9 +420,9 @@ export class Hobkins {
    * One turn as one of the runner's background jobs, started as `startSessionJob` starts a session. A turn that a
    * message started has `from`, who sent it. Its process is given the hobkin's token, which names this turn while it
    * runs, so `hobkin tell` from it is sent as this hobkin and spends the turn's count (`record.count`), and the home to
-   * reach hobkin through.
+   * reach hobkin through. `images` are what the user attached to the words, as `{ images }`, or nothing.
    */
-  startTurn(record, asked, from = null, began = { since: Date.now(), origin: 'run', marks: {} }) {
+  startTurn(record, asked, from = null, began = { since: Date.now(), origin: 'run', marks: {} }, images = {}) {
     const n = record.turns;
     const runId = turnRunId(record.id, n);
     const { harness, model, effort, tier } = this.binding(record.engine);
@@ -449,6 +455,7 @@ export class Hobkins {
         ...this.processStart(record, { harness, model, effort }),
         id: harnessId,
         prompt: from ? messageBlock(from, asked) : asked,
+        ...images,
         ...(resume ? { resume } : {}),
         ...(Object.keys(claude).length ? { claude } : {}),
         signal,

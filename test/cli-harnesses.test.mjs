@@ -507,6 +507,28 @@ test('a running job takes a message as a steer, until the run is over', async t 
   await assert.rejects(message('too late'), /has finished/);
 });
 
+test('images the user attached go to Pi with the first prompt and with a steer', async t => {
+  const chart = { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' };
+  const photo = { type: 'image', data: 'cGhvdG8=', mimeType: 'image/jpeg' };
+  const program = rpc(`${teamEvents}
+    const seen = (cmd.images ?? []).map(image => image.mimeType).join(',') || 'none';
+    if (cmd.streamingBehavior === 'steer') {
+      say('Steer: ' + cmd.message + ' with ' + seen);
+      settled();
+    } else say('First: ' + seen);
+  `);
+  const texts = [];
+
+  const result = await runHarness({ ...request(t), images: [chart] }, {
+    spawnProcess: fake(program),
+    onEvent: event => { if (event.type === 'message_end') texts.push(event.message.content[0].text); },
+    onReady: send => void send('and this one', [photo]),
+  });
+
+  assert.equal(result.status, 'completed');
+  assert.deepEqual(texts, ['First: image/png', 'Steer: and this one with image/jpeg']);
+});
+
 test('an extension error is noted in the report and does not end a healthy run', async t => {
   const result = await runHarness(request(t), { spawnProcess: fake(rpc(`
     send({ type: 'extension_error', extensionPath: '/extensions/example.ts', event: 'agent_end', error: 'handler failed' });

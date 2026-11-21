@@ -24,6 +24,17 @@ const TOO_BIG = { notice: `That image is over ${MAX_PASTE_BYTES / (1024 * 1024)}
 const UNSUPPORTED = { notice: 'That image format cannot be sent. PNG, JPEG, GIF and WebP can.', tone: 'warning' };
 const UNSHRINKABLE = { notice: 'That image could not be shrunk to send.', tone: 'warning' };
 
+/**
+ * Why images that go with a message to an agent's run cannot be sent to Pi, or null when they can. Each is Pi's image
+ * content, its bytes already read: one of the four types, at most `MAX_IMAGES` of them. None at all is fine too.
+ */
+export function imagesProblem(images) {
+  if (images === undefined) return null;
+  const sendable = image => image?.type === 'image' && typeof image.data === 'string' && image.data.length > 0 && Object.hasOwn(EXTENSIONS, image.mimeType);
+  return Array.isArray(images) && images.length <= MAX_IMAGES && images.every(sendable) ? null
+    : `A message can hold up to ${MAX_IMAGES} images, each a PNG, JPEG, GIF or WebP.`;
+}
+
 const imageType = bytes => {
   const start = bytes.toString('latin1', 0, 12);
   if (start.startsWith('\x89PNG')) return 'image/png';

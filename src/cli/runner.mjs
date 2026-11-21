@@ -7,6 +7,7 @@ import { runHarness as defaultRunHarness } from './harnesses.mjs';
 import { isTurnRunId } from './hobkin-ids.mjs';
 import { buildContext } from './context.mjs';
 import { readMemory } from './memory.mjs';
+import { imagesProblem } from './paste-image.mjs';
 import { checkHold, keepOnceFile, openCheck, scheduleDefinition } from './checks.mjs';
 
 function partsAt(formatter, time) {
@@ -493,8 +494,11 @@ export class HobkinRunner {
     return (await this.runtime.cancel(runId, stop)) !== false;
   }
 
-  /** A check shows as running before Pi is ready for it, so a message sent that early waits. With no schedule named, lists what is running. */
-  async messageCheck({ scheduleId, runId, noteId, message }, { durable = false } = {}) {
+  /**
+   * A check shows as running before Pi is ready for it, so a message sent that early waits. With no schedule named, lists what is running.
+   * `images` are the pictures the user attached to the words, as Pi's image content, and go with them.
+   */
+  async messageCheck({ scheduleId, runId, noteId, message, images }, { durable = false } = {}) {
     const runs = Object.values((await this.runtime.state()).runs);
     // A durable hobkin's turn is the user's alone, so only its own page reaches it (`hobkins.mjs`), never the main agent's tool.
     const reachable = runs.filter(run => run.status === 'running' && this.inboxes.has(run.id) && (durable || !run.hobkin));
@@ -504,6 +508,9 @@ export class HobkinRunner {
     if (!run) throw notQueued('That check is not running.');
     if (typeof message !== 'string' || !message.trim() || message.length > 4096) throw notQueued('Say what to tell the check in at most 4096 characters.');
     if (noteId !== undefined && (!runId || typeof noteId !== 'string' || !noteUuid.test(noteId))) throw notQueued('Invalid steering note identity.');
+    const unsendable = imagesProblem(images);
+    if (unsendable) throw notQueued(unsendable);
+    const pictures = images?.length ? images : undefined;
     const inbox = this.inboxes.get(run.id);
     const send = await inbox.promise;
     const current = (await this.runtime.state()).runs[run.id];
@@ -513,10 +520,10 @@ export class HobkinRunner {
     if (noteId !== undefined) {
       if (this.pendingNotes.has(key) || this.receivedNotes.has(key)) throw notQueued('That note was already submitted.');
       if (this.pendingNotes.size >= 128) throw notQueued('Too many pending steering notes.');
-      this.pendingNotes.set(key, { runId: run.id, noteId, text });
+      this.pendingNotes.set(key, { runId: run.id, noteId, text, images: pictures?.length ?? 0 });
     }
     try {
-      const disposition = (await send(text))?.disposition;
+      const disposition = (await send(text, pictures))?.disposition;
       if (disposition === 'handled') this.pendingNotes.delete(key);
       return { scheduleId, status: disposition === 'started' || disposition === 'queued' ? 'queued' : disposition === 'handled' ? 'handled' : 'unconfirmed' };
     } catch (error) {
@@ -528,15 +535,19 @@ export class HobkinRunner {
     }
   }
 
-  /** Receipt is admission into Pi's turn, not provider delivery or obedience. Never match a partial or augmented body. */
+  /**
+   * Receipt is admission into Pi's turn, not provider delivery or obedience. Never match a partial or augmented body:
+   * the same words, and as many images as went with them.
+   */
   receiveNote(runId, event) {
     if (event?.type !== 'message_end' || event.message?.role !== 'user') return;
     const content = event.message.content;
-    const text = typeof content === 'string' ? content
-      : Array.isArray(content) && content.every(part => part?.type === 'text' && typeof part.text === 'string')
-        ? content.map(part => part.text).join('') : null;
+    const parts = typeof content === 'string' ? [{ type: 'text', text: content }] : Array.isArray(content) ? content : [];
+    if (!parts.every(part => (part?.type === 'text' && typeof part.text === 'string') || part?.type === 'image')) return;
+    const text = parts.filter(part => part.type === 'text').map(part => part.text).join('');
+    const images = parts.filter(part => part.type === 'image').length;
     for (const [key, note] of this.pendingNotes) {
-      if (note.runId !== runId || note.text !== text) continue;
+      if (note.runId !== runId || note.text !== text || note.images !== images) continue;
       this.pendingNotes.delete(key);
       this.receivedNotes.set(key, { runId, noteId: note.noteId, at: new Date(this.now()).getTime() });
       if (this.receivedNotes.size > 256) this.receivedNotes.delete(this.receivedNotes.keys().next().value);

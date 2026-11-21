@@ -53,10 +53,10 @@ function fakeTurns() {
         edits.push(request);
         return { status: 'completed', text: request.prompt, cost: null };
       }
-      const call = { request, options, heard: [], end: Promise.withResolvers() };
+      const call = { request, options, heard: [], pictures: [], end: Promise.withResolvers() };
       if (request.purpose === 'durable') appendFileSync(request.sessionFile, `${JSON.stringify({ prompt: request.prompt })}\n`);
       request.signal?.addEventListener('abort', () => call.end.resolve({ status: 'interrupted', text: '', error: 'Harness cancelled.', cost: null }), { once: true });
-      options?.onReady?.(async message => { call.heard.push(message); return { disposition: 'queued' }; });
+      options?.onReady?.(async (message, images) => { call.heard.push(message); if (images) call.pictures.push(images); return { disposition: 'queued' }; });
       arrival(calls.push(call) - 1).resolve(call);
       return call.end.promise;
     },
@@ -244,6 +244,31 @@ test('a message to a waiting hobkin starts a turn on the same conversation, and 
 
   await assert.rejects(app.hobkins.say('0badc0de', { text: 'Hello?' }), /no hobkin/i);
   await assert.rejects(app.hobkins.say(id, { text: ' ' }), /at most 32768 characters/);
+});
+
+test('a message to a durable hobkin takes the images the user attached, as its next turn or in the turn in flight', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const { id } = await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'mid' } });
+  const chart = { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' };
+  const photo = { type: 'image', data: 'cGhvdG8=', mimeType: 'image/jpeg' };
+
+  await app.hobkins.say(id, { text: 'What is wrong in this chart?', images: [chart] });
+  const first = await turns.nth(0);
+  assert.equal(first.request.prompt, 'What is wrong in this chart?');
+  assert.deepEqual(first.request.images, [chart]);
+
+  await app.hobkins.say(id, { text: 'And in this photo?', images: [photo] });
+  assert.deepEqual(first.pictures, [[photo]]);
+  await app.hobkins.say(id, { text: 'Words alone.' });
+  assert.deepEqual(first.pictures, [[photo]], 'words alone take no images');
+
+  answer(first, 'The axis starts at 40.');
+  await waitingNow(app, id);
+  await app.hobkins.say(id, { text: 'Fix it.' });
+  assert.equal((await turns.nth(1)).request.images, undefined);
 });
 
 test('a hobkin and its turns are still there after a restart, and a cut-off turn reads as cut off', async t => {

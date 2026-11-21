@@ -498,15 +498,16 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     const kind = request.purpose === 'durable' ? 'durable' : workPurposes.includes(request.purpose) ? 'work' : 'other';
     metrics = createTurnMetrics({ ...metricIdentity, turn: { since: entered, origin: 'run', kind, ...turn,
       engine: 'pi', model, effort: request.effort, marks: { ...turn?.marks, ...(reused ? {} : { spawned, ready: Date.now() }) } } });
-    const response = await child.request('prompt', { message: request.prompt });
+    // Images the user attached go with the words, as Pi's image content (`imagesProblem` in `paste-image.mjs`).
+    const response = await child.request('prompt', { message: request.prompt, ...(request.images?.length ? { images: request.images } : {}) });
     if (response?.disposition === 'handled') {
       throw Error('Pi handled the prompt without starting an assistant response.');
     }
     takesMessages = true;
     // A plain steer would sit unread while the lead waits on its agents, so this also starts a turn on an idle one.
-    onReady(async message => {
+    onReady(async (message, images) => {
       if (!takesMessages) throw Object.assign(Error('That check has finished.'), { notQueued: true });
-      return child.request('prompt', { message, streamingBehavior: 'steer' });
+      return child.request('prompt', { message, ...(images?.length ? { images } : {}), streamingBehavior: 'steer' });
     });
     await settled.promise;
     result.text = clean(assistant?.content?.filter(part => part.type === 'text').map(part => part.text).join('\n'));

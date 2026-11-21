@@ -829,6 +829,39 @@ test('a running check takes a message, and one that is not running says so', asy
   assert.deepEqual(await runner.messageCheck({}), { running: [] });
 });
 
+test('a message to a running check takes the images the user attached, and its receipt counts them', { timeout: 2000 }, async t => {
+  const runtime = new MemoryRuntime();
+  const runner = new HobkinRunner({ runtime, root: '/unused', config, now: () => new Date(123) });
+  const sent = [];
+  runner.inboxes.set('run', { reject() {}, promise: Promise.resolve(async (text, images) => { sent.push({ text, images }); return { disposition: 'queued' }; }) });
+  const finish = Promise.withResolvers();
+  const { work } = runner.startTracked({ id: 'run', scheduleId: 'check' }, () => finish.promise);
+  t.after(async () => { finish.resolve({ status: 'completed' }); await work; });
+  const chart = { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' };
+  const noteId = '00000000-0000-4000-8000-000000000001';
+
+  assert.equal((await runner.messageCheck({ scheduleId: 'check', runId: 'run', noteId, message: 'See this', images: [chart] })).status, 'queued');
+  assert.deepEqual(sent.at(-1).images, [chart]);
+  // Words alone go as before, with no images.
+  await runner.messageCheck({ scheduleId: 'check', message: 'Words alone' });
+  assert.equal(sent.at(-1).images, undefined);
+
+  // Anything that is not an image Pi can send, or more than a message holds, is refused and nothing goes.
+  for (const images of [[{ ...chart, mimeType: 'image/tiff' }], [{ ...chart, data: '' }], [chart, chart, chart, chart, chart], 'chart']) {
+    await assert.rejects(runner.messageCheck({ scheduleId: 'check', message: 'Bad', images }), error => error.notQueued === true);
+  }
+  assert.equal(sent.length, 2);
+
+  // Pi's user message has the words and the image. The same words without it, or with two, are not this note.
+  const marked = sent[0].text;
+  const said = content => runner.onActivity('run', { type: 'message_end', message: { role: 'user', content } });
+  said([{ type: 'text', text: marked }]);
+  said([{ type: 'text', text: marked }, chart, chart]);
+  assert.deepEqual(runner.steeringReceipts(), {});
+  said([{ type: 'text', text: marked }, chart]);
+  assert.deepEqual(runner.steeringReceipts(), { run: [{ noteId, at: 123 }] });
+});
+
 test('a message to a check that is still starting waits for it', async t => {
   const fixtureData = await fixture(t);
   const received = [];
