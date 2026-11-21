@@ -27,6 +27,8 @@ const GIT_TIMEOUT_MS = 120_000
 
 /** What the engine is asked to do: review the change from `base` to `head`, checked out at `cwd`, writing into `out`. */
 export interface AssessRequest {
+  /** The change or pull request it reviews. */
+  target: ReviewTarget
   cwd: string
   base: string
   head: string
@@ -624,6 +626,7 @@ export class Assessments {
         rmSync(join(out, 'summary.json'), { force: true })
         let said = ''
         return this.options.run({
+          target,
           cwd: tree,
           base,
           head,

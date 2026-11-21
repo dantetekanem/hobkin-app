@@ -32,3 +32,32 @@ declare module 'hobkin/src/cli/work/tree.mjs' {
   /** The branch everything starts from, read from what is already in the repository, with no network. */
   export function defaultBranch(repo: string): Promise<string>
 }
+
+declare module 'hobkin/src/cli/work/proofs.mjs' {
+  /** A run as `hobkin proof check` wrote its `result.json`, without its state graph. */
+  export interface StoredProofRun {
+    id: string
+    project?: string
+    item?: string
+    spec: string
+    head?: string
+    specHash?: string
+    outcome: 'holds' | 'broken' | 'error' | 'stopped'
+    stats?: { distinct?: number; depth?: number }
+    rules?: { name: string; kind: 'invariant' | 'property' | 'deadlock'; status: string; words?: string }[]
+    actions?: { name: string; count?: number }[]
+    broken?: string
+    traceLength?: number
+    message?: string
+    [key: string]: unknown
+  }
+  /** Every run that ended in hobkin's home, newest first. */
+  export function readRuns(root: string): StoredProofRun[]
+  /** The specs at a commit that model a changed file or that it edits, with the changed files each names in `\* models:` (`covers`). */
+  export function modelsAt(repo: string, head: string, changed?: readonly string[]): Promise<{ spec: string; sha256: string; changed: boolean; covers: string[] }[]>
+  /** What the runs say of each spec at that head, matched to the spec as committed there: a broken run first, then one that counts. */
+  export function modelFacts(
+    runs: readonly StoredProofRun[],
+    change: { slug: string; head: string; specs: readonly { spec: string; sha256: string; changed?: boolean }[] },
+  ): { spec: string; state: 'holds' | 'broken' | 'unproven' | 'unchecked'; run?: string; why?: string; line?: string; changed?: boolean }[]
+}

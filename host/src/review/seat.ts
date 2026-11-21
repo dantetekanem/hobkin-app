@@ -22,6 +22,7 @@ import { Assessments, gitIn } from './assessment.ts'
 import { githubApi, namedApi, readCodeHosts, type CodeHosts, type HostApi } from './code-hosts.ts'
 import { reviewCode, reviewMap } from './guide.ts'
 import { mergePlan, movedSince } from './landing.ts'
+import { reviewModelChecks } from './model-checks.ts'
 import { chatTeller } from './notify.ts'
 import type { WhoIsMe } from './owner.ts'
 import { peopleFinder, pullPeople } from './people.ts'
@@ -187,7 +188,9 @@ export function hostReviews(seat: ReviewSeat): Reviews {
         hostTree: hosts.treeOf,
         run: async (request) => {
           const model = piModelRunner({ root: seat.root, data: seat.data, runtime: seat.runtime })
-          const result = await reviewChange({ ...request, model })
+          // hobkin's TLC runs at the head of the change's models, which the Reviewer weighs like tests that ran (050-tla-proofs).
+          const modelChecks = await reviewModelChecks(request, { data: seat.data, log: seat.log })
+          const result = await reviewChange({ ...request, model, modelChecks })
           for (const problem of result.problems) seat.log?.(`Change review at ${request.head.slice(0, 7)}: ${problem}`)
           return { units: result.units, storyBy: result.storyBy, answer: result.answer }
         },
