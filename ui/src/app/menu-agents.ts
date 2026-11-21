@@ -48,3 +48,25 @@ export function rowPieces(count: number, open: number, geometry: RowGeometry, ke
     return { kind: whole ? 'agent' : 'bare', index }
   })
 }
+
+/** A box around the menu, as far as it is scrolled, with its overflow on each axis and whether it is the window's. */
+export interface AroundMenu {
+  box: { scrollLeft: number; scrollTop: number }
+  overflowX: string
+  overflowY: string
+  viewport: boolean
+}
+
+/** Whether a box rests unscrolled on an axis, so that only a focus could have scrolled it: the window, or a box that hides its overflow. */
+const restsUnscrolled = (overflow: string, viewport: boolean) => viewport || overflow === 'hidden' || overflow === 'clip'
+
+/**
+ * Puts back what a focus scrolled to show an agent past the window's edge: the window, and any box around the menu
+ * that hides its overflow. hobkin is an app, not a page, so those rest at zero. A box the user scrolls keeps its place.
+ */
+export function putBack(boxes: readonly AroundMenu[]): void {
+  for (const { box, overflowX, overflowY, viewport } of boxes) {
+    if (box.scrollLeft && restsUnscrolled(overflowX, viewport)) box.scrollLeft = 0
+    if (box.scrollTop && restsUnscrolled(overflowY, viewport)) box.scrollTop = 0
+  }
+}

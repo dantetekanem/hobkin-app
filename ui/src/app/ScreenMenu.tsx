@@ -15,7 +15,7 @@ import { useHasHost, useHost } from '@/lib/host/index.ts'
 import { ease, spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { focusBoard, focusTalk, keyboardInCanvas, requestCanvasFocus } from './focus.ts'
-import { estimatedRow, rowPieces, type RowGeometry } from './menu-agents.ts'
+import { estimatedRow, putBack, rowPieces, type AroundMenu, type RowGeometry } from './menu-agents.ts'
 import { isUnderSettings, type PageUnderSettings } from './overlays.ts'
 import { useRunningAgents, type RunningAgent } from './running-agents.ts'
 import { inMenu, SCREENS, type ScreenId } from './screens.ts'
@@ -282,6 +282,16 @@ function openFromMenu(agentId: string, toward: 1 | -1) {
 
 const labelOf = (agent: RunningAgent) => (agent.asks ? `${agent.title}, waiting for you` : agent.title)
 
+/** Puts back what the browser scrolled to show a menu agent that took the keyboard past the window's edge (`putBack`). */
+function keepWindowStill(item: Element) {
+  const around: AroundMenu[] = []
+  for (let box = item.parentElement; box; box = box.parentElement) {
+    const style = getComputedStyle(box)
+    around.push({ box, overflowX: style.overflowX, overflowY: style.overflowY, viewport: box === document.scrollingElement })
+  }
+  putBack(around)
+}
+
 /**
  * The agents working now. The one on the canvas carries its name, and one that is waiting for the user says so. With
  * more agents than the window is wide, only the ones on screen are drawn whole, and every other is a bare button in
@@ -368,7 +378,10 @@ const BareItem = memo(function BareItem({ agent, index, at, width, onFocused }: 
       aria-label={labelOf(agent)}
       title={agent.title}
       onMouseDown={(event) => event.preventDefault()}
-      onFocus={() => onFocused(agent.id)}
+      onFocus={(event) => {
+        keepWindowStill(event.currentTarget)
+        onFocused(agent.id)
+      }}
       onClick={() => openFromMenu(agent.id, index > at ? 1 : -1)}
       className="h-8 shrink-0 rounded-full"
       style={{ width }}
@@ -397,7 +410,7 @@ const AgentItem = memo(function AgentItem({ agent, index, at, moved, known, stil
   const layoutDependency = useMemo(() => ({}), [index, active, moved])
   const element = useRef<HTMLButtonElement | null>(null)
   useLayoutEffect(() => {
-    if (keyboard) element.current?.focus()
+    if (keyboard) element.current?.focus({ preventScroll: true })
   }, [keyboard])
   return (
     <motion.button
@@ -411,6 +424,7 @@ const AgentItem = memo(function AgentItem({ agent, index, at, moved, known, stil
       aria-label={labelOf(agent)}
       title={agent.title}
       onMouseDown={(event) => event.preventDefault()}
+      onFocus={(event) => keepWindowStill(event.currentTarget)}
       onBlur={() => onBlurred(agent.id)}
       onClick={() => openFromMenu(agent.id, index > at ? 1 : -1)}
       className={cn(ITEM, 'px-2', active ? 'pr-3 text-foreground' : 'text-muted-foreground hover:text-foreground')}

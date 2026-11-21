@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { estimatedRow, rowPieces, type RowGeometry, type RowPiece } from '../src/app/menu-agents.ts'
+import { estimatedRow, putBack, rowPieces, type RowGeometry, type RowPiece } from '../src/app/menu-agents.ts'
 
 /** How wide the pieces lay out, the row's gaps included: as wide as the whole row when every bare button keeps its item's place. */
 function laidOut(pieces: RowPiece[], geometry: RowGeometry, open: number): number {
@@ -44,4 +44,22 @@ test("the menu's agents row draws the items on screen whole, keeps every other a
     rowPieces(5, 2, estimatedRow(5, width)),
     [0, 1, 2, 3, 4].map((index) => ({ kind: 'agent', index })),
   )
+})
+
+test('a focus that scrolled the window or a box that hides its overflow to show an agent past the edge is put back', () => {
+  // Tab onto an agent past the window's right edge: the browser scrolls what it can to show it.
+  const window = { scrollLeft: 340, scrollTop: 0 }
+  const hidden = { scrollLeft: 12, scrollTop: 30 }
+  // A list the user scrolls keeps its place.
+  const list = { scrollLeft: 50, scrollTop: 80 }
+
+  putBack([
+    { box: hidden, overflowX: 'hidden', overflowY: 'hidden', viewport: false },
+    { box: list, overflowX: 'auto', overflowY: 'auto', viewport: false },
+    { box: window, overflowX: 'visible', overflowY: 'visible', viewport: true },
+  ])
+
+  assert.deepEqual(window, { scrollLeft: 0, scrollTop: 0 })
+  assert.deepEqual(hidden, { scrollLeft: 0, scrollTop: 0 })
+  assert.deepEqual(list, { scrollLeft: 50, scrollTop: 80 })
 })
