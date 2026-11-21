@@ -1,7 +1,8 @@
 import { ReactFlowProvider } from '@xyflow/react'
 import { MotionConfig, useMotionValueEvent } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useStore } from 'zustand'
+import { useShallow } from 'zustand/react/shallow'
 import type { ReviewNotes } from '#shared/review/status.ts'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
@@ -161,7 +162,30 @@ function ReviewWaiting({ status, reason, closeReview }: { status: string; reason
   )
 }
 
-function Stage({ review, source, loader, live, close, verdict, ask }: {
+/**
+ * The review panel, with how the review stands as the host says it. Only the panel follows each status: one that
+ * changes every second while a change review runs draws the panel again, not the graph and the rest of the stage.
+ */
+function Panel({ canvas, loader, live, close, verdict, ask, landed }: {
+  canvas: Size
+  loader: ReviewLoader
+  live: boolean
+  close: () => void
+  verdict: VerdictCommands | null
+  ask: AskCommand | null
+  landed: PanelChrome['landed']
+}) {
+  const preparation = useStore(loader, (state) => state.preparation)
+  const assessment = useStore(loader, (state) => state.assessment)
+  const chrome = useMemo<PanelChrome>(
+    () => ({ live, preparation, assessment, rebuild: () => void loader.refresh(), close, verdict, saveNotes: loader.saveNotes, ask, landed }),
+    [live, preparation, assessment, loader, close, verdict, ask, landed],
+  )
+  return <StepsPanel canvas={canvas} chrome={chrome} />
+}
+
+/** The open review. It draws again for what it shows, not each time the loader around it hears from the host. */
+const Stage = memo(function Stage({ review, source, loader, live, close, verdict, ask }: {
   review: Review
   source: ReviewSource
   loader: ReviewLoader
@@ -172,7 +196,6 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
 }) {
   const root = useRef<HTMLDivElement>(null)
   const [shortcuts, setShortcuts] = useState(false)
-  const preparation = useStore(loader, (state) => state.preparation)
   const assessment = useStore(loader, (state) => state.assessment)
 
   // Once a verdict has landed the review closes: a merged change with "Merged!", any other with a short confirmation. A
@@ -197,10 +220,6 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
       }),
     [close, loader, review.id],
   )
-  const chrome = useMemo<PanelChrome>(
-    () => ({ live, preparation, assessment, rebuild: () => void loader.refresh(), close, verdict, saveNotes: loader.saveNotes, ask, landed }),
-    [live, preparation, assessment, loader, close, verdict, ask, landed],
-  )
   const graph = useRef<HTMLDivElement>(null)
   const camera = useCamera()
   const reduced = useReduced()
@@ -211,7 +230,8 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
   useLayoutEffect(() => session.getState().adopt(review), [review, session])
   // hobkin moves the reviewer's view through the host, to a step or a node. A place it pointed to before the review was
   // opened is shown too: a review opened from Work, Home, a report or the chat lands where hobkin said. Each place once.
-  const cursor = preparation?.cursor
+  // Read alone, so a status that says more of something else draws nothing here.
+  const cursor = useStore(loader, useShallow((state) => state.preparation?.cursor))
   const place = `${(review as Review & { memoryScope?: string }).memoryScope ?? ''}:${review.id}`
   useEffect(() => void followCursor(session, shown, place, cursor), [cursor, place, session])
 
@@ -360,7 +380,7 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
             <WireCard />
             <Finder />
             <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP)} ask={ask} units={assessment?.units?.units} />
-            <StepsPanel canvas={canvas} chrome={chrome} />
+            <Panel canvas={canvas} loader={loader} live={live} close={close} verdict={verdict} ask={ask} landed={landed} />
             <CodePanel height={panelHeight} windowHeight={windowHeight} units={assessment?.units?.units} ask={ask} />
             {shortcuts ? (
               <Shortcuts
@@ -376,4 +396,4 @@ function Stage({ review, source, loader, live, close, verdict, ask }: {
       </MotionConfig>
     </StageProvider>
   )
-}
+})
