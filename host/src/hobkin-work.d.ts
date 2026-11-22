@@ -65,6 +65,29 @@ declare module 'hobkin/src/cli/work/store.mjs' {
   export function setAgents(root: string, agents: number): { agents: number; [key: string]: unknown }
   /** The tokens work mode may spend in a day, as `hobkin work tokens <n>` sets it. Throws for a number that is not positive. */
   export function setDailyTokens(root: string, tokens: number): { dailyTokens: number; [key: string]: unknown }
+  /** The user's workload settings, each as hobkin's default until set (053-work-control-room). */
+  export interface Workload {
+    agents: number
+    autoPick: boolean
+    changesADay: number | null
+    dailyTokens: number
+    hours: { from: string; to: string } | null
+    shipFirst: boolean
+    shipFirstAt: number
+    reviewOnFinish: boolean
+    reviewPulls: 'none' | 'mine' | 'waiting' | 'both'
+  }
+  /** The workload as a mode holds it. */
+  export function workloadOf(mode: Record<string, unknown>): Workload
+  /**
+   * Changes any of the workload's settings but `agents` and `dailyTokens`, which have setters of their own. Every value is checked first,
+   * and one that is wrong throws, in hobkin's words, with nothing written.
+   */
+  export function setWorkload(root: string, change: Partial<Omit<Workload, 'agents' | 'dailyTokens'>>): Record<string, unknown>
+  /** hobkin's request to raise today's token limit, while it stands: only on the day it was made, and until it is answered. */
+  export function currentRequest(mode: Record<string, unknown>, now?: number): { at: string; limit: number; proposed: number; used: number; [key: string]: unknown } | null
+  /** Today's token limit: the user's own, or what they raised it to for today. */
+  export function dailyLimit(mode: Record<string, unknown>, now?: number): number
   /** Work mode's switch and settings, as saved in the home. */
   export function readMode(root: string): { enabled: boolean; folder: string | null; autoPick: boolean; [key: string]: unknown }
   /** Takes a project: a known one by slug, or a folder by its absolute path. */

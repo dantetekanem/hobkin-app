@@ -34,7 +34,7 @@ import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import type { ProofRun } from '../protocol/proofs.ts'
 import { METRICS_DAYS_MAX, type WorkMetrics } from '../protocol/metrics.ts'
 import type { ActivityEntry } from '../protocol/activity.ts'
-import { GRADES, ISSUE_PICKUPS, PR_MODES } from '../protocol/work.ts'
+import { GRADES, ISSUE_PICKUPS, PR_MODES, REVIEW_PULLS, type Workload } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
 import { EFFORTS, TIER_IDS, type HostTiers } from '../tiers/tiers.ts'
@@ -1039,6 +1039,37 @@ export const COMMANDS = {
     args: Type.Object({ tokens: Type.Integer({ minimum: 1 }) }, { additionalProperties: false }),
     hobkin: true,
   },
+  // The user's workload (053-work-control-room): how much automated work runs, kept by hobkin beside agents and tokens a day.
+  'work.workload': {
+    description:
+      "Change any of the workload's settings, as hobkin keeps them: `autoPick` (off: only what the user starts runs, and work on finished changes), `changesADay` (the most item runs that start in a local day, the user's picks among them, or null for no cap), `hours` (local times `from` and `to` as HH:MM, which may cross midnight, outside which nothing new starts by itself and running agents finish, or null for always), `shipFirst` and `shipFirstAt` (whether new work holds while that many finished changes wait for the user), `reviewOnFinish` (hobkin scores each finished change by itself) and `reviewPulls` (which pull requests get an AI review by themselves: `none`, `mine`, `waiting` for the user's review, or `both`). Agents at once and tokens a day keep `work.agents` and `work.tokens`. Answers with every setting as it stands. Running agents finish as they are.",
+    runs: 'host',
+    args: Type.Object(
+      {
+        autoPick: Type.Optional(Type.Boolean()),
+        changesADay: Type.Optional(Type.Union([Type.Integer({ minimum: 1 }), Type.Null()])),
+        hours: Type.Optional(Type.Union([Type.Object({ from: clock, to: clock }, { additionalProperties: false }), Type.Null()])),
+        shipFirst: Type.Optional(Type.Boolean()),
+        shipFirstAt: Type.Optional(Type.Integer({ minimum: 1 })),
+        reviewOnFinish: Type.Optional(Type.Boolean()),
+        reviewPulls: Type.Optional(oneOf(REVIEW_PULLS)),
+      },
+      { additionalProperties: false },
+    ),
+    rule: (args) => {
+      if (!Object.keys(args).length) return 'need at least one setting'
+      const hours = args.hours as { from: string; to: string } | null | undefined
+      return hours && hours.from === hours.to ? 'need hours that start and end at different times, or null for always' : null
+    },
+    hobkin: true,
+  },
+  // It spends more of today's tokens, so only the user's click in the window says yes.
+  'work.allowance': {
+    description:
+      "Say yes to hobkin's open request to raise today's token limit, named by the time it was made (`at`): today's amount is added again until midnight, and the hourly share rises with it. A request already answered, or a newer one, raises nothing.",
+    runs: 'host',
+    args: Type.Object({ at: Type.String({ pattern: '^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$' }) }, { additionalProperties: false }),
+  },
   // Work in numbers (053-work-control-room), folded from the records hobkin and the host already keep, so it has history from the first read.
   'work.metrics': {
     description:
@@ -1424,6 +1455,10 @@ export interface CommandResults {
   'work.agents': { agents: number }
   /** The daily limit now. */
   'work.tokens': { tokens: number }
+  /** Every setting of the workload as it stands once the change is made. */
+  'work.workload': Workload
+  /** Today's limit now. */
+  'work.allowance': { tokens: number }
   'work.metrics': WorkMetrics
   /** YOLO mode as it stands now. */
   'work.yolo': { on: boolean; rate: number }

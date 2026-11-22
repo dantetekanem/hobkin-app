@@ -1,12 +1,14 @@
 import type { HobkinSnapshot } from 'hobkin/src/cli/application.mjs'
 import { approvalGroups, groupPlan, groupWords, landingWay, shownTitle, type GroupName } from 'hobkin/src/cli/work/groups.mjs'
 import { heldByItsGrade } from 'hobkin/src/cli/work/reads.mjs'
-import { byPriority, byRank, grades, MAX_AGENTS, readMode, setAgents, setDailyTokens } from 'hobkin/src/cli/work/store.mjs'
+import { byPriority, byRank, currentRequest, dailyLimit, grades, MAX_AGENTS, readMode, setAgents, setDailyTokens, setWorkload, workloadOf } from 'hobkin/src/cli/work/store.mjs'
 import { setYolo } from 'hobkin/src/cli/work/yolo.mjs'
 import {
   GRADES,
+  HOLDING_KINDS,
   ISSUE_PICKUPS,
   PR_MODES,
+  type AllowanceRequest,
   type ChangeChoice,
   type FinishedChange,
   type FinishedGroup,
@@ -14,8 +16,11 @@ import {
   type IssuePickup,
   type ModelFact,
   type PrMode,
+  type HoldingKind,
   type ProjectState,
   type QueueRow,
+  type WorkHolding,
+  type WorkOutlook,
   type WorkProject,
   type WorkState,
   type YoloState,
@@ -147,7 +152,32 @@ interface WorkStatus {
   projects?: ProjectStatus[]
   /** YOLO mode and each project's readiness, from a hobkin that has it. */
   yolo?: YoloState | null
+  /** The user's workload, what holds work mode, the rest of today and an open request for more tokens, from a hobkin that has them (053-work-control-room). */
+  workload?: Record<string, unknown>
+  holding?: { kind?: string; until?: string | null; line?: string } | null
+  outlook?: { startedToday?: number; moreToday?: number; nextAt?: string | null } | null
+  allowanceRequest?: { at?: string; limit?: number; proposed?: number; used?: number } | null
 }
+
+/** What holds work mode, as hobkin says it. One of a kind the window does not know is left out, so the window says nothing wrong. */
+function holdingFrom(holding: WorkStatus['holding']): WorkHolding | null {
+  if (!holding || !HOLDING_KINDS.includes(holding.kind as HoldingKind)) return null
+  return { kind: holding.kind as HoldingKind, until: holding.until ?? null, line: holding.line ?? '' }
+}
+
+const outlookFrom = (outlook: WorkStatus['outlook']): WorkOutlook | null =>
+  outlook ? { startedToday: outlook.startedToday ?? 0, moreToday: outlook.moreToday ?? 0, nextAt: outlook.nextAt ?? null } : null
+
+const allowanceFrom = (asked: WorkStatus['allowanceRequest']): AllowanceRequest | null =>
+  asked?.at ? { at: asked.at, limit: asked.limit ?? 0, proposed: asked.proposed ?? 0, used: asked.used ?? 0 } : null
+
+/** The four, each only when hobkin sends it, since every field the window reads of them is optional. */
+const workloadPartsOf = (work: WorkStatus): Partial<WorkState> => ({
+  ...(work.workload ? { workload: workloadOf(work.workload) } : {}),
+  ...('holding' in work ? { holding: holdingFrom(work.holding) } : {}),
+  ...('outlook' in work ? { outlook: outlookFrom(work.outlook) } : {}),
+  ...('allowanceRequest' in work ? { allowance: allowanceFrom(work.allowanceRequest) } : {}),
+})
 
 const gradeOf = (value: unknown): Grade | null => (GRADES.includes(value as Grade) ? (value as Grade) : null)
 const count = (amount: number, noun: string) => `${amount} ${noun}${amount === 1 ? '' : 's'}`
@@ -398,6 +428,7 @@ export function workFrom(snapshot: HobkinSnapshot): WorkState | null {
     projects: projectsFrom(work.projects ?? []),
     finished: finishedFrom(waiting?.branches ?? []),
     yolo: work.yolo ?? null,
+    ...workloadPartsOf(work),
   }
 }
 
@@ -408,7 +439,19 @@ export interface WorkSeat {
   root: () => string
 }
 
-type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.yolo' | 'work.yolo.ready' | 'work.change' | 'work.group'
+type WorkCommand =
+  | 'work.mode'
+  | 'work.queue'
+  | 'work.project'
+  | 'work.proposal'
+  | 'work.agents'
+  | 'work.tokens'
+  | 'work.workload'
+  | 'work.allowance'
+  | 'work.yolo'
+  | 'work.yolo.ready'
+  | 'work.change'
+  | 'work.group'
 
 /** y and n on a proposal in the terminal: take it, or leave it alone. */
 const PROPOSAL_ANSWERS = { take: 'choose', skip: 'skip' } as const
@@ -466,6 +509,19 @@ export function workHandlers({ app, root }: WorkSeat): Pick<HostHandlers, WorkCo
       const mode = setDailyTokens(root(), tokens)
       await app().refresh()
       return { tokens: mode.dailyTokens }
+    },
+    'work.workload': async (change) => {
+      // Not a work action either: hobkin's own setter checks every value before it writes any, and the plan reads them at its next tick.
+      const mode = setWorkload(root(), change)
+      await app().refresh()
+      return workloadOf(mode)
+    },
+    'work.allowance': async ({ at }) => {
+      // Once for a request: the window names the request it saw, so a second click, or one on a request since answered or replaced, raises nothing.
+      if (currentRequest(readMode(root()))?.at !== at) throw new Error("That request for more tokens today is answered already, so nothing was raised.")
+      // hobkin's own yes to its request, which adds today's amount again until midnight.
+      await app().workAction('allow')
+      return { tokens: dailyLimit(readMode(root())) }
     },
     'work.yolo': async ({ on, rate }) => {
       // The user's click and nothing else: no work action and no `hobkin work` command changes YOLO mode, so the host

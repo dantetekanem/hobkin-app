@@ -311,6 +311,89 @@ export interface FinishedGroup {
   changes: FinishedChange[]
 }
 
+/**
+ * Which pull requests get an AI review by themselves: none, the user's own, those waiting for the user's review, or both.
+ * hobkin keeps the setting (`REVIEW_PULLS` in its `src/cli/work/store.mjs`) and the host's reviews act on it.
+ */
+export type ReviewPulls = 'none' | 'mine' | 'waiting' | 'both'
+export const REVIEW_PULLS: readonly ReviewPulls[] = ['none', 'mine', 'waiting', 'both']
+
+/** A window of local time, each end as `HH:MM`. It crosses midnight when `to` comes before `from`, as 22:00 to 06:00. */
+export interface WorkHours {
+  from: string
+  to: string
+}
+
+/**
+ * How much automated work runs, as the user set it (053-work-control-room, `workloadOf` in hobkin's `src/cli/work/store.mjs`).
+ * Each setting reads as hobkin's default until the user sets it: 2 agents, no cap, 100M tokens, always, ship first on at 8,
+ * no scoring and no pull request reviewed by itself. `work.workload` changes them, and `work.agents` and `work.tokens` change those two.
+ */
+export interface Workload {
+  agents: number
+  /** Off: only what the user starts runs, and work on finished changes. */
+  autoPick: boolean
+  /** The most item runs that start in a local day, the user's picks among them. Past it only a pick starts until midnight. Null for no cap. */
+  changesADay: number | null
+  /** Fresh tokens a day, the user's own number. Today's limit, raised or not, is `dailyTokens` on the state. */
+  dailyTokens: number
+  /** Outside these local hours nothing new starts by itself and running agents finish. Null for always. */
+  hours: WorkHours | null
+  /** Whether new work holds while `shipFirstAt` or more finished changes wait for the user. */
+  shipFirst: boolean
+  shipFirstAt: number
+  /** Whether hobkin scores each finished change by itself (`hobkin work reviews`). */
+  reviewOnFinish: boolean
+  reviewPulls: ReviewPulls
+}
+
+/**
+ * The one thing that holds work mode (`holdingOf` in hobkin's `src/cli/work/plan.mjs`): work mode is off, paused by hand or to
+ * protect the subscription, held by a usage limit, out of today's tokens or this hour's share, outside the user's hours, with every
+ * agent busy, with nothing queued, with auto-pick off, shipping first, or at the day's cap on changes.
+ */
+export type HoldingKind =
+  | 'off'
+  | 'paused'
+  | 'usage-limit'
+  | 'tokens'
+  | 'hourly-share'
+  | 'hours'
+  | 'agents-busy'
+  | 'nothing-queued'
+  | 'auto-pick-off'
+  | 'ship-first'
+  | 'cap'
+export const HOLDING_KINDS: readonly HoldingKind[] = ['off', 'paused', 'usage-limit', 'tokens', 'hourly-share', 'hours', 'agents-busy', 'nothing-queued', 'auto-pick-off', 'ship-first', 'cap']
+
+export interface WorkHolding {
+  kind: HoldingKind
+  /** When it ends by itself, as an ISO time. Null when only the user, or a run that finishes, ends it. */
+  until: string | null
+  /** What holds it, in one sentence of hobkin's. */
+  line: string
+}
+
+/** What the forecast sees for the rest of today (`forecastAndOutlook` in hobkin's `src/cli/work/forecast.mjs`), counted in item runs, as the cap counts them. */
+export interface WorkOutlook {
+  /** Item runs that started today, running ones among them. */
+  startedToday: number
+  /** About how many more start before midnight. */
+  moreToday: number
+  /** When the next one starts, as an ISO time, or null when the forecast sees none in the next 8 hours or the rest of today. */
+  nextAt: string | null
+}
+
+/** hobkin's open request to raise today's token limit, made once the day's tokens are spent. `work.allowance` answers it by its `at`. */
+export interface AllowanceRequest {
+  /** When hobkin asked, as an ISO time. It names the request. */
+  at: string
+  /** Today's limit when it asked, what it was raising it to, today's amount added again, and what was spent. */
+  limit: number
+  proposed: number
+  used: number
+}
+
 export interface WorkState {
   enabled: boolean
   /** The folder work mode looks for projects in. Turning it on the first time needs one. */
@@ -341,6 +424,14 @@ export interface WorkState {
   merging?: MergingRow[]
   /** YOLO mode and each project's readiness for it. A host older than this does not send it. */
   yolo?: YoloState | null
+  /** The user's workload as it stands. A host or hobkin older than it does not send it. */
+  workload?: Workload
+  /** What holds work mode and until when. Null while something starts, or only a row's own turn or the gap between starts holds it. Not sent by an older one. */
+  holding?: WorkHolding | null
+  /** How many changes start in the rest of today, and when the next one does. Not sent by an older one. */
+  outlook?: WorkOutlook | null
+  /** hobkin's open request to raise today's tokens, while work mode is on. Null with none open. Not sent by an older one. */
+  allowance?: AllowanceRequest | null
 }
 
 /** One row of a group's yes, as hobkin's `mergeGroup` takes it. */
