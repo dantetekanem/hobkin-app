@@ -1,3 +1,4 @@
+import type { DecidedChange, WorkMetrics } from '#shared/protocol/metrics.ts'
 import type { FinishedChange, FinishedGroup, FinishedGroupName, GroupPlan, MergingRow, WorkIssue, WorkProject, WorkState } from '#shared/protocol/work.ts'
 
 /**
@@ -295,6 +296,65 @@ function projects(now: number): WorkProject[] {
     project({ slug: 'design-kit', state: 'proposed', priority: 'P2', prMode: 'off', level: 'casual' }),
     project({ slug: 'old-landing', state: 'skipped', priority: 'P3', prMode: 'off', level: 'casual' }),
   ]
+}
+
+/** What the sample's changes merged or declined were about, for each project, used in turn. */
+const DECIDED_TITLES: Record<string, readonly string[]> = {
+  storefront: [
+    'Cache the category menu',
+    'Fix the coupon field on mobile',
+    'Show stock on the product page',
+    'Lazy-load the product images',
+    'Keep the sort order on back',
+    'Trim the checkout bundle',
+    'Round prices once in the cart',
+    'Add alt text to the gallery',
+  ],
+  'billing-api': ['Log each webhook delivery', 'Name the currency on each invoice', 'Time out slow tax lookups', 'Index invoices by customer', 'Send the receipt in the payer’s language'],
+  'docs-site': ['Fix the broken links in the guide', 'Add a search box to the docs', 'Explain the rate limits'],
+}
+
+/** A short stable id for a sample change: FNV-1a over its words, in hex. */
+function hexOf(words: string, length: number): string {
+  let hash = 0x811c9dc5
+  for (let index = 0; index < words.length; index += 1) hash = Math.imul(hash ^ words.charCodeAt(index), 0x01000193)
+  return (hash >>> 0).toString(16).padStart(8, '0').slice(0, length)
+}
+
+/**
+ * The changes behind the sample numbers' merged and declined counts (`metrics.decided`, which the numbers' own sample
+ * leaves out), one for each counted on each day of each project, newest first, at most 500. On a day, the first ones
+ * passed first time, as many as the day's count says; the rest were sent back once or twice.
+ */
+export function sampleDecided(metrics: WorkMetrics, now = Date.now()): DecidedChange[] {
+  const decided: DecidedChange[] = []
+  for (const project of metrics.projects) {
+    const titles = DECIDED_TITLES[project.slug] ?? ['Tidy the build']
+    let used = 0
+    for (const day of project.days) {
+      const outcomes: DecidedChange['outcome'][] = [
+        ...Array<DecidedChange['outcome']>(day.mergedByItself).fill('merged-by-itself'),
+        ...Array<DecidedChange['outcome']>(day.mergedByYou).fill('merged-by-you'),
+        ...Array<DecidedChange['outcome']>(day.declined).fill('declined'),
+      ]
+      const [year, month, date] = day.day.split('-').map(Number) as [number, number, number]
+      outcomes.forEach((outcome, index) => {
+        const item = hexOf(`${project.slug}:${day.day}:${index}`, 6)
+        const at = Math.min(now, new Date(year, month - 1, date, 9 + ((index * 3 + used) % 9), (index * 17) % 60).getTime())
+        decided.push({
+          slug: project.slug,
+          item,
+          title: titles[used % titles.length]!,
+          at: new Date(at).toISOString(),
+          outcome,
+          sentBack: index < day.firstPass ? 0 : 1 + (index % 2),
+          ...(outcome === 'declined' ? {} : { head: hexOf(item, 7) }),
+        })
+        used += 1
+      })
+    }
+  }
+  return decided.toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 500)
 }
 
 export function sampleWork(now = Date.now()): WorkState {

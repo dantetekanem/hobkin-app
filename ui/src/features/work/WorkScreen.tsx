@@ -18,6 +18,7 @@ import { cn } from '@/lib/utils.ts'
 import { Discovery } from './Discovery.tsx'
 import { groupReviews, reviewCounts, type ReviewGroup } from './ai-reviews.ts'
 import { AiReviews } from './AiReviews.tsx'
+import { DecidedPanel } from './DecidedPanel.tsx'
 import { DelegationMap } from './DelegationMap.tsx'
 import { FinishedSection } from './Finished.tsx'
 import { PageTabs, TabCount } from './PageTabs.tsx'
@@ -68,6 +69,8 @@ export function WorkScreen() {
   const variants = useMemo(() => rowVariants(still), [still])
   const tab = useWorkTab((state) => state.tab)
   const chooseTab = useWorkTab((state) => state.choose)
+  // The changes behind a chart of the Numbers tab, open over the page, which waits under it.
+  const listing = useWorkTab((state) => (state.tab === 'numbers' ? state.listing : null))
   // Which way the page came along the menu's second row: later pages from the right, earlier from the left.
   const shown = useRef(tab)
   const way = shown.current === tab ? 0 : TABS.indexOf(tab) > TABS.indexOf(shown.current) ? 1 : -1
@@ -85,6 +88,7 @@ export function WorkScreen() {
   const keyboard = useRef({ held: false, at: 0 })
   // Discovery slides over the screen: the main stops wait under it, and its trigger gets the keyboard back.
   const [discovering, setDiscovering] = useState(false)
+  const covered = discovering || listing !== null
   const trigger = useRef<HTMLButtonElement | null>(null)
   const closeDiscovery = () => {
     setDiscovering(false)
@@ -102,7 +106,7 @@ export function WorkScreen() {
   }
   const keepKeyboard = () => {
     requestAnimationFrame(() => {
-      if (discovering) return
+      if (covered) return
       const active = document.activeElement
       if (!keyboard.current.held || (active && active !== document.body)) return
       const all = stops()
@@ -153,7 +157,7 @@ export function WorkScreen() {
 
   return (
     <div ref={root} onKeyDownCapture={onKeyDownCapture} onFocus={onFocus} onBlur={onBlur} className="relative h-full overflow-hidden">
-      <div ref={main} inert={discovering} className={`${SCREEN_SCROLLER} pb-20`}>
+      <div ref={main} inert={covered} className={`${SCREEN_SCROLLER} pb-20`}>
       <div className={`flex flex-col gap-10 ${SCREEN_COLUMN}`}>
         <Hero>
           <Header work={work} live={live} working={agents.length} tiles={tiles} onOpenWorld={worldAvailable ? openWorld : undefined} />
@@ -211,6 +215,7 @@ export function WorkScreen() {
       </div>
       </div>
       <AnimatePresence>{discovering && work ? <Discovery work={work} live={live} variants={variants} onClose={closeDiscovery} /> : null}</AnimatePresence>
+      <AnimatePresence>{listing ? <DecidedPanel key="decided" listing={listing} /> : null}</AnimatePresence>
     </div>
   )
 }
