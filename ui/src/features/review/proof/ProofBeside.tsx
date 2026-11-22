@@ -108,9 +108,8 @@ export function ProofBeside({ canvas, room, root, keys }: {
     ;(control ?? review).focus({ preventScroll: true })
   }, [proof, root])
 
-  const shownWidth = covers ? Math.max(0, Math.round(room)) : width
   // The frame's menu floats over the middle of the top: where it lies over the proof, the proof starts under it.
-  const under = canvas - shownWidth < canvas / 2 + MENU.width / 2 + MENU.gap
+  const place = proofBox(canvas, room)
 
   return (
     <AnimatePresence>
@@ -119,8 +118,8 @@ export function ProofBeside({ canvas, room, root, keys }: {
           key="proof"
           ref={box}
           data-rv-proof=""
-          className="absolute top-0 right-0 bottom-0 z-[25] flex flex-col border-l border-border bg-background"
-          style={{ width: shownWidth, paddingTop: under ? MENU.bottom - 14 : 0 }}
+          className={PROOF_BOX}
+          style={proofBoxStyle(place)}
           initial={{ opacity: 0, transform: reduced ? 'translateX(0px)' : 'translateX(24px)' }}
           animate={{ opacity: 1, transform: 'translateX(0px)', transition: { transform: spring.sheet, opacity: tween.enter } }}
           exit={{ opacity: 0, transition: tween.exit }}
@@ -136,6 +135,20 @@ export function ProofBeside({ canvas, room, root, keys }: {
     </AnimatePresence>
   )
 }
+
+/**
+ * Where the proof sits, as `proofRoom` places it at the right of a review `canvas` wide with `room` left of the review's
+ * panel: its width, and whether it starts under the frame's menu, which floats over the middle of the top.
+ */
+export function proofBox(canvas: number, room: number): { width: number; under: boolean } {
+  const { width, covers } = proofRoom(room)
+  const shown = covers ? Math.max(0, Math.round(room)) : width
+  return { width: shown, under: canvas - shown < canvas / 2 + MENU.width / 2 + MENU.gap }
+}
+
+/** The box's look, the same here and in a still render. */
+export const PROOF_BOX = 'absolute top-0 right-0 bottom-0 z-[25] flex flex-col border-l border-border bg-background'
+export const proofBoxStyle = ({ width, under }: { width: number; under: boolean }) => ({ width, paddingTop: under ? MENU.bottom - 14 : 0 })
 
 /** Once the proof is drawn, and each time it opens on another run, it has the keyboard, so its keys work at once. */
 function TakeKeyboard({ box, run }: { box: RefObject<HTMLElement | null>; run: string }) {

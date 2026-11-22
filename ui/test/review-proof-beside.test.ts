@@ -6,7 +6,7 @@ import type { Review } from '#shared/review/types.ts'
 import { layoutOf } from '../src/features/proofs/proof-layout.ts'
 import { escapeReview } from '../src/features/review/entry.ts'
 import { pressKey } from '../src/features/review/keys.ts'
-import { firstToLook, onProofKey, pressProof, PROOF_TABS, proofRoom, proofSiblings } from '../src/features/review/proof/beside.ts'
+import { firstToLook, GRAPH_KEEPS, onProofKey, pressProof, PROOF_TABS, proofRoom, proofSiblings } from '../src/features/review/proof/beside.ts'
 import { createReviewMemory } from '../src/features/review/state/memory.ts'
 import { createSession } from '../src/features/review/state/session.ts'
 import { reviewModelRows } from '../src/features/review/story/node-models.ts'
@@ -126,15 +126,18 @@ test('a proof open beside a review is kept with its place, so coming back from i
   assert.equal(createSession(sample, memory, older).getState().proof, null)
 })
 
-test("the proof sits beside the graph at a fixed width, check and proof side by side from a wide window, and covers the graph, never the review's panel, when there is no room for both", () => {
+test("the proof sits beside the graph at a width set by the room alone, check and proof side by side from a wide window, and covers the graph, never the review's panel, when there is no room for both", () => {
   // Room is what the review's panel and the outline leave at the right.
   const wide = proofRoom(2000)
   assert.equal(wide.covers, false)
   assert.equal(layoutOf(wide.width - 60), 'side', 'its box has room for the check and the proof together')
-  assert.ok(2000 - wide.width >= 420, 'and the graph keeps room beside it')
+  assert.ok(2000 - wide.width >= GRAPH_KEEPS, 'and the graph keeps room beside it')
+  assert.equal(proofRoom(3000).width, wide.width, 'and no wider than that')
 
-  assert.deepEqual(proofRoom(1200), { width: PROOF_TABS, covers: false })
-  assert.equal(layoutOf(PROOF_TABS), 'tabs')
+  // Narrower, the proof takes all but what the graph keeps, as tabs.
+  assert.deepEqual(proofRoom(1200), { width: 1200 - GRAPH_KEEPS, covers: false })
+  assert.equal(layoutOf(1200 - GRAPH_KEEPS - 40), 'tabs')
+  assert.deepEqual(proofRoom(PROOF_TABS + GRAPH_KEEPS), { width: PROOF_TABS, covers: false })
   // Too narrow for both: it takes all the room the review's panel leaves, and no more.
   assert.deepEqual(proofRoom(800), { width: 800, covers: true })
   // The same room always gives the same width, so nothing moves while its code loads.

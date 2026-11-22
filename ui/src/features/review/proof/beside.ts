@@ -66,7 +66,7 @@ export function pressProof(session: ProofHolder, rows: readonly Row[], shift: bo
 
 /** The panel's width with the check and the proof side by side: 1,100 pixels of content, its padding and a scroll bar. */
 export const PROOF_SIDE = SIDE_BY_SIDE_PX + 60
-/** Its width as tabs, beside a graph of middling room. */
+/** The least it takes beside the graph, as tabs. */
 export const PROOF_TABS = 600
 /** The least of the graph that stays beside the panel. With less, the panel covers the graph instead. */
 export const GRAPH_KEEPS = 420
@@ -79,13 +79,12 @@ export interface ProofRoom {
 
 /**
  * The room the proof takes at the right of the review, from `room`, what the review's panel and the outline leave of
- * the canvas. Beside the graph it takes a fixed width, so nothing moves while its code loads: the check and the proof
- * side by side when there is room for that and the graph, else tabs. With no room for both it covers the graph, and
- * never the review's panel, where the verdict is.
+ * the canvas. Beside the graph it takes all but what the graph keeps, up to the width that shows the check and the proof
+ * side by side, and its width follows the room alone, so nothing moves while its code loads. With no room for both it
+ * covers the graph, and never the review's panel, where the verdict is.
  */
 export function proofRoom(room: number): ProofRoom {
   const width = Math.max(0, Math.round(room))
-  if (width >= PROOF_SIDE + GRAPH_KEEPS) return { width: PROOF_SIDE, covers: false }
-  if (width >= PROOF_TABS + GRAPH_KEEPS) return { width: PROOF_TABS, covers: false }
-  return { width, covers: true }
+  const beside = Math.min(PROOF_SIDE, width - GRAPH_KEEPS)
+  return beside >= PROOF_TABS ? { width: beside, covers: false } : { width, covers: true }
 }
