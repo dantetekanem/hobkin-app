@@ -1,8 +1,10 @@
 import { Play } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { useMemo, useState, type KeyboardEvent, type Ref } from 'react'
+import { useMemo, useState, type KeyboardEvent, type MouseEvent, type Ref } from 'react'
 import { useStill } from '@/app/still.ts'
+import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { rowLayout } from '@/features/reports/list-motion.ts'
 import { useNow } from '@/features/chat/use-now.ts'
@@ -13,6 +15,7 @@ import { cn } from '@/lib/utils.ts'
 import { discoverableProjects, trackedProjects } from './projects.ts'
 import { GradeChip, IssueLink, PullLink, SaidLine, SectionHeading, Segmented } from './parts.tsx'
 import { outsidePaused, queueInSight, SHOWN_SHUT, startNowLine } from './queue-rows.ts'
+import { clickPressesRow } from './row-press.ts'
 import { runWork, useWorkUi, type Said } from './store.ts'
 
 /**
@@ -127,6 +130,10 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
     event.preventDefault()
     if (!busy) primary()
   }
+  // A click selects the row: it takes the keyboard, so Enter, Left and Right act on it next (053).
+  const onClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (clickPressesRow(event)) event.currentTarget.focus({ preventScroll: true })
+  }
 
   const words = row.skipped ? 'skipped' : row.waiting ? `waiting: ${row.waiting}` : row.why
   const cost = row.tokens ? `~${tokens.format(row.tokens).toLowerCase()}` : null
@@ -142,9 +149,11 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
         role="group"
         aria-label={`${row.grade ?? ''} ${row.project}: ${row.title}. ${words ?? ''}. Enter ${row.skipped ? 'puts it back' : 'runs it next'}.`}
         onKeyDown={onKeyDown}
+        onClick={onClick}
         className={cn(
-          'group flex min-h-12 scroll-mt-[124px] scroll-mb-6 items-center gap-3 rounded-2xl px-3 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease]',
-          'hover:bg-tone-1 focus-visible:bg-surface-2',
+          'pressable group flex min-h-12 scroll-mt-[124px] scroll-mb-6 items-center gap-3 rounded-2xl px-3 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease]',
+          // Selected by a click as by the keyboard, so the row shows it has the keyboard either way.
+          'focus:bg-surface-2',
           row.skipped && 'text-muted-foreground',
         )}
       >
@@ -336,10 +345,31 @@ function ProjectItem({ project, live, variants, order }: { project: WorkProject;
   const busy = useWorkUi((state) => Boolean(state.busy[project.slug]))
   const said = useWorkUi((state) => state.said[project.slug])
   const place = { live, place: project.slug }
+  // The row opens the project's page, on a click and on Enter (053). Its switch and choices keep to themselves.
+  const open = () => useView.getState().openProject(project.slug)
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || event.key !== 'Enter') return
+    event.preventDefault()
+    open()
+  }
+  const onClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (clickPressesRow(event)) open()
+  }
 
   return (
     <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
-      <div data-world-project={project.slug} data-stop="" data-work-item="" data-work-main="" tabIndex={-1} role="group" aria-label={`${project.name} project controls`} className="flex scroll-mt-[124px] flex-wrap items-center gap-x-6 gap-y-3 rounded-3xl bg-background px-5 py-4 outline-offset-2">
+      <div
+        data-world-project={project.slug}
+        data-stop=""
+        data-work-item=""
+        data-work-main=""
+        tabIndex={-1}
+        role="group"
+        aria-label={`${project.name}. A click or Enter opens its page.`}
+        onKeyDown={onKeyDown}
+        onClick={onClick}
+        className="pressable flex scroll-mt-[124px] flex-wrap items-center gap-x-6 gap-y-3 rounded-3xl bg-background px-5 py-4 outline-offset-2"
+      >
         {/* Work mode on this project alone. Off, its running agents finish and nothing new starts there; the rest of work mode carries on. */}
         <Switch
           aria-label={`Work mode on ${project.name}`}
@@ -390,6 +420,7 @@ function ProjectItem({ project, live, variants, order }: { project: WorkProject;
             />
           </div>
         </div>
+        <OpenArrow className="ml-auto" />
       </div>
       {said?.tone === 'refused' ? (
         <SaidLine tone="refused" className="px-5 pt-1.5">

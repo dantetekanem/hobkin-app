@@ -1,10 +1,11 @@
 import { ExternalLink, GitMerge, Waypoints } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button, buttonVariants } from '@/components/ui/button.tsx'
+import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { CLOSE_CONFIRM_MS, createIssueClose } from '@/features/github/issue-close.ts'
 import { openOnGitHub } from '@/features/github/open.ts'
@@ -19,6 +20,7 @@ import { endAtWord, needsFirst } from './finished-cards.ts'
 import { GradeChip, IssueLink, PullLink, ReviewBadge, SaidLine, SectionHeading } from './parts.tsx'
 import { ProofCheckLine, ProofChips } from '@/features/proofs/ProofChips.tsx'
 import { saysHigh } from './review-badge.ts'
+import { clickPressesRow } from './row-press.ts'
 import { underWay } from './review-follow.ts'
 import { sampleAssessmentOf } from './sample-reviews.ts'
 import { runWork, useWorkUi, type Said } from './store.ts'
@@ -116,7 +118,8 @@ function MergingItem({ row, variants, order }: { row: MergingRow; variants: Vari
         tabIndex={-1}
         role="group"
         aria-label={`${row.project}: ${row.title}. ${line}`}
-        className="flex min-h-12 scroll-mt-[124px] scroll-mb-6 items-center gap-3 rounded-2xl px-3 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 focus-visible:bg-surface-2"
+        // A click does nothing here, so nothing changes under the pointer (053). The keyboard still shows where it is.
+        className="flex min-h-12 scroll-mt-[124px] scroll-mb-6 items-center gap-3 rounded-2xl px-3 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-surface-2"
       >
         <span className="flex w-7 shrink-0 justify-center text-muted-foreground">
           <GitMerge aria-hidden="true" className="size-4" />
@@ -378,6 +381,10 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
     event.preventDefault()
     review()
   }
+  // A click on the card does what Enter does (053). One on its choices, links and chips is theirs.
+  const onClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (clickPressesRow(event)) review()
+  }
 
   // A choice under way keeps the keyboard where it is: a plain disabled button would drop it.
   const control = { tabIndex: -1, 'data-row-control': '', size: 'sm' as const, disabled: busy, focusableWhenDisabled: true }
@@ -391,9 +398,10 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
         data-change={change.key}
         tabIndex={-1}
         role="group"
-        aria-label={`${change.project}: ${change.title}. ${change.reason} Enter opens it in Review.`}
+        aria-label={`${change.project}: ${change.title}. ${change.reason} A click or Enter opens it in Review.`}
         onKeyDown={onKeyDown}
-        className="flex scroll-mt-[124px] scroll-mb-6 flex-col gap-2.5 rounded-3xl bg-background p-5 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2"
+        onClick={onClick}
+        className={cn('flex scroll-mt-[124px] scroll-mb-6 flex-col gap-2.5 rounded-3xl bg-background p-5 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2', reviewId && 'pressable')}
       >
         <div className="flex items-start gap-3">
           <span className="mt-[3px] w-7 shrink-0">
@@ -410,6 +418,7 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
                 <h4 className="mt-0.5 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{change.title}</h4>
               </div>
               <ReviewBadge status={assessment} size="md" />
+              {reviewId ? <OpenArrow className="mt-1.5" /> : null}
             </div>
             {/* What hobkin's own model checks found for its item, each opening its run (050-tla-proofs). */}
             <div className="mt-2 empty:hidden">

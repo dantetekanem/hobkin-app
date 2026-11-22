@@ -1,3 +1,4 @@
+import { ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
@@ -7,6 +8,7 @@ import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { cn } from '@/lib/utils.ts'
 import { sameFields, sameLists } from '@/lib/host/frame.ts'
 import { hostStore, useHost, useHostEqual } from '@/lib/host/index.ts'
@@ -247,10 +249,14 @@ function OwnedExecutionControls() {
   const epoch = useHost(state => state.epoch)
   const state = useExecution()
   const rows = executionFeedbackRows(targets, state.results)
-  return <details className="rounded-xl border border-border p-3 text-sm">
-    <summary>Owned execution controls ({targets.length})</summary>
+  return <details className="group/owned rounded-2xl bg-background text-[13px]">
+    <summary className="pressable flex h-10 list-none items-center gap-2 rounded-2xl px-4 font-heading text-[12.5px] font-medium text-muted-foreground outline-offset-[-2px] [&::-webkit-details-marker]:hidden">
+      <ChevronRight aria-hidden="true" className="size-3.5 transition-transform duration-[160ms] group-open/owned:rotate-90" />
+      Owned execution controls
+      <span className="tabular-nums">{targets.length}</span>
+    </summary>
     {rows.length ? (
-      <ul>
+      <ul className="flex flex-col gap-1 px-4 pb-3">
         {rows.map(({ target, active, result }) => (
           <OwnedExecutionRow
             key={executionKey(target)}
@@ -293,25 +299,33 @@ function OwnedExecutionRow({ target, source, active, result, pending }: { target
     setQuestion(null)
     opener.current?.focus()
   }
-  return <li className="my-3" aria-label={`${target.label}, ${target.agentId ?? target.runId}, root ${target.rootId}`}>
-    <p>{target.label} · {target.agentId ?? target.runId} · root {target.rootId} · parent {target.parentId ?? 'none'}</p>
-    {active ? (
-      (['stop', 'force'] as const).map((mode) => (
-        <button
-          key={mode}
-          type="button"
-          className="mr-3 underline disabled:opacity-40"
-          disabled={!(mode === 'force' ? target.canForce : target.canStop) || pending[executionKey(target, mode)]}
-          onClick={(event) => ask(mode, event.currentTarget)}
-        >
-          {mode === 'force' ? 'Force Stop' : 'Stop Agent'}
-        </button>
-      ))
-    ) : null}
+  return <li className="flex flex-col gap-1.5 border-t border-border/60 py-2.5 first:border-t-0" aria-label={`${target.label}, ${target.agentId ?? target.runId}, root ${target.rootId}`}>
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+      <p className="min-w-0 flex-1 truncate text-[12.5px] text-muted-foreground">
+        <span className="font-medium text-foreground">{target.label}</span> · {target.agentId ?? target.runId} · root {target.rootId} · parent {target.parentId ?? 'none'}
+      </p>
+      {active ? (
+        <span className="flex shrink-0 items-center gap-1">
+          {(['stop', 'force'] as const).map((mode) => (
+            <Button
+              key={mode}
+              variant={mode === 'force' ? 'ghost' : 'outline'}
+              size="sm"
+              className={mode === 'force' ? 'text-bad-fg' : undefined}
+              disabled={!(mode === 'force' ? target.canForce : target.canStop) || pending[executionKey(target, mode)]}
+              onClick={(event) => ask(mode, event.currentTarget)}
+            >
+              {mode === 'force' ? 'Force Stop' : 'Stop Agent'}
+            </Button>
+          ))}
+        </span>
+      ) : null}
+    </div>
     {active && question ? (
       <div
         role="group"
         aria-label={`Confirm ${question.mode} ${target.label}`}
+        className="flex flex-wrap items-center gap-2 rounded-xl bg-tone-1 px-3 py-2"
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
             event.stopPropagation()
@@ -319,16 +333,16 @@ function OwnedExecutionRow({ target, source, active, result, pending }: { target
           }
         }}
       >
-        <p>{question.mode === 'force' ? 'Force Stop' : 'Stop'} this exact execution? Detached cleanup remains unknown.</p>
-        <button ref={first} type="button" onClick={() => answer(false)}>
+        <p className="min-w-0 flex-1 text-[12.5px]">{question.mode === 'force' ? 'Force Stop' : 'Stop'} this exact execution? Detached cleanup remains unknown.</p>
+        <Button ref={first} variant="ghost" size="sm" onClick={() => answer(false)}>
           Cancel
-        </button>
-        <button type="button" className="ml-3" onClick={() => answer(true)}>
+        </Button>
+        <Button variant="destructive" size="sm" onClick={() => answer(true)}>
           Confirm {question.mode}
-        </button>
+        </Button>
       </div>
     ) : null}
-    {result ? <p role="status">{result.text}</p> : null}
+    {result ? <p role="status" className="text-[12.5px] text-muted-foreground">{result.text}</p> : null}
   </li>
 }
 
@@ -466,7 +480,7 @@ function AgentNode({ agent, y, left, still, helpers, onStop }: { agent: RunningA
             data-agent-node={agent.id}
             onClick={open}
             aria-label={`${said}${summary ? ` ${summary}.` : ''} Opens its canvas.`}
-            className="flex h-full min-w-0 flex-1 scroll-mt-[124px] scroll-mb-6 items-center gap-3 rounded-[14px] pl-3 text-left outline-offset-[-2px]"
+            className="pressable flex h-full min-w-0 flex-1 scroll-mt-[124px] scroll-mb-6 items-center gap-3 rounded-[14px] pr-2 pl-3 text-left outline-offset-[-2px]"
           >
             <span className="grid w-8 shrink-0 place-items-center">
               <AgentHood hue={agent.hue} size={26} mood={agent.mood} asking={Boolean(agent.asks)} />
@@ -476,6 +490,7 @@ function AgentNode({ agent, y, left, still, helpers, onStop }: { agent: RunningA
               <span className="mt-0.5 block truncate text-[12px] text-muted-foreground">{agent.asks ?? `${agent.project} · ${agent.doing}`}</span>
             </span>
             <span className="shrink-0 rounded-full border border-border px-1.5 text-[10.5px] leading-4 font-medium text-muted-foreground">{agent.tier}</span>
+            <OpenArrow className="size-3.5" />
           </button>
           <Button
             variant="ghost"
@@ -483,7 +498,8 @@ function AgentNode({ agent, y, left, still, helpers, onStop }: { agent: RunningA
             tabIndex={-1}
             data-row-control=""
             onClick={onStop}
-            className="shrink-0 text-muted-foreground opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100"
+            // Always there, so the pointer finds it where the keyboard does, and nothing shows only under the pointer (053).
+            className="shrink-0 text-muted-foreground"
           >
             Stop
           </Button>
