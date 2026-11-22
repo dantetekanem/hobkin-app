@@ -36,7 +36,7 @@ import { useReviewList } from './use-review-list.ts'
 import { bindWorkTarget } from './work-target.ts'
 import { yoloAtAGlance } from './yolo-page.ts'
 import { WorkTiles } from './WorkTiles.tsx'
-import { needsYouNow, reviewTallyOf, waitingNow } from './work-tiles.ts'
+import { needsYouNow, oldestAtOf, reviewTallyOf, waitingNow } from './work-tiles.ts'
 
 const TABS = ['work', 'reviews', 'numbers'] as const
 
@@ -85,7 +85,7 @@ export function WorkScreen() {
   const counts = reviewCounts(groupReviews(reviews.list))
   const tally = useMemo(() => reviewTallyOf(reviews.list), [reviews.list])
   // The six tiles under the header (053): what waits, merged today, first pass, by itself, AI reviews, today's tokens.
-  const tiles = <WorkTiles waiting={work ? waitingNow(work) : null} needsYou={work ? needsYouNow(work) : null} tokensToday={work?.tokensToday ?? null} dailyTokens={work?.dailyTokens ?? null} reviews={tally} />
+  const tiles = <WorkTiles waiting={work ? waitingNow(work) : null} needsYou={work ? needsYouNow(work) : null} oldestAt={work ? oldestAtOf(work) : null} tokensToday={work?.tokensToday ?? null} dailyTokens={work?.dailyTokens ?? null} reviews={tally} />
 
   // Where the keyboard is in the screen, so it stays when what had it leaves: a merged card, a skipped row.
   const keyboard = useRef({ held: false, at: 0 })

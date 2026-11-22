@@ -418,8 +418,21 @@ export function samplePlan(work: WorkState, now = Date.now()): Pick<WorkState, '
   return { holding: null, outlook: { startedToday: SAMPLE_STARTED, moreToday, nextAt: new Date(now + 20 * 60_000).toISOString() } }
 }
 
+/** How long ago hobkin last wrote each sample change's item, in hours: the oldest needs the user and has waited a day. */
+const WRITTEN_HOURS_AGO: Record<string, number> = {
+  'storefront:d2c4e8': 26,
+  'docs-site:a7f3b9': 9,
+  'billing-api:0f6a3b': 5,
+  'storefront:f41c07': 3,
+  'billing-api:5e7c21': 2,
+  'storefront:4c9e21': 1.5,
+  'storefront:8d2f60': 0.7,
+}
+
 export function sampleWork(now = Date.now()): WorkState {
-  const work = sampleState(now)
+  const made = sampleState(now)
+  const written = (change: FinishedChange): FinishedChange => ({ ...change, at: new Date(now - (WRITTEN_HOURS_AGO[change.key] ?? 1) * HOUR_MS).toISOString() })
+  const work = { ...made, finished: made.finished.map((group) => ({ ...group, changes: group.changes.map(written) })) }
   return { ...work, ...samplePlan(work, now) }
 }
 

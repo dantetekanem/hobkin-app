@@ -4,7 +4,7 @@ import { NO_DATA, type Tile } from '../src/features/numbers/format.ts'
 import { sampleMetrics } from '../src/features/numbers/sample-metrics.ts'
 import { SAMPLE_REVIEW_LIST } from '../src/features/work/sample-reviews.ts'
 import { sampleWork } from '../src/features/work/sample.ts'
-import { reviewTallyOf, tileOpens, tilesInputOf, tilesOf, waitingNow, workNowOf } from '../src/features/work/work-tiles.ts'
+import { oldestAtOf, reviewTallyOf, tileOpens, tilesInputOf, tilesOf, waitingNow, workNowOf } from '../src/features/work/work-tiles.ts'
 
 const TODAY = new Date(2026, 10, 21, 15, 30)
 const NOW = TODAY.getTime()
@@ -13,7 +13,7 @@ const byKey = (tiles: readonly Tile[]) => Object.fromEntries(tiles.map((tile) =>
 test("the six tiles read what waits, the AI reviews and today's tokens from Work, and the rest from the numbers", () => {
   const work = sampleWork(NOW)
   const now = workNowOf(work)
-  const tiles = tilesOf(tilesInputOf(now, { running: 2, ready: 4, failed: 1 }, sampleMetrics(30, TODAY)), 'sample', now.needsYou)
+  const tiles = tilesOf(tilesInputOf(now, { running: 2, ready: 4, failed: 1 }, sampleMetrics(30, TODAY), NOW), 'sample', now.needsYou)
   assert.deepEqual(
     tiles.map((tile) => tile.key),
     ['waiting', 'merged', 'first-pass', 'by-itself', 'ai-reviews', 'tokens'],
@@ -22,13 +22,31 @@ test("the six tiles read what waits, the AI reviews and today's tokens from Work
   // Every finished change waits for the user's yes or no, whatever its group: 3 ready, 1 to refresh, 2 that need them, 1 left a note.
   assert.equal(waitingNow(work), 7)
   assert.equal(tile.waiting!.figure, '7')
-  // No time a change finished at is known, so the line says how many wait on the user alone: 2 that need them, 1 left a note.
-  assert.equal(tile.waiting!.context, '3 need you first')
+  // The sample's oldest finished change was last written 26 hours ago.
+  assert.equal(tile.waiting!.context, 'oldest 26 h')
   assert.deepEqual([tile.merged!.figure, tile.merged!.context], ['7', '4 by itself'])
   assert.deepEqual([tile['ai-reviews']!.figure, tile['ai-reviews']!.after, tile['ai-reviews']!.context], ['2', 'running', '4 ready · 1 failed'])
   assert.deepEqual([tile.tokens!.figure, tile.tokens!.after], ['38M', 'of 100M'])
   assert.notEqual(tile['first-pass']!.figure, NO_DATA)
   for (const one of tiles) assert.equal(one.series.length, 30, one.key)
+})
+
+test('the waiting tile says how long the oldest has waited when every change says when hobkin last wrote it, and how many need the user when one does not', () => {
+  const work = sampleWork(NOW)
+  assert.equal(oldestAtOf(work), NOW - 26 * 3_600_000)
+  const waitingTile = (state: typeof work) => {
+    const now = workNowOf(state)
+    return tilesOf(tilesInputOf(now, null, null, NOW), 'sample', now.needsYou)[0]!
+  }
+  assert.equal(waitingTile(work).context, 'oldest 26 h')
+
+  // One change with no time, as from a host older than it: how old the oldest is is not known.
+  const [first, ...rest] = work.finished
+  const { at: _gone, ...untimed } = first!.changes[0]!
+  const partly = { ...work, finished: [{ ...first!, changes: [untimed, ...first!.changes.slice(1)] }, ...rest] }
+  assert.equal(oldestAtOf(partly), null)
+  assert.equal(waitingTile(partly).context, '3 need you first')
+  assert.equal(oldestAtOf({ ...work, finished: [] }), null)
 })
 
 test('with a host older than the numbers, the tiles keep their boxes and say so, and what Work knows still shows', () => {
