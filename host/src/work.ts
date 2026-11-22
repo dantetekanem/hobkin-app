@@ -95,6 +95,8 @@ interface ReadyRow {
   unread?: string | null
   /** The TLA+ models that cover it, and what hobkin's own runs at its head say of each. */
   models?: ModelFact[]
+  /** When hobkin last wrote its item: its `updatedAt`. */
+  at?: string | null
 }
 
 /** A row of hobkin's queue (`planRow` in its `src/cli/work/commands.mjs`). */
@@ -359,6 +361,7 @@ export function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
     scores: scoreLine(entry),
     ...(entry.models ? { models: entry.models } : {}),
     proofCheck: proofCheckOf(entry),
+    ...(entry.at ? { at: entry.at } : {}),
     size,
     behind: entry.behind ?? 0,
     conflict: entry.conflict ?? null,

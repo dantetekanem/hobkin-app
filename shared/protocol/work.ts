@@ -170,6 +170,12 @@ export interface FinishedChange {
   models?: ModelFact[]
   /** When hobkin's own model checks at its head wrote the proof score's evidence, rather than the review: that line, and the run it names. */
   proofCheck?: { line: string; run: string } | null
+  /**
+   * When hobkin last wrote its item, as an ISO time (the item's `updatedAt`, which hobkin sends as its ready row's `at`). That is when it finished
+   * unless hobkin wrote to it since, such as a review's scores, the user's note or a refresh, so it can be later than the finish. Missing for an
+   * item hobkin never updated, and from an older host.
+   */
+  at?: string
 }
 
 /**

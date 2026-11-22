@@ -92,6 +92,13 @@ const branches = [
   change('billing-api', 'f6f6f6', 'Patch the webhook retry', { grade: 'P0' }),
 ]
 
+test("a finished change carries when hobkin last wrote its item, as the ready row has it, and none from a row without one", () => {
+  const work = workFrom({ work: status(), waiting: { branches: [change('storefront', 'a1a1a1', 'Fix the login redirect loop'), change('billing-api', 'b2b2b2', 'Round invoices once', { at: null })] } })!
+  const cards = work.finished.flatMap(({ changes }) => changes)
+  assert.equal(cards.find(({ key }) => key === 'storefront:a1a1a1')!.at, '2026-11-10T08:00:00.000Z')
+  assert.equal('at' in cards.find(({ key }) => key === 'billing-api:b2b2b2')!, false)
+})
+
 test('finished changes keep hobkin\'s groups and reasons', () => {
   const work = workFrom({ work: status(), waiting: { branches } })
   assert.ok(work)
