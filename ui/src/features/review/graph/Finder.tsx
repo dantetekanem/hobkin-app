@@ -35,8 +35,8 @@ function FinderBox() {
   const field = useRef<HTMLInputElement>(null)
   const hits = useMemo(() => findNodes(nodes, query, 8), [nodes, query])
   const chosen = hits[Math.min(active, hits.length - 1)]
-  // It stays in the middle of what the steps panel leaves uncovered, under the frame's menu.
-  const place = useTransform(() => `translateX(${rig.side.get() / 2}px)`)
+  // It stays in the middle of what the steps panel and the outline leave uncovered, under the frame's menu.
+  const place = useTransform(() => `translateX(${(rig.side.get() + rig.outline.get()) / 2}px)`)
 
   useLayoutEffect(() => field.current?.focus({ preventScroll: true }), [])
   // The node the keyboard is on lights up in the graph, with its wires and neighbors: a folded test, its card.

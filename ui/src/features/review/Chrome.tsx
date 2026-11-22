@@ -88,7 +88,7 @@ export function Dock({ room, ask, units }: { room: number; ask: AskCommand | nul
   const moved = useReviewMemory((memory) => Object.keys(memory.of(review).positions).length > 0)
   const story = useSession((session) => session.mode === 'story')
   // One transform on one element carries everything here above the code panel and clear of the steps panel.
-  const lift = useTransform(() => `translateX(${rig.side.get() / 2}px) translateY(${-rig.panel.get()}px)`)
+  const lift = useTransform(() => `translateX(${(rig.side.get() + rig.outline.get()) / 2}px) translateY(${-rig.panel.get()}px)`)
 
   return (
     <motion.div className="pointer-events-none absolute inset-x-0 bottom-0 z-10" style={{ transform: lift }}>

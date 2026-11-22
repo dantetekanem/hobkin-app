@@ -41,6 +41,7 @@ import { memoryKey } from './state/memory.ts'
 import { followCursor, shownPlaces } from './state/cursor.ts'
 import { createSession } from './state/session.ts'
 import type { Size } from './story/camera.ts'
+import { Outline, OUTLINE_ROOM } from './outline/Outline.tsx'
 import { StoryLayer } from './story/StoryLayer.tsx'
 import { useCamera } from './story/useCamera.ts'
 import { afterVerdict, verdictKind, type VerdictCommands } from './verdict.ts'
@@ -239,6 +240,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close, verdict
   const [windowHeight, setWindowHeight] = useState(() => innerHeight)
   const codeOpen = useStore(session, (state) => state.code != null)
   const stepsOpen = useStore(session, (state) => state.panelOpen)
+  const outlineOpen = useStore(session, (state) => state.outline)
   const share = useReviewMemory((memory) => memory.panelShare) ?? PANEL_SHARE.initial
   // The panel takes a share of the window's height, 30% until the reviewer drags it.
   const panelHeight = codeOpen ? Math.round(clampShare(share) * windowHeight) : 0
@@ -377,9 +379,10 @@ const Stage = memo(function Stage({ review, source, loader, live, close, verdict
               <Graph />
             </div>
             <StoryLayer canvas={canvas} panelHeight={panelHeight} units={assessment?.units?.units} ask={ask} />
+            <Outline panelHeight={panelHeight} />
             <WireCard />
             <Finder />
-            <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP)} ask={ask} units={assessment?.units?.units} />
+            <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP) - (outlineOpen ? OUTLINE_ROOM : 0)} ask={ask} units={assessment?.units?.units} />
             <Panel canvas={canvas} loader={loader} live={live} close={close} verdict={verdict} ask={ask} landed={landed} />
             <CodePanel height={panelHeight} windowHeight={windowHeight} units={assessment?.units?.units} ask={ask} />
             {shortcuts ? (

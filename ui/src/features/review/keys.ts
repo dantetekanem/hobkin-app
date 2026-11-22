@@ -88,6 +88,10 @@ function panelKeys(session: Session, key: string, effects: KeyEffects): boolean 
     case 't':
     case 'T':
       return effects.openModelRun(), true
+    // L for the outline at the left: every unit and file, the folded ones too (spec 053).
+    case 'l':
+    case 'L':
+      return session.toggleOutline(), true
     // Z marks what the reviewer is on as seen, and again takes the mark off (spec 053). S, which the spec names, is the
     // steps panel's; Z is the free key beside it.
     case 'z':

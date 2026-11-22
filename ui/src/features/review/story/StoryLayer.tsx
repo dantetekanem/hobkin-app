@@ -6,6 +6,7 @@ import { boundsOf, nodeRect, type Point, type Rect } from '#shared/review/layout
 import { spring, tween } from '@/lib/motion.ts'
 import { wireCurve } from '../graph/wire-path.ts'
 import type { AskCommand } from '../panel/ask.ts'
+import { OUTLINE_ROOM } from '../outline/Outline.tsx'
 import { STEPS_STRIP, stepsPanelWidth } from '../panel/StepsPanel.tsx'
 import { useAskHobkin } from '../panel/use-ask.ts'
 import { unitInFocus } from '../reading/model.ts'
@@ -80,8 +81,9 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
   const panelOpen = useSession((session) => session.panelOpen)
   const code = useSession((session) => session.code)
   const codeOpen = code != null
-  // The steps panel covers the left of the canvas by as much of it as is on screen.
-  const side = panelOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP
+  const outline = useSession((session) => session.outline)
+  // The steps panel covers the left of the canvas by as much of it as is on screen, and the outline beside it when open.
+  const side = (panelOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP) + (outline ? OUTLINE_ROOM : 0)
   const area = rig.area(panelHeight, side)
 
   const content = useMemo<CardContent | null>(() => {
@@ -365,7 +367,7 @@ function Card({ placement, children }: { placement: Placement; children: ReactNo
 function BackPill({ show, step, onBack }: { show: boolean; step: number; onBack: () => void }) {
   const rig = useRig()
   // Above the step pager, in the middle of what the steps panel leaves uncovered.
-  const lift = useTransform(() => `translateX(calc(-50% + ${rig.side.get() / 2}px)) translateY(${-rig.panel.get()}px)`)
+  const lift = useTransform(() => `translateX(calc(-50% + ${(rig.side.get() + rig.outline.get()) / 2}px)) translateY(${-rig.panel.get()}px)`)
   return (
     <AnimatePresence>
       {show ? (

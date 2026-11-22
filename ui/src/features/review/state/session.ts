@@ -81,6 +81,8 @@ export interface Session {
    * opened, or Z marked them. Kept in the review's memory for each commit.
    */
   seen: ReadonlySet<string>
+  /** The outline is open at the left (`outline/Outline.tsx`). A review in Focus opens with it open, any other without. */
+  outline: boolean
 
   step(delta: number): void
   goTo(index: number): void
@@ -160,6 +162,8 @@ export interface Session {
    * pointed at, else the focus. A group card, or a card of tests, stands for every node it holds. False when nothing is.
    */
   toggleSeen(nodeId?: string): boolean
+  /** L: opens the outline, or closes it. */
+  toggleOutline(): void
   /**
    * Chooses Story or Free Roam, and starts it from the beginning, whichever was on: Story at its first step, Free Roam
    * with the whole graph and nothing in focus. The code closes. The choice is remembered for the next review.
@@ -366,6 +370,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
       mode: firstMode,
       fold,
       seen: seenNow(),
+      outline: firstView.plan.active,
 
       step: (delta) => {
         const { story } = get()
@@ -605,6 +610,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         markSeen(ids, !ids.every((id) => seen.has(id)))
         return true
       },
+      toggleOutline: () => set({ outline: !get().outline }),
       toggleGroup: (groupId) => (fold.opened.includes(groupId) ? get().closeGroup(groupId) : get().openGroup(groupId)),
       reach: (nodeId) => {
         const { view } = get()
