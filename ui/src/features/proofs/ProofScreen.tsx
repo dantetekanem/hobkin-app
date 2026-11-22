@@ -1,4 +1,4 @@
-import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStill } from '@/app/still.ts'
 import { useStops } from '@/app/stops.ts'
@@ -7,64 +7,52 @@ import { Hob } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { useViewer } from '@/features/viewer/store.ts'
-import { PageTabs, type PageTab } from '@/features/work/PageTabs.tsx'
 import { useWorkView } from '@/features/work/store.ts'
 import { runCommand, useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
-import { keep, useKept } from './kept.ts'
+import { keep, type ProofTab } from './kept.ts'
+import { focusPart, loadGraphView, ProofBody, useBoxLayout } from './ProofBody.tsx'
+import type { ProofLayout } from './proof-layout.ts'
 import { itemTitle, placeOf, specFile } from './proof-match.ts'
 import './proofs.css'
-import { MathView } from './math/MathView.tsx'
-import { RunView, type ProofTab } from './run/RunView.tsx'
 import { controlOf, phaseOf, type Tone } from './run/run-view.ts'
 import { useProofRun } from './use-proof-run.ts'
 
-const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
-
-// The state graph brings React Flow and dagre, so its code loads when a proof page opens and not at startup.
-const loadGraphView = () => import('./graph/GraphView.tsx')
-const GraphView = lazy(() => loadGraphView().then((module) => ({ default: module.GraphView })))
-
-const TABS: readonly PageTab<ProofTab>[] = [
-  { value: 'run', label: 'Run' },
-  { value: 'graph', label: 'State graph' },
-  { value: 'math', label: 'Math' },
-]
+/** Side by side the page runs wider than the app's other screens, to 1,400 pixels, so the two halves have room. */
+const WIDE_COLUMN = 'px-[max(0px,calc((100%_-_1400px)_/_2))]'
 
 /**
  * A TLA+ proof run, a page of its own (050-tla-proofs), opened from a finished card, an agent's step or the YOLO page:
- * where it belongs and its item's title, how it stands, the one control that stops or runs it again, and its tabs.
+ * where it belongs and its item's title, how it stands, the one control that stops or runs it again, and its views,
+ * side by side where the page has room and tabs where it does not (`ProofBody`).
  * Escape and Back return to where it was opened from. Without a host it shows the sample check.
  */
-export function ProofScreen() {
+export function ProofScreen({ layout: given }: { /** For a still render: the layout to draw, with nothing measured. */ layout?: ProofLayout } = {}) {
   const root = useRef<HTMLDivElement | null>(null)
   useStops(root)
   const id = useView((view) => view.openProof)
   const { run, live, now, problem } = useProofRun(id)
-  const runId = run?.id ?? ''
-  // The tab is kept for the run. It is drawn deferred: should the graph's code still be on its way, the tab shown stays
-  // until it is there.
-  const tab = useDeferredValue(useKept(runId, 'tab'))
+  const layout = useBoxLayout(root, given)
+  const onCode = useCodeOpener(run)
   useEffect(() => {
     void loadGraphView()
   }, [])
-  const choose = (next: ProofTab) => keep(runId, { tab: next })
+  // In tabs a part is its tab; side by side every part shows, and the keyboard goes to it.
+  const showPart = (part: ProofTab) => {
+    if (!run) return
+    if (layout === 'tabs') keep(run.id, { tab: part })
+    focusPart(root.current, part)
+  }
 
   return (
     <div ref={root} className={SCREEN_SCROLLER}>
-      <div className={`${SCREEN_COLUMN} @container flex flex-col gap-5 pb-20`}>
+      <div className={`${layout === 'side' ? WIDE_COLUMN : SCREEN_COLUMN} @container flex flex-col gap-5 pb-20`}>
         {run ? (
           <>
             <Header run={run} live={live} />
-            <PageTabs id="proof" label="Proof run views" tabs={TABS} value={tab} onChoose={choose} />
-            <div role="tabpanel" id={`proof-panel-${tab}`} aria-labelledby={`proof-tab-${tab}`}>
-              {/* The graph's height at its widest, held empty in the one case a transition does not cover. */}
-              <Suspense fallback={<div aria-hidden className="h-[610px]" />}>
-                <Panel key={run.id} tab={tab} run={run} now={now} onTab={choose} />
-              </Suspense>
-            </div>
+            <ProofBody key={run.id} run={run} now={now} layout={layout} tabsId="proof" onPart={showPart} onCode={onCode} />
             {problem ? <p className="text-[12px] text-muted-foreground">Only the latest counts show: {problem}</p> : null}
           </>
         ) : (
@@ -161,23 +149,10 @@ function BackRow() {
   )
 }
 
-/** The chosen tab: the run live, the state graph to walk, or the spec as math and in words. */
-function Panel({ tab, run, now, onTab }: { tab: ProofTab; run: ProofRun; now: number | null; onTab: (tab: ProofTab) => void }) {
-  const onCode = useCodeOpener(run)
-  switch (tab) {
-    case 'run':
-      return <RunView run={run} now={now} zone={ZONE} onTab={onTab} onCode={onCode} />
-    case 'graph':
-      return <GraphView run={run} onCode={onCode} />
-    case 'math':
-      return <MathView run={run} />
-  }
-}
-
 /** Opens an action's code in the app's own viewer, from the folder an agent of the run's item worked in, when hobkin says. */
-function useCodeOpener(run: ProofRun): ((where: string) => void) | null {
+function useCodeOpener(run: ProofRun | null): ((where: string) => void) | null {
   const agents = useHost((state) => state.snapshot.runs)
-  const folder = folderOf(run, agents ?? [])
+  const folder = run ? folderOf(run, agents ?? []) : null
   if (!folder) return null
   return (where) => {
     const path = where.replace(/:\d+$/, '')

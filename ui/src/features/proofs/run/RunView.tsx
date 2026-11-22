@@ -39,6 +39,8 @@ export interface RunViewProps {
   onTab: (tab: Exclude<ProofTab, 'run'>) => void
   /** Opens an action's code, `path:line` in the project. Null while the project's folder is not known here. */
   onCode: ((where: string) => void) | null
+  /** Draws what the run found too. Beside the check and the proof it shows above them instead, as `RunSummary`. */
+  summary?: boolean
 }
 
 const CARD = 'rounded-[20px] border border-border bg-surface'
@@ -50,13 +52,13 @@ const LOG_ROW = 52
  * states come in; what it found, in an area of one height whose buttons never move; what must stay true and which
  * actions ran; and beside them what hobkin is doing and where each action lives in the code.
  */
-export function RunView({ run, now, zone, onTab, onCode }: RunViewProps) {
+export function RunView({ run, now, zone, onTab, onCode, summary = true }: RunViewProps) {
   return (
     <div className="grid grid-cols-1 gap-5 @min-[880px]:grid-cols-[minmax(0,1fr)_320px]">
       {/* Its own container, so its pieces fit the column they have, not the page. */}
       <div className="@container flex min-w-0 flex-col gap-4">
         <Check run={run} now={now} />
-        <ResultArea run={run} onTab={onTab} />
+        {summary ? <ResultArea run={run} onTab={onTab} /> : null}
         <div className="grid grid-cols-1 gap-4 @min-[640px]:grid-cols-2">
           <Rules run={run} />
           <Actions run={run} />
@@ -166,6 +168,11 @@ const RESULT_LOOK: Readonly<Record<Tone, { box: string; icon: string }>> = {
 }
 const RESULT_ICON: Readonly<Record<ResultIcon, LucideIcon>> = { clock: Clock, alert: TriangleAlert, check: CheckIcon, stop: OctagonX }
 
+/** What the run found, on its own: above the check and the proof when they show side by side. */
+export function RunSummary({ run, onTab }: Pick<RunViewProps, 'run' | 'onTab'>) {
+  return <ResultArea run={run} onTab={onTab} />
+}
+
 /**
  * What the run found. One height whatever it says, its title on one line and its words on two, its buttons in place.
  * Where the column is narrow the buttons sit under the words, in a taller area of its own one height.
@@ -210,6 +217,7 @@ function ResultArea({ run, onTab }: { run: ProofRun; onTab: RunViewProps['onTab'
         <div className="col-start-2 flex justify-end gap-2 @min-[760px]/result:col-start-3 @min-[760px]/result:row-start-1">
           <Button
             data-stop=""
+            data-proof-part="run"
             variant={result.primary.strong ? 'default' : 'outline'}
             onClick={() => onTab('graph')}
             className="h-11 rounded-xl px-4 text-[14px]"

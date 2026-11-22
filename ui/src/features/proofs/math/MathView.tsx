@@ -58,7 +58,7 @@ function firstBlock(run: ProofRun): string | null {
  * Picking a block lights the proof's steps about it, and picking a step brings its block into view. The mode, block,
  * step and fold are kept for the run while the app is open (`kept.ts`).
  */
-export function MathView({ run }: { run: ProofRun }) {
+export function MathView({ run, proofFirst = false }: { run: ProofRun; /** In one column, the proof tree comes before the spec: beside the check, it is what the user reads first. */ proofFirst?: boolean }) {
   const { mode, block: chosen, step, all } = useKept(run.id, 'math')
   const setMode = (next: Mode) => keepMath(run.id, { mode: next })
   const setChosen = (block: string | null) => keepMath(run.id, { block })
@@ -122,7 +122,7 @@ export function MathView({ run }: { run: ProofRun }) {
           </div>
         </section>
 
-        <aside className="flex min-w-0 flex-col gap-3.5">
+        <aside className={cn('flex min-w-0 flex-col gap-3.5', proofFirst && '@max-[899px]:order-first')}>
           <ProofSection
             run={run}
             selected={selected}
