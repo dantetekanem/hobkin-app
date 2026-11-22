@@ -30,9 +30,10 @@ const NO_DAYS: string[] = []
 
 /**
  * The Numbers tab (_specs/053-work-control-room, the Numbers sketch): the period switch, then merged by day, the first
- * pass rate beside the waits, AI reviews beside proofs, tokens, and the table of projects. Every chart opens the list
- * of what it counts through `onOpen`. Every box keeps its size while the numbers load, and a read that has none says
- * why in each box. It is placed by the page that shows it; it reads nothing itself.
+ * pass rate beside the waits, AI reviews beside proofs, tokens, and the table of projects. A chart with something
+ * behind it opens it through `onOpen`; Proofs and Tokens have no list behind them, so they are plain charts. Every box
+ * keeps its size while the numbers load, and a read that has none says why in each box. It is placed by the page that
+ * shows it; it reads nothing itself.
  */
 export const NumbersBoard = memo(function NumbersBoard({ metrics, state, period, onPeriod, onOpen, at = null }: NumbersBoardProps) {
   const board = useMemo(() => (metrics ? boardOf(metrics, period) : null), [metrics, period])
@@ -60,8 +61,6 @@ export const NumbersBoard = memo(function NumbersBoard({ metrics, state, period,
       waiting: () => onOpen({ chart: 'waiting' }),
       startToMerge: () => onOpen({ chart: 'start-to-merge' }),
       reviews: (day: string | null) => onOpen(day ? { chart: 'ai-reviews', from: day, to: day } : { chart: 'ai-reviews' }),
-      proofs: (day: string | null) => onOpen(day ? { chart: 'proofs', from: day, to: day } : { chart: 'proofs' }),
-      tokens: (day: string | null) => onOpen(day ? { chart: 'tokens', from: day, to: day } : { chart: 'tokens' }),
       project: (slug: string) => onOpen({ project: slug }),
     }),
     [onOpen],
@@ -131,7 +130,6 @@ export const NumbersBoard = memo(function NumbersBoard({ metrics, state, period,
             series={board?.proofs.series ?? []}
             status={status}
             note={note}
-            onOpen={opens.proofs}
           />
           <div className="@3xl:col-span-2">
             <DayBars
@@ -144,7 +142,6 @@ export const NumbersBoard = memo(function NumbersBoard({ metrics, state, period,
               words={tokenWords}
               status={status}
               note={note}
-              onOpen={opens.tokens}
             />
           </div>
           <div className="@3xl:col-span-2">
