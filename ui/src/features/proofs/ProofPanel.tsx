@@ -9,6 +9,7 @@ import type { ProofLayout } from './proof-layout.ts'
 import { specFile } from './proof-match.ts'
 import './proofs.css'
 import { phaseOf, type Tone } from './run/run-view.ts'
+import { useShownRun } from './shown-run.ts'
 import { siblingsOf } from './siblings.ts'
 import { useProofRun, useProofRuns } from './use-proof-run.ts'
 
@@ -28,6 +29,8 @@ export interface ProofPanelProps {
   onExpand: (id: string) => void
   /** Opens an action's code, `path:line` in the project. Left out, the app's viewer opens it where hobkin says the item's folder is; null opens nothing. */
   onCode?: ((where: string) => void) | null
+  /** Hears each run the panel shows: the first, each one J, K or Run again moves to, and a new `run`. */
+  onShow?: (id: string) => void
   /** For a still render: the layout to draw, with nothing measured. */
   layout?: ProofLayout
 }
@@ -43,11 +46,10 @@ export function ProofPanel({ open = true, ...props }: ProofPanelProps) {
   return open ? <OpenPanel {...props} /> : null
 }
 
-function OpenPanel({ run: asked, siblings: given = [], onClose, onExpand, onCode, layout: still }: Omit<ProofPanelProps, 'open'>) {
+function OpenPanel({ run: asked, siblings: given = [], onClose, onExpand, onCode, onShow, layout: still }: Omit<ProofPanelProps, 'open'>) {
   const box = useRef<HTMLElement | null>(null)
   // J and K move the panel along its siblings; a new run from the page that holds it starts there again.
-  const [shown, setShown] = useState({ asked, id: asked })
-  const id = shown.asked === asked ? shown.id : asked
+  const [id, moveTo] = useShownRun(asked, onShow)
   // Run again starts a run of its own, which takes the old one's place among the siblings.
   const [renamed, setRenamed] = useState<Readonly<Record<string, string>>>({})
   const { run, live, now, complete, problem } = useProofRun(id)
@@ -60,7 +62,7 @@ function OpenPanel({ run: asked, siblings: given = [], onClose, onExpand, onCode
 
   const onMove: MoveTo = (next, replaces) => {
     if (replaces) setRenamed((before) => ({ ...before, [replaces]: next }))
-    setShown({ asked, id: next })
+    moveTo(next)
   }
 
   return (
