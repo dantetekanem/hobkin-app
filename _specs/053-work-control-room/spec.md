@@ -75,9 +75,11 @@ AI reviews start by themselves
 - A review of a finished change that was cut short (it has progress and no answer, and nothing is running it) is started again by the background, once for each commit.
 - The background asks git where each finished change's branch is, at most once a minute for each, and reviews a branch that moved even while its card still names the older commit.
 - A finished change whose review has not started shows in AI Reviews as waiting its turn. It is not hidden.
-- A pull request is reviewed by itself when the workload says so for its kind.
+- A pull request is reviewed by itself when the workload says so for its kind. Drafts are left out, and so is a pull request a finished change opened.
+- A run that fails writes its reason (`failed.json`), so a run with progress and neither an answer nor a reason is one that was cut short. Starting it again is recorded (`restarted.json`), which is what keeps it to once for a commit. A stop the user asked for is a failure and is not started again.
 
 The review of a large change
+- A node needs the reviewer when it is high or critical, has a finding that breaks or fails a test, a dangling reference or a broken model, has an open question, is changed code of mid or high level with no test, is where the blind check disagreed, is a failed test, or is an acceptance line with a warning. It is worth a look when it is mid, unverified, of low confidence, judged from the diff alone, a test that did not run, an unproven acceptance line, or code the engine did not rate. The rest is safe. Rank goes by tier, then the weight of its reasons, then the size of its change (`shared/review/attention.ts`).
 - The host puts on each node of a review what the engine found: `attention`, with a `tier` (`needs-you`, `worth-a-look` or `safe`), a `rank` within the review, and up to three `reasons` in plain words; and a `bucket` (`code`, `test`, `generated`, `lockfile`, `locale`, `moved`, `format`, `docs`). Both are optional, so an older review opens as it does today.
 - Which files get full detail is chosen by what matters (code and tests first, then by size of change), not by their order. The limit of 60 files and 4,000 lines stays.
 - The graph opens in Focus: every node that needs the reviewer and every one worth a look is a card. Safe nodes fold into group cards by bucket, and safe code by its top folder. A group card says what it holds, how many and how many lines, and why it is safe.
@@ -177,10 +179,10 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A12. unproven
 - A13. unproven
 - A14. unproven
-- A15. unproven
-- A16. unproven
-- A17. unproven
-- A18. unproven
+- A15. `host/test/review-starts-by-itself.test.ts` › "a finished change's review that was cut short starts again by itself, once for its commit"
+- A16. `host/test/review-starts-by-itself.test.ts` › "a finished change whose branch moved is reviewed at the new commit by itself within a minute, while its card still names the older one"
+- A17. `host/test/review-starts-by-itself.test.ts` › "a finished change whose review has not started is listed as waiting its turn, and one the user removed is not"; `ui/test/work-ai-reviews.test.ts` › "a finished change whose review has not started shows as waiting its turn, after those under way; a stopped one that waits for nothing stays out"
+- A18. `host/test/review-starts-by-itself.test.ts` › "with "my pull requests" on, a pull request of the user’s gets an AI review with no click; with it off, none starts"
 - A19. unproven
 - A20. unproven
 - A21. unproven
@@ -205,7 +207,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - [x] S2 (A5, A6). hobkin folds its records by day, records a stop from the window and the item on each token line; the host adds the AI reviews and answers `work.metrics`.
 - [ ] S3 (A1, A2, A3). The trail: one return stack, places that restore, the trail in the frame, Escape.
 - [ ] S4 (A33). The pointer and hover rule, `pressable`, the arrow on rows that open, and no hover on what does not act.
-- [ ] S5 (A19, A20, A22). The host lays attention and buckets on a review's nodes, and detail goes to what matters.
+- [x] S5 (A19, A20, A22). The host lays attention and buckets on a review's nodes, and detail goes to what matters.
 - [ ] S6 (A15, A16, A17, A18). AI reviews start by themselves: cut short, a moved branch, waiting rows, pull requests by the workload.
 - [ ] S7 (A19, A20, A21, A22, A23, A25, A26). The review window: Focus, groups, the outline, seen marks, next unseen, the budget, saved at most once a second, its place kept.
 - [ ] S8 (A28, A29, A30, A31, A32). Proofs: check and proof together, the keys, positions, kept state, stops, a panel that can sit in another page.
