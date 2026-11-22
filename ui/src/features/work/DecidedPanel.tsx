@@ -26,7 +26,10 @@ const OUTCOME_COLOR: Record<DecidedChange['outcome'], string> = {
 const TIME = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit' })
 
 /** When a change was decided: its time today, its day before. */
-const whenWords = (at: string, today: string) => (localDay(Date.parse(at)) === today ? TIME.format(new Date(at)) : shortDay(localDay(Date.parse(at))))
+function whenWords(at: string, today: string): string {
+  const day = localDay(Date.parse(at))
+  return day === today ? TIME.format(new Date(at)) : shortDay(day)
+}
 
 /**
  * The changes behind a chart of the Numbers tab, in a panel over the page (053, "Numbers"): merged and declined, the
@@ -44,7 +47,10 @@ export function DecidedPanel({ listing }: { listing: Listing }) {
   useStops(panel)
 
   // The numbers' own sample lists nothing, so the sample's changes come from Work's sample.
-  const decided = useMemo(() => metrics?.decided ?? (state === 'sample' && metrics ? sampleDecided(metrics) : undefined), [metrics, state])
+  const decided = useMemo(() => {
+    if (metrics?.decided) return metrics.decided
+    return state === 'sample' && metrics ? sampleDecided(metrics) : undefined
+  }, [metrics, state])
   const today = metrics?.to ?? localDay(Date.now())
   const list = useMemo(() => decidedList(decided, listing.ask, today, period), [decided, listing.ask, today, period])
   const names = useMemo(() => new Map(work?.projects.map((project) => [project.slug, project.name]) ?? []), [work?.projects])
@@ -52,7 +58,10 @@ export function DecidedPanel({ listing }: { listing: Listing }) {
   // The keyboard arrives on the row last opened, or on Close; and again when the page comes back along the trail.
   useEffect(() => {
     const root = panel.current
-    const target = () => (listing.item ? root?.querySelector<HTMLElement>(`[data-decided="${CSS.escape(listing.item)}"]`) : null) ?? close.current
+    const target = () => {
+      const row = listing.item ? root?.querySelector<HTMLElement>(`[data-decided="${CSS.escape(listing.item)}"]`) : null
+      return row ?? close.current
+    }
     target()?.focus({ preventScroll: true })
     const screen = root?.closest<HTMLElement>('[data-canvas-screen]')
     // Ahead of the page's own arrival, whose rows wait under the panel and cannot take the keyboard.
@@ -69,7 +78,10 @@ export function DecidedPanel({ listing }: { listing: Listing }) {
   const shut = () => {
     const chart = listing.ask.chart
     useWorkTab.getState().closeList()
-    requestAnimationFrame(() => document.getElementById(chartId(chart))?.querySelector<HTMLElement>('[data-stop]')?.focus({ preventScroll: true }))
+    requestAnimationFrame(() => {
+      const opener = document.getElementById(chartId(chart))?.querySelector<HTMLElement>('[data-stop]')
+      opener?.focus({ preventScroll: true })
+    })
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

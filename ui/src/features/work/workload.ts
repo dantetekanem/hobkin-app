@@ -35,7 +35,12 @@ export const WORKLOAD_DEFAULTS: Workload = {
 export function workloadOf(work: Pick<WorkState, 'workload' | 'agentsAllowed' | 'autoPick' | 'dailyTokens'>): { settings: Workload; known: boolean } {
   if (work.workload) return { settings: work.workload, known: true }
   return {
-    settings: { ...WORKLOAD_DEFAULTS, agents: work.agentsAllowed, autoPick: work.autoPick, dailyTokens: work.dailyTokens ?? WORKLOAD_DEFAULTS.dailyTokens },
+    settings: {
+      ...WORKLOAD_DEFAULTS,
+      agents: work.agentsAllowed,
+      autoPick: work.autoPick,
+      dailyTokens: work.dailyTokens ?? WORKLOAD_DEFAULTS.dailyTokens,
+    },
     known: false,
   }
 }
@@ -62,14 +67,24 @@ export function tokensFromWords(words: string): number | null {
 }
 
 /** Which pull requests get an AI review by themselves, as the sheet's two toggles show it. */
-export const pullsShown = (pulls: ReviewPulls): { mine: boolean; waiting: boolean } => ({ mine: pulls === 'mine' || pulls === 'both', waiting: pulls === 'waiting' || pulls === 'both' })
+export const pullsShown = (pulls: ReviewPulls): { mine: boolean; waiting: boolean } => ({
+  mine: pulls === 'mine' || pulls === 'both',
+  waiting: pulls === 'waiting' || pulls === 'both',
+})
 
 /** The two toggles back as the setting. */
-export const pullsOf = ({ mine, waiting }: { mine: boolean; waiting: boolean }): ReviewPulls => (mine && waiting ? 'both' : mine ? 'mine' : waiting ? 'waiting' : 'none')
+export function pullsOf({ mine, waiting }: { mine: boolean; waiting: boolean }): ReviewPulls {
+  if (mine && waiting) return 'both'
+  if (mine) return 'mine'
+  return waiting ? 'waiting' : 'none'
+}
+
+const ROUND_CAPS = [3, 5, 10, 20]
 
 /** The choices of the cap on changes a day: none, a few round numbers, and the one set now when it is another. */
 export function capChoices(current: number | null): { value: string; label: string }[] {
-  const numbers = [...new Set([3, 5, 10, 20, ...(current === null ? [] : [current])])].sort((a, b) => a - b)
+  const offered = current === null ? ROUND_CAPS : [...ROUND_CAPS, current]
+  const numbers = [...new Set(offered)].sort((a, b) => a - b)
   return [{ value: 'none', label: 'No cap' }, ...numbers.map((number) => ({ value: String(number), label: String(number) }))]
 }
 
@@ -98,9 +113,11 @@ export function forecastWords(work: Pick<WorkState, 'outlook' | 'forecast'>, now
   const outlook = work.outlook
   if (!outlook) return work.forecast ?? 'This host does not forecast the workload yet.'
   const total = outlook.startedToday + outlook.moreToday
-  const today = `With this, about ${total} ${total === 1 ? 'change starts' : 'changes start'} today${outlook.startedToday ? `, ${outlook.startedToday} so far` : ''}.`
+  const soFar = outlook.startedToday ? `, ${outlook.startedToday} so far` : ''
+  const today = `With this, about ${total} ${total === 1 ? 'change starts' : 'changes start'} today${soFar}.`
   const next = nextStart(outlook.nextAt, now)
-  return `${today} ${next ? sentence(`Next start ${next.words}`) : 'No more start today.'}`
+  const then = next ? sentence(`Next start ${next.words}`) : 'No more start today.'
+  return `${today} ${then}`
 }
 
 const startOfDay = (at: number) => new Date(at).setHours(0, 0, 0, 0)
@@ -116,7 +133,19 @@ export function nextStart(nextAt: string | null, now: number): { words: string; 
   return { words: `${day}at ${clockTime(at)}`, today: days === 0 }
 }
 
+/** A key press as W reads it: `handled` when something else used the key, `typing` while a field is being typed in. */
+interface KeyPress {
+  key: string
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  repeat: boolean
+  handled: boolean
+  typing: boolean
+}
+
 /** A key that W opens the workload with: W alone, once, while no field is being typed in and nothing used the key. */
-export function opensWorkload(press: { key: string; metaKey: boolean; ctrlKey: boolean; altKey: boolean; repeat: boolean; handled: boolean; typing: boolean }): boolean {
-  return (press.key === 'w' || press.key === 'W') && !press.metaKey && !press.ctrlKey && !press.altKey && !press.repeat && !press.handled && !press.typing
+export function opensWorkload(press: KeyPress): boolean {
+  const plainW = (press.key === 'w' || press.key === 'W') && !press.metaKey && !press.ctrlKey && !press.altKey
+  return plainW && !press.repeat && !press.handled && !press.typing
 }

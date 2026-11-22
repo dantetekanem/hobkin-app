@@ -33,11 +33,15 @@ export const WorkTiles = memo(function WorkTiles({
   const read = useNow(oldestAt !== null, 60_000)
   const clock = oldestAt === null ? 0 : read
   const { metrics, state } = useWorkMetrics(TILE_DAYS)
-  const tally = reviews ? `${reviews.running}/${reviews.ready}/${reviews.failed}` : ''
+  // The reviews' counts, not their object, so a list read again that counts the same makes no new tiles.
+  const hasReviews = reviews !== null
+  const running = reviews?.running ?? 0
+  const ready = reviews?.ready ?? 0
+  const failed = reviews?.failed ?? 0
   const tiles = useMemo(() => {
     const now: WorkNow | null = waiting === null ? null : { waiting, needsYou: needsYou ?? 0, oldestAt, tokensToday, dailyTokens }
-    const [running = 0, ready = 0, failed = 0] = tally ? tally.split('/').map(Number) : []
-    return tilesOf(tilesInputOf(now, tally ? { running, ready, failed } : null, metrics, clock), state, needsYou)
-  }, [waiting, needsYou, oldestAt, tokensToday, dailyTokens, tally, metrics, state, clock])
+    const tally = hasReviews ? { running, ready, failed } : null
+    return tilesOf(tilesInputOf(now, tally, metrics, clock), state, needsYou)
+  }, [waiting, needsYou, oldestAt, tokensToday, dailyTokens, hasReviews, running, ready, failed, metrics, state, clock])
   return <TileRow tiles={tiles} loading={state === 'loading' && !metrics} onOpen={openTile} />
 })

@@ -105,9 +105,11 @@ export function applySample(state: WorkState, action: WorkAction): SampleOutcome
 
 /** The workload's own refusals, in hobkin's words (`setWorkload` in its `src/cli/work/store.mjs`). */
 function workloadRefusal(change: Extract<WorkAction, { do: 'workload' }>['change']): string | null {
-  if (change.changesADay !== undefined && change.changesADay !== null && !(Number.isInteger(change.changesADay) && change.changesADay >= 1)) return 'Changes a day must be a whole number from 1, or no cap.'
+  const wholeFromOne = (value: number) => Number.isInteger(value) && value >= 1
+  const cap = change.changesADay
+  if (cap !== undefined && cap !== null && !wholeFromOne(cap)) return 'Changes a day must be a whole number from 1, or no cap.'
   if (change.hours && change.hours.from === change.hours.to) return 'Work hours must start and end at different times.'
-  if (change.shipFirstAt !== undefined && !(Number.isInteger(change.shipFirstAt) && change.shipFirstAt >= 1)) return 'Ship first needs a number of finished changes from 1.'
+  if (change.shipFirstAt !== undefined && !wholeFromOne(change.shipFirstAt)) return 'Ship first needs a number of finished changes from 1.'
   return null
 }
 
@@ -141,14 +143,36 @@ function applied(state: WorkState, action: WorkAction): SampleOutcome {
       return { state: { ...state, projects: inHobkinsOrder(projects) }, message: '' }
     }
     case 'agents':
-      return { state: { ...state, agents: action.agents, agentsAllowed: action.agents, ...(state.workload ? { workload: { ...state.workload, agents: action.agents } } : {}) }, message: '' }
+      return {
+        state: {
+          ...state,
+          agents: action.agents,
+          agentsAllowed: action.agents,
+          ...(state.workload ? { workload: { ...state.workload, agents: action.agents } } : {}),
+        },
+        message: '',
+      }
     case 'tokens':
-      return { state: { ...state, dailyTokens: action.tokens, ...(state.workload ? { workload: { ...state.workload, dailyTokens: action.tokens } } : {}) }, message: '' }
+      return {
+        state: {
+          ...state,
+          dailyTokens: action.tokens,
+          ...(state.workload ? { workload: { ...state.workload, dailyTokens: action.tokens } } : {}),
+        },
+        message: '',
+      }
     case 'workload': {
       const refused = workloadRefusal(action.change)
       if (refused) return { refused }
-      const workload = state.workload ? { ...state.workload, ...action.change } : undefined
-      return { state: { ...state, ...(workload ? { workload } : {}), ...(action.change.autoPick === undefined ? {} : { autoPick: action.change.autoPick }) }, message: '' }
+      const { autoPick } = action.change
+      return {
+        state: {
+          ...state,
+          ...(state.workload ? { workload: { ...state.workload, ...action.change } } : {}),
+          ...(autoPick === undefined ? {} : { autoPick }),
+        },
+        message: '',
+      }
     }
     case 'allowance': {
       if (state.allowance?.at !== action.at) return { refused: 'That request for more tokens today is answered already, so nothing was raised.' }

@@ -28,7 +28,10 @@ export function reviewTallyOf(list: ReviewList | null): ReviewTally | null {
 export const waitingNow = (work: WorkState): number => work.finished.reduce((sum, group) => sum + group.changes.length, 0)
 
 /** Of those, the ones no group's yes takes: hobkin's "Needs you" and what runs left for the user. */
-export const needsYouNow = (work: WorkState): number => work.finished.filter(({ name }) => name === 'needs' || name === 'left').reduce((sum, group) => sum + group.changes.length, 0)
+export const needsYouNow = (work: WorkState): number =>
+  work.finished
+    .filter(({ name }) => name === 'needs' || name === 'left')
+    .reduce((sum, group) => sum + group.changes.length, 0)
 
 /**
  * When the change that has waited longest was last written (`FinishedChange.at`), in milliseconds, or null unless every
@@ -65,9 +68,10 @@ export const workNowOf = (work: WorkState): WorkNow => ({
  * last written. Today's tokens are the host's own count; a host that sends none leaves it to the numbers.
  */
 export function tilesInputOf(now: WorkNow | null, reviews: ReviewTally | null, metrics: WorkMetrics | null, clock = Date.now()): TilesInput {
+  const oldestMs = now?.oldestAt == null ? null : Math.max(0, clock - now.oldestAt)
   return {
     days: metrics?.all.days ?? null,
-    waiting: now ? { count: now.waiting, oldestMs: now.oldestAt === null ? null : Math.max(0, clock - now.oldestAt) } : null,
+    waiting: now ? { count: now.waiting, oldestMs } : null,
     reviews,
     tokens: now ? { today: now.tokensToday, limit: now.dailyTokens } : null,
     merged: 'today',
@@ -86,9 +90,13 @@ const WHY_NONE: Partial<Record<MetricsReadState, string>> = {
  */
 export function tilesOf(input: TilesInput, state: MetricsReadState, needsYou: number | null = null): Tile[] {
   const why = input.days ? undefined : WHY_NONE[state]
+  const oldestUnknown = needsYou !== null && Boolean(input.waiting?.count) && input.waiting?.oldestMs === null
   return workTiles(input).map((tile) => {
-    if (tile.key === 'waiting' && needsYou !== null && input.waiting?.count && input.waiting.oldestMs === null) return { ...tile, context: needsYou ? `${needsYou} need you first` : 'all ready for your yes' }
-    return why && tile.figure === NO_DATA && !tile.context ? { ...tile, context: why } : tile
+    if (tile.key === 'waiting' && oldestUnknown) {
+      return { ...tile, context: needsYou ? `${needsYou} need you first` : 'all ready for your yes' }
+    }
+    if (why && tile.figure === NO_DATA && !tile.context) return { ...tile, context: why }
+    return tile
   })
 }
 

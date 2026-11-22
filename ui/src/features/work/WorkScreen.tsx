@@ -45,12 +45,13 @@ const TABS = ['work', 'reviews', 'numbers'] as const
  * review on a page of its own. It draws hobkin's own work mode and calls hobkin's own work actions, and adds no rule
  * of its own. This file is the entry the frame mounts. Spec: 011-work.
  *
- * Its pages are tabs under the heading: Work, and AI Reviews with how many run and how many are ready. On Work, what
- * needs the user comes right after the queue, before the projects.
+ * Its pages are tabs under the heading: Work, AI Reviews with how many run and how many are ready, and Numbers. On
+ * Work, what needs the user comes right after the queue, before the projects.
  *
  * Keys: Up and Down walk the screen. Enter opens or presses what has the keyboard: an agent's canvas, a queue row
  * run next, a change opened in Change Review. Left and Right move along a row to its own choices and back, change a
- * project's setting, and choose the page. Escape steps back from a choice to its row. Tab and Escape on a row are the frame's.
+ * project's setting, and choose the page. Escape steps back from a choice to its row. W opens the workload sheet. Tab
+ * and Escape on a row are the frame's.
  */
 export function WorkScreen() {
   const root = useRef<HTMLDivElement | null>(null)
@@ -85,7 +86,16 @@ export function WorkScreen() {
   const counts = reviewCounts(groupReviews(reviews.list))
   const tally = useMemo(() => reviewTallyOf(reviews.list), [reviews.list])
   // The six tiles under the header (053): what waits, merged today, first pass, by itself, AI reviews, today's tokens.
-  const tiles = <WorkTiles waiting={work ? waitingNow(work) : null} needsYou={work ? needsYouNow(work) : null} oldestAt={work ? oldestAtOf(work) : null} tokensToday={work?.tokensToday ?? null} dailyTokens={work?.dailyTokens ?? null} reviews={tally} />
+  const tiles = (
+    <WorkTiles
+      waiting={work ? waitingNow(work) : null}
+      needsYou={work ? needsYouNow(work) : null}
+      oldestAt={work ? oldestAtOf(work) : null}
+      tokensToday={work?.tokensToday ?? null}
+      dailyTokens={work?.dailyTokens ?? null}
+      reviews={tally}
+    />
+  )
 
   // Where the keyboard is in the screen, so it stays when what had it leaves: a merged card, a skipped row.
   const keyboard = useRef({ held: false, at: 0 })
@@ -127,7 +137,16 @@ export function WorkScreen() {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || !(target instanceof HTMLElement)) return
     if (target.matches('input, textarea, [contenteditable="true"]')) return
     // W sets the workload while Work has the keyboard and nothing over it does.
-    if (work && !covered && !sheet && opensWorkload({ key: event.key, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, repeat: event.repeat, handled: event.defaultPrevented, typing: false })) {
+    const press = {
+      key: event.key,
+      metaKey: event.metaKey,
+      ctrlKey: event.ctrlKey,
+      altKey: event.altKey,
+      repeat: event.repeat,
+      handled: event.defaultPrevented,
+      typing: false,
+    }
+    if (work && !covered && !sheet && opensWorkload(press)) {
       event.preventDefault()
       openSheet(null)
       return

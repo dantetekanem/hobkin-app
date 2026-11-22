@@ -1,4 +1,4 @@
-import type { HoldingKind, WorkState } from '#shared/protocol/work.ts'
+import type { HoldingKind, WorkHolding, WorkOutlook, WorkState } from '#shared/protocol/work.ts'
 import { nextStart, sentence, type WorkloadChange, type WorkloadSetting } from './workload.ts'
 
 /**
@@ -43,34 +43,37 @@ const CONTROL: Partial<Record<HoldingKind, StatusLine['control']>> = {
 }
 
 /** A pause by hand, told apart from the other pauses by hobkin's words: it has no end time, and says so. */
-const byHand = (holding: { kind: HoldingKind; until: string | null; line: string }) => holding.kind === 'paused' && holding.until === null && /^Paused by hand\b/.test(holding.line)
+const byHand = (holding: WorkHolding) => holding.kind === 'paused' && holding.until === null && /^Paused by hand\b/.test(holding.line)
 
-/** Today's words for work mode off, from before the line knew what holds it. */
+/** The control for what holds work mode. Out of today's tokens with hobkin asking for more, the yes to that request is the control. */
+function holdControl(holding: WorkHolding, allowance: StatusInput['allowance']): StatusLine['control'] {
+  if (holding.kind === 'tokens' && allowance) return { label: "Add today's amount again", act: { do: 'allowance', at: allowance.at } }
+  if (byHand(holding)) return { label: 'Resume', act: { do: 'mode-on' } }
+  return CONTROL[holding.kind] ?? null
+}
+
+/** When the next change starts, and about how many more start today, as hobkin's outlook sees it. */
+function outlookWords({ startedToday, moreToday, nextAt }: WorkOutlook, now: number): string {
+  const next = nextStart(nextAt, now)
+  if (!next) return `Nothing more starts today.${startedToday ? ` ${startedToday} started so far.` : ''}`
+
+  const first = next.words === 'now' ? 'The next change starts now.' : sentence(`Next change starts ${next.words}`)
+  if (!next.today || !moreToday) return first
+  const soFar = startedToday ? `, ${startedToday} so far` : ''
+  return `${first} About ${moreToday} more start today${soFar}.`
+}
+
+/** The words for work mode off from a host that does not say what holds it. */
 const OFF_WORDS = 'Nothing new starts. Agents that are running finish what they started, and projects, items and branches stay.'
 
 export function statusLine(work: StatusInput, now: number): StatusLine {
   const holding = work.holding
   if (holding) {
     const tone = holding.kind === 'off' ? 'off' : holding.kind === 'nothing-queued' ? 'go' : 'held'
-    // Out of today's tokens with hobkin asking for more: the yes to that request is the control.
-    const control =
-      holding.kind === 'tokens' && work.allowance
-        ? { label: "Add today's amount again", act: { do: 'allowance', at: work.allowance.at } as const }
-        : byHand(holding)
-          ? { label: 'Resume', act: { do: 'mode-on' } as const }
-          : (CONTROL[holding.kind] ?? null)
-    return { tone, text: holding.line, control }
+    return { tone, text: holding.line, control: holdControl(holding, work.allowance) }
   }
   if (!work.enabled) return { tone: 'off', text: OFF_WORDS, control: CONTROL.off! }
-  if (work.outlook) {
-    const { startedToday, moreToday, nextAt } = work.outlook
-    const next = nextStart(nextAt, now)
-    const sofar = startedToday ? `${startedToday} so far` : ''
-    if (!next) return { tone: 'go', text: `Nothing more starts today.${startedToday ? ` ${startedToday} started so far.` : ''}`, control: null }
-    const first = next.words === 'now' ? 'The next change starts now.' : sentence(`Next change starts ${next.words}`)
-    const more = next.today && moreToday ? ` About ${moreToday} more start today${sofar ? `, ${sofar}` : ''}.` : ''
-    return { tone: 'go', text: `${first}${more}`, control: null }
-  }
+  if (work.outlook) return { tone: 'go', text: outlookWords(work.outlook, now), control: null }
   // A host older than the holding: hobkin's own words for what holds it, or its forecast.
   if (work.held) return { tone: 'held', text: work.held, control: null }
   const text = work.forecast ?? (work.autoPick ? 'The top of the queue starts by itself.' : 'Auto-pick is off, so only what you start runs.')

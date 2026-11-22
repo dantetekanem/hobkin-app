@@ -13,7 +13,10 @@ const byKey = (tiles: readonly Tile[]) => Object.fromEntries(tiles.map((tile) =>
 test("the six tiles read what waits, the AI reviews and today's tokens from Work, and the rest from the numbers", () => {
   const work = sampleWork(NOW)
   const now = workNowOf(work)
-  const tiles = tilesOf(tilesInputOf(now, { running: 2, ready: 4, failed: 1 }, sampleMetrics(30, TODAY), NOW), 'sample', now.needsYou)
+  const reviews = { running: 2, ready: 4, failed: 1 }
+
+  const tiles = tilesOf(tilesInputOf(now, reviews, sampleMetrics(30, TODAY), NOW), 'sample', now.needsYou)
+
   assert.deepEqual(
     tiles.map((tile) => tile.key),
     ['waiting', 'merged', 'first-pass', 'by-itself', 'ai-reviews', 'tokens'],
@@ -67,7 +70,9 @@ test('with a host older than the numbers, the tiles keep their boxes and say so,
 
 test('before the AI reviews list first answers, its tile reads no data yet, not none running', () => {
   assert.equal(reviewTallyOf(null), null)
-  assert.equal(byKey(tilesOf(tilesInputOf(workNowOf(sampleWork(NOW)), reviewTallyOf(null), null), 'sample'))['ai-reviews']!.figure, NO_DATA)
+  const beforeTheList = byKey(tilesOf(tilesInputOf(workNowOf(sampleWork(NOW)), reviewTallyOf(null), null), 'sample'))
+  assert.equal(beforeTheList['ai-reviews']!.figure, NO_DATA)
+
   const tally = reviewTallyOf(SAMPLE_REVIEW_LIST)!
   assert.ok(tally.running + tally.ready + tally.failed > 0)
 })

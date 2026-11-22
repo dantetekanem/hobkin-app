@@ -39,7 +39,18 @@ const SHIP_FIRST_MOST = 50
  * of its line. The forecast for the settings as they stand is at the foot. Escape closes it, and the keyboard goes back
  * to the Workload button.
  */
-export function WorkloadSheet({ open, at, work, live, onClose, returnTo }: { open: boolean; at: WorkloadSetting | null; work: WorkState; live: boolean; onClose: () => void; returnTo: RefObject<HTMLButtonElement | null> }) {
+interface WorkloadSheetProps {
+  open: boolean
+  /** The setting that has the keyboard first, or null for the first one. */
+  at: WorkloadSetting | null
+  work: WorkState
+  live: boolean
+  onClose: () => void
+  /** The Workload button, which has the keyboard again once the sheet closes. */
+  returnTo: RefObject<HTMLButtonElement | null>
+}
+
+export function WorkloadSheet({ open, at, work, live, onClose, returnTo }: WorkloadSheetProps) {
   const still = useStill()
   const popup = useRef<HTMLDivElement | null>(null)
   const fade = still
@@ -53,7 +64,12 @@ export function WorkloadSheet({ open, at, work, live, onClose, returnTo }: { ope
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => (next ? undefined : onClose())}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) onClose()
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Backdrop className={cn('fixed inset-0 z-50 bg-scrim backdrop-blur-sm transition-opacity duration-[240ms] data-[ending-style]:opacity-0 data-[starting-style]:opacity-0')} />
         <Dialog.Popup
@@ -127,6 +143,9 @@ function WorkloadForm({ work, live }: { work: WorkState; live: boolean }) {
 /** How long "Saved" stays beside a setting. */
 const SAVED_MS = 1800
 
+/** Two values of a setting are the same when they read the same: hours are an object, the rest plain values. */
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
+
 /**
  * One setting's save: the value chosen shows at once and stays until hobkin's own value says the same, what is under way
  * and what was saved show beside it, and a refusal shows by it, in hobkin's words, with the value it had put back.
@@ -138,7 +157,6 @@ function useSave<Value>(name: WorkloadSetting | 'shipFirstAt', held: Value, live
   const [chosen, setChosen] = useState<{ value: Value } | null>(null)
   const [saved, setSaved] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const same = (a: Value, b: Value) => JSON.stringify(a) === JSON.stringify(b)
   useEffect(() => {
     if (chosen && same(chosen.value, held)) setChosen(null)
   }, [held, chosen])
@@ -163,11 +181,29 @@ function useSave<Value>(name: WorkloadSetting | 'shipFirstAt', held: Value, live
       setChosen(null)
     }, SAVED_MS)
   }
-  return { value: chosen ? chosen.value : held, busy, saved, refused: said?.tone === 'refused' ? said.text : null, save }
+  return {
+    value: chosen ? chosen.value : held,
+    busy,
+    saved,
+    refused: said?.tone === 'refused' ? said.text : null,
+    save,
+  }
+}
+
+interface RowProps {
+  setting: WorkloadSetting
+  label: string
+  /** What the setting does, in a line. */
+  line: string
+  /** Why hobkin refused the last change, shown in place of the line. */
+  refused: string | null
+  busy: boolean
+  saved: boolean
+  children: ReactNode
 }
 
 /** One row: the setting's name and what it does (or why hobkin refused it), its control, and what its save is doing. */
-function Row({ setting, label, line, refused, busy, saved, children }: { setting: WorkloadSetting; label: string; line: string; refused: string | null; busy: boolean; saved: boolean; children: ReactNode }) {
+function Row({ setting, label, line, refused, busy, saved, children }: RowProps) {
   const words = refused ?? line
   return (
     // A row whose controls do not fit beside its words puts them under, at the right, so neither is squeezed.
@@ -181,12 +217,13 @@ function Row({ setting, label, line, refused, busy, saved, children }: { setting
       <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
         {children}
         <span aria-live="polite" className="flex h-5 w-16 shrink-0 items-center gap-1 text-[12px] whitespace-nowrap text-muted-foreground">
-        {busy ? 'Saving…' : saved ? (
-          <>
-            <Check aria-hidden="true" className="size-3.5 text-ok-fg" />
-            Saved
-          </>
-        ) : null}
+          {busy ? 'Saving…' : null}
+          {!busy && saved ? (
+            <>
+              <Check aria-hidden="true" className="size-3.5 text-ok-fg" />
+              Saved
+            </>
+          ) : null}
         </span>
       </div>
     </div>
@@ -202,7 +239,17 @@ function AgentsRow({ value, most, live }: { value: number; most: number; live: b
   )
 }
 
-function SwitchRow({ setting, label, line, value, live, change }: { setting: WorkloadSetting; label: string; line: string; value: boolean; live: boolean; change: (on: boolean) => WorkloadChange }) {
+interface SwitchRowProps {
+  setting: WorkloadSetting
+  label: string
+  line: string
+  value: boolean
+  live: boolean
+  /** The change that turning the switch on or off sends. */
+  change: (on: boolean) => WorkloadChange
+}
+
+function SwitchRow({ setting, label, line, value, live, change }: SwitchRowProps) {
   const { value: on, busy, saved, refused, save } = useSave(setting, value, live)
   return (
     <Row setting={setting} label={label} line={line} refused={refused} busy={busy} saved={saved}>
@@ -226,6 +273,7 @@ function TokensRow({ value, spent, live }: { value: number; spent: number | null
   const [draft, setDraft] = useState<string | null>(null)
   const [wrong, setWrong] = useState<string | null>(null)
   const shown = draft ?? String(millionsOf(tokens))
+  const spentToday = spent === null ? '' : `: ${tokenWords(spent)} spent today`
   const commit = () => {
     if (draft === null) return
     const typed = tokensFromWords(draft)
@@ -241,7 +289,7 @@ function TokensRow({ value, spent, live }: { value: number; spent: number | null
     <Row
       setting="dailyTokens"
       label="Tokens a day"
-      line={`Fresh tokens work mode may spend in a day${spent === null ? '' : `: ${tokenWords(spent)} spent today`}. At the limit nothing new starts until midnight.`}
+      line={`Fresh tokens work mode may spend in a day${spentToday}. At the limit nothing new starts until midnight.`}
       refused={wrong ?? refused}
       busy={busy}
       saved={saved}
@@ -295,6 +343,10 @@ function HoursRow({ value, live }: { value: WorkHours | null; live: boolean }) {
     setWrong(null)
     void save(checked, { hours: checked })
   }
+  const choose = (choice: (typeof HOURS_CHOICES)[number]['value']) => {
+    if (choice === 'always') void save(null, { hours: null })
+    else set(ends)
+  }
   const field = (end: 'from' | 'to') => (
     <input
       type="time"
@@ -310,7 +362,7 @@ function HoursRow({ value, live }: { value: WorkHours | null; live: boolean }) {
   )
   return (
     <Row setting="hours" label="Hours" line="Outside these hours nothing new starts by itself, and running agents finish." refused={wrong ?? refused} busy={busy} saved={saved}>
-      <Segmented label="Hours" name="workload-hours" value={hours ? 'set' : 'always'} options={HOURS_CHOICES} onChoose={(choice) => (choice === 'always' ? void save(null, { hours: null }) : set(ends))} />
+      <Segmented label="Hours" name="workload-hours" value={hours ? 'set' : 'always'} options={HOURS_CHOICES} onChoose={choose} />
       {field('from')}
       <span className="text-[12.5px] text-muted-foreground">to</span>
       {field('to')}

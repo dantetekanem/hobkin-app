@@ -74,5 +74,6 @@ test("the sample lists one change for each the sample numbers count merged or de
       assert.equal(theirs.filter((change) => change.sentBack === 0).length, day.firstPass, `${project.slug} ${day.day} first pass`)
     }
   }
-  assert.deepEqual(decidedList(decided, { chart: 'merged', from: '2026-11-21', to: '2026-11-21' }, '2026-11-21', 30).rows.length, 7 + metrics.all.days.at(-1)!.declined)
+  const todays = decidedList(decided, { chart: 'merged', from: '2026-11-21', to: '2026-11-21' }, '2026-11-21', 30)
+  assert.equal(todays.rows.length, 7 + metrics.all.days.at(-1)!.declined)
 })

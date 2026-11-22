@@ -80,7 +80,8 @@ test('the forecast under the settings says about how many changes start today an
   const picking = applySample(work, workloadAction({ autoPick: true }))
   assert.ok(!('refused' in picking))
   const outlook = picking.state.outlook!
-  assert.equal(forecastWords({ ...picking.state, outlook: { ...outlook, nextAt: new Date(NOW + 20 * 60_000).toISOString() } }, NOW), `With this, about ${3 + outlook.moreToday} changes start today, 3 so far. ${sentence(`Next start at ${next}`)}`)
+  const startsSoon = { ...picking.state, outlook: { ...outlook, nextAt: new Date(NOW + 20 * 60_000).toISOString() } }
+  assert.equal(forecastWords(startsSoon, NOW), `With this, about ${3 + outlook.moreToday} changes start today, 3 so far. ${sentence(`Next start at ${next}`)}`)
 
   const capped = applySample(picking.state, workloadAction({ changesADay: 3 }))
   assert.ok(!('refused' in capped))

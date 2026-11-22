@@ -342,7 +342,10 @@ export function sampleDecided(metrics: WorkMetrics, now = Date.now()): DecidedCh
       const [year, month, date] = day.day.split('-').map(Number) as [number, number, number]
       outcomes.forEach((outcome, index) => {
         const item = hexOf(`${project.slug}:${day.day}:${index}`, 6)
-        const at = Math.min(now, new Date(year, month - 1, date, 9 + ((index * 3 + used) % 9), (index * 17) % 60).getTime())
+        // Spread over the working day, and never later than now.
+        const hour = 9 + ((index * 3 + used) % 9)
+        const minute = (index * 17) % 60
+        const at = Math.min(now, new Date(year, month - 1, date, hour, minute).getTime())
         decided.push({
           slug: project.slug,
           item,
@@ -381,7 +384,8 @@ const minutesOf = (clock: string) => Number(clock.slice(0, 2)) * 60 + Number(clo
 function hoursAt(hours: WorkHours, now: number): { open: boolean; opensAt: number } {
   const date = new Date(now)
   const minute = date.getHours() * 60 + date.getMinutes()
-  const [from, to] = [minutesOf(hours.from), minutesOf(hours.to)]
+  const from = minutesOf(hours.from)
+  const to = minutesOf(hours.to)
   const open = from < to ? minute >= from && minute < to : minute >= from || minute < to
   const opens = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, from).getTime()
   return { open, opensAt: opens > now ? opens : opens + 86_400_000 }
@@ -404,9 +408,10 @@ export function samplePlan(work: WorkState, now = Date.now()): Pick<WorkState, '
   })
   if (!work.enabled) return held('off', 'Work mode is off, so nothing starts by itself.')
   if (used >= limit) return held('tokens', `${tokenWords(used)} of today's ${tokenWords(limit)} tokens are used, so nothing new starts until midnight.`, midnight)
-  const hours = workload.hours ? hoursAt(workload.hours, now) : null
-  if (workload.hours && hours && !hours.open) {
-    return held('hours', `Work hours are ${workload.hours.from} to ${workload.hours.to}, so nothing new starts until ${clockTime(hours.opensAt)}.`, new Date(hours.opensAt).toISOString())
+  if (workload.hours) {
+    const { from, to } = workload.hours
+    const { open, opensAt } = hoursAt(workload.hours, now)
+    if (!open) return held('hours', `Work hours are ${from} to ${to}, so nothing new starts until ${clockTime(opensAt)}.`, new Date(opensAt).toISOString())
   }
   if (!workload.autoPick) return held('auto-pick-off', 'Auto-pick is off, so only what you start runs.')
   if (workload.shipFirst && waiting >= workload.shipFirstAt) return held('ship-first', `${waiting} finished changes wait for you, so new work holds until fewer than ${workload.shipFirstAt} wait.`)
@@ -415,7 +420,14 @@ export function samplePlan(work: WorkState, now = Date.now()): Pick<WorkState, '
   }
   const room = 2 + 3 * workload.agents
   const moreToday = workload.changesADay === null ? room : Math.min(room, workload.changesADay - SAMPLE_STARTED)
-  return { holding: null, outlook: { startedToday: SAMPLE_STARTED, moreToday, nextAt: new Date(now + 20 * 60_000).toISOString() } }
+  return {
+    holding: null,
+    outlook: {
+      startedToday: SAMPLE_STARTED,
+      moreToday,
+      nextAt: new Date(now + 20 * 60_000).toISOString(),
+    },
+  }
 }
 
 /** How long ago hobkin last wrote each sample change's item, in hours: the oldest needs the user and has waited a day. */
@@ -431,8 +443,12 @@ const WRITTEN_HOURS_AGO: Record<string, number> = {
 
 export function sampleWork(now = Date.now()): WorkState {
   const made = sampleState(now)
-  const written = (change: FinishedChange): FinishedChange => ({ ...change, at: new Date(now - (WRITTEN_HOURS_AGO[change.key] ?? 1) * HOUR_MS).toISOString() })
-  const work = { ...made, finished: made.finished.map((group) => ({ ...group, changes: group.changes.map(written) })) }
+  const written = (change: FinishedChange): FinishedChange => {
+    const hoursAgo = WRITTEN_HOURS_AGO[change.key] ?? 1
+    return { ...change, at: new Date(now - hoursAgo * HOUR_MS).toISOString() }
+  }
+  const finished = made.finished.map((group) => ({ ...group, changes: group.changes.map(written) }))
+  const work = { ...made, finished }
   return { ...work, ...samplePlan(work, now) }
 }
 

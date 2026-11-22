@@ -20,6 +20,7 @@ export interface DecidedAsk {
 export type ChartTarget = { list: DecidedAsk } | { tab: 'reviews' } | { project: string } | null
 
 const LISTED: ReadonlySet<NumbersChart> = new Set<ListedChart>(['merged', 'first-pass', 'waiting', 'start-to-merge'])
+const isListed = (chart: NumbersChart): chart is ListedChart => LISTED.has(chart)
 
 /** The charts that open something. Only these may look and act like buttons; proofs and tokens have no list behind them. */
 export const OPENING_CHARTS: ReadonlySet<NumbersChart> = new Set<NumbersChart>([...LISTED, 'ai-reviews', 'projects'])
@@ -27,8 +28,12 @@ export const OPENING_CHARTS: ReadonlySet<NumbersChart> = new Set<NumbersChart>([
 export function chartOpens(what: NumbersOpen): ChartTarget {
   if ('project' in what) return { project: what.project }
   if (what.chart === 'ai-reviews') return { tab: 'reviews' }
-  if (!LISTED.has(what.chart)) return null
-  return { list: { chart: what.chart as ListedChart, ...(what.from ? { from: what.from } : {}), ...(what.to ? { to: what.to } : {}) } }
+  if (!isListed(what.chart)) return null
+
+  const ask: DecidedAsk = { chart: what.chart }
+  if (what.from) ask.from = what.from
+  if (what.to) ask.to = what.to
+  return { list: ask }
 }
 
 /** Which changes each chart counts: every one decided, those the user decided (the wait for them), or those merged. */
@@ -72,7 +77,9 @@ export function decidedList(decided: readonly DecidedChange[] | undefined, ask: 
     const day = localDay(Date.parse(change.at))
     return (!ask.from || day >= ask.from) && (!ask.to || day <= ask.to)
   }
-  const rows = decided.filter((change) => counted.includes(change.outcome) && within(change)).toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at))
+  const rows = decided
+    .filter((change) => counted.includes(change.outcome) && within(change))
+    .toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at))
   return { heading, range, rows, listed: true }
 }
 

@@ -19,12 +19,22 @@ const PLACE = 'status'
  * read whole on hover, the control keeps its place before the button, and the button never moves. A refusal from
  * hobkin stands in for the words until they change.
  */
-export function StatusLine({ work, live, onTurnOn, onSheet, sheetButton }: { work: StatusInput; live: boolean; onTurnOn: () => void; onSheet?: (at: WorkloadSetting | null) => void; sheetButton?: Ref<HTMLButtonElement> }) {
+interface StatusLineProps {
+  work: StatusInput
+  live: boolean
+  onTurnOn: () => void
+  /** Opens the workload sheet, at one setting or at the top. Without it the line has no Workload button. */
+  onSheet?: (at: WorkloadSetting | null) => void
+  sheetButton?: Ref<HTMLButtonElement>
+}
+
+export function StatusLine({ work, live, onTurnOn, onSheet, sheetButton }: StatusLineProps) {
   // The words say "now" or a time, so they follow the clock.
   const now = useNow(true, 30_000)
   const shown = statusLine(work, now)
   // A control that opens the sheet shows only where there is a sheet to open.
   const line = shown.control?.act.do === 'sheet' && !onSheet ? { ...shown, control: null } : shown
+  const control = line.control
   const busy = useWorkUi((state) => Boolean(state.busy[PLACE]))
   const said = useWorkUi((state) => state.said[PLACE])
   const refused = said?.tone === 'refused' ? said.text : null
@@ -33,19 +43,21 @@ export function StatusLine({ work, live, onTurnOn, onSheet, sheetButton }: { wor
   const act = (what: StatusAct) => {
     if (what.do === 'mode-on') onTurnOn()
     else if (what.do === 'sheet') onSheet?.(what.at)
-    else void runWork(what.do === 'allowance' ? { do: 'allowance', at: what.at } : workloadAction(what.change), { live, place: PLACE })
+    else if (what.do === 'allowance') void runWork({ do: 'allowance', at: what.at }, { live, place: PLACE })
+    else void runWork(workloadAction(what.change), { live, place: PLACE })
   }
   const text = refused ?? line.text
+  const textColor = refused ? 'text-bad-fg' : line.tone === 'go' ? 'text-muted-foreground' : 'text-foreground'
 
   return (
     <div className="flex h-9 min-w-0 items-center gap-3">
       <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', DOT[line.tone])} />
-      <p role={refused ? 'alert' : 'status'} title={text} className={cn('min-w-0 flex-1 truncate text-[13.5px] leading-9', refused ? 'text-bad-fg' : line.tone === 'go' ? 'text-muted-foreground' : 'text-foreground')}>
+      <p role={refused ? 'alert' : 'status'} title={text} className={cn('min-w-0 flex-1 truncate text-[13.5px] leading-9', textColor)}>
         {text}
       </p>
-      {line.control ? (
-        <Button variant="outline" size="sm" data-stop="" disabled={busy} focusableWhenDisabled className="shrink-0" onClick={() => act(line.control!.act)}>
-          {busy ? 'Saving…' : line.control.label}
+      {control ? (
+        <Button variant="outline" size="sm" data-stop="" disabled={busy} focusableWhenDisabled className="shrink-0" onClick={() => act(control.act)}>
+          {busy ? 'Saving…' : control.label}
         </Button>
       ) : null}
       {onSheet ? (
