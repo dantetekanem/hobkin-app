@@ -42,7 +42,9 @@ export function claudeTiers(value: unknown): ClaudeTiers {
   const tiers: ClaudeTiers = {}
   for (const tier of TIER_IDS) {
     const own = given[tier]
-    if (isObject(own) && isOneOf(CLAUDE_MODELS, own.model) && isOneOf(CLAUDE_LEVELS, own.effort)) tiers[tier] = { model: own.model, effort: own.effort }
+    if (!isObject(own) || !isOneOf(CLAUDE_MODELS, own.model) || !isOneOf(CLAUDE_LEVELS, own.effort)) continue
+
+    tiers[tier] = { model: own.model, effort: own.effort }
   }
   return tiers
 }
@@ -60,7 +62,9 @@ export function claudeCodeWithTiers(value: unknown): ClaudeCodeWithTiers {
 /** The tiers on Claude Code after a change. */
 export function changeClaudeTiers(tiers: ClaudeTiers, change: ClaudeTiersChange): ClaudeTiers {
   const next: Record<string, unknown> = { ...tiers }
-  for (const tier of TIER_IDS) if (tier in change) next[tier] = change[tier]
+  for (const tier of TIER_IDS) {
+    if (tier in change) next[tier] = change[tier]
+  }
   return claudeTiers(next)
 }
 
@@ -68,11 +72,16 @@ export function changeClaudeTiers(tiers: ClaudeTiers, change: ClaudeTiersChange)
  * The settings after a change. Settings that came with no tiers, from a host before them, stay without, so a change
  * the window shows never makes such a host look as if it kept them.
  */
-export function changeClaudeCodeSettings<Settings extends ClaudeCodeSettings>(settings: Settings, change: ClaudeCodeWithTiersChange): Settings {
+export function changeClaudeCodeSettings(settings: ClaudeCodeWithTiers, change: ClaudeCodeWithTiersChange): ClaudeCodeWithTiers
+export function changeClaudeCodeSettings(settings: ClaudeCodeSettings, change: ClaudeCodeWithTiersChange): ClaudeCodeSettings
+export function changeClaudeCodeSettings(settings: ClaudeCodeSettings, change: ClaudeCodeWithTiersChange): ClaudeCodeSettings {
   const { tiers, ...rest } = change
   const next = changeClaudeCode(settings, rest)
   const kept = claudeTiersOf(settings)
-  return (kept === null ? next : { ...next, tiers: tiers ? changeClaudeTiers(kept, tiers) : kept }) as Settings
+  if (kept === null) return next
+
+  const withTiers: ClaudeCodeWithTiers = { ...next, tiers: tiers ? changeClaudeTiers(kept, tiers) : kept }
+  return withTiers
 }
 
 /** The group of the model list a tier's Claude Code choices are in. */
@@ -84,7 +93,12 @@ const PREFIX = 'claude-code/'
 
 /** Claude Code's models as the model list offers them, after Pi's, each thinking at Claude Code's levels. */
 export function claudeChoices(): ModelChoice[] {
-  return CLAUDE_MODELS.map((model) => ({ id: `${PREFIX}${model}`, name: NAMES[model], provider: CLAUDE_CODE, efforts: CLAUDE_LEVELS }))
+  return CLAUDE_MODELS.map((model) => ({
+    id: `${PREFIX}${model}`,
+    name: NAMES[model],
+    provider: CLAUDE_CODE,
+    efforts: CLAUDE_LEVELS,
+  }))
 }
 
 /** The Claude model a choice in the list stands for, or null for one of Pi's. */
@@ -144,34 +158,52 @@ const ownOf = (now: TierNow, lead: TierSetting): TierSetting => (now.model && no
  */
 export function chooseModel(draft: TiersDraft, target: TierId | 'lead', choice: ModelChoice, now: TierNow): { draft: TiersDraft; effortMovedFrom: Effort | null } {
   const claude = claudeModelOf(choice.id)
-  if (claude && target === 'lead') return { draft, effortMovedFrom: null }
-  if (claude && target !== 'lead') {
+  if (claude) {
+    if (target === 'lead') return { draft, effortMovedFrom: null }
+
     const from = now.effort ?? draft.config.lead.effort
     const effort = clampEffort(choice, from) as ClaudeLevel
-    return { draft: { ...draft, claude: { ...draft.claude, [target]: { model: claude, effort } } }, effortMovedFrom: effort === from ? null : from }
+    return {
+      draft: { ...draft, claude: { ...draft.claude, [target]: { model: claude, effort } } },
+      effortMovedFrom: effort === from ? null : from,
+    }
   }
+
   if (target === 'lead') {
     const result = setTierModel(draft.config, 'lead', choice)
     return { draft: { ...draft, config: result.config }, effortMovedFrom: result.effortMovedFrom }
   }
+
   const from = { ...draft.config, tiers: { ...draft.config.tiers, [target]: ownOf(now, draft.config.lead) } }
   const result = setTierModel(from, target, choice)
-  return { draft: { config: result.config, claude: without(draft.claude, target) }, effortMovedFrom: result.effortMovedFrom }
+  return {
+    draft: { config: result.config, claude: without(draft.claude, target) },
+    effortMovedFrom: result.effortMovedFrom,
+  }
 }
 
 /** A level chosen on a card: the tier's Claude level while it runs on Claude Code, and its Pi level otherwise. */
 export function chooseLevel(draft: TiersDraft, target: TierId | 'lead', effort: Effort, now: TierNow): TiersDraft {
   const onClaude = target === 'lead' ? undefined : draft.claude[target]
-  if (onClaude) return isOneOf(CLAUDE_LEVELS, effort) ? { ...draft, claude: { ...draft.claude, [target]: { ...onClaude, effort } } } : draft
+  if (onClaude) {
+    if (!isOneOf(CLAUDE_LEVELS, effort)) return draft
+    return { ...draft, claude: { ...draft.claude, [target]: { ...onClaude, effort } } }
+  }
+
   // Levels are offered only for a model the window can name.
   if (!now.model) return draft
+
   const setting = { model: now.model, effort }
-  return { ...draft, config: target === 'lead' ? { ...draft.config, lead: setting } : { ...draft.config, tiers: { ...draft.config.tiers, [target]: setting } } }
+  if (target === 'lead') return { ...draft, config: { ...draft.config, lead: setting } }
+  return { ...draft, config: { ...draft.config, tiers: { ...draft.config.tiers, [target]: setting } } }
 }
 
 /** A tier that follows again follows on Pi, so it comes off Claude Code too. */
 export function followAgain(draft: TiersDraft, tier: TierId): TiersDraft {
-  return { config: { ...draft.config, tiers: { ...draft.config.tiers, [tier]: null } }, claude: without(draft.claude, tier) }
+  return {
+    config: { ...draft.config, tiers: { ...draft.config.tiers, [tier]: null } },
+    claude: without(draft.claude, tier),
+  }
 }
 
 /** What `claude-code.apply` needs to turn `saved` into `draft`: each tier put on Claude Code or changed, one taken off as null. Null when nothing changed. */

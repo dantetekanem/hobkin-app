@@ -33,6 +33,15 @@ const capitalized = (word: string) => word.charAt(0).toUpperCase() + word.slice(
 
 const NOT_SIGNED_IN = 'Not signed in: run claude once in a terminal to sign in'
 
+/** The kinds of agent the tile's switches send to Claude Code at every tier. */
+const kindsOn = (settings: ClaudeCodeSettings) => (settings.enabled ? CLAUDE_AGENT_KINDS.filter((kind) => settings.kinds[kind]) : [])
+
+/** The tiers that run on Claude Code by themselves, as the host reported them. */
+const tiersOn = (settings: ClaudeCodeSettings) => {
+  const tiers = claudeTiersOf(settings) ?? {}
+  return TIER_IDS.filter((tier) => tiers[tier])
+}
+
 function claudeRow(state: ClaudeCodeState): SubscriptionRow {
   const { status, settings } = state
   const row = { id: 'claude-code', name: 'Claude Code' }
@@ -63,15 +72,6 @@ export function subscriptionsValue(rows: readonly SubscriptionRow[]): string {
 }
 
 const KIND_WORDS: Record<ClaudeAgentKind, string> = { work: 'Work', sessions: 'delegated jobs', routines: 'routines' }
-
-/** The kinds of agent the tile's switches send to Claude Code at every tier. */
-const kindsOn = (settings: ClaudeCodeSettings) => (settings.enabled ? CLAUDE_AGENT_KINDS.filter((kind) => settings.kinds[kind]) : [])
-
-/** The tiers that run on Claude Code by themselves, as the host reported them. */
-const tiersOn = (settings: ClaudeCodeSettings) => {
-  const tiers = claudeTiersOf(settings) ?? {}
-  return TIER_IDS.filter((tier) => tiers[tier])
-}
 
 const listed = (words: string[]) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0]!)
 

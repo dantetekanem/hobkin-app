@@ -15,13 +15,14 @@ import {
   claudeTiersOf,
   followAgain,
   shownClaude,
+  type ClaudeCodeWithTiers,
   type TiersDraft,
 } from '../tiers/claude-code.ts'
 import type { ModelChoice } from '../tiers/tiers.ts'
 
 const FOUND: ClaudeCodeStatus = { installed: true, version: '2.1.323', signedIn: true, authMethod: 'claude.ai', plan: 'max' }
 const MISSING: ClaudeCodeStatus = { installed: false, version: null, signedIn: null, authMethod: null, plan: null }
-const keeping = { ...CLAUDE_CODE_DEFAULTS, tiers: {} }
+const keeping: ClaudeCodeWithTiers = { ...CLAUDE_CODE_DEFAULTS, tiers: {} }
 
 const PI: ModelChoice = { id: 'openai-codex/gpt-6-sol', name: 'gpt-6-sol', provider: 'ChatGPT', efforts: ['off', 'low', 'medium', 'high', 'xhigh'] }
 const DRAFT: TiersDraft = {

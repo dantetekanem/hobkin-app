@@ -24,8 +24,10 @@ export function workTier(store: WorkTiers, root: string, run: RunFacts): TierId 
     const project = store.readProject(root, slug)
     if (!project) return null
     if (lane === 'look' && run.title === `${project.name}: state-machines`) return 'max'
-    const madeMax = lane === 'do' && typeof item === 'string' && store.readItems(root, slug).some((each) => each.id === item && each.max === true)
-    const tier = store.levels[madeMax ? 'max' : String(project.level)]?.[`${lane}Tier`]
+    const madeMax =
+      lane === 'do' && typeof item === 'string' && store.readItems(root, slug).some((each) => each.id === item && each.max === true)
+    const level = madeMax ? 'max' : String(project.level)
+    const tier = store.levels[level]?.[`${lane}Tier`]
     return isTier(tier) ? tier : null
   } catch {
     // Work's files cannot be read just now: the run goes where the tile's switches send it.

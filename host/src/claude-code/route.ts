@@ -105,8 +105,8 @@ function durableChoice(chosen: unknown): { settings: Partial<Pick<ClaudeCodeSett
 }
 
 /**
- * The `runHarness` the host gives hobkin: a run whose kind the settings send to Claude Code runs there, and every
- * other run goes to Pi untouched. With Claude Code off, nothing is even looked up.
+ * The `runHarness` the host gives hobkin: a run whose kind or tier the settings send to Claude Code runs there, and
+ * every other run goes to Pi untouched. With Claude Code off and no tier on it, nothing is even looked up.
  */
 export function routeHarness(route: HarnessRoute): Harness {
   return async (request, options) => {
@@ -132,20 +132,22 @@ export function routeHarness(route: HarnessRoute): Harness {
 
     const settings = route.settings()
     const tiers = settings.tiers ?? {}
-    const onTiers = Object.keys(tiers).length > 0
-    if (!settings.enabled && !onTiers) return route.pi(request, options)
+    const someTierOnClaude = Object.keys(tiers).length > 0
+    if (!settings.enabled && !someTierOnClaude) return route.pi(request, options)
 
     const purpose = request.purpose as string | undefined
     if (isUpkeep(purpose)) return route.pi(request, options)
     const run = await route.runFor(String(request.id), request.signal instanceof AbortSignal ? request.signal : undefined)
     const kind = kindOf(purpose, run)
     if (!kind) return route.pi(request, options)
+
     // A run at a tier on Claude Code runs there with the tier's model and level, whatever the tile's switches say. A kind
     // the tile switches on runs there at every tier, with the tile's model unless its tier names its own.
-    const tier = onTiers && run ? tierOf(run, rootOf(options), route.workTier) : null
-    const own = tier ? tiers[tier] : undefined
-    if (!own && !(settings.enabled && settings.kinds[kind])) return route.pi(request, options)
-    const chosen = own ? { ...settings, model: own.model, effort: own.effort } : settings
+    const tier = someTierOnClaude && run ? tierOf(run, rootOf(options), route.workTier) : null
+    const tierOnClaude = tier ? tiers[tier] : undefined
+    const kindSwitchedOn = settings.enabled && settings.kinds[kind]
+    if (!tierOnClaude && !kindSwitchedOn) return route.pi(request, options)
+    const chosen = tierOnClaude ? { ...settings, model: tierOnClaude.model, effort: tierOnClaude.effort } : settings
 
     const claude = route.findClaude()
     // The user chose Claude Code for these agents, so a missing one is a failure to fix, not a reason to spend Pi instead.

@@ -406,8 +406,11 @@ function Models() {
   const rows = [
     { label: 'hobkin', ...config.lead, followsLead: false, onClaude: null },
     ...TIER_IDS.map((tier) => {
+      const label = TIER_INFO[tier].label
       const onClaude = claude[tier]
-      return { label: TIER_INFO[tier].label, ...resolveTier(config, tier), ...(onClaude ? { effort: onClaude.effort, followsLead: false, onClaude: claudeTierName(onClaude) } : { onClaude: null }) }
+      if (!onClaude) return { label, ...resolveTier(config, tier), onClaude: null }
+
+      return { label, ...resolveTier(config, tier), effort: onClaude.effort, followsLead: false, onClaude: claudeTierName(onClaude) }
     }),
   ]
 
