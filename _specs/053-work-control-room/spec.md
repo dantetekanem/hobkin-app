@@ -68,7 +68,9 @@ Workload
   - ship first: the number of finished changes waiting at which new work is held, and whether the rule is on;
   - whether hobkin scores finished changes by itself (`reviewOnFinish`);
   - which pull requests get an AI review by themselves: mine, those waiting for my review, or none.
-- Each is kept in `<home>/work/mode.json` beside the settings there now, set through one host command, `work.workload`, and enforced in `planOf` with the forecast agreeing.
+- Each is kept in `<home>/work/mode.json` beside the settings there now, set through one host command, `work.workload` (agents and tokens a day keep `work.agents` and `work.tokens`), and enforced in `planOf` with the forecast agreeing.
+- The cap counts every work run started in a local day, the user's own picks included; a look does not count. Past the cap and outside the hours, only what the user picks starts. Nothing running is stopped.
+- The host publishes `workload`, `holding` (a kind, until when, a sentence), `outlook` (started today, more today, when the next starts) and `allowance` on the work state, all optional.
 - The sheet ends with the forecast for the settings as they stand: about how many changes start today, and when the next one starts.
 - When today's tokens are spent, the status line offers "Add today's amount again", which answers the runtime's allowance request.
 - The defaults are today's behavior: no cap on changes, always, ship first on at 8, pull requests not reviewed by themselves. Nothing changes for a home that sets nothing.
@@ -170,17 +172,17 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A1. `ui/test/trail-stack.test.ts` › "every page shows a trail whose last place is the page itself" and › "a click on an earlier place goes back to it, and the places after it leave the trail"
 - A2. `ui/test/trail-keep.test.ts` › "Work comes back from a review opened on AI Reviews on that tab, with what it kept"
 - A3. `ui/test/trail-stack.test.ts` › "opening a menu page from the menu, Command with a number or the spotlight starts a new trail" and › "the trail never holds more than six places, and the oldest leave first"
-- A4. unproven
+- A4. `ui/test/project-page.test.ts` › "a busy project's page reads its heading, tiles and flow from what Work, YOLO mode and the numbers know" and › "a project with nothing yet keeps every section and says in each that it has nothing"; check: open a project from Work's row, a World island, a YOLO card and the spotlight.
 - A5. In hobkin, `test/cli-work-metrics.test.mjs` › "work.metrics has one day for each local day of the period, zeros included, for all projects and for each" and › "a line or a file that cannot be read is named in gaps, and the rest still counts"; here, `host/test/metrics.test.ts` › "work.metrics adds the AI reviews the host keeps to hobkin fold: each answer on its day, one that stopped before it, and how long they took"
 - A6. In hobkin, `test/cli-work-metrics.test.mjs` › "a change merged by YOLO mode counts as merged by itself and any other as merged by the user, and one merged after being sent back is not first pass"
 - A7. `shared/test/metrics-rates.test.ts` › "a rate with nothing under it is null, never 0 or 100 percent of nothing"; `ui/test/numbers-format.test.ts` › "a tile with nothing under it reads \"no data yet\", never 0% or 100%"
 - A8. unproven
 - A9. unproven
 - A10. unproven
-- A11. unproven
-- A12. unproven
-- A13. unproven
-- A14. unproven
+- A11. In hobkin, `test/cli-work-store.test.mjs` › "each workload setting is kept in the mode file, so it is still there when hobkin starts again"; here, `host/test/work-workload.test.ts` › "the workload is set from the window, answered as it stands, and kept in hobkin's own file, so a new host reads it again"
+- A12. In hobkin, `test/cli-work-workload.test.mjs` › "with a cap of 3 changes a day, a fourth run does not start that day and starts the next" and › "with hours of 09:00 to 18:00, nothing new starts at 20:00, running agents finish, and work starts again at 09:00"
+- A13. In hobkin, `test/cli-work-workload.test.mjs` › "with ship first off, new work starts while 8 finished changes wait, and the bar is the user's number"
+- A14. In hobkin, `test/cli-work-workload.test.mjs` › "a home that set none of the workload starts work exactly as before"
 - A15. `host/test/review-starts-by-itself.test.ts` › "a finished change's review that was cut short starts again by itself, once for its commit"
 - A16. `host/test/review-starts-by-itself.test.ts` › "a finished change whose branch moved is reviewed at the new commit by itself within a minute, while its card still names the older one"
 - A17. `host/test/review-starts-by-itself.test.ts` › "a finished change whose review has not started is listed as waiting its turn, and one the user removed is not"; `ui/test/work-ai-reviews.test.ts` › "a finished change whose review has not started shows as waiting its turn, after those under way; a stopped one that waits for nothing stays out"
@@ -210,10 +212,10 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - [x] S3 (A1, A2, A3). The trail: one return stack, places that restore, the trail in the frame, Escape.
 - [ ] S4 (A33). The pointer and hover rule, `pressable`, the arrow on rows that open, and no hover on what does not act.
 - [x] S5 (A19, A20, A22). The host lays attention and buckets on a review's nodes, and detail goes to what matters.
-- [ ] S6 (A15, A16, A17, A18). AI reviews start by themselves: cut short, a moved branch, waiting rows, pull requests by the workload.
+- [x] S6 (A15, A16, A17, A18). AI reviews start by themselves: cut short, a moved branch, waiting rows, pull requests by the workload.
 - [x] S7 (A19, A20, A21, A22, A23, A25, A26). The review window: Focus, groups, the outline, seen marks, next unseen, the budget, saved at most once a second, its place kept.
 - [ ] S8 (A28, A29, A30, A31, A32). Proofs: check and proof together, the keys, positions, kept state, stops, a panel that can sit in another page.
-- [ ] S9 (A11, A12, A13, A14). The workload in hobkin and the host: the settings, `planOf`, the forecast, `work.workload`, the allowance answer.
+- [x] S9 (A11, A12, A13, A14). The workload in hobkin and the host: the settings, `planOf`, the forecast, `work.workload`, the allowance answer.
 - [ ] S10 (A8, A9, A10, A11). Work: tiles, the status line, Numbers, the workload sheet, rows that are buttons.
 - [ ] S11 (A4). The project's page, and World and YOLO mode opening it.
 - [ ] S12 (A8, A9). YOLO mode's trust figures, funnel and chart, and World's card.
