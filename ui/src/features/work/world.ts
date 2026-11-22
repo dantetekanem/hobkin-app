@@ -1,5 +1,8 @@
+import { ratesOf, type MetricsDay } from '#shared/protocol/metrics.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { GRADES, type WorkProject, type WorkState } from '#shared/protocol/work.ts'
+import { useView } from '../../app/view-store.ts'
+import { countWords, lastDays, NO_DATA, shareWords, TILE_DAYS } from '../numbers/format.ts'
 
 interface AgentIdentity { id: string; doing: string }
 interface WorldInput<A extends AgentIdentity> {
@@ -52,4 +55,24 @@ export function visitWorldProject(world: WorkWorld, slug: string, visit: (slug: 
   if (!zone) return false
   visit(slug, zone.project.state !== 'chosen')
   return true
+}
+
+/** Where an island goes on a click and on Enter: its project's own page, with World on the trail before it (053). */
+export function openIsland(slug: string): void {
+  useView.getState().openProject(slug)
+}
+
+export interface IslandFigure { label: string; figure: string }
+
+/**
+ * The figures an island's card gives, as Work's tiles in small: what merged in the project's last 30 days, the share of
+ * that merged by itself, and the finished changes waiting for the user now. `days` is null with no numbers.
+ */
+export function islandFigures(days: readonly MetricsDay[] | null, waiting: number): IslandFigure[] {
+  const rates = days ? ratesOf(lastDays(days, TILE_DAYS)) : null
+  return [
+    { label: 'merged (30 d)', figure: rates ? countWords(rates.merged) : NO_DATA },
+    { label: 'by itself', figure: rates ? shareWords(rates.byItselfShare) : NO_DATA },
+    { label: 'wait for you', figure: countWords(waiting) },
+  ]
 }

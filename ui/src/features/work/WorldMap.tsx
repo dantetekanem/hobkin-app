@@ -1,15 +1,19 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { memo, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type ReactNode } from 'react'
+import { Fragment, memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FocusEvent, type ReactNode } from 'react'
 import type { JobActivity } from '#shared/protocol/activity.ts'
+import type { WorkMetrics } from '#shared/protocol/metrics.ts'
 import { requestCanvasFocus } from '@/app/focus.ts'
 import type { RunningAgent } from '@/app/running-agents.ts'
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
+import { Button } from '@/components/ui/button.tsx'
+import { NO_DATA } from '@/features/numbers/format.ts'
 import { useConnection, useHost, useHostKept, type HostState, type WorkState } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
+import { cn } from '@/lib/utils.ts'
 import { GLOBE, sameObservations, sceneFrame, type AgentPlace, type Island, type Point, type SceneFrame } from './world-layout.ts'
-import { visitWorldAgent, visitWorldProject, worldFrom } from './world.ts'
+import { islandFigures, visitWorldAgent, visitWorldProject, worldFrom, type IslandFigure } from './world.ts'
 import './world.css'
 
 type OpenProject = (slug: string, discover: boolean) => void
@@ -21,11 +25,13 @@ const keepObserved = (held: JobActivity | undefined, next: JobActivity | undefin
 interface WorldMapProps {
   work: WorkState
   agents: RunningAgent[]
+  /** The last 30 days of the numbers, for the figures on an island's card. Null while there are none. */
+  metrics: WorkMetrics | null
   onProject: OpenProject
 }
 
 /** The entry gate belongs to Work. An already-open world can have one island, or none. */
-export function WorldMap({ work, agents, onProject }: WorldMapProps) {
+export function WorldMap({ work, agents, metrics, onProject }: WorldMapProps) {
   const runs = useHost((state) => state.snapshot.runs)
   // Not for each word an agent streams: only a new step, or a step that ends, moves it on the globe.
   const activity = useHostKept(jobActivity, keepObserved)
@@ -39,7 +45,7 @@ export function WorldMap({ work, agents, onProject }: WorldMapProps) {
     [work, runs, agents, connection.status, sourceIdentity],
   )
 
-  return <Globe key={sourceIdentity} world={world} activity={activity} onProject={onProject} />
+  return <Globe key={sourceIdentity} world={world} activity={activity} metrics={metrics} onProject={onProject} />
 }
 
 type PresentedWorld = ReturnType<typeof worldFrom<RunningAgent>>
@@ -266,10 +272,10 @@ function IslandButton({ island, zone, fresh, pointing, onOpen }: IslandButtonPro
   // A host that does not count merged work says nothing of it, which is not the same as none.
   const merged = project.merged === undefined ? null : `${island.merged} merged`
   const working = island.workers ? workingLine(island.workers, fresh) : 'No agent running'
-  const spoken = [project.name, merged, working, ...zone.facts, 'Opens the project in Work.'].filter((part) => part !== null).join('. ')
+  const spoken = [project.name, merged, working, ...zone.facts, 'Opens its page.'].filter((part) => part !== null).join('. ')
 
   return (
-    <button type="button" data-stop="" {...pointing} onClick={onOpen} aria-label={spoken} className="absolute left-0 top-0 rounded-full outline-none" style={plotStyle(island)}>
+    <button type="button" data-stop="" {...pointing} onClick={onOpen} aria-label={spoken} className="world-island-button absolute left-0 top-0 rounded-full" style={plotStyle(island)}>
       <span className="world-name" style={nameStyle(island)}>
         <span className="block truncate font-heading text-[13px] font-semibold leading-[1.25]">{project.name}</span>
         {island.room >= ROOM_FOR_FACTS ? (
@@ -326,18 +332,26 @@ interface CardProps {
   at: Point
   half: number
   still: boolean
+  /** Given, the card holds a control: the pointer can reach it and keeps it open while on it. */
+  pointing?: Pointing
   children: ReactNode
 }
 
-/** What the pointer or the keyboard is on, beside it, on the side with more of the globe. The control's own label says the same aloud. */
-function Card({ at, half, still, children }: CardProps) {
+/**
+ * What the pointer or the keyboard is on, beside it, on the side with more of the globe. The control's own label says the
+ * same aloud. An island's card holds its "Open project" button, so the pointer can cross to it and the keyboard reach it.
+ */
+function Card({ at, half, still, pointing, children }: CardProps) {
   const toTheEast = at.x < POLE
   const side = toTheEast ? { left: `calc(${span(at.x + half)} + 12px)` } : { right: `calc(${span(GLOBE - at.x + half)} + 12px)` }
 
   return (
     <motion.div
-      aria-hidden="true"
-      className="pointer-events-none absolute z-30 w-64 -translate-y-1/2 rounded-[14px] border border-border bg-popover p-3 text-popover-foreground shadow-float"
+      aria-hidden={pointing ? undefined : true}
+      data-world-card={pointing ? '' : undefined}
+      onPointerEnter={pointing?.onPointerEnter}
+      onPointerLeave={pointing?.onPointerLeave}
+      className={cn('absolute z-30 w-76 -translate-y-1/2 rounded-[14px] border border-border bg-popover p-3 text-popover-foreground shadow-float', pointing ? 'pointer-events-auto' : 'pointer-events-none')}
       style={{ top: span(at.y), transformOrigin: toTheEast ? 'left center' : 'right center', ...side }}
       initial={still ? false : { opacity: 0, transform: 'scale(0.96)' }}
       animate={{ opacity: 1, transform: 'scale(1)' }}
@@ -349,7 +363,17 @@ function Card({ at, half, still, children }: CardProps) {
   )
 }
 
-function IslandFacts({ zone, fresh }: { zone: Zone; fresh: boolean }) {
+interface IslandFactsProps {
+  zone: Zone
+  fresh: boolean
+  /** Its figures from the numbers: merged in 30 days, the share by itself, and what waits for the user. */
+  figures: IslandFigure[]
+  /** The target its "Open project" button keeps the card open for, while the keyboard is on it. */
+  target: string
+  onOpen: () => void
+}
+
+function IslandFacts({ zone, fresh, figures, target, onOpen }: IslandFactsProps) {
   const { project, agents } = zone
   const merged = project.merged === undefined ? 'Not known' : plural(project.merged, 'change')
   const working = agents.length ? plural(agents.length, 'agent') : fresh ? 'No agent running' : 'No agent in this snapshot'
@@ -361,41 +385,53 @@ function IslandFacts({ zone, fresh }: { zone: Zone; fresh: boolean }) {
 
   return (
     <>
-      <p className="flex items-baseline justify-between gap-3">
-        <span className="truncate font-heading text-[14px] font-semibold">{project.name}</span>
-        <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
-          {project.priority}
-          {project.paused ? ' · paused' : ''}
-        </span>
-      </p>
-      <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12px] [&_dt]:text-muted-foreground">
-        <dt>Merged</dt>
-        <dd>{merged}</dd>
-        <dt>{fresh ? 'Working now' : 'Last seen working'}</dt>
-        <dd>{working}</dd>
-        <dt>Open</dt>
-        <dd>{open.join(' · ') || 'Nothing'}</dd>
-        {project.left ? (
-          <>
-            <dt>Waiting for you</dt>
-            <dd>{plural(project.left, 'step')}</dd>
-          </>
-        ) : null}
-      </dl>
-      {agents.length ? (
-        <ul className="mt-2 flex flex-col gap-1.5 border-t border-border pt-2 text-[12px]">
-          {agents.map((agent) => (
-            <li key={agent.id} className="flex items-start gap-2">
-              <i className="world-dot" style={{ background: hoodColor(agent) }} />
-              <span className="min-w-0">
-                <span className="line-clamp-1 font-medium">{agent.title}</span>
-                <span className="line-clamp-1 text-muted-foreground">{agent.doing}</span>
-              </span>
+      {/* What the card says, the island's own label says aloud: only its button is for a reader. */}
+      <div aria-hidden="true">
+        <p className="flex items-baseline justify-between gap-3">
+          <span className="truncate font-heading text-[14px] font-semibold">{project.name}</span>
+          <span className="shrink-0 font-mono text-[11px] text-muted-foreground">
+            {project.priority}
+            {project.paused ? ' · paused' : ''}
+          </span>
+        </p>
+        <ul className="mt-2 grid grid-cols-3 gap-1.5">
+          {figures.map(({ label, figure }) => (
+            <li key={label} className="flex min-w-0 flex-col rounded-[10px] bg-background px-1.5 py-1.5">
+              {figure === NO_DATA ? (
+                <span className="text-[11px] leading-5 text-muted-foreground">{NO_DATA}</span>
+              ) : (
+                <span className="font-heading text-[15px] leading-5 font-semibold tabular-nums">{figure}</span>
+              )}
+              <span className="truncate text-[11px] leading-4 text-muted-foreground">{label}</span>
             </li>
           ))}
         </ul>
-      ) : null}
-      {project.lookError ? <p className="mt-2 text-[11px] text-bad-fg">Last look failed: {project.lookError}</p> : null}
+        <dl className="mt-2 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-[12px] [&_dt]:text-muted-foreground">
+          <dt>Merged in all</dt>
+          <dd>{merged}</dd>
+          <dt>{fresh ? 'Working now' : 'Last seen working'}</dt>
+          <dd>{working}</dd>
+          <dt>Open</dt>
+          <dd>{open.join(' · ') || 'Nothing'}</dd>
+        </dl>
+        {agents.length ? (
+          <ul className="mt-2 flex flex-col gap-1.5 border-t border-border pt-2 text-[12px]">
+            {agents.map((agent) => (
+              <li key={agent.id} className="flex items-start gap-2">
+                <i className="world-dot" style={{ background: hoodColor(agent) }} />
+                <span className="min-w-0">
+                  <span className="line-clamp-1 font-medium">{agent.title}</span>
+                  <span className="line-clamp-1 text-muted-foreground">{agent.doing}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {project.lookError ? <p className="mt-2 text-[11px] text-bad-fg">Last look failed: {project.lookError}</p> : null}
+      </div>
+      <Button variant="outline" size="sm" data-stop="" data-world-target={target} aria-label={`Open project ${project.name}`} onClick={onOpen} className="mt-2.5 w-full">
+        Open project
+      </Button>
     </>
   )
 }
@@ -456,15 +492,22 @@ function useScene(world: PresentedWorld, activity: JobActivity | undefined, stil
 interface GlobeProps {
   world: PresentedWorld
   activity: JobActivity | undefined
+  metrics: WorkMetrics | null
   onProject: OpenProject
 }
 
-function Globe({ world, activity, onProject }: GlobeProps) {
+/** How long a card stays once the pointer leaves what it is about, so the pointer can cross the gap to an island's card. */
+const LEAVE_MS = 160
+
+function Globe({ world, activity, metrics, onProject }: GlobeProps) {
   const still = useStill()
   const section = useRef<HTMLElement | null>(null)
   const focusedAgent = useRef<string | null>(null)
+  const leaving = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [pointed, setPointed] = useState<string | null>(null)
   const [focused, setFocused] = useState<string | null>(null)
+  // The keyboard is on an island card's button: that card stays, wherever the pointer goes.
+  const [inCard, setInCard] = useState(false)
   const { shown, frame, landings } = useScene(world, activity, still)
 
   // Only what both the layout and the world shown know of is drawn: an island with its project, an agent with its place.
@@ -491,25 +534,36 @@ function Globe({ world, activity, onProject }: GlobeProps) {
     control?.focus({ preventScroll: true })
   }, [world])
 
+  useEffect(() => () => clearTimeout(leaving.current ?? undefined), [])
+
   const followFocus = (event: FocusEvent<HTMLElement>) => {
     const control = event.target
     focusedAgent.current = control.dataset.worldAgent ?? null
     setFocused(control.matches(':focus-visible') ? (control.dataset.worldTarget ?? null) : null)
+    setInCard(control.closest('[data-world-card]') !== null)
   }
   const releaseFocus = (event: FocusEvent<HTMLElement>) => {
-    const leftTheGlobe = event.relatedTarget instanceof Node && !event.currentTarget.contains(event.relatedTarget)
-    if (leftTheGlobe) focusedAgent.current = null
+    // Moving within the globe, the control that takes the keyboard says where it is, so an island's card stays while the
+    // keyboard crosses to its button.
+    if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return
+    if (event.relatedTarget instanceof Node) focusedAgent.current = null
     setFocused(null)
+    setInCard(false)
   }
   const pointingAt = (target: string): Pointing => ({
     'data-world-target': target,
-    onPointerEnter: () => setPointed(target),
-    onPointerLeave: () => setPointed(null),
+    onPointerEnter: () => {
+      clearTimeout(leaving.current ?? undefined)
+      setPointed(target)
+    },
+    onPointerLeave: () => {
+      clearTimeout(leaving.current ?? undefined)
+      leaving.current = setTimeout(() => setPointed(null), LEAVE_MS)
+    },
   })
   const openAgent = (id: string) => visitWorldAgent(world, id, { open: useView.getState().openAgentCanvas, focus: requestCanvasFocus })
 
-  const active = pointed ?? focused
-  const activeIsland = charted.find(({ island }) => islandTarget(island.slug) === active)
+  const active = inCard && focused ? focused : (pointed ?? focused)
   const activeAgent = standing.find(({ place }) => agentTarget(place.id) === active)
   const mergedIsCounted = charted.some(({ zone }) => zone.project.merged !== undefined)
   const merged = charted.reduce((sum, { island }) => sum + island.merged, 0)
@@ -549,16 +603,23 @@ function Globe({ world, activity, onProject }: GlobeProps) {
             />
           ))}
           {WEATHER}
-          {charted.map(({ island, zone }) => (
-            <IslandButton
-              key={island.slug}
-              island={island}
-              zone={zone}
-              fresh={world.fresh}
-              pointing={pointingAt(islandTarget(island.slug))}
-              onOpen={() => visitWorldProject(world, island.slug, onProject)}
-            />
-          ))}
+          {charted.map(({ island, zone }) => {
+            const target = islandTarget(island.slug)
+            const open = () => visitWorldProject(world, island.slug, onProject)
+            // Its card follows its button, so the keyboard reaches "Open project" next.
+            return (
+              <Fragment key={island.slug}>
+                <IslandButton island={island} zone={zone} fresh={world.fresh} pointing={pointingAt(target)} onOpen={open} />
+                <AnimatePresence>
+                  {active === target ? (
+                    <Card at={island} half={island.radius} still={still} pointing={pointingAt(target)}>
+                      <IslandFacts zone={zone} fresh={world.fresh} figures={islandFigures(metrics?.projects.find(({ slug }) => slug === island.slug)?.days ?? null, zone.finished.length)} target={target} onOpen={open} />
+                    </Card>
+                  ) : null}
+                </AnimatePresence>
+              </Fragment>
+            )
+          })}
           {standing.map(({ place, agent }) => (
             <Worker
               key={place.id}
@@ -572,11 +633,7 @@ function Globe({ world, activity, onProject }: GlobeProps) {
             />
           ))}
           <AnimatePresence>
-            {activeIsland ? (
-              <Card key={active} at={activeIsland.island} half={activeIsland.island.radius} still={still}>
-                <IslandFacts zone={activeIsland.zone} fresh={world.fresh} />
-              </Card>
-            ) : activeAgent ? (
+            {activeAgent ? (
               <Card key={active} at={activeAgent.place} half={activeAgent.place.size / 2} still={still}>
                 <AgentFacts agent={activeAgent.agent} slug={activeAgent.place.slug} />
               </Card>

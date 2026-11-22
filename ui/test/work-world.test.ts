@@ -2,7 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { sampleWork } from '../src/features/work/sample.ts'
-import { worldFrom, changedWorldAgents, visitWorldAgent, visitWorldProject } from '../src/features/work/world.ts'
+import { emptyMetricsDay } from '#shared/protocol/metrics.ts'
+import { useView } from '../src/app/view-store.ts'
+import { worldFrom, changedWorldAgents, islandFigures, openIsland, visitWorldAgent, visitWorldProject } from '../src/features/work/world.ts'
 
 const base = sampleWork().projects[0]!
 const project = (slug: string, priority = base.priority, state = base.state) => ({ ...base, slug, name: 'Same name', priority, state })
@@ -93,4 +95,24 @@ test('navigation validates current exact identities and reuses canvas/focus in o
   assert.equal(visitWorldProject(world, 'beta', visit), true)
   assert.equal(visitWorldProject(world, 'Same name', visit), false)
   assert.deepEqual(calls.slice(2), ['alpha:false', 'beta:false'])
+})
+
+test("an island opens its project's page on a click and on Enter, with World on the trail before it", () => {
+  useView.setState({ screen: 'world', trail: [], project: null })
+  assert.equal(visitWorldProject(worldFrom(input), 'beta', openIsland), true)
+  assert.deepEqual([useView.getState().screen, useView.getState().project], ['project', 'beta'])
+  assert.equal(useView.getState().trail.at(-1)?.screen, 'world')
+})
+
+test("an island's card gives its project's figures: merged in 30 days, the share by itself, and how many wait for the user", () => {
+  const day = (mergedByItself: number, mergedByYou: number) => ({ ...emptyMetricsDay('2026-11-21'), mergedByItself, mergedByYou })
+  const days = [{ ...day(9, 9), day: '2026-10-01' }, ...Array.from({ length: 28 }, () => day(0, 0)), day(3, 1), day(2, 2)]
+  assert.deepEqual(islandFigures(days, 3), [
+    { label: 'merged (30 d)', figure: '8' },
+    { label: 'by itself', figure: '63%' },
+    { label: 'wait for you', figure: '3' },
+  ])
+  // Nothing merged has no share, and no numbers say so in each.
+  assert.deepEqual(islandFigures(days.map(() => day(0, 0)), 0).map(({ figure }) => figure), ['0', 'no data yet', '0'])
+  assert.deepEqual(islandFigures(null, 1).map(({ figure }) => figure), ['no data yet', 'no data yet', '1'])
 })

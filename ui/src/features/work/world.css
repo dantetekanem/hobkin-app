@@ -85,6 +85,12 @@
 .world-height[data-tier='2'] { fill: color-mix(in oklab, var(--world-land) 54%, white); }
 
 .world-island[data-active] .world-land { stroke: var(--hb-text); }
+/* Under the pointer an island says it opens: a ring round its coast and its name underlined, besides the lift. */
+.world-island[data-active] .world-shelf { stroke: color-mix(in oklab, var(--hb-text) 45%, transparent); }
+.world-island-button:is(:hover, :focus-visible) .world-name > :first-child {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .world-island[data-focus] .world-shelf { stroke: var(--hb-focus); }
 .world-island[data-paused] .world-art { opacity: 0.55; }
 .world-island[data-paused] .world-land { stroke-dasharray: 5 4; }
