@@ -202,8 +202,11 @@
     outline-offset: 2px;
   }
 
-  /* What acts on a click says so under the pointer (spec 053). Tailwind 4 leaves a button with the arrow. */
-  button:not(:disabled),
+  /*
+   * What acts on a click says so under the pointer (spec 053). Tailwind 4 leaves a button with the arrow. A button that
+   * is off keeps the arrow, also one Base UI keeps focusable while off, which has `aria-disabled` and no `disabled`.
+   */
+  button:not(:disabled, [aria-disabled='true'], [data-disabled]),
   a[href],
   summary,
   select,
