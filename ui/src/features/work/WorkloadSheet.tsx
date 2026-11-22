@@ -170,22 +170,25 @@ function useSave<Value>(name: WorkloadSetting | 'shipFirstAt', held: Value, live
 function Row({ setting, label, line, refused, busy, saved, children }: { setting: WorkloadSetting; label: string; line: string; refused: string | null; busy: boolean; saved: boolean; children: ReactNode }) {
   const words = refused ?? line
   return (
-    <div data-setting={setting} className="grid grid-cols-[minmax(0,1fr)_auto_64px] items-center gap-x-4 border-t border-border/60 py-3 first:border-t-0">
-      <div className="min-w-0">
+    // A row whose controls do not fit beside its words puts them under, at the right, so neither is squeezed.
+    <div data-setting={setting} className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border/60 py-3 first:border-t-0">
+      <div className="min-w-[240px] flex-1">
         <p className="font-heading text-[14px] leading-snug font-medium">{label}</p>
         <p role={refused ? 'alert' : undefined} title={words} className={cn('mt-0.5 line-clamp-2 min-h-[18px] text-[12.5px] leading-[18px]', refused ? 'text-bad-fg' : 'text-muted-foreground')}>
           {words}
         </p>
       </div>
-      <div className="flex min-w-0 items-center justify-end gap-2">{children}</div>
-      <span aria-live="polite" className="flex h-5 items-center gap-1 text-[12px] whitespace-nowrap text-muted-foreground">
+      <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
+        {children}
+        <span aria-live="polite" className="flex h-5 w-16 shrink-0 items-center gap-1 text-[12px] whitespace-nowrap text-muted-foreground">
         {busy ? 'Saving…' : saved ? (
           <>
             <Check aria-hidden="true" className="size-3.5 text-ok-fg" />
             Saved
           </>
         ) : null}
-      </span>
+        </span>
+      </div>
     </div>
   )
 }
@@ -302,7 +305,7 @@ function HoursRow({ value, live }: { value: WorkHours | null; live: boolean }) {
       onBlur={() => {
         if (hours && (ends.from !== hours.from || ends.to !== hours.to)) set(ends)
       }}
-      className="h-8 rounded-full border-[1.5px] border-input bg-background px-2.5 font-mono text-[12.5px] tabular-nums outline-none focus-visible:border-ring disabled:opacity-45"
+      className="h-8 w-[96px] rounded-full border-[1.5px] border-input bg-background px-2.5 font-mono text-[12.5px] tabular-nums outline-none focus-visible:border-ring disabled:opacity-45"
     />
   )
   return (

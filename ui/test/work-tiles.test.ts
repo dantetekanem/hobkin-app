@@ -12,7 +12,8 @@ const byKey = (tiles: readonly Tile[]) => Object.fromEntries(tiles.map((tile) =>
 
 test("the six tiles read what waits, the AI reviews and today's tokens from Work, and the rest from the numbers", () => {
   const work = sampleWork(NOW)
-  const tiles = tilesOf(tilesInputOf(workNowOf(work), { running: 2, ready: 4, failed: 1 }, sampleMetrics(30, TODAY)), 'sample')
+  const now = workNowOf(work)
+  const tiles = tilesOf(tilesInputOf(now, { running: 2, ready: 4, failed: 1 }, sampleMetrics(30, TODAY)), 'sample', now.needsYou)
   assert.deepEqual(
     tiles.map((tile) => tile.key),
     ['waiting', 'merged', 'first-pass', 'by-itself', 'ai-reviews', 'tokens'],
@@ -21,6 +22,8 @@ test("the six tiles read what waits, the AI reviews and today's tokens from Work
   // Every finished change waits for the user's yes or no, whatever its group: 3 ready, 1 to refresh, 2 that need them, 1 left a note.
   assert.equal(waitingNow(work), 7)
   assert.equal(tile.waiting!.figure, '7')
+  // No time a change finished at is known, so the line says how many wait on the user alone: 2 that need them, 1 left a note.
+  assert.equal(tile.waiting!.context, '3 need you first')
   assert.deepEqual([tile.merged!.figure, tile.merged!.context], ['7', '4 by itself'])
   assert.deepEqual([tile['ai-reviews']!.figure, tile['ai-reviews']!.after, tile['ai-reviews']!.context], ['2', 'running', '4 ready · 1 failed'])
   assert.deepEqual([tile.tokens!.figure, tile.tokens!.after], ['38M', 'of 100M'])

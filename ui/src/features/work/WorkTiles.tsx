@@ -13,13 +13,13 @@ const openTile = (key: TileKey) => useWorkTab.getState().openNumbers(tileOpens(k
  * today's tokens, each with a 30-day sparkline, each a button into Numbers. They are drawn again only when one of
  * the few things they read changes, not on every message the host sends.
  */
-export const WorkTiles = memo(function WorkTiles({ waiting, tokensToday, dailyTokens, reviews }: { waiting: number | null; tokensToday: number | null; dailyTokens: number | null; reviews: ReviewTally | null }) {
+export const WorkTiles = memo(function WorkTiles({ waiting, needsYou, tokensToday, dailyTokens, reviews }: { waiting: number | null; needsYou: number | null; tokensToday: number | null; dailyTokens: number | null; reviews: ReviewTally | null }) {
   const { metrics, state } = useWorkMetrics(TILE_DAYS)
   const tally = reviews ? `${reviews.running}/${reviews.ready}/${reviews.failed}` : ''
   const tiles = useMemo(() => {
-    const now: WorkNow | null = waiting === null ? null : { waiting, tokensToday, dailyTokens }
+    const now: WorkNow | null = waiting === null ? null : { waiting, needsYou: needsYou ?? 0, tokensToday, dailyTokens }
     const [running = 0, ready = 0, failed = 0] = tally ? tally.split('/').map(Number) : []
-    return tilesOf(tilesInputOf(now, tally ? { running, ready, failed } : null, metrics), state)
-  }, [waiting, tokensToday, dailyTokens, tally, metrics, state])
+    return tilesOf(tilesInputOf(now, tally ? { running, ready, failed } : null, metrics), state, needsYou)
+  }, [waiting, needsYou, tokensToday, dailyTokens, tally, metrics, state])
   return <TileRow tiles={tiles} loading={state === 'loading' && !metrics} onOpen={openTile} />
 })
