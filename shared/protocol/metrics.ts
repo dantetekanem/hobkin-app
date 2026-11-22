@@ -161,6 +161,7 @@ export function ratesOf(days: readonly MetricsDay[]): MetricsRates {
   const merged = byItself + sum((day) => day.mergedByYou)
   const decided = merged + sum((day) => day.declined)
   const answered = sum((day) => day.reviewsSafe + day.reviewsRisky)
+
   return {
     merged,
     byItselfShare: share(byItself, merged),
