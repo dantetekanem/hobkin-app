@@ -69,7 +69,7 @@ export function ChartFrame({ id, title, counts, figure, summary, status, note, h
         aria-describedby={said}
         onFocus={onFocus}
         onBlur={onBlur}
-        className={cn('flex min-w-0 flex-col gap-2 rounded-2xl bg-surface px-4 py-3 text-left select-none', onOpen && 'pressable')}
+        className={cn('flex min-w-0 flex-col gap-2 rounded-2xl bg-background px-4 py-3 text-left select-none', onOpen && 'pressable')}
       >
         <div className="flex h-6 min-w-0 items-center gap-3">
           <h3 className="shrink-0 font-heading text-[13.5px] font-semibold">{title}</h3>

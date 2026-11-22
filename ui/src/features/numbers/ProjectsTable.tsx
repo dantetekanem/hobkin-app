@@ -31,7 +31,7 @@ export const ProjectsTable = memo(function ProjectsTable({ id, rows, periodWords
   const opens = useMemo(() => (onOpen ? new Map(rows.map((row) => [row.slug, () => onOpen(row.slug)])) : null), [rows, onOpen])
   const ready = status === 'ready'
   return (
-    <section id={id} aria-label={title} className="flex min-w-0 flex-col gap-2 rounded-2xl bg-surface px-4 py-3">
+    <section id={id} aria-label={title} className="flex min-w-0 flex-col gap-2 rounded-2xl bg-background px-4 py-3">
       <div className="flex h-6 items-center">
         <h3 className="font-heading text-[13.5px] font-semibold">{title}</h3>
       </div>

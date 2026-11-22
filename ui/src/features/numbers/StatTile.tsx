@@ -25,7 +25,7 @@ export interface StatTileProps {
   onOpen?: () => void
 }
 
-const TILE = 'flex h-[124px] min-w-0 flex-col gap-0.5 rounded-2xl bg-surface px-3.5 py-3 text-left select-none'
+const TILE = 'flex h-[124px] min-w-0 flex-col gap-0.5 rounded-2xl bg-background px-3.5 py-3 text-left select-none'
 
 /**
  * One tile of the Work sketch: a label, the figure, one line of context and a 30-day sparkline, in a box of one size

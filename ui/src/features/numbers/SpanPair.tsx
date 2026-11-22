@@ -53,7 +53,7 @@ export const SpanPair = memo(function SpanPair({ id, title, counts, span, countL
   )
   // The box is a plain block with the column inside at its own height: WebKit lays a button's content out in a box of
 // its own, where neither a flex column nor a height in percent reaches the button's height.
-  const box = 'block h-[124px] w-full min-w-0 rounded-2xl bg-surface px-4 py-3 text-left select-none'
+  const box = 'block h-[124px] w-full min-w-0 rounded-2xl bg-background px-4 py-3 text-left select-none'
   return (
     <figure id={id} className="m-0 min-w-0">
       {onOpen ? (
