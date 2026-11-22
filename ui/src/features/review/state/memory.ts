@@ -172,6 +172,47 @@ export function memoryStorage(): StateStorage & { setItem(name: string, value: s
   }
 }
 
+/** The clock a throttled storage waits on: the real one, or a test's. */
+export interface WriteClock {
+  now(): number
+  later(run: () => void, ms: number): unknown
+  cancel(timer: unknown): void
+}
+const REAL_CLOCK: WriteClock = { now: () => Date.now(), later: (run, ms) => setTimeout(run, ms), cancel: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>) }
+
+/**
+ * Writes to a storage at most once in `every` milliseconds (spec 053): a move through a review changes its memory, and
+ * the memory of every review is one value, so writing it on each move cost a write of all of it each time. What is set
+ * waits, the latest kept, and is read back as it waits; `flush` writes it at once, as when the review closes.
+ */
+export function throttledStorage(storage: StateStorage, { every = 1000, clock = REAL_CLOCK }: { every?: number; clock?: WriteClock } = {}): StateStorage & { flush(): void } {
+  let waiting: { name: string; value: string } | null = null
+  let timer: unknown = null
+  let wrote = Number.NEGATIVE_INFINITY
+  const write = () => {
+    if (timer != null) clock.cancel(timer)
+    timer = null
+    if (!waiting) return
+    const { name, value } = waiting
+    waiting = null
+    wrote = clock.now()
+    void storage.setItem(name, value)
+  }
+  return {
+    getItem: (name) => (waiting?.name === name ? waiting.value : storage.getItem(name)),
+    setItem: (name, value) => {
+      if (waiting && waiting.name !== name) write()
+      waiting = { name, value }
+      timer ??= clock.later(write, Math.max(0, wrote + every - clock.now()))
+    },
+    removeItem: (name) => {
+      if (waiting?.name === name) waiting = null
+      return storage.removeItem(name)
+    },
+    flush: write,
+  }
+}
+
 export function createReviewMemory(storage: StateStorage = memoryStorage()): StoreApi<MemoryState> {
   let written = 0
   // Folding is cheap, but every marker on screen asks for the notes. The answer is kept until the log changes.

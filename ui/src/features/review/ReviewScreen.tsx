@@ -36,7 +36,7 @@ import { STEPS_STRIP, StepsPanel, stepsPanelWidth, type PanelChrome } from './pa
 import { Shortcuts } from './Shortcuts.tsx'
 import './review.css'
 import { sampleSource, SAMPLE_REVIEWS } from './source.ts'
-import { reviewMemory, StageProvider, useReduced, useReviewMemory } from './state/context.tsx'
+import { flushReviewMemory, reviewMemory, StageProvider, useReduced, useReviewMemory } from './state/context.tsx'
 import { memoryKey } from './state/memory.ts'
 import { followCursor, shownPlaces } from './state/cursor.ts'
 import { createSession } from './state/session.ts'
@@ -227,6 +227,14 @@ const Stage = memo(function Stage({ review, source, loader, live, close, verdict
   const treatment = useDev((dev) => dev.treatment)
   const [session] = useState(() => createSession(review, reviewMemory))
   useEffect(() => session.connect(), [session])
+  // The reviewer's memory is written at most once a second, and at once when the review closes or the window goes.
+  useEffect(() => {
+    addEventListener('pagehide', flushReviewMemory)
+    return () => {
+      removeEventListener('pagehide', flushReviewMemory)
+      flushReviewMemory()
+    }
+  }, [])
   // A newer copy of this review, as when its change review lands, is taken in where the reviewer is.
   useLayoutEffect(() => session.getState().adopt(review), [review, session])
   // hobkin moves the reviewer's view through the host, to a step or a node. A place it pointed to before the review was

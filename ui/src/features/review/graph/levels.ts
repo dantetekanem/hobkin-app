@@ -72,6 +72,24 @@ function upstream(edge: Edge, id: string): boolean {
 const sameIds = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((id) => b.includes(id))
 const byId = (a: Edge, b: Edge) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
+/** How many times the levels of a focus were worked out, not taken from the last time: a move costs one (spec 053). */
+export const levelsWork = { runs: 0 }
+/** The last levels worked out, for the graph and the focus they were for. */
+let last: { nodes: Graph['nodes']; edges: Graph['edges']; story: Graph['story']; focus: string; levels: Levels<NodeLevel, WireLevel> } | null = null
+
+/**
+ * The levels of a focus, worked out once for a graph and a focus: a move asks for them twice, once to say what draws in
+ * and once to draw it, and the second time takes the first's.
+ */
+export function focusLevels(graph: Graph, focus: readonly string[]): Levels<NodeLevel, WireLevel> {
+  const key = focus.join('\u0000')
+  if (last && last.nodes === graph.nodes && last.edges === graph.edges && last.story === graph.story && last.focus === key) return last.levels
+  levelsWork.runs += 1
+  const levels = levelsOf(graph, focus)
+  last = { nodes: graph.nodes, edges: graph.edges, story: graph.story, focus: key, levels }
+  return levels
+}
+
 /**
  * The levels of a focus. Its own path stands out: the wires between its nodes, the wire the story rides in on and
  * the one it leaves by for the next step. Around that, each focus node draws its life cycle quietly: a few wires to the
@@ -80,7 +98,7 @@ const byId = (a: Edge, b: Edge) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
  * unchanged code, out to where the request comes in. Whatever is left folds into a count on the node, so a node with
  * twenty callees draws a few wires, not a fan of twenty.
  */
-export function focusLevels(graph: Graph, focus: readonly string[]): Levels<NodeLevel, WireLevel> {
+function levelsOf(graph: Graph, focus: readonly string[]): Levels<NodeLevel, WireLevel> {
   const focused = new Set(focus)
   const nodes: Record<string, NodeLevel> = {}
   const wires: Record<string, WireLevel> = {}
