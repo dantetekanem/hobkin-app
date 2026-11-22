@@ -78,7 +78,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
   {
     title: 'Leaving',
     keys: [
-      [['esc'], 'One level back: the note being written, the finder, the proof, a wire, selected lines, the code, an open group, then the review'],
+      [['esc'], 'One level back: the note being written, the finder, the proof, a wire, selected lines, the code, every open group at once, then the review'],
       [['⌘', '?'], 'These shortcuts'],
     ],
   },

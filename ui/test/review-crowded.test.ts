@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { Review, ReviewNode } from '#shared/review/types.ts'
 import { FOCUS_BUDGET, isFoldGroup, OPEN_ROOM } from '../src/features/review/graph/focus.ts'
+import { escapeReview } from '../src/features/review/entry.ts'
 import { pressKey } from '../src/features/review/keys.ts'
 import { largeReview } from '../src/features/review/sample/large.ts'
 import { createReviewMemory } from '../src/features/review/state/memory.ts'
@@ -83,4 +84,26 @@ test('U from a group card goes to the first node that needs the reviewer, the gr
   session.getState().focusOn(more)
   pressKey(session.getState(), { key: 'u', shift: false, alt: false }, keys)
   assert.deepEqual(session.getState().focus, [plan.groups[more]!.members[0]])
+})
+
+test('one Escape closes every group open, those the outline, U or a kept place opened by themselves too, and the next leaves the review', () => {
+  const session = open()
+  const { plan } = session.getState().view
+  const groups = ['Docs', 'Locale files', 'Moved or renamed'].map((label) => plan.groups[plan.order.find((id) => plan.groups[id]!.label === label)!]!)
+  for (const group of groups) session.getState().reach(group.members.at(-1)!)
+  // What needs the reviewer and is drawn is seen, so U goes into the group of those that did not fit.
+  for (const id of needsYou) if (!plan.groupOf[id]) session.getState().toggleSeen(id)
+  for (let press = 0; press < 5; press += 1) pressKey(session.getState(), { key: 'u', shift: false, alt: false }, keys)
+  assert.equal(session.getState().view.plan.open.length, 4, 'the outline and U opened four groups by themselves')
+  const before = session.getState().focus
+
+  let left = 0
+  escapeReview(session.getState(), () => (left += 1))
+  assert.equal(left, 0)
+  assert.deepEqual(session.getState().view.plan.open, [], 'one press closes them all')
+  assert.equal(session.getState().view.nodes.length <= FOCUS_BUDGET.cards, true)
+  // The reviewer was on a node a group opened to: they are on its card now.
+  assert.deepEqual(session.getState().focus, [session.getState().view.foldOf[before[0]!]])
+  escapeReview(session.getState(), () => (left += 1))
+  assert.equal(left, 1, 'the next press leaves the review')
 })

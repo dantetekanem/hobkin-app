@@ -160,6 +160,11 @@ export interface Session {
   openGroup(groupId: string): boolean
   /** Closes an open group, the last opened when none is named, and focuses its card. False when none was open. */
   closeGroup(groupId?: string): boolean
+  /**
+   * Escape's: closes every open group at once, whoever opened it, and puts a reviewer who was on one, or on what it
+   * opened to, on its card. False when none was open.
+   */
+  closeGroups(): boolean
   /** Enter on a group card: opens it, or closes it when it is open. */
   toggleGroup(groupId: string): boolean
   /**
@@ -664,7 +669,16 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         // The reviewer on the group, or on what it opened to, is put back on its card. Anywhere else, they stay there.
         const inside = get().focus.some((each) => each === id || members.has(each))
         refold({ opened: fold.opened.filter((each) => each !== id), pinned: fold.pinned.filter((pin) => !members.has(pin)) })
-        if (inside && !(get().focus.length === 1 && get().focus[0] === id)) apply(focusNode(graph(), get().story, id, { alone: get().mode === 'roam' }), 'detour')
+        // The card is brought into view: what the reviewer was on may have stood far from it, in the block.
+        if (inside) apply(focusNode(graph(), get().story, id, { alone: get().mode === 'roam' }), 'detour')
+        return true
+      },
+      closeGroups: () => {
+        if (fold.opened.length === 0) return false
+        const { focus, view } = get()
+        const holding = [...fold.opened].reverse().find((id) => focus.some((each) => each === id || view.plan.groupOf[each] === id))
+        refold({ opened: [], pinned: [] })
+        if (holding != null) apply(focusNode(graph(), get().story, holding, { alone: get().mode === 'roam' }), 'detour')
         return true
       },
       toggleSeen: (nodeId) => {
