@@ -9,7 +9,7 @@ const rated = (more: Partial<RatedFacts>): RatedFacts => ({ level: 'safe', criti
 /** Words a reviewer acts on never name the engine's fields or rules. */
 const ENGINE_WORDS = /\b(effect|proof|exposure|undo|unverified|confidence|floor|rule|lifecycle|isolated|mocked|finding)\b|_/i
 
-test('what the reviewer must read needs them: high, critical, a finding, a question, a failed or missing test, the blind check disagreeing, an acceptance line with a warning', () => {
+test('what the reviewer must read needs them: high, critical, a finding, a question, a failed test, the blind check disagreeing, an acceptance line with a warning', () => {
   const cases: [string, AttentionInput, string][] = [
     ['high', code([rated({ level: 'high', effect: 'data', proof: 'none' })]), 'Changes data it writes, and no test covers it.'],
     ['critical', code([rated({ level: 'high', critical: true, effect: 'interface', proof: 'lifecycle' })]), 'Needs a fix, not only a look.'],
@@ -17,7 +17,6 @@ test('what the reviewer must read needs them: high, critical, a finding, a quest
     ['a reference left dangling', code([rated({ level: 'high', findings: [{ rule: 'dangling-reference', by: 'search' }] })]), 'Removes something other code still uses.'],
     ['a test that fails here', code([rated({ level: 'mid', findings: [{ rule: 'failing-test', by: 'proof' }] })]), 'A test that runs it fails with this change in place.'],
     ['an open question', code([rated({ level: 'mid', proof: 'isolated', questions: 2 })]), 'It leaves you 2 questions to answer.'],
-    ['a missing test', code([rated({ level: 'mid', effect: 'behaviour', proof: 'none' })]), 'Changes what the code does, and no test covers it.'],
     ['the blind check disagreeing', code([rated({ level: 'mid', proof: 'isolated', blind: { agrees: false, level: 'high' } })]), 'A second, blind reading would rate it high risk.'],
     ['a failed test', { kind: 'test', bucket: 'test', change: 'modified', size: 3, status: 'failed', rated: [] }, 'This test fails with the change in place.'],
     ['an acceptance line with a warning', { kind: 'criterion', bucket: 'docs', change: 'unchanged', size: 0, status: 'unproven', warning: 'Its Proof line names a test that does not exist', rated: [] }, 'Its Proof line names a test that does not exist.'],
@@ -31,6 +30,7 @@ test('what the reviewer must read needs them: high, critical, a finding, a quest
 
 test('mid and what is unverified are worth a look; the rest is safe, and says why when it can', () => {
   const look: [string, AttentionInput, string][] = [
+    ['a mid node no test covers', code([rated({ level: 'mid', effect: 'behaviour', proof: 'none' })]), 'No test covers it.'],
     ['direct tests only', code([rated({ level: 'mid', proof: 'isolated' })]), 'Only tests that call it directly cover it.'],
     ['tests that could not run', code([rated({ level: 'mid', proof: 'unknown' })]), 'Its tests could not run here.'],
     ['a map entry that could not be checked', code([rated({ level: 'safe', unverified: true })]), 'Its place in the map could not be checked, so read it yourself.'],
@@ -215,4 +215,27 @@ test('a node that only removes lines is at least worth a look, and a test it rem
   assert.equal(attentionOf(removed({ kind: 'test', bucket: 'test', status: 'passed' })).tier, 'worth-a-look')
   assert.equal(attentionOf(removed({ kind: 'file', bucket: 'test' })).reasons[0], 'It removes part of the tests: check that what they covered still is.')
   assert.equal(attentionOf(removed({ kind: 'file', bucket: 'generated' })).tier, 'safe', 'a generated file nobody reads')
+})
+
+test('a change where most code has no test opens with only what needs the reviewer for another reason on top, and the untested code first of what is worth a look', () => {
+  const nodes = [
+    ...Array.from({ length: 54 }, (_, index) => ({ id: `untested${index}`, input: code([rated({ level: 'mid', effect: 'behaviour', proof: 'none' })], { size: 10 + index }) })),
+    { id: 'breaks', input: code([rated({ level: 'high', findings: [{ rule: 'breaks-test', by: 'proof' }] })]) },
+    { id: 'asks', input: code([rated({ level: 'mid', effect: 'behaviour', proof: 'none', questions: 1 })]) },
+    { id: 'disputed', input: code([rated({ level: 'mid', proof: 'isolated', blind: { agrees: false, level: 'high' } })]) },
+    { id: 'direct', input: code([rated({ level: 'mid', proof: 'isolated', unverified: true })], { size: 900 }) },
+    ...Array.from({ length: 19 }, (_, index) => ({ id: `safe${index}`, input: code([rated({})]) })),
+  ]
+  const weighed = nodes.map(({ id, input }) => ({ id, size: input.size, ...attentionOf(input) }))
+  const tiers = Object.fromEntries(weighed.map(({ id, tier }) => [id, tier]))
+  assert.deepEqual(weighed.filter(({ tier }) => tier === 'needs-you').map(({ id }) => id), ['breaks', 'asks', 'disputed'], 'no test alone never needs the reviewer')
+  assert.equal(weighed.filter(({ tier }) => tier === 'worth-a-look').length, 55)
+  assert.deepEqual([tiers.untested0, attentionOf(nodes[0]!.input).reasons], ['worth-a-look', ['No test covers it.']])
+  assert.equal(attentionOf(nodes.find(({ id }) => id === 'asks')!.input).reasons[0], 'It leaves you a question to answer.', 'what needs the reviewer is said first')
+
+  const ranks = rankAttention(weighed)
+  const ordered = [...ranks].sort((a, b) => a[1] - b[1]).map(([id]) => id)
+  assert.deepEqual(ordered.slice(0, 3).sort(), ['asks', 'breaks', 'disputed'])
+  assert.ok(ordered.slice(3, 57).every((id) => id.startsWith('untested')), 'untested code ranks first of what is worth a look')
+  assert.equal(ordered[57], 'direct')
 })

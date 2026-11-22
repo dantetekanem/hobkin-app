@@ -5,9 +5,9 @@
  * without a host.
  *
  * The rule: a node needs the reviewer when the review rated it high or critical, found a test it breaks or a reference
- * it leaves dangling, left a question, found no test for changed code or a test that fails, when the blind check
- * disagreed with its unit's level, or when an acceptance line has a warning. It is worth a look when it is mid, or when
- * something about it could not be checked. Everything else is safe.
+ * it leaves dangling, left a question, found a test that fails, when the blind check disagreed with its unit's level,
+ * or when an acceptance line has a warning. It is worth a look when it is mid, no test covers it, it only removes lines,
+ * or something about it could not be checked. Everything else is safe.
  */
 import { classify, isLockfile } from '../../packages/change-review/src/triage.ts'
 import type { Effect, Proof } from '../../packages/change-review/src/types.ts'
@@ -98,10 +98,11 @@ function ratedReasons(facts: RatedFacts): Reason[] {
   const rules = new Set((facts.findings ?? []).map((finding) => finding.rule))
   for (const [rule, weight, text] of BROKEN) if (rules.has(rule) && !(rule === 'failing-test' && rules.has('breaks-test'))) reasons.push(needs(weight, text))
   if (facts.critical) reasons.push(needs(90, 'Needs a fix, not only a look.'))
+  // The engine's level weighs its tests already: no test is worth a look, first of that tier, and never needs the reviewer alone.
   if (facts.level === 'high') {
     const clauses = [...(facts.undo === 'none' ? ['nothing undoes it'] : []), ...(facts.proof && COVERED[facts.proof] ? [COVERED[facts.proof]!] : [])]
     reasons.push(needs(60, joined(facts.effect && DOES[facts.effect] ? DOES[facts.effect]! : 'The AI review rates it high risk', clauses)))
-  } else if (untested(facts)) reasons.push(needs(40, joined(facts.effect && DOES[facts.effect] ? DOES[facts.effect]! : 'It changes', ['no test covers it'])))
+  } else if (untested(facts)) reasons.push(look(60, 'No test covers it.'))
   if (facts.blind && !facts.blind.agrees) reasons.push(needs(50, facts.blind.level ? `A second, blind reading would rate it ${LEVEL_NAMES[facts.blind.level]}.` : 'A second, blind reading disagrees with its rating.'))
   if (facts.questions) reasons.push(needs(45, facts.questions === 1 ? 'It leaves you a question to answer.' : `It leaves you ${facts.questions} questions to answer.`))
   if (facts.level === 'mid' && !untested(facts)) reasons.push(look(30, midWords(facts)))
@@ -168,7 +169,8 @@ export function attentionOf(input: AttentionInput): Weighed {
   const found = [...(input.rated.length ? input.rated.flatMap(ratedReasons) : unratedReasons(input)), ...removalReasons(input)]
   const byText = new Map<string, Reason>()
   for (const reason of found) if ((byText.get(reason.text)?.weight ?? -1) < reason.weight) byText.set(reason.text, reason)
-  const reasons = [...byText.values()].sort((a, b) => b.weight - a.weight)
+  // What sets the tier is said first, then the rest by weight.
+  const reasons = [...byText.values()].sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || b.weight - a.weight)
   const tier = reasons.reduce<AttentionTier>((worst, { tier }) => (TIER_ORDER[tier] < TIER_ORDER[worst] ? tier : worst), 'safe')
   return { tier, strength: reasons.reduce((sum, { weight }) => sum + weight, 0), reasons: reasons.slice(0, 3).map(({ text }) => text) }
 }
