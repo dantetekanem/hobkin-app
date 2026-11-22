@@ -215,7 +215,7 @@ test('the work state says what holds work mode, until when, in one sentence', t 
 
   const capped = busyHome(t, { urgent: false });
   setChangesADay(capped, 3);
-  assert.deepEqual(holding(capped), { kind: 'cap', until: at(midnight), line: '3 of today\'s 3 changes have started, so the next starts after midnight.' });
+  assert.deepEqual(holding(capped), { kind: 'cap', until: at(midnight), line: '3 of today\'s 3 changes have started, so the next starts at 00:00 tomorrow.' });
 
   const evenings = busyHome(t, { urgent: false });
   setWorkHours(evenings, { from: '09:00', to: '18:00' });
@@ -232,7 +232,7 @@ test('the work state says what holds work mode, until when, in one sentence', t 
 
   const spent = busyHome(t);
   writeMode(spent, { dailyTokens: 3000 });
-  assert.deepEqual(holding(spent), { kind: 'tokens', until: at(midnight), line: '3k of today\'s 3k tokens are used, so nothing new starts until midnight.' });
+  assert.deepEqual(holding(spent), { kind: 'tokens', until: at(midnight), line: '3k of today\'s 3k tokens are used, so nothing new starts until 00:00 tomorrow.' });
 
   // An urgent fix may pass the hour's share, so this home has none.
   const hourly = dataRoot(t);
@@ -348,3 +348,31 @@ test('the cap counts new changes only: a review or a fix of finished work and a 
   assert.equal(forecastAndOutlook(root, plan(root), { now: evening }).outlook.moreToday, 1, 'the forecast counts the same way');
 });
 
+test('what holds work mode is the hold that ends last, with the time work really starts again', t => {
+  const holding = (root, options = {}) => holdingOf(plan(root, options), options.now ?? evening);
+  const afternoon = new Date(2026, 5, 1, 14).getTime();
+  const opens = at(new Date(2026, 5, 2, 9).getTime());
+
+  // The cap is reached at 14:00 inside hours of 09:00 to 18:00: it lifts at midnight, and the hours hold until 09:00.
+  const capped = busyHome(t, { urgent: false });
+  setWorkload(capped, { changesADay: 3, hours: { from: '09:00', to: '18:00' } });
+  assert.deepEqual(holding(capped, { now: afternoon }), {
+    kind: 'cap', until: opens, line: '3 of today\'s 3 changes have started, so the next starts at 09:00 tomorrow, when work hours begin.',
+  });
+
+  // With every agent busy as well, the cap still lasts longer than a run.
+  const busy = busyHome(t, { urgent: false });
+  setChangesADay(busy, 3);
+  const twoRunning = [{ slug: 'web', lane: 'look', startedAt: at(evening) }, { slug: 'api', lane: 'look', startedAt: at(evening) }];
+  assert.equal(holding(busy, { running: twoRunning }).kind, 'cap');
+
+  // The day's tokens spent outside the hours: the hours end last.
+  const spent = busyHome(t);
+  setWorkHours(spent, { from: '09:00', to: '18:00' });
+  writeMode(spent, { dailyTokens: 3000 });
+  assert.deepEqual(holding(spent), { kind: 'hours', until: opens, line: 'Work hours are 09:00 to 18:00, so nothing new starts until 09:00 tomorrow.' });
+  // Spent at 17:00, inside them: the tokens hold until midnight and the hours after it.
+  assert.deepEqual(holding(spent, { now: new Date(2026, 5, 1, 17).getTime() }), {
+    kind: 'tokens', until: opens, line: '3k of today\'s 3k tokens are used, so nothing new starts until 09:00 tomorrow, when work hours begin.',
+  });
+});

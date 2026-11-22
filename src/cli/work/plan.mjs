@@ -648,43 +648,57 @@ function planOf(root, { mode = readMode(root), now = Date.now(), running = [], c
 }
 
 const holds = (kind, line, until = null) => ({ kind, until: until === null ? null : new Date(until).toISOString(), line });
+// A hold with no end of its own lasts longest, and one that ends as a run finishes is the shortest.
+const NO_END = Infinity;
+const SOON = -Infinity;
 
 /**
- * The one thing that holds work mode now, for the window to name with the control that changes it: a `kind`, when it ends (`until`, an ISO time,
- * or null when only the user or a finished run ends it) and one plain sentence. Null while something starts, or only the gap between starts or a
- * row's own turn holds it, as the forecast's next start then says.
+ * The one thing that holds work mode now, for the window to name with the control that changes it: a `kind`, when work starts again (`until`, an
+ * ISO time, or null when only the user or a finished run ends it) and one plain sentence. When several hold it, it is the one that ends last, and
+ * its time is when work really starts again: past it, the user's hours may hold it longer. Null while something starts, or only the gap between
+ * starts or a row's own turn holds it, as the forecast's next start then says.
  */
 export function holdingOf(plan, now = Date.now()) {
   const { mode, pause, next, free, agents, waitingOn, entries, shipFirst: shipping, budget, workload, hours } = plan;
   if (!mode.enabled) return holds('off', 'Work mode is off, so nothing starts by itself.');
   if (pause?.kind === 'hand') return holds('paused', 'Paused by hand, so nothing new starts until work mode resumes.');
-  if (pause?.kind === 'chosen') return holds('paused', `Paused until ${lookTime(pause.until, now)} to protect the subscription, as you chose.`, pause.until);
-  if (pause?.kind === 'usage') return holds('usage-limit', `A usage limit holds new work until ${lookTime(pause.until, now)}.`, pause.until);
   if (next) return null;
+
+  const queued = entries.filter(entry => !entry.skipped && !entry.paused);
+  // Each with when it ends by itself, and its sentence given the time work starts again.
+  const found = [];
+  const hold = (kind, endsAt, words) => found.push({ kind, endsAt, words });
+  if (!queued.length) {
+    const paused = entries.some(entry => entry.paused && !entry.skipped);
+    hold(paused ? 'paused' : 'nothing-queued', NO_END, () => (paused ? 'Every project with work queued is paused.' : 'Nothing is queued, so nothing starts.'));
+  }
+  if (!mode.autoPick) hold('auto-pick-off', NO_END, () => 'Auto-pick is off, so only what you start runs.');
+  if (shipping.holding && queued.some(entry => entry.held)) {
+    hold('ship-first', NO_END, () => `${shipping.pile} finished changes wait for you, so new work holds until fewer than ${shipping.bar} wait.`);
+  }
+  if (pause?.kind === 'chosen') hold('paused', Date.parse(pause.until), until => `Paused until ${until} to protect the subscription, as you chose.`);
+  if (pause?.kind === 'usage') hold('usage-limit', Date.parse(pause.until), until => `A usage limit holds new work until ${until}.`);
+  if (!hours.open) hold('hours', hours.opensAt, until => `Work hours are ${workload.hours.from} to ${workload.hours.to}, so nothing new starts until ${until}.`);
   if (pause?.kind === 'day') {
-    return holds('tokens', `${tokenLabel(budget.used)} of today's ${tokenLabel(budget.limit)} tokens are used, so nothing new starts until midnight.`, pause.until);
+    hold('tokens', Date.parse(pause.until), until => `${tokenLabel(budget.used)} of today's ${tokenLabel(budget.limit)} tokens are used, so nothing new starts until ${until}.`);
+  }
+  if (capReached(workload, budget) && queued.some(entry => newWorkByItself(entry) && beginsAChange(entry, budget.ran))) {
+    hold('cap', dayEndsAt(now), until => `${budget.changes} of today's ${workload.changesADay} changes have started, so the next starts at ${until}.`);
   }
   if (pause?.kind === 'hour') {
-    return holds('hourly-share', `This hour's share of ${tokenLabel(budget.hourShare)} tokens is used, so nothing new starts until about ${lookTime(pause.until, now)}.`, pause.until);
-  }
-  if (!hours.open) {
-    return holds('hours', `Work hours are ${workload.hours.from} to ${workload.hours.to}, so nothing new starts until ${lookTime(hours.opensAt, now)}.`, hours.opensAt);
+    hold('hourly-share', Date.parse(pause.until), until => `This hour's share of ${tokenLabel(budget.hourShare)} tokens is used, so nothing new starts until about ${until}.`);
   }
   if (free <= 0) {
     const busy = agents === 1 ? 'The one agent at work is busy, so the next start waits for it to finish.' : `All ${agents} agents are busy, so the next start waits for one to finish.`;
-    return holds('agents-busy', waitingOn ?? busy);
+    hold('agents-busy', SOON, () => waitingOn ?? busy);
   }
-  if (plan.nextStartAt) return null;
-  const queued = entries.filter(entry => !entry.skipped && !entry.paused);
-  if (!queued.length) {
-    return entries.some(entry => entry.paused && !entry.skipped) ? holds('paused', 'Every project with work queued is paused.') : holds('nothing-queued', 'Nothing is queued, so nothing starts.');
-  }
-  if (!mode.autoPick) return holds('auto-pick-off', 'Auto-pick is off, so only what you start runs.');
-  if (shipping.holding && queued.some(entry => entry.held)) {
-    return holds('ship-first', `${shipping.pile} finished changes wait for you, so new work holds until fewer than ${shipping.bar} wait.`);
-  }
-  if (capReached(workload, budget) && queued.some(entry => newWorkByItself(entry) && beginsAChange(entry, budget.ran))) {
-    return holds('cap', `${budget.changes} of today's ${workload.changesADay} changes have started, so the next starts after midnight.`, dayEndsAt(now));
-  }
-  return null;
+  if (!found.length || (plan.nextStartAt && found.every(({ endsAt }) => endsAt === SOON))) return null;
+
+  // The first of those that end last.
+  const last = found.reduce((longest, each) => (each.endsAt > longest.endsAt ? each : longest));
+  if (!Number.isFinite(last.endsAt)) return holds(last.kind, last.words());
+  const after = workHoursAt(workload.hours, last.endsAt);
+  const starts = after.open ? last.endsAt : after.opensAt;
+  const until = `${lookTime(starts, now)}${starts > last.endsAt ? ', when work hours begin' : ''}`;
+  return holds(last.kind, last.words(until), starts);
 }
