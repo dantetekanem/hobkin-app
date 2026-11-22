@@ -24,6 +24,11 @@ import { useProofRun, useProofRuns } from './use-proof-run.ts'
 /** Side by side the page runs wider than the app's other screens, to 1,400 pixels, so the two halves have room. */
 const WIDE_COLUMN = 'px-[max(0px,calc((100%_-_1400px)_/_2))]'
 
+interface ProofScreenProps {
+  /** For a still render: the layout to draw, with nothing measured. */
+  layout?: ProofLayout
+}
+
 /**
  * A TLA+ proof run, a page of its own (050-tla-proofs), opened from a finished card, an agent's step or the YOLO page:
  * where it belongs and its item's title, how it stands, the one control that stops or runs it again, which model of
@@ -31,7 +36,7 @@ const WIDE_COLUMN = 'px-[max(0px,calc((100%_-_1400px)_/_2))]'
  * (`ProofBody`). Its keys are the proof's (`proof-keys.ts`). Escape and Back return to where it was opened from.
  * Without a host it shows the sample check.
  */
-export function ProofScreen({ layout: given }: { /** For a still render: the layout to draw, with nothing measured. */ layout?: ProofLayout } = {}) {
+export function ProofScreen({ layout: given }: ProofScreenProps = {}) {
   const root = useRef<HTMLDivElement | null>(null)
   const frame = useRef<HTMLDivElement | null>(null)
   useStops(root)
@@ -81,14 +86,32 @@ function PageRun({ run, now, live, complete, layout, frame }: PageRunProps) {
   const onCode = useCodeOpener(run)
   useLanding(run, complete)
   // J and K, and Run again, open the next run on the same page, among the same siblings.
-  const onMove: MoveTo = (next, replaces) => openRunAmong(next, replaces ? siblings.map((sibling) => (sibling === replaces ? next : sibling)) : siblings)
+  const onMove: MoveTo = (next, replaces) => {
+    const among = replaces ? siblings.map((sibling) => (sibling === replaces ? next : sibling)) : siblings
+    openRunAmong(next, among)
+  }
   const control = useRunControl(run, live, onMove)
-  useProofKeys(frame, { run, layout, siblings, panel: false, onMove, onControl: () => void control.press() })
+  useProofKeys(frame, {
+    run,
+    layout,
+    siblings,
+    panel: false,
+    onMove,
+    onControl: () => void control.press(),
+  })
 
   return (
     <>
       <Header run={run} siblings={siblings} onMove={onMove} control={control} />
-      <ProofBody key={run.id} run={run} now={now} layout={layout} tabsId="proof" onPart={(part, landing) => showPart(frame.current, run, layout, part, { landing })} onCode={onCode} />
+      <ProofBody
+        key={run.id}
+        run={run}
+        now={now}
+        layout={layout}
+        tabsId="proof"
+        onPart={(part, landing) => showPart(frame.current, run, layout, part, { landing })}
+        onCode={onCode}
+      />
     </>
   )
 }

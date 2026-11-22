@@ -53,6 +53,12 @@ function firstBlock(run: ProofRun): string | null {
   return fromProof ?? (fromTrace && names.includes(fromTrace) ? fromTrace : null)
 }
 
+interface MathViewProps {
+  run: ProofRun
+  /** In one column, the proof tree comes before the spec: beside the check, it is what the user reads first. */
+  proofFirst?: boolean
+}
+
 /**
  * The math (_specs/050-tla-proofs, screen 3): the spec set in Unicode TLA+ in three modes, Math, In words and Side by
  * side, in a scroll area of one height; the TLAPS tree, counted only when it ran with --strict, with the note under it
@@ -60,7 +66,7 @@ function firstBlock(run: ProofRun): string | null {
  * Picking a block lights the proof's steps about it, and picking a step brings its block into view. The mode, block,
  * step and fold are kept for the run while the app is open (`kept.ts`).
  */
-export function MathView({ run, proofFirst = false }: { run: ProofRun; /** In one column, the proof tree comes before the spec: beside the check, it is what the user reads first. */ proofFirst?: boolean }) {
+export function MathView({ run, proofFirst = false }: MathViewProps) {
   const { mode, block: chosen, step, all } = useKept(run.id, 'math')
   const setMode = (next: Mode) => keepMath(run.id, { mode: next })
   const setChosen = (block: string | null) => keepMath(run.id, { block })
@@ -244,7 +250,9 @@ function ProofSection({ run, selected, step, all, onAll, onStep }: ProofSectionP
     const row = step === null ? null : area?.querySelector<HTMLElement>(`[data-proof-step="${step}"]`)
     if (!area || !row) return
     const top = row.offsetTop - area.offsetTop
-    if (top < area.scrollTop || top + row.offsetHeight > area.scrollTop + area.clientHeight) area.scrollTo({ top: Math.max(0, top - area.clientHeight / 3) })
+    const above = top < area.scrollTop
+    const below = top + row.offsetHeight > area.scrollTop + area.clientHeight
+    if (above || below) area.scrollTo({ top: Math.max(0, top - area.clientHeight / 3) })
   }, [step])
   return (
     <section aria-label="The proof" className="flex flex-col gap-3 rounded-[20px] border border-border bg-surface px-5 py-[18px]">

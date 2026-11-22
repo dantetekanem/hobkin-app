@@ -22,6 +22,7 @@ export function failuresOf(run: Failing): Failure[] {
   const failures: Failure[] = []
   const trace = run.trace?.length ?? 0
   if (run.outcome === 'broken' && trace > 0) failures.push({ part: 'graph', step: trace - 1 })
+
   const names = run.definitions.map((definition) => definition.name)
   run.proof?.obligations.forEach((step, index) => {
     if (FAILING.has(step.status)) failures.push({ part: 'math', index, about: relatedDefinition(step.label, names) })
@@ -59,8 +60,20 @@ export function failureLine(run: Failing): string {
 
 /** What a run keeps once F went to a failure: its part shows, with the broken state or the failed step picked. */
 export function failureAt(kept: KeptRun, failure: Failure, index: number): KeptRun {
-  if (failure.part === 'graph') return { ...kept, tab: 'graph', graph: { ...kept.graph, picked: null }, failure: index }
-  return { ...kept, tab: 'math', math: { ...kept.math, step: failure.index, block: failure.about }, failure: index }
+  if (failure.part === 'graph') {
+    return {
+      ...kept,
+      tab: 'graph',
+      graph: { ...kept.graph, picked: null },
+      failure: index,
+    }
+  }
+  return {
+    ...kept,
+    tab: 'math',
+    math: { ...kept.math, step: failure.index, block: failure.about },
+    failure: index,
+  }
 }
 
 /**

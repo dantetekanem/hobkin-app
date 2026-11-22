@@ -58,7 +58,11 @@ export function chipsOf(runs: readonly ProofRunSummary[], head: string | null = 
     const older = Boolean(head && run.head && !sameHead(run.head, head))
     if (older) return [{ id: run.id, label: `${name}checked at an older head`, tone: 'quiet' }]
 
-    const check: ProofChip = { id: run.id, ...checkChip(run, name), ...(run.outcome === 'broken' ? { lands: 'break' as const } : {}) }
+    const check: ProofChip = {
+      id: run.id,
+      ...checkChip(run, name),
+      ...(run.outcome === 'broken' ? { lands: 'break' as const } : {}),
+    }
     const proof = run.steps.find((step) => step.id === 'prove')?.state
     if (proof === 'done') return [check, { id: run.id, label: 'Proved for every size', tone: 'ok' }]
     if (proof === 'failed') return [check, { id: run.id, label: 'Proof fails', tone: 'bad', lands: 'proof' }]
@@ -237,8 +241,10 @@ export function factChips(facts: readonly ModelFact[], runs: readonly ProofRunSu
 
 function proofChips(run: ProofRunSummary | undefined): ProofChip[] {
   const proof = run?.steps.find((step) => step.id === 'prove')?.state
-  if (!run || (proof !== 'done' && proof !== 'failed')) return []
-  return [proof === 'done' ? { id: run.id, label: 'Proved for every size', tone: 'ok' } : { id: run.id, label: 'Proof fails', tone: 'bad', lands: 'proof' }]
+  if (!run) return []
+  if (proof === 'done') return [{ id: run.id, label: 'Proved for every size', tone: 'ok' }]
+  if (proof === 'failed') return [{ id: run.id, label: 'Proof fails', tone: 'bad', lands: 'proof' }]
+  return []
 }
 
 /** The models that broke on a project's default branch, for Home's Problems, each with its project's name. */

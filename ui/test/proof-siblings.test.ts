@@ -47,8 +47,12 @@ test('J and K go to the next and previous sibling and stop at the ends, and the 
 })
 
 test("a change's chips name each run once, in the order they show", () => {
-  const chips = [...chipsOf([summary('proofFails', { id: 'one' }), summary('holds', { id: 'two', spec: '_specs/tla/Queue.tla' })]), { id: null, label: 'Model not checked at this head', tone: 'quiet' as const }]
-  assert.deepEqual(chipRuns(chips), ['one', 'two'])
+  const checked = chipsOf([summary('proofFails', { id: 'one' }), summary('holds', { id: 'two', spec: '_specs/tla/Queue.tla' })])
+  const unchecked = { id: null, label: 'Model not checked at this head', tone: 'quiet' as const }
+
+  const runs = chipRuns([...checked, unchecked])
+
+  assert.deepEqual(runs, ['one', 'two'])
 })
 
 test('an opener opens a run on its page among the siblings it names, and siblings that leave the run out are not kept', () => {

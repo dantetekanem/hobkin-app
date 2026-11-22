@@ -96,7 +96,12 @@ export function useProofRun(id: string | null): ShownRun {
     if (!summary) return { run: read, complete: read !== null }
     // The slice is newer than the last whole read: its counters, rules and actions win, and its count ends the chart.
     const base = read ?? fromSummary(summary)
-    return { run: { ...base, ...summary, samples: withLatest(base.samples, summary, seenAt) }, complete: read !== null }
+    const run = {
+      ...base,
+      ...summary,
+      samples: withLatest(base.samples, summary, seenAt),
+    }
+    return { run, complete: read !== null }
   }, [summary, shownId, whole, seenAt])
 
   if (!live) {

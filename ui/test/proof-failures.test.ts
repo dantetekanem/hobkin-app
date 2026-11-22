@@ -17,8 +17,18 @@ test('what failed in a run: the step of the trace where a rule breaks, then each
   assert.deepEqual(failuresOf(sampleRun('broken', STARTED)), [{ part: 'graph', step: 5 }])
   assert.deepEqual(failuresOf(sampleRun('proved', STARTED)), [])
 
-  const unproved: ProofRun = { ...sampleRun('holds', STARTED), proof: { strict: true, obligations: [step('<1>1', 'proved', 1), step('<2>1', 'missing'), step('<2>2', 'omitted'), step('<2>3', 'pending'), step('<2>4', 'failed')] } }
-  assert.deepEqual(failuresOf(unproved).map((failure) => (failure.part === 'math' ? failure.index : -1)), [1, 2, 4], 'a step still waiting has not failed')
+  const obligations = [
+    step('<1>1', 'proved', 1),
+    step('<2>1', 'missing'),
+    step('<2>2', 'omitted'),
+    step('<2>3', 'pending'),
+    step('<2>4', 'failed'),
+  ]
+  const unproved: ProofRun = { ...sampleRun('holds', STARTED), proof: { strict: true, obligations } }
+
+  const failedSteps = failuresOf(unproved).map((failure) => (failure.part === 'math' ? failure.index : -1))
+
+  assert.deepEqual(failedSteps, [1, 2, 4], 'a step still waiting has not failed')
 })
 
 test('the heading counts what failed, and says nothing failed when so', () => {
@@ -27,7 +37,11 @@ test('the heading counts what failed, and says nothing failed when so', () => {
   assert.equal(failureLine(sampleRun('proved', STARTED)), 'Nothing failed')
   assert.equal(failureLine(sampleRun('checking', STARTED)), 'Nothing failed so far')
 
-  const proof = { strict: true, obligations: [step('<1>1', 'proved', 1), step('<2>1', 'failed'), step('<2>2', 'missing'), step('<2>3', 'omitted'), ...['4', '5', '6', '7', '8'].map((id) => step(`<2>${id}`, 'proved'))] }
+  const proved = ['4', '5', '6', '7', '8'].map((id) => step(`<2>${id}`, 'proved'))
+  const proof = {
+    strict: true,
+    obligations: [step('<1>1', 'proved', 1), step('<2>1', 'failed'), step('<2>2', 'missing'), step('<2>3', 'omitted'), ...proved],
+  }
   assert.equal(failingLine(proof), '3 of 9 steps fail')
   assert.equal(failingLine({ strict: true, obligations: [step('<1>1', 'proved', 1)] }), '1 step')
   assert.equal(failingLine({ strict: true, obligations: [step('<1>1', 'proved', 1), step('<2>1', 'proved')] }), '2 steps')

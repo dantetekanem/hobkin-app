@@ -74,7 +74,19 @@ function OpenPanel({ run: asked, siblings: given = [], onClose, onExpand, onCode
       className="@container scroll-quiet flex h-full min-w-0 flex-col gap-4 overflow-y-auto bg-background px-5 pt-4 pb-10 outline-none"
     >
       {run ? (
-        <PanelRun run={run} now={now} live={live} complete={complete} layout={layout} box={box} siblings={siblings} onMove={onMove} onClose={onClose} onExpand={onExpand} onCode={onCode} />
+        <PanelRun
+          run={run}
+          now={now}
+          live={live}
+          complete={complete}
+          layout={layout}
+          box={box}
+          siblings={siblings}
+          onMove={onMove}
+          onClose={onClose}
+          onExpand={onExpand}
+          onCode={onCode}
+        />
       ) : (
         <div className="flex items-start justify-between gap-3">
           <p className="pt-1.5 text-[13px] text-muted-foreground">{problem ?? 'This proof run is not among the ones hobkin keeps.'}</p>
@@ -102,12 +114,30 @@ function PanelRun({ run, now, live, complete, layout, box, siblings, onMove, onC
   const opener = useCodeOpener(run)
   const control = useRunControl(run, live, onMove)
   useLanding(run, complete)
-  useProofKeys(box, { run, layout, siblings, panel: true, onMove, onControl: () => void control.press(), onClose, onExpand })
+  useProofKeys(box, {
+    run,
+    layout,
+    siblings,
+    panel: true,
+    onMove,
+    onControl: () => void control.press(),
+    onClose,
+    onExpand,
+  })
 
   return (
     <>
       <PanelHeading run={run} siblings={siblings} onMove={onMove} control={control} onClose={onClose} onExpand={onExpand} />
-      <ProofBody key={run.id} run={run} now={now} layout={layout} tabsId="proof-panel" panel onPart={(part, landing) => showPart(box.current, run, layout, part, { landing })} onCode={onCode === undefined ? opener : onCode} />
+      <ProofBody
+        key={run.id}
+        run={run}
+        now={now}
+        layout={layout}
+        tabsId="proof-panel"
+        panel
+        onPart={(part, landing) => showPart(box.current, run, layout, part, { landing })}
+        onCode={onCode === undefined ? opener : onCode}
+      />
     </>
   )
 }

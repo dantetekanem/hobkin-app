@@ -25,6 +25,7 @@ import {
   stepRows,
   type ResultIcon,
   type StepLook,
+  type StepRow,
   type Tone,
 } from './run-view.ts'
 
@@ -103,7 +104,7 @@ const STEP_BOX = 'flex min-h-[80px] w-full flex-col gap-1.5 rounded-[14px] borde
  * One of the three steps. The Proof step opens the proof tree once TLAPS ran, at the first step that failed when one
  * did; the others show where the run stands and do nothing on a click.
  */
-function StepBox({ step, onOpen }: { step: ReturnType<typeof stepRows>[number]; onOpen: (() => void) | null }) {
+function StepBox({ step, onOpen }: { step: StepRow; onOpen: (() => void) | null }) {
   const look = STEP_LOOK[step.look]
   const inner = (
     <>
@@ -132,6 +133,14 @@ function StepBox({ step, onOpen }: { step: ReturnType<typeof stepRows>[number]; 
   )
 }
 
+/** What a press of a step opens: the proof tree for a Proof step TLAPS ran, at the first failed step when one failed. */
+function stepOpener(step: StepRow, onTab: RunViewProps['onTab']): (() => void) | null {
+  if (step.id !== 'prove') return null
+  if (step.look === 'done') return () => onTab('math')
+  if (step.look === 'failed') return () => onTab('math', 'proof')
+  return null
+}
+
 /** The spec and its model, the three steps, the four counters and the chart of new states. */
 function Check({ run, now, onTab }: { run: ProofRun; now: number | null | undefined; onTab: RunViewProps['onTab'] }) {
   const still = useStill()
@@ -153,14 +162,11 @@ function Check({ run, now, onTab }: { run: ProofRun; now: number | null | undefi
       </div>
 
       <ol aria-label="Steps" className="grid grid-cols-3 gap-2">
-        {stepRows(run).map((step) => {
-          const proved = step.id === 'prove' && (step.look === 'done' || step.look === 'failed')
-          return (
-            <li key={step.id} className="flex">
-              <StepBox step={step} onOpen={proved ? () => onTab('math', step.look === 'failed' ? 'proof' : undefined) : null} />
-            </li>
-          )
-        })}
+        {stepRows(run).map((step) => (
+          <li key={step.id} className="flex">
+            <StepBox step={step} onOpen={stepOpener(step, onTab)} />
+          </li>
+        ))}
       </ol>
 
       {/* Four across from 600 pixels, where each caption reads whole; two across below. */}

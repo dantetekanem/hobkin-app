@@ -11,7 +11,7 @@ import { failureAt, failureLine, failuresOf, land, stepFailure } from './failure
 import { keep, keptOf, useKept, type Landing, type ProofTab } from './kept.ts'
 import { choosePart } from './open-run.ts'
 import { focusPart } from './ProofBody.tsx'
-import { proofKey, PROOF_KEY_HINTS } from './proof-keys.ts'
+import { proofKey, PROOF_KEY_HINTS, type ProofKeyPress } from './proof-keys.ts'
 import type { ProofLayout } from './proof-layout.ts'
 import { controlOf, evidenceLine } from './run/run-view.ts'
 import { positionWords, siblingAt } from './siblings.ts'
@@ -74,11 +74,18 @@ export function useRunControl(run: ProofRun, live: boolean, onMove: MoveTo) {
   return { control, said, busy, press }
 }
 
+interface ModelPositionProps {
+  run: ProofRun
+  siblings: readonly string[]
+  onMove: MoveTo
+  className?: string
+}
+
 /**
  * Which model of how many this is, with K and J as buttons, what failed in it, and, when hobkin does not count it as
  * evidence for its change, why. One line whatever it says.
  */
-export function RunFacts({ run, siblings, onMove, className }: { run: ProofRun; siblings: readonly string[]; onMove: MoveTo; className?: string }) {
+export function RunFacts({ run, siblings, onMove, className }: ModelPositionProps) {
   return (
     <div className={cn('flex h-7 min-w-0 items-center gap-3 text-[12.5px] text-muted-foreground', className)}>
       <ModelPosition run={run} siblings={siblings} onMove={onMove} />
@@ -88,7 +95,7 @@ export function RunFacts({ run, siblings, onMove, className }: { run: ProofRun; 
 }
 
 /** "Model 2 of 5" between K and J as buttons, in a room of one width. */
-export function ModelPosition({ run, siblings, onMove, className }: { run: ProofRun; siblings: readonly string[]; onMove: MoveTo; className?: string }) {
+export function ModelPosition({ run, siblings, onMove, className }: ModelPositionProps) {
   const previous = siblingAt(siblings, run.id, -1)
   const next = siblingAt(siblings, run.id, 1)
   return (
@@ -164,6 +171,19 @@ export function ProofKeyHints({ panel = false, className }: { panel?: boolean; c
 
 const typingIn = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select'))
 
+/** A key press as the proof's keys read it. */
+function pressOf(event: KeyboardEvent): ProofKeyPress {
+  return {
+    key: event.key,
+    shift: event.shiftKey,
+    meta: event.metaKey,
+    ctrl: event.ctrlKey,
+    alt: event.altKey,
+    typing: typingIn(event.target),
+    composing: event.isComposing,
+  }
+}
+
 /** Walks the box's controls with Up and Down, as a screen's walk does (`app/stops.ts`), for a panel inside another page. */
 function walk(root: HTMLElement, delta: 1 | -1) {
   const stops = [...root.querySelectorAll<HTMLElement>('[data-stop]')].filter((stop) => !stop.hasAttribute('disabled'))
@@ -208,8 +228,9 @@ export function useProofKeys(root: RefObject<HTMLElement | null>, handlers: Proo
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.defaultPrevented) return
       const { run, layout, siblings, panel, onMove, onControl, onClose, onExpand } = latest.current
-      const action = proofKey({ key: event.key, shift: event.shiftKey, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, typing: typingIn(event.target), composing: event.isComposing }, { panel })
+      const action = proofKey(pressOf(event), { panel })
       if (!action) return
+
       event.preventDefault()
       event.stopPropagation()
       switch (action.do) {

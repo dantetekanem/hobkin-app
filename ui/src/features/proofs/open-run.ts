@@ -20,9 +20,15 @@ export function openRunAmong(id: string, siblings: readonly string[] = [], landi
  * Shows a part of an open run: its tab in tabs (side by side every part shows), landed where asked, as the Proof step
  * and the broken rule of the Run part do. Returns where the keyboard should go in it, when that is one step.
  */
-export function choosePart(run: Pick<ProofRun, 'id' | 'outcome' | 'trace' | 'proof' | 'definitions'>, layout: ProofLayout, part: ProofTab, landing?: Landing): string | undefined {
+export function choosePart(
+  run: Pick<ProofRun, 'id' | 'outcome' | 'trace' | 'proof' | 'definitions'>,
+  layout: ProofLayout,
+  part: ProofTab,
+  landing?: Landing,
+): string | undefined {
   if (landing) keep(run.id, (kept) => land(run, { ...kept, landing }))
   if (layout === 'tabs') keep(run.id, (kept) => (kept.tab === part ? kept : { ...kept, tab: part }))
+
   const step = keptOf(run.id).math.step
   return landing === 'proof' && step !== null ? `[data-proof-step="${step}"]` : undefined
 }

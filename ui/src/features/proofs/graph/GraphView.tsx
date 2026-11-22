@@ -98,12 +98,12 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
     return first ? lensesOf(first.vars) : []
   }, [graph])
 
-  const kept = useKept(run.id, 'graph')
+  const { view: chosenView, lens: lensLabel, picked: chosen, query } = useKept(run.id, 'graph')
   const setChosenView = (view: View) => keepGraph(run.id, { view })
   const setLensLabel = (lens: string) => keepGraph(run.id, { lens })
   const setChosen = (picked: Picked) => keepGraph(run.id, { picked })
   const setQuery = (query: string) => keepGraph(run.id, { query })
-  const { view: chosenView, lens: lensLabel, picked: chosen, query } = kept
+
   const view = viewOf(chosenView, hasPath)
   const lens = useMemo(() => lenses.find((entry) => entry.label === lensLabel) ?? defaultLens(graph), [lenses, lensLabel, graph])
   const picked = chosen && graph.nodes.has(chosen.id) ? chosen : firstPick(graph)

@@ -80,10 +80,17 @@ export function keep(id: string, change: Partial<KeptRun> | ((kept: KeptRun) => 
   const before = runs[id] ?? FRESH
   const after = typeof change === 'function' ? change(before) : { ...before, ...change }
   if (after === before) return
+
+  // The run just changed goes last, so the ones left untouched longest are the first to leave.
   const { [id]: _left, ...others } = runs
-  const ids = Object.keys(others)
-  const kept = ids.length >= MOST ? Object.fromEntries(ids.slice(ids.length - MOST + 1).map((other) => [other, others[other]!])) : others
-  useProofMemory.setState({ runs: { ...kept, [id]: after } })
+  useProofMemory.setState({ runs: { ...newestOf(others, MOST - 1), [id]: after } })
+}
+
+/** The last `count` runs of `runs`, in their order. */
+function newestOf(runs: Record<string, KeptRun>, count: number): Record<string, KeptRun> {
+  const ids = Object.keys(runs)
+  if (ids.length <= count) return runs
+  return Object.fromEntries(ids.slice(ids.length - count).map((id) => [id, runs[id]!]))
 }
 
 export const keepGraph = (id: string, patch: Partial<KeptGraph>) => keep(id, (kept) => ({ ...kept, graph: { ...kept.graph, ...patch } }))

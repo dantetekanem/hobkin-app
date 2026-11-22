@@ -99,9 +99,10 @@ const LANDING: Readonly<Record<ProofTab, readonly string[]>> = {
  */
 export function focusPart(root: HTMLElement | null, part: ProofTab, target?: string): void {
   if (!root) return
+  const selectors = target ? [target] : LANDING[part]
   let frames = 40
   const tryNow = () => {
-    const found = (target ? [target] : LANDING[part]).map((selector) => root.querySelector<HTMLElement>(selector)).find(Boolean)
+    const found = selectors.map((selector) => root.querySelector<HTMLElement>(selector)).find(Boolean)
     if (found) {
       found.focus({ preventScroll: true })
       found.scrollIntoView({ block: 'nearest', behavior: 'smooth' })

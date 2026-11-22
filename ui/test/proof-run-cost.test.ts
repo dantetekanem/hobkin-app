@@ -73,7 +73,8 @@ test("a run's object keeps its identity while the slice says the same of it, and
 
   // Another run moves, and the host sends the whole slice again ten times: this run's summary is the same each time.
   for (let index = 0; index < 10; index++) {
-    await mounted.change(() => send(slice(sampleSummary(ended), { ...sampleSummary(checking), stats: { ...checking.stats, distinct: checking.stats.distinct + index } })))
+    const moved = { ...sampleSummary(checking), stats: { ...checking.stats, distinct: checking.stats.distinct + index } }
+    await mounted.change(() => send(slice(sampleSummary(ended), moved)))
   }
   await settle()
   assert.equal(counted.shown.size, before, 'the same run, the same object')
