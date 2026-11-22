@@ -53,9 +53,13 @@ test("the line names the one thing that holds work mode in hobkin's words, with 
     ['auto-pick-off', 'Auto-pick is off, so only what you start runs.', { label: 'Turn on', act: { do: 'workload', change: { autoPick: true } } }],
     ['agents-busy', 'All 2 agents are busy, so the next start waits for one to finish.', { label: 'More agents', act: { do: 'sheet', at: 'agents' } }],
     ['usage-limit', 'A usage limit holds new work until 15:30.', null],
-    ['paused', 'Paused by hand, so nothing new starts until work mode resumes.', null],
+    // Turning work mode on ends a pause by hand (hobkin's startWork), so the line offers it; nothing the window sends ends the rest.
+    ['paused', 'Paused by hand, so nothing new starts until work mode resumes.', { label: 'Resume', act: { do: 'mode-on' } }],
+    ['paused', 'Every project with work queued is paused.', null],
     ['nothing-queued', 'Nothing is queued, so nothing starts.', null],
   ]
+  const subscription = statusLine(held('paused', 'Paused until 16:00 to protect the subscription, as you chose.', at(16)), NOW)
+  assert.deepEqual([subscription.tone, subscription.control], ['held', null], 'a pause that ends by itself at a time')
   for (const [kind, words, control] of controls) {
     const line = statusLine(held(kind, words), NOW)
     assert.equal(line.text, words, kind)

@@ -27,8 +27,9 @@ export interface StatusLine {
 }
 
 /**
- * The control each hold offers. A usage limit and a pause have none the window can give: the limit ends by itself, and
- * no window command resumes a pause yet. Nothing queued is not something to change.
+ * The control each hold offers. A usage limit ends by itself, and nothing the window sends ends it. Of the pauses, only
+ * one by hand has a control: `work.mode` on ends it (`startWork` in hobkin clears it). One to protect the subscription
+ * ends at its time, and a pause of every project is each project's own switch. Nothing queued is not something to change.
  */
 const CONTROL: Partial<Record<HoldingKind, StatusLine['control']>> = {
   off: { label: 'Turn on', act: { do: 'mode-on' } },
@@ -41,6 +42,9 @@ const CONTROL: Partial<Record<HoldingKind, StatusLine['control']>> = {
   'agents-busy': { label: 'More agents', act: { do: 'sheet', at: 'agents' } },
 }
 
+/** A pause by hand, told apart from the other pauses by hobkin's words: it has no end time, and says so. */
+const byHand = (holding: { kind: HoldingKind; until: string | null; line: string }) => holding.kind === 'paused' && holding.until === null && /^Paused by hand\b/.test(holding.line)
+
 /** Today's words for work mode off, from before the line knew what holds it. */
 const OFF_WORDS = 'Nothing new starts. Agents that are running finish what they started, and projects, items and branches stay.'
 
@@ -49,7 +53,12 @@ export function statusLine(work: StatusInput, now: number): StatusLine {
   if (holding) {
     const tone = holding.kind === 'off' ? 'off' : holding.kind === 'nothing-queued' ? 'go' : 'held'
     // Out of today's tokens with hobkin asking for more: the yes to that request is the control.
-    const control = holding.kind === 'tokens' && work.allowance ? { label: "Add today's amount again", act: { do: 'allowance', at: work.allowance.at } as const } : (CONTROL[holding.kind] ?? null)
+    const control =
+      holding.kind === 'tokens' && work.allowance
+        ? { label: "Add today's amount again", act: { do: 'allowance', at: work.allowance.at } as const }
+        : byHand(holding)
+          ? { label: 'Resume', act: { do: 'mode-on' } as const }
+          : (CONTROL[holding.kind] ?? null)
     return { tone, text: holding.line, control }
   }
   if (!work.enabled) return { tone: 'off', text: OFF_WORDS, control: CONTROL.off! }
