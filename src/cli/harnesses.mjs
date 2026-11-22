@@ -15,6 +15,8 @@ import { promptFactsIn } from './work/usage.mjs';
 import { agentsOut, defaultTeamsDir } from './teams-agents.mjs';
 import { AGENTS_ENVIRONMENT } from './agent-directions-extension.mjs';
 import { codeToolGuardExtension } from './code-tool-crash.mjs';
+import { askedWait, PI_WAIT_TOOLS, piWaitNote, stoppedMidStep, WAITING } from './run-waits.mjs';
+import { waitExtension } from './wait-extension.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
@@ -42,6 +44,18 @@ const agentsStarted = ({ toolName, isError, result }) => {
   const names = (details.spawned ?? []).map(agent => agent.name);
   return details.completionGroup && names.length ? [completionGroup] : names;
 };
+/** A `hobkin_wait` call that reached the host over the run's bridge (`wait-extension.mjs`), or null for any other request. */
+const waitCall = placeholder => {
+  try {
+    const asked = JSON.parse(placeholder);
+    return asked?.op === 'wait' ? asked : null;
+  } catch {
+    return null;
+  }
+};
+/** The tools an assistant reply called, by name. */
+const toolCallNames = message => (Array.isArray(message?.content) ? message.content : [])
+  .filter(part => part?.type === 'toolCall' && typeof part.name === 'string').map(part => part.name);
 
 export function buildInvocation(request) {
   const maxPromptBytes = promptByteLimit();
@@ -91,12 +105,13 @@ export function buildInvocation(request) {
 
 /**
  * A job that loads tools gets its extensions named up front, so Pi leaves out what Hobkin does not use. Its Pi also
- * loads hobkin's guard against the code tool crash (`code-tool-crash.mjs`).
+ * loads hobkin's guard against the code tool crash (`code-tool-crash.mjs`), and a run that can wait (`waits` on its
+ * request) gets `hobkin_wait` (`wait-extension.mjs`).
  */
 export const namingExtensions = run => async (request, options) => {
   if (!usesTools(request.purpose)) return run(request, options);
   const asked = Date.now();
-  const extensions = [...await extensionPaths(request.cwd), codeToolGuardExtension];
+  const extensions = [...await extensionPaths(request.cwd), codeToolGuardExtension, ...(Number.isInteger(request.waits) ? [waitExtension] : [])];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
   const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };
   return run({ ...request, extensions }, { ...options, turn });
@@ -349,7 +364,7 @@ async function startAndKeep(request, { invocation, env, key, result, startProces
 }
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS, now = Date.now } = {}) {
   // Before anything else, so a turn nobody timed still counts its process start.
   const entered = Date.now();
   const invocation = buildInvocation(request);
@@ -409,11 +424,31 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
   let turns = 0, recheck;
   const extensionErrors = new Set();
   let takesMessages = false, joining = false;
+  // A run that can wait (053-run-waits): what the turn asked with `hobkin_wait`, the tools its last reply called, and
+  // whether it was told once that Pi's own waits cannot wake it here. Only a run given the tool is told to use it.
+  let waitAsked, calledLast = new Set(), toldPiWait = false;
+  const canWait = Number.isInteger(request.waits) && request.extensions?.includes(waitExtension) === true;
+  const answerWait = asked => {
+    const { wait, text, refused } = askedWait(asked, { now: now(), waits: request.waits, agentsOut: agents.size });
+    if (refused) return { ok: false, error: refused };
+    waitAsked = wait;
+    return { ok: true, result: { text, ...wait } };
+  };
   const tools = { owned_agent: createOwnedAgentSessionTool((params, signal) => ownedScope.request(params, signal)) };
   const finishOwned = async () => {
     if (joining) return;
     joining = true;
     try {
+      // Pi's own waits need its process to stay up, which a run here does not, so the agent is told so once and goes on.
+      const piWaits = assistant?.stopReason === 'toolUse' && !toldPiWait ? [...calledLast].filter(name => PI_WAIT_TOOLS.includes(name)) : [];
+      if (piWaits.length) {
+        request.signal?.throwIfAborted();
+        toldPiWait = true;
+        assistant = undefined;
+        joining = false;
+        await child.request('prompt', { message: piWaitNote(piWaits, canWait) });
+        return;
+      }
       const facts = assistant?.stopReason === 'stop' ? await ownedScope?.join() : undefined;
       request.signal?.throwIfAborted();
       if (facts) { assistant = undefined; joining = false; await child.request('prompt', { message: facts }); }
@@ -442,17 +477,26 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     }
     // Nobody is watching a job, so a dialog from any extension is declined.
     if (record.type === 'extension_ui_request' && dialogMethods.has(record.method)) {
-      if (record.method === 'input' && record.title === BRIDGE && ownedScope) {
+      const wait = record.method === 'input' && record.title === BRIDGE ? waitCall(record.placeholder) : null;
+      if (wait) child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(answerWait(wait)) });
+      else if (record.method === 'input' && record.title === BRIDGE && ownedScope) {
         void serveBridge(record.placeholder, { tools }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
       } else child.send({ type: 'extension_ui_response', id: record.id, cancelled: true });
     }
     if (record.type === 'message_end' && record.message?.role === 'assistant') {
       assistant = record.message;
       result.text = clean(assistant.content?.filter(part => part.type === 'text').map(part => part.text).join('\n'));
+      calledLast = new Set(toolCallNames(assistant));
     }
     if (record.type === 'tool_execution_end') {
       for (const agent of agentsStarted(record)) agents.add(agent);
+      // A code mode script's own calls count too, since Pi's waits can be called from inside one.
+      for (const name of [record.toolName, ...(record.result?.details?.calls ?? []).map(call => call?.name)]) {
+        if (typeof name === 'string') calledLast.add(name);
+      }
     }
+    // A wait belongs to the turn that asked for it.
+    if (record.type === 'agent_start') waitAsked = undefined;
     if (record.type === 'message_end' && record.message?.customType === 'pi-extended-teams-report') {
       agents.delete(record.message.details?.name);
     }
@@ -517,7 +561,10 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     });
     await settled.promise;
     result.text = clean(assistant?.content?.filter(part => part.type === 'text').map(part => part.text).join('\n'));
-    if (assistant?.stopReason !== 'stop' || !result.text.trim()) {
+    // A turn that asked to wait and then ended as a turn ends leaves the run waiting, whatever its last words.
+    const waiting = waitAsked !== undefined && assistant?.stopReason === 'stop';
+    if (!waiting && assistant?.stopReason === 'toolUse') throw Error(stoppedMidStep([...calledLast]));
+    if (!waiting && (assistant?.stopReason !== 'stop' || !result.text.trim())) {
       throw Error(`Pi did not finish a response (${assistant?.stopReason ?? 'missing'}).`);
     }
     if (extensionErrors.size) {
@@ -539,7 +586,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       result.cost = { usd: stats.cost, kind: 'estimate', cumulative: true, sessionId: state.sessionId };
     }
     if (stats?.tokens) result.tokens = (stats.tokens.input ?? 0) + (stats.tokens.cacheWrite ?? 0) + (stats.tokens.output ?? 0);
-    result.status = 'completed';
+    result.status = waiting ? WAITING : 'completed';
+    if (waiting) result.wait = waitAsked;
     if (!durable) {
       child.terminate();
       await child.closed;
