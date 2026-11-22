@@ -79,7 +79,7 @@ export type KeyAction =
   | { do: 'save-canvas'; owner: string }
 
 /** Work's own pages sit under its tab, so moving along the tabs from one starts at Work. */
-const UNDER_WORK: readonly ScreenId[] = ['world', 'yolo', 'proof']
+const UNDER_WORK: readonly ScreenId[] = ['world', 'yolo', 'project', 'proof']
 
 /**
  * The tab beside the screen showing, in the order Command with a number walks: `step` 1 is right, -1 left, wrapping
@@ -199,9 +199,9 @@ function veilKey(key: string): KeyAction | null {
   return null
 }
 
-const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations', 'skills', 'extensions', 'world', 'yolo', 'proof']
+const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations', 'skills', 'extensions', 'world', 'yolo', 'project', 'proof']
 
-/** A review, Settings, Integrations, Work's World and YOLO mode, and a proof run are open only for now, and so is a GitHub opened while the menu leaves it out. */
+/** A review, Settings, Integrations, Work's World, YOLO mode and a project's page, and a proof run are open only for now, and so is a GitHub opened while the menu leaves it out. */
 function openForNow({ screen, githubInMenu }: KeyContext): boolean {
   return OPEN_FOR_NOW.includes(screen) || (screen === 'github' && !githubInMenu)
 }
@@ -210,9 +210,10 @@ function openForNow({ screen, githubInMenu }: KeyContext): boolean {
  * Escape walks one step back toward the message input. Whatever had the keyboard gets the key first:
  * when it used the key (`prevented`), the frame leaves it alone.
  *
- * A screen that is open only for now is left: a review for its opener, Integrations for Settings, Settings for the screen
- * under it, a GitHub the menu leaves out for the screen it was opened over, the World and YOLO mode for Work, a proof run for where it was opened from. A menu screen stays open and the
- * keyboard goes home.
+ * A screen that is open only for now is left for the place before it on the trail (053): a review, an agent, World, YOLO
+ * mode, a project or a proof run for the page it was opened from, Integrations for Settings, Settings for the screen
+ * under it. With nothing on the trail, a GitHub the menu leaves out goes to the screen it was opened over and the rest
+ * to Work. A menu screen stays open and the keyboard goes home.
  *
  * A canvas with the keyboard in it closes (`040-canvas-board`). The main canvas is not a place open only for now: Escape
  * anywhere else leaves it open.

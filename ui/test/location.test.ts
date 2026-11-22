@@ -12,7 +12,7 @@ const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen,
 // What the window showed before Command+R, with a real home: a report and a routine of that home were open.
 sessionStorage.setItem(KEY, JSON.stringify({
   screen: 'mind', settingsReturn: null, githubReturn: null, openAgent: 'a1', openReview: 'pr:o/r#1', reviewReturn: place('github'),
-  mindReturn: place('agent', { openAgent: 'a1' }), report: 'local:recap:1', routine: 'disk-space', action: 'decision:7', githubTab: 'issues', githubProject: 'storefront', home: '/hobkin',
+  agentReturn: 'routines', mindReturn: place('agent', { openAgent: 'a1' }), report: 'local:recap:1', routine: 'disk-space', action: 'decision:7', githubTab: 'issues', githubProject: 'storefront', home: '/hobkin',
 }))
 
 const { motionBetween, moveKey, readSpot, remembered, travel } = await import('../src/app/location.ts')
@@ -29,7 +29,7 @@ test('a reload comes back to the same screen and its way back, and to the detail
   const view = useView.getState()
   assert.deepEqual([view.screen, view.openAgent, view.openReview], ['mind', 'a1', 'pr:o/r#1'])
   assert.deepEqual(view.mindReturn, place('agent', { openAgent: 'a1' }), "the mind's way back")
-  assert.deepEqual(view.reviewReturn, place('github'))
+  assert.deepEqual(view.trail, [{ screen: 'routines' }], "the agent's way back under the mind, as a trail; the review's leads nowhere from here")
   assert.deepEqual(remembered.getState(), { action: 'decision:7', githubTab: 'issues', githubProject: 'storefront' })
   assert.equal(useRoutines.getState().openId, null, 'a sample routine of the same name is not the one that was open')
 
@@ -103,13 +103,13 @@ test('an agent keeps its return across saved locations and back/forward, without
   useView.getState().previewAgent('a1', 1)
   useView.getState().openAgentCanvas('a1')
   await settled()
-  assert.equal(readSpot(sessionStorage.getItem(KEY))?.agentReturn, 'github', 'Command+R saves the agent return')
+  assert.equal(readSpot(sessionStorage.getItem(KEY))?.trail.at(-1)?.screen, 'github', 'Command+R saves the way back')
   useView.getState().closeAgentCanvas()
   await settled()
   assert.equal(remembered.getState().githubTab, 'issues', 'returning is not a new GitHub visit')
   travel(-1)
   assert.equal(useView.getState().screen, 'agent')
-  assert.equal(useView.getState().agentReturn, 'github', 'back restores the same return path')
+  assert.equal(useView.getState().trail.at(-1)?.screen, 'github', 'back restores the same way back')
   useView.getState().closeAgentCanvas()
   assert.equal(useView.getState().screen, 'github')
 })
@@ -156,8 +156,8 @@ test('a saved place is read only when it is one this window wrote', () => {
   assert.equal(readSpot(null), null)
   assert.equal(readSpot('{"screen":"pages"}'), null, 'a screen that is gone')
   assert.equal(readSpot('[1]'), null)
-  const spot = readSpot('{"screen":"reports","report":"r1","reviewReturn":{"screen":"nowhere"}}')
-  assert.equal(spot?.reviewReturn, null)
+  const spot = readSpot('{"screen":"reports","report":"r1","trail":[{"screen":"nowhere"}]}')
+  assert.deepEqual(spot?.trail, [])
   assert.equal(spot && moveKey(spot), 'reports:r1')
   assert.deepEqual(motionBetween({ ...spot!, screen: 'work' }, { ...spot!, screen: 'settings', settingsReturn: 'work' }), { axis: 'y', direction: -1 }, 'settings comes down')
 })

@@ -21,7 +21,7 @@ const work = { ...sampleWork(), projects: sampleWork().projects.slice(0, 3).map(
 
 function fixture() {
   hostStore.setState({ home: '/fixture', epoch: 1, link: 'open', work })
-  useView.setState({ screen: 'work', openAgent: null, previewReturn: null, agentReturn: null })
+  useView.setState({ screen: 'work', openAgent: null, previewReturn: null, trail: [] })
 }
 
 test('World is contextual; visible positional shortcuts still start at Home', () => {

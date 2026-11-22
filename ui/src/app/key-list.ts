@@ -39,7 +39,7 @@ export const KEY_LIST: readonly KeyEntry[] = [
   { keys: '⌘V', does: 'Paste an image', where: 'the message input' },
   { keys: '↑', does: 'Bring back your last message', where: 'the message input', basic: true },
   { keys: '⌘↓', does: 'Jump to the newest message', where: 'the message input' },
-  { keys: 'esc', does: 'Go back. Twice in the message input stops hobkin, and ⌃C stops it at once', where: 'anywhere', basic: true },
+  { keys: 'esc', does: 'Go back one place on the trail. Twice in the message input stops hobkin, and ⌃C stops it at once', where: 'anywhere', basic: true },
   { keys: 'tab', does: 'Move between controls', where: 'anywhere', basic: true },
 ]
 

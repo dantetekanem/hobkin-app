@@ -9,7 +9,7 @@ import { canvasDot, canvasKey, mainPill, placeMove, showingCanvas, splitOwner, w
 const view = () => useView.getState()
 const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, ...more })
 const start = (screen: ScreenId) =>
-  useView.setState({ screen, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, agentReturn: null, canvasReturn: null })
+  useView.setState({ screen, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, trail: [], canvasReturn: null })
 
 const DRAWING: CanvasState = { open: true, url: 'http://127.0.0.1:9/canvas/k?r=1', title: 'Plan', kind: 'drawing', revision: 1 }
 const CLOSED: CanvasState = { open: false, url: null, title: null }
@@ -39,7 +39,7 @@ test("closing goes back to an agent's page as it was", () => {
   view().openCanvasPlace()
   assert.deepEqual(view().canvasReturn, place('agent', { openAgent: 'hobkin:0123abcd' }))
   view().closeCanvasPlace()
-  assert.deepEqual([view().screen, view().openAgent, view().agentReturn], ['agent', 'hobkin:0123abcd', 'routines'])
+  assert.deepEqual([view().screen, view().openAgent, view().trail.at(-1)?.screen], ['agent', 'hobkin:0123abcd', 'routines'])
   view().closeCanvasPlace()
   assert.equal(view().screen, 'agent', 'closing away from the canvas changes nothing')
   view().closeAgentCanvas()

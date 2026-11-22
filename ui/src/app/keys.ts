@@ -14,7 +14,7 @@ import { answerNext, runningAgents } from './running-agents.ts'
 import { resolveEscape, resolveKey, type KeyAction, type KeyContext, type Zone } from './key-map.ts'
 import { inOverlay, installFrameKeys } from './key-page.ts'
 import { travel } from './location.ts'
-import { walkScreens, type ScreenId } from './screens.ts'
+import { inMenu, walkScreens, type ScreenId } from './screens.ts'
 import { useView } from './view-store.ts'
 import { focusInput, messageInput, requestCanvasFocus } from './focus.ts'
 export { focusCanvas, focusInput } from './focus.ts'
@@ -94,8 +94,10 @@ function perform(action: KeyAction): boolean {
   const view = useView.getState()
   switch (action.do) {
     case 'open-screen':
-      // The canvas is a place with a way back of its own, kept as it opens.
+      // The canvas is a place with a way back of its own, kept as it opens. A page of the menu's first row starts a new
+      // trail, as its item does; a page open for now, such as Settings, is a place on the trail.
       if (action.screen === 'canvas') view.openCanvasPlace()
+      else if (inMenu(action.screen, useSettings.getState().showGitHubInMenu)) view.openMenuScreen(action.screen)
       else view.openScreen(action.screen)
       if (action.focusCanvas) {
         view.engageCanvas()
@@ -163,19 +165,13 @@ function perform(action: KeyAction): boolean {
     case 'answer-agent':
       return answerNext()
     case 'leave-screen':
-      if (view.screen === 'agent') view.closeAgentCanvas()
-      else if (view.screen === 'review') view.closeReview()
-      else if (view.screen === 'integrations') view.toggleIntegrations()
-      else if (view.screen === 'skills' || view.screen === 'extensions') view.togglePage(view.screen)
-      else if (view.screen === 'github') view.closeGitHub()
-      else if (view.screen === 'world' || view.screen === 'yolo') view.openScreen('work')
-      else if (view.screen === 'proof') view.closeProof()
-      else view.closeSettings()
-      // Leaving a review or a proof run returns the keyboard to its opener; other temporary screens keep their existing trail.
-      if (view.screen === 'review' || view.screen === 'proof') {
+      // Back one place along the trail (053), and the page there gets the tab, row and scroll it kept.
+      view.leave()
+      // Leaving a review, a proof run or a project returns the keyboard to the page it was opened from, onto its row.
+      if (view.screen === 'review' || view.screen === 'proof' || view.screen === 'project') {
         requestCanvasFocus()
       } else if (view.screen === 'world' || view.screen === 'yolo') {
-        // As the page's own Back to Work does: onto the control that opened it.
+        // Onto the control that opened it, where the page back there has one.
         requestCanvasFocus(`[data-opens="${view.screen}"]`)
       } else if (useView.getState().screen === 'settings') {
         // Back in Settings, onto the button that opened the page just left.

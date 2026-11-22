@@ -5,7 +5,7 @@
  */
 
 /** The kinds of things the spotlight finds, in the order their groups come when their best matches are as good. */
-export const SPOTLIGHT_KINDS = ['screen', 'setting', 'agent', 'report', 'routine', 'action', 'pull', 'issue'] as const
+export const SPOTLIGHT_KINDS = ['screen', 'setting', 'agent', 'project', 'report', 'routine', 'action', 'pull', 'issue'] as const
 export type SpotlightKind = (typeof SPOTLIGHT_KINDS)[number]
 
 export interface SpotlightEntry {

@@ -24,6 +24,7 @@ const HEADING: Record<SpotlightKind, string> = {
   screen: 'Screens',
   setting: 'Settings',
   agent: 'Agents working now',
+  project: 'Projects',
   report: 'Reports',
   routine: 'Routines',
   action: 'Action items',

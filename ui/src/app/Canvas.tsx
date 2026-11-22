@@ -14,6 +14,7 @@ import { MainAgentScreen } from '@/features/main-agent/MainAgentScreen.tsx'
 import { WorkScreen } from '@/features/work/WorkScreen.tsx'
 import { WorldScreen } from '@/features/work/WorldScreen.tsx'
 import { YoloScreen } from '@/features/work/YoloScreen.tsx'
+import ProjectScreen from '@/features/project/ProjectScreen.tsx'
 import { ProofScreen } from '@/features/proofs/ProofScreen.tsx'
 import { ActionsScreen } from '@/features/actions/ActionsScreen.tsx'
 import { GitHubScreen } from '@/features/github/GitHubScreen.tsx'
@@ -45,11 +46,18 @@ const ReviewScreen = lazy(() => import('@/features/review/ReviewScreen.tsx').the
 const NOT_WIRED: ReadonlySet<ScreenId> = new Set<ScreenId>([])
 
 /** Each canvas screen. A feature replaces its placeholder here when it is built. */
+/** A project's page, for the project the view has open. */
+function ProjectPage() {
+  const project = useView((view) => view.project)
+  return <ProjectScreen slug={project ?? ''} />
+}
+
 const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
   home: HomeScreen,
   work: WorkScreen,
   world: WorldScreen,
   yolo: YoloScreen,
+  project: ProjectPage,
   proof: ProofScreen,
   routines: RoutinesScreen,
   reports: ReportsScreen,
@@ -167,8 +175,8 @@ export function Canvas() {
   const splitNow = useSplit()
   const split = needsModel ? null : splitNow
   const sizes = useSplitSizes()
-  const proofReturn = useView((view) => view.proofReturn)
-  const grow = canvasGrowth({ screen, canvasEngaged: engaged, conversationWidth, proofReturn, split: split !== null })
+  const trail = useView((view) => view.trail)
+  const grow = canvasGrowth({ screen, canvasEngaged: engaged, conversationWidth, trail, split: split !== null })
   // The main canvas moves the view, unless the right side covers the chat right then.
   useCanvasPlace({ covered: grow > 0, split: split ? { owner: split.owner, revision: split.canvas.revision } : null })
   const growth = useGrowth(split !== null, enteringAgent, still)
@@ -178,7 +186,9 @@ export function Canvas() {
   const dragEdge = useDragEdge((state) => state.edge)
   // Each agent has a key of its own, which focus and the keys go by. The agents share one section, though: moving from
   // one agent to the next keeps the canvas and its controls in place, and only the agent's own pieces change on it.
-  const key = needsModel ? 'connect' : screen === 'agent' ? `agent:${openAgent}` : screen
+  // Each project's page is its own too, so going from one project to another travels.
+  const project = useView((view) => view.project)
+  const key = needsModel ? 'connect' : screen === 'agent' ? `agent:${openAgent}` : screen === 'project' ? `project:${project}` : screen
   const section = enteringAgent ? (durable ? 'hobkin' : 'agent') : key
 
   return (

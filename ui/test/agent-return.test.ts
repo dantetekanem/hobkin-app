@@ -21,7 +21,7 @@ test('a click on an agent in the list shows its canvas to stay as it is, and the
 })
 
 test("a TLA+ run opened from a review keeps the review's room, and one opened elsewhere does not take it", () => {
-  useView.setState({ screen: 'work', conversationWidth: 460, canvasEngaged: false, proofReturn: null })
+  useView.setState({ screen: 'work', conversationWidth: 460, canvasEngaged: false, trail: [] })
   view().openReviewFor('r1')
   const reviewing = canvasGrowth(view())
   assert.ok(reviewing > 0)
@@ -42,19 +42,19 @@ test("a TLA+ run opened from a review keeps the review's room, and one opened el
 
 for (const screen of ['reports', 'routines', 'actions', 'github', 'work', 'mind'] as const) {
   test(`promoting a dock preview returns to ${screen}, even after switching agents`, () => {
-    useView.setState({ screen, openAgent: null, previewReturn: null, agentReturn: null })
+    useView.setState({ screen, openAgent: null, previewReturn: null, trail: [] })
     view().previewAgent('a1', 1)
     view().previewAgent('a2', 1)
     view().openAgentCanvas('a2')
     view().endAgentPreview() // The dock's blur follows the transcript pointer-down.
     assert.equal(view().screen, 'agent')
     assert.equal(view().previewReturn, null, 'a promoted canvas is no longer a preview')
-    assert.equal(view().agentReturn, screen)
+    assert.equal(view().trail.at(-1)?.screen, screen)
     view().openAgentCanvas('a3')
     view().closeAgentCanvas()
     assert.equal(view().screen, screen)
     assert.equal(view().openAgent, null)
-    assert.equal(view().agentReturn, null)
+    assert.deepEqual(view().trail, [])
   })
 }
 
@@ -80,7 +80,7 @@ test('rapid entry, opening and a second agent keep the original opener without w
   view().openAgentCanvas('a2')
   view().endAgentPreview()
   assert.equal(view().openAgent, 'a2')
-  assert.equal(view().agentReturn, 'routines')
+  assert.equal(view().trail.at(-1)?.screen, 'routines')
   assert.equal(view().previewReturn, null)
   view().closeAgentCanvas()
   assert.equal(view().screen, 'routines')

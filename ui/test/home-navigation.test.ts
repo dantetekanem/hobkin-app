@@ -69,7 +69,7 @@ test('Home survives agent preview, canvas and Settings return paths', () => {
   view.endAgentPreview()
   assert.equal(useView.getState().screen, 'home')
   view.openAgentCanvas('three')
-  assert.equal(useView.getState().agentReturn, 'home')
+  assert.equal(useView.getState().trail.at(-1)?.screen, 'home')
   view.closeAgentCanvas()
   view.toggleSettings()
   view.closeSettings()

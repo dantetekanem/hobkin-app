@@ -91,7 +91,7 @@ test('returning to a review from its Settings overlay keeps the original opener'
   assert.equal(useView.getState().screen, 'actions')
 })
 
-test('reentering an open review records its new opener, and closing it elsewhere does not navigate', () => {
+test('going to an open review again goes back to it on the trail, and closing it elsewhere does not navigate', () => {
   useView.setState(useView.getInitialState())
   const view = useView.getState()
   view.openScreen('actions')
@@ -99,7 +99,7 @@ test('reentering an open review records its new opener, and closing it elsewhere
   view.openScreen('reports')
   view.openScreen('review')
   view.closeReview()
-  assert.equal(useView.getState().screen, 'reports')
+  assert.equal(useView.getState().screen, 'actions', 'Reports came after the review, so it left the trail')
   view.openReviewFor('sample')
   view.openScreen('routines')
   view.closeReview()

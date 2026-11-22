@@ -67,7 +67,7 @@ function useCoveredChat(side: RefObject<HTMLElement | null> | undefined, still: 
       screen: view.screen,
       canvasEngaged: view.canvasEngaged,
       conversationWidth: view.conversationWidth,
-      proofReturn: view.proofReturn,
+      trail: view.trail,
       split: splitShown,
     }),
   )

@@ -2,6 +2,7 @@ import { Map as MapIcon, Zap } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
+import { useKeptPlace } from '@/app/kept-place.ts'
 import { useView } from '@/app/view-store.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
@@ -53,6 +54,8 @@ export function WorkScreen() {
   useLayoutEffect(() => bindWorldProject(main.current), [])
   // An item opened from another screen, such as an issue's chip on the GitHub page, takes the keyboard as Work arrives.
   useLayoutEffect(() => bindWorkTarget(main.current), [])
+  // Coming back along the trail, the row in focus and the scroll come back too (053). After the handoffs above, which go first.
+  useKeptPlace('work', main)
   // The same agents the list under the input shows: hobkin's own with a host, the frame's sample without one.
   // A durable hobkin is the user's own and no work of hobkin's, so it is left out here (034-durable-hobkins).
   const listed = useRunningAgents()

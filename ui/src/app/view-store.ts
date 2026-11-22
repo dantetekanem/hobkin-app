@@ -1,8 +1,10 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { requestCanvasFocus } from './focus.ts'
+import { arrive, readKeep } from './kept-place.ts'
 import { closeOver, depth, ground, toggleIntegrationsOver, togglePageOver, toggleSettingsOver, type Over, type PageUnderSettings } from './overlays.ts'
 import { screenIndex, type ScreenId, type VeilSection } from './screens.ts'
+import { MOST_PLACES, samePlace, shownTrail, stopOf, whereOf, type Stop } from './trail.ts'
 import type { Place } from '../features/main-agent/mind.ts'
 
 /** Width of the chat, in pixels. */
@@ -21,12 +23,12 @@ export function canvasGrowth({
   screen,
   canvasEngaged,
   conversationWidth,
-  proofReturn = null,
+  trail = [],
   split = false,
-}: Pick<ViewState, 'screen' | 'canvasEngaged' | 'conversationWidth'> & { proofReturn?: Place | null; split?: boolean }): number {
+}: Pick<ViewState, 'screen' | 'canvasEngaged' | 'conversationWidth'> & { trail?: readonly Stop[]; split?: boolean }): number {
   if (split) return conversationWidth + DIVIDER_WIDTH
   // A TLA+ run opened from a review is part of reading it, so it keeps the review's room.
-  const reviewing = screen === 'review' || (screen === 'proof' && proofReturn?.screen === 'review')
+  const reviewing = screen === 'review' || (screen === 'proof' && trail.at(-1)?.screen === 'review')
   return reviewing && canvasEngaged ? Math.max(0, conversationWidth - REVIEW_KEEPS) : 0
 }
 
@@ -73,8 +75,6 @@ export interface ScreenMotion {
   direction: 1 | -1
 }
 
-type ReviewReturn = Pick<ViewState, 'screen' | 'settingsReturn' | 'githubReturn' | 'openAgent' | 'previewReturn'>
-
 interface ViewState {
   screen: ScreenId
   screenMotion: ScreenMotion
@@ -87,16 +87,20 @@ interface ViewState {
   conversationWidth: number
   /** Id of the review open on the canvas, if any. */
   openReview: string | null
-  /** The screen and its return path before the review was explicitly entered. Not persisted. */
-  reviewReturn: ReviewReturn | null
+  /**
+   * The trail (053): the places before this one, oldest first, each with what its page kept of itself. Opening a page
+   * from a page puts the place left here, a way back takes it off, and the menu starts a new one. At most five, so with
+   * the page itself the trail never holds more than six. A reload keeps it (location.ts); a new launch starts without.
+   */
+  trail: Stop[]
+  /** The project its page shows, by slug (053). */
+  project: string | null
   /** Id of the agent whose canvas is open, if any. */
   openAgent: string | null
   /** While the user walks the agents list, the screen to return to when they leave it. */
   previewReturn: ScreenId | null
   /** While the user walks the agents list from an agent's window: that agent, which leaving the list goes back to. */
   previewFrom: string | null
-  /** The screen under an agent, kept when its preview becomes a canvas. */
-  agentReturn: ScreenId | null
   /** While Settings or Integrations is open: the screen under both, which closing returns to. */
   settingsReturn: ScreenId | null
   /** While GitHub is open: the screen it was opened over. Closing a GitHub the menu leaves out returns there. */
@@ -107,8 +111,6 @@ interface ViewState {
   canvasReturn: Place | null
   /** The proof run its page shows, by id (050-tla-proofs). Null shows the newest. */
   openProof: string | null
-  /** Where leaving a proof run's page goes back to: the place it was opened from. A reload keeps it (location.ts). */
-  proofReturn: Place | null
   /** The last revision of each canvas the user has seen in front, by owner. A newer one dots the canvas's pill. */
   canvasSeen: Record<string, number>
   /**
@@ -117,7 +119,18 @@ interface ViewState {
    */
   canvasEngaged: boolean
 
+  /** Opens a screen from a page, a link or a key: the place left goes on the trail, or the trail goes back to the screen when it is on it. */
   openScreen: (screen: ScreenId) => void
+  /** Opens a screen from the menu, Command with a number or the spotlight: a new trail starts there. */
+  openMenuScreen: (screen: ScreenId) => void
+  /** Opens a project's page by its slug, a page of Work's own. */
+  openProject: (slug: string) => void
+  /** Goes back one place along the trail, and the page there gets what it kept. With none, to Work. */
+  back: () => void
+  /** Goes back to the place at `index` of the trail as it shows (`shownTrail`). The page itself, the last, does nothing. */
+  backTo: (index: number) => void
+  /** Escape on a page open only for now: back one place, by each page's own way back (Settings steps up, a review closes). */
+  leave: () => void
   openVeil: (section: VeilSection) => void
   closeVeil: () => void
   /** Moves the veil's selection by one row within a list of `count` rows, or sets it. */
@@ -167,12 +180,78 @@ const placeOf = ({ screen, settingsReturn, githubReturn, openAgent, previewRetur
 /** The screen under the canvas, for a canvas with no way back. */
 const UNDER_CANVAS: Place = { screen: 'work', settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null }
 
-/** One step of Settings or Integrations opening or being left, with the direction the canvas travels for it. */
+/**
+ * How a move treats the trail:
+ * - `go`: a page opened from a page. The place left goes on the trail, or the trail goes back to the new place when it
+ *   is on it already.
+ * - `push`: walking the agents list. The place left always goes on, so leaving the list goes back to it.
+ * - `stay`: a page that replaces itself, one agent for another or a run for the next. The trail stays.
+ * - `back`: a way back. The trail goes back to the place, and its page gets what it kept.
+ * - `fresh`: the menu, Command with a number, the spotlight. A new trail starts.
+ */
+type How = 'go' | 'push' | 'stay' | 'back' | 'fresh'
+
+/** The places a move leaves: the page with what it keeps, and Settings before a page under it opened straight away. */
+function leaving(view: ViewState, after: ViewState): Stop[] {
+  const keep = readKeep(view.screen)
+  const left: Stop[] = [{ ...stopOf(view), ...(keep ? { keep } : {}) }]
+  if (depth(view) === 0 && depth(after) === 2) left.push({ screen: 'settings', ...(after.settingsReturn ? { settingsReturn: after.settingsReturn } : {}) })
+  return left
+}
+
+/** A move, with the trail it leaves. */
+function moved(view: ViewState, next: Partial<ViewState>, how: How): Partial<ViewState> {
+  const after = { ...view, ...next }
+  const to = stopOf(after)
+  if (how === 'fresh') {
+    arrive(to.screen)
+    return { ...next, trail: [] }
+  }
+  const at = how === 'push' ? -1 : view.trail.findIndex((stop) => samePlace(stop, to))
+  if (at >= 0) {
+    arrive(to.screen, how === 'back' ? view.trail[at]!.keep : undefined)
+    return { ...next, trail: view.trail.slice(0, at) }
+  }
+  arrive(to.screen)
+  if (how === 'back' || how === 'stay' || samePlace(stopOf(view), to)) return next
+  return { ...next, trail: [...view.trail, ...leaving(view, after)].slice(-(MOST_PLACES - 1)) }
+}
+
+/** Back along the trail: it comes in from the left, lifts away from Settings and drops back from an agent. */
+function backMotion(from: Over, to: Stop): ScreenMotion {
+  const deeper = depth({ screen: to.screen, settingsReturn: null }) - depth(from)
+  if (deeper !== 0) return { axis: 'y', direction: deeper > 0 ? -1 : 1 }
+  return from.screen === 'agent' ? { axis: 'y', direction: -1 } : { axis: 'x', direction: -1 }
+}
+
+/** Back on `stop`, with `trail` before it. Its page gets what it kept. */
+function restored(view: ViewState, stop: Stop, trail: Stop[]): Partial<ViewState> {
+  arrive(stop.screen, stop.keep)
+  return { ...whereOf(stop, view), trail, previewReturn: null, previewFrom: null, screenMotion: backMotion(view, stop) }
+}
+
+/** A screen opened along the menu: it comes in from the side of its item. */
+function screenStep(current: ViewState, screen: ScreenId): Partial<ViewState> {
+  return {
+    screen,
+    previewReturn: null,
+    previewFrom: null,
+    settingsReturn: null,
+    githubReturn: screen === 'github' ? backFromGitHub(current) : null,
+    screenMotion: { axis: 'x', direction: screenIndex(screen) > screenIndex(current.screen) ? 1 : -1 },
+  }
+}
+
+/**
+ * One step of Settings or Integrations opening or being left, with the direction the canvas travels for it. Leaving
+ * them is a way back to the screen under them; going in, or from one of their pages to another, leaves a place.
+ */
 function stepOver(state: ViewState, step: (over: Over) => Over): Partial<ViewState> {
   const before: Over = { screen: state.screen, settingsReturn: state.settingsReturn }
   const after = step(before)
   // Going deeper comes down over the canvas. Stepping back lifts away.
-  return { ...after, previewReturn: null, previewFrom: null, screenMotion: { axis: 'y', direction: depth(after) > depth(before) ? -1 : 1 } }
+  const next = { ...after, previewReturn: null, previewFrom: null, screenMotion: { axis: 'y', direction: depth(after) > depth(before) ? -1 : 1 } } as const
+  return moved(state, next, depth(after) === 0 ? 'back' : 'go')
 }
 
 /**
@@ -194,7 +273,7 @@ export function launchView({ screen, settingsReturn, canvasReturn, conversationW
   const under = ground(place)
   // A review is not reopened either, so a review that cannot be drawn can never keep the app from starting.
   return {
-    screen: under === 'review' || under === 'canvas' || under === 'proof' ? 'work' : under,
+    screen: under === 'review' || under === 'canvas' || under === 'proof' || under === 'project' ? 'work' : under,
     conversationWidth,
     openReview: null,
     openAgent: place.openAgent,
@@ -217,35 +296,56 @@ export const useView = create<ViewState>()(
       spotlight: false,
       conversationWidth: CONVERSATION_WIDTH.initial,
       openReview: null,
-      reviewReturn: null,
+      trail: [],
+      project: null,
       openAgent: null,
       previewReturn: null,
       previewFrom: null,
-      agentReturn: null,
       settingsReturn: null,
       githubReturn: null,
       mindReturn: null,
       canvasReturn: null,
       openProof: null,
-      proofReturn: null,
       canvasSeen: {},
       canvasEngaged: false,
 
       openScreen: (screen) => {
         const current = get()
         if (screen === current.screen) return
-        set({
-          screen,
-          ...(screen === 'review' ? { reviewReturn: ground(current) === 'review' ? current.reviewReturn : {
-            screen: current.screen, settingsReturn: current.settingsReturn, githubReturn: current.githubReturn,
-            openAgent: current.openAgent, previewReturn: current.previewReturn,
-          } } : {}),
-          previewReturn: null,
-          previewFrom: null,
-          settingsReturn: null,
-          githubReturn: screen === 'github' ? backFromGitHub(current) : null,
-          screenMotion: { axis: 'x', direction: screenIndex(screen) > screenIndex(current.screen) ? 1 : -1 },
-        })
+        // A review opened again over itself, as from Settings over it, replaces it.
+        set(moved(current, screenStep(current, screen), screen === 'review' && ground(current) === 'review' ? 'stay' : 'go'))
+      },
+      openMenuScreen: (screen) => {
+        const current = get()
+        if (screen === current.screen && current.trail.length === 0) return
+        set(moved(current, screen === current.screen ? {} : screenStep(current, screen), 'fresh'))
+      },
+      openProject: (project) => {
+        const view = get()
+        if (view.screen === 'project' && view.project === project) return
+        set(moved(view, { ...screenStep(view, 'project'), project }, 'go'))
+        requestCanvasFocus()
+      },
+      back: () => {
+        const view = get()
+        // With nothing on the trail, each page goes where it always went: a GitHub open for now to the screen under it.
+        const to = view.trail.at(-1) ?? { screen: view.screen === 'github' ? (view.githubReturn ?? 'work') : 'work' }
+        set(restored(view, to, view.trail.slice(0, -1)))
+      },
+      backTo: (index) => {
+        const view = get()
+        const shown = shownTrail(view)
+        const to = shown[index]
+        if (!to || index >= shown.length - 1) return
+        set(restored(view, to, shown.slice(0, index)))
+      },
+      leave: () => {
+        const view = get()
+        if (view.screen === 'integrations') view.toggleIntegrations()
+        else if (view.screen === 'skills' || view.screen === 'extensions') view.togglePage(view.screen)
+        else if (view.screen === 'settings') view.closeSettings()
+        else if (view.screen === 'review') view.closeReview()
+        else view.back()
       },
       openVeil: (veil) => {
         // A new list starts at its first row.
@@ -259,54 +359,61 @@ export const useView = create<ViewState>()(
       resizeConversation: (width) =>
         set({ conversationWidth: Math.round(Math.min(CONVERSATION_WIDTH.max, Math.max(CONVERSATION_WIDTH.min, width))) }),
       openReviewFor: (openReview) => {
-        set({ openReview })
-        get().openScreen('review')
+        const view = get()
+        // A review opened over a review, or over the Settings opened over one, takes its place: closing it goes back to
+        // where the first was opened from.
+        const under = ground(view) === 'review' ? view.trail.findLastIndex((stop) => stop.screen === 'review') : -1
+        if (view.screen === 'review') set(moved(view, { openReview }, 'stay'))
+        else if (under >= 0) set({ ...moved(view, { ...screenStep(view, 'review'), openReview }, 'stay'), trail: view.trail.slice(0, under) })
+        else set(moved(view, { ...screenStep(view, 'review'), openReview }, ground(view) === 'review' ? 'stay' : 'go'))
         // Opening a review is asking to look at it, so it takes the room at once.
         set({ canvasEngaged: true })
         requestCanvasFocus()
       },
       closeReview: () => {
-        const { screen, reviewReturn } = get()
-        if (screen === 'review') {
-          get().openScreen(reviewReturn?.screen ?? 'work')
-          if (reviewReturn) set(reviewReturn)
+        if (get().screen === 'review') {
+          get().back()
           requestCanvasFocus()
         }
-        set({ openReview: null, reviewReturn: null })
+        set({ openReview: null })
       },
       previewAgent: (agentId, direction) => {
-        const { screen, previewReturn, previewFrom, openAgent, agentReturn } = get()
+        const view = get()
+        const { screen, previewReturn, previewFrom, openAgent } = view
         if (screen === 'agent' && openAgent === agentId) return
-        set({
+        const next = {
           // A walk that starts on an agent's window remembers that agent, and keeps it while the walk goes on.
           previewFrom: previewFrom ?? (screen === 'agent' && previewReturn === null ? openAgent : null),
           // Remember where the canvas was only on the way in, not while moving between agents.
           previewReturn: previewReturn ?? (screen === 'agent' ? null : screen),
-          agentReturn: screen === 'agent' ? agentReturn : screen,
           openAgent: agentId,
           screen: 'agent',
           // Agents are a vertical list under the input, so their canvases travel vertically too.
           screenMotion: { axis: 'y', direction },
-        })
+        } as const
+        // The screen the walk starts on goes on the trail, so leaving the list, or the agent, goes back to it.
+        set(moved(view, next, screen === 'agent' ? 'stay' : 'push'))
       },
       endAgentPreview: () => {
-        const { previewReturn, previewFrom } = get()
-        if (previewFrom !== null) {
-          set({ openAgent: previewFrom, screen: 'agent', previewFrom: null, screenMotion: { axis: 'y', direction: -1 } })
+        const view = get()
+        if (view.previewFrom !== null) {
+          set(moved(view, { openAgent: view.previewFrom, screen: 'agent', previewFrom: null, screenMotion: { axis: 'y', direction: -1 } }, 'stay'))
           return
         }
-        if (previewReturn === null) return
-        set({ screen: previewReturn, openAgent: null, previewReturn: null, agentReturn: null, screenMotion: { axis: 'y', direction: -1 } })
+        if (view.previewReturn === null) return
+        const last = view.trail.at(-1)
+        const from = last?.screen === view.previewReturn ? last : null
+        set(restored(view, from ?? { screen: view.previewReturn }, from ? view.trail.slice(0, -1) : view.trail))
       },
       openAgentCanvas: (agentId) => {
-        const { screen, openAgent, previewReturn, agentReturn } = get()
-        const same = screen === 'agent' && openAgent === agentId
-        set({ openAgent: agentId, screen: 'agent', agentReturn: screen === 'agent' ? (agentReturn ?? previewReturn) : screen, previewReturn: null, previewFrom: null, ...(same ? {} : { screenMotion: { axis: 'y', direction: 1 } }) })
+        const view = get()
+        const same = view.screen === 'agent' && view.openAgent === agentId
+        const next: Partial<ViewState> = { openAgent: agentId, screen: 'agent', previewReturn: null, previewFrom: null, ...(same ? {} : { screenMotion: { axis: 'y', direction: 1 } }) }
+        // One agent's canvas replaces another's: closing it goes back to where the first was opened from.
+        set(moved(view, next, view.screen === 'agent' ? 'stay' : 'go'))
       },
       closeAgentCanvas: () => {
-        const { screen, agentReturn, previewReturn } = get()
-        if (screen !== 'agent') return
-        set({ screen: agentReturn ?? previewReturn ?? 'work', openAgent: null, previewReturn: null, previewFrom: null, agentReturn: null, screenMotion: { axis: 'y', direction: -1 } })
+        if (get().screen === 'agent') get().back()
       },
       // Settings and Integrations come down over whatever is showing, and lift away again when they are left.
       // The way back is in overlays.ts.
@@ -328,8 +435,7 @@ export const useView = create<ViewState>()(
       // GitHub is a menu screen, so it travels in along the menu as the others do, from wherever it is opened.
       openGitHub: () => get().openScreen('github'),
       closeGitHub: () => {
-        const { screen, githubReturn } = get()
-        if (screen === 'github') get().openScreen(githubReturn ?? 'work')
+        if (get().screen === 'github') get().back()
       },
       // The canvas is a place to the right of everything: it comes in from the right and goes back the same way.
       openCanvasPlace: () => {
@@ -337,23 +443,26 @@ export const useView = create<ViewState>()(
         if (view.screen === 'canvas') return
         // Settings, or a page under it, opened over the canvas gives the canvas back with the way back it had.
         const back = ground(view) === 'canvas' && view.canvasReturn ? view.canvasReturn : placeOf(view)
+        // The canvas keeps its own way back, and the trail stays as it was under it.
+        arrive('canvas')
         set({ screen: 'canvas', canvasReturn: back, settingsReturn: null, previewReturn: null, previewFrom: null, screenMotion: { axis: 'x', direction: 1 } })
       },
       closeCanvasPlace: () => {
         const { screen, canvasReturn } = get()
         if (screen !== 'canvas') return
-        set({ ...(canvasReturn ?? UNDER_CANVAS), canvasReturn: null, screenMotion: { axis: 'x', direction: -1 } })
+        const back = canvasReturn ?? UNDER_CANVAS
+        arrive(back.screen)
+        set({ ...back, canvasReturn: null, screenMotion: { axis: 'x', direction: -1 } })
       },
       openProofRun: (openProof) => {
         const view = get()
-        const back = view.screen === 'proof' ? view.proofReturn : placeOf(view)
-        set({ screen: 'proof', openProof, proofReturn: back, settingsReturn: null, previewReturn: null, previewFrom: null, ...(view.screen === 'proof' ? {} : { screenMotion: { axis: 'x', direction: 1 } }) })
+        // Run again follows the new run on the same page, with the same way back.
+        const again = view.screen === 'proof'
+        set(moved(view, { screen: 'proof', openProof, settingsReturn: null, previewReturn: null, previewFrom: null, ...(again ? {} : { screenMotion: { axis: 'x', direction: 1 } }) }, again ? 'stay' : 'go'))
         requestCanvasFocus()
       },
       closeProof: () => {
-        const { screen, proofReturn } = get()
-        if (screen !== 'proof') return
-        set({ ...(proofReturn ?? UNDER_CANVAS), proofReturn: null, screenMotion: { axis: 'x', direction: -1 } })
+        if (get().screen === 'proof') get().back()
       },
       seeCanvas: (owner, revision) => {
         const { canvasSeen } = get()

@@ -1,4 +1,4 @@
-import { CalendarClock, CircleDot, FileText, GitPullRequest, Inbox, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import { CalendarClock, CircleDot, FileText, FolderGit2, GitPullRequest, Inbox, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 import { useMemo } from 'react'
 import type { Mood } from '@/avatar/moods.tsx'
 import { useWaitingRows } from '@/features/actions/store.ts'
@@ -13,7 +13,8 @@ import type { Routine } from '@/features/routines/types.ts'
 import { howOften } from '@/features/routines/words.ts'
 import { useNerdStats } from '@/features/settings/nerd-stats-store.ts'
 import { useSettings } from '@/features/settings/store.ts'
-import { useGitHub, type GitHubState } from '@/lib/host/index.ts'
+import { useWorkView } from '@/features/work/store.ts'
+import { useGitHub, type GitHubState, type WorkProject } from '@/lib/host/index.ts'
 import { activeCanvasScreen, requestCanvasFocus } from './focus.ts'
 import { useRunningAgents, type RunningAgent } from './running-agents.ts'
 import { SCREENS, walkScreens, type ScreenId } from './screens.ts'
@@ -23,7 +24,7 @@ import { useView } from './view-store.ts'
 
 /**
  * What the spotlight searches, read from the same stores and hooks the screens use: the screens, the sections of
- * Settings, the agents working now, the reports, the routines, what waits on the user, and their GitHub. Each entry
+ * Settings, the agents working now, Work's projects, the reports, the routines, what waits on the user, and their GitHub. Each entry
  * says how its row is drawn and where Enter takes the user. See _specs/026-spotlight.
  */
 
@@ -144,8 +145,10 @@ function goToScreen(id: ScreenId): void {
     if (view.screen !== 'settings') view.toggleSettings()
   } else if (id === 'integrations') {
     if (view.screen !== 'integrations') view.toggleIntegrations()
-  } else if (id === 'github') view.openGitHub()
-  else view.openScreen(id)
+  } else if (id === 'github' && !useSettings.getState().showGitHubInMenu) view.openGitHub()
+  // A page of the menu starts a new trail, as the menu's own item does (053). A GitHub the menu leaves out is open for
+  // now over what is showing, as Settings is.
+  else view.openMenuScreen(id)
   enter()
 }
 
@@ -211,6 +214,22 @@ function agentTarget(agent: RunningAgent): SpotlightTarget {
     mark: { hood: { hue: agent.hue, mood: agent.mood, asking: Boolean(agent.asks) } },
     go: () => {
       useView.getState().openAgentCanvas(agent.id)
+      enter()
+    },
+  }
+}
+
+/** A project of Work's, which opens its page. */
+function projectTarget(project: WorkProject): SpotlightTarget {
+  return {
+    id: `project:${project.slug}`,
+    kind: 'project',
+    title: project.name,
+    detail: project.slug === project.name ? 'Project' : `Project · ${project.slug}`,
+    keywords: [project.slug, project.priority],
+    mark: { icon: FolderGit2 },
+    go: () => {
+      useView.getState().openProject(project.slug)
       enter()
     },
   }
@@ -300,6 +319,7 @@ export function useSpotlightTargets(): SpotlightTarget[] {
   const routines = useRoutines((state) => state.data.routines)
   const rows = useWaitingRows()
   const github = useGitHub()
+  const projects = useWorkView().work?.projects
 
   return useMemo(() => {
     const now = Date.now()
@@ -308,10 +328,11 @@ export function useSpotlightTargets(): SpotlightTarget[] {
       ...SETTING_TARGETS,
       NERD_STATS_TARGET,
       ...agents.map(agentTarget),
+      ...(projects ?? []).filter(({ slug }) => slug).map(projectTarget),
       ...newestFirst(reports).map((report) => reportTarget(report, now)),
       ...routines.map(routineTarget),
       ...rows.map((row) => actionTarget(row, now)),
       ...githubTargets(github),
     ]
-  }, [githubInMenu, agents, reports, routines, rows, github])
+  }, [githubInMenu, agents, projects, reports, routines, rows, github])
 }

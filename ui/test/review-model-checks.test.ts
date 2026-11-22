@@ -108,10 +108,10 @@ test("the panel lists each of the change's models by file, with what TLC said at
 })
 
 test("a run opened from a review goes back to that review", () => {
-  useView.setState({ screen: 'review', openReview: 'change:hobkin-client:7fcf07', reviewReturn: { screen: 'work', settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null }, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, openProof: null, proofReturn: null })
+  useView.setState({ screen: 'review', openReview: 'change:hobkin-client:7fcf07', trail: [{ screen: 'work' }], settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, openProof: null })
   useView.getState().openProofRun('20261121-032648-reviewsentreceipts-adug')
   assert.equal(useView.getState().screen, 'proof')
   useView.getState().closeProof()
-  const { screen, openReview, reviewReturn } = useView.getState()
-  assert.deepEqual([screen, openReview, reviewReturn?.screen], ['review', 'change:hobkin-client:7fcf07', 'work'])
+  const { screen, openReview, trail } = useView.getState()
+  assert.deepEqual([screen, openReview, trail.at(-1)?.screen], ['review', 'change:hobkin-client:7fcf07', 'work'])
 })
