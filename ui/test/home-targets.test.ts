@@ -105,3 +105,12 @@ test('a review request opens its pull request in Review, and connections open In
   assert.equal(useView.getState().screen, 'integrations')
   assert.deepEqual(commands, [])
 })
+
+test("Home's broken model opens its run at the break, where the rule broke", async () => {
+  const { keptOf } = await import('../src/features/proofs/kept.ts')
+  useView.getState().openScreen('home')
+  openTarget({ to: 'proof', id: 'run-broken' })
+  assert.deepEqual([useView.getState().screen, useView.getState().openProof], ['proof', 'run-broken'])
+  assert.deepEqual([keptOf('run-broken').landing, keptOf('run-broken').tab], ['break', 'graph'])
+  assert.deepEqual(commands, [])
+})

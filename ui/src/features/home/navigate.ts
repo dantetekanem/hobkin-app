@@ -2,6 +2,7 @@ import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import { remembered } from '@/app/location.ts'
 import { useView } from '@/app/view-store.ts'
 import { openGitHubPage } from '@/features/github/open.ts'
+import { openRunAmong } from '@/features/proofs/open-run.ts'
 import { current } from '@/features/questions/queue.ts'
 import { useQuestions } from '@/features/questions/store.ts'
 import { useReports } from '@/features/reports/store.ts'
@@ -52,6 +53,7 @@ export function openTarget(target: HomeTarget): void {
       if (!current(useQuestions.getState().queue)) openScreen('actions')
       return
     case 'proof':
-      return useView.getState().openProofRun(target.id)
+      // Home opens a run only for a model that broke on main, so it lands on the break.
+      return openRunAmong(target.id, [], 'break')
   }
 }
