@@ -2,6 +2,7 @@ import { existsSync, lstatSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { atomicJson } from './config.mjs';
+import { WAITING } from './run-waits.mjs';
 
 const validCost = value => typeof value === 'number' && Number.isFinite(value) && value >= 0;
 const keyFor = (harness, sessionId) => createHash('sha256').update(JSON.stringify([harness, sessionId])).digest('hex');
@@ -125,9 +126,11 @@ export class UsageLedger {
       }
       const runs = Object.values(state.runs).sort((a, b) =>
         (a.finishedAt ?? '').localeCompare(b.finishedAt ?? '') || a.id.localeCompare(b.id));
-      data.pending = runs.filter(run => run.status === 'running').length;
+      // A run that waits has not ended, and its cost so far would be a receipt its end could not replace (053-run-waits).
+      const open = run => run.status === 'running' || run.status === WAITING;
+      data.pending = runs.filter(open).length;
       for (const run of runs) {
-        if (run.status === 'running' || run.imported || run.result?.noModel === true) continue;
+        if (open(run) || run.imported || run.result?.noModel === true) continue;
         const cost = run.result?.cost ?? run.cost ?? null;
         const executionCompleted = run.result?.executionCompleted === true
           || hasLegacyNotRunReport(run.result);

@@ -7,6 +7,7 @@ import { SchedulerCompatibility } from './legacy-engine.mjs';
 import { executeShell } from './shell.mjs';
 import { loadImportedHistory } from './history.mjs';
 import { reportText } from './reports.mjs';
+import { WAITING } from './run-waits.mjs';
 
 const evidenceId = id => `v2-${createHash('sha256').update(id).digest('hex')}`;
 const emptyMemory = () => ({
@@ -81,7 +82,7 @@ export class CompatibilityDelivery {
     const index = await this.runtime.runIndex?.();
     if (index && !index.evidenceDue) return;
     const snapshot = await this.runtime.state();
-    const runs = Object.values(snapshot.runs).filter(run => run.status !== 'running' && !snapshot.evidenceReceipts?.[run.id]);
+    const runs = Object.values(snapshot.runs).filter(run => run.status !== 'running' && run.status !== WAITING && !snapshot.evidenceReceipts?.[run.id]);
     if (!runs.length) return;
     const originals = new Map(this.history.origins.map(origin => [
       origin.origin,

@@ -4,6 +4,7 @@ import { isAbsolute, join } from 'node:path';
 import { readDirections } from './directions.mjs';
 import { markPosted, recordSessionEnd } from './session-log.mjs';
 import { tierNames } from './tiers.mjs';
+import { resumeNote, WAITING } from './run-waits.mjs';
 
 const NAME = /^hobkin-[a-z0-9-]{1,20}-[0-9a-f]{4}$/;
 
@@ -32,36 +33,65 @@ export function takeSessionRequests(root, capacity = Infinity) {
   });
 }
 
+/** What a session's end leaves: its last reply as the report when it wrote none, and its end in the session log. */
+export function endSessionJob(root, session, run) {
+  if (!existsSync(session.report) && run?.result?.text) writeFileSync(session.report, run.result.text, { mode: 0o600 });
+  const userStop = run?.userStop && run.status === 'interrupted'
+    ? { runId: run.id, reason: run.userStop.reason } : undefined;
+  recordSessionEnd({ ...session, userStop });
+  // The run posts its own notice and report, so the session log's would say it twice.
+  markPosted(root, [session]);
+}
+
+/**
+ * One start of a session's run, the first or one after a wait: its Pi on the run's own session file, with its messages
+ * and activity. `prompt` is read as the start is admitted. A run that ends waiting has not ended, so its end is left to
+ * the start that finishes it or to the user's Stop, and a start after a wait that was not admitted, because the run had
+ * already ended, leaves the end to whoever ended it.
+ */
+function runSessionJob({ root, runner }, request, session, { prompt, waits, resume = false }) {
+  const inbox = Promise.withResolvers();
+  inbox.promise.catch(() => {});
+  runner.inboxes.set(request.id, inbox);
+  let admitted = false;
+  const { work } = runner.startTracked(request, async signal => {
+    mkdirSync(join(root, 'jobs'), { recursive: true, mode: 0o700 });
+    return runner.runHarness({
+      id: request.harnessId, harness: 'pi', cwd: request.cwd, model: request.model, effort: request.effort, prompt: prompt(),
+      sessionFile: join(root, 'jobs', `${request.harnessId}.jsonl`),
+      ...(waits === undefined ? {} : { waits }),
+      signal,
+    }, { onEvent: event => runner.onActivity(request.id, event), onReady: send => inbox.resolve(send) });
+  }, () => { admitted = true; }, { resume });
+  return work.then(run => {
+    if (run?.status === WAITING || (resume && !admitted)) return;
+    endSessionJob(root, session, run);
+  });
+}
+
 /**
  * Runs a session as one of the runner's background jobs, the way Work runs: it shows as a running run with its live
  * activity and agents, `message_check` reaches it by its schedule, and `kill` stops it. When it ends, the session log
  * hears of it, so `--wake` gives the main agent its turn with the report. The run keeps the tier it was given beside
  * the model and effort that tier meant then, so a later change of the tier does not rewrite what ran. Its request carries
- * the user's directions, as a check's and a work run's do, read when it starts.
+ * the user's directions, as a check's and a work run's do, read when it starts. Its agent can wait with `hobkin_wait`
+ * and carry on at a time (053-run-waits), so its record keeps what its end needs (`session`).
  */
 export function startSessionJob({ root, runner, model, effort, tier }, session) {
-  const harnessId = randomUUID();
-  const id = `session:${session.name}`;
-  const inbox = Promise.withResolvers();
-  inbox.promise.catch(() => {});
-  runner.inboxes.set(id, inbox);
-  const request = { id, kind: 'background', scheduleId: `session.${session.name}`, title: session.title, harness: 'pi', model, effort, ...(tier ? { tier } : {}), cwd: session.cwd, harnessId };
-  const { work } = runner.startTracked(request, async signal => {
-    mkdirSync(join(root, 'jobs'), { recursive: true, mode: 0o700 });
-    return runner.runHarness({
-      id: harnessId, harness: 'pi', cwd: session.cwd, model, effort,
-      prompt: JSON.stringify({ task: `Read ${session.brief} and follow it.`, directions: readDirections(root) }),
-      sessionFile: join(root, 'jobs', `${harnessId}.jsonl`),
-      signal,
-    }, { onEvent: event => runner.onActivity(id, event), onReady: send => inbox.resolve(send) });
-  });
-  return work.then(run => {
-    // Its last reply is the report when it wrote none.
-    if (!existsSync(session.report) && run?.result?.text) writeFileSync(session.report, run.result.text, { mode: 0o600 });
-    const userStop = run?.userStop && run.status === 'interrupted'
-      ? { runId: run.id, reason: run.userStop.reason } : undefined;
-    recordSessionEnd({ ...session, userStop });
-    // The run posts its own notice and report, so the session log's would say it twice.
-    markPosted(root, [session]);
-  });
+  const { name, title, cwd, brief, report, wake } = session;
+  const request = { id: `session:${name}`, kind: 'background', scheduleId: `session.${name}`, title, harness: 'pi', model, effort, ...(tier ? { tier } : {}), cwd, harnessId: randomUUID(),
+    session: { name, title, cwd, brief, report, wake } };
+  const prompt = () => JSON.stringify({ task: `Read ${brief} and follow it.`, directions: readDirections(root) });
+  return runSessionJob({ root, runner }, request, session, { prompt, waits: 0 });
+}
+
+/**
+ * Starts again a session's run that waited and whose time has come (053-run-waits): the same run, harness and session
+ * file, on the model and effort it last had, told its note and how long it has been. Its record keeps what the
+ * session's end needs (`session`).
+ */
+export function resumeSessionJob({ root, runner, now }, run) {
+  const { id, kind, scheduleId, title, model, effort, tier, cwd, harnessId, session } = run;
+  const request = { id, kind, scheduleId, title, harness: 'pi', model, effort, ...(tier ? { tier } : {}), cwd, harnessId, session };
+  return runSessionJob({ root, runner }, request, session, { prompt: () => resumeNote(run.wait, now), waits: run.wait.waits, resume: true });
 }

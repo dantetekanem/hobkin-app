@@ -19,6 +19,7 @@ import { logRun } from './checks.mjs';
 import { readDirections } from './directions.mjs';
 import { recordEvent, recordRunFinished, recordRunStarted } from './events.mjs';
 import { createTurnMetrics } from './turn-metrics.mjs';
+import { clockTime, WAITING } from './run-waits.mjs';
 
 // The whole conversation is in its messages. This is a view of what it does now, so a long chat keeps only its latest steps.
 const MAIN_ACTIVITY_ENTRIES = 200;
@@ -217,7 +218,7 @@ export class HobkinRuntime {
       const receipts = document.evidenceReceipts ?? {};
       this.indexed = Object.freeze({
         runs: Object.freeze(Object.fromEntries(runs)),
-        evidenceDue: records.some(run => run.status !== 'running' && !receipts[run.id]),
+        evidenceDue: records.some(run => run.status !== 'running' && run.status !== WAITING && !receipts[run.id]),
         finished: records.filter(run => run.finishedAt).length,
         toTitle: Object.values(document.hobkins ?? {}).some(record => record.state !== 'ended' && record.titleBy === 'message'),
       });
@@ -642,7 +643,8 @@ export class HobkinRuntime {
     recordCardAction(this.directory, { id: `main-stop:${turn.id}`, did: 'stopped your turn', line: 'You stopped hobkin.' }, now);
   }
 
-  async admit(request) {
+  /** `resume` admits a run that waited back to running, only while its record still says it waits (053-run-waits). */
+  async admit(request, { resume = false } = {}) {
     this.check();
     if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,199}$/.test(request.id ?? '')
       || !['main', 'background', 'repair'].includes(request.kind)) {
@@ -650,6 +652,12 @@ export class HobkinRuntime {
     }
     return this.change(state => {
       this.check();
+      if (resume) {
+        const run = state.runs[request.id];
+        if (run?.status !== WAITING) return false;
+        Object.assign(run, { status: 'running', resumedAt: new Date().toISOString() });
+        return true;
+      }
       if (Object.hasOwn(state.runs, request.id)) return false;
       state.runs[request.id] = {
         ...copy(request),
@@ -660,16 +668,32 @@ export class HobkinRuntime {
       return true;
     });
   }
-  async finish(id, result) {
-    if (!['completed', 'failed', 'interrupted', 'no_change', 'incomplete'].includes(result.status)) throw Error('Invalid completion status.');
+  /**
+   * A `waiting` outcome is no ending (053-run-waits): the run keeps its record with until when and why, how many times it
+   * has waited and whether its session began fresh, and no report is saved or logged. A run that waited before ends with
+   * the `freshSession` it began with, so its cost still counts from the start of its session.
+   */
+  async finish(id, given) {
+    if (!['completed', 'failed', 'interrupted', 'no_change', 'incomplete', WAITING].includes(given.status)) throw Error('Invalid completion status.');
     const finished = await this.change(state => {
       const run = state.runs[id];
       if (!run) throw Error('No dispatch admission exists.');
+      const result = run.wait && given.status !== WAITING ? { ...given, freshSession: run.wait.freshSession === true } : given;
       if (run.status !== 'running') {
         if (JSON.stringify(run.result) !== JSON.stringify(result)) {
           throw Error('A conflicting receipt cannot replace a final outcome.');
         }
         return null;
+      }
+      if (result.status === WAITING) {
+        Object.assign(run, {
+          status: WAITING,
+          cost: result.cost ?? run.cost ?? null,
+          wait: { ...copy(result.wait), said: String(result.text ?? '').slice(0, 4000), waits: (run.wait?.waits ?? 0) + 1,
+            freshSession: run.wait?.freshSession ?? result.freshSession === true },
+          ...(result.performance ? { performance: copy(result.performance) } : {}),
+        });
+        return copy(run);
       }
       if (result.status === 'interrupted' && this.active.get(id)?.userStop) run.userStop = this.active.get(id).userStop;
       // A durable hobkin's turn answers on its own page and keeps no report.
@@ -685,7 +709,7 @@ export class HobkinRuntime {
       });
       return copy(run);
     });
-    if (finished) {
+    if (finished && finished.status !== WAITING) {
       recordUserStop(this.directory, finished);
       recordMainStop(this.directory, finished);
       logRun(this.directory, finished);
@@ -695,22 +719,54 @@ export class HobkinRuntime {
     return finished;
   }
 
+  /**
+   * The user's Stop of a run that waits, which has no process to stop: only while its record still says it waits, so
+   * this or its start again wins and never both. It ends interrupted, its last words are its report, and the stop is
+   * recorded as any user stop is. The run as committed, or null when it no longer waits.
+   */
+  async stopWaiting(id, stop = {}) {
+    const finished = await this.change(state => {
+      const run = state.runs[id];
+      if (run?.status !== WAITING) return null;
+      const result = {
+        status: 'interrupted',
+        text: run.wait?.said ?? '',
+        error: `The user stopped it while it waited to carry on at ${clockTime(Date.parse(run.wait?.until))}.`,
+        cost: run.cost ?? null,
+        freshSession: run.wait?.freshSession === true,
+      };
+      run.userStop = { source: 'user', reason: String(stop.reason ?? 'Stopped by the user.').slice(0, 200) };
+      if (run.kind !== 'main' && !run.hobkin && !isQuietRun({ trigger: run.trigger, status: result.status, result })) {
+        saveReport(this.directory, id, runReport(result));
+      }
+      Object.assign(run, { status: 'interrupted', result, finishedAt: new Date().toISOString() });
+      return copy(run);
+    });
+    if (finished) {
+      recordUserStop(this.directory, finished);
+      logRun(this.directory, finished);
+      recordRunFinished(this.directory, finished);
+    }
+    return finished;
+  }
+
   // Every check and work run passes here, whichever agent wrote its report, before anything saves or shows it. A durable hobkin's answer is not a report.
   edited(request, result, signal) {
     if (request.kind !== 'background' || request.hobkin || !this.editReport) return result;
     return this.editReport(result, { root: this.directory, signal });
   }
 
-  dispatch(request, effect, onAdmitted) {
+  /** `resume` starts again a run that waited, under its own id, and its start is not counted twice (053-run-waits). */
+  dispatch(request, effect, onAdmitted, { resume = false } = {}) {
     if (this.active.has(request.id)) return this.active.get(request.id).completion;
     const controller = new AbortController();
     const active = { controller, request, closed: Promise.withResolvers() };
     const completion = Promise.resolve().then(async () => {
-      if (!await this.admit(request)) return (await this.state()).runs[request.id];
+      if (!await this.admit(request, { resume })) return (await this.state()).runs[request.id];
       active.admitted = true;
       this.ownedActivity.track(request.id, request.kind);
       if (request.kind === 'main' && request.sessionId === this.main?.sessionId) this.mainOwnedRoots.add(request.id);
-      recordRunStarted(this.directory, request);
+      if (!resume) recordRunStarted(this.directory, request);
       onAdmitted?.();
       let result;
       try {

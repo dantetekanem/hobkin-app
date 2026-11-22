@@ -412,9 +412,9 @@ export class HobkinRunner {
     }, onAdmitted);
   }
 
-  /** Dispatches work that `kill` and `stop` can reach. */
-  startTracked(request, effect, onAdmitted) {
-    const tracked = this.runtime.dispatch(request, effect, onAdmitted)
+  /** Dispatches work that `kill` and `stop` can reach. `options.resume` starts again a run that waited (053-run-waits). */
+  startTracked(request, effect, onAdmitted, options) {
+    const tracked = this.runtime.dispatch(request, effect, onAdmitted, options)
       .catch(error => { this.lastError = error.message; })
       .finally(() => {
         this.jobs.delete(request.id);

@@ -28,7 +28,8 @@ import { ShortReports } from './short-reports.mjs';
 import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
-import { startSessionJob, takeSessionRequests } from './session-jobs.mjs';
+import { endSessionJob, resumeSessionJob, startSessionJob, takeSessionRequests } from './session-jobs.mjs';
+import { WAITING } from './run-waits.mjs';
 import { tierBinding } from './tiers.mjs';
 import { failureKey, handOffBrief, hobkinsBrief, isQuietScheduledRun, isWakeBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { Hobkins, hobkinSummaries } from './hobkins.mjs';
@@ -116,7 +117,7 @@ const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
 // A durable hobkin's turn answers on its own page, so it is never a report, a notice or an attention row.
 const isVisibleScheduledReport = run => run.kind === 'background' && !run.hobkin
   && typeof run.scheduleId === 'string' && run.scheduleId.length > 0
-  && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual');
+  && run.status !== 'running' && run.status !== WAITING && (run.status !== 'no_change' || run.trigger === 'manual');
 const pauseNote = ({ nextRun, timezone }) => {
   const resumes = new Date(nextRun.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: timezone });
   return ` Paused until ${resumes}; running it manually or editing the routine resumes it sooner.`;
@@ -369,8 +370,10 @@ export class HobkinApplication {
       // Only the running run of this harness is wanted, which the run index names as the whole document would.
       const { runs } = await (app.runtime.runIndex?.() ?? app.runtime.state());
       const admission = Object.values(runs).find(item => item.harnessId === request.id && item.status === 'running');
-      // Checks prohibit helpers; Work stays closed until child accounting is integrated.
-      const ownedScope = admission && app.runtime.ownedLifecycle.register({ id: admission.id, allowHelpers: false, binding: request, beforeSpawn: options?.beforeSpawn });
+      // Checks prohibit helpers; Work stays closed until child accounting is integrated. The owned tree keeps every root
+      // it had, so a start after a wait (`waits` on the request, 053-run-waits) has a root of its own beside its run's.
+      const scopeId = admission && (request.waits > 0 ? `${admission.id}:after-wait:${request.waits}` : admission.id);
+      const ownedScope = admission && app.runtime.ownedLifecycle.register({ id: scopeId, allowHelpers: false, binding: request, beforeSpawn: options?.beforeSpawn });
       const cancel = () => { void ownedScope?.cancel(); };
       request.signal?.addEventListener('abort', cancel, { once: true });
       try {
@@ -464,7 +467,7 @@ export class HobkinApplication {
     const handedOver = inboxToPost(this.runtime.directory, this.now());
     const clientLines = clientNoticesToPost(this.runtime.directory);
     const runReports = runs
-      .filter(run => run.kind !== 'main' && !run.hobkin && run.status !== 'running' && (run.status !== 'no_change' || run.trigger === 'manual'))
+      .filter(run => run.kind !== 'main' && !run.hobkin && run.status !== 'running' && run.status !== WAITING && (run.status !== 'no_change' || run.trigger === 'manual'))
       .filter(run => !deleted.has(run.id) && !isQuietRun(run))
       .map(run => {
         const text = runOutcomeText(run) || 'No result text.';
@@ -624,7 +627,7 @@ export class HobkinApplication {
       reportIds.add(report.id);
       return true;
     })].map(report => readReports.has(report.id) ? { ...report, readState: 'read' } : report);
-    const currentAndRecentRuns = runs.filter((run, index) => run.status === 'running' || index < 100);
+    const currentAndRecentRuns = runs.filter((run, index) => run.status === 'running' || run.status === WAITING || index < 100);
     const visible = {
       version: 1,
       savedAt: new Date().toISOString(),
@@ -654,6 +657,9 @@ export class HobkinApplication {
           work: copyJson(run.work),
           stalled: stalled(run),
           stopReason: run.result?.stopReason,
+          // A run that waits says until when and why, and every run that waited says how many times (053-run-waits).
+          ...(run.status === WAITING ? { waitUntil: run.wait?.until, waitNote: run.wait?.note } : {}),
+          ...(run.wait ? { waits: run.wait.waits } : {}),
         })),
       ],
       lastTick: loaded.lastTick,
@@ -679,12 +685,12 @@ export class HobkinApplication {
       .map(run => run.id));
     const completedJobReports = {};
     const completedIds = new Set([
-      ...runs.filter(run => run.kind === 'background' && run.status !== 'running').slice(0, 100).map(run => run.id),
+      ...runs.filter(run => run.kind === 'background' && run.status !== 'running' && run.status !== WAITING).slice(0, 100).map(run => run.id),
       ...this.activeJobIds,
     ]);
     for (const id of completedIds) {
       const run = state.runs[id];
-      if (!run || run.status === 'running' || run.hobkin) continue;
+      if (!run || run.status === 'running' || run.status === WAITING || run.hobkin) continue;
       if (deleted.has(id) || isQuietRun(run)) {
         completedJobReports[id] = null;
         continue;
@@ -869,7 +875,22 @@ export class HobkinApplication {
   pasteImage() { return this.pastedImages.paste(this.runtime.imageRefusal); }
   dropImages(images) { this.pastedImages.remove(images); }
 
-  kill(runId) { return this.runner.kill(runId, { source: 'user', reason: 'Stopped from the agent view.' }); }
+  /**
+   * Stops a run. One that waits holds no process, so its record ends it, and its session hears of its end as a stopped
+   * session does (053-run-waits). One that started again meanwhile is stopped as any running run.
+   */
+  async kill(runId) {
+    const stop = { source: 'user', reason: 'Stopped from the agent view.' };
+    if ((await this.runner.runIndex()).runs[runId]?.status === WAITING) {
+      const stopped = await this.runtime.stopWaiting(runId, stop);
+      if (stopped) {
+        if (stopped.session) endSessionJob(this.runtime.directory, stopped.session, stopped);
+        this.requestRefresh();
+        return true;
+      }
+    }
+    return this.runner.kill(runId, stop);
+  }
 
   /**
    * The user's Esc. Chat says so in one system line, and the main agent hears it with the next message, the way it hears what the user
@@ -1132,15 +1153,29 @@ export class HobkinApplication {
   /**
    * Sessions `hobkin session` asked for start here as background jobs, each on the model of the tier its work was
    * given (`tiers.mjs`). The tiers are read as they stand now, so one the user just set is used by the next job.
-   * Resolves once they have all ended.
+   * A session that waited and whose time has come starts again first, earliest first, by the same rule of a free place
+   * (053-run-waits), and one with no place keeps waiting for a later tick. Resolves once they have all ended.
    */
   tickSessions() {
     const root = this.runtime.directory;
     return this.runner.serialize(async () => {
       if (this.runner.stopped) return [];
-      const capacity = Math.max(0, this.config.concurrency - this.runner.scheduledJobCount(await this.runner.runIndex()));
+      const index = await this.runner.runIndex();
+      let capacity = Math.max(0, this.config.concurrency - this.runner.scheduledJobCount(index));
       // Reserve synchronously, but release admission before waiting for any job to finish.
       this.sessionJobs ??= new Set();
+      const track = started => {
+        const job = started.catch(() => {}).finally(() => {
+          this.sessionJobs.delete(job);
+          this.requestRefresh();
+        });
+        this.sessionJobs.add(job);
+      };
+      const waiting = capacity > 0 && Object.values(index.runs).some(run => run.status === WAITING);
+      for (const run of waiting ? (await this.sessionsDue()).slice(0, capacity) : []) {
+        track(resumeSessionJob({ root, runner: this.runner, now: this.now() }, run));
+        capacity--;
+      }
       const requests = takeSessionRequests(root, capacity);
       let config = this.config;
       try {
@@ -1150,16 +1185,18 @@ export class HobkinApplication {
       }
       for (const session of requests) {
         const { model, effort, tier } = tierBinding(config, session.tier);
-        const job = startSessionJob({ root, runner: this.runner, model, effort, tier }, session)
-          .catch(() => {})
-          .finally(() => {
-            this.sessionJobs.delete(job);
-            this.requestRefresh();
-          });
-        this.sessionJobs.add(job);
+        track(startSessionJob({ root, runner: this.runner, model, effort, tier }, session));
       }
       return [...this.sessionJobs];
     }).then(jobs => Promise.all(jobs));
+  }
+
+  /** Sessions that wait and whose time has come, earliest first. Read whole, so it is asked only while a run waits. */
+  async sessionsDue() {
+    const now = this.now();
+    return Object.values((await this.runtime.state()).runs)
+      .filter(run => run.status === WAITING && run.session && Date.parse(run.wait?.until) <= now)
+      .toSorted((a, b) => Date.parse(a.wait.until) - Date.parse(b.wait.until));
   }
 
   /** Work the user chose on a card that work mode cannot start. The main agent gets it as soon as it is free, and hands it to a session. */

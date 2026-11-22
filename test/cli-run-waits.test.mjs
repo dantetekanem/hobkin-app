@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
 import { askedWait, resumeNote } from '../src/cli/run-waits.mjs';
 import { createWaitTool, waitExtension } from '../src/cli/wait-extension.mjs';
 import { BRIDGE } from '../src/cli/bridge.mjs';
-import { runReport } from '../src/cli/reports.mjs';
+import { readReport, runReport } from '../src/cli/reports.mjs';
+import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { HobkinApplication } from '../src/cli/application.mjs';
+import { startSession } from '../src/cli/session.mjs';
+import { allCardActions } from '../src/cli/work/card-actions.mjs';
+import { fakePi } from './helpers/pi-session.mjs';
 
 const NOW = Date.parse('2026-11-21T23:30:00Z');
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
@@ -189,4 +194,183 @@ test('a run that stops in the middle of a step fails in plain words', { timeout:
   const report = runReport(result);
   assert.match(report, /^The run failed: The agent stopped in the middle of a step, a call to bash, and did not come back\./);
   assert.doesNotMatch(report, /toolUse/);
+});
+
+/** A temporary home whose sessions run on `fixture/local` at medium, as its tiers give them, `concurrency` at once. */
+function home(t, { concurrency } = {}) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-waits-home-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
+  config.main.model = 'fixture/local';
+  config.background.model = 'fixture/check';
+  if (concurrency) config.concurrency = concurrency;
+  atomicJson(join(root, 'config.json'), config);
+  const fake = fakePi(root);
+  return { root, open: options => HobkinApplication.open(root, { createMain: fake.createMain, intervalMs: 60000, ...options }) };
+}
+const NOTE = 'Read the monitoring again.';
+const iso = time => new Date(time).toISOString();
+const waitingFor = (minutes, at) => ({ status: 'waiting', text: 'Deployed. Waiting to read the monitoring.', cost: null, freshSession: true,
+  wait: { until: iso(at + minutes * 60000), note: NOTE, askedAt: iso(at) } });
+const held = { status: 'completed', text: 'Useful: The deploy held for its 30 minutes.', cost: null };
+// The report's editor and its short version are runs of their own, and these tests leave them out.
+const notHere = { status: 'failed', cost: null, error: 'Not in this test.' };
+/** A harness for sessions only, which answers each start with what `answers` gives for it, counting from 1. */
+const scripted = (calls, answers) => async request => {
+  if (request.purpose) return notHere;
+  calls.push(request);
+  return answers(calls.length, request);
+};
+const session = (h, title) => startSession({ root: h.root, title, brief: `${title} and watch.`, cwd: h.root, approved: true });
+const runOf = async (app, started) => (await app.runtime.state()).runs[`session:${started.name}`];
+const ended = root => readFileSync(join(root, 'runtime/handoffs/sessions.jsonl'), 'utf8').trim().split('\n').map(JSON.parse).filter(line => line.endedAt);
+
+test('a session that asks to wait ends its turn waiting, with no report, no process and its place free', { timeout: 10000 }, async t => {
+  const h = home(t, { concurrency: 1 });
+  const pids = [];
+  const program = rpc(`
+    if (message.includes('hobkin-second')) { say('Useful: The second session ran.'); settled(); }
+    else ask({ minutes: 30, note: ${JSON.stringify(NOTE)} }, () => { say('Deployed. Waiting 30 minutes to read the monitoring.'); settled(); });
+  `, { model: { provider: 'fixture', id: 'local' } });
+  const app = await h.open({ now: () => NOW,
+    runHarness: (request, options) => (request.purpose ? Promise.resolve(notHere)
+      : runHarness(request, { ...options, now: () => NOW, spawnProcess: fake(program, pids) })) });
+  t.after(() => app.close());
+  const started = await session(h, 'Deploy');
+  await app.tickSessions();
+
+  const run = await runOf(app, started);
+  assert.equal(run.status, 'waiting');
+  assert.deepEqual(run.wait, { until: iso(NOW + 30 * 60000), note: NOTE, askedAt: iso(NOW),
+    said: 'Deployed. Waiting 30 minutes to read the monitoring.', waits: 1, freshSession: true });
+  assert.equal(run.finishedAt, undefined);
+  assert.equal(readReport(h.root, run.id, null), null, 'no report is filed');
+  assert.equal(existsSync(started.report), false);
+  assert.deepEqual(ended(h.root), [], 'the session has not ended');
+  assert.throws(() => process.kill(pids[0], 0), { code: 'ESRCH' });
+  assert.equal(app.runner.scheduledJobCount(await app.runtime.runIndex()), 0);
+
+  const second = await session(h, 'Second');
+  await app.tickSessions();
+  assert.equal((await runOf(app, second)).status, 'completed', 'its one place went to the next session');
+  assert.equal((await runOf(app, started)).status, 'waiting');
+});
+
+test('at its time a waiting session starts again on its own session with its note and files one report', async t => {
+  const h = home(t);
+  let clock = NOW;
+  const calls = [];
+  const app = await h.open({ now: () => clock, runHarness: scripted(calls, count => (count === 1 ? waitingFor(30, clock) : held)) });
+  t.after(() => app.close());
+  const started = await session(h, 'Deploy');
+  await app.tickSessions();
+  clock = NOW + 29 * 60000;
+  await app.tickSessions();
+  assert.equal(calls.length, 1, 'not before its time');
+
+  clock = NOW + 31 * 60000;
+  await app.tickSessions();
+  const [first, again] = calls;
+  assert.deepEqual([again.id, again.sessionFile, again.cwd], [first.id, first.sessionFile, first.cwd]);
+  assert.deepEqual([first.waits, again.waits], [0, 1]);
+  assert.match(again.prompt, /Read the monitoring again\.[\s\S]*31 minutes after you asked/);
+  const run = await runOf(app, started);
+  assert.equal(run.status, 'completed');
+  assert.equal(run.result.freshSession, true, 'its cost still counts from the session it began');
+  assert.equal(readReport(h.root, run.id, null), held.text);
+  assert.equal(readFileSync(started.report, 'utf8'), held.text);
+  assert.equal(ended(h.root).length, 1);
+  await app.tickSessions();
+  assert.equal(calls.length, 2, 'it ran once more and no more');
+});
+
+test('a waiting session whose time has come starts only when a place is free', async t => {
+  const h = home(t, { concurrency: 1 });
+  let clock = NOW;
+  const calls = [];
+  const gate = Promise.withResolvers(), busy = Promise.withResolvers();
+  const app = await h.open({ now: () => clock, runHarness: scripted(calls, count => {
+    if (count === 1) return waitingFor(30, clock);
+    if (count === 2) { busy.resolve(); return gate.promise; }
+    return held;
+  }) });
+  t.after(() => { gate.resolve(notHere); return app.close(); });
+  const deploy = await session(h, 'Deploy');
+  await app.tickSessions();
+  await session(h, 'Busy');
+  const busyEnded = app.tickSessions();
+  await busy.promise;
+
+  clock = NOW + 31 * 60000;
+  void app.tickSessions();
+  await app.runner.serialize(() => {});
+  assert.equal(calls.length, 2);
+  assert.equal((await runOf(app, deploy)).status, 'waiting', 'it waits its turn');
+
+  gate.resolve({ status: 'completed', text: 'Useful: Busy finished.', cost: null });
+  await busyEnded;
+  await app.tickSessions();
+  assert.equal(calls.length, 3);
+  assert.equal(calls[2].id, calls[0].id);
+  assert.equal((await runOf(app, deploy)).status, 'completed');
+});
+
+test('a wait outlives a restart and starts at once when its time passed while hobkin was closed', async t => {
+  const h = home(t);
+  let clock = NOW;
+  const calls = [];
+  const options = { now: () => clock, runHarness: scripted(calls, count => (count === 1 ? waitingFor(30, clock) : held)) };
+  let app = await h.open(options);
+  const started = await session(h, 'Deploy');
+  await app.tickSessions();
+  assert.equal((await runOf(app, started)).status, 'waiting');
+  await app.close();
+
+  clock = NOW + 2 * 3600000;
+  app = await h.open(options);
+  t.after(() => app.close());
+  await app.tickSessions();
+  assert.equal(calls.length, 2);
+  assert.match(calls[1].prompt, /120 minutes after you asked/);
+  assert.equal((await runOf(app, started)).status, 'completed');
+});
+
+test('stopping a waiting session ends it with its report and it never starts again', async t => {
+  const h = home(t);
+  let clock = NOW;
+  const calls = [];
+  const app = await h.open({ now: () => clock, runHarness: scripted(calls, () => waitingFor(30, clock)) });
+  t.after(() => app.close());
+  const started = await session(h, 'Deploy');
+  await app.tickSessions();
+  const id = `session:${started.name}`;
+
+  assert.equal(await app.kill(id), true);
+  const run = await runOf(app, started);
+  assert.equal(run.status, 'interrupted');
+  assert.deepEqual(run.userStop, { source: 'user', reason: 'Stopped from the agent view.' });
+  assert.match(readReport(h.root, id, ''), /^Deployed\. Waiting to read the monitoring\.[\s\S]*stopped it while it waited/);
+  assert.equal(readFileSync(started.report, 'utf8'), 'Deployed. Waiting to read the monitoring.');
+  assert.deepEqual(ended(h.root).map(line => line.userStop?.runId), [id]);
+  assert.ok(allCardActions(h.root).some(action => action.id === `user-stop:${id}`));
+  assert.equal(await app.kill(id), false);
+
+  clock = NOW + 3600000;
+  await app.tickSessions();
+  assert.equal(calls.length, 1);
+  assert.equal((await runOf(app, started)).status, 'interrupted');
+});
+
+test('a waiting run shows in the snapshot as waiting, with until when and why', async t => {
+  const h = home(t);
+  const app = await h.open({ now: () => NOW, runHarness: scripted([], () => waitingFor(30, NOW)) });
+  t.after(() => app.close());
+  const started = await session(h, 'Deploy');
+  await app.tickSessions();
+  const view = await app.refresh();
+  const shown = view.runs.find(run => run.id === `session:${started.name}`);
+  assert.deepEqual([shown.state, shown.waitUntil, shown.waitNote, shown.waits], ['waiting', iso(NOW + 30 * 60000), NOTE, 1]);
+  assert.equal(view.reports.some(report => report.id === shown.id), false);
+  assert.equal(Object.hasOwn(view.completedJobReports, shown.id), false);
+  assert.equal(view.messages.some(message => /Report available/.test(message.content ?? '')), false);
 });
