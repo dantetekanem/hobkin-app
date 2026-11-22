@@ -11,7 +11,8 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { Note } from '../notes/notes.ts'
 import '../preparing/preparing.css'
-import { reviewMemory } from '../state/context.tsx'
+import { reviewMemory, useSession } from '../state/context.tsx'
+import { unseenNeeds, unseenWords } from './evidence.ts'
 import { CONFIRM_MS, createVerdictChoices, handOver, heldDown, VERDICT_CHOICES, verdictChoices, verdictComments, verdictKind, type VerdictCommands } from '../verdict.ts'
 
 /** The choices that send the reviewer's comments, and have nothing to send without one. */
@@ -111,6 +112,8 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
   useEffect(() => choices.connect(), [choices])
   const flow = useStore(choices)
   const armed = flow.preview?.verdict ?? null
+  // A yes is never blocked: with nodes that need the reviewer not seen, its first press says how many (spec 053).
+  const unseen = useSession((session) => unseenNeeds(session.review.nodes, session.seen))
   // The box under the choices is there only while it has something to say.
   const says = Boolean(landing) || flow.busy || flow.error != null || flow.preview != null || flow.message != null || !live
 
@@ -240,7 +243,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
       {/* Only when there is something to say. Focusable, so a click into it to scroll keeps the keyboard with the verdict and takes nothing back. */}
       {says ? (
         <div ref={box} role="status" tabIndex={-1} className="rv-scroll mt-1 max-h-[132px] overflow-y-auto rounded-xl bg-background px-3 py-2.5 text-[14px] leading-[1.45] [overflow-wrap:anywhere] outline-none">
-          <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} />
+          <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} unseen={unseen} />
         </div>
       ) : null}
     </section>
@@ -254,12 +257,14 @@ const labelOf = (kind: 'change' | 'pull', verdict: Verdict) => VERDICT_CHOICES[k
  * its second click, the host's reason when it will not do it, its words when it did, or the sample notice. Nothing
  * when there is nothing to say.
  */
-function Said({ kind, live, flow, doing, landing }: {
+function Said({ kind, live, flow, doing, landing, unseen }: {
   kind: 'change' | 'pull'
   live: boolean
   flow: { busy: boolean; preview: VerdictPreview | null; error: string | null; message: string | null }
   doing: boolean
   landing: ReviewLanding | null
+  /** How many nodes that need the reviewer are not seen. */
+  unseen: number
 }): ReactNode {
   if (landing?.state === 'merged') return <p className="text-pretty text-muted-foreground">Nothing is left to decide here.</p>
   if (landing?.state === 'refreshing') {
@@ -280,16 +285,28 @@ function Said({ kind, live, flow, doing, landing }: {
       </p>
     )
   }
-  if (flow.preview) return <Preview kind={kind} preview={flow.preview} />
+  if (flow.preview) return <Preview kind={kind} preview={flow.preview} unseen={isYes(flow.preview.verdict) ? unseenWords(unseen) : null} />
   if (flow.message) return <Markdown text={flow.message} />
   if (!live) return <p className="text-muted-foreground">Sample review: nothing is sent from here.</p>
   return null
 }
 
-/** What a choice will do, as the host says it, while the choice waits for its second click. */
-function Preview({ kind, preview }: { kind: 'change' | 'pull'; preview: VerdictPreview }) {
+/** The yeses, whose first press says what the reviewer has not seen. */
+const isYes = (verdict: Verdict) => verdict === 'approve' || verdict === 'approve-merge'
+
+/**
+ * What a choice will do, as the host says it, while the choice waits for its second click. A yes given with nodes that
+ * need the reviewer not seen says how many first, and that U goes to the next: the second press still does it.
+ */
+function Preview({ kind, preview, unseen }: { kind: 'change' | 'pull'; preview: VerdictPreview; unseen: string | null }) {
   return (
     <div className="flex flex-col gap-2" aria-label={`What ${labelOf(kind, preview.verdict)} will do`}>
+      {unseen ? (
+        <p className="flex items-start gap-2 text-pretty text-warn-fg">
+          <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+          <span>{unseen}</span>
+        </p>
+      ) : null}
       <p className="font-heading text-[12.5px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{labelOf(kind, preview.verdict)} will</p>
       <ul className="flex flex-col gap-1 text-pretty">
         {preview.lines.map((line, index) => (
