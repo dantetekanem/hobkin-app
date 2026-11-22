@@ -53,7 +53,8 @@ export function Notice() {
 const BELOW = 'translateY(26px) scale(0.98)'
 const RESTING = 'translateY(0px) scale(1)'
 
-const ROUND = 'rv-float pointer-events-auto grid size-9 place-items-center rounded-full text-foreground transition-transform duration-[140ms] ease-[var(--ease-out)] active:scale-[0.94] [&_svg]:size-4'
+// `pressable` gives the round buttons the hover and pressed layer every row and card that acts has (spec 053).
+const ROUND = 'rv-float pressable pointer-events-auto grid size-9 place-items-center rounded-full text-foreground transition-transform duration-[140ms] ease-[var(--ease-out)] active:scale-[0.94] [&_svg]:size-4'
 
 /** A round floating button with its name and key in a tooltip. */
 function RoundButton({ label, keys, onClick, children, className }: { label: string; keys?: string; onClick: () => void; children: React.ReactNode; className?: string }) {

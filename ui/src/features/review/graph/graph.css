@@ -540,7 +540,11 @@
   font-size: 16px;
 }
 
-/* What a focus node folded away: a count beside the pin its wires would leave by, joined to it by a short dashed lead. */
+/*
+ * What a focus node folded away: a count beside the pin its wires would leave by, joined to it by a short dashed lead.
+ * It is a word, not a chip: nothing happens on a click, so it has no fill or edge to look pressable (spec 053). Its
+ * title names the nodes it counts.
+ */
 .rv-more {
   position: absolute;
   z-index: 2;
@@ -549,13 +553,9 @@
   align-items: center;
   height: 22px;
   margin-top: -11px;
-  padding: 0 8px;
-  border-radius: 999px;
-  background: var(--rv-float);
+  padding: 0 2px;
   color: var(--hb-muted);
-  box-shadow:
-    0 0 0 1px var(--hb-border-strong),
-    var(--hb-shadow);
+  text-shadow: 0 0 6px var(--hb-bg);
   font-family: var(--font-heading);
   font-size: 11.5px;
   font-weight: 700;
@@ -587,7 +587,7 @@
 .rv[data-far='true'] .rv-more {
   height: 30px;
   margin-top: -15px;
-  padding: 0 12px;
+  padding: 0 4px;
   font-size: 16px;
 }
 

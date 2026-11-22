@@ -503,6 +503,17 @@
   stroke-width: 2.2;
 }
 
+/*
+ * A wire acts on a click (its words open), so the pointer over it says so (spec 053): it comes forward and thickens,
+ * once, with no motion of its own. A folded wire is not drawn and takes no pointer, so it never lights.
+ */
+@media (hover: hover) and (pointer: fine) {
+  .rv .rv-wire:not([data-level='folded']):not([data-active='true']):hover .rv-wire-base {
+    opacity: 0.95;
+    stroke-width: 2.4;
+  }
+}
+
 /* The active wire: ink with a yellow pulse on cream, yellow on ink. */
 .rv-wire-live {
   stroke: var(--hb-wire-active);

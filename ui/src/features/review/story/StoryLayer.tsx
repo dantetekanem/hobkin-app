@@ -379,7 +379,7 @@ function BackPill({ show, step, onBack }: { show: boolean; step: number; onBack:
           <motion.button
             type="button"
             onClick={onBack}
-            className="rv-float flex h-8 items-center gap-2 rounded-full px-3.5 font-heading text-[14px] font-medium"
+            className="rv-float pressable flex h-8 items-center gap-2 rounded-full px-3.5 font-heading text-[14px] font-medium"
             initial={{ opacity: 0, transform: 'translateY(18px) scale(0.92)' }}
             animate={{ opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } }}
             exit={{ opacity: 0, transform: 'translateY(8px) scale(0.96)', transition: tween.exit }}
