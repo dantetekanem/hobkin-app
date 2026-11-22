@@ -53,9 +53,18 @@ export interface TrailView extends Where {
 }
 
 /** The field that says what each page is about. */
-const ABOUT: Partial<Record<ScreenId, 'openAgent' | 'openReview' | 'openProof' | 'project'>> = { agent: 'openAgent', review: 'openReview', proof: 'openProof', project: 'project' }
+const ABOUT: Partial<Record<ScreenId, 'openAgent' | 'openReview' | 'openProof' | 'project'>> = {
+  agent: 'openAgent',
+  review: 'openReview',
+  proof: 'openProof',
+  project: 'project',
+}
 
-const groundOf = (stop: Pick<Stop, 'screen' | 'settingsReturn'>) => (depth({ screen: stop.screen, settingsReturn: stop.settingsReturn ?? null }) > 0 ? stop.settingsReturn : stop.screen)
+/** The screen a place stands on: the one under Settings for Settings and the pages under it, or its own. */
+function groundOf(stop: Pick<Stop, 'screen' | 'settingsReturn'>): ScreenId | undefined {
+  const underSettings = depth({ screen: stop.screen, settingsReturn: stop.settingsReturn ?? null }) > 0
+  return underSettings ? stop.settingsReturn : stop.screen
+}
 
 /** The place the view is on. What the page keeps of itself is read apart, as the user leaves it. */
 export function stopOf(where: Where): Stop {
@@ -86,7 +95,11 @@ export function samePlace(a: Stop, b: Stop): boolean {
 export function whereOf(stop: Stop, now: Where): Where {
   const ground = groundOf(stop)
   const about = stop.about ?? null
-  const open = (screen: ScreenId, held: string | null) => (stop.screen === screen ? about : ground === screen ? held : null)
+  const open = (screen: ScreenId, held: string | null) => {
+    if (stop.screen === screen) return about
+    if (ground === screen) return held
+    return null
+  }
   return {
     screen: stop.screen,
     openAgent: open('agent', now.openAgent),

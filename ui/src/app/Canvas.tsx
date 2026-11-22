@@ -46,19 +46,19 @@ const ReviewScreen = lazy(() => import('@/features/review/ReviewScreen.tsx').the
  */
 const NOT_WIRED: ReadonlySet<ScreenId> = new Set<ScreenId>([])
 
-/** Each canvas screen. A feature replaces its placeholder here when it is built. */
 /** A project's page, for the project the view has open. */
-function ProjectPage() {
+function OpenProjectPage() {
   const project = useView((view) => view.project)
   return <ProjectScreen slug={project ?? ''} />
 }
 
+/** Each canvas screen. A feature replaces its placeholder here when it is built. */
 const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
   home: HomeScreen,
   work: WorkScreen,
   world: WorldScreen,
   yolo: YoloScreen,
-  project: ProjectPage,
+  project: OpenProjectPage,
   proof: ProofScreen,
   routines: RoutinesScreen,
   reports: ReportsScreen,
@@ -191,7 +191,13 @@ export function Canvas() {
   // one agent to the next keeps the canvas and its controls in place, and only the agent's own pieces change on it.
   // Each project's page is its own too, so going from one project to another travels.
   const project = useView((view) => view.project)
-  const key = needsModel ? 'connect' : screen === 'agent' ? `agent:${openAgent}` : screen === 'project' ? `project:${project}` : screen
+  const key = needsModel
+    ? 'connect'
+    : screen === 'agent'
+      ? `agent:${openAgent}`
+      : screen === 'project'
+        ? `project:${project}`
+        : screen
   const section = enteringAgent ? (durable ? 'hobkin' : 'agent') : key
 
   return (

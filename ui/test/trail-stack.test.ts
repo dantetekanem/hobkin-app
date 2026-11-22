@@ -8,7 +8,20 @@ const view = () => useView.getState()
 const shown = () => shownTrail(view()).map(({ screen, about }) => (about ? `${screen}:${about}` : screen))
 
 beforeEach(() => {
-  useView.setState({ screen: 'home', trail: [], openAgent: null, openReview: null, openProof: null, project: null, settingsReturn: null, githubReturn: null, previewReturn: null, previewFrom: null, mindReturn: null, canvasReturn: null })
+  useView.setState({
+    screen: 'home',
+    trail: [],
+    openAgent: null,
+    openReview: null,
+    openProof: null,
+    project: null,
+    settingsReturn: null,
+    githubReturn: null,
+    previewReturn: null,
+    previewFrom: null,
+    mindReturn: null,
+    canvasReturn: null,
+  })
 })
 
 /** Work, YOLO mode, a project, its review and a proof, as the user would reach them. */
@@ -113,7 +126,16 @@ test("hobkin's mind shows the place it was opened over, and going on from it kee
 })
 
 test('Escape on a page open only for now goes back one place', () => {
-  const context = (screen: KeyContext['screen']): KeyContext => ({ zone: 'canvas', screen, screens: [], messageEmpty: true, inOverlay: false, veilOpen: false, asking: false, githubInMenu: true })
+  const context = (screen: KeyContext['screen']): KeyContext => ({
+    zone: 'canvas',
+    screen,
+    screens: [],
+    messageEmpty: true,
+    inOverlay: false,
+    veilOpen: false,
+    asking: false,
+    githubInMenu: true,
+  })
   for (const screen of ['project', 'world', 'yolo', 'proof', 'review', 'agent'] as const) {
     assert.deepEqual(resolveEscape(context(screen), false), { do: 'leave-screen' }, screen)
   }

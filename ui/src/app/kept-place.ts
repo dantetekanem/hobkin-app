@@ -80,7 +80,8 @@ export function rowKeyOf(element: Element | null, root: Element): string | undef
  */
 export function pageKeep(root: Element & { scrollTop: number }, last: Element | null): Keep {
   const held = document.activeElement
-  const from = last && root.contains(last) ? last : held && held !== root && root.contains(held) ? held : null
+  const heldInside = held && held !== root && root.contains(held) ? held : null
+  const from = last && root.contains(last) ? last : heldInside
   const focus = rowKeyOf(from, root)
   const scroll = Math.round(root.scrollTop)
   return { ...(focus ? { focus } : {}), ...(scroll > 0 ? { scroll } : {}) }

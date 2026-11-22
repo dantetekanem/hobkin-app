@@ -362,10 +362,15 @@ export const useView = create<ViewState>()(
         const view = get()
         // A review opened over a review, or over the Settings opened over one, takes its place: closing it goes back to
         // where the first was opened from.
-        const under = ground(view) === 'review' ? view.trail.findLastIndex((stop) => stop.screen === 'review') : -1
-        if (view.screen === 'review') set(moved(view, { openReview }, 'stay'))
-        else if (under >= 0) set({ ...moved(view, { ...screenStep(view, 'review'), openReview }, 'stay'), trail: view.trail.slice(0, under) })
-        else set(moved(view, { ...screenStep(view, 'review'), openReview }, ground(view) === 'review' ? 'stay' : 'go'))
+        if (view.screen === 'review') {
+          set(moved(view, { openReview }, 'stay'))
+        } else {
+          const opened = { ...screenStep(view, 'review'), openReview }
+          const overReview = ground(view) === 'review'
+          const under = overReview ? view.trail.findLastIndex((stop) => stop.screen === 'review') : -1
+          if (under >= 0) set({ ...moved(view, opened, 'stay'), trail: view.trail.slice(0, under) })
+          else set(moved(view, opened, overReview ? 'stay' : 'go'))
+        }
         // Opening a review is asking to look at it, so it takes the room at once.
         set({ canvasEngaged: true })
         requestCanvasFocus()
@@ -408,7 +413,13 @@ export const useView = create<ViewState>()(
       openAgentCanvas: (agentId) => {
         const view = get()
         const same = view.screen === 'agent' && view.openAgent === agentId
-        const next: Partial<ViewState> = { openAgent: agentId, screen: 'agent', previewReturn: null, previewFrom: null, ...(same ? {} : { screenMotion: { axis: 'y', direction: 1 } }) }
+        const next: Partial<ViewState> = {
+          openAgent: agentId,
+          screen: 'agent',
+          previewReturn: null,
+          previewFrom: null,
+          ...(same ? {} : { screenMotion: { axis: 'y', direction: 1 } }),
+        }
         // One agent's canvas replaces another's: closing it goes back to where the first was opened from.
         set(moved(view, next, view.screen === 'agent' ? 'stay' : 'go'))
       },
@@ -458,7 +469,15 @@ export const useView = create<ViewState>()(
         const view = get()
         // Run again follows the new run on the same page, with the same way back.
         const again = view.screen === 'proof'
-        set(moved(view, { screen: 'proof', openProof, settingsReturn: null, previewReturn: null, previewFrom: null, ...(again ? {} : { screenMotion: { axis: 'x', direction: 1 } }) }, again ? 'stay' : 'go'))
+        const next: Partial<ViewState> = {
+          screen: 'proof',
+          openProof,
+          settingsReturn: null,
+          previewReturn: null,
+          previewFrom: null,
+          ...(again ? {} : { screenMotion: { axis: 'x', direction: 1 } }),
+        }
+        set(moved(view, next, again ? 'stay' : 'go'))
         requestCanvasFocus()
       },
       closeProof: () => {

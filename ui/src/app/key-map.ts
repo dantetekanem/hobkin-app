@@ -201,7 +201,10 @@ function veilKey(key: string): KeyAction | null {
 
 const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations', 'skills', 'extensions', 'world', 'yolo', 'project', 'proof']
 
-/** A review, Settings, Integrations, Work's World, YOLO mode and a project's page, and a proof run are open only for now, and so is a GitHub opened while the menu leaves it out. */
+/**
+ * A review, Settings, Integrations, Work's World, YOLO mode, a project's page and a proof run are open only for now,
+ * and so is a GitHub opened while the menu leaves it out.
+ */
 function openForNow({ screen, githubInMenu }: KeyContext): boolean {
   return OPEN_FOR_NOW.includes(screen) || (screen === 'github' && !githubInMenu)
 }

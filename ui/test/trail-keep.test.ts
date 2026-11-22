@@ -174,31 +174,35 @@ function scroller(rowDrawn: boolean) {
 
 test('the row takes the keyboard as the page arrives, ahead of its first stop, and the scroll comes back', () => {
   mount()
-  const page_ = scroller(true)
-  page_.state.height = 600
-  const stop = restorePage(page_.root, { focus: '[data-review-id="r1"]', scroll: 240 })
-  assert.equal(page_.state.top, 0, 'not while the page is too short for it')
-  assert.equal(page_.arrive(), 1, 'the first-stop handoff is taken over')
-  assert.equal(page_.row.focused, 1)
-  assert.equal(page_.first.focused, 0)
-  page_.state.height = 1200
+  const work = scroller(true)
+  work.state.height = 600
+
+  const stop = restorePage(work.root, { focus: '[data-review-id="r1"]', scroll: 240 })
+
+  assert.equal(work.state.top, 0, 'not while the page is too short for it')
+  assert.equal(work.arrive(), 1, 'the first-stop handoff is taken over')
+  assert.equal(work.row.focused, 1)
+  assert.equal(work.first.focused, 0)
+  work.state.height = 1200
   runFrame()
-  assert.equal(page_.state.top, 240)
+  assert.equal(work.state.top, 240)
   stop()
 })
 
 test('a row drawn late, as AI Reviews asked anew, still takes the keyboard from where the arrival put it', () => {
   mount()
-  const page_ = scroller(false)
-  const stop = restorePage(page_.root, { focus: '[data-review-id="r1"]', scroll: 120 })
-  assert.equal(page_.state.top, 120, 'a page tall enough scrolls at once')
-  assert.equal(page_.arrive(), 0, 'nothing to take over yet')
-  assert.equal(page_.first.focused, 1)
+  const work = scroller(false)
+
+  const stop = restorePage(work.root, { focus: '[data-review-id="r1"]', scroll: 120 })
+
+  assert.equal(work.state.top, 120, 'a page tall enough scrolls at once')
+  assert.equal(work.arrive(), 0, 'nothing to take over yet')
+  assert.equal(work.first.focused, 1)
   runFrame()
-  assert.equal(page_.row.focused, 0)
-  page_.state.rowDrawn = true
+  assert.equal(work.row.focused, 0)
+  work.state.rowDrawn = true
   runFrame()
-  assert.equal(page_.row.focused, 1, 'it comes, and the keyboard moves onto it')
+  assert.equal(work.row.focused, 1, 'it comes, and the keyboard moves onto it')
   stop()
 })
 

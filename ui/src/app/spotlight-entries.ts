@@ -24,8 +24,8 @@ import { useView } from './view-store.ts'
 
 /**
  * What the spotlight searches, read from the same stores and hooks the screens use: the screens, the sections of
- * Settings, the agents working now, Work's projects, the reports, the routines, what waits on the user, and their GitHub. Each entry
- * says how its row is drawn and where Enter takes the user. See _specs/026-spotlight.
+ * Settings, the agents working now, Work's projects, the reports, the routines, what waits on the user, and their
+ * GitHub. Each entry says how its row is drawn and where Enter takes the user. See _specs/026-spotlight.
  */
 
 /** What stands before a row's title: an icon, or the small hood of an agent. */

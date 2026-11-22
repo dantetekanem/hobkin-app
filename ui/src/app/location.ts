@@ -70,13 +70,19 @@ const stopOr = (value: unknown): Stop | null => {
   const settingsReturn = screenOr(s.settingsReturn)
   const githubReturn = screenOr(s.githubReturn)
   const keep = keepOr(s.keep)
-  return { screen: s.screen, ...(about ? { about } : {}), ...(settingsReturn ? { settingsReturn } : {}), ...(githubReturn ? { githubReturn } : {}), ...(keep ? { keep } : {}) }
+  return {
+    screen: s.screen,
+    ...(about ? { about } : {}),
+    ...(settingsReturn ? { settingsReturn } : {}),
+    ...(githubReturn ? { githubReturn } : {}),
+    ...(keep ? { keep } : {}),
+  }
 }
 
 /**
- * The trail a place saved before it (053) stood for. It kept three single ways back: a proof run's, a review's and an
- * agent's. Each one that leads on from the page, or from the place under the mind or the canvas, becomes a place
- * before it; one that leads nowhere from there is left out.
+ * The trail a place saved by a window older than the trail (053) stands for. Such a place holds three single ways
+ * back: a proof run's, a review's and an agent's. Each one that leads on from the page, or from the place under the
+ * mind or the canvas, becomes a place before it; one that leads nowhere from there is left out.
  */
 function trailOfSlots(raw: Record<string, unknown>, page: ScreenId): Stop[] {
   const agent = screenOr(raw.agentReturn)
@@ -103,8 +109,9 @@ export function readSpot(text: string | null): (Spot & { home: string | null }) 
     raw = JSON.parse(text ?? '')
   } catch {}
   if (!raw || !isScreen(raw.screen)) return null
+  const saved = Array.isArray(raw.trail) ? raw.trail.map(stopOr).filter((stop) => stop !== null) : trailOfSlots(raw, raw.screen)
   // A place about nothing it names, as an agent with no id, would go back to an empty page: it is left out.
-  const trail = (Array.isArray(raw.trail) ? raw.trail.map(stopOr).filter((stop) => stop !== null) : trailOfSlots(raw, raw.screen)).filter(namesItsPage)
+  const trail = saved.filter(namesItsPage)
   return {
     screen: raw.screen, settingsReturn: screenOr(raw.settingsReturn), githubReturn: screenOr(raw.githubReturn), openAgent: idOr(raw.openAgent),
     openReview: idOr(raw.openReview), project: idOr(raw.project), trail: trail.slice(-(MOST_PLACES - 1)),

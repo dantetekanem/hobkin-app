@@ -106,9 +106,11 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
   const split = useSplit()
   const seen = useView((view) => view.canvasSeen[MAIN_CANVAS])
   const pill = mainPill({ screen, split: split !== null, main: canvas, seen })
-  const { second: row, pillOn } = menuLayout({ screen, canvasOpen: isOpen(canvas), pill: pill !== null })
+  const { second, pillOn } = menuLayout({ screen, canvasOpen: isOpen(canvas), pill: pill !== null })
   // New each time the menu draws. The second row is centered, so what the menu draws again for can move its agents.
   const drawn = {}
+  // Work's own pages keep Work's tab marked.
+  const onWorkPage = screen === 'world' || screen === 'yolo' || screen === 'project' || screen === 'proof'
 
   return (
     <motion.div
@@ -121,7 +123,7 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
       <Surface>
         <nav aria-label="Screens" className={ROW}>
           {main.map((tab, at) => {
-            const active = tab.id === screen || ((screen === 'world' || screen === 'yolo' || screen === 'project' || screen === 'proof') && tab.id === 'work')
+            const active = tab.id === screen || (onWorkPage && tab.id === 'work')
             const badge = badges[tab.id]
             return (
               <Tooltip key={tab.id}>
@@ -161,9 +163,9 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
           })}
         </nav>
         <AnimatePresence mode="popLayout" initial={false}>
-          {row ? (
-            <Born key={row} label={row === 'agents' ? 'Agents' : 'Open now'}>
-              {secondPieces({ second: row, canvas, split, drawn })}
+          {second ? (
+            <Born key={second} label={second === 'agents' ? 'Agents' : 'Open now'}>
+              {secondPieces({ second, canvas, split, drawn })}
               {pillOn === 'second' && pill && isOpen(canvas) ? <CanvasPill canvas={canvas} dot={pill.dot} index={0} /> : null}
             </Born>
           ) : null}

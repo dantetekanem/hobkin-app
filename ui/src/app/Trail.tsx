@@ -51,33 +51,35 @@ export const Trail = memo(function Trail({ pill = null, dot = false }: {
     <nav aria-label="Trail" data-trail="" className="relative mt-0.5 flex h-5 w-full min-w-0 justify-center px-6">
       {/* Only the line itself takes the pointer: the gutters beside it leave the page under them alone. With the pill,
           the places keep clear of it on both sides, so they stay centered. */}
-      {places.length ? <ol className={cn('pointer-events-auto flex h-5 min-w-0 items-center overflow-x-clip rounded-full bg-surface px-0.5 text-[12px] leading-5 font-medium whitespace-nowrap', pill && 'max-w-[calc(100%-21rem)]')}>
-        {places.map((stop, at) => {
-          const last = at === places.length - 1
-          return (
-            // The middle places give way, down to a few letters each; the ends keep their names, up to a share of the
-            // canvas's width (the menu is its container), so where the trail starts and where the user is stay readable.
-            // Shrinking goes by width, so the ends' share stays under a pixel until the middles can give no more.
-            <li key={`${at}:${stop.screen}:${stop.about ?? ''}`} className={cn('flex min-w-10 items-center', at === 0 || last ? 'max-w-[28cqw] shrink-[0.0001]' : 'shrink')}>
-              {at > 0 ? <ChevronRight aria-hidden="true" className="mx-0.5 size-3 shrink-0 text-muted-foreground/70" /> : null}
-              {last ? (
-                <span aria-current="page" className="min-w-0 truncate px-1.5 text-foreground">
-                  <PlaceName stop={stop} />
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => goBackTo(at)}
-                  className="h-5 min-w-0 truncate rounded-full px-1.5 text-muted-foreground outline-offset-0 transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 hover:text-foreground"
-                >
-                  <PlaceName stop={stop} />
-                </button>
-              )}
-            </li>
-          )
-        })}
-      </ol> : null}
+      {places.length ? (
+        <ol className={cn('pointer-events-auto flex h-5 min-w-0 items-center overflow-x-clip rounded-full bg-surface px-0.5 text-[12px] leading-5 font-medium whitespace-nowrap', pill && 'max-w-[calc(100%-21rem)]')}>
+          {places.map((stop, at) => {
+            const last = at === places.length - 1
+            return (
+              // The middle places give way, down to a few letters each; the ends keep their names, up to a share of the
+              // canvas's width (the menu is its container), so where the trail starts and where the user is stay readable.
+              // Shrinking goes by width, so the ends' share stays under a pixel until the middles can give no more.
+              <li key={`${at}:${stop.screen}:${stop.about ?? ''}`} className={cn('flex min-w-10 items-center', at === 0 || last ? 'max-w-[28cqw] shrink-[0.0001]' : 'shrink')}>
+                {at > 0 ? <ChevronRight aria-hidden="true" className="mx-0.5 size-3 shrink-0 text-muted-foreground/70" /> : null}
+                {last ? (
+                  <span aria-current="page" className="min-w-0 truncate px-1.5 text-foreground">
+                    <PlaceName stop={stop} />
+                  </span>
+                ) : (
+                  <button
+                    type="button"
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => goBackTo(at)}
+                    className="h-5 min-w-0 truncate rounded-full px-1.5 text-muted-foreground outline-offset-0 transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 hover:text-foreground"
+                  >
+                    <PlaceName stop={stop} />
+                  </button>
+                )}
+              </li>
+            )
+          })}
+        </ol>
+      ) : null}
       {pill ? <CanvasPill canvas={pill} dot={dot} /> : null}
     </nav>
   )
