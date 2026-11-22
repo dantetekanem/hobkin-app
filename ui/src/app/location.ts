@@ -5,7 +5,7 @@ import { useRoutines } from '../features/routines/store.ts'
 import { hostStore } from '../lib/host/client.ts'
 import { depth } from './overlays.ts'
 import { SCREENS, screenIndex, type ScreenId } from './screens.ts'
-import { MOST_PLACES, samePlace, stopOf, type Keep, type Stop } from './trail.ts'
+import { MOST_PLACES, namesItsPage, samePlace, stopOf, type Keep, type Stop } from './trail.ts'
 import { useView, type ScreenMotion } from './view-store.ts'
 
 /**
@@ -103,7 +103,8 @@ export function readSpot(text: string | null): (Spot & { home: string | null }) 
     raw = JSON.parse(text ?? '')
   } catch {}
   if (!raw || !isScreen(raw.screen)) return null
-  const trail = Array.isArray(raw.trail) ? raw.trail.map(stopOr).filter((stop) => stop !== null) : trailOfSlots(raw, raw.screen)
+  // A place about nothing it names, as an agent with no id, would go back to an empty page: it is left out.
+  const trail = (Array.isArray(raw.trail) ? raw.trail.map(stopOr).filter((stop) => stop !== null) : trailOfSlots(raw, raw.screen)).filter(namesItsPage)
   return {
     screen: raw.screen, settingsReturn: screenOr(raw.settingsReturn), githubReturn: screenOr(raw.githubReturn), openAgent: idOr(raw.openAgent),
     openReview: idOr(raw.openReview), project: idOr(raw.project), trail: trail.slice(-(MOST_PLACES - 1)),

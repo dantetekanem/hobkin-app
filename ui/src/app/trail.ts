@@ -69,6 +69,11 @@ export function stopOf(where: Where): Stop {
   }
 }
 
+/** Whether a place can be gone back to: a page about something (an agent, a review, a run, a project) names it. */
+export function namesItsPage(stop: Stop): boolean {
+  return ABOUT[stop.screen] === undefined || Boolean(stop.about)
+}
+
 /** Two places are the same when they are the same page about the same thing. */
 export function samePlace(a: Stop, b: Stop): boolean {
   return a.screen === b.screen && (a.about ?? null) === (b.about ?? null)
