@@ -416,12 +416,14 @@ const shareOf = (part: number, whole: number): number | null => (whole > 0 ? par
 /**
  * Whether merging by itself can be trusted, over the last 30 days of the numbers (053, "YOLO mode"): the share of merges
  * made by itself, how many of those regressed after their deploy ("0 of 12", and "no data yet" with none made by itself),
- * and how many changes were held for the user, merged on their yes or declined. `days` is null while there are no
+ * and how many changes were held for the user, merged on their yes or declined. `known` is null while there are no
  * numbers, and `note` then says why on each tile's line.
  */
 export function trustTiles(known: readonly MetricsDay[] | null, note: string | null = null): TrustTile[] {
   const days = known ? lastDays(known, TILE_DAYS) : []
-  const series = (pick: (day: MetricsDay) => number | null) => [...Array<null>(TILE_DAYS - days.length).fill(null), ...days.map(pick)]
+  // Days the numbers do not reach are empty at the start, so each tile has a bar for every one of the 30.
+  const unknownDays = Array<null>(TILE_DAYS - days.length).fill(null)
+  const series = (pick: (day: MetricsDay) => number | null) => [...unknownDays, ...days.map(pick)]
   const total = sumDays(days)
   const byItself = total.mergedByItself
   const merged = byItself + total.mergedByYou
@@ -477,6 +479,20 @@ export interface Gates {
 const SHOWN_HOLDS = 3
 const RATE_WHY = /^its general rate is \d+(?:\.\d+)?, under (\d+(?:\.\d+)?)\.?$/
 
+/** Why a change waits by its own account, or null when it passes and says nothing. A rate under the user's is one reason, whatever the rate. */
+function ownReason(change: YoloChange, passes: boolean, rate: number): string | null {
+  const why = change.why ?? (passes ? null : change.rate === null ? 'it has no rate yet' : `its general rate is ${change.rate}, under ${rate}`)
+  return why === null ? null : why.replace(RATE_WHY, 'its general rate is under $1')
+}
+
+/** The holds a card has room for: all of them when they fit, or the two that hold the most and the rest together. */
+function shownHolds(holds: GateHold[]): GateHold[] {
+  if (holds.length <= SHOWN_HOLDS) return holds
+  const rest = holds.slice(SHOWN_HOLDS - 1)
+  const restCount = rest.reduce((total, { count }) => total + count, 0)
+  return [...holds.slice(0, SHOWN_HOLDS - 1), { reason: `${rest.length} other reasons`, count: restCount }]
+}
+
 /**
  * How the changes finished now pass YOLO mode's gates (053, "YOLO mode"). The window knows each waiting change's rate and
  * what holds it, not a history of each gate, so this counts now: the changes finished, those rated at or above the user's
@@ -490,20 +506,24 @@ export function gates(yolo: YoloState, { waits, paused }: { waits: string | null
   let rated = 0
   let free = 0
   for (const project of yolo.projects) {
-    const everything = mergesHeld(project, { on: yolo.on, waits, paused: paused.has(project.slug) }) ?? (project.ready ? null : `${project.name} is getting ready`)
+    // What holds every change of the project comes before a change's own reason.
+    const projectHold =
+      mergesHeld(project, { on: yolo.on, waits, paused: paused.has(project.slug) }) ?? (project.ready ? null : `${project.name} is getting ready`)
     for (const change of project.changes ?? []) {
       finished += 1
       const passes = change.rate !== null && change.rate >= yolo.rate
       if (passes) rated += 1
-      const own = change.why ?? (passes ? null : change.rate === null ? 'it has no rate yet' : `its general rate is ${change.rate}, under ${yolo.rate}`)
-      const reason = everything ?? (own === null ? null : own.replace(RATE_WHY, 'its general rate is under $1'))
-      if (reason === null) free += 1
-      else counts.set(sentence(reason), (counts.get(sentence(reason)) ?? 0) + 1)
+
+      const reason = projectHold ?? ownReason(change, passes, yolo.rate)
+      if (reason === null) {
+        free += 1
+        continue
+      }
+      const said = sentence(reason)
+      counts.set(said, (counts.get(said) ?? 0) + 1)
     }
   }
   const holds = [...counts].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count)
-  const rest = holds.slice(SHOWN_HOLDS - 1)
-  const shown = holds.length <= SHOWN_HOLDS ? holds : [...holds.slice(0, SHOWN_HOLDS - 1), { reason: `${rest.length} other reasons`, count: rest.reduce((total, { count }) => total + count, 0) }]
   return {
     steps: [
       { key: 'finished', label: 'Finished', count: finished },
@@ -512,7 +532,7 @@ export function gates(yolo: YoloState, { waits, paused }: { waits: string | null
     ],
     waiting: finished - free,
     holds,
-    shown,
+    shown: shownHolds(holds),
   }
 }
 
@@ -536,7 +556,7 @@ export interface ByItselfBars {
   figure: string
 }
 
-/** Merges by itself for each of the last 30 days of `days`, all projects' or one's. Null with no numbers. */
+/** Merges by itself for each of the last 30 days of `known`, all projects' or one's. Null with no numbers. */
 export function byItselfBars(known: readonly MetricsDay[] | null): ByItselfBars | null {
   if (!known) return null
   const days = lastDays(known, TILE_DAYS)

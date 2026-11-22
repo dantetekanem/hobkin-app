@@ -111,14 +111,19 @@ export function YoloScreen() {
   // The numbers of the last 30 days: what merged by itself, what regressed and what was held for the user (053).
   const { metrics, state } = useWorkMetrics(30)
   const reading = !metrics && state === 'loading'
-  const trust = useMemo(() => trustTiles(metrics?.all.days ?? null, metrics ? null : READ_WORDS[state]), [metrics, state])
-  const merged = useMemo(() => mergedLine(metrics?.all.days ?? null, metrics ? null : READ_WORDS[state]), [metrics, state])
-  const bars = useMemo(() => byItselfBars(metrics?.all.days ?? null), [metrics])
+  const days = metrics?.all.days ?? null
+  // Why there are no numbers, while there are none.
+  const missing = metrics ? null : READ_WORDS[state]
+  const trust = useMemo(() => trustTiles(days, missing), [days, missing])
+  const merged = useMemo(() => mergedLine(days, missing), [days, missing])
+  const bars = useMemo(() => byItselfBars(days), [days])
   // What holds every merge, as each project card reads it: work mode off or waiting, and the projects paused on Work.
   const workOn = live ? (work?.enabled ?? false) : true
   const waits = yolo?.waits ?? (workOn ? null : 'work mode is off')
-  const paused = (work?.projects ?? []).filter((project) => project.paused).map(({ slug }) => slug).join(' ')
-  const counted = useMemo(() => (yolo ? gates(yolo, { waits, paused: new Set(paused.split(' ').filter(Boolean)) }) : null), [yolo, waits, paused])
+  // The paused projects' slugs in one string, so the gates are counted again only when which projects are paused changes.
+  const pausedSlugs = (work?.projects ?? []).filter((project) => project.paused).map(({ slug }) => slug).join(' ')
+  const paused = useMemo(() => new Set(pausedSlugs.split(' ').filter(Boolean)), [pausedSlugs])
+  const counted = useMemo(() => (yolo ? gates(yolo, { waits, paused }) : null), [yolo, waits, paused])
 
   return (
     <div ref={root} className={SCREEN_SCROLLER}>
@@ -196,6 +201,7 @@ const GatesRow = memo(function GatesRow({ counted, rate, merged }: { counted: Ga
   const { steps, waiting, holds, shown } = counted
   const finished = steps[0]!.count
   const said = holds.map(({ reason, count }) => `${countWords(count)}: ${reason}`).join(' ')
+  const holdsSaid = waiting ? `${countWords(waiting)} wait for you. ${said}` : 'Nothing holds a finished change now.'
   return (
     <section aria-label="Gates" className="@container">
       <div className="grid grid-cols-1 gap-3 @3xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
@@ -211,7 +217,7 @@ const GatesRow = memo(function GatesRow({ counted, rate, merged }: { counted: Ga
           title="What holds the rest"
           counts="Why each finished change that is not free to merge waits for you, in hobkin's words, and what merged over 30 days."
           figure={finished ? `${countWords(waiting)} wait for you` : undefined}
-          summary={`${waiting ? `${countWords(waiting)} wait for you. ${said}` : 'Nothing holds a finished change now.'} ${merged}`}
+          summary={`${holdsSaid} ${merged}`}
           status="ready"
           height={GATES_BOX}
         >
