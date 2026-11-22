@@ -236,6 +236,15 @@ function ProofSection({ run, selected, step, all, onAll, onStep }: ProofSectionP
   const shown = all ? rows : folded
   const proof = run.proof
   const failing = rows.some((row) => row.status === 'failed' || row.status === 'missing' || row.status === 'omitted')
+  // A step picked from outside, as F or "Proof fails" do, comes into the tree's view. Only the tree scrolls.
+  const list = useRef<HTMLOListElement | null>(null)
+  useEffect(() => {
+    const area = list.current
+    const row = step === null ? null : area?.querySelector<HTMLElement>(`[data-proof-step="${step}"]`)
+    if (!area || !row) return
+    const top = row.offsetTop - area.offsetTop
+    if (top < area.scrollTop || top + row.offsetHeight > area.scrollTop + area.clientHeight) area.scrollTo({ top: Math.max(0, top - area.clientHeight / 3) })
+  }, [step])
   return (
     <section aria-label="The proof" className="flex flex-col gap-3 rounded-[20px] border border-border bg-surface px-5 py-[18px]">
       <div className="flex items-baseline justify-between gap-2.5">
@@ -268,7 +277,7 @@ function ProofSection({ run, selected, step, all, onAll, onStep }: ProofSectionP
               </button>
             ) : null}
           </div>
-          <ol aria-label="Proof steps" className="scroll-quiet -mx-1 flex max-h-[456px] flex-col gap-0.5 overflow-y-auto px-1">
+          <ol ref={list} aria-label="Proof steps" className="scroll-quiet -mx-1 flex max-h-[456px] flex-col gap-0.5 overflow-y-auto px-1">
             {shown.map((row) => {
               const about = relatedDefinition(row.label, names)
               const lit = step === row.index || (selected != null && about === selected)

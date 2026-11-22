@@ -5,12 +5,12 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
-import { failureAt, failureLine, failuresOf, stepFailure } from './failures.ts'
-import { keep, keptOf, type ProofTab } from './kept.ts'
+import { failureAt, failureLine, failuresOf, land, stepFailure } from './failures.ts'
+import { keep, keptOf, useKept, type ProofTab } from './kept.ts'
 import { focusPart } from './ProofBody.tsx'
 import { proofKey, PROOF_KEY_HINTS } from './proof-keys.ts'
 import type { ProofLayout } from './proof-layout.ts'
-import { controlOf } from './run/run-view.ts'
+import { controlOf, evidenceLine } from './run/run-view.ts'
 import { positionWords, siblingAt } from './siblings.ts'
 
 /**
@@ -53,11 +53,15 @@ export function useRunControl(run: ProofRun, live: boolean, onMove: MoveTo) {
   return { control, said, busy, press }
 }
 
-/** Which model of how many this is, with K and J as buttons, and what failed in it. One line whatever it says. */
+/**
+ * Which model of how many this is, with K and J as buttons, what failed in it, and, when hobkin does not count it as
+ * evidence for its change, why. One line whatever it says.
+ */
 export function RunFacts({ run, siblings, onMove, className }: { run: ProofRun; siblings: readonly string[]; onMove: MoveTo; className?: string }) {
   const previous = siblingAt(siblings, run.id, -1)
   const next = siblingAt(siblings, run.id, 1)
   const failed = failuresOf(run).length > 0
+  const evidence = evidenceLine(run)
   return (
     <div className={cn('flex h-7 min-w-0 items-center gap-3 text-[12.5px] text-muted-foreground', className)}>
       <span className="flex shrink-0 items-center gap-0.5">
@@ -69,11 +73,28 @@ export function RunFacts({ run, siblings, onMove, className }: { run: ProofRun; 
           <ChevronRight aria-hidden />
         </Button>
       </span>
-      <span title={failureLine(run)} className={cn('min-w-0 truncate tabular-nums', failed && 'text-bad-fg')}>
+      <span title={failureLine(run)} className={cn('min-w-0 shrink truncate tabular-nums', failed && 'text-bad-fg')}>
         {failureLine(run)}
       </span>
+      {evidence ? (
+        <span title={evidence} className="min-w-0 flex-1 truncate text-warn-fg">
+          {evidence}
+        </span>
+      ) : null}
     </div>
   )
+}
+
+/**
+ * Lands a run where its opener asked once the run is whole: "Proof fails" picks the proof tree's first failed step, a
+ * broken model the trace's break. Its part shows; the keyboard stays where the page put it.
+ */
+export function useLanding(run: ProofRun, complete: boolean): void {
+  const landing = useKept(run.id, 'landing')
+  useEffect(() => {
+    if (!landing || !complete) return
+    keep(run.id, (kept) => land(run, kept))
+  }, [landing, complete, run])
 }
 
 /** The proof's keys, in a quiet row of one line's room, as the app's hints under the chat are. */

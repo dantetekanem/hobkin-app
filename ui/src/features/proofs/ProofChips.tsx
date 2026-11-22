@@ -48,7 +48,7 @@ export function ProofChipList({ chips, inRow = true, stacked = false }: { chips:
 
   return (
     <ul aria-label="Proof" className={cn('flex gap-2', stacked ? 'flex-col items-start' : 'flex-wrap')}>
-      {chips.map(({ id, label, tone }) => {
+      {chips.map(({ id, label, tone, lands }) => {
         const look = LOOK[tone]
         const dot = <span aria-hidden="true" className={cn('size-2 rounded-full', look.dot)} />
         return (
@@ -58,7 +58,8 @@ export function ProofChipList({ chips, inRow = true, stacked = false }: { chips:
                 type="button"
                 {...(inRow ? { tabIndex: -1, 'data-row-control': '' } : { 'data-stop': '' })}
                 title="hobkin ran this check itself. Opens the run."
-                onClick={() => openRunAmong(id, siblings)}
+                // "Proof fails" opens at the proof tree's first failed step, a broken model at the trace's break.
+                onClick={() => openRunAmong(id, siblings, lands)}
                 className={cn(CHIP, 'transition-colors duration-[160ms] ease-[ease] hover:brightness-[0.97]', look.chip)}
               >
                 {dot}

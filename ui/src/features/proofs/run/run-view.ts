@@ -67,6 +67,29 @@ export function phaseOf(run: ProofRunSummary): { label: string; tone: Tone } {
   }
 }
 
+/**
+ * Why a run does not count as evidence for its change, in plain words, when hobkin says it does not (`counts`). Null
+ * when it counts, or when an older hobkin does not say.
+ */
+export function evidenceLine(run: Pick<ProofRunSummary, 'counts' | 'outcome' | 'actions'>): string | null {
+  if (run.counts !== false) return null
+  switch (run.outcome) {
+    case 'checking':
+      return 'Not evidence yet: it is still checking'
+    case 'broken':
+      return 'Not evidence that it holds: a rule broke'
+    case 'error':
+      return 'Not evidence: the check could not run'
+    case 'stopped':
+      return 'Not evidence: it was stopped before the end'
+    case 'holds': {
+      const missed = neverFired(run)
+      if (missed.length) return `Not evidence: ${namesOf(missed)} never ran`
+      return 'Not evidence for this change: it checked another commit or another copy of the spec'
+    }
+  }
+}
+
 /** The run's time, beside its spec: "0:41 so far", "Finished in 2:37". */
 export function elapsedLine(run: ProofRunSummary, now: number): string {
   const time = clock(elapsedOf(run, now))

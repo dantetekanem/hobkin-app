@@ -1,5 +1,6 @@
 import type { ProofRunSummary, ProofsState } from '#shared/protocol/proofs.ts'
 import type { ModelFact, WorkState } from '#shared/protocol/work.ts'
+import type { Landing } from './kept.ts'
 import { namesOf, neverFired, stepsToBreak, type Tone } from './run/run-view.ts'
 
 /**
@@ -43,6 +44,8 @@ export interface ProofChip {
   id: string | null
   label: string
   tone: Tone
+  /** Where the run opens: a proof that fails at its first failed step, a broken model at the trace's break. */
+  lands?: Landing
 }
 
 /**
@@ -55,10 +58,10 @@ export function chipsOf(runs: readonly ProofRunSummary[], head: string | null = 
     const older = Boolean(head && run.head && !sameHead(run.head, head))
     if (older) return [{ id: run.id, label: `${name}checked at an older head`, tone: 'quiet' }]
 
-    const check: ProofChip = { id: run.id, ...checkChip(run, name) }
+    const check: ProofChip = { id: run.id, ...checkChip(run, name), ...(run.outcome === 'broken' ? { lands: 'break' as const } : {}) }
     const proof = run.steps.find((step) => step.id === 'prove')?.state
     if (proof === 'done') return [check, { id: run.id, label: 'Proved for every size', tone: 'ok' }]
-    if (proof === 'failed') return [check, { id: run.id, label: 'Proof fails', tone: 'bad' }]
+    if (proof === 'failed') return [check, { id: run.id, label: 'Proof fails', tone: 'bad', lands: 'proof' }]
     return [check]
   })
 }
@@ -222,7 +225,7 @@ export function factChips(facts: readonly ModelFact[], runs: readonly ProofRunSu
         return [{ id, label: `${name}ran · ${fact.why ?? 'not evidence'}`, tone: 'warn' }]
       case 'broken': {
         const steps = run ? ` · ${stepsToBreak(run)} ${stepsToBreak(run) === 1 ? 'step' : 'steps'}` : ''
-        return [{ id, label: `${name}broke${steps}`, tone: 'bad' }, ...proofChips(run)]
+        return [{ id, label: `${name}broke${steps}`, tone: 'bad', lands: 'break' }, ...proofChips(run)]
       }
       case 'holds': {
         const states = run ? ` · ${count(run.stats.distinct)} states` : ''
@@ -235,7 +238,7 @@ export function factChips(facts: readonly ModelFact[], runs: readonly ProofRunSu
 function proofChips(run: ProofRunSummary | undefined): ProofChip[] {
   const proof = run?.steps.find((step) => step.id === 'prove')?.state
   if (!run || (proof !== 'done' && proof !== 'failed')) return []
-  return [{ id: run.id, label: proof === 'done' ? 'Proved for every size' : 'Proof fails', tone: proof === 'done' ? 'ok' : 'bad' }]
+  return [proof === 'done' ? { id: run.id, label: 'Proved for every size', tone: 'ok' } : { id: run.id, label: 'Proof fails', tone: 'bad', lands: 'proof' }]
 }
 
 /** The models that broke on a project's default branch, for Home's Problems, each with its project's name. */

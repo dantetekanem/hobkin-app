@@ -15,7 +15,7 @@ import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { useProofMemory } from './kept.ts'
 import { openRunAmong } from './open-run.ts'
 import { loadGraphView, ProofBody, useBoxLayout } from './ProofBody.tsx'
-import { ProofKeyHints, RunFacts, showPart, useProofKeys, useRunControl, type MoveTo } from './ProofParts.tsx'
+import { ProofKeyHints, RunFacts, showPart, useLanding, useProofKeys, useRunControl, type MoveTo } from './ProofParts.tsx'
 import type { ProofLayout } from './proof-layout.ts'
 import { itemTitle, placeOf, specFile } from './proof-match.ts'
 import './proofs.css'
@@ -48,7 +48,7 @@ export function ProofScreen({ layout: given }: { /** For a still render: the lay
     <div ref={root} className={SCREEN_SCROLLER}>
       <div ref={frame} tabIndex={-1} className={`${layout === 'side' ? WIDE_COLUMN : SCREEN_COLUMN} @container flex flex-col gap-5 pb-20 outline-none`}>
         {shown.run ? (
-          <PageRun run={shown.run} now={shown.now} live={shown.live} layout={layout} frame={frame} />
+          <PageRun run={shown.run} now={shown.now} live={shown.live} complete={shown.complete} layout={layout} frame={frame} />
         ) : (
           <BackRow />
         )}
@@ -73,13 +73,15 @@ interface PageRunProps {
   run: ProofRun
   now: number | null
   live: boolean
+  complete: boolean
   layout: ProofLayout
   frame: RefObject<HTMLDivElement | null>
 }
 
-function PageRun({ run, now, live, layout, frame }: PageRunProps) {
+function PageRun({ run, now, live, complete, layout, frame }: PageRunProps) {
   const siblings = useSiblings(run.id)
   const onCode = useCodeOpener(run)
+  useLanding(run, complete)
   // J and K, and Run again, open the next run on the same page, among the same siblings.
   const onMove: MoveTo = (next, replaces) => openRunAmong(next, replaces ? siblings.map((sibling) => (sibling === replaces ? next : sibling)) : siblings)
   const control = useRunControl(run, live, onMove)

@@ -101,7 +101,7 @@ test("a card's chips come from hobkin's facts at its head, with the counts and p
   assert.deepEqual(chips, [
     { id: 'run-main', label: 'WorkItem holds · 48,211 states', tone: 'ok' },
     { id: 'run-main', label: 'Proved for every size', tone: 'ok' },
-    { id: 'run-queue', label: 'ReviewQueue broke', tone: 'bad' },
+    { id: 'run-queue', label: 'ReviewQueue broke', tone: 'bad', lands: 'break' },
     { id: null, label: 'Deploy not checked at this head', tone: 'quiet' },
   ])
   assert.deepEqual(factChips([{ spec: holds.spec, state: 'unproven', run: 'r', why: 'Decline never fired' }], []), [{ id: 'r', label: 'Model ran · Decline never fired', tone: 'warn' }])
