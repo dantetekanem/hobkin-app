@@ -57,12 +57,18 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
   const { work } = runner.startTracked(request, async signal => {
     mkdirSync(join(root, 'jobs'), { recursive: true, mode: 0o700 });
     return runner.runHarness({
-      id: request.harnessId, harness: 'pi', cwd: request.cwd, model: request.model, effort: request.effort, prompt: prompt(),
+      id: request.harnessId,
+      harness: 'pi',
+      cwd: request.cwd,
+      model: request.model,
+      effort: request.effort,
+      prompt: prompt(),
       sessionFile: join(root, 'jobs', `${request.harnessId}.jsonl`),
-      ...(waits === undefined ? {} : { waits }),
+      waits,
       signal,
     }, { onEvent: event => runner.onActivity(request.id, event), onReady: send => inbox.resolve(send) });
   }, () => { admitted = true; }, { resume });
+
   return work.then(run => {
     if (run?.status === WAITING || (resume && !admitted)) return;
     endSessionJob(root, session, run);
@@ -79,8 +85,19 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
  */
 export function startSessionJob({ root, runner, model, effort, tier }, session) {
   const { name, title, cwd, brief, report, wake } = session;
-  const request = { id: `session:${name}`, kind: 'background', scheduleId: `session.${name}`, title, harness: 'pi', model, effort, ...(tier ? { tier } : {}), cwd, harnessId: randomUUID(),
-    session: { name, title, cwd, brief, report, wake } };
+  const request = {
+    id: `session:${name}`,
+    kind: 'background',
+    scheduleId: `session.${name}`,
+    title,
+    harness: 'pi',
+    model,
+    effort,
+    ...(tier ? { tier } : {}),
+    cwd,
+    harnessId: randomUUID(),
+    session: { name, title, cwd, brief, report, wake },
+  };
   const prompt = () => JSON.stringify({ task: `Read ${brief} and follow it.`, directions: readDirections(root) });
   return runSessionJob({ root, runner }, request, session, { prompt, waits: 0 });
 }
@@ -91,7 +108,11 @@ export function startSessionJob({ root, runner, model, effort, tier }, session) 
  * session's end needs (`session`).
  */
 export function resumeSessionJob({ root, runner, now }, run) {
-  const { id, kind, scheduleId, title, model, effort, tier, cwd, harnessId, session } = run;
+  const { id, kind, scheduleId, title, model, effort, tier, cwd, harnessId, session, wait } = run;
   const request = { id, kind, scheduleId, title, harness: 'pi', model, effort, ...(tier ? { tier } : {}), cwd, harnessId, session };
-  return runSessionJob({ root, runner }, request, session, { prompt: () => resumeNote(run.wait, now), waits: run.wait.waits, resume: true });
+  return runSessionJob({ root, runner }, request, session, {
+    prompt: () => resumeNote(wait, now),
+    waits: wait.waits,
+    resume: true,
+  });
 }

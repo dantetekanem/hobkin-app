@@ -35,13 +35,33 @@ function nextClock(at, now) {
  * live in its process, so a run with agents out cannot wait yet.
  */
 export function askedWait({ minutes, at, note } = {}, { now, waits, agentsOut = 0 }) {
-  if (!Number.isInteger(waits)) return { refused: `This run cannot wait: hobkin ends it when this turn ends. So ${FINISH}.` };
-  if (waits >= MOST_WAITS) return { refused: `This run has waited ${MOST_WAITS} times, the most one run may. Do not wait again: ${FINISH}.` };
-  if (agentsOut > 0) return { refused: "Your agents are still working, and they live in this run's process, so it cannot wait yet. Their reports come to you here: wait after they report." };
+  if (!Number.isInteger(waits)) {
+    return { refused: `This run cannot wait: hobkin ends it when this turn ends. So ${FINISH}.` };
+  }
+  if (waits >= MOST_WAITS) {
+    return { refused: `This run has waited ${MOST_WAITS} times, the most one run may. Do not wait again: ${FINISH}.` };
+  }
+  if (agentsOut > 0) {
+    return { refused: "Your agents are still working, and they live in this run's process, so it cannot wait yet. Their reports come to you here: wait after they report." };
+  }
   if (typeof note !== 'string' || !note.trim() || note.length > MOST_NOTE) {
     return { refused: `Give a note of what to do when the time comes, in at most ${MOST_NOTE} characters.` };
   }
+
+  const { until, refused } = timeAsked({ minutes, at }, now);
+  if (refused) return { refused };
+
+  const wait = { until: iso(until), note: note.trim(), askedAt: iso(now) };
+  const minutesAway = minutesWord(Math.round((until - now) / 60000));
+  const text = `hobkin will start you again on this session at ${clockTime(until)}, ${minutesAway} from now, and give you your note. `
+    + 'End your turn now with one short line saying you are waiting and until when. Do not sleep, poll or schedule anything for it.';
+  return { wait, text };
+}
+
+/** When a wait ends, from either its minutes or its clock time, within the longest wait: `{ until }` or `{ refused }`. */
+function timeAsked({ minutes, at }, now) {
   if ((minutes === undefined) === (at === undefined)) return { refused: 'Give either the minutes to wait or a clock time to carry on at.' };
+
   let until;
   if (minutes !== undefined) {
     if (typeof minutes !== 'number' || !Number.isFinite(minutes) || minutes < 1) return { refused: 'Give the minutes to wait as a number from 1 to 1440.' };
@@ -50,11 +70,9 @@ export function askedWait({ minutes, at, note } = {}, { now, waits, agentsOut = 
     if (typeof at !== 'string' || !CLOCK.test(at)) return { refused: 'Give the clock time as 24-hour HH:MM, such as 19:30.' };
     until = nextClock(at, now);
   }
+
   if (until - now > LONGEST_MS) return { refused: `A wait is at most 24 hours. Ask for less, or ${FINISH}.` };
-  const wait = { until: iso(until), note: note.trim(), askedAt: iso(now) };
-  const text = `hobkin will start you again on this session at ${clockTime(until)}, ${minutesWord(Math.round((until - now) / 60000))} from now, and give you your note. `
-    + 'End your turn now with one short line saying you are waiting and until when. Do not sleep, poll or schedule anything for it.';
-  return { wait, text };
+  return { until };
 }
 
 /** What a run that waited is told when hobkin starts it again: the time it asked for, its note and how long it has been. */
@@ -70,12 +88,17 @@ export function resumeNote(wait, now) {
  * the turn ends, so nothing would wake the agent. A run that can wait is pointed at `hobkin_wait`, and one that cannot is
  * told to finish.
  */
-export const piWaitNote = (tools, canWait) => `You stopped on ${tools.join(' and ')}. Pi's own waits live inside this Pi process, `
-  + 'and hobkin closes that process when your turn ends, so nothing would wake you. '
-  + 'If you scheduled something with schedule_task, cancel it with cancel_scheduled_task. '
-  + (canWait
+export function piWaitNote(tools, canWait) {
+  const instead = canWait
     ? 'Then, to carry on at a time, call hobkin_wait with the minutes or a clock time and a note of what to do then, and end your turn saying you are waiting. If nothing needs to wait, finish now with your report.'
-    : `This run cannot wait, so ${FINISH}.`);
+    : `This run cannot wait, so ${FINISH}.`;
+  return `You stopped on ${tools.join(' and ')}. Pi's own waits live inside this Pi process, `
+    + 'and hobkin closes that process when your turn ends, so nothing would wake you. '
+    + `If you scheduled something with schedule_task, cancel it with cancel_scheduled_task. ${instead}`;
+}
 
 /** What a run that ended in the middle of a step failed of, naming the calls it stopped on. */
-export const stoppedMidStep = tools => `The agent stopped in the middle of a step${tools.length ? `, a call to ${tools.join(' and ')},` : ''} and did not come back.`;
+export function stoppedMidStep(tools) {
+  const calls = tools.length ? `, a call to ${tools.join(' and ')},` : '';
+  return `The agent stopped in the middle of a step${calls} and did not come back.`;
+}

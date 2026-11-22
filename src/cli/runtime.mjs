@@ -686,11 +686,16 @@ export class HobkinRuntime {
         return null;
       }
       if (result.status === WAITING) {
+        const wait = {
+          ...copy(result.wait),
+          said: String(result.text ?? '').slice(0, 4000),
+          waits: (run.wait?.waits ?? 0) + 1,
+          freshSession: run.wait?.freshSession ?? result.freshSession === true,
+        };
         Object.assign(run, {
           status: WAITING,
           cost: result.cost ?? run.cost ?? null,
-          wait: { ...copy(result.wait), said: String(result.text ?? '').slice(0, 4000), waits: (run.wait?.waits ?? 0) + 1,
-            freshSession: run.wait?.freshSession ?? result.freshSession === true },
+          wait,
           ...(result.performance ? { performance: copy(result.performance) } : {}),
         });
         return copy(run);

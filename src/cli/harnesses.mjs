@@ -440,7 +440,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     joining = true;
     try {
       // Pi's own waits need its process to stay up, which a run here does not, so the agent is told so once and goes on.
-      const piWaits = assistant?.stopReason === 'toolUse' && !toldPiWait ? [...calledLast].filter(name => PI_WAIT_TOOLS.includes(name)) : [];
+      const stoppedOnCall = assistant?.stopReason === 'toolUse';
+      const piWaits = stoppedOnCall && !toldPiWait ? [...calledLast].filter(name => PI_WAIT_TOOLS.includes(name)) : [];
       if (piWaits.length) {
         request.signal?.throwIfAborted();
         toldPiWait = true;
@@ -477,9 +478,10 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     }
     // Nobody is watching a job, so a dialog from any extension is declined.
     if (record.type === 'extension_ui_request' && dialogMethods.has(record.method)) {
-      const wait = record.method === 'input' && record.title === BRIDGE ? waitCall(record.placeholder) : null;
+      const bridged = record.method === 'input' && record.title === BRIDGE;
+      const wait = bridged ? waitCall(record.placeholder) : null;
       if (wait) child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(answerWait(wait)) });
-      else if (record.method === 'input' && record.title === BRIDGE && ownedScope) {
+      else if (bridged && ownedScope) {
         void serveBridge(record.placeholder, { tools }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
       } else child.send({ type: 'extension_ui_response', id: record.id, cancelled: true });
     }

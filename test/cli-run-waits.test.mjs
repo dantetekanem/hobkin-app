@@ -16,6 +16,7 @@ import { allCardActions } from '../src/cli/work/card-actions.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
 const NOW = Date.parse('2026-11-21T23:30:00Z');
+const iso = time => new Date(time).toISOString();
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
 
 function request(t, extra = {}) {
@@ -66,25 +67,32 @@ const fake = (program, pids = []) => (_command, _args, options) => {
   pids.push(child.pid);
   return child;
 };
-const told = events => events.filter(event => event.type === 'message_end' && event.message?.role === 'user').map(event => event.message.content);
+const told = events => events
+  .filter(event => event.type === 'message_end' && event.message?.role === 'user')
+  .map(event => event.message.content);
+/** The local clock's `HH:MM` at a time, as an agent would ask for it. */
+const clockAt = time => `${time.getHours()}:${String(time.getMinutes()).padStart(2, '0')}`;
 
 test('a wait is asked in minutes or for the next time a clock reads, with a note', () => {
-  const inMinutes = askedWait({ minutes: 30, note: ' Read the monitoring again. ' }, { now: NOW, waits: 0 });
-  assert.deepEqual(inMinutes.wait, { until: new Date(NOW + 30 * 60000).toISOString(), note: 'Read the monitoring again.', askedAt: new Date(NOW).toISOString() });
+  const run = { now: NOW, waits: 0 };
+
+  const inMinutes = askedWait({ minutes: 30, note: ' Read the monitoring again. ' }, run);
+  assert.deepEqual(inMinutes.wait, { until: iso(NOW + 30 * 60000), note: 'Read the monitoring again.', askedAt: iso(NOW) });
   assert.match(inMinutes.text, /30 minutes from now/);
-  const soon = new Date(NOW + 90 * 60000);
-  const at = `${soon.getHours()}:${String(soon.getMinutes()).padStart(2, '0')}`;
-  assert.equal(askedWait({ at, note: 'Look again.' }, { now: NOW, waits: 3 }).wait.until, soon.toISOString());
-  const past = new Date(NOW - 60 * 60000);
-  const tomorrow = Date.parse(askedWait({ at: `${past.getHours()}:${String(past.getMinutes()).padStart(2, '0')}`, note: 'Look again.' }, { now: NOW, waits: 0 }).wait.until);
-  assert.ok(tomorrow > NOW && tomorrow - NOW <= 24 * 3600000, 'a clock time already gone today is the one tomorrow');
-  assert.match(askedWait({ note: 'Look again.' }, { now: NOW, waits: 0 }).refused, /minutes to wait or a clock time/);
-  assert.match(askedWait({ minutes: 5, at: '10:00', note: 'Look again.' }, { now: NOW, waits: 0 }).refused, /minutes to wait or a clock time/);
-  assert.match(askedWait({ minutes: 5, note: ' ' }, { now: NOW, waits: 0 }).refused, /note of what to do/);
-  assert.match(askedWait({ at: '25:00', note: 'Look again.' }, { now: NOW, waits: 0 }).refused, /24-hour HH:MM/);
-  assert.match(askedWait({ minutes: 5, note: 'Look again.' }, { now: NOW, waits: undefined }).refused, /This run cannot wait/);
-  assert.match(askedWait({ minutes: 5, note: 'Look again.' }, { now: NOW, waits: 0, agentsOut: 1 }).refused, /agents are still working/);
   assert.match(resumeNote(inMinutes.wait, NOW + 31 * 60000), /Read the monitoring again\.[\s\S]*31 minutes after you asked/);
+
+  const soon = new Date(NOW + 90 * 60000);
+  assert.equal(askedWait({ at: clockAt(soon), note: 'Look again.' }, { now: NOW, waits: 3 }).wait.until, soon.toISOString());
+
+  const tomorrow = Date.parse(askedWait({ at: clockAt(new Date(NOW - 60 * 60000)), note: 'Look again.' }, run).wait.until);
+  assert.ok(tomorrow > NOW && tomorrow - NOW <= 24 * 3600000, 'a clock time already gone today is the one tomorrow');
+
+  assert.match(askedWait({ note: 'Look again.' }, run).refused, /minutes to wait or a clock time/);
+  assert.match(askedWait({ minutes: 5, at: '10:00', note: 'Look again.' }, run).refused, /minutes to wait or a clock time/);
+  assert.match(askedWait({ minutes: 5, note: ' ' }, run).refused, /note of what to do/);
+  assert.match(askedWait({ at: '25:00', note: 'Look again.' }, run).refused, /24-hour HH:MM/);
+  assert.match(askedWait({ minutes: 5, note: 'Look again.' }, { now: NOW, waits: undefined }).refused, /This run cannot wait/);
+  assert.match(askedWait({ minutes: 5, note: 'Look again.' }, { ...run, agentsOut: 1 }).refused, /agents are still working/);
 });
 
 test('hobkin_wait asks the host over the run\'s own bridge and answers in the host\'s words', async () => {
@@ -209,7 +217,6 @@ function home(t, { concurrency } = {}) {
   return { root, open: options => HobkinApplication.open(root, { createMain: fake.createMain, intervalMs: 60000, ...options }) };
 }
 const NOTE = 'Read the monitoring again.';
-const iso = time => new Date(time).toISOString();
 const waitingFor = (minutes, at) => ({ status: 'waiting', text: 'Deployed. Waiting to read the monitoring.', cost: null, freshSession: true,
   wait: { until: iso(at + minutes * 60000), note: NOTE, askedAt: iso(at) } });
 const held = { status: 'completed', text: 'Useful: The deploy held for its 30 minutes.', cost: null };
