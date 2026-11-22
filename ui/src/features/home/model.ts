@@ -352,7 +352,7 @@ function projectsOf(input: HomeInput): HomeRow[] {
       title: project.name,
       detail,
       tone,
-      target: screen('work'),
+      target: { to: 'project', slug: project.slug },
       aside: project.priority,
     })
   })

@@ -68,6 +68,8 @@ export type HomeTarget =
   | { to: 'url'; url: string }
   /** The question hobkin is asking in the conversation. */
   | { to: 'question' }
+  /** A project's own page. */
+  | { to: 'project'; slug: string }
   /** A TLA+ proof run's own page. */
   | { to: 'proof'; id: string }
 

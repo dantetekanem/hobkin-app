@@ -52,6 +52,8 @@ export function openTarget(target: HomeTarget): void {
       // hobkin's question rises on the question sheet by itself (questions/bridge.ts). Once put off, it waits under Action Items.
       if (!current(useQuestions.getState().queue)) openScreen('actions')
       return
+    case 'project':
+      return useView.getState().openProject(target.slug)
     case 'proof':
       // Home opens a run only for a model that broke on main, so it lands on the break.
       return openRunAmong(target.id, [], 'break')

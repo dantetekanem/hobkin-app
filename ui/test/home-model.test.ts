@@ -326,6 +326,7 @@ test('Projects uses only chosen state and exact work provenance without declarin
   }))
 
   assert.deepEqual(model.projects.rows.map(row => row.id), ['project:app', 'project:clean'])
+  assert.deepEqual(model.projects.rows.map(row => row.action.target), [{ to: 'project', slug: 'app' }, { to: 'project', slug: 'clean' }], 'a project opens its own page')
   assert.match(model.projects.rows[0]?.detail ?? '', /2 problems/)
   assert.match(model.projects.rows[0]?.detail ?? '', /1 change/)
   assert.match(model.projects.rows[0]?.detail ?? '', /2 PRs/)
