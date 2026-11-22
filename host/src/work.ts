@@ -1,13 +1,15 @@
 import type { HobkinSnapshot } from 'hobkin/src/cli/application.mjs'
 import { approvalGroups, groupPlan, groupWords, landingWay, shownTitle, type GroupName } from 'hobkin/src/cli/work/groups.mjs'
 import { heldByItsGrade } from 'hobkin/src/cli/work/reads.mjs'
-import { byPriority, byRank, currentRequest, dailyLimit, grades, MAX_AGENTS, readMode, setAgents, setDailyTokens, setWorkload, workloadOf } from 'hobkin/src/cli/work/store.mjs'
+import { byPriority, byRank, currentRequest, dailyLimit, grades, MAX_AGENTS, readMode, setAgents, setDailyTokens } from 'hobkin/src/cli/work/store.mjs'
+import * as hobkinStore from 'hobkin/src/cli/work/store.mjs'
 import { setYolo } from 'hobkin/src/cli/work/yolo.mjs'
 import {
   GRADES,
   HOLDING_KINDS,
   ISSUE_PICKUPS,
   PR_MODES,
+  REVIEW_PULLS,
   type AllowanceRequest,
   type ChangeChoice,
   type FinishedChange,
@@ -19,13 +21,15 @@ import {
   type HoldingKind,
   type ProjectState,
   type QueueRow,
+  type ReviewPulls,
+  type Workload,
   type WorkHolding,
   type WorkOutlook,
   type WorkProject,
   type WorkState,
   type YoloState,
 } from '#shared/protocol/work.ts'
-import type { HostHandlers } from './commands.ts'
+import { Unavailable, type HostHandlers } from './commands.ts'
 
 /**
  * Work mode for the Work screen: read from hobkin's own snapshot with hobkin's own rules, and every action the
@@ -159,6 +163,37 @@ interface WorkStatus {
   allowanceRequest?: { at?: string; limit?: number; proposed?: number; used?: number } | null
 }
 
+/**
+ * The workload's functions, which only a hobkin with the workload has (053-work-control-room). They are looked up on the module, never imported by
+ * name, so the host still loads with an older hobkin, whose state then leaves the workload out and whose `work.workload` says it has none.
+ */
+export interface WorkloadRuntime {
+  setWorkload?: (root: string, change: Parameters<typeof hobkinStore.setWorkload>[1]) => Record<string, unknown>
+  workloadOf?: (mode: Record<string, unknown>) => Workload
+}
+const newerStore = hobkinStore as Partial<typeof hobkinStore>
+const HOBKIN_WORKLOAD: WorkloadRuntime = { setWorkload: newerStore.setWorkload, workloadOf: newerStore.workloadOf }
+
+const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1
+
+/** The workload as hobkin sends it. Its own `workloadOf` made it, so this only keeps the window from a shape it cannot draw. */
+function workloadFrom(value: Record<string, unknown>): Workload | null {
+  const { agents, autoPick, changesADay, dailyTokens, hours, shipFirst, shipFirstAt, reviewOnFinish, reviewPulls } = value
+  const window = hours as { from?: unknown; to?: unknown } | null
+  if (!isCount(agents) || !isCount(dailyTokens) || !isCount(shipFirstAt) || !REVIEW_PULLS.includes(reviewPulls as ReviewPulls)) return null
+  return {
+    agents,
+    autoPick: autoPick === true,
+    changesADay: isCount(changesADay) ? changesADay : null,
+    dailyTokens,
+    hours: typeof window?.from === 'string' && typeof window.to === 'string' ? { from: window.from, to: window.to } : null,
+    shipFirst: shipFirst !== false,
+    shipFirstAt,
+    reviewOnFinish: reviewOnFinish === true,
+    reviewPulls: reviewPulls as ReviewPulls,
+  }
+}
+
 /** What holds work mode, as hobkin says it. One of a kind the window does not know is left out, so the window says nothing wrong. */
 function holdingFrom(holding: WorkStatus['holding']): WorkHolding | null {
   if (!holding || !HOLDING_KINDS.includes(holding.kind as HoldingKind)) return null
@@ -172,12 +207,15 @@ const allowanceFrom = (asked: WorkStatus['allowanceRequest']): AllowanceRequest 
   asked?.at ? { at: asked.at, limit: asked.limit ?? 0, proposed: asked.proposed ?? 0, used: asked.used ?? 0 } : null
 
 /** The four, each only when hobkin sends it, since every field the window reads of them is optional. */
-const workloadPartsOf = (work: WorkStatus): Partial<WorkState> => ({
-  ...(work.workload ? { workload: workloadOf(work.workload) } : {}),
-  ...('holding' in work ? { holding: holdingFrom(work.holding) } : {}),
-  ...('outlook' in work ? { outlook: outlookFrom(work.outlook) } : {}),
-  ...('allowanceRequest' in work ? { allowance: allowanceFrom(work.allowanceRequest) } : {}),
-})
+function workloadPartsOf(work: WorkStatus): Partial<WorkState> {
+  const workload = work.workload ? workloadFrom(work.workload) : null
+  return {
+    ...(workload ? { workload } : {}),
+    ...('holding' in work ? { holding: holdingFrom(work.holding) } : {}),
+    ...('outlook' in work ? { outlook: outlookFrom(work.outlook) } : {}),
+    ...('allowanceRequest' in work ? { allowance: allowanceFrom(work.allowanceRequest) } : {}),
+  }
+}
 
 const gradeOf = (value: unknown): Grade | null => (GRADES.includes(value as Grade) ? (value as Grade) : null)
 const count = (amount: number, noun: string) => `${amount} ${noun}${amount === 1 ? '' : 's'}`
@@ -437,6 +475,8 @@ export interface WorkSeat {
   app: () => WorkApp
   /** The folder the home's data is in. */
   root: () => string
+  /** hobkin's workload functions, when it has them. The ones hobkin's store exports unless a test says otherwise. */
+  workload?: WorkloadRuntime
 }
 
 type WorkCommand =
@@ -468,7 +508,7 @@ interface Reply {
 const messageOf = (result: unknown) => String((result as Reply | null)?.message ?? '')
 
 /** The Work screen's commands. Each is one of hobkin's own work actions, and a refusal comes back in hobkin's words. */
-export function workHandlers({ app, root }: WorkSeat): Pick<HostHandlers, WorkCommand> {
+export function workHandlers({ app, root, workload = HOBKIN_WORKLOAD }: WorkSeat): Pick<HostHandlers, WorkCommand> {
   const done = { ok: true } as const
   return {
     'work.mode': async ({ on, folder }) => {
@@ -511,6 +551,8 @@ export function workHandlers({ app, root }: WorkSeat): Pick<HostHandlers, WorkCo
       return { tokens: mode.dailyTokens }
     },
     'work.workload': async (change) => {
+      const { setWorkload, workloadOf } = workload
+      if (!setWorkload || !workloadOf) throw new Unavailable('This hobkin keeps no workload yet. Update hobkin to set it from here.')
       // Not a work action either: hobkin's own setter checks every value before it writes any, and the plan reads them at its next tick.
       const mode = setWorkload(root(), change)
       await app().refresh()

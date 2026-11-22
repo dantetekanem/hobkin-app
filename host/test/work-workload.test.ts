@@ -112,7 +112,8 @@ test('the work state says what holds work mode and until when, with the outlook,
   const { handlers } = handlersOf(root)
   assert.deepEqual((await stateOf(root)).holding, { kind: 'off', until: null, line: 'Work mode is off, so nothing starts by itself.' })
 
-  await runWorkCommand(root, ['start', temporaryDirectory(t)])
+  // With auto-pick on, so the hours are what holds it.
+  await runWorkCommand(root, ['start', temporaryDirectory(t), '--auto'])
   const from = clockIn(1)
   await runCommand(handlers, 'work.workload', { hours: { from, to: clockIn(2) } })
   const work = await stateOf(root)
@@ -151,4 +152,16 @@ test("an open allowance request is on the work state, and the window's answer ad
   assert.match(!again.ok ? again.error.message : '', /answered already/)
   assert.equal((await stateOf(root)).dailyTokens, 200_000_000, 'a second click raises nothing')
   assert.deepEqual(calls, [['allow']])
+})
+
+test('with a hobkin older than the workload, the host still answers: the state leaves the workload out and work.workload says this hobkin has none', async (t) => {
+  const root = temporaryDirectory(t)
+  const { app, calls } = fakeHobkin(root)
+  // An older hobkin's store has no workload functions.
+  const handlers = workHandlers({ app: () => app, root: () => root, workload: {} })
+
+  const outcome = await runCommand(handlers, 'work.workload', { changesADay: 3 })
+  assert.deepEqual(outcome, { ok: false, error: { code: 'unavailable', message: 'This hobkin keeps no workload yet. Update hobkin to set it from here.' } })
+  assert.deepEqual(calls, [], 'nothing was written or refreshed')
+  assert.equal(workFrom({ work: { enabled: false, agents: 2, agentsAllowed: 2, plan: [], projects: [] }, waiting: null })!.workload, undefined)
 })
