@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { FinishedChange, FinishedGroup, FinishedGroupName, YoloChange, YoloMerge, YoloPart, YoloProject, YoloState } from '#shared/protocol/work.ts'
-import { changeRows, inPlace, mergedDays, partGroups, stillToSetUp, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance, yoloReportId, yoloVerdict, type VerdictContext } from '../src/features/work/yolo-page.ts'
+import { changeOpens, changeRows, inPlace, mergedDays, partGroups, projectOpens, stillToSetUp, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance, yoloReportId, yoloVerdict, type VerdictContext } from '../src/features/work/yolo-page.ts'
 
 const NOW = Date.parse('2026-11-20T15:00:00Z')
 const project = (change: Partial<YoloProject> = {}): YoloProject => ({
@@ -240,4 +240,12 @@ test('readiness lists only the parts that still need work, each with its PR or A
   assert.equal(inPlace(shown), 'In place: tests and rollback.')
   assert.equal(inPlace(project({ ...READY, parts: [part('tests', 'todo')] })), null)
   assert.deepEqual(stillToSetUp(project({ ...READY, parts: [part('tests', 'done', { needed: true })] })), [])
+})
+
+test("a project card's name opens the project's page, and a change next to merge opens its review, or its card on Work when there is no review to name", () => {
+  assert.deepEqual(projectOpens('api'), { to: 'project', slug: 'api' })
+  assert.deepEqual(changeOpens('api', 'b4', true), { to: 'review', id: 'change:api:b4' })
+  // With no host the sample has no review of its own to open, so the change's card on Work opens, as before.
+  assert.deepEqual(changeOpens('api', 'b4', false), { to: 'work', target: '[data-change="api:b4"]' })
+  assert.deepEqual(changeOpens('bad:slug', 'b4', true), { to: 'work', target: '[data-change="bad:slug:b4"]' })
 })

@@ -2,6 +2,7 @@ import type { MetricsDay } from '#shared/protocol/metrics.ts'
 import type { ChangeChoice, FinishedChange, FinishedGroup, FinishedGroupName, Landing, PrMode, YoloChange, YoloPart, YoloPartState, YoloProject, YoloState } from '#shared/protocol/work.ts'
 import { SERIES_COLOR, type DaySeries, type FunnelStep } from '../numbers/chart-kit.ts'
 import { countWords, lastDays, NO_DATA, shareWords, sumDays, TILE_DAYS } from '../numbers/format.ts'
+import { finishedReviewId } from '../review/entry.ts'
 import { dateLabel, dayName, whenText } from '../routines/words.ts'
 
 /**
@@ -513,6 +514,18 @@ export function gates(yolo: YoloState, { waits, paused }: { waits: string | null
     holds,
     shown,
   }
+}
+
+/** Where a click on the page goes: a project's own page, a change's review, or the change's card on Work. */
+export type YoloOpen = { to: 'project'; slug: string } | { to: 'review'; id: string } | { to: 'work'; target: string }
+
+/** A project card's name opens the project's page (053). */
+export const projectOpens = (slug: string): YoloOpen => ({ to: 'project', slug })
+
+/** A change opens its review. With no host, or when the window cannot name its review, its card on Work opens instead. */
+export function changeOpens(slug: string, item: string, live: boolean): YoloOpen {
+  const id = finishedReviewId({ slug, item }, live)
+  return id && live ? { to: 'review', id } : { to: 'work', target: `[data-change="${slug}:${item}"]` }
 }
 
 /** A chart of merges by itself, as `DayBars` draws it. */

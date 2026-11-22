@@ -4,11 +4,12 @@ import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStops } from '@/app/stops.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { openGitHubPage, openOnGitHub } from '@/features/github/open.ts'
 import { openTarget } from '@/features/home/navigate.ts'
-import { ChartFrame } from '@/features/numbers/ChartFrame.tsx'
+import { ChartFrame, pressProps } from '@/features/numbers/ChartFrame.tsx'
 import { DayBars } from '@/features/numbers/DayBars.tsx'
 import { countWords } from '@/features/numbers/format.ts'
 import { Funnel } from '@/features/numbers/Funnel.tsx'
@@ -16,7 +17,6 @@ import { StatTile } from '@/features/numbers/StatTile.tsx'
 import { READ_WORDS, useWorkMetrics } from '@/features/numbers/use-work-metrics.ts'
 import { ProjectModels, ProofSetup } from '@/features/proofs/ProjectModels.tsx'
 import { useReports } from '@/features/reports/store.ts'
-import { finishedReviewId } from '@/features/review/entry.ts'
 import { rateChoices, readyCount, SAMPLE_YOLO, sampleAfter, yoloSays } from '@/features/settings/yolo.ts'
 import { runCommand } from '@/lib/host/client.ts'
 import { cn } from '@/lib/utils.ts'
@@ -26,12 +26,14 @@ import { runWork, useWorkView } from './store.ts'
 import { openOnWork } from './work-target.ts'
 import {
   byItselfBars,
+  changeOpens,
   changeRows,
   gates,
   inPlace,
   mergedDays,
   mergedLine,
   mergesHeld,
+  projectOpens,
   readinessRow,
   sampleReadiness,
   stillToSetUp,
@@ -50,6 +52,7 @@ import {
   type TrustTile,
   type VerdictAction,
   type VerdictTone,
+  type YoloOpen,
 } from './yolo-page.ts'
 
 type SetSample = Dispatch<SetStateAction<YoloState>>
@@ -144,7 +147,7 @@ export function YoloScreen() {
 /** The switch and the lowest rate. What the switch means sits in two lines whatever it says, so nothing under it moves. */
 function Switchboard({ yolo, setting: { saving, problem, change } }: { yolo: YoloState; setting: Setting }) {
   return (
-    <section aria-label="YOLO mode" className="flex flex-col gap-3 rounded-3xl bg-surface px-5 py-4">
+    <section aria-label="YOLO mode" className="flex flex-col gap-3 rounded-3xl bg-background px-5 py-4">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
         <label className="flex items-center gap-3">
           <Switch checked={yolo.on} disabled={saving} onCheckedChange={(on) => void change({ on })} data-stop="" />
@@ -288,16 +291,22 @@ function Projects({ workProjects, ...context }: CardContext & { workProjects: Wo
   )
 }
 
-const TONES: Record<VerdictTone, string> = {
-  ok: 'bg-ok/15 text-ok-fg',
-  live: 'bg-sun/20 text-sun-fg',
-  warn: 'bg-warn/15 text-warn-fg',
-  quiet: 'bg-surface-2 text-muted-foreground',
-  bad: 'bg-bad/15 text-bad-fg',
+const TONES: Record<VerdictTone, { dot: string; text: string }> = {
+  ok: { dot: 'bg-ok-fg', text: 'text-ok-fg' },
+  live: { dot: 'bg-sun', text: 'text-sun-fg' },
+  warn: { dot: 'bg-warn-fg', text: 'text-warn-fg' },
+  quiet: { dot: 'bg-muted-foreground', text: 'text-muted-foreground' },
+  bad: { dot: 'bg-bad-fg', text: 'text-bad-fg' },
 }
 
-function Chip({ tone, children, className }: { tone: VerdictTone; children: string; className?: string }) {
-  return <span className={cn('inline-flex h-5 shrink-0 items-center rounded-full px-2 font-heading text-[11px] font-semibold whitespace-nowrap', TONES[tone], className)}>{children}</span>
+/** Where something stands: a dot and a word or three in its tone. It only says, so it has no pill that would look like a button. */
+function Mark({ tone, children, className }: { tone: VerdictTone; children: string; className?: string }) {
+  return (
+    <span className={cn('inline-flex h-5 shrink-0 items-center gap-1.5 font-heading text-[11.5px] font-semibold whitespace-nowrap', TONES[tone].text, className)}>
+      <span aria-hidden="true" className={cn('size-1.5 shrink-0 rounded-full', TONES[tone].dot)} />
+      {children}
+    </span>
+  )
 }
 
 /** What hobkin said to the last press. */
@@ -373,7 +382,7 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, setti
       case 'work':
         return press.key ? openOnWork(`[data-change="${press.key}"]`) : backToWork()
       case 'review':
-        return openReview(project.slug, press.item, live)
+        return go(changeOpens(project.slug, press.item, live))
       case 'rate':
         return void setting.change({ rate: press.rate })
     }
@@ -385,11 +394,17 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, setti
   const placed = inPlace(project)
 
   return (
-    <li aria-label={project.name} className="flex flex-col gap-3 rounded-2xl bg-surface px-4 py-3">
+    <li aria-label={project.name} className="flex flex-col gap-3 rounded-2xl bg-background px-4 py-3">
       <div className="grid h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4">
         <div className="flex min-w-0 items-center gap-2">
-          <h3 className="truncate font-heading text-[15px] font-semibold">{project.name}</h3>
-          <Chip tone={readiness.tone}>{readiness.state}</Chip>
+          <h3 className="min-w-0 font-heading text-[15px] font-semibold">
+            {/* A box rather than a button: WebKit lays a button's content out in a box of its own, which cut the name short. */}
+            <span {...pressProps(() => go(projectOpens(project.slug)))} aria-label={`${project.name}: opens its page`} className="pressable -mx-1.5 flex h-7 min-w-0 items-center gap-1 rounded-lg px-1.5">
+              <span className="truncate">{project.name}</span>
+              <OpenArrow className="size-3.5" />
+            </span>
+          </h3>
+          <Mark tone={readiness.tone}>{readiness.state}</Mark>
           {/* Last on the line, so nothing before it moves when hobkin writes the first one. */}
           {reportId ? (
             <Button variant="ghost" size="xs" data-stop="" aria-label={`YOLO report on ${project.name}`} onClick={() => openTarget({ to: 'report', id: reportId })} className="shrink-0">
@@ -406,7 +421,7 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, setti
       {changes.length ? (
         <Part heading="Next to merge" count={changes.length}>
           {changes.map((row) => (
-            <ChangeLine key={row.item} row={row} name={project.name} onReview={() => openReview(project.slug, row.item, live)} />
+            <ChangeLine key={row.item} row={row} name={project.name} onReview={() => go(changeOpens(project.slug, row.item, live))} />
           ))}
         </Part>
       ) : null}
@@ -466,11 +481,11 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, setti
   )
 }
 
-/** A change's review in Change Review, or its card on Work when the window cannot name its review. */
-function openReview(slug: string, item: string, live: boolean) {
-  const reviewId = finishedReviewId({ slug, item }, live)
-  if (reviewId && live) useView.getState().openReviewFor(reviewId)
-  else openOnWork(`[data-change="${slug}:${item}"]`)
+/** Where a click goes: a project's page, a change's review in Change Review, or the change's card on Work when there is no review to name. */
+function go(open: YoloOpen) {
+  if (open.to === 'project') useView.getState().openProject(open.slug)
+  else if (open.to === 'review') useView.getState().openReviewFor(open.id)
+  else openOnWork(open.target)
 }
 
 /** The one press that moves YOLO mode on the project. Its place keeps its width when there is none, so the line beside it never moves. */
@@ -500,7 +515,7 @@ function Status({ label, line, said }: { label: string; line: StatusLine; said: 
     <>
       <dt className="eyebrow flex h-5 items-center">{label}</dt>
       <dd className="flex h-5 items-center">
-        <Chip tone={line.tone}>{line.state}</Chip>
+        <Mark tone={line.tone}>{line.state}</Mark>
       </dd>
       <dd
         role={said?.tone === 'refused' ? 'alert' : undefined}
@@ -525,26 +540,33 @@ function Part({ heading, count, children }: { heading: string; count: number; ch
   )
 }
 
-/** A change waiting to merge: its title, kind and rate against the user's on the first line, and why it asks on the second. Every row has the same columns. */
+/**
+ * A change waiting to merge: its title, kind and rate against the user's on the first line, and why it asks on the second.
+ * Every row has the same columns. The row opens the change's review, and its arrow shows that it does.
+ */
 function ChangeLine({ row, name, onReview }: { row: ChangeRow; name: string; onReview: () => void }) {
   return (
-    <li className="grid h-12 grid-cols-[minmax(0,1fr)_136px_40px_112px_72px] grid-rows-2 items-center gap-x-3 border-t border-border/60 first:border-t-0">
-      <span title={row.title} className="truncate text-[13px] font-medium">
-        {row.title}
-      </span>
-      <span title={row.kind} className="truncate text-right text-[12px] text-muted-foreground">
-        {row.kind}
-      </span>
-      <Chip tone={row.tone} className="justify-self-center tabular-nums">
-        {row.rate}
-      </Chip>
-      <span className="truncate text-[12px] text-muted-foreground tabular-nums">{row.against}</span>
-      <Button variant="ghost" size="xs" data-stop="" aria-label={`Review "${row.title}" on ${name}`} onClick={onReview} className="row-span-2 justify-self-end">
-        Review
-      </Button>
-      <span title={row.why} className="col-span-4 truncate text-[12.5px] text-muted-foreground">
-        {row.why}
-      </span>
+    <li className="border-t border-border/60 first:border-t-0">
+      <div
+        {...pressProps(onReview)}
+        aria-label={`${row.title} on ${name}: ${row.kind}, rated ${row.rate}, ${row.against}. Opens its review.`}
+        className="pressable -mx-2 grid h-12 grid-cols-[minmax(0,1fr)_136px_44px_112px_16px] grid-rows-2 items-center gap-x-3 rounded-lg px-2 outline-offset-[-2px]"
+      >
+        <span title={row.title} className="truncate text-[13px] font-medium">
+          {row.title}
+        </span>
+        <span title={row.kind} className="truncate text-right text-[12px] text-muted-foreground">
+          {row.kind}
+        </span>
+        <Mark tone={row.tone} className="justify-self-start tabular-nums">
+          {row.rate}
+        </Mark>
+        <span className="truncate text-[12px] text-muted-foreground tabular-nums">{row.against}</span>
+        <OpenArrow className="row-span-2 justify-self-end" />
+        <span title={row.why} className="col-span-4 truncate text-[12.5px] text-muted-foreground">
+          {row.why}
+        </span>
+      </div>
     </li>
   )
 }
@@ -559,7 +581,7 @@ function MergedLine({ row }: { row: MergedRow }) {
       <span title={row.what} className="truncate text-right text-[12px] text-muted-foreground tabular-nums">
         {row.what}
       </span>
-      <span className="row-span-2 justify-self-end">{row.held ? <Chip tone={row.tone}>{row.held}</Chip> : null}</span>
+      <span className="row-span-2 justify-self-end">{row.held ? <Mark tone={row.tone}>{row.held}</Mark> : null}</span>
       <span title={row.deploy} className="col-span-2 truncate text-[12.5px] text-muted-foreground">
         {row.deploy}
       </span>
@@ -572,9 +594,9 @@ function PartLine({ row }: { row: PartRow }) {
   return (
     <li className="grid h-7 grid-cols-[128px_140px_minmax(0,1fr)_80px] items-center gap-x-3 text-[12.5px]">
       <span className="truncate font-medium">{row.label}</span>
-      <Chip tone={row.tone} className="justify-self-start">
+      <Mark tone={row.tone} className="justify-self-start">
         {row.state}
-      </Chip>
+      </Mark>
       <span title={row.line} className="truncate text-muted-foreground">
         {row.line}
       </span>
