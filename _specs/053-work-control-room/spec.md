@@ -41,7 +41,7 @@ Numbers
 - A change counts as merged by itself when its route is `yolo`, and by the user for every other route. First pass means merged or declined without `done_sent_back` before it.
 - A rate with nothing under it reads "no data yet", never 0% or 100% (`ratesOf`).
 - The window reads the numbers when Work, YOLO mode, World or a project opens, and again at most once a minute while one of them shows. The host keeps the last fold for a minute.
-- Charts are the app's own SVG and HTML, as Home's week bars are: no chart library. A chart is drawn again only when its numbers change, and has no endless motion. Every chart and tile has a sentence saying what it counts, and is a button that opens the list of what it counts.
+- Charts are the app's own SVG and HTML, as Home's week bars are: no chart library. A chart is drawn again only when its numbers change, and has no endless motion. Every chart and tile has a sentence saying what it counts. A chart with a list behind it is a button that opens that list: merged, first pass and the two waits open the changes they count, and AI reviews opens its tab. Proofs and tokens have no list and are not buttons.
 
 Work
 - The header keeps its title, switches and counts. Under it sit six tiles: Waiting for you, Merged today, First pass, By itself, AI reviews, Tokens today. Each has its figure, a line of context and a 30-day sparkline.
@@ -176,9 +176,9 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A5. In hobkin, `test/cli-work-metrics.test.mjs` › "work.metrics has one day for each local day of the period, zeros included, for all projects and for each" and › "a line or a file that cannot be read is named in gaps, and the rest still counts"; here, `host/test/metrics.test.ts` › "work.metrics adds the AI reviews the host keeps to hobkin fold: each answer on its day, one that stopped before it, and how long they took"
 - A6. In hobkin, `test/cli-work-metrics.test.mjs` › "a change merged by YOLO mode counts as merged by itself and any other as merged by the user, and one merged after being sent back is not first pass"
 - A7. `shared/test/metrics-rates.test.ts` › "a rate with nothing under it is null, never 0 or 100 percent of nothing"; `ui/test/numbers-format.test.ts` › "a tile with nothing under it reads \"no data yet\", never 0% or 100%"
-- A8. unproven
-- A9. unproven
-- A10. unproven
+- A8. `ui/test/work-tiles.test.ts` › "the six tiles read what waits, the AI reviews and today's tokens from Work, and the rest from the numbers" and › "a tile opens the Numbers tab at the chart it stands for"
+- A9. `ui/test/work-numbers-open.test.ts` › "what a chart opens: merged, first pass and the two waits list the changes behind them, AI reviews its tab, a project row its page, and proofs and tokens nothing"; `ui/test/numbers-board.test.ts` › "the board draws the days of its period, the newest last"
+- A10. `ui/test/work-status-line.test.ts` › "the line names the one thing that holds work mode in hobkin's words, with the control that changes it" and › "while nothing holds work mode, the line says when the next change starts and how many more start today"; `host/test/work-workload.test.ts` › "the work state says what holds work mode and until when, with the outlook, from hobkin itself"
 - A11. In hobkin, `test/cli-work-store.test.mjs` › "each workload setting is kept in the mode file, so it is still there when hobkin starts again"; here, `host/test/work-workload.test.ts` › "the workload is set from the window, answered as it stands, and kept in hobkin's own file, so a new host reads it again"
 - A12. In hobkin, `test/cli-work-workload.test.mjs` › "with a cap of 3 changes a day, a fourth run does not start that day and starts the next" and › "with hours of 09:00 to 18:00, nothing new starts at 20:00, running agents finish, and work starts again at 09:00"
 - A13. In hobkin, `test/cli-work-workload.test.mjs` › "with ship first off, new work starts while 8 finished changes wait, and the bar is the user's number"
@@ -216,7 +216,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - [x] S7 (A19, A20, A21, A22, A23, A25, A26). The review window: Focus, groups, the outline, seen marks, next unseen, the budget, saved at most once a second, its place kept.
 - [x] S8 (A28, A29, A30, A31, A32). Proofs: check and proof together, the keys, positions, kept state, stops, a panel that can sit in another page.
 - [x] S9 (A11, A12, A13, A14). The workload in hobkin and the host: the settings, `planOf`, the forecast, `work.workload`, the allowance answer.
-- [ ] S10 (A8, A9, A10, A11). Work: tiles, the status line, Numbers, the workload sheet, rows that are buttons.
+- [x] S10 (A8, A9, A10, A11). Work: tiles, the status line, Numbers, the workload sheet, rows that are buttons.
 - [x] S11 (A4). The project's page, and World and YOLO mode opening it.
 - [x] S12 (A8, A9). YOLO mode's trust figures, funnel and chart, and World's card.
 - [ ] S13 (A24, A27). The proof beside the review and the evidence above the verdict.
