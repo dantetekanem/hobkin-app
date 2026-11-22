@@ -52,13 +52,25 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
       [['↵'], 'In the input: keep the comment, or send the question. ⇧↵ starts a new line'],
       [['esc'], 'In the input: back to the review, the words kept. It never stops Hobkin'],
       [['S'], 'Hide the panel, or bring it back'],
-      [['T'], "Open the run of the change's first TLA+ model check, as its row in the panel does"],
+    ],
+  },
+  {
+    title: 'The proof beside the review',
+    keys: [
+      [['T'], 'Open the proof on the first model that needs a look. Again, or esc, to close it'],
+      [['⇧T'], 'Open the proof on its full page. Back comes back here as it was'],
+      [['J', 'K'], 'The next and previous model of the change'],
+      [['F', '⇧F'], 'The next and previous thing that failed'],
+      [['1', '2', '3'], 'Run, State graph, Math'],
+      [['/'], 'Search the state graph'],
+      [['R'], 'Run the check again, once it ended'],
+      [['↑', '↓'], 'The parts of the proof'],
     ],
   },
   {
     title: 'The verdict',
     keys: [
-      [['A'], 'Approve a hobkin change: shows how its pull request opens. Press again within ten seconds to open it'],
+      [['A'], 'Approve a hobkin change: shows how its pull request opens, and how many nodes that need you are not seen. Press again within ten seconds to open it'],
       [['M'], 'Approve and merge a hobkin change: shows how it lands. Press again within ten seconds to land it'],
       [['X'], "Send the fixes to hobkin's agent, or request changes on a pull request: shows what goes. Press again within ten seconds to send it"],
     ],
@@ -66,7 +78,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
   {
     title: 'Leaving',
     keys: [
-      [['esc'], 'One level back: the note being written, the finder, a wire, selected lines, the code, an open group, then the review'],
+      [['esc'], 'One level back: the note being written, the finder, the proof, a wire, selected lines, the code, an open group, then the review'],
       [['⌘', '?'], 'These shortcuts'],
     ],
   },
