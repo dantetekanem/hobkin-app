@@ -234,7 +234,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     windows.publish(now)
     // Finished changes and pull requests waiting for the user get their reviews ready in the background (005 S6).
     // What a run left for the user is reviewed only once the user asks.
-    reviews.watch(toPrepare(preparedByItself(now.work), now.github))
+    reviews.watch(toPrepare(preparedByItself(now.work), now.github, { pulls: now.work?.workload?.reviewPulls ?? 'none' }))
   }
   const connected = () => [...(server?.sockets() ?? [])].some((socket) => socket.readyState === socket.OPEN)
 
