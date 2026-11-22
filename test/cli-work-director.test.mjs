@@ -1556,6 +1556,7 @@ test('each line of the token record carries the item its run worked on, and a lo
   const looks = tokenEvents(h.root).filter(({ lane }) => lane === 'look');
   assert.ok(looks.length && looks.every(line => !('item' in line)), JSON.stringify(looks));
 });
+
 const untilStarted = async h => {
   await h.director.tick();
   while (!h.calls.length) await new Promise(resolve => setTimeout(resolve, 10));
