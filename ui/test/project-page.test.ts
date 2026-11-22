@@ -4,7 +4,7 @@ import type { DecidedChange, WorkMetrics } from '#shared/protocol/metrics.ts'
 import type { ModelFact, WorkState, YoloState } from '#shared/protocol/work.ts'
 import { sumDays } from '../src/features/numbers/format.ts'
 import { sampleMetrics } from '../src/features/numbers/sample-metrics.ts'
-import { atWorkOf, projectPage, reviewsOf, type AgentLike, type ProjectInput, type TakenPage } from '../src/features/project/model.ts'
+import { atWorkOf, keepSections, projectPage, reviewsOf, type AgentLike, type ProjectInput, type TakenPage } from '../src/features/project/model.ts'
 import { SAMPLE_YOLO } from '../src/features/settings/yolo.ts'
 import { sampleWork } from '../src/features/work/sample.ts'
 import { SAMPLE_REVIEW_LIST } from '../src/features/work/sample-reviews.ts'
@@ -148,6 +148,7 @@ test('merged lately lists its changes merged or declined, newest first, saying w
     ],
   )
   assert.equal(page.merged.more, 0)
+  assert.equal(page.merged.count, '2 merged · 1 declined')
   // A row opens the review the window knows of it, and only that: opening an unknown one would prepare a new review.
   assert.deepEqual(
     page.merged.rows.map(({ review }) => review),
@@ -187,7 +188,7 @@ test('a project with nothing yet keeps every section and says in each that it ha
     assert.deepEqual(section.rows, [])
     assert.ok(section.empty.length > 0)
   }
-  assert.ok(page.merged.kind === 'list' && page.merged.rows.length === 0 && page.merged.empty === 'Nothing merged or declined here in 30 days.')
+  assert.ok(page.merged.kind === 'list' && page.merged.rows.length === 0 && page.merged.count === '0 merged' && page.merged.empty === 'Nothing merged or declined here in 30 days.')
   assert.deepEqual(page.models.facts, [])
   assert.equal(page.models.empty, 'No TLA+ models on its default branch.')
   assert.equal(page.readiness.known, false)
@@ -231,6 +232,19 @@ test('with a host that sends no list of decided changes, its merges by day stand
   const reading = taken({ metrics: null, metricsState: 'loading' })
   assert.equal(reading.tiles.loading, true)
   assert.deepEqual(reading.merged, { kind: 'none', note: 'Reading the numbers…' })
+})
+
+test('a section that says the same as the page drawn before keeps its object, so it is not drawn again', () => {
+  const drawn = projectPage(input())
+  const again = projectPage(input())
+  assert.equal(keepSections(drawn, again), drawn)
+
+  // A review that moves on changes the waiting rows and the tiles, and nothing else.
+  const list = { reviews: SAMPLE_REVIEW_LIST.reviews.map((review) => (review.id === 'change:storefront:4c9e21' ? { ...review, assessment: { ...review.assessment!, percent: 80 } } : review)) }
+  const moved = keepSections(drawn, projectPage(input({ reviews: reviewsOf(list, 'storefront') }))) as TakenPage
+  const before = drawn as TakenPage
+  assert.notEqual(moved.waiting, before.waiting)
+  for (const key of ['heading', 'tiles', 'flow', 'atWork', 'queue', 'merged', 'models', 'readiness'] as const) assert.equal(moved[key], before[key], key)
 })
 
 test("a paused project's heading says so and its queue rows wait on the pause instead of opening Work", () => {

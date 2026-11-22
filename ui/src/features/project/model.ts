@@ -167,7 +167,8 @@ export interface MergedLine {
 }
 
 export type MergedSection =
-  | { kind: 'list'; rows: MergedLine[]; more: number; empty: string }
+  /** `count` says how many merged and were declined in the period, beside the heading. */
+  | { kind: 'list'; rows: MergedLine[]; more: number; count: string; empty: string }
   | { kind: 'days'; days: string[]; series: DaySeries[]; line: DaySeries; figure: string; note: string }
   | { kind: 'none'; note: string }
 
@@ -338,7 +339,9 @@ function mergedOf(input: ProjectInput, yolo: YoloProject | undefined, reviews: P
       review: !live ? 'sample' : reviews?.items[change.item] ? finishedReviewId(change, live) : null,
     }),
   )
-  return { kind: 'list', rows, more: own.length - rows.length, empty: 'Nothing merged or declined here in 30 days.' }
+  const declined = own.filter(({ outcome }) => outcome === 'declined').length
+  const count = `${own.length - declined} merged${declined ? ` · ${declined} declined` : ''}`
+  return { kind: 'list', rows, more: own.length - rows.length, count, empty: 'Nothing merged or declined here in 30 days.' }
 }
 
 function tilesOf(input: ProjectInput, waiting: readonly WaitingRow[]): TilesView {
@@ -365,6 +368,24 @@ function readinessSectionOf(yolo: YoloState | null, project: YoloProject | undef
   if (!yolo) return { known: false, empty: 'This hobkin does not say how YOLO mode stands.' }
   if (!project) return { known: false, empty: 'YOLO mode has not looked at this project yet.' }
   return { known: true, ...readinessOf(project, workOn, finished), checkedAt: project.checkedAt ?? null, groups: stillToSetUp(project), inPlace: inPlace(project), yoloOn: yolo.on }
+}
+
+const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b)
+
+/**
+ * `next`, with each section that says the same as in `held` kept as `held` has it, and `held` itself when every one
+ * does: the page's sections are memoized, so only what changed is drawn again.
+ */
+export function keepSections(held: ProjectPage, next: ProjectPage): ProjectPage {
+  if (held === next) return held
+  if (held.kind !== 'taken' || next.kind !== 'taken') return same(held, next) ? held : next
+  const kept: TakenPage = { ...next }
+  let changed = false
+  for (const key of Object.keys(next) as (keyof TakenPage)[]) {
+    if (same(held[key], next[key])) Object.assign(kept, { [key]: held[key] })
+    else changed = true
+  }
+  return changed ? kept : held
 }
 
 /** What each section of the project's page shows. */
