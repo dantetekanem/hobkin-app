@@ -4,6 +4,7 @@ import type { ChangeAssessment } from '#shared/review/assessment.ts'
 import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
 import type { ReviewPerson, ReviewStatus } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
+import { PAGE_TOP } from '@/app/screen-layout.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -15,9 +16,11 @@ import { headerBadge, type HeaderBadge, type HeaderFix } from './sidebar.ts'
 
 /**
  * The frame's menu floats over the top middle of the canvas: about this wide, reaching this far down. Where it lies over
- * the panel, the header flows around it instead of leaving an empty band above everything.
+ * the panel, the header flows around it instead of leaving an empty band above everything. How far down is read from
+ * where every page starts under the menu and its trail (`PAGE_TOP`, which the menu sets), and keeps the 30px more the
+ * panel always kept than a page, so the review moves with the pages when the menu does.
  */
-export const MENU = { width: 560, bottom: 108, gap: 12 } as const
+export const MENU = { width: 560, bottom: PAGE_TOP + 30, gap: 12 } as const
 
 /**
  * The top of the review panel, the same for the whole review, whatever the step: which project changes, the change's
