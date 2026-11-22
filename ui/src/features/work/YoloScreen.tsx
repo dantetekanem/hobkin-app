@@ -43,7 +43,7 @@ type SetSample = Dispatch<SetStateAction<YoloState>>
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-/** Back to Work, onto the button that opened this page, as World's Back to Work does. */
+/** Work, onto the button that opened this page. Work on the trail before this page is gone back to (053). */
 export function backToWork() {
   useView.getState().openScreen('work')
   requestCanvasFocus('[data-opens="yolo"]')
@@ -96,11 +96,9 @@ export function YoloScreen() {
   return (
     <div ref={root} className={SCREEN_SCROLLER}>
       <div className={`${SCREEN_COLUMN} flex flex-col gap-6 pb-20`}>
+        {/* Where the page is, and the way back, are the trail's (053). */}
         <header className="flex items-center justify-between gap-4">
-          <h1 className="eyebrow">Work / YOLO mode</h1>
-          <Button data-stop="" onClick={backToWork}>
-            Back to Work
-          </Button>
+          <h1 className="eyebrow">YOLO mode</h1>
         </header>
         {yolo ? (
           <>

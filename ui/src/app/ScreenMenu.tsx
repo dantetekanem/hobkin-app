@@ -1,4 +1,4 @@
-import { ChevronRight, Download, ExternalLink, Presentation, RotateCw, X, type LucideIcon } from 'lucide-react'
+import { Download, ExternalLink, Presentation, RotateCw, X, type LucideIcon } from 'lucide-react'
 import { AnimatePresence, motion, type Transition } from 'motion/react'
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { MAIN_CANVAS, type CanvasState } from '#shared/protocol/canvas.ts'
@@ -16,10 +16,10 @@ import { ease, spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { focusBoard, focusTalk, keyboardInCanvas, requestCanvasFocus } from './focus.ts'
 import { estimatedRow, putBack, rowPieces, type AroundMenu, type RowGeometry } from './menu-agents.ts'
-import { isUnderSettings, type PageUnderSettings } from './overlays.ts'
 import { useRunningAgents, type RunningAgent } from './running-agents.ts'
 import { inMenu, SCREENS, type ScreenId } from './screens.ts'
 import { holdStill, useStill } from './still.ts'
+import { Trail } from './Trail.tsx'
 import { useView } from './view-store.ts'
 
 const ROW = 'relative flex items-center gap-0.5'
@@ -47,27 +47,20 @@ function popIn(index: number, still: boolean) {
 }
 
 /**
- * What the second row holds: the agents, the review, Settings with Integrations under it, a GitHub the menu leaves out,
- * or the main canvas's group on the canvas place.
+ * What the second row holds: the agents, or the main canvas's group on the canvas place. Where the user is (a review,
+ * Settings and the page under it, a GitHub the menu leaves out) is the trail's to say, under the menu (Trail.tsx).
  */
-type Second = 'agents' | 'review' | 'settings' | 'github' | 'canvas'
+type Second = 'agents' | 'canvas'
 
-function secondFor(screen: ScreenId, githubInMenu: boolean, canvasOpen: boolean): Second | null {
+function secondFor(screen: ScreenId, canvasOpen: boolean): Second | null {
   if (screen === 'agent') return 'agents'
-  if (screen === 'review') return 'review'
-  if (screen === 'settings' || isUnderSettings(screen)) return 'settings'
-  if (screen === 'github' && !githubInMenu) return 'github'
   if (screen === 'canvas' && canvasOpen) return 'canvas'
   return null
 }
 
-/** How many pieces each row puts before the main canvas's pill, so the pill drops in after them. */
-const BEFORE_PILL: Record<Second, number> = { agents: 0, review: 2, settings: 4, github: 2, canvas: 0 }
-
 /** The pieces the second row holds before the main canvas's pill. `canvas` is the main canvas as the window shows it. */
-function secondPieces({ second, screen, canvas, split, drawn }: {
+function secondPieces({ second, canvas, split, drawn }: {
   second: Second | null
-  screen: ScreenId
   canvas: CanvasState | null
   split: ReturnType<typeof useSplit>
   drawn: object
@@ -81,21 +74,11 @@ function secondPieces({ second, screen, canvas, split, drawn }: {
           {split ? <CanvasGroup owner={split.owner} canvas={split.canvas} active={false} start={0} /> : null}
         </>
       )
-    case 'review':
-      return <ReviewItem />
-    case 'github':
-      return <GitHubItem />
     case 'canvas':
       return isOpen(canvas) ? <CanvasGroup owner={MAIN_CANVAS} canvas={canvas} active start={0} /> : null
-    case 'settings':
-      return <SettingsTrail under={isUnderSettings(screen) ? screen : null} />
     case null:
       return null
   }
-}
-
-function iconOf(id: ScreenId): LucideIcon {
-  return SCREENS.find((entry) => entry.id === id)!.icon
 }
 
 /** The pill that marks where the canvas is. One element shared by both rows, so it travels from one to the other. */
@@ -113,12 +96,13 @@ function Marker() {
  * grows downward to hold it. Nothing is ever added at the end of the first row, so it never jumps sideways.
  *
  * The main canvas, while it is open, ends the second row as a pill, or holds the row with its controls on its own place.
+ * Under the menu, on every page, the trail says where the user is and how they came (Trail.tsx).
  * During a durable hobkin's split the right side grows over the chat, and `shift` keeps the menu exactly where it was,
  * over the canvas, on the same spring (`transition`). The menu sizes its labels by its own width, not the right side's.
  */
 export function ScreenMenu({ shift = 0, transition }: { shift?: number; transition?: Transition }) {
   const screen = useView((view) => view.screen)
-  const openScreen = useView((view) => view.openScreen)
+  const openMenuScreen = useView((view) => view.openMenuScreen)
   const githubInMenu = useSettings((settings) => settings.showGitHubInMenu)
   const main = SCREENS.filter((tab) => inMenu(tab.id, githubInMenu))
   // The badge matches the Action Items screen exactly: the same filtered rows it lists, so it never reads "2" over an
@@ -127,7 +111,7 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
   const canvas = useBoard(MAIN_CANVAS)
   const split = useSplit()
   const seen = useView((view) => view.canvasSeen[MAIN_CANVAS])
-  const second = secondFor(screen, githubInMenu, isOpen(canvas))
+  const second = secondFor(screen, isOpen(canvas))
   const pill = mainPill({ screen, split: split !== null, main: canvas, seen })
   const row = second ?? (pill ? 'pill' : null)
   // New each time the menu draws. The second row is centered, so what the menu draws again for can move its agents.
@@ -136,7 +120,7 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
   return (
     <motion.div
       data-screen-menu
-      className="@container select-none-chrome pointer-events-none absolute inset-x-0 top-3.5 z-20 flex justify-center"
+      className="@container select-none-chrome pointer-events-none absolute inset-x-0 top-3.5 z-20 flex flex-col items-center"
       initial={false}
       animate={{ left: shift }}
       transition={transition}
@@ -144,7 +128,7 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
       <Surface>
         <nav aria-label="Screens" className={ROW}>
           {main.map((tab, at) => {
-            const active = tab.id === screen || ((screen === 'world' || screen === 'yolo' || screen === 'proof') && tab.id === 'work')
+            const active = tab.id === screen || ((screen === 'world' || screen === 'yolo' || screen === 'project' || screen === 'proof') && tab.id === 'work')
             const badge = badges[tab.id]
             return (
               <Tooltip key={tab.id}>
@@ -156,7 +140,8 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
                       aria-label={tab.label}
                       onMouseDown={(event) => event.preventDefault()}
                       onClick={() => {
-                        openScreen(tab.id)
+                        // A page opened from the menu starts a new trail.
+                        openMenuScreen(tab.id)
                         useView.getState().engageCanvas()
                         requestCanvasFocus()
                       }}
@@ -185,12 +170,13 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
         <AnimatePresence mode="popLayout" initial={false}>
           {row ? (
             <Born key={row} label={row === 'agents' ? 'Agents' : 'Open now'}>
-              {secondPieces({ second, screen, canvas, split, drawn })}
-              {pill && isOpen(canvas) ? <CanvasPill canvas={canvas} dot={pill.dot} index={second ? BEFORE_PILL[second] : 0} /> : null}
+              {secondPieces({ second, canvas, split, drawn })}
+              {pill && isOpen(canvas) ? <CanvasPill canvas={canvas} dot={pill.dot} index={0} /> : null}
             </Born>
           ) : null}
         </AnimatePresence>
       </Surface>
+      <Trail />
     </motion.div>
   )
 }
@@ -455,36 +441,6 @@ const AgentItem = memo(function AgentItem({ agent, index, at, moved, known, stil
   )
 })
 
-/**
- * One step of a trail. The step that is open carries the marker. One above it is a way back up.
- * Always the same element, open or not, so moving down the trail keeps it in place while the marker travels.
- */
-function Crumb({ id, label, index, active, onClick }: { id: ScreenId; label: string; index: number; active: boolean; onClick?: () => void }) {
-  const Icon = iconOf(id)
-  const still = useStill()
-  return (
-    <motion.button
-      layout="position"
-      transition={spring.pill}
-      type="button"
-      aria-current={active ? 'page' : undefined}
-      onMouseDown={(event) => event.preventDefault()}
-      onClick={() => {
-        if (!active) onClick?.()
-        useView.getState().engageCanvas()
-        requestCanvasFocus()
-      }}
-      className={cn(ITEM, active ? 'cursor-default text-foreground' : 'text-muted-foreground hover:text-foreground')}
-    >
-      {active ? <Marker /> : null}
-      <motion.span className="relative flex items-center gap-1.5" {...popIn(index, still)}>
-        <Icon className="size-3.5" aria-hidden="true" />
-        {label}
-      </motion.span>
-    </motion.button>
-  )
-}
-
 /** A round button of the second row, named by its label, dropping in after the pieces before it. */
 function IconButton({ label, icon: Icon, index, onClick }: { label: string; icon: LucideIcon; index: number; onClick: () => void }) {
   const still = useStill()
@@ -595,51 +551,5 @@ function CanvasPill({ canvas, dot, index }: { canvas: CanvasState & { url: strin
         {dot ? <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-primary" /> : null}
       </motion.span>
     </motion.button>
-  )
-}
-
-function ReviewItem() {
-  const closeReview = useView((view) => view.closeReview)
-  return (
-    <>
-      <Crumb id="review" label="Review" index={0} active />
-      <CloseButton label="Close the review" index={1} onClick={closeReview} />
-    </>
-  )
-}
-
-/** How the close button names a page under Settings, in the middle of a sentence. */
-const CLOSING: Record<PageUnderSettings, string> = { integrations: 'integrations', skills: 'skills', extensions: 'Pi extensions' }
-
-/** Settings, and the page under it: Settings › Integrations, Settings › Skills or Settings › Pi extensions. Settings is the way back up. */
-function SettingsTrail({ under }: { under: PageUnderSettings | null }) {
-  const still = useStill()
-  const toggleSettings = useView((view) => view.toggleSettings)
-  const closeSettings = useView((view) => view.closeSettings)
-
-  return (
-    <>
-      <Crumb id="settings" label="Settings" index={0} active={!under} onClick={toggleSettings} />
-      {under ? (
-        <>
-          <motion.span layout="position" transition={spring.pill} {...popIn(1, still)} aria-hidden="true" className="grid place-items-center text-muted-foreground">
-            <ChevronRight className="size-3.5" />
-          </motion.span>
-          <Crumb id={under} label={SCREENS.find((entry) => entry.id === under)!.label} index={2} active />
-        </>
-      ) : null}
-      <CloseButton label={under ? `Close ${CLOSING[under]} and settings` : 'Close settings'} index={3} onClick={closeSettings} />
-    </>
-  )
-}
-
-/** GitHub, opened from Integrations or the spotlight while the user keeps it out of the menu. It is open only for now. */
-function GitHubItem() {
-  const closeGitHub = useView((view) => view.closeGitHub)
-  return (
-    <>
-      <Crumb id="github" label="GitHub" index={0} active />
-      <CloseButton label="Close GitHub" index={1} onClick={closeGitHub} />
-    </>
   )
 }
