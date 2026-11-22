@@ -146,7 +146,8 @@ test('a review that failed with a reason of its own is not started again by itse
   second.reviews.watch([{ id: ID, head }])
   await second.assessments.settled()
   assert.equal(later.runs.length, 0)
-  assert.deepEqual([second.reviews.status(ID).assessment?.state, second.reviews.status(ID).assessment?.error], ['failed', 'the test command was not found'], 'it says its own reason')
+  const { assessment } = second.reviews.status(ID)
+  assert.deepEqual([assessment?.state, assessment?.error], ['failed', 'the test command was not found'], 'it says its own reason')
 })
 
 test('a review the user stopped is not started again by itself after a restart', async (t) => {
@@ -210,7 +211,13 @@ test('a finished change whose review has not started is listed as waiting its tu
   const root = temporaryDirectory(t)
   const sample = sampleReviewSource()
   const head = await sample.head(TARGET)
-  const reviews = new Reviews({ store: reviewStore(root), sources: { change: sample, pull: sample }, work: () => ({ workAction: async () => ({}) }), card: () => null, head: () => head })
+  const reviews = new Reviews({
+    store: reviewStore(root),
+    sources: { change: sample, pull: sample },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    head: () => head,
+  })
   t.after(() => reviews.close())
   const [first, second] = ['change:shop:a1', 'change:shop:b2']
 

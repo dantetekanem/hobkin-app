@@ -69,12 +69,47 @@ function reviewed(t: TestContext, { review, files }: { review: Review; files: Re
   const folder = assessmentFolder(root, TARGET, HEAD_SHA)
   mkdirSync(folder, { recursive: true })
   const write = (name: string, value: unknown) => writeFileSync(join(folder, name), typeof value === 'string' ? value : JSON.stringify(value))
-  const facts = (effect: string, proof: string) => ({ effect: { value: effect, evidence: '' }, proof: { value: proof, evidence: '' }, exposure: { value: 'everyone', evidence: '' }, undo: { value: 'rollback', evidence: '' } })
-  const unit = (id: string, level: string, nodes: string[]) => ({ id, title: id, level, critical: level === 'high', nodes, grouping: 'single', story_order: 1, where: '', what: '', code: [], facts: facts('behaviour', 'none'), why_level: [], would_change: [], watch: 'not assessed', questions: [], reading_minutes: 1 })
+  const facts = (effect: string, proof: string) => ({
+    effect: { value: effect, evidence: '' },
+    proof: { value: proof, evidence: '' },
+    exposure: { value: 'everyone', evidence: '' },
+    undo: { value: 'rollback', evidence: '' },
+  })
+  const unit = (id: string, level: string, nodes: string[]) => ({
+    id,
+    title: id,
+    level,
+    critical: level === 'high',
+    nodes,
+    grouping: 'single',
+    story_order: 1,
+    where: '',
+    what: '',
+    code: [],
+    facts: facts('behaviour', 'none'),
+    why_level: [],
+    would_change: [],
+    watch: 'not assessed',
+    questions: [],
+    reading_minutes: 1,
+  })
   write('summary.json', { level: 'high', critical: true, needsYou: 1, worthALook: 1, safe: 1, storyBy: 'model', at: '2026-11-21T10:00:00.000Z' })
   write('units.json', { schema: 'review-units/1', map: 'node-level', attention: { units: 3, reading_minutes: 3 }, units: [unit('u1', 'high', ['n1']), unit('u2', 'mid', ['n2']), unit('u3', 'safe', ['n3'])] })
   write('story.md', '# Round the totals\n')
-  const node = (id: string, symbol: string, path: string, level: string, more: object) => ({ id, kind: 'function', symbol, path, lines: [1, 3], change: 'modified', level: { current: level }, critical: false, findings: [], questions: [], sensitive: [], ...more })
+  const node = (id: string, symbol: string, path: string, level: string, more: object) => ({
+    id,
+    kind: 'function',
+    symbol,
+    path,
+    lines: [1, 3],
+    change: 'modified',
+    level: { current: level },
+    critical: false,
+    findings: [],
+    questions: [],
+    sensitive: [],
+    ...more,
+  })
   write('graph.json', {
     nodes: [
       node('n1', 'total', 'src/cart.ts', 'high', { critical: true, facts: facts('data', 'none'), questions: [{ text: 'Do totals stay in cents?', why: 'unknown' }], sensitive: ['money'] }),
@@ -103,14 +138,31 @@ test('a review opens with every node saying how much attention it asks for, why,
   const tax = at(nodes, 'src/tax.ts')
   assert.equal(tax.attention?.tier, 'needs-you', 'the blind check disagreed with its unit')
   assert.ok(tax.attention?.reasons.includes('A second, blind reading would rate it high risk.'))
-  assert.deepEqual([at(nodes, 'src/label.ts').attention?.tier, at(nodes, 'src/label.ts').attention?.reasons], ['safe', []])
+  const label = at(nodes, 'src/label.ts')
+  assert.deepEqual([label.attention?.tier, label.attention?.reasons], ['safe', []])
 
   // What the change review did not rate still has a kind and a tier, from what is known of its file.
-  const kinds = Object.fromEntries(['pnpm-lock.yaml', 'config/locales/en.yml', 'README.md', 'dist/bundle.js', 'src/new.ts', 'src/spaced.ts'].map((path) => [path, nodes.find((node) => node.subtitle === path)?.bucket]))
-  assert.deepEqual(kinds, { 'pnpm-lock.yaml': 'lockfile', 'config/locales/en.yml': 'locale', 'README.md': 'docs', 'dist/bundle.js': 'generated', 'src/new.ts': 'moved', 'src/spaced.ts': 'format' })
+  const unrated = ['pnpm-lock.yaml', 'config/locales/en.yml', 'README.md', 'dist/bundle.js', 'src/new.ts', 'src/spaced.ts']
+  const nodeAt = (path: string) => nodes.find((node) => node.subtitle === path)
+  const kinds = Object.fromEntries(unrated.map((path) => [path, nodeAt(path)?.bucket]))
+  assert.deepEqual(kinds, {
+    'pnpm-lock.yaml': 'lockfile',
+    'config/locales/en.yml': 'locale',
+    'README.md': 'docs',
+    'dist/bundle.js': 'generated',
+    'src/new.ts': 'moved',
+    'src/spaced.ts': 'format',
+  })
   // Safe by its kind alone only when nobody reads it line by line; anything else the review did not rate is worth a look.
-  const tiers = Object.fromEntries(Object.keys(kinds).map((path) => [path, nodes.find((node) => node.subtitle === path)?.attention?.tier]))
-  assert.deepEqual(tiers, { 'pnpm-lock.yaml': 'safe', 'config/locales/en.yml': 'safe', 'dist/bundle.js': 'safe', 'README.md': 'worth-a-look', 'src/new.ts': 'worth-a-look', 'src/spaced.ts': 'worth-a-look' })
+  const tiers = Object.fromEntries(unrated.map((path) => [path, nodeAt(path)?.attention?.tier]))
+  assert.deepEqual(tiers, {
+    'pnpm-lock.yaml': 'safe',
+    'config/locales/en.yml': 'safe',
+    'dist/bundle.js': 'safe',
+    'README.md': 'worth-a-look',
+    'src/new.ts': 'worth-a-look',
+    'src/spaced.ts': 'worth-a-look',
+  })
   assert.equal(nodes.find((node) => node.kind === 'test')?.bucket, 'test')
 
   // Every node has its place, from 1, and the reviewer's go first.
@@ -118,7 +170,8 @@ test('a review opens with every node saying how much attention it asks for, why,
   assert.deepEqual(nodes.map((node) => node.attention!.rank).sort((a, b) => a - b), nodes.map((_, index) => index + 1))
   const order = { 'needs-you': 0, 'worth-a-look': 1, safe: 2 }
   const ranked = [...nodes].sort((a, b) => a.attention!.rank - b.attention!.rank)
-  assert.deepEqual(ranked.map((node) => order[node.attention!.tier]), ranked.map((node) => order[node.attention!.tier]).sort())
+  const tierOrder = ranked.map((node) => order[node.attention!.tier])
+  assert.deepEqual(tierOrder, [...tierOrder].sort())
   assert.equal(ranked[0], total, 'the strongest reasons first')
 
   // The rated definitions carry what the change review found, for the window.
@@ -162,15 +215,38 @@ test('what a change removes is at least worth a look, and a removal other code s
   const folder = assessmentFolder(root, TARGET, HEAD_SHA)
   mkdirSync(folder, { recursive: true })
   const write = (name: string, value: unknown) => writeFileSync(join(folder, name), JSON.stringify(value))
-  const unit = (id: string, level: string, nodes: string[]) => ({ id, title: id, level, critical: level === 'high', nodes, grouping: 'single', story_order: 1, where: '', what: '', code: [], why_level: [], would_change: [], watch: 'not assessed', questions: [], reading_minutes: 1 })
+  const unit = (id: string, level: string, nodes: string[]) => ({
+    id,
+    title: id,
+    level,
+    critical: level === 'high',
+    nodes,
+    grouping: 'single',
+    story_order: 1,
+    where: '',
+    what: '',
+    code: [],
+    why_level: [],
+    would_change: [],
+    watch: 'not assessed',
+    questions: [],
+    reading_minutes: 1,
+  })
   write('summary.json', { level: 'high', critical: true, needsYou: 1, worthALook: 0, safe: 1, storyBy: 'host', at: '2026-11-21T10:00:00.000Z' })
   write('units.json', { schema: 'review-units/1', map: 'node-level', attention: { units: 2, reading_minutes: 2 }, units: [unit('u1', 'high', ['n1']), unit('u2', 'safe', ['n2'])] })
   writeFileSync(join(folder, 'story.md'), '# Drop the old totals\n')
   // As the engine writes them: a removed definition sits on its lines at base. `oldTotal` is still called elsewhere; `unused` is not.
-  const removed = { kind: 'function', change: 'removed', questions: [], sensitive: [], facts: { effect: { value: 'behaviour' }, proof: { value: 'none' }, exposure: { value: 'everyone' }, undo: { value: 'rollback' } } }
+  const removed = {
+    kind: 'function',
+    change: 'removed',
+    questions: [],
+    sensitive: [],
+    facts: { effect: { value: 'behaviour' }, proof: { value: 'none' }, exposure: { value: 'everyone' }, undo: { value: 'rollback' } },
+  }
+  const dangling = { rule: 'dangling-reference', text: 'oldTotal is removed while src/report.ts still refers to it.', by: 'search' }
   write('graph.json', {
     nodes: [
-      { ...removed, id: 'n1', symbol: 'oldTotal', path: 'src/cart.ts', lines: [5, 7], level: { current: 'high' }, critical: true, findings: [{ rule: 'dangling-reference', text: 'oldTotal is removed while src/report.ts still refers to it.', by: 'search' }] },
+      { ...removed, id: 'n1', symbol: 'oldTotal', path: 'src/cart.ts', lines: [5, 7], level: { current: 'high' }, critical: true, findings: [dangling] },
       { ...removed, id: 'n2', symbol: 'unused', path: 'src/unused.ts', lines: [1, 3], level: { current: 'safe' }, critical: false, findings: [] },
     ],
   })

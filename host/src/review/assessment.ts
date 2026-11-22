@@ -96,17 +96,20 @@ const worse = (a: Level, b: Level) => (RANK[b] > RANK[a] ? b : a)
 
 /**
  * The graph review with the change review's levels laid over it, so the levels show on the Review page: a code or file
- * node takes the worst level of the rated definitions its lines at head overlap, and a step the worst of its focus.
- * Nothing else changes.
+ * node takes the worst level of the rated definitions its lines at head overlap, or, when it only removes lines, of the
+ * removed ones its lines at base overlap; and a step takes the worst of its focus. Nothing else changes.
  */
 export function withLevels(review: Review, assessment: Pick<ChangeAssessment, 'nodes'>): Review {
   if (!assessment.nodes.length) return review
   const overlaps = overlapsOf(review, assessment.nodes)
   const nodes = review.nodes.map((node) => {
-    // The worst rated definition its lines at head overlap: its level, and the unit of the story that tells it. A node
-    // that only removes lines takes the level of what it removed.
+    // The worst rated definition it overlaps gives its level, and the unit of the story that tells it.
     const removes = node.anchors.every((anchor) => anchor.side === 'deleted')
-    const rated = overlaps.get(node.id)?.filter((candidate) => removes || !candidate.removed).reduce<RatedNode | undefined>((worst, next) => (!worst || RANK[next.level] > RANK[worst.level] ? next : worst), undefined)
+    let rated: RatedNode | undefined
+    for (const candidate of overlaps.get(node.id) ?? []) {
+      if (candidate.removed && !removes) continue
+      if (!rated || RANK[candidate.level] > RANK[rated.level]) rated = candidate
+    }
     return rated ? { ...node, level: rated.level, ...(rated.unit ? { unit: rated.unit } : {}) } : node
   })
   const levelOf = new Map(nodes.map((node) => [node.id, node.level]))
@@ -122,7 +125,7 @@ export function withLevels(review: Review, assessment: Pick<ChangeAssessment, 'n
  * head on the node's lines at head, and one the change removed on its lines at base.
  */
 function overlapsOf(review: Review, rated: readonly RatedNode[]): Map<string, RatedNode[]> {
-  const pathOf = new Map(review.files.map((file) => [file.id, file.oldPath ?? file.path]))
+  const basePathOf = new Map(review.files.map((file) => [file.id, file.oldPath ?? file.path]))
   const headPathOf = new Map(review.files.map((file) => [file.id, file.path]))
   const found = new Map<string, RatedNode[]>()
   for (const node of review.nodes) {
@@ -130,10 +133,11 @@ function overlapsOf(review: Review, rated: readonly RatedNode[]): Map<string, Ra
     const hits: RatedNode[] = []
     for (const anchor of node.anchors) {
       const atBase = anchor.side === 'deleted'
-      const path = (atBase ? pathOf : headPathOf).get(anchor.fileId)
+      const path = (atBase ? basePathOf : headPathOf).get(anchor.fileId)
       for (const candidate of rated) {
-        if (Boolean(candidate.removed) !== atBase || candidate.path !== path || candidate.lines[1] < anchor.startLine || candidate.lines[0] > anchor.endLine || hits.includes(candidate)) continue
-        hits.push(candidate)
+        if (Boolean(candidate.removed) !== atBase || candidate.path !== path) continue
+        if (candidate.lines[1] < anchor.startLine || candidate.lines[0] > anchor.endLine) continue
+        if (!hits.includes(candidate)) hits.push(candidate)
       }
     }
     if (hits.length) found.set(node.id, hits)
@@ -161,11 +165,24 @@ export function withAttention(review: Review, assessment: Pick<ChangeAssessment,
   const weighed = review.nodes.map((node) => {
     const bucket = bucketOf(node, buckets)
     const size = (node.stats?.additions ?? 0) + (node.stats?.deletions ?? 0)
-    const known = { kind: node.kind, bucket, change: node.change, size, ...(node.status ? { status: node.status } : {}), ...(node.warning ? { warning: node.warning } : {}) }
-    return { node, bucket, size, ...attentionOf({ ...known, rated: overlaps.get(node.id) ?? [] }) }
+    const attention = attentionOf({
+      kind: node.kind,
+      bucket,
+      change: node.change,
+      size,
+      ...(node.status ? { status: node.status } : {}),
+      ...(node.warning ? { warning: node.warning } : {}),
+      rated: overlaps.get(node.id) ?? [],
+    })
+    return { node, bucket, size, ...attention }
   })
   const ranks = rankAttention(weighed.map(({ node, tier, strength, size }) => ({ id: node.id, tier, strength, size })))
-  return { ...review, nodes: weighed.map(({ node, bucket, tier, reasons }) => ({ ...node, bucket, attention: { tier, rank: ranks.get(node.id)!, reasons } })) }
+  const nodes = weighed.map(({ node, bucket, tier, reasons }) => ({
+    ...node,
+    bucket,
+    attention: { tier, rank: ranks.get(node.id)!, reasons },
+  }))
+  return { ...review, nodes }
 }
 
 const EFFECTS: ReadonlySet<string> = new Set<Effect>(['text', 'behaviour', 'interface', 'data', 'load'])
@@ -175,7 +192,9 @@ const UNDOS: ReadonlySet<string> = new Set<Undo>(['flag', 'flag-with-residue', '
 const CONFIDENCES: ReadonlySet<string> = new Set(['low', 'medium', 'high'])
 
 /** A value the engine wrote, when it is one the host knows. */
-const known = <Value extends string>(allowed: ReadonlySet<string>, value: unknown): Value | undefined => (typeof value === 'string' && allowed.has(value) ? (value as Value) : undefined)
+function known<Value extends string>(allowed: ReadonlySet<string>, value: unknown): Value | undefined {
+  return typeof value === 'string' && allowed.has(value) ? (value as Value) : undefined
+}
 
 /** What the change review found of a definition, as the window needs it, and what the blind check said of its unit. */
 function foundOf(node: GraphNode, checked: BlindCheck['units'][number] | undefined): Partial<RatedNode> {
@@ -184,11 +203,18 @@ function foundOf(node: GraphNode, checked: BlindCheck['units'][number] | undefin
   const exposure = known<Exposure>(EXPOSURES, node.facts?.exposure?.value)
   const undo = known<Undo>(UNDOS, node.facts?.undo?.value)
   const confidence = known<'low' | 'medium' | 'high'>(CONFIDENCES, node.confidence)
-  const findings = (Array.isArray(node.findings) ? node.findings : []).flatMap((finding) => (typeof finding?.rule === 'string' ? [{ rule: finding.rule, by: typeof finding.by === 'string' ? finding.by : '' }] : []))
+  const findings = (Array.isArray(node.findings) ? node.findings : []).flatMap((finding) => {
+    if (typeof finding?.rule !== 'string') return []
+    return [{ rule: finding.rule, by: typeof finding.by === 'string' ? finding.by : '' }]
+  })
   const questions = Array.isArray(node.questions) ? node.questions.length : 0
   const sensitive = (Array.isArray(node.sensitive) ? node.sensitive : []).filter((name): name is string => typeof name === 'string')
   const callers = typeof node.callers?.total === 'number' ? node.callers.total : undefined
-  const level = checked?.level_i_would_give
+  const blindLevel = checked?.level_i_would_give
+  const blind = checked && {
+    agrees: checked.agree !== 'no',
+    level: blindLevel === 'safe' || blindLevel === 'mid' || blindLevel === 'high' ? blindLevel : null,
+  }
   return {
     ...(effect ? { effect } : {}),
     ...(proof ? { proof } : {}),
@@ -200,7 +226,7 @@ function foundOf(node: GraphNode, checked: BlindCheck['units'][number] | undefin
     ...(confidence ? { confidence } : {}),
     ...(sensitive.length ? { sensitive } : {}),
     ...(callers != null ? { callers } : {}),
-    ...(checked ? { blind: { agrees: checked.agree !== 'no', level: level === 'safe' || level === 'mid' || level === 'high' ? level : null } } : {}),
+    ...(blind ? { blind } : {}),
   }
 }
 
@@ -583,7 +609,10 @@ export class Assessments {
     if (summary) return { state: 'ready', head, summary }
     const failed = readJson<{ error?: unknown }>(join(folder, FAILED_FILE))
     if (typeof failed?.error === 'string') return { state: 'failed', head, error: failed.error }
-    if (existsSync(join(folder, 'progress.json'))) return { state: 'failed', head, error: existsSync(join(folder, RESTARTED_FILE)) ? CUT_SHORT_TWICE : CUT_SHORT }
+    if (existsSync(join(folder, 'progress.json'))) {
+      const restarted = existsSync(join(folder, RESTARTED_FILE))
+      return { state: 'failed', head, error: restarted ? CUT_SHORT_TWICE : CUT_SHORT }
+    }
     return { state: 'idle', head }
   }
 
@@ -594,7 +623,8 @@ export class Assessments {
   cutShort(target: ReviewTarget, head: string): boolean {
     if (this.live.has(this.key(target, head))) return false
     const folder = assessmentFolder(this.options.root, target, head)
-    return existsSync(join(folder, 'progress.json')) && !['summary.json', FAILED_FILE, RESTARTED_FILE].some((name) => existsSync(join(folder, name)))
+    if (!existsSync(join(folder, 'progress.json'))) return false
+    return !['summary.json', FAILED_FILE, RESTARTED_FILE].some((name) => existsSync(join(folder, name)))
   }
 
   /** Keeps why a run failed beside what it wrote, when it wrote anything. A run that never started its folder leaves nothing to tell apart. */
@@ -619,7 +649,10 @@ export class Assessments {
     if (this.queue.some((entry) => this.key(entry.target, entry.head) === this.key(job.target, job.head))) return now
     const startedAt = job.startedAt ?? this.clockIso()
     // Started again after it was cut short: said beside it, so a run that keeps dying is started again once.
-    if (this.cutShort(job.target, job.head)) writeWhole(join(assessmentFolder(this.options.root, job.target, job.head), RESTARTED_FILE), JSON.stringify({ at: startedAt }))
+    if (this.cutShort(job.target, job.head)) {
+      const folder = assessmentFolder(this.options.root, job.target, job.head)
+      writeWhole(join(folder, RESTARTED_FILE), JSON.stringify({ at: startedAt }))
+    }
     this.records.set(this.key(job.target, job.head), { ...(job.request ? { request: job.request } : {}), log: (job.log ?? []).slice(-LOG_LINES), startedAt })
     if (this.active.size >= AT_ONCE) this.say(job.target, job.head, `Waiting its turn: ${AT_ONCE} reviews are running.`)
     this.queue.push(job)
@@ -830,7 +863,18 @@ export class Assessments {
         const level = unit?.level ?? node.level?.current
         if (node.kind === 'test' || !level) return []
         const removed = node.change === 'removed' ? { removed: true as const } : {}
-        return [{ id: node.id, symbol: node.symbol, path: node.path, lines: node.lines, level, critical: node.critical, unit: unit?.id ?? null, ...removed, ...foundOf(node, unit && checkedUnits.get(unit.id)) }]
+        const rated = {
+          id: node.id,
+          symbol: node.symbol,
+          path: node.path,
+          lines: node.lines,
+          level,
+          critical: node.critical,
+          unit: unit?.id ?? null,
+          ...removed,
+          ...foundOf(node, unit && checkedUnits.get(unit.id)),
+        }
+        return [rated]
       }),
     }
   }
@@ -881,7 +925,17 @@ export class Assessments {
     if (kept) return kept
     const sides = new Map((files ?? []).map((file) => [file.fileId, file]))
     const changed = review.files.filter((file) => file.status !== 'unchanged')
-    const found = fileBuckets(changed.map(({ id, path, status, binary, additions, deletions }) => ({ path, status, binary, additions, deletions, base: sides.get(id)?.base ?? null, head: sides.get(id)?.head ?? null })))
+    const found = fileBuckets(
+      changed.map(({ id, path, status, binary, additions, deletions }) => ({
+        path,
+        status,
+        binary,
+        additions,
+        deletions,
+        base: sides.get(id)?.base ?? null,
+        head: sides.get(id)?.head ?? null,
+      })),
+    )
     if (files) this.buckets.set(key, found)
     return found
   }

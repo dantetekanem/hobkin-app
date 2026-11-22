@@ -374,8 +374,11 @@ const MERGE_WORDS: Record<MergeMethod, string> = {
   rebase: 'by rebasing its commits onto it',
 }
 
-/** How often an opened review asks where its change is now, when the app does not already know. */
+/** How often a review asks where its change is now: when it is opened, and for each finished change the background watches. */
 export const LOOK_AGAIN_MS = 60_000
+
+/** A version of something the background prepares, which it looks at once: its commit, and when it last changed on its host. */
+const versionOf = (head: string | null, updatedAt: string | null = null) => `${head ?? ''}@${updatedAt ?? ''}`
 
 /**
  * The rules the host draws a graph by. A review asked for whose graph was drawn by older rules is drawn again: 2 is the
@@ -624,7 +627,16 @@ export class Reviews {
   /** The commit a review's change is at: what this host last looked up, until `card` names another commit than it did then. */
   private headOf(id: string, card: string | null): string | null {
     const looked = this.statuses.get(id)?.head ?? this.lookedHead.get(id) ?? null
-    return (looked != null && card === (this.cardAtLook.get(id) ?? null) ? looked : card) ?? looked
+    if (looked == null) return card
+    const cardAsAtLook = card === (this.cardAtLook.get(id) ?? null)
+    return cardAsAtLook ? looked : (card ?? looked)
+  }
+
+  /** Whether a change's AI review at this commit is due: it never started there, or a quit or a crash cut it short. */
+  private assessmentDue(target: ReviewTarget, head: string): boolean {
+    const { assessments } = this.options
+    if (!assessments) return false
+    return assessments.status(target, head).state === 'idle' || assessments.cutShort(target, head)
   }
 
   /**
@@ -633,13 +645,12 @@ export class Reviews {
    * ran was cut short. A review the user stopped or removed at this commit is looked at already, so it does not wait.
    */
   private waitsItsTurn(id: string, target: ReviewTarget, status: ReviewStatus): boolean {
-    if (target.kind !== 'change' || !this.finished.has(id) || this.preparing(id) || status.phase || status.landing) return false
+    if (target.kind !== 'change' || !this.finished.has(id)) return false
+    if (this.preparing(id) || status.phase || status.landing) return false
     const { head } = status
-    if (this.watched.get(id) === `${head ?? ''}@`) return false
+    if (this.watched.get(id) === versionOf(head)) return false
     if (!head || !this.options.store.has(target, head)) return true
-    const { assessments } = this.options
-    if (!assessments || !this.reviewsChange(target)) return false
-    return assessments.status(target, head).state === 'idle' || assessments.cutShort(target, head)
+    return this.reviewsChange(target) && this.assessmentDue(target, head)
   }
 
   /**
@@ -736,9 +747,11 @@ export class Reviews {
       return [{ item, at }]
     })
     // A pull request is hidden behind its change's row only where the window shows that row.
-    const theirs = this.pullsOfChanges(items.flatMap(({ item }) => (shownAsRow(item) ? [item.id] : [])))
-    const once = items.filter(({ item }) => !theirs.has(item.id))
-    return { reviews: once.sort((a, b) => b.at - a.at || a.item.id.localeCompare(b.item.id)).map(({ item }) => item) }
+    const shownRows = items.filter(({ item }) => shownAsRow(item)).map(({ item }) => item.id)
+    const behindRows = this.pullsOfChanges(shownRows)
+    const once = items.filter(({ item }) => !behindRows.has(item.id))
+    once.sort((a, b) => b.at - a.at || a.item.id.localeCompare(b.item.id))
+    return { reviews: once.map(({ item }) => item) }
   }
 
   /** The review names of the pull requests these finished changes opened, as their cards give the address. */
@@ -1798,12 +1811,12 @@ export class Reviews {
 
   /** The background's look at one thing to prepare, at the version it is at now. Never throws: the host publishes around it. */
   private watchOne({ id, head: card = null, updatedAt = null }: Watched) {
-    const { store, assessments } = this.options
+    const { store } = this.options
     try {
       const target = targetOfReviewId(id)
       if (!target) return
       const head = target.kind === 'change' ? this.headOf(id, card) : card
-      const version = `${head ?? ''}@${updatedAt ?? ''}`
+      const version = versionOf(head, updatedAt)
       if (this.watched.get(id) === version || this.statuses.get(id)?.phase) return
       // A change being brought up to date or merged on the user's word is not reviewed again for its new commit, and a
       // pull request closed on its host is not reviewed at all.
@@ -1816,7 +1829,7 @@ export class Reviews {
       const newest = store.newest(target)
       const moved = head ? !store.has(target, head) : updatedAt ? Date.parse(updatedAt) > (newest?.at ?? 0) : false
       if (!newest || moved) this.prepare(id)
-      else if (target.kind === 'change' && head && assessments && (assessments.status(target, head).state === 'idle' || assessments.cutShort(target, head))) {
+      else if (target.kind === 'change' && head && this.assessmentDue(target, head)) {
         // Never started at this commit, or cut short by a quit or a crash: it starts, once.
         const stored = store.read(target, head)
         if (stored) this.assess(target, stored.review)

@@ -25,7 +25,10 @@ function listed(t: TestContext, ids: string[], pr: string | null) {
       throw new Error('Nothing is rebuilt in this test.')
     },
   }
-  const card = (slug: string, item: string): ChangeCard | null => (`change:${slug}:${item}` === CHANGE ? { landing: 'mergePr', yes: 'Merge it', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr } : null)
+  const card = (slug: string, item: string): ChangeCard | null => {
+    if (`change:${slug}:${item}` !== CHANGE) return null
+    return { landing: 'mergePr', yes: 'Merge it', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', pr }
+  }
   const reviews = new Reviews({ store, sources: { change: source, pull: source }, work: () => ({ workAction: async () => null }), card })
   return reviews.list().reviews.map((item) => item.id).sort()
 }
