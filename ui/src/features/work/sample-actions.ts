@@ -1,6 +1,6 @@
 import { GRADES, type FinishedChange, type ProjectState, type QueueRow, type WorkProject, type WorkState } from '#shared/protocol/work.ts'
 import type { HobkinChoice, WorkAction } from './actions.ts'
-import { groupOf } from './sample.ts'
+import { groupOf, samplePlan } from './sample.ts'
 
 /**
  * What an action does to the sample, so a window with no host answers the way hobkin would, in hobkin's words:
@@ -95,7 +95,23 @@ function sumOf(tried: readonly FinishedChange[], went: readonly FinishedChange[]
     .join(' ')
 }
 
+/** What an action does to the sample, with what holds it and its forecast worked out again for what it became. */
 export function applySample(state: WorkState, action: WorkAction): SampleOutcome {
+  const outcome = applied(state, action)
+  // A state left as it was stays the same object.
+  if ('refused' in outcome || outcome.state === state) return outcome
+  return { ...outcome, state: { ...outcome.state, ...samplePlan(outcome.state) } }
+}
+
+/** The workload's own refusals, in hobkin's words (`setWorkload` in its `src/cli/work/store.mjs`). */
+function workloadRefusal(change: Extract<WorkAction, { do: 'workload' }>['change']): string | null {
+  if (change.changesADay !== undefined && change.changesADay !== null && !(Number.isInteger(change.changesADay) && change.changesADay >= 1)) return 'Changes a day must be a whole number from 1, or no cap.'
+  if (change.hours && change.hours.from === change.hours.to) return 'Work hours must start and end at different times.'
+  if (change.shipFirstAt !== undefined && !(Number.isInteger(change.shipFirstAt) && change.shipFirstAt >= 1)) return 'Ship first needs a number of finished changes from 1.'
+  return null
+}
+
+function applied(state: WorkState, action: WorkAction): SampleOutcome {
   switch (action.do) {
     case 'mode': {
       if (!action.on) return { state: { ...state, enabled: false }, message: '' }
@@ -125,9 +141,19 @@ export function applySample(state: WorkState, action: WorkAction): SampleOutcome
       return { state: { ...state, projects: inHobkinsOrder(projects) }, message: '' }
     }
     case 'agents':
-      return { state: { ...state, agents: action.agents, agentsAllowed: action.agents }, message: '' }
+      return { state: { ...state, agents: action.agents, agentsAllowed: action.agents, ...(state.workload ? { workload: { ...state.workload, agents: action.agents } } : {}) }, message: '' }
     case 'tokens':
-      return { state: { ...state, dailyTokens: action.tokens }, message: '' }
+      return { state: { ...state, dailyTokens: action.tokens, ...(state.workload ? { workload: { ...state.workload, dailyTokens: action.tokens } } : {}) }, message: '' }
+    case 'workload': {
+      const refused = workloadRefusal(action.change)
+      if (refused) return { refused }
+      const workload = state.workload ? { ...state.workload, ...action.change } : undefined
+      return { state: { ...state, ...(workload ? { workload } : {}), ...(action.change.autoPick === undefined ? {} : { autoPick: action.change.autoPick }) }, message: '' }
+    }
+    case 'allowance': {
+      if (state.allowance?.at !== action.at) return { refused: 'That request for more tokens today is answered already, so nothing was raised.' }
+      return { state: { ...state, dailyTokens: state.allowance.proposed, allowance: null }, message: '' }
+    }
     case 'prs':
       return { state: { ...state, projects: state.projects.map((project) => (project.slug === action.slug ? { ...project, prMode: action.prs } : project)) }, message: '' }
     case 'issues':

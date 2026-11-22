@@ -24,11 +24,15 @@ export type WorkAction =
   | { do: 'proposal'; slug: string; answer: 'take' | 'skip' }
   | { do: 'agents'; agents: number }
   | { do: 'tokens'; tokens: number }
+  /** The rest of the workload (053): any of auto-pick, the cap on changes, hours, ship first, scoring and pull requests reviewed by themselves. */
+  | { do: 'workload'; change: CommandArgs<'work.workload'> }
+  /** Yes to hobkin's open request for more tokens today, named by when it asked. */
+  | { do: 'allowance'; at: string }
   | { do: 'change'; change: FinishedChange; choice: HobkinChoice; note?: string }
   | { do: 'group'; group: FinishedGroup }
   | { do: 'stop'; run: string; how: 'for-now' | 'not-approved' }
 
-type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.issue' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.change' | 'work.group' | 'agent.stop'
+type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.issue' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.workload' | 'work.allowance' | 'work.change' | 'work.group' | 'agent.stop'
 
 /** A host command with its arguments. */
 export type WorkCall = { [Name in WorkCommand]: { name: Name; args: CommandArgs<Name> } }[WorkCommand]
@@ -236,6 +240,10 @@ export function commandFor(action: WorkAction): WorkCall {
       return { name: 'work.agents', args: { agents: action.agents } }
     case 'tokens':
       return { name: 'work.tokens', args: { tokens: action.tokens } }
+    case 'workload':
+      return { name: 'work.workload', args: action.change }
+    case 'allowance':
+      return { name: 'work.allowance', args: { at: action.at } }
     case 'change': {
       const { slug, item, head } = action.change
       const { choice } = action

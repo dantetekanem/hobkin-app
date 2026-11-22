@@ -1,5 +1,7 @@
 import type { DecidedChange, WorkMetrics } from '#shared/protocol/metrics.ts'
-import type { FinishedChange, FinishedGroup, FinishedGroupName, GroupPlan, MergingRow, WorkIssue, WorkProject, WorkState } from '#shared/protocol/work.ts'
+import type { FinishedChange, FinishedGroup, FinishedGroupName, GroupPlan, MergingRow, WorkHolding, WorkHours, WorkIssue, WorkProject, WorkState, Workload } from '#shared/protocol/work.ts'
+import { tokenWords } from '../numbers/format.ts'
+import { clockTime } from '../reports/time.ts'
 
 /**
  * Work mode for a window with no host, in the shape the host sends (`shared/protocol/work.ts`), with the words
@@ -357,7 +359,71 @@ export function sampleDecided(metrics: WorkMetrics, now = Date.now()): DecidedCh
   return decided.toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, 500)
 }
 
+/** The sample's workload: what a home that set nothing runs with, auto-pick off. */
+const SAMPLE_WORKLOAD: Workload = {
+  agents: 2,
+  autoPick: false,
+  changesADay: null,
+  dailyTokens: 100_000_000,
+  hours: null,
+  shipFirst: true,
+  shipFirstAt: 8,
+  reviewOnFinish: false,
+  reviewPulls: 'none',
+}
+
+/** Item runs the sample started today. */
+const SAMPLE_STARTED = 3
+
+const minutesOf = (clock: string) => Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3, 5))
+
+/** Whether the sample's hours let work start at `now`, and when they next open. A window can cross midnight. */
+function hoursAt(hours: WorkHours, now: number): { open: boolean; opensAt: number } {
+  const date = new Date(now)
+  const minute = date.getHours() * 60 + date.getMinutes()
+  const [from, to] = [minutesOf(hours.from), minutesOf(hours.to)]
+  const open = from < to ? minute >= from && minute < to : minute >= from || minute < to
+  const opens = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, from).getTime()
+  return { open, opensAt: opens > now ? opens : opens + 86_400_000 }
+}
+
+/**
+ * What holds the sample's work mode and what it sees for the rest of today, for its workload as it stands, in hobkin's
+ * words (`holdingOf` in its `src/cli/work/plan.mjs`), so changing a setting with no host changes the line and the
+ * forecast as it would with one. A short copy of hobkin's rules, for the sample alone.
+ */
+export function samplePlan(work: WorkState, now = Date.now()): Pick<WorkState, 'holding' | 'outlook'> {
+  const workload = work.workload ?? SAMPLE_WORKLOAD
+  const limit = work.dailyTokens ?? workload.dailyTokens
+  const used = work.tokensToday ?? 0
+  const waiting = work.finished.reduce((sum, group) => sum + group.changes.length, 0)
+  const midnight = new Date(new Date(now).setHours(24, 0, 0, 0)).toISOString()
+  const held = (kind: WorkHolding['kind'], line: string, until: string | null = null) => ({
+    holding: { kind, line, until },
+    outlook: { startedToday: SAMPLE_STARTED, moreToday: 0, nextAt: null },
+  })
+  if (!work.enabled) return held('off', 'Work mode is off, so nothing starts by itself.')
+  if (used >= limit) return held('tokens', `${tokenWords(used)} of today's ${tokenWords(limit)} tokens are used, so nothing new starts until midnight.`, midnight)
+  const hours = workload.hours ? hoursAt(workload.hours, now) : null
+  if (workload.hours && hours && !hours.open) {
+    return held('hours', `Work hours are ${workload.hours.from} to ${workload.hours.to}, so nothing new starts until ${clockTime(hours.opensAt)}.`, new Date(hours.opensAt).toISOString())
+  }
+  if (!workload.autoPick) return held('auto-pick-off', 'Auto-pick is off, so only what you start runs.')
+  if (workload.shipFirst && waiting >= workload.shipFirstAt) return held('ship-first', `${waiting} finished changes wait for you, so new work holds until fewer than ${workload.shipFirstAt} wait.`)
+  if (workload.changesADay !== null && SAMPLE_STARTED >= workload.changesADay) {
+    return held('cap', `${SAMPLE_STARTED} of today's ${workload.changesADay} changes have started, so the next starts after midnight.`, midnight)
+  }
+  const room = 2 + 3 * workload.agents
+  const moreToday = workload.changesADay === null ? room : Math.min(room, workload.changesADay - SAMPLE_STARTED)
+  return { holding: null, outlook: { startedToday: SAMPLE_STARTED, moreToday, nextAt: new Date(now + 20 * 60_000).toISOString() } }
+}
+
 export function sampleWork(now = Date.now()): WorkState {
+  const work = sampleState(now)
+  return { ...work, ...samplePlan(work, now) }
+}
+
+function sampleState(now: number): WorkState {
   return {
     enabled: true,
     folder: '~/code',
@@ -381,5 +447,7 @@ export function sampleWork(now = Date.now()): WorkState {
     projects: projects(now),
     finished: [groupOf('merge', READY), groupOf('refresh', REFRESH), groupOf('needs', NEEDS), groupOf('left', LEFT)],
     merging: MERGING(now),
+    workload: SAMPLE_WORKLOAD,
+    allowance: null,
   }
 }

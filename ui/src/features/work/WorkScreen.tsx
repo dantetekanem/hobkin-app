@@ -26,6 +26,7 @@ import { WhenWorkComes, WorkPage } from './page-arrival.tsx'
 import { AgentsStepper } from './AgentsStepper.tsx'
 import { NumbersTab } from './NumbersTab.tsx'
 import { SaidLine } from './parts.tsx'
+import { StatusLine } from './StatusLine.tsx'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
 import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab } from './tab.ts'
@@ -314,9 +315,6 @@ function Header({ work, live, working, tiles, onOpenWorld }: { work: WorkState |
   const yolo = live ? (work.yolo ?? null) : SAMPLE_YOLO
   const finished = work.finished.reduce((sum, { changes }) => sum + changes.length, 0)
   const title = work.enabled ? `${working} working, ${work.queued} queued, ${finished} finished` : 'Work mode is off'
-  const line = work.enabled
-    ? (work.forecast ?? (work.autoPick ? 'The top of the queue starts by itself.' : 'Auto-pick is off, so only what you start runs.'))
-    : 'Nothing new starts. Agents that are running finish what they started, and projects, items and branches stay.'
 
   return (
     <header className="flex flex-col gap-2 px-1">
@@ -342,21 +340,12 @@ function Header({ work, live, working, tiles, onOpenWorld }: { work: WorkState |
           <ModeSwitch on={work.enabled} busy={busy} onToggle={() => turn(!work.enabled)} />
         </div>
       </div>
-      <div className="mt-3 mb-1">{tiles}</div>
-      <p className="max-w-[72ch] text-[13.5px] leading-relaxed text-muted-foreground">{line}</p>
-      {work.enabled && work.held ? <p className="max-w-[72ch] text-[13.5px] leading-relaxed text-warn-fg">{work.held}</p> : null}
-      {!work.enabled ? (
-        <div className="mt-2 flex flex-col gap-2">
-          {askingFolder ? (
-            <FolderQuestion onStart={(folder) => turn(true, folder)} onCancel={() => setAskingFolder(false)} />
-          ) : (
-            <div className="flex flex-wrap items-center gap-3">
-              <Button data-stop="" disabled={busy} focusableWhenDisabled onClick={() => turn(true)}>
-                Turn work mode on
-              </Button>
-              <span className="text-[12.5px] text-muted-foreground">It starts nothing by itself: what runs is what you start, unless you chose auto-pick.</span>
-            </div>
-          )}
+      <div className="mt-3">{tiles}</div>
+      {/* What work mode does next, or the one thing that holds it, with the control that changes it (053). */}
+      <StatusLine work={work} live={live} onTurnOn={() => turn(true)} />
+      {!work.enabled && askingFolder ? (
+        <div className="mt-1 flex flex-col gap-2">
+          <FolderQuestion onStart={(folder) => turn(true, folder)} onCancel={() => setAskingFolder(false)} />
         </div>
       ) : null}
       {said?.tone === 'refused' ? <SaidLine tone="refused">{said.text}</SaidLine> : null}
