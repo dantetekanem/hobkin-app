@@ -187,6 +187,8 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
             <div
               ref={canvas}
               tabIndex={0}
+              // A stop on Up and Down; once there, Left and Right step through the counterexample.
+              data-stop=""
               data-proof-part="graph"
               role="group"
               aria-label={hasPath ? 'State graph. Left and Right step through the counterexample.' : 'State graph'}

@@ -164,6 +164,7 @@ function Block({ definition, mode, on, tag, onPick }: { definition: ProofDefinit
       tabIndex={0}
       aria-pressed={on}
       aria-label={`${definition.name}, line ${definition.line}${tag ? `, ${tag.text}` : ''}`}
+      data-stop=""
       data-block={definition.name}
       onClick={() => {
         if (window.getSelection()?.isCollapsed === false) return
@@ -300,6 +301,7 @@ function ProofStep({ row, lit, onPick }: { row: ProofRow; lit: boolean; onPick: 
     <li>
       <button
         type="button"
+        data-stop=""
         data-proof-step={row.index}
         data-lit={lit}
         onClick={onPick}
