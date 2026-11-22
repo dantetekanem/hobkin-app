@@ -59,13 +59,15 @@ const SETTLED = 'translateX(0px) translateY(0px) scale(1)'
  *
  * A step travels to its focus, along the connecting wire when there is one, and its card comes out of its node.
  */
-export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
+export function StoryLayer({ canvas, panelHeight, units, ask = null, resume = null }: {
   canvas: Size
   panelHeight: number
   /** The change review's units, when it has rated this change. */
   units?: readonly Unit[]
   /** Sends to hobkin, for a live review. */
   ask?: AskCommand | null
+  /** Where the camera was when the reviewer left this review for another page: the first look goes back there (spec 053). */
+  resume?: Camera | null
 }) {
   const store = useSessionStore()
   const rig = useRig()
@@ -178,6 +180,8 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
       target = composeShot({ focus: [...rectOf.values()], area, card: null, others: [] }).camera
     }
 
+    // Coming back to a review left for another page, the camera is where the reviewer left it.
+    if (first && resume) target = resume
     if (target) {
       if (first || reduced) {
         rig.goTo(target, { cut: true })
@@ -191,7 +195,7 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null }: {
     }
     setBesidePlace(nextBeside)
     setPlacement(nextCard)
-  }, [area, canvas.height, canvas.width, content, focus, move, nodeOf, reduced, rig, view.edges, view.nodes, width])
+  }, [area, canvas.height, canvas.width, content, focus, move, nodeOf, reduced, resume, rig, view.edges, view.nodes, width])
 
   const shownBeside = besidePlace && content && besidePlace.key === content.key ? besidePlace : null
   const shownCard = placement && content?.kind === 'step' && placement.key === content.key ? { placement, content } : null

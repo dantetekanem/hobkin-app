@@ -15,6 +15,7 @@ import { backToStep, focusGroup, focusNode, focusOf, goToStep, leaveFocus, offPa
 import { modeStart, type ReviewMode } from '../story/mode.ts'
 import { pickTravel, type Travel } from '../story/travel.ts'
 import { applyMemory, type MemoryState, type Point, type ReviewView, type ViewEdge, type WireDecision } from './memory.ts'
+import type { SessionPlace } from './place.ts'
 import type { NotesShown } from './quick-notes.ts'
 import { marksOf } from './seen.ts'
 
@@ -171,6 +172,8 @@ export interface Session {
    * end to the start, opening its group when it is folded. Says so when none is left. False when it went nowhere.
    */
   nextUnseen(delta: 1 | -1): boolean
+  /** Where the reviewer is, to come back to after another page (`place.ts`). */
+  placeNow(): SessionPlace
   /**
    * Chooses Story or Free Roam, and starts it from the beginning, whichever was on: Story at its first step, Free Roam
    * with the whole graph and nothing in focus. The code closes. The choice is remembered for the next review.
@@ -246,11 +249,26 @@ function onDrawn(view: ReviewView, story: StoryState): StoryState {
   }
 }
 
-export function createSession(opened: Review, memory: StoreApi<MemoryState>): SessionStore {
+/** A place kept from before, on the review as it is now: null when its step is gone or what it focused is not drawn. */
+function keptStory(graph: Pick<Review, 'story' | 'nodes' | 'edges'>, kept: StoryState): StoryState | null {
+  if (!Number.isInteger(kept.step) || kept.step < 0 || kept.step >= graph.story.length) return null
+  const drawn = new Set(graph.nodes.map((node) => node.id))
+  if (kept.detour != null && !drawn.has(kept.detour)) return null
+  if (kept.group && !kept.group.every((id) => drawn.has(id))) return null
+  const steps = new Set(graph.story.map((step) => step.id))
+  const known = new Set([...drawn, ...graph.edges.map((edge) => edge.id)])
+  return { ...kept, seen: kept.seen.filter((id) => steps.has(id)), revealed: kept.revealed.filter((id) => known.has(id)) }
+}
+
+/**
+ * A session on a review. `kept` is where the reviewer was when they left it for another page (`place.ts`): the session
+ * comes back there, as long as the review at this commit still has it.
+ */
+export function createSession(opened: Review, memory: StoreApi<MemoryState>, kept: SessionPlace | null = null): SessionStore {
   /** The review on screen: the one opened, then each newer copy of it taken in (`adopt`). */
   let review = opened
   /** Which of its groups are open. Kept here too, so the view can be worked out before the store holds it. */
-  let fold: FocusState = NO_FOCUS
+  let fold: FocusState = kept?.fold ?? NO_FOCUS
   const viewNow = () => applyMemory(review, memory.getState().of(review), fold)
   /** Each node's mark, and the nodes whose marks the memory holds (`seen.ts`). */
   let marks = marksOf(review.nodes)
@@ -272,10 +290,11 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
     takeSeen()
   }
   const firstView = viewNow()
-  // A review opens in the mode chosen last, at that mode's start.
-  const firstMode = memory.getState().reviewMode
+  // A review opens in the mode chosen last, at that mode's start, or where the reviewer was when they left it.
+  const back = kept ? keptStory({ ...review, ...firstView }, kept.story) : null
+  const firstMode = back ? kept!.mode : memory.getState().reviewMode
   const opening = startStory({ ...review, ...firstView }, memory.getState().of(review).progress)
-  const firstStory = firstMode === 'roam' ? modeStart({ ...review, ...firstView }, opening, 'roam').state : opening
+  const firstStory = back ?? (firstMode === 'roam' ? modeStart({ ...review, ...firstView }, opening, 'roam').state : opening)
 
   let digits = NO_DIGITS
   let digitTimer: ReturnType<typeof setTimeout> | undefined
@@ -353,14 +372,15 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
       })
     }
 
+    const first = derive(firstView, firstStory)
     return {
       review,
-      ...derive(firstView, firstStory),
+      ...first,
       hovered: null,
       hover: hoverLevels(firstView, null),
       move: { key: 0, fresh: { nodes: [], wires: [] }, travel: null, kind: 'open' },
       wire: null,
-      code: null,
+      code: back && kept!.code != null && first.nodeOf.has(kept!.code) ? kept!.code : null,
       notes: memory.getState().notesOf(review),
       counts: countNotes(memory.getState().notesOf(review)),
       selection: null,
@@ -370,14 +390,14 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
       panelOpen: true,
       finder: false,
       pendingDigits: '',
-      history: NO_HISTORY,
+      history: back ? kept!.history : NO_HISTORY,
       asks: [],
       notesShown: null,
       opened: null,
       mode: firstMode,
       fold,
       seen: seenNow(),
-      outline: firstView.plan.active,
+      outline: back ? kept!.outline : firstView.plan.active,
       notice: null,
 
       step: (delta) => {
@@ -619,6 +639,10 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         return true
       },
       toggleOutline: () => set({ outline: !get().outline }),
+      placeNow: () => {
+        const { story, mode, history, outline, code } = get()
+        return { story, mode, history, fold, outline, code }
+      },
       nextUnseen: (delta) => {
         const say = (text: string) => set({ notice: { key: (get().notice?.key ?? 0) + 1, text } })
         const wanted = review.nodes.filter((node) => node.attention?.tier === 'needs-you').sort((a, b) => a.attention!.rank - b.attention!.rank).map((node) => node.id)

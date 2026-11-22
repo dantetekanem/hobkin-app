@@ -39,6 +39,7 @@ import { sampleSource, SAMPLE_REVIEWS } from './source.ts'
 import { flushReviewMemory, reviewMemory, StageProvider, useReduced, useReviewMemory } from './state/context.tsx'
 import { memoryKey } from './state/memory.ts'
 import { followCursor, shownPlaces } from './state/cursor.ts'
+import { forgetPlace, keepPlace, placeOf } from './state/place.ts'
 import { createSession } from './state/session.ts'
 import type { Size } from './story/camera.ts'
 import { Outline, OUTLINE_ROOM } from './outline/Outline.tsx'
@@ -186,7 +187,7 @@ function Panel({ canvas, loader, live, close, verdict, ask, landed }: {
 }
 
 /** The open review. It draws again for what it shows, not each time the loader around it hears from the host. */
-const Stage = memo(function Stage({ review, source, loader, live, close, verdict, ask }: {
+const Stage = memo(function Stage({ review, source, loader, live, close: closeReview, verdict, ask }: {
   review: Review
   source: ReviewSource
   loader: ReviewLoader
@@ -196,6 +197,19 @@ const Stage = memo(function Stage({ review, source, loader, live, close, verdict
   ask: AskCommand | null
 }) {
   const root = useRef<HTMLDivElement>(null)
+  // Where the reviewer was when they left this review, at this commit, for a proof, the code or another page (spec 053).
+  // Closing the review forgets it, so a review closed and opened again starts from its first step.
+  const [placeKey] = useState(() => memoryKey(review))
+  const [kept] = useState(() => placeOf(placeKey))
+  const closing = useRef(false)
+  const close = useMemo(
+    () => () => {
+      closing.current = true
+      forgetPlace(placeKey)
+      closeReview()
+    },
+    [closeReview, placeKey],
+  )
   const [shortcuts, setShortcuts] = useState(false)
   const assessment = useStore(loader, (state) => state.assessment)
 
@@ -225,16 +239,18 @@ const Stage = memo(function Stage({ review, source, loader, live, close, verdict
   const camera = useCamera()
   const reduced = useReduced()
   const treatment = useDev((dev) => dev.treatment)
-  const [session] = useState(() => createSession(review, reviewMemory))
+  const [session] = useState(() => createSession(review, reviewMemory, kept))
   useEffect(() => session.connect(), [session])
-  // The reviewer's memory is written at most once a second, and at once when the review closes or the window goes.
+  // The reviewer's memory is written at most once a second, and at once when the review closes or the window goes. A
+  // review left for another page keeps its place, to come back to.
   useEffect(() => {
     addEventListener('pagehide', flushReviewMemory)
     return () => {
       removeEventListener('pagehide', flushReviewMemory)
       flushReviewMemory()
+      if (!closing.current) keepPlace(placeKey, { ...session.getState().placeNow(), camera: camera.current() })
     }
-  }, [])
+  }, [camera, placeKey, session])
   // A newer copy of this review, as when its change review lands, is taken in where the reviewer is.
   useLayoutEffect(() => session.getState().adopt(review), [review, session])
   // hobkin moves the reviewer's view through the host, to a step or a node. A place it pointed to before the review was
@@ -333,7 +349,12 @@ const Stage = memo(function Stage({ review, source, loader, live, close, verdict
         // closes itself. Neither ever closes the review.
         if (!reviewTakesEscape(target)) return
         let left = false
-        escapeReview(session.getState(), () => { left = true; useView.getState().closeReview() })
+        escapeReview(session.getState(), () => {
+          left = true
+          closing.current = true
+          forgetPlace(placeKey)
+          useView.getState().closeReview()
+        })
         // Whatever closed may have held the keyboard, such as the code panel. It stays in the review.
         if (!left && !element.contains(document.activeElement)) element.focus({ preventScroll: true })
         event.preventDefault()
@@ -374,7 +395,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close, verdict
       releaseFocus()
       element.removeEventListener('keydown', onKeyDown)
     }
-  }, [session])
+  }, [placeKey, session])
 
   const stage = useMemo(() => ({ session, source, camera }), [camera, session, source])
 
@@ -386,7 +407,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close, verdict
             <div ref={graph} className="absolute inset-0">
               <Graph />
             </div>
-            <StoryLayer canvas={canvas} panelHeight={panelHeight} units={assessment?.units?.units} ask={ask} />
+            <StoryLayer canvas={canvas} panelHeight={panelHeight} units={assessment?.units?.units} ask={ask} resume={kept?.camera ?? null} />
             <Outline panelHeight={panelHeight} />
             <WireCard />
             <Finder />
