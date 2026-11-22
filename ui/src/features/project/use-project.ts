@@ -43,7 +43,10 @@ export function useProjectReviews(live: boolean, slug: string): ProjectReviews |
       onList: (list) => {
         const reviews = reviewsOf(list, slug)
         const said = JSON.stringify(reviews)
-        setHeld((before) => (before?.home === home && before.slug === slug && before.said === said ? before : { home, slug, said, reviews }))
+        setHeld((before) => {
+          const sameAsBefore = before?.home === home && before.slug === slug && before.said === said
+          return sameAsBefore ? before : { home, slug, said, reviews }
+        })
       },
       // What was read before stays, and the next turn asks again.
       onError: () => {},
@@ -52,7 +55,9 @@ export function useProjectReviews(live: boolean, slug: string): ProjectReviews |
   }, [live, home, slug])
 
   const sample = useMemo(() => (live ? null : reviewsOf(SAMPLE_REVIEW_LIST, slug)), [live, slug])
-  return sample ?? (held && held.home === home && held.slug === slug ? held.reviews : null)
+  // What was read for another host or another project is not this page's.
+  const followed = held && held.home === home && held.slug === slug ? held.reviews : null
+  return sample ?? followed
 }
 
 /** Keeps the sections of `page` that say the same as the page last drawn. */

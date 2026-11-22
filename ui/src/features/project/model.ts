@@ -202,7 +202,10 @@ export interface TakenPage {
   readiness: ReadinessSection
 }
 
-export type ProjectPage = { kind: 'unknown'; name: string; line: string } | { kind: 'not-taken'; name: string; state: string; line: string } | TakenPage
+export type ProjectPage =
+  | { kind: 'unknown'; name: string; line: string }
+  | { kind: 'not-taken'; name: string; state: string; line: string }
+  | TakenPage
 
 const PR_WORDS: Record<PrMode, string> = { off: 'Local branches', draft: 'Draft PRs', published: 'PRs' }
 const STATE_WORDS: Record<Exclude<ProjectState, 'chosen'>, string> = { proposed: 'Proposed', skipped: 'Skipped', dropped: 'Dropped' }
@@ -230,13 +233,23 @@ export function reviewsOf(list: ReviewList, slug: string): ProjectReviews {
 /** Its work agents, the ones waiting for the user first. A routine and the user's own hobkins are no project's work. */
 export function atWorkOf(agents: readonly AgentLike[], slug: string): AgentRow[] {
   const own = agents.filter((agent) => agent.kind === 'work' && agent.project === slug)
-  return [...own.filter(({ asks }) => asks), ...own.filter(({ asks }) => !asks)].map(({ id, title, doing, asks, hue }) => ({ id, title, doing, asks: asks ?? null, hue }))
+  const waitingFirst = [...own.filter(({ asks }) => asks), ...own.filter(({ asks }) => !asks)]
+  return waitingFirst.map(({ id, title, doing, asks, hue }) => ({ id, title, doing, asks: asks ?? null, hue }))
+}
+
+/** The heading's YOLO chip: where its readiness stands in a word or two, and why in its title. */
+function yoloChipOf(readiness: ReturnType<typeof readinessOf>, yoloOn: boolean): Heading['yolo'] {
+  const state = `${readiness.state.charAt(0).toLowerCase()}${readiness.state.slice(1)}`
+  return {
+    label: `YOLO ${state}`,
+    tone: readiness.tone,
+    title: `${yoloOn ? '' : 'YOLO mode is off. '}${readiness.detail}`,
+  }
 }
 
 function headingOf(project: WorkProject, yolo: YoloState | null, workOn: boolean, finished: WorkState['finished']): Heading {
   const ready = yolo?.projects.find(({ slug }) => slug === project.slug)
-  const readiness = ready ? readinessOf(ready, workOn, finished) : null
-  const chip = readiness && ready ? { label: `YOLO ${readiness.state.charAt(0).toLowerCase()}${readiness.state.slice(1)}`, tone: readiness.tone, title: `${yolo?.on ? '' : 'YOLO mode is off. '}${readiness.detail}` } : null
+  const chip = ready ? yoloChipOf(readinessOf(ready, workOn, finished), Boolean(yolo?.on)) : null
   return {
     slug: project.slug,
     name: project.name,
@@ -269,7 +282,8 @@ function waitingOf(work: WorkState, slug: string, reviews: ProjectReviews | null
       .map((change) => {
         const known = reviews?.items[change.item]
         // An answer for an older commit says nothing of this one, as on its card.
-        const answer = known?.answer && (change.head === null || known.head === null || known.head === change.head) ? known.answer : null
+        const atThisCommit = change.head === null || known?.head === null || known?.head === change.head
+        const answer = known?.answer && atThisCommit ? known.answer : null
         return {
           key: change.key,
           item: change.item,
@@ -306,29 +320,39 @@ function queueOf(work: WorkState, project: WorkProject): QueueSection {
   }
 }
 
-const sentBackWords = (times: number): string | null => (times <= 0 ? null : times === 1 ? 'sent back once' : `sent back ${times} times`)
+function sentBackWords(times: number): string | null {
+  if (times <= 0) return null
+  if (times === 1) return 'sent back once'
+  return `sent back ${times} times`
+}
+
+/** Merged lately from a host that sends no list of decided changes: the project's merges by day stand in for it. */
+function mergedByDayOf(metrics: WorkMetrics, slug: string): MergedSection {
+  const days = lastDays(metrics.projects.find((project) => project.slug === slug)?.days ?? [], TILE_DAYS)
+  const pick = (count: (day: (typeof days)[number]) => number) => days.map(count)
+  const merged = days.reduce((total, day) => total + day.mergedByItself + day.mergedByYou, 0)
+  return {
+    kind: 'days',
+    days: days.map((day) => day.day),
+    series: [
+      { key: 'itself', label: 'by itself', color: SERIES_COLOR.itself, values: pick((day) => day.mergedByItself) },
+      { key: 'you', label: 'by you', color: SERIES_COLOR.you, values: pick((day) => day.mergedByYou) },
+    ],
+    line: { key: 'declined', label: 'declined', color: SERIES_COLOR.declined, values: pick((day) => day.declined) },
+    figure: merged ? `${merged} merged` : 'nothing merged yet',
+    note: 'The list of each merge needs a newer host. These are its merges by day.',
+  }
+}
 
 function mergedOf(input: ProjectInput, yolo: YoloProject | undefined, reviews: ProjectReviews | null): MergedSection {
   const { metrics, metricsState, slug, live } = input
   if (!metrics) return { kind: 'none', note: READ_WORDS[metricsState] ?? READ_WORDS.failed! }
-  if (!metrics.decided) {
-    const days = lastDays(metrics.projects.find((project) => project.slug === slug)?.days ?? [], TILE_DAYS)
-    const pick = (count: (day: (typeof days)[number]) => number) => days.map(count)
-    const merged = days.reduce((total, day) => total + day.mergedByItself + day.mergedByYou, 0)
-    return {
-      kind: 'days',
-      days: days.map((day) => day.day),
-      series: [
-        { key: 'itself', label: 'by itself', color: SERIES_COLOR.itself, values: pick((day) => day.mergedByItself) },
-        { key: 'you', label: 'by you', color: SERIES_COLOR.you, values: pick((day) => day.mergedByYou) },
-      ],
-      line: { key: 'declined', label: 'declined', color: SERIES_COLOR.declined, values: pick((day) => day.declined) },
-      figure: merged ? `${merged} merged` : 'nothing merged yet',
-      note: 'The list of each merge needs a newer host. These are its merges by day.',
-    }
-  }
+  if (!metrics.decided) return mergedByDayOf(metrics, slug)
+
   const rates = new Map((yolo?.merged ?? []).map((merge) => [merge.item, merge.rate]))
-  const own = metrics.decided.filter((change) => change.slug === slug).toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at))
+  const own = metrics.decided
+    .filter((change) => change.slug === slug)
+    .toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at))
   const rows = own.slice(0, MERGED_SHOWN).map(
     (change): MergedLine => ({
       item: change.item,
@@ -355,26 +379,33 @@ function tilesOf(input: ProjectInput, waiting: readonly WaitingRow[]): TilesView
   const oldestAt = oldestAtOf({ finished: own })
   const oldestMs = oldestAt === null ? null : Math.max(0, (input.now ?? Date.now()) - oldestAt)
   const tiles = workTiles({ days, waiting: { count: waiting.length, oldestMs }, reviews: reviews?.counts ?? null, tokens: null, merged: 'period' })
-  // Without it, the tile says what kind of wait they are.
-  const needs = waiting.filter(({ needsYou }) => needsYou).length
-  if (waiting.length && oldestMs === null) tiles[0] = { ...tiles[0]!, context: `${needs} need${needs === 1 ? 's' : ''} you · ${waiting.length - needs} ready` }
-  const note =
-    metricsState === 'older-host'
-      ? READ_WORDS['older-host']
-      : metricsState === 'failed'
-        ? metrics
-          ? 'The last read failed. These are the numbers read before it.'
-          : READ_WORDS.failed
-        : metrics?.gaps.length
-          ? `Not counted: ${metrics.gaps.join('; ')}. The rest still counts.`
-          : null
-  return { tiles, loading: metricsState === 'loading' && !metrics, note }
+  // Without a time for the oldest, the tile says what kind of wait they are.
+  if (waiting.length && oldestMs === null) {
+    const needs = waiting.filter(({ needsYou }) => needsYou).length
+    tiles[0] = { ...tiles[0]!, context: `${needs} need${needs === 1 ? 's' : ''} you · ${waiting.length - needs} ready` }
+  }
+  return { tiles, loading: metricsState === 'loading' && !metrics, note: tilesNote(metricsState, metrics) }
+}
+
+/** Why the tiles' numbers are missing or old, in a line, or null when they are as they should be. */
+function tilesNote(state: MetricsReadState, metrics: WorkMetrics | null): string | null {
+  if (state === 'older-host') return READ_WORDS['older-host']
+  if (state === 'failed') return metrics ? 'The last read failed. These are the numbers read before it.' : READ_WORDS.failed
+  if (metrics?.gaps.length) return `Not counted: ${metrics.gaps.join('; ')}. The rest still counts.`
+  return null
 }
 
 function readinessSectionOf(yolo: YoloState | null, project: YoloProject | undefined, workOn: boolean, finished: WorkState['finished']): ReadinessSection {
   if (!yolo) return { known: false, empty: 'This hobkin does not say how YOLO mode stands.' }
   if (!project) return { known: false, empty: 'YOLO mode has not looked at this project yet.' }
-  return { known: true, ...readinessOf(project, workOn, finished), checkedAt: project.checkedAt ?? null, groups: stillToSetUp(project), inPlace: inPlace(project), yoloOn: yolo.on }
+  return {
+    known: true,
+    ...readinessOf(project, workOn, finished),
+    checkedAt: project.checkedAt ?? null,
+    groups: stillToSetUp(project),
+    inPlace: inPlace(project),
+    yoloOn: yolo.on,
+  }
 }
 
 const same = (a: unknown, b: unknown) => a === b || JSON.stringify(a) === JSON.stringify(b)
@@ -411,7 +442,9 @@ export function projectPage(input: ProjectInput): ProjectPage {
   const queue = queueOf(work, project)
   const merged = mergedOf(input, ready, input.reviews)
   const days = input.metrics?.projects.find((candidate) => candidate.slug === slug)?.days
+  const mergedInPeriod = days ? lastDays(days, TILE_DAYS).reduce((total, day) => total + day.mergedByItself + day.mergedByYou, 0) : null
   const models = project.models ?? ready?.models ?? []
+
   return {
     kind: 'taken',
     heading: headingOf(project, yolo, work.enabled, work.finished),
@@ -420,7 +453,7 @@ export function projectPage(input: ProjectInput): ProjectPage {
       queued: queue.rows.filter(({ skipped }) => !skipped).length,
       working: atWork.length,
       waiting: waiting.length,
-      merged: days ? lastDays(days, TILE_DAYS).reduce((total, day) => total + day.mergedByItself + day.mergedByYou, 0) : null,
+      merged: mergedInPeriod,
     },
     waiting: { rows: waiting, empty: 'Nothing waits for you here.' },
     atWork: { rows: atWork, empty: 'No agent is working here now.' },

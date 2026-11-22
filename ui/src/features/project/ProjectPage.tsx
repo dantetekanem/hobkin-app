@@ -24,7 +24,8 @@ export function ProjectPage({ slug }: { slug: string }) {
   const shownWork = useMemo(() => (live || !work ? work : withSampleModels(work)), [live, work])
   const shownMetrics = useMemo(() => (state === 'sample' && metrics ? withSampleDecided(metrics) : metrics), [state, metrics])
   const made = useMemo(() => projectPage({ slug, work: shownWork, yolo, metrics: shownMetrics, metricsState: state, reviews, live }), [slug, shownWork, yolo, shownMetrics, state, reviews, live])
-  return <ProjectView slug={slug} page={useKeptPage(made)} live={live} />
+  const page = useKeptPage(made)
+  return <ProjectView slug={slug} page={page} live={live} />
 }
 
 /**

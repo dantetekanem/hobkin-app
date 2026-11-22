@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { DecidedChange, WorkMetrics } from '#shared/protocol/metrics.ts'
-import type { ModelFact, WorkState, YoloState } from '#shared/protocol/work.ts'
+import type { ModelFact, WorkState, YoloMerge, YoloState } from '#shared/protocol/work.ts'
 import { sumDays } from '../src/features/numbers/format.ts'
 import { sampleMetrics } from '../src/features/numbers/sample-metrics.ts'
 import { atWorkOf, keepSections, projectPage, reviewsOf, type AgentLike, type ProjectInput, type TakenPage } from '../src/features/project/model.ts'
@@ -37,12 +37,21 @@ function work(change: (state: WorkState) => WorkState = (state) => state): WorkS
   return change({ ...state, projects: state.projects.map((project) => (project.slug === 'storefront' ? { ...project, models: MODELS } : project)) })
 }
 
+const MERGED_BY_ITSELF: YoloMerge = {
+  at: at(21, 11),
+  item: 'c1',
+  title: 'Cache the category menu',
+  kind: 'performance work',
+  rate: 9,
+  head: 'a1b2c3d',
+  deploy: 'It deployed and held.',
+  held: true,
+}
+
 /** The sample's YOLO mode, with one merge by itself on storefront. */
 const YOLO: YoloState = {
   ...SAMPLE_YOLO,
-  projects: SAMPLE_YOLO.projects.map((project) =>
-    project.slug === 'storefront' ? { ...project, merged: [{ at: at(21, 11), item: 'c1', title: 'Cache the category menu', kind: 'performance work', rate: 9, head: 'a1b2c3d', deploy: 'It deployed and held.', held: true }] } : project,
-  ),
+  projects: SAMPLE_YOLO.projects.map((project) => (project.slug === 'storefront' ? { ...project, merged: [MERGED_BY_ITSELF] } : project)),
 }
 
 /** The sample's 30 days with `decided`, or as a host older than that list sends them when it is null. */
@@ -71,9 +80,10 @@ function taken(change: Partial<ProjectInput> = {}): TakenPage {
 
 test("a busy project's page reads its heading, tiles and flow from what Work, YOLO mode and the numbers know", () => {
   const page = taken()
+  const { name, priority, prWords, level, paused, repo } = page.heading
   assert.deepEqual(
-    { name: page.heading.name, priority: page.heading.priority, pr: page.heading.prWords, level: page.heading.level, paused: page.heading.paused, repo: page.heading.repo },
-    { name: 'storefront', priority: 'P0', pr: 'Draft PRs', level: 'critical', paused: false, repo: 'hobkin-sample/storefront' },
+    { name, priority, prWords, level, paused, repo },
+    { name: 'storefront', priority: 'P0', prWords: 'Draft PRs', level: 'critical', paused: false, repo: 'hobkin-sample/storefront' },
   )
   assert.deepEqual({ label: page.heading.yolo?.label, tone: page.heading.yolo?.tone }, { label: 'YOLO ready', tone: 'ok' })
 
@@ -172,8 +182,14 @@ test('merged lately lists its changes merged or declined, newest first, saying w
 })
 
 test('with a change that does not say when hobkin last wrote it, the waiting tile says how many need the user and how many are ready', () => {
-  const untimed = work((state) => ({ ...state, finished: state.finished.map((group) => ({ ...group, changes: group.changes.map(({ at: _gone, ...change }) => change) })) }))
-  assert.equal(taken({ work: untimed }).tiles.tiles[0]!.context, '2 need you · 2 ready')
+  const untimed = work((state) => ({
+    ...state,
+    finished: state.finished.map((group) => ({ ...group, changes: group.changes.map(({ at: _gone, ...change }) => change) })),
+  }))
+
+  const [waiting] = taken({ work: untimed }).tiles.tiles
+
+  assert.equal(waiting!.context, '2 need you · 2 ready')
 })
 
 test('a project with nothing yet keeps every section and says in each that it has nothing', () => {
@@ -195,7 +211,11 @@ test('a project with nothing yet keeps every section and says in each that it ha
     assert.deepEqual(section.rows, [])
     assert.ok(section.empty.length > 0)
   }
-  assert.ok(page.merged.kind === 'list' && page.merged.rows.length === 0 && page.merged.count === '0 merged' && page.merged.empty === 'Nothing merged or declined here in 30 days.')
+  assert.equal(page.merged.kind, 'list')
+  if (page.merged.kind !== 'list') return
+  assert.deepEqual(page.merged.rows, [])
+  assert.equal(page.merged.count, '0 merged')
+  assert.equal(page.merged.empty, 'Nothing merged or declined here in 30 days.')
   assert.deepEqual(page.models.facts, [])
   assert.equal(page.models.empty, 'No TLA+ models on its default branch.')
   assert.equal(page.readiness.known, false)

@@ -38,7 +38,9 @@ const HOUR_MS = 3_600_000
 /** A short commit from words, the same for the same words. FNV-1a. */
 function headOf(words: string): string {
   let hash = 0x811c9dc5
-  for (let index = 0; index < words.length; index += 1) hash = Math.imul(hash ^ words.charCodeAt(index), 0x01000193)
+  for (let index = 0; index < words.length; index += 1) {
+    hash = Math.imul(hash ^ words.charCodeAt(index), 0x01000193)
+  }
   return (hash >>> 0).toString(16).padStart(8, '0').slice(0, 7)
 }
 
@@ -76,7 +78,8 @@ export function withSampleDecided(metrics: WorkMetrics): WorkMetrics {
       })
     }
   }
-  return { ...metrics, decided: decided.toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at)).slice(0, DECIDED_MAX) }
+  const newestFirst = decided.toSorted((a, b) => Date.parse(b.at) - Date.parse(a.at))
+  return { ...metrics, decided: newestFirst.slice(0, DECIDED_MAX) }
 }
 
 /** The sample projects' models on the default branch. They open the proof sample's runs. */
@@ -90,5 +93,10 @@ const SAMPLE_MODELS: Record<string, ModelFact[]> = {
 
 /** Work's sample with the sample projects' models, for the page alone: Work's own sample has none. */
 export function withSampleModels(work: WorkState): WorkState {
-  return { ...work, projects: work.projects.map((project) => (project.models || !SAMPLE_MODELS[project.slug] ? project : { ...project, models: SAMPLE_MODELS[project.slug] })) }
+  const projects = work.projects.map((project) => {
+    const models = SAMPLE_MODELS[project.slug]
+    if (project.models || !models) return project
+    return { ...project, models }
+  })
+  return { ...work, projects }
 }
