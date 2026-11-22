@@ -33,6 +33,7 @@ A page for each project
 
 Numbers
 - `work.metrics` is a read-only host command. It answers with `WorkMetrics` (`shared/protocol/metrics.ts`): one `MetricsDay` for each local day of the period, for all projects and for each, and three spans. The period is 30 days unless asked, and 180 at most.
+- `finished` counts each change once, on the day it first reached Finished changes. Each period asked for keeps its own answer for a minute.
 - `decided` lists each change merged or declined in the period, newest first and 500 at most, from the same records as the day counts, so a chart can open the list of what it counts and a project's page can list what merged lately.
 - The numbers are folded from records that exist already (`notes.md`, "Records the numbers can be folded from"), so the first read shows history. A source that cannot be read is named in `gaps` and the rest still counts.
 - hobkin folds its own records in a new module and the host adds what only it keeps (the AI reviews). Neither reads the other's files.
@@ -69,7 +70,8 @@ Workload
   - whether hobkin scores finished changes by itself (`reviewOnFinish`);
   - which pull requests get an AI review by themselves: mine, those waiting for my review, or none.
 - Each is kept in `<home>/work/mode.json` beside the settings there now, set through one host command, `work.workload` (agents and tokens a day keep `work.agents` and `work.tokens`), and enforced in `planOf` with the forecast agreeing.
-- The cap counts every work run started in a local day, the user's own picks included; a look does not count. Past the cap and outside the hours, only what the user picks starts. Nothing running is stopped.
+- The cap counts new changes: an item's first run in a local day. A review or a fix of a finished change, a later run of the same item and a look do not count. The hours and the cap hold only new work that would start by itself, the same rows ship first holds. What the user picks still starts, and so do the look after a deploy, work on a finished change (its review, a fix, the refresh before a merge), an item already started, and urgent work. A pick hobkin makes for itself is not the user's pick. Nothing running is stopped.
+- When several things hold work mode, the line names the one that ends last, with its time.
 - The host publishes `workload`, `holding` (a kind, until when, a sentence), `outlook` (started today, more today, when the next starts) and `allowance` on the work state, all optional.
 - The sheet ends with the forecast for the settings as they stand: about how many changes start today, and when the next one starts.
 - When today's tokens are spent, the status line offers "Add today's amount again", which answers the runtime's allowance request.
