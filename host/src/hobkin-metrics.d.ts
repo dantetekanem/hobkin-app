@@ -12,7 +12,7 @@ declare module 'hobkin/src/cli/work/metrics.mjs' {
    * for the host to fill. What could not be read is named in `gaps`. `decided` lists each change merged or declined in
    * the period, newest first, `DECIDED_MAX` at most, from the same records as the day counts.
    */
-  export function workMetrics(root: string, options?: { days?: number; now?: number }): WorkMetrics & { decided: NonNullable<WorkMetrics['decided']> }
+  export function workMetrics(root: string, options?: { days?: number; now?: number }): WorkMetrics
   /** The most decided changes one read lists. */
   export const DECIDED_MAX: number
   /** The median and 90th percentile of what was measured, in whole milliseconds, or nulls with nothing measured. */

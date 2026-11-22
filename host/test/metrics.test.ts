@@ -6,7 +6,8 @@ import { emptyMetricsDay, type MetricsSeries, type WorkMetrics } from '#shared/p
 import type { ReviewList } from '#shared/review/status.ts'
 import { checkArguments, COMMANDS } from '#shared/commands/registry.ts'
 import { runCommand } from '../src/commands.ts'
-import { metricsHandlers, metricsReader, METRICS_KEPT_MS } from '../src/metrics.ts'
+import { dayOf, spanOf } from 'hobkin/src/cli/work/metrics.mjs'
+import { loadMetricsRuntime, metricsHandlers, metricsReader, METRICS_KEPT_MS, OLDER_RUNTIME, type MetricsRuntime } from '../src/metrics.ts'
 import { temporaryDirectory } from './support.ts'
 
 // Every time is local, so the days come out the same in any time zone. Today is 21 November 2026, at 15:00.
@@ -18,7 +19,8 @@ const noSpan = { median: null, p90: null, count: 0 }
 
 /** hobkin's fold as the runtime answers it: a week of empty days, for all projects and for API and Web, with a gap of its own. */
 function fakeFold(calls: { home: string; days: number; now: number }[] = []) {
-  return (home: string, options: { days: number; now: number }): WorkMetrics => {
+  return (home: string, { days = 30, now = NOW }: { days?: number; now?: number } = {}): WorkMetrics => {
+    const options = { days, now }
     calls.push({ home, ...options })
     const series = (): MetricsSeries => ({
       days: Array.from({ length: options.days }, (_, index) => emptyMetricsDay(dayName(options.days - 1 - index))),
@@ -41,6 +43,9 @@ function fakeFold(calls: { home: string; days: number; now: number }[] = []) {
 
 const DECIDED_ROW = { slug: 'api', item: 'a1', title: 'Fix a1', at: daysAgo(1), outcome: 'merged-by-itself', sentBack: 0, head: 'abc1234' } as const
 
+/** A runtime with hobkin's own day and span rules around a fake fold. */
+const runtimeWith = (fold: ReturnType<typeof fakeFold>) => async (): Promise<MetricsRuntime> => ({ workMetrics: fold, dayOf, spanOf })
+
 /** A review the window keeps, and the AI reviews of its commits, each as the change review writes them. */
 function writeReview(root: string, folder: string, heads: Record<string, { summary?: unknown; progress?: unknown }>) {
   const reviews = join(root, 'client', 'reviews', folder)
@@ -60,7 +65,7 @@ const pick = (days: { [field: string]: unknown }[], field: string) => days.map((
 const lastDays = (series: MetricsSeries, field: 'reviewsSafe' | 'reviewsRisky' | 'reviewsFailed' | 'started', count = 3) => pick(series.days.slice(-count) as never, field)
 const projectOf = (metrics: WorkMetrics, slug: string) => metrics.projects.find((project) => project.slug === slug)!
 
-test('work.metrics adds the AI reviews the host keeps to hobkin fold: each answer on its day, one that stopped before it, and how long they took', (t) => {
+test('work.metrics adds the AI reviews the host keeps to hobkin fold: each answer on its day, one that stopped before it, and how long they took', async (t) => {
   const root = temporaryDirectory(t)
   writeReview(root, 'change+api+a1', {
     aaaaaaaaaaaa: { summary: { level: 'safe', deploy: 'safe', at: daysAgo(1, 13) }, progress: started(daysAgo(1, 12)) },
@@ -83,7 +88,7 @@ test('work.metrics adds the AI reviews the host keeps to hobkin fold: each answe
   }
   const calls: { home: string; days: number; now: number }[] = []
 
-  const metrics = metricsReader({ data: () => '/hobkin-home', root, reviews, fold: fakeFold(calls), now: () => NOW })(3)
+  const metrics = await metricsReader({ data: () => '/hobkin-home', root, reviews, runtime: runtimeWith(fakeFold(calls)), now: () => NOW })(3)
 
   assert.deepEqual(calls, [{ home: '/hobkin-home', days: 3, now: NOW }])
   assert.deepEqual(lastDays(metrics.all, 'reviewsSafe'), [0, 2, 0])
@@ -104,13 +109,13 @@ test('work.metrics adds the AI reviews the host keeps to hobkin fold: each answe
   assert.deepEqual(metrics.decided, [DECIDED_ROW])
 })
 
-test("with hobkin's own fold, a home with nothing yet answers every day of the period with zeros, for all projects and for each", (t) => {
+test("with hobkin's own fold, a home with nothing yet answers every day of the period with zeros, for all projects and for each", async (t) => {
   const root = temporaryDirectory(t)
   mkdirSync(join(root, 'work'), { recursive: true })
   writeFileSync(join(root, 'work', 'projects.jsonl'), `${JSON.stringify({ slug: 'api', name: 'API', state: 'chosen', level: 'important' })}\n`)
   writeReview(root, 'change+api+a1', { aaaaaaaaaaaa: { summary: { level: 'safe', deploy: 'safe', at: daysAgo(0, 13) }, progress: started(daysAgo(0, 12)) } })
 
-  const metrics = metricsReader({ data: () => root, root, now: () => NOW })(5)
+  const metrics = await metricsReader({ data: () => root, root, now: () => NOW })(5)
 
   assert.deepEqual([metrics.from, metrics.to], [dayName(4), dayName(0)])
   assert.deepEqual(
@@ -123,14 +128,14 @@ test("with hobkin's own fold, a home with nothing yet answers every day of the p
   assert.deepEqual(metrics.decided, [])
 })
 
-test('an AI review whose files cannot be read is named in gaps, and the rest still count', (t) => {
+test('an AI review whose files cannot be read is named in gaps, and the rest still count', async (t) => {
   const root = temporaryDirectory(t)
   writeReview(root, 'change+api+a1', {
     aaaaaaaaaaaa: { summary: '{"level": "safe", "at"', progress: started(daysAgo(1)) },
     bbbbbbbbbbbb: { summary: { level: 'safe', deploy: 'safe', at: daysAgo(1, 13) } },
   })
 
-  const metrics = metricsReader({ data: () => '/hobkin-home', root, fold: fakeFold(), now: () => NOW })(3)
+  const metrics = await metricsReader({ data: () => '/hobkin-home', root, runtime: runtimeWith(fakeFold()), now: () => NOW })(3)
 
   assert.deepEqual(lastDays(metrics.all, 'reviewsSafe'), [0, 1, 0])
   assert.deepEqual(metrics.gaps.slice(1), ['The AI review of change:api:a1 at aaaaaaa could not be read, so it is not counted.'])
@@ -139,7 +144,7 @@ test('an AI review whose files cannot be read is named in gaps, and the rest sti
 test('work.metrics is a host command that only reads, for 30 days unless asked and 1 to 180 when asked', async (t) => {
   const root = temporaryDirectory(t)
   const calls: { home: string; days: number; now: number }[] = []
-  const handlers = metricsHandlers({ data: () => '/hobkin-home', root, fold: fakeFold(calls), now: () => NOW })
+  const handlers = metricsHandlers({ data: () => '/hobkin-home', root, runtime: runtimeWith(fakeFold(calls)), now: () => NOW })
 
   const outcome = await runCommand(handlers, 'work.metrics', {})
 
@@ -152,23 +157,31 @@ test('work.metrics is a host command that only reads, for 30 days unless asked a
   assert.equal(checkArguments('work.metrics', { days: 7, project: 'api' }).ok, false)
 })
 
-test('the last answer stands for a minute, and after that, or for another period, hobkin is asked again', (t) => {
+test('each period asked for keeps its own answer for a minute, so switching between periods folds nothing again', async (t) => {
   const root = temporaryDirectory(t)
   const calls: { home: string; days: number; now: number }[] = []
   let now = NOW
-  const read = metricsReader({ data: () => '/hobkin-home', root, fold: fakeFold(calls), now: () => now })
+  const read = metricsReader({ data: () => '/hobkin-home', root, runtime: runtimeWith(fakeFold(calls)), now: () => now })
 
-  const first = read()
+  const month = await read()
+  const quarter = await read(90)
   now += METRICS_KEPT_MS - 1
-  assert.equal(read(), first)
-  assert.equal(read(30), first)
-  read(7)
+  assert.equal(await read(30), month)
+  assert.equal(await read(90), quarter)
   now += 1
-  read(7)
-  now += METRICS_KEPT_MS
-  const later = read(7)
+  const later = await read(30)
 
-  assert.deepEqual(calls.map(({ days }) => days), [30, 7, 7])
-  assert.equal(later.all.days.length, 7)
-  assert.equal(first.all.days.length, 30)
+  assert.deepEqual(calls.map(({ days }) => days), [30, 90, 30])
+  assert.notEqual(later, month)
+  assert.deepEqual([month.all.days.length, quarter.all.days.length], [30, 90])
+})
+
+test('a hobkin older than work numbers leaves the host working, and work.metrics says this host sends no numbers yet', async (t) => {
+  const root = temporaryDirectory(t)
+  assert.deepEqual(await loadMetricsRuntime('hobkin/src/cli/work/no-such-module.mjs'), {})
+  assert.equal(typeof (await loadMetricsRuntime()).workMetrics, 'function')
+
+  const handlers = metricsHandlers({ data: () => '/hobkin-home', root, runtime: async () => ({}) })
+
+  assert.deepEqual(await runCommand(handlers, 'work.metrics', { days: 7 }), { ok: false, error: { code: 'unavailable', message: OLDER_RUNTIME } })
 })

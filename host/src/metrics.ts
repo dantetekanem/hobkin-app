@@ -1,21 +1,42 @@
 /**
  * Work in numbers (_specs/053-work-control-room): hobkin folds its own records by local day (`src/cli/work/metrics.mjs`
- * in hobkin), and the host adds what only it keeps, the AI reviews, then keeps the answer for a minute. Neither reads
- * the other's files. Read with `work.metrics`.
+ * in hobkin), and the host adds what only it keeps, the AI reviews, then keeps each period's answer for a minute.
+ * Neither reads the other's files. Read with `work.metrics`.
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { dayOf, spanOf, workMetrics } from 'hobkin/src/cli/work/metrics.mjs'
 import { METRICS_DAYS_DEFAULT, type MetricsDay, type MetricsSeries, type WorkMetrics } from '#shared/protocol/metrics.ts'
 import { deployOf, type AssessmentSummary } from '#shared/review/assessment.ts'
 import { reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import type { ReviewList } from '#shared/review/status.ts'
-import type { HostHandlers } from './commands.ts'
+import { Unavailable, type HostHandlers } from './commands.ts'
 import { assessmentFolder } from './review/assessment.ts'
-import { reviewStore } from './review/store.ts'
+import { reviewStore, type ReviewStore } from './review/store.ts'
 
 /** How long one answer stands. The window asks again at most once a minute while a page with numbers shows. */
 export const METRICS_KEPT_MS = 60_000
+
+/** What `work.metrics` says when the hobkin on this Mac is older than its numbers. */
+export const OLDER_RUNTIME = 'The hobkin on this Mac is older than work numbers, so this host sends no numbers yet.'
+
+type MetricsModule = typeof import('hobkin/src/cli/work/metrics.mjs')
+
+/** hobkin's own fold and its rules for days and spans, each present only when the hobkin on this Mac has it. */
+export type MetricsRuntime = Partial<Pick<MetricsModule, 'workMetrics' | 'dayOf' | 'spanOf'>>
+
+const METRICS_MODULE = 'hobkin/src/cli/work/metrics.mjs'
+const FUNCTIONS = ['workMetrics', 'dayOf', 'spanOf'] as const
+
+/** hobkin's metrics functions through a dynamic import, so a hobkin without them leaves the host working. */
+export async function loadMetricsRuntime(specifier: string = METRICS_MODULE): Promise<MetricsRuntime> {
+  let module: Record<string, unknown>
+  try {
+    module = (await import(/* @vite-ignore */ specifier)) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+  return Object.fromEntries(FUNCTIONS.filter((name) => typeof module[name] === 'function').map((name) => [name, module[name]])) as MetricsRuntime
+}
 
 export interface MetricsSeat {
   /** hobkin's data folder, where its records are. Throws, with the reason, while hobkin is not open in this host. */
@@ -24,10 +45,12 @@ export interface MetricsSeat {
   root: string
   /** The reviews as AI Reviews lists them, to tell a change review under way from one that stopped before its answer. */
   reviews?: { list(): ReviewList }
-  /** hobkin's own fold. A fake in tests. */
-  fold?: (home: string, options: { days: number; now: number }) => WorkMetrics
+  /** hobkin's own functions. A fake fold in tests. */
+  runtime?: () => Promise<MetricsRuntime>
   now?: () => number
 }
+
+type Rules = Required<Pick<MetricsRuntime, 'dayOf' | 'spanOf'>>
 
 /** What the change review writes as it runs (`review-progress/1`), as far as the numbers need it. */
 interface ReviewProgress {
@@ -75,7 +98,7 @@ function underWayIn(reviews: MetricsSeat['reviews']): Set<string> {
  * before one and that nothing runs now on the day it last moved, and, for each answer, how long it took from its start.
  * A finished change counts for its project, and a pull request only for all projects together.
  */
-function addReviews(metrics: WorkMetrics, root: string, underWay: Set<string>): WorkMetrics {
+function addReviews(metrics: WorkMetrics, root: string, store: ReviewStore, underWay: Set<string>, { dayOf, spanOf }: Rules): WorkMetrics {
   const place = new Map(metrics.all.days.map(({ day }, index) => [day, index]))
   const projects = new Map(metrics.projects.map((project) => [project.slug, project]))
   const took = new Map<MetricsSeries, number[]>([[metrics.all, []], ...metrics.projects.map((project): [MetricsSeries, number[]] => [project, []])])
@@ -89,9 +112,9 @@ function addReviews(metrics: WorkMetrics, root: string, underWay: Set<string>): 
     }
   }
 
-  let stored: ReturnType<ReturnType<typeof reviewStore>['list']>
+  let stored: ReturnType<ReviewStore['list']>
   try {
-    stored = reviewStore(root).list()
+    stored = store.list()
   } catch {
     metrics.gaps.push('The AI reviews could not be read, so none of them is counted.')
     return metrics
@@ -122,18 +145,27 @@ function addReviews(metrics: WorkMetrics, root: string, underWay: Set<string>): 
   return metrics
 }
 
-/** Work's numbers for the last `days` local days, folded again only once the last answer is a minute old or for another period. */
-export function metricsReader(seat: MetricsSeat): (days?: number) => WorkMetrics {
+/**
+ * Work's numbers for the last `days` local days. Each period asked for keeps its own answer for a minute, so a window
+ * that switches between periods folds each at most once a minute. Throws `Unavailable` when hobkin has no fold.
+ */
+export function metricsReader(seat: MetricsSeat): (days?: number) => Promise<WorkMetrics> {
   const now = seat.now ?? Date.now
-  const fold = seat.fold ?? ((home: string, options: { days: number; now: number }) => workMetrics(home, options))
-  let kept: { key: string; at: number; value: WorkMetrics } | null = null
-  return (days = METRICS_DAYS_DEFAULT) => {
+  const runtime = seat.runtime ?? loadMetricsRuntime
+  const kept = new Map<string, { at: number; value: WorkMetrics }>()
+  // One store for every read, so a review file read once is not parsed again until it changes.
+  const store = reviewStore(seat.root)
+  return async (days = METRICS_DAYS_DEFAULT) => {
     const home = seat.data()
     const key = `${home}\0${days}`
     const time = now()
-    if (kept?.key === key && time - kept.at < METRICS_KEPT_MS) return kept.value
-    const value = addReviews(fold(home, { days, now: time }), seat.root, underWayIn(seat.reviews))
-    kept = { key, at: time, value }
+    for (const [old, { at }] of kept) if (time - at >= METRICS_KEPT_MS) kept.delete(old)
+    const known = kept.get(key)
+    if (known) return known.value
+    const { workMetrics, dayOf, spanOf } = await runtime()
+    if (!workMetrics || !dayOf || !spanOf) throw new Unavailable(OLDER_RUNTIME)
+    const value = addReviews(workMetrics(home, { days, now: time }), seat.root, store, underWayIn(seat.reviews), { dayOf, spanOf })
+    kept.set(key, { at: time, value })
     return value
   }
 }
