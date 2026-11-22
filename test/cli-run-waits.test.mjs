@@ -204,17 +204,31 @@ test('a run that stops in the middle of a step fails in plain words', { timeout:
   assert.doesNotMatch(report, /toolUse/);
 });
 
-/** A temporary home whose sessions run on `fixture/local` at medium, as its tiers give them, `concurrency` at once. */
+/**
+ * A temporary home whose sessions run on `fixture/local` at medium, as its tiers give them, `concurrency` at once. The
+ * home goes once every app opened on it has closed, since a closing app still writes there.
+ */
 function home(t, { concurrency } = {}) {
   const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-waits-home-')));
-  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const opened = [];
+  t.after(async () => {
+    await Promise.all(opened.map(app => app.close()));
+    rmSync(root, { recursive: true, force: true });
+  });
+
   const config = initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
   config.main.model = 'fixture/local';
   config.background.model = 'fixture/check';
   if (concurrency) config.concurrency = concurrency;
   atomicJson(join(root, 'config.json'), config);
+
   const fake = fakePi(root);
-  return { root, open: options => HobkinApplication.open(root, { createMain: fake.createMain, intervalMs: 60000, ...options }) };
+  const open = async options => {
+    const app = await HobkinApplication.open(root, { createMain: fake.createMain, intervalMs: 60000, ...options });
+    opened.push(app);
+    return app;
+  };
+  return { root, open };
 }
 const NOTE = 'Read the monitoring again.';
 const waitingFor = (minutes, at) => ({ status: 'waiting', text: 'Deployed. Waiting to read the monitoring.', cost: null, freshSession: true,
