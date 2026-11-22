@@ -1,6 +1,6 @@
 import { Map as MapIcon, Zap } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
 import { useKeptPlace } from '@/app/kept-place.ts'
 import { useView } from '@/app/view-store.ts'
@@ -23,6 +23,7 @@ import { FinishedSection } from './Finished.tsx'
 import { PageTabs, TabCount } from './PageTabs.tsx'
 import { WhenWorkComes, WorkPage } from './page-arrival.tsx'
 import { AgentsStepper } from './AgentsStepper.tsx'
+import { NumbersTab } from './NumbersTab.tsx'
 import { SaidLine } from './parts.tsx'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
 import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
@@ -30,8 +31,10 @@ import { useWorkTab } from './tab.ts'
 import { useReviewList } from './use-review-list.ts'
 import { bindWorkTarget } from './work-target.ts'
 import { yoloAtAGlance } from './yolo-page.ts'
+import { WorkTiles } from './WorkTiles.tsx'
+import { reviewTallyOf, waitingNow } from './work-tiles.ts'
 
-const TABS = ['work', 'reviews'] as const
+const TABS = ['work', 'reviews', 'numbers'] as const
 
 /**
  * Work: hobkin and the agents it started, live, with the queue, the finished changes and the projects, and every AI
@@ -74,6 +77,9 @@ export function WorkScreen() {
   // The tab says how many reviews run and how many are ready, so the list is followed on either page.
   const reviews = useReviewList(live)
   const counts = reviewCounts(groupReviews(reviews.list))
+  const tally = useMemo(() => reviewTallyOf(reviews.list), [reviews.list])
+  // The six tiles under the header (053): what waits, merged today, first pass, by itself, AI reviews, today's tokens.
+  const tiles = <WorkTiles waiting={work ? waitingNow(work) : null} tokensToday={work?.tokensToday ?? null} dailyTokens={work?.dailyTokens ?? null} reviews={tally} />
 
   // Where the keyboard is in the screen, so it stays when what had it leaves: a merged card, a skipped row.
   const keyboard = useRef({ held: false, at: 0 })
@@ -150,7 +156,7 @@ export function WorkScreen() {
       <div ref={main} inert={discovering} className={`${SCREEN_SCROLLER} pb-20`}>
       <div className={`flex flex-col gap-10 ${SCREEN_COLUMN}`}>
         <Hero>
-          <Header work={work} live={live} working={agents.length} onOpenWorld={worldAvailable ? openWorld : undefined} />
+          <Header work={work} live={live} working={agents.length} tiles={tiles} onOpenWorld={worldAvailable ? openWorld : undefined} />
         </Hero>
         <div className="flex flex-col gap-6">
           <PageTabs
@@ -161,11 +167,16 @@ export function WorkScreen() {
             tabs={[
               { value: 'work', label: 'Work' },
               { value: 'reviews', label: 'AI Reviews', extra: <ReviewCounts counts={counts} /> },
+              { value: 'numbers', label: 'Numbers' },
             ]}
           />
           {tab === 'reviews' ? (
             <WorkPage key="reviews" way={way} role="tabpanel" id="work-panel-reviews" aria-labelledby="work-tab-reviews">
               <AiReviews live={live} reviews={reviews} />
+            </WorkPage>
+          ) : tab === 'numbers' ? (
+            <WorkPage key="numbers" way={way} role="tabpanel" id="work-panel-numbers" aria-labelledby="work-tab-numbers">
+              <NumbersTab />
             </WorkPage>
           ) : (
             <WorkPage key="work" way={way} role="tabpanel" id="work-panel-work" aria-labelledby="work-tab-work" className="flex flex-col gap-10">
@@ -268,7 +279,7 @@ function openYolo() {
  * and kept at the right edge even when they wrap under a long title. The YOLO mode button says how it stands, and it is
  * first, so a longer word grows it to the left and moves nothing beside it.
  */
-function Header({ work, live, working, onOpenWorld }: { work: WorkState | null; live: boolean; working: number; onOpenWorld?: () => void }) {
+function Header({ work, live, working, tiles, onOpenWorld }: { work: WorkState | null; live: boolean; working: number; tiles: ReactNode; onOpenWorld?: () => void }) {
   const busy = useWorkUi((state) => Boolean(state.busy['mode']))
   const said = useWorkUi((state) => state.said['mode'])
   const [askingFolder, setAskingFolder] = useState(false)
@@ -290,6 +301,7 @@ function Header({ work, live, working, onOpenWorld }: { work: WorkState | null; 
         <p className="max-w-[68ch] text-[13.5px] leading-relaxed text-muted-foreground">
           This host has not said anything about work mode yet.
         </p>
+        <div className="mt-3">{tiles}</div>
       </header>
     )
   }
@@ -325,6 +337,7 @@ function Header({ work, live, working, onOpenWorld }: { work: WorkState | null; 
           <ModeSwitch on={work.enabled} busy={busy} onToggle={() => turn(!work.enabled)} />
         </div>
       </div>
+      <div className="mt-3 mb-1">{tiles}</div>
       <p className="max-w-[72ch] text-[13.5px] leading-relaxed text-muted-foreground">{line}</p>
       {work.enabled && work.held ? <p className="max-w-[72ch] text-[13.5px] leading-relaxed text-warn-fg">{work.held}</p> : null}
       {!work.enabled ? (

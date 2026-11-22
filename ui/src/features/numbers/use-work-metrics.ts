@@ -6,11 +6,8 @@ import { sampleMetrics } from './sample-metrics.ts'
 
 export { READ_WORDS, type MetricsRead, type MetricsReadState } from './metrics-store.ts'
 
-/**
- * `work.metrics` joins the command registry with the host's side of spec 053 (S2). Until then the window sends it by
- * name, and a host that does not know it refuses it by name, which reads as "this host sends no numbers yet".
- */
-const readMetrics = (days: number): Promise<WorkMetrics> => (runCommand as unknown as (name: string, args: { days: number }) => Promise<WorkMetrics>)('work.metrics', { days })
+/** A host older than `work.metrics` refuses it by name, which reads as "this host sends no numbers yet". */
+const readMetrics = (days: number): Promise<WorkMetrics> => runCommand('work.metrics', { days })
 
 const visible = () => typeof document === 'undefined' || document.visibilityState !== 'hidden'
 const connected = () => hostStore.getState().link === 'open'
