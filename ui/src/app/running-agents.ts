@@ -143,6 +143,17 @@ export function agentCounts(agents: readonly RunningAgent[]): { working: number;
   return { working: agents.length - waiting, waiting, needYou }
 }
 
+/** The count over the agents that come and go: how many work, and how many wait for their time only when some do. */
+export function othersCount({ working, waiting }: { working: number; waiting: number }): string {
+  return waiting ? `${working} working · ${waiting} waiting` : `${working} working`
+}
+
+/** An agent of a list whose face holds still: a durable hobkin between its turns, or a run that waits for its time. */
+export const atRest = (agent: Pick<RunningAgent, 'durable' | 'waits'>): boolean => agent.durable?.state === 'waiting' || agent.waits !== undefined
+
+/** The line under a waiting run's name: until when, then its note, or its project when it left none. */
+export const waitingRowWords = (agent: Pick<RunningAgent, 'doing' | 'project'>, words: string | undefined): string => `${agent.doing} · ${words ?? agent.project}`
+
 /** The running agents as they are this instant, for code outside a component. */
 export function runningAgents(): RunningAgent[] {
   const host = hostStore.getState()

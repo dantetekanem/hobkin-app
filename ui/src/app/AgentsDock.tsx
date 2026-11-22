@@ -14,7 +14,7 @@ import { useMainChildren } from '@/features/work/children.ts'
 import { cn } from '@/lib/utils.ts'
 import { centeredOn, dockHeight, followedAgent, headsOf, listHeight, ROW, rowsInView, rowTop, stepped, type DockShape } from './dock-rows.ts'
 import { requestCanvasFocus } from './focus.ts'
-import { agentControls, askAgent, useAgentControl, useAgentWords, useRunningAgents, type RunningAgent } from './running-agents.ts'
+import { agentControls, agentCounts, askAgent, atRest, othersCount, useAgentControl, useAgentWords, useRunningAgents, waitingRowWords, type RunningAgent } from './running-agents.ts'
 import { type Tier } from './sample.ts'
 import { holdStill, useStill } from './still.ts'
 import { useView } from './view-store.ts'
@@ -114,7 +114,7 @@ export function AgentsDock() {
   // The selected agent is the one on the canvas.
   const shown = onAgent ? agents.findIndex((agent) => agent.id === openAgent) : -1
   const at = shown < 0 ? null : shown
-  const waiting = others.filter((agent) => agent.asks).length
+  const counts = agentCounts(others)
   const heads = headsOf(shape)
 
   const select = (index: number, direction: 1 | -1) => {
@@ -223,7 +223,7 @@ export function AgentsDock() {
                 <AnimatePresence initial={false} custom={present}>
                   {/* The agents that come and go start under their count, and under a line when durable hobkins sit above. */}
                   {heads.line === null ? null : <GroupLine key="line" still={still} top={heads.line} />}
-                  {heads.head === null ? null : <OthersHead key="head:others" still={still} top={heads.head} count={others.length} waiting={waiting} />}
+                  {heads.head === null ? null : <OthersHead key="head:others" still={still} top={heads.head} count={othersCount(counts)} needYou={counts.needYou} />}
                   {rowsInView(shape, scrollTop, at).map((index) => {
                     const agent = agents[index]!
                     return (
@@ -271,7 +271,8 @@ interface AgentRowProps {
  */
 const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, listId: id, list, openAgentCanvas, openTiers }: AgentRowProps) {
   const asks = agent.asks
-  const waits = agent.durable?.state === 'waiting'
+  // A durable hobkin between turns, or a run waiting for its time: its face holds still and its label says it waits.
+  const waits = atRest(agent)
   return (
     <motion.div
       layout={still ? false : 'position'}
@@ -279,7 +280,7 @@ const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, li
       id={`${id}-${agent.id}`}
       role="option"
       aria-selected={selected}
-      aria-label={asks ? `${agent.title}, waiting for you: ${asks}` : waits ? `${agent.title}, waiting` : undefined}
+      aria-label={asks ? `${agent.title}, waiting for you: ${asks}` : waits ? `${agent.title}, ${agent.waits ? agent.doing : 'waiting'}` : undefined}
       aria-describedby={`${id}-${agent.id}-children`}
       data-agent-row={agent.id}
       data-asking={asks ? true : undefined}
@@ -352,6 +353,9 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
   const waits = agent.durable?.state === 'waiting'
   return asks ? (
       <span className="block truncate text-[11px] text-muted-foreground">{asks}</span>
+    ) : agent.waits ? (
+      // A run waiting for its time: until when, then its note, in the same one line.
+      <span className="block truncate text-[11px] text-muted-foreground">{waitingRowWords(agent, update)}</span>
     ) : waits ? (
       // Waiting for the next message, with what it said last. One the user has not looked at says so a little louder.
       <span className="block truncate text-[11px] text-muted-foreground">
@@ -412,15 +416,18 @@ const GroupLine = memo(function GroupLine({ still, top }: { still: boolean; top:
   )
 })
 
-/** The header over the agents that come and go: how many work, and how many need the user. Draws again only for those two. */
-const OthersHead = memo(function OthersHead({ still, top, count, waiting }: { still: boolean; top: number; count: number; waiting: number }) {
+/**
+ * The header over the agents that come and go: how many work, how many wait for their time when some do, and how many
+ * need the user. Draws again only for those.
+ */
+const OthersHead = memo(function OthersHead({ still, top, count, needYou }: { still: boolean; top: number; count: string; needYou: number }) {
   return (
     <GroupHead still={still} top={top}>
-      <span className="eyebrow">{count} working</span>
-      {waiting ? (
+      <span className="eyebrow">{count}</span>
+      {needYou ? (
         <span className="flex items-center gap-1.5 text-[11px] font-medium text-sun-fg">
           <span aria-hidden="true">·</span>
-          {waiting === 1 ? '1 needs you' : `${waiting} need you`}
+          {needYou === 1 ? '1 needs you' : `${needYou} need you`}
           <Kbd>⌘G</Kbd>
         </span>
       ) : null}

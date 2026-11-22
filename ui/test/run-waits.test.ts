@@ -10,7 +10,7 @@ import { agentsFrom, waitingWords } from '../src/lib/host/frame.ts'
 // The app's `@/` imports point at ui/src, as Vite resolves them.
 registerHooks({ resolve: (specifier, context, next) => next(specifier.startsWith('@/') ? new URL(`../src/${specifier.slice(2)}`, import.meta.url).href : specifier, context) })
 Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: { getItem: () => null, setItem() {}, removeItem() {} } } })
-const { agentCounts } = await import('../src/app/running-agents.ts')
+const { agentCounts, atRest, othersCount, waitingRowWords } = await import('../src/app/running-agents.ts')
 
 const run = (id: string, rest: Partial<RunSummary> = {}): RunSummary => ({ id, title: `Run ${id}`, state: 'running', kind: 'background', cwd: '/fake/app', ...rest })
 const UNTIL = '2026-11-22T00:10:00.000Z'
@@ -48,6 +48,21 @@ test('the agents that wait for their time are counted apart from the ones at wor
   const agents = [...agentsFrom(snapshot), { ...agentsFrom({ runs: [run('r3')] })[0]!, asks: 'Take the update now?' }]
 
   assert.deepEqual(agentCounts(agents), { working: 3, waiting: 1, needYou: 1 })
+})
+
+test("a waiting run's row holds its face still and says until when, then its note or else its project", () => {
+  const [working, waits] = agentsFrom({ runs: [run('r1'), waiting] })
+  const silent = agentsFrom({ runs: [{ ...waiting, waitNote: undefined }] })[0]!
+
+  assert.deepEqual([working, waits].map((agent) => atRest(agent!)), [false, true])
+  assert.equal(waitingRowWords(waits!, waits!.update), `${waitingWords(UNTIL, Date.now())} · Read the monitoring again.`)
+  assert.equal(waitingRowWords(silent, silent.update), `${waitingWords(UNTIL, Date.now())} · app`)
+})
+
+test('the count over the agents says how many work, and how many wait only when some do', () => {
+  assert.equal(othersCount({ working: 3, waiting: 0 }), '3 working')
+  assert.equal(othersCount({ working: 3, waiting: 1 }), '3 working · 1 waiting')
+  assert.equal(othersCount(agentCounts(agentsFrom({ runs: [run('r1'), waiting] }))), '1 working · 1 waiting')
 })
 
 test("Home's chip counts the agents at work, and a card says that a waiting one waits", () => {

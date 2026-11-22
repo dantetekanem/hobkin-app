@@ -266,7 +266,7 @@ function openFromMenu(agentId: string, toward: 1 | -1) {
   requestCanvasFocus()
 }
 
-const labelOf = (agent: RunningAgent) => (agent.asks ? `${agent.title}, waiting for you` : agent.title)
+const labelOf = (agent: RunningAgent) => (agent.asks ? `${agent.title}, waiting for you` : agent.waits ? `${agent.title}, ${agent.doing}` : agent.title)
 
 /** Puts back what the browser scrolled to show a menu agent that took the keyboard past the window's edge (`putBack`). */
 function keepWindowStill(item: Element) {
@@ -422,7 +422,7 @@ const AgentItem = memo(function AgentItem({ agent, index, at, moved, known, stil
           initial={known.current.has(agent.id) ? false : holdStill({ opacity: 0, transform: 'translateY(-18px) scale(0.96)' }, still)}
           animate={{ opacity: 1, transform: 'translateY(0px) scale(1)', transition: agentEntry(still) }}
         >
-          <AgentHood hue={agent.hue} size={20} mood={agent.mood} asking={Boolean(agent.asks)} />
+          <AgentHood hue={agent.hue} size={20} mood={agent.mood} asking={Boolean(agent.asks)} working={!agent.waits} />
         </motion.span>
       </motion.span>
       {active ? (
