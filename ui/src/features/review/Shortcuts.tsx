@@ -20,12 +20,28 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
     title: 'The graph',
     keys: [
       [['/'], 'Find a node by name, path or kind'],
+      [['L'], 'The outline: every unit and file, the folded ones too. Type to filter, ↵ to go there'],
+      [['U', '⇧U'], 'The next node that needs you and is not seen, or the one before'],
+      [['Z'], 'Mark what you are on as seen, or take the mark off. On a group, all it holds'],
+      [['↵'], 'On a group of a large change: open it in place, or close it'],
       [['↑', '↓'], 'The node above or below'],
       [['⇧←', '⇧→'], 'Along a wire to the left or right'],
       [['W'], 'Walk the wires of the focus'],
       [['Y', 'R'], 'Confirm or remove the open wire'],
       [[',', '.'], 'Back and forward through where you jumped'],
       [['↵'], 'Open the code of the focus, with what the change review says about it. Again to close it'],
+    ],
+  },
+  {
+    title: 'The code',
+    keys: [
+      [['V'], 'One column or two'],
+      [['E'], 'More lines around the change'],
+      [['F'], 'The whole file'],
+      [['[', ']'], 'The file before or after, when the step has several'],
+      [['+', '−'], 'A taller or shorter code panel'],
+      [['⇧↑', '⇧↓'], 'Select lines for a note'],
+      [['page up', 'page down'], 'Scroll the code'],
     ],
   },
   {
@@ -50,7 +66,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
   {
     title: 'Leaving',
     keys: [
-      [['esc'], 'One level back: the note being written, the finder, a wire, selected lines, the code, then the review'],
+      [['esc'], 'One level back: the note being written, the finder, a wire, selected lines, the code, an open group, then the review'],
       [['⌘', '?'], 'These shortcuts'],
     ],
   },

@@ -117,6 +117,10 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
   // With code open, Shift with Up and Down selects lines for a note.
   if (session.code && shift && (key === 'ArrowUp' || key === 'ArrowDown')) return effects.panelKey(key, true)
 
+  // U goes to the next node that needs the reviewer and is not seen, and Shift+U to the one before (spec 053). N, which
+  // the spec names, is a comment's; U is the nearest key no other part of the review or its proofs holds.
+  if (key === 'u' || key === 'U') return session.nextUnseen(shift ? -1 : 1), true
+
   const roam = session.mode === 'roam'
   const direction = ARROWS[key]
   if (direction && (shift || roam || direction === 'up' || direction === 'down')) {

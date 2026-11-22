@@ -83,6 +83,8 @@ export interface Session {
   seen: ReadonlySet<string>
   /** The outline is open at the left (`outline/Outline.tsx`). A review in Focus opens with it open, any other without. */
   outline: boolean
+  /** A short word to the reviewer, said again on each press that asks: `key` goes up each time it is said. */
+  notice: { key: number; text: string } | null
 
   step(delta: number): void
   goTo(index: number): void
@@ -164,6 +166,11 @@ export interface Session {
   toggleSeen(nodeId?: string): boolean
   /** L: opens the outline, or closes it. */
   toggleOutline(): void
+  /**
+   * U, and Shift+U back: goes to the next node that needs the reviewer and is not seen, in the host's rank, round from the
+   * end to the start, opening its group when it is folded. Says so when none is left. False when it went nowhere.
+   */
+  nextUnseen(delta: 1 | -1): boolean
   /**
    * Chooses Story or Free Roam, and starts it from the beginning, whichever was on: Story at its first step, Free Roam
    * with the whole graph and nothing in focus. The code closes. The choice is remembered for the next review.
@@ -371,6 +378,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
       fold,
       seen: seenNow(),
       outline: firstView.plan.active,
+      notice: null,
 
       step: (delta) => {
         const { story } = get()
@@ -611,6 +619,23 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         return true
       },
       toggleOutline: () => set({ outline: !get().outline }),
+      nextUnseen: (delta) => {
+        const say = (text: string) => set({ notice: { key: (get().notice?.key ?? 0) + 1, text } })
+        const wanted = review.nodes.filter((node) => node.attention?.tier === 'needs-you').sort((a, b) => a.attention!.rank - b.attention!.rank).map((node) => node.id)
+        if (wanted.length === 0) return say('This review does not say what needs you.'), false
+        const { focus, pointed, view, seen } = get()
+        const here = new Set([...(pointed ? [pointed] : focus)].flatMap((id) => reviewNodesOf(view, id)))
+        const at = delta > 0 ? wanted.findLastIndex((id) => here.has(id)) : wanted.findIndex((id) => here.has(id))
+        const start = at >= 0 ? at : delta > 0 ? -1 : wanted.length
+        for (let step = 1; step <= wanted.length; step += 1) {
+          const id = wanted[(((start + delta * step) % wanted.length) + wanted.length) % wanted.length]!
+          if (seen.has(id) || here.has(id)) continue
+          get().reach(id)
+          return true
+        }
+        say(wanted.some((id) => here.has(id) && !seen.has(id)) ? 'This is the last node that needs you and is not seen yet.' : 'Every node that needs you is seen.')
+        return false
+      },
       toggleGroup: (groupId) => (fold.opened.includes(groupId) ? get().closeGroup(groupId) : get().openGroup(groupId)),
       reach: (nodeId) => {
         const { view } = get()

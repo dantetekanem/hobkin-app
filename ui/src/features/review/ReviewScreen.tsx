@@ -20,7 +20,7 @@ import { Hero, Rise } from '@/app/Reveal.tsx'
 import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import { Button } from '@/components/ui/button.tsx'
-import { Dock } from './Chrome.tsx'
+import { Dock, Notice } from './Chrome.tsx'
 import { clampShare, CodePanel, PANEL_SHARE, panelKey } from './code/CodePanel.tsx'
 import { DevTools } from './dev/DevTools.tsx'
 import { useDev } from './dev/dev.ts'
@@ -382,6 +382,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close, verdict
             <Outline panelHeight={panelHeight} />
             <WireCard />
             <Finder />
+            <Notice />
             <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP) - (outlineOpen ? OUTLINE_ROOM : 0)} ask={ask} units={assessment?.units?.units} />
             <Panel canvas={canvas} loader={loader} live={live} close={close} verdict={verdict} ask={ask} landed={landed} />
             <CodePanel height={panelHeight} windowHeight={windowHeight} units={assessment?.units?.units} ask={ask} />

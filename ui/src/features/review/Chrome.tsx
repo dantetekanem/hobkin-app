@@ -1,5 +1,6 @@
 import { Maximize, RotateCcw } from 'lucide-react'
-import { motion, useTransform } from 'motion/react'
+import { AnimatePresence, motion, useTransform } from 'motion/react'
+import { useEffect, useState } from 'react'
 import type { Unit } from '#shared/review/assessment.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
@@ -10,6 +11,43 @@ import { NoteInput } from './panel/notes.tsx'
 import { useReduced, useReviewMemory, useRig, useSession, useSessionStore } from './state/context.tsx'
 import { MODE_KEYS, type ReviewMode } from './story/mode.ts'
 import { Rail } from './story/Rail.tsx'
+
+/** How long a word from the review stays before it goes by itself. */
+const NOTICE_MS = 2600
+
+/**
+ * A short word from the review, such as that every node that needs the reviewer is seen (spec 053): under the frame's
+ * menus, in the middle of what the panels leave uncovered, and gone by itself. Each press that asks says it again.
+ */
+export function Notice() {
+  const rig = useRig()
+  const notice = useSession((session) => session.notice)
+  const [shown, setShown] = useState(notice)
+  useEffect(() => {
+    if (!notice) return
+    setShown(notice)
+    const gone = setTimeout(() => setShown(null), NOTICE_MS)
+    return () => clearTimeout(gone)
+  }, [notice])
+  const place = useTransform(() => `translateX(calc(-50% + ${(rig.side.get() + rig.outline.get()) / 2}px))`)
+  return (
+    <motion.div role="status" className="pointer-events-none absolute top-[120px] left-1/2 z-30" style={{ transform: place }}>
+      <AnimatePresence>
+        {shown ? (
+          <motion.p
+            key={shown.key}
+            className="rv-float flex h-9 items-center rounded-full px-4 font-heading text-[14px] font-medium whitespace-nowrap"
+            initial={{ opacity: 0, transform: 'translateY(-6px) scale(0.98)' }}
+            animate={{ opacity: 1, transform: 'translateY(0px) scale(1)', transition: tween.enter }}
+            exit={{ opacity: 0, transition: tween.exit }}
+          >
+            {shown.text}
+          </motion.p>
+        ) : null}
+      </AnimatePresence>
+    </motion.div>
+  )
+}
 
 /** Where the dock rises from. Under reduced motion it only fades in, where it rests. */
 const BELOW = 'translateY(26px) scale(0.98)'
