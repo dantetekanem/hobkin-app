@@ -108,7 +108,9 @@ test('a review opens with every node saying how much attention it asks for, why,
   // What the change review did not rate still has a kind and a tier, from what is known of its file.
   const kinds = Object.fromEntries(['pnpm-lock.yaml', 'config/locales/en.yml', 'README.md', 'dist/bundle.js', 'src/new.ts', 'src/spaced.ts'].map((path) => [path, nodes.find((node) => node.subtitle === path)?.bucket]))
   assert.deepEqual(kinds, { 'pnpm-lock.yaml': 'lockfile', 'config/locales/en.yml': 'locale', 'README.md': 'docs', 'dist/bundle.js': 'generated', 'src/new.ts': 'moved', 'src/spaced.ts': 'format' })
-  for (const path of Object.keys(kinds)) assert.equal(nodes.find((node) => node.subtitle === path)?.attention?.tier, 'safe', path)
+  // Safe by its kind alone only when nobody reads it line by line; anything else the review did not rate is worth a look.
+  const tiers = Object.fromEntries(Object.keys(kinds).map((path) => [path, nodes.find((node) => node.subtitle === path)?.attention?.tier]))
+  assert.deepEqual(tiers, { 'pnpm-lock.yaml': 'safe', 'config/locales/en.yml': 'safe', 'dist/bundle.js': 'safe', 'README.md': 'worth-a-look', 'src/new.ts': 'worth-a-look', 'src/spaced.ts': 'worth-a-look' })
   assert.equal(nodes.find((node) => node.kind === 'test')?.bucket, 'test')
 
   // Every node has its place, from 1, and the reviewer's go first.

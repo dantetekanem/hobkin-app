@@ -122,14 +122,23 @@ function midWords(facts: RatedFacts): string {
   return 'Nothing shows it safe or risky, so it gets a look.'
 }
 
-/** Why a file the change review did not rate is safe, by its kind. */
+/** Why a file the change review did not rate is safe: only what a person reads at a glance, by its kind. */
 const SAFE_BUCKETS: Partial<Record<NodeBucket, string>> = {
   lockfile: 'A lockfile: the package manager writes it.',
   generated: 'Generated or vendored: nobody writes it by hand.',
   locale: 'Words for the app, in a locale file.',
-  docs: 'Docs or media: nothing in it runs.',
-  moved: 'Moved, with no other change.',
-  format: 'Only whitespace or formatting changed.',
+}
+
+/** Why a file the change review did not rate is still worth a look, by its kind. */
+const UNRATED_BUCKETS: Record<NodeBucket, string> = {
+  lockfile: '',
+  generated: '',
+  locale: '',
+  moved: 'It looks moved, with no other change: check it arrived whole.',
+  format: 'It looks like only formatting changed: check nothing else did.',
+  docs: 'Docs or media the AI review did not rate.',
+  test: 'A test file the AI review did not rate.',
+  code: 'The AI review did not rate it, so give it a look.',
 }
 
 /** What is known of a node the change review did not rate: a test's run, an acceptance line's proof, a file's kind. */
@@ -144,8 +153,7 @@ function unratedReasons({ kind, bucket, change, status, warning }: AttentionInpu
     return status === 'not-run' ? [look(15, 'This test did not run.')] : []
   }
   const safe = SAFE_BUCKETS[bucket]
-  if (safe) return [note(1, safe)]
-  return bucket === 'test' ? [] : [look(10, 'The AI review did not rate it, so give it a look.')]
+  return safe ? [note(1, safe)] : [look(10, UNRATED_BUCKETS[bucket])]
 }
 
 /** A node's tier and its reasons, the strongest first. A node over several definitions takes the worst of them. */
@@ -185,63 +193,129 @@ export interface BucketFile {
   head?: string | null
 }
 
-/** Files whose indent is part of what the code does, so a change in it is a change. */
-const INDENTED = /\.(py|pyi|ya?ml|haml|slim|pug|jade|sass|styl|coffee|nim)$|(^|\/)(GNUmakefile|Makefile)$|\.mk$/i
+/**
+ * Languages where neither the indent nor the spacing between tokens can change what the code does, and whose strings and
+ * comments the tokenizer below knows (line and block comments, and quotes). Only these can be `format`: in any other, as Python,
+ * YAML, Haskell, a shell script, CSS or JSX, a change in spacing can be a change.
+ */
+const SPACING_FREE = /\.(js|mjs|cjs|ts|mts|cts|json|java|cs|rs|go)$/i
+/** Of those, the ones where `/` can open a regular expression, whose spaces count. */
+const REGEX_OPENS = /\.(js|mjs|cjs|ts|mts|cts)$/i
 
-/** A line as a move matches it: its indent counts only where the indent means something. */
-const lineKey = (path: string) => (INDENTED.test(path) ? (line: string) => line.trimEnd() : (line: string) => line.trim())
-
-/** The fewest lines with words in them that make a move: one line that matches a line elsewhere is a change. */
-const MOVE_LINES = 2
-
-/** Every non-blank line a file adds and removes. */
-function changedLines(file: BucketFile): { added: string[]; removed: string[] } | null {
-  if (file.binary || (file.base == null && file.head == null)) return null
-  const key = lineKey(file.path)
-  const added: string[] = []
-  const removed: string[] = []
-  for (const row of alignRows(file.base ?? '', file.head ?? '')) {
-    if (row.kind === 'equal') continue
-    if (row.kind !== 'insert' && row.oldText.trim()) removed.push(key(row.oldText))
-    if (row.kind !== 'delete' && row.newText.trim()) added.push(key(row.newText))
+/**
+ * A text's tokens as `onlyFormat` compares them: words, runs of punctuation, string and comment literals whole, and a
+ * line break where lines break between tokens, since a line break can end a statement. Null when it cannot be sure, as
+ * for a `/` that may open a regular expression.
+ */
+function tokensOf(text: string, regex: boolean): string[] | null {
+  const tokens: string[] = []
+  let at = 0
+  const take = (end: number) => {
+    tokens.push(text.slice(at, end))
+    at = end
   }
-  return { added, removed }
+  while (at < text.length) {
+    const char = text[at]!
+    const next = text[at + 1]
+    if (char === '\n') {
+      if (tokens.length && tokens.at(-1) !== '\n') tokens.push('\n')
+      at += 1
+    } else if (/\s/.test(char)) at += 1
+    else if (char === '/' && next === '/') {
+      const end = text.indexOf('\n', at)
+      take(end < 0 ? text.length : end)
+    } else if (char === '/' && next === '*') {
+      const end = text.indexOf('*/', at + 2)
+      take(end < 0 ? text.length : end + 2)
+    } else if (char === '"' || char === "'" || char === '`') {
+      let end = at + 1
+      while (end < text.length && text[end] !== char) end += text[end] === '\\' ? 2 : 1
+      take(Math.min(end + 1, text.length))
+    } else if (/\w/.test(char)) {
+      let end = at
+      while (end < text.length && /\w/.test(text[end]!)) end += 1
+      take(end)
+    } else {
+      let end = at
+      while (end < text.length && !/[\s\w"'`]/.test(text[end]!) && !(text[end] === '/' && (text[end + 1] === '/' || text[end + 1] === '*'))) end += 1
+      if (regex && text.slice(at, end).includes('/')) return null
+      take(Math.max(end, at + 1))
+    }
+  }
+  if (tokens.at(-1) === '\n') tokens.pop()
+  return tokens
 }
 
-const counted = (lines: readonly string[]) => {
+/** Both sides have the same tokens, line by line, in a language where spacing between them means nothing. */
+function onlyFormat(file: BucketFile): boolean {
+  if (file.base == null || file.head == null || file.base === file.head || !SPACING_FREE.test(file.path)) return false
+  const regex = REGEX_OPENS.test(file.path)
+  const [before, after] = [tokensOf(file.base, regex), tokensOf(file.head, regex)]
+  return before != null && after != null && before.length === after.length && before.every((token, index) => token === after[index])
+}
+
+/** The fewest lines with words in them a block needs to be a move: a line or two that match lines elsewhere are a change. */
+const MOVE_LINES = 3
+
+/**
+ * The blocks of lines a file removes and adds, each a run of consecutive lines at one place, with its indent and without
+ * blank lines at its ends. Blank lines the diff kept between two runs do not part them.
+ */
+function blocksOf(file: BucketFile): { removed: string[]; added: string[] } | null {
+  if (file.binary || (file.base == null && file.head == null)) return null
+  const removed: string[] = []
+  const added: string[] = []
+  let gone: string[] = []
+  let come: string[] = []
+  const close = () => {
+    const key = (lines: string[]) => lines.join('\n').replace(/^\n+|\n+$/g, '')
+    if (key(gone)) removed.push(key(gone))
+    if (key(come)) added.push(key(come))
+    gone = []
+    come = []
+  }
+  for (const row of alignRows(file.base ?? '', file.head ?? '')) {
+    if (row.kind === 'equal') {
+      if (row.oldText.trim()) close()
+      continue
+    }
+    if (row.kind !== 'insert') gone.push(row.oldText.trimEnd())
+    if (row.kind !== 'delete') come.push(row.newText.trimEnd())
+  }
+  close()
+  return { removed, added }
+}
+
+const counted = (blocks: readonly string[]) => {
   const counts = new Map<string, number>()
-  for (const line of lines) counts.set(line, (counts.get(line) ?? 0) + 1)
+  for (const block of blocks) counts.set(block, (counts.get(block) ?? 0) + 1)
   return counts
 }
 
-/** Whether every line is among `pool`, as often as it comes. */
-const within = (lines: readonly string[], pool: ReadonlyMap<string, number>) => [...counted(lines)].every(([line, times]) => (pool.get(line) ?? 0) >= times)
+/** Whether every block is among `pool`, as often as it comes. */
+const within = (blocks: readonly string[], pool: ReadonlyMap<string, number>) => [...counted(blocks)].every(([block, times]) => (pool.get(block) ?? 0) >= times)
 
-/** Both sides are the same once whitespace is set aside: around punctuation, in runs, at line ends, and, where it means nothing, the indent. */
-function onlyFormat(file: BucketFile): boolean {
-  if (file.base == null || file.head == null || file.base === file.head) return false
-  const squeezed = INDENTED.test(file.path)
-    ? (text: string) => text.split(/\r\n|\r|\n/).map((line) => line.trimEnd()).filter(Boolean).join('\n')
-    : (text: string) => text.replace(/\s+/g, ' ').replace(/ ?([^\w\s]) ?/g, '$1').trim()
-  return squeezed(file.base) === squeezed(file.head)
-}
+/** A block big enough to be a move: at least `MOVE_LINES` lines with words in them. */
+const sizable = (block: string) => block.split('\n').filter((line) => /\w.*\w/.test(line)).length >= MOVE_LINES
 
 /**
- * Each changed file's bucket, by path. A lockfile, a generated or vendored file, a locale file and docs keep the kind
- * their path names. Otherwise a file renamed and nothing more, or whose every added and removed line is a line the
- * change removes or adds somewhere, is `moved`; one that changed only in whitespace is `format`.
+ * Each changed file's bucket. A lockfile, a generated or vendored file, a locale file and docs keep the kind their path
+ * names. Otherwise a file is `moved` when it was renamed and nothing more, or when each block of lines it removes or adds
+ * is a block of several lines that arrives whole, at the same indent, at another place in the change, or leaves one; and
+ * `format` when it has the same tokens on both sides in a language where spacing means nothing. When in doubt, it is what
+ * its path says: code or a test.
  */
 export function fileBuckets(files: readonly BucketFile[]): Map<string, NodeBucket> {
-  const lines = files.map((file) => ({ file, changed: changedLines(file) }))
-  const added = counted(lines.flatMap(({ changed }) => changed?.added ?? []))
-  const removed = counted(lines.flatMap(({ changed }) => changed?.removed ?? []))
+  const blocks = files.map((file) => ({ file, changed: blocksOf(file) }))
+  const added = counted(blocks.flatMap(({ changed }) => changed?.added ?? []))
+  const removed = counted(blocks.flatMap(({ changed }) => changed?.removed ?? []))
   return new Map(
-    lines.map(({ file, changed }): [string, NodeBucket] => {
+    blocks.map(({ file, changed }): [string, NodeBucket] => {
       const byPath = pathBucket(file.path, file.binary)
       if (byPath === 'lockfile' || byPath === 'generated' || byPath === 'locale' || byPath === 'docs') return [file.path, byPath]
       if (file.status === 'renamed' && file.additions === 0 && file.deletions === 0) return [file.path, 'moved']
-      const wordy = changed ? [...changed.added, ...changed.removed].filter((line) => /\w.*\w/.test(line)).length : 0
-      if (changed && wordy >= MOVE_LINES && within(changed.added, removed) && within(changed.removed, added)) return [file.path, 'moved']
+      const moves = changed && changed.removed.length + changed.added.length > 0 && [...changed.removed, ...changed.added].every(sizable)
+      if (moves && within(changed.removed, added) && within(changed.added, removed)) return [file.path, 'moved']
       if (onlyFormat(file)) return [file.path, 'format']
       return [file.path, byPath]
     }),

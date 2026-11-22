@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { attentionOf, detailOrder, fileBuckets, pathBucket, rankAttention, type AttentionInput, type RatedFacts } from '../review/attention.ts'
+import { attentionOf, detailOrder, fileBuckets, pathBucket, rankAttention, type AttentionInput, type BucketFile, type RatedFacts } from '../review/attention.ts'
+import type { NodeBucket } from '../review/types.ts'
 
 const code = (rated: RatedFacts[], more: Partial<AttentionInput> = {}): AttentionInput => ({ kind: 'code', bucket: 'code', change: 'modified', size: 4, rated, ...more })
 const rated = (more: Partial<RatedFacts>): RatedFacts => ({ level: 'safe', critical: false, effect: 'behaviour', proof: 'lifecycle', ...more })
@@ -42,15 +43,20 @@ test('mid and what is unverified are worth a look; the rest is safe, and says wh
 
   assert.deepEqual(attentionOf(code([rated({})])), { tier: 'safe', strength: 0, reasons: [] }, 'shown working through a request')
   assert.deepEqual(attentionOf(code([rated({ effect: 'text', proof: 'not-applicable' })])).reasons, ['Only comments or whitespace changed.'])
+  // Not rated, a file is safe by its kind only when nobody reads it line by line: generated files, lockfiles and locale files.
   const safe: [AttentionInput['bucket'], string][] = [
     ['lockfile', 'A lockfile: the package manager writes it.'],
     ['generated', 'Generated or vendored: nobody writes it by hand.'],
     ['locale', 'Words for the app, in a locale file.'],
-    ['docs', 'Docs or media: nothing in it runs.'],
-    ['moved', 'Moved, with no other change.'],
-    ['format', 'Only whitespace or formatting changed.'],
   ]
   for (const [bucket, reason] of safe) assert.deepEqual(attentionOf(code([], { kind: 'file', bucket })), { tier: 'safe', strength: 1, reasons: [reason] }, bucket)
+  const unrated: [AttentionInput['bucket'], string][] = [
+    ['moved', 'It looks moved, with no other change: check it arrived whole.'],
+    ['format', 'It looks like only formatting changed: check nothing else did.'],
+    ['docs', 'Docs or media the AI review did not rate.'],
+    ['test', 'A test file the AI review did not rate.'],
+  ]
+  for (const [bucket, reason] of unrated) assert.deepEqual([attentionOf(code([], { kind: 'file', bucket })).tier, attentionOf(code([], { kind: 'file', bucket })).reasons], ['worth-a-look', [reason]], bucket)
   assert.equal(attentionOf({ kind: 'context', bucket: 'code', change: 'unchanged', size: 0, rated: [] }).tier, 'safe', 'context changed nothing')
   assert.equal(attentionOf({ kind: 'test', bucket: 'test', change: 'modified', size: 3, status: 'proves-change', rated: [] }).tier, 'safe')
   assert.equal(attentionOf({ kind: 'criterion', bucket: 'docs', change: 'unchanged', size: 0, status: 'proven', rated: [] }).tier, 'safe')
@@ -109,35 +115,79 @@ test("a file's bucket is what its path says it is: a lockfile, generated or vend
   for (const [path, bucket] of cases) assert.equal(pathBucket(path), bucket, path)
 })
 
-test('a file whose lines only moved, or that was renamed and nothing more, is moved; one that changed only in whitespace is format', () => {
-  const total = ['export function total(items) {', '  return items.reduce((sum, item) => sum + item.price, 0)', '}', '']
-  const tax = ['export function tax(amount) {', '  return Math.round(amount * 0.13)', '}', '']
+const linesOf = (...lines: string[]) => `${lines.join('\n')}\n`
+const TOTAL = ['export function total(items) {', '  const sum = items.reduce((all, item) => all + item.price, 0)', '  const tax = Math.round(sum * 0.13)', '  return sum + tax', '}']
+const TAX = ['export function rate(region) {', '  const found = RATES[region]', '  if (!found) throw new Error(`no rate for ${region}`)', '  return found', '}']
+
+test('a file is moved only when it was renamed and nothing more, or each block it removes or adds is several lines that arrive whole at the same indent elsewhere', () => {
   const buckets = fileBuckets([
-    // `total` moved from cart.ts to totals.ts, with nothing else changed in either.
-    { path: 'src/cart.ts', status: 'modified', additions: 0, deletions: 3, base: [...tax, ...total].join('\n'), head: tax.join('\n') },
-    { path: 'src/totals.ts', status: 'added', additions: 3, deletions: 0, base: null, head: total.join('\n') },
-    // Two functions swapped places in one file.
-    { path: 'src/swap.ts', status: 'modified', additions: 3, deletions: 3, base: [...tax, ...total].join('\n'), head: [...total, ...tax].join('\n') },
+    // `total` left cart.ts and arrived whole in totals.ts, and nothing else changed in either.
+    { path: 'src/cart.ts', status: 'modified', additions: 0, deletions: 5, base: linesOf(...TAX, '', ...TOTAL), head: linesOf(...TAX) },
+    { path: 'src/totals.ts', status: 'added', additions: 5, deletions: 0, base: null, head: linesOf(...TOTAL) },
+    // Two whole functions changed places in one file.
+    { path: 'src/swap.ts', status: 'modified', additions: 5, deletions: 5, base: linesOf(...TAX, '', ...TOTAL), head: linesOf(...TOTAL, '', ...TAX) },
     { path: 'src/old-name.ts', status: 'renamed', additions: 0, deletions: 0 },
-    { path: 'src/spaced.ts', status: 'modified', additions: 1, deletions: 1, base: 'export const f = (a,b) => a+b\n', head: 'export const f = (a, b) => a + b\n' },
-    // In Python the indent is the block, so a line that moved into it is a change.
-    { path: 'tools/run.py', status: 'modified', additions: 1, deletions: 1, base: 'if ready:\n    start()\nstop()\n', head: 'if ready:\n    start()\n    stop()\n' },
-    { path: 'src/real.ts', status: 'modified', additions: 1, deletions: 1, base: 'export const rate = 0.13\n', head: 'export const rate = 0.15\n' },
-    // A line that happens to match a line elsewhere is no move.
-    { path: 'src/small.ts', status: 'modified', additions: 1, deletions: 0, base: 'export const a = 1\n', head: 'export const a = 1\n}\n' },
     { path: 'pnpm-lock.yaml', status: 'renamed', additions: 0, deletions: 0 },
   ])
-  assert.deepEqual(Object.fromEntries(buckets), {
-    'src/cart.ts': 'moved',
-    'src/totals.ts': 'moved',
-    'src/swap.ts': 'moved',
-    'src/old-name.ts': 'moved',
-    'src/spaced.ts': 'format',
-    'tools/run.py': 'code',
-    'src/real.ts': 'code',
-    'src/small.ts': 'code',
-    'pnpm-lock.yaml': 'lockfile',
-  })
+  assert.deepEqual(Object.fromEntries(buckets), { 'src/cart.ts': 'moved', 'src/totals.ts': 'moved', 'src/swap.ts': 'moved', 'src/old-name.ts': 'moved', 'pnpm-lock.yaml': 'lockfile' })
+
+  const changes: [string, NodeBucket, BucketFile[]][] = [
+    // One line that moved, counted once where it left and once where it arrived, is still one line.
+    ['one moved line', 'code', [{ path: 'src/rate.ts', status: 'modified', additions: 1, deletions: 1, base: linesOf('export const rate = 0.13', 'export const cap = 10'), head: linesOf('export const cap = 10', 'export const rate = 0.13') }]],
+    // The order of two calls is what the code does.
+    ['two calls swapped', 'code', [{ path: 'src/save.ts', status: 'modified', additions: 1, deletions: 1, base: linesOf('export function store(x) {', '  validate(x)', '  save(x)', '}'), head: linesOf('export function store(x) {', '  save(x)', '  validate(x)', '}') }]],
+    // An error check that one file drops and another gains is a change in both.
+    [
+      'an error check gone from one file and added to another',
+      'code',
+      [
+        { path: 'pkg/a.go', status: 'modified', additions: 0, deletions: 3, base: 'func A() error {\n\terr := run()\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn nil\n}\n', head: 'func A() error {\n\terr := run()\n\treturn nil\n}\n' },
+        { path: 'pkg/b.go', status: 'modified', additions: 3, deletions: 0, base: 'func B() error {\n\terr := run()\n\treturn nil\n}\n', head: 'func B() error {\n\terr := run()\n\tif err != nil {\n\t\treturn err\n\t}\n\treturn nil\n}\n' },
+      ],
+    ],
+    // Lines that left an `if` block for the code after it run every time now.
+    [
+      'lines moved out of a block',
+      'code',
+      [
+        {
+          path: 'src/run.ts',
+          status: 'modified',
+          additions: 4,
+          deletions: 4,
+          base: linesOf('export function run(ready) {', '  if (ready) {', '    start(ready)', "    log('started', ready)", '    count += ready.size', '  }', '}'),
+          head: linesOf('export function run(ready) {', '  if (ready) {', '  }', '  start(ready)', "  log('started', ready)", '  count += ready.size', '}'),
+        },
+      ],
+    ],
+  ]
+  for (const [why, bucket, files] of changes) for (const [path, found] of fileBuckets(files)) assert.equal(found, bucket, `${why}: ${path}`)
+})
+
+test('a file is format only when its tokens are the same outside strings and comments, in a language where spacing between them means nothing', () => {
+  const one = (path: string, base: string, head: string) => fileBuckets([{ path, status: 'modified', additions: 1, deletions: 1, base, head }]).get(path)
+  assert.equal(one('src/spaced.ts', 'export const f = (a,b) => a+b\n', 'export const f = (a, b) => a + b\n'), 'format')
+  assert.equal(one('pkg/x.go', 'func f() int {\n\tx:=1\n\treturn x\n}\n', 'func f() int {\n\tx := 1\n\n\treturn x\n}\n'), 'format')
+  assert.equal(one('data/rates.json', '{"on":true,"rate":0.13}\n', '{ "on": true, "rate": 0.13 }\n'), 'format')
+
+  const code: [string, string, string, string][] = [
+    ['a space inside a shell command', 'bin/clean.sh', 'rm -rf /tmp/cache\n', 'rm -rf / tmp/cache\n'],
+    ['a space inside a string', 'src/clean.ts', "run('rm -rf /tmp/cache')\n", "run('rm -rf / tmp/cache')\n"],
+    ['a comment that changed', 'src/note.ts', '// keep the cache\nrun()\n', '// keep the  cache\nrun()\n'],
+    ['two operators that now read as one', 'src/sum.ts', 'export const s = a + +b\n', 'export const s = a ++b\n'],
+    ['a line break that ends a statement', 'src/ret.ts', 'function f() {\n  return x\n}\n', 'function f() {\n  return\n  x\n}\n'],
+    ['a regular expression', 'src/match.ts', 'export const r = / a /\n', 'export const r = /a/\n'],
+    ['a selector', 'web/site.css', 'a:hover { color: red }\n', 'a :hover { color: red }\n'],
+    ['text between tags', 'web/Page.tsx', 'export const P = () => <p><b>x</b> y</p>\n', 'export const P = () => <p><b>x</b>y</p>\n'],
+    ['Python', 'tools/run.py', 'if ready:\n    start()\nstop()\n', 'if ready:\n    start()\n    stop()\n'],
+    ['GDScript', 'game/player.gd', 'func _ready():\n\tstart()\nstop()\n', 'func _ready():\n\tstart()\n\tstop()\n'],
+    ['Bazel', 'BUILD', 'cc_library(name = "a")\n', 'cc_library(name="a")\n'],
+    ['Starlark', 'tools/defs.bzl', 'def f():\n    return 1\n', 'def f():\n  return 1\n'],
+    ['Haskell', 'src/Main.hs', 'main = do\n  a\n  b\n', 'main = do\n  a\n    b\n'],
+    ['Elm', 'src/Main.elm', 'main =\n  text "a"\n', 'main =\n    text "a"\n'],
+    ['F#', 'src/Main.fs', 'let f x =\n    x + 1\n', 'let f x =\n  x + 1\n'],
+  ]
+  for (const [why, path, base, head] of code) assert.equal(one(path, base, head), 'code', why)
 })
 
 test('detail goes to code and tests first, then other files, then generated files, lockfiles, locale files and docs, each the largest change first', () => {
