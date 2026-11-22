@@ -120,6 +120,11 @@ test('the six tiles say what the sketch says from the last 30 days', () => {
   }
 })
 
+test('a tile counts in full with thousands marked', () => {
+  const [waiting] = workTiles({ days: null, waiting: { count: 1284, oldestMs: null }, reviews: null, tokens: null })
+  assert.equal(waiting!.figure, '1,284')
+})
+
 test('a tile with nothing under it reads "no data yet", never 0% or 100%', () => {
   const tiles = workTiles({ days: daysTo('2026-11-21', 30), waiting: { count: 0, oldestMs: null }, reviews: null, tokens: null })
   const byKey = Object.fromEntries(tiles.map((tile) => [tile.key, tile]))

@@ -23,8 +23,8 @@ export const SERIES_COLOR = {
   quiet: 'var(--hb-border-strong)',
   /** One series with nothing to tell apart: tokens, a sparkline. */
   plain: 'var(--hb-border-strong)',
-  /** The newest bar of a sparkline. */
-  now: 'var(--chart-1)',
+  /** The newest bar of a sparkline, in hobkin's yellow as a mark takes it. */
+  now: 'color-mix(in oklab, var(--chart-1) 82%, black)',
   /** A rate line. */
   line: 'var(--chart-3)',
 } as const

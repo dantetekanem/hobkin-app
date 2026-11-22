@@ -187,7 +187,7 @@ export function workTiles(input: TilesInput): Tile[] {
     {
       key: 'waiting',
       label: 'Waiting for you',
-      figure: input.waiting ? String(input.waiting.count) : NO_DATA,
+      figure: input.waiting ? countWords(input.waiting.count) : NO_DATA,
       context: !input.waiting ? '' : input.waiting.count === 0 ? 'none waiting' : input.waiting.oldestMs === null ? 'oldest unknown' : `oldest ${spanWords(input.waiting.oldestMs)}`,
       counts: 'Finished changes waiting for your yes or no now. The bars are the changes that finished each day, over 30 days.',
       series: series((day) => day.finished),
@@ -195,8 +195,8 @@ export function workTiles(input: TilesInput): Tile[] {
     {
       key: 'merged',
       label: period ? 'Merged (30 d)' : 'Merged today',
-      figure: known ? String(merged) : NO_DATA,
-      context: !known ? '' : merged === 0 ? (period ? 'nothing in 30 days' : 'nothing yet today') : `${mergedByItself} by itself`,
+      figure: known ? countWords(merged) : NO_DATA,
+      context: !known ? '' : merged === 0 ? (period ? 'nothing in 30 days' : 'nothing yet today') : `${countWords(mergedByItself)} by itself`,
       counts: `Changes merged ${period ? 'over 30 days' : 'today'}, by itself or on your yes. The bars are the merges of each day, over 30 days.`,
       series: series(merges),
     },
@@ -221,8 +221,8 @@ export function workTiles(input: TilesInput): Tile[] {
     {
       key: 'ai-reviews',
       label: 'AI reviews',
-      ...(input.reviews ? { figure: String(input.reviews.running), after: 'running' } : { figure: NO_DATA }),
-      context: input.reviews ? `${input.reviews.ready} ready · ${input.reviews.failed} failed` : '',
+      ...(input.reviews ? { figure: countWords(input.reviews.running), after: 'running' } : { figure: NO_DATA }),
+      context: input.reviews ? `${countWords(input.reviews.ready)} ready · ${countWords(input.reviews.failed)} failed` : '',
       counts: 'AI reviews running now, and those ready or stopped. The bars are the reviews that answered each day, over 30 days.',
       series: series((day) => day.reviewsSafe + day.reviewsRisky),
     },
