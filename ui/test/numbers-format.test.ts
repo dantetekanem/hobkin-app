@@ -96,13 +96,22 @@ test('the sum of days adds every count', () => {
 })
 
 test('the six tiles say what the sketch says from the last 30 days', () => {
-  const days = daysTo('2026-11-21', 45, (index) => (index === 44 ? { mergedByItself: 4, mergedByYou: 3, tokens: 38_000_000 } : index >= 15 && index < 44 ? { mergedByYou: 1, firstPass: 1 } : { mergedByYou: 5 }))
+  const today = 44
+  const days = daysTo('2026-11-21', 45, (index) => {
+    if (index === today) return { mergedByItself: 4, mergedByYou: 3, tokens: 38_000_000 }
+    // The 29 days before today, the rest of the tiles' 30.
+    if (index >= 15) return { mergedByYou: 1, firstPass: 1 }
+    // Older than 30 days, so no tile counts them.
+    return { mergedByYou: 5 }
+  })
+
   const tiles = workTiles({
     days,
     waiting: { count: 5, oldestMs: 3 * HOUR },
     reviews: { running: 2, ready: 4, failed: 1 },
     tokens: { today: 38_000_000, limit: 100_000_000 },
   })
+
   assert.deepEqual(
     tiles.map(({ key, label, figure, after, context }) => [key, label, figure, after ?? null, context]),
     [

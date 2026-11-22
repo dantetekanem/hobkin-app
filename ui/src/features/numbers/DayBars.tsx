@@ -52,9 +52,9 @@ export const DayBars = memo(function DayBars({ id, title, counts, figure, days, 
   const valueOf = (one: DaySeries) => (active === null ? sum(one.values) : (one.values[active] ?? 0))
   const heading = active === null ? `Last ${count} days` : dayWords(days[active]!, today)
   const most = totals.reduce((best, total, index) => (total > totals[best]! ? index : best), 0)
-  const summary = !ready
-    ? 'No numbers yet.'
-    : `Last ${count} days: ${shown.map(({ one }) => `${words(sum(one.values))} ${one.label}`).join(', ')}.${nothing ? '' : ` Most in a day: ${words(totals[most]!)}, ${dayWords(days[most]!, today)}.`} Left and Right read each day.`
+  const periodWords = shown.map(({ one }) => `${words(sum(one.values))} ${one.label}`).join(', ')
+  const busiestWords = !ready || nothing ? '' : ` Most in a day: ${words(totals[most]!)}, ${dayWords(days[most]!, today)}.`
+  const summary = ready ? `Last ${count} days: ${periodWords}.${busiestWords} Left and Right read each day.` : 'No numbers yet.'
 
   const onPointer = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect()

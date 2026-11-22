@@ -57,7 +57,8 @@ test('the sample has a few empty days, one bad week, and one project with nothin
 
   const nothing = metrics.projects.filter((project) => !project.days.some(busy))
   assert.equal(nothing.length, 1)
-  assert.deepEqual(nothing[0]!.spans, { waitForYou: { median: null, p90: null, count: 0 }, startToMerge: { median: null, p90: null, count: 0 }, aiReview: { median: null, p90: null, count: 0 } })
+  const unmeasured = { median: null, p90: null, count: 0 }
+  assert.deepEqual(nothing[0]!.spans, { waitForYou: unmeasured, startToMerge: unmeasured, aiReview: unmeasured })
 })
 
 test("the sample's spans are measured over the period read, median under p90", () => {

@@ -26,8 +26,8 @@ const tenths = (value: number) => String(Math.round(value * 10) / 10)
 /** A span as "42 min" under an hour, "1.5 h" or "26 h" under two days, then "3 days". Null reads "no data yet". */
 export function spanWords(ms: number | null): string {
   if (ms === null || !Number.isFinite(ms)) return NO_DATA
-  const minutes = Math.round(ms / MINUTE_MS)
   if (ms < MINUTE_MS) return 'under 1 min'
+  const minutes = Math.round(ms / MINUTE_MS)
   if (minutes < 60) return `${minutes} min`
   const hours = ms / HOUR_MS
   if (hours < 10) return `${tenths(hours)} h`
@@ -95,7 +95,9 @@ const COUNTS = Object.keys(emptyMetricsDay('')).filter((key) => key !== 'day') a
 /** Every count of `days` added up, as one day named by the first of them. */
 export function sumDays(days: readonly MetricsDay[]): MetricsDay {
   const total = emptyMetricsDay(days[0]?.day ?? '')
-  for (const day of days) for (const key of COUNTS) total[key] += day[key]
+  for (const day of days) {
+    for (const key of COUNTS) total[key] += day[key]
+  }
   return total
 }
 
@@ -166,6 +168,21 @@ export interface TilesInput {
 const shareOf = (part: number, whole: number): number | null => (whole > 0 ? part / whole : null)
 const merges = (day: MetricsDay) => day.mergedByItself + day.mergedByYou
 
+/** The waiting tile's line: none waiting, or how long the oldest has waited when the host says. */
+function waitingContext(waiting: TilesInput['waiting']): string {
+  if (!waiting) return ''
+  if (waiting.count === 0) return 'none waiting'
+  if (waiting.oldestMs === null) return 'oldest unknown'
+  return `oldest ${spanWords(waiting.oldestMs)}`
+}
+
+/** The tokens tile's figure, with the day's allowance after it when there is one. */
+function tokensFigure(today: number | null, limit: number | null | undefined): Pick<Tile, 'figure' | 'after'> {
+  if (today === null) return { figure: NO_DATA }
+  if (!limit) return { figure: tokenWords(today) }
+  return { figure: tokenWords(today), after: `of ${tokenWords(limit)}` }
+}
+
 /** The six tiles in their order, with their words, from what Work knows. */
 export function workTiles(input: TilesInput): Tile[] {
   const known = input.days
@@ -181,6 +198,7 @@ export function workTiles(input: TilesInput): Tile[] {
   const mergedDays = period ? days : today ? [today] : []
   const merged = mergedDays.reduce((total, day) => total + merges(day), 0)
   const mergedByItself = mergedDays.reduce((total, day) => total + day.mergedByItself, 0)
+  const nothingMerged = period ? 'nothing in 30 days' : 'nothing yet today'
   const tokensToday = input.tokens?.today ?? today?.tokens ?? null
 
   return [
@@ -188,7 +206,7 @@ export function workTiles(input: TilesInput): Tile[] {
       key: 'waiting',
       label: 'Waiting for you',
       figure: input.waiting ? countWords(input.waiting.count) : NO_DATA,
-      context: !input.waiting ? '' : input.waiting.count === 0 ? 'none waiting' : input.waiting.oldestMs === null ? 'oldest unknown' : `oldest ${spanWords(input.waiting.oldestMs)}`,
+      context: waitingContext(input.waiting),
       counts: 'Finished changes waiting for your yes or no now. The bars are the changes that finished each day, over 30 days.',
       series: series((day) => day.finished),
     },
@@ -196,7 +214,7 @@ export function workTiles(input: TilesInput): Tile[] {
       key: 'merged',
       label: period ? 'Merged (30 d)' : 'Merged today',
       figure: known ? countWords(merged) : NO_DATA,
-      context: !known ? '' : merged === 0 ? (period ? 'nothing in 30 days' : 'nothing yet today') : `${countWords(mergedByItself)} by itself`,
+      context: !known ? '' : merged === 0 ? nothingMerged : `${countWords(mergedByItself)} by itself`,
       counts: `Changes merged ${period ? 'over 30 days' : 'today'}, by itself or on your yes. The bars are the merges of each day, over 30 days.`,
       series: series(merges),
     },
@@ -229,7 +247,7 @@ export function workTiles(input: TilesInput): Tile[] {
     {
       key: 'tokens',
       label: 'Tokens today',
-      ...(tokensToday === null ? { figure: NO_DATA } : { figure: tokenWords(tokensToday), ...(input.tokens?.limit ? { after: `of ${tokenWords(input.tokens.limit)}` } : {}) }),
+      ...tokensFigure(tokensToday, input.tokens?.limit),
       context: tokensToday === null ? '' : 'resets at midnight',
       counts: "Fresh tokens work mode spent today, of the day's allowance. The bars are the tokens of each day, over 30 days.",
       series: series((day) => day.tokens),

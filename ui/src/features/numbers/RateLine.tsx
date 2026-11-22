@@ -47,7 +47,8 @@ export const RateLine = memo(function RateLine({ id, title, counts, figure, poin
   const counted = picked ? picked.count : decided
   const heading = picked ? runWords(picked, today) : count ? `${shortDay(points[0]!.from)} to today` : ''
   const said = `${shareWords(rate)} ${rateLabel}, of ${counted} ${countLabel}`
-  const summary = ready ? `${heading}: ${said}. ${points.filter((point) => point.rate === null).length ? 'A gap means nothing was decided then. ' : ''}Left and Right read each point.` : 'No numbers yet.'
+  const gapWords = points.some((point) => point.rate === null) ? 'A gap means nothing was decided then. ' : ''
+  const summary = ready ? `${heading}: ${said}. ${gapWords}Left and Right read each point.` : 'No numbers yet.'
 
   const onPointer = (event: PointerEvent<HTMLDivElement>) => {
     const box = event.currentTarget.getBoundingClientRect()

@@ -121,11 +121,22 @@ function generate(): Map<string, SampleDay[]> {
       counts.proofsBroken = profile.models && (bad ? random() < 0.5 : random() < 0.03) ? 1 : 0
       counts.questions = poisson(0.2)
       counts.stops = random() < 0.05 ? 1 : 0
-      counts.tokens = today ? today.tokens : Math.round((counts.started * profile.tokensPerRun * (0.6 + 0.8 * random())) / 10_000) * 10_000
+      if (today) {
+        counts.tokens = today.tokens
+      } else {
+        const spent = counts.started * profile.tokensPerRun * (0.6 + 0.8 * random())
+        counts.tokens = Math.round(spent / 10_000) * 10_000
+      }
 
-      for (let change = 0; change < counts.mergedByYou + counts.declined; change += 1) sample.waits.push(spread((bad ? 6 : 2.5) * HOUR_MS, 0.9))
-      for (let change = 0; change < counts.mergedByItself + counts.mergedByYou; change += 1) sample.startToMerge.push(spread((bad ? 11 : 5) * HOUR_MS, 0.7))
-      for (let review = 0; review < answered; review += 1) sample.reviews.push(spread(7 * MINUTE_MS, 0.5))
+      for (let change = 0; change < counts.mergedByYou + counts.declined; change += 1) {
+        sample.waits.push(spread((bad ? 6 : 2.5) * HOUR_MS, 0.9))
+      }
+      for (let change = 0; change < counts.mergedByItself + counts.mergedByYou; change += 1) {
+        sample.startToMerge.push(spread((bad ? 11 : 5) * HOUR_MS, 0.7))
+      }
+      for (let review = 0; review < answered; review += 1) {
+        sample.reviews.push(spread(7 * MINUTE_MS, 0.5))
+      }
     }
   }
   return model
@@ -159,16 +170,26 @@ const EMPTY_DAY: SampleDay = { counts: emptyMetricsDay(''), waits: [], startToMe
  */
 export function sampleMetrics(days = 30, today: Date = new Date()): WorkMetrics {
   const count = Math.min(METRICS_DAYS_MAX, Math.max(1, Math.round(days)))
-  const names = Array.from({ length: count }, (_, index) => localDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() - (count - 1 - index))))
+  const names = Array.from({ length: count }, (_, index) => {
+    const daysBefore = count - 1 - index
+    return localDay(new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysBefore))
+  })
   const window = (slug: string): SampleDay[] => {
     const held = MODEL.get(slug)!.slice(-count)
     return [...Array<SampleDay>(count - held.length).fill(EMPTY_DAY), ...held]
   }
+
   const projects: ProjectMetrics[] = PROFILES.map(({ slug }) => {
     const sample = window(slug)
-    return { slug, name: slug, days: sample.map((day, index) => ({ ...day.counts, day: names[index]! })), spans: spansOf(sample) }
+    return {
+      slug,
+      name: slug,
+      days: sample.map((day, index) => ({ ...day.counts, day: names[index]! })),
+      spans: spansOf(sample),
+    }
   })
   const every = PROFILES.flatMap(({ slug }) => window(slug))
+
   return {
     from: names[0]!,
     to: names.at(-1)!,

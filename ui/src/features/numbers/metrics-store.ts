@@ -83,8 +83,18 @@ export function createMetricsStore(source: MetricsSource, ready = true): Metrics
   let canRead = ready
 
   const entryOf = (days: number): Entry => {
-    let entry = entries.get(days)
-    if (!entry) entries.set(days, (entry = { days, read: LOADING, listeners: new Set(), askedAt: null, asking: false, cancel: null }))
+    const held = entries.get(days)
+    if (held) return held
+
+    const entry: Entry = {
+      days,
+      read: LOADING,
+      listeners: new Set(),
+      askedAt: null,
+      asking: false,
+      cancel: null,
+    }
+    entries.set(days, entry)
     return entry
   }
 
@@ -116,7 +126,10 @@ export function createMetricsStore(source: MetricsSource, ready = true): Metrics
         const held = entry.read.metrics
         settle(entry, { metrics: held && sameMetrics(held, metrics) ? held : metrics, state: 'ready' })
       },
-      (error: unknown) => settle(entry, isOlderHost(error) ? { metrics: null, state: 'older-host' } : { metrics: entry.read.metrics, state: 'failed' }),
+      (error: unknown) => {
+        if (isOlderHost(error)) settle(entry, { metrics: null, state: 'older-host' })
+        else settle(entry, { metrics: entry.read.metrics, state: 'failed' })
+      },
     ).finally(() => {
       entry.asking = false
       keep(entry)

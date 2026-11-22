@@ -19,6 +19,14 @@ export interface SpanPairProps {
   onOpen?: () => void
 }
 
+/** What a reader hears after the card's title: the two figures and how many were measured, or why there are none. */
+function spanReading(span: MetricsSpan | null, status: ChartStatus, note: string | undefined, countLabel: string): string {
+  if (status === 'loading') return 'reading the numbers'
+  if (status !== 'ready') return note ?? NO_DATA
+  if (span === null || span.count === 0) return NO_DATA
+  return `median ${spanWords(span.median)}, 9 in 10 within ${spanWords(span.p90)}, of ${span.count} ${countLabel}`
+}
+
 /**
  * How long something takes, as two figures: the median, and the time 9 in 10 finish within (p90), with how many were
  * measured. Nothing measured reads "no data yet". A card of one size whatever it holds; two stacked are as tall as a
@@ -28,7 +36,7 @@ export const SpanPair = memo(function SpanPair({ id, title, counts, span, countL
   const said = useId()
   const ready = status === 'ready'
   const measured = ready && span !== null && span.count > 0
-  const name = !ready ? `${title}: ${status === 'loading' ? 'reading the numbers' : (note ?? NO_DATA)}` : measured ? `${title}: median ${spanWords(span.median)}, 9 in 10 within ${spanWords(span.p90)}, of ${span.count} ${countLabel}` : `${title}: ${NO_DATA}`
+  const name = `${title}: ${spanReading(span, status, note, countLabel)}`
   const body = (
     <>
       <span className="flex h-6 min-w-0 items-center gap-3">
@@ -52,7 +60,7 @@ export const SpanPair = memo(function SpanPair({ id, title, counts, span, countL
     </>
   )
   // The box is a plain block with the column inside at its own height: WebKit lays a button's content out in a box of
-// its own, where neither a flex column nor a height in percent reaches the button's height.
+  // its own, where neither a flex column nor a height in percent reaches the button's height.
   const box = 'block h-[124px] w-full min-w-0 rounded-2xl bg-background px-4 py-3 text-left select-none'
   return (
     <figure id={id} className="m-0 min-w-0">

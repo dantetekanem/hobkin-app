@@ -84,7 +84,9 @@ const STEPS = [1, 2, 4, 6, 8, 10] as const
 export function niceMax(most: number): number {
   if (!(most > 0)) return 1
   const power = 10 ** Math.floor(Math.log10(most))
-  for (const step of STEPS) if (most <= step * power) return step * power
+  for (const step of STEPS) {
+    if (most <= step * power) return step * power
+  }
   return 10 * power
 }
 
@@ -92,7 +94,11 @@ export function niceMax(most: number): number {
 export const ticksOf = (top: number): number[] => (top <= 1 ? [0, top] : [0, top / 2, top])
 
 /** Which column of `count` a point at `x` of `width` falls in. */
-export const columnAt = (x: number, width: number, count: number): number => (width > 0 && count > 0 ? Math.min(count - 1, Math.max(0, Math.floor((x / width) * count))) : 0)
+export function columnAt(x: number, width: number, count: number): number {
+  if (!(width > 0 && count > 0)) return 0
+  const column = Math.floor((x / width) * count)
+  return Math.min(count - 1, Math.max(0, column))
+}
 
 /** The column a Left or Right key moves to, held inside the chart. Null when the key is neither. */
 export function stepColumn(key: string, at: number | null, count: number): number | null {

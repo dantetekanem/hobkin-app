@@ -28,6 +28,13 @@ const PERIOD_OPTIONS = NUMBERS_PERIODS.map((days) => ({ value: String(days) as `
 
 const NO_DAYS: string[] = []
 
+/** What the line beside the period switch says about a read that failed or that an older host answered. */
+function readTrouble(state: MetricsReadState, hasNumbers: boolean): string | null {
+  if (state === 'failed') return hasNumbers ? 'The last read failed. These are the numbers read before it.' : READ_WORDS.failed
+  if (state === 'older-host') return 'This host sends no numbers yet: it is older than this window. They show once hobkin restarts.'
+  return null
+}
+
 /**
  * The Numbers tab (_specs/053-work-control-room, the Numbers sketch): the period switch, then merged by day, the first
  * pass rate beside the waits, AI reviews beside proofs, tokens, and the table of projects. A chart with something
@@ -41,18 +48,8 @@ export const NumbersBoard = memo(function NumbersBoard({ metrics, state, period,
   const status: ChartStatus = board ? 'ready' : state === 'loading' ? 'loading' : 'no-data'
   const note = board ? undefined : (READ_WORDS[state] ?? undefined)
   const held = board !== null && state === 'loading'
-  const line = [
-    state === 'failed' && board
-      ? 'The last read failed. These are the numbers read before it.'
-      : state === 'older-host'
-        ? 'This host sends no numbers yet: it is older than this window. They show once hobkin restarts.'
-        : state === 'failed'
-          ? READ_WORDS.failed
-          : null,
-    metrics?.gaps.length ? `Not counted: ${metrics.gaps.join('; ')}. The rest still counts.` : null,
-  ]
-    .filter(Boolean)
-    .join(' ')
+  const gapsWords = metrics?.gaps.length ? `Not counted: ${metrics.gaps.join('; ')}. The rest still counts.` : null
+  const line = [readTrouble(state, board !== null), gapsWords].filter(Boolean).join(' ')
 
   const opens = useMemo(
     () => ({

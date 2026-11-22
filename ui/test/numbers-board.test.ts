@@ -13,8 +13,10 @@ test('the board draws the days of its period, the newest last', () => {
     const board = boardOf(metrics, period)
     assert.equal(board.days.length, period)
     assert.equal(board.days.at(-1), '2026-11-21')
-    for (const series of [...board.merged.series, board.merged.line, ...board.reviews.series, ...board.proofs.series, ...board.tokens.series]) assert.equal(series.values.length, period, series.key)
+    const everySeries = [...board.merged.series, board.merged.line, ...board.reviews.series, ...board.proofs.series, ...board.tokens.series]
+    for (const series of everySeries) assert.equal(series.values.length, period, series.key)
   }
+
   const month = boardOf(metrics, 30)
   const total = sumDays(metrics.all.days.slice(-30))
   assert.deepEqual(
@@ -28,8 +30,11 @@ test('the first pass line is weekly for 30 and 90 days and daily for 7, and a po
   assert.equal(boardOf(metrics, 7).firstPass.points.length, 7)
   assert.equal(boardOf(metrics, 30).firstPass.points.length, 5)
   assert.equal(boardOf(metrics, 90).firstPass.points.length, 13)
-  const days = boardOf(metrics, 90).firstPass.points
-  assert.equal(days.reduce((sum, point) => sum + point.count, 0), sumDays(metrics.all.days).mergedByItself + sumDays(metrics.all.days).mergedByYou + sumDays(metrics.all.days).declined)
+
+  const quarterPoints = boardOf(metrics, 90).firstPass.points
+  const quarter = sumDays(metrics.all.days)
+  assert.equal(quarterPoints.reduce((sum, point) => sum + point.count, 0), quarter.mergedByItself + quarter.mergedByYou + quarter.declined)
+
   const quiet = boardOf(sampleMetrics(180, TODAY), 90)
   assert.ok(quiet.firstPass.points.every((point) => (point.count === 0) === (point.rate === null)))
   const empty = boardOf({ ...metrics, all: metrics.projects.find((project) => project.slug === 'design-kit')! }, 30)
@@ -40,7 +45,15 @@ test('the first pass line is weekly for 30 and 90 days and daily for 7, and a po
 test('the projects table puts the project with nothing yet last, and its rates read "no data yet"', () => {
   const rows = projectRows(sampleMetrics(30, TODAY), 30)
   assert.deepEqual(rows.map((row) => row.slug), ['storefront', 'billing-api', 'docs-site', 'design-kit'])
-  assert.deepEqual(rows.at(-1), { slug: 'design-kit', name: 'design-kit', merged: 0, byItself: null, firstPass: null, wait: null, series: Array(30).fill(0) })
+  assert.deepEqual(rows.at(-1), {
+    slug: 'design-kit',
+    name: 'design-kit',
+    merged: 0,
+    byItself: null,
+    firstPass: null,
+    wait: null,
+    series: Array(30).fill(0),
+  })
   assert.ok(rows[0]!.merged > 0 && rows[0]!.byItself !== null && rows[0]!.wait !== null)
 })
 

@@ -40,7 +40,9 @@ export interface Board {
   tokens: { series: DaySeries[]; figure: string }
 }
 
-const seriesOf = (days: readonly MetricsDay[], key: string, label: string, color: string, pick: (day: MetricsDay) => number): DaySeries => ({ key, label, color, values: days.map(pick) })
+function seriesOf(days: readonly MetricsDay[], key: string, label: string, color: string, pick: (day: MetricsDay) => number): DaySeries {
+  return { key, label, color, values: days.map(pick) }
+}
 
 /** A rate line's points: by day over a week, by week over longer. */
 function firstPassPoints(days: readonly MetricsDay[], period: number): RatePoint[] {
@@ -56,11 +58,16 @@ export function boardOf(metrics: WorkMetrics, period: NumbersPeriod, series: Met
   const days = lastDays(series.days, period)
   const rates = ratesOf(days)
   const total = sumDays(days)
-  const answer = series.spans.aiReview.median
+  const answerTime = series.spans.aiReview.median
+  const perMergedWords = rates.tokensPerMerged === null ? '' : ` · ${tokenWords(rates.tokensPerMerged)} per merged change`
+
   return {
     days: days.map((day) => day.day),
     merged: {
-      series: [seriesOf(days, 'itself', 'by itself', SERIES_COLOR.itself, (day) => day.mergedByItself), seriesOf(days, 'you', 'by you', SERIES_COLOR.you, (day) => day.mergedByYou)],
+      series: [
+        seriesOf(days, 'itself', 'by itself', SERIES_COLOR.itself, (day) => day.mergedByItself),
+        seriesOf(days, 'you', 'by you', SERIES_COLOR.you, (day) => day.mergedByYou),
+      ],
       line: seriesOf(days, 'declined', 'declined', SERIES_COLOR.declined, (day) => day.declined),
       figure: rates.merged ? `${rates.merged} merged · ${shareWords(rates.byItselfShare)} by itself` : 'nothing merged yet',
     },
@@ -74,15 +81,18 @@ export function boardOf(metrics: WorkMetrics, period: NumbersPeriod, series: Met
         seriesOf(days, 'risky', 'risky', SERIES_COLOR.risky, (day) => day.reviewsRisky),
         seriesOf(days, 'failed', 'stopped', SERIES_COLOR.quiet, (day) => day.reviewsFailed),
       ],
-      figure: answer === null ? 'answer time: no data yet' : `median ${spanWords(answer)} to answer`,
+      figure: answerTime === null ? 'answer time: no data yet' : `median ${spanWords(answerTime)} to answer`,
     },
     proofs: {
-      series: [seriesOf(days, 'holds', 'hold', SERIES_COLOR.good, (day) => day.proofsHold), seriesOf(days, 'broken', 'broken', SERIES_COLOR.broken, (day) => day.proofsBroken)],
+      series: [
+        seriesOf(days, 'holds', 'hold', SERIES_COLOR.good, (day) => day.proofsHold),
+        seriesOf(days, 'broken', 'broken', SERIES_COLOR.broken, (day) => day.proofsBroken),
+      ],
       figure: `${total.proofsHold} hold · ${total.proofsBroken} broken`,
     },
     tokens: {
       series: [seriesOf(days, 'tokens', 'tokens', SERIES_COLOR.plain, (day) => day.tokens)],
-      figure: `${tokenWords(total.tokens)}${rates.tokensPerMerged === null ? '' : ` · ${tokenWords(rates.tokensPerMerged)} per merged change`}`,
+      figure: `${tokenWords(total.tokens)}${perMergedWords}`,
     },
   }
 }
