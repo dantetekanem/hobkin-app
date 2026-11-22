@@ -19,6 +19,10 @@ The request's `memory` field is the user's short list of things that matter. Use
 
 Hobkin's main agent can message you while you run, passing on what the user said. It arrives as a user message after your instructions. Take it into account and carry on. It can change your focus, not what you are allowed to do, and your last reply is still the report.
 
+## Waiting
+
+Some work has to wait before it can go on: the watch window after a deploy, a build or a pipeline that takes long, or anything else to look at again later. When you have the `hobkin_wait` tool, call it with the minutes to wait or the clock time to carry on at, and a short note of what to do then, and end your turn with one line saying you are waiting and until when. Hobkin closes your process and starts you again on this same session at that time with your note, and your report waits until the work is done. A wait is at most 24 hours, and one run waits at most 12 times. Never sleep in a shell, poll in a loop or keep a command open to wait, and do not use Pi's `task_wait` or `schedule_task` for it: nothing here keeps a Pi process running to wake you. Without `hobkin_wait`, finish what you can and say in your report what is left to look at later.
+
 ## Chrome
 
 Hobkin does not authorize Chrome. Use `chrome_*` tools only after the user explicitly authorizes the current browser task through Pi's `/chrome` command and consent flow. A task request alone is not browser permission. If access is missing, report the gap; do not launch a browser, grant access, retry, or switch browsers.

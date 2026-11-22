@@ -102,6 +102,7 @@ const deployJob = ({ project, item, target, path, back }) => ({
     + '{ "live": "the live revision and what showed the change working", "minutes": 30, "errors": { "regressed": false, "saw": "one line" }, '
     + '"slowQueries": { "regressed": false, "saw": "one line" }, "latency": { "regressed": false, "saw": "the figure against its baseline" } } '
     + `to hobkin work yolo ${project.slug} ${item.id}. A regression is recorded the moment it shows, without waiting for the window to end. `
+    + 'Between looks at the monitoring, wait with hobkin_wait and a note of what to look at next, never with a sleep in the shell. '
     + 'A reading the project has no monitoring for is { "notApplicable": "the reason" }, and with none at all it is recorded at once. '
     + 'The issue the change came from closes once that reading says the deploy held.',
   why: 'YOLO mode is on and this project is ready for it',

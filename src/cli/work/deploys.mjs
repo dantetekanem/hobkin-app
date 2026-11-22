@@ -181,6 +181,7 @@ function deployJob(project, commit, items, { path, back }) {
       + '{ "live": "the live revision and what showed the changes working", "minutes": 30, "errors": { "regressed": false, "saw": "one line" }, '
       + '"slowQueries": { "regressed": false, "saw": "one line" }, "latency": { "regressed": false, "saw": "the figure against its baseline" } } '
       + `to hobkin work deployed ${project.slug} ${commit}. A regression is recorded the moment it shows, without waiting for the window to end. `
+      + 'Between looks at the monitoring, wait with hobkin_wait and a note of what to look at next, never with a sleep in the shell. '
       + 'A reading the project has no monitoring for is { "notApplicable": "the reason" }, and with none at all it is recorded at once.',
     why: 'The user said yes to Deploy now? for exactly these changes',
   };
