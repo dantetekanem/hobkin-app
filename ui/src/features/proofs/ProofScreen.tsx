@@ -1,4 +1,4 @@
-import { lazy, startTransition, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useDeferredValue, useEffect, useRef, useState } from 'react'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStill } from '@/app/still.ts'
 import { useStops } from '@/app/stops.ts'
@@ -13,6 +13,7 @@ import { runCommand, useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
+import { keep, useKept } from './kept.ts'
 import { itemTitle, placeOf, specFile } from './proof-match.ts'
 import './proofs.css'
 import { MathView } from './math/MathView.tsx'
@@ -42,12 +43,14 @@ export function ProofScreen() {
   useStops(root)
   const id = useView((view) => view.openProof)
   const { run, live, now, problem } = useProofRun(id)
-  const [tab, setTab] = useState<ProofTab>('run')
+  const runId = run?.id ?? ''
+  // The tab is kept for the run. It is drawn deferred: should the graph's code still be on its way, the tab shown stays
+  // until it is there.
+  const tab = useDeferredValue(useKept(runId, 'tab'))
   useEffect(() => {
     void loadGraphView()
   }, [])
-  // A tab change is a transition: should the graph's code still be on its way, the tab shown stays until it is there.
-  const choose = (next: ProofTab) => startTransition(() => setTab(next))
+  const choose = (next: ProofTab) => keep(runId, { tab: next })
 
   return (
     <div ref={root} className={SCREEN_SCROLLER}>
@@ -59,7 +62,7 @@ export function ProofScreen() {
             <div role="tabpanel" id={`proof-panel-${tab}`} aria-labelledby={`proof-tab-${tab}`}>
               {/* The graph's height at its widest, held empty in the one case a transition does not cover. */}
               <Suspense fallback={<div aria-hidden className="h-[610px]" />}>
-                <Panel tab={tab} run={run} now={now} onTab={choose} />
+                <Panel key={run.id} tab={tab} run={run} now={now} onTab={choose} />
               </Suspense>
             </div>
             {problem ? <p className="text-[12px] text-muted-foreground">Only the latest counts show: {problem}</p> : null}

@@ -6,6 +6,7 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
+import type { ProofTab } from '../kept.ts'
 import { specFile } from '../proof-match.ts'
 import '../proofs.css'
 import {
@@ -27,7 +28,7 @@ import {
 } from './run-view.ts'
 
 /** The tabs the result's two buttons go to. */
-export type ProofTab = 'run' | 'graph' | 'math'
+export type { ProofTab }
 
 export interface RunViewProps {
   run: ProofRun

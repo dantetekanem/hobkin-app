@@ -5,6 +5,7 @@ import { useStill } from '@/app/still.ts'
 import { Segmented } from '@/features/work/parts.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
+import { keepGraph, useKept, type GraphShows } from '../kept.ts'
 import { TlaLine } from '../math/TlaLine.tsx'
 import { GraphCanvas, type NodeMarks } from './canvas.tsx'
 import { placePath, placePicture, type Spacing } from './layout.ts'
@@ -13,7 +14,7 @@ import { findStates, parseQuery } from './search.ts'
 import { stateFacts, stepWindow, type Cell, type Picked, type StateFacts, type Verdict } from './step.ts'
 import { count, formatValue, lensValue, lensesOf } from './values.ts'
 
-type View = 'path' | 'around' | 'grouped'
+type View = GraphShows
 
 const VIEWS: readonly { value: View; label: string }[] = [
   { value: 'path', label: 'The counterexample' },
@@ -84,7 +85,8 @@ function focusOf(picture: Picture, picked: Picked | null, view: View): string | 
  * counterexample, and the selected state beside it with its variables and the rule read at that state. It works with
  * TLC's dump of the graph, with the counterexample alone when there is no dump, and with no counterexample when the
  * model holds, where it starts grouped by a variable. Left and Right step through the counterexample while the graph
- * or its step bar has focus.
+ * or its step bar has focus. The view, lens, search and picked state are kept for the run while the app is open
+ * (`kept.ts`), so a tab change or a return to the run shows it as it was left.
  */
 export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((where: string) => void) | null }) {
   const still = useStill()
@@ -96,14 +98,16 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
     return first ? lensesOf(first.vars) : []
   }, [graph])
 
-  const [chosenView, setChosenView] = useState<View | null>(null)
+  const kept = useKept(run.id, 'graph')
+  const setChosenView = (view: View) => keepGraph(run.id, { view })
+  const setLensLabel = (lens: string) => keepGraph(run.id, { lens })
+  const setChosen = (picked: Picked) => keepGraph(run.id, { picked })
+  const setQuery = (query: string) => keepGraph(run.id, { query })
+  const { view: chosenView, lens: lensLabel, picked: chosen, query } = kept
   const view = viewOf(chosenView, hasPath)
-  const [lensLabel, setLensLabel] = useState<string | null>(null)
   const lens = useMemo(() => lenses.find((entry) => entry.label === lensLabel) ?? defaultLens(graph), [lenses, lensLabel, graph])
-  const [chosen, setChosen] = useState<Picked | null>(null)
   const picked = chosen && graph.nodes.has(chosen.id) ? chosen : firstPick(graph)
 
-  const [query, setQuery] = useState('')
   const parsed = useMemo(() => parseQuery(query, lenses), [query, lenses])
   const found = useMemo(() => (parsed?.ok ? new Set(findStates(graph, parsed.query)) : null), [graph, parsed])
   const matchText = parsed?.ok ? parsed.query.text : ''

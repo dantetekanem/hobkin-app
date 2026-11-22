@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
 import { Segmented } from '@/features/work/parts.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { ProofDefinition, ProofRun } from '#shared/protocol/proofs.ts'
 import { actionName } from '../graph/values.ts'
+import { keepMath, useKept, type MathMode } from '../kept.ts'
 import { foldRows, proofNote, proofRows, proofSummary, relatedDefinition, scopeRows, theoremOf, type ProofNote, type ProofRow, type ProofTone, type ScopeRow } from './proof-tree.ts'
 import { TlaLine } from './TlaLine.tsx'
 import './tla.css'
 
-type Mode = 'math' | 'words' | 'both'
+type Mode = MathMode
 
 const MODES: readonly { value: Mode; label: string }[] = [
   { value: 'math', label: 'Math' },
@@ -54,13 +55,14 @@ function firstBlock(run: ProofRun): string | null {
  * The math (_specs/050-tla-proofs, screen 3): the spec set in Unicode TLA+ in three modes, Math, In words and Side by
  * side, in a scroll area of one height; the TLAPS tree, counted only when it ran with --strict, with the note under it
  * that holds a failed step's goal and what it knew; and the box that says what each result shows and what it does not.
- * Picking a block lights the proof's steps about it, and picking a step brings its block into view.
+ * Picking a block lights the proof's steps about it, and picking a step brings its block into view. The mode, block,
+ * step and fold are kept for the run while the app is open (`kept.ts`).
  */
 export function MathView({ run }: { run: ProofRun }) {
-  const [mode, setMode] = useState<Mode>('math')
-  const [chosen, setChosen] = useState<string | null | undefined>(undefined)
+  const { mode, block: chosen, step, all } = useKept(run.id, 'math')
+  const setMode = (next: Mode) => keepMath(run.id, { mode: next })
+  const setChosen = (block: string | null) => keepMath(run.id, { block })
   const selected = chosen === undefined ? firstBlock(run) : chosen
-  const [step, setStep] = useState<number | null>(null)
   const tags = useMemo(() => tagsOf(run), [run])
   const spec = useRef<HTMLDivElement | null>(null)
   const parse = run.steps.find((entry) => entry.id === 'parse')
@@ -125,8 +127,10 @@ export function MathView({ run }: { run: ProofRun }) {
             run={run}
             selected={selected}
             step={step}
+            all={all}
+            onAll={(next) => keepMath(run.id, { all: next })}
             onStep={(index, about) => {
-              setStep(index)
+              keepMath(run.id, { step: index })
               show(about)
             }}
           />
@@ -211,16 +215,18 @@ interface ProofSectionProps {
   selected: string | null
   /** The picked step, by its place in the tree. */
   step: number | null
+  /** Every step shows, the proved ones too. */
+  all: boolean
+  onAll: (all: boolean) => void
   /** A step was picked, with the definition it is about. */
   onStep: (index: number, about: string | null) => void
 }
 
-function ProofSection({ run, selected, step, onStep }: ProofSectionProps) {
+function ProofSection({ run, selected, step, all, onAll, onStep }: ProofSectionProps) {
   const theorem = theoremOf(run.definitions)
   const names = useMemo(() => run.definitions.map((definition) => definition.name), [run.definitions])
   const rows = useMemo(() => (run.proof ? proofRows(run.proof) : []), [run.proof])
   const folded = useMemo(() => foldRows(rows), [rows])
-  const [all, setAll] = useState(false)
   const shown = all ? rows : folded
   const proof = run.proof
   return (
@@ -239,7 +245,7 @@ function ProofSection({ run, selected, step, onStep }: ProofSectionProps) {
           <div className="-mb-1 flex h-6 items-center justify-between gap-2 text-[11.5px] text-muted-foreground">
             <span className="tabular-nums">{shown.length === rows.length ? `${rows.length} steps` : `${shown.length} of ${rows.length} steps`}</span>
             {folded.length < rows.length ? (
-              <button type="button" onClick={() => setAll(!all)} aria-expanded={all} className="rounded-md px-1.5 py-0.5 text-sun-fg hover:bg-tone-2">
+              <button type="button" onClick={() => onAll(!all)} aria-expanded={all} className="rounded-md px-1.5 py-0.5 text-sun-fg hover:bg-tone-2">
                 {all ? 'Fold the proved steps' : 'Show every step'}
               </button>
             ) : null}
