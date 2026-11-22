@@ -52,13 +52,18 @@ export function spanOf(durations) {
   return { median: at(0.5), p90: at(0.9), count: sorted.length };
 }
 
-/** The local days of the period that ends today, oldest first, and the local midnight it starts at. */
+/**
+ * The local days of the period that ends today, oldest first, with the local midnight each starts at, and the midnight
+ * after the last. `since` is the first of them.
+ */
 export function periodOf(days, now = Date.now()) {
   const count = Number.isInteger(days) ? Math.min(Math.max(days, 1), DAYS_MAX) : DAYS_DEFAULT;
   const today = new Date(now);
   const localDate = (back, hour) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - back, hour);
+  const backs = Array.from({ length: count }, (_, index) => count - 1 - index);
+  const starts = backs.map(back => localDate(back, 0).getTime());
   // Noon is never skipped or doubled by a change of clocks.
-  return { days: Array.from({ length: count }, (_, index) => dayOf(localDate(count - 1 - index, 12))), since: localDate(count - 1, 0).getTime() };
+  return { days: backs.map(back => dayOf(localDate(back, 12))), starts, end: localDate(-1, 0).getTime(), since: starts[0] };
 }
 
 const capital = text => text.charAt(0).toUpperCase() + text.slice(1);
@@ -92,30 +97,53 @@ function readFolder(folder, label, gaps) {
   }
 }
 
-/** A JSON-lines file's records, oldest first. A line that does not parse costs that line, and is named in `gaps`. */
-function readRecords(file, label, gaps) {
+// A line `recordEvent` or `recordTokens` wrote opens with its time: `{"at":"2026-11-21T15:00:00.000Z",`.
+const AT_OPENING = '{"at":"';
+const AT_END = AT_OPENING.length + '2026-11-21T15:00:00.000Z'.length;
+
+/** Whether a line says, before it is parsed, that it was written before `since`, an ISO time. */
+const writtenBefore = (line, since) => line.startsWith(AT_OPENING) && line[AT_END] === '"' && line.slice(AT_OPENING.length, AT_END) < since;
+
+/**
+ * A JSON-lines file's records, oldest first. A line that does not parse costs that line, and is named in `gaps`. With
+ * `since`, a line that opens with a time before it is left unparsed, since nothing in it can count.
+ */
+function readRecords(file, label, gaps, { since = null } = {}) {
   const text = readText(file, label, gaps);
   if (text === null) return [];
   const lines = text.split('\n');
   // The last line has no newline yet while an append is under way, so it counts once it is whole and is no gap before.
   const tail = parsed(lines.pop());
-  const records = lines.filter(line => line.trim()).map(parsed);
+  const from = since === null ? null : new Date(since).toISOString();
+  const records = lines.filter(line => line.trim() && !(from && writtenBefore(line, from))).map(parsed);
   const bad = records.filter(record => !record).length;
   if (bad) gaps.push(`${bad === 1 ? 'A line' : `${bad} lines`} of ${label} could not be read, so ${bad === 1 ? 'it is' : 'they are'} not counted.`);
   return [...records.filter(Boolean), ...(tail ? [tail] : [])];
 }
 
 /** The counts of each day and what each span measured, for all projects and for each one listed. */
-function tallyOf(days, slugs) {
-  const place = new Map(days.map((day, index) => [day, index]));
+function tallyOf({ days, starts, end }, slugs) {
   const fresh = () => ({ days: days.map(emptyDay), waitForYou: [], startToMerge: [] });
   const all = fresh();
   const projects = new Map(slugs.map(slug => [slug, fresh()]));
   const decided = [];
+  // A time's local day is the last whose midnight it is not before: no date is formatted, as there are many times to place.
+  const dayIndex = time => {
+    const at = Date.parse(time);
+    if (!(at >= starts[0] && at < end)) return -1;
+    let low = 0;
+    let high = starts.length - 1;
+    while (low < high) {
+      const middle = (low + high + 1) >> 1;
+      if (starts[middle] <= at) low = middle;
+      else high = middle - 1;
+    }
+    return low;
+  };
   /** Whether the time falls in the period, so a row is listed only where its day counts it. */
   const onDay = (time, slug, apply) => {
-    const index = place.get(dayOf(time));
-    if (index === undefined) return false;
+    const index = dayIndex(time);
+    if (index < 0) return false;
     for (const series of [all, projects.get(slug)]) if (series) apply(series, index);
     return true;
   };
@@ -218,7 +246,7 @@ function readEventsSince(root, since, gaps) {
   return readFolder(folder, 'the events (runtime/events)', gaps)
     .filter(name => MONTH_FILE.test(name) && name.slice(0, 7) >= first)
     .sort()
-    .flatMap(name => readRecords(join(folder, name), `the events of ${name.slice(0, 7)} (runtime/events/${name})`, gaps));
+    .flatMap(name => readRecords(join(folder, name), `the events of ${name.slice(0, 7)} (runtime/events/${name})`, gaps, { since }));
 }
 
 /** The project a question is about, by its id, from the question's own record. One about no single project has none. */
@@ -284,7 +312,7 @@ export function workMetrics(root, { days, now = Date.now() } = {}) {
   const period = periodOf(days, now);
   const projects = readProjectList(root, gaps);
   const taken = projects.filter(({ state }) => state === 'chosen').toSorted((left, right) => nameOfProject(left).localeCompare(nameOfProject(right)));
-  const tally = tallyOf(period.days, taken.map(({ slug }) => slug));
+  const tally = tallyOf(period, taken.map(({ slug }) => slug));
 
   // Every project ever chosen, because one dropped since still did what it did.
   for (const project of projects) {
@@ -292,7 +320,7 @@ export function workMetrics(root, { days, now = Date.now() } = {}) {
     foldItems(readRecords(paths(root, slug).items, `${nameOfProject(project)}'s work items (work/${slug}/items.jsonl)`, gaps), slug, tally);
   }
   foldEvents(root, period.since, tally, gaps);
-  for (const line of readRecords(join(root, 'work', 'tokens.jsonl'), 'the record of tokens (work/tokens.jsonl)', gaps)) {
+  for (const line of readRecords(join(root, 'work', 'tokens.jsonl'), 'the record of tokens (work/tokens.jsonl)', gaps, { since: period.since })) {
     if (Number.isFinite(line.tokens)) tally.count('tokens', line.at, line.slug, line.tokens);
   }
   foldLedger(root, tally, gaps);
