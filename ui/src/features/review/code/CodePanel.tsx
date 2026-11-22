@@ -147,8 +147,10 @@ export function CodePanel({ height, windowHeight, units, ask }: {
 
   const drawnHeight = height || Math.round(clampShare(reviewMemory.getState().panelShare ?? PANEL_SHARE.initial) * windowHeight)
   const transform = useTransform(() => `translateY(${Math.max(0, drawnHeight - rig.panel.get())}px)`)
-  // The steps panel is full height on the left, so the code starts where it ends, and follows it as it tucks away.
+  // The steps panel is full height on the left, so the code starts where it ends, and follows it as it tucks away. The
+  // proof beside the graph is full height on the right, so the code ends where it starts.
   const left = useTransform(() => rig.side.get())
+  const right = useTransform(() => rig.proof.get())
 
   // The file's two sides come from the source. The review file itself holds no code.
   const [files, setFiles] = useState<Record<string, ReviewFileContents | { failed: string }>>({})
@@ -272,8 +274,8 @@ export function CodePanel({ height, windowHeight, units, ask }: {
       inert={!open}
       data-rv-panel
       data-open={open}
-      className="rv-panel absolute right-0 bottom-0 z-20 flex flex-col bg-code-bg text-code-text"
-      style={{ left, height: drawnHeight, transform, visibility: open || onScreen ? 'visible' : 'hidden' }}
+      className="rv-panel absolute bottom-0 z-20 flex flex-col bg-code-bg text-code-text"
+      style={{ left, right, height: drawnHeight, transform, visibility: open || onScreen ? 'visible' : 'hidden' }}
     >
       <div
         role="separator"

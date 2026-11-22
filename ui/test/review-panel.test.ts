@@ -9,7 +9,7 @@ import { createReviewMemory, memoryStorage } from '../src/features/review/state/
 import { createSession } from '../src/features/review/state/session.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
-const effects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, openModelRun: () => {} }
+const effects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
 
 test("a note hobkin left on the host joins the window's notes, unless the window already has it or removed it", () => {
   const note = (id: string, text: string): Note => ({ id, step: 's1', target: { kind: 'step' }, intent: 'comment', text, author: 'hobkin', at: 1 })
@@ -34,11 +34,13 @@ test('A approves, M approves and merges, and X sends the fixes', () => {
   assert.deepEqual(asked, ['approve', 'approve-merge', 'request-changes'])
 })
 
-test("T opens the run of the change's first TLA+ model check in the panel", () => {
+test('T is the key of the proof beside the review, and Shift+T of its full page', () => {
   const session = createSession(sample, createReviewMemory(memoryStorage()))
-  let opened = 0
-  for (const key of ['t', 'T']) assert.equal(pressKey(session.getState(), { key, shift: false, alt: false }, { ...effects, openModelRun: () => (opened += 1) }), true)
-  assert.equal(opened, 2)
+  const pressed: boolean[] = []
+  for (const [key, shift] of [['t', false], ['T', false], ['T', true]] as const) {
+    assert.equal(pressKey(session.getState(), { key, shift, alt: false }, { ...effects, proofKey: (shifted) => pressed.push(shifted) }), true)
+  }
+  assert.deepEqual(pressed, [false, false, true])
 })
 
 test("N and C start a comment, and D and H a question to hobkin, in the review's input, about what the reviewer is on", () => {

@@ -43,6 +43,7 @@ import { forgetPlace, keepPlace, placeOf } from './state/place.ts'
 import { createSession } from './state/session.ts'
 import type { Size } from './story/camera.ts'
 import { Outline, OUTLINE_ROOM } from './outline/Outline.tsx'
+import { proofFrom, ProofBeside, type ProofKeys } from './proof/ProofBeside.tsx'
 import { StoryLayer } from './story/StoryLayer.tsx'
 import { useCamera } from './story/useCamera.ts'
 import { afterVerdict, verdictKind, type VerdictCommands } from './verdict.ts'
@@ -211,6 +212,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
     [closeReview, placeKey],
   )
   const [shortcuts, setShortcuts] = useState(false)
+  const proofKeys = useRef<ProofKeys | null>(null)
   const assessment = useStore(loader, (state) => state.assessment)
 
   // Once a verdict has landed the review closes: a merged change with "Merged!", any other with a short confirmation. A
@@ -387,8 +389,11 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
           choice?.focus({ preventScroll: true })
           choice?.click()
         },
-        // T is the click on the panel's first TLA+ model check that has a run: its run opens on the proof screen.
-        openModelRun: () => steps?.querySelector<HTMLElement>('[data-model-run]')?.click(),
+        // T opens the proof beside the review, or closes it, and Shift+T opens its full page (`proof/ProofBeside.tsx`). A
+        // key held down only repeats: it never opens and closes it again and again.
+        proofKey: (shift) => {
+          if (!event.repeat) proofKeys.current?.press(shift, proofFrom(document.activeElement))
+        },
       })
       if (used) event.preventDefault()
       if (inCode && session.getState().code == null) element.focus({ preventScroll: true })
@@ -401,6 +406,8 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
   }, [placeKey, session])
 
   const stage = useMemo(() => ({ session, source, camera }), [camera, session, source])
+  // What the review's panel and the outline leave of the canvas, at the right: the dock's room, and the proof's.
+  const room = canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP) - (outlineOpen ? OUTLINE_ROOM : 0)
 
   return (
     <StageProvider value={stage}>
@@ -415,9 +422,10 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
             <WireCard />
             <Finder />
             <Notice />
-            <Dock room={canvas.width - (stepsOpen ? stepsPanelWidth(canvas.width) : STEPS_STRIP) - (outlineOpen ? OUTLINE_ROOM : 0)} ask={ask} units={assessment?.units?.units} />
+            <Dock room={room} ask={ask} units={assessment?.units?.units} />
             <Panel canvas={canvas} loader={loader} live={live} close={close} verdict={verdict} ask={ask} landed={landed} />
             <CodePanel height={panelHeight} windowHeight={windowHeight} units={assessment?.units?.units} ask={ask} />
+            <ProofBeside canvas={canvas.width} room={room} root={root} keys={proofKeys} />
             {shortcuts ? (
               <Shortcuts
                 onClose={() => {

@@ -20,15 +20,19 @@ interface EscapableSession {
   closeCode(): void
   /** Closes the group of a large change opened last. False when none is open. */
   closeGroup?(): boolean
+  /** The proof open beside the review (spec 053). */
+  proof?: unknown
+  closeProof?(): void
 }
 
 /**
- * Escape closes the innermost thing first: the note editor, the finder, an open wire, selected lines, the code, then the
- * group of a large change opened last. Graph focus never traps the screen's exit.
+ * Escape closes the innermost thing first: the note editor, the finder, the proof beside the review, an open wire,
+ * selected lines, the code, then the group of a large change opened last. Graph focus never traps the screen's exit.
  */
 export function escapeReview(session: EscapableSession, close: () => void): void {
   if (session.editor) session.closeEditor()
   else if (session.finder) session.closeFinder()
+  else if (session.proof && session.closeProof) session.closeProof()
   else if (session.wire) session.openWire(null)
   else if (session.selection) session.selectLines(null)
   else if (session.code != null) session.closeCode()

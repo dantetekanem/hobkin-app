@@ -9,7 +9,7 @@ import { awayFrom, pagerOf } from '../src/features/review/story/pager.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const idOf = (title: string) => sample.nodes.find((node) => node.title === title)!.id
-const effects = { panelKey: () => false, toggleSteps: () => {}, talk: () => {}, verdict: () => {}, openModelRun: () => {} }
+const effects = { panelKey: () => false, toggleSteps: () => {}, talk: () => {}, verdict: () => {}, proofKey: () => {} }
 
 /** The pager as the bottom of the canvas draws it for a session. */
 function pagerNow(session: SessionStore) {

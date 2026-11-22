@@ -30,10 +30,15 @@ export interface CameraRig {
   side: MotionValue<number>
   /** Pixels the outline takes beside the steps panel (spec 053), 0 while it is closed. Written by the outline. */
   outline: MotionValue<number>
+  /**
+   * Pixels the proof beside the review takes at the right (spec 053), 0 while it is closed or covers the whole graph.
+   * Written by the proof (`proof/ProofBeside.tsx`).
+   */
+  proof: MotionValue<number>
   ride(): Ride | null
   /**
    * The part of the canvas nothing covers, for a code panel of the given height and the given width covered at the left:
-   * the steps panel and the outline, as they are on screen when none is given.
+   * the steps panel and the outline, as they are on screen when none is given, and the proof at the right as it is.
    */
   area(panelHeight?: number, sideWidth?: number): ReturnType<typeof uncoveredArea>
   setCanvas(size: Size, cover: Cover): void
@@ -54,6 +59,7 @@ export function useCamera(): CameraRig {
   const panel = useMotionValue(0)
   const side = useMotionValue(0)
   const outline = useMotionValue(0)
+  const proof = useMotionValue(0)
   const progress = useMotionValue(1)
   // What is left of an interrupted ride's lean. It fades out so a retarget never jumps.
   const carry = useMotionValue(0)
@@ -71,7 +77,7 @@ export function useCamera(): CameraRig {
     const lean = rideOffset(ride?.curve ?? null, ride?.reversed ?? false, progress.get())
     const fade = carry.get()
     const camera = { x: x.get() + lean.x + carried.x * fade, y: y.get() + lean.y + carried.y * fade, zoom: zoom.get() }
-    return viewportFor(camera, uncoveredArea(canvas, { top: cover.top, bottom: cover.bottom + panel.get(), left: side.get() + outline.get() }))
+    return viewportFor(camera, uncoveredArea(canvas, { top: cover.top, bottom: cover.bottom + panel.get(), left: side.get() + outline.get(), right: proof.get() }))
   })
 
   useMotionValueEvent(viewport, 'change', (next) => {
@@ -88,7 +94,7 @@ export function useCamera(): CameraRig {
     }
     const area = (panelHeight = panel.get(), sideWidth = side.get() + outline.get()) => {
       const { canvas, cover } = room.get()
-      return uncoveredArea(canvas, { top: cover.top, bottom: cover.bottom + panelHeight, left: sideWidth })
+      return uncoveredArea(canvas, { top: cover.top, bottom: cover.bottom + panelHeight, left: sideWidth, right: proof.get() })
     }
     const leanNow = () => {
       const { ride, carried } = state.current
@@ -102,6 +108,7 @@ export function useCamera(): CameraRig {
       panel,
       side,
       outline,
+      proof,
       ride: () => state.current.ride,
       area,
       setCanvas: (canvas, cover) => room.set({ canvas, cover }),
@@ -147,5 +154,5 @@ export function useCamera(): CameraRig {
         return { x: x.get() + lean.x, y: y.get() + lean.y, zoom: zoom.get() }
       },
     }
-  }, [carry, outline, panel, progress, room, side, viewport, x, y, zoom])
+  }, [carry, outline, panel, progress, proof, room, side, viewport, x, y, zoom])
 }

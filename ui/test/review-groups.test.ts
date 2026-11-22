@@ -148,7 +148,7 @@ test('an open group opens in place: its members follow its card down and to the 
   assert.deepEqual(focusOn(large).folded.nodes.map((node) => [node.id, node.position]), closed.nodes.map((node) => [node.id, node.position]))
 })
 
-const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, openModelRun: () => {} }
+const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
 const press = (session: ReturnType<typeof createSession>, key: string, shift = false) => pressKey(session.getState(), { key, shift, alt: false }, keys)
 
 test('Enter on a group card opens it in place, its members focused with it, and Escape closes it, back on its card', () => {

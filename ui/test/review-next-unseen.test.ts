@@ -9,7 +9,7 @@ import { createSession } from '../src/features/review/state/session.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const large = largeReview().review
-const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, openModelRun: () => {} }
+const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
 const press = (session: ReturnType<typeof createSession>, key: string, shift = false) => pressKey(session.getState(), { key, shift, alt: false }, keys)
 const needsYou = large.nodes.filter((node) => node.attention?.tier === 'needs-you').sort((a, b) => a.attention!.rank - b.attention!.rank).map((node) => node.id)
 

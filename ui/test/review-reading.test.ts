@@ -16,7 +16,7 @@ const story = readFileSync(new URL('../../packages/change-review/skills/change-r
 const idOf = (title: string) => sample.nodes.find((node) => node.title === title)!.id
 const summary = { level: 'high', critical: true, needsYou: 3, worthALook: 2, safe: 3, storyBy: 'model', at: '2026-11-12T10:00:00Z' } as const
 const finished = (): ChangeAssessment => ({ head: sample.change.head, summary, story, units, triage: null, blind: null, progress: null, nodes: [] })
-const effects = { panelKey: () => false, toggleSteps: () => {}, talk: () => {}, verdict: () => {}, openModelRun: () => {} }
+const effects = { panelKey: () => false, toggleSteps: () => {}, talk: () => {}, verdict: () => {}, proofKey: () => {} }
 const press = (session: ReturnType<typeof createSession>, key: string) => pressKey(session.getState(), { key, shift: false, alt: false }, effects)
 /** A story as the change review writes its opening, with the sentence on what the change does. */
 const opening = (does: string) => `# Rounding\n\n## Opening\n\n**Claims:** inferred, no description.\n\n**Does:** ${does}\n\n**Size:** 4 files, 45 lines added, 10 removed.\n`

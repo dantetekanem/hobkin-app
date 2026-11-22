@@ -2,7 +2,6 @@ import { ArrowLeft, Check, ChevronDown, ChevronUp, CornerDownLeft, LoaderCircle,
 import { useState, type ReactNode } from 'react'
 import type { Unit } from '#shared/review/assessment.ts'
 import type { ReviewNode } from '#shared/review/types.ts'
-import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { Tone } from '../../proofs/run/run-view.ts'
@@ -10,7 +9,7 @@ import { isLineCount } from '../graph/arrange.ts'
 import { KIND, LevelBadge, statusOf } from '../graph/kinds.tsx'
 import { AskLink } from '../panel/AskLink.tsx'
 import { questionAsk } from '../panel/ask.ts'
-import { useReduced } from '../state/context.tsx'
+import { useReduced, useSessionStore } from '../state/context.tsx'
 import type { ModelLine } from './node-models.ts'
 import { noTestWords, testsFor, type TestsGraph } from './node-tests.ts'
 import type { CardContent } from './StepCard.tsx'
@@ -172,10 +171,11 @@ function Tests({ focus, graph, unit, models, code, onShow }: { focus: readonly s
 const MODEL_ICON: Readonly<Record<Tone, LucideIcon>> = { ok: Check, bad: X, warn: TriangleAlert, live: LoaderCircle, quiet: Minus }
 
 /**
- * One model's check on one line, which keeps its height as the check runs and ends. With a run, a press opens it in the
- * proof screen, and Back there comes back to the review.
+ * One model's check on one line, which keeps its height as the check runs and ends. With a run, a press opens it beside
+ * the review (spec 053), and closing it there gives the keyboard back here.
  */
 function ModelRow({ model }: { model: ModelLine }) {
+  const store = useSessionStore()
   const reduced = useReduced()
   const Icon = MODEL_ICON[model.tone]
   const parts = (
@@ -193,8 +193,9 @@ function ModelRow({ model }: { model: ModelLine }) {
     )
   }
   const run = model.run
+  const from = `card:${model.spec}`
   return (
-    <button type="button" className="rv-tests-row" data-model="" title={`${model.text}. hobkin ran this check itself. Opens the run.`} onClick={() => useView.getState().openProofRun(run)}>
+    <button type="button" className="rv-tests-row" data-model="" data-proof-from={from} title={`${model.text}. hobkin ran this check itself. Opens it beside the review.`} onClick={() => store.getState().openProof(run, from)}>
       {parts}
     </button>
   )

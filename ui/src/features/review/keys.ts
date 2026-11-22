@@ -28,8 +28,11 @@ export interface KeyEffects {
   toggleSteps(): void
   /** Shows what a verdict would do, ready for the reviewer's yes. */
   verdict(kind: Verdict): void
-  /** Opens the run of the change's first TLA+ model check, as its row in the panel does (050-tla-proofs). */
-  openModelRun(): void
+  /**
+   * T, and Shift+T when `shift`: opens the proof beside the review on the change's first model that needs a look, or
+   * closes it; Shift+T opens the full page (053-work-control-room, `proof/beside.ts`).
+   */
+  proofKey(shift: boolean): void
 }
 
 /**
@@ -115,10 +118,6 @@ function panelKeys(session: Session, key: string, effects: KeyEffects): boolean 
     case 'x':
     case 'X':
       return effects.verdict('request-changes'), true
-    // T for TLA+: the run of the change's first model check, on the proof screen. Back there comes back here.
-    case 't':
-    case 'T':
-      return effects.openModelRun(), true
     // L for the outline at the left: every unit and file, the folded ones too (spec 053).
     case 'l':
     case 'L':
@@ -151,6 +150,9 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
   // U goes to the next node that needs the reviewer and is not seen, and Shift+U to the one before (spec 053). N, which
   // the spec names, is a comment's; U is the nearest key no other part of the review or its proofs holds.
   if (key === 'u' || key === 'U') return session.nextUnseen(shift ? -1 : 1), true
+
+  // T for TLA+: the proof beside the review, which T again closes, and Shift+T for its full page (spec 053).
+  if (key === 't' || key === 'T') return effects.proofKey(shift), true
 
   const roam = session.mode === 'roam'
   const direction = ARROWS[key]

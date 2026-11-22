@@ -86,6 +86,11 @@ export interface Session {
   outline: boolean
   /** A short word to the reviewer, said again on each press that asks: `key` goes up each time it is said. */
   notice: { key: number; text: string } | null
+  /**
+   * The proof open beside the review (spec 053, `proof/ProofBeside.tsx`): the run it opened on, and the control that
+   * opened it by its `data-proof-from`, which takes the keyboard back when it closes (null: the review itself).
+   */
+  proof: { run: string; from: string | null } | null
 
   step(delta: number): void
   goTo(index: number): void
@@ -172,6 +177,11 @@ export interface Session {
    * end to the start, opening its group when it is folded. Says so when none is left. False when it went nowhere.
    */
   nextUnseen(delta: 1 | -1): boolean
+  /** Says a short word to the reviewer (`notice`). */
+  say(text: string): void
+  /** Opens the proof beside the review on a run, or shows another run in it. Nothing else of the review moves. */
+  openProof(run: string, from?: string | null): void
+  closeProof(): void
   /** Where the reviewer is, to come back to after another page (`place.ts`). */
   placeNow(): SessionPlace
   /**
@@ -399,6 +409,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       seen: seenNow(),
       outline: back ? kept!.outline : firstView.plan.active,
       notice: null,
+      proof: kept?.proof ? { run: kept.proof, from: null } : null,
 
       step: (delta) => {
         const { story } = get()
@@ -642,11 +653,19 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       },
       toggleOutline: () => set({ outline: !get().outline }),
       placeNow: () => {
-        const { story, mode, history, outline, code } = get()
-        return { story, mode, history, fold, outline, code }
+        const { story, mode, history, outline, code, proof } = get()
+        return { story, mode, history, fold, outline, code, proof: proof?.run ?? null }
+      },
+      say: (text) => set({ notice: { key: (get().notice?.key ?? 0) + 1, text } }),
+      openProof: (run, from = null) => {
+        const now = get().proof
+        if (now?.run !== run || now.from !== from) set({ proof: { run, from } })
+      },
+      closeProof: () => {
+        if (get().proof) set({ proof: null })
       },
       nextUnseen: (delta) => {
-        const say = (text: string) => set({ notice: { key: (get().notice?.key ?? 0) + 1, text } })
+        const say = get().say
         const wanted = review.nodes.filter((node) => node.attention?.tier === 'needs-you').sort((a, b) => a.attention!.rank - b.attention!.rank).map((node) => node.id)
         if (wanted.length === 0) return say('This review does not say what needs you.'), false
         const { focus, pointed, view, seen } = get()

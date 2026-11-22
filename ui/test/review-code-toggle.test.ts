@@ -7,7 +7,7 @@ import { createReviewMemory, memoryStorage } from '../src/features/review/state/
 import { createSession, type Session } from '../src/features/review/state/session.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
-const effects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, openModelRun: () => {} }
+const effects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
 const press = (session: ReturnType<typeof createSession>, key: string) => pressKey(session.getState(), { key, shift: false, alt: false }, effects)
 /** What the reviewer sees of where they are: the step, the focus, the open wire, the code, selected lines and the last move. */
 const where = ({ story, focus, wire, code, selection, pointed, move }: Session) => ({ step: story.step, detour: story.detour, focus, wire, code, selection, pointed, move: move.key })

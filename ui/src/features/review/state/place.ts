@@ -20,6 +20,8 @@ export interface SessionPlace {
   fold: FocusState
   outline: boolean
   code: string | null
+  /** The run of the proof open beside the review. A place kept before the proof sat beside the review has none. */
+  proof?: string | null
 }
 
 /** And where the camera was. */

@@ -70,7 +70,7 @@ test('a review that says nothing of attention lists every unit and file under on
 })
 
 test('L opens the outline and closes it; a review in Focus opens with it open', () => {
-  const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, openModelRun: () => {} }
+  const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
   const small = open(sample)
   assert.equal(small.getState().outline, false, 'a small review opens as it did')
   assert.equal(pressKey(small.getState(), { key: 'l', shift: false, alt: false }, keys), true)

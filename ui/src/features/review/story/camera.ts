@@ -35,6 +35,8 @@ export interface Cover {
   top: number
   bottom: number
   left?: number
+  /** The proof beside the review, at the right (spec 053). */
+  right?: number
 }
 
 export type CardSide = 'right' | 'left' | 'below' | 'above'
@@ -77,7 +79,7 @@ export function uncoveredArea(canvas: Size, cover: Cover): Rect {
   return {
     x: left,
     y: cover.top,
-    width: Math.max(MIN_AREA, canvas.width - left),
+    width: Math.max(MIN_AREA, canvas.width - left - (cover.right ?? 0)),
     height: Math.max(MIN_AREA, canvas.height - cover.top - cover.bottom),
   }
 }
