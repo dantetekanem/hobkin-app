@@ -377,9 +377,10 @@ export function openBlocks(positions: Positions, kindOf: (id: string) => NodeKin
   for (const { at, ids } of blocks) {
     const origin = placed[at]
     if (!origin || ids.length === 0) continue
-    const count = ids.length + 1
-    const rows = Math.min(count, Math.max(BLOCK_ROWS, Math.ceil(Math.sqrt(count))))
-    const columns = Math.ceil(count / rows)
+    // The node itself holds the block's first cell, and what it opens to the rest.
+    const cells = ids.length + 1
+    const rows = Math.min(cells, Math.max(BLOCK_ROWS, Math.ceil(Math.sqrt(cells))))
+    const columns = Math.ceil(cells / rows)
     const own = NODE_SIZE[kindOf(at)].height
     const wider = (columns - 1) * (width + BLOCK_GAP)
     const taller = rows * height + (rows - 1) * ROW_GAP - own
@@ -391,7 +392,9 @@ export function openBlocks(positions: Positions, kindOf: (id: string) => NodeKin
     }
     ids.forEach((id, index) => {
       const cell = index + 1
-      placed[id] = { x: x + Math.floor(cell / rows) * (width + BLOCK_GAP), y: y + (cell % rows) * (height + ROW_GAP) }
+      const column = Math.floor(cell / rows)
+      const row = cell % rows
+      placed[id] = { x: x + column * (width + BLOCK_GAP), y: y + row * (height + ROW_GAP) }
     })
   }
   return placed
