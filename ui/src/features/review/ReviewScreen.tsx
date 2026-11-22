@@ -29,7 +29,7 @@ import { planEntrance, type EntrancePlan } from './graph/entrance-plan.ts'
 import { Finder } from './graph/Finder.tsx'
 import { Graph } from './graph/Graph.tsx'
 import { WireCard } from './graph/WireCard.tsx'
-import { pressKey } from './keys.ts'
+import { inProofPanel, keyOwner, pressKey } from './keys.ts'
 import type { AskCommand } from './panel/ask.ts'
 import { celebrate } from './panel/Celebration.tsx'
 import { STEPS_STRIP, StepsPanel, stepsPanelWidth, type PanelChrome } from './panel/StepsPanel.tsx'
@@ -336,6 +336,10 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
     const releaseFocus = handOffCanvasFocus(element)
 
     const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement
+      // With the keyboard in the proof beside the review, its keys are its own, but those the review shares (`keyOwner`).
+      const typing = target.closest('input, textarea, select, [contenteditable="true"]') != null
+      if (keyOwner({ key: event.key, shift: event.shiftKey, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, typing }, inProofPanel(target)) === 'proof') return
       // ⌘? shows every key of the review, and hides them again.
       if (!event.defaultPrevented && event.metaKey && !event.ctrlKey && (event.key === '?' || (event.shiftKey && event.key === '/'))) {
         setShortcuts((open) => !open)
@@ -343,7 +347,6 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
         return
       }
       if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.isComposing) return
-      const target = event.target as HTMLElement
       if (event.key === 'Escape') {
         // A field leaves itself and keeps its words (the review's input, the finder), and a dialog, a menu or a list
         // closes itself. Neither ever closes the review.

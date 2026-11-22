@@ -43,6 +43,37 @@ export function inputKey({ key, shift, composing = false }: { key: string; shift
   return 'type'
 }
 
+/** A key as the review's listeners hear it, and whether it was pressed in a text field. */
+export interface HeardKey {
+  key: string
+  shift: boolean
+  meta: boolean
+  ctrl: boolean
+  alt: boolean
+  typing: boolean
+}
+
+/** Whether a key was pressed in the proof beside the review (053-work-control-room, "Proofs"): any part of its box. */
+export function inProofPanel(target: unknown): boolean {
+  const element = target as { closest?: (selector: string) => unknown } | null
+  return typeof element?.closest === 'function' && element.closest('[data-proof-panel]') != null
+}
+
+/**
+ * Who gets a key (053-work-control-room, "Proofs"). With the keyboard in the proof beside the review, every key is the
+ * proof's: J and K, F, 1 2 3, /, R, the arrows, Enter, and every letter the review would take, so none approves or
+ * walks the graph underneath. T and Escape close the proof, Shift+T opens its page and ⌘? lists the keys: those are
+ * the review's too, for a proof that leaves them (the proof uses a key first, and what it uses goes no further).
+ * Typing in the proof's search, every key is the field's. Anywhere else in the review, every key is the review's.
+ */
+export function keyOwner(press: HeardKey, inProof: boolean): 'review' | 'proof' {
+  if (!inProof) return 'review'
+  if (press.typing) return 'proof'
+  if (press.meta && !press.ctrl && (press.key === '?' || (press.shift && press.key === '/'))) return 'review'
+  if (press.meta || press.ctrl || press.alt) return 'proof'
+  return press.key === 'Escape' || press.key === 't' || press.key === 'T' ? 'review' : 'proof'
+}
+
 const ARROWS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }
 
 /** Walks the wires that touch the focus, one per press, and closes after the last. */

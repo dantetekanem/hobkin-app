@@ -5,6 +5,7 @@ import type { Unit } from '#shared/review/assessment.ts'
 import { boundsOf, nodeRect, type Point, type Rect } from '#shared/review/layout.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { wireCurve } from '../graph/wire-path.ts'
+import { inProofPanel } from '../keys.ts'
 import type { AskCommand } from '../panel/ask.ts'
 import { OUTLINE_ROOM } from '../outline/Outline.tsx'
 import { STEPS_STRIP, stepsPanelWidth } from '../panel/StepsPanel.tsx'
@@ -295,11 +296,12 @@ function NotesBeside({ area, step }: { area: Rect; step: BesidePlace | null }) {
     // Placed when it opens, for what it lists: a pan or a drag carries it with its node afterwards, so nothing else places it.
   }, [listed?.key])
 
-  // Esc closes it before the review hears the key, and so does a press anywhere but on it or on a note count.
+  // Esc closes it before the review hears the key, and so does a press anywhere but on it or on a note count. An Esc in
+  // the proof beside the review is the proof's.
   useEffect(() => {
     if (!listed) return
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (event.key !== 'Escape' || event.defaultPrevented || inProofPanel(event.target)) return
       event.preventDefault()
       close()
     }

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { NODE_SIZE } from '#shared/review/layout.ts'
 import type { ReviewNode } from '#shared/review/types.ts'
 import { tween } from '@/lib/motion.ts'
+import { inProofPanel } from '../keys.ts'
 import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
 import { statusOf } from './kinds.tsx'
 
@@ -43,11 +44,12 @@ function OpenList({ id }: { id: string }) {
     ),
   )
 
-  // Esc closes it before the review hears the key, and so does a press anywhere but on it or on its toggle.
+  // Esc closes it before the review hears the key, and so does a press anywhere but on it or on its toggle. An Esc in
+  // the proof beside the review is the proof's.
   useEffect(() => {
     const close = () => store.getState().openTests(null)
     const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (event.key !== 'Escape' || event.defaultPrevented || inProofPanel(event.target)) return
       event.preventDefault()
       close()
     }
