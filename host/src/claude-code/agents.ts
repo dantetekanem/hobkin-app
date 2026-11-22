@@ -1,13 +1,15 @@
 import { readFileSync } from 'node:fs'
 import type { ClaudeCodeSettings } from '#shared/protocol/claude-code.ts'
+import type { ClaudeTiers } from '#shared/tiers/claude-code.ts'
 import type { Ask } from '../questions.ts'
 import { claudeDirections } from './directions.ts'
 import { runClaudeHarness, type ClaudeHarnessOptions, type ClaudeHarnessRequest } from './harness.ts'
 import { routeHarness, type Harness, type HarnessRoute } from './route.ts'
+import { workTier } from './tier.ts'
 
-/** What the host lends the agents' harness: the settings, the `claude` program and the question sheet. */
+/** What the host lends the agents' harness: the settings with the tiers on Claude Code, the `claude` program and the question sheet. */
 export interface ClaudeCodeHooks {
-  settings: () => ClaudeCodeSettings
+  settings: () => ClaudeCodeSettings & { tiers?: ClaudeTiers }
   findClaude: () => string | null
   ask: Ask
 }
@@ -20,6 +22,7 @@ export interface ClaudeCodeHooks {
 export async function agentHarness(hooks: ClaudeCodeHooks, runFor: HarnessRoute['runFor']): Promise<Harness> {
   const harnesses = await import('hobkin/src/cli/harnesses.mjs')
   const { readingUsage } = await import('hobkin/src/cli/work/usage.mjs')
+  const store = await import('hobkin/src/cli/work/store.mjs')
   const piHarness = harnesses.namingExtensions(readingUsage(harnesses.runHarness))
   const background = readFileSync(new URL('../prompts/background.md', import.meta.resolve('hobkin/src/cli/harnesses.mjs')), 'utf8')
   return routeHarness({
@@ -27,6 +30,7 @@ export async function agentHarness(hooks: ClaudeCodeHooks, runFor: HarnessRoute[
     claude: (request, options, launch) =>
       runClaudeHarness(request as unknown as ClaudeHarnessRequest, (options ?? {}) as ClaudeHarnessOptions, { ...launch, ask: hooks.ask }),
     settings: hooks.settings,
+    workTier: (run, root) => (root ? workTier(store, root, run) : null),
     findClaude: hooks.findClaude,
     runFor,
     directions: claudeDirections(harnesses.workDirections, background),

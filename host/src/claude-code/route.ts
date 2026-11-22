@@ -1,5 +1,7 @@
 import { CLAUDE_MODELS, type ClaudeAgentKind, type ClaudeCodeSettings, type ClaudeModel } from '#shared/protocol/claude-code.ts'
 import { HOBKIN_CLAUDE_EFFORTS, type HobkinClaudeEffort } from '#shared/protocol/hobkins.ts'
+import type { ClaudeTiers } from '#shared/tiers/claude-code.ts'
+import { TIER_IDS, type TierId } from '#shared/tiers/tiers.ts'
 
 /** hobkin's harness: a run request and the callbacks hobkin passes with it, answered by the run's result. */
 export type Harness = (request: Record<string, unknown>, options?: unknown) => Promise<unknown>
@@ -8,6 +10,10 @@ export type Harness = (request: Record<string, unknown>, options?: unknown) => P
 export interface RunFacts {
   scheduleId?: string | null
   title?: string
+  /** The tier the run was given, when its record names one, as a delegated job's does. */
+  tier?: unknown
+  /** What a Work run works on: its project, lane and item. */
+  work?: unknown
 }
 
 /** What a run on Claude Code needs from the host besides the request. */
@@ -24,7 +30,10 @@ export interface HarnessRoute {
   /** hobkin's own Pi harness, as hobkin would have built it. */
   pi: Harness
   claude: (request: Record<string, unknown>, options: unknown, launch: ClaudeLaunch) => Promise<unknown>
-  settings: () => ClaudeCodeSettings
+  /** The settings, with the tiers on Claude Code when the host keeps any. */
+  settings: () => ClaudeCodeSettings & { tiers?: ClaudeTiers }
+  /** The tier of a Work run, read from hobkin's data root, which hobkin passes each run as `metricsRoot`. */
+  workTier?: (run: RunFacts, root: string | undefined) => TierId | null
   findClaude: () => string | null
   /** hobkin's record of the running run with this harness id. Looking for it gives up once the run is stopped. */
   runFor: (harnessId: string, signal?: AbortSignal) => Promise<RunFacts | undefined>
@@ -62,6 +71,16 @@ const notInstalled = (request: Record<string, unknown>, settings: ClaudeCodeSett
 })
 
 const oneOf = <Word extends string>(words: readonly Word[], value: unknown): Word | null => (words.includes(value as Word) ? (value as Word) : null)
+
+/** hobkin's data root, which it gives every run it starts as `metricsRoot`. */
+const rootOf = (options: unknown): string | undefined => {
+  const root = (options as { metricsRoot?: unknown } | undefined)?.metricsRoot
+  return typeof root === 'string' ? root : undefined
+}
+
+/** The tier a run runs at: the one its record names, or for a Work run the one Work gives it. Null for none. */
+const tierOf = (run: RunFacts, root: string | undefined, workTier: HarnessRoute['workTier']): TierId | null =>
+  oneOf(TIER_IDS, run.tier) ?? workTier?.(run, root) ?? null
 
 /** Names and values that are all text, as an environment is. */
 const isEnv = (value: unknown): value is Record<string, string> =>
@@ -112,20 +131,28 @@ export function routeHarness(route: HarnessRoute): Harness {
     }
 
     const settings = route.settings()
-    if (!settings.enabled) return route.pi(request, options)
+    const tiers = settings.tiers ?? {}
+    const onTiers = Object.keys(tiers).length > 0
+    if (!settings.enabled && !onTiers) return route.pi(request, options)
 
     const purpose = request.purpose as string | undefined
     if (isUpkeep(purpose)) return route.pi(request, options)
     const run = await route.runFor(String(request.id), request.signal instanceof AbortSignal ? request.signal : undefined)
     const kind = kindOf(purpose, run)
-    if (!kind || !settings.kinds[kind]) return route.pi(request, options)
+    if (!kind) return route.pi(request, options)
+    // A run at a tier on Claude Code runs there with the tier's model and level, whatever the tile's switches say. A kind
+    // the tile switches on runs there at every tier, with the tile's model unless its tier names its own.
+    const tier = onTiers && run ? tierOf(run, rootOf(options), route.workTier) : null
+    const own = tier ? tiers[tier] : undefined
+    if (!own && !(settings.enabled && settings.kinds[kind])) return route.pi(request, options)
+    const chosen = own ? { ...settings, model: own.model, effort: own.effort } : settings
 
     const claude = route.findClaude()
     // The user chose Claude Code for these agents, so a missing one is a failure to fix, not a reason to spend Pi instead.
-    if (!claude) return notInstalled(request, settings)
+    if (!claude) return notInstalled(request, chosen)
     return route.claude(request, options, {
       claude,
-      settings,
+      settings: chosen,
       title: run?.title?.trim() || 'An agent',
       directions: route.directions(purpose),
     })

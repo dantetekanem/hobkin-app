@@ -33,3 +33,35 @@ test("a live home's harness is hobkin's own for Pi runs and Claude Code's for th
   const onClaude = (await run(stopped(), {})) as { harness: string; status: string; error: string }
   assert.deepEqual([onClaude.harness, onClaude.status, onClaude.error], ['claude', 'interrupted', 'Cancelled before dispatch.'])
 })
+
+test("a live home's harness sends a Work run to Claude Code by the tier its project's level gives it", async (t) => {
+  const folder = temporaryDirectory(t)
+  const root = join(folder, 'home')
+  const store = await import('hobkin/src/cli/work/store.mjs')
+  const { slug } = store.proposeProject(root, { name: 'Shop', path: folder, level: 'important' })
+  store.chooseProject(root, slug, 'important')
+  // Only the high tier runs on Claude Code, and the tile's switch is off.
+  const settings = { ...CLAUDE_CODE_DEFAULTS, tiers: { high: { model: 'opus' as const, effort: 'high' as const } } }
+  let lane = 'do'
+  const run = await agentHarness(
+    { settings: () => settings, findClaude: () => join(folder, 'claude'), ask: async () => null },
+    async () => ({ scheduleId: `work.${slug}.${lane}`, title: 'Shop: Fix the login', work: { slug, lane } }),
+  )
+  const stopped = (purpose: string) => ({
+    id: randomUUID(),
+    harness: 'pi',
+    purpose,
+    cwd: folder,
+    model: 'anthropic/claude-sonnet-5-5',
+    effort: 'medium',
+    prompt: 'Do the item.',
+    sessionFile: join(folder, 'jobs', `${randomUUID()}.jsonl`),
+    signal: AbortSignal.abort(),
+  })
+
+  // An important project's do runs on high, so on Claude Code; its look runs on mid, so on Pi. hobkin gives each run its data root.
+  const onClaude = (await run(stopped('work-do'), { metricsRoot: root })) as { harness: string }
+  lane = 'look'
+  const onPi = (await run(stopped('work-look'), { metricsRoot: root })) as { harness: string }
+  assert.deepEqual([onClaude.harness, onPi.harness], ['claude', 'pi'])
+})

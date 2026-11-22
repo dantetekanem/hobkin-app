@@ -8,6 +8,7 @@ import { KEPT_ASKED_MAX, KEPT_ID_PATTERN, KEPT_NAME_MAX, type KeptThemes } from 
 import { DRAWING_MAX_BYTES, type CanvasContent, type CanvasSaved, type CanvasState } from '../protocol/canvas.ts'
 import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITLE_MAX, type HobkinConversation, type HobkinReach, type HobkinSummary } from '../protocol/hobkins.ts'
 import { CLAUDE_AGENT_KINDS, CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_PERMISSIONS, type ClaudeCodeState } from '../protocol/claude-code.ts'
+import { CLAUDE_LEVELS } from '../tiers/claude-code.ts'
 import { DIRECTIONS_MAX_BYTES, DIRECTIONS_MISSING, type DirectionsFile, type DirectionsSaved } from '../protocol/directions.ts'
 import type { FileContent } from '../protocol/files.ts'
 import type { GitHubState } from '../protocol/github.ts'
@@ -381,14 +382,14 @@ export const COMMANDS = {
   },
   'claude-code.read': {
     description:
-      "Read whether Claude Code is installed on this Mac and signed in, and how hobkin's other agents use it: whether Work runs, delegated jobs and routines run on Claude Code instead of Pi, with which model and thinking effort, and what they may do without asking. The main chat always runs on Pi.",
+      "Read whether Claude Code is installed on this Mac and signed in, and how hobkin's other agents use it: whether Work runs, delegated jobs and routines run on Claude Code instead of Pi, with which model and thinking effort, and what they may do without asking. `tiers` names each tier that runs on Claude Code, with its Claude model and level: a Work run, a delegated job or a routine at that tier runs there. The main chat always runs on Pi.",
     runs: 'host',
     args: nothing,
     hobkin: true,
   },
   'claude-code.apply': {
     description:
-      "Change how hobkin's other agents use Claude Code. `enabled` runs them on Claude Code instead of Pi. `kinds` picks which of them: work, sessions (jobs hobkin delegates) and routines. `model` is a Claude Code alias, or default for the account's own. `effort` follows each agent's tier or fixes a level. `permissions` says what they may do without asking: auto (Claude Code's reviewer approves safe actions and asks the user when unsure), ask (every action that needs approval asks the user), edits (file edits go ahead, commands ask) or all (everything goes ahead). Whatever is left out stays as it is. Agents already running keep what they started with.",
+      "Change how hobkin's other agents use Claude Code. `enabled` runs them on Claude Code instead of Pi. `kinds` picks which of them: work, sessions (jobs hobkin delegates) and routines. `model` is a Claude Code alias, or default for the account's own. `effort` follows each agent's tier or fixes a level. `permissions` says what they may do without asking: auto (Claude Code's reviewer approves safe actions and asks the user when unsure), ask (every action that needs approval asks the user), edits (file edits go ahead, commands ask) or all (everything goes ahead). `tiers` puts a tier on Claude Code with a Claude model and a level from low to max, or takes it off with null; the tier keeps its Pi model. Whatever is left out stays as it is. Agents already running keep what they started with.",
     runs: 'host',
     args: Type.Object(
       {
@@ -397,6 +398,14 @@ export const COMMANDS = {
         model: Type.Optional(oneOf(CLAUDE_MODELS)),
         effort: Type.Optional(oneOf(CLAUDE_EFFORTS)),
         permissions: Type.Optional(oneOf(CLAUDE_PERMISSIONS)),
+        tiers: Type.Optional(
+          Type.Object(
+            Object.fromEntries(
+              TIER_IDS.map((tier) => [tier, Type.Optional(Type.Union([Type.Null(), Type.Object({ model: oneOf(CLAUDE_MODELS), effort: oneOf(CLAUDE_LEVELS) }, { additionalProperties: false })]))]),
+            ),
+            { additionalProperties: false },
+          ),
+        ),
       },
       { additionalProperties: false },
     ),
