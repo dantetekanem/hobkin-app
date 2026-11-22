@@ -79,6 +79,25 @@ test('Work comes back from a review opened on AI Reviews on that tab, with what 
   assert.equal(takeArrival('work'), null, 'once')
 })
 
+test("Work comes back from a project opened from a chart's list on Numbers with that list open at the row it was opened from", () => {
+  useView.setState({ screen: 'work', trail: [], project: null })
+  const ask = { chart: 'merged' as const, from: '2026-11-21', to: '2026-11-21' }
+  useWorkTab.getState().choose('numbers')
+  useWorkTab.getState().openList(ask)
+  useWorkTab.getState().listed('c1')
+  view().openProject('storefront')
+  assert.equal(view().screen, 'project')
+
+  // Something chose Work's other tab while the project showed.
+  useWorkTab.getState().choose('work')
+  view().leave()
+  assert.equal(view().screen, 'work')
+  assert.equal(useWorkTab.getState().tab, 'numbers', 'the tab comes back')
+  assert.deepEqual(useWorkTab.getState().listing, { ask, item: 'c1' }, 'and the list, at the row the panel gives the keyboard to')
+  takeArrival('work')
+  useWorkTab.getState().choose('work')
+})
+
 test('only a way back gives a page what it kept; opening it again starts it as it always has', () => {
   useView.setState({ screen: 'work', trail: [] })
   useWorkTab.getState().choose('reviews')

@@ -20,6 +20,8 @@ export interface WorkTabState {
   period: NumbersPeriod
   /** The changes behind a chart, open over the Numbers tab. */
   listing: Listing | null
+  /** The list that was open as the user last left Work along the trail, given back with the tab on the way back. */
+  keptListing: Listing | null
   choose: (tab: WorkTab) => void
   /** Opens the Numbers tab at one chart. */
   openNumbers: (at: NumbersChart) => void
@@ -31,8 +33,8 @@ export interface WorkTabState {
 }
 
 /** What the page holds; the actions are given below. */
-type Held = Pick<WorkTabState, 'tab' | 'at' | 'period' | 'listing'>
-const HELD: Held = { tab: 'work', at: null, period: 30, listing: null }
+type Held = Pick<WorkTabState, 'tab' | 'at' | 'period' | 'listing' | 'keptListing'>
+const HELD: Held = { tab: 'work', at: null, period: 30, listing: null, keptListing: null }
 
 /**
  * The page Work shows. It stays while the window is open, so closing a review opened from AI Reviews comes back to it.
@@ -58,10 +60,16 @@ useWorkTab.setState({
 })
 
 // Work's tab is part of its place on the trail (053): kept as the user leaves Work, and chosen again before Work draws
-// when a way back returns to it.
+// when a way back returns to it. On Numbers, the list a chart opened is kept with it, so coming back from a project
+// opened from the list lands on the list again, at that project's row.
 keepPart('work', 'tab', {
-  read: () => ({ tab: useWorkTab.getState().tab }),
+  read: () => {
+    const { tab, listing } = useWorkTab.getState()
+    set({ keptListing: tab === 'numbers' ? listing : null })
+    return { tab }
+  },
   give: ({ tab }) => {
-    if (tab) useWorkTab.getState().choose(tab as WorkTab)
+    if (!tab) return
+    set({ tab: tab as WorkTab, at: null, listing: tab === 'numbers' ? useWorkTab.getState().keptListing : null })
   },
 })
