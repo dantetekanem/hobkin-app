@@ -79,30 +79,48 @@ export function useRunControl(run: ProofRun, live: boolean, onMove: MoveTo) {
  * evidence for its change, why. One line whatever it says.
  */
 export function RunFacts({ run, siblings, onMove, className }: { run: ProofRun; siblings: readonly string[]; onMove: MoveTo; className?: string }) {
-  const previous = siblingAt(siblings, run.id, -1)
-  const next = siblingAt(siblings, run.id, 1)
-  const failed = failuresOf(run).length > 0
-  const evidence = evidenceLine(run)
   return (
     <div className={cn('flex h-7 min-w-0 items-center gap-3 text-[12.5px] text-muted-foreground', className)}>
-      <span className="flex shrink-0 items-center gap-0.5">
-        <Button variant="ghost" size="icon-sm" data-stop="" disabled={!previous} aria-label="Previous model" title="Previous model (K)" onClick={() => previous && onMove(previous)}>
-          <ChevronLeft aria-hidden />
-        </Button>
-        <span className="w-[92px] text-center text-foreground tabular-nums">{positionWords(siblings, run.id)}</span>
-        <Button variant="ghost" size="icon-sm" data-stop="" disabled={!next} aria-label="Next model" title="Next model (J)" onClick={() => next && onMove(next)}>
-          <ChevronRight aria-hidden />
-        </Button>
-      </span>
-      <span title={failureLine(run)} className={cn('min-w-0 shrink truncate tabular-nums', failed && 'text-bad-fg')}>
-        {failureLine(run)}
-      </span>
-      {evidence ? (
-        <span title={evidence} className="min-w-0 flex-1 truncate text-warn-fg">
-          {evidence}
-        </span>
-      ) : null}
+      <ModelPosition run={run} siblings={siblings} onMove={onMove} />
+      <RunNotes run={run} />
     </div>
+  )
+}
+
+/** "Model 2 of 5" between K and J as buttons, in a room of one width. */
+export function ModelPosition({ run, siblings, onMove, className }: { run: ProofRun; siblings: readonly string[]; onMove: MoveTo; className?: string }) {
+  const previous = siblingAt(siblings, run.id, -1)
+  const next = siblingAt(siblings, run.id, 1)
+  return (
+    <span className={cn('flex shrink-0 items-center gap-0.5 text-[12.5px]', className)}>
+      <Button variant="ghost" size="icon-sm" data-stop="" disabled={!previous} aria-label="Previous model" title="Previous model (K)" onClick={() => previous && onMove(previous)}>
+        <ChevronLeft aria-hidden />
+      </Button>
+      <span className="w-[92px] text-center text-foreground tabular-nums">{positionWords(siblings, run.id)}</span>
+      <Button variant="ghost" size="icon-sm" data-stop="" disabled={!next} aria-label="Next model" title="Next model (J)" onClick={() => next && onMove(next)}>
+        <ChevronRight aria-hidden />
+      </Button>
+    </span>
+  )
+}
+
+/**
+ * What failed, and why the run is not evidence when it is not. Inline they share one line; `stacked`, each has a line of
+ * its own, two lines' room whatever they say, which a panel uses below 700 pixels so both read whole.
+ */
+export function RunNotes({ run, stacked = false }: { run: ProofRun; stacked?: boolean }) {
+  const failed = failuresOf(run).length > 0
+  const evidence = evidenceLine(run)
+  const line = failureLine(run)
+  return (
+    <span className={cn('flex min-w-0 text-[12.5px] text-muted-foreground', stacked ? 'h-10 flex-col justify-center leading-5 @min-[700px]:h-5 @min-[700px]:flex-row @min-[700px]:justify-start @min-[700px]:gap-3' : 'flex-1 items-center gap-3')}>
+      <span title={line} className={cn('min-w-0 shrink-0 truncate tabular-nums', !stacked && 'shrink', failed && 'text-bad-fg')}>
+        {line}
+      </span>
+      <span title={evidence ?? undefined} className="min-w-0 truncate text-warn-fg">
+        {evidence}
+      </span>
+    </span>
   )
 }
 
@@ -118,10 +136,20 @@ export function useLanding(run: ProofRun, complete: boolean): void {
   }, [landing, complete, run])
 }
 
-/** The proof's keys, in a quiet row of one line's room, as the app's hints under the chat are. */
+/**
+ * The proof's keys, in a quiet row, as the app's hints under the chat are: one line's room on the page. In a panel,
+ * two lines' room below 640 pixels and one above, so every hint shows whole. A hint that does not fit goes whole to
+ * the next line, never cut.
+ */
 export function ProofKeyHints({ panel = false, className }: { panel?: boolean; className?: string }) {
   return (
-    <div className={cn('select-none-chrome flex h-5 min-w-0 flex-wrap items-center gap-x-3 overflow-hidden text-[11px] text-muted-foreground', className)}>
+    <div
+      className={cn(
+        'select-none-chrome flex min-w-0 flex-wrap content-start items-center gap-x-3 gap-y-1 overflow-hidden text-[11px] text-muted-foreground',
+        panel ? 'h-11 @min-[640px]:h-5' : 'h-5',
+        className,
+      )}
+    >
       {PROOF_KEY_HINTS.filter((hint) => panel || !hint.panel).map(({ keys, does }) => (
         <span key={keys} className="flex items-center gap-1 whitespace-nowrap">
           {keys.split(' ').map((key) => (

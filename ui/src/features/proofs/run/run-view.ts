@@ -85,7 +85,7 @@ export function evidenceLine(run: Pick<ProofRunSummary, 'counts' | 'outcome' | '
     case 'holds': {
       const missed = neverFired(run)
       if (missed.length) return `Not evidence: ${namesOf(missed)} never ran`
-      return 'Not evidence for this change: it checked another commit or another copy of the spec'
+      return 'Not evidence for this change: it checked another commit or spec'
     }
   }
 }
@@ -120,16 +120,25 @@ export interface StepRow {
   id: ProofStep['id']
   name: string
   note: string
+  /** The note without its leading tool, which the step's name already says, for a step with little room. */
+  brief: string
   look: StepLook
 }
 
 const LOOKS: Readonly<Record<ProofStep['state'], StepLook>> = { done: 'done', running: 'running', waiting: 'waiting', skipped: 'waiting', failed: 'failed' }
 
+/** "TLC · counterexample at depth 5" as "Counterexample at depth 5". A note that names no tool first is kept. */
+function briefOf(note: string): string {
+  const rest = note.replace(/^(?:SANY|TLC|TLAPS)\s+·\s+/, '')
+  return rest.charAt(0).toUpperCase() + rest.slice(1)
+}
+
 /** Parse, Model check and Proof, always all three in that order, so the row never reflows. */
 export function stepRows(run: Pick<ProofRunSummary, 'steps'>): StepRow[] {
   return (['parse', 'check', 'prove'] as const).map((id) => {
     const step = stepOf(run, id)
-    return { id, name: STEP_NAMES[id], note: step?.note || STEP_TOOLS[id], look: LOOKS[step?.state ?? 'waiting'] }
+    const note = step?.note || STEP_TOOLS[id]
+    return { id, name: STEP_NAMES[id], note, brief: briefOf(note), look: LOOKS[step?.state ?? 'waiting'] }
   })
 }
 

@@ -76,7 +76,7 @@ test('a run that does not count as evidence says so in plain words, and one that
   assert.equal(evidenceLine(sampleRun('broken', STARTED)), 'Not evidence that it holds: a rule broke')
   assert.equal(evidenceLine(sampleRun('checking', STARTED)), 'Not evidence yet: it is still checking')
   assert.equal(evidenceLine({ ...sampleRun('holds', STARTED), counts: false, actions: [{ name: 'Decline', count: 0 }] }), 'Not evidence: Decline never ran')
-  assert.equal(evidenceLine({ ...sampleRun('holds', STARTED), counts: false }), 'Not evidence for this change: it checked another commit or another copy of the spec')
+  assert.equal(evidenceLine({ ...sampleRun('holds', STARTED), counts: false }), 'Not evidence for this change: it checked another commit or spec')
   assert.equal(evidenceLine({ ...sampleRun('broken', STARTED), outcome: 'stopped', counts: false }), 'Not evidence: it was stopped before the end')
   assert.equal(evidenceLine({ ...sampleRun('broken', STARTED), outcome: 'error', counts: false }), 'Not evidence: the check could not run')
   assert.equal(evidenceLine(sampleRun('proved', STARTED)), null)

@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/button.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
 import { loadGraphView, ProofBody, useBoxLayout } from './ProofBody.tsx'
-import { ProofKeyHints, RunFacts, showPart, useCodeOpener, useLanding, useProofKeys, useRunControl, type MoveTo } from './ProofParts.tsx'
+import { ModelPosition, ProofKeyHints, RunNotes, showPart, useCodeOpener, useLanding, useProofKeys, useRunControl, type MoveTo } from './ProofParts.tsx'
 import type { ProofLayout } from './proof-layout.ts'
 import { specFile } from './proof-match.ts'
 import './proofs.css'
@@ -122,8 +122,9 @@ interface PanelHeadingProps extends Pick<ProofPanelProps, 'onClose' | 'onExpand'
 }
 
 /**
- * The model and how it stands, with expand and close at the end; which of the change's models it is and what failed,
- * with Stop or Run again; then its keys beside what hobkin said to the last press. Every row keeps its height.
+ * The model, what hobkin said to the last press, and expand and close; which of the change's models it is and how it
+ * stands, with Stop or Run again; what failed and why it is not evidence; then its keys. Each row has one room at a
+ * width whatever the run says, so nothing moves as a run loads, and from 520 pixels every part of it reads whole.
  */
 function PanelHeading({ run, siblings, onMove, control, onClose, onExpand }: PanelHeadingProps) {
   const phase = phaseOf(run)
@@ -132,33 +133,31 @@ function PanelHeading({ run, siblings, onMove, control, onClose, onExpand }: Pan
     <header className="flex flex-col gap-1">
       <div className="flex h-9 min-w-0 items-center gap-3">
         <span className="eyebrow shrink-0">Proof</span>
-        <h2 title={run.spec} className="min-w-0 shrink truncate font-mono text-[15px] font-semibold">
+        <h2 title={run.spec} className="min-w-0 shrink-0 truncate font-mono text-[15px] font-semibold">
           {model}
         </h2>
-        <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground">
-          <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', DOT[phase.tone])} />
-          <span className="truncate">{phase.label}</span>
-        </span>
-        <span className="ml-auto flex shrink-0 items-center gap-1">
+        <p role="status" title={control.said ?? undefined} className="min-w-0 flex-1 truncate text-right text-[12px] text-muted-foreground">
+          {control.said}
+        </p>
+        <span className="flex shrink-0 items-center gap-1">
           <Button variant="ghost" size="icon" data-stop="" aria-label="Open the full page" title="Open the full page (Shift+T)" onClick={() => onExpand(run.id)}>
             <Maximize2 aria-hidden />
           </Button>
           <CloseButton onClose={onClose} />
         </span>
       </div>
-      <div className="flex min-w-0 items-center gap-3">
-        <RunFacts run={run} siblings={siblings} onMove={onMove} className="min-w-0 flex-1 -ml-1.5" />
+      <div className="flex h-8 min-w-0 items-center gap-3">
+        <ModelPosition run={run} siblings={siblings} onMove={onMove} className="-ml-1.5" />
+        <span title={phase.label} className="flex min-w-0 flex-1 items-center gap-2 text-[13px]">
+          <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', DOT[phase.tone])} />
+          <span className="truncate">{phase.label}</span>
+        </span>
         <Button variant="outline" data-stop="" disabled={control.busy} focusableWhenDisabled onClick={() => void control.press()} className="h-8 w-[104px] shrink-0 rounded-xl text-[13px]">
           {control.control.label}
         </Button>
       </div>
-      <div className="flex h-5 items-center gap-4">
-        <ProofKeyHints panel className="flex-1" />
-        {/* What hobkin said to the last press, in one line's room so nothing under it moves. */}
-        <p role="status" className="max-w-[50%] truncate text-right text-[12px] leading-4 text-muted-foreground">
-          {control.said}
-        </p>
-      </div>
+      <RunNotes run={run} stacked />
+      <ProofKeyHints panel />
     </header>
   )
 }

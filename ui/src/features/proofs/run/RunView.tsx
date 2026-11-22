@@ -93,10 +93,11 @@ function modelLine(run: ProofRun): string {
 /** How long the run has gone on. The only part of the page that reads the clock, so a tick draws this text alone. */
 function Elapsed({ run, now }: { run: ProofRun; now: number | null | undefined }) {
   const clock = useNow(run.outcome === 'checking' && now == null, 1000)
-  return <span className="shrink-0 font-mono text-[12.5px] text-muted-foreground tabular-nums">{elapsedLine(run, now ?? clock)}</span>
+  return <span className="ml-auto shrink-0 font-mono text-[12.5px] text-muted-foreground tabular-nums">{elapsedLine(run, now ?? clock)}</span>
 }
 
-const STEP_BOX = 'flex min-h-[62px] w-full flex-col gap-1.5 rounded-[14px] border px-3 py-2.5 text-left'
+/** Below 600 pixels a step's note has two lines' room, so it reads whole; above, one. */
+const STEP_BOX = 'flex min-h-[80px] w-full flex-col gap-1.5 rounded-[14px] border px-3 py-2.5 text-left @min-[600px]:min-h-[62px]'
 
 /**
  * One of the three steps. The Proof step opens the proof tree once TLAPS ran, at the first step that failed when one
@@ -114,7 +115,11 @@ function StepBox({ step, onOpen }: { step: ReturnType<typeof stepRows>[number]; 
         <span className="sr-only">: {step.look}</span>
         {onOpen ? <OpenArrow className="ml-auto size-3.5" /> : null}
       </span>
-      <span title={step.note} className="line-clamp-1 text-[12px] font-normal text-muted-foreground">
+      {/* Below 600 pixels the note leaves out its tool and has two lines' room; above, all of it on one. */}
+      <span title={step.note} className="line-clamp-2 text-[12px] font-normal text-muted-foreground @min-[600px]:hidden">
+        {step.brief}
+      </span>
+      <span title={step.note} className="hidden text-[12px] font-normal text-muted-foreground @min-[600px]:line-clamp-1">
         {step.note}
       </span>
     </>
@@ -137,10 +142,11 @@ function Check({ run, now, onTab }: { run: ProofRun; now: number | null | undefi
 
   return (
     <section aria-label="The check" className={cn(CARD, 'flex flex-col gap-[18px] px-[22px] py-5')}>
-      {/* The time keeps its place at the end whatever it says, and the model gives way to it. */}
-      <div className="flex items-baseline gap-3.5">
+      {/* The time keeps its place at the end whatever it says, and the model gives way to it. Below 600 pixels the
+          model has a line of its own under them, so it reads whole. */}
+      <div className="flex flex-wrap items-baseline gap-x-3.5 gap-y-1">
         <h2 className="shrink-0 font-mono text-[15px] font-medium">{specFile(run.spec)}</h2>
-        <span title={model} className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
+        <span title={model} className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground @max-[600px]:order-last @max-[600px]:basis-full">
           {model}
         </span>
         <Elapsed run={run} now={now} />
@@ -157,7 +163,8 @@ function Check({ run, now, onTab }: { run: ProofRun; now: number | null | undefi
         })}
       </ol>
 
-      <div className="grid grid-cols-2 gap-3 @min-[480px]:grid-cols-4">
+      {/* Four across from 600 pixels, where each caption reads whole; two across below. */}
+      <div className="grid grid-cols-2 gap-3 @min-[600px]:grid-cols-4">
         {countersOf(run).map((counter) => (
           <div key={counter.label} className="flex flex-col gap-1 rounded-[14px] border border-border bg-tone-2 px-3.5 py-3">
             <span className="text-[12px] text-muted-foreground">{counter.label}</span>
@@ -343,7 +350,8 @@ function Actions({ run }: { run: ProofRun }) {
           </li>
         ))}
       </ul>
-      <p className={cn('line-clamp-2 min-h-9 text-[12.5px] leading-[1.45]', note.tone === 'warn' ? 'text-warn-fg' : 'text-muted-foreground')}>{note.text}</p>
+      {/* Three lines' room whatever it says, so it reads whole in a narrow column too. */}
+      <p className={cn('line-clamp-3 min-h-[55px] text-[12.5px] leading-[1.45]', note.tone === 'warn' ? 'text-warn-fg' : 'text-muted-foreground')}>{note.text}</p>
     </section>
   )
 }

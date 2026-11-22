@@ -27,6 +27,10 @@ test('the steps are always Parse, Model check and Proof, and a step with no note
   assert.deepEqual(stepRows(run('checking')).map(({ name, look }) => [name, look]), [['Parse', 'done'], ['Model check', 'running'], ['Proof', 'waiting']])
   assert.deepEqual(stepRows(run('broken')).map(({ look }) => look), ['done', 'failed', 'waiting'])
 
+  // Where a step has two short lines, its note leaves out the tool, which the step's name already says.
+  assert.deepEqual(stepRows(run('broken')).map(({ brief }) => brief), ['No errors · 0.4 s', 'Counterexample at depth 5', 'Waits until the model holds'])
+  assert.deepEqual(stepRows(run('proofFails')).map(({ brief }) => brief).at(-1), '⟨2⟩5 fails')
+
   const early = stepRows({ steps: [{ id: 'parse', state: 'running', note: '' }] })
   assert.deepEqual(early.map(({ note, look }) => [note, look]), [['SANY', 'running'], ['TLC', 'waiting'], ['TLAPS · optional', 'waiting']])
 })
