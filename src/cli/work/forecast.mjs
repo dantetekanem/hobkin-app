@@ -5,7 +5,7 @@ import {
   canStart, countsAgainst, discoveryEntry, ideasEntry, lensEntry, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, retryAt, signalsEntry, skipsTheHour, startBudgetWait, startGap,
   startsNewWork, waitsOnItsProject, watchEntry,
 } from './plan.mjs';
-import { chosenProjects, dailyLimit, grades, lookEveryHours, paths, readState, tokenEvents } from './store.mjs';
+import { chosenProjects, dailyLimit, grades, lookEveryHours, paths, readState, tokenEvents, workHoursAt } from './store.mjs';
 
 export const FORECAST_HOURS = 8;
 const MINUTE_MS = 60000;
@@ -76,13 +76,18 @@ function laterLooks(root, { mode, budget, entries }, projects, { start, end, run
   });
 }
 
-/** Why a row cannot start this minute, or null when it can. A priority that has had its runs holds its rows whatever the hour has left. */
-function refused(row, { mode, busy, day, hour, spent }) {
+/**
+ * Why a row cannot start this minute, or null when it can. A priority that has had its runs holds its rows whatever the hour has left. The user's
+ * hours and cap on changes a day hold what would start by itself, as the plan's own wait does (`workloadWait`).
+ */
+function refused(row, { mode, busy, day, hour, spent, open, cap }) {
+  if (!open && !row.picked) return 'hours';
   const maxRunning = busy.filter(run => run.level === 'max').length;
   const maxFull = row.level === 'max' && (maxRunning >= MAX_RUNS_AT_ONCE || day.maxRuns >= MAX_RUNS_A_DAY);
   const projectBusy = waitsOnItsProject(row, busy.filter(run => run.slug === row.slug));
   if (maxFull || projectBusy) return 'pace';
   if (!fitsDay(day, row.estimate.fresh)) return 'day';
+  if (row.lane === 'do' && !row.picked && cap !== null && day.changes >= cap) return 'cap';
   if (startBudgetWait({ mode, spent }, row)) return 'priority';
   if (skipsTheHour(row) || fitsHour(hour, row.estimate.fresh)) return null;
   return 'hour';
@@ -92,14 +97,15 @@ const spentInTheHourTo = (spends, at) => spends
   .filter(spend => spend.at > at - HOUR_MS && spend.at <= at)
   .reduce((sum, spend) => sum + spend.fresh, 0);
 
-// What held the most minutes back. A tie goes to the agents' pace and then the hour, as it did before priorities had runs to spend.
-const mostHeld = held => ['pace', 'hour', 'priority'].reduce((most, kind) => (held[kind] > held[most] ? kind : most));
+// What held the most minutes back. A tie goes to the agents' pace and then the hour, as it did before priorities had runs to spend, and the
+// user's hours and cap come after those.
+const mostHeld = held => ['pace', 'hour', 'priority', 'hours', 'cap'].reduce((most, kind) => (held[kind] > held[most] ? kind : most));
 
 /**
  * A minute at a time, as the owner's ticks go: the top row that can start does, while an agent is free, the gap between starts has passed and the budget allows it.
  * A row that starts by itself spends its priority's runs, and a run had long enough ago gives its place back, inside the window too.
  */
-function play({ plan: { mode, budget, agents }, queue, from, start, end, running, lengthOf, nextLook }) {
+function play({ plan: { mode, budget, agents, workload }, queue, from, start, end, running, lengthOf, nextLook }) {
   const active = running.map(run => ({
     ...run,
     until: Math.max(start + MINUTE_MS, (Date.parse(run.startedAt) || start) + lengthOf(run.kind ?? run.lane)),
@@ -114,18 +120,22 @@ function play({ plan: { mode, budget, agents }, queue, from, start, end, running
     used: budget.used + budget.reserved,
     reserved: 0,
     maxRuns: budget.maxRuns + running.filter(run => run.level === 'max').length,
+    // Item runs begun today, running ones among them, as the plan counts them for the cap.
+    changes: budget.changes ?? 0,
   };
+  // A plan made before the workload existed holds nothing by it.
+  const { hours = null, changesADay: cap = null } = workload ?? {};
   // The budget is today's, so a stop that ends after midnight starts the next day with all of it.
   let midnight = nextMidnight(from);
   let lastStart = -Infinity;
   let counted = mode.countedStarts;
   let why = null;
-  const held = { hour: 0, pace: 0, priority: 0 };
+  const held = { hour: 0, pace: 0, priority: 0, hours: 0, cap: 0 };
   const started = [];
 
   for (let at = start; at < end; at += MINUTE_MS) {
     if (at >= midnight) {
-      day = { limit: dailyLimit(mode, at), used: 0, reserved: 0, maxRuns: 0 };
+      day = { limit: dailyLimit(mode, at), used: 0, reserved: 0, maxRuns: 0, changes: 0 };
       midnight = nextMidnight(at);
     }
     const due = queue.filter(row => row.at <= at);
@@ -133,7 +143,7 @@ function play({ plan: { mode, budget, agents }, queue, from, start, end, running
 
     const busy = active.filter(run => run.until > at);
     const hour = { hourShare: hourShareOf(day.limit), hourUsed: spentInTheHourTo(spends, at), reserved: 0 };
-    const limits = { mode, busy, day, hour, spent: outOfStarts(counted, at) };
+    const limits = { mode, busy, day, hour, spent: outOfStarts(counted, at), open: workHoursAt(hours, at).open, cap };
     const paced = busy.length >= agents || at - lastStart < startGap(mode, busy);
     const next = paced ? null : due.find(row => !refused(row, limits));
     if (!next) {
@@ -143,12 +153,13 @@ function play({ plan: { mode, budget, agents }, queue, from, start, end, running
     }
 
     queue.splice(queue.indexOf(next), 1);
-    started.push(next);
+    started.push({ ...next, startedAt: at });
     lastStart = at;
     const priority = countsAgainst(next);
     if (priority) counted = withStart(counted, priority, at);
     day.used += next.estimate.fresh;
     if (next.level === 'max') day.maxRuns += 1;
+    if (next.lane === 'do') day.changes += 1;
     spends.push({ at, fresh: next.estimate.fresh });
     active.push({ slug: next.slug, lane: next.lane, level: next.level, until: at + lengthOf(runKind(next)) });
 
@@ -201,6 +212,8 @@ function forecastLine({ jobs, grades: byGrade, agents, limit, until }, now) {
     priority: 'The pace by priority caps it.',
     pace: 'More is due than fits.',
     picks: 'Auto-pick is off, so only picks and work on finished branches start.',
+    hours: 'Work hours hold it.',
+    cap: 'The cap on changes a day holds it.',
   }[limit];
   const counts = [
     `about ${counted(jobs, 'job')}`,
@@ -215,14 +228,15 @@ function forecastLine({ jobs, grades: byGrade, agents, limit, until }, now) {
 /**
  * About how many runs work mode starts in the next 8 hours, by grade, and what holds the number down. Pure code over what is on disk, so it spends no tokens.
  * It plays the plan forward: what is ready and what comes due goes to the agents in queue order, inside the budget and every stop.
+ * The outlook plays the same way to midnight: about how many more changes, item runs, start today, and when the next one starts in what it saw.
  */
-export function forecastWork(root, plan, { now = Date.now(), running = [] } = {}) {
+export function forecastAndOutlook(root, plan, { now = Date.now(), running = [] } = {}) {
   const { mode, pause, entries, agents } = plan;
   const from = Math.floor(now / MINUTE_MS) * MINUTE_MS;
   const end = from + FORECAST_HOURS * HOUR_MS;
+  const midnight = nextMidnight(from);
   const stop = stopThatHolds(pause, mode);
   const until = stop?.until ? new Date(stop.until).getTime() : null;
-  const start = firstStart(stop, until, from, end);
 
   const ready = entries.filter(row => canStart(mode, row) && !row.paused);
   const history = costHistory(root);
@@ -236,22 +250,29 @@ export function forecastWork(root, plan, { now = Date.now(), running = [] } = {}
     estimate: estimateRun(history, { kind: runKind(entry), level: entry.level }),
   });
   const wanted = entry => mode.autoPick && !mode.queueSkipped.includes(entry.key) && !(plan.shipFirst.holding && startsNewWork(entry));
-  // A look stamps its time as it starts, so the next on its project comes due a full pace later. A first study has a look straight after it.
-  const nextLook = ({ slug, kind }, at) => {
-    const project = projects.get(slug);
-    if (!project || !['study', 'look'].includes(kind)) return null;
-    const due = at + (kind === 'look' ? lookEveryHours(project) * HOUR_MS : 0);
-    const entry = lensEntry(project, {}, due, false);
-    return due < end && wanted(entry) ? job(entry, due) : null;
+  const lengthOf = runLengths(root);
+  // What starts from now to `to`: the queue is built for that window, and played through it.
+  const playTo = to => {
+    const start = firstStart(stop, until, from, to);
+    // A look stamps its time as it starts, so the next on its project comes due a full pace later. A first study has a look straight after it.
+    const nextLook = ({ slug, kind }, at) => {
+      const project = projects.get(slug);
+      if (!project || !['study', 'look'].includes(kind)) return null;
+      const due = at + (kind === 'look' ? lookEveryHours(project) * HOUR_MS : 0);
+      const entry = lensEntry(project, {}, due, false);
+      return due < to && wanted(entry) ? job(entry, due) : null;
+    };
+    const nothingStarts = start >= to;
+    const readyJobs = nothingStarts ? [] : ready.map((row, rank) => ({ ...row, rank, at: Math.max(start, retryAt(row) ?? start) }));
+    const comingJobs = nothingStarts ? [] : laterLooks(root, plan, projects.values(), { start, end: to, running })
+      .filter(({ entry }) => wanted(entry))
+      .map(({ entry, at }) => job(entry, at));
+    const queue = [...readyJobs, ...comingJobs].toSorted(byRank);
+    return play({ plan, queue, from, start, end: to, running, lengthOf, nextLook });
   };
-
-  const nothingStarts = start >= end;
-  const readyJobs = nothingStarts ? [] : ready.map((row, rank) => ({ ...row, rank, at: Math.max(start, retryAt(row) ?? start) }));
-  const comingJobs = nothingStarts ? [] : laterLooks(root, plan, projects.values(), { start, end, running })
-    .filter(({ entry }) => wanted(entry))
-    .map(({ entry, at }) => job(entry, at));
-  const queue = [...readyJobs, ...comingJobs].toSorted(byRank);
-  const { started, limit } = play({ plan, queue, from, start, end, running, lengthOf: runLengths(root), nextLook });
+  const { started, limit } = playTo(end);
+  // The rest of today: the same play, to midnight, unless the window already reaches past it.
+  const changes = (midnight <= end ? started : playTo(midnight).started).filter(row => row.lane === 'do');
 
   const forecast = {
     hours: FORECAST_HOURS,
@@ -261,14 +282,21 @@ export function forecastWork(root, plan, { now = Date.now(), running = [] } = {}
     limit: holdOf(stop, limit, plan),
     until: until === null ? null : new Date(until).toISOString(),
   };
-  return { ...forecast, line: forecastLine(forecast, now) };
+  const outlook = {
+    startedToday: plan.budget.changes ?? 0,
+    moreToday: changes.filter(row => row.startedAt < midnight).length,
+    nextAt: changes.length ? new Date(Math.max(now, changes[0].startedAt)).toISOString() : null,
+  };
+  return { forecast: { ...forecast, line: forecastLine(forecast, now) }, outlook };
 }
+
+export const forecastWork = (root, plan, options) => forecastAndOutlook(root, plan, options).forecast;
 
 // The dashboard asks for its status every second, and the forecast plays the window a minute at a time, so within a minute only what it counts can change it.
 const lastForecasts = new Map();
 
-/** The forecast for a caller that asks often: worked out again with each new minute, or as soon as the mode, the queue or what is running changes. */
-export function forecastEachMinute(root, plan, { now = Date.now(), running = [] } = {}) {
+/** The forecast and the outlook for a caller that asks often: worked out again with each new minute, or as soon as the mode, the queue or what is running changes. */
+export function lookAheadEachMinute(root, plan, { now = Date.now(), running = [] } = {}) {
   const key = JSON.stringify([
     Math.floor(now / MINUTE_MS),
     plan.mode,
@@ -279,9 +307,11 @@ export function forecastEachMinute(root, plan, { now = Date.now(), running = [] 
     running.map(({ id, startedAt }) => [id, startedAt]),
   ]);
   const last = lastForecasts.get(root);
-  if (last?.key === key) return last.forecast;
+  if (last?.key === key) return last.ahead;
 
-  const forecast = forecastWork(root, plan, { now, running });
-  lastForecasts.set(root, { key, forecast });
-  return forecast;
+  const ahead = forecastAndOutlook(root, plan, { now, running });
+  lastForecasts.set(root, { key, ahead });
+  return ahead;
 }
+
+export const forecastEachMinute = (root, plan, options) => lookAheadEachMinute(root, plan, options).forecast;

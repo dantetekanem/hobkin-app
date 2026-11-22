@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { budgetFor, costHistory, dayLine, estimateRun, fitsDay, fitsHour, hourLine, outOfStarts, startBudgets } from './budget.mjs';
+import { budgetFor, costHistory, dayEndsAt, dayLine, estimateRun, fitsDay, fitsHour, hourFreesAt, hourLine, outOfStarts, startBudgets } from './budget.mjs';
 import { lookTime } from './chat.mjs';
 import { openLaunches, watchDue } from './launches.mjs';
 import { toolsHere } from './machines.mjs';
@@ -11,7 +11,7 @@ import { shipFirst } from './ship.mjs';
 import { aheadOfPace, readSubscription, usageWindows } from './usage.mjs';
 import {
   chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, movesFinishedWork, paths, priorityOf, roomToFill,
-  readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents,
+  readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents, tokenLabel, workHoursAt, workloadOf,
 } from './store.mjs';
 import { pendingMerges } from './unmerged.mjs';
 
@@ -420,6 +420,20 @@ export function waitsOnItsProject(entry, here) {
   return here.length > 0 && entry.effort === 'small' && !entry.urgent && !entry.picked ? 'another run here' : null;
 }
 
+/** Whether the user's cap on changes a day is reached: every item run that began today counts, a pick's too. */
+const capReached = ({ changesADay }, { changes }) => changesADay !== null && changes >= changesADay;
+
+/**
+ * What the user's workload holds back of what would start by itself: everything outside their hours, and item runs once the day's cap is reached.
+ * A pick is the user's own word, so neither holds it. Neither stops a run going now.
+ */
+function workloadWait(entry, { workload, hours, budget, now }) {
+  if (entry.picked) return null;
+  if (!hours.open) return `outside work hours until ${lookTime(hours.opensAt, now)}`;
+  if (entry.lane === 'do' && capReached(workload, budget)) return `${budget.changes} of ${workload.changesADay} changes today, the day's cap`;
+  return null;
+}
+
 /** Why this entry cannot start now, leaving out what stops the whole plan and the budget. */
 function ownWait(entry, entries, context) {
   const { mode, running, now } = context;
@@ -427,6 +441,8 @@ function ownWait(entry, entries, context) {
   if (entry.skipped) return 'skipped';
   if (entry.paused) return 'paused';
   if (entry.held) return 'shipping first';
+  const limited = workloadWait(entry, context);
+  if (limited) return limited;
   const paced = startBudgetWait(context, entry);
   if (paced) return paced;
   const retry = retryWait(entry, now);
@@ -536,7 +552,9 @@ function hardStop({ mode, now }) {
 function budgetPause(entries, budget, now) {
   const ready = entries.filter(entry => !entry.ownWait);
   const dayLeft = budget.limit - budget.used;
-  if (dayLeft <= 0 || (ready.length && ready.every(entry => entry.estimate.fresh > dayLeft))) return { kind: 'day', line: dayLine(budget) };
+  if (dayLeft <= 0 || (ready.length && ready.every(entry => entry.estimate.fresh > dayLeft))) {
+    return { kind: 'day', line: dayLine(budget), until: new Date(dayEndsAt(now)).toISOString() };
+  }
 
   // Only tokens really spent make a pause. What is held for running agents is not gone, and a row waiting on it says so itself.
   const hourLeft = budget.hourShare - budget.hourUsed;
@@ -544,7 +562,7 @@ function budgetPause(entries, budget, now) {
   const hourGone = hourLeft <= 0 || (ready.length > 0 && !ready.some(fitsWhatIsLeft));
   if (!hourGone || ready.some(skipsTheHour)) return null;
   const smallest = ready.length ? Math.min(...ready.map(entry => entry.estimate.fresh)) : 0;
-  return { kind: 'hour', line: hourLine(budget, smallest, now) };
+  return { kind: 'hour', line: hourLine(budget, smallest, now), until: new Date(hourFreesAt(budget, smallest, now)).toISOString() };
 }
 
 /** Each start waits the mode's gap after the last one, however long the queue, and with nothing running no more than a breath. Both are 30 seconds by default. */
@@ -562,7 +580,10 @@ export function planWork(root, options = {}) {
 function planOf(root, { mode = readMode(root), now = Date.now(), running = [], checks = 0, lastStartAt = null }) {
   const budget = budgetFor(root, mode, now, running);
   const reading = readSubscription(root);
-  const context = { root, mode, now, running, budget, reading, spent: outOfStarts(mode.countedStarts, now) };
+  // The user's workload, and whether its hours let work start now.
+  const workload = workloadOf(mode);
+  const hours = workHoursAt(workload.hours, now);
+  const context = { root, mode, now, running, budget, reading, workload, hours, spent: outOfStarts(mode.countedStarts, now) };
   const history = costHistory(root);
   // Every row of one kind and level gets the same estimate from the same history, so each is worked out once.
   const estimates = new Map();
@@ -611,7 +632,49 @@ function planOf(root, { mode = readMode(root), now = Date.now(), running = [], c
   // a row now is not a race, and its mark goes as it starts, so a run that dies at once cannot spin.
   const next = stop ? null : (spaced ? startsNow : first) ?? null;
   return {
-    mode, entries, next, pause, budget, subscription, agents, free, waitingOn, shipFirst: shipping,
+    mode, entries, next, pause, budget, subscription, agents, free, waitingOn, shipFirst: shipping, workload, hours,
     nextStartAt: spaced ? new Date(startsAt).toISOString() : null,
   };
+}
+
+const holds = (kind, line, until = null) => ({ kind, until: until === null ? null : new Date(until).toISOString(), line });
+
+/**
+ * The one thing that holds work mode now, for the window to name with the control that changes it: a `kind`, when it ends (`until`, an ISO time,
+ * or null when only the user or a finished run ends it) and one plain sentence. Null while something starts, or only the gap between starts or a
+ * row's own turn holds it, as the forecast's next start then says.
+ */
+export function holdingOf(plan, now = Date.now()) {
+  const { mode, pause, next, free, agents, waitingOn, entries, shipFirst: shipping, budget, workload, hours } = plan;
+  if (!mode.enabled) return holds('off', 'Work mode is off, so nothing starts by itself.');
+  if (pause?.kind === 'hand') return holds('paused', 'Paused by hand, so nothing new starts until work mode resumes.');
+  if (pause?.kind === 'chosen') return holds('paused', `Paused until ${lookTime(pause.until, now)} to protect the subscription, as you chose.`, pause.until);
+  if (pause?.kind === 'usage') return holds('usage-limit', `A usage limit holds new work until ${lookTime(pause.until, now)}.`, pause.until);
+  if (next) return null;
+  if (pause?.kind === 'day') {
+    return holds('tokens', `${tokenLabel(budget.used)} of today's ${tokenLabel(budget.limit)} tokens are used, so nothing new starts until midnight.`, pause.until);
+  }
+  if (pause?.kind === 'hour') {
+    return holds('hourly-share', `This hour's share of ${tokenLabel(budget.hourShare)} tokens is used, so nothing new starts until about ${lookTime(pause.until, now)}.`, pause.until);
+  }
+  if (!hours.open) {
+    return holds('hours', `Work hours are ${workload.hours.from} to ${workload.hours.to}, so nothing new starts until ${lookTime(hours.opensAt, now)}.`, hours.opensAt);
+  }
+  if (free <= 0) {
+    const busy = agents === 1 ? 'The one agent at work is busy, so the next start waits for it to finish.' : `All ${agents} agents are busy, so the next start waits for one to finish.`;
+    return holds('agents-busy', waitingOn ?? busy);
+  }
+  if (plan.nextStartAt) return null;
+  const queued = entries.filter(entry => !entry.skipped && !entry.paused);
+  if (!queued.length) {
+    return entries.some(entry => entry.paused && !entry.skipped) ? holds('paused', 'Every project with work queued is paused.') : holds('nothing-queued', 'Nothing is queued, so nothing starts.');
+  }
+  if (!mode.autoPick) return holds('auto-pick-off', 'Auto-pick is off, so only what you start runs.');
+  if (shipping.holding && queued.some(entry => entry.held)) {
+    return holds('ship-first', `${shipping.pile} finished changes wait for you, so new work holds until fewer than ${shipping.bar} wait.`);
+  }
+  if (capReached(workload, budget) && queued.some(entry => entry.lane === 'do' && !entry.picked)) {
+    return holds('cap', `${budget.changes} of today's ${workload.changesADay} changes have started, so the next starts after midnight.`, dayEndsAt(now));
+  }
+  return null;
 }

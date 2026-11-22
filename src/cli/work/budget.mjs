@@ -62,6 +62,13 @@ const timeOf = event => {
   return spentAt.get(event);
 };
 
+// When a saved run began. A record from before runs kept that stands in with when it ended.
+const beganAt = new WeakMap();
+const startOf = event => {
+  if (!beganAt.has(event)) beganAt.set(event, event.startedAt ? Date.parse(event.startedAt) : timeOf(event));
+  return beganAt.get(event);
+};
+
 /** Whether `time` falls on the local day of `now`, from that day's own midnights, so a day of 23 or 25 hours counts as it is. */
 const onDayOf = now => {
   const day = new Date(now);
@@ -70,7 +77,14 @@ const onDayOf = now => {
   return time => time >= start && time < end;
 };
 
-/** Where today stands. A running agent counts for what it has spent so far, and what it is still expected to spend is held for it. */
+/** The local midnight that ends the day of `now`, when the day's budget and its cap on changes start again. */
+export const dayEndsAt = now => new Date(now).setHours(24, 0, 0, 0);
+
+/**
+ * Where today stands. A running agent counts for what it has spent so far, and what it is still expected to spend is held for it.
+ * `changes` is how many item runs began on the day of `now`, ended or running: what the user's cap on changes a day counts. A run going now
+ * leaves its record only as it ends, so nothing is counted twice.
+ */
 export function budgetFor(root, mode, now, running = []) {
   const limit = dailyLimit(mode, now);
   const events = tokenEvents(root);
@@ -86,6 +100,8 @@ export function budgetFor(root, mode, now, running = []) {
     used: totalOf(today, 'tokens') + spending,
     cached: totalOf(today, 'cached') + totalOf(running, 'cached'),
     maxRuns: today.filter(event => event.level === 'max').length,
+    changes: events.filter(event => event.lane === 'do' && isToday(startOf(event))).length
+      + running.filter(run => run.lane === 'do' && isToday(Date.parse(run.startedAt) || now)).length,
     hourShare: limit / HOURS_OF_WORK,
     hourUsed: totalOf(hour, 'tokens') + spending,
     hourEvents: hour,
@@ -102,7 +118,7 @@ export const fitsDay = ({ limit, used, reserved }, fresh) => fresh <= limit - us
 export const fitsHour = ({ hourShare, hourUsed, reserved }, fresh) => fresh <= hourShare - hourUsed - reserved || hourUsed + reserved === 0;
 
 /** When enough of this hour's tokens have aged out for a run of `fresh` tokens to fit. */
-function hourFreesAt({ hourEvents, hourShare, hourUsed }, fresh, now) {
+export function hourFreesAt({ hourEvents, hourShare, hourUsed }, fresh, now) {
   let used = hourUsed;
   let at = now;
   for (const event of hourEvents.toSorted((left, right) => left.at.localeCompare(right.at))) {

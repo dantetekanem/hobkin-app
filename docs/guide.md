@@ -320,6 +320,23 @@ While the pile stands, hobkin brings the next two as one decision, the top two i
 
 The next pair comes once both of the last one have moved: landed, declined, graded or dropped. A row that a yes already took at a commit is not brought again at that commit, so a review that changed nothing is not paid for twice.
 
+### Workload
+
+The workload is how much automated work runs. The client's Workload sheet sets it, and each setting is kept in `work/mode.json` beside the others, so a restart keeps it. A home that never set one runs as described above.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Agents at once | 2 | As `hobkin work agents` |
+| Pick work by itself | off until you choose | As `hobkin work auto` |
+| Changes a day | no cap | Counts every item run that starts in a local day, your picks and the ones running now among them. Once it is reached, only what you pick starts until midnight, and the queue says `3 of 3 changes today, the day's cap`. Looks do not count |
+| Tokens a day | 100M | Any whole number of millions from 1 up, as `hobkin work tokens` |
+| Hours | always | A window of local time, such as 09:00 to 18:00 or 22:00 to 06:00. Outside it nothing new starts by itself, running agents finish, and the queue says `outside work hours until 09:00 tomorrow`. Your picks still start |
+| Ship first | on, at 8 | Turned off, new work starts whatever waits. The number is how many finished changes waiting hold new work. `hobkin work ship off` is still a word for the rest of the day |
+| Score finished changes | off | As `hobkin work reviews` |
+| Pull requests reviewed by themselves | none | `mine`, `waiting` (those waiting for your review) or `both`. The client starts their AI reviews |
+
+The forecast plays the same rules, so it never promises a start the plan would refuse. `hobkin work` with no command carries `workload`, `holding` and `outlook`. `holding` is the one thing that holds work mode now, as a `kind` (`off`, `paused`, `usage-limit`, `tokens`, `hourly-share`, `hours`, `agents-busy`, `nothing-queued`, `auto-pick-off`, `ship-first` or `cap`), with `until`, the time it ends or null, and a `line` that says it. It is null while something starts. `outlook` has `startedToday`, the item runs that started today, `moreToday`, about how many more start before midnight, and `nextAt`, when the next one starts, or null when the forecast sees none.
+
 ### Which model does a handed-off job
 
 Every job the main agent hands to `hobkin session` names a tier with `--tier`, and the tier decides the model: `fast` for collecting, searching and small mechanical edits, `mid` for ordinary features, fixes, reviews and checks, `high` for work that spans a system or needs careful analysis, and `max` for rare, high-risk work you ask for by name. The command refuses a job with no tier. A tier is a model and an effort of its own, kept in `config.json` under `tiers`. Ask the main agent to set one, such as "use the strongest model at high effort for the high tier", or to show them all. Until you set a tier, `fast` runs on the checks model and the others on the chat model. Each run in the agents list keeps the tier it was given. Work mode names a tier too, from the project's level: a casual project is looked at on `fast` and its work is done on `mid`, an important one on `mid` and `high`, a critical one on `high` for both, and `max` on `max`. So a casual project's code is no longer written on the checks model.

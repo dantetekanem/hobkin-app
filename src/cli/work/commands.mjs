@@ -8,7 +8,7 @@ import {
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
 } from './controls.mjs';
 import { deployNow, recordDeployed } from './deploys.mjs';
-import { forecastEachMinute } from './forecast.mjs';
+import { lookAheadEachMinute } from './forecast.mjs';
 import { offersView } from './land-offer.mjs';
 import { assertLaunch, recordWatch } from './launches.mjs';
 import { readMachines, recordMachines, toolsFound } from './machines.mjs';
@@ -16,7 +16,7 @@ import { findItem, findProject, nameOf } from './names.mjs';
 import { oneRead } from './one-read.mjs';
 import { fileFirstPair, setShipFirst } from './pairs.mjs';
 import { filePickUp } from './pick-up.mjs';
-import { finishesWork, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
+import { finishesWork, holdingOf, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
 import { assertState, attentionView, closingItems, itemCounts, itemsView, landingList, projectsView, prView, queueView, readyItems, runningView, searchView, statusView, watchingView } from './reads.mjs';
 import { reviewView } from './review.mjs';
 import { readSignals, recordSignals, signalGaps } from './signals.mjs';
@@ -202,6 +202,8 @@ function startWithPile(root, args) {
 /**
  * Status for agents and for the Work tab. `open`, `prs`, `branches` and `left` count what each project has going. `outlook` is what only the owner knows.
  * Each project's counts, models and readiness read the same survey and proof runs, so the whole status reads each of them once.
+ * For the window (spec 053): `workload` is the user's settings as they stand, `holding` the one thing that holds work mode and until when, and the
+ * status's own `outlook` about how many more changes start today and when the next one does.
  */
 export function workStatus(root, outlook = {}, { shared = null, plan: planner = planWork } = {}) {
   // A look this tick's director already made, while nothing it read has changed (`sharedLook` in director.mjs): its plan, at its moment.
@@ -212,6 +214,8 @@ export function workStatus(root, outlook = {}, { shared = null, plan: planner = 
 function statusOf(root, outlook, planFor) {
   const mode = readMode(root);
   const plan = planFor(mode);
+  const now = outlook.now ?? Date.now();
+  const ahead = lookAheadEachMinute(root, plan, { now, running: outlook.running ?? [] });
   const { budget, entries, pause, subscription } = plan;
   const unmerged = unmergedNow(root);
   const projects = readProjects(root).map(project => {
@@ -263,7 +267,10 @@ function statusOf(root, outlook, planFor) {
     shipNotice: mode.ship?.notice ?? null,
     waitingOn: plan.waitingOn,
     nextStartAt: plan.nextStartAt,
-    forecast: forecastEachMinute(root, plan, { running: outlook.running ?? [] }),
+    forecast: ahead.forecast,
+    outlook: ahead.outlook,
+    holding: holdingOf(plan, now),
+    workload: plan.workload,
     allowanceRequest: enabled ? currentRequest(mode) : null,
     subscription,
     unmerged,

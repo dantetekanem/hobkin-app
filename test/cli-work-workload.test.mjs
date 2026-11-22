@@ -3,10 +3,14 @@ import { test } from 'node:test';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { forecastWork } from '../src/cli/work/forecast.mjs';
-import { planWork } from '../src/cli/work/plan.mjs';
+import { workStatus } from '../src/cli/work/commands.mjs';
+import { forecastAndOutlook, forecastWork } from '../src/cli/work/forecast.mjs';
+import { holdingOf, planWork } from '../src/cli/work/plan.mjs';
 import { readUnmerged } from '../src/cli/work/unmerged.mjs';
-import { chooseProject, fileItem, paths, recordTokens, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
+import {
+  chooseProject, fileItem, paths, pickNext, recordTokens, setChangesADay, setShipFirstAt, setShipFirstOn, setWorkHours, setWorkload, updateItem, writeMode, writeState,
+} from '../src/cli/work/store.mjs';
+import { director, studied } from './helpers/work-director.mjs';
 import { writeJson } from './helpers/work-fixture.mjs';
 
 const MINUTE = 60000;
@@ -68,7 +72,7 @@ function busyHome(t, { waiting = 0 } = {}) {
 
 const plan = (root, options = {}) => planWork(root, { now: evening, ...options });
 const waits = ({ entries }) => entries.map(({ title, waiting }) => [title, waiting]);
-const NEW_SETTINGS = ['changesADay', 'hours', 'shipFirstOn', 'shipFirstAt', 'reviewPulls'];
+const NEW_SETTINGS = ['changesADay', 'hours', 'shipFirst', 'shipFirstAt', 'reviewPulls'];
 
 test('a home that set none of the workload starts work exactly as before', t => {
   const root = busyHome(t);
@@ -93,4 +97,181 @@ test('a home that set none of the workload starts work exactly as before', t => 
 
   const kept = JSON.parse(readFileSync(join(root, 'work', 'mode.json'), 'utf8'));
   assert.deepEqual(NEW_SETTINGS.filter(name => name in kept), [], 'nothing of the workload is written for a home that set none of it');
+});
+
+const midnight = new Date(2026, 5, 2).getTime();
+const outlookAt = (root, planned, now) => forecastAndOutlook(root, planned, { now }).outlook;
+const keyOf = (root, title) => plan(root).entries.find(entry => entry.title === title).key;
+
+test('with a cap of 3 changes a day, a fourth run does not start that day and starts the next', t => {
+  const root = busyHome(t);
+  setChangesADay(root, 3);
+
+  const capped = plan(root);
+  assert.equal(capped.next, null);
+  assert.deepEqual(waits(capped).map(([, waiting]) => waiting), Array(4).fill('3 of 3 changes today, the day\'s cap'));
+  assert.equal(capped.pause, null, 'it stops nothing: what runs finishes');
+  assert.equal(plan(root, { now: midnight }).next.title, 'Fix the outage', 'a new day starts with none');
+
+  // The forecast promises nothing more today, and the next change when the plan starts it.
+  assert.deepEqual(outlookAt(root, capped, evening), { startedToday: 3, moreToday: 0, nextAt: at(midnight) });
+  assert.equal(outlookAt(root, plan(root, { now: midnight }), midnight).nextAt, at(midnight));
+
+  // A run going now counts, and a look does not: the cap is on changes.
+  setChangesADay(root, 4);
+  recordTokens(root, { slug: 'api', lane: 'look', kind: 'look', tokens: 1000, startedAt: at(evening - HOUR) }, evening - HOUR / 2);
+  assert.equal(plan(root).next.title, 'Fix the outage');
+  const running = [{ slug: 'web', lane: 'do', item: 'zzzzzz', startedAt: at(evening - 5 * MINUTE) }];
+  assert.equal(plan(root, { running }).next, null);
+
+  // A pick is the user's own word: it starts at the cap.
+  pickNext(root, keyOf(root, 'Add export'));
+  assert.equal(plan(root, { running }).next.title, 'Add export');
+});
+
+test('with hours of 09:00 to 18:00, nothing new starts at 20:00, running agents finish, and work starts again at 09:00', t => {
+  const root = busyHome(t);
+  setWorkHours(root, { from: '09:00', to: '18:00' });
+  const opens = new Date(2026, 5, 2, 9).getTime();
+
+  const closed = plan(root);
+  assert.equal(closed.next, null);
+  assert.equal(closed.pause, null, 'it stops nothing: what runs finishes');
+  assert.deepEqual(waits(closed).map(([, waiting]) => waiting), Array(4).fill('outside work hours until 09:00 tomorrow'));
+  assert.equal(plan(root, { now: opens - MINUTE }).next, null);
+  assert.equal(plan(root, { now: opens }).next.title, 'Fix the outage');
+
+  // The forecast promises nothing outside the hours, and the first start at 09:00.
+  const tonight = forecastWork(root, closed, { now: evening });
+  assert.deepEqual([tonight.jobs, tonight.limit, tonight.line], [0, 'hours', 'Next 8h: nothing starts. Work hours hold it.']);
+  assert.deepEqual(outlookAt(root, closed, evening), { startedToday: 3, moreToday: 0, nextAt: null });
+  const early = new Date(2026, 5, 2, 8).getTime();
+  assert.deepEqual(outlookAt(root, plan(root, { now: early }), early), { startedToday: 0, moreToday: 4, nextAt: at(opens) });
+
+  // Hours that cross midnight hold the day instead.
+  setWorkHours(root, { from: '19:00', to: '07:00' });
+  assert.equal(plan(root).next.title, 'Fix the outage');
+  // A pick is the user's own word: it starts outside the hours.
+  setWorkHours(root, { from: '09:00', to: '18:00' });
+  pickNext(root, keyOf(root, 'Add export'));
+  assert.equal(plan(root).next.title, 'Add export');
+});
+
+test('with ship first off, new work starts while 8 finished changes wait, and the bar is the user\'s number', t => {
+  const root = busyHome(t, { waiting: 8 });
+  const running = [{ slug: 'web', lane: 'do', item: 'zzzzzz', startedAt: at(evening - 5 * MINUTE) }];
+  assert.equal(plan(root, { running }).next, null, 'on by default: new work holds at 8');
+
+  setShipFirstOn(root, false);
+  const open = plan(root, { running });
+  assert.equal(open.shipFirst.holding, false);
+  assert.equal(open.next.title, 'Fix login');
+  assert.deepEqual(waits(open).filter(([, waiting]) => waiting === 'shipping first'), []);
+  assert.notEqual(forecastWork(root, open, { now: evening, running }).limit, 'ship');
+
+  setShipFirstOn(root, true);
+  setShipFirstAt(root, 10);
+  assert.deepEqual(plan(root, { running }).shipFirst, { pile: 8, bar: 10, holding: false, line: null });
+  setShipFirstAt(root, 8);
+  assert.equal(plan(root, { running }).shipFirst.holding, true);
+});
+
+test('a director with work hours lets its running agent finish and starts nothing new once the hours end', async t => {
+  const h = director(t);
+  const release = Promise.withResolvers();
+  h.agent = async request => {
+    if (request.purpose === 'work-do') await release.promise;
+  };
+  studied(h, 'api');
+  studied(h, 'web');
+  fileItem(h.root, 'api', item('Fix login'), h.clock);
+  fileItem(h.root, 'web', item('Fix the footer'), h.clock);
+  const clock = time => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
+  setWorkHours(h.root, { from: clock(h.clock - HOUR), to: clock(h.clock + HOUR) });
+
+  await h.startedRun();
+  assert.equal(h.calls.filter(call => call.purpose === 'work-do').length, 1);
+
+  h.clock += 2 * HOUR;
+  await h.director.tick();
+  await new Promise(resolve => setTimeout(resolve, 100));
+  assert.equal(h.calls.filter(call => call.purpose === 'work-do').length, 1, 'nothing new starts outside the hours');
+  assert.equal(h.director.running().length, 1, 'the running agent goes on');
+
+  release.resolve();
+  await h.settled();
+  assert.equal(h.director.running().length, 0);
+  assert.equal(Object.values(h.runtime.data.runs).find(run => run.work?.lane === 'do').status, 'completed', 'and it finishes as it would have');
+});
+
+test('the work state says what holds work mode, until when, in one sentence', t => {
+  const holding = (root, options = {}) => holdingOf(plan(root, options), options.now ?? evening);
+  const twoRunning = [{ slug: 'web', lane: 'do', item: 'zzzzzz', startedAt: at(evening) }, { slug: 'api', lane: 'look', startedAt: at(evening) }];
+
+  assert.equal(holding(busyHome(t)), null, 'nothing holds it while something starts');
+  assert.deepEqual(holding(busyHome(t), { running: twoRunning }), { kind: 'agents-busy', until: null, line: 'All 2 agents are busy, so the next start waits for one to finish.' });
+
+  const capped = busyHome(t);
+  setChangesADay(capped, 3);
+  assert.deepEqual(holding(capped), { kind: 'cap', until: at(midnight), line: '3 of today\'s 3 changes have started, so the next starts after midnight.' });
+
+  const evenings = busyHome(t);
+  setWorkHours(evenings, { from: '09:00', to: '18:00' });
+  assert.deepEqual(holding(evenings), { kind: 'hours', until: at(new Date(2026, 5, 2, 9).getTime()), line: 'Work hours are 09:00 to 18:00, so nothing new starts until 09:00 tomorrow.' });
+
+  const shipping = busyHome(t, { waiting: 8 });
+  assert.deepEqual(holding(shipping, { running: twoRunning.slice(0, 1) }), {
+    kind: 'ship-first', until: null, line: '8 finished changes wait for you, so new work holds until fewer than 8 wait.',
+  });
+
+  const picking = busyHome(t);
+  writeMode(picking, { autoPick: false });
+  assert.deepEqual(holding(picking), { kind: 'auto-pick-off', until: null, line: 'Auto-pick is off, so only what you start runs.' });
+
+  const spent = busyHome(t);
+  writeMode(spent, { dailyTokens: 3000 });
+  assert.deepEqual(holding(spent), { kind: 'tokens', until: at(midnight), line: '3k of today\'s 3k tokens are used, so nothing new starts until midnight.' });
+
+  // An urgent fix may pass the hour's share, so this home has none.
+  const hourly = dataRoot(t);
+  project(hourly, 'api', evening - 2 * HOUR);
+  fileItem(hourly, 'api', item('Fix login'), evening - 2 * HOUR);
+  recordTokens(hourly, { slug: 'api', lane: 'do', kind: 'do', tokens: 9000000, startedAt: at(evening - 30 * MINUTE) }, evening - 20 * MINUTE);
+  assert.deepEqual(holding(hourly), {
+    kind: 'hourly-share', until: at(evening + 40 * MINUTE), line: 'This hour\'s share of 8.3m tokens is used, so nothing new starts until about 20:40 today.',
+  });
+
+  const limited = busyHome(t);
+  writeMode(limited, { usagePause: { at: at(evening), until: at(evening + HOUR), reason: 'Rate limit reached', strikes: 1 } });
+  assert.deepEqual(holding(limited), { kind: 'usage-limit', until: at(evening + HOUR), line: 'A usage limit holds new work until 21:00 today.' });
+
+  const paused = busyHome(t);
+  writeMode(paused, { pausedAt: at(evening) });
+  assert.deepEqual(holding(paused), { kind: 'paused', until: null, line: 'Paused by hand, so nothing new starts until work mode resumes.' });
+
+  const off = busyHome(t);
+  writeMode(off, { enabled: false });
+  assert.deepEqual(holding(off), { kind: 'off', until: null, line: 'Work mode is off, so nothing starts by itself.' });
+
+  const empty = dataRoot(t);
+  project(empty, 'api', evening);
+  assert.deepEqual(holding(empty), { kind: 'nothing-queued', until: null, line: 'Nothing is queued, so nothing starts.' });
+});
+
+test('the work state publishes the workload as it stands, what holds it, the outlook and an open allowance request', async t => {
+  const root = busyHome(t);
+  setWorkload(root, { changesADay: 3, reviewPulls: 'mine' });
+
+  const status = workStatus(root, { now: evening });
+  assert.deepEqual(status.workload, {
+    agents: 2, autoPick: true, changesADay: 3, dailyTokens: 100000000, hours: null, shipFirst: true, shipFirstAt: 8, reviewOnFinish: false, reviewPulls: 'mine',
+  });
+  assert.equal(status.holding.kind, 'cap');
+  assert.deepEqual(status.outlook, { startedToday: 3, moreToday: 0, nextAt: at(midnight) });
+  assert.equal(status.allowanceRequest, null);
+  // The words that were there stay.
+  assert.match(status.forecast.line, /^Next 8h: /);
+
+  writeMode(root, { allowanceRequest: { day: new Date().toDateString(), limit: 100000000, proposed: 200000000, used: 100000000, at: new Date().toISOString() } });
+  assert.equal(workStatus(root).allowanceRequest.proposed, 200000000);
 });
