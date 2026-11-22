@@ -5,6 +5,9 @@
  * still works.
  */
 
+/** What `work.metrics` says when the hobkin on this Mac is older than its numbers. The window reads it as a host that sends none yet. */
+export const METRICS_OLDER_RUNTIME = 'The hobkin on this Mac is older than work numbers, so this host sends no numbers yet.'
+
 /** The most days one read covers. */
 export const METRICS_DAYS_MAX = 180
 /** The days a read covers when it names none. */

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { WorkMetrics } from '#shared/protocol/metrics.ts'
+import { METRICS_OLDER_RUNTIME, type WorkMetrics } from '#shared/protocol/metrics.ts'
 import { createMetricsStore, METRICS_EVERY_MS, type MetricsSource } from '../src/features/numbers/metrics-store.ts'
 import { sampleMetrics } from '../src/features/numbers/sample-metrics.ts'
 
@@ -128,6 +128,16 @@ test('a read the host has not answered is not asked again until it answers', asy
   await answerHeld()
   assert.equal(store.get(30).state, 'ready')
   assert.equal(reads.length, 2, 'answered after its minute, the next read goes at once')
+  stop()
+})
+
+test('a host whose hobkin is older than work numbers reads as sending no numbers yet, as a host that does not know the command does', async () => {
+  const { host, source } = fakeHost()
+  host.answer = () => Promise.reject(Object.assign(new Error(METRICS_OLDER_RUNTIME), { code: 'unavailable' }))
+  const store = createMetricsStore(source)
+  const stop = store.subscribe(30, () => {})
+  await settle()
+  assert.deepEqual(store.get(30), { metrics: null, state: 'older-host' })
   stop()
 })
 

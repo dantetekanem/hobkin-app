@@ -1,4 +1,4 @@
-import { METRICS_DAYS_MAX, type WorkMetrics } from '#shared/protocol/metrics.ts'
+import { METRICS_DAYS_MAX, METRICS_OLDER_RUNTIME, type WorkMetrics } from '#shared/protocol/metrics.ts'
 
 /**
  * The window's reads of `work.metrics` (_specs/053-work-control-room, "Numbers"). Each period is one read that every
@@ -48,9 +48,14 @@ export interface MetricsStore {
   setReady: (ready: boolean) => void
 }
 
-/** A host older than `work.metrics` refuses it by name (`unknown-command`, `lib/host/refusal.ts`). */
+/**
+ * A host older than `work.metrics` refuses it by name (`unknown-command`, `lib/host/refusal.ts`), and a host whose
+ * hobkin is older than its numbers says so in the contract's own words. Either way no numbers come yet.
+ */
 export function isOlderHost(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'unknown-command'
+  if (typeof error !== 'object' || error === null) return false
+  if ('code' in error && error.code === 'unknown-command') return true
+  return 'message' in error && error.message === METRICS_OLDER_RUNTIME
 }
 
 /** The days a read asks for: a whole number from 1 to 180. */

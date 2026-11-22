@@ -5,7 +5,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { METRICS_DAYS_DEFAULT, type MetricsDay, type MetricsSeries, type WorkMetrics } from '#shared/protocol/metrics.ts'
+import { METRICS_DAYS_DEFAULT, METRICS_OLDER_RUNTIME, type MetricsDay, type MetricsSeries, type WorkMetrics } from '#shared/protocol/metrics.ts'
 import { deployOf, type AssessmentSummary } from '#shared/review/assessment.ts'
 import { reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import type { ReviewList } from '#shared/review/status.ts'
@@ -17,7 +17,7 @@ import { reviewStore, type ReviewStore } from './review/store.ts'
 export const METRICS_KEPT_MS = 60_000
 
 /** What `work.metrics` says when the hobkin on this Mac is older than its numbers. */
-export const OLDER_RUNTIME = 'The hobkin on this Mac is older than work numbers, so this host sends no numbers yet.'
+export const OLDER_RUNTIME = METRICS_OLDER_RUNTIME
 
 type MetricsModule = typeof import('hobkin/src/cli/work/metrics.mjs')
 
