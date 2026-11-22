@@ -136,3 +136,55 @@ test('a review with no AI review ready opens as it did, with no attention and no
   assert.ok(review.nodes.every((node) => node.attention === undefined && node.bucket === undefined))
   assert.equal(review.nodes.length, prepared.review.nodes.length)
 })
+
+test('what a change removes is at least worth a look, and a removal other code still uses needs the reviewer, from the AI review’s own answer', async (t) => {
+  const base: Record<string, string> = {
+    'src/cart.ts': `${fn('total', 'return 0')}\n${fn('oldTotal', 'return 1')}`,
+    'src/unused.ts': fn('unused', 'return 2'),
+    'test/fixtures/cart.json': '{ "total": 1 }\n',
+  }
+  const reader: ChangeReader = {
+    changed: async () => [
+      { path: 'src/cart.ts', status: 'modified' },
+      { path: 'src/unused.ts', status: 'deleted' },
+      { path: 'test/fixtures/cart.json', status: 'deleted' },
+    ],
+    read: async (commit, path) => {
+      const text = commit === BASE_SHA ? base[path] : path === 'src/cart.ts' ? fn('total', 'return 0') : undefined
+      return text == null ? { kind: 'missing' } : { kind: 'text', text }
+    },
+  }
+  const capture = await captureChange(reader, BASE_SHA, HEAD_SHA)
+  const review = await prepareReview({ id: ID, change: { project: 'shop', item: '4c9e21', title: 'Drop the old totals', branch: 'hobkin/4c9e21' }, capture, spec: null, readHead: async () => null })
+  const files = capture.files.map(({ id, path, base: before, head: after, binary }) => ({ fileId: id, path, base: before, head: after, binary }))
+  const root = temporaryDirectory(t)
+  reviewStore(root).write(TARGET, review, files)
+  const folder = assessmentFolder(root, TARGET, HEAD_SHA)
+  mkdirSync(folder, { recursive: true })
+  const write = (name: string, value: unknown) => writeFileSync(join(folder, name), JSON.stringify(value))
+  const unit = (id: string, level: string, nodes: string[]) => ({ id, title: id, level, critical: level === 'high', nodes, grouping: 'single', story_order: 1, where: '', what: '', code: [], why_level: [], would_change: [], watch: 'not assessed', questions: [], reading_minutes: 1 })
+  write('summary.json', { level: 'high', critical: true, needsYou: 1, worthALook: 0, safe: 1, storyBy: 'host', at: '2026-11-21T10:00:00.000Z' })
+  write('units.json', { schema: 'review-units/1', map: 'node-level', attention: { units: 2, reading_minutes: 2 }, units: [unit('u1', 'high', ['n1']), unit('u2', 'safe', ['n2'])] })
+  writeFileSync(join(folder, 'story.md'), '# Drop the old totals\n')
+  // As the engine writes them: a removed definition sits on its lines at base. `oldTotal` is still called elsewhere; `unused` is not.
+  const removed = { kind: 'function', change: 'removed', questions: [], sensitive: [], facts: { effect: { value: 'behaviour' }, proof: { value: 'none' }, exposure: { value: 'everyone' }, undo: { value: 'rollback' } } }
+  write('graph.json', {
+    nodes: [
+      { ...removed, id: 'n1', symbol: 'oldTotal', path: 'src/cart.ts', lines: [5, 7], level: { current: 'high' }, critical: true, findings: [{ rule: 'dangling-reference', text: 'oldTotal is removed while src/report.ts still refers to it.', by: 'search' }] },
+      { ...removed, id: 'n2', symbol: 'unused', path: 'src/unused.ts', lines: [1, 3], level: { current: 'safe' }, critical: false, findings: [] },
+    ],
+  })
+  const assessments = new Assessments({ root, run: async () => Promise.reject(new Error('not run here')), repoOf: () => null })
+  const source = { head: async () => HEAD_SHA, read: async () => Promise.reject(new Error('not read here')) }
+  const reviews = new Reviews({ store: reviewStore(root), sources: { change: source, pull: source }, work: () => ({ workAction: async () => ({}) }), card: () => null, head: () => HEAD_SHA, assessments })
+  t.after(() => reviews.close())
+
+  const { nodes } = reviews.get(ID).review
+  const oldTotal = nodes.find((node) => node.subtitle === 'src/cart.ts' && node.change === 'deleted')!
+  assert.deepEqual([oldTotal.attention?.tier, oldTotal.attention?.reasons[0], oldTotal.level], ['needs-you', 'Removes something other code still uses.', 'high'])
+  const unused = nodes.find((node) => node.subtitle === 'src/unused.ts')!
+  assert.deepEqual([unused.attention?.tier, unused.attention?.reasons], ['worth-a-look', ['It only removes code: check nothing still needs it.']])
+  const fixture = nodes.find((node) => node.subtitle === 'test/fixtures/cart.json')!
+  assert.deepEqual([fixture.kind, fixture.attention?.tier, fixture.attention?.reasons[0]], ['file', 'worth-a-look', 'It removes part of the tests: check that what they covered still is.'])
+  assert.deepEqual(assessments.read(TARGET, HEAD_SHA)!.nodes.map((node) => [node.id, node.removed]), [['n1', true], ['n2', true]], 'the removed definitions are carried, marked removed')
+})

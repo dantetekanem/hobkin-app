@@ -378,7 +378,7 @@ test('a finished change’s review starts its change review, and opens with the 
 
   const opened = reviews.get(id)
   assert.match(opened.assessment?.story ?? '', /^# Round the total/)
-  assert.deepEqual(opened.assessment?.nodes.map((node) => [node.id, node.level, node.unit]), [['n1', 'mid', 'u1']], 'each rated node at its unit’s level, and none removed')
+  assert.deepEqual(opened.assessment?.nodes.map((node) => [node.id, node.level, node.unit, node.removed]), [['n1', 'mid', 'u1', undefined], ['n2', 'high', 'u2', true]], 'each rated node at its unit’s level, a removed one marked so')
   const total = opened.review.nodes.find((node) => node.kind === 'code' && node.subtitle === 'src/total.js')
   assert.equal(total?.level, 'mid', 'the level shows on the graph node whose lines it rated')
   assert.equal(total?.unit, 'u1', 'and the node knows the unit of the story that tells it')

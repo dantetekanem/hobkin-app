@@ -103,8 +103,10 @@ export function withLevels(review: Review, assessment: Pick<ChangeAssessment, 'n
   if (!assessment.nodes.length) return review
   const overlaps = overlapsOf(review, assessment.nodes)
   const nodes = review.nodes.map((node) => {
-    // The worst rated definition its lines at head overlap: its level, and the unit of the story that tells it.
-    const rated = overlaps.get(node.id)?.reduce((worst, next) => (RANK[next.level] > RANK[worst.level] ? next : worst))
+    // The worst rated definition its lines at head overlap: its level, and the unit of the story that tells it. A node
+    // that only removes lines takes the level of what it removed.
+    const removes = node.anchors.every((anchor) => anchor.side === 'deleted')
+    const rated = overlaps.get(node.id)?.filter((candidate) => removes || !candidate.removed).reduce<RatedNode | undefined>((worst, next) => (!worst || RANK[next.level] > RANK[worst.level] ? next : worst), undefined)
     return rated ? { ...node, level: rated.level, ...(rated.unit ? { unit: rated.unit } : {}) } : node
   })
   const levelOf = new Map(nodes.map((node) => [node.id, node.level]))
@@ -115,18 +117,23 @@ export function withLevels(review: Review, assessment: Pick<ChangeAssessment, 'n
   return { ...review, nodes, story }
 }
 
-/** The rated definitions each code or file node's lines at head overlap, in the order its anchors and the ratings come. */
+/**
+ * The rated definitions each code or file node's lines overlap, in the order its anchors and the ratings come: one at
+ * head on the node's lines at head, and one the change removed on its lines at base.
+ */
 function overlapsOf(review: Review, rated: readonly RatedNode[]): Map<string, RatedNode[]> {
-  const pathOf = new Map(review.files.map((file) => [file.id, file.path]))
+  const pathOf = new Map(review.files.map((file) => [file.id, file.oldPath ?? file.path]))
+  const headPathOf = new Map(review.files.map((file) => [file.id, file.path]))
   const found = new Map<string, RatedNode[]>()
   for (const node of review.nodes) {
     if (node.kind !== 'code' && node.kind !== 'file') continue
     const hits: RatedNode[] = []
     for (const anchor of node.anchors) {
-      if (anchor.side !== 'added') continue
-      const path = pathOf.get(anchor.fileId)
+      const atBase = anchor.side === 'deleted'
+      const path = (atBase ? pathOf : headPathOf).get(anchor.fileId)
       for (const candidate of rated) {
-        if (candidate.path === path && candidate.lines[1] >= anchor.startLine && candidate.lines[0] <= anchor.endLine && !hits.includes(candidate)) hits.push(candidate)
+        if (Boolean(candidate.removed) !== atBase || candidate.path !== path || candidate.lines[1] < anchor.startLine || candidate.lines[0] > anchor.endLine || hits.includes(candidate)) continue
+        hits.push(candidate)
       }
     }
     if (hits.length) found.set(node.id, hits)
@@ -817,12 +824,13 @@ export class Assessments {
       blind,
       progress: readJson(join(folder, 'progress.json')),
       // A node is at its unit's level, as the story tells it: the graph keeps only its own, and an unverified node is
-      // high in its unit whatever the graph says. A removed one sits on lines at base, so it lays no level over head.
+      // high in its unit whatever the graph says. A removed one sits on lines at base, and is marked so.
       nodes: (graph?.nodes ?? []).flatMap((node) => {
         const unit = unitOf.get(node.id)
         const level = unit?.level ?? node.level?.current
-        if (node.kind === 'test' || node.change === 'removed' || !level) return []
-        return [{ id: node.id, symbol: node.symbol, path: node.path, lines: node.lines, level, critical: node.critical, unit: unit?.id ?? null, ...foundOf(node, unit && checkedUnits.get(unit.id)) }]
+        if (node.kind === 'test' || !level) return []
+        const removed = node.change === 'removed' ? { removed: true as const } : {}
+        return [{ id: node.id, symbol: node.symbol, path: node.path, lines: node.lines, level, critical: node.critical, unit: unit?.id ?? null, ...removed, ...foundOf(node, unit && checkedUnits.get(unit.id)) }]
       }),
     }
   }

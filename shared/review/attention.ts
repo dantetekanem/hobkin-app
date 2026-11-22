@@ -156,9 +156,16 @@ function unratedReasons({ kind, bucket, change, status, warning }: AttentionInpu
   return safe ? [note(1, safe)] : [look(10, UNRATED_BUCKETS[bucket])]
 }
 
+/** What a node that only removes lines asks: at least a look, since whatever used what it removed now finds nothing. */
+function removalReasons({ kind, bucket, change }: AttentionInput): Reason[] {
+  if (change !== 'deleted' || kind === 'criterion' || kind === 'context' || bucket === 'lockfile' || bucket === 'generated') return []
+  if (kind === 'test' || bucket === 'test') return [look(35, 'It removes part of the tests: check that what they covered still is.')]
+  return [look(35, bucket === 'code' || bucket === 'moved' || bucket === 'format' ? 'It only removes code: check nothing still needs it.' : 'It only removes lines: check nothing still needs them.')]
+}
+
 /** A node's tier and its reasons, the strongest first. A node over several definitions takes the worst of them. */
 export function attentionOf(input: AttentionInput): Weighed {
-  const found = input.rated.length ? input.rated.flatMap(ratedReasons) : unratedReasons(input)
+  const found = [...(input.rated.length ? input.rated.flatMap(ratedReasons) : unratedReasons(input)), ...removalReasons(input)]
   const byText = new Map<string, Reason>()
   for (const reason of found) if ((byText.get(reason.text)?.weight ?? -1) < reason.weight) byText.set(reason.text, reason)
   const reasons = [...byText.values()].sort((a, b) => b.weight - a.weight)

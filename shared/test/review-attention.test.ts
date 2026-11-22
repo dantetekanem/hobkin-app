@@ -208,3 +208,11 @@ test('detail goes to code and tests first, then other files, then generated file
     ['src/also-big.ts', 'src/big.ts', 'test/big.test.ts', 'src/small.ts', 'config/app.yml', 'pnpm-lock.yaml', 'dist/bundle.js', 'README.md', 'config/locales/fr.yml'],
   )
 })
+
+test('a node that only removes lines is at least worth a look, and a test it removes says so', () => {
+  const removed = (more: Partial<AttentionInput>): AttentionInput => ({ kind: 'code', bucket: 'code', change: 'deleted', size: 5, rated: [], ...more })
+  assert.deepEqual(attentionOf(removed({ rated: [rated({ level: 'safe', proof: 'not-applicable' })] })).reasons, ['It only removes code: check nothing still needs it.'], 'even when rated safe')
+  assert.equal(attentionOf(removed({ kind: 'test', bucket: 'test', status: 'passed' })).tier, 'worth-a-look')
+  assert.equal(attentionOf(removed({ kind: 'file', bucket: 'test' })).reasons[0], 'It removes part of the tests: check that what they covered still is.')
+  assert.equal(attentionOf(removed({ kind: 'file', bucket: 'generated' })).tier, 'safe', 'a generated file nobody reads')
+})

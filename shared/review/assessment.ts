@@ -164,7 +164,7 @@ export interface ChangeAssessment {
   triage: Triage | null
   blind: { ran: boolean; check: BlindCheck | null; note?: string } | null
   progress: Progress | null
-  /** Every rated definition, where it sits at head, for laying levels over the graph. Tests are not rated. */
+  /** Every rated definition, where it sits at head, or at base for one the change removed, for laying levels over the graph. Tests are not rated. */
   nodes: RatedNode[]
 }
 
@@ -181,6 +181,8 @@ export interface RatedNode {
   level: Level
   critical: boolean
   unit: string | null
+  /** The change removed it, so `lines` are its lines at base. */
+  removed?: true
   /** What its change does, at its worst: `text` changes only comments or whitespace. */
   effect?: Effect
   /** How far the tests that ran show it working. `none`: no test reaches it. */
