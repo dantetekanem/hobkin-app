@@ -13,6 +13,7 @@ import { arrange, isTestGroup, type Arranged, type ViewStep } from '../graph/arr
 import { foldArranged, hasAttention, NO_FOCUS, planFocus, type FocusState, type Folded } from '../graph/focus.ts'
 import { foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 import { readMode, type ReviewMode } from '../story/mode.ts'
+import { marksOf } from './seen.ts'
 
 export interface Point {
   x: number
@@ -48,6 +49,11 @@ export interface ReviewMemory {
   /** The reviewer's notes, as a log folded by id. The host will keep the same log beside the review file. */
   notes: NoteEntry[]
   draft: NoteDraft | null
+  /**
+   * The marks of the nodes the reviewer has seen at this commit (`seen.ts`). Null until something is marked here: then
+   * the marks of the review's other commits stand in, for the nodes whose code is still the same.
+   */
+  seen: string[] | null
 }
 
 /** What a new note needs. The store gives it an id, an author and a time. */
@@ -91,9 +97,13 @@ export interface MemoryState {
   setSplitDiff(split: boolean): void
   setPanelPinned(pinned: boolean): void
   setReviewMode(mode: ReviewMode): void
+  /** The marks of what the reviewer has seen in a review at its commit (`seen.ts`). */
+  seenOf(review: Review): ReadonlySet<string>
+  /** Marks nodes seen, by their marks, or takes the marks off. */
+  markSeen(review: Review, marks: readonly string[], seen: boolean): void
 }
 
-const EMPTY: ReviewMemory = { positions: {}, wires: {}, progress: null, opened: false, notes: [], draft: null }
+const EMPTY: ReviewMemory = { positions: {}, wires: {}, progress: null, opened: false, notes: [], draft: null, seen: null }
 const STORAGE_NAME = 'hobkin-client-review'
 
 /** A review prepared again from another head is another review, so its key carries the fingerprint of its bytes. */
@@ -132,7 +142,7 @@ function readMemory(value: unknown): ReviewMemory {
       }
     : null
 
-  return { positions, wires, progress, opened: value.opened === true, notes: readNotes(value.notes), draft }
+  return { positions, wires, progress, opened: value.opened === true, notes: readNotes(value.notes), draft, seen: Array.isArray(value.seen) ? strings(value.seen) : null }
 }
 
 const TARGET_KINDS = ['step', 'node', 'wire', 'lines']
@@ -166,6 +176,9 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
   let written = 0
   // Folding is cheap, but every marker on screen asks for the notes. The answer is kept until the log changes.
   let folded: { log: NoteEntry[]; notes: Note[] } | null = null
+  // The seen marks of a review, kept until what they come from changes.
+  const ownSeen = new WeakMap<readonly string[], ReadonlySet<string>>()
+  const carriedSeen = new WeakMap<Review, { from: Record<string, ReviewMemory>; marks: ReadonlySet<string> }>()
   return createStore<MemoryState>()(
     persist(
       (set, get) => {
@@ -233,6 +246,38 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
           setSplitDiff: (splitDiff) => set({ splitDiff }),
           setPanelPinned: (panelPinned) => set({ panelPinned }),
           setReviewMode: (reviewMode) => set({ reviewMode }),
+          seenOf: (review) => {
+            const own = get().of(review).seen
+            if (own) {
+              let marks = ownSeen.get(own)
+              if (!marks) ownSeen.set(own, (marks = new Set(own)))
+              return marks
+            }
+            // Nothing marked at this commit yet: the review's other commits lend the marks of the code that is the same.
+            const { reviews } = get()
+            const cached = carriedSeen.get(review)
+            if (cached?.from === reviews) return cached.marks
+            const key = memoryKey(review)
+            const same = `${key.slice(0, key.lastIndexOf('@'))}@`
+            const mine = new Set(marksOf(review.nodes).values())
+            const marks = new Set<string>()
+            for (const [other, memory] of Object.entries(reviews)) {
+              if (other !== key && other.startsWith(same)) for (const mark of memory.seen ?? []) if (mine.has(mark)) marks.add(mark)
+            }
+            carriedSeen.set(review, { from: reviews, marks })
+            return marks
+          },
+          markSeen: (review, marks, seen) => {
+            if (marks.length === 0) return
+            const before = get().seenOf(review)
+            const after = new Set(before)
+            for (const mark of marks) {
+              if (seen) after.add(mark)
+              else after.delete(mark)
+            }
+            if (after.size === before.size && [...after].every((mark) => before.has(mark)) && get().of(review).seen) return
+            update(review, (memory) => ({ ...memory, seen: [...after] }))
+          },
         }
       },
       {

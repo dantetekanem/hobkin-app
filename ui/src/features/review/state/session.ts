@@ -16,6 +16,7 @@ import { modeStart, type ReviewMode } from '../story/mode.ts'
 import { pickTravel, type Travel } from '../story/travel.ts'
 import { applyMemory, type MemoryState, type Point, type ReviewView, type ViewEdge, type WireDecision } from './memory.ts'
 import type { NotesShown } from './quick-notes.ts'
+import { marksOf } from './seen.ts'
 
 /** What the last move put on screen, kept so the graph can play it once: what draws in and the wire to ride. */
 export interface Move {
@@ -75,6 +76,11 @@ export interface Session {
   mode: ReviewMode
   /** Which groups of a large change are open, and the nodes reached in them (`graph/focus.ts`). */
   fold: FocusState
+  /**
+   * The nodes of the review the reviewer has seen, by id (`seen.ts`): a step of theirs was visited, their code was
+   * opened, or Z marked them. Kept in the review's memory for each commit.
+   */
+  seen: ReadonlySet<string>
 
   step(delta: number): void
   goTo(index: number): void
@@ -150,6 +156,11 @@ export interface Session {
    */
   reach(nodeId: string): void
   /**
+   * Z: marks what the reviewer is on as seen, or takes the mark off when all of it is: the node named, else the node
+   * pointed at, else the focus. A group card, or a card of tests, stands for every node it holds. False when nothing is.
+   */
+  toggleSeen(nodeId?: string): boolean
+  /**
    * Chooses Story or Free Roam, and starts it from the beginning, whichever was on: Story at its first step, Free Roam
    * with the whole graph and nothing in focus. The code closes. The choice is remembered for the next review.
    */
@@ -196,6 +207,20 @@ export const drawnAs = (view: Pick<ReviewView, 'groupOf'> & Partial<Pick<ReviewV
   return view.foldOf?.[card] ?? card
 }
 
+/** The nodes of the review a drawn node stands for: a card's tests and helpers, a group's members, or itself. */
+export function reviewNodesOf(view: Pick<ReviewView, 'groups' | 'plan'>, id: string): string[] {
+  const tests = view.groups[id]
+  if (tests) return [...tests.tests, ...tests.helpers]
+  const group = view.plan.groups[id]
+  if (group) return group.members.flatMap((member) => reviewNodesOf(view, member))
+  return [id]
+}
+
+/** True when every node of the review a drawn node stands for is seen. */
+export function seenAll(session: Pick<Session, 'view' | 'seen'>, id: string): boolean {
+  return reviewNodesOf(session.view, id).every((member) => session.seen.has(member))
+}
+
 /** The same place, among what a view draws: a detour or a group on a node that folded away is on its group's card. */
 function onDrawn(view: ReviewView, story: StoryState): StoryState {
   const drawn = new Set(view.nodes.map((node) => node.id))
@@ -216,6 +241,25 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
   /** Which of its groups are open. Kept here too, so the view can be worked out before the store holds it. */
   let fold: FocusState = NO_FOCUS
   const viewNow = () => applyMemory(review, memory.getState().of(review), fold)
+  /** Each node's mark, and the nodes whose marks the memory holds (`seen.ts`). */
+  let marks = marksOf(review.nodes)
+  const seenNow = (): ReadonlySet<string> => {
+    const held = memory.getState().seenOf(review)
+    return new Set([...marks].filter(([, mark]) => held.has(mark)).map(([id]) => id))
+  }
+  /** The memory's marks the session shows, so it takes them in once each time they change. */
+  let shownMarks = memory.getState().of(review).seen
+  const takeSeen = () => {
+    const held = memory.getState().of(review).seen
+    if (held === shownMarks) return
+    shownMarks = held
+    store.setState({ seen: seenNow() })
+  }
+  /** Marks nodes of the review seen, by their ids, or takes their marks off. */
+  const markSeen = (ids: readonly string[], seen = true) => {
+    memory.getState().markSeen(review, ids.map((id) => marks.get(id)).filter((mark): mark is string => mark != null), seen)
+    takeSeen()
+  }
   const firstView = viewNow()
   // A review opens in the mode chosen last, at that mode's start.
   const firstMode = memory.getState().reviewMode
@@ -245,6 +289,14 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
       const next = derive(before.view, moved.state)
       const travel = kind === 'whole' ? null : pickTravel(before.view.edges, before.focus, next.focus, preferred)
       memory.getState().saveProgress(review, progressOf(review, moved.state))
+      // A step visited on the path is seen: every node the review's own steps under it focus.
+      const { detour, group, whole, step } = moved.state
+      if (detour == null && group == null && !whole) {
+        const told = new Set(before.view.story[step]?.steps ?? [])
+        markSeen(review.story.filter((each) => told.has(each.id)).flatMap((each) => each.focus))
+      }
+      const code = before.code == null ? null : (codeTarget(next.view, next.focus) ?? before.code)
+      if (code != null) markSeen(reviewNodesOf(next.view, code))
       set({
         history: history ?? (kind === 'step' ? before.history : recordFocus(before.history, entryOf(before.story), entryOf(moved.state))),
         ...next,
@@ -258,7 +310,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         notesShown: null,
         opened: null,
         // An open code panel follows the story, so stepping with code on screen reads like a tour.
-        code: before.code == null ? null : (codeTarget(next.view, next.focus) ?? before.code),
+        code,
       })
     }
     const graph = () => ({ ...review, ...get().view })
@@ -313,6 +365,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
       opened: null,
       mode: firstMode,
       fold,
+      seen: seenNow(),
 
       step: (delta) => {
         const { story } = get()
@@ -364,6 +417,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         // A folded test shows its own code, with its card in focus.
         if (nodeId && !focus.includes(drawnAs(view, nodeId))) get().focusOn(nodeId)
         set({ code: target, wire: null })
+        markSeen(reviewNodesOf(get().view, target))
         return true
       },
       closeCode: () => {
@@ -483,12 +537,15 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         if (panelOpen !== get().panelOpen) set({ panelOpen })
       },
       showCode: (nodeId) => {
-        if (get().code != null && get().nodeOf.has(nodeId)) set({ code: nodeId })
+        if (get().code == null || !get().nodeOf.has(nodeId)) return
+        set({ code: nodeId })
+        markSeen(reviewNodesOf(get().view, nodeId))
       },
       showTest: (testId) => {
         if (!get().nodeOf.has(testId)) return false
         beforeCode = null
         set({ code: testId, wire: null })
+        markSeen([testId])
         return true
       },
       moveNode: (nodeId, position) => memory.getState().moveNode(review, nodeId, position),
@@ -540,6 +597,14 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         if (!(get().focus.length === 1 && get().focus[0] === id)) apply(focusNode(graph(), get().story, id, { alone: get().mode === 'roam' }), 'detour')
         return true
       },
+      toggleSeen: (nodeId) => {
+        const { focus, pointed, view, seen } = get()
+        const on = nodeId != null ? [nodeId] : pointed != null ? [pointed] : focus
+        const ids = [...new Set(on.flatMap((id) => reviewNodesOf(view, id)))].filter((id) => marks.has(id))
+        if (ids.length === 0) return false
+        markSeen(ids, !ids.every((id) => seen.has(id)))
+        return true
+      },
       toggleGroup: (groupId) => (fold.opened.includes(groupId) ? get().closeGroup(groupId) : get().openGroup(groupId)),
       reach: (nodeId) => {
         const { view } = get()
@@ -563,6 +628,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         const before = get()
         const was = before.view.story[before.story.step]?.id
         review = next
+        marks = marksOf(review.nodes)
+        shownMarks = memory.getState().of(review).seen
         const view = viewNow()
         const now = { ...review, ...view }
         // What the reviewer saw and what drew in, of what the review still has.
@@ -587,6 +654,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
         set({
           review,
           fold,
+          seen: seenNow(),
           ...shaped,
           move: { key: before.move.key + 1, fresh: { nodes: [], wires: [] }, travel: null, kind: story.whole ? 'whole' : story.detour != null ? 'detour' : 'jump' },
           // The places to go back to are steps by their place in the story, so they go with a story that changed.
@@ -612,6 +680,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>): Se
       const notes = state.notesOf(review)
       store.setState({ notes, counts: countNotes(notes) })
     }
+    if (now.seen !== known.seen) takeSeen()
     const moved = now.positions !== known.positions || now.wires !== known.wires
     known = now
     if (!moved) return

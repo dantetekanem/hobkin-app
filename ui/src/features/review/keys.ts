@@ -88,6 +88,11 @@ function panelKeys(session: Session, key: string, effects: KeyEffects): boolean 
     case 't':
     case 'T':
       return effects.openModelRun(), true
+    // Z marks what the reviewer is on as seen, and again takes the mark off (spec 053). S, which the spec names, is the
+    // steps panel's; Z is the free key beside it.
+    case 'z':
+    case 'Z':
+      return session.toggleSeen(), true
     default:
       return null
   }

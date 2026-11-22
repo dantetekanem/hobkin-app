@@ -6,7 +6,7 @@ import type { ReviewNode } from '#shared/review/types.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { notesAbout } from '../state/quick-notes.ts'
 import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
-import type { Session } from '../state/session.ts'
+import { seenAll, type Session } from '../state/session.ts'
 import { isLineCount, type TestGroup } from './arrange.ts'
 import { useEntrance } from './entrance.tsx'
 import { KIND, LevelBadge, needsALook, statusOf } from './kinds.tsx'
@@ -54,6 +54,8 @@ function NodeCardComponent({ id }: NodeProps) {
   const pins = useSession((session) => session.pins[id])
   const notes = useSession((session) => notesOn(session, id))
   const listed = useSession((session) => session.opened === id)
+  // In Focus, a node the reviewer has seen carries a quiet mark (spec 053). A review without Focus looks as it did.
+  const marked = useSession((session) => session.view.plan.active && seenAll(session, id))
   // Goes up when this node draws in for the first time on a story move.
   const arrival = useSession((session) => (session.move.fresh.nodes.includes(id) ? session.move.key : 0))
   const entrance = useEntrance(id)
@@ -221,6 +223,12 @@ function NodeCardComponent({ id }: NodeProps) {
             </span>
           ) : node.level ? (
             <LevelBadge level={node.level} />
+          ) : null}
+          {marked ? (
+            <span className="rv-mark" title="You have seen this. Z takes the mark off.">
+              <Check aria-hidden="true" />
+              Seen
+            </span>
           ) : null}
           {folded?.in.length ? <More side="left" ids={folded.in} /> : null}
           {folded?.out.length ? <More side="right" ids={folded.out} /> : null}

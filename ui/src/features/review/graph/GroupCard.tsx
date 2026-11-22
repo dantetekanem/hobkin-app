@@ -4,6 +4,7 @@ import { motion } from 'motion/react'
 import { memo } from 'react'
 import { spring, tween } from '@/lib/motion.ts'
 import { useSession, useSessionStore } from '../state/context.tsx'
+import { seenAll } from '../state/session.ts'
 import { useEntrance } from './entrance.tsx'
 import { hoverShown } from './levels.ts'
 
@@ -13,7 +14,8 @@ const count = (value: number) => value.toLocaleString('en-US')
  * A group card of a large change (spec 053, `graph/focus.ts`): the safe nodes of one kind or one folder, folded into one
  * card that looks like the others, with a second card edge behind it so it reads as many. It says what it holds, how
  * many files and lines, and why it can be read at a glance, and its button opens it in place, as Enter does. Open, it
- * stays at the head of its members and says how many of them are drawn; the rest are in the outline.
+ * stays at the head of its members and says how many of them are drawn; the rest are in the outline. It counts how many
+ * of its members the reviewer has seen, and Z marks them all.
  */
 function GroupCardComponent({ id }: NodeProps) {
   const store = useSessionStore()
@@ -23,6 +25,7 @@ function GroupCardComponent({ id }: NodeProps) {
   const level = useSession((session) => session.levels.nodes[id] ?? 'rest')
   const hover = useSession((session) => hoverShown(session.hover.nodes[id] ?? 'none', session.hovered, session.focus))
   const pins = useSession((session) => session.pins[id])
+  const seen = useSession((session) => session.view.plan.groups[id]?.members.filter((member) => seenAll(session, member)).length ?? 0)
   const entrance = useEntrance(id)
 
   if (!group) return null
@@ -60,6 +63,10 @@ function GroupCardComponent({ id }: NodeProps) {
               <p className="rv-fold-count">
                 {count(group.files)} {group.files === 1 ? 'file' : 'files'}
                 {group.files !== members ? ` · ${count(members)} ${what}` : ''}
+                <span className="rv-fold-seen" data-all={seen === members}>
+                  {' · '}
+                  {seen === members ? 'all seen' : `${count(seen)} of ${count(members)} seen`}
+                </span>
               </p>
               <p className="rv-summary" style={{ '--lines': 2 } as React.CSSProperties}>
                 {open && shown < members ? `${count(shown)} of ${count(members)} drawn. The rest are in the outline (L).` : group.why}
