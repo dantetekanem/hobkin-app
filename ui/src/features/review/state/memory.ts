@@ -270,6 +270,11 @@ export function createReviewMemory(storage: StateStorage = memoryStorage(), { ev
           const { [key]: before, ...others } = get().reviews
           set({ reviews: keptReviews({ ...others, [key]: change(before ?? EMPTY) }) })
         }
+        // The reviewer's words are written as they change, as they always were: only the place and the marks wait.
+        const keepWords = (review: Review, change: (memory: ReviewMemory) => ReviewMemory) => {
+          update(review, change)
+          writer.flush()
+        }
         return {
           reviews: {},
           unsyncedNotes: {},
@@ -307,7 +312,7 @@ export function createReviewMemory(storage: StateStorage = memoryStorage(), { ev
             if (!words) return null
             const at = Date.now()
             const note: Note = { id: `n${at.toString(36)}${(written += 1).toString(36)}`, step, target, intent, text: words, author, at }
-            update(review, (memory) => ({ ...memory, notes: [...memory.notes, { op: 'put', note }] }))
+            keepWords(review, (memory) => ({ ...memory, notes: [...memory.notes, { op: 'put', note }] }))
             return note
           },
           editNote: (review, id, change) => {
@@ -318,14 +323,14 @@ export function createReviewMemory(storage: StateStorage = memoryStorage(), { ev
               get().removeNote(review, id)
               return
             }
-            update(review, (memory) => ({ ...memory, notes: [...memory.notes, { op: 'put', note: { ...note, text, intent: change.intent ?? note.intent } }] }))
+            keepWords(review, (memory) => ({ ...memory, notes: [...memory.notes, { op: 'put', note: { ...note, text, intent: change.intent ?? note.intent } }] }))
           },
-          removeNote: (review, id) => update(review, (memory) => ({ ...memory, notes: [...memory.notes, { op: 'remove', id }] })),
+          removeNote: (review, id) => keepWords(review, (memory) => ({ ...memory, notes: [...memory.notes, { op: 'remove', id }] })),
           markSent: (review, ids, at) => {
             const sent = get().notesOf(review).filter((note) => ids.includes(note.id) && note.sent == null)
-            if (sent.length > 0) update(review, (memory) => ({ ...memory, notes: [...memory.notes, ...sent.map((note) => ({ op: 'put' as const, note: { ...note, sent: at } }))] }))
+            if (sent.length > 0) keepWords(review, (memory) => ({ ...memory, notes: [...memory.notes, ...sent.map((note) => ({ op: 'put' as const, note: { ...note, sent: at } }))] }))
           },
-          setDraft: (review, draft) => update(review, (memory) => ({ ...memory, draft })),
+          setDraft: (review, draft) => keepWords(review, (memory) => ({ ...memory, draft })),
           setPanelShare: (panelShare) => set({ panelShare }),
           setSplitDiff: (splitDiff) => set({ splitDiff }),
           setPanelPinned: (panelPinned) => set({ panelPinned }),

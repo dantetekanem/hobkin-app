@@ -97,3 +97,26 @@ test('a move works out the levels of its focus once', () => {
   session.getState().focusOn(session.getState().view.nodes.at(-1)!.id)
   assert.equal(levelsWork.runs - before, 1, 'a detour')
 })
+
+test('a note or a draft is written at once, while the place and the seen marks wait for their second', () => {
+  const clock = handClock()
+  const writes: string[] = []
+  const memory = createReviewMemory({ getItem: () => null, setItem: (_name, value) => void writes.push(value), removeItem: () => {} }, { every: 1000, clock })
+  const review = large
+  const saved = () => JSON.parse(writes.at(-1)!).state.reviews[memoryKey(review)] as { notes: { op: string }[]; draft: { text: string } | null; progress: unknown }
+  memory.getState().saveProgress(review, { step: 'outcome', seen: [], revealed: [] })
+  memory.getState().markSeen(review, ['a mark'], true)
+  assert.equal(writes.length, 0, 'the place and the marks wait')
+
+  memory.getState().setDraft(review, { intent: 'comment', text: 'Half a thought' })
+  assert.equal(writes.length, 1)
+  assert.equal(saved().draft?.text, 'Half a thought')
+  assert.ok(saved().progress, 'and what waited goes with it')
+  const note = memory.getState().addNote(review, { step: 'outcome', target: { kind: 'step' }, intent: 'comment', text: 'Charge once.' })!
+  assert.equal(writes.length, 2)
+  memory.getState().editNote(review, note.id, { text: 'Charge only once.' })
+  memory.getState().markSent(review, [note.id], 5)
+  memory.getState().removeNote(review, note.id)
+  assert.equal(writes.length, 5, 'each change to the notes is written as it is made')
+  assert.equal(saved().notes.at(-1)!.op, 'remove')
+})
