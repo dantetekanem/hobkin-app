@@ -98,7 +98,7 @@ The review of a large change
 
 Proofs
 - No one approves a proof. Its result is evidence for the change, shown where the change is approved.
-- T in a review opens the proof beside it, in a panel at the right, and T or Escape closes it. The review stays mounted and keeps its place. The same panel opens from a finished change's proof chip on Work and from a model on YOLO mode and a project's page. Shift+T, or the panel's expand button, opens the full page.
+- T in a review opens the proof beside it, in a panel at the right, and T or Escape closes it. The review stays mounted and keeps its place. Shift+T, or the panel's expand button, opens the full page. From Work, YOLO mode and a project's page a chip or a model opens the proof's page among the change's other models, and the trail leads back.
 - On a panel or page 1,100 pixels wide or more, the check and the proof show together: the trace or state graph at the left, the math and the proof tree at the right. Narrower, they stay tabs.
 - J and K go to the next and previous model of the change, and the heading says "Model 2 of 5".
 - F and Shift+F go to the next and previous thing that failed: a broken rule's trace step, or a proof step that failed, is missing or was omitted. The heading counts them.
@@ -196,11 +196,11 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A25. `ui/test/review-move-cost.test.ts` › "moving through 50 steps writes the review memory to storage at most once a second, and the last place on close"
 - A26. `ui/test/review-kept-place.test.ts` › "a review left for another page and opened again comes back to the same step, focus, history, groups and outline"
 - A27. unproven
-- A28. unproven
-- A29. unproven
-- A30. unproven
-- A31. unproven
-- A32. unproven
+- A28. `ui/test/proof-layout.test.ts` › "a proof shows its check and its proof side by side from 1,100 pixels wide, and as tabs below that"
+- A29. `ui/test/proof-siblings.test.ts` › "J and K go to the next and previous sibling and stop at the ends, and the heading says which of how many"; `ui/test/proof-failures.test.ts` › "F and Shift+F go to the next and previous failure, across the trace and the tree, round again at the ends"
+- A30. `ui/test/proof-kept.test.ts` › "each run keeps its tab, picked state, graph view, lens and search, and math mode and step while the app is open"
+- A31. `ui/test/proof-landing.test.ts` › "a run opened at its proof lands on the first step that failed once the run is whole, and at its break on the trace"
+- A32. `ui/test/proof-stops.test.ts` › "Up and Down reach each math block and each proof step the tree shows, in reading order"
 - A33. unproven
 - A34. `scripts/perf/motion.ts`
 - A35. unproven
@@ -214,7 +214,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - [x] S5 (A19, A20, A22). The host lays attention and buckets on a review's nodes, and detail goes to what matters.
 - [x] S6 (A15, A16, A17, A18). AI reviews start by themselves: cut short, a moved branch, waiting rows, pull requests by the workload.
 - [x] S7 (A19, A20, A21, A22, A23, A25, A26). The review window: Focus, groups, the outline, seen marks, next unseen, the budget, saved at most once a second, its place kept.
-- [ ] S8 (A28, A29, A30, A31, A32). Proofs: check and proof together, the keys, positions, kept state, stops, a panel that can sit in another page.
+- [x] S8 (A28, A29, A30, A31, A32). Proofs: check and proof together, the keys, positions, kept state, stops, a panel that can sit in another page.
 - [x] S9 (A11, A12, A13, A14). The workload in hobkin and the host: the settings, `planOf`, the forecast, `work.workload`, the allowance answer.
 - [ ] S10 (A8, A9, A10, A11). Work: tiles, the status line, Numbers, the workload sheet, rows that are buttons.
 - [ ] S11 (A4). The project's page, and World and YOLO mode opening it.
