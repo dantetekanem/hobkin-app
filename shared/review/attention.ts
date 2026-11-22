@@ -96,15 +96,23 @@ const untested = (facts: RatedFacts) => facts.proof === 'none' && facts.effect !
 function ratedReasons(facts: RatedFacts): Reason[] {
   const reasons: Reason[] = []
   const rules = new Set((facts.findings ?? []).map((finding) => finding.rule))
-  for (const [rule, weight, text] of BROKEN) if (rules.has(rule) && !(rule === 'failing-test' && rules.has('breaks-test'))) reasons.push(needs(weight, text))
+  for (const [rule, weight, text] of BROKEN) {
+    const saidByBreaksTest = rule === 'failing-test' && rules.has('breaks-test')
+    if (rules.has(rule) && !saidByBreaksTest) reasons.push(needs(weight, text))
+  }
   if (facts.critical) reasons.push(needs(90, 'Needs a fix, not only a look.'))
   // The engine's level weighs its tests already: no test is worth a look, first of that tier, and never needs the reviewer alone.
-  if (facts.level === 'high') {
-    const clauses = [...(facts.undo === 'none' ? ['nothing undoes it'] : []), ...(facts.proof && COVERED[facts.proof] ? [COVERED[facts.proof]!] : [])]
-    reasons.push(needs(60, joined(facts.effect && DOES[facts.effect] ? DOES[facts.effect]! : 'The AI review rates it high risk', clauses)))
-  } else if (untested(facts)) reasons.push(look(60, 'No test covers it.'))
-  if (facts.blind && !facts.blind.agrees) reasons.push(needs(50, facts.blind.level ? `A second, blind reading would rate it ${LEVEL_NAMES[facts.blind.level]}.` : 'A second, blind reading disagrees with its rating.'))
-  if (facts.questions) reasons.push(needs(45, facts.questions === 1 ? 'It leaves you a question to answer.' : `It leaves you ${facts.questions} questions to answer.`))
+  if (facts.level === 'high') reasons.push(needs(60, highWords(facts)))
+  else if (untested(facts)) reasons.push(look(60, 'No test covers it.'))
+  if (facts.blind && !facts.blind.agrees) {
+    const blindLevel = facts.blind.level
+    const text = blindLevel ? `A second, blind reading would rate it ${LEVEL_NAMES[blindLevel]}.` : 'A second, blind reading disagrees with its rating.'
+    reasons.push(needs(50, text))
+  }
+  if (facts.questions) {
+    const text = facts.questions === 1 ? 'It leaves you a question to answer.' : `It leaves you ${facts.questions} questions to answer.`
+    reasons.push(needs(45, text))
+  }
   if (facts.level === 'mid' && !untested(facts)) reasons.push(look(30, midWords(facts)))
   if (facts.unverified) reasons.push(look(25, 'Its place in the map could not be checked, so read it yourself.'))
   if (facts.confidence === 'low') reasons.push(look(20, 'The AI review was unsure of its rating.'))
@@ -113,6 +121,16 @@ function ratedReasons(facts: RatedFacts): Reason[] {
   if ((facts.callers ?? 0) >= 5) reasons.push(note(6, `Called from ${facts.callers} places.`))
   if (facts.effect === 'text' && facts.level === 'safe') reasons.push(note(0, 'Only comments or whitespace changed.'))
   return reasons
+}
+
+/** Why a high node needs the reviewer: what it does, then that nothing undoes it and how little its tests cover, when they say so. */
+function highWords(facts: RatedFacts): string {
+  const does = (facts.effect && DOES[facts.effect]) || 'The AI review rates it high risk'
+  const clauses: string[] = []
+  if (facts.undo === 'none') clauses.push('nothing undoes it')
+  const covered = facts.proof && COVERED[facts.proof]
+  if (covered) clauses.push(covered)
+  return joined(does, clauses)
 }
 
 /** Why a mid node is worth a look, from what its tests showed and what it does. */
@@ -159,25 +177,39 @@ function unratedReasons({ kind, bucket, change, status, warning }: AttentionInpu
 
 /** What a node that only removes lines asks: at least a look, since whatever used what it removed now finds nothing. */
 function removalReasons({ kind, bucket, change }: AttentionInput): Reason[] {
-  if (change !== 'deleted' || kind === 'criterion' || kind === 'context' || bucket === 'lockfile' || bucket === 'generated') return []
+  if (change !== 'deleted' || kind === 'criterion' || kind === 'context') return []
+  if (bucket === 'lockfile' || bucket === 'generated') return []
   if (kind === 'test' || bucket === 'test') return [look(35, 'It removes part of the tests: check that what they covered still is.')]
-  return [look(35, bucket === 'code' || bucket === 'moved' || bucket === 'format' ? 'It only removes code: check nothing still needs it.' : 'It only removes lines: check nothing still needs them.')]
+  const removesCode = bucket === 'code' || bucket === 'moved' || bucket === 'format'
+  return [look(35, removesCode ? 'It only removes code: check nothing still needs it.' : 'It only removes lines: check nothing still needs them.')]
 }
 
 /** A node's tier and its reasons, the strongest first. A node over several definitions takes the worst of them. */
 export function attentionOf(input: AttentionInput): Weighed {
-  const found = [...(input.rated.length ? input.rated.flatMap(ratedReasons) : unratedReasons(input)), ...removalReasons(input)]
+  const ownReasons = input.rated.length ? input.rated.flatMap(ratedReasons) : unratedReasons(input)
+  const found = [...ownReasons, ...removalReasons(input)]
+
+  // A reason given more than once is said once, at its strongest.
   const byText = new Map<string, Reason>()
-  for (const reason of found) if ((byText.get(reason.text)?.weight ?? -1) < reason.weight) byText.set(reason.text, reason)
+  for (const reason of found) {
+    const kept = byText.get(reason.text)
+    if ((kept?.weight ?? -1) < reason.weight) byText.set(reason.text, reason)
+  }
+
   // What sets the tier is said first, then the rest by weight.
   const reasons = [...byText.values()].sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || b.weight - a.weight)
-  const tier = reasons.reduce<AttentionTier>((worst, { tier }) => (TIER_ORDER[tier] < TIER_ORDER[worst] ? tier : worst), 'safe')
-  return { tier, strength: reasons.reduce((sum, { weight }) => sum + weight, 0), reasons: reasons.slice(0, 3).map(({ text }) => text) }
+  return {
+    tier: reasons[0]?.tier ?? 'safe',
+    strength: reasons.reduce((sum, { weight }) => sum + weight, 0),
+    reasons: reasons.slice(0, 3).map(({ text }) => text),
+  }
 }
 
 /** Every node's place in the review, from 1: by tier, then by how strong its reasons are, then by how much it changes. */
 export function rankAttention(nodes: readonly { id: string; tier: AttentionTier; strength: number; size: number }[]): Map<string, number> {
-  const ordered = nodes.map((node, index) => ({ ...node, index })).sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || b.strength - a.strength || b.size - a.size || a.index - b.index)
+  const ordered = nodes
+    .map((node, index) => ({ ...node, index }))
+    .sort((a, b) => TIER_ORDER[a.tier] - TIER_ORDER[b.tier] || b.strength - a.strength || b.size - a.size || a.index - b.index)
   return new Map(ordered.map(({ id }, index) => [id, index + 1]))
 }
 
@@ -223,14 +255,16 @@ function tokensOf(text: string, regex: boolean): string[] | null {
     tokens.push(text.slice(at, end))
     at = end
   }
+  const opensComment = (index: number) => text[index] === '/' && (text[index + 1] === '/' || text[index + 1] === '*')
   while (at < text.length) {
     const char = text[at]!
     const next = text[at + 1]
     if (char === '\n') {
       if (tokens.length && tokens.at(-1) !== '\n') tokens.push('\n')
       at += 1
-    } else if (/\s/.test(char)) at += 1
-    else if (char === '/' && next === '/') {
+    } else if (/\s/.test(char)) {
+      at += 1
+    } else if (char === '/' && next === '/') {
       const end = text.indexOf('\n', at)
       take(end < 0 ? text.length : end)
     } else if (char === '/' && next === '*') {
@@ -246,7 +280,7 @@ function tokensOf(text: string, regex: boolean): string[] | null {
       take(end)
     } else {
       let end = at
-      while (end < text.length && !/[\s\w"'`]/.test(text[end]!) && !(text[end] === '/' && (text[end + 1] === '/' || text[end + 1] === '*'))) end += 1
+      while (end < text.length && !/[\s\w"'`]/.test(text[end]!) && !opensComment(end)) end += 1
       if (regex && text.slice(at, end).includes('/')) return null
       take(Math.max(end, at + 1))
     }
@@ -257,29 +291,42 @@ function tokensOf(text: string, regex: boolean): string[] | null {
 
 /** Both sides have the same tokens, line by line, in a language where spacing between them means nothing. */
 function onlyFormat(file: BucketFile): boolean {
-  if (file.base == null || file.head == null || file.base === file.head || !SPACING_FREE.test(file.path)) return false
+  if (file.base == null || file.head == null || file.base === file.head) return false
+  if (!SPACING_FREE.test(file.path)) return false
   const regex = REGEX_OPENS.test(file.path)
-  const [before, after] = [tokensOf(file.base, regex), tokensOf(file.head, regex)]
-  return before != null && after != null && before.length === after.length && before.every((token, index) => token === after[index])
+  const before = tokensOf(file.base, regex)
+  const after = tokensOf(file.head, regex)
+  if (before == null || after == null) return false
+  return before.length === after.length && before.every((token, index) => token === after[index])
 }
 
 /** The fewest lines with words in them a block needs to be a move: a line or two that match lines elsewhere are a change. */
 const MOVE_LINES = 3
 
+/** The blocks of lines a file removes and adds. */
+interface FileBlocks {
+  removed: string[]
+  added: string[]
+}
+
+/** A run of lines as one block, without blank lines at its ends. */
+const blockOf = (lines: readonly string[]) => lines.join('\n').replace(/^\n+|\n+$/g, '')
+
 /**
  * The blocks of lines a file removes and adds, each a run of consecutive lines at one place, with its indent and without
  * blank lines at its ends. Blank lines the diff kept between two runs do not part them.
  */
-function blocksOf(file: BucketFile): { removed: string[]; added: string[] } | null {
+function blocksOf(file: BucketFile): FileBlocks | null {
   if (file.binary || (file.base == null && file.head == null)) return null
   const removed: string[] = []
   const added: string[] = []
   let gone: string[] = []
   let come: string[] = []
   const close = () => {
-    const key = (lines: string[]) => lines.join('\n').replace(/^\n+|\n+$/g, '')
-    if (key(gone)) removed.push(key(gone))
-    if (key(come)) added.push(key(come))
+    const goneBlock = blockOf(gone)
+    const comeBlock = blockOf(come)
+    if (goneBlock) removed.push(goneBlock)
+    if (comeBlock) added.push(comeBlock)
     gone = []
     come = []
   }
@@ -302,10 +349,22 @@ const counted = (blocks: readonly string[]) => {
 }
 
 /** Whether every block is among `pool`, as often as it comes. */
-const within = (blocks: readonly string[], pool: ReadonlyMap<string, number>) => [...counted(blocks)].every(([block, times]) => (pool.get(block) ?? 0) >= times)
+const within = (blocks: readonly string[], pool: ReadonlyMap<string, number>) => {
+  return [...counted(blocks)].every(([block, times]) => (pool.get(block) ?? 0) >= times)
+}
 
 /** A block big enough to be a move: at least `MOVE_LINES` lines with words in them. */
 const sizable = (block: string) => block.split('\n').filter((line) => /\w.*\w/.test(line)).length >= MOVE_LINES
+
+/**
+ * Whether a file's changes are all moves: it removes or adds something, every block is big enough to be a move, each
+ * block it removes arrives whole among the change's added blocks, and each block it adds left from among its removed ones.
+ */
+function movedWhole(file: FileBlocks, addedInChange: ReadonlyMap<string, number>, removedInChange: ReadonlyMap<string, number>): boolean {
+  const blocks = [...file.removed, ...file.added]
+  if (!blocks.length || !blocks.every(sizable)) return false
+  return within(file.removed, addedInChange) && within(file.added, removedInChange)
+}
 
 /**
  * Each changed file's bucket. A lockfile, a generated or vendored file, a locale file and docs keep the kind their path
@@ -315,16 +374,15 @@ const sizable = (block: string) => block.split('\n').filter((line) => /\w.*\w/.t
  * its path says: code or a test.
  */
 export function fileBuckets(files: readonly BucketFile[]): Map<string, NodeBucket> {
-  const blocks = files.map((file) => ({ file, changed: blocksOf(file) }))
-  const added = counted(blocks.flatMap(({ changed }) => changed?.added ?? []))
-  const removed = counted(blocks.flatMap(({ changed }) => changed?.removed ?? []))
+  const changes = files.map((file) => ({ file, blocks: blocksOf(file) }))
+  const added = counted(changes.flatMap(({ blocks }) => blocks?.added ?? []))
+  const removed = counted(changes.flatMap(({ blocks }) => blocks?.removed ?? []))
   return new Map(
-    blocks.map(({ file, changed }): [string, NodeBucket] => {
+    changes.map(({ file, blocks }): [string, NodeBucket] => {
       const byPath = pathBucket(file.path, file.binary)
       if (byPath === 'lockfile' || byPath === 'generated' || byPath === 'locale' || byPath === 'docs') return [file.path, byPath]
       if (file.status === 'renamed' && file.additions === 0 && file.deletions === 0) return [file.path, 'moved']
-      const moves = changed && changed.removed.length + changed.added.length > 0 && [...changed.removed, ...changed.added].every(sizable)
-      if (moves && within(changed.removed, added) && within(changed.added, removed)) return [file.path, 'moved']
+      if (blocks && movedWhole(blocks, added, removed)) return [file.path, 'moved']
       if (onlyFormat(file)) return [file.path, 'format']
       return [file.path, byPath]
     }),
@@ -344,8 +402,11 @@ export interface DetailFile {
 function detailRank(file: DetailFile): number {
   const bucket = pathBucket(file.path)
   if (bucket === 'generated' || bucket === 'lockfile' || bucket === 'locale' || bucket === 'docs') return 2
-  return fileRole(file.path, (file.head ?? file.base ?? '').split('\n', 1)[0]) === 'file' ? 1 : 0
+  const firstLine = (file.head ?? file.base ?? '').split('\n', 1)[0]
+  return fileRole(file.path, firstLine) === 'file' ? 1 : 0
 }
+
+const byPath = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 
 /**
  * The order a large change's files get their detail in, so its room goes to code a person must read: code and tests,
@@ -353,5 +414,6 @@ function detailRank(file: DetailFile): number {
  */
 export function detailOrder<File extends DetailFile>(files: readonly File[]): File[] {
   const ranked = files.map((file) => ({ file, rank: detailRank(file), size: file.additions + file.deletions }))
-  return ranked.sort((a, b) => a.rank - b.rank || b.size - a.size || (a.file.path < b.file.path ? -1 : a.file.path > b.file.path ? 1 : 0)).map(({ file }) => file)
+  ranked.sort((a, b) => a.rank - b.rank || b.size - a.size || byPath(a.file.path, b.file.path))
+  return ranked.map(({ file }) => file)
 }

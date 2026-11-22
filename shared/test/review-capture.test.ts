@@ -111,13 +111,19 @@ test('summarizes files beyond the limits', async () => {
 
 test('a change of 200 files and 10,000 lines spends its detail on the code a person must read: none on generated files, lockfiles, locale files or docs', async () => {
   const body = (name: string, count: number) => Array.from({ length: count }, (_, line) => `export const ${name}${line} = ${line};`).join('\n') + '\n'
-  const code = (letter: string) => `${letter}${letter}`
+  /** `count` files, each the path and text `file` gives for its index. */
+  const many = (count: number, file: (index: number) => [string, string]) => Object.fromEntries(Array.from({ length: count }, (_, index) => file(index)))
+  /** A locale code for each index: `aa` to `zz`, then `aax` and on. */
+  const localeOf = (index: number) => {
+    const letter = String.fromCharCode(97 + (index % 26))
+    return `${letter}${letter}${index >= 26 ? 'x' : ''}`
+  }
   const tree: Tree = {
     'pnpm-lock.yaml': body('lock', 1230),
-    ...Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`dist/chunk${index}.js`, body(`chunk${index}_`, 50)])),
-    ...Object.fromEntries(Array.from({ length: 120 }, (_, index) => [`src/feature${String(index).padStart(3, '0')}.ts`, body(`feature${index}_`, 50)])),
-    ...Object.fromEntries(Array.from({ length: 30 }, (_, index) => [`ui/locales/${code(String.fromCharCode(97 + (index % 26)))}${index >= 26 ? 'x' : ''}/common.json`, body(`word${index}_`, 30)])),
-    ...Object.fromEntries(Array.from({ length: 29 }, (_, index) => [`docs/guide${index}.md`, body(`guide${index}_`, 30)])),
+    ...many(20, (index) => [`dist/chunk${index}.js`, body(`chunk${index}_`, 50)]),
+    ...many(120, (index) => [`src/feature${String(index).padStart(3, '0')}.ts`, body(`feature${index}_`, 50)]),
+    ...many(30, (index) => [`ui/locales/${localeOf(index)}/common.json`, body(`word${index}_`, 30)]),
+    ...many(29, (index) => [`docs/guide${index}.md`, body(`guide${index}_`, 30)]),
   }
   const capture = await captureChange(memoryReader({}, tree), 'base', 'head')
   assert.deepEqual([capture.files.length, capture.additions], [200, 10_000])

@@ -198,8 +198,10 @@ export interface ReviewList {
  * asked for has not happened. One that is only known, as a review the user stopped before anything ran, is no row.
  */
 export function shownAsRow(item: ReviewListItem): boolean {
+  if (item.mergeAsked || item.waiting) return true
+  if (item.state !== 'idle') return true
   const assessment = item.assessment?.state
-  return Boolean(item.mergeAsked || item.waiting) || item.state !== 'idle' || (assessment != null && assessment !== 'idle')
+  return assessment != null && assessment !== 'idle'
 }
 
 export const IDLE_STATUS = (id: string): ReviewStatus => ({ id, state: 'idle', phase: null, head: null, stale: false, preparedAt: null, error: null, storyBy: null })

@@ -39,7 +39,10 @@ test('mid and what is unverified are worth a look; the rest is safe, and says wh
     ['an acceptance line nothing proves', { kind: 'criterion', bucket: 'docs', change: 'unchanged', size: 0, status: 'unproven', rated: [] }, 'Nothing proves this acceptance line yet.'],
     ['code the AI review did not rate', code([], { kind: 'file' }), 'The AI review did not rate it, so give it a look.'],
   ]
-  for (const [why, input, reason] of look) assert.deepEqual([attentionOf(input).tier, attentionOf(input).reasons[0]], ['worth-a-look', reason], why)
+  for (const [why, input, reason] of look) {
+    const { tier, reasons } = attentionOf(input)
+    assert.deepEqual([tier, reasons[0]], ['worth-a-look', reason], why)
+  }
 
   assert.deepEqual(attentionOf(code([rated({})])), { tier: 'safe', strength: 0, reasons: [] }, 'shown working through a request')
   assert.deepEqual(attentionOf(code([rated({ effect: 'text', proof: 'not-applicable' })])).reasons, ['Only comments or whitespace changed.'])
@@ -49,14 +52,19 @@ test('mid and what is unverified are worth a look; the rest is safe, and says wh
     ['generated', 'Generated or vendored: nobody writes it by hand.'],
     ['locale', 'Words for the app, in a locale file.'],
   ]
-  for (const [bucket, reason] of safe) assert.deepEqual(attentionOf(code([], { kind: 'file', bucket })), { tier: 'safe', strength: 1, reasons: [reason] }, bucket)
+  for (const [bucket, reason] of safe) {
+    assert.deepEqual(attentionOf(code([], { kind: 'file', bucket })), { tier: 'safe', strength: 1, reasons: [reason] }, bucket)
+  }
   const unrated: [AttentionInput['bucket'], string][] = [
     ['moved', 'It looks moved, with no other change: check it arrived whole.'],
     ['format', 'It looks like only formatting changed: check nothing else did.'],
     ['docs', 'Docs or media the AI review did not rate.'],
     ['test', 'A test file the AI review did not rate.'],
   ]
-  for (const [bucket, reason] of unrated) assert.deepEqual([attentionOf(code([], { kind: 'file', bucket })).tier, attentionOf(code([], { kind: 'file', bucket })).reasons], ['worth-a-look', [reason]], bucket)
+  for (const [bucket, reason] of unrated) {
+    const { tier, reasons } = attentionOf(code([], { kind: 'file', bucket }))
+    assert.deepEqual([tier, reasons], ['worth-a-look', [reason]], bucket)
+  }
   assert.equal(attentionOf({ kind: 'context', bucket: 'code', change: 'unchanged', size: 0, rated: [] }).tier, 'safe', 'context changed nothing')
   assert.equal(attentionOf({ kind: 'test', bucket: 'test', change: 'modified', size: 3, status: 'proves-change', rated: [] }).tier, 'safe')
   assert.equal(attentionOf({ kind: 'criterion', bucket: 'docs', change: 'unchanged', size: 0, status: 'proven', rated: [] }).tier, 'safe')
@@ -72,11 +80,34 @@ test('a node over several definitions takes the worst of them; its reasons are t
   )
   assert.equal(tier, 'needs-you')
   assert.deepEqual(reasons, ['Breaks a test that passes without this change.', 'Needs a fix, not only a look.', 'Changes data it writes, and no test covers it.'])
-  const all = attentionOf(code([rated({ level: 'high', critical: true, effect: 'data', proof: 'unknown', undo: 'none', questions: 1, blind: { agrees: false }, sensitive: ['auth'], callers: 9, unverified: true, confidence: 'low', findings: [{ rule: 'failing-test', by: 'proof' }, { rule: 'test-timeout', by: 'proof' }, { rule: 'not-mapped', by: 'search' }] })]))
+
+  // Everything at once still gives three reasons, none in the engine's words.
+  const everything = rated({
+    level: 'high',
+    critical: true,
+    effect: 'data',
+    proof: 'unknown',
+    undo: 'none',
+    questions: 1,
+    blind: { agrees: false },
+    sensitive: ['auth'],
+    callers: 9,
+    unverified: true,
+    confidence: 'low',
+    findings: [
+      { rule: 'failing-test', by: 'proof' },
+      { rule: 'test-timeout', by: 'proof' },
+      { rule: 'not-mapped', by: 'search' },
+    ],
+  })
+  const all = attentionOf(code([everything]))
   assert.equal(all.reasons.length, 3)
   for (const reason of all.reasons) assert.doesNotMatch(reason, ENGINE_WORDS, reason)
-  assert.match(attentionOf(code([rated({ level: 'high', effect: 'data', proof: 'unknown', undo: 'none' })])).reasons[0]!, /^Changes data it writes, nothing undoes it, and its tests could not run here\.$/)
-  assert.deepEqual(attentionOf(code([rated({ level: 'mid', proof: 'isolated', sensitive: ['auth', 'token'] })])).reasons, ['Only tests that call it directly cover it.', 'Its name touches auth and token.'])
+
+  const highUndone = attentionOf(code([rated({ level: 'high', effect: 'data', proof: 'unknown', undo: 'none' })]))
+  assert.match(highUndone.reasons[0]!, /^Changes data it writes, nothing undoes it, and its tests could not run here\.$/)
+  const midSensitive = attentionOf(code([rated({ level: 'mid', proof: 'isolated', sensitive: ['auth', 'token'] })]))
+  assert.deepEqual(midSensitive.reasons, ['Only tests that call it directly cover it.', 'Its name touches auth and token.'])
 })
 
 test('rank orders every node from 1: by tier, then by how strong its reasons are, then by how much it changes', () => {
@@ -161,7 +192,9 @@ test('a file is moved only when it was renamed and nothing more, or each block i
       ],
     ],
   ]
-  for (const [why, bucket, files] of changes) for (const [path, found] of fileBuckets(files)) assert.equal(found, bucket, `${why}: ${path}`)
+  for (const [why, bucket, files] of changes) {
+    for (const [path, found] of fileBuckets(files)) assert.equal(found, bucket, `${why}: ${path}`)
+  }
 })
 
 test('a file is format only when its tokens are the same outside strings and comments, in a language where spacing between them means nothing', () => {
@@ -227,11 +260,14 @@ test('a change where most code has no test opens with only what needs the review
     ...Array.from({ length: 19 }, (_, index) => ({ id: `safe${index}`, input: code([rated({})]) })),
   ]
   const weighed = nodes.map(({ id, input }) => ({ id, size: input.size, ...attentionOf(input) }))
-  const tiers = Object.fromEntries(weighed.map(({ id, tier }) => [id, tier]))
-  assert.deepEqual(weighed.filter(({ tier }) => tier === 'needs-you').map(({ id }) => id), ['breaks', 'asks', 'disputed'], 'no test alone never needs the reviewer')
-  assert.equal(weighed.filter(({ tier }) => tier === 'worth-a-look').length, 55)
-  assert.deepEqual([tiers.untested0, attentionOf(nodes[0]!.input).reasons], ['worth-a-look', ['No test covers it.']])
-  assert.equal(attentionOf(nodes.find(({ id }) => id === 'asks')!.input).reasons[0], 'It leaves you a question to answer.', 'what needs the reviewer is said first')
+  const weighedOf = (id: string) => weighed.find((node) => node.id === id)!
+  const idsIn = (tier: string) => weighed.filter((node) => node.tier === tier).map(({ id }) => id)
+
+  assert.deepEqual(idsIn('needs-you'), ['breaks', 'asks', 'disputed'], 'no test alone never needs the reviewer')
+  assert.equal(idsIn('worth-a-look').length, 55)
+  const untested = weighedOf('untested0')
+  assert.deepEqual([untested.tier, untested.reasons], ['worth-a-look', ['No test covers it.']])
+  assert.equal(weighedOf('asks').reasons[0], 'It leaves you a question to answer.', 'what needs the reviewer is said first')
 
   const ranks = rankAttention(weighed)
   const ordered = [...ranks].sort((a, b) => a[1] - b[1]).map(([id]) => id)
