@@ -53,7 +53,8 @@ function writeReview(root: string, folder: string, heads: Record<string, { summa
     mkdirSync(dirname(file), { recursive: true })
     writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value))
   }
-  write(join(reviews, `review-${Object.keys(heads)[0]}.json`), { change: { title: 'A change', project: 'API', head: `${Object.keys(heads)[0]}abcdef` } })
+  const firstHead = Object.keys(heads)[0]
+  write(join(reviews, `review-${firstHead}.json`), { change: { title: 'A change', project: 'API', head: `${firstHead}abcdef` } })
   for (const [head, { summary, progress }] of Object.entries(heads)) {
     if (summary !== undefined) write(join(reviews, 'change-review', head, 'summary.json'), summary)
     if (progress !== undefined) write(join(reviews, 'change-review', head, 'progress.json'), progress)
@@ -61,8 +62,7 @@ function writeReview(root: string, folder: string, heads: Record<string, { summa
 }
 
 const started = (at: string) => ({ schema: 'review-progress/1', started_at: at, updated_at: at, percent: 0 })
-const pick = (days: { [field: string]: unknown }[], field: string) => days.map((day) => day[field])
-const lastDays = (series: MetricsSeries, field: 'reviewsSafe' | 'reviewsRisky' | 'reviewsFailed' | 'started', count = 3) => pick(series.days.slice(-count) as never, field)
+const lastDays = (series: MetricsSeries, field: 'reviewsSafe' | 'reviewsRisky' | 'reviewsFailed' | 'started', count = 3) => series.days.slice(-count).map((day) => day[field])
 const projectOf = (metrics: WorkMetrics, slug: string) => metrics.projects.find((project) => project.slug === slug)!
 
 test('work.metrics adds the AI reviews the host keeps to hobkin fold: each answer on its day, one that stopped before it, and how long they took', async (t) => {

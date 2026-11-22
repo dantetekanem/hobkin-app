@@ -5,7 +5,7 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { METRICS_DAYS_DEFAULT, METRICS_OLDER_RUNTIME, type MetricsDay, type MetricsSeries, type WorkMetrics } from '#shared/protocol/metrics.ts'
+import { METRICS_DAYS_DEFAULT, METRICS_OLDER_RUNTIME, type MetricsSeries, type WorkMetrics } from '#shared/protocol/metrics.ts'
 import { deployOf, type AssessmentSummary } from '#shared/review/assessment.ts'
 import { reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import type { ReviewList } from '#shared/review/status.ts'
@@ -35,7 +35,8 @@ export async function loadMetricsRuntime(specifier: string = METRICS_MODULE): Pr
   } catch {
     return {}
   }
-  return Object.fromEntries(FUNCTIONS.filter((name) => typeof module[name] === 'function').map((name) => [name, module[name]])) as MetricsRuntime
+  const present = FUNCTIONS.filter((name) => typeof module[name] === 'function')
+  return Object.fromEntries(present.map((name) => [name, module[name]])) as MetricsRuntime
 }
 
 export interface MetricsSeat {
@@ -85,9 +86,11 @@ function readKept<Value>(file: string): Value | undefined | typeof UNREADABLE {
 function underWayIn(reviews: MetricsSeat['reviews']): Set<string> {
   try {
     const listed = reviews?.list().reviews ?? []
-    return new Set(
-      listed.flatMap(({ id, assessment }) => (assessment?.head && UNDER_WAY.has(assessment.state) ? [`${id}@${folderHead(assessment.head)}`] : [])),
-    )
+    const underWay = listed.flatMap(({ id, assessment }) => {
+      if (!assessment?.head || !UNDER_WAY.has(assessment.state)) return []
+      return [`${id}@${folderHead(assessment.head)}`]
+    })
+    return new Set(underWay)
   } catch {
     return new Set()
   }
@@ -99,15 +102,18 @@ function underWayIn(reviews: MetricsSeat['reviews']): Set<string> {
  * A finished change counts for its project, and a pull request only for all projects together.
  */
 function addReviews(metrics: WorkMetrics, root: string, store: ReviewStore, underWay: Set<string>, { dayOf, spanOf }: Rules): WorkMetrics {
-  const place = new Map(metrics.all.days.map(({ day }, index) => [day, index]))
+  const dayIndex = new Map(metrics.all.days.map(({ day }, index) => [day, index]))
   const projects = new Map(metrics.projects.map((project) => [project.slug, project]))
-  const took = new Map<MetricsSeries, number[]>([[metrics.all, []], ...metrics.projects.map((project): [MetricsSeries, number[]] => [project, []])])
-  const seriesOf = (target: ReviewTarget) => [metrics.all, ...(target.kind === 'change' && projects.has(target.slug) ? [projects.get(target.slug)!] : [])]
+  const took = new Map([metrics.all, ...metrics.projects].map((series): [MetricsSeries, number[]] => [series, []]))
+  const seriesOf = (target: ReviewTarget): MetricsSeries[] => {
+    const project = target.kind === 'change' ? projects.get(target.slug) : undefined
+    return project ? [metrics.all, project] : [metrics.all]
+  }
   const count = (target: ReviewTarget, time: string | undefined, name: ReviewCount, ms?: number) => {
-    const index = time ? place.get(dayOf(time)) : undefined
+    const index = time ? dayIndex.get(dayOf(time)) : undefined
     if (index === undefined) return
     for (const series of seriesOf(target)) {
-      ;(series.days[index] as MetricsDay)[name] += 1
+      series.days[index][name] += 1
       if (ms !== undefined && ms >= 0) took.get(series)!.push(ms)
     }
   }
@@ -121,6 +127,7 @@ function addReviews(metrics: WorkMetrics, root: string, store: ReviewStore, unde
   }
   for (const { target } of stored) {
     const id = reviewIdOf(target)
+    // The folder that holds one AI review for each reviewed commit.
     const folder = dirname(assessmentFolder(root, target, '0'.repeat(40)))
     let heads: string[]
     try {
@@ -136,12 +143,18 @@ function addReviews(metrics: WorkMetrics, root: string, store: ReviewStore, unde
         metrics.gaps.push(`The AI review of ${id} at ${head.slice(0, 7)} could not be read, so it is not counted.`)
         continue
       }
-      const startedAt = Date.parse(progress?.started_at ?? '')
-      if (summary) count(target, summary.at, deployOf(summary) === 'risky' ? 'reviewsRisky' : 'reviewsSafe', Number.isFinite(startedAt) ? Date.parse(summary.at) - startedAt : undefined)
-      else if (progress && !underWay.has(`${id}@${head}`)) count(target, progress.updated_at ?? progress.started_at, 'reviewsFailed')
+      if (summary) {
+        const startedAt = Date.parse(progress?.started_at ?? '')
+        const tookMs = Number.isFinite(startedAt) ? Date.parse(summary.at) - startedAt : undefined
+        count(target, summary.at, deployOf(summary) === 'risky' ? 'reviewsRisky' : 'reviewsSafe', tookMs)
+      } else if (progress && !underWay.has(`${id}@${head}`)) {
+        count(target, progress.updated_at ?? progress.started_at, 'reviewsFailed')
+      }
     }
   }
-  for (const [series, durations] of took) series.spans = { ...series.spans, aiReview: spanOf(durations) }
+  for (const [series, durations] of took) {
+    series.spans = { ...series.spans, aiReview: spanOf(durations) }
+  }
   return metrics
 }
 
@@ -159,12 +172,16 @@ export function metricsReader(seat: MetricsSeat): (days?: number) => Promise<Wor
     const home = seat.data()
     const key = `${home}\0${days}`
     const time = now()
-    for (const [old, { at }] of kept) if (time - at >= METRICS_KEPT_MS) kept.delete(old)
+    for (const [old, { at }] of kept) {
+      if (time - at >= METRICS_KEPT_MS) kept.delete(old)
+    }
     const known = kept.get(key)
     if (known) return known.value
+
     const { workMetrics, dayOf, spanOf } = await runtime()
     if (!workMetrics || !dayOf || !spanOf) throw new Unavailable(OLDER_RUNTIME)
-    const value = addReviews(workMetrics(home, { days, now: time }), seat.root, store, underWayIn(seat.reviews), { dayOf, spanOf })
+    const folded = workMetrics(home, { days, now: time })
+    const value = addReviews(folded, seat.root, store, underWayIn(seat.reviews), { dayOf, spanOf })
     kept.set(key, { at: time, value })
     return value
   }
