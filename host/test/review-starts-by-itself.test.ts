@@ -341,6 +341,23 @@ test('with "my pull requests" on, a pull request of the user’s gets an AI revi
   assert.deepEqual(started.map((job) => [job.target, job.head]), [[{ kind: 'pull', owner: 'acme', repo: 'shop', number: 12 }, await sample.head(TARGET)]])
 })
 
+test('while hobkin cannot say whether a pull request is its own, that pull request waits, and is looked at again once hobkin can', async (t) => {
+  const sample = sampleReviewSource()
+  let own: boolean | null = null
+  const reviews = new Reviews({ store: reviewStore(temporaryDirectory(t)), sources: { change: sample, pull: sample }, work: () => ({ workAction: async () => ({}) }), card: () => null, ownPull: () => own })
+  t.after(() => reviews.close())
+  const wanted = toPrepare({ finished: [] } as unknown as WorkState, githubWith({ pulls: [pull(12)] }), { pulls: 'mine' })
+
+  reviews.watch(wanted)
+  await reviews.settled()
+  assert.equal(reviews.status('pr:acme/shop/12').state, 'idle', 'hobkin could not be read: nothing is prepared for a pull request that may be its own')
+
+  own = false
+  reviews.watch(wanted)
+  await reviews.settled()
+  assert.equal(reviews.status('pr:acme/shop/12').state, 'ready', 'not hobkin’s: it is prepared on the next look, at the same version')
+})
+
 test('a pull request one of hobkin’s changes opened is never reviewed by itself, wherever that change stands: finished, left with a note, or sent back to work', async (t) => {
   const data = temporaryDirectory(t)
   const url = (number: number) => `https://github.com/acme/shop/pull/${number}`

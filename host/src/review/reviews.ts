@@ -1822,7 +1822,7 @@ export class Reviews {
       // pull request closed on its host is not reviewed at all.
       if (this.landingOf(target) || this.closedOn(target)) return
       // A pull request of hobkin's own change is reviewed as that change, never again by itself; one that cannot be told yet waits.
-      const own = target.kind === 'pull' ? (this.options.ownPull?.(target) ?? false) : false
+      const own = target.kind === 'pull' && this.options.ownPull ? this.options.ownPull(target) : false
       if (own === null) return
       this.watched.set(id, version)
       if (own) return
