@@ -420,17 +420,25 @@ export function waitsOnItsProject(entry, here) {
   return here.length > 0 && entry.effort === 'small' && !entry.urgent && !entry.picked ? 'another run here' : null;
 }
 
-/** Whether the user's cap on changes a day is reached: every item run that began today counts, a pick's too. */
+/** Whether the user's cap on changes a day is reached: every new change begun today counts, the user's picks among them. */
 const capReached = ({ changesADay }, { changes }) => changesADay !== null && changes >= changesADay;
 
 /**
- * What the user's workload holds back of what would start by itself: everything outside their hours, and item runs once the day's cap is reached.
- * A pick is the user's own word, so neither holds it. Neither stops a run going now.
+ * What the user's hours and cap hold: new work, as ship first counts it, that would start without the user's own word. A watch look, work on a
+ * finished change (its review, a fix, a refresh before a merge, the user's note), an item already started, and urgent and attention work are not
+ * new work, and a pick hobkin made itself is no word of the user's.
  */
+export const newWorkByItself = row => !row.userPick && startsNewWork({ ...row, picked: false });
+
+/** Whether a row would begin a new change: an item's first run, unless the item fixes finished work. What the cap counts. */
+export const beginsAChange = (row, ran) => row.lane === 'do' && Boolean(row.item) && row.item.kind !== 'pr-fix'
+  && !movesFinishedWork(row.item) && !ran.has(`${row.slug}:${row.item.id}`);
+
+/** What the user's workload holds back: new work outside their hours, and new changes once the day's cap is reached. Neither stops a run going now. */
 function workloadWait(entry, { workload, hours, budget, now }) {
-  if (entry.picked) return null;
+  if (!newWorkByItself(entry)) return null;
   if (!hours.open) return `outside work hours until ${lookTime(hours.opensAt, now)}`;
-  if (entry.lane === 'do' && capReached(workload, budget)) return `${budget.changes} of ${workload.changesADay} changes today, the day's cap`;
+  if (capReached(workload, budget) && beginsAChange(entry, budget.ran)) return `${budget.changes} of ${workload.changesADay} changes today, the day's cap`;
   return null;
 }
 
@@ -601,6 +609,8 @@ function planOf(root, { mode = readMode(root), now = Date.now(), running = [], c
         ...entry,
         skipped: mode.queueSkipped.includes(entry.key),
         picked,
+        // A pick the user made, as against one hobkin made itself (`queueByHobkin`). Only the user's passes their hours and their cap.
+        userPick: picked && !(mode.queueByHobkin ?? []).includes(entry.key),
         // A mark to start now goes with its pick, so it never starts anything by itself.
         pickedNow: picked && mode.queueNow.includes(entry.key),
         estimate: estimateOf(entry.lane === 'do' ? 'do' : entry.kind, entry.level),
@@ -673,7 +683,7 @@ export function holdingOf(plan, now = Date.now()) {
   if (shipping.holding && queued.some(entry => entry.held)) {
     return holds('ship-first', `${shipping.pile} finished changes wait for you, so new work holds until fewer than ${shipping.bar} wait.`);
   }
-  if (capReached(workload, budget) && queued.some(entry => entry.lane === 'do' && !entry.picked)) {
+  if (capReached(workload, budget) && queued.some(entry => newWorkByItself(entry) && beginsAChange(entry, budget.ran))) {
     return holds('cap', `${budget.changes} of today's ${workload.changesADay} changes have started, so the next starts after midnight.`, dayEndsAt(now));
   }
   return null;

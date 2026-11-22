@@ -2,8 +2,8 @@ import { existsSync } from 'node:fs';
 import { costHistory, estimateRun, fitsDay, fitsHour, hourShareOf, outOfStarts, withStart } from './budget.mjs';
 import { lookTime } from './chat.mjs';
 import {
-  canStart, countsAgainst, discoveryEntry, ideasEntry, lensEntry, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, retryAt, signalsEntry, skipsTheHour, startBudgetWait, startGap,
-  startsNewWork, waitsOnItsProject, watchEntry,
+  beginsAChange, canStart, countsAgainst, discoveryEntry, ideasEntry, lensEntry, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, newWorkByItself, retryAt, signalsEntry, skipsTheHour,
+  startBudgetWait, startGap, startsNewWork, waitsOnItsProject, watchEntry,
 } from './plan.mjs';
 import { chosenProjects, dailyLimit, grades, lookEveryHours, paths, readState, tokenEvents, workHoursAt } from './store.mjs';
 
@@ -80,14 +80,14 @@ function laterLooks(root, { mode, budget, entries }, projects, { start, end, run
  * Why a row cannot start this minute, or null when it can. A priority that has had its runs holds its rows whatever the hour has left. The user's
  * hours and cap on changes a day hold what would start by itself, as the plan's own wait does (`workloadWait`).
  */
-function refused(row, { mode, busy, day, hour, spent, open, cap }) {
-  if (!open && !row.picked) return 'hours';
+function refused(row, { mode, busy, day, hour, spent, open, cap, ran }) {
+  if (!open && newWorkByItself(row)) return 'hours';
   const maxRunning = busy.filter(run => run.level === 'max').length;
   const maxFull = row.level === 'max' && (maxRunning >= MAX_RUNS_AT_ONCE || day.maxRuns >= MAX_RUNS_A_DAY);
   const projectBusy = waitsOnItsProject(row, busy.filter(run => run.slug === row.slug));
   if (maxFull || projectBusy) return 'pace';
   if (!fitsDay(day, row.estimate.fresh)) return 'day';
-  if (row.lane === 'do' && !row.picked && cap !== null && day.changes >= cap) return 'cap';
+  if (cap !== null && day.changes >= cap && newWorkByItself(row) && beginsAChange(row, ran)) return 'cap';
   if (startBudgetWait({ mode, spent }, row)) return 'priority';
   if (skipsTheHour(row) || fitsHour(hour, row.estimate.fresh)) return null;
   return 'hour';
@@ -120,9 +120,11 @@ function play({ plan: { mode, budget, agents, workload }, queue, from, start, en
     used: budget.used + budget.reserved,
     reserved: 0,
     maxRuns: budget.maxRuns + running.filter(run => run.level === 'max').length,
-    // Item runs begun today, running ones among them, as the plan counts them for the cap.
+    // New changes begun today, running ones among them, as the plan counts them for the cap.
     changes: budget.changes ?? 0,
   };
+  // Every item that has had a run: a later run of one begins no new change.
+  const ran = new Set(budget.ran ?? []);
   // A plan made before the workload existed holds nothing by it.
   const { hours = null, changesADay: cap = null } = workload ?? {};
   // The budget is today's, so a stop that ends after midnight starts the next day with all of it.
@@ -143,7 +145,7 @@ function play({ plan: { mode, budget, agents, workload }, queue, from, start, en
 
     const busy = active.filter(run => run.until > at);
     const hour = { hourShare: hourShareOf(day.limit), hourUsed: spentInTheHourTo(spends, at), reserved: 0 };
-    const limits = { mode, busy, day, hour, spent: outOfStarts(counted, at), open: workHoursAt(hours, at).open, cap };
+    const limits = { mode, busy, day, hour, spent: outOfStarts(counted, at), open: workHoursAt(hours, at).open, cap, ran };
     const paced = busy.length >= agents || at - lastStart < startGap(mode, busy);
     const next = paced ? null : due.find(row => !refused(row, limits));
     if (!next) {
@@ -153,13 +155,15 @@ function play({ plan: { mode, budget, agents, workload }, queue, from, start, en
     }
 
     queue.splice(queue.indexOf(next), 1);
-    started.push({ ...next, startedAt: at });
+    const change = beginsAChange(next, ran);
+    started.push({ ...next, startedAt: at, change });
+    if (next.lane === 'do' && next.item) ran.add(`${next.slug}:${next.item.id}`);
     lastStart = at;
     const priority = countsAgainst(next);
     if (priority) counted = withStart(counted, priority, at);
     day.used += next.estimate.fresh;
     if (next.level === 'max') day.maxRuns += 1;
-    if (next.lane === 'do') day.changes += 1;
+    if (change) day.changes += 1;
     spends.push({ at, fresh: next.estimate.fresh });
     active.push({ slug: next.slug, lane: next.lane, level: next.level, until: at + lengthOf(runKind(next)) });
 
@@ -228,7 +232,7 @@ function forecastLine({ jobs, grades: byGrade, agents, limit, until }, now) {
 /**
  * About how many runs work mode starts in the next 8 hours, by grade, and what holds the number down. Pure code over what is on disk, so it spends no tokens.
  * It plays the plan forward: what is ready and what comes due goes to the agents in queue order, inside the budget and every stop.
- * The outlook plays the same way to midnight: about how many more changes, item runs, start today, and when the next one starts in what it saw.
+ * The outlook plays the same way to midnight: about how many more new changes begin today, as the cap counts them, and when the next one starts in what it saw.
  */
 export function forecastAndOutlook(root, plan, { now = Date.now(), running = [] } = {}) {
   const { mode, pause, entries, agents } = plan;
@@ -272,7 +276,7 @@ export function forecastAndOutlook(root, plan, { now = Date.now(), running = [] 
   };
   const { started, limit } = playTo(end);
   // The rest of today: the same play, to midnight, unless the window already reaches past it.
-  const changes = (midnight <= end ? started : playTo(midnight).started).filter(row => row.lane === 'do');
+  const changes = (midnight <= end ? started : playTo(midnight).started).filter(row => row.change);
 
   const forecast = {
     hours: FORECAST_HOURS,

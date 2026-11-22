@@ -1,5 +1,5 @@
 import { lookTime } from './chat.mjs';
-import { dailyLimit, readProjects, tokenEvents, tokenLabel } from './store.mjs';
+import { dailyLimit, readItems, readProjects, tokenEvents, tokenLabel } from './store.mjs';
 
 const HOUR_MS = 3600000;
 // Any rolling hour may use a 12th of the day. A heavy real hour is 12 starts at about 550k each, or 6.6m, so at 100m a day
@@ -80,10 +80,38 @@ const onDayOf = now => {
 /** The local midnight that ends the day of `now`, when the day's budget and its cap on changes start again. */
 export const dayEndsAt = now => new Date(now).setHours(24, 0, 0, 0);
 
+const itemKey = ({ slug, item }) => `${slug}:${item}`;
+
+/**
+ * When each item's first run began, ended or running, and the items that ever ran. A record from before runs named their item is a run of its own.
+ * A run going now leaves its record only as it ends, so nothing is counted twice.
+ */
+function firstRuns(events, running, now) {
+  const first = new Map();
+  const begin = (key, time) => first.set(key, Math.min(first.get(key) ?? Infinity, time));
+  for (const event of events) if (event.lane === 'do') begin(event.item ? itemKey(event) : event, startOf(event));
+  for (const run of running) if (run.lane === 'do') begin(run.item ? itemKey(run) : run, Date.parse(run.startedAt) || now);
+  return first;
+}
+
+/**
+ * The new changes begun on the day of `now`: items whose first run began that day. What the user's cap on changes a day counts. A fix of
+ * finished work is an item of its own and no new change, and a review, a note or a retry is a later run of its item.
+ */
+function changesOn(root, first, isToday) {
+  const kinds = new Map();
+  const kindOf = key => {
+    const [slug, id] = key.split(':');
+    if (!kinds.has(slug)) kinds.set(slug, new Map(readItems(root, slug).map(item => [item.id, item.kind])));
+    return kinds.get(slug).get(id);
+  };
+  return [...first].filter(([key, time]) => isToday(time) && (typeof key !== 'string' || kindOf(key) !== 'pr-fix')).length;
+}
+
 /**
  * Where today stands. A running agent counts for what it has spent so far, and what it is still expected to spend is held for it.
- * `changes` is how many item runs began on the day of `now`, ended or running: what the user's cap on changes a day counts. A run going now
- * leaves its record only as it ends, so nothing is counted twice.
+ * `changes` is the new changes begun today, as the user's cap counts them, and `ran` every item that has had a run, so a row can tell whether it
+ * would begin a new one.
  */
 export function budgetFor(root, mode, now, running = []) {
   const limit = dailyLimit(mode, now);
@@ -92,6 +120,7 @@ export function budgetFor(root, mode, now, running = []) {
   const today = events.filter(event => isToday(timeOf(event)));
   const hour = events.filter(event => now - timeOf(event) < HOUR_MS);
   const spending = totalOf(running, 'tokens');
+  const ran = firstRuns(events, running, now);
   const reserved = running.reduce((sum, run) => sum
     + Math.max(0, (run.estimate?.fresh ?? 0) - (run.meter?.tokens ?? run.tokens ?? 0))
     + (run.childReserved ?? 0), 0);
@@ -100,8 +129,8 @@ export function budgetFor(root, mode, now, running = []) {
     used: totalOf(today, 'tokens') + spending,
     cached: totalOf(today, 'cached') + totalOf(running, 'cached'),
     maxRuns: today.filter(event => event.level === 'max').length,
-    changes: events.filter(event => event.lane === 'do' && isToday(startOf(event))).length
-      + running.filter(run => run.lane === 'do' && isToday(Date.parse(run.startedAt) || now)).length,
+    changes: changesOn(root, ran, isToday),
+    ran: new Set([...ran.keys()].filter(key => typeof key === 'string')),
     hourShare: limit / HOURS_OF_WORK,
     hourUsed: totalOf(hour, 'tokens') + spending,
     hourEvents: hour,

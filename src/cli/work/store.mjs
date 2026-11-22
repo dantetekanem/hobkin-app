@@ -272,10 +272,26 @@ export function setAgents(root, agents, now = Date.now()) {
   return writeMode(root, { agents, roomAdded });
 }
 
-/** Queue keys are the plan's own, such as `item:api:abc123` or `look:api`. Picking one puts it first, and takes it back out of skipped. */
-export function pickNext(root, key) {
-  const { queueNext, queueSkipped } = readMode(root);
-  return writeMode(root, { queueNext: [...new Set([...queueNext, key])], queueSkipped: queueSkipped.filter(entry => entry !== key) });
+/**
+ * Which picks hobkin made itself, of those still in `queueNext`: `retryItem` puts work on a finished change first. Only the user's own pick passes
+ * their work hours and their cap on changes. A home where hobkin never picked has no list, and every pick in it is the user's.
+ */
+function pickedByHobkin(mode, key, by, queueNext) {
+  const marked = (mode.queueByHobkin ?? []).filter(entry => entry !== key && queueNext.includes(entry));
+  // The user's word stands: hobkin picking again what the user picked leaves it theirs.
+  const theirs = mode.queueNext.includes(key) && !(mode.queueByHobkin ?? []).includes(key);
+  const marks = by === 'hobkin' && !theirs ? [...marked, key] : marked;
+  return marks.length || mode.queueByHobkin ? { queueByHobkin: marks } : {};
+}
+
+/**
+ * Queue keys are the plan's own, such as `item:api:abc123` or `look:api`. Picking one puts it first, and takes it back out of skipped. `by` is who
+ * picked it: the user unless hobkin says it was itself.
+ */
+export function pickNext(root, key, { by = 'user' } = {}) {
+  const mode = readMode(root);
+  const queueNext = [...new Set([...mode.queueNext, key])];
+  return writeMode(root, { queueNext, queueSkipped: mode.queueSkipped.filter(entry => entry !== key), ...pickedByHobkin(mode, key, by, queueNext) });
 }
 
 /**
@@ -283,12 +299,15 @@ export function pickNext(root, key) {
  * between starts. A pause, the budget and every stop still hold it. Its mark goes with its pick.
  */
 export function pickNow(root, key) {
-  const { queueNext, queueNow, queueSkipped } = readMode(root);
+  const mode = readMode(root);
+  const { queueNext, queueNow, queueSkipped } = mode;
   const without = keys => keys.filter(entry => entry !== key);
+  const next = [key, ...without(queueNext)];
   return writeMode(root, {
-    queueNext: [key, ...without(queueNext)],
+    queueNext: next,
     queueNow: [...new Set([...queueNow, key])],
     queueSkipped: without(queueSkipped),
+    ...pickedByHobkin(mode, key, 'user', next),
   });
 }
 
@@ -710,13 +729,14 @@ export const movesFinishedWork = ({ kind, reviewAsked, workNote, modelAsked }) =
 /**
  * An item goes back in the queue with its count of tries back at zero. One already started stays started, so it still goes before the rest of its project.
  * A pick jumps the queue and the gap between starts, so a plain retry only goes back in line, for auto-pick or the user to start. A review or a fix for finished work still goes first by itself.
+ * That pick is hobkin's, whoever asked for the work: the user's word was the review or the note, never a start past their hours or their cap.
  */
 export function retryItem(root, slug, id, now = Date.now()) {
   const started = readItems(root, slug).some(item => item.id === id && item.state === 'doing');
   const fresh = { attempts: 0, lastError: null };
   const retried = updateItem(root, slug, id, started ? fresh : { ...fresh, state: 'open' }, now);
   const key = `item:${slug}:${id}`;
-  return movesFinishedWork(retried) ? pickNext(root, key) : putBackInQueue(root, key);
+  return movesFinishedWork(retried) ? pickNext(root, key, { by: 'hobkin' }) : putBackInQueue(root, key);
 }
 
 /** What became of a change after it landed, one record for each merged item. A CLI call and the owner can write at once, as they can on items. */
