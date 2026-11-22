@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, type KeyboardEvent } from 'react'
+import { Kbd } from '@/components/ui/kbd.tsx'
 import { Segmented } from '@/features/work/parts.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { ProofDefinition, ProofRun } from '#shared/protocol/proofs.ts'
+import { failingLine } from '../failures.ts'
 import { actionName } from '../graph/values.ts'
 import { keepMath, useKept, type MathMode } from '../kept.ts'
 import { foldRows, proofNote, proofRows, proofSummary, relatedDefinition, scopeRows, theoremOf, type ProofNote, type ProofRow, type ProofTone, type ScopeRow } from './proof-tree.ts'
@@ -233,6 +235,7 @@ function ProofSection({ run, selected, step, all, onAll, onStep }: ProofSectionP
   const folded = useMemo(() => foldRows(rows), [rows])
   const shown = all ? rows : folded
   const proof = run.proof
+  const failing = rows.some((row) => row.status === 'failed' || row.status === 'missing' || row.status === 'omitted')
   return (
     <section aria-label="The proof" className="flex flex-col gap-3 rounded-[20px] border border-border bg-surface px-5 py-[18px]">
       <div className="flex items-baseline justify-between gap-2.5">
@@ -247,7 +250,18 @@ function ProofSection({ run, selected, step, all, onAll, onStep }: ProofSectionP
       {proof && rows.length > 0 ? (
         <>
           <div className="-mb-1 flex h-6 items-center justify-between gap-2 text-[11.5px] text-muted-foreground">
-            <span className="tabular-nums">{shown.length === rows.length ? `${rows.length} steps` : `${shown.length} of ${rows.length} steps`}</span>
+            {/* How many steps fail, and F to go to the next. The fold says how many it shows. */}
+            <span className="flex min-w-0 items-center gap-1.5 tabular-nums">
+              <span className="truncate">
+                <span className={cn(failing && 'font-medium text-bad-fg')}>{failingLine(proof)}</span>
+                {shown.length < rows.length ? ` · ${shown.length} shown` : ''}
+              </span>
+              {failing ? (
+                <span className="flex shrink-0 items-center gap-1">
+                  next <Kbd>F</Kbd>
+                </span>
+              ) : null}
+            </span>
             {folded.length < rows.length ? (
               <button type="button" onClick={() => onAll(!all)} aria-expanded={all} className="rounded-md px-1.5 py-0.5 text-sun-fg hover:bg-tone-2">
                 {all ? 'Fold the proved steps' : 'Show every step'}

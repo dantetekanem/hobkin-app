@@ -320,6 +320,12 @@ export function stateFacts(run: ProofRun, graph: StateGraph, picked: Picked): St
   }
 }
 
+/** Where the picked state is, by the step bar: "State 4 of 12", off the path, or nothing without a counterexample. */
+export function statePosition(length: number, step: number | null): string {
+  if (length === 0) return ''
+  return step === null ? 'Off the path' : `State ${step + 1} of ${length}`
+}
+
 /** How many steps the step bar shows at once. */
 export const STEP_SLOTS = 6
 

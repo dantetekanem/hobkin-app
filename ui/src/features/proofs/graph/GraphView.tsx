@@ -11,7 +11,7 @@ import { GraphCanvas, type NodeMarks } from './canvas.tsx'
 import { placePath, placePicture, type Spacing } from './layout.ts'
 import { aroundPicture, defaultLens, groupedPicture, pathPicture, stateGraph, type Picture, type PictureNode, type StateGraph } from './model.ts'
 import { findStates, parseQuery } from './search.ts'
-import { stateFacts, stepWindow, type Cell, type Picked, type StateFacts, type Verdict } from './step.ts'
+import { stateFacts, statePosition, stepWindow, type Cell, type Picked, type StateFacts, type Verdict } from './step.ts'
 import { count, formatValue, lensValue, lensesOf } from './values.ts'
 
 type View = GraphShows
@@ -227,9 +227,11 @@ export function GraphView({ run, onCode = null }: { run: ProofRun; onCode?: ((wh
                   </select>
                 </label>
               ) : null}
-              <p role={problem ? 'status' : undefined} title={note} className={cn('line-clamp-2 min-w-0 text-[11.5px] leading-[18px]', problem ? 'text-warn-fg' : 'text-muted-foreground')}>
+              <p role={problem ? 'status' : undefined} title={note} className={cn('line-clamp-2 min-w-0 flex-1 text-[11.5px] leading-[18px]', problem ? 'text-warn-fg' : 'text-muted-foreground')}>
                 {note}
               </p>
+              {/* Where the picked state is, by the step bar, in a room of its own so the note never pushes it. */}
+              {hasPath ? <span className="w-[92px] shrink-0 text-right text-[11.5px] leading-[18px] font-medium tabular-nums">{statePosition(graph.path.length, step)}</span> : null}
             </div>
             <StepBar run={run} graph={graph} step={step} onStep={pickStep} onMove={go} />
           </div>
