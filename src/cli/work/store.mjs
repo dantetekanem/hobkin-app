@@ -369,6 +369,105 @@ export function setDailyTokens(root, tokens) {
   return writeMode(root, { dailyTokens: tokens, raisedTo: null, raisedOn: null, allowanceRequest: null, declinedOn: null });
 }
 
+/*
+ * The workload: how much automated work runs (spec 053, docs/guide.md). Each setting is kept in the mode only once the user sets it, so a
+ * home that never did runs as work mode always has: no cap on changes, always, ship first at 8, no pull request reviewed by itself.
+ */
+
+/** Which pull requests get an AI review by themselves: none, the user's own, those waiting for the user's review, or both. The host acts on it. */
+export const REVIEW_PULLS = ['none', 'mine', 'waiting', 'both'];
+/** How many finished changes may wait, across every project, before new work is held, unless the user sets another number. */
+export const SHIP_FIRST_AT = 8;
+
+const CLOCK = /^([01]\d|2[0-3]):[0-5]\d$/;
+const isCount = value => Number.isInteger(value) && value >= 1;
+const isHours = hours => Boolean(hours) && CLOCK.test(hours.from) && CLOCK.test(hours.to) && hours.from !== hours.to;
+
+function switchOf(on, name) {
+  if (typeof on !== 'boolean') throw Error(`${name} is on or off.`);
+  return on;
+}
+
+const workloadChecks = {
+  // The user's own word on auto-pick, as `hobkin work auto` keeps it (`chooseAutoPick`).
+  autoPick: on => ({ autoPick: switchOf(on, 'Auto-pick'), autoPickChoice: on }),
+  changesADay: changes => {
+    if (changes !== null && !isCount(changes)) throw Error('Changes a day is a whole number from 1, or none for no cap.');
+    return { changesADay: changes };
+  },
+  hours: hours => {
+    if (hours === null) return { hours: null };
+    if (!CLOCK.test(hours?.from) || !CLOCK.test(hours?.to)) throw Error('Work hours run from one local time to another, each as HH:MM.');
+    if (hours.from === hours.to) throw Error('Work hours must start and end at times that differ. Say always for the whole day.');
+    return { hours: { from: hours.from, to: hours.to } };
+  },
+  shipFirst: on => ({ shipFirst: switchOf(on, 'Ship first') }),
+  shipFirstAt: count => {
+    if (!isCount(count)) throw Error('Ship first holds new work at a whole number of finished changes, from 1.');
+    return { shipFirstAt: count };
+  },
+  reviewOnFinish: on => ({ reviewOnFinish: switchOf(on, 'Scoring finished changes') }),
+  reviewPulls: which => {
+    if (!REVIEW_PULLS.includes(which)) throw Error('Pull requests reviewed by themselves are none, mine, waiting or both.');
+    return { reviewPulls: which };
+  },
+};
+
+/** The workload as it stands, each setting with the default of a home that never set it. A value no setter would write reads as that default. */
+export const workloadOf = mode => ({
+  agents: mode.agents ?? DEFAULT_AGENTS,
+  autoPick: mode.autoPick !== false,
+  changesADay: isCount(mode.changesADay) ? mode.changesADay : null,
+  dailyTokens: mode.dailyTokens ?? DEFAULT_DAILY_TOKENS,
+  hours: isHours(mode.hours) ? { from: mode.hours.from, to: mode.hours.to } : null,
+  shipFirst: mode.shipFirst !== false,
+  shipFirstAt: isCount(mode.shipFirstAt) ? mode.shipFirstAt : SHIP_FIRST_AT,
+  reviewOnFinish: mode.reviewOnFinish === true,
+  reviewPulls: REVIEW_PULLS.includes(mode.reviewPulls) ? mode.reviewPulls : 'none',
+});
+
+/** Any of the settings at once. Every value is checked before anything is written, so one that is wrong changes nothing. */
+export function setWorkload(root, change) {
+  const names = Object.keys(change ?? {});
+  if (!names.length) throw Error('Name a setting of the workload to change.');
+  const unknown = names.filter(name => !Object.hasOwn(workloadChecks, name));
+  if (unknown.length) throw Error(`Not a workload setting: ${unknown.join(', ')}.`);
+  return writeMode(root, Object.assign({}, ...names.map(name => workloadChecks[name](change[name]))));
+}
+
+/** A cap on item runs that start in a local day, or null for none. Picks still start once it is reached, and the next day starts at none. */
+export const setChangesADay = (root, changes) => setWorkload(root, { changesADay: changes });
+/** Local times outside which nothing new starts by itself, as `{ from: 'HH:MM', to: 'HH:MM' }`, which may cross midnight, or null for always. */
+export const setWorkHours = (root, hours) => setWorkload(root, { hours });
+/** Whether new work holds while enough finished changes wait for the user. */
+export const setShipFirstOn = (root, on) => setWorkload(root, { shipFirst: on });
+/** How many finished changes waiting hold new work, while ship first is on. */
+export const setShipFirstAt = (root, count) => setWorkload(root, { shipFirstAt: count });
+/** Whether hobkin scores each finished branch by itself (`hobkin work reviews`). */
+export const setReviewOnFinish = (root, on) => setWorkload(root, { reviewOnFinish: on });
+export const setReviewPulls = (root, which) => setWorkload(root, { reviewPulls: which });
+
+const minuteOfDay = clock => Number(clock.slice(0, 2)) * 60 + Number(clock.slice(3));
+
+/** The first time after `now` the local clock reads `clock`, today or tomorrow. */
+function nextClock(clock, now) {
+  const next = new Date(now);
+  next.setHours(Number(clock.slice(0, 2)), Number(clock.slice(3)), 0, 0);
+  if (next.getTime() <= now) next.setDate(next.getDate() + 1);
+  return next.getTime();
+}
+
+/** Whether work may start at `now` by the user's hours, and when that next changes. With no hours it is always open. */
+export function workHoursAt(hours, now) {
+  if (!hours) return { open: true, opensAt: null, closesAt: null };
+  const clock = new Date(now);
+  const minute = clock.getHours() * 60 + clock.getMinutes();
+  const from = minuteOfDay(hours.from);
+  const to = minuteOfDay(hours.to);
+  const open = from < to ? minute >= from && minute < to : minute >= from || minute < to;
+  return open ? { open, opensAt: null, closesAt: nextClock(hours.to, now) } : { open, opensAt: nextClock(hours.from, now), closesAt: null };
+}
+
 export const nextDiscoveryAt = ({ lastDiscoveryAt }) => (lastDiscoveryAt
   ? new Date(Date.parse(lastDiscoveryAt) + DISCOVERY_EVERY_MS).toISOString() : null);
 

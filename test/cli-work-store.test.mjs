@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  answerAllowance, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, followUsage, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, noteDiscovery,
+  answerAllowance, chooseAutoPick, chooseProject, currentRequest, dailyLimit, declinedToday, dropProject, fileItem, followUsage, foldersLeft, hasWorkToShow, landing, nextDiscoveryAt, noteDiscovery,
   paths, prFile, priorityOf, proposeProject, readDiscovery, readItems, readLaunches, readMode, readProject, readProjects, recordDiscovery, recordLaunch, recordTokens, retryItem, sessionError, sessionUsage, setAgents,
-  setDailyTokens, setFolder, setProjectPrMode, setProjectPriority, skipProject, startWork, tokensLastHour, tokensToday, updateItem, writeMode,
+  setChangesADay, setDailyTokens, setFolder, setProjectPrMode, setProjectPriority, setReviewOnFinish, setReviewPulls, setShipFirstAt, setShipFirstOn, setWorkHours, setWorkload, skipProject, startWork,
+  tokensLastHour, tokensToday, updateItem, workHoursAt, workloadOf, writeMode,
 } from '../src/cli/work/store.mjs';
 
 function dataRoot(t) {
@@ -340,6 +341,89 @@ test('the daily token limit has a default and can be changed', t => {
 
   assert.equal(setDailyTokens(root, 250000).dailyTokens, 250000);
   assert.throws(() => setDailyTokens(root, -1), /positive number/);
+});
+
+test('tokens a day take any whole number of millions, well past 200M', t => {
+  const root = dataRoot(t);
+
+  assert.equal(setDailyTokens(root, 750000000).dailyTokens, 750000000);
+  assert.equal(workloadOf(readMode(root)).dailyTokens, 750000000);
+});
+
+test('a home that never set the workload keeps none of it, and reads as work mode has always run', t => {
+  const root = dataRoot(t);
+  writeMode(root, { enabled: true });
+  setAgents(root, 3);
+
+  const saved = JSON.parse(readFileSync(join(root, 'work', 'mode.json'), 'utf8'));
+  assert.deepEqual(['changesADay', 'hours', 'shipFirst', 'shipFirstAt', 'reviewPulls'].filter(name => name in saved), []);
+  assert.deepEqual(workloadOf(readMode(root)), {
+    agents: 3, autoPick: true, changesADay: null, dailyTokens: 100000000, hours: null, shipFirst: true, shipFirstAt: 8, reviewOnFinish: false, reviewPulls: 'none',
+  });
+});
+
+test('each workload setting is kept in the mode file, so it is still there when hobkin starts again', t => {
+  const root = dataRoot(t);
+
+  setChangesADay(root, 3);
+  setWorkHours(root, { from: '22:00', to: '06:30' });
+  setShipFirstOn(root, false);
+  setShipFirstAt(root, 12);
+  setReviewOnFinish(root, true);
+  setReviewPulls(root, 'both');
+  chooseAutoPick(root, false);
+
+  // What a new process reads: the file itself.
+  const saved = JSON.parse(readFileSync(join(root, 'work', 'mode.json'), 'utf8'));
+  assert.deepEqual(workloadOf(saved), {
+    agents: 2, autoPick: false, changesADay: 3, dailyTokens: 100000000, hours: { from: '22:00', to: '06:30' }, shipFirst: false, shipFirstAt: 12, reviewOnFinish: true, reviewPulls: 'both',
+  });
+  assert.equal(saved.autoPickChoice, false, 'auto-pick is the user\'s own word, so turning work mode on again keeps it');
+
+  setChangesADay(root, null);
+  setWorkHours(root, null);
+  assert.deepEqual([workloadOf(readMode(root)).changesADay, workloadOf(readMode(root)).hours], [null, null], 'no cap and always are settings too');
+});
+
+test('a change of several settings is checked whole, and one wrong value writes none of it', t => {
+  const root = dataRoot(t);
+  const before = workloadOf(setWorkload(root, { changesADay: 5, reviewPulls: 'mine' }));
+  assert.deepEqual([before.changesADay, before.reviewPulls], [5, 'mine']);
+
+  const refused = [
+    [{ changesADay: 0 }, /Changes a day/],
+    [{ changesADay: 2.5 }, /Changes a day/],
+    [{ hours: { from: '9:00', to: '18:00' } }, /HH:MM/],
+    [{ hours: { from: '24:00', to: '06:00' } }, /HH:MM/],
+    [{ hours: { from: '09:00', to: '09:00' } }, /differ/],
+    [{ shipFirstAt: 0 }, /finished changes/],
+    [{ shipFirst: 'yes' }, /on or off/],
+    [{ reviewOnFinish: 1 }, /on or off/],
+    [{ autoPick: null }, /on or off/],
+    [{ reviewPulls: 'all' }, /none, mine, waiting or both/],
+    [{ agents: 4 }, /Not a workload setting: agents/],
+  ];
+  for (const [change, words] of refused) {
+    assert.throws(() => setWorkload(root, { changesADay: 9, ...change }), words, JSON.stringify(change));
+    assert.equal(workloadOf(readMode(root)).changesADay, 5, JSON.stringify(change));
+  }
+  assert.throws(() => setWorkload(root, {}), /Name a setting/);
+});
+
+test('work hours say whether work may start now and when that changes, across midnight too', () => {
+  const day = (hour, minute = 0) => new Date(2026, 5, 1, hour, minute).getTime();
+  const nextDay = (hour, minute = 0) => new Date(2026, 5, 2, hour, minute).getTime();
+  const office = { from: '09:00', to: '18:00' };
+  const night = { from: '22:00', to: '06:00' };
+
+  assert.deepEqual(workHoursAt(null, day(3)), { open: true, opensAt: null, closesAt: null });
+  assert.deepEqual(workHoursAt(office, day(20)), { open: false, opensAt: nextDay(9), closesAt: null });
+  assert.deepEqual(workHoursAt(office, day(8, 59)), { open: false, opensAt: day(9), closesAt: null });
+  assert.deepEqual(workHoursAt(office, day(9)), { open: true, opensAt: null, closesAt: day(18) });
+  assert.deepEqual(workHoursAt(office, day(18)), { open: false, opensAt: nextDay(9), closesAt: null });
+  assert.deepEqual(workHoursAt(night, day(23)), { open: true, opensAt: null, closesAt: nextDay(6) });
+  assert.deepEqual(workHoursAt(night, day(2)), { open: true, opensAt: null, closesAt: day(6) });
+  assert.deepEqual(workHoursAt(night, day(12)), { open: false, opensAt: day(22), closesAt: null });
 });
 
 test('a new daily limit applies today, and a proposal made before it cannot lower it', t => {
