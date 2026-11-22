@@ -24,6 +24,7 @@ The trail
 - A place holds the page, what it is about (a project, an agent, a review, a proof run), Work's tab, the item in focus and the scroll position. Going back restores all of it.
 - Escape goes back one place. Command+Left and Command+Right keep walking the 50-step history as they do.
 - The trail holds at most 6 places. The oldest leave first.
+- The trail is one line under the menu. It is not shown on the canvas page.
 
 A page for each project
 - `project` is a contextual page under Work, for one project by its slug. It is opened from Work's project row, a World island, a YOLO card's name, Home's project tile and the spotlight.
@@ -166,9 +167,9 @@ Kept from before
 
 Each lane names its tests here as it writes them. Until then an id below is unproven.
 
-- A1. unproven
-- A2. unproven
-- A3. unproven
+- A1. `ui/test/trail-stack.test.ts` › "every page shows a trail whose last place is the page itself" and › "a click on an earlier place goes back to it, and the places after it leave the trail"
+- A2. `ui/test/trail-keep.test.ts` › "Work comes back from a review opened on AI Reviews on that tab, with what it kept"
+- A3. `ui/test/trail-stack.test.ts` › "opening a menu page from the menu, Command with a number or the spotlight starts a new trail" and › "the trail never holds more than six places, and the oldest leave first"
 - A4. unproven
 - A5. In hobkin, `test/cli-work-metrics.test.mjs` › "work.metrics has one day for each local day of the period, zeros included, for all projects and for each" and › "a line or a file that cannot be read is named in gaps, and the rest still counts"; here, `host/test/metrics.test.ts` › "work.metrics adds the AI reviews the host keeps to hobkin fold: each answer on its day, one that stopped before it, and how long they took"
 - A6. In hobkin, `test/cli-work-metrics.test.mjs` › "a change merged by YOLO mode counts as merged by itself and any other as merged by the user, and one merged after being sent back is not first pass"
@@ -206,7 +207,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 
 - [x] S1 (A7). The numbers contract: `shared/protocol/metrics.ts` and its rates.
 - [x] S2 (A5, A6). hobkin folds its records by day, records a stop from the window and the item on each token line; the host adds the AI reviews and answers `work.metrics`.
-- [ ] S3 (A1, A2, A3). The trail: one return stack, places that restore, the trail in the frame, Escape.
+- [x] S3 (A1, A2, A3). The trail: one return stack, places that restore, the trail in the frame, Escape.
 - [ ] S4 (A33). The pointer and hover rule, `pressable`, the arrow on rows that open, and no hover on what does not act.
 - [x] S5 (A19, A20, A22). The host lays attention and buckets on a review's nodes, and detail goes to what matters.
 - [ ] S6 (A15, A16, A17, A18). AI reviews start by themselves: cut short, a moved branch, waiting rows, pull requests by the workload.
