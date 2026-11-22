@@ -51,7 +51,7 @@ Work
 
 YOLO mode
 - Under the switchboard: the share merged by itself, how many of those regressed after their deploy, and how many changes were held for the user, over 30 days.
-- A funnel says how many finished changes passed each gate over 30 days, from finished to merged by itself.
+- A funnel says, of the changes finished now, how many are rated at or above the user's rate and how many of those nothing holds, with the reasons that hold the rest counted beside it in hobkin's words. hobkin keeps no history of each gate, so the funnel counts now and says so; the 30-day totals of merges by itself and on the user's yes stand next to it.
 - One chart of merges by itself for each day, over all projects.
 - A project card's name opens the project. A row of Next to merge opens its review, and its model opens the proof.
 
@@ -172,7 +172,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A1. `ui/test/trail-stack.test.ts` › "every page shows a trail whose last place is the page itself" and › "a click on an earlier place goes back to it, and the places after it leave the trail"
 - A2. `ui/test/trail-keep.test.ts` › "Work comes back from a review opened on AI Reviews on that tab, with what it kept"
 - A3. `ui/test/trail-stack.test.ts` › "opening a menu page from the menu, Command with a number or the spotlight starts a new trail" and › "the trail never holds more than six places, and the oldest leave first"
-- A4. `ui/test/project-page.test.ts` › "a busy project's page reads its heading, tiles and flow from what Work, YOLO mode and the numbers know" and › "a project with nothing yet keeps every section and says in each that it has nothing"; check: open a project from Work's row, a World island, a YOLO card and the spotlight.
+- A4. `ui/test/project-page.test.ts` › "a busy project's page reads its heading, tiles and flow from what Work, YOLO mode and the numbers know" and › "a project with nothing yet keeps every section and says in each that it has nothing"; `ui/test/work-world.test.ts` › "an island opens its project's page on a click and on Enter, with World on the trail before it"; `ui/test/work-yolo-page.test.ts` › "a project card's name opens the project's page, and a change next to merge opens its review, or its card on Work when there is no review to name"
 - A5. In hobkin, `test/cli-work-metrics.test.mjs` › "work.metrics has one day for each local day of the period, zeros included, for all projects and for each" and › "a line or a file that cannot be read is named in gaps, and the rest still counts"; here, `host/test/metrics.test.ts` › "work.metrics adds the AI reviews the host keeps to hobkin fold: each answer on its day, one that stopped before it, and how long they took"
 - A6. In hobkin, `test/cli-work-metrics.test.mjs` › "a change merged by YOLO mode counts as merged by itself and any other as merged by the user, and one merged after being sent back is not first pass"
 - A7. `shared/test/metrics-rates.test.ts` › "a rate with nothing under it is null, never 0 or 100 percent of nothing"; `ui/test/numbers-format.test.ts` › "a tile with nothing under it reads \"no data yet\", never 0% or 100%"
@@ -217,8 +217,8 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - [x] S8 (A28, A29, A30, A31, A32). Proofs: check and proof together, the keys, positions, kept state, stops, a panel that can sit in another page.
 - [x] S9 (A11, A12, A13, A14). The workload in hobkin and the host: the settings, `planOf`, the forecast, `work.workload`, the allowance answer.
 - [ ] S10 (A8, A9, A10, A11). Work: tiles, the status line, Numbers, the workload sheet, rows that are buttons.
-- [ ] S11 (A4). The project's page, and World and YOLO mode opening it.
-- [ ] S12 (A8, A9). YOLO mode's trust figures, funnel and chart, and World's card.
+- [x] S11 (A4). The project's page, and World and YOLO mode opening it.
+- [x] S12 (A8, A9). YOLO mode's trust figures, funnel and chart, and World's card.
 - [ ] S13 (A24, A27). The proof beside the review and the evidence above the verdict.
 - [ ] S14 (A34, A35). Sample data for every new page, still renders in light and dark, the motion check.
 
