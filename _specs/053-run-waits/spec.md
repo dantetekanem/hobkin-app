@@ -3,7 +3,7 @@
   "id": "053-run-waits",
   "title": "A run can wait and carry on at a time",
   "kind": "work",
-  "status": "doing",
+  "status": "done",
   "depends": [],
   "updated": "2026-11-21"
 }
@@ -64,8 +64,8 @@ An agent in a session hobkin runs can say "carry on at 7:30" or "carry on in 30 
 
 ## Steps
 
-- [ ] S1 (A6). The `hobkin_wait` extension and the host's answer to it: the bounds, the time asked for and the words.
-- [ ] S2 (A1, A6, A7, A8). The harness: the wait over the bridge, the `waiting` outcome, the follow-up for Pi's own tools, and the plain words for a stop in the middle of a step.
-- [ ] S3 (A1, A2, A3, A4, A5). The runtime and session jobs: the `waiting` record, starting again at the time, and the user's Stop.
-- [ ] S4 (A9). The snapshot's fields, and a waiting run kept out of reports, usage and evidence.
-- [ ] S5 (A10). The words in `background.md`, `v2-runtime.md` and the deploy briefs.
+- [x] S1 (A6). The `hobkin_wait` extension and the host's answer to it: the bounds, the time asked for and the words.
+- [x] S2 (A1, A6, A7, A8). The harness: the wait over the bridge, the `waiting` outcome, the follow-up for Pi's own tools, and the plain words for a stop in the middle of a step.
+- [x] S3 (A1, A2, A3, A4, A5). The runtime and session jobs: the `waiting` record, starting again at the time, and the user's Stop.
+- [x] S4 (A9). The snapshot's fields, and a waiting run kept out of reports, usage and evidence.
+- [x] S5 (A10). The words in `background.md`, `v2-runtime.md` and the deploy briefs.
