@@ -13,6 +13,11 @@ import type { Arranged, ArrangedEdge, TestGroup, ViewStep } from './arrange.ts'
 
 /** The most cards and wires a review ever mounts. */
 export const FOCUS_BUDGET = { cards: 60, wires: 120 } as const
+/**
+ * The room the budget keeps for a group opened and the nodes reached in it: the cards a change opens with never take
+ * it, so opening any group draws at least this many of its members, and a node reached from the outline or by U is drawn.
+ */
+export const OPEN_ROOM = 16
 /** The most groups of safe nodes: past it, the smallest folders of safe code fold into one group. */
 export const MAX_GROUPS = 12
 
@@ -199,10 +204,10 @@ export function planFocus(input: { nodes: readonly ReviewNode[]; groups: Readonl
   }
   if (merged.length > 0) group(`${PREFIX}folders`, 'folders', null, 'safe', 'Safe code in other folders', merged)
 
-  // Past the budget, the least wanted cards fold too, into a group for what they are.
+  // Past the budget, less the room kept for opening, the least wanted cards fold too, into a group for what they are.
   const overflow = new Map<Standing, Entry[]>()
   const total = () => cards.length + made.length + overflow.size
-  while (total() > FOCUS_BUDGET.cards && cards.length > 0) {
+  while (total() > FOCUS_BUDGET.cards - OPEN_ROOM && cards.length > 0) {
     const last = cards.pop()!
     overflow.set(last.standing, [last, ...(overflow.get(last.standing) ?? [])])
   }
@@ -215,9 +220,10 @@ export function planFocus(input: { nodes: readonly ReviewNode[]; groups: Readonl
   const groupOf: Record<string, string> = {}
   for (const each of made) for (const id of each.members) groupOf[id] = each.id
 
-  // An open group draws its members, the pinned first, while the budget lasts. The last opened is served first.
+  // An open group draws its members, the pinned first, while the budget lasts. The last opened is served first. The
+  // groups made for what did not fit are counted once: they are among the groups now.
   const open = state.opened.filter((id, index, all) => groups[id] != null && all.lastIndexOf(id) === index)
-  let room = FOCUS_BUDGET.cards - total()
+  let room = FOCUS_BUDGET.cards - cards.length - made.length
   const shown: Record<string, string[]> = {}
   for (const id of [...open].reverse()) {
     const members = groups[id]!.members

@@ -672,7 +672,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         const wanted = review.nodes.filter((node) => node.attention?.tier === 'needs-you').sort((a, b) => a.attention!.rank - b.attention!.rank).map((node) => node.id)
         if (wanted.length === 0) return say('This review does not say what needs you.'), false
         const { focus, pointed, view, seen } = get()
-        const here = new Set([...(pointed ? [pointed] : focus)].flatMap((id) => reviewNodesOf(view, id)))
+        // Where the reviewer is: the node pointed at or focused. A group card in focus is not its members: they are next.
+        const here = new Set([...(pointed ? [pointed] : focus)].filter((id) => !isFoldGroup(id)).flatMap((id) => reviewNodesOf(view, id)))
         const at = delta > 0 ? wanted.findLastIndex((id) => here.has(id)) : wanted.findIndex((id) => here.has(id))
         const start = at >= 0 ? at : delta > 0 ? -1 : wanted.length
         for (let step = 1; step <= wanted.length; step += 1) {
