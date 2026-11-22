@@ -297,3 +297,29 @@ test('with "my pull requests" on, a pull request of the user’s gets an AI revi
   await reviews.settled()
   assert.deepEqual(started.map((job) => [job.target, job.head]), [[{ kind: 'pull', owner: 'acme', repo: 'shop', number: 12 }, await sample.head(TARGET)]])
 })
+
+test('a pull request one of hobkin’s changes opened is never reviewed by itself, wherever that change stands: finished, left with a note, or sent back to work', async (t) => {
+  const data = temporaryDirectory(t)
+  const url = (number: number) => `https://github.com/acme/shop/pull/${number}`
+  mkdirSync(join(data, 'work', 'shop'), { recursive: true })
+  writeFileSync(join(data, 'work', 'projects.jsonl'), `${JSON.stringify({ slug: 'shop' })}\n`)
+  // As hobkin writes them: one change sent back and being reworked, one whose run left a note, one finished.
+  const items = [
+    { id: 'a1', title: 'Rework the total', state: 'doing', pr: url(12) },
+    { id: 'b2', title: 'Left a note', state: 'branch', pr: url(13) },
+    { id: 'c3', title: 'Finished', state: 'pr', pr: url(14) },
+  ]
+  writeFileSync(join(data, 'work', 'shop', 'items.jsonl'), items.map((item) => `${JSON.stringify(item)}\n`).join(''))
+  const { hostReviews } = await import('../src/review/seat.ts')
+  const reviews = hostReviews({ root: temporaryDirectory(t), live: false, data: () => data, work: () => null, app: () => ({ workAction: async () => ({}) }), runtime: async () => undefined })
+  t.after(() => reviews.close())
+
+  const github = githubWith({ pulls: [pull(12), pull(13), pull(14), pull(15)] })
+  reviews.watch(toPrepare({ finished: [] } as unknown as WorkState, github, { pulls: 'mine' }), 10)
+  await reviews.settled()
+  assert.deepEqual(
+    [12, 13, 14, 15].map((number) => [number, reviews.status(`pr:acme/shop/${number}`).state]),
+    [[12, 'idle'], [13, 'idle'], [14, 'idle'], [15, 'ready']],
+    'only the user’s own pull request is reviewed by itself',
+  )
+})

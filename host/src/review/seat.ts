@@ -181,6 +181,20 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     const at = item.mergeWhenFresh?.at
     return { state: 'refreshing', ...(at ? { at } : {}), ...(branch ? { into: branch } : {}), message: `An agent is bringing it up to date with ${branch ?? 'its default branch'}, and hobkin merges it once that run ends well.` }
   }
+  /** Whether a pull request is one of hobkin's changes opened, as its items say, whatever state each is in. Null while hobkin cannot be read. */
+  const ownPull = (target: PullTarget): boolean | null => {
+    try {
+      const data = seat.data()
+      const id = reviewIdOf(target)
+      const opened = (pr: unknown) => {
+        const named = typeof pr === 'string' ? targetOfReviewId(pr) : null
+        return named != null && reviewIdOf(named) === id
+      }
+      return readProjects(data).some(({ slug }) => readItems(data, slug).some((item) => opened(item.pr)))
+    } catch {
+      return null
+    }
+  }
   /** Where hobkin's own work on a finished change stands, for what hobkin does when its AI review says risky (spec 032, A37). */
   const ownWork = (target: Extract<ReviewTarget, { kind: 'change' }>): RiskWork | null => {
     const data = seat.data()
@@ -227,6 +241,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     ...(assessments ? { assessments } : {}),
     describe,
     landing,
+    ownPull,
     // Only a live host sends hobkin's agent back to a change its AI review found risky, as only a live host reviews.
     ...(seat.live ? { ownWork } : {}),
     // What moved on a pull request since its review: read from its checkout, fetching its new head first when needed.

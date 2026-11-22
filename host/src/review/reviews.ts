@@ -96,6 +96,11 @@ export interface ReviewsOptions {
   publish?: Publisher
   /** The commit a change is at now, as the app already knows it without asking anyone. Null when it does not know. */
   head?: (target: ReviewTarget) => string | null
+  /**
+   * Whether a pull request is one a change of hobkin's opened, wherever that change stands: its review is that change's,
+   * so the background never prepares it by itself. Null when it cannot tell now. A host given none prepares any.
+   */
+  ownPull?: (target: PullTarget) => boolean | null
   onChange?: () => void
   log?: (line: string) => void
   now?: () => number
@@ -1799,7 +1804,11 @@ export class Reviews {
       // A change being brought up to date or merged on the user's word is not reviewed again for its new commit, and a
       // pull request closed on its host is not reviewed at all.
       if (this.landingOf(target) || this.closedOn(target)) return
+      // A pull request of hobkin's own change is reviewed as that change, never again by itself; one that cannot be told yet waits.
+      const own = target.kind === 'pull' ? (this.options.ownPull?.(target) ?? false) : false
+      if (own === null) return
       this.watched.set(id, version)
+      if (own) return
       const newest = store.newest(target)
       const moved = head ? !store.has(target, head) : updatedAt ? Date.parse(updatedAt) > (newest?.at ?? 0) : false
       if (!newest || moved) this.prepare(id)
