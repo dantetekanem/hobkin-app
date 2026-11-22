@@ -562,6 +562,7 @@ function Globe({ world, activity, metrics, onProject }: GlobeProps) {
     },
   })
   const openAgent = (id: string) => visitWorldAgent(world, id, { open: useView.getState().openAgentCanvas, focus: requestCanvasFocus })
+  const projectDays = (slug: string) => metrics?.projects.find((project) => project.slug === slug)?.days ?? null
 
   const active = inCard && focused ? focused : (pointed ?? focused)
   const activeAgent = standing.find(({ place }) => agentTarget(place.id) === active)
@@ -613,7 +614,13 @@ function Globe({ world, activity, metrics, onProject }: GlobeProps) {
                 <AnimatePresence>
                   {active === target ? (
                     <Card at={island} half={island.radius} still={still} pointing={pointingAt(target)}>
-                      <IslandFacts zone={zone} fresh={world.fresh} figures={islandFigures(metrics?.projects.find(({ slug }) => slug === island.slug)?.days ?? null, zone.finished.length)} target={target} onOpen={open} />
+                      <IslandFacts
+                        zone={zone}
+                        fresh={world.fresh}
+                        figures={islandFigures(projectDays(island.slug), zone.finished.length)}
+                        target={target}
+                        onOpen={open}
+                      />
                     </Card>
                   ) : null}
                 </AnimatePresence>
