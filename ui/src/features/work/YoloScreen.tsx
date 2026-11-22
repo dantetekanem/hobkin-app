@@ -8,6 +8,9 @@ import { Switch } from '@/components/ui/switch.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { openGitHubPage, openOnGitHub } from '@/features/github/open.ts'
 import { openTarget } from '@/features/home/navigate.ts'
+import { ChartFrame } from '@/features/numbers/ChartFrame.tsx'
+import { countWords } from '@/features/numbers/format.ts'
+import { Funnel } from '@/features/numbers/Funnel.tsx'
 import { StatTile } from '@/features/numbers/StatTile.tsx'
 import { READ_WORDS, useWorkMetrics } from '@/features/numbers/use-work-metrics.ts'
 import { ProjectModels, ProofSetup } from '@/features/proofs/ProjectModels.tsx'
@@ -22,8 +25,10 @@ import { runWork, useWorkView } from './store.ts'
 import { openOnWork } from './work-target.ts'
 import {
   changeRows,
+  gates,
   inPlace,
   mergedDays,
+  mergedLine,
   mergesHeld,
   readinessRow,
   sampleReadiness,
@@ -33,6 +38,7 @@ import {
   yoloReportId,
   yoloVerdict,
   type ChangeRow,
+  type Gates,
   type MergedRow,
   type PartOpen,
   type PartRow,
@@ -100,6 +106,12 @@ export function YoloScreen() {
   const { metrics, state } = useWorkMetrics(30)
   const reading = !metrics && state === 'loading'
   const trust = useMemo(() => trustTiles(metrics?.all.days ?? null, metrics ? null : READ_WORDS[state]), [metrics, state])
+  const merged = useMemo(() => mergedLine(metrics?.all.days ?? null, metrics ? null : READ_WORDS[state]), [metrics, state])
+  // What holds every merge, as each project card reads it: work mode off or waiting, and the projects paused on Work.
+  const workOn = live ? (work?.enabled ?? false) : true
+  const waits = yolo?.waits ?? (workOn ? null : 'work mode is off')
+  const paused = (work?.projects ?? []).filter((project) => project.paused).map(({ slug }) => slug).join(' ')
+  const counted = useMemo(() => (yolo ? gates(yolo, { waits, paused: new Set(paused.split(' ').filter(Boolean)) }) : null), [yolo, waits, paused])
 
   return (
     <div ref={root} className={SCREEN_SCROLLER}>
@@ -112,7 +124,8 @@ export function YoloScreen() {
           <>
             <Switchboard yolo={yolo} setting={setting} />
             <TrustRow tiles={trust} loading={reading} />
-            <Projects yolo={yolo} live={live} workOn={live ? (work?.enabled ?? false) : true} workProjects={work?.projects ?? []} finished={work?.finished ?? []} setting={setting} setSample={setSample} />
+            {counted ? <GatesRow counted={counted} rate={yolo.rate} merged={merged} /> : null}
+            <Projects yolo={yolo} live={live} workOn={workOn} workProjects={work?.projects ?? []} finished={work?.finished ?? []} setting={setting} setSample={setSample} />
           </>
         ) : (
           <p className="text-[13.5px] text-muted-foreground">This hobkin has not said how YOLO mode stands yet.</p>
@@ -159,6 +172,59 @@ const TrustRow = memo(function TrustRow({ tiles, loading }: { tiles: readonly Tr
         {tiles.map(({ key, ...tile }) => (
           <StatTile key={key} {...tile} loading={loading} />
         ))}
+      </div>
+    </section>
+  )
+})
+
+/** The funnel's plot and the box beside it, as tall as its three gates. */
+const GATES_BOX = 3 * 28 + 24
+
+/**
+ * The gates, as the changes finished now pass them, and beside them what holds the rest, in hobkin's words, with what
+ * merged over 30 days under it. hobkin keeps no history of each gate, so the funnel counts now and says so.
+ */
+const GatesRow = memo(function GatesRow({ counted, rate, merged }: { counted: Gates; rate: number; merged: string }) {
+  const { steps, waiting, holds, shown } = counted
+  const finished = steps[0]!.count
+  const said = holds.map(({ reason, count }) => `${countWords(count)}: ${reason}`).join(' ')
+  return (
+    <section aria-label="Gates" className="@container">
+      <div className="grid grid-cols-1 gap-3 @3xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <Funnel
+          title="Gates now"
+          counts={`Of the finished changes waiting now, how many are rated ${rate} or more, and how many of those nothing holds. hobkin keeps no history of each gate, so this counts now.`}
+          steps={steps}
+          aside={{ label: 'wait for you', count: waiting }}
+          status={finished ? 'ready' : 'no-data'}
+          note="No finished change waits now."
+        />
+        <ChartFrame
+          title="What holds the rest"
+          counts="Why each finished change that is not free to merge waits for you, in hobkin's words, and what merged over 30 days."
+          figure={finished ? `${countWords(waiting)} wait for you` : undefined}
+          summary={`${waiting ? `${countWords(waiting)} wait for you. ${said}` : 'Nothing holds a finished change now.'} ${merged}`}
+          status="ready"
+          height={GATES_BOX}
+        >
+          {shown.length ? (
+            <ul className="flex flex-col">
+              {shown.map(({ reason, count }) => (
+                <li key={reason} className="grid h-7 grid-cols-[32px_minmax(0,1fr)] items-center gap-x-3">
+                  <span className="text-right text-[13px] font-semibold tabular-nums">{countWords(count)}</span>
+                  <span title={reason} className="truncate text-[12.5px] text-muted-foreground">
+                    {reason}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[12.5px] leading-7 text-muted-foreground">{finished ? 'Nothing holds a finished change now.' : 'No finished change waits now.'}</p>
+          )}
+          <p title={merged} className="absolute inset-x-0 bottom-0 h-5 truncate border-t border-border/60 pt-0.5 text-[12.5px] leading-5 text-foreground/85 tabular-nums">
+            {merged}
+          </p>
+        </ChartFrame>
       </div>
     </section>
   )

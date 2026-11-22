@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { emptyMetricsDay, type MetricsDay } from '#shared/protocol/metrics.ts'
-import { trustTiles } from '../src/features/work/yolo-page.ts'
+import type { YoloChange, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import { gates, mergedLine, trustTiles } from '../src/features/work/yolo-page.ts'
 
 /** Thirty days of nothing, ending today, with the counts given on the days named by how many days ago they were. */
 function month(counts: Record<number, Partial<MetricsDay>> = {}): MetricsDay[] {
@@ -58,4 +59,61 @@ test('a trust row with no numbers says "no data yet" in each tile and why on its
     ],
   )
   assert.ok(none.every(({ series }) => series.length === 30 && series.every((value) => value === null)))
+})
+
+const change = (item: string, rate: number | null, why: string | null = null): YoloChange => ({ item, title: item, kind: rate === null ? null : 'a bug fix', rate, why })
+const project = (slug: string, changes: YoloChange[], ready = true): YoloProject => ({ slug, name: slug, ready, needs: ready ? [] : ['Tests: its PR waits for your merge.'], changes })
+const state = (projects: YoloProject[], on = true): YoloState => ({ on, rate: 8, lowest: 6, highest: 10, ready: projects.filter(({ ready }) => ready).length, projects })
+const WORK_LEFT = 'it still has work left: The independent review still needs to cover the committed range.'
+const OPEN = { waits: null, paused: new Set<string>() }
+
+test('the gates count the changes finished now: those rated at or above the user rate, those of them nothing holds, and why the rest wait', () => {
+  const yolo = state([
+    project('shop', [change('s1', 9.2), change('s2', 7.6, WORK_LEFT), change('s3', 7.4, WORK_LEFT), change('s4', 7.9, 'its general rate is 7.9, under 8')]),
+    project('api', [change('a1', 8.8)], false),
+    project('docs', [change('d1', 8.1, 'it touches a migration'), change('d2', null, 'it has no review yet')]),
+    project('kit', []),
+  ])
+  const counted = gates(yolo, OPEN)
+  assert.deepEqual(counted.steps, [
+    { key: 'finished', label: 'Finished', count: 7 },
+    { key: 'rated', label: 'Rated 8 or more', count: 3 },
+    { key: 'free', label: 'Free to merge', count: 1 },
+  ])
+  assert.equal(counted.waiting, 6)
+  // hobkin's own words, most first; a rate under the user's is one reason whatever the rate; a project getting ready holds what it has.
+  assert.deepEqual(counted.holds, [
+    { reason: 'it still has work left: The independent review still needs to cover the committed range.', count: 2 },
+    { reason: 'its general rate is under 8.', count: 1 },
+    { reason: 'api is getting ready.', count: 1 },
+    { reason: 'it touches a migration.', count: 1 },
+    { reason: 'it has no review yet.', count: 1 },
+  ])
+  assert.equal(counted.holds.reduce((total, { count }) => total + count, 0), counted.waiting)
+  // At most three lines show: the two that hold the most, then the rest together.
+  assert.deepEqual(counted.shown, [counted.holds[0], counted.holds[1], { reason: '3 other reasons', count: 3 }])
+})
+
+test('what holds every merge holds each change first: YOLO mode off, work mode waiting, or the project paused', () => {
+  const yolo = state([project('shop', [change('s1', 9.2), change('s2', 7.6, WORK_LEFT)]), project('api', [change('a1', 8.4)])])
+  const off = gates({ ...yolo, on: false }, OPEN)
+  assert.deepEqual(off.steps.map(({ count }) => count), [3, 2, 0])
+  assert.deepEqual(off.holds, [{ reason: 'YOLO mode is off.', count: 3 }])
+
+  assert.deepEqual(gates(yolo, { waits: 'work mode is paused', paused: new Set() }).holds, [{ reason: 'work mode is paused.', count: 3 }])
+  const paused = gates(yolo, { waits: null, paused: new Set(['shop']) })
+  assert.deepEqual([paused.steps.at(-1)!.count, paused.holds], [1, [{ reason: 'shop is paused on Work.', count: 2 }]])
+})
+
+test('beside the gates, what merged over 30 days, by itself and on the user yes, from the numbers', () => {
+  const older = { ...emptyMetricsDay('2026-10-31'), mergedByItself: 9 }
+  assert.equal(mergedLine([older, ...month({ 0: { mergedByItself: 3, mergedByYou: 1 }, 6: { mergedByItself: 1, mergedByYou: 4, declined: 2 } })]), 'Over 30 days: 4 merged by itself, 5 on your yes.')
+  assert.equal(mergedLine(month()), 'Over 30 days: 0 merged by itself, 0 on your yes.')
+  assert.equal(mergedLine(null, 'Reading the numbers…'), 'Reading the numbers…')
+})
+
+test('with nothing finished the gates count nothing and nothing holds', () => {
+  const none = gates(state([project('shop', []), { slug: 'old', name: 'old', ready: true, needs: [] }]), OPEN)
+  assert.deepEqual(none.steps.map(({ count }) => count), [0, 0, 0])
+  assert.deepEqual([none.waiting, none.holds, none.shown], [0, [], []])
 })

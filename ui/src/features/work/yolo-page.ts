@@ -1,5 +1,6 @@
 import type { MetricsDay } from '#shared/protocol/metrics.ts'
 import type { ChangeChoice, FinishedChange, FinishedGroup, FinishedGroupName, Landing, PrMode, YoloChange, YoloPart, YoloPartState, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import type { FunnelStep } from '../numbers/chart-kit.ts'
 import { countWords, lastDays, NO_DATA, shareWords, sumDays, TILE_DAYS } from '../numbers/format.ts'
 import { dateLabel, dayName, whenText } from '../routines/words.ts'
 
@@ -452,6 +453,73 @@ export function trustTiles(known: readonly MetricsDay[] | null, note: string | n
       series: series((day) => day.mergedByYou + day.declined),
     },
   ]
+}
+
+/** One reason that holds finished changes for the user, in hobkin's words, and how many it holds. */
+export interface GateHold {
+  reason: string
+  count: number
+}
+
+/** The gates, as the changes finished now pass them. */
+export interface Gates {
+  /** Finished, then rated at or above the user's rate, then free to merge by itself: nothing holds it. */
+  steps: FunnelStep[]
+  /** The finished changes something holds for the user. */
+  waiting: number
+  /** What holds them, the reason that holds the most first. Their counts add up to `waiting`. */
+  holds: GateHold[]
+  /** The three lines a card has room for: the holds, or the two that hold the most and the rest together. */
+  shown: GateHold[]
+}
+
+const SHOWN_HOLDS = 3
+const RATE_WHY = /^its general rate is \d+(?:\.\d+)?, under (\d+(?:\.\d+)?)\.?$/
+
+/**
+ * How the changes finished now pass YOLO mode's gates (053, "YOLO mode"). The window knows each waiting change's rate and
+ * what holds it, not a history of each gate, so this counts now: the changes finished, those rated at or above the user's
+ * rate, and those of them nothing holds. What holds the rest is counted in the words the state gives: what holds every
+ * merge first (YOLO mode off, work mode waiting, the project paused on Work), then a project still getting ready, then the
+ * change's own reason. A rate under the user's is one reason, whatever the rate.
+ */
+export function gates(yolo: YoloState, { waits, paused }: { waits: string | null; paused: ReadonlySet<string> }): Gates {
+  const counts = new Map<string, number>()
+  let finished = 0
+  let rated = 0
+  let free = 0
+  for (const project of yolo.projects) {
+    const everything = mergesHeld(project, { on: yolo.on, waits, paused: paused.has(project.slug) }) ?? (project.ready ? null : `${project.name} is getting ready`)
+    for (const change of project.changes ?? []) {
+      finished += 1
+      const passes = change.rate !== null && change.rate >= yolo.rate
+      if (passes) rated += 1
+      const own = change.why ?? (passes ? null : change.rate === null ? 'it has no rate yet' : `its general rate is ${change.rate}, under ${yolo.rate}`)
+      const reason = everything ?? (own === null ? null : own.replace(RATE_WHY, 'its general rate is under $1'))
+      if (reason === null) free += 1
+      else counts.set(sentence(reason), (counts.get(sentence(reason)) ?? 0) + 1)
+    }
+  }
+  const holds = [...counts].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count)
+  const rest = holds.slice(SHOWN_HOLDS - 1)
+  const shown = holds.length <= SHOWN_HOLDS ? holds : [...holds.slice(0, SHOWN_HOLDS - 1), { reason: `${rest.length} other reasons`, count: rest.reduce((total, { count }) => total + count, 0) }]
+  return {
+    steps: [
+      { key: 'finished', label: 'Finished', count: finished },
+      { key: 'rated', label: `Rated ${yolo.rate} or more`, count: rated },
+      { key: 'free', label: 'Free to merge', count: free },
+    ],
+    waiting: finished - free,
+    holds,
+    shown,
+  }
+}
+
+/** What merged over the last 30 days of the numbers, by itself and on the user's yes, in a line beside the gates. Without numbers, why. */
+export function mergedLine(known: readonly MetricsDay[] | null, note: string | null = null): string {
+  if (!known) return note ?? NO_DATA
+  const total = sumDays(lastDays(known, TILE_DAYS))
+  return `Over 30 days: ${countWords(total.mergedByItself)} merged by itself, ${countWords(total.mergedByYou)} on your yes.`
 }
 
 /** The sample after Run readiness, so the page answers with no host as hobkin would: the work is queued. */
