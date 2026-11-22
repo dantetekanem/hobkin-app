@@ -1,6 +1,6 @@
 import { Map as MapIcon, Zap } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
 import { useKeptPlace } from '@/app/kept-place.ts'
 import { useView } from '@/app/view-store.ts'
@@ -27,6 +27,8 @@ import { AgentsStepper } from './AgentsStepper.tsx'
 import { NumbersTab } from './NumbersTab.tsx'
 import { SaidLine } from './parts.tsx'
 import { StatusLine } from './StatusLine.tsx'
+import { WorkloadSheet } from './WorkloadSheet.tsx'
+import { opensWorkload, type WorkloadSetting } from './workload.ts'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
 import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab } from './tab.ts'
@@ -90,6 +92,10 @@ export function WorkScreen() {
   // Discovery slides over the screen: the main stops wait under it, and its trigger gets the keyboard back.
   const [discovering, setDiscovering] = useState(false)
   const covered = discovering || listing !== null
+  // The workload sheet, opened by the button at the end of the status line or by W, at one setting or at the top (053).
+  const [sheet, setSheet] = useState<{ at: WorkloadSetting | null } | null>(null)
+  const sheetButton = useRef<HTMLButtonElement | null>(null)
+  const openSheet = (at: WorkloadSetting | null) => setSheet({ at })
   const trigger = useRef<HTMLButtonElement | null>(null)
   const closeDiscovery = () => {
     setDiscovering(false)
@@ -120,6 +126,12 @@ export function WorkScreen() {
     const target = event.target
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey || !(target instanceof HTMLElement)) return
     if (target.matches('input, textarea, [contenteditable="true"]')) return
+    // W sets the workload while Work has the keyboard and nothing over it does.
+    if (work && !covered && !sheet && opensWorkload({ key: event.key, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, repeat: event.repeat, handled: event.defaultPrevented, typing: false })) {
+      event.preventDefault()
+      openSheet(null)
+      return
+    }
     // Enter presses whatever has the keyboard, taken here rather than left to the browser. A key held down presses it
     // once: its repeats never give a second click, such as the one that confirms Close without merging.
     if (event.key === 'Enter' && target.matches('button, a[href]')) {
@@ -161,7 +173,7 @@ export function WorkScreen() {
       <div ref={main} inert={covered} className={`${SCREEN_SCROLLER} pb-20`}>
       <div className={`flex flex-col gap-10 ${SCREEN_COLUMN}`}>
         <Hero>
-          <Header work={work} live={live} working={agents.length} tiles={tiles} onOpenWorld={worldAvailable ? openWorld : undefined} />
+          <Header work={work} live={live} working={agents.length} tiles={tiles} onSheet={openSheet} sheetButton={sheetButton} onOpenWorld={worldAvailable ? openWorld : undefined} />
         </Hero>
         <div className="flex flex-col gap-6">
           <PageTabs
@@ -217,6 +229,7 @@ export function WorkScreen() {
       </div>
       <AnimatePresence>{discovering && work ? <Discovery work={work} live={live} variants={variants} onClose={closeDiscovery} /> : null}</AnimatePresence>
       <AnimatePresence>{listing ? <DecidedPanel key="decided" listing={listing} /> : null}</AnimatePresence>
+      {work ? <WorkloadSheet open={sheet !== null} at={sheet?.at ?? null} work={work} live={live} onClose={() => setSheet(null)} returnTo={sheetButton} /> : null}
     </div>
   )
 }
@@ -285,7 +298,23 @@ function openYolo() {
  * and kept at the right edge even when they wrap under a long title. The YOLO mode button says how it stands, and it is
  * first, so a longer word grows it to the left and moves nothing beside it.
  */
-function Header({ work, live, working, tiles, onOpenWorld }: { work: WorkState | null; live: boolean; working: number; tiles: ReactNode; onOpenWorld?: () => void }) {
+function Header({
+  work,
+  live,
+  working,
+  tiles,
+  onSheet,
+  sheetButton,
+  onOpenWorld,
+}: {
+  work: WorkState | null
+  live: boolean
+  working: number
+  tiles: ReactNode
+  onSheet: (at: WorkloadSetting | null) => void
+  sheetButton: RefObject<HTMLButtonElement | null>
+  onOpenWorld?: () => void
+}) {
   const busy = useWorkUi((state) => Boolean(state.busy['mode']))
   const said = useWorkUi((state) => state.said['mode'])
   const [askingFolder, setAskingFolder] = useState(false)
@@ -342,7 +371,7 @@ function Header({ work, live, working, tiles, onOpenWorld }: { work: WorkState |
       </div>
       <div className="mt-3">{tiles}</div>
       {/* What work mode does next, or the one thing that holds it, with the control that changes it (053). */}
-      <StatusLine work={work} live={live} onTurnOn={() => turn(true)} />
+      <StatusLine work={work} live={live} onTurnOn={() => turn(true)} onSheet={onSheet} sheetButton={sheetButton} />
       {!work.enabled && askingFolder ? (
         <div className="mt-1 flex flex-col gap-2">
           <FolderQuestion onStart={(folder) => turn(true, folder)} onCancel={() => setAskingFolder(false)} />
