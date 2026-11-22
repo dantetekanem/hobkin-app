@@ -93,10 +93,14 @@ const branches = [
 ]
 
 test("a finished change carries when hobkin last wrote its item, as the ready row has it, and none from a row without one", () => {
-  const work = workFrom({ work: status(), waiting: { branches: [change('storefront', 'a1a1a1', 'Fix the login redirect loop'), change('billing-api', 'b2b2b2', 'Round invoices once', { at: null })] } })!
-  const cards = work.finished.flatMap(({ changes }) => changes)
-  assert.equal(cards.find(({ key }) => key === 'storefront:a1a1a1')!.at, '2026-11-10T08:00:00.000Z')
-  assert.equal('at' in cards.find(({ key }) => key === 'billing-api:b2b2b2')!, false)
+  const written = change('storefront', 'a1a1a1', 'Fix the login redirect loop')
+  const neverWritten = change('billing-api', 'b2b2b2', 'Round invoices once', { at: null })
+
+  const work = workFrom({ work: status(), waiting: { branches: [written, neverWritten] } })!
+
+  const cardOf = (key: string) => work.finished.flatMap(({ changes }) => changes).find((card) => card.key === key)!
+  assert.equal(cardOf('storefront:a1a1a1').at, '2026-11-10T08:00:00.000Z')
+  assert.equal('at' in cardOf('billing-api:b2b2b2'), false)
 })
 
 test('finished changes keep hobkin\'s groups and reasons', () => {
@@ -359,10 +363,12 @@ test('agents at once round trip', async (t) => {
 
 test("when work mode runs fewer agents than the user chose, the window gets hobkin's reason, and none otherwise", () => {
   const held = workFrom({ work: status({ agents: 1, agentsAllowed: 8, subscription: { known: false, windows: [] } }), waiting: null })!
-  assert.equal(held.agentsHeld, 'Subscription: not known yet, so one agent runs at a time.')
   const free = workFrom({ work: status({ agents: 8, agentsAllowed: 8, subscription: { known: true, windows: [] } }), waiting: null })!
+  const unread = workFrom({ work: status(), waiting: null })!
+
+  assert.equal(held.agentsHeld, 'Subscription: not known yet, so one agent runs at a time.')
   assert.equal(free.agentsHeld, null)
-  assert.equal(workFrom({ work: status(), waiting: null })!.agentsHeld, null, 'a hobkin that sends no reading holds nothing back')
+  assert.equal(unread.agentsHeld, null, 'a hobkin that sends no reading holds nothing back')
 })
 
 test("the daily budget is hobkin's own, and a change of it is saved where work mode reads it", async (t) => {

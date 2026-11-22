@@ -24,6 +24,7 @@ import {
   type ReviewPulls,
   type Workload,
   type WorkHolding,
+  type WorkHours,
   type WorkOutlook,
   type WorkProject,
   type WorkState,
@@ -178,17 +179,24 @@ const HOBKIN_WORKLOAD: WorkloadRuntime = { setWorkload: newerStore.setWorkload, 
 
 const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1
 
+/** The workload's hours, or null, for always, when either end is missing. */
+function hoursFrom(value: unknown): WorkHours | null {
+  const hours = value as { from?: unknown; to?: unknown } | null
+  if (typeof hours?.from !== 'string' || typeof hours.to !== 'string') return null
+  return { from: hours.from, to: hours.to }
+}
+
 /** The workload as hobkin sends it. Its own `workloadOf` made it, so this only keeps the window from a shape it cannot draw. */
 function workloadFrom(value: Record<string, unknown>): Workload | null {
   const { agents, autoPick, changesADay, dailyTokens, hours, shipFirst, shipFirstAt, reviewOnFinish, reviewPulls } = value
-  const window = hours as { from?: unknown; to?: unknown } | null
-  if (!isCount(agents) || !isCount(dailyTokens) || !isCount(shipFirstAt) || !REVIEW_PULLS.includes(reviewPulls as ReviewPulls)) return null
+  if (!isCount(agents) || !isCount(dailyTokens) || !isCount(shipFirstAt)) return null
+  if (!REVIEW_PULLS.includes(reviewPulls as ReviewPulls)) return null
   return {
     agents,
     autoPick: autoPick === true,
     changesADay: isCount(changesADay) ? changesADay : null,
     dailyTokens,
-    hours: typeof window?.from === 'string' && typeof window.to === 'string' ? { from: window.from, to: window.to } : null,
+    hours: hoursFrom(hours),
     shipFirst: shipFirst !== false,
     shipFirstAt,
     reviewOnFinish: reviewOnFinish === true,
@@ -202,11 +210,24 @@ function holdingFrom(holding: WorkStatus['holding']): WorkHolding | null {
   return { kind: holding.kind as HoldingKind, until: holding.until ?? null, line: holding.line ?? '' }
 }
 
-const outlookFrom = (outlook: WorkStatus['outlook']): WorkOutlook | null =>
-  outlook ? { startedToday: outlook.startedToday ?? 0, moreToday: outlook.moreToday ?? 0, nextAt: outlook.nextAt ?? null } : null
+function outlookFrom(outlook: WorkStatus['outlook']): WorkOutlook | null {
+  if (!outlook) return null
+  return {
+    startedToday: outlook.startedToday ?? 0,
+    moreToday: outlook.moreToday ?? 0,
+    nextAt: outlook.nextAt ?? null,
+  }
+}
 
-const allowanceFrom = (asked: WorkStatus['allowanceRequest']): AllowanceRequest | null =>
-  asked?.at ? { at: asked.at, limit: asked.limit ?? 0, proposed: asked.proposed ?? 0, used: asked.used ?? 0 } : null
+function allowanceFrom(asked: WorkStatus['allowanceRequest']): AllowanceRequest | null {
+  if (!asked?.at) return null
+  return {
+    at: asked.at,
+    limit: asked.limit ?? 0,
+    proposed: asked.proposed ?? 0,
+    used: asked.used ?? 0,
+  }
+}
 
 /** The four, each only when hobkin sends it, since every field the window reads of them is optional. */
 function workloadPartsOf(work: WorkStatus): Partial<WorkState> {
@@ -563,7 +584,8 @@ export function workHandlers({ app, root, workload = HOBKIN_WORKLOAD }: WorkSeat
     },
     'work.allowance': async ({ at }) => {
       // Once for a request: the window names the request it saw, so a second click, or one on a request since answered or replaced, raises nothing.
-      if (currentRequest(readMode(root()))?.at !== at) throw new Error("That request for more tokens today is answered already, so nothing was raised.")
+      const open = currentRequest(readMode(root()))
+      if (open?.at !== at) throw new Error('That request for more tokens today is answered already, so nothing was raised.')
       // hobkin's own yes to its request, which adds today's amount again until midnight.
       await app().workAction('allow')
       return { tokens: dailyLimit(readMode(root())) }

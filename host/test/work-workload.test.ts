@@ -57,12 +57,30 @@ test('the workload is set from the window, answered as it stands, and kept in ho
   const root = temporaryDirectory(t)
   const { handlers, calls } = handlersOf(root)
 
-  assert.deepEqual((await stateOf(root)).workload, {
-    agents: 2, autoPick: true, changesADay: null, dailyTokens: 100_000_000, hours: null, shipFirst: true, shipFirstAt: 8, reviewOnFinish: false, reviewPulls: 'none',
-  }, "hobkin's defaults for a home that set nothing")
+  const defaults = {
+    agents: 2,
+    autoPick: true,
+    changesADay: null,
+    dailyTokens: 100_000_000,
+    hours: null,
+    shipFirst: true,
+    shipFirstAt: 8,
+    reviewOnFinish: false,
+    reviewPulls: 'none',
+  }
+  assert.deepEqual((await stateOf(root)).workload, defaults, "hobkin's defaults for a home that set nothing")
 
-  const set = await runCommand(handlers, 'work.workload', { changesADay: 3, hours: { from: '22:00', to: '06:00' }, shipFirst: false, shipFirstAt: 12, reviewOnFinish: true, reviewPulls: 'both', autoPick: false })
-  const expected = { agents: 2, autoPick: false, changesADay: 3, dailyTokens: 100_000_000, hours: { from: '22:00', to: '06:00' }, shipFirst: false, shipFirstAt: 12, reviewOnFinish: true, reviewPulls: 'both' }
+  const change = {
+    changesADay: 3,
+    hours: { from: '22:00', to: '06:00' },
+    shipFirst: false,
+    shipFirstAt: 12,
+    reviewOnFinish: true,
+    reviewPulls: 'both',
+    autoPick: false,
+  }
+  const set = await runCommand(handlers, 'work.workload', change)
+  const expected = { ...defaults, ...change }
   assert.deepEqual(set, { ok: true, value: expected })
   assert.deepEqual(calls, [['refresh']], 'the window hears of it at once')
   assert.deepEqual((await stateOf(root)).workload, expected)
@@ -71,7 +89,9 @@ test('the workload is set from the window, answered as it stands, and kept in ho
 
   // Any subset, and no cap and always are settings too.
   const back = await runCommand(handlers, 'work.workload', { changesADay: null, hours: null })
-  assert.deepEqual(back.ok && [(back.value as typeof expected).changesADay, (back.value as typeof expected).hours, (back.value as typeof expected).shipFirstAt], [null, null, 12])
+  assert.ok(back.ok)
+  const { changesADay, hours, shipFirstAt } = back.value as typeof expected
+  assert.deepEqual([changesADay, hours, shipFirstAt], [null, null, 12])
 })
 
 test('work.workload takes only what it can keep, checked before anything is written', async (t) => {
@@ -100,7 +120,9 @@ test('work.workload takes only what it can keep, checked before anything is writ
   // Agents and tokens a day keep their own commands, and neither new command takes anything that could pass for a key.
   for (const name of ['work.workload', 'work.allowance'] as const) {
     assert.equal(COMMANDS[name].runs, 'host')
-    assert.deepEqual(Object.keys((COMMANDS[name].args as { properties: object }).properties).filter((property) => /key|token|secret|password|credential/i.test(property)), [], name)
+    const properties = Object.keys((COMMANDS[name].args as { properties: object }).properties)
+    const secretLike = properties.filter((property) => /key|token|secret|password|credential/i.test(property))
+    assert.deepEqual(secretLike, [], name)
   }
   assert.equal(COMMANDS['work.workload'].hobkin, true, 'hobkin may set it, as it sets agents and tokens')
   assert.equal('hobkin' in COMMANDS['work.allowance'], false, 'only the user raises today\'s tokens')
@@ -136,8 +158,19 @@ test("an open allowance request is on the work state, and the window's answer ad
   const { handlers, calls } = handlersOf(root)
   await runWorkCommand(root, ['start', temporaryDirectory(t)])
   const at = new Date().toISOString()
-  const asked = { day: new Date().toDateString(), at, limit: 100_000_000, proposed: 200_000_000, used: 100_000_000, hourShare: 16_666_667, atLimit: true, reason: 'Paused for today.' }
-  writeFileSync(modeFile(root), JSON.stringify({ ...JSON.parse(readFileSync(modeFile(root), 'utf8')), allowanceRequest: asked }))
+  // As hobkin writes its request into its mode file once the day's tokens are spent.
+  const asked = {
+    day: new Date().toDateString(),
+    at,
+    limit: 100_000_000,
+    proposed: 200_000_000,
+    used: 100_000_000,
+    hourShare: 16_666_667,
+    atLimit: true,
+    reason: 'Paused for today.',
+  }
+  const mode = JSON.parse(readFileSync(modeFile(root), 'utf8'))
+  writeFileSync(modeFile(root), JSON.stringify({ ...mode, allowanceRequest: asked }))
 
   assert.deepEqual((await stateOf(root)).allowance, { at, limit: 100_000_000, proposed: 200_000_000, used: 100_000_000 })
 
