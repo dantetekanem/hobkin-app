@@ -85,11 +85,11 @@ The review of a large change
 - The host puts on each node of a review what the engine found: `attention`, with a `tier` (`needs-you`, `worth-a-look` or `safe`), a `rank` within the review, and up to three `reasons` in plain words; and a `bucket` (`code`, `test`, `generated`, `lockfile`, `locale`, `moved`, `format`, `docs`). Both are optional, so an older review opens as it does today.
 - Which files get full detail is chosen by what matters (code and tests first, then by size of change), not by their order. The limit of 60 files and 4,000 lines stays.
 - The graph opens in Focus: every node that needs the reviewer and every one worth a look is a card. Safe nodes fold into group cards by bucket, and safe code by its top folder. A group card says what it holds, how many and how many lines, and why it is safe.
-- Enter on a group opens it in place: its members become cards, up to the budget, and the outline lists all of them. S on a group marks every member seen.
+- Enter on a group opens it in place and Escape closes it: its members become cards, up to the budget, and the outline lists all of them. Z on a group marks every member seen. S stays the steps panel.
 - At most 60 cards and 120 wires are mounted for any review. A test counts them on a review of 200 files. React Flow draws only what is in view. Above 40 cards the entrance fades in and draws no wire.
 - The outline is a list at the left, opened and closed with L: every unit and file under Needs you, Worth a look and Safe, in rank order, with its lines and its seen mark. Typing filters it. Enter moves the graph to the row. Its rows are drawn only while in view.
-- A node is seen when its step was visited, its code was opened, or S marked it. Marks are kept for each commit, and a mark goes when the node's code changes.
-- N goes to the next node that needs the reviewer and is not seen, and Shift+N to the one before.
+- A node is seen when its step was visited, its code was opened, or Z marked it. Marks are kept for each commit, and a mark goes when the node's code changes.
+- U goes to the next node that needs the reviewer and is not seen, and Shift+U to the one before. N stays the comment key.
 - The panel leads with the evidence for the verdict: tests, the AI review's answer, models and proofs, and how many of the nodes that need the reviewer are seen. Approving stays two presses. With unseen nodes that need the reviewer, the first press says how many.
 - A move writes nothing to localStorage by itself: the review's memory is saved at most once a second, and when the review closes. `focusLevels` runs once for a move.
 - A review keeps its place. Coming back from a proof, the code or another page returns to the same step, camera, mode and history.
@@ -146,10 +146,10 @@ Kept from before
 - A17. A finished change whose review has not started shows in AI Reviews as waiting its turn.
 - A18. With "my pull requests" on, a pull request of the user's gets an AI review with no click. With it off, none starts.
 - A19. A review of 200 files and 10,000 changed lines opens with at most 60 cards and 120 wires mounted, every node that needs the reviewer among them.
-- A20. Safe nodes show as groups that name their kind, count and lines. Enter opens a group, and S marks its members seen.
+- A20. Safe nodes show as groups that name their kind, count and lines. Enter opens a group, and Z marks its members seen.
 - A21. The outline lists every unit and file of the review in rank order under its three headings, filters as the user types, and Enter moves the graph to the row.
-- A22. A node visited in the story, opened as code or marked with S is seen. Its mark goes when a newer commit changes its code, and stays when it does not.
-- A23. N goes to the next unseen node that needs the reviewer and says so when none is left.
+- A22. A node visited in the story, opened as code or marked with Z is seen. Its mark goes when a newer commit changes its code, and stays when it does not.
+- A23. U goes to the next unseen node that needs the reviewer and says so when none is left.
 - A24. The panel shows tests, the AI answer, models and proofs, and the seen count above the verdict. Approving with unseen nodes that need the reviewer says how many on the first press and approves on the second.
 - A25. Moving through 50 steps of a review writes to localStorage at most once a second.
 - A26. Leaving a review for a proof or another page and coming back returns to the same step and mode.
@@ -185,14 +185,14 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A16. `host/test/review-starts-by-itself.test.ts` › "a finished change whose branch moved is reviewed at the new commit by itself within a minute, while its card still names the older one"
 - A17. `host/test/review-starts-by-itself.test.ts` › "a finished change whose review has not started is listed as waiting its turn, and one the user removed is not"; `ui/test/work-ai-reviews.test.ts` › "a finished change whose review has not started shows as waiting its turn, after those under way; a stopped one that waits for nothing stays out"
 - A18. `host/test/review-starts-by-itself.test.ts` › "with "my pull requests" on, a pull request of the user’s gets an AI review with no click; with it off, none starts"
-- A19. unproven
-- A20. unproven
-- A21. unproven
-- A22. unproven
-- A23. unproven
+- A19. `ui/test/review-groups.test.ts` › "the budget: the 200-file review never draws more than 60 cards and 120 wires, closed, with each group open, or with all of them"; `shared/test/review-capture.test.ts` › "a change of 200 files and 10,000 lines spends its detail on the code a person must read: none on generated files, lockfiles, locale files or docs"
+- A20. `ui/test/review-groups.test.ts` › "Enter on a group card opens it in place, its members focused with it, and Escape closes it, back on its card"; `ui/test/review-seen.test.ts` › "Z on a group card marks every node it holds seen, and again takes the marks off"
+- A21. `ui/test/review-outline.test.ts` › "the outline lists every unit and file of the review once, under Needs you, Worth a look and Safe, each in rank order" and › "typing filters the outline by name and path, and a group with a match shows it"
+- A22. `ui/test/review-seen.test.ts` › "marks are kept for each commit: a newer commit keeps the mark on code it did not change, and drops the mark on code it did"
+- A23. `ui/test/review-next-unseen.test.ts` › "U says so when every node that needs the reviewer is seen, and stays where it is"
 - A24. unproven
-- A25. unproven
-- A26. unproven
+- A25. `ui/test/review-move-cost.test.ts` › "moving through 50 steps writes the review memory to storage at most once a second, and the last place on close"
+- A26. `ui/test/review-kept-place.test.ts` › "a review left for another page and opened again comes back to the same step, focus, history, groups and outline"
 - A27. unproven
 - A28. unproven
 - A29. unproven
@@ -211,7 +211,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - [ ] S4 (A33). The pointer and hover rule, `pressable`, the arrow on rows that open, and no hover on what does not act.
 - [x] S5 (A19, A20, A22). The host lays attention and buckets on a review's nodes, and detail goes to what matters.
 - [ ] S6 (A15, A16, A17, A18). AI reviews start by themselves: cut short, a moved branch, waiting rows, pull requests by the workload.
-- [ ] S7 (A19, A20, A21, A22, A23, A25, A26). The review window: Focus, groups, the outline, seen marks, next unseen, the budget, saved at most once a second, its place kept.
+- [x] S7 (A19, A20, A21, A22, A23, A25, A26). The review window: Focus, groups, the outline, seen marks, next unseen, the budget, saved at most once a second, its place kept.
 - [ ] S8 (A28, A29, A30, A31, A32). Proofs: check and proof together, the keys, positions, kept state, stops, a panel that can sit in another page.
 - [ ] S9 (A11, A12, A13, A14). The workload in hobkin and the host: the settings, `planOf`, the forecast, `work.workload`, the allowance answer.
 - [ ] S10 (A8, A9, A10, A11). Work: tiles, the status line, Numbers, the workload sheet, rows that are buttons.
