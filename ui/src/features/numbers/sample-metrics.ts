@@ -107,7 +107,7 @@ function generate(): Map<string, SampleDay[]> {
         counts.mergedByItself = Math.max(1, counts.mergedByItself)
         counts.regressed = 1
       }
-      counts.declined = poisson(bad ? 0.8 : 0.12 * profile.pace)
+      counts.declined = poisson((bad ? 0.5 : 0.08) * profile.pace)
       const decided = counts.mergedByItself + counts.mergedByYou + counts.declined
       counts.sentBack = poisson((bad ? 2.2 : 0.25) * profile.pace)
       counts.firstPass = decided - binomial(decided, bad ? 0.55 : 0.1)
