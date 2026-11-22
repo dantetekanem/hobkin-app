@@ -14,10 +14,11 @@ import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { reviewFolder, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
-import { DEPLOY_WORDS, deployOf, deployWhy, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus, type AssessmentSummary, type ChangeAssessment, type Level, type StoryWords, type Unit, type Units } from '#shared/review/assessment.ts'
+import { DEPLOY_WORDS, deployOf, deployWhy, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus, type AssessmentSummary, type BlindCheck, type ChangeAssessment, type Level, type RatedNode, type StoryWords, type Unit, type Units } from '#shared/review/assessment.ts'
+import { attentionOf, fileBuckets, pathBucket, rankAttention } from '#shared/review/attention.ts'
 import { count } from '#shared/review/prose.ts'
-import type { Review } from '#shared/review/types.ts'
-import { STEP_IDS } from '../../../packages/change-review/src/types.ts'
+import type { NodeBucket, Review, ReviewFileContents, ReviewNode } from '#shared/review/types.ts'
+import { STEP_IDS, type Effect, type Exposure, type Proof, type Undo } from '../../../packages/change-review/src/types.ts'
 import type { HostTree } from './code-hosts.ts'
 import { readyHostTree } from './host-tree.ts'
 import { unitStory, unitWords, type UnitPlace, type UnitRun } from './unit-story.ts'
@@ -78,8 +79,16 @@ interface GraphNode {
   hidden?: string
   /** The test runs that concern it. */
   runs?: { kind: string; node?: string; tests?: string[]; failed?: string[]; failed_at?: { path: string; line: number }[] }[]
-  /** Its proof, with what it rests on: `tests were not run: …` when no test could run. */
-  facts?: { proof?: { evidence?: string } }
+  /** What its change does, how far tests show it, who it reaches and what undoes it, each with what it rests on: a proof of `tests were not run: …` when no test could run. */
+  facts?: Partial<Record<'effect' | 'proof' | 'exposure' | 'undo', { value?: unknown; evidence?: string }>>
+  /** What the review found of it, by the kind of thing found and who found it. */
+  findings?: { rule?: unknown; by?: unknown }[]
+  questions?: unknown[]
+  /** Why its entry in the map could not be checked, when it could not. */
+  unverified?: string
+  confidence?: unknown
+  sensitive?: unknown[]
+  callers?: { total?: unknown }
 }
 
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
@@ -92,22 +101,10 @@ const worse = (a: Level, b: Level) => (RANK[b] > RANK[a] ? b : a)
  */
 export function withLevels(review: Review, assessment: Pick<ChangeAssessment, 'nodes'>): Review {
   if (!assessment.nodes.length) return review
-  const pathOf = new Map(review.files.map((file) => [file.id, file.path]))
-  /** The worst rated definition a node's lines at head overlap: its level, and the unit of the story that tells it. */
-  const rate = (node: Review['nodes'][number]): ChangeAssessment['nodes'][number] | undefined => {
-    let found: ChangeAssessment['nodes'][number] | undefined
-    for (const anchor of node.anchors) {
-      if (anchor.side !== 'added') continue
-      const path = pathOf.get(anchor.fileId)
-      for (const rated of assessment.nodes) {
-        if (rated.path !== path || rated.lines[1] < anchor.startLine || rated.lines[0] > anchor.endLine) continue
-        if (!found || RANK[rated.level] > RANK[found.level]) found = rated
-      }
-    }
-    return found
-  }
+  const overlaps = overlapsOf(review, assessment.nodes)
   const nodes = review.nodes.map((node) => {
-    const rated = node.kind === 'code' || node.kind === 'file' ? rate(node) : undefined
+    // The worst rated definition its lines at head overlap: its level, and the unit of the story that tells it.
+    const rated = overlaps.get(node.id)?.reduce((worst, next) => (RANK[next.level] > RANK[worst.level] ? next : worst))
     return rated ? { ...node, level: rated.level, ...(rated.unit ? { unit: rated.unit } : {}) } : node
   })
   const levelOf = new Map(nodes.map((node) => [node.id, node.level]))
@@ -116,6 +113,88 @@ export function withLevels(review: Review, assessment: Pick<ChangeAssessment, 'n
     return levels.length ? { ...step, level: levels.reduce(worse) } : step
   })
   return { ...review, nodes, story }
+}
+
+/** The rated definitions each code or file node's lines at head overlap, in the order its anchors and the ratings come. */
+function overlapsOf(review: Review, rated: readonly RatedNode[]): Map<string, RatedNode[]> {
+  const pathOf = new Map(review.files.map((file) => [file.id, file.path]))
+  const found = new Map<string, RatedNode[]>()
+  for (const node of review.nodes) {
+    if (node.kind !== 'code' && node.kind !== 'file') continue
+    const hits: RatedNode[] = []
+    for (const anchor of node.anchors) {
+      if (anchor.side !== 'added') continue
+      const path = pathOf.get(anchor.fileId)
+      for (const candidate of rated) {
+        if (candidate.path === path && candidate.lines[1] >= anchor.startLine && candidate.lines[0] <= anchor.endLine && !hits.includes(candidate)) hits.push(candidate)
+      }
+    }
+    if (hits.length) found.set(node.id, hits)
+  }
+  return found
+}
+
+/** A node's kind of change: an acceptance line is the spec's prose, a test is a test unless it only moved or was reformatted, the rest is its file's. */
+function bucketOf(node: ReviewNode, buckets: ReadonlyMap<string, NodeBucket>): NodeBucket {
+  if (node.kind === 'criterion') return 'docs'
+  const path = node.subtitle ?? ''
+  if (node.kind === 'context') return pathBucket(path)
+  const file = buckets.get(path) ?? pathBucket(path)
+  if (node.kind === 'test') return file === 'moved' || file === 'format' ? file : 'test'
+  return file
+}
+
+/**
+ * The review with how much attention each node asks for laid over it (spec 053): its tier, its place from 1 and up to
+ * three reasons in plain words, from the rated definitions its lines at head overlap, and else from what is known of it,
+ * such as a test's run or its file's kind; and its bucket, from `buckets`, each changed file's by its path.
+ */
+export function withAttention(review: Review, assessment: Pick<ChangeAssessment, 'nodes'>, buckets: ReadonlyMap<string, NodeBucket>): Review {
+  const overlaps = overlapsOf(review, assessment.nodes)
+  const weighed = review.nodes.map((node) => {
+    const bucket = bucketOf(node, buckets)
+    const size = (node.stats?.additions ?? 0) + (node.stats?.deletions ?? 0)
+    const known = { kind: node.kind, bucket, change: node.change, size, ...(node.status ? { status: node.status } : {}), ...(node.warning ? { warning: node.warning } : {}) }
+    return { node, bucket, size, ...attentionOf({ ...known, rated: overlaps.get(node.id) ?? [] }) }
+  })
+  const ranks = rankAttention(weighed.map(({ node, tier, strength, size }) => ({ id: node.id, tier, strength, size })))
+  return { ...review, nodes: weighed.map(({ node, bucket, tier, reasons }) => ({ ...node, bucket, attention: { tier, rank: ranks.get(node.id)!, reasons } })) }
+}
+
+const EFFECTS: ReadonlySet<string> = new Set<Effect>(['text', 'behaviour', 'interface', 'data', 'load'])
+const PROOFS: ReadonlySet<string> = new Set<Proof>(['lifecycle-observed', 'lifecycle', 'isolated', 'mocked', 'none', 'unknown', 'not-applicable'])
+const EXPOSURES: ReadonlySet<string> = new Set<Exposure>(['nobody-yet', 'subset', 'everyone', 'at-load'])
+const UNDOS: ReadonlySet<string> = new Set<Undo>(['flag', 'flag-with-residue', 'rollback', 'none'])
+const CONFIDENCES: ReadonlySet<string> = new Set(['low', 'medium', 'high'])
+
+/** A value the engine wrote, when it is one the host knows. */
+const known = <Value extends string>(allowed: ReadonlySet<string>, value: unknown): Value | undefined => (typeof value === 'string' && allowed.has(value) ? (value as Value) : undefined)
+
+/** What the change review found of a definition, as the window needs it, and what the blind check said of its unit. */
+function foundOf(node: GraphNode, checked: BlindCheck['units'][number] | undefined): Partial<RatedNode> {
+  const effect = known<Effect>(EFFECTS, node.facts?.effect?.value)
+  const proof = known<Proof>(PROOFS, node.facts?.proof?.value)
+  const exposure = known<Exposure>(EXPOSURES, node.facts?.exposure?.value)
+  const undo = known<Undo>(UNDOS, node.facts?.undo?.value)
+  const confidence = known<'low' | 'medium' | 'high'>(CONFIDENCES, node.confidence)
+  const findings = (Array.isArray(node.findings) ? node.findings : []).flatMap((finding) => (typeof finding?.rule === 'string' ? [{ rule: finding.rule, by: typeof finding.by === 'string' ? finding.by : '' }] : []))
+  const questions = Array.isArray(node.questions) ? node.questions.length : 0
+  const sensitive = (Array.isArray(node.sensitive) ? node.sensitive : []).filter((name): name is string => typeof name === 'string')
+  const callers = typeof node.callers?.total === 'number' ? node.callers.total : undefined
+  const level = checked?.level_i_would_give
+  return {
+    ...(effect ? { effect } : {}),
+    ...(proof ? { proof } : {}),
+    ...(exposure ? { exposure } : {}),
+    ...(undo ? { undo } : {}),
+    ...(findings.length ? { findings } : {}),
+    ...(questions ? { questions } : {}),
+    ...(node.unverified ? { unverified: true } : {}),
+    ...(confidence ? { confidence } : {}),
+    ...(sensitive.length ? { sensitive } : {}),
+    ...(callers != null ? { callers } : {}),
+    ...(checked ? { blind: { agrees: checked.agree !== 'no', level: level === 'safe' || level === 'mid' || level === 'high' ? level : null } } : {}),
+  }
 }
 
 /** Runs git in a folder, as itself: no shell, a timeout, and never a prompt for a password. */
@@ -453,6 +532,8 @@ export class Assessments {
   private readonly queue: AssessJob[] = []
   private readonly live = new Map<string, AssessmentStatus>()
   private readonly records = new Map<string, RunRecord>()
+  /** Each reviewed commit's file buckets, found once from both sides of its files. */
+  private readonly buckets = new Map<string, Map<string, NodeBucket>>()
   /** The last one waiting for each review tree, so a tree has one user at a time. */
   private readonly turns = new Map<string, Promise<void>>()
   private readonly controller = new AbortController()
@@ -725,13 +806,15 @@ export class Assessments {
     const units = written && { ...written, units: written.units.map((unit) => toldUnit(unit, words?.units?.[unit.id])) }
     const graph = readJson<{ nodes?: GraphNode[] }>(join(folder, 'graph.json'))
     const unitOf = new Map((units?.units ?? []).flatMap((unit) => unit.nodes.map((node) => [node, unit] as const)))
+    const blind = readJson<ChangeAssessment['blind']>(join(folder, 'blind-check.json'))
+    const checkedUnits = new Map((Array.isArray(blind?.check?.units) ? blind.check.units : []).map((unit) => [unit.id, unit]))
     return {
       head,
       summary,
       story,
       units,
       triage: readJson(join(folder, 'triage.json')),
-      blind: readJson(join(folder, 'blind-check.json')),
+      blind,
       progress: readJson(join(folder, 'progress.json')),
       // A node is at its unit's level, as the story tells it: the graph keeps only its own, and an unverified node is
       // high in its unit whatever the graph says. A removed one sits on lines at base, so it lays no level over head.
@@ -739,7 +822,7 @@ export class Assessments {
         const unit = unitOf.get(node.id)
         const level = unit?.level ?? node.level?.current
         if (node.kind === 'test' || node.change === 'removed' || !level) return []
-        return [{ id: node.id, symbol: node.symbol, path: node.path, lines: node.lines, level, critical: node.critical, unit: unit?.id ?? null }]
+        return [{ id: node.id, symbol: node.symbol, path: node.path, lines: node.lines, level, critical: node.critical, unit: unit?.id ?? null, ...foundOf(node, unit && checkedUnits.get(unit.id)) }]
       }),
     }
   }
@@ -748,7 +831,7 @@ export class Assessments {
    * The review as its change review tells it: each node at its unit's level, and one step per unit in the order the
    * story walks, after an opening with the change's claim. Null until a change review is ready for the review's commit.
    */
-  present(target: ReviewTarget, review: Review): Review | null {
+  present(target: ReviewTarget, review: Review, files?: readonly ReviewFileContents[]): Review | null {
     const assessment = this.read(target, review.change.head)
     if (!assessment?.units) return null
     const folder = assessmentFolder(this.options.root, target, review.change.head)
@@ -774,9 +857,25 @@ export class Assessments {
     // When no test could run, every definition's proof says why.
     const notRun = (graph?.nodes ?? []).map((node) => node.facts?.proof?.evidence ?? '').find((evidence) => evidence.startsWith(NOT_RUN))?.slice(NOT_RUN.length)
     const nodes = unitWords(levelled, { units: assessment.units.units, places, words, runs: [...runs.values()], ...(runs.size === 0 && notRun ? { notRun } : {}) })
-    const told = { ...levelled, nodes }
+    // What each node asks of the reviewer, once tests say how they ran (spec 053).
+    const told = withAttention({ ...levelled, nodes }, assessment, this.bucketsOf(target, review, files))
     const story = unitStory(told, { units: assessment.units.units, places, words, story: assessment.story, buckets: assessment.triage?.buckets ?? [] })
     return { ...told, story }
+  }
+
+  /**
+   * Each changed file's bucket. With both sides of the files, what moved or changed only in whitespace is found too, once
+   * for each commit; without them the path and the counts decide.
+   */
+  private bucketsOf(target: ReviewTarget, review: Review, files?: readonly ReviewFileContents[]): Map<string, NodeBucket> {
+    const key = this.key(target, review.change.head)
+    const kept = files ? this.buckets.get(key) : undefined
+    if (kept) return kept
+    const sides = new Map((files ?? []).map((file) => [file.fileId, file]))
+    const changed = review.files.filter((file) => file.status !== 'unchanged')
+    const found = fileBuckets(changed.map(({ id, path, status, binary, additions, deletions }) => ({ path, status, binary, additions, deletions, base: sides.get(id)?.base ?? null, head: sides.get(id)?.head ?? null })))
+    if (files) this.buckets.set(key, found)
+    return found
   }
 
   /** Waits for whatever is queued or under way. For tests and for closing. */
@@ -797,7 +896,7 @@ export class Assessments {
   /** Forgets what this host remembers of a target's change reviews, once its files are gone. */
   forget(target: ReviewTarget): void {
     const mine = `${reviewIdOf(target)}@`
-    for (const map of [this.live, this.records]) for (const key of [...map.keys()]) if (key.startsWith(mine)) map.delete(key)
+    for (const map of [this.live, this.records, this.buckets]) for (const key of [...map.keys()]) if (key.startsWith(mine)) map.delete(key)
   }
 
   close(): void {

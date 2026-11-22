@@ -28,6 +28,9 @@ const SENSITIVE = /money|price|amount|tax|pay|charge|refund|billing|invoice|auth
 /** A locale code as a path segment or file stem: `en`, `pt-BR`, `zh_Hant`. */
 const LOCALE_CODE = /^[a-z]{2,3}([-_][A-Za-z]{2,4})?$/
 
+/** A lockfile, which a package manager writes: `pnpm-lock.yaml`, `Gemfile.lock`, `go.sum`. */
+export const isLockfile = (path: string): boolean => LOCKFILE.test(path)
+
 interface Kinded {
   kind: BucketKind
   treatment: Treatment

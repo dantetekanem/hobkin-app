@@ -946,15 +946,16 @@ export class Reviews {
    * the graph. Until then it has no steps but its opening and closing: the host's own steps only count lines, and are no
    * review. On a host with no change reviews it stays as it was prepared.
    */
-  private shown(target: ReviewTarget, review: Review): Review {
+  private shown(target: ReviewTarget, { review, files }: Pick<Prepared, 'review' | 'files'>): Review {
     const { assessments } = this.options
     if (!assessments) return review
-    return assessments.present(target, review) ?? { ...review, story: review.story.filter((step) => step.kind !== 'walk').map(({ travel: _travel, ...step }) => step) }
+    return assessments.present(target, review, files) ?? { ...review, story: review.story.filter((step) => step.kind !== 'walk').map(({ travel: _travel, ...step }) => step) }
   }
 
   /** The prepared review as the user reads it, with the reviewer's notes. */
   get(id: string): OpenedReview {
-    const { review } = this.loaded(id)
+    const prepared = this.loaded(id)
+    const { review } = prepared
     // Opening a review is when its change is looked up: a pull request on its host, a finished change's branch in git.
     void this.lookAgain(id)
     const status = this.status(id)
@@ -962,7 +963,7 @@ export class Reviews {
     const { assessments } = this.options
     const assessment = this.assessmentOf(id, target, review.change.head)
     return {
-      review: this.shown(target, review),
+      review: this.shown(target, prepared),
       notes: this.options.store.notes(target),
       status: { ...status, stale: status.head != null && status.head !== review.change.head && status.landing?.state !== 'refreshing', ...(assessment ? { assessment } : {}) },
       ...(assessments ? { assessment: assessments.read(target, review.change.head) } : {}),
@@ -1064,7 +1065,7 @@ export class Reviews {
 
   /** Moves the reviewer's view to a step, by its number from 1 in the story they read, or to a node. The window follows. */
   show(id: string, place: { step?: number; node?: string }): ReviewCursor {
-    const review = this.shown(this.target(id), this.loaded(id).review)
+    const review = this.shown(this.target(id), this.loaded(id))
     const { step, node } = place
     if ((step == null) === (node == null)) throw new Unavailable('Name a step or a node to show, and only one.')
     if (step != null && !isStepNumber(step, review)) throw new Unavailable(`This review has ${review.story.length} steps.`)
@@ -1080,7 +1081,7 @@ export class Reviews {
    */
   note(id: string, { intent, text, step, node, wire }: { intent: NoteIntent; text: string; step?: number; node?: string; wire?: string }): Note {
     const target = this.target(id)
-    const review = this.shown(target, this.loaded(id).review)
+    const review = this.shown(target, this.loaded(id))
     const edge = wire == null ? undefined : review.edges.find((entry) => entry.id === wire)
     if (node != null && !review.nodes.some((entry) => entry.id === node)) throw new Unavailable(`This review has no node ${node}.`)
     if (wire != null && !edge) throw new Unavailable(`This review has no wire ${wire}.`)
@@ -1179,8 +1180,9 @@ export class Reviews {
   /** The preview, and the review, card and pull request it was built from, so a verdict does exactly what was shown. */
   private async planned(id: string, verdict: Verdict, summary: string, head?: string): Promise<Planned> {
     const target = this.target(id)
-    const { files, review: prepared, meta } = this.loaded(id)
-    const review = this.shown(target, prepared)
+    const loaded = this.loaded(id)
+    const { files, review: prepared, meta } = loaded
+    const review = this.shown(target, loaded)
     const at = review.change.head
     // Every token holds the commit it was shown for, so no verdict ever acts on another one.
     const token = (...shown: unknown[]) => sha256(JSON.stringify([target.kind, id, verdict, at, ...shown]))

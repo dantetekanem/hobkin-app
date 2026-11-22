@@ -3,7 +3,7 @@
  * summary once it is ready, and the story with its units for the Review screen. The objects themselves are the
  * change-review package's, which stands apart from this app.
  */
-import type { BlindCheck, Level, Progress, Triage, Units } from '../../packages/change-review/src/types.ts'
+import type { BlindCheck, Effect, Exposure, Level, Progress, Proof, Triage, Undo, Units } from '../../packages/change-review/src/types.ts'
 
 export type { Level, Units, Unit, Triage, Progress, BlindCheck, StoryWords } from '../../packages/change-review/src/types.ts'
 
@@ -168,7 +168,11 @@ export interface ChangeAssessment {
   nodes: RatedNode[]
 }
 
-/** One rated definition: its file and lines at head, its level, and the unit it is told in. */
+/**
+ * One rated definition: its file and lines at head, its level, and the unit it is told in. The rest is what the change
+ * review found of it, which decides how much of the reviewer's attention it asks for (spec 053). Each of those is
+ * missing on a definition an older host read.
+ */
 export interface RatedNode {
   id: string
   symbol: string
@@ -177,6 +181,26 @@ export interface RatedNode {
   level: Level
   critical: boolean
   unit: string | null
+  /** What its change does, at its worst: `text` changes only comments or whitespace. */
+  effect?: Effect
+  /** How far the tests that ran show it working. `none`: no test reaches it. */
+  proof?: Proof
+  exposure?: Exposure
+  undo?: Undo
+  /** What the review found of it, by the kind of thing found and who found it: a test it breaks, a reference left dangling. */
+  findings?: { rule: string; by: string }[]
+  /** How many questions it leaves the reviewer. */
+  questions?: number
+  /** Its entry in the map could not be checked. */
+  unverified?: boolean
+  /** How sure the model was of its rating, when it said. */
+  confidence?: 'low' | 'medium' | 'high'
+  /** Names in it that touch money, sign-in, tenants and the like. */
+  sensitive?: string[]
+  /** How many places call it, as the scan counted them. */
+  callers?: number
+  /** What the blind check said of its unit: whether it agreed with the unit's level, and the level it would give. */
+  blind?: { agrees: boolean; level?: Level | null }
 }
 
 /** The words for a level, as the review page and the card say them. */
