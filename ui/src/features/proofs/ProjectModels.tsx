@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ModelFact } from '#shared/protocol/work.ts'
+import { openRunAmong } from './open-run.ts'
 import { factRow, factsLine, type FactRow } from './proof-match.ts'
 import './proofs.css'
 import type { Tone } from './run/run-view.ts'
@@ -28,12 +28,14 @@ interface Said {
 export function ProjectModels({ models, live }: { models: readonly ModelFact[]; live: boolean }) {
   if (!models.length) return null
   const line = factsLine(models)
+  // A model's run opens among the project's other models, which J and K then move through.
+  const siblings = models.flatMap((fact) => (fact.run ? [fact.run] : []))
   return (
     <div className="flex flex-col gap-1 rounded-[14px] border border-border bg-tone-2 px-3.5 py-2.5">
       <p className={cn('text-[13px] font-semibold', TITLE[line.tone])}>{line.title}</p>
       <ul className="flex flex-col">
         {models.map((fact) => (
-          <ModelRow key={fact.spec} row={factRow(fact)} live={live} />
+          <ModelRow key={fact.spec} row={factRow(fact)} siblings={siblings} live={live} />
         ))}
       </ul>
     </div>
@@ -41,7 +43,7 @@ export function ProjectModels({ models, live }: { models: readonly ModelFact[]; 
 }
 
 /** One model: its file, which opens its run, how it stands, hobkin's line for it, and Check again where a run can be repeated. */
-function ModelRow({ row, live }: { row: FactRow; live: boolean }) {
+function ModelRow({ row, siblings, live }: { row: FactRow; siblings: readonly string[]; live: boolean }) {
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<Said | null>(null)
 
@@ -70,7 +72,7 @@ function ModelRow({ row, live }: { row: FactRow; live: boolean }) {
       <span className="flex min-w-0 items-center gap-2 text-[12.5px]">
         <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', DOT[row.tone])} />
         {run ? (
-          <button type="button" data-stop="" title="Opens the run" onClick={() => useView.getState().openProofRun(run)} className="shrink-0 rounded font-mono font-medium underline-offset-2 hover:underline">
+          <button type="button" data-stop="" title="Opens the run" onClick={() => openRunAmong(run, siblings)} className="shrink-0 rounded font-mono font-medium underline-offset-2 hover:underline">
             {row.file}
           </button>
         ) : (

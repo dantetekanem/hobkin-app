@@ -271,6 +271,7 @@ function SearchField({ query, onQuery, example, found, disabled }: SearchFieldPr
       <Search aria-hidden className="size-[15px] shrink-0 text-muted-foreground" />
       <span className="sr-only">Find states where</span>
       <input
+        data-proof-search=""
         value={query}
         onChange={(event) => onQuery(event.target.value)}
         placeholder={example}

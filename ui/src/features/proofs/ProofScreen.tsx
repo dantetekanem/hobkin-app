@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, type RefObject } from 'react'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStill } from '@/app/still.ts'
 import { useStops } from '@/app/stops.ts'
@@ -8,100 +8,112 @@ import type { Mood } from '@/avatar/moods.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { useViewer } from '@/features/viewer/store.ts'
 import { useWorkView } from '@/features/work/store.ts'
-import { runCommand, useHost } from '@/lib/host/index.ts'
+import { useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
-import { keep, type ProofTab } from './kept.ts'
-import { focusPart, loadGraphView, ProofBody, useBoxLayout } from './ProofBody.tsx'
+import { useProofMemory } from './kept.ts'
+import { openRunAmong } from './open-run.ts'
+import { loadGraphView, ProofBody, useBoxLayout } from './ProofBody.tsx'
+import { ProofKeyHints, RunFacts, showPart, useProofKeys, useRunControl, type MoveTo } from './ProofParts.tsx'
 import type { ProofLayout } from './proof-layout.ts'
 import { itemTitle, placeOf, specFile } from './proof-match.ts'
 import './proofs.css'
-import { controlOf, phaseOf, type Tone } from './run/run-view.ts'
-import { useProofRun } from './use-proof-run.ts'
+import { phaseOf, type Tone } from './run/run-view.ts'
+import { siblingsOf } from './siblings.ts'
+import { useProofRun, useProofRuns } from './use-proof-run.ts'
 
 /** Side by side the page runs wider than the app's other screens, to 1,400 pixels, so the two halves have room. */
 const WIDE_COLUMN = 'px-[max(0px,calc((100%_-_1400px)_/_2))]'
 
 /**
  * A TLA+ proof run, a page of its own (050-tla-proofs), opened from a finished card, an agent's step or the YOLO page:
- * where it belongs and its item's title, how it stands, the one control that stops or runs it again, and its views,
- * side by side where the page has room and tabs where it does not (`ProofBody`).
- * Escape and Back return to where it was opened from. Without a host it shows the sample check.
+ * where it belongs and its item's title, how it stands, the one control that stops or runs it again, which model of
+ * the change it is and what failed, and its views, side by side where the page has room and tabs where it does not
+ * (`ProofBody`). Its keys are the proof's (`proof-keys.ts`). Escape and Back return to where it was opened from.
+ * Without a host it shows the sample check.
  */
 export function ProofScreen({ layout: given }: { /** For a still render: the layout to draw, with nothing measured. */ layout?: ProofLayout } = {}) {
   const root = useRef<HTMLDivElement | null>(null)
+  const frame = useRef<HTMLDivElement | null>(null)
   useStops(root)
   const id = useView((view) => view.openProof)
-  const { run, live, now, problem } = useProofRun(id)
+  const shown = useProofRun(id)
   const layout = useBoxLayout(root, given)
-  const onCode = useCodeOpener(run)
   useEffect(() => {
     void loadGraphView()
   }, [])
-  // In tabs a part is its tab; side by side every part shows, and the keyboard goes to it.
-  const showPart = (part: ProofTab) => {
-    if (!run) return
-    if (layout === 'tabs') keep(run.id, { tab: part })
-    focusPart(root.current, part)
-  }
 
   return (
     <div ref={root} className={SCREEN_SCROLLER}>
-      <div className={`${layout === 'side' ? WIDE_COLUMN : SCREEN_COLUMN} @container flex flex-col gap-5 pb-20`}>
-        {run ? (
-          <>
-            <Header run={run} live={live} />
-            <ProofBody key={run.id} run={run} now={now} layout={layout} tabsId="proof" onPart={showPart} onCode={onCode} />
-            {problem ? <p className="text-[12px] text-muted-foreground">Only the latest counts show: {problem}</p> : null}
-          </>
+      <div ref={frame} tabIndex={-1} className={`${layout === 'side' ? WIDE_COLUMN : SCREEN_COLUMN} @container flex flex-col gap-5 pb-20 outline-none`}>
+        {shown.run ? (
+          <PageRun run={shown.run} now={shown.now} live={shown.live} layout={layout} frame={frame} />
         ) : (
-          <>
-            <BackRow />
-            <p className="text-[13.5px] text-muted-foreground">{problem ?? 'This proof run is not among the ones hobkin keeps.'}</p>
-          </>
+          <BackRow />
         )}
-        {live ? null : <p className="text-[12px] text-muted-foreground">Sample data. No host is running, so nothing here reaches hobkin.</p>}
+        {shown.run ? null : <p className="text-[13.5px] text-muted-foreground">{shown.problem ?? 'This proof run is not among the ones hobkin keeps.'}</p>}
+        {shown.run && shown.problem ? <p className="text-[12px] text-muted-foreground">Only the latest counts show: {shown.problem}</p> : null}
+        {shown.live ? null : <p className="text-[12px] text-muted-foreground">Sample data. No host is running, so nothing here reaches hobkin.</p>}
       </div>
     </div>
+  )
+}
+
+/** The siblings the opener named, or the change's runs from the slice, the same array while they are the same. */
+function useSiblings(id: string): string[] {
+  const named = useProofMemory((memory) => memory.siblings)
+  const { proofs } = useProofRuns()
+  const ids = siblingsOf(id, named, proofs.runs)
+  const key = ids.join('\n')
+  return useMemo(() => ids, [key])
+}
+
+interface PageRunProps {
+  run: ProofRun
+  now: number | null
+  live: boolean
+  layout: ProofLayout
+  frame: RefObject<HTMLDivElement | null>
+}
+
+function PageRun({ run, now, live, layout, frame }: PageRunProps) {
+  const siblings = useSiblings(run.id)
+  const onCode = useCodeOpener(run)
+  // J and K, and Run again, open the next run on the same page, among the same siblings.
+  const onMove: MoveTo = (next, replaces) => openRunAmong(next, replaces ? siblings.map((sibling) => (sibling === replaces ? next : sibling)) : siblings)
+  const control = useRunControl(run, live, onMove)
+  useProofKeys(frame, { run, layout, siblings, panel: false, onMove, onControl: () => void control.press() })
+
+  return (
+    <>
+      <Header run={run} siblings={siblings} onMove={onMove} control={control} />
+      <ProofBody key={run.id} run={run} now={now} layout={layout} tabsId="proof" onPart={(part) => showPart(frame.current, run, layout, part)} onCode={onCode} />
+    </>
   )
 }
 
 const MOOD: Readonly<Record<Tone, Mood>> = { live: 'working', ok: 'happy', bad: 'confused', warn: 'focused', quiet: 'idle' }
 const DOT: Readonly<Record<Tone, string>> = { live: 'pf-pulse bg-sun', ok: 'bg-ok-fg', bad: 'bg-bad-fg', warn: 'bg-warn-fg', quiet: 'bg-muted-foreground' }
 
-/** Where the run belongs and its title, how it stands, and Stop or Run again, then Back. The two buttons keep their width. */
-function Header({ run, live }: { run: ProofRun; live: boolean }) {
+interface HeaderProps {
+  run: ProofRun
+  siblings: readonly string[]
+  onMove: MoveTo
+  control: ReturnType<typeof useRunControl>
+}
+
+/**
+ * Where the run belongs and its title, how it stands, and Stop or Run again, then Back. Under them which model of how
+ * many it is and what failed, then its keys beside what hobkin said to the last press. The buttons keep their width and
+ * every row its height, so nothing under them moves.
+ */
+function Header({ run, siblings, onMove, control }: HeaderProps) {
   const still = useStill()
   const { work } = useWorkView()
   const agents = useHost((state) => state.snapshot.runs)
   const title = itemTitle(run, work, agents ?? []) ?? `The model in ${specFile(run.spec)}`
   const phase = phaseOf(run)
-  const control = controlOf(run)
-  const [said, setSaid] = useState<string | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const press = async () => {
-    if (busy) return
-    if (!live) {
-      setSaid('This is sample data, so nothing runs.')
-      return
-    }
-
-    setBusy(true)
-    setSaid(null)
-    try {
-      const answer = await runCommand(control.command, { id: run.id })
-      // Run again starts a new run: the page follows it when hobkin names it.
-      const started = 'id' in answer ? answer.id : undefined
-      if (started) useView.getState().openProofRun(started)
-      else setSaid(answer.message)
-    } catch (error) {
-      setSaid(error instanceof Error ? error.message : String(error))
-    } finally {
-      setBusy(false)
-    }
-  }
 
   return (
     <header className="flex flex-col gap-1">
@@ -118,16 +130,20 @@ function Header({ run, live }: { run: ProofRun; live: boolean }) {
             <span aria-hidden="true" className={cn('size-2 rounded-full', DOT[phase.tone])} />
             {phase.label}
           </span>
-          <Button variant="outline" data-stop="" disabled={busy} focusableWhenDisabled onClick={() => void press()} className="h-9 w-[112px] rounded-xl text-[13.5px]">
-            {control.label}
+          <Button variant="outline" data-stop="" disabled={control.busy} focusableWhenDisabled onClick={() => void control.press()} className="h-9 w-[112px] rounded-xl text-[13.5px]">
+            {control.control.label}
           </Button>
           <BackButton />
         </div>
       </div>
-      {/* What hobkin said to the last press, in one line's room so nothing under it moves. */}
-      <p role="status" className="h-4 truncate text-right text-[12px] leading-4 text-muted-foreground">
-        {said}
-      </p>
+      <RunFacts run={run} siblings={siblings} onMove={onMove} className="mt-1 -ml-1.5" />
+      <div className="flex h-5 items-center gap-4">
+        <ProofKeyHints className="flex-1" />
+        {/* What hobkin said to the last press, in one line's room so nothing under it moves. */}
+        <p role="status" className="max-w-[50%] truncate text-right text-[12px] leading-4 text-muted-foreground">
+          {control.said}
+        </p>
+      </div>
     </header>
   )
 }

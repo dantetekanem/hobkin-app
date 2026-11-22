@@ -90,6 +90,10 @@ export function MathView({ run, proofFirst = false }: { run: ProofRun; /** In on
     reveal(selected)
     // Only the spec's arrival moves its scroll here; later picks move it themselves, through `show`.
   }, [hasBlocks])
+  // A step picked from outside, as F does, brings its block into view too.
+  useEffect(() => {
+    if (step !== null) reveal(selected)
+  }, [step])
 
   return (
     <div className="@container">
@@ -273,6 +277,8 @@ function ProofStep({ row, lit, onPick }: { row: ProofRow; lit: boolean; onPick: 
     <li>
       <button
         type="button"
+        data-proof-step={row.index}
+        data-lit={lit}
         onClick={onPick}
         aria-label={`${row.text}: ${row.how}${row.counted || row.status !== 'proved' ? '' : ', not counted'}`}
         className={cn('grid min-h-9 w-full grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2 rounded-[10px] pr-2 text-left transition-colors', lit ? 'bg-primary/20' : 'hover:bg-tone-2')}

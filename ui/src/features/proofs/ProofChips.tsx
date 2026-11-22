@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
-import { useView } from '@/app/view-store.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ModelFact } from '#shared/protocol/work.ts'
+import { openRunAmong } from './open-run.ts'
 import { chipsOf, factChips, runsForItem, type ProofChip } from './proof-match.ts'
 import './proofs.css'
 import type { Tone } from './run/run-view.ts'
+import { chipRuns } from './siblings.ts'
 import { useProofRuns } from './use-proof-run.ts'
 
 const LOOK: Readonly<Record<Tone, { chip: string; dot: string }>> = {
@@ -42,6 +43,8 @@ export function ProofChips({ project, item, head, models }: ProofChipsProps) {
  */
 export function ProofChipList({ chips, inRow = true, stacked = false }: { chips: readonly ProofChip[]; inRow?: boolean; stacked?: boolean }) {
   if (!chips.length) return null
+  // Each chip opens its run among the change's others, which J and K then move through.
+  const siblings = chipRuns(chips)
 
   return (
     <ul aria-label="Proof" className={cn('flex gap-2', stacked ? 'flex-col items-start' : 'flex-wrap')}>
@@ -55,7 +58,7 @@ export function ProofChipList({ chips, inRow = true, stacked = false }: { chips:
                 type="button"
                 {...(inRow ? { tabIndex: -1, 'data-row-control': '' } : { 'data-stop': '' })}
                 title="hobkin ran this check itself. Opens the run."
-                onClick={() => useView.getState().openProofRun(id)}
+                onClick={() => openRunAmong(id, siblings)}
                 className={cn(CHIP, 'transition-colors duration-[160ms] ease-[ease] hover:brightness-[0.97]', look.chip)}
               >
                 {dot}
@@ -89,7 +92,7 @@ export function ProofCheckLine({ check }: { check: { line: string; run: string }
         tabIndex={-1}
         data-row-control=""
         title="Opens the run"
-        onClick={() => useView.getState().openProofRun(check.run)}
+        onClick={() => openRunAmong(check.run)}
         className="rounded font-semibold text-ok-fg underline-offset-2 hover:underline"
       >
         hobkin ran this itself

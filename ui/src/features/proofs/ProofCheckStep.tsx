@@ -1,8 +1,8 @@
 import { motion } from 'motion/react'
 import { useStill } from '@/app/still.ts'
-import { useView } from '@/app/view-store.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRunSummary } from '#shared/protocol/proofs.ts'
+import { openRunAmong } from './open-run.ts'
 import { inflowOf, runForCommand, runWords, specFile } from './proof-match.ts'
 import './proofs.css'
 import { resultOf, type Tone } from './run/run-view.ts'
@@ -42,7 +42,8 @@ export function ProofCheckStep({ run, spec }: { run: ProofRunSummary | null; spe
         type="button"
         data-step-toggle
         disabled={!run}
-        onClick={() => run && useView.getState().openProofRun(run.id)}
+        // Its siblings are the other models its change has in the slice: the page finds them.
+        onClick={() => run && openRunAmong(run.id)}
         aria-label={`${words.title}. ${words.detail}. Open the proof run.`}
         className={cn('grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border px-3.5 py-3 text-left transition-colors duration-[160ms] ease-[ease] enabled:hover:brightness-[0.98] disabled:cursor-default', look.box)}
       >
