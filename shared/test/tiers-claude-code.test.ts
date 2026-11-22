@@ -4,6 +4,7 @@ import { CLAUDE_CODE_DEFAULTS, type ClaudeCodeStatus } from '../protocol/claude-
 import {
   CLAUDE_LEVELS,
   changeClaudeCodeSettings,
+  changeClaudeTiers,
   chooseLevel,
   chooseModel,
   claudeChoices,
@@ -88,6 +89,9 @@ test("choosing a Claude model keeps the tier's Pi model, and a Pi model takes Cl
 
   // Apply sends only what changed, a tier taken off as null, and nothing when nothing did.
   assert.equal(claudeTiersChange({}, {}), null)
+  // The lightbox keeps the user's changes over what the host keeps, so tiers the user left alone are never sent.
+  const hostSaid = { high: { model: 'opus', effort: 'high' }, max: { model: 'fable', effort: 'max' } } as const
+  assert.deepEqual(claudeTiersChange(hostSaid, changeClaudeTiers(hostSaid, { fast: { model: 'haiku', effort: 'low' }, max: null })), { fast: { model: 'haiku', effort: 'low' }, max: null })
   assert.deepEqual(claudeTiersChange({ high: { model: 'opus', effort: 'high' } }, { fast: { model: 'haiku', effort: 'low' } }), { high: null, fast: { model: 'haiku', effort: 'low' } })
 })
 

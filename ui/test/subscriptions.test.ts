@@ -52,6 +52,10 @@ test('the Claude Code row says what is true of it', () => {
   const idle = row(claude({}, { enabled: true, kinds: { work: false, sessions: false, routines: false } }))!
   assert.equal(idle.note, 'Available', 'on with every kind off means agents run on Pi')
 
+  // A tier on Claude Code runs agents there with the tile's switch off.
+  const tiered = row(claude({}, { tiers: { high: { model: 'opus', effort: 'max' } } } as Partial<ClaudeCodeState['settings']>))!
+  assert.equal(tiered.note, 'Used by agents')
+
   // A key in the environment wins over the sign-in, so agents would bill the API instead of the subscription.
   const keyed = row(claude({ authMethod: 'api_key', plan: null }))!
   assert.match(keyed.how, /API key/)
@@ -75,4 +79,9 @@ test('the Claude Code tile says which agents run on Claude Code', () => {
   assert.match(some, /outines/)
   assert.doesNotMatch(some, /elegated/)
   assert.notEqual(none, all)
+
+  // With no kind on, the tiers on Claude Code are what runs there.
+  const tiers = { high: { model: 'opus', effort: 'max' }, max: { model: 'opus', effort: 'max' } }
+  assert.equal(claudeCodeValue({ ...CLAUDE_CODE_DEFAULTS, tiers } as typeof CLAUDE_CODE_DEFAULTS), 'High and Max on Claude Code')
+  assert.equal(claudeCodeValue({ ...CLAUDE_CODE_DEFAULTS, enabled: true, tiers } as typeof CLAUDE_CODE_DEFAULTS), all, 'a kind switched on runs at every tier')
 })

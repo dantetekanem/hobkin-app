@@ -8,9 +8,9 @@ const start: ClaudeCodeState = {
   settings: { ...CLAUDE_CODE_DEFAULTS, enabled: true, permissions: 'auto' },
 }
 
-function setup(t: { mock: { timers: { enable(o: { apis: 'setTimeout'[] }): void; tick(ms: number): void } } }) {
+function setup(t: { mock: { timers: { enable(o: { apis: 'setTimeout'[] }): void; tick(ms: number): void } } }, first: ClaudeCodeState = start) {
   t.mock.timers.enable({ apis: ['setTimeout'] })
-  let shown = start
+  let shown = first
   const sent: ClaudeCodeChange[] = []
   const answers: { resolve(state: ClaudeCodeState): void; reject(error: Error): void }[] = []
   const problems: (string | null)[] = []
@@ -71,4 +71,17 @@ test('a change after a finished save sends again, and saves never overlap', asyn
   s.tick(400)
   assert.deepEqual(s.sent.at(-1), { permissions: 'ask' })
   assert.equal(s.sent.length, 3)
+})
+
+test('a change from the tile keeps the tiers the host said run on Claude Code', (t) => {
+  const tiers = { high: { model: 'opus', effort: 'max' } }
+  const s = setup(t, { ...start, settings: { ...start.settings, tiers } as ClaudeCodeState['settings'] })
+  s.saver.change({ permissions: 'edits' })
+  assert.deepEqual([s.shown().permissions, (s.shown() as { tiers?: unknown }).tiers], ['edits', tiers])
+})
+
+test('a change from the tile never shows a host from before as keeping tiers', (t) => {
+  const s = setup(t)
+  s.saver.change({ permissions: 'edits' })
+  assert.equal('tiers' in s.shown(), false)
 })

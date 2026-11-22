@@ -1,5 +1,7 @@
 import { CLAUDE_AGENT_KINDS, type ClaudeAgentKind, type ClaudeCodeSettings, type ClaudeCodeState } from '#shared/protocol/claude-code.ts'
 import type { ProviderAccess } from '#shared/protocol/models.ts'
+import { claudeTiersOf } from '#shared/tiers/claude-code.ts'
+import { TIER_IDS, TIER_INFO } from '#shared/tiers/tiers.ts'
 
 /** One line of the Subscriptions tile. */
 export interface SubscriptionRow {
@@ -42,7 +44,7 @@ function claudeRow(state: ClaudeCodeState): SubscriptionRow {
   return {
     ...row,
     how: via ? `${version}, ${via}` : version,
-    note: settings.enabled && CLAUDE_AGENT_KINDS.some((kind) => settings.kinds[kind]) ? 'Used by agents' : 'Available',
+    note: kindsOn(settings).length > 0 || tiersOn(settings).length > 0 ? 'Used by agents' : 'Available',
   }
 }
 
@@ -62,11 +64,21 @@ export function subscriptionsValue(rows: readonly SubscriptionRow[]): string {
 
 const KIND_WORDS: Record<ClaudeAgentKind, string> = { work: 'Work', sessions: 'delegated jobs', routines: 'routines' }
 
-/** What the Claude Code tile's heading says: which agents run on Claude Code. */
+/** The kinds of agent the tile's switches send to Claude Code at every tier. */
+const kindsOn = (settings: ClaudeCodeSettings) => (settings.enabled ? CLAUDE_AGENT_KINDS.filter((kind) => settings.kinds[kind]) : [])
+
+/** The tiers that run on Claude Code by themselves, as the host reported them. */
+const tiersOn = (settings: ClaudeCodeSettings) => {
+  const tiers = claudeTiersOf(settings) ?? {}
+  return TIER_IDS.filter((tier) => tiers[tier])
+}
+
+const listed = (words: string[]) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : words[0]!)
+
+/** What the Claude Code tile's heading says: which agents run on Claude Code, or with no kind switched on, which tiers. */
 export function claudeCodeValue(settings: ClaudeCodeSettings): string {
-  if (!settings.enabled) return 'Agents run on Pi'
-  const kinds = CLAUDE_AGENT_KINDS.filter((kind) => settings.kinds[kind]).map((kind) => KIND_WORDS[kind])
-  if (kinds.length === 0) return 'Agents run on Pi'
-  const list = kinds.length > 1 ? `${kinds.slice(0, -1).join(', ')} and ${kinds.at(-1)}` : kinds[0]!
-  return `${capitalized(list)} on Claude Code`
+  const kinds = kindsOn(settings).map((kind) => KIND_WORDS[kind])
+  if (kinds.length > 0) return `${capitalized(listed(kinds))} on Claude Code`
+  const tiers = tiersOn(settings).map((tier) => TIER_INFO[tier].label)
+  return tiers.length > 0 ? `${listed(tiers)} on Claude Code` : 'Agents run on Pi'
 }

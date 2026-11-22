@@ -57,7 +57,8 @@ export function claudeCodeWithTiers(value: unknown): ClaudeCodeWithTiers {
   return { ...claudeCodeSettings(value), tiers: claudeTiers(isObject(value) ? value.tiers : null) }
 }
 
-function changeClaudeTiers(tiers: ClaudeTiers, change: ClaudeTiersChange): ClaudeTiers {
+/** The tiers on Claude Code after a change. */
+export function changeClaudeTiers(tiers: ClaudeTiers, change: ClaudeTiersChange): ClaudeTiers {
   const next: Record<string, unknown> = { ...tiers }
   for (const tier of TIER_IDS) if (tier in change) next[tier] = change[tier]
   return claudeTiers(next)

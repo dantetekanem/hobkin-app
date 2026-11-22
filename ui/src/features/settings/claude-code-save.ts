@@ -1,4 +1,5 @@
-import { changeClaudeCode, type ClaudeCodeChange, type ClaudeCodeState } from '#shared/protocol/claude-code.ts'
+import type { ClaudeCodeState } from '#shared/protocol/claude-code.ts'
+import { changeClaudeCodeSettings, type ClaudeCodeWithTiersChange as ClaudeCodeChange } from '#shared/tiers/claude-code.ts'
 
 /** How long the tile waits for the next change before it saves what it has. */
 export const SAVE_QUIET_MS = 400
@@ -20,6 +21,7 @@ const merged = (a: ClaudeCodeChange, b: ClaudeCodeChange): ClaudeCodeChange => (
   ...a,
   ...b,
   ...(a.kinds || b.kinds ? { kinds: { ...a.kinds, ...b.kinds } } : {}),
+  ...(a.tiers || b.tiers ? { tiers: { ...a.tiers, ...b.tiers } } : {}),
 })
 
 /**
@@ -42,7 +44,7 @@ export function createClaudeCodeSaver(saver: Saver) {
     sending = true
     try {
       saved = await saver.apply(change)
-      saver.show(pending ? { ...saved, settings: changeClaudeCode(saved.settings, pending) } : saved)
+      saver.show(pending ? { ...saved, settings: changeClaudeCodeSettings(saved.settings, pending) } : saved)
     } catch (error) {
       pending = null
       if (timer !== null) cancel(timer)
@@ -62,7 +64,8 @@ export function createClaudeCodeSaver(saver: Saver) {
       if (!pending && !sending) saved = now
       saver.problem(null)
       pending = pending ? merged(pending, change) : change
-      saver.show({ ...now, settings: changeClaudeCode(now.settings, change) })
+      // The tiers on Claude Code the host reported stay as they are, and a host that reported none still has none.
+      saver.show({ ...now, settings: changeClaudeCodeSettings(now.settings, change) })
       if (timer !== null) cancel(timer)
       timer = later(() => void flush(), wait)
     },

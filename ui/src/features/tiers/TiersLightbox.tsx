@@ -10,7 +10,6 @@ import {
   TIER_IDS,
   TIER_INFO,
   filterModels,
-  setTierModel,
   type Effort,
   type ModelChoice,
   type ReviewRole,
@@ -18,10 +17,25 @@ import {
   type TierId,
   type TiersConfig,
 } from '#shared/tiers/tiers.ts'
+import {
+  CLAUDE_CODE,
+  changeClaudeTiers,
+  chooseLevel,
+  chooseModel as chooseInDraft,
+  claudeChoices,
+  claudeGroup,
+  claudeTiersChange,
+  claudeTiersOf,
+  followAgain,
+  shownClaude,
+  type ClaudeTiers,
+  type ClaudeTiersChange,
+} from '#shared/tiers/claude-code.ts'
 import { Rise } from '@/app/Reveal.tsx'
 import { useRunningAgents } from '@/app/running-agents.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import { Button } from '@/components/ui/button.tsx'
+import { applyClaudeTiers, useReadClaudeCode } from '@/features/settings/claude-code-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { spring, stagger } from '@/lib/motion.ts'
 import { applyTiers as applyHostTiers, readTiers } from '@/lib/host/client.ts'
@@ -117,13 +131,23 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
   const checks = useTiers((state) => state.checks)
   // The models Pi can use now, once the host has answered.
   const models = useModelChoices()
+  // Every model a card can name: Pi's, and Claude Code's for a tier on it (033-claude-code-agents).
+  const choices = useMemo(() => [...models, ...claudeChoices()], [models])
+  // Which tiers run on Claude Code, as the host keeps them. A host from before reports none and is offered none.
+  const claudeCode = useReadClaudeCode()
+  const savedClaude = useMemo(() => claudeTiersOf(claudeCode?.settings) ?? {}, [claudeCode])
   const focus = useTiers((state) => state.focus)
   const applyTiers = useTiers((state) => state.applyTiers)
   const [draft, setDraft] = useState<TiersConfig>(saved)
   const [review, setReview] = useState<ReviewTiers>(savedReview)
+  // The user's changes over what the host keeps, so an answer that comes after a change never takes back a tier the user left alone.
+  const [claudeEdits, setClaudeEdits] = useState<ClaudeTiersChange>({})
+  const claude = useMemo(() => changeClaudeTiers(savedClaude, claudeEdits), [savedClaude, claudeEdits])
+  const setClaude = (next: ClaudeTiers) => setClaudeEdits((edits) => ({ ...edits, ...claudeTiersChange(claude, next) }))
   const [touched, setTouched] = useState(false)
   const [moved, setMoved] = useState<Partial<Record<TierTarget, Effort>>>({})
-  const changed = JSON.stringify(draft) !== JSON.stringify(saved) || REVIEW_ROLES.some((role) => review[role] !== savedReview[role])
+  const claudeChange = claudeTiersChange(savedClaude, claude)
+  const changed = JSON.stringify(draft) !== JSON.stringify(saved) || REVIEW_ROLES.some((role) => review[role] !== savedReview[role]) || claudeChange !== null
   const hasHost = useHasHost()
   const [applying, setApplying] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
@@ -137,8 +161,9 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
   }, [saved, savedReview, touched])
 
   // The lead is hobkin's own main model: the host saves it in hobkin's config and the open conversation goes on with
-  // it at once. The tiers and review roles that changed go to hobkin in one write. When the host refuses either, its
-  // reason shows here and the window stays open on the draft.
+  // it at once. The tiers and review roles that changed go to hobkin in one write, and the tiers put on Claude Code or
+  // taken off it go to the host's Claude Code settings. When the host refuses any, its reason shows here and the window
+  // stays open on the draft.
   const apply = async () => {
     if (applying) return
     setProblem(null)
@@ -154,6 +179,7 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
         store.receiveTiers({ config: { ...saved, lead: draft.lead }, review: savedReview, follows, checks })
       }
       if (change) store.receiveHostTiers(await applyHostTiers(change))
+      if (claudeChange) await applyClaudeTiers(claudeChange)
       store.closeTiers()
     } catch (error) {
       setProblem(error instanceof Error ? error.message : String(error))
@@ -178,8 +204,11 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
   }, [changed, picking])
 
   const view = { config: draft, follows, checks }
-  const settingOf = (target: TierTarget): ShownTier => (target === 'lead' ? { ...draft.lead, follows: null } : shownTier(view, target))
-  const modelOf = (target: TierTarget) => models.find((model) => model.id === settingOf(target).model)
+  const settingOf = (target: TierTarget): ShownTier =>
+    target === 'lead' ? { ...draft.lead, follows: null } : (shownClaude(claude, target) ?? shownTier(view, target))
+  const modelOf = (target: TierTarget) => choices.find((model) => model.id === settingOf(target).model)
+  // The list's Claude Code group for the card it is open on: its models, a line that says why there are none, or nothing.
+  const group = picking ? claudeGroup(picking, claudeCode) : null
 
   const edit = (next: TiersConfig, target: TierTarget, movedFrom: Effort | null = null) => {
     setDraft(next)
@@ -188,24 +217,27 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
   }
 
   const chooseModel = (target: TierTarget, model: ModelChoice) => {
-    // A tier that follows starts from what it runs with now, so its thinking level carries over to the new model.
-    const from = target === 'lead' ? draft : { ...draft, tiers: { ...draft.tiers, [target]: ownSetting(settingOf(target), draft.lead) } }
-    const result = setTierModel(from, target, model)
-    edit(result.config, target, result.effortMovedFrom)
+    // A tier starts from what it runs with now, so its thinking level carries over to the new model. A Claude model
+    // keeps the tier's Pi model, and a Pi model takes the tier off Claude Code.
+    const result = chooseInDraft({ config: draft, claude }, target, model, settingOf(target))
+    setClaude(result.draft.claude)
+    edit(result.draft.config, target, result.effortMovedFrom)
     setPicking(null)
   }
 
   const chooseEffort = (target: TierTarget, effort: Effort) => {
-    // Levels are offered only for a model Pi names, so there is always one here.
-    const model = settingOf(target).model
-    if (!model) return
-    const setting = { model, effort }
-    edit(target === 'lead' ? { ...draft, lead: setting } : { ...draft, tiers: { ...draft.tiers, [target]: setting } }, target)
+    const next = chooseLevel({ config: draft, claude }, target, effort, settingOf(target))
+    if (next.config === draft && next.claude === claude) return
+    setClaude(next.claude)
+    edit(next.config, target)
   }
 
   const follow = (target: TierTarget, again: boolean) => {
     if (target === 'lead') return
-    edit({ ...draft, tiers: { ...draft.tiers, [target]: again ? null : ownSetting(settingOf(target), draft.lead) } }, target)
+    if (!again) return edit({ ...draft, tiers: { ...draft.tiers, [target]: ownSetting(settingOf(target), draft.lead) } }, target)
+    const next = followAgain({ config: draft, claude }, target)
+    setClaude(next.claude)
+    edit(next.config, target)
   }
 
   const chooseRole = (role: ReviewRole, tier: TierId) => {
@@ -241,7 +273,7 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
                 setting={settingOf(target)}
                 whom={target === 'lead' ? null : follows[target]}
                 model={modelOf(target)}
-                name={modelName(settingOf(target), models)}
+                name={modelName(settingOf(target), choices)}
                 movedFrom={moved[target]}
                 autoFocus={target === (focus ?? 'lead')}
                 onPickModel={() => setPicking(target)}
@@ -266,7 +298,8 @@ function TiersForm({ picking, setPicking }: { picking: TierTarget | null; setPic
             <ModelList
               key={picking}
               target={picking}
-              models={models}
+              models={group?.offered ? choices : models}
+              note={group && !group.offered ? group.note : null}
               current={settingOf(picking).model}
               onChoose={(model) => chooseModel(picking, model)}
               onBack={() => setPicking(null)}
@@ -475,7 +508,10 @@ function DepthBars({ filled }: { filled: number }) {
 
 interface ModelListProps {
   target: TierTarget
+  /** Pi's models, then Claude Code's when the card can run on it. */
   models: ModelChoice[]
+  /** Why the Claude Code group offers nothing, in its place after Pi's providers. */
+  note: string | null
   /** The model chosen now, when it is one Pi names. */
   current: string | null
   onChoose: (model: ModelChoice) => void
@@ -483,7 +519,7 @@ interface ModelListProps {
 }
 
 /** The model list for one card. It slides up over the cards, inside the lightbox. */
-function ModelList({ target, models, current, onChoose, onBack }: ModelListProps) {
+function ModelList({ target, models, note, current, onChoose, onBack }: ModelListProps) {
   const [search, setSearch] = useState('')
   const found = useMemo(() => filterModels(models, search), [models, search])
   const [active, setActive] = useState(() => Math.max(0, models.findIndex((model) => model.id === current)))
@@ -574,6 +610,13 @@ function ModelList({ target, models, current, onChoose, onBack }: ModelListProps
               })}
           </div>
         ))}
+        {/* Last, like the group it stands for, so nothing above it moves when the host's answer brings it. */}
+        {note && filterModels(claudeChoices(), search).length > 0 ? (
+          <div>
+            <div className="eyebrow px-3 pt-3 pb-1">{CLAUDE_CODE}</div>
+            <p className="px-3 py-2.5 text-[12px] text-muted-foreground">{note}</p>
+          </div>
+        ) : null}
       </div>
     </motion.div>
   )

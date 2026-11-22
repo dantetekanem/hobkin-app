@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { create } from 'zustand'
 import type { ClaudeCodeChange, ClaudeCodeState } from '#shared/protocol/claude-code.ts'
+import type { ClaudeTiersChange } from '#shared/tiers/claude-code.ts'
 import { runCommand } from '@/lib/host/client.ts'
 import { useHasHost } from '@/lib/host/index.ts'
 import { createClaudeCodeSaver } from './claude-code-save.ts'
@@ -60,4 +61,14 @@ const saver = createClaudeCodeSaver({
 /** Shows a change at once and saves it after a short quiet time, merged with the changes made meanwhile. */
 export function saveClaudeCode(change: ClaudeCodeChange): void {
   saver.change(change)
+}
+
+/**
+ * Saves the Models lightbox's tiers on Claude Code at once, when the user applies, and shows what the host kept.
+ * Rejects with the host's reason, so the lightbox can say it and stay open.
+ */
+export async function applyClaudeTiers(tiers: ClaudeTiersChange): Promise<void> {
+  const state = await runCommand('claude-code.apply', { tiers })
+  changes += 1
+  useClaudeCode.setState({ state })
 }

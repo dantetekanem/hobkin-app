@@ -1,6 +1,7 @@
 import { X } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
 import { useRef, useState, type ReactNode } from 'react'
+import { claudeTierName, claudeTiersOf } from '#shared/tiers/claude-code.ts'
 import { TIER_IDS, TIER_INFO, resolveTier } from '#shared/tiers/tiers.ts'
 import { TILE_KEYS } from '@/app/key-list.ts'
 import { Rise } from '@/app/Reveal.tsx'
@@ -22,6 +23,7 @@ import { PetTile } from './PetTile.tsx'
 import { ReviewTile } from './ReviewTile.tsx'
 import { ShortReportsTile } from './ShortReportsTile.tsx'
 import { ClaudeCodeTile } from './ClaudeCodeTile.tsx'
+import { useReadClaudeCode } from './claude-code-store.ts'
 import { SubscriptionsTile } from './SubscriptionsTile.tsx'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
@@ -398,10 +400,15 @@ function Models() {
   const config = useTiers((state) => state.config)
   const models = useModelChoices()
   const openTiers = useTiers((state) => state.openTiers)
+  // The tiers that run on Claude Code, once the host has said (033-claude-code-agents).
+  const claude = claudeTiersOf(useReadClaudeCode()?.settings) ?? {}
   const nameOf = (id: string) => models.find((model) => model.id === id)?.name ?? id
   const rows = [
-    { label: 'hobkin', depth: 0, ...config.lead, followsLead: false },
-    ...TIER_IDS.map((tier, index) => ({ label: TIER_INFO[tier].label, depth: index + 1, ...resolveTier(config, tier) })),
+    { label: 'hobkin', ...config.lead, followsLead: false, onClaude: null },
+    ...TIER_IDS.map((tier) => {
+      const onClaude = claude[tier]
+      return { label: TIER_INFO[tier].label, ...resolveTier(config, tier), ...(onClaude ? { effort: onClaude.effort, followsLead: false, onClaude: claudeTierName(onClaude) } : { onClaude: null }) }
+    }),
   ]
 
   return (
@@ -410,7 +417,7 @@ function Models() {
         {rows.map((row) => (
           <li key={row.label} className="flex items-center gap-2">
             <span className="w-11 shrink-0 font-semibold">{row.label}</span>
-            <span className={cn('min-w-0 flex-1 truncate', row.followsLead && 'text-muted-foreground')}>{row.followsLead ? 'follows hobkin' : nameOf(row.model)}</span>
+            <span className={cn('min-w-0 flex-1 truncate', row.followsLead && 'text-muted-foreground')}>{row.onClaude ?? (row.followsLead ? 'follows hobkin' : nameOf(row.model))}</span>
             <span className="shrink-0 text-muted-foreground">{row.effort}</span>
           </li>
         ))}
