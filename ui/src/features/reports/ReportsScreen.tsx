@@ -300,7 +300,7 @@ export function ReportsScreen() {
       <div className={`h-full min-h-0 ${SCREEN_PANES}`}>
         {/* The week, or the open report: cards side by side in one strip, which slides to show one or the other
             (slide.ts). First in reading order: it is the largest piece, so it lands first. */}
-        <div className="pointer-events-none relative col-start-1 row-start-1 min-h-0 overflow-hidden rounded-[28px] @max-[800px]:absolute @max-[800px]:inset-x-6 @max-[800px]:top-[78px] @max-[800px]:bottom-3 @max-[800px]:z-10">
+        <div className="pointer-events-none relative col-start-1 row-start-1 min-h-0 overflow-hidden rounded-[28px] @max-[800px]:absolute @max-[800px]:inset-x-6 @max-[800px]:top-(--page-top) @max-[800px]:bottom-3 @max-[800px]:z-10">
           <AnimatePresence custom={direction}>
             {/* Two cards: the week and the reader. Moving between reports keeps the reader's card, and slides inside it. */}
             <motion.div

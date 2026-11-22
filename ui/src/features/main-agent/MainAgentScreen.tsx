@@ -94,7 +94,7 @@ export function MainAgentScreen() {
 
   return (
     <div className="relative flex h-full flex-col">
-      <Rise className="flex items-center gap-3 px-[10%] pt-[76px] pb-2">
+      <Rise className="flex items-center gap-3 px-[10%] pt-(--page-top) pb-2">
         <Hob mood={moodOf(entries ?? [], busy)} size={48} still={still} />
         <div className="min-w-0 flex-1">
           <h2 className="font-heading text-[20px] font-semibold tracking-[-0.022em]">Hobkin's mind</h2>
