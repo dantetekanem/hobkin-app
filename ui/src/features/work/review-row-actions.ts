@@ -25,8 +25,10 @@ export type RowCommands = <Name extends RowCommand>(name: Name, args: CommandArg
 export function rowActions(row: ReviewRow): RowAction[] {
   const { kind, owner, state, assessment } = row.item
   const built = !(state === 'failed' && !assessment)
-  const remove: RowAction[] = canReviewAgain(row) ? ['remove'] : []
-  return (kind === 'change' || owner?.mine) && built ? [...remove, 'discard-branch'] : remove
+  const actions: RowAction[] = []
+  if (canReviewAgain(row)) actions.push('remove')
+  if ((kind === 'change' || owner?.mine) && built) actions.push('discard-branch')
+  return actions
 }
 
 /** Each action's name on the row. */
