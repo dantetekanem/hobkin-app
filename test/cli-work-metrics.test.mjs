@@ -65,6 +65,18 @@ test('work.metrics has one day for each local day of the period, zeros included,
   assert.equal(workMetrics(root, { days: 500, now }).all.days.length, 180);
 });
 
+test('a project with no name of its own goes by its slug, and its numbers still count', t => {
+  const { root, append } = home(t);
+  append('work/projects.jsonl', { slug: 'cli', name: null, state: 'chosen', level: 'casual' }, { slug: 'app', name: 42, state: 'chosen', level: 'casual' });
+  append('work/cli/items.jsonl', filed('c1', daysAgo(2)), update('c1', daysAgo(1), { state: 'branch' }));
+
+  const metrics = workMetrics(root, { days: 3, now });
+
+  assert.deepEqual(metrics.projects.map(({ slug, name }) => [slug, name]), [['api', 'API'], ['app', 'app'], ['cli', 'cli'], ['web', 'Web']]);
+  assert.deepEqual(lastDays(metrics, 'cli', 'finished', 3), [0, 1, 0]);
+  assert.deepEqual(metrics.gaps, []);
+});
+
 test('a line or a file that cannot be read is named in gaps, and the rest still counts', t => {
   const { root, append, write, event } = home(t);
   event('run_started', daysAgo(1), { id: 'work:api:do:1', lane: 'do', project: 'api', item: 'a1' });
@@ -116,7 +128,8 @@ test('a change merged by YOLO mode counts as merged by itself and any other as m
   assert.deepEqual(lastDays(metrics, 'api', 'declined'), [0, 0, 0, 0, 1, 0]);
   assert.deepEqual(lastDays(metrics, 'api', 'sentBack'), [0, 0, 1, 0, 0, 0]);
   assert.deepEqual(lastDays(metrics, 'api', 'firstPass'), [0, 0, 1, 1, 1, 0]);
-  assert.deepEqual(lastDays(metrics, 'api', 'finished'), [0, 3, 0, 2, 0, 0]);
+  // Each change once, on the day it first reached Finished changes: finishing again after a send-back shows as sent back.
+  assert.deepEqual(lastDays(metrics, 'api', 'finished'), [0, 3, 0, 1, 0, 0]);
   assert.deepEqual(lastDays(metrics, 'web', 'mergedByYou'), [0, 0, 0, 0, 1, 0]);
   assert.deepEqual(lastDays(metrics, 'web', 'firstPass'), [0, 0, 0, 0, 1, 0]);
   assert.deepEqual(lastDays(metrics, null, 'mergedByYou'), [0, 0, 0, 1, 2, 0]);

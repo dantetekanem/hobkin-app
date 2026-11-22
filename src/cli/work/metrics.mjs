@@ -2,7 +2,6 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { eventsFolder } from '../events.mjs';
 import { isRunId, proofsFolder, runFolder } from '../proof/record.mjs';
-import { nameOf } from './names.mjs';
 import { paths } from './store.mjs';
 
 /**
@@ -63,6 +62,8 @@ export function periodOf(days, now = Date.now()) {
 }
 
 const capital = text => text.charAt(0).toUpperCase() + text.slice(1);
+/** A project's name, or its slug when its record has no name that is words. */
+const nameOfProject = ({ slug, name }) => (typeof name === 'string' && name ? name : slug);
 
 const parsed = line => {
   try {
@@ -175,7 +176,7 @@ function foldItems(records, slug, tally) {
     const filed = typeof line.key === 'string' && !line.updatedAt;
     const change = known && !filed
       ? known
-      : { id: line.id, title: known?.title ?? line.id, state: null, pushbacks: known?.pushbacks ?? 0, merges: known?.merges ?? new Set(), sentBack: [], finishedAt: null, startedAt: null };
+      : { id: line.id, title: known?.title ?? line.id, state: null, pushbacks: known?.pushbacks ?? 0, merges: known?.merges ?? new Set(), sentBack: [], finishedAt: null, startedAt: null, counted: false };
     changes.set(line.id, change);
     if (typeof line.title === 'string') change.title = line.title;
 
@@ -191,7 +192,10 @@ function foldItems(records, slug, tally) {
       // A do run marks its item doing as it starts.
       if (line.state === 'doing') change.startedAt ??= time;
       if (FINISHED.includes(line.state) && !FINISHED.includes(change.state)) {
-        tally.count('finished', time, slug);
+        // A change counts once, on the day it first reached Finished changes: finishing again after a send-back is in `sentBack`.
+        // The wait for the user runs from the latest arrival, the one they answer.
+        if (!change.counted) tally.count('finished', time, slug);
+        change.counted = true;
         change.finishedAt = time;
       }
       if (line.state === 'declined') decided(tally, slug, change, time, 'declined');
@@ -279,13 +283,13 @@ export function workMetrics(root, { days, now = Date.now() } = {}) {
   const gaps = [];
   const period = periodOf(days, now);
   const projects = readProjectList(root, gaps);
-  const taken = projects.filter(({ state }) => state === 'chosen').toSorted((left, right) => nameOf(left).localeCompare(nameOf(right)));
+  const taken = projects.filter(({ state }) => state === 'chosen').toSorted((left, right) => nameOfProject(left).localeCompare(nameOfProject(right)));
   const tally = tallyOf(period.days, taken.map(({ slug }) => slug));
 
   // Every project ever chosen, because one dropped since still did what it did.
   for (const project of projects) {
     const { slug } = project;
-    foldItems(readRecords(paths(root, slug).items, `${nameOf(project)}'s work items (work/${slug}/items.jsonl)`, gaps), slug, tally);
+    foldItems(readRecords(paths(root, slug).items, `${nameOfProject(project)}'s work items (work/${slug}/items.jsonl)`, gaps), slug, tally);
   }
   foldEvents(root, period.since, tally, gaps);
   for (const line of readRecords(join(root, 'work', 'tokens.jsonl'), 'the record of tokens (work/tokens.jsonl)', gaps)) {
@@ -299,7 +303,7 @@ export function workMetrics(root, { days, now = Date.now() } = {}) {
     to: period.days.at(-1),
     at: new Date(now).toISOString(),
     all: tally.all(),
-    projects: taken.map(project => ({ slug: project.slug, name: nameOf(project), ...tally.project(project.slug) })),
+    projects: taken.map(project => ({ slug: project.slug, name: nameOfProject(project), ...tally.project(project.slug) })),
     gaps,
     decided: tally.decided(),
   };
