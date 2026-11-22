@@ -1,4 +1,6 @@
+import type { MetricsDay } from '#shared/protocol/metrics.ts'
 import type { ChangeChoice, FinishedChange, FinishedGroup, FinishedGroupName, Landing, PrMode, YoloChange, YoloPart, YoloPartState, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import { countWords, lastDays, NO_DATA, shareWords, sumDays, TILE_DAYS } from '../numbers/format.ts'
 import { dateLabel, dayName, whenText } from '../routines/words.ts'
 
 /**
@@ -388,6 +390,68 @@ export function mergedDays(project: YoloProject, { zone, now }: { zone: string; 
     days.set(day, [...(days.get(day) ?? []), row])
   }
   return [...days].map(([day, rows]) => ({ day, rows }))
+}
+
+/** One figure of the trust row under the switchboard, in the shape of a tile of Work's (`StatTile`). */
+export interface TrustTile {
+  key: 'by-itself' | 'regressed' | 'held'
+  label: string
+  /** The figure, or "no data yet". */
+  figure: string
+  /** Smaller words after the figure: "of 12". */
+  after?: string
+  /** The one plain line under the figure that says what it counts. */
+  context: string
+  /** What it counts, in a sentence, for its title and a reader. */
+  counts: string
+  /** One value for each of the 30 days, oldest first. Null where a share has nothing under it. */
+  series: (number | null)[]
+  most?: number
+}
+
+const shareOf = (part: number, whole: number): number | null => (whole > 0 ? part / whole : null)
+
+/**
+ * Whether merging by itself can be trusted, over the last 30 days of the numbers (053, "YOLO mode"): the share of merges
+ * made by itself, how many of those regressed after their deploy ("0 of 12", and "no data yet" with none made by itself),
+ * and how many changes were held for the user, merged on their yes or declined. `days` is null while there are no
+ * numbers, and `note` then says why on each tile's line.
+ */
+export function trustTiles(known: readonly MetricsDay[] | null, note: string | null = null): TrustTile[] {
+  const days = known ? lastDays(known, TILE_DAYS) : []
+  const series = (pick: (day: MetricsDay) => number | null) => [...Array<null>(TILE_DAYS - days.length).fill(null), ...days.map(pick)]
+  const total = sumDays(days)
+  const byItself = total.mergedByItself
+  const merged = byItself + total.mergedByYou
+  const held = total.mergedByYou + total.declined
+  const missing = note ?? ''
+  return [
+    {
+      key: 'by-itself',
+      label: 'By itself',
+      figure: known ? shareWords(shareOf(byItself, merged)) : NO_DATA,
+      context: !known ? missing : merged ? `${countWords(byItself)} of ${countWords(merged)} merges in 30 days` : 'nothing merged in 30 days',
+      counts: 'Of the changes merged over 30 days, the share hobkin merged by itself in YOLO mode. The bars are that share for each day.',
+      series: series((day) => shareOf(day.mergedByItself, day.mergedByItself + day.mergedByYou)),
+      most: 1,
+    },
+    {
+      key: 'regressed',
+      label: 'Regressed after deploy',
+      ...(known && byItself ? { figure: countWords(total.regressed), after: `of ${countWords(byItself)}` } : { figure: NO_DATA }),
+      context: !known ? missing : byItself ? 'merged by itself in 30 days' : 'nothing by itself in 30 days',
+      counts: 'Of the changes hobkin merged by itself over 30 days, those whose reading after their deploy regressed. The bars are those regressions by day.',
+      series: series((day) => day.regressed),
+    },
+    {
+      key: 'held',
+      label: 'Held for you',
+      figure: known ? countWords(held) : NO_DATA,
+      context: !known ? missing : 'decided by you in 30 days',
+      counts: 'Changes that waited for your yes or no over 30 days instead of merging by themselves: merged on your yes, or declined. The bars are those of each day.',
+      series: series((day) => day.mergedByYou + day.declined),
+    },
+  ]
 }
 
 /** The sample after Run readiness, so the page answers with no host as hobkin would: the work is queued. */

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStops } from '@/app/stops.ts'
@@ -8,6 +8,8 @@ import { Switch } from '@/components/ui/switch.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { openGitHubPage, openOnGitHub } from '@/features/github/open.ts'
 import { openTarget } from '@/features/home/navigate.ts'
+import { StatTile } from '@/features/numbers/StatTile.tsx'
+import { READ_WORDS, useWorkMetrics } from '@/features/numbers/use-work-metrics.ts'
 import { ProjectModels, ProofSetup } from '@/features/proofs/ProjectModels.tsx'
 import { useReports } from '@/features/reports/store.ts'
 import { finishedReviewId } from '@/features/review/entry.ts'
@@ -26,6 +28,7 @@ import {
   readinessRow,
   sampleReadiness,
   stillToSetUp,
+  trustTiles,
   waitingChange,
   yoloReportId,
   yoloVerdict,
@@ -35,6 +38,7 @@ import {
   type PartRow,
   type ReadinessPress,
   type StatusLine,
+  type TrustTile,
   type VerdictAction,
   type VerdictTone,
 } from './yolo-page.ts'
@@ -92,6 +96,10 @@ export function YoloScreen() {
   const [sample, setSample] = useState(SAMPLE_YOLO)
   const yolo = live ? (work?.yolo ?? null) : sample
   const setting = useSetting(live, setSample)
+  // The numbers of the last 30 days: what merged by itself, what regressed and what was held for the user (053).
+  const { metrics, state } = useWorkMetrics(30)
+  const reading = !metrics && state === 'loading'
+  const trust = useMemo(() => trustTiles(metrics?.all.days ?? null, metrics ? null : READ_WORDS[state]), [metrics, state])
 
   return (
     <div ref={root} className={SCREEN_SCROLLER}>
@@ -103,6 +111,7 @@ export function YoloScreen() {
         {yolo ? (
           <>
             <Switchboard yolo={yolo} setting={setting} />
+            <TrustRow tiles={trust} loading={reading} />
             <Projects yolo={yolo} live={live} workOn={live ? (work?.enabled ?? false) : true} workProjects={work?.projects ?? []} finished={work?.finished ?? []} setting={setting} setSample={setSample} />
           </>
         ) : (
@@ -141,6 +150,19 @@ function Switchboard({ yolo, setting: { saving, problem, change } }: { yolo: Yol
     </section>
   )
 }
+
+/** Whether merging by itself can be trusted, over 30 days: the share made by itself, how many of those regressed, and how many were held for the user. */
+const TrustRow = memo(function TrustRow({ tiles, loading }: { tiles: readonly TrustTile[]; loading: boolean }) {
+  return (
+    <section aria-label="How far merging by itself can be trusted, over 30 days" className="@container">
+      <div className="grid grid-cols-1 gap-3 @xl:grid-cols-3">
+        {tiles.map(({ key, ...tile }) => (
+          <StatTile key={key} {...tile} loading={loading} />
+        ))}
+      </div>
+    </section>
+  )
+})
 
 /** What every project card needs besides its project. */
 interface CardContext {
