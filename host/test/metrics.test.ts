@@ -34,9 +34,12 @@ function fakeFold(calls: { home: string; days: number; now: number }[] = []) {
         { slug: 'web', name: 'Web', ...series() },
       ],
       gaps: ['A line of the record of tokens (work/tokens.jsonl) could not be read, so it is not counted.'],
+      decided: [DECIDED_ROW],
     }
   }
 }
+
+const DECIDED_ROW = { slug: 'api', item: 'a1', title: 'Fix a1', at: daysAgo(1), outcome: 'merged-by-itself', sentBack: 0, head: 'abc1234' } as const
 
 /** A review the window keeps, and the AI reviews of its commits, each as the change review writes them. */
 function writeReview(root: string, folder: string, heads: Record<string, { summary?: unknown; progress?: unknown }>) {
@@ -98,6 +101,7 @@ test('work.metrics adds the AI reviews the host keeps to hobkin fold: each answe
   assert.deepEqual(metrics.all.spans.waitForYou, { median: HOUR, p90: HOUR, count: 1 })
   assert.deepEqual(lastDays(metrics.all, 'started'), [0, 0, 0])
   assert.deepEqual(metrics.gaps, ['A line of the record of tokens (work/tokens.jsonl) could not be read, so it is not counted.'])
+  assert.deepEqual(metrics.decided, [DECIDED_ROW])
 })
 
 test("with hobkin's own fold, a home with nothing yet answers every day of the period with zeros, for all projects and for each", (t) => {
@@ -116,6 +120,7 @@ test("with hobkin's own fold, a home with nothing yet answers every day of the p
   assert.deepEqual(lastDays(projectOf(metrics, 'api'), 'reviewsSafe', 5), [0, 0, 0, 0, 1])
   assert.deepEqual(lastDays(metrics.all, 'started', 5), [0, 0, 0, 0, 0])
   assert.deepEqual(metrics.gaps, [])
+  assert.deepEqual(metrics.decided, [])
 })
 
 test('an AI review whose files cannot be read is named in gaps, and the rest still count', (t) => {

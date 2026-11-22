@@ -9,9 +9,12 @@ declare module 'hobkin/src/cli/work/metrics.mjs' {
   /**
    * What work mode did on each local day of the last `days` (30 unless asked, 180 at most) up to today, for all projects
    * and for each project it took, from hobkin's own records. The AI review counts and their span are left at nothing
-   * for the host to fill. What could not be read is named in `gaps`.
+   * for the host to fill. What could not be read is named in `gaps`. `decided` lists each change merged or declined in
+   * the period, newest first, `DECIDED_MAX` at most, from the same records as the day counts.
    */
-  export function workMetrics(root: string, options?: { days?: number; now?: number }): WorkMetrics
+  export function workMetrics(root: string, options?: { days?: number; now?: number }): WorkMetrics & { decided: NonNullable<WorkMetrics['decided']> }
+  /** The most decided changes one read lists. */
+  export const DECIDED_MAX: number
   /** The median and 90th percentile of what was measured, in whole milliseconds, or nulls with nothing measured. */
   export function spanOf(durations: readonly number[]): MetricsSpan
   /** A local day, as `YYYY-MM-DD`. */
