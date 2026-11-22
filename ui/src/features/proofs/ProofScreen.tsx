@@ -159,7 +159,7 @@ function BackRow() {
 }
 
 /** The chosen tab: the run live, the state graph to walk, or the spec as math and in words. */
-function Panel({ tab, run, now, onTab }: { tab: ProofTab; run: ProofRun; now: number; onTab: (tab: ProofTab) => void }) {
+function Panel({ tab, run, now, onTab }: { tab: ProofTab; run: ProofRun; now: number | null; onTab: (tab: ProofTab) => void }) {
   const onCode = useCodeOpener(run)
   switch (tab) {
     case 'run':

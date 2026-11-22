@@ -2,6 +2,7 @@ import { Check as CheckIcon, Clock, Code, OctagonX, TriangleAlert, type LucideIc
 import { AnimatePresence, motion } from 'motion/react'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { useNow } from '@/features/chat/use-now.ts'
 import { tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
@@ -30,7 +31,8 @@ export type ProofTab = 'run' | 'graph' | 'math'
 
 export interface RunViewProps {
   run: ProofRun
-  now: number
+  /** A still moment to read the run's time at, for the sample and still renders. Without one the time reads the clock. */
+  now?: number | null
   zone: string
   /** Goes to another tab: the state graph to step through, or the math. */
   onTab: (tab: Exclude<ProofTab, 'run'>) => void
@@ -84,8 +86,14 @@ function modelLine(run: ProofRun): string {
   return [size, workers].filter(Boolean).join(' · ')
 }
 
+/** How long the run has gone on. The only part of the page that reads the clock, so a tick draws this text alone. */
+function Elapsed({ run, now }: { run: ProofRun; now: number | null | undefined }) {
+  const clock = useNow(run.outcome === 'checking' && now == null, 1000)
+  return <span className="shrink-0 font-mono text-[12.5px] text-muted-foreground tabular-nums">{elapsedLine(run, now ?? clock)}</span>
+}
+
 /** The spec and its model, the three steps, the four counters and the chart of new states. */
-function Check({ run, now }: { run: ProofRun; now: number }) {
+function Check({ run, now }: { run: ProofRun; now: number | null | undefined }) {
   const still = useStill()
   const chart = chartOf(run)
   const model = modelLine(run)
@@ -100,7 +108,7 @@ function Check({ run, now }: { run: ProofRun; now: number }) {
         <span title={model} className="min-w-0 flex-1 truncate text-[13px] text-muted-foreground">
           {model}
         </span>
-        <span className="shrink-0 font-mono text-[12.5px] text-muted-foreground tabular-nums">{elapsedLine(run, now)}</span>
+        <Elapsed run={run} now={now} />
       </div>
 
       <ol aria-label="Steps" className="grid grid-cols-3 gap-2">
