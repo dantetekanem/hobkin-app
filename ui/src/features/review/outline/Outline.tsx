@@ -1,13 +1,14 @@
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { Check, ChevronDown, ChevronRight, Circle, ListTree, Search, X } from 'lucide-react'
 import { animate, motion, useMotionValueEvent, useTransform } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import { drawnAs } from '../state/session.ts'
+import { useAskedFocus } from './asked-focus.ts'
 import { filterOutline, outlineItems, outlineOf, type OutlineItem, type OutlineRow, type OutlineSection } from './outline.ts'
 
 /** How wide the outline is, and the room it takes beside the steps panel with its margins. */
@@ -74,7 +75,7 @@ function OutlineBody({ onClose }: { onClose: () => void }) {
   const view = useSession((session) => session.view)
   const seen = useSession((session) => session.seen)
   const focus = useSession((session) => session.focus)
-  const opened = useSession((session) => session.outline)
+  const asked = useSession((session) => session.outlineAsked)
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [active, setActive] = useState(0)
@@ -94,12 +95,8 @@ function OutlineBody({ onClose }: { onClose: () => void }) {
   useEffect(() => {
     if (chosen != null) virtual.scrollToIndex(chosen, { align: 'auto' })
   }, [chosen, virtual])
-  // Opened with L, the keyboard goes to the filter, so typing filters at once.
-  const wasOpen = useRef(opened)
-  useLayoutEffect(() => {
-    if (opened && !wasOpen.current) field.current?.focus({ preventScroll: true })
-    wasOpen.current = opened
-  }, [opened])
+  // Opened with L, the keyboard goes to the filter, so typing filters at once and no letter reaches the review's keys.
+  useAskedFocus(asked, () => field.current)
 
   const back = () => field.current?.closest<HTMLElement>('[data-rv-root]')?.focus({ preventScroll: true })
   const toggle = (id: string) =>

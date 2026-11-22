@@ -84,6 +84,8 @@ export interface Session {
   seen: ReadonlySet<string>
   /** The outline is open at the left (`outline/Outline.tsx`). A review in Focus opens with it open, any other without. */
   outline: boolean
+  /** How many times L opened the outline: each time, its filter takes the keyboard (`outline/asked-focus.ts`). */
+  outlineAsked: number
   /** A short word to the reviewer, said again on each press that asks: `key` goes up each time it is said. */
   notice: { key: number; text: string } | null
   /**
@@ -408,6 +410,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       fold,
       seen: seenNow(),
       outline: back ? kept!.outline : firstView.plan.active,
+      outlineAsked: 0,
       notice: null,
       proof: kept?.proof ? { run: kept.proof, from: null } : null,
 
@@ -651,7 +654,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         markSeen(ids, !ids.every((id) => seen.has(id)))
         return true
       },
-      toggleOutline: () => set({ outline: !get().outline }),
+      toggleOutline: () => set(get().outline ? { outline: false } : { outline: true, outlineAsked: get().outlineAsked + 1 }),
       placeNow: () => {
         const { story, mode, history, outline, code, proof } = get()
         return { story, mode, history, fold, outline, code, proof: proof?.run ?? null }
