@@ -16,8 +16,8 @@ import { ease, spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { focusBoard, focusTalk, keyboardInCanvas, requestCanvasFocus } from './focus.ts'
 import { estimatedRow, putBack, rowPieces, type AroundMenu, type RowGeometry } from './menu-agents.ts'
+import { menuLayout, type SecondRow } from './menu-rows.ts'
 import { useRunningAgents, type RunningAgent } from './running-agents.ts'
-import { PAGE_TOP } from './screen-layout.ts'
 import { inMenu, SCREENS, type ScreenId } from './screens.ts'
 import { holdStill, useStill } from './still.ts'
 import { Trail } from './Trail.tsx'
@@ -48,20 +48,12 @@ function popIn(index: number, still: boolean) {
 }
 
 /**
- * What the second row holds: the agents, or the main canvas's group on the canvas place. Where the user is (a review,
- * Settings and the page under it, a GitHub the menu leaves out) is the trail's to say, under the menu (Trail.tsx).
+ * The pieces the second row holds before the main canvas's pill: the agents, or the main canvas's group on the canvas
+ * place (`menu-rows.ts`). Where the user is is the trail's to say, under the menu (Trail.tsx). `canvas` is the main
+ * canvas as the window shows it.
  */
-type Second = 'agents' | 'canvas'
-
-function secondFor(screen: ScreenId, canvasOpen: boolean): Second | null {
-  if (screen === 'agent') return 'agents'
-  if (screen === 'canvas' && canvasOpen) return 'canvas'
-  return null
-}
-
-/** The pieces the second row holds before the main canvas's pill. `canvas` is the main canvas as the window shows it. */
 function secondPieces({ second, canvas, split, drawn }: {
-  second: Second | null
+  second: SecondRow | null
   canvas: CanvasState | null
   split: ReturnType<typeof useSplit>
   drawn: object
@@ -92,12 +84,13 @@ function Marker() {
 /**
  * The screen menu. It floats over the top of the canvas, as the menu on hobkin.dev floats over the page.
  *
- * It is one surface. The first row never changes: the main screens stay where they are. Whatever is open
- * for now (an agent, a review, Settings and Integrations) is a second row inside the same surface, which
- * grows downward to hold it. Nothing is ever added at the end of the first row, so it never jumps sideways.
+ * It is one surface. The first row never changes: the main screens stay where they are. A page that keeps a second
+ * row while it shows (an agent's page has the agents, the canvas place its controls) has it inside the same surface,
+ * which grows downward to hold it. Nothing is ever added at the end of the first row, so it never jumps sideways.
  *
- * The main canvas, while it is open, ends the second row as a pill, or holds the row with its controls on its own place.
- * Under the menu, on every page, the trail says where the user is and how they came (Trail.tsx).
+ * The main canvas, while it is open, ends the agents' row as a pill, or holds the row with its controls on its own place.
+ * Under the menu, on every page, the trail says where the user is and how they came (Trail.tsx); on a page with one
+ * row the canvas's pill ends the trail's line instead, so the menu grows no row for it and the page never moves.
  * During a durable hobkin's split the right side grows over the chat, and `shift` keeps the menu exactly where it was,
  * over the canvas, on the same spring (`transition`). The menu sizes its labels by its own width, not the right side's.
  */
@@ -112,21 +105,13 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
   const canvas = useBoard(MAIN_CANVAS)
   const split = useSplit()
   const seen = useView((view) => view.canvasSeen[MAIN_CANVAS])
-  const second = secondFor(screen, isOpen(canvas))
   const pill = mainPill({ screen, split: split !== null, main: canvas, seen })
-  const row = second ?? (pill ? 'pill' : null)
+  const { second: row, pillOn } = menuLayout({ screen, canvasOpen: isOpen(canvas), pill: pill !== null })
   // New each time the menu draws. The second row is centered, so what the menu draws again for can move its agents.
   const drawn = {}
-  // The pages start under the menu and the trail, which sit lower while the second row shows (screen-layout.ts).
-  const menu = useRef<HTMLDivElement | null>(null)
-  const twoRows = row !== null
-  useLayoutEffect(() => {
-    menu.current?.parentElement?.style.setProperty('--page-top', `${twoRows ? PAGE_TOP.twoRows : PAGE_TOP.oneRow}px`)
-  }, [twoRows])
 
   return (
     <motion.div
-      ref={menu}
       data-screen-menu
       className="@container select-none-chrome pointer-events-none absolute inset-x-0 top-3.5 z-20 flex flex-col items-center"
       initial={false}
@@ -178,13 +163,13 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
         <AnimatePresence mode="popLayout" initial={false}>
           {row ? (
             <Born key={row} label={row === 'agents' ? 'Agents' : 'Open now'}>
-              {secondPieces({ second, canvas, split, drawn })}
-              {pill && isOpen(canvas) ? <CanvasPill canvas={canvas} dot={pill.dot} index={0} /> : null}
+              {secondPieces({ second: row, canvas, split, drawn })}
+              {pillOn === 'second' && pill && isOpen(canvas) ? <CanvasPill canvas={canvas} dot={pill.dot} index={0} /> : null}
             </Born>
           ) : null}
         </AnimatePresence>
       </Surface>
-      <Trail />
+      <Trail pill={pillOn === 'trail' && isOpen(canvas) ? canvas : null} dot={pill?.dot ?? false} />
     </motion.div>
   )
 }

@@ -1,5 +1,5 @@
 import { AnimatePresence, animate, motion, useMotionValue, type MotionValue, type Transition, type Variants } from 'motion/react'
-import { lazy, Suspense, useEffect, useLayoutEffect, useRef, type ComponentType } from 'react'
+import { lazy, Suspense, useEffect, useLayoutEffect, useRef, type ComponentType, type CSSProperties } from 'react'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { HomeScreen } from '@/features/home/HomeScreen.tsx'
 import { ReportsScreen } from '@/features/reports/ReportsScreen.tsx'
@@ -27,6 +27,7 @@ import { hobkinOfAgent } from '#shared/protocol/hobkins.ts'
 import { NotWiredYet } from './NotWiredYet.tsx'
 import { dragLeft, useDragEdge } from './drag-edge.ts'
 import { ScreenBoundary } from './ScreenBoundary.tsx'
+import { PAGE_TOP } from './screen-layout.ts'
 import { ScreenMenu } from './ScreenMenu.tsx'
 import { useStill } from './still.ts'
 import { type ScreenId } from './screens.ts'
@@ -72,6 +73,8 @@ const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
   settings: SettingsScreen,
   canvas: CanvasScreen,
 }
+
+const PAGE_START = { '--page-top': `${PAGE_TOP}px` } as CSSProperties
 
 const place = (x: number, y: number, scale: number) => `translateX(${x}%) translateY(${y}%) scale(${scale})`
 
@@ -214,7 +217,8 @@ export function Canvas() {
         transition={growth}
       />
       {needsModel ? null : <ScreenMenu shift={shift} transition={growth} />}
-      <div className="relative grid h-full overflow-hidden rounded-l-[26px] bg-surface shadow-float">
+      {/* Every page starts at the same height under the menu and the trail, whatever the menu shows (screen-layout.ts). */}
+      <div className="relative grid h-full overflow-hidden rounded-l-[26px] bg-surface shadow-float" style={PAGE_START}>
         {/* A durable hobkin's canvas in its split. Before the screens, so the page's own top-right control shows over it. */}
         <AnimatePresence initial={false}>
           {split ? <CanvasPane key="split" owner={split.owner} width={sizes.canvasWidth} /> : null}

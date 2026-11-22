@@ -1,6 +1,8 @@
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Presentation } from 'lucide-react'
 import { memo, useMemo } from 'react'
+import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { ProofRunSummary } from '#shared/protocol/proofs.ts'
+import { labelFor } from '@/features/canvas-panel/rules.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { SAMPLE_PROOFS } from '@/features/proofs/sample.ts'
 import { useWorkUi } from '@/features/work/store.ts'
@@ -16,8 +18,17 @@ import { useView } from './view-store.ts'
  * came through to it, oldest first. Each earlier place is a button back to it; the last is the page itself, in plain
  * text. It is always one line of the same height: a long trail shortens its middle places first, then its ends.
  * Escape goes back one place too (`keys.ts`).
+ *
+ * While the main canvas is open and the menu keeps one row, the canvas's pill sits at the line's right end
+ * (`menu-rows.ts`), so the menu grows no row for it and no page moves when it opens or closes. The places stay centered
+ * whether it shows or not, and give way before they would reach it.
  */
-export const Trail = memo(function Trail() {
+export const Trail = memo(function Trail({ pill = null, dot = false }: {
+  /** The main canvas, when its pill ends this line. */
+  pill?: (CanvasState & { url: string }) | null
+  /** It was redrawn and not seen since. */
+  dot?: boolean
+}) {
   const screen = useView((view) => view.screen)
   const trail = useView((view) => view.trail)
   const openAgent = useView((view) => view.openAgent)
@@ -33,18 +44,21 @@ export const Trail = memo(function Trail() {
     [screen, trail, openAgent, openReview, openProof, project, settingsReturn, githubReturn, mindReturn, canvasReturn],
   )
   // The canvas names itself in the menu, and its drawing starts right under it.
-  if (screen === 'canvas') return null
+  const places = screen === 'canvas' ? [] : shown
+  if (places.length === 0 && !pill) return null
 
   return (
-    <nav aria-label="Trail" data-trail="" className="mt-0.5 flex h-5 max-w-full min-w-0 px-6">
-      {/* Only the line itself takes the pointer: the gutters beside it leave the page under them alone. */}
-      <ol className="pointer-events-auto flex h-5 min-w-0 items-center rounded-full bg-surface px-0.5 text-[12px] leading-5 font-medium whitespace-nowrap">
-        {shown.map((stop, at) => {
-          const last = at === shown.length - 1
+    <nav aria-label="Trail" data-trail="" className="relative mt-0.5 flex h-5 w-full min-w-0 justify-center px-6">
+      {/* Only the line itself takes the pointer: the gutters beside it leave the page under them alone. With the pill,
+          the places keep clear of it on both sides, so they stay centered. */}
+      {places.length ? <ol className={cn('pointer-events-auto flex h-5 min-w-0 items-center overflow-x-clip rounded-full bg-surface px-0.5 text-[12px] leading-5 font-medium whitespace-nowrap', pill && 'max-w-[calc(100%-21rem)]')}>
+        {places.map((stop, at) => {
+          const last = at === places.length - 1
           return (
             // The middle places give way, down to a few letters each; the ends keep their names, up to a share of the
             // canvas's width (the menu is its container), so where the trail starts and where the user is stay readable.
-            <li key={`${at}:${stop.screen}:${stop.about ?? ''}`} className={cn('flex min-w-0 items-center', at === 0 || last ? 'max-w-[28cqw] shrink-0' : 'min-w-10 shrink')}>
+            // Shrinking goes by width, so the ends' share stays under a pixel until the middles can give no more.
+            <li key={`${at}:${stop.screen}:${stop.about ?? ''}`} className={cn('flex min-w-10 items-center', at === 0 || last ? 'max-w-[28cqw] shrink-[0.0001]' : 'shrink')}>
               {at > 0 ? <ChevronRight aria-hidden="true" className="mx-0.5 size-3 shrink-0 text-muted-foreground/70" /> : null}
               {last ? (
                 <span aria-current="page" className="min-w-0 truncate px-1.5 text-foreground">
@@ -63,10 +77,39 @@ export const Trail = memo(function Trail() {
             </li>
           )
         })}
-      </ol>
+      </ol> : null}
+      {pill ? <CanvasPill canvas={pill} dot={dot} /> : null}
     </nav>
   )
 })
+
+/**
+ * The main canvas while another page shows: its name at the right end of the trail's line, with a dot once it is
+ * redrawn and not seen since, whose place is kept so nothing shifts. It goes back to the canvas, as Command with its
+ * number does.
+ */
+function CanvasPill({ canvas, dot }: { canvas: CanvasState & { url: string }; dot: boolean }) {
+  const label = labelFor(canvas.url, canvas.title, canvas.kind)
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={dot ? `${label}, redrawn` : label}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={() => {
+        const view = useView.getState()
+        view.openCanvasPlace()
+        view.engageCanvas()
+        requestCanvasFocus()
+      }}
+      className="pointer-events-auto absolute top-0 right-6 flex h-5 max-w-40 items-center gap-1 rounded-full bg-surface px-1.5 text-[12px] leading-5 font-medium text-muted-foreground outline-offset-0 transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 hover:text-foreground"
+    >
+      <Presentation className="size-3 shrink-0" aria-hidden="true" />
+      <span className="truncate">{label}</span>
+      <span aria-hidden="true" className={cn('size-1.5 shrink-0 rounded-full', dot ? 'bg-primary' : 'bg-transparent')} />
+    </button>
+  )
+}
 
 /** Back to a place of the trail, with the keyboard in the page there, as the menu's items do. */
 function goBackTo(index: number) {
