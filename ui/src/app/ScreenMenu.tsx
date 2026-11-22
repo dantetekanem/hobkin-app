@@ -17,6 +17,7 @@ import { cn } from '@/lib/utils.ts'
 import { focusBoard, focusTalk, keyboardInCanvas, requestCanvasFocus } from './focus.ts'
 import { estimatedRow, putBack, rowPieces, type AroundMenu, type RowGeometry } from './menu-agents.ts'
 import { useRunningAgents, type RunningAgent } from './running-agents.ts'
+import { PAGE_TOP } from './screen-layout.ts'
 import { inMenu, SCREENS, type ScreenId } from './screens.ts'
 import { holdStill, useStill } from './still.ts'
 import { Trail } from './Trail.tsx'
@@ -116,9 +117,16 @@ export function ScreenMenu({ shift = 0, transition }: { shift?: number; transiti
   const row = second ?? (pill ? 'pill' : null)
   // New each time the menu draws. The second row is centered, so what the menu draws again for can move its agents.
   const drawn = {}
+  // The pages start under the menu and the trail, which sit lower while the second row shows (screen-layout.ts).
+  const menu = useRef<HTMLDivElement | null>(null)
+  const twoRows = row !== null
+  useLayoutEffect(() => {
+    menu.current?.parentElement?.style.setProperty('--page-top', `${twoRows ? PAGE_TOP.twoRows : PAGE_TOP.oneRow}px`)
+  }, [twoRows])
 
   return (
     <motion.div
+      ref={menu}
       data-screen-menu
       className="@container select-none-chrome pointer-events-none absolute inset-x-0 top-3.5 z-20 flex flex-col items-center"
       initial={false}

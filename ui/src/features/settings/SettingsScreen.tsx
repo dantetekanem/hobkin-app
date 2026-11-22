@@ -5,7 +5,7 @@ import { claudeTierName, claudeTiersOf } from '#shared/tiers/claude-code.ts'
 import { TIER_IDS, TIER_INFO, resolveTier } from '#shared/tiers/tiers.ts'
 import { TILE_KEYS } from '@/app/key-list.ts'
 import { Rise } from '@/app/Reveal.tsx'
-import { SCREEN_COLUMN, SCREEN_SCROLLER_UNDER_SECOND_ROW } from '@/app/screen-layout.ts'
+import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { originOf, setThemeChoice, useTheme, useThemeChoice, type ThemeChoice } from '@/app/theme.ts'
 import { useStops } from '@/app/stops.ts'
 import { useView } from '@/app/view-store.ts'
@@ -53,7 +53,7 @@ export function SettingsScreen() {
   return (
     <div
       ref={root}
-      className={`${SCREEN_SCROLLER_UNDER_SECOND_ROW} pb-6`}
+      className={`${SCREEN_SCROLLER} pb-6`}
     >
       <div className={`grid grid-cols-6 gap-3 @max-[820px]:grid-cols-2 ${SCREEN_COLUMN}`}>
         <DayAndNight />

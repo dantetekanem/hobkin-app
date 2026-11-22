@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import type { SkillEntry, SkillsState } from '#shared/pi-resources/wire.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
-import { SCREEN_COLUMN, SCREEN_SCROLLER_UNDER_SECOND_ROW } from '@/app/screen-layout.ts'
+import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
@@ -115,7 +115,7 @@ export function SkillsScreen() {
 
   return (
     <div ref={root} tabIndex={-1} onKeyDown={onKeyDown} className="relative h-full outline-none">
-      <div ref={scroller} inert={open !== null} className={`${SCREEN_SCROLLER_UNDER_SECOND_ROW} pb-12`}>
+      <div ref={scroller} inert={open !== null} className={`${SCREEN_SCROLLER} pb-12`}>
         {/* The page loads on demand and may arrive after the canvas has played its entrance, so it starts its own. */}
         <motion.div variants={pieces} initial="enter" animate="center" className={`flex flex-col gap-10 ${SCREEN_COLUMN}`}>
           <Hero>
