@@ -85,7 +85,7 @@ AI reviews start by themselves
 - A run that fails writes its reason (`failed.json`), so a run with progress and neither an answer nor a reason is one that was cut short. Starting it again is recorded (`restarted.json`), which is what keeps it to once for a commit. A stop the user asked for is a failure and is not started again.
 
 The review of a large change
-- A node needs the reviewer when it is high or critical, has a finding that breaks or fails a test, a dangling reference or a broken model, has an open question, is changed code of mid or high level with no test, is where the blind check disagreed, is a failed test, or is an acceptance line with a warning. It is worth a look when it is mid, unverified, of low confidence, judged from the diff alone, a test that did not run, an unproven acceptance line, or code the engine did not rate. The rest is safe. Rank goes by tier, then the weight of its reasons, then the size of its change (`shared/review/attention.ts`).
+- A node needs the reviewer when it is high or critical, has a finding that breaks or fails a test, a dangling reference or a broken model, has an open question, is where the blind check disagreed, is a failed test, or is an acceptance line with a warning. A missing test never puts a node there by itself: the engine's level already weighs it, and counting it twice would fill the top tier on a project with few tests. It is worth a look when it is mid (first among them when no test covers it), unverified, of low confidence, judged from the diff alone, a test that did not run, an unproven acceptance line, or code the engine did not rate. The rest is safe. Rank goes by tier, then the weight of its reasons, then the size of its change (`shared/review/attention.ts`).
 - A bucket never hides real code. `moved` is a rename with nothing else changed, or blocks of three lines or more that arrive whole at the same indent elsewhere. `format` is the same tokens line by line, outside strings and comments, and only in a language where spacing between tokens means nothing. In doubt the bucket is `code`. A node the engine did not rate is safe by its bucket only for generated files, lockfiles and locale files; moved, format, docs and test files it did not rate are worth a look. A node that removes lines is at least worth a look, and a removal other code still uses needs the reviewer.
 - The host puts on each node of a review what the engine found: `attention`, with a `tier` (`needs-you`, `worth-a-look` or `safe`), a `rank` within the review, and up to three `reasons` in plain words; and a `bucket` (`code`, `test`, `generated`, `lockfile`, `locale`, `moved`, `format`, `docs`). Both are optional, so an older review opens as it does today.
 - Which files get full detail is chosen by what matters (code and tests first, then by size of change), not by their order. The limit of 60 files and 4,000 lines stays.
@@ -204,16 +204,16 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A30. `ui/test/proof-kept.test.ts` › "each run keeps its tab, picked state, graph view, lens and search, and math mode and step while the app is open"
 - A31. `ui/test/proof-landing.test.ts` › "a run opened at its proof lands on the first step that failed once the run is whole, and at its break on the trace"
 - A32. `ui/test/proof-stops.test.ts` › "Up and Down reach each math block and each proof step the tree shows, in reading order"
-- A33. unproven
+- A33. `ui/test/work-row-press.test.ts` › "a click on a row presses the row, but not one on its own controls, outside it, or at the end of a text selection"; check: move the pointer over buttons, rows and cards on Work, YOLO mode, World, a project, a review and a proof, and see the pointer cursor, the hover layer and the arrow on rows that open something, and no change on what does not act.
 - A34. `scripts/perf/motion.ts`
-- A35. unproven
+- A35. `ui/test/numbers-sample.test.ts` › "the sample is the same on every read"; check: with no host running, open Work and its Numbers tab, YOLO mode, World, a project, the large sample review and a proof beside it.
 
 ## Steps
 
 - [x] S1 (A7). The numbers contract: `shared/protocol/metrics.ts` and its rates.
 - [x] S2 (A5, A6). hobkin folds its records by day, records a stop from the window and the item on each token line; the host adds the AI reviews and answers `work.metrics`.
 - [x] S3 (A1, A2, A3). The trail: one return stack, places that restore, the trail in the frame, Escape.
-- [ ] S4 (A33). The pointer and hover rule, `pressable`, the arrow on rows that open, and no hover on what does not act.
+- [x] S4 (A33). The pointer and hover rule, `pressable`, the arrow on rows that open, and no hover on what does not act.
 - [x] S5 (A19, A20, A22). The host lays attention and buckets on a review's nodes, and detail goes to what matters.
 - [x] S6 (A15, A16, A17, A18). AI reviews start by themselves: cut short, a moved branch, waiting rows, pull requests by the workload.
 - [x] S7 (A19, A20, A21, A22, A23, A25, A26). The review window: Focus, groups, the outline, seen marks, next unseen, the budget, saved at most once a second, its place kept.
@@ -223,7 +223,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - [x] S11 (A4). The project's page, and World and YOLO mode opening it.
 - [x] S12 (A8, A9). YOLO mode's trust figures, funnel and chart, and World's card.
 - [x] S13 (A24, A27). The proof beside the review and the evidence above the verdict.
-- [ ] S14 (A34, A35). Sample data for every new page, still renders in light and dark, the motion check.
+- [x] S14 (A34, A35). Sample data for every new page, still renders in light and dark, the motion check.
 
 ## Open questions
 
