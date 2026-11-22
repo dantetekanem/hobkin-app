@@ -30,7 +30,7 @@ import { StatusLine } from './StatusLine.tsx'
 import { WorkloadSheet } from './WorkloadSheet.tsx'
 import { opensWorkload, type WorkloadSetting } from './workload.ts'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
-import { bindWorldProject, runWork, useWorkUi, useWorkView } from './store.ts'
+import { runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab } from './tab.ts'
 import { useReviewList } from './use-review-list.ts'
 import { bindWorkTarget } from './work-target.ts'
@@ -59,10 +59,9 @@ export function WorkScreen() {
   useStops(main)
   const { work, live } = useWorkView()
   const worldAvailable = new Set(work?.projects.filter(project => project.state === 'chosen' && project.slug).map(project => project.slug)).size >= 3
-  useLayoutEffect(() => bindWorldProject(main.current), [])
   // An item opened from another screen, such as an issue's chip on the GitHub page, takes the keyboard as Work arrives.
   useLayoutEffect(() => bindWorkTarget(main.current), [])
-  // Coming back along the trail, the row in focus and the scroll come back too (053). After the handoffs above, which go first.
+  // Coming back along the trail, the row in focus and the scroll come back too (053). After the handoff above, which goes first.
   useKeptPlace('work', main)
   // The same agents the list under the input shows: hobkin's own with a host, the frame's sample without one.
   // A durable hobkin is the user's own and no work of hobkin's, so it is left out here (034-durable-hobkins).

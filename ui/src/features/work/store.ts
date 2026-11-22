@@ -1,7 +1,4 @@
 import { create } from 'zustand'
-import { activeCanvasScreen, requestCanvasFocus } from '@/app/focus.ts'
-import { useView } from '@/app/view-store.ts'
-import { hasHost } from '@/lib/host/frame.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { hostStore, runCommand, useHasHost, useWork } from '@/lib/host/index.ts'
 import { commandFor, executionKey, executionTargets, observeExecutionBoundary, receiptText, startupKey, startupTarget, startupReceiptText, type ExecutionControl, type ExecutionResult, type WorkAction } from './actions.ts'
@@ -45,55 +42,8 @@ export const useWorkUi = create<WorkUi>()((set, get) => ({
 
 const activeRuns = new Map<string, symbol>()
 
-let worldProject: { slug: string; source: string } | null = null
-const worldSource = () => JSON.stringify([hostStore.getState().home, hostStore.getState().epoch])
-const currentWork = () => hasHost(hostStore.getState()) ? hostStore.getState().work : useWorkUi.getState().sample
-const chosenProject = (slug: string) => currentWork()?.projects.some(project => project.slug === slug && project.state === 'chosen')
-
-/** Navigation only: a retained scene cannot target a replacement home's identically named project. */
-export function returnToWorldProject(slug: string, source: string): boolean {
-  if (useView.getState().screen !== 'world' || source !== worldSource() || !chosenProject(slug)) return false
-  worldProject = { slug, source }
-  useView.getState().openScreen('work')
-  requestCanvasFocus()
-  return true
-}
-
-/** Arriving Work consumes once, never on reload or after another navigation. */
-export function takeWorldProject(): string | null {
-  const pending = worldProject
-  worldProject = null
-  return pending && useView.getState().screen === 'work' && pending.source === worldSource() && chosenProject(pending.slug) ? pending.slug : null
-}
-
-/** Intercept only this explicit arrival before Work's ordinary first-control handoff. */
-export function bindWorldProject(root: HTMLElement | null): (() => void) | undefined {
-  const pending = worldProject
-  const slug = pending?.slug
-  const source = pending?.source
-  const section = root?.closest<HTMLElement>('[data-canvas-screen]')
-  const target = [...(root?.querySelectorAll<HTMLElement>('[data-world-project]') ?? [])].find(row => row.dataset.worldProject === slug)
-  if (!slug || !section || !target) return
-  const take = (event?: FocusEvent) => {
-    if (worldProject !== pending || source !== worldSource() || !chosenProject(slug) || useView.getState().screen !== 'work' || section !== activeCanvasScreen() || document.activeElement !== section || (event && event.target !== section)) return
-    worldProject = null
-    event?.stopImmediatePropagation()
-    target.focus({ preventScroll: true })
-    target.scrollIntoView({ block: 'nearest' })
-  }
-  section.addEventListener('focus', take)
-  take()
-  return () => section.removeEventListener('focus', take)
-}
-
-const unsubscribeWorld = useView.subscribe((state) => {
-  if (state.screen !== 'work') worldProject = null
-})
-import.meta.hot?.dispose(unsubscribeWorld)
-
 const unsubscribeHost = hostStore.subscribe((state, previous) => {
   if (state.home === previous.home && state.epoch === previous.epoch && state.link === previous.link) {
-    if (worldProject && !chosenProject(worldProject.slug)) worldProject = null
     const target = state.owner?.startup?.target
     if (!state.owner?.startup || (target && startupKey(target) !== startupKey(previous.owner?.startup?.target ?? null))) {
       startupAttempt = null
@@ -134,7 +84,6 @@ const unsubscribeHost = hostStore.subscribe((state, previous) => {
   latestExecution.clear()
   activeRuns.clear()
   useExecution.setState({ pending: {}, results: {} })
-  worldProject = null
   const { busy, said } = useWorkUi.getState()
   if (Object.keys(busy).length || Object.keys(said).length) useWorkUi.setState({ busy: {}, said: {} })
 })
