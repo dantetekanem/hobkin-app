@@ -204,3 +204,19 @@ test("the tile's switch still sends every tier, with the tile's model unless the
   await none.run({ ...work, id: 'do', purpose: 'work-do' }, {})
   assert.deepEqual([none.calls.map((call) => call.harness), none.lookups], [['pi'], []])
 })
+
+test("a work run whose request names its tier goes by that tier, whatever its project's level says", async () => {
+  const settings = { ...CLAUDE_CODE_DEFAULTS, tiers: { high: { model: 'opus', effort: 'xhigh' } } satisfies ClaudeTiers }
+  const record: Record<string, RunFacts> = { w1: { scheduleId: 'work.shop.do', title: 'Shop: Fix the login', work: { slug: 'shop', lane: 'do', item: 'i1' } } }
+  // The project's level would give this run mid, which is not on Claude Code.
+  const levelSays = (): TierId | null => 'mid'
+
+  const named = router(settings, record, '/usr/local/bin/claude', levelSays)
+  await named.run({ ...work, id: 'w1', tier: 'high' }, {})
+  assert.deepEqual(named.calls.map((call) => [call.harness, call.launch?.settings.model]), [['claude', 'opus']])
+
+  // A runtime from before sends no tier, and the run still goes by its project's level.
+  const older = router(settings, record, '/usr/local/bin/claude', levelSays)
+  await older.run({ ...work, id: 'w1' }, {})
+  assert.deepEqual(older.calls.map((call) => call.harness), ['pi'])
+})

@@ -30,6 +30,8 @@ export interface ClaudeHarnessRequest {
   /** The Claude session an earlier turn of a durable hobkin started. Claude continues it instead of starting one. */
   resume?: string
   effort?: string
+  /** The tier the run's model came from, one of fast, mid, high and max, for a Work run or a delegated job. */
+  tier?: string
   purpose?: string
   /** The routine a scheduled run belongs to, when hobkin names it. */
   scheduleId?: string

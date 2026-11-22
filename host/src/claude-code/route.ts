@@ -32,7 +32,10 @@ export interface HarnessRoute {
   claude: (request: Record<string, unknown>, options: unknown, launch: ClaudeLaunch) => Promise<unknown>
   /** The settings, with the tiers on Claude Code when the host keeps any. */
   settings: () => ClaudeCodeSettings & { tiers?: ClaudeTiers }
-  /** The tier of a Work run, read from hobkin's data root, which hobkin passes each run as `metricsRoot`. */
+  /**
+   * The tier of a Work run from a runtime before Work runs named their tier, worked out from hobkin's data root, which
+   * hobkin passes each run as `metricsRoot`.
+   */
   workTier?: (run: RunFacts, root: string | undefined) => TierId | null
   findClaude: () => string | null
   /** hobkin's record of the running run with this harness id. Looking for it gives up once the run is stopped. */
@@ -78,9 +81,13 @@ const rootOf = (options: unknown): string | undefined => {
   return typeof root === 'string' ? root : undefined
 }
 
-/** The tier a run runs at: the one its record names, or for a Work run the one Work gives it. Null for none. */
-const tierOf = (run: RunFacts, root: string | undefined, workTier: HarnessRoute['workTier']): TierId | null =>
-  oneOf(TIER_IDS, run.tier) ?? workTier?.(run, root) ?? null
+/**
+ * The tier a run runs at: the one its request or its record names, as hobkin gives every Work run and delegated job its
+ * tier. A runtime from before named none for a Work run, so for it the tier is worked out from the project's level
+ * (`workTier`). Null for a run on no tier, such as one that finds projects.
+ */
+const tierOf = (request: Record<string, unknown>, run: RunFacts, root: string | undefined, workTier: HarnessRoute['workTier']): TierId | null =>
+  oneOf(TIER_IDS, request.tier) ?? oneOf(TIER_IDS, run.tier) ?? workTier?.(run, root) ?? null
 
 /** Names and values that are all text, as an environment is. */
 const isEnv = (value: unknown): value is Record<string, string> =>
@@ -143,7 +150,7 @@ export function routeHarness(route: HarnessRoute): Harness {
 
     // A run at a tier on Claude Code runs there with the tier's model and level, whatever the tile's switches say. A kind
     // the tile switches on runs there at every tier, with the tile's model unless its tier names its own.
-    const tier = someTierOnClaude && run ? tierOf(run, rootOf(options), route.workTier) : null
+    const tier = someTierOnClaude && run ? tierOf(request, run, rootOf(options), route.workTier) : null
     const tierOnClaude = tier ? tiers[tier] : undefined
     const kindSwitchedOn = settings.enabled && settings.kinds[kind]
     if (!tierOnClaude && !kindSwitchedOn) return route.pi(request, options)
