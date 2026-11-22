@@ -8,10 +8,12 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useDragEdge } from '@/app/drag-edge.ts'
 import { spring } from '@/lib/motion.ts'
+import { cn } from '@/lib/utils.ts'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import type { Size } from '../story/camera.ts'
 import type { VerdictCommands } from '../verdict.ts'
 import { Actions } from './Actions.tsx'
+import { Evidence } from './Evidence.tsx'
 import type { AskCommand } from './ask.ts'
 import { MENU, PanelHeader } from './Header.tsx'
 import { NoteButton, NoteRow } from './notes.tsx'
@@ -182,7 +184,9 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
           </section>
 
           <div className="flex flex-col gap-2.5 border-t border-border px-4 pt-3.5 pb-4">
-            <h3 className={HEADING}>Verdict</h3>
+            {/* What the verdict rests on, right above it (spec 053). */}
+            <Evidence assessment={chrome.assessment} status={chrome.preparation?.assessment} parts={matters.units} heading={HEADING} />
+            <h3 className={cn(HEADING, 'mt-1')}>Verdict</h3>
             <Actions review={review} notes={notes} live={chrome.live} verdict={chrome.verdict} saveNotes={chrome.saveNotes} status={chrome.preparation} ask={ask} {...(chrome.landed ? { landed: chrome.landed } : {})} />
           </div>
 
