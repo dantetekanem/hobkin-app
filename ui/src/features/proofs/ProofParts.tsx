@@ -2,9 +2,11 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { runCommand } from '@/lib/host/index.ts'
+import { useViewer } from '@/features/viewer/store.ts'
+import { runCommand, useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
+import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { failureAt, failureLine, failuresOf, land, stepFailure } from './failures.ts'
 import { keep, keptOf, useKept, type ProofTab } from './kept.ts'
 import { focusPart } from './ProofBody.tsx'
@@ -21,6 +23,24 @@ import { positionWords, siblingAt } from './siblings.ts'
 
 /** Goes to another run: a sibling, or the run Run again started, which takes the place of `replaces` among them. */
 export type MoveTo = (id: string, replaces?: string) => void
+
+/** Opens an action's code in the app's own viewer, from the folder an agent of the run's item worked in, when hobkin says. */
+export function useCodeOpener(run: ProofRun | null): ((where: string) => void) | null {
+  const agents = useHost((state) => state.snapshot.runs)
+  const folder = run ? folderOf(run, agents ?? []) : null
+  if (!folder) return null
+  return (where) => {
+    const path = where.replace(/:\d+$/, '')
+    useViewer.getState().openFile(`${folder}/${path}`)
+  }
+}
+
+/** The folder an agent worked on the run's item in, as a full path. Null for a run of no item, or when no agent says. */
+function folderOf(run: Pick<ProofRun, 'project' | 'item'>, agents: readonly RunSummary[]): string | null {
+  if (!run.project || !run.item) return null
+  const agent = agents.findLast(({ work, cwd }) => work?.slug === run.project && work?.item === run.item && cwd?.startsWith('/'))
+  return agent?.cwd?.replace(/\/$/, '') ?? null
+}
 
 /** Stop while it checks, Run again once it ended, and what hobkin said to the last press. */
 export function useRunControl(run: ProofRun, live: boolean, onMove: MoveTo) {

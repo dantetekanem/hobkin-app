@@ -31,6 +31,8 @@ export interface ProofBodyProps {
   /** Shows a part: its tab in tabs, and side by side the keyboard goes to it. */
   onPart: (part: ProofTab) => void
   onCode: ((where: string) => void) | null
+  /** In a panel beside another page, the Math tab leads with the proof tree, as side by side does. */
+  panel?: boolean
 }
 
 /**
@@ -38,7 +40,7 @@ export interface ProofBodyProps {
  * graph at the left and the math with the proof tree at the right, then the rest of the run. In tabs, Run, State graph
  * and Math show one at a time, as they always have. Only what shows is mounted, and every card keeps its height.
  */
-export function ProofBody({ run, now, layout, tabsId, onPart, onCode }: ProofBodyProps) {
+export function ProofBody({ run, now, layout, tabsId, onPart, onCode, panel = false }: ProofBodyProps) {
   // The tab is drawn deferred: should the graph's code still be on its way, the tab shown stays until it is there.
   const tab = useDeferredValue(useKept(run.id, 'tab'))
 
@@ -66,21 +68,21 @@ export function ProofBody({ run, now, layout, tabsId, onPart, onCode }: ProofBod
       <PageTabs id={tabsId} label="Proof run views" tabs={TABS} value={tab} onChoose={(next) => keep(run.id, { tab: next })} />
       <div role="tabpanel" id={`${tabsId}-panel-${tab}`} aria-labelledby={`${tabsId}-tab-${tab}`}>
         <Suspense fallback={GRAPH_ROOM}>
-          <TabPanel tab={tab} run={run} now={now} onPart={onPart} onCode={onCode} />
+          <TabPanel tab={tab} run={run} now={now} onPart={onPart} onCode={onCode} panel={panel} />
         </Suspense>
       </div>
     </>
   )
 }
 
-function TabPanel({ tab, run, now, onPart, onCode }: Pick<ProofBodyProps, 'run' | 'now' | 'onPart' | 'onCode'> & { tab: ProofTab }) {
+function TabPanel({ tab, run, now, onPart, onCode, panel = false }: Pick<ProofBodyProps, 'run' | 'now' | 'onPart' | 'onCode' | 'panel'> & { tab: ProofTab }) {
   switch (tab) {
     case 'run':
       return <RunView run={run} now={now} zone={ZONE} onTab={onPart} onCode={onCode} />
     case 'graph':
       return <GraphView run={run} onCode={onCode} />
     case 'math':
-      return <MathView run={run} />
+      return <MathView run={run} proofFirst={panel} />
   }
 }
 

@@ -6,16 +6,14 @@ import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
 import { Button } from '@/components/ui/button.tsx'
-import { useViewer } from '@/features/viewer/store.ts'
 import { useWorkView } from '@/features/work/store.ts'
 import { useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
-import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { useProofMemory } from './kept.ts'
 import { openRunAmong } from './open-run.ts'
 import { loadGraphView, ProofBody, useBoxLayout } from './ProofBody.tsx'
-import { ProofKeyHints, RunFacts, showPart, useLanding, useProofKeys, useRunControl, type MoveTo } from './ProofParts.tsx'
+import { ProofKeyHints, RunFacts, showPart, useCodeOpener, useLanding, useProofKeys, useRunControl, type MoveTo } from './ProofParts.tsx'
 import type { ProofLayout } from './proof-layout.ts'
 import { itemTitle, placeOf, specFile } from './proof-match.ts'
 import './proofs.css'
@@ -165,22 +163,4 @@ function BackRow() {
       <BackButton />
     </header>
   )
-}
-
-/** Opens an action's code in the app's own viewer, from the folder an agent of the run's item worked in, when hobkin says. */
-function useCodeOpener(run: ProofRun | null): ((where: string) => void) | null {
-  const agents = useHost((state) => state.snapshot.runs)
-  const folder = run ? folderOf(run, agents ?? []) : null
-  if (!folder) return null
-  return (where) => {
-    const path = where.replace(/:\d+$/, '')
-    useViewer.getState().openFile(`${folder}/${path}`)
-  }
-}
-
-/** The folder an agent worked on the run's item in, as a full path. Null for a run of no item, or when no agent says. */
-function folderOf(run: Pick<ProofRun, 'project' | 'item'>, agents: readonly RunSummary[]): string | null {
-  if (!run.project || !run.item) return null
-  const agent = agents.findLast(({ work, cwd }) => work?.slug === run.project && work?.item === run.item && cwd?.startsWith('/'))
-  return agent?.cwd?.replace(/\/$/, '') ?? null
 }
