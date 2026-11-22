@@ -43,14 +43,31 @@ export type OutlineItem =
 const isPart = (node: ReviewNode) => node.kind !== 'criterion' && !(node.kind === 'context' && node.change === 'unchanged')
 
 function rowOf(node: ReviewNode): OutlineRow {
-  return { id: node.id, title: node.title, path: node.subtitle ?? '', kind: node.kind, additions: node.stats?.additions ?? 0, deletions: node.stats?.deletions ?? 0 }
+  return {
+    id: node.id,
+    title: node.title,
+    path: node.subtitle ?? '',
+    kind: node.kind,
+    additions: node.stats?.additions ?? 0,
+    deletions: node.stats?.deletions ?? 0,
+  }
+}
+
+/** The nodes in the host's rank order, unrated last, each rank in the review's own order. */
+function byRank(nodes: readonly ReviewNode[]): ReviewNode[] {
+  const rankOf = (node: ReviewNode) => node.attention?.rank ?? Infinity
+  return nodes
+    .map((node, index) => ({ node, index }))
+    .sort((a, b) => rankOf(a.node) - rankOf(b.node) || a.index - b.index)
+    .map(({ node }) => node)
 }
 
 /** The outline of a review as its view draws it: the groups are the graph's own. */
 export function outlineOf(review: Pick<Review, 'nodes'>, view: Pick<ReviewView, 'groupOf' | 'plan'>): OutlineSection[] {
   const parts = review.nodes.filter(isPart)
   if (!view.plan.active) return [{ id: 'all', title: 'In this change', rows: parts.map(rowOf), groups: [] }]
-  const ranked = parts.map((node, index) => ({ node, index })).sort((a, b) => (a.node.attention?.rank ?? Infinity) - (b.node.attention?.rank ?? Infinity) || a.index - b.index).map(({ node }) => node)
+
+  const ranked = byRank(parts)
   const needsYou = ranked.filter((node) => node.attention?.tier === 'needs-you')
   // What the host did not rate is drawn as a card, as what is worth a look is, and listed after it.
   const worth = ranked.filter((node) => node.attention?.tier === 'worth-a-look' || node.attention == null)
@@ -62,8 +79,13 @@ export function outlineOf(review: Pick<Review, 'nodes'>, view: Pick<ReviewView, 
   }
   const groups = view.plan.order
     .filter((id) => view.plan.groups[id]!.standing === 'safe')
-    .map((id) => ({ id, label: view.plan.groups[id]!.label, rows: safe.filter((node) => groupOf(node) === id).map(rowOf) }))
+    .map((id) => ({
+      id,
+      label: view.plan.groups[id]!.label,
+      rows: safe.filter((node) => groupOf(node) === id).map(rowOf),
+    }))
     .filter((group) => group.rows.length > 0)
+
   return [
     { id: 'needs-you', title: 'Needs you', rows: needsYou.map(rowOf), groups: [] },
     { id: 'worth-a-look', title: 'Worth a look', rows: worth.map(rowOf), groups: [] },
@@ -77,10 +99,11 @@ export function filterOutline(sections: readonly OutlineSection[], query: string
   if (words.length === 0) return [...sections]
   const matches = (text: string) => words.every((word) => text.toLowerCase().includes(word))
   const keep = (rows: readonly OutlineRow[]) => rows.filter((row) => matches(`${row.title} ${row.path}`))
+  const keepGroup = (group: OutlineGroup) => (matches(group.label) ? group : { ...group, rows: keep(group.rows) })
   return sections.map((section) => ({
     ...section,
     rows: keep(section.rows),
-    groups: section.groups.map((group) => (matches(group.label) ? group : { ...group, rows: keep(group.rows) })).filter((group) => group.rows.length > 0),
+    groups: section.groups.map(keepGroup).filter((group) => group.rows.length > 0),
   }))
 }
 

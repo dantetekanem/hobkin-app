@@ -7,6 +7,7 @@ import { dur, ease, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useRig, useSession, useSessionStore } from '../state/context.tsx'
 import { drawnAs } from '../state/session.ts'
+import { uncoveredMiddle } from '../story/useCamera.ts'
 import { findNodes, type FinderHit } from './finder.ts'
 import { KIND } from './kinds.tsx'
 
@@ -36,7 +37,7 @@ function FinderBox() {
   const hits = useMemo(() => findNodes(nodes, query, 8), [nodes, query])
   const chosen = hits[Math.min(active, hits.length - 1)]
   // It stays in the middle of what the steps panel, the outline and the proof leave uncovered, under the frame's menu.
-  const place = useTransform(() => `translateX(${(rig.side.get() + rig.outline.get() - rig.proof.get()) / 2}px)`)
+  const place = useTransform(() => `translateX(${uncoveredMiddle(rig)}px)`)
 
   useLayoutEffect(() => field.current?.focus({ preventScroll: true }), [])
   // The node the keyboard is on lights up in the graph, with its wires and neighbors: a folded test, its card.

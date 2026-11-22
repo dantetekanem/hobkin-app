@@ -51,10 +51,16 @@ function testsLine(nodes: EvidenceFacts['nodes']): EvidenceLine {
     failed.length ? counted(failed.length, 'fails', 'fail') : null,
     unran.length ? `${unran.length} did not run` : null,
   ])
-  const tone: Tone = failed.length ? 'bad' : unran.length ? (passed.length ? 'warn' : 'quiet') : 'ok'
+  const tone = testsTone(passed.length, failed.length, unran.length)
   // A test that failed is the one to read first, then one that did not run.
   const first = failed[0] ?? unran[0] ?? passed[0]!
   return { key: 'tests', label: 'Tests', text, tone, opens: { to: 'node', id: first.id } }
+}
+
+function testsTone(passed: number, failed: number, unran: number): Tone {
+  if (failed) return 'bad'
+  if (!unran) return 'ok'
+  return passed ? 'warn' : 'quiet'
 }
 
 function answerLine({ assessment, status, parts }: EvidenceFacts): EvidenceLine {
@@ -63,13 +69,20 @@ function answerLine({ assessment, status, parts }: EvidenceFacts): EvidenceLine 
   if (badge.kind === 'reviewing') return line(badge.now === 'Waiting for its turn' ? badge.now : badge.label, 'live')
   if (badge.kind === 'failed') return line('Stopped before its answer', 'warn')
   if (badge.kind === 'none') return line('No answer yet', 'quiet')
+
   const summary = assessment?.summary ?? (status?.state === 'ready' ? status.summary : undefined)
   const needs = summary?.needsYou ?? 0
-  const first = parts.find((part) => part.level === 'high' && (part.step != null || part.node != null))
-  const opens: EvidenceOpens | null = !needs || !first ? null : first.step != null ? { to: 'step', index: first.step } : { to: 'node', id: first.node! }
+  const risky = badge.deploy === 'risky'
   // The header says "Risky to deploy" in full right above: here the line keeps to a narrow panel's width.
-  const text = `${badge.deploy === 'risky' ? 'Risky' : 'Safe'} · ${needs ? `${counted(needs, 'part needs', 'parts need')} you` : 'nothing needs you'}`
-  return line(text, badge.deploy === 'risky' ? 'bad' : 'ok', opens)
+  const needing = needs ? `${counted(needs, 'part needs', 'parts need')} you` : 'nothing needs you'
+  return line(`${risky ? 'Risky' : 'Safe'} · ${needing}`, risky ? 'bad' : 'ok', needs ? firstPartOpens(parts) : null)
+}
+
+/** Where the first part that needs a look goes: its step, else its node. Null when none goes anywhere. */
+function firstPartOpens(parts: EvidenceFacts['parts']): EvidenceOpens | null {
+  const first = parts.find((part) => part.level === 'high' && (part.step != null || part.node != null))
+  if (!first) return null
+  return first.step != null ? { to: 'step', index: first.step } : { to: 'node', id: first.node! }
 }
 
 function modelsLine(models: EvidenceFacts['models']): EvidenceLine {
@@ -89,8 +102,17 @@ function modelsLine(models: EvidenceFacts['models']): EvidenceLine {
           checking ? `${checking} still checking` : null,
           unchecked ? `${unchecked} not checked` : null,
         ])
-  const tone: Tone = fail ? 'bad' : checking ? 'live' : hold === 0 ? 'quiet' : unchecked || of('warn') ? 'warn' : 'ok'
+  const tone = modelsTone({ hold, fail, checking, unchecked, warned: of('warn') })
   return line(text, tone, models.some((model) => model.run) ? { to: 'proof' } : null)
+}
+
+/** A failure first, then a check still running; a model that holds with a warning, or one not checked, is a warning. */
+function modelsTone(counts: { hold: number; fail: number; checking: number; unchecked: number; warned: number }): Tone {
+  if (counts.fail) return 'bad'
+  if (counts.checking) return 'live'
+  if (counts.hold === 0) return 'quiet'
+  if (counts.unchecked || counts.warned) return 'warn'
+  return 'ok'
 }
 
 /** How many of the nodes that need the reviewer are not seen yet. */

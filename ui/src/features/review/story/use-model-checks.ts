@@ -10,7 +10,11 @@ import { changedModels, modelLines, modelsIn, reviewedChange, reviewModelRows, t
  * With no host, the sample review stands for the sample proofs' change at the commit whose model breaks, so the proof
  * beside the review and the evidence above the verdict show with sample data.
  */
-const SAMPLE: ReviewedChange = { project: SAMPLE_RUNS.proofFails.project!, item: SAMPLE_RUNS.proofFails.item!, head: SAMPLE_RUNS.proofFails.head! }
+const SAMPLE: ReviewedChange = {
+  project: SAMPLE_RUNS.proofFails.project!,
+  item: SAMPLE_RUNS.proofFails.item!,
+  head: SAMPLE_RUNS.proofFails.head!,
+}
 
 /**
  * What TLC said at the reviewed head of each model in focus, from the `proofs` slice, so a check that runs moves on the

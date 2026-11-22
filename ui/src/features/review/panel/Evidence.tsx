@@ -15,6 +15,14 @@ const WORDS: Readonly<Record<Tone, string>> = { ok: 'text-foreground', bad: 'tex
 /** The key that does what a line's click does, where there is one. */
 const KEY: Partial<Record<EvidenceLine['key'], string>> = { models: 'T', seen: 'U' }
 
+interface EvidenceProps {
+  assessment: Pick<ChangeAssessment, 'summary'> | null
+  status: AssessmentStatus | null | undefined
+  parts: EvidenceFacts['parts']
+  /** The class of its heading, the panel's own. */
+  heading: string
+}
+
 /**
  * The evidence for the verdict, right above it (053-work-control-room): the tests, the AI review's answer, the models and
  * proofs, and how many of the nodes that need the reviewer are seen, one line each. A line with something to open is a
@@ -22,12 +30,7 @@ const KEY: Partial<Record<EvidenceLine['key'], string>> = { models: 'T', seen: '
  * next node not seen. A line with nothing to open is plain text. Each line keeps its height and its place as the
  * evidence comes in. It reads the seen marks on its own, so a move through the review draws only this again.
  */
-export function Evidence({ assessment, status, parts, heading }: {
-  assessment: Pick<ChangeAssessment, 'summary'> | null
-  status: AssessmentStatus | null | undefined
-  parts: EvidenceFacts['parts']
-  heading: string
-}) {
+export function Evidence({ assessment, status, parts, heading }: EvidenceProps) {
   const store = useSessionStore()
   const nodes = useSession((session) => session.review.nodes)
   const seen = useSession((session) => session.seen)
@@ -48,7 +51,7 @@ export function Evidence({ assessment, status, parts, heading }: {
       <h3 className={heading}>Evidence</h3>
       <ul className="-mx-2 flex flex-col">
         {lines.map((line) => {
-          const parts = (
+          const content = (
             <>
               <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', DOT[line.tone])} />
               <span className="shrink-0 text-[13.5px] text-muted-foreground">{line.label}</span>
@@ -68,13 +71,13 @@ export function Evidence({ assessment, status, parts, heading }: {
                   onClick={() => open(opens)}
                   className="pressable flex h-8 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left"
                 >
-                  {parts}
+                  {content}
                   {key ? <Kbd>{key}</Kbd> : null}
                   <OpenArrow />
                 </button>
               ) : (
                 <div className="flex h-8 min-w-0 items-center gap-2 px-2" title={`${line.label}: ${line.text}`}>
-                  {parts}
+                  {content}
                 </div>
               )}
             </li>

@@ -90,7 +90,13 @@ function OutlineBody({ onClose }: { onClose: () => void }) {
   const current = useMemo(() => new Set(focus), [focus])
 
   // Before it is measured, the list is taken to be a screen tall, so its first rows are there on the first paint.
-  const virtual = useVirtualizer({ count: items.length, getScrollElement: () => scroller.current, estimateSize: (index) => LINE[items[index]!.kind], overscan: 8, initialRect: { width: OUTLINE.width, height: 720 } })
+  const virtual = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scroller.current,
+    estimateSize: (index) => LINE[items[index]!.kind],
+    overscan: 8,
+    initialRect: { width: OUTLINE.width, height: 720 },
+  })
   useEffect(() => setActive(0), [query])
   useEffect(() => {
     if (chosen != null) virtual.scrollToIndex(chosen, { align: 'auto' })
@@ -136,7 +142,8 @@ function OutlineBody({ onClose }: { onClose: () => void }) {
             event.stopPropagation()
             if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
               event.preventDefault()
-              setActive((at) => Math.max(0, Math.min(choosable.length - 1, at + (event.key === 'ArrowDown' ? 1 : -1))))
+              const delta = event.key === 'ArrowDown' ? 1 : -1
+              setActive((at) => Math.max(0, Math.min(choosable.length - 1, at + delta)))
             } else if (event.key === 'Enter') {
               event.preventDefault()
               choose(chosen == null ? undefined : items[chosen])
@@ -159,9 +166,23 @@ function OutlineBody({ onClose }: { onClose: () => void }) {
                 {item.kind === 'heading' ? (
                   <Heading section={item.section} seen={seen} />
                 ) : item.kind === 'group' ? (
-                  <GroupLine name={item.group.label} rows={item.group.rows} open={item.open} seen={seen} active={line.index === chosen} onChoose={() => toggle(item.group.id)} />
+                  <GroupLine
+                    name={item.group.label}
+                    rows={item.group.rows}
+                    open={item.open}
+                    seen={seen}
+                    active={line.index === chosen}
+                    onChoose={() => toggle(item.group.id)}
+                  />
                 ) : (
-                  <RowLine row={item.row} nested={item.group != null} seen={seen.has(item.row.id)} current={current.has(drawnAs(view, item.row.id))} active={line.index === chosen} onChoose={() => store.getState().reach(item.row.id)} />
+                  <RowLine
+                    row={item.row}
+                    nested={item.group != null}
+                    seen={seen.has(item.row.id)}
+                    current={current.has(drawnAs(view, item.row.id))}
+                    active={line.index === chosen}
+                    onChoose={() => store.getState().reach(item.row.id)}
+                  />
                 )}
               </div>
             )
@@ -176,7 +197,9 @@ function OutlineBody({ onClose }: { onClose: () => void }) {
 function Heading({ section, seen }: { section: OutlineSection; seen: ReadonlySet<string> }) {
   const rows = [...section.rows, ...section.groups.flatMap((group) => group.rows)]
   const done = rows.filter((row) => seen.has(row.id)).length
-  const said = section.id === 'safe' && section.groups.length > 0 ? `${count(rows.length)} in ${section.groups.length} ${section.groups.length === 1 ? 'group' : 'groups'}` : `${count(done)} of ${count(rows.length)} seen`
+  const groups = section.groups.length
+  const inGroups = section.id === 'safe' && groups > 0
+  const said = inGroups ? `${count(rows.length)} in ${groups} ${groups === 1 ? 'group' : 'groups'}` : `${count(done)} of ${count(rows.length)} seen`
   return (
     <h3 className="flex h-full items-end gap-2 px-2.5 pb-1.5">
       <span className="font-heading text-[12px] font-semibold tracking-[0.06em] text-muted-foreground uppercase">{section.title}</span>
@@ -189,7 +212,17 @@ function Heading({ section, seen }: { section: OutlineSection; seen: ReadonlySet
 
 const LINE_CLASS = 'pressable flex h-full w-full min-w-0 items-center gap-2 rounded-lg px-2.5 text-left'
 
-function GroupLine({ name, rows, open, seen, active, onChoose }: { name: string; rows: readonly OutlineRow[]; open: boolean; seen: ReadonlySet<string>; active: boolean; onChoose: () => void }) {
+interface GroupLineProps {
+  name: string
+  rows: readonly OutlineRow[]
+  open: boolean
+  seen: ReadonlySet<string>
+  /** The arrows chose it. */
+  active: boolean
+  onChoose: () => void
+}
+
+function GroupLine({ name, rows, open, seen, active, onChoose }: GroupLineProps) {
   const done = rows.filter((row) => seen.has(row.id)).length
   const Chevron = open ? ChevronDown : ChevronRight
   return (
@@ -204,7 +237,19 @@ function GroupLine({ name, rows, open, seen, active, onChoose }: { name: string;
   )
 }
 
-function RowLine({ row, nested, seen, current, active, onChoose }: { row: OutlineRow; nested: boolean; seen: boolean; current: boolean; active: boolean; onChoose: () => void }) {
+interface RowLineProps {
+  row: OutlineRow
+  /** Listed inside an open group. */
+  nested: boolean
+  seen: boolean
+  /** The graph's focus is on it now. */
+  current: boolean
+  /** The arrows chose it. */
+  active: boolean
+  onChoose: () => void
+}
+
+function RowLine({ row, nested, seen, current, active, onChoose }: RowLineProps) {
   return (
     <button
       type="button"

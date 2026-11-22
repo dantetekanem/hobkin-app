@@ -31,8 +31,12 @@ function crowded(): Review {
 const review = crowded()
 const open = () => createSession(review, createReviewMemory())
 const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
-const needsYou = review.nodes.filter((node) => node.attention?.tier === 'needs-you').sort((a, b) => a.attention!.rank - b.attention!.rank).map((node) => node.id)
+const needsYou = review.nodes
+  .filter((node) => node.attention?.tier === 'needs-you')
+  .sort((a, b) => a.attention!.rank - b.attention!.rank)
+  .map((node) => node.id)
 const drawn = (session: ReturnType<typeof open>, id: string) => session.getState().view.nodes.some((node) => node.id === id)
+const pressU = (session: ReturnType<typeof open>) => pressKey(session.getState(), { key: 'u', shift: false, alt: false }, keys)
 
 test('a change with more cards than the budget folds the rest, and keeps room for any group to open', () => {
   const session = open()
@@ -66,7 +70,7 @@ test('U walks every node that needs the reviewer in turn, the folded ones too, a
   const session = open()
   const visited: string[] = []
   for (let press = 0; press < needsYou.length; press += 1) {
-    pressKey(session.getState(), { key: 'u', shift: false, alt: false }, keys)
+    pressU(session)
     const [focused] = session.getState().focus
     assert.equal(session.getState().focus.length, 1)
     assert.equal(isFoldGroup(focused!), false)
@@ -82,7 +86,7 @@ test('U from a group card goes to the first node that needs the reviewer, the gr
   // Every node that needs the reviewer and is drawn is seen: what is left is in the group.
   for (const id of needsYou) if (!plan.groupOf[id]) session.getState().toggleSeen(id)
   session.getState().focusOn(more)
-  pressKey(session.getState(), { key: 'u', shift: false, alt: false }, keys)
+  pressU(session)
   assert.deepEqual(session.getState().focus, [plan.groups[more]!.members[0]])
 })
 
@@ -93,7 +97,7 @@ test('one Escape closes every group open, those the outline, U or a kept place o
   for (const group of groups) session.getState().reach(group.members.at(-1)!)
   // What needs the reviewer and is drawn is seen, so U goes into the group of those that did not fit.
   for (const id of needsYou) if (!plan.groupOf[id]) session.getState().toggleSeen(id)
-  for (let press = 0; press < 5; press += 1) pressKey(session.getState(), { key: 'u', shift: false, alt: false }, keys)
+  for (let press = 0; press < 5; press += 1) pressU(session)
   assert.equal(session.getState().view.plan.open.length, 4, 'the outline and U opened four groups by themselves')
   const before = session.getState().focus
 

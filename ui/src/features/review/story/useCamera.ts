@@ -51,6 +51,14 @@ export interface CameraRig {
 
 const close = (a: number, b: number, by = 0.01) => Math.abs(a - b) < by
 
+/**
+ * How far right of the canvas's middle the middle of what the steps panel, the outline and the proof leave uncovered
+ * is, as they are on screen. What floats over the graph centers on it.
+ */
+export function uncoveredMiddle(rig: Pick<CameraRig, 'side' | 'outline' | 'proof'>): number {
+  return (rig.side.get() + rig.outline.get() - rig.proof.get()) / 2
+}
+
 export function useCamera(): CameraRig {
   const flow = useReactFlow()
   const x = useMotionValue(0)
@@ -77,7 +85,13 @@ export function useCamera(): CameraRig {
     const lean = rideOffset(ride?.curve ?? null, ride?.reversed ?? false, progress.get())
     const fade = carry.get()
     const camera = { x: x.get() + lean.x + carried.x * fade, y: y.get() + lean.y + carried.y * fade, zoom: zoom.get() }
-    return viewportFor(camera, uncoveredArea(canvas, { top: cover.top, bottom: cover.bottom + panel.get(), left: side.get() + outline.get(), right: proof.get() }))
+    const uncovered = uncoveredArea(canvas, {
+      top: cover.top,
+      bottom: cover.bottom + panel.get(),
+      left: side.get() + outline.get(),
+      right: proof.get(),
+    })
+    return viewportFor(camera, uncovered)
   })
 
   useMotionValueEvent(viewport, 'change', (next) => {

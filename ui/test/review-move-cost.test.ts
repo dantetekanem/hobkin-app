@@ -32,10 +32,19 @@ function handClock() {
   }
 }
 
+/** A storage that holds nothing and hands each write it is given to `record`. */
+function recording(record: (value: string) => void) {
+  return {
+    getItem: () => null,
+    setItem: (_name: string, value: string) => void record(value),
+    removeItem: () => {},
+  }
+}
+
 test('moving through 50 steps turns no memory into text on a move: it is written at most once a second, and the review\'s close writes the last place', () => {
   const clock = handClock()
   const writes: { at: number; value: string }[] = []
-  const memory = createReviewMemory({ getItem: () => null, setItem: (_name, value) => void writes.push({ at: clock.now(), value }), removeItem: () => {} }, { every: 1000, clock })
+  const memory = createReviewMemory(recording((value) => writes.push({ at: clock.now(), value })), { every: 1000, clock })
   const session = createSession(large, memory)
   const steps = session.getState().view.story.length
   // Every time the memory is turned into text is counted: that is what grows with every review kept.
@@ -101,7 +110,7 @@ test('a move works out the levels of its focus once', () => {
 test('a note or a draft is written at once, while the place and the seen marks wait for their second', () => {
   const clock = handClock()
   const writes: string[] = []
-  const memory = createReviewMemory({ getItem: () => null, setItem: (_name, value) => void writes.push(value), removeItem: () => {} }, { every: 1000, clock })
+  const memory = createReviewMemory(recording((value) => writes.push(value)), { every: 1000, clock })
   const review = large
   const saved = () => JSON.parse(writes.at(-1)!).state.reviews[memoryKey(review)] as { notes: { op: string }[]; draft: { text: string } | null; progress: unknown }
   memory.getState().saveProgress(review, { step: 'outcome', seen: [], revealed: [] })

@@ -20,6 +20,7 @@ import { StepBody, type CardGraph } from './StepBody.tsx'
 import { CardBody, type CardContent } from './StepCard.tsx'
 import { offPath } from './story.ts'
 import { wireEnds } from './travel.ts'
+import { uncoveredMiddle } from './useCamera.ts'
 import { ratingGap } from './words.ts'
 
 /** How wide the text beside the whole graph is, for a canvas of a given width. */
@@ -373,7 +374,7 @@ function Card({ placement, children }: { placement: Placement; children: ReactNo
 function BackPill({ show, step, onBack }: { show: boolean; step: number; onBack: () => void }) {
   const rig = useRig()
   // Above the step pager, in the middle of what the steps panel, the outline and the proof leave uncovered.
-  const lift = useTransform(() => `translateX(calc(-50% + ${(rig.side.get() + rig.outline.get() - rig.proof.get()) / 2}px)) translateY(${-rig.panel.get()}px)`)
+  const lift = useTransform(() => `translateX(calc(-50% + ${uncoveredMiddle(rig)}px)) translateY(${-rig.panel.get()}px)`)
   return (
     <AnimatePresence>
       {show ? (

@@ -11,7 +11,10 @@ const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/re
 const large = largeReview().review
 const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
 const press = (session: ReturnType<typeof createSession>, key: string, shift = false) => pressKey(session.getState(), { key, shift, alt: false }, keys)
-const needsYou = large.nodes.filter((node) => node.attention?.tier === 'needs-you').sort((a, b) => a.attention!.rank - b.attention!.rank).map((node) => node.id)
+const needsYou = large.nodes
+  .filter((node) => node.attention?.tier === 'needs-you')
+  .sort((a, b) => a.attention!.rank - b.attention!.rank)
+  .map((node) => node.id)
 
 test('U goes to the next node that needs the reviewer and is not seen, and Shift+U to the one before', () => {
   const session = createSession(large, createReviewMemory())

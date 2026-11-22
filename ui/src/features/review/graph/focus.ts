@@ -92,10 +92,16 @@ const TIER_ORDER: Record<AttentionTier, number> = { 'needs-you': 0, 'worth-a-loo
 
 /** Its attention, or for a card of tests, the most its tests ask: their strongest tier and their first rank. */
 export function attendedOf(node: ReviewNode, members: readonly ReviewNode[] = []): Attended | null {
-  const rated = (members.length > 0 ? members : [node]).filter((entry) => entry.attention != null)
+  const ofTests = members.length > 0
+  const rated = (ofTests ? members : [node]).filter((entry) => entry.attention != null)
   if (rated.length === 0) return null
+
   const tier = rated.map((entry) => entry.attention!.tier).reduce((best, next) => (TIER_ORDER[next] < TIER_ORDER[best] ? next : best))
-  return { tier, rank: Math.min(...rated.map((entry) => entry.attention!.rank)), bucket: members.length > 0 ? 'test' : (node.bucket ?? 'code') }
+  return {
+    tier,
+    rank: Math.min(...rated.map((entry) => entry.attention!.rank)),
+    bucket: ofTests ? 'test' : (node.bucket ?? 'code'),
+  }
 }
 
 /** True when the host said what the review's nodes ask of the reviewer. */
@@ -146,13 +152,22 @@ interface Entry {
   key: string
 }
 
+interface FocusInput {
+  nodes: readonly ReviewNode[]
+  /** The cards of tests, by the drawn id that stands for them. */
+  groups: Readonly<Record<string, TestGroup>>
+  nodeOf: ReadonlyMap<string, ReviewNode>
+}
+
 /** Opening Focus on a review: what is a card, what folds into which group, and what an open group draws. */
-export function planFocus(input: { nodes: readonly ReviewNode[]; groups: Readonly<Record<string, TestGroup>>; nodeOf: ReadonlyMap<string, ReviewNode> }, state: FocusState = NO_FOCUS): FocusPlan {
+export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): FocusPlan {
   const { nodes, groups: testCards, nodeOf } = input
-  const membersOf = (node: ReviewNode) => {
+  const membersOf = (node: ReviewNode): ReviewNode[] => {
     const card = testCards[node.id]
-    return card ? [...card.tests, ...card.helpers].map((id) => nodeOf.get(id)).filter((entry): entry is ReviewNode => entry != null) : []
+    if (!card) return []
+    return [...card.tests, ...card.helpers].map((id) => nodeOf.get(id)).filter((entry): entry is ReviewNode => entry != null)
   }
+
   const attended: Record<string, Attended> = {}
   for (const node of nodes) {
     const found = attendedOf(node, membersOf(node))
@@ -164,20 +179,44 @@ export function planFocus(input: { nodes: readonly ReviewNode[]; groups: Readonl
     const where: Standing = rated ? rated.tier : node.kind === 'criterion' ? 'criterion' : 'unrated'
     standing[node.id] = where
     const bucket = rated?.bucket ?? 'code'
-    return { node, standing: where, rank: rated?.rank ?? Number.POSITIVE_INFINITY, index, key: bucket === 'code' ? `code:${topFolder(node.subtitle)}` : bucket }
+    return {
+      node,
+      standing: where,
+      rank: rated?.rank ?? Number.POSITIVE_INFINITY,
+      index,
+      key: bucket === 'code' ? `code:${topFolder(node.subtitle)}` : bucket,
+    }
   })
   if (Object.keys(attended).length === 0) {
-    return { active: false, cards: nodes.map((node) => node.id), groups: {}, order: [], groupOf: {}, shown: {}, open: [], attended, standing }
+    return {
+      active: false,
+      cards: nodes.map((node) => node.id),
+      groups: {},
+      order: [],
+      groupOf: {},
+      shown: {},
+      open: [],
+      attended,
+      standing,
+    }
   }
   entries.sort((a, b) => STANDINGS.indexOf(a.standing) - STANDINGS.indexOf(b.standing) || a.rank - b.rank || a.index - b.index)
 
   // Safe nodes fold by their kind, and safe code by its folder. A group of one is simply its card.
   const byKey = new Map<string, Entry[]>()
-  for (const entry of entries.filter((each) => each.standing === 'safe')) byKey.set(entry.key, [...(byKey.get(entry.key) ?? []), entry])
+  for (const entry of entries) {
+    if (entry.standing !== 'safe') continue
+    const members = byKey.get(entry.key) ?? []
+    members.push(entry)
+    byKey.set(entry.key, members)
+  }
   const cards: Entry[] = entries.filter((entry) => entry.standing !== 'safe' || byKey.get(entry.key)!.length === 1)
   const folding = [...byKey.entries()].filter(([, members]) => members.length > 1)
+
   // Past the most groups, the smallest folders of safe code join one group, so the graph is not all group cards.
-  const folders = folding.filter(([key]) => key.startsWith('code:')).sort((a, b) => a[1].length - b[1].length || a[1][0]!.rank - b[1][0]!.rank)
+  const folders = folding
+    .filter(([key]) => key.startsWith('code:'))
+    .sort(([, a], [, b]) => a.length - b.length || a[0]!.rank - b[0]!.rank)
   const merged: Entry[] = []
   while (folding.length + Number(merged.length > 0) > MAX_GROUPS && folders.length > 0) {
     const [key, members] = folders.shift()!
@@ -190,7 +229,18 @@ export function planFocus(input: { nodes: readonly ReviewNode[]; groups: Readonl
     const sorted = [...members].sort((a, b) => a.rank - b.rank || a.index - b.index)
     const paths = new Set(sorted.flatMap(({ node }) => [...membersOf(node), node].map((each) => each.subtitle ?? each.id)))
     const sum = (field: 'additions' | 'deletions') => sorted.reduce((total, { node }) => total + (node.stats?.[field] ?? 0), 0)
-    made.push({ id, kind, folder, standing: where, label, members: sorted.map(({ node }) => node.id), files: paths.size, additions: sum('additions'), deletions: sum('deletions'), why: WHY[kind] })
+    made.push({
+      id,
+      kind,
+      folder,
+      standing: where,
+      label,
+      members: sorted.map(({ node }) => node.id),
+      files: paths.size,
+      additions: sum('additions'),
+      deletions: sum('deletions'),
+      why: WHY[kind],
+    })
   }
   for (const [key, members] of folding) {
     if (key.startsWith('code:')) {
@@ -215,7 +265,12 @@ export function planFocus(input: { nodes: readonly ReviewNode[]; groups: Readonl
 
   // Groups are read in the order of what they hold: what needs the reviewer first, then by their first member's rank.
   const groupRank = (each: FoldGroup) => Math.min(...each.members.map((id) => entries.find((entry) => entry.node.id === id)!.rank))
-  made.sort((a, b) => STANDINGS.indexOf(a.standing) - STANDINGS.indexOf(b.standing) || groupRank(a) - groupRank(b) || (a.id < b.id ? -1 : 1))
+  made.sort(
+    (a, b) =>
+      STANDINGS.indexOf(a.standing) - STANDINGS.indexOf(b.standing) ||
+      groupRank(a) - groupRank(b) ||
+      (a.id < b.id ? -1 : 1),
+  )
   const groups = Object.fromEntries(made.map((each) => [each.id, each]))
   const groupOf: Record<string, string> = {}
   for (const each of made) for (const id of each.members) groupOf[id] = each.id
@@ -233,7 +288,17 @@ export function planFocus(input: { nodes: readonly ReviewNode[]; groups: Readonl
     room -= shown[id]!.length
   }
   const drawn = [...cards.map((entry) => entry.node.id), ...open.flatMap((id) => shown[id]!), ...made.map((each) => each.id)]
-  return { active: true, cards: drawn, groups, order: made.map((each) => each.id), groupOf, shown, open, attended, standing }
+  return {
+    active: true,
+    cards: drawn,
+    groups,
+    order: made.map((each) => each.id),
+    groupOf,
+    shown,
+    open,
+    attended,
+    standing,
+  }
 }
 
 /** The review as Focus draws it: the arranged graph with its safe nodes folded, and the plan that folded it. */
@@ -262,7 +327,12 @@ function groupNode(group: FoldGroup): ReviewNode {
 function wireOrder(edges: readonly ArrangedEdge[], plan: FocusPlan, ridden: ReadonlySet<string>): ArrangedEdge[] {
   const place = new Map(plan.cards.map((id, index) => [id, index]))
   const at = (id: string) => place.get(id) ?? Number.MAX_SAFE_INTEGER
-  const key = (edge: ArrangedEdge) => [ridden.has(edge.id) ? 0 : 1, Number(isFoldGroup(edge.from) || isFoldGroup(edge.to)), Math.max(at(edge.from), at(edge.to)), Math.min(at(edge.from), at(edge.to))]
+  const key = (edge: ArrangedEdge) => [
+    ridden.has(edge.id) ? 0 : 1,
+    Number(isFoldGroup(edge.from) || isFoldGroup(edge.to)),
+    Math.max(at(edge.from), at(edge.to)),
+    Math.min(at(edge.from), at(edge.to)),
+  ]
   return [...edges].sort((a, b) => {
     const [one, two] = [key(a), key(b)]
     for (let index = 0; index < one.length; index += 1) if (one[index] !== two[index]) return one[index]! - two[index]!
@@ -280,9 +350,13 @@ function layoutFolded(arranged: Arranged, nodes: readonly ReviewNode[], plan: Fo
   const closed = (id: string) => plan.groupOf[id] ?? id
   const standing = nodes.filter((node) => !opened.has(node.id))
   const kept = new Set(standing.map((node) => node.id))
-  const wires = arranged.edges.map((edge) => ({ from: closed(edge.from), to: closed(edge.to) })).filter((edge) => edge.from !== edge.to && kept.has(edge.from) && kept.has(edge.to))
+  const wires = arranged.edges
+    .map((edge) => ({ from: closed(edge.from), to: closed(edge.to) }))
+    .filter((edge) => edge.from !== edge.to && kept.has(edge.from) && kept.has(edge.to))
+
   const kindOf = new Map(nodes.map((node) => [node.id, node.kind]))
-  return openBlocks(layoutRequest(standing, wires), (id) => kindOf.get(id) ?? 'file', plan.open.map((id) => ({ at: id, ids: plan.shown[id]! })))
+  const blocks = plan.open.map((id) => ({ at: id, ids: plan.shown[id]! }))
+  return openBlocks(layoutRequest(standing, wires), (id) => kindOf.get(id) ?? 'file', blocks)
 }
 
 /**
@@ -313,7 +387,9 @@ export function foldArranged(arranged: Arranged, plan: FocusPlan): Folded {
     if (edge.certainty === 'host') known.certainty = 'host'
     if (known.label !== edge.label) delete known.label
   }
-  const ridden = new Set(arranged.story.map((step) => step.travel).filter((id): id is string => id != null && wireOf.get(id) === id))
+  // A wire a story step rides keeps its id only when it joins two drawn cards as it is, unfolded.
+  const ridesUnfolded = (id: string | undefined): id is string => id != null && wireOf.get(id) === id
+  const ridden = new Set(arranged.story.map((step) => step.travel).filter(ridesUnfolded))
   const kept = new Set(wireOrder([...joined.values()], plan, ridden).slice(0, FOCUS_BUDGET.wires).map((edge) => edge.id))
   const edges = [...joined.values()].filter((edge) => kept.has(edge.id))
 
@@ -323,7 +399,9 @@ export function foldArranged(arranged: Arranged, plan: FocusPlan): Folded {
   const story: ViewStep[] = arranged.story.map((step) => {
     const { travel, ...rest } = step
     const focus = [...new Set(step.focus.map(end))]
-    return { ...rest, focus, ...(travel && kept.has(travel) && wireOf.get(travel) === travel ? { travel } : {}) }
+    // The step still travels when the wire it rides is drawn as it is.
+    const travels = travel && ridden.has(travel) && kept.has(travel)
+    return { ...rest, focus, ...(travels ? { travel } : {}) }
   })
   return {
     ...arranged,

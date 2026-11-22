@@ -260,11 +260,12 @@ function onDrawn(view: ReviewView, story: StoryState): StoryState {
   const as = (id: string) => (drawn.has(id) ? id : drawnAs(view, id))
   const detour = story.detour == null ? null : as(story.detour)
   const group = story.group == null ? null : [...new Set(story.group.map(as))].filter((id) => drawn.has(id))
+  // A group of one card left on screen, with no detour, is a detour to that card.
+  const lone = group?.length === 1 && story.detour == null ? group[0]! : null
   return {
     ...story,
-    detour: detour != null && drawn.has(detour) ? detour : null,
+    detour: lone ?? (detour != null && drawn.has(detour) ? detour : null),
     group: group && group.length > 1 ? group : null,
-    ...(group?.length === 1 && story.detour == null ? { detour: group[0]! } : {}),
   }
 }
 
@@ -289,11 +290,21 @@ function keptPlace(graph: Placed, kept: SessionPlace): { story: StoryState; hist
   if (step == null) return null
   if (kept.story.detour != null && !drawn.has(kept.story.detour)) return null
   if (kept.story.group && !kept.story.group.every((id) => drawn.has(id))) return null
+
   const steps = new Set(graph.story.map((each) => each.id))
   const known = new Set([...drawn, ...graph.edges.map((edge) => edge.id)])
-  const story = { ...kept.story, step, seen: kept.story.seen.filter((id) => steps.has(id)), revealed: kept.story.revealed.filter((id) => known.has(id)) }
-  const entries = (list: readonly KeptEntry[]) => list.map((entry) => keptEntry(graph, drawn, entry)).filter((entry): entry is FocusEntry => entry != null)
-  return { story, history: { back: entries(kept.history.back), forward: entries(kept.history.forward) } }
+  const story = {
+    ...kept.story,
+    step,
+    seen: kept.story.seen.filter((id) => steps.has(id)),
+    revealed: kept.story.revealed.filter((id) => known.has(id)),
+  }
+  const entries = (list: readonly KeptEntry[]) =>
+    list.map((entry) => keptEntry(graph, drawn, entry)).filter((entry): entry is FocusEntry => entry != null)
+  return {
+    story,
+    history: { back: entries(kept.history.back), forward: entries(kept.history.forward) },
+  }
 }
 
 /**
@@ -322,7 +333,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
   }
   /** Marks nodes of the review seen, by their ids, or takes their marks off. */
   const markSeen = (ids: readonly string[], seen = true) => {
-    memory.getState().markSeen(review, ids.map((id) => marks.get(id)).filter((mark): mark is string => mark != null), seen)
+    const nodeMarks = ids.map((id) => marks.get(id)).filter((mark): mark is string => mark != null)
+    memory.getState().markSeen(review, nodeMarks, seen)
     takeSeen()
   }
   const firstView = viewNow()
@@ -396,15 +408,18 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       const before = get()
       const view = viewNow()
       const shaped = derive(view, onDrawn(view, before.story))
-      const drawn = (id: string | null) => (id != null && shaped.nodeOf.has(id) ? drawnAs(view, id) : null)
+      const asDrawn = (id: string | null) => (id != null && shaped.nodeOf.has(id) ? drawnAs(view, id) : null)
+      // A card's list of tests stays open while that card is still drawn.
+      const listed = before.opened
+      const stillListed = listed != null && view.groups[listed] != null && view.nodes.some((node) => node.id === listed)
       set({
         fold,
         ...shaped,
         hovered: null,
         hover: hoverLevels(view, null),
         wire: before.wire != null && shaped.edgeOf.has(before.wire) ? before.wire : null,
-        pointed: drawn(before.pointed),
-        opened: before.opened != null && view.groups[before.opened] && view.nodes.some((node) => node.id === before.opened) ? before.opened : null,
+        pointed: asDrawn(before.pointed),
+        opened: stillListed ? listed : null,
       })
     }
 
@@ -659,7 +674,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       openGroup: (groupId) => {
         if (!get().view.plan.groups[groupId]) return false
         refold({ opened: [...fold.opened.filter((id) => id !== groupId), groupId], pinned: fold.pinned })
-        apply(focusGroup(graph(), get().story, [groupId, ...(get().view.plan.shown[groupId] ?? [])]), 'jump')
+        const drawnNow = [groupId, ...(get().view.plan.shown[groupId] ?? [])]
+        apply(focusGroup(graph(), get().story, drawnNow), 'jump')
         return true
       },
       closeGroup: (groupId) => {
@@ -668,7 +684,10 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         const members = new Set(get().view.plan.groups[id]?.members ?? [])
         // The reviewer on the group, or on what it opened to, is put back on its card. Anywhere else, they stay there.
         const inside = get().focus.some((each) => each === id || members.has(each))
-        refold({ opened: fold.opened.filter((each) => each !== id), pinned: fold.pinned.filter((pin) => !members.has(pin)) })
+        refold({
+          opened: fold.opened.filter((each) => each !== id),
+          pinned: fold.pinned.filter((pin) => !members.has(pin)),
+        })
         // The card is brought into view: what the reviewer was on may have stood far from it, in the block.
         if (inside) apply(focusNode(graph(), get().story, id, { alone: get().mode === 'roam' }), 'detour')
         return true
@@ -676,7 +695,9 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       closeGroups: () => {
         if (fold.opened.length === 0) return false
         const { focus, view } = get()
-        const holding = [...fold.opened].reverse().find((id) => focus.some((each) => each === id || view.plan.groupOf[each] === id))
+        // The group the reviewer is on, its card or a member, the last opened first.
+        const holds = (id: string) => focus.some((each) => each === id || view.plan.groupOf[each] === id)
+        const holding = [...fold.opened].reverse().find(holds)
         refold({ opened: [], pinned: [] })
         if (holding != null) apply(focusNode(graph(), get().story, holding, { alone: get().mode === 'roam' }), 'detour')
         return true
@@ -694,7 +715,16 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         const { story, mode, history, outline, code, proof, view } = get()
         const stepId = (step: number) => view.story[step]?.id ?? ''
         const kept = (entry: FocusEntry): KeptEntry => ({ ...entry, stepId: stepId(entry.step) })
-        return { story, stepId: stepId(story.step), mode, history: { back: history.back.map(kept), forward: history.forward.map(kept) }, fold, outline, code, proof: proof?.run ?? null }
+        return {
+          story,
+          stepId: stepId(story.step),
+          mode,
+          history: { back: history.back.map(kept), forward: history.forward.map(kept) },
+          fold,
+          outline,
+          code,
+          proof: proof?.run ?? null,
+        }
       },
       say: (text) => set({ notice: { key: (get().notice?.key ?? 0) + 1, text } }),
       openProof: (run, from = null) => {
@@ -706,20 +736,32 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       },
       nextUnseen: (delta) => {
         const say = get().say
-        const wanted = review.nodes.filter((node) => node.attention?.tier === 'needs-you').sort((a, b) => a.attention!.rank - b.attention!.rank).map((node) => node.id)
-        if (wanted.length === 0) return say('This review does not say what needs you.'), false
+        const wanted = review.nodes
+          .filter((node) => node.attention?.tier === 'needs-you')
+          .sort((a, b) => a.attention!.rank - b.attention!.rank)
+          .map((node) => node.id)
+        if (wanted.length === 0) {
+          say('This review does not say what needs you.')
+          return false
+        }
+
         const { focus, pointed, view, seen } = get()
         // Where the reviewer is: the node pointed at or focused. A group card in focus is not its members: they are next.
-        const here = new Set([...(pointed ? [pointed] : focus)].filter((id) => !isFoldGroup(id)).flatMap((id) => reviewNodesOf(view, id)))
+        const on = pointed ? [pointed] : focus
+        const here = new Set(on.filter((id) => !isFoldGroup(id)).flatMap((id) => reviewNodesOf(view, id)))
         const at = delta > 0 ? wanted.findLastIndex((id) => here.has(id)) : wanted.findIndex((id) => here.has(id))
         const start = at >= 0 ? at : delta > 0 ? -1 : wanted.length
+        // Round from the end to the start, and from the start to the end going back.
+        const around = (index: number) => ((index % wanted.length) + wanted.length) % wanted.length
         for (let step = 1; step <= wanted.length; step += 1) {
-          const id = wanted[(((start + delta * step) % wanted.length) + wanted.length) % wanted.length]!
+          const id = wanted[around(start + delta * step)]!
           if (seen.has(id) || here.has(id)) continue
           get().reach(id)
           return true
         }
-        say(wanted.some((id) => here.has(id) && !seen.has(id)) ? 'This is the last node that needs you and is not seen yet.' : 'Every node that needs you is seen.')
+
+        const onLastUnseen = wanted.some((id) => here.has(id) && !seen.has(id))
+        say(onLastUnseen ? 'This is the last node that needs you and is not seen yet.' : 'Every node that needs you is seen.')
         return false
       },
       toggleGroup: (groupId) => (fold.opened.includes(groupId) ? get().closeGroup(groupId) : get().openGroup(groupId)),

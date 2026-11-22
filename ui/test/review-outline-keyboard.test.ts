@@ -13,14 +13,15 @@ const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, 
 test('L asks for the keyboard in the outline each time it opens it, and not when it closes it', () => {
   const session = createSession(largeReview().review, createReviewMemory())
   const asked = () => session.getState().outlineAsked
+  const pressL = () => pressKey(session.getState(), { key: 'l', shift: false, alt: false }, keys)
   assert.equal(session.getState().outline, true, 'a review in Focus opens with the outline open')
   assert.equal(asked(), 0, 'and does not take the keyboard from the review for it')
-  pressKey(session.getState(), { key: 'l', shift: false, alt: false }, keys)
+  pressL()
   assert.deepEqual([session.getState().outline, asked()], [false, 0])
-  pressKey(session.getState(), { key: 'l', shift: false, alt: false }, keys)
+  pressL()
   assert.deepEqual([session.getState().outline, asked()], [true, 1])
-  pressKey(session.getState(), { key: 'l', shift: false, alt: false }, keys)
-  pressKey(session.getState(), { key: 'l', shift: false, alt: false }, keys)
+  pressL()
+  pressL()
   assert.equal(asked(), 2)
 })
 

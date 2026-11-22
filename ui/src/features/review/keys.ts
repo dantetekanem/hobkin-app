@@ -72,9 +72,13 @@ export function inProofPanel(target: unknown): boolean {
 export function keyOwner(press: HeardKey, inProof: boolean): 'review' | 'proof' {
   if (!inProof) return 'review'
   if (press.typing) return 'proof'
-  if (press.meta && !press.ctrl && (press.key === '?' || (press.shift && press.key === '/'))) return 'review'
+
+  const listsKeys = press.meta && !press.ctrl && (press.key === '?' || (press.shift && press.key === '/'))
+  if (listsKeys) return 'review'
   if (press.meta || press.ctrl || press.alt) return 'proof'
-  return press.key === 'Escape' || press.key === 't' || press.key === 'T' ? 'review' : 'proof'
+
+  const closesOrExpands = press.key === 'Escape' || press.key === 't' || press.key === 'T'
+  return closesOrExpands ? 'review' : 'proof'
 }
 
 const ARROWS: Record<string, Direction> = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' }

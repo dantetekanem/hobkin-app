@@ -47,7 +47,8 @@ test('Focus draws every node that needs the reviewer and every one worth a look,
   for (const node of wanted) assert.ok(plan.cards.includes(cardOf(arranged, node.id)), `${node.title} is a card`)
 
   const labels = plan.order.map((id) => plan.groups[id]!.label)
-  for (const label of ['Generated files', 'Lockfiles', 'Locale files', 'Moved or renamed', 'Formatting only', 'Docs', 'Tests that pass', 'Safe code in app/models']) assert.ok(labels.includes(label), label)
+  const kinds = ['Generated files', 'Lockfiles', 'Locale files', 'Moved or renamed', 'Formatting only', 'Docs', 'Tests that pass', 'Safe code in app/models']
+  for (const label of kinds) assert.ok(labels.includes(label), label)
   // Every member of a group is safe, and no safe node is drawn alone while its group has others.
   for (const group of Object.values(plan.groups)) {
     assert.ok(group.members.length > 1)
@@ -96,7 +97,11 @@ test('opening a group draws its members while the budget lasts; past it they sta
 
 test('the budget: the 200-file review never draws more than 60 cards and 120 wires, closed, with each group open, or with all of them', () => {
   const { plan } = focusOn(large)
-  const states: FocusState[] = [{ opened: [], pinned: [] }, ...plan.order.map((id) => ({ opened: [id], pinned: [] })), { opened: plan.order, pinned: [] }]
+  const states: FocusState[] = [
+    { opened: [], pinned: [] },
+    ...plan.order.map((id) => ({ opened: [id], pinned: [] })),
+    { opened: plan.order, pinned: [] },
+  ]
   const needsYou = large.nodes.filter((node) => node.attention?.tier === 'needs-you')
   for (const state of states) {
     const { arranged, folded } = focusOn(large, state)
@@ -128,10 +133,14 @@ const overlap = (a: ReviewNode, b: ReviewNode) => {
 test('an open group opens in place: its members follow its card down and to the right, nothing overlaps, and closing it puts the graph back', () => {
   const { plan, folded: closed } = focusOn(large)
   const at = (view: typeof closed, id: string) => view.nodes.find((node) => node.id === id)!.position
-  for (const state of [...plan.order.map((id) => ({ opened: [id], pinned: [] })), { opened: plan.order, pinned: [] }]) {
+  const states = [...plan.order.map((id) => ({ opened: [id], pinned: [] })), { opened: plan.order, pinned: [] }]
+  for (const state of states) {
     const { folded } = focusOn(large, state)
     for (let first = 0; first < folded.nodes.length; first += 1) {
-      for (let second = first + 1; second < folded.nodes.length; second += 1) assert.equal(overlap(folded.nodes[first]!, folded.nodes[second]!), false, `${folded.nodes[first]!.id} and ${folded.nodes[second]!.id} with ${state.opened.join(', ')} open`)
+      for (let second = first + 1; second < folded.nodes.length; second += 1) {
+        const [one, two] = [folded.nodes[first]!, folded.nodes[second]!]
+        assert.equal(overlap(one, two), false, `${one.id} and ${two.id} with ${state.opened.join(', ')} open`)
+      }
     }
   }
   const models = groupNamed(plan, 'Safe code in app/models')

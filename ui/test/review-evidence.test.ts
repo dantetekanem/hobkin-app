@@ -5,16 +5,35 @@ import type { ReviewNode } from '#shared/review/types.ts'
 import { evidenceLines, unseenNeeds, unseenWords, type EvidenceFacts } from '../src/features/review/panel/evidence.ts'
 
 type Node = EvidenceFacts['nodes'][number]
-const test_ = (id: string, status: ReviewNode['status']): Node => ({ id, kind: 'test', status })
+const testNode = (id: string, status: ReviewNode['status']): Node => ({ id, kind: 'test', status })
 const code = (id: string, tier?: 'needs-you' | 'worth-a-look' | 'safe'): Node => ({ id, kind: 'code', ...(tier ? { attention: { tier, rank: 1, reasons: [] } } : {}) })
-const summary = (more: Partial<AssessmentSummary> = {}): AssessmentSummary => ({ level: 'mid', critical: false, needsYou: 0, worthALook: 2, safe: 5, storyBy: 'model', at: '2026-11-21T16:00:00Z', deploy: 'safe', ...more })
+const summary = (more: Partial<AssessmentSummary> = {}): AssessmentSummary => ({
+  level: 'mid',
+  critical: false,
+  needsYou: 0,
+  worthALook: 2,
+  safe: 5,
+  storyBy: 'model',
+  at: '2026-11-21T16:00:00Z',
+  deploy: 'safe',
+  ...more,
+})
 const none: EvidenceFacts = { nodes: [], assessment: null, status: null, parts: [], models: [], seen: new Set() }
 const lines = (facts: Partial<EvidenceFacts>) => evidenceLines({ ...none, ...facts })
 const said = (facts: Partial<EvidenceFacts>) => lines(facts).map(({ label, text, tone, opens }) => ({ label, text, tone, opens }))
 
 test('the evidence above the verdict reads, in order, the tests, the AI review, the models and proofs, and what needs the reviewer that is seen', () => {
   const facts: Partial<EvidenceFacts> = {
-    nodes: [test_('t1', 'passed'), test_('t2', 'failed'), test_('t3', 'not-run'), test_('t4', 'proves-change'), { id: 'h1', kind: 'test', status: 'passed', supports: ['t1'] }, code('u1', 'needs-you'), code('u2', 'needs-you'), code('u3', 'safe')],
+    nodes: [
+      testNode('t1', 'passed'),
+      testNode('t2', 'failed'),
+      testNode('t3', 'not-run'),
+      testNode('t4', 'proves-change'),
+      { id: 'h1', kind: 'test', status: 'passed', supports: ['t1'] },
+      code('u1', 'needs-you'),
+      code('u2', 'needs-you'),
+      code('u3', 'safe'),
+    ],
     assessment: { summary: summary({ level: 'high', deploy: 'risky', needsYou: 2 }) },
     parts: [{ level: 'mid', step: 0, node: null }, { level: 'high', step: 3, node: 'u1' }],
     models: [{ run: 'a', tone: 'ok' }, { run: 'b', tone: 'bad' }, { run: 'c', tone: 'live' }, { run: null, tone: 'quiet' }],
@@ -31,7 +50,7 @@ test('the evidence above the verdict reads, in order, the tests, the AI review, 
 
 test('a clean change reads as clean, and each line still opens what it counts', () => {
   const clean = said({
-    nodes: [test_('t1', 'passed'), test_('t2', 'passed'), code('u1', 'needs-you')],
+    nodes: [testNode('t1', 'passed'), testNode('t2', 'passed'), code('u1', 'needs-you')],
     assessment: { summary: summary() },
     models: [{ run: 'a', tone: 'ok' }, { run: 'b', tone: 'ok' }],
     seen: new Set(['u1']),
@@ -53,7 +72,7 @@ test('a review with no tests, no models and no AI answer yet says so plainly, an
   ])
   // Tests that did not run, models nothing checked, and a review under way: none of them is a pass.
   const unran = said({
-    nodes: [test_('t1', 'not-run'), test_('t2', undefined), code('u1', 'safe')],
+    nodes: [testNode('t1', 'not-run'), testNode('t2', undefined), code('u1', 'safe')],
     status: { state: 'running', head: 'h', percent: 40 },
     models: [{ run: null, tone: 'quiet' }],
   })
@@ -66,7 +85,7 @@ test('a review with no tests, no models and no AI answer yet says so plainly, an
   assert.ok(lines({ status: { state: 'failed', head: 'h', error: 'It stopped.' } })[1]!.tone !== 'ok')
   assert.equal(lines({ status: { state: 'failed', head: 'h', error: 'It stopped.' } })[1]!.text, 'Stopped before its answer')
   // Some ran and some did not: not a clean pass either.
-  assert.equal(lines({ nodes: [test_('t1', 'passed'), test_('t2', 'not-run')] })[0]!.tone, 'warn')
+  assert.equal(lines({ nodes: [testNode('t1', 'passed'), testNode('t2', 'not-run')] })[0]!.tone, 'warn')
   assert.equal(lines({ models: [{ run: 'a', tone: 'ok' }, { run: 'b', tone: 'warn' }] })[2]!.tone, 'warn', 'a model with a part that never ran')
 })
 

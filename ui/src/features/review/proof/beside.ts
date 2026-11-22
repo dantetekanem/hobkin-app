@@ -14,7 +14,10 @@ const NEED: Readonly<Record<Tone, number>> = { bad: 0, warn: 1, live: 2, quiet: 
 /** The run T opens: the change's first model that needs a look, in the order the review lists them. Null when nothing checked any. */
 export function firstToLook(rows: readonly Row[]): string | null {
   let first: Row | null = null
-  for (const row of rows) if (row.run && (!first || NEED[row.tone] < NEED[first.tone])) first = row
+  for (const row of rows) {
+    if (!row.run) continue
+    if (!first || NEED[row.tone] < NEED[first.tone]) first = row
+  }
   return first?.run ?? null
 }
 
@@ -37,7 +40,10 @@ export type ProofMove =
 export function onProofKey(shown: string | null, rows: readonly Row[], shift: boolean): ProofMove {
   if (shown != null) return shift ? { do: 'expand', run: null } : { do: 'close' }
   const run = firstToLook(rows)
-  if (run == null) return { do: 'say', text: rows.length === 0 ? 'This change has no TLA+ models.' : 'No model of this change was checked yet.' }
+  if (run == null) {
+    const text = rows.length === 0 ? 'This change has no TLA+ models.' : 'No model of this change was checked yet.'
+    return { do: 'say', text }
+  }
   return shift ? { do: 'expand', run } : { do: 'open', run }
 }
 
@@ -50,7 +56,13 @@ export interface ProofHolder {
 }
 
 /** Does what T or Shift+T means, from the control `from` names (`data-proof-from`), or the review itself when null. */
-export function pressProof(session: ProofHolder, rows: readonly Row[], shift: boolean, from: string | null, expand: (run: string | null) => void): void {
+export function pressProof(
+  session: ProofHolder,
+  rows: readonly Row[],
+  shift: boolean,
+  from: string | null,
+  expand: (run: string | null) => void,
+): void {
   const move = onProofKey(session.proof?.run ?? null, rows, shift)
   switch (move.do) {
     case 'open':

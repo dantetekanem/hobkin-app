@@ -12,6 +12,7 @@ import { proofRoom } from './proof/beside.ts'
 import { useReduced, useReviewMemory, useRig, useSession, useSessionStore } from './state/context.tsx'
 import { MODE_KEYS, type ReviewMode } from './story/mode.ts'
 import { Rail } from './story/Rail.tsx'
+import { uncoveredMiddle } from './story/useCamera.ts'
 
 /** How long a word from the review stays before it goes by itself. */
 const NOTICE_MS = 2600
@@ -30,7 +31,7 @@ export function Notice() {
     const gone = setTimeout(() => setShown(null), NOTICE_MS)
     return () => clearTimeout(gone)
   }, [notice])
-  const place = useTransform(() => `translateX(calc(-50% + ${(rig.side.get() + rig.outline.get() - rig.proof.get()) / 2}px))`)
+  const place = useTransform(() => `translateX(calc(-50% + ${uncoveredMiddle(rig)}px))`)
   return (
     <motion.div role="status" className="pointer-events-none absolute top-[120px] left-1/2 z-30" style={{ transform: place }}>
       <AnimatePresence>
@@ -132,7 +133,7 @@ export function Dock({ room, ask, units }: { room: number; ask: AskCommand | nul
   const beside = proof ? proofRoom(room) : null
   const left = beside && !beside.covers ? room - beside.width : room
   // One transform on one element carries everything here above the code panel and clear of the steps panel.
-  const lift = useTransform(() => `translateX(${(rig.side.get() + rig.outline.get() - rig.proof.get()) / 2}px) translateY(${-rig.panel.get()}px)`)
+  const lift = useTransform(() => `translateX(${uncoveredMiddle(rig)}px) translateY(${-rig.panel.get()}px)`)
 
   return (
     <motion.div className="pointer-events-none absolute inset-x-0 bottom-0 z-10" style={{ transform: lift }}>

@@ -74,8 +74,8 @@ const byId = (a: Edge, b: Edge) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
 /** How many times the levels of a focus were worked out, not taken from the last time: a move costs one (spec 053). */
 export const levelsWork = { runs: 0 }
-/** The last levels worked out, for the graph and the focus they were for. */
-let last: { nodes: Graph['nodes']; edges: Graph['edges']; story: Graph['story']; focus: string; levels: Levels<NodeLevel, WireLevel> } | null = null
+/** The last levels worked out, with the graph and the focus they were for. */
+let last: (Pick<Graph, 'nodes' | 'edges' | 'story'> & { focus: string; levels: Levels<NodeLevel, WireLevel> }) | null = null
 
 /**
  * The levels of a focus, worked out once for a graph and a focus: a move asks for them twice, once to say what draws in
@@ -83,7 +83,15 @@ let last: { nodes: Graph['nodes']; edges: Graph['edges']; story: Graph['story'];
  */
 export function focusLevels(graph: Graph, focus: readonly string[]): Levels<NodeLevel, WireLevel> {
   const key = focus.join('\u0000')
-  if (last && last.nodes === graph.nodes && last.edges === graph.edges && last.story === graph.story && last.focus === key) return last.levels
+  if (
+    last?.focus === key &&
+    last.nodes === graph.nodes &&
+    last.edges === graph.edges &&
+    last.story === graph.story
+  ) {
+    return last.levels
+  }
+
   levelsWork.runs += 1
   const levels = levelsOf(graph, focus)
   last = { nodes: graph.nodes, edges: graph.edges, story: graph.story, focus: key, levels }

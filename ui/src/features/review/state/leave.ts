@@ -6,7 +6,7 @@ import type { Camera } from '../story/camera.ts'
 import { forgetPlace, keepPlace } from './place.ts'
 import type { SessionStore } from './session.ts'
 
-export function leaveReview({ session, memory, key, closed, camera }: {
+interface Leaving {
   session: SessionStore
   memory: { flush(): void }
   /** The review at its commit (`memoryKey`). */
@@ -14,7 +14,9 @@ export function leaveReview({ session, memory, key, closed, camera }: {
   /** The review was closed, not left for another page: it opens again from its first step. */
   closed: boolean
   camera: Camera | null
-}): void {
+}
+
+export function leaveReview({ session, memory, key, closed, camera }: Leaving): void {
   memory.flush()
   if (closed) forgetPlace(key)
   else keepPlace(key, { ...session.getState().placeNow(), camera })

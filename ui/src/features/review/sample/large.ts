@@ -101,9 +101,27 @@ interface Unit {
 /** One function: its doc line, signature, body, return and brace. The body differs between the two sides of a modified one. */
 function unitLines(name: string, verb: string, noun: string, body: number, side: 'base' | 'head'): string[] {
   const lines = [`/** ${capital(verb)}s the ${noun} for one invoice. */`, `export function ${name}(amount: number): number {`]
-  for (let index = 0; index < body; index += 1) lines.push(`  const step${index + 1} = ${index === 0 ? 'amount' : `step${index}`} * ${side === 'head' ? index + 3 : index + 2}`)
+  for (let index = 0; index < body; index += 1) {
+    const from = index === 0 ? 'amount' : `step${index}`
+    const factor = side === 'head' ? index + 3 : index + 2
+    lines.push(`  const step${index + 1} = ${from} * ${factor}`)
+  }
   lines.push(`  return step${body}`, '}')
   return lines
+}
+
+/** One line of a file shown whole, in the way its kind reads: a locale key, a line of docs, a lockfile entry, or code. */
+function wholeLine(bucket: NodeBucket, path: string, at: number, side: string): string {
+  switch (bucket) {
+    case 'locale':
+      return `  key_${side}_${at}: "${side} text ${at}"`
+    case 'docs':
+      return `${side === 'new' ? 'A' : 'An older'} line about billing, number ${at}.`
+    case 'lockfile':
+      return `  /package-${side}-${at}@1.${at % 9}.0: { resolution: sha-${at} }`
+    default:
+      return `export const ${side}${at} = ${at} // ${path}`
+  }
 }
 
 interface Built {
@@ -159,7 +177,18 @@ function build(): Built {
           if (base.length > 0) base.push('')
           base.push(...unitLines(fn, verb, name.replaceAll('_', ' '), body, 'base'))
         }
-        mine.push({ id: nextUnit(), name: fn, file: name, folder, layer, start, end: head.length, change, additions: change === 'added' ? body + 4 : body, deletions: change === 'added' ? 0 : body })
+        mine.push({
+          id: nextUnit(),
+          name: fn,
+          file: name,
+          folder,
+          layer,
+          start,
+          end: head.length,
+          change,
+          additions: change === 'added' ? body + 4 : body,
+          deletions: change === 'added' ? 0 : body,
+        })
       }
       const headText = `${head.join('\n')}\n`
       const baseText = base.length > 0 ? `${base.join('\n')}\n` : null
@@ -189,7 +218,10 @@ function build(): Built {
   // Each function calls one or two in the layers under it, and the one after it in its own file.
   for (const unit of units) {
     const below = units.filter((other) => other.layer > unit.layer)
-    for (let call = between(0, 2); call > 0 && below.length > 0; call -= 1) wire('calls', unit.id, below[between(0, below.length - 1)]!.id)
+    for (let call = between(0, 2); call > 0 && below.length > 0; call -= 1) {
+      const callee = below[between(0, below.length - 1)]!
+      wire('calls', unit.id, callee.id)
+    }
     const sibling = unitsOf.get(unit.file)!
     const after = sibling[sibling.indexOf(unit) + 1]
     if (after) wire('calls', unit.id, after.id)
@@ -200,7 +232,11 @@ function build(): Built {
   for (const name of TESTED) {
     const path = `test/billing/${name}.test.ts`
     const subjects = unitsOf.get(name)!
-    const lines = ["import assert from 'node:assert/strict'", "import { test } from 'node:test'", `import { ${subjects.map((unit) => unit.name).join(', ')} } from '../../${subjects[0]!.folder}/${name}.ts'`]
+    const lines = [
+      "import assert from 'node:assert/strict'",
+      "import { test } from 'node:test'",
+      `import { ${subjects.map((unit) => unit.name).join(', ')} } from '../../${subjects[0]!.folder}/${name}.ts'`,
+    ]
     const mine: { id: string; title: string; start: number; end: number; subject: Unit }[] = []
     for (let index = 0, count = between(2, 4); index < count; index += 1) {
       const subject = subjects[index % subjects.length]!
@@ -237,7 +273,7 @@ function build(): Built {
     for (let index = 0; index < count; index += 1) {
       const path = pathOf(index)
       const oldPath = oldPathOf?.(index)
-      const line = (at: number, side: string) => (bucket === 'locale' ? `  key_${side}_${at}: "${side} text ${at}"` : bucket === 'docs' ? `${side === 'new' ? 'A' : 'An older'} line about billing, number ${at}.` : bucket === 'lockfile' ? `  /package-${side}-${at}@1.${at % 9}.0: { resolution: sha-${at} }` : `export const ${side}${at} = ${at} // ${path}`)
+      const line = (at: number, side: string) => wholeLine(bucket, path, at, side)
       let base: string | null
       let head: string
       let additions: number
@@ -254,13 +290,23 @@ function build(): Built {
         head = `${lines.map((text) => `  ${text}`).join('\n')}\n`
         ;[additions, deletions] = [lines.length, lines.length]
       } else {
-        const sizes: Record<string, [number, number, number, number]> = { generated: [84, 118, 0, 60], lockfile: index === 0 ? [700, 700, 300, 300] : [40, 40, 28, 28], locale: [28, 44, 6, 12], docs: [12, 40, 0, 0], code: [4, 10, 0, 4] }
+        // How many lines a file of each kind adds, at the least and the most, then how many it removes.
+        const sizes: Record<string, [number, number, number, number]> = {
+          generated: [84, 118, 0, 60],
+          lockfile: index === 0 ? [700, 700, 300, 300] : [40, 40, 28, 28],
+          locale: [28, 44, 6, 12],
+          docs: [12, 40, 0, 0],
+          code: [4, 10, 0, 4],
+        }
         const [low, high, removedLow, removedHigh] = sizes[bucket]!
         const added = between(low, high)
         const removed = bucket === 'generated' && index < 30 ? 0 : between(removedLow, removedHigh)
         const kept = removed > 0 ? Array.from({ length: 6 }, (_, at) => line(at, 'same')) : []
-        base = removed > 0 ? `${[...kept, ...Array.from({ length: removed }, (_, at) => line(at, 'old'))].join('\n')}\n` : null
-        head = `${[...(bucket === 'generated' ? ['// Generated by graphql-codegen. Do not edit.'] : []), ...kept, ...Array.from({ length: added - (bucket === 'generated' ? 1 : 0) }, (_, at) => line(at, 'new'))].join('\n')}\n`
+        const old = Array.from({ length: removed }, (_, at) => line(at, 'old'))
+        base = removed > 0 ? `${[...kept, ...old].join('\n')}\n` : null
+        const banner = bucket === 'generated' ? ['// Generated by graphql-codegen. Do not edit.'] : []
+        const fresh = Array.from({ length: added - banner.length }, (_, at) => line(at, 'new'))
+        head = `${[...banner, ...kept, ...fresh].join('\n')}\n`
         ;[additions, deletions] = [added, removed]
       }
       const status = oldPath ? 'renamed' : base == null ? 'added' : 'modified'
@@ -283,7 +329,10 @@ function build(): Built {
   }
   // The services read some generated types.
   const generated = wholes.filter((entry) => entry.bucket === 'generated')
-  for (const unit of units.filter((entry) => entry.folder === 'app/services/billing')) wire('imports', unit.id, generated[between(0, generated.length - 1)]!.node.id)
+  for (const unit of units.filter((entry) => entry.folder === 'app/services/billing')) {
+    const type = generated[between(0, generated.length - 1)]!
+    wire('imports', unit.id, type.node.id)
+  }
 
   // Where requests enter: two routes the change did not touch, each calling a controller of the change.
   const routes: [string, string, string][] = [
@@ -358,13 +407,30 @@ function build(): Built {
   }
   for (const test of tests.filter((entry) => !entry.attention)) rate(test, 'safe', 'test', [SAFE_REASON.test])
   // The larger a safe file, the earlier it is read.
-  for (const { node, bucket } of [...wholes].sort((a, b) => b.node.stats!.additions + b.node.stats!.deletions - (a.node.stats!.additions + a.node.stats!.deletions))) rate(node, 'safe', bucket, [SAFE_REASON[bucket]])
+  const linesOf = ({ node }: { node: ReviewNode }) => node.stats!.additions + node.stats!.deletions
+  for (const { node, bucket } of [...wholes].sort((a, b) => linesOf(b) - linesOf(a))) rate(node, 'safe', bucket, [SAFE_REASON[bucket]])
 
   // The story: what the change does, the parts that need the reviewer, two worth a look, then what is left open.
   const story: StoryStep[] = [
     { id: 'outcome', kind: 'outcome', title: 'Charge each invoice once', text: 'Every invoice is charged once, with its tax and proration worked out the same way in every currency, and a payment event is believed only after it is checked.', focus: [], criteria: [] },
-    ...needsYou.map(({ unit, reason }, index) => ({ id: `s${index + 1}`, kind: 'walk' as const, title: `${unit.name}: ${reason.split(':')[0]!.toLowerCase()}`.slice(0, 80), text: `${reason}. Read ${unit.name} in ${unit.folder}/${unit.file}.ts first.`, focus: [unit.id], criteria: criteria.filter(([, , file]) => file === unit.file).map(([id]) => id), level: 'high' as const })),
-    ...worth.slice(0, 2).map(({ unit, reason }, index) => ({ id: `s${needsYou.length + index + 1}`, kind: 'walk' as const, title: `${unit.name}, worth a look`, text: `${reason}.`, focus: [unit.id], criteria: [], level: 'mid' as const })),
+    ...needsYou.map(({ unit, reason }, index) => ({
+      id: `s${index + 1}`,
+      kind: 'walk' as const,
+      title: `${unit.name}: ${reason.split(':')[0]!.toLowerCase()}`.slice(0, 80),
+      text: `${reason}. Read ${unit.name} in ${unit.folder}/${unit.file}.ts first.`,
+      focus: [unit.id],
+      criteria: criteria.filter(([, , file]) => file === unit.file).map(([id]) => id),
+      level: 'high' as const,
+    })),
+    ...worth.slice(0, 2).map(({ unit, reason }, index) => ({
+      id: `s${needsYou.length + index + 1}`,
+      kind: 'walk' as const,
+      title: `${unit.name}, worth a look`,
+      text: `${reason}.`,
+      focus: [unit.id],
+      criteria: [],
+      level: 'mid' as const,
+    })),
     { id: 'closing', kind: 'closing', title: 'What is left open', text: 'Out of scope: changing the gateway. The risk: a retry that charges twice.', focus: [], criteria: [] },
   ]
 

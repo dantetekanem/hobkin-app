@@ -249,7 +249,13 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
     addEventListener('pagehide', flushReviewMemory)
     return () => {
       removeEventListener('pagehide', flushReviewMemory)
-      leaveReview({ session, memory: { flush: flushReviewMemory }, key: placeKey, closed: closing.current, camera: camera.current() })
+      leaveReview({
+        session,
+        memory: { flush: flushReviewMemory },
+        key: placeKey,
+        closed: closing.current,
+        camera: camera.current(),
+      })
     }
   }, [camera, placeKey, session])
   // A newer copy of this review, as when its change review lands, is taken in where the reviewer is.
@@ -340,7 +346,8 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
       const target = event.target as HTMLElement
       // With the keyboard in the proof beside the review, its keys are its own, but those the review shares (`keyOwner`).
       const typing = target.closest('input, textarea, select, [contenteditable="true"]') != null
-      if (keyOwner({ key: event.key, shift: event.shiftKey, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, typing }, inProofPanel(target)) === 'proof') return
+      const heard = { key: event.key, shift: event.shiftKey, meta: event.metaKey, ctrl: event.ctrlKey, alt: event.altKey, typing }
+      if (keyOwner(heard, inProofPanel(target)) === 'proof') return
       // ⌘? shows every key of the review, and hides them again.
       if (!event.defaultPrevented && event.metaKey && !event.ctrlKey && (event.key === '?' || (event.shiftKey && event.key === '/'))) {
         setShortcuts((open) => !open)
@@ -415,7 +422,13 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
             <div ref={graph} className="absolute inset-0">
               <Graph />
             </div>
-            <StoryLayer canvas={canvas} panelHeight={panelHeight} units={assessment?.units?.units} ask={ask} resume={resumedCamera(kept, session.getState().resumed)} />
+            <StoryLayer
+              canvas={canvas}
+              panelHeight={panelHeight}
+              units={assessment?.units?.units}
+              ask={ask}
+              resume={resumedCamera(kept, session.getState().resumed)}
+            />
             <Outline panelHeight={panelHeight} />
             <WireCard />
             <Finder />

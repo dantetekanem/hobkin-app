@@ -142,7 +142,15 @@ function readMemory(value: unknown): ReviewMemory {
       }
     : null
 
-  return { positions, wires, progress, opened: value.opened === true, notes: readNotes(value.notes), draft, seen: Array.isArray(value.seen) ? strings(value.seen) : null }
+  return {
+    positions,
+    wires,
+    progress,
+    opened: value.opened === true,
+    notes: readNotes(value.notes),
+    draft,
+    seen: Array.isArray(value.seen) ? strings(value.seen) : null,
+  }
 }
 
 const TARGET_KINDS = ['step', 'node', 'wire', 'lines']
@@ -178,7 +186,11 @@ export interface WriteClock {
   later(run: () => void, ms: number): unknown
   cancel(timer: unknown): void
 }
-const REAL_CLOCK: WriteClock = { now: () => Date.now(), later: (run, ms) => setTimeout(run, ms), cancel: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>) }
+const REAL_CLOCK: WriteClock = {
+  now: () => Date.now(),
+  later: (run, ms) => setTimeout(run, ms),
+  cancel: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>),
+}
 
 /** What of the memory is kept in storage. */
 type Persisted = Pick<MemoryState, 'reviews' | 'unsyncedNotes' | 'panelShare' | 'splitDiff' | 'panelPinned' | 'reviewMode'>
@@ -246,14 +258,35 @@ function keptReviews(reviews: Record<string, ReviewMemory>): Record<string, Revi
   return kept
 }
 
+/** The marks a review's other commits lend it while nothing is marked at its own: those of its nodes whose code is the same. */
+function carriedMarks(review: Review, reviews: Record<string, ReviewMemory>): Set<string> {
+  const key = memoryKey(review)
+  const sameReview = `${key.slice(0, key.lastIndexOf('@'))}@`
+  const mine = new Set(marksOf(review.nodes).values())
+  const marks = new Set<string>()
+  for (const [other, memory] of Object.entries(reviews)) {
+    if (other === key || !other.startsWith(sameReview)) continue
+    for (const mark of memory.seen ?? []) {
+      if (mine.has(mark)) marks.add(mark)
+    }
+  }
+  return marks
+}
+
 /** The memory of every review, and the way to write it to storage now. */
 export type ReviewMemoryStore = StoreApi<MemoryState> & { flush(): void }
+
+interface WriteOptions {
+  /** At most one write in this many milliseconds. None, or 0, writes on each change. */
+  every?: number
+  clock?: WriteClock
+}
 
 /**
  * The reviewer's memory of every review. With `every`, it is written to `storage` at most once in that many
  * milliseconds and at once on `flush`; with none, at once on each change, as tests and a storage in memory want.
  */
-export function createReviewMemory(storage: StateStorage = memoryStorage(), { every = 0, clock = REAL_CLOCK }: { every?: number; clock?: WriteClock } = {}): ReviewMemoryStore {
+export function createReviewMemory(storage: StateStorage = memoryStorage(), { every = 0, clock = REAL_CLOCK }: WriteOptions = {}): ReviewMemoryStore {
   const writer = writerOf(storage, every, clock)
   let written = 0
   // Folding is cheap, but every marker on screen asks for the notes. The answer is kept until the log changes.
@@ -346,13 +379,7 @@ export function createReviewMemory(storage: StateStorage = memoryStorage(), { ev
             const { reviews } = get()
             const cached = carriedSeen.get(review)
             if (cached?.from === reviews) return cached.marks
-            const key = memoryKey(review)
-            const same = `${key.slice(0, key.lastIndexOf('@'))}@`
-            const mine = new Set(marksOf(review.nodes).values())
-            const marks = new Set<string>()
-            for (const [other, memory] of Object.entries(reviews)) {
-              if (other !== key && other.startsWith(same)) for (const mark of memory.seen ?? []) if (mine.has(mark)) marks.add(mark)
-            }
+            const marks = carriedMarks(review, reviews)
             carriedSeen.set(review, { from: reviews, marks })
             return marks
           },
@@ -364,7 +391,9 @@ export function createReviewMemory(storage: StateStorage = memoryStorage(), { ev
               if (seen) after.add(mark)
               else after.delete(mark)
             }
-            if (after.size === before.size && [...after].every((mark) => before.has(mark)) && get().of(review).seen) return
+            const unchanged = after.size === before.size && [...after].every((mark) => before.has(mark))
+            // Marks lent by another commit become this commit's own, even when they are the same.
+            if (unchanged && get().of(review).seen) return
             update(review, (memory) => ({ ...memory, seen: [...after] }))
           },
         }
@@ -443,7 +472,8 @@ function foldedOf(review: Review, focus: FocusState): Folded {
   if (!kept) folds.set(review, (kept = new Map()))
   let folded = kept.get(key)
   if (!folded) {
-    const plan = planFocus({ nodes: shape.nodes, groups: shape.groups, nodeOf: new Map(review.nodes.map((node) => [node.id, node])) }, state)
+    const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
+    const plan = planFocus({ nodes: shape.nodes, groups: shape.groups, nodeOf }, state)
     folded = foldArranged(shape, plan)
     if (kept.size >= KEPT_FOLDS) kept.delete(kept.keys().next().value!)
     kept.set(key, folded)

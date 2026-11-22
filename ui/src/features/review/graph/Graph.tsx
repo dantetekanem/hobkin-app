@@ -43,8 +43,20 @@ export function Graph() {
       // In reading order, column by column, so the order on screen is the order in the document.
       [...viewNodes]
         .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y)
-        // A group card of a large change stands where Focus lays it out, at the head of its members: it is not dragged.
-        .map((node) => ({ id: node.id, type: isFoldGroup(node.id) ? 'fold' : 'card', position: node.position, data: {}, ...NODE_SIZE[node.kind], selectable: false, focusable: false, ...(isFoldGroup(node.id) ? { draggable: false } : {}) })),
+        .map((node) => {
+          // A group card of a large change stands where Focus lays it out, at the head of its members: it is not dragged.
+          const group = isFoldGroup(node.id)
+          return {
+            id: node.id,
+            type: group ? 'fold' : 'card',
+            position: node.position,
+            data: {},
+            ...NODE_SIZE[node.kind],
+            selectable: false,
+            focusable: false,
+            ...(group ? { draggable: false } : {}),
+          }
+        }),
     [viewNodes],
   )
   const edges = useMemo<Edge[]>(() => viewEdges.map((edge) => ({ id: edge.id, type: 'wire', source: edge.from, target: edge.to, selectable: false, focusable: false })), [viewEdges])

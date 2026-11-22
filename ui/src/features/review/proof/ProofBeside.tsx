@@ -26,6 +26,15 @@ function controlOf(root: HTMLElement, from: string): HTMLElement | null {
   return [...named].find((control) => !control.closest('[inert]')) ?? null
 }
 
+interface ProofBesideProps {
+  /** The review's width. */
+  canvas: number
+  /** What the review's panel and the outline leave of it, at the right. */
+  room: number
+  root: RefObject<HTMLElement | null>
+  keys: RefObject<ProofKeys | null>
+}
+
 /**
  * The proof beside the review (053-work-control-room, "Proofs"; the user, 2026-11-21: "the TLA+ and TLAPS approval
  * should be much easier to view, move across, have in the same screen, using keys to open/close"). T opens it on the
@@ -38,14 +47,7 @@ function controlOf(root: HTMLElement, from: string): HTMLElement | null {
  * for both. Never over the review's panel, where the verdict is. The review stays mounted under it as it was, and takes
  * the keyboard back on the control that opened it. Closed, nothing of it is mounted.
  */
-export function ProofBeside({ canvas, room, root, keys }: {
-  /** The review's width. */
-  canvas: number
-  /** What the review's panel and the outline leave of it, at the right. */
-  room: number
-  root: RefObject<HTMLElement | null>
-  keys: RefObject<ProofKeys | null>
-}) {
+export function ProofBeside({ canvas, room, root, keys }: ProofBesideProps) {
   const store = useSessionStore()
   const rig = useRig()
   const reduced = useReduced()
@@ -64,16 +66,19 @@ export function ProofBeside({ canvas, room, root, keys }: {
   const latest = useRef({ rows, siblings, expand })
   latest.current = { rows, siblings, expand }
   useEffect(() => {
+    // The open proof's own expand button knows the model it shows now, after J and K.
+    const expandShown = () => {
+      const button = box.current?.querySelector<HTMLElement>('[aria-label="Open the full page"]')
+      const shown = store.getState().proof?.run
+      if (button) button.click()
+      else if (shown) latest.current.expand(shown)
+    }
+    const expandRun = (run: string | null) => {
+      if (run != null) openRunAmong(run, latest.current.siblings)
+      else expandShown()
+    }
     keys.current = {
-      press: (shift, from) =>
-        pressProof(store.getState(), latest.current.rows, shift, from, (run) => {
-          if (run != null) return openRunAmong(run, latest.current.siblings)
-          // The open proof's own expand button knows the model it shows now, after J and K.
-          const button = box.current?.querySelector<HTMLElement>('[aria-label="Open the full page"]')
-          const shown = store.getState().proof?.run
-          if (button) button.click()
-          else if (shown) latest.current.expand(shown)
-        }),
+      press: (shift, from) => pressProof(store.getState(), latest.current.rows, shift, from, expandRun),
     }
     return () => {
       keys.current = null
@@ -143,7 +148,9 @@ export function ProofBeside({ canvas, room, root, keys }: {
 export function proofBox(canvas: number, room: number): { width: number; under: boolean } {
   const { width, covers } = proofRoom(room)
   const shown = covers ? Math.max(0, Math.round(room)) : width
-  return { width: shown, under: canvas - shown < canvas / 2 + MENU.width / 2 + MENU.gap }
+  const left = canvas - shown
+  const menuRight = canvas / 2 + MENU.width / 2 + MENU.gap
+  return { width: shown, under: left < menuRight }
 }
 
 /** The box's look, the same here and in a still render. */
