@@ -123,6 +123,34 @@ test('a change merged by YOLO mode counts as merged by itself and any other as m
   assert.deepEqual(lastDays(metrics, null, 'firstPass'), [0, 0, 1, 1, 2, 0]);
 });
 
+test('each change merged or declined in the period is listed newest first, and the rows of a day add up to that day', t => {
+  const { root, append } = home(t);
+  append('work/api/items.jsonl',
+    filed('a1', daysAgo(9)), update('a1', daysAgo(8), { state: 'merged', landed: { ...landed('key', daysAgo(8)), sha: 'old0000aaaa' } }),
+    filed('a2', daysAgo(5)), update('a2', daysAgo(4), { state: 'branch' }),
+    update('a2', daysAgo(3), { state: 'merged', landed: { ...landed('yolo', daysAgo(3)), sha: '1234567890abcdef' } }),
+    filed('a3', daysAgo(5)), update('a3', daysAgo(4), { state: 'branch' }),
+    update('a3', daysAgo(4, 13), { workNote: 'Add a test.', pushbacks: [{ at: daysAgo(4, 13) }] }),
+    update('a3', daysAgo(3, 9), { workNote: 'And another.', pushbacks: [{ at: daysAgo(4, 13) }, { at: daysAgo(3, 9) }] }),
+    update('a3', daysAgo(1), { state: 'merged', landed: { ...landed('chat', daysAgo(1)), sha: 'abcdef1234567' } }),
+    filed('a4', daysAgo(3)), update('a4', daysAgo(1, 10), { state: 'declined', pushbacks: [{ at: daysAgo(1, 10) }] }));
+  append('work/web/items.jsonl', filed('w1', daysAgo(2)), update('w1', daysAgo(1, 16), { state: 'merged', landed: { ...landed('remote', daysAgo(1, 16)), sha: null } }));
+
+  const metrics = workMetrics(root, { days: 7, now });
+
+  assert.deepEqual(metrics.decided, [
+    { slug: 'web', item: 'w1', title: 'Fix w1', at: daysAgo(1, 16), outcome: 'merged-by-you', sentBack: 0 },
+    { slug: 'api', item: 'a3', title: 'Fix a3', at: daysAgo(1), outcome: 'merged-by-you', sentBack: 2, head: 'abcdef1' },
+    { slug: 'api', item: 'a4', title: 'Fix a4', at: daysAgo(1, 10), outcome: 'declined', sentBack: 0 },
+    { slug: 'api', item: 'a2', title: 'Fix a2', at: daysAgo(3), outcome: 'merged-by-itself', sentBack: 0, head: '1234567' },
+  ]);
+  const outcomes = { mergedByItself: 'merged-by-itself', mergedByYou: 'merged-by-you', declined: 'declined' };
+  for (const day of metrics.all.days) {
+    const rows = metrics.decided.filter(({ at }) => new Date(at).toLocaleDateString('en-CA') === day.day);
+    for (const [count, outcome] of Object.entries(outcomes)) assert.equal(rows.filter(row => row.outcome === outcome).length, day[count], `${day.day} ${count}`);
+  }
+});
+
 test('how long a change waited for the user and took from its first run to its merge is measured over the period', t => {
   const { root, append } = home(t);
   append('work/api/items.jsonl',

@@ -15,6 +15,10 @@ import { paths } from './store.mjs';
 
 export const DAYS_DEFAULT = 30;
 export const DAYS_MAX = 180;
+/** The most decided changes one read lists (`DECIDED_MAX` in the client's contract). */
+export const DECIDED_MAX = 500;
+const OUTCOMES = { mergedByItself: 'merged-by-itself', mergedByYou: 'merged-by-you', declined: 'declined' };
+const SHORT_SHA = 7;
 
 // A change merges by itself only in YOLO mode. Every other route is the user's yes, wherever they gave it.
 const BY_ITSELF = 'yolo';
@@ -106,10 +110,13 @@ function tallyOf(days, slugs) {
   const fresh = () => ({ days: days.map(emptyDay), waitForYou: [], startToMerge: [] });
   const all = fresh();
   const projects = new Map(slugs.map(slug => [slug, fresh()]));
+  const decided = [];
+  /** Whether the time falls in the period, so a row is listed only where its day counts it. */
   const onDay = (time, slug, apply) => {
     const index = place.get(dayOf(time));
-    if (index === undefined) return;
+    if (index === undefined) return false;
     for (const series of [all, projects.get(slug)]) if (series) apply(series, index);
+    return true;
   };
   const seriesOf = ({ days: counted, waitForYou, startToMerge }) => ({
     days: counted,
@@ -121,8 +128,11 @@ function tallyOf(days, slugs) {
     measure: (name, time, slug, ms) => {
       if (ms >= 0) onDay(time, slug, series => series[name].push(ms));
     },
+    list: row => decided.push(row),
     all: () => seriesOf(all),
     project: slug => seriesOf(projects.get(slug)),
+    // Newest first, and a sort keeps the order they came in when two share a time.
+    decided: () => decided.toSorted((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, DECIDED_MAX),
   };
 }
 
@@ -135,11 +145,17 @@ function readProjectList(root, gaps) {
   return [...folded.values()];
 }
 
-/** A yes or a no on a change. First pass is a yes or no with no sending back before it. */
-function decided(tally, slug, change, time, how) {
+/**
+ * A yes or a no on a change, counted on its day and listed as a row there, so the two always agree. First pass is a yes
+ * or no with no sending back before it. `head` is the commit a merge landed at.
+ */
+function decided(tally, slug, change, time, how, head = null) {
   const at = Date.parse(time);
-  tally.count(how, time, slug);
-  if (!change.sentBack.some(sent => sent < at)) tally.count('firstPass', time, slug);
+  const sentBack = change.sentBack.filter(sent => sent < at).length;
+  if (tally.count(how, time, slug)) {
+    tally.list({ slug, item: change.id, title: change.title, at: time, outcome: OUTCOMES[how], sentBack, ...(head ? { head: head.slice(0, SHORT_SHA) } : {}) });
+  }
+  if (!sentBack) tally.count('firstPass', time, slug);
   if (how !== 'mergedByItself' && change.finishedAt) tally.measure('waitForYou', time, slug, at - Date.parse(change.finishedAt));
   if (how !== 'declined' && change.startedAt) tally.measure('startToMerge', time, slug, at - Date.parse(change.startedAt));
 }
@@ -159,8 +175,9 @@ function foldItems(records, slug, tally) {
     const filed = typeof line.key === 'string' && !line.updatedAt;
     const change = known && !filed
       ? known
-      : { state: null, pushbacks: known?.pushbacks ?? 0, merges: known?.merges ?? new Set(), sentBack: [], finishedAt: null, startedAt: null };
+      : { id: line.id, title: known?.title ?? line.id, state: null, pushbacks: known?.pushbacks ?? 0, merges: known?.merges ?? new Set(), sentBack: [], finishedAt: null, startedAt: null };
     changes.set(line.id, change);
+    if (typeof line.title === 'string') change.title = line.title;
 
     const pushbacks = Array.isArray(line.pushbacks) ? line.pushbacks : [];
     // A no writes a pushback of its own, and only the others sent the change back for more work.
@@ -183,7 +200,8 @@ function foldItems(records, slug, tally) {
     const { landed } = line;
     if (typeof landed?.at === 'string' && !change.merges.has(landed.at)) {
       change.merges.add(landed.at);
-      decided(tally, slug, change, landed.at, landed.route === BY_ITSELF ? 'mergedByItself' : 'mergedByYou');
+      const head = typeof landed.sha === 'string' && landed.sha ? landed.sha : null;
+      decided(tally, slug, change, landed.at, landed.route === BY_ITSELF ? 'mergedByItself' : 'mergedByYou', head);
     }
   }
 }
@@ -254,7 +272,8 @@ function foldProofs(root, since, tally, gaps) {
 /**
  * What work mode did on each local day of the last `days` (30 unless asked, 180 at most) up to today, for all projects
  * and for each project work mode has taken. Every day of the period is there, with zeros where nothing happened. The
- * counts of AI reviews and their span stay at nothing: the host keeps those reviews and adds them.
+ * counts of AI reviews and their span stay at nothing: the host keeps those reviews and adds them. `decided` lists each
+ * change merged or declined in the period, newest first, from the same records as the day counts.
  */
 export function workMetrics(root, { days, now = Date.now() } = {}) {
   const gaps = [];
@@ -282,5 +301,6 @@ export function workMetrics(root, { days, now = Date.now() } = {}) {
     all: tally.all(),
     projects: taken.map(project => ({ slug: project.slug, name: nameOf(project), ...tally.project(project.slug) })),
     gaps,
+    decided: tally.decided(),
   };
 }
