@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { NO_GITHUB_LISTS, type GitHubPull, type GitHubState } from '#shared/protocol/github.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
+import { shownAsRow } from '#shared/review/status.ts'
+import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import type { AssessJob } from '../src/review/assessment.ts'
 import { assessmentFolder, Assessments, type AssessRequest, type AssessRun } from '../src/review/assessment.ts'
 import { Reviews } from '../src/review/reviews.ts'
@@ -227,7 +229,41 @@ test('a finished change whose review has not started is listed as waiting its tu
   reviews.remove(second)
   reviews.watch([{ id: first, head }, { id: second, head }], 1)
   await new Promise((resolve) => setTimeout(resolve, 20))
-  assert.ok(!reviews.list().reviews.some((item) => item.id === second && item.waiting))
+  assert.ok(!reviews.list().reviews.some((item) => item.id === second), 'nothing is listed for it: following its branch makes no row')
+})
+
+test('a pull request a finished change opened is listed while that change has no row the window shows, as once the user removed or stopped its review', async (t) => {
+  const root = temporaryDirectory(t)
+  const sample = sampleReviewSource()
+  const head = await sample.head(TARGET)
+  const url = (number: number) => `https://github.com/acme/shop/pull/${number}`
+  const review = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
+  const files = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/files.json', import.meta.url), 'utf8')) as ReviewFileContents[]
+  const store = reviewStore(root)
+  for (const number of [12, 13]) store.write({ kind: 'pull', owner: 'acme', repo: 'shop', number }, review, files)
+  const reviews = new Reviews({
+    store,
+    sources: { change: sample, pull: sample },
+    work: () => ({ workAction: async () => ({}) }),
+    card: (_slug, item) => ({ landing: 'mergePr', yes: 'Merge its pull request.', branch: null, pr: url(item === 'a1' ? 12 : 13) }),
+    head: () => head,
+  })
+  t.after(() => reviews.close())
+  const [removed, stopped] = ['change:shop:a1', 'change:shop:b2']
+  // What the window shows of the list: a review that only is known, as one stopped before anything ran, is no row.
+  const listed = () => reviews.list().reviews.filter(shownAsRow).map((item) => item.id)
+
+  // The background prepares both; the second is stopped while it waits behind the first, so nothing of it ran.
+  reviews.watch([{ id: removed, head }, { id: stopped, head }])
+  reviews.stop(stopped)
+  await reviews.settled()
+  assert.deepEqual(listed().sort(), [removed, 'pr:acme/shop/13'].sort(), 'the stopped change has no row, so its pull request has')
+
+  reviews.remove(removed)
+  reviews.watch([{ id: removed, head }, { id: stopped, head }])
+  await new Promise((resolve) => setTimeout(resolve, 20))
+  await reviews.settled()
+  assert.deepEqual(listed().sort(), ['pr:acme/shop/12', 'pr:acme/shop/13'])
 })
 
 const pull = (number: number, over: Partial<GitHubPull> = {}): GitHubPull => ({

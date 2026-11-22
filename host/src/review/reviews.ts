@@ -15,7 +15,7 @@ import { reviewIdOf, targetOfReviewId, type NamedCodeHost, type ReviewTarget } f
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
 import { deployOf, deployWhy, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus } from '#shared/review/assessment.ts'
 import { count } from '#shared/review/prose.ts'
-import { IDLE_STATUS, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewPeople, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
+import { IDLE_STATUS, shownAsRow, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewPeople, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
 import { githubApi, type HostApi } from './code-hosts.ts'
@@ -400,6 +400,8 @@ export class Reviews {
   private readonly lookedAt = new Map<string, number>()
   /** What each change's card named when this host last looked its commit up. The look stands until the card names another. */
   private readonly cardAtLook = new Map<string, string | null>()
+  /** The commit each review's change was last looked up at, for one this host has no status of: a look makes no status. */
+  private readonly lookedHead = new Map<string, string>()
   /** How many notes hobkin has written, so two in the same millisecond still have their own ids. */
   private written = 0
   /** The reviews someone asked for, by the window or by hobkin, as against what the background prepares by itself. */
@@ -621,7 +623,7 @@ export class Reviews {
 
   /** The commit a review's change is at: what this host last looked up, until `card` names another commit than it did then. */
   private headOf(id: string, card: string | null): string | null {
-    const looked = this.statuses.get(id)?.head ?? null
+    const looked = this.statuses.get(id)?.head ?? this.lookedHead.get(id) ?? null
     return (looked != null && card === (this.cardAtLook.get(id) ?? null) ? looked : card) ?? looked
   }
 
@@ -733,7 +735,8 @@ export class Reviews {
       }
       return [{ item, at }]
     })
-    const theirs = this.pullsOfChanges(items.map(({ item }) => item.id))
+    // A pull request is hidden behind its change's row only where the window shows that row.
+    const theirs = this.pullsOfChanges(items.flatMap(({ item }) => (shownAsRow(item) ? [item.id] : [])))
     const once = items.filter(({ item }) => !theirs.has(item.id))
     return { reviews: once.sort((a, b) => b.at - a.at || a.item.id.localeCompare(b.item.id)).map(({ item }) => item) }
   }
@@ -764,12 +767,13 @@ export class Reviews {
       const head = await (target.kind === 'change' ? this.options.sources.change : this.options.sources.pull).head(target)
       if (!head) return
       this.cardAtLook.set(id, this.options.head?.(target) ?? null)
-      const known = this.stored(id)
-      if (head === known.head) return
-      // A commit learned for the first time is no change to the review, so the time its row shows stays. One that moved is.
-      if (known.head != null) this.set(id, { head }, at)
-      else {
-        this.statuses.set(id, { ...known, head })
+      // A review this host knows of moves to the commit. Of any other only the commit is kept: a look makes no status,
+      // so what the user removed or stopped is not listed again for it.
+      const known = this.statuses.get(id)
+      if (known?.head != null) {
+        if (head !== known.head) this.set(id, { head }, at)
+      } else if (this.lookedHead.get(id) !== head) {
+        this.lookedHead.set(id, head)
         this.options.onChange?.()
       }
     } catch (error) {
@@ -1062,7 +1066,7 @@ export class Reviews {
     this.options.store.remove(target)
     this.options.assessments?.forget(target)
     // What it is watched at stays, so the background does not build it again until its change moves.
-    for (const kept of [this.statuses, this.opened, this.lookedAt, this.cardAtLook, this.changedAt, this.about, this.runs]) kept.delete(id)
+    for (const kept of [this.statuses, this.opened, this.lookedAt, this.cardAtLook, this.lookedHead, this.changedAt, this.about, this.runs]) kept.delete(id)
     this.asked.delete(id)
     this.options.onChange?.()
     return { id, removed: true }

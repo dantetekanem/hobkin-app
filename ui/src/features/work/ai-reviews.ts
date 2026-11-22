@@ -1,6 +1,6 @@
 import type { AssessmentSummary } from '#shared/review/assessment.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
-import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
+import { shownAsRow, type ReviewList, type ReviewListItem } from '#shared/review/status.ts'
 
 /**
  * The AI Reviews tab's data (spec 032): every review the host knows (`review.list`), finished changes and pull
@@ -50,6 +50,7 @@ const timeOf = (iso: string | null | undefined): number | null => {
  * the host says waits its turn. One that never ran and waits for nothing has no group.
  */
 export function groupOf(item: ReviewListItem): ReviewGroup | null {
+  if (!shownAsRow(item)) return null
   if (item.mergeAsked) return 'unmerged'
   const assessment = item.assessment?.state
   if (item.state === 'preparing' || assessment === 'queued' || assessment === 'running' || item.waiting) return 'running'

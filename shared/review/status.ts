@@ -193,4 +193,13 @@ export interface ReviewList {
   reviews: ReviewListItem[]
 }
 
+/**
+ * Whether the AI Reviews list shows a review as a row: something of it ran, runs or waits its turn, or a merge the user
+ * asked for has not happened. One that is only known, as a review the user stopped before anything ran, is no row.
+ */
+export function shownAsRow(item: ReviewListItem): boolean {
+  const assessment = item.assessment?.state
+  return Boolean(item.mergeAsked || item.waiting) || item.state !== 'idle' || (assessment != null && assessment !== 'idle')
+}
+
 export const IDLE_STATUS = (id: string): ReviewStatus => ({ id, state: 'idle', phase: null, head: null, stale: false, preparedAt: null, error: null, storyBy: null })
