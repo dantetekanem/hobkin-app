@@ -8,7 +8,8 @@ import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { failureAt, failureLine, failuresOf, land, stepFailure } from './failures.ts'
-import { keep, keptOf, useKept, type ProofTab } from './kept.ts'
+import { keep, keptOf, useKept, type Landing, type ProofTab } from './kept.ts'
+import { choosePart } from './open-run.ts'
 import { focusPart } from './ProofBody.tsx'
 import { proofKey, PROOF_KEY_HINTS } from './proof-keys.ts'
 import type { ProofLayout } from './proof-layout.ts'
@@ -157,10 +158,12 @@ export interface ProofKeyHandlers {
   onExpand?: (id: string) => void
 }
 
-/** Shows a part: its tab in tabs, and side by side the keyboard goes to it. `target` picks one element of it. */
-export function showPart(root: HTMLElement | null, run: ProofRun, layout: ProofLayout, part: ProofTab, target?: string) {
-  if (layout === 'tabs') keep(run.id, { tab: part })
-  focusPart(root, part, target)
+/**
+ * Shows a part and gives it the keyboard: its tab in tabs, as every part shows side by side. `landing` picks the break
+ * or the first failed step in it, and `target` one element of it, such as the search.
+ */
+export function showPart(root: HTMLElement | null, run: ProofRun, layout: ProofLayout, part: ProofTab, { target, landing }: { target?: string; landing?: Landing } = {}) {
+  focusPart(root, part, choosePart(run, layout, part, landing) ?? target)
 }
 
 /**
@@ -203,7 +206,7 @@ export function useProofKeys(root: RefObject<HTMLElement | null>, handlers: Proo
         case 'part':
           return showPart(element, run, layout, action.part)
         case 'search':
-          return showPart(element, run, layout, 'graph', '[data-proof-search]')
+          return showPart(element, run, layout, 'graph', { target: '[data-proof-search]' })
         case 'again':
           // R runs it again. While it checks, Stop stays a press of its button.
           if (run.outcome !== 'checking') onControl()

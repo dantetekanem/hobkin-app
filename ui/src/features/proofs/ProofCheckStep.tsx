@@ -1,5 +1,6 @@
 import { motion } from 'motion/react'
 import { useStill } from '@/app/still.ts'
+import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRunSummary } from '#shared/protocol/proofs.ts'
 import { openRunAmong } from './open-run.ts'
@@ -45,14 +46,18 @@ export function ProofCheckStep({ run, spec }: { run: ProofRunSummary | null; spe
         // Its siblings are the other models its change has in the slice: the page finds them.
         onClick={() => run && openRunAmong(run.id)}
         aria-label={`${words.title}. ${words.detail}. Open the proof run.`}
-        className={cn('grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border px-3.5 py-3 text-left transition-colors duration-[160ms] ease-[ease] enabled:hover:brightness-[0.98] disabled:cursor-default', look.box)}
+        className={cn('grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 rounded-[14px] border px-3.5 py-3 text-left disabled:cursor-default', run && 'pressable', look.box)}
       >
         <span aria-hidden="true" className={cn('size-2.5 rounded-full', look.dot)} />
         <span className="flex min-w-0 flex-col gap-0.5">
           <span className="truncate text-[13px] font-semibold">{words.title}</span>
           <span className="truncate font-mono text-[11.5px] text-muted-foreground tabular-nums">{words.detail}</span>
         </span>
-        <span className={cn('text-[12.5px] font-semibold', run ? '' : 'opacity-40')}>Open</span>
+        {/* "Open" says it opens the run; the arrow beside it shows under the pointer and the keyboard, in a place kept for it. */}
+        <span className={cn('flex items-center gap-1 text-[12.5px] font-semibold', run ? '' : 'opacity-40')}>
+          Open
+          <OpenArrow className={cn('size-3.5', !run && 'invisible')} />
+        </span>
       </button>
       <div aria-hidden="true" className="h-1.5 overflow-hidden rounded-full bg-tone-1">
         <motion.span

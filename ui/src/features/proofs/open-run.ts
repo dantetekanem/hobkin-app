@@ -1,5 +1,8 @@
+import type { ProofRun } from '#shared/protocol/proofs.ts'
 import { useView } from '@/app/view-store.ts'
-import { keep, nameSiblings, type Landing } from './kept.ts'
+import { land } from './failures.ts'
+import { keep, keptOf, nameSiblings, type Landing, type ProofTab } from './kept.ts'
+import type { ProofLayout } from './proof-layout.ts'
 
 /**
  * Opens a proof run on its page among its siblings (053-work-control-room, "Proofs"): the other model checks and proofs
@@ -11,4 +14,15 @@ export function openRunAmong(id: string, siblings: readonly string[] = [], landi
   nameSiblings(siblings.includes(id) ? siblings : [])
   if (landing) keep(id, (kept) => ({ ...kept, tab: landing === 'proof' ? 'math' : 'graph', landing }))
   useView.getState().openProofRun(id)
+}
+
+/**
+ * Shows a part of an open run: its tab in tabs (side by side every part shows), landed where asked, as the Proof step
+ * and the broken rule of the Run part do. Returns where the keyboard should go in it, when that is one step.
+ */
+export function choosePart(run: Pick<ProofRun, 'id' | 'outcome' | 'trace' | 'proof' | 'definitions'>, layout: ProofLayout, part: ProofTab, landing?: Landing): string | undefined {
+  if (landing) keep(run.id, (kept) => land(run, { ...kept, landing }))
+  if (layout === 'tabs') keep(run.id, (kept) => (kept.tab === part ? kept : { ...kept, tab: part }))
+  const step = keptOf(run.id).math.step
+  return landing === 'proof' && step !== null ? `[data-proof-step="${step}"]` : undefined
 }

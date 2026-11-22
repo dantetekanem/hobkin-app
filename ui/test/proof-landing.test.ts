@@ -13,7 +13,7 @@ import { chipRuns } from '../src/features/proofs/siblings.ts'
 
 // The app's `@/` imports point at ui/src, as Vite resolves them.
 registerHooks({ resolve: (specifier, context, next) => next(specifier.startsWith('@/') ? new URL(`../src/${specifier.slice(2)}`, import.meta.url).href : specifier, context) })
-const { openRunAmong } = await import('../src/features/proofs/open-run.ts')
+const { choosePart, openRunAmong } = await import('../src/features/proofs/open-run.ts')
 
 const STARTED = Date.parse('2026-11-20T14:05:00Z')
 const summary = (phase: SamplePhase, change: Partial<ProofRunSummary> = {}): ProofRunSummary => ({ ...sampleSummary(sampleRun(phase, STARTED)), ...change })
@@ -53,6 +53,23 @@ test('a run opened at its proof lands on the first step that failed once the run
   assert.deepEqual([proved.tab, proved.math.step, proved.landing], ['math', null, null])
   const none = { ...FRESH }
   assert.equal(land(run, none), none, 'no landing, nothing changes')
+})
+
+test("the run's Proof step opens the math at the first failed step, and its broken rule the trace's break", () => {
+  const run = sampleRun('proofFails', STARTED)
+  useProofMemory.setState({ runs: {}, siblings: [] })
+
+  // In tabs the part's tab shows, and the keyboard goes to the failed step.
+  assert.equal(choosePart(run, 'tabs', 'math', 'proof'), '[data-proof-step="11"]')
+  assert.deepEqual([keptOf(run.id).tab, keptOf(run.id).math.step, keptOf(run.id).failure], ['math', 11, 1])
+
+  assert.equal(choosePart(run, 'tabs', 'graph', 'break'), undefined)
+  assert.deepEqual([keptOf(run.id).tab, keptOf(run.id).graph.picked, keptOf(run.id).failure], ['graph', null, 0])
+
+  // Side by side every part shows already: a part named with no landing changes nothing kept.
+  const kept = keptOf(run.id)
+  assert.equal(choosePart(run, 'side', 'math'), undefined)
+  assert.equal(keptOf(run.id), kept)
 })
 
 test('a run that does not count as evidence says so in plain words, and one that counts or an older host says nothing', () => {

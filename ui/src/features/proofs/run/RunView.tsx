@@ -2,11 +2,12 @@ import { Check as CheckIcon, Clock, Code, OctagonX, TriangleAlert, type LucideIc
 import { AnimatePresence, motion } from 'motion/react'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
-import type { ProofTab } from '../kept.ts'
+import type { Landing, ProofTab } from '../kept.ts'
 import { specFile } from '../proof-match.ts'
 import '../proofs.css'
 import {
@@ -35,8 +36,8 @@ export interface RunViewProps {
   /** A still moment to read the run's time at, for the sample and still renders. Without one the time reads the clock. */
   now?: number | null
   zone: string
-  /** Goes to another tab: the state graph to step through, or the math. */
-  onTab: (tab: Exclude<ProofTab, 'run'>) => void
+  /** Goes to another tab: the state graph to step through, or the math, landed at the break or the failed step when asked. */
+  onTab: (tab: Exclude<ProofTab, 'run'>, landing?: Landing) => void
   /** Opens an action's code, `path:line` in the project. Null while the project's folder is not known here. */
   onCode: ((where: string) => void) | null
   /** Draws what the run found too. Beside the check and the proof it shows above them instead, as `RunSummary`. */
@@ -57,10 +58,10 @@ export function RunView({ run, now, zone, onTab, onCode, summary = true }: RunVi
     <div className="grid grid-cols-1 gap-5 @min-[880px]:grid-cols-[minmax(0,1fr)_320px]">
       {/* Its own container, so its pieces fit the column they have, not the page. */}
       <div className="@container flex min-w-0 flex-col gap-4">
-        <Check run={run} now={now} />
+        <Check run={run} now={now} onTab={onTab} />
         {summary ? <ResultArea run={run} onTab={onTab} /> : null}
         <div className="grid grid-cols-1 gap-4 @min-[640px]:grid-cols-2">
-          <Rules run={run} />
+          <Rules run={run} onTab={onTab} />
           <Actions run={run} />
         </div>
       </div>
@@ -95,8 +96,39 @@ function Elapsed({ run, now }: { run: ProofRun; now: number | null | undefined }
   return <span className="shrink-0 font-mono text-[12.5px] text-muted-foreground tabular-nums">{elapsedLine(run, now ?? clock)}</span>
 }
 
+const STEP_BOX = 'flex min-h-[62px] w-full flex-col gap-1.5 rounded-[14px] border px-3 py-2.5 text-left'
+
+/**
+ * One of the three steps. The Proof step opens the proof tree once TLAPS ran, at the first step that failed when one
+ * did; the others show where the run stands and do nothing on a click.
+ */
+function StepBox({ step, onOpen }: { step: ReturnType<typeof stepRows>[number]; onOpen: (() => void) | null }) {
+  const look = STEP_LOOK[step.look]
+  const inner = (
+    <>
+      <span className="flex items-center gap-2 text-[13px] font-semibold">
+        <span aria-hidden="true" className={cn('grid size-[18px] shrink-0 place-items-center rounded-full text-[11px] font-bold', look.dot)}>
+          {look.mark}
+        </span>
+        {step.name}
+        <span className="sr-only">: {step.look}</span>
+        {onOpen ? <OpenArrow className="ml-auto size-3.5" /> : null}
+      </span>
+      <span title={step.note} className="line-clamp-1 text-[12px] font-normal text-muted-foreground">
+        {step.note}
+      </span>
+    </>
+  )
+  if (!onOpen) return <div className={cn(STEP_BOX, look.box)}>{inner}</div>
+  return (
+    <button type="button" data-stop="" title="Read the proof" onClick={onOpen} className={cn(STEP_BOX, 'pressable', look.box)}>
+      {inner}
+    </button>
+  )
+}
+
 /** The spec and its model, the three steps, the four counters and the chart of new states. */
-function Check({ run, now }: { run: ProofRun; now: number | null | undefined }) {
+function Check({ run, now, onTab }: { run: ProofRun; now: number | null | undefined; onTab: RunViewProps['onTab'] }) {
   const still = useStill()
   const chart = chartOf(run)
   const model = modelLine(run)
@@ -116,19 +148,10 @@ function Check({ run, now }: { run: ProofRun; now: number | null | undefined }) 
 
       <ol aria-label="Steps" className="grid grid-cols-3 gap-2">
         {stepRows(run).map((step) => {
-          const look = STEP_LOOK[step.look]
+          const proved = step.id === 'prove' && (step.look === 'done' || step.look === 'failed')
           return (
-            <li key={step.id} className={cn('flex min-h-[62px] flex-col gap-1.5 rounded-[14px] border px-3 py-2.5', look.box)}>
-              <span className="flex items-center gap-2 text-[13px] font-semibold">
-                <span aria-hidden="true" className={cn('grid size-[18px] shrink-0 place-items-center rounded-full text-[11px] font-bold', look.dot)}>
-                  {look.mark}
-                </span>
-                {step.name}
-                <span className="sr-only">: {step.look}</span>
-              </span>
-              <span title={step.note} className="line-clamp-1 text-[12px] text-muted-foreground">
-                {step.note}
-              </span>
+            <li key={step.id} className="flex">
+              <StepBox step={step} onOpen={proved ? () => onTab('math', step.look === 'failed' ? 'proof' : undefined) : null} />
             </li>
           )
         })}
@@ -246,24 +269,46 @@ const PILL: Readonly<Record<Tone, string>> = {
   bad: 'bg-bad-fg text-background',
 }
 
-function Rules({ run }: { run: ProofRun }) {
+const RULE_ROW = 'grid min-h-[52px] w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 rounded-xl px-3 py-2 text-left transition-colors duration-[220ms]'
+
+/** What must stay true. The rule that broke opens the trace at its break; the others say how they stand. */
+function Rules({ run, onTab }: { run: ProofRun; onTab: RunViewProps['onTab'] }) {
   const rows = ruleRows(run)
+  // The break can be stepped to only once the trace is here.
+  const traced = (run.trace?.length ?? 0) > 0
   return (
     <section aria-label="What must stay true" className={cn(CARD, 'flex flex-col gap-2.5 px-5 py-[18px]')}>
       <h2 className="font-heading text-[15px] font-semibold">What must stay true</h2>
       {rows.length ? (
         <ul className="flex flex-col gap-2">
-          {rows.map((rule) => (
-            <li key={rule.name} className={cn('grid min-h-[52px] grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 rounded-xl px-3 py-2 transition-colors duration-[220ms]', rule.marked ? 'bg-bad/15' : 'bg-transparent')}>
-              <span title={rule.name} className="line-clamp-1 font-mono text-[13px] font-medium">
-                {rule.name}
-              </span>
-              <span className={cn('row-span-2 inline-flex h-[26px] items-center rounded-full px-2.5 font-heading text-[12px] font-semibold whitespace-nowrap transition-colors duration-[220ms]', PILL[rule.tone])}>{rule.status}</span>
-              <span title={rule.words} className="line-clamp-2 text-[12.5px] leading-snug text-muted-foreground">
-                {rule.words}
-              </span>
-            </li>
-          ))}
+          {rows.map((rule) => {
+            const opens = rule.marked && traced
+            const inner = (
+              <>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span title={rule.name} className="truncate font-mono text-[13px] font-medium">
+                    {rule.name}
+                  </span>
+                  {opens ? <OpenArrow className="size-3.5" /> : null}
+                </span>
+                <span className={cn('row-span-2 inline-flex h-[26px] items-center rounded-full px-2.5 font-heading text-[12px] font-semibold whitespace-nowrap transition-colors duration-[220ms]', PILL[rule.tone])}>{rule.status}</span>
+                <span title={rule.words} className="line-clamp-2 text-[12.5px] leading-snug text-muted-foreground">
+                  {rule.words}
+                </span>
+              </>
+            )
+            return (
+              <li key={rule.name}>
+                {opens ? (
+                  <button type="button" data-stop="" title="Step to where it breaks" onClick={() => onTab('graph', 'break')} className={cn(RULE_ROW, 'pressable bg-bad/15')}>
+                    {inner}
+                  </button>
+                ) : (
+                  <div className={cn(RULE_ROW, rule.marked ? 'bg-bad/15' : 'bg-transparent')}>{inner}</div>
+                )}
+              </li>
+            )
+          })}
         </ul>
       ) : (
         <p className="text-[12.5px] text-muted-foreground">The spec names what must stay true once SANY has read it.</p>

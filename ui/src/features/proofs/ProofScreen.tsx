@@ -88,7 +88,7 @@ function PageRun({ run, now, live, complete, layout, frame }: PageRunProps) {
   return (
     <>
       <Header run={run} siblings={siblings} onMove={onMove} control={control} />
-      <ProofBody key={run.id} run={run} now={now} layout={layout} tabsId="proof" onPart={(part) => showPart(frame.current, run, layout, part)} onCode={onCode} />
+      <ProofBody key={run.id} run={run} now={now} layout={layout} tabsId="proof" onPart={(part, landing) => showPart(frame.current, run, layout, part, { landing })} onCode={onCode} />
     </>
   )
 }
@@ -126,7 +126,8 @@ function Header({ run, siblings, onMove, control }: HeaderProps) {
           </h1>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <span className="inline-flex h-8 items-center gap-2 rounded-full border border-border bg-surface px-3 text-[13px] whitespace-nowrap">
+          {/* How it stands, as words with a dot: it does nothing on a click, so it does not look like a button. */}
+          <span className="inline-flex h-8 items-center gap-2 px-2 text-[13px] whitespace-nowrap">
             <span aria-hidden="true" className={cn('size-2 rounded-full', DOT[phase.tone])} />
             {phase.label}
           </span>

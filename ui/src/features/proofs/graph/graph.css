@@ -79,6 +79,10 @@
 .pf-node[data-look='ghost']:hover {
   transform: none;
 }
+/* A state or group that can be picked says so under the pointer with a ring, which shows under Still too. */
+.pf-node:not([data-look='ghost']):not([data-selected='true']):hover {
+  box-shadow: 0 0 0 4px color-mix(in oklab, var(--pf-ink) 14%, transparent);
+}
 .pf-node[data-selected='true'] {
   background: var(--hb-accent);
   color: var(--hb-on-accent);

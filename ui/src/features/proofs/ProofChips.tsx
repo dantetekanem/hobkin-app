@@ -1,4 +1,5 @@
 import { useMemo } from 'react'
+import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { ModelFact } from '#shared/protocol/work.ts'
 import { openRunAmong } from './open-run.ts'
@@ -60,10 +61,12 @@ export function ProofChipList({ chips, inRow = true, stacked = false }: { chips:
                 title="hobkin ran this check itself. Opens the run."
                 // "Proof fails" opens at the proof tree's first failed step, a broken model at the trace's break.
                 onClick={() => openRunAmong(id, siblings, lands)}
-                className={cn(CHIP, 'transition-colors duration-[160ms] ease-[ease] hover:brightness-[0.97]', look.chip)}
+                className={cn(CHIP, 'pressable pr-2', look.chip)}
               >
                 {dot}
                 {label}
+                {/* Its place is kept, so the chip is one width whether or not the arrow shows. */}
+                <OpenArrow className="-ml-0.5 size-3.5" />
               </button>
             ) : (
               <span className={cn(CHIP, look.chip)}>

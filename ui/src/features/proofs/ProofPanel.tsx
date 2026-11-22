@@ -105,7 +105,7 @@ function PanelRun({ run, now, live, complete, layout, box, siblings, onMove, onC
   return (
     <>
       <PanelHeading run={run} siblings={siblings} onMove={onMove} control={control} onClose={onClose} onExpand={onExpand} />
-      <ProofBody key={run.id} run={run} now={now} layout={layout} tabsId="proof-panel" panel onPart={(part) => showPart(box.current, run, layout, part)} onCode={onCode === undefined ? opener : onCode} />
+      <ProofBody key={run.id} run={run} now={now} layout={layout} tabsId="proof-panel" panel onPart={(part, landing) => showPart(box.current, run, layout, part, { landing })} onCode={onCode === undefined ? opener : onCode} />
     </>
   )
 }

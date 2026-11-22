@@ -1,7 +1,7 @@
 import { lazy, Suspense, useDeferredValue, useLayoutEffect, useState, type RefObject } from 'react'
 import { PageTabs, type PageTab } from '@/features/work/PageTabs.tsx'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
-import { keep, useKept, type ProofTab } from './kept.ts'
+import { keep, useKept, type Landing, type ProofTab } from './kept.ts'
 import { MathView } from './math/MathView.tsx'
 import { layoutOf, type ProofLayout } from './proof-layout.ts'
 import { RunSummary, RunView } from './run/RunView.tsx'
@@ -28,8 +28,8 @@ export interface ProofBodyProps {
   layout: ProofLayout
   /** The tab list's id, unique on the screen: `proof` on the page, `proof-panel` beside another page. */
   tabsId: string
-  /** Shows a part: its tab in tabs, and side by side the keyboard goes to it. */
-  onPart: (part: ProofTab) => void
+  /** Shows a part: its tab in tabs, and side by side the keyboard goes to it. `landing` picks the step to show in it. */
+  onPart: (part: ProofTab, landing?: Landing) => void
   onCode: ((where: string) => void) | null
   /** In a panel beside another page, the Math tab leads with the proof tree, as side by side does. */
   panel?: boolean
@@ -98,9 +98,10 @@ const LANDING: Readonly<Record<ProofTab, readonly string[]>> = {
  * waited for a few frames. `target` is a selector for one element of it instead, such as a proof step.
  */
 export function focusPart(root: HTMLElement | null, part: ProofTab, target?: string): void {
+  if (!root) return
   let frames = 40
   const tryNow = () => {
-    const found = (target ? [target] : LANDING[part]).map((selector) => root?.querySelector<HTMLElement>(selector)).find(Boolean)
+    const found = (target ? [target] : LANDING[part]).map((selector) => root.querySelector<HTMLElement>(selector)).find(Boolean)
     if (found) {
       found.focus({ preventScroll: true })
       found.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
