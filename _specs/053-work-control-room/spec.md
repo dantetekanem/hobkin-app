@@ -101,7 +101,7 @@ The review of a large change
 
 Proofs
 - No one approves a proof. Its result is evidence for the change, shown where the change is approved.
-- T in a review opens the proof beside it, in a panel at the right, and T or Escape closes it. The review stays mounted and keeps its place. Shift+T, or the panel's expand button, opens the full page. From Work, YOLO mode and a project's page a chip or a model opens the proof's page among the change's other models, and the trail leads back.
+- T in a review opens the proof beside it, in a panel at the right, on the first model that needs a look, and T or Escape closes it. The graph keeps at least 420 pixels and the proof takes the rest, up to 1,160; with too little room it covers the graph and never the review's own panel, so the verdict stays in view. The review stays mounted and keeps its place. Shift+T, or the panel's expand button, opens the full page. From Work, YOLO mode and a project's page a chip or a model opens the proof's page among the change's other models, and the trail leads back.
 - On a panel or page 1,100 pixels wide or more, the check and the proof show together: the trace or state graph at the left, the math and the proof tree at the right. Narrower, they stay tabs.
 - J and K go to the next and previous model of the change, and the heading says "Model 2 of 5".
 - F and Shift+F go to the next and previous thing that failed: a broken rule's trace step, or a proof step that failed, is missing or was omitted. The heading counts them.
@@ -195,10 +195,10 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A21. `ui/test/review-outline.test.ts` › "the outline lists every unit and file of the review once, under Needs you, Worth a look and Safe, each in rank order" and › "typing filters the outline by name and path, and a group with a match shows it"
 - A22. `ui/test/review-seen.test.ts` › "marks are kept for each commit: a newer commit keeps the mark on code it did not change, and drops the mark on code it did"
 - A23. `ui/test/review-next-unseen.test.ts` › "U says so when every node that needs the reviewer is seen, and stays where it is"
-- A24. unproven
+- A24. `ui/test/review-evidence.test.ts` › "the evidence above the verdict reads, in order, the tests, the AI review, the models and proofs, and what needs the reviewer that is seen" and › "the first press of a yes says how many nodes that need the reviewer are not seen, and offers U"
 - A25. `ui/test/review-move-cost.test.ts` › "moving through 50 steps writes the review memory to storage at most once a second, and the last place on close"
 - A26. `ui/test/review-kept-place.test.ts` › "a review left for another page and opened again comes back to the same step, focus, history, groups and outline"
-- A27. unproven
+- A27. `ui/test/review-proof-beside.test.ts` › "T opens the proof beside the review and T or Escape closes it, with the review at the same step, focus, mode and history underneath"
 - A28. `ui/test/proof-layout.test.ts` › "a proof shows its check and its proof side by side from 1,100 pixels wide, and as tabs below that"
 - A29. `ui/test/proof-siblings.test.ts` › "J and K go to the next and previous sibling and stop at the ends, and the heading says which of how many"; `ui/test/proof-failures.test.ts` › "F and Shift+F go to the next and previous failure, across the trace and the tree, round again at the ends"
 - A30. `ui/test/proof-kept.test.ts` › "each run keeps its tab, picked state, graph view, lens and search, and math mode and step while the app is open"
@@ -222,7 +222,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - [x] S10 (A8, A9, A10, A11). Work: tiles, the status line, Numbers, the workload sheet, rows that are buttons.
 - [x] S11 (A4). The project's page, and World and YOLO mode opening it.
 - [x] S12 (A8, A9). YOLO mode's trust figures, funnel and chart, and World's card.
-- [ ] S13 (A24, A27). The proof beside the review and the evidence above the verdict.
+- [x] S13 (A24, A27). The proof beside the review and the evidence above the verdict.
 - [ ] S14 (A34, A35). Sample data for every new page, still renders in light and dark, the motion check.
 
 ## Open questions
