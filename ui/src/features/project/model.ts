@@ -8,6 +8,7 @@ import { READ_WORDS, type MetricsReadState } from '../numbers/metrics-store.ts'
 import { finishedReviewId } from '../review/entry.ts'
 import { groupOf } from '../work/ai-reviews.ts'
 import { needsFirst } from '../work/finished-cards.ts'
+import { oldestAtOf } from '../work/work-tiles.ts'
 import { inPlace, readinessRow, stillToSetUp, waitingChange, type PartRow, type ReadinessTone } from '../work/yolo-page.ts'
 
 /**
@@ -61,6 +62,8 @@ export interface ProjectInput {
   /** The agents at work now. The page's At work section reads them itself, so the rest of it never waits on them. */
   agents?: readonly AgentLike[]
   live: boolean
+  /** The time the page is drawn at, for how long its oldest change has waited. Now unless given. */
+  now?: number
 }
 
 export interface Heading {
@@ -347,10 +350,14 @@ function mergedOf(input: ProjectInput, yolo: YoloProject | undefined, reviews: P
 function tilesOf(input: ProjectInput, waiting: readonly WaitingRow[]): TilesView {
   const { metrics, metricsState, slug, reviews } = input
   const days = metrics ? (metrics.projects.find((project) => project.slug === slug)?.days ?? []) : null
-  const tiles = workTiles({ days, waiting: { count: waiting.length, oldestMs: null }, reviews: reviews?.counts ?? null, tokens: null, merged: 'period' })
-  // How long the oldest has waited is not known, so the tile says what kind of wait they are.
+  // How long its oldest change has waited, as Work's tile says it, when each of its changes says when hobkin last wrote it.
+  const own = (input.work?.finished ?? []).map((group) => ({ ...group, changes: group.changes.filter((change) => change.slug === slug) }))
+  const oldestAt = oldestAtOf({ finished: own })
+  const oldestMs = oldestAt === null ? null : Math.max(0, (input.now ?? Date.now()) - oldestAt)
+  const tiles = workTiles({ days, waiting: { count: waiting.length, oldestMs }, reviews: reviews?.counts ?? null, tokens: null, merged: 'period' })
+  // Without it, the tile says what kind of wait they are.
   const needs = waiting.filter(({ needsYou }) => needsYou).length
-  if (waiting.length) tiles[0] = { ...tiles[0]!, context: `${needs} need${needs === 1 ? 's' : ''} you · ${waiting.length - needs} ready` }
+  if (waiting.length && oldestMs === null) tiles[0] = { ...tiles[0]!, context: `${needs} need${needs === 1 ? 's' : ''} you · ${waiting.length - needs} ready` }
   const note =
     metricsState === 'older-host'
       ? READ_WORDS['older-host']

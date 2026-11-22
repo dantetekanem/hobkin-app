@@ -58,6 +58,7 @@ function input(change: Partial<ProjectInput> = {}): ProjectInput {
     reviews: reviewsOf(SAMPLE_REVIEW_LIST, change.slug ?? 'storefront'),
     agents: AGENTS,
     live: true,
+    now: NOW,
     ...change,
   }
 }
@@ -84,7 +85,8 @@ test("a busy project's page reads its heading, tiles and flow from what Work, YO
   )
   const [waiting, merged, , , reviews, tokens] = page.tiles.tiles
   assert.equal(waiting!.figure, '4')
-  assert.equal(waiting!.context, '2 need you · 2 ready')
+  // Its oldest finished change was last written 26 hours ago, as Work's tile says it.
+  assert.equal(waiting!.context, 'oldest 26 h')
   assert.equal(merged!.label, 'Merged (30 d)')
   assert.equal(merged!.figure, String(month.mergedByItself + month.mergedByYou))
   // Of the sample's reviews of storefront's changes: one runs, two are ready.
@@ -167,6 +169,11 @@ test('merged lately lists its changes merged or declined, newest first, saying w
     [['Improvements', ['errors', 'alerts', 'deploy']]],
   )
   assert.match(page.readiness.inPlace ?? '', /^In place: Tests, Slow queries/)
+})
+
+test('with a change that does not say when hobkin last wrote it, the waiting tile says how many need the user and how many are ready', () => {
+  const untimed = work((state) => ({ ...state, finished: state.finished.map((group) => ({ ...group, changes: group.changes.map(({ at: _gone, ...change }) => change) })) }))
+  assert.equal(taken({ work: untimed }).tiles.tiles[0]!.context, '2 need you · 2 ready')
 })
 
 test('a project with nothing yet keeps every section and says in each that it has nothing', () => {
