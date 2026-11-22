@@ -39,7 +39,8 @@ import { sampleSource, SAMPLE_REVIEWS } from './source.ts'
 import { flushReviewMemory, reviewMemory, StageProvider, useReduced, useReviewMemory } from './state/context.tsx'
 import { memoryKey } from './state/memory.ts'
 import { followCursor, shownPlaces } from './state/cursor.ts'
-import { forgetPlace, keepPlace, placeOf } from './state/place.ts'
+import { leaveReview } from './state/leave.ts'
+import { placeOf } from './state/place.ts'
 import { createSession } from './state/session.ts'
 import type { Size } from './story/camera.ts'
 import { Outline, OUTLINE_ROOM } from './outline/Outline.tsx'
@@ -206,10 +207,9 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
   const close = useMemo(
     () => () => {
       closing.current = true
-      forgetPlace(placeKey)
       closeReview()
     },
-    [closeReview, placeKey],
+    [closeReview],
   )
   const [shortcuts, setShortcuts] = useState(false)
   const proofKeys = useRef<ProofKeys | null>(null)
@@ -249,8 +249,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
     addEventListener('pagehide', flushReviewMemory)
     return () => {
       removeEventListener('pagehide', flushReviewMemory)
-      flushReviewMemory()
-      if (!closing.current) keepPlace(placeKey, { ...session.getState().placeNow(), camera: camera.current() })
+      leaveReview({ session, memory: { flush: flushReviewMemory }, key: placeKey, closed: closing.current, camera: camera.current() })
     }
   }, [camera, placeKey, session])
   // A newer copy of this review, as when its change review lands, is taken in where the reviewer is.
@@ -357,7 +356,6 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
         escapeReview(session.getState(), () => {
           left = true
           closing.current = true
-          forgetPlace(placeKey)
           useView.getState().closeReview()
         })
         // Whatever closed may have held the keyboard, such as the code panel. It stays in the review.

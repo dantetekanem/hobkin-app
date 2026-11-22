@@ -2,46 +2,47 @@ import { useReducedMotion } from 'motion/react'
 import { createContext, useContext, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import type { StateStorage } from 'zustand/middleware'
-import type { StoreApi } from 'zustand/vanilla'
 import type { ReviewSource } from '#shared/review/types.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { useDev } from '../dev/dev.ts'
 import type { CameraRig } from '../story/useCamera.ts'
-import { createReviewMemory, memoryStorage, throttledStorage, type MemoryState } from './memory.ts'
+import { createReviewMemory, memoryStorage, type MemoryState, type ReviewMemoryStore } from './memory.ts'
 import type { Session, SessionStore } from './session.ts'
 
-/** The browser's storage, written at most once a second: a move through a review writes nothing by itself (spec 053). */
-function browserStorage(): StateStorage & { flush(): void } {
+function browserStorage(): StateStorage {
   try {
     localStorage.getItem('hobkin-client-review')
-    return throttledStorage(localStorage)
+    return localStorage
   } catch {
     // Storage can be unavailable. The review still works, and forgets when the window closes.
-    return { ...memoryStorage(), flush: () => {} }
+    return memoryStorage()
   }
 }
+
+/** The memory is written at most once a second: a move through a review writes nothing by itself (spec 053). */
+const WRITE_EVERY_MS = 1000
 
 /*
  * One store for the window, kept on globalThis. A hot update runs this file again, and a second store would not reach
  * the review on screen, which holds the one it opened with, while both wrote over each other in storage. So the store
  * is kept while its own code is the same, and when that code changed a window showing a review loads again instead.
  */
-const holder = globalThis as { __hobkinReviewMemory?: { store: StoreApi<MemoryState>; made: typeof createReviewMemory; flush?: () => void } }
+const holder = globalThis as { __hobkinReviewMemory?: { store: ReviewMemoryStore; made: typeof createReviewMemory } }
 const kept = holder.__hobkinReviewMemory
 const fresh = !kept || kept.made !== createReviewMemory
 const reloading = import.meta.hot != null && fresh && typeof document !== 'undefined' && document.querySelector('[data-rv-root]') != null
 if (reloading) location.reload()
 
 /** What the reviewer left in every review, kept across reloads. */
-export const reviewMemory: StoreApi<MemoryState> = kept && (!fresh || reloading) ? kept.store : keepMemory()
-function keepMemory(): StoreApi<MemoryState> {
-  const storage = browserStorage()
-  return (holder.__hobkinReviewMemory = { store: createReviewMemory(storage), made: createReviewMemory, flush: storage.flush }).store
+export const reviewMemory: ReviewMemoryStore = kept && (!fresh || reloading) ? kept.store : keepMemory()
+function keepMemory(): ReviewMemoryStore {
+  return (holder.__hobkinReviewMemory = { store: createReviewMemory(browserStorage(), { every: WRITE_EVERY_MS }), made: createReviewMemory }).store
 }
 
 /** Writes what the reviewer left in every review to storage now, without waiting for the second to pass: a review closes. */
 export function flushReviewMemory(): void {
-  holder.__hobkinReviewMemory?.flush?.()
+  // A store made before it could wait has nothing waiting.
+  reviewMemory.flush?.()
 }
 
 export function useReviewMemory<Value>(selector: (state: MemoryState) => Value): Value {

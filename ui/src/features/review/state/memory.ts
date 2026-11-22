@@ -6,7 +6,7 @@
  * Nothing here changes the review file. The graph is a view of the review model.
  */
 import { createStore, type StoreApi } from 'zustand/vanilla'
-import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
+import { persist, type PersistStorage, type StateStorage, type StorageValue } from 'zustand/middleware'
 import type { Review, ReviewEdge, ReviewNode } from '#shared/review/types.ts'
 import type { ReviewNotes } from '#shared/review/status.ts'
 import { arrange, isTestGroup, type Arranged, type ViewStep } from '../graph/arrange.ts'
@@ -172,7 +172,7 @@ export function memoryStorage(): StateStorage & { setItem(name: string, value: s
   }
 }
 
-/** The clock a throttled storage waits on: the real one, or a test's. */
+/** The clock the memory's writes wait on: the real one, or a test's. */
 export interface WriteClock {
   now(): number
   later(run: () => void, ms: number): unknown
@@ -180,13 +180,17 @@ export interface WriteClock {
 }
 const REAL_CLOCK: WriteClock = { now: () => Date.now(), later: (run, ms) => setTimeout(run, ms), cancel: (timer) => clearTimeout(timer as ReturnType<typeof setTimeout>) }
 
+/** What of the memory is kept in storage. */
+type Persisted = Pick<MemoryState, 'reviews' | 'unsyncedNotes' | 'panelShare' | 'splitDiff' | 'panelPinned' | 'reviewMode'>
+
 /**
- * Writes to a storage at most once in `every` milliseconds (spec 053): a move through a review changes its memory, and
- * the memory of every review is one value, so writing it on each move cost a write of all of it each time. What is set
- * waits, the latest kept, and is read back as it waits; `flush` writes it at once, as when the review closes.
+ * How the memory reaches storage (spec 053). zustand hands over the whole memory on every change, and a move through a
+ * review is one or two changes, while the memory holds every review kept. So what it hands over is kept as it is, and
+ * turned into text only as it is written: at once with no `every`, else at most once in `every` milliseconds, and at
+ * once on `flush`, as when a review closes or a note is kept. What waits is read back as it is.
  */
-export function throttledStorage(storage: StateStorage, { every = 1000, clock = REAL_CLOCK }: { every?: number; clock?: WriteClock } = {}): StateStorage & { flush(): void } {
-  let waiting: { name: string; value: string } | null = null
+function writerOf(storage: StateStorage, every: number, clock: WriteClock): PersistStorage<Persisted> & { flush(): void } {
+  let waiting: { name: string; value: StorageValue<Persisted> } | null = null
   let timer: unknown = null
   let wrote = Number.NEGATIVE_INFINITY
   const write = () => {
@@ -196,13 +200,26 @@ export function throttledStorage(storage: StateStorage, { every = 1000, clock = 
     const { name, value } = waiting
     waiting = null
     wrote = clock.now()
-    void storage.setItem(name, value)
+    void storage.setItem(name, JSON.stringify(value))
+  }
+  const parse = (text: string | null): StorageValue<Persisted> | null => {
+    try {
+      return text == null ? null : (JSON.parse(text) as StorageValue<Persisted>)
+    } catch {
+      // Storage can hold anything: what cannot be read is left behind, as `readMemory` leaves behind what it cannot use.
+      return null
+    }
   }
   return {
-    getItem: (name) => (waiting?.name === name ? waiting.value : storage.getItem(name)),
+    getItem: (name) => {
+      if (waiting?.name === name) return waiting.value
+      const text = storage.getItem(name)
+      return typeof text === 'string' || text == null ? parse(text) : Promise.resolve(text).then(parse)
+    },
     setItem: (name, value) => {
       if (waiting && waiting.name !== name) write()
       waiting = { name, value }
+      if (every <= 0) return write()
       timer ??= clock.later(write, Math.max(0, wrote + every - clock.now()))
     },
     removeItem: (name) => {
@@ -213,19 +230,45 @@ export function throttledStorage(storage: StateStorage, { every = 1000, clock = 
   }
 }
 
-export function createReviewMemory(storage: StateStorage = memoryStorage()): StoreApi<MemoryState> {
+/** The most reviews whose memory is kept: those changed last. One that holds a note or a draft is never let go of. */
+export const KEPT_REVIEWS = 30
+
+/** The reviews' memories: the most kept, changed last, and any older one that holds a note or a draft. */
+function keptReviews(reviews: Record<string, ReviewMemory>): Record<string, ReviewMemory> {
+  const keys = Object.keys(reviews)
+  if (keys.length <= KEPT_REVIEWS) return reviews
+  const recent = new Set(keys.slice(-KEPT_REVIEWS))
+  const kept: Record<string, ReviewMemory> = {}
+  for (const key of keys) {
+    const memory = reviews[key]!
+    if (recent.has(key) || memory.notes.length > 0 || memory.draft != null) kept[key] = memory
+  }
+  return kept
+}
+
+/** The memory of every review, and the way to write it to storage now. */
+export type ReviewMemoryStore = StoreApi<MemoryState> & { flush(): void }
+
+/**
+ * The reviewer's memory of every review. With `every`, it is written to `storage` at most once in that many
+ * milliseconds and at once on `flush`; with none, at once on each change, as tests and a storage in memory want.
+ */
+export function createReviewMemory(storage: StateStorage = memoryStorage(), { every = 0, clock = REAL_CLOCK }: { every?: number; clock?: WriteClock } = {}): ReviewMemoryStore {
+  const writer = writerOf(storage, every, clock)
   let written = 0
   // Folding is cheap, but every marker on screen asks for the notes. The answer is kept until the log changes.
   let folded: { log: NoteEntry[]; notes: Note[] } | null = null
   // The seen marks of a review, kept until what they come from changes.
   const ownSeen = new WeakMap<readonly string[], ReadonlySet<string>>()
   const carriedSeen = new WeakMap<Review, { from: Record<string, ReviewMemory>; marks: ReadonlySet<string> }>()
-  return createStore<MemoryState>()(
+  const store = createStore<MemoryState>()(
     persist(
       (set, get) => {
+        // A review changed goes to the end, so the reviews changed longest ago are the first let go of.
         const update = (review: Review, change: (memory: ReviewMemory) => ReviewMemory) => {
           const key = memoryKey(review)
-          set({ reviews: { ...get().reviews, [key]: change(get().reviews[key] ?? EMPTY) } })
+          const { [key]: before, ...others } = get().reviews
+          set({ reviews: keptReviews({ ...others, [key]: change(before ?? EMPTY) }) })
         }
         return {
           reviews: {},
@@ -324,13 +367,14 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
       {
         name: STORAGE_NAME,
         version: 1,
-        storage: createJSONStorage(() => storage),
+        storage: writer,
         // A conversation an earlier version kept beside a review is left behind: hobkin's chat holds it.
         partialize: ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned, reviewMode }) => ({ reviews, unsyncedNotes, panelShare, splitDiff, panelPinned, reviewMode }),
         merge: (persisted, current) => {
           const saved = isRecord(persisted) ? persisted : {}
-          const reviews: Record<string, ReviewMemory> = {}
-          for (const [key, value] of Object.entries(isRecord(saved.reviews) ? saved.reviews : {})) reviews[key] = readMemory(value)
+          const read: Record<string, ReviewMemory> = {}
+          for (const [key, value] of Object.entries(isRecord(saved.reviews) ? saved.reviews : {})) read[key] = readMemory(value)
+          const reviews = keptReviews(read)
           const unsyncedNotes: Record<string, ReviewNotes> = {}
           for (const [key, value] of Object.entries(isRecord(saved.unsyncedNotes) ? saved.unsyncedNotes : {})) {
             if (!isRecord(value)) continue
@@ -351,6 +395,7 @@ export function createReviewMemory(storage: StateStorage = memoryStorage()): Sto
       },
     ),
   )
+  return Object.assign(store, { flush: writer.flush })
 }
 
 /** A wire as the graph draws it. */
