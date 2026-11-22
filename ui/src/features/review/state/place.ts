@@ -8,15 +8,22 @@
  */
 import type { FocusState } from '../graph/focus.ts'
 import type { Camera } from '../story/camera.ts'
-import type { FocusHistory } from '../story/history.ts'
+import type { FocusEntry } from '../story/history.ts'
 import type { ReviewMode } from '../story/mode.ts'
 import type { StoryState } from '../story/story.ts'
 
-/** What a session holds of where the reviewer is (`Session.placeNow`). */
+/** A place to go back to, with its step's id: a story rewritten at the same commit moves its steps' places. */
+export type KeptEntry = FocusEntry & { stepId: string }
+
+/**
+ * What a session holds of where the reviewer is (`Session.placeNow`). The step and the places to go back to are kept by
+ * their steps' ids too: the same commit can come back with its story rewritten, as when its AI review lands meanwhile.
+ */
 export interface SessionPlace {
   story: StoryState
+  stepId: string
   mode: ReviewMode
-  history: FocusHistory
+  history: { back: KeptEntry[]; forward: KeptEntry[] }
   fold: FocusState
   outline: boolean
   code: string | null
@@ -47,4 +54,9 @@ export function placeOf(key: string): ReviewPlace | null {
 
 export function forgetPlace(key: string): void {
   places.delete(key)
+}
+
+/** The camera to come back to: the place's, only when the session took the place (`Session.resumed`). */
+export function resumedCamera(place: ReviewPlace | null, resumed: boolean): Camera | null {
+  return resumed ? (place?.camera ?? null) : null
 }

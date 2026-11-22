@@ -15,7 +15,7 @@ import { backToStep, focusGroup, focusNode, focusOf, goToStep, leaveFocus, offPa
 import { modeStart, type ReviewMode } from '../story/mode.ts'
 import { pickTravel, type Travel } from '../story/travel.ts'
 import { applyMemory, type MemoryState, type Point, type ReviewView, type ViewEdge, type WireDecision } from './memory.ts'
-import type { SessionPlace } from './place.ts'
+import type { KeptEntry, SessionPlace } from './place.ts'
 import type { NotesShown } from './quick-notes.ts'
 import { marksOf } from './seen.ts'
 
@@ -186,6 +186,8 @@ export interface Session {
   closeProof(): void
   /** Where the reviewer is, to come back to after another page (`place.ts`). */
   placeNow(): SessionPlace
+  /** The session came back to a place kept from before: its step was still there, by its id. */
+  resumed: boolean
   /**
    * Chooses Story or Free Roam, and starts it from the beginning, whichever was on: Story at its first step, Free Roam
    * with the whole graph and nothing in focus. The code closes. The choice is remembered for the next review.
@@ -261,15 +263,32 @@ function onDrawn(view: ReviewView, story: StoryState): StoryState {
   }
 }
 
-/** A place kept from before, on the review as it is now: null when its step is gone or what it focused is not drawn. */
-function keptStory(graph: Pick<Review, 'story' | 'nodes' | 'edges'>, kept: StoryState): StoryState | null {
-  if (!Number.isInteger(kept.step) || kept.step < 0 || kept.step >= graph.story.length) return null
+type Placed = Pick<Review, 'nodes' | 'edges'> & Pick<ReviewView, 'story' | 'stepOf'>
+
+/** A place to go back to, on the review as it is now: its step found by its id. Null when it is gone or not drawn. */
+function keptEntry(graph: Placed, drawn: ReadonlySet<string>, { stepId, ...entry }: KeptEntry): FocusEntry | null {
+  const step = graph.stepOf[stepId]
+  if (step == null) return null
+  if (entry.detour != null && !drawn.has(entry.detour)) return null
+  if (entry.group && !entry.group.every((id) => drawn.has(id))) return null
+  return { ...entry, step }
+}
+
+/**
+ * A place kept from before, on the review as it is now: its step found by its id, as `adopt` finds it, and its way back
+ * and forward without the places it no longer has. Null when its step is gone or what it focused is not drawn.
+ */
+function keptPlace(graph: Placed, kept: SessionPlace): { story: StoryState; history: FocusHistory } | null {
   const drawn = new Set(graph.nodes.map((node) => node.id))
-  if (kept.detour != null && !drawn.has(kept.detour)) return null
-  if (kept.group && !kept.group.every((id) => drawn.has(id))) return null
-  const steps = new Set(graph.story.map((step) => step.id))
+  const step = typeof kept.stepId === 'string' ? graph.stepOf[kept.stepId] : undefined
+  if (step == null) return null
+  if (kept.story.detour != null && !drawn.has(kept.story.detour)) return null
+  if (kept.story.group && !kept.story.group.every((id) => drawn.has(id))) return null
+  const steps = new Set(graph.story.map((each) => each.id))
   const known = new Set([...drawn, ...graph.edges.map((edge) => edge.id)])
-  return { ...kept, seen: kept.seen.filter((id) => steps.has(id)), revealed: kept.revealed.filter((id) => known.has(id)) }
+  const story = { ...kept.story, step, seen: kept.story.seen.filter((id) => steps.has(id)), revealed: kept.story.revealed.filter((id) => known.has(id)) }
+  const entries = (list: readonly KeptEntry[]) => list.map((entry) => keptEntry(graph, drawn, entry)).filter((entry): entry is FocusEntry => entry != null)
+  return { story, history: { back: entries(kept.history.back), forward: entries(kept.history.forward) } }
 }
 
 /**
@@ -303,10 +322,10 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
   }
   const firstView = viewNow()
   // A review opens in the mode chosen last, at that mode's start, or where the reviewer was when they left it.
-  const back = kept ? keptStory({ ...review, ...firstView }, kept.story) : null
+  const back = kept ? keptPlace({ ...review, ...firstView }, kept) : null
   const firstMode = back ? kept!.mode : memory.getState().reviewMode
   const opening = startStory({ ...review, ...firstView }, memory.getState().of(review).progress)
-  const firstStory = back ?? (firstMode === 'roam' ? modeStart({ ...review, ...firstView }, opening, 'roam').state : opening)
+  const firstStory = back?.story ?? (firstMode === 'roam' ? modeStart({ ...review, ...firstView }, opening, 'roam').state : opening)
 
   let digits = NO_DIGITS
   let digitTimer: ReturnType<typeof setTimeout> | undefined
@@ -402,7 +421,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       panelOpen: true,
       finder: false,
       pendingDigits: '',
-      history: back ? kept!.history : NO_HISTORY,
+      history: back ? back.history : NO_HISTORY,
       asks: [],
       notesShown: null,
       opened: null,
@@ -412,7 +431,9 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       outline: back ? kept!.outline : firstView.plan.active,
       outlineAsked: 0,
       notice: null,
-      proof: kept?.proof ? { run: kept.proof, from: null } : null,
+      // A place not taken brings nothing back: not its proof, and not its camera (`resumedCamera`).
+      proof: back && kept?.proof ? { run: kept.proof, from: null } : null,
+      resumed: back != null,
 
       step: (delta) => {
         const { story } = get()
@@ -656,8 +677,10 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       },
       toggleOutline: () => set(get().outline ? { outline: false } : { outline: true, outlineAsked: get().outlineAsked + 1 }),
       placeNow: () => {
-        const { story, mode, history, outline, code, proof } = get()
-        return { story, mode, history, fold, outline, code, proof: proof?.run ?? null }
+        const { story, mode, history, outline, code, proof, view } = get()
+        const stepId = (step: number) => view.story[step]?.id ?? ''
+        const kept = (entry: FocusEntry): KeptEntry => ({ ...entry, stepId: stepId(entry.step) })
+        return { story, stepId: stepId(story.step), mode, history: { back: history.back.map(kept), forward: history.forward.map(kept) }, fold, outline, code, proof: proof?.run ?? null }
       },
       say: (text) => set({ notice: { key: (get().notice?.key ?? 0) + 1, text } }),
       openProof: (run, from = null) => {

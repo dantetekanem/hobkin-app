@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { largeReview } from '../src/features/review/sample/large.ts'
 import { createReviewMemory } from '../src/features/review/state/memory.ts'
-import { forgetPlace, keepPlace, placeOf } from '../src/features/review/state/place.ts'
+import { forgetPlace, keepPlace, placeOf, resumedCamera } from '../src/features/review/state/place.ts'
 import { createSession } from '../src/features/review/state/session.ts'
 
 const large = largeReview().review
@@ -53,7 +53,34 @@ test('a place is kept for a review at its commit while the window is open, and f
   assert.equal(placeOf('host:/home:large@def'), null, 'another commit starts afresh')
   forgetPlace('host:/home:large@abc')
   assert.equal(placeOf('host:/home:large@abc'), null)
-  // A place whose step the review no longer has opens at the review's start.
-  const stale = createSession(large, memory, { ...session.getState().placeNow(), story: { ...session.getState().story, step: 999 } }).getState()
+  // A place whose step the review no longer has opens at the review's start, and its camera is not used.
+  const gone = { ...session.getState().placeNow(), stepId: 'a step it no longer has' }
+  const stale = createSession(large, memory, gone).getState()
   assert.equal(stale.story.step, 0)
+  assert.equal(stale.resumed, false)
+  assert.equal(resumedCamera({ ...gone, camera: { x: 1, y: 2, zoom: 1 } }, stale.resumed), null, 'no camera for a place not taken')
+  const taken = createSession(large, memory, session.getState().placeNow()).getState()
+  assert.equal(taken.resumed, true)
+  assert.deepEqual(resumedCamera({ ...session.getState().placeNow(), camera: { x: 1, y: 2, zoom: 1 } }, taken.resumed), { x: 1, y: 2, zoom: 1 })
+})
+
+test('a story rewritten at the same commit while the reviewer was away: they come back on their step by its id, and their way back keeps only steps it still has', () => {
+  const memory = createReviewMemory()
+  const first = createSession(large, memory)
+  const idAt = (session: typeof first, index: number) => session.getState().view.story[index]!.id
+  first.getState().goTo(2)
+  first.getState().goTo(5)
+  first.getState().goTo(8)
+  const left = first.getState()
+  assert.deepEqual(left.history.back.map((entry) => idAt(first, entry.step)), ['outcome', 's2', 's5'])
+  const place = left.placeNow()
+
+  // The AI review landed while they were away: the same commit, a story with step s2 gone and the rest moved up.
+  const rewritten = { ...large, story: large.story.filter((step) => step.id !== 's2') }
+  const back = createSession(rewritten, memory, place)
+  assert.equal(back.getState().resumed, true)
+  assert.equal(idAt(back, back.getState().story.step), 's8', 'the same step, found by its id')
+  assert.deepEqual(back.getState().history.back.map((entry) => idAt(back, entry.step)), ['outcome', 's5'], 'the way back skips the step that is gone')
+  back.getState().historyBack()
+  assert.equal(idAt(back, back.getState().story.step), 's5', ', goes back to where they were')
 })

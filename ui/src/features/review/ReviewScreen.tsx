@@ -40,7 +40,7 @@ import { flushReviewMemory, reviewMemory, StageProvider, useReduced, useReviewMe
 import { memoryKey } from './state/memory.ts'
 import { followCursor, shownPlaces } from './state/cursor.ts'
 import { leaveReview } from './state/leave.ts'
-import { placeOf } from './state/place.ts'
+import { placeOf, resumedCamera } from './state/place.ts'
 import { createSession } from './state/session.ts'
 import type { Size } from './story/camera.ts'
 import { Outline, OUTLINE_ROOM } from './outline/Outline.tsx'
@@ -415,7 +415,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
             <div ref={graph} className="absolute inset-0">
               <Graph />
             </div>
-            <StoryLayer canvas={canvas} panelHeight={panelHeight} units={assessment?.units?.units} ask={ask} resume={kept?.camera ?? null} />
+            <StoryLayer canvas={canvas} panelHeight={panelHeight} units={assessment?.units?.units} ask={ask} resume={resumedCamera(kept, session.getState().resumed)} />
             <Outline panelHeight={panelHeight} />
             <WireCard />
             <Finder />
