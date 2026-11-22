@@ -32,6 +32,7 @@ A page for each project
 
 Numbers
 - `work.metrics` is a read-only host command. It answers with `WorkMetrics` (`shared/protocol/metrics.ts`): one `MetricsDay` for each local day of the period, for all projects and for each, and three spans. The period is 30 days unless asked, and 180 at most.
+- `decided` lists each change merged or declined in the period, newest first and 500 at most, from the same records as the day counts, so a chart can open the list of what it counts and a project's page can list what merged lately.
 - The numbers are folded from records that exist already (`notes.md`, "Records the numbers can be folded from"), so the first read shows history. A source that cannot be read is named in `gaps` and the rest still counts.
 - hobkin folds its own records in a new module and the host adds what only it keeps (the AI reviews). Neither reads the other's files.
 - Two records are added so the numbers stay right from now on: a stop from the window (`work_stopped`), and the item on each line of `tokens.jsonl`. Stops have no history before 2026-11-21.
@@ -171,7 +172,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A4. unproven
 - A5. In hobkin, `test/cli-work-metrics.test.mjs` › "work.metrics has one day for each local day of the period, zeros included, for all projects and for each" and › "a line or a file that cannot be read is named in gaps, and the rest still counts"; here, `host/test/metrics.test.ts` › "work.metrics adds the AI reviews the host keeps to hobkin fold: each answer on its day, one that stopped before it, and how long they took"
 - A6. In hobkin, `test/cli-work-metrics.test.mjs` › "a change merged by YOLO mode counts as merged by itself and any other as merged by the user, and one merged after being sent back is not first pass"
-- A7. `shared/test/metrics-rates.test.ts` › "a rate with nothing under it is null, never 0 or 100 percent of nothing"
+- A7. `shared/test/metrics-rates.test.ts` › "a rate with nothing under it is null, never 0 or 100 percent of nothing"; `ui/test/numbers-format.test.ts` › "a tile with nothing under it reads \"no data yet\", never 0% or 100%"
 - A8. unproven
 - A9. unproven
 - A10. unproven
