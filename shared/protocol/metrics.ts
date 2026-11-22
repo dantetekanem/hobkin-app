@@ -76,6 +76,23 @@ export interface ProjectMetrics extends MetricsSeries {
   name: string
 }
 
+/** One change that was merged or declined in the period: a row of the lists behind the charts and of a project's page. */
+export interface DecidedChange {
+  slug: string
+  item: string
+  title: string
+  /** When it was merged or declined, as an ISO time. */
+  at: string
+  outcome: 'merged-by-itself' | 'merged-by-you' | 'declined'
+  /** Times it was sent back for more work before that. */
+  sentBack: number
+  /** The commit it merged at, short. Missing for a declined change, or when the record names none. */
+  head?: string
+}
+
+/** The most decided changes one read lists. */
+export const DECIDED_MAX = 500
+
 export interface WorkMetrics {
   /** The first and last local day covered. */
   from: string
@@ -88,6 +105,8 @@ export interface WorkMetrics {
   projects: ProjectMetrics[]
   /** What could not be read, in plain words. The rest still counts. */
   gaps: string[]
+  /** Every change merged or declined in the period, newest first, `DECIDED_MAX` at most. A host older than this sends none. */
+  decided?: DecidedChange[]
 }
 
 /** A day with nothing in it. */
