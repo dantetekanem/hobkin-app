@@ -395,3 +395,14 @@ test('a waiting run shows in the snapshot as waiting, with until when and why', 
   assert.equal(Object.hasOwn(view.completedJobReports, shown.id), false);
   assert.equal(view.messages.some(message => /Report available/.test(message.content ?? '')), false);
 });
+
+test("a run's row in the snapshot names the tier it runs at", async t => {
+  const h = home(t);
+  const app = await h.open({ now: () => NOW, runHarness: scripted([], () => waitingFor(30, NOW)) });
+  const started = await startSession({ root: h.root, title: 'Deploy', brief: 'Deploy and watch.', cwd: h.root, approved: true, tier: 'high' });
+  await app.tickSessions();
+
+  const view = await app.refresh();
+
+  assert.equal(view.runs.find(run => run.id === `session:${started.name}`).tier, 'high');
+});

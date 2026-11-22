@@ -516,8 +516,8 @@ export class WorkDirector {
 
   /**
    * The model and effort of a look or a do: the tier the project's level gives that kind of run, read as the tiers
-   * stand now. A tier with a model of its own brings its effort too. One that follows the chat or the checks model
-   * keeps the effort the level always gave.
+   * stand now, with that tier's name. A tier with a model of its own brings its effort too. One that follows the chat
+   * or the checks model keeps the effort the level always gave.
    */
   bindingFor(level, lane) {
     let config = this.config;
@@ -526,8 +526,9 @@ export class WorkDirector {
     } catch {
       // No configuration on disk to read just now: the tiers are as this director was given them.
     }
-    const { model, effort, follows } = tierBinding(config, levels[level][`${lane}Tier`]);
-    return { model, effort: follows ? levels[level][`${lane}Effort`] : effort };
+    const tier = levels[level][`${lane}Tier`];
+    const { model, effort, follows } = tierBinding(config, tier);
+    return { model, effort: follows ? levels[level][`${lane}Effort`] : effort, tier };
   }
 
   /** What a named tier runs with now, for a run that takes its tier from what it does and not from its project's level. A tier with no model of its own thinks as hard as `effort`. */
@@ -539,7 +540,7 @@ export class WorkDirector {
       // No configuration on disk to read just now: the tiers are as this director was given them.
     }
     const bound = tierBinding(config, tier);
-    return { model: bound.model, effort: bound.follows ? effort : bound.effort };
+    return { model: bound.model, effort: bound.follows ? effort : bound.effort, tier };
   }
 
   command(subcommand) {
@@ -937,7 +938,8 @@ export class WorkDirector {
     for (const record of takeHanded(this.root)) {
       const { slug, lane, item, title, level, kind, estimate, model, effort, place } = record;
       const settle = lane === 'do' ? (run, entry) => this.settleItem(slug, item, run, entry) : run => this.settleLook(slug, run, {});
-      this.start({ key: laneKey(slug, lane), lane, slug, item, title, purpose: `work-${lane}`, cwd: place.cwd, level, kind, estimate, model, effort, instructions: title, settle, handed: record });
+      const tier = levels[level]?.[`${lane}Tier`];
+      this.start({ key: laneKey(slug, lane), lane, slug, item, title, purpose: `work-${lane}`, cwd: place.cwd, level, kind, estimate, model, effort, tier, instructions: title, settle, handed: record });
     }
   }
 
@@ -947,7 +949,11 @@ export class WorkDirector {
     return withSessionCost({ status: 'completed', text: readFileSync(report, 'utf8').trim(), cost: null }, sessionFile);
   }
 
-  start({ key, planKey, grade, lane, slug, item, title, purpose, cwd, level, kind = lane, estimate = {}, model, effort, instructions, prepare, work, settle, handed = null }) {
+  /**
+   * `tier` is the tier the run's model came from, which its record and its harness request carry (`bindingFor`). Finding
+   * projects runs on the chat's own model and carries none.
+   */
+  start({ key, planKey, grade, lane, slug, item, title, purpose, cwd, level, kind = lane, estimate = {}, model, effort, tier, instructions, prepare, work, settle, handed = null }) {
     const harnessId = handed?.harnessId ?? randomUUID();
     // Its first run already ended in the record as left running, and an id is only ever used once.
     const id = `work:${slug ?? 'discover'}:${lane}:${handed ? randomUUID() : harnessId}`;
@@ -960,6 +966,7 @@ export class WorkDirector {
       harness: 'pi',
       model,
       effort,
+      ...(tier ? { tier } : {}),
       cwd,
       harnessId,
       work: { slug, lane, item, planKey },
@@ -989,6 +996,7 @@ export class WorkDirector {
         cwd: here,
         model,
         effort,
+        ...(tier ? { tier } : {}),
         prompt,
         sessionFile,
         signal,

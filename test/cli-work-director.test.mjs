@@ -1229,6 +1229,42 @@ test("the weekly state-machines look runs on the max tier, whatever its project'
   assert.match(h.work(machines[0]).commands.machines, / work machines site --home /);
 });
 
+test('each kind of work run carries the tier its model came from, and finding projects, on the chat model, carries none', async t => {
+  /** Each harness request's tier beside the tier on the run's own record, by purpose and focus. */
+  const tiersOf = h => h.calls.map(call => {
+    const record = Object.values(h.runtime.data.runs).find(run => run.harnessId === call.id);
+    const focus = call.purpose === 'work-look' ? `:${h.work(call).focus}` : '';
+    const project = call.purpose === 'work-discover' ? '' : `${h.work(call).project.slug} `;
+    return `${project}${call.purpose}${focus} ${call.tier} ${record.tier}`;
+  });
+
+  const finding = fixture(t);
+  writeMode(finding.root, { enabled: true, folder: '/repos' });
+  await finding.tick();
+  assert.deepEqual(tiersOf(finding), ['work-discover undefined undefined']);
+
+  const levels = fixture(t);
+  levels.agent = doesItsJob(levels);
+  writeMode(levels.root, { enabled: true, lastDiscoveryAt: new Date(levels.clock).toISOString() });
+  chooseProject(levels.root, repository(levels.base, 'billing'), 'critical');
+  chooseProject(levels.root, repository(levels.base, 'site'), 'casual');
+  setProjectPriority(levels.root, 'site', 'P0');
+  fileItem(levels.root, 'billing', item);
+  fileItem(levels.root, 'site', item);
+  await levels.ticks(8);
+  const seen = tiersOf(levels);
+  for (const expected of ['billing work-look:study high high', 'billing work-do high high', 'site work-look:study fast fast', 'site work-do mid mid']) {
+    assert.ok(seen.includes(expected), `${expected} in ${seen.join(', ')}`);
+  }
+
+  const machines = fixture(t);
+  machines.agent = doesItsJob(machines);
+  writeMode(machines.root, { enabled: true, machinesLook: true, lastDiscoveryAt: new Date(machines.clock).toISOString() });
+  chooseProject(machines.root, repository(machines.base, 'site'), 'casual');
+  await machines.ticks(8);
+  assert.ok(tiersOf(machines).includes('site work-look:state-machines max max'));
+});
+
 test('a run lands the way its project says, whatever its level, and stays a local branch until the project says otherwise', async t => {
   const h = fixture(t);
   h.agent = doesItsJob(h);

@@ -651,6 +651,8 @@ export class HobkinApplication {
           harness: run.harness,
           model: run.model,
           effort: run.effort,
+          // The tier its model came from: a session's own, or a work run's from its project's level (`bindingFor`).
+          tier: run.tier,
           harnessId: run.harnessId,
           cwd: run.cwd ?? (run.kind === 'main' ? this.config.main.cwd : undefined),
           startedAt: run.startedAt,
