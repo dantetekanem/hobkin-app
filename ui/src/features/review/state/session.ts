@@ -626,8 +626,10 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         const id = groupId ?? fold.opened.at(-1)
         if (id == null || !fold.opened.includes(id)) return false
         const members = new Set(get().view.plan.groups[id]?.members ?? [])
+        // The reviewer on the group, or on what it opened to, is put back on its card. Anywhere else, they stay there.
+        const inside = get().focus.some((each) => each === id || members.has(each))
         refold({ opened: fold.opened.filter((each) => each !== id), pinned: fold.pinned.filter((pin) => !members.has(pin)) })
-        if (!(get().focus.length === 1 && get().focus[0] === id)) apply(focusNode(graph(), get().story, id, { alone: get().mode === 'roam' }), 'detour')
+        if (inside && !(get().focus.length === 1 && get().focus[0] === id)) apply(focusNode(graph(), get().story, id, { alone: get().mode === 'roam' }), 'detour')
         return true
       },
       toggleSeen: (nodeId) => {

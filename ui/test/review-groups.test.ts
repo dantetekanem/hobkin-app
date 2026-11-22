@@ -176,6 +176,15 @@ test('Enter on a group card opens it in place, its members focused with it, and 
   for (const id of shown) assert.equal(closed.view.nodes.some((node) => node.id === id), false)
   escapeReview(session.getState(), () => (left = true))
   assert.equal(left, true, 'with no group open, Escape leaves the review')
+
+  // A group closed while the reviewer is elsewhere leaves them where they are.
+  const again = createSession(large, createReviewMemory())
+  again.getState().openGroup(generated.id)
+  again.getState().goTo(2)
+  const step = again.getState().focus
+  escapeReview(again.getState(), () => (left = false))
+  assert.deepEqual(again.getState().view.plan.open, [])
+  assert.deepEqual(again.getState().focus, step)
 })
 
 test('a node folded into a group is reached: its group opens, it is drawn first in it, and it is focused', () => {
