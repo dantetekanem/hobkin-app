@@ -133,6 +133,16 @@ export function useAgentWords(agent: Pick<RunningAgent, 'id' | 'update'>): strin
   return live ? said : agent.update
 }
 
+/**
+ * How a list counts the agents that come and go: the ones at work, the ones that wait for their time with no process
+ * (spec 053), counted apart, and the ones at work that need the user.
+ */
+export function agentCounts(agents: readonly RunningAgent[]): { working: number; waiting: number; needYou: number } {
+  const waiting = agents.filter((agent) => agent.waits !== undefined).length
+  const needYou = agents.filter((agent) => agent.asks).length
+  return { working: agents.length - waiting, waiting, needYou }
+}
+
 /** The running agents as they are this instant, for code outside a component. */
 export function runningAgents(): RunningAgent[] {
   const host = hostStore.getState()

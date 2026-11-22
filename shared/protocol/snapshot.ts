@@ -66,6 +66,13 @@ export interface RunSummary {
   startedAt?: string
   work?: { slug?: string; item?: string; lane?: string }
   stalled?: boolean
+  /**
+   * A run whose state is `waiting` (spec 053) ended its turn to carry on at a time, with no process: when, as an ISO
+   * time, the agent's own note of what it will do then, and how many times it has waited. A host from before sends none.
+   */
+  waitUntil?: string
+  waitNote?: string
+  waits?: number
 }
 
 /** Bounded public owned descendants, or legacy teams rows without ancestry. Never a private transcript. */

@@ -26,6 +26,7 @@ import { cn } from '@/lib/utils.ts'
 import { agentsFrom, sameFields } from '@/lib/host/frame.ts'
 import { runCommand, useHasHost, useHost, useHostEqual } from '@/lib/host/index.ts'
 import { useAgentThreads, type AgentNote } from './agent-threads.ts'
+import { AgentWaits } from './AgentWaits.tsx'
 import { ChildCluster, ChildHood } from './ChildAgents.tsx'
 import { childHue, childLine, childrenSummary, describeChild, satellitesOf } from './child-summary.ts'
 import { useRunChildren } from './children.ts'
@@ -600,7 +601,7 @@ function Exchange({ agentId, hue, question, waiting, activity }: { agentId: stri
             </AnimatePresence>
           </StepJob.Provider>
           {/* It leaves in the same moment the next step arrives, so the list glides once instead of settling twice. */}
-          <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} /> : null}</AnimatePresence>
+          <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} /> : <AgentWaits key="waits" agentId={agentId} />}</AnimatePresence>
         </ShowStamps>
         {activity?.sample ? (
           <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is the agent's own work, as it happens.</li>

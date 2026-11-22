@@ -1,7 +1,7 @@
 import { hobkinAgentId, type HobkinEngine, type HobkinSummary } from '#shared/protocol/hobkins.ts'
 import type { RunSummary, WireSnapshot } from '#shared/protocol/snapshot.ts'
-import type { SampleAgent, Tier } from '../../app/sample.ts'
-import { TIER_BY_EFFORT, agentsFrom, doingOf, folderName, hueOf, isAgentRun, madeOnce, updateOf, type MadeLists } from '../../lib/host/frame.ts'
+import type { Tier } from '../../app/sample.ts'
+import { TIER_BY_EFFORT, agentsFrom, doingOf, folderName, hueOf, isAgentRun, madeOnce, updateOf, waitNoteOf, type HostedAgent, type MadeLists } from '../../lib/host/frame.ts'
 
 /**
  * Durable hobkins as agents of the list under the input (`034-durable-hobkins`). A durable hobkin stays listed for as long
@@ -22,7 +22,7 @@ export interface DurableMark {
   cwd: string
 }
 
-export interface ListedAgent extends SampleAgent {
+export interface ListedAgent extends HostedAgent {
   /** Set on a durable hobkin, which reads apart from the agents that come and go. */
   durable?: DurableMark
 }
@@ -117,7 +117,8 @@ export function wordsOf(snapshot: WireSnapshot, agentId: string): string | undef
 
   const runs = indexBy(runsById, snapshot.runs ?? NO_RUNS, (run) => String(run.id))
   const run = runs.get(agentId)
-  return run && isAgentRun(run) ? updateOf(activity[agentId]) : undefined
+  if (!run || !isAgentRun(run)) return undefined
+  return run.state === 'waiting' ? waitNoteOf(run) : updateOf(activity[agentId])
 }
 
 /**

@@ -37,10 +37,15 @@ const STOPS = { 'for-now': 'later', 'not-approved': 'decline' } as const
 const messageOf = (result: unknown) => String((result as { message?: unknown } | null)?.message ?? '')
 
 export function agentHandlers({ app, runs, models, images: attached }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change'> {
-  /** The run, while it runs. hobkin's own conversation is no agent: its turn stops from the input. */
-  const running = (id: string, ended: string): RunSummary => {
+  /**
+   * The run, while it runs, or also while it waits for its time when `waits` says so (spec 053). hobkin's own
+   * conversation is no agent: its turn stops from the input.
+   */
+  const running = (id: string, ended: string, { waits = false }: { waits?: boolean } = {}): RunSummary => {
     const run = runs().find((entry) => entry.id === id)
     if (run?.kind === 'main') throw new Unavailable("That is hobkin's own conversation. Its turn stops from the input.")
+    if (waits && run?.state === 'waiting') return run
+    if (run?.state === 'waiting') throw new Unavailable('It waits for its time, so nothing reaches it until it carries on.')
     if (!run || run.state !== 'running') throw new Unavailable(ended)
     return run
   }
@@ -69,7 +74,8 @@ export function agentHandlers({ app, runs, models, images: attached }: AgentsSea
       }
     },
     'agent.stop': async ({ run: id, how = 'for-now' }) => {
-      const run = running(id, 'It had already finished, so nothing was stopped.')
+      // A run that waits holds no process, and hobkin's kill ends it as it ends a running one.
+      const run = running(id, 'It had already finished, so nothing was stopped.', { waits: true })
 
       // A work agent stops as k stops it in the terminal, and what the user picked is told the way a card's choice is.
       if (run.work) {

@@ -710,11 +710,12 @@ function stackOf({ needs, middle, last }: StackParts, agents: HomeInput['agents'
     why: agent.why ?? null,
     primary: open({ to: 'agent', id: agent.id }, 'Answer agent'),
   }))
+  // A run that waits for its time (spec 053) says so, and what its row says of when.
   const working = agents.filter(agent => !agent.asks).map(agent => candidate(4, null, {
     id: `agent:${agent.id}`,
     kind: 'agent',
-    label: `Agent at work · ${agent.project}`,
-    reason: 'Working now',
+    label: `${agent.waits ? 'Agent waits' : 'Agent at work'} · ${agent.project}`,
+    reason: agent.waits ? 'Waiting' : 'Working now',
     tone: 'info',
     title: agent.title,
     detail: agent.doing,
@@ -856,10 +857,11 @@ function chipParts(input: HomeInput): { first: Chips; rest: Chips } {
   return { first, rest }
 }
 
-/** The header's chips with the count of the agents at work between the two parts, when any work. */
+/** The header's chips with the count of the agents at work between the two parts, when any work. One waiting for its time is not at work. */
 function chipsOf({ first, rest }: { first: Chips; rest: Chips }, agents: HomeInput['agents']): Chips {
-  if (agents.length === 0) return [...first, ...rest]
-  const working: Chips[number] = { tone: 'info', label: `${agents.length} working`, target: screen('work') }
+  const count = agents.filter(agent => !agent.waits).length
+  if (count === 0) return [...first, ...rest]
+  const working: Chips[number] = { tone: 'info', label: `${count} working`, target: screen('work') }
   return [...first, working, ...rest]
 }
 

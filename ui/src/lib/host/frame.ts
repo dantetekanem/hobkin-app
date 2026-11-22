@@ -75,15 +75,57 @@ function kindOf(run: RunSummary): SampleAgent['kind'] {
   return run.scheduleId && !run.scheduleId.startsWith('session.') ? 'routine' : 'session'
 }
 
-/** A run that is an agent of the list: running, or ended too when asked, and neither the main conversation nor a durable hobkin's turn. */
+/**
+ * A run that is an agent of the list: running, waiting for its time (spec 053), or ended too when asked, and neither the
+ * main conversation nor a durable hobkin's turn.
+ */
 export const isAgentRun = (run: RunSummary, includeEnded = false): run is RunSummary & { id: string } =>
-  (includeEnded || run.state === 'running') && run.kind !== 'main' && typeof run.id === 'string' && !isHobkinTurn(run)
+  (includeEnded || run.state === 'running' || run.state === 'waiting') && run.kind !== 'main' && typeof run.id === 'string' && !isHobkinTurn(run)
+
+/** A run that ended its turn to carry on at a time, with no process: when, and its own note of what it will do then. */
+export interface AgentWait {
+  /** An ISO time. */
+  until: string
+  note?: string
+}
+
+/** An agent as the host's runs make it: a sample agent's fields, and for a run that waits for its time, its wait. */
+export interface HostedAgent extends SampleAgent {
+  waits?: AgentWait
+}
+
+/** A waiting run's note in one plain line, as the list says an agent's words. */
+export const waitNoteOf = (run: Pick<RunSummary, 'waitNote'>): string | undefined => (run.waitNote ? summaryLine(run.waitNote) : undefined)
+
+/** The calendar day of `at` where the user is, as a count of days, so two times compare by day. */
+function dayNumber(at: number, timeZone?: string): number {
+  const [year, month, day] = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(at).split('-').map(Number)
+  return Date.UTC(year!, month! - 1, day!) / 86_400_000
+}
+
+/**
+ * What a waiting run's row says of its time: "waiting until 7:10 PM", "… tomorrow", or the weekday further on, in the
+ * user's clock and time zone unless given. Once its time has come it is about to carry on, as hobkin starts it at the
+ * next tick with a free place.
+ */
+export function waitingWords(until: string, now: number, { timeZone, locale }: { timeZone?: string; locale?: string } = {}): string {
+  const at = Date.parse(until)
+  if (!Number.isFinite(at)) return 'waiting'
+  if (at <= now) return 'about to carry on'
+
+  const time = new Intl.DateTimeFormat(locale, { timeStyle: 'short', timeZone }).format(at)
+  const days = dayNumber(at, timeZone) - dayNumber(now, timeZone)
+  if (days === 0) return `waiting until ${time}`
+  if (days === 1) return `waiting until ${time} tomorrow`
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone }).format(at)
+  return `waiting until ${weekday} ${time}`
+}
 
 /**
  * Agents for the dock, or also ended runs for a reopened canvas. The main conversation is never an agent, and nor is a
  * durable hobkin's turn: the hobkin itself stands for its turns (`features/hobkins/list.ts`).
  */
-export function agentsFrom(snapshot: WireSnapshot, { includeEnded = false }: { includeEnded?: boolean } = {}): SampleAgent[] {
+export function agentsFrom(snapshot: WireSnapshot, { includeEnded = false }: { includeEnded?: boolean } = {}): HostedAgent[] {
   if (includeEnded) return buildAgents(snapshot, true)
   return madeOnce(agentsMade, snapshot, () => buildAgents(snapshot, false))
 }
@@ -94,7 +136,7 @@ const NO_ACTIVITY = {}
 /** What a list of agents was made from, and the list: the runs, the durable hobkins, and the activity as its key. */
 export type MadeLists<List> = WeakMap<object, { runs: WireSnapshot['runs']; hobkins: WireSnapshot['hobkins']; list: List }>
 
-const agentsMade: MadeLists<SampleAgent[]> = new WeakMap()
+const agentsMade: MadeLists<HostedAgent[]> = new WeakMap()
 
 /**
  * The list `make` gives for a snapshot, made once while its runs, durable hobkins and activity are the same objects,
@@ -111,22 +153,32 @@ export function madeOnce<List>(made: MadeLists<List>, snapshot: WireSnapshot, ma
   return list
 }
 
-function buildAgents(snapshot: WireSnapshot, includeEnded: boolean): SampleAgent[] {
+/** What a run is doing and how its face looks: from its activity while it runs, at rest while it waits or once it ended. */
+function stateOf(run: RunSummary & { id: string }, activity: Record<string, ActivityEntry[]>): Pick<SampleAgent, 'doing' | 'mood'> {
+  if (run.state === 'running') return doingOf(activity[run.id])
+  if (run.state === 'waiting') return { doing: waitingWords(run.waitUntil ?? '', Date.now()), mood: 'idle' }
+  return { doing: run.state, mood: 'idle' }
+}
+
+function buildAgents(snapshot: WireSnapshot, includeEnded: boolean): HostedAgent[] {
   const activity = (snapshot.jobActivity ?? {}) as Record<string, ActivityEntry[]>
   return (snapshot.runs ?? [])
     .filter((run): run is RunSummary & { id: string } => isAgentRun(run, includeEnded))
     .map((run) => {
       const kind = kindOf(run)
-      const update = run.state === 'running' ? updateOf(activity[run.id]) : undefined
+      const waits = run.state === 'waiting'
+      // A waiting run's words are its note of what it will do, not the last thing it said before it stopped.
+      const update = run.state === 'running' ? updateOf(activity[run.id]) : waits ? waitNoteOf(run) : undefined
       return {
         id: run.id,
         title: run.title,
         project: run.work?.slug ?? (kind === 'routine' ? 'routine' : folderName(run.cwd)),
-        ...(run.state === 'running' ? doingOf(activity[run.id]) : { doing: run.state, mood: 'idle' as const }),
+        ...stateOf(run, activity),
         ...(update ? { update } : {}),
         tier: TIER_BY_EFFORT[run.effort ?? ''] ?? 'mid',
         hue: hueOf(run.id),
         kind,
+        ...(waits ? { waits: { until: run.waitUntil ?? '', ...(update ? { note: update } : {}) } } : {}),
       }
     })
 }
