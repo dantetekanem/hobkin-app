@@ -15,9 +15,11 @@ const dayName = days => new Date(2026, 10, 21 - days, 12).toLocaleDateString('en
 function home(t) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-metrics-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
+  // A string is written as it is, so a test can leave a line that does not parse.
+  const lineOf = record => (typeof record === 'string' ? record : JSON.stringify(record));
   const append = (path, ...records) => {
     mkdirSync(dirname(join(root, path)), { recursive: true });
-    appendFileSync(join(root, path), records.map(record => `${typeof record === 'string' ? record : JSON.stringify(record)}\n`).join(''));
+    appendFileSync(join(root, path), records.map(record => `${lineOf(record)}\n`).join(''));
   };
   const write = (path, value) => {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -53,7 +55,9 @@ test('work.metrics has one day for each local day of the period, zeros included,
   assert.deepEqual(week.projects.map(({ slug, name }) => ({ slug, name })), [{ slug: 'api', name: 'API' }, { slug: 'web', name: 'Web' }]);
   for (const own of [week.all, ...week.projects]) {
     assert.deepEqual(pick(own.days, 'day'), days);
-    for (const day of own.days) assert.ok(Object.entries(day).every(([field, value]) => field === 'day' || value === 0), JSON.stringify(day));
+    for (const { day, ...counts } of own.days) {
+      assert.ok(Object.values(counts).every(value => value === 0), JSON.stringify({ day, ...counts }));
+    }
     assert.deepEqual(own.spans, { waitForYou: spanOf([]), startToMerge: spanOf([]), aiReview: spanOf([]) });
   }
   assert.deepEqual(week.gaps, []);
@@ -160,7 +164,10 @@ test('each change merged or declined in the period is listed newest first, and t
   const outcomes = { mergedByItself: 'merged-by-itself', mergedByYou: 'merged-by-you', declined: 'declined' };
   for (const day of metrics.all.days) {
     const rows = metrics.decided.filter(({ at }) => new Date(at).toLocaleDateString('en-CA') === day.day);
-    for (const [count, outcome] of Object.entries(outcomes)) assert.equal(rows.filter(row => row.outcome === outcome).length, day[count], `${day.day} ${count}`);
+    for (const [count, outcome] of Object.entries(outcomes)) {
+      const listed = rows.filter(row => row.outcome === outcome).length;
+      assert.equal(listed, day[count], `${day.day} ${count}`);
+    }
   }
 });
 

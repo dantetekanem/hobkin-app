@@ -44,12 +44,14 @@ export const emptyDay = day => ({ day, ...Object.fromEntries(COUNTS.map(count =>
 export function spanOf(durations) {
   const sorted = durations.filter(Number.isFinite).toSorted((left, right) => left - right);
   if (!sorted.length) return { median: null, p90: null, count: 0 };
-  const at = share => {
+
+  const percentile = share => {
     const place = (sorted.length - 1) * share;
     const below = sorted[Math.floor(place)];
-    return Math.round(below + (sorted[Math.ceil(place)] - below) * (place - Math.floor(place)));
+    const above = sorted[Math.ceil(place)];
+    return Math.round(below + (above - below) * (place - Math.floor(place)));
   };
-  return { median: at(0.5), p90: at(0.9), count: sorted.length };
+  return { median: percentile(0.5), p90: percentile(0.9), count: sorted.length };
 }
 
 /**
@@ -60,15 +62,21 @@ export function periodOf(days, now = Date.now()) {
   const count = Number.isInteger(days) ? Math.min(Math.max(days, 1), DAYS_MAX) : DAYS_DEFAULT;
   const today = new Date(now);
   const localDate = (back, hour) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - back, hour);
-  const backs = Array.from({ length: count }, (_, index) => count - 1 - index);
-  const starts = backs.map(back => localDate(back, 0).getTime());
-  // Noon is never skipped or doubled by a change of clocks.
-  return { days: backs.map(back => dayOf(localDate(back, 12))), starts, end: localDate(-1, 0).getTime(), since: starts[0] };
+  const daysBack = Array.from({ length: count }, (_, index) => count - 1 - index);
+  const starts = daysBack.map(back => localDate(back, 0).getTime());
+  return {
+    // Noon is never skipped or doubled by a change of clocks.
+    days: daysBack.map(back => dayOf(localDate(back, 12))),
+    starts,
+    end: localDate(-1, 0).getTime(),
+    since: starts[0],
+  };
 }
 
 const capital = text => text.charAt(0).toUpperCase() + text.slice(1);
 /** A project's name, or its slug when its record has no name that is words. */
 const nameOfProject = ({ slug, name }) => (typeof name === 'string' && name ? name : slug);
+const unreadFile = label => `${capital(label)} could not be read, so nothing in it is counted.`;
 
 const parsed = line => {
   try {
@@ -83,7 +91,7 @@ function readText(file, label, gaps) {
   try {
     return readFileSync(file, 'utf8');
   } catch (error) {
-    if (error.code !== 'ENOENT') gaps.push(`${capital(label)} could not be read, so nothing in it is counted.`);
+    if (error.code !== 'ENOENT') gaps.push(unreadFile(label));
     return null;
   }
 }
@@ -92,7 +100,7 @@ function readFolder(folder, label, gaps) {
   try {
     return readdirSync(folder);
   } catch (error) {
-    if (error.code !== 'ENOENT') gaps.push(`${capital(label)} could not be read, so nothing in it is counted.`);
+    if (error.code !== 'ENOENT') gaps.push(unreadFile(label));
     return [];
   }
 }
@@ -102,7 +110,9 @@ const AT_OPENING = '{"at":"';
 const AT_END = AT_OPENING.length + '2026-11-21T15:00:00.000Z'.length;
 
 /** Whether a line says, before it is parsed, that it was written before `since`, an ISO time. */
-const writtenBefore = (line, since) => line.startsWith(AT_OPENING) && line[AT_END] === '"' && line.slice(AT_OPENING.length, AT_END) < since;
+const writtenBefore = (line, since) => line.startsWith(AT_OPENING)
+  && line[AT_END] === '"'
+  && line.slice(AT_OPENING.length, AT_END) < since;
 
 /**
  * A JSON-lines file's records, oldest first. A line that does not parse costs that line, and is named in `gaps`. With
@@ -111,22 +121,30 @@ const writtenBefore = (line, since) => line.startsWith(AT_OPENING) && line[AT_EN
 function readRecords(file, label, gaps, { since = null } = {}) {
   const text = readText(file, label, gaps);
   if (text === null) return [];
+
   const lines = text.split('\n');
   // The last line has no newline yet while an append is under way, so it counts once it is whole and is no gap before.
   const tail = parsed(lines.pop());
   const from = since === null ? null : new Date(since).toISOString();
-  const records = lines.filter(line => line.trim() && !(from && writtenBefore(line, from))).map(parsed);
+  const toParse = lines.filter(line => line.trim() && !(from && writtenBefore(line, from)));
+  const records = toParse.map(parsed);
+
   const bad = records.filter(record => !record).length;
-  if (bad) gaps.push(`${bad === 1 ? 'A line' : `${bad} lines`} of ${label} could not be read, so ${bad === 1 ? 'it is' : 'they are'} not counted.`);
-  return [...records.filter(Boolean), ...(tail ? [tail] : [])];
+  if (bad === 1) gaps.push(`A line of ${label} could not be read, so it is not counted.`);
+  if (bad > 1) gaps.push(`${bad} lines of ${label} could not be read, so they are not counted.`);
+
+  const read = records.filter(Boolean);
+  if (tail) read.push(tail);
+  return read;
 }
 
 /** The counts of each day and what each span measured, for all projects and for each one listed. */
 function tallyOf({ days, starts, end }, slugs) {
-  const fresh = () => ({ days: days.map(emptyDay), waitForYou: [], startToMerge: [] });
-  const all = fresh();
-  const projects = new Map(slugs.map(slug => [slug, fresh()]));
+  const emptySeries = () => ({ days: days.map(emptyDay), waitForYou: [], startToMerge: [] });
+  const all = emptySeries();
+  const projects = new Map(slugs.map(slug => [slug, emptySeries()]));
   const decided = [];
+
   // A time's local day is the last whose midnight it is not before: no date is formatted, as there are many times to place.
   const dayIndex = time => {
     const at = Date.parse(time);
@@ -140,20 +158,27 @@ function tallyOf({ days, starts, end }, slugs) {
     }
     return low;
   };
+
   /** Whether the time falls in the period, so a row is listed only where its day counts it. */
   const onDay = (time, slug, apply) => {
     const index = dayIndex(time);
     if (index < 0) return false;
-    for (const series of [all, projects.get(slug)]) if (series) apply(series, index);
+    for (const series of [all, projects.get(slug)]) {
+      if (series) apply(series, index);
+    }
     return true;
   };
+
   const seriesOf = ({ days: counted, waitForYou, startToMerge }) => ({
     days: counted,
     // The AI reviews are the host's own, so their span is the host's to fill.
     spans: { waitForYou: spanOf(waitForYou), startToMerge: spanOf(startToMerge), aiReview: spanOf([]) },
   });
+
   return {
-    count: (name, time, slug, amount = 1) => onDay(time, slug, (series, index) => { series.days[index][name] += amount; }),
+    count: (name, time, slug, amount = 1) => onDay(time, slug, (series, index) => {
+      series.days[index][name] += amount;
+    }),
     measure: (name, time, slug, ms) => {
       if (ms >= 0) onDay(time, slug, series => series[name].push(ms));
     },
@@ -178,15 +203,38 @@ function readProjectList(root, gaps) {
  * A yes or a no on a change, counted on its day and listed as a row there, so the two always agree. First pass is a yes
  * or no with no sending back before it. `head` is the commit a merge landed at.
  */
-function decided(tally, slug, change, time, how, head = null) {
+function countDecision(tally, slug, change, time, how, head = null) {
   const at = Date.parse(time);
   const sentBack = change.sentBack.filter(sent => sent < at).length;
   if (tally.count(how, time, slug)) {
-    tally.list({ slug, item: change.id, title: change.title, at: time, outcome: OUTCOMES[how], sentBack, ...(head ? { head: head.slice(0, SHORT_SHA) } : {}) });
+    tally.list({
+      slug,
+      item: change.id,
+      title: change.title,
+      at: time,
+      outcome: OUTCOMES[how],
+      sentBack,
+      ...(head ? { head: head.slice(0, SHORT_SHA) } : {}),
+    });
   }
   if (!sentBack) tally.count('firstPass', time, slug);
   if (how !== 'mergedByItself' && change.finishedAt) tally.measure('waitForYou', time, slug, at - Date.parse(change.finishedAt));
   if (how !== 'declined' && change.startedAt) tally.measure('startToMerge', time, slug, at - Date.parse(change.startedAt));
+}
+
+/** A change as its item is filed. Filed again after a no, it keeps the pushbacks and merges already on the record. */
+function newChange(id, before) {
+  return {
+    id,
+    title: before?.title ?? id,
+    state: null,
+    pushbacks: before?.pushbacks ?? 0,
+    merges: before?.merges ?? new Set(),
+    sentBack: [],
+    finishedAt: null,
+    startedAt: null,
+    finishCounted: false,
+  };
 }
 
 /**
@@ -200,17 +248,16 @@ function foldItems(records, slug, tally) {
     if (typeof line.id !== 'string') continue;
     const time = line.updatedAt ?? line.at;
     const known = changes.get(line.id);
-    // Filing an item, or filing it again after a no, starts the change afresh. Its pushbacks and merges stay on the record.
+    // Filing an item, or filing it again after a no, starts the change afresh.
     const filed = typeof line.key === 'string' && !line.updatedAt;
-    const change = known && !filed
-      ? known
-      : { id: line.id, title: known?.title ?? line.id, state: null, pushbacks: known?.pushbacks ?? 0, merges: known?.merges ?? new Set(), sentBack: [], finishedAt: null, startedAt: null, counted: false };
+    const change = known && !filed ? known : newChange(line.id, known);
     changes.set(line.id, change);
     if (typeof line.title === 'string') change.title = line.title;
 
     const pushbacks = Array.isArray(line.pushbacks) ? line.pushbacks : [];
     // A no writes a pushback of its own, and only the others sent the change back for more work.
-    for (const pushback of line.state === 'declined' ? [] : pushbacks.slice(change.pushbacks)) {
+    const sentBackNow = line.state === 'declined' ? [] : pushbacks.slice(change.pushbacks);
+    for (const pushback of sentBackNow) {
       tally.count('sentBack', pushback?.at, slug);
       change.sentBack.push(Date.parse(pushback?.at));
     }
@@ -222,18 +269,20 @@ function foldItems(records, slug, tally) {
       if (FINISHED.includes(line.state) && !FINISHED.includes(change.state)) {
         // A change counts once, on the day it first reached Finished changes: finishing again after a send-back is in `sentBack`.
         // The wait for the user runs from the latest arrival, the one they answer.
-        if (!change.counted) tally.count('finished', time, slug);
-        change.counted = true;
+        if (!change.finishCounted) tally.count('finished', time, slug);
+        change.finishCounted = true;
         change.finishedAt = time;
       }
-      if (line.state === 'declined') decided(tally, slug, change, time, 'declined');
+      if (line.state === 'declined') countDecision(tally, slug, change, time, 'declined');
       change.state = line.state;
     }
+
     const { landed } = line;
     if (typeof landed?.at === 'string' && !change.merges.has(landed.at)) {
       change.merges.add(landed.at);
       const head = typeof landed.sha === 'string' && landed.sha ? landed.sha : null;
-      decided(tally, slug, change, landed.at, landed.route === BY_ITSELF ? 'mergedByItself' : 'mergedByYou', head);
+      const how = landed.route === BY_ITSELF ? 'mergedByItself' : 'mergedByYou';
+      countDecision(tally, slug, change, landed.at, how, head);
     }
   }
 }
@@ -259,34 +308,42 @@ function projectsAskedAbout(root, gaps) {
 }
 
 function foldEvents(root, since, tally, gaps) {
-  let about = null;
+  let askedAbout = null;
   for (const event of readEventsSince(root, since, gaps)) {
     // A run with a lane is work mode's. A routine's run has none.
     if (event.type === 'run_started' && event.lane) tally.count('started', event.at, event.project);
     if (event.type === STOPPED) tally.count('stops', event.at, event.project);
     if (event.type === 'decision_filed' && WORK_QUESTIONS.includes(event.source)) {
-      about ??= projectsAskedAbout(root, gaps);
-      tally.count('questions', event.at, about.get(event.id));
+      askedAbout ??= projectsAskedAbout(root, gaps);
+      tally.count('questions', event.at, askedAbout.get(event.id));
     }
+  }
+}
+
+/** What the runs spent, each line on its own day. */
+function foldTokens(root, since, tally, gaps) {
+  for (const line of readRecords(join(root, 'work', 'tokens.jsonl'), 'the record of tokens (work/tokens.jsonl)', gaps, { since })) {
+    if (Number.isFinite(line.tokens)) tally.count('tokens', line.at, line.slug, line.tokens);
   }
 }
 
 /** Each reading after a deploy that YOLO mode merged names what regressed. A change counts once, on the day it first showed. */
 function foldLedger(root, tally, gaps) {
-  const regressed = new Set();
+  const counted = new Set();
   for (const line of readRecords(join(root, 'work', 'yolo.jsonl'), "YOLO mode's ledger (work/yolo.jsonl)", gaps)) {
     const change = `${line.slug}:${line.item}`;
-    if (!line.after || !Array.isArray(line.regressed) || !line.regressed.length || regressed.has(change)) continue;
-    regressed.add(change);
+    const regressed = Boolean(line.after) && Array.isArray(line.regressed) && line.regressed.length > 0;
+    if (!regressed || counted.has(change)) continue;
+    counted.add(change);
     tally.count('regressed', line.at, line.slug);
   }
 }
 
 /** Proof runs that ended holding or broken. A run's id starts with when it began, in UTC, so one begun well before the period is not read. */
 function foldProofs(root, since, tally, gaps) {
-  const earliest = new Date(since - DAY_MS).toISOString().slice(0, 10).replaceAll('-', '');
+  const earliestDay = new Date(since - DAY_MS).toISOString().slice(0, 10).replaceAll('-', '');
   for (const id of readFolder(proofsFolder(root), 'the proof runs (proofs)', gaps)) {
-    if (!isRunId(id) || id.slice(0, 8) < earliest) continue;
+    if (!isRunId(id) || id.slice(0, 8) < earliestDay) continue;
     const label = `the proof run ${id} (proofs/${id}/result.json)`;
     // A run still going has no result yet.
     const text = readText(join(runFolder(root, id), 'result.json'), label, gaps);
@@ -311,18 +368,18 @@ export function workMetrics(root, { days, now = Date.now() } = {}) {
   const gaps = [];
   const period = periodOf(days, now);
   const projects = readProjectList(root, gaps);
-  const taken = projects.filter(({ state }) => state === 'chosen').toSorted((left, right) => nameOfProject(left).localeCompare(nameOfProject(right)));
+  const byName = (left, right) => nameOfProject(left).localeCompare(nameOfProject(right));
+  const taken = projects.filter(({ state }) => state === 'chosen').toSorted(byName);
   const tally = tallyOf(period, taken.map(({ slug }) => slug));
 
-  // Every project ever chosen, because one dropped since still did what it did.
+  // Every project on the list, not only those taken now, because one dropped since still did what it did.
   for (const project of projects) {
     const { slug } = project;
-    foldItems(readRecords(paths(root, slug).items, `${nameOfProject(project)}'s work items (work/${slug}/items.jsonl)`, gaps), slug, tally);
+    const label = `${nameOfProject(project)}'s work items (work/${slug}/items.jsonl)`;
+    foldItems(readRecords(paths(root, slug).items, label, gaps), slug, tally);
   }
   foldEvents(root, period.since, tally, gaps);
-  for (const line of readRecords(join(root, 'work', 'tokens.jsonl'), 'the record of tokens (work/tokens.jsonl)', gaps, { since: period.since })) {
-    if (Number.isFinite(line.tokens)) tally.count('tokens', line.at, line.slug, line.tokens);
-  }
+  foldTokens(root, period.since, tally, gaps);
   foldLedger(root, tally, gaps);
   foldProofs(root, period.since, tally, gaps);
 
