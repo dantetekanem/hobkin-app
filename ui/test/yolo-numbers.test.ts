@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { emptyMetricsDay, type MetricsDay } from '#shared/protocol/metrics.ts'
 import type { YoloChange, YoloProject, YoloState } from '#shared/protocol/work.ts'
-import { gates, mergedLine, trustTiles } from '../src/features/work/yolo-page.ts'
+import { byItselfBars, gates, mergedLine, trustTiles } from '../src/features/work/yolo-page.ts'
 
 /** Thirty days of nothing, ending today, with the counts given on the days named by how many days ago they were. */
 function month(counts: Record<number, Partial<MetricsDay>> = {}): MetricsDay[] {
@@ -116,4 +116,16 @@ test('with nothing finished the gates count nothing and nothing holds', () => {
   const none = gates(state([project('shop', []), { slug: 'old', name: 'old', ready: true, needs: [] }]), OPEN)
   assert.deepEqual(none.steps.map(({ count }) => count), [0, 0, 0])
   assert.deepEqual([none.waiting, none.holds, none.shown], [0, [], []])
+})
+
+test('the chart of merges by itself has one bar for each of the 30 days, and says how many in all', () => {
+  const older = { ...emptyMetricsDay('2026-10-31'), mergedByItself: 9 }
+  const bars = byItselfBars([older, ...month({ 0: { mergedByItself: 3, mergedByYou: 5 }, 2: { mergedByItself: 1 } })])!
+  assert.equal(bars.days.length, 30)
+  assert.deepEqual([bars.days[0], bars.days.at(-1)], ['2026-11-01', '2026-11-30'])
+  assert.deepEqual(bars.series.map(({ key, label }) => [key, label]), [['itself', 'by itself']])
+  assert.deepEqual(bars.series[0]!.values.slice(-3), [1, 0, 3])
+  assert.equal(bars.figure, '4 in 30 days')
+  assert.equal(byItselfBars(month())!.figure, 'none in 30 days')
+  assert.equal(byItselfBars(null), null)
 })

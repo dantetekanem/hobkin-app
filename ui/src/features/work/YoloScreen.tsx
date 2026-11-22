@@ -9,6 +9,7 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { openGitHubPage, openOnGitHub } from '@/features/github/open.ts'
 import { openTarget } from '@/features/home/navigate.ts'
 import { ChartFrame } from '@/features/numbers/ChartFrame.tsx'
+import { DayBars } from '@/features/numbers/DayBars.tsx'
 import { countWords } from '@/features/numbers/format.ts'
 import { Funnel } from '@/features/numbers/Funnel.tsx'
 import { StatTile } from '@/features/numbers/StatTile.tsx'
@@ -24,6 +25,7 @@ import { SectionHeading, Segmented } from './parts.tsx'
 import { runWork, useWorkView } from './store.ts'
 import { openOnWork } from './work-target.ts'
 import {
+  byItselfBars,
   changeRows,
   gates,
   inPlace,
@@ -37,6 +39,7 @@ import {
   waitingChange,
   yoloReportId,
   yoloVerdict,
+  type ByItselfBars,
   type ChangeRow,
   type Gates,
   type MergedRow,
@@ -107,6 +110,7 @@ export function YoloScreen() {
   const reading = !metrics && state === 'loading'
   const trust = useMemo(() => trustTiles(metrics?.all.days ?? null, metrics ? null : READ_WORDS[state]), [metrics, state])
   const merged = useMemo(() => mergedLine(metrics?.all.days ?? null, metrics ? null : READ_WORDS[state]), [metrics, state])
+  const bars = useMemo(() => byItselfBars(metrics?.all.days ?? null), [metrics])
   // What holds every merge, as each project card reads it: work mode off or waiting, and the projects paused on Work.
   const workOn = live ? (work?.enabled ?? false) : true
   const waits = yolo?.waits ?? (workOn ? null : 'work mode is off')
@@ -125,6 +129,7 @@ export function YoloScreen() {
             <Switchboard yolo={yolo} setting={setting} />
             <TrustRow tiles={trust} loading={reading} />
             {counted ? <GatesRow counted={counted} rate={yolo.rate} merged={merged} /> : null}
+            <ByItselfChart bars={bars} reading={reading} note={READ_WORDS[state] ?? undefined} />
             <Projects yolo={yolo} live={live} workOn={workOn} workProjects={work?.projects ?? []} finished={work?.finished ?? []} setting={setting} setSample={setSample} />
           </>
         ) : (
@@ -229,6 +234,27 @@ const GatesRow = memo(function GatesRow({ counted, rate, merged }: { counted: Ga
     </section>
   )
 })
+
+const NO_DAYS: string[] = []
+const NO_SERIES: ByItselfBars['series'] = []
+
+/**
+ * Merges by itself for each of the 30 days, over all projects. Its box keeps its size while the numbers load. Each project
+ * card keeps its own list of what merged instead: a chart that tall on every card would repeat this one.
+ */
+function ByItselfChart({ bars, reading, note }: { bars: ByItselfBars | null; reading: boolean; note: string | undefined }) {
+  return (
+    <DayBars
+      title="Merged by itself by day"
+      counts="Changes hobkin merged by itself in YOLO mode each day, over all projects."
+      figure={bars?.figure}
+      days={bars?.days ?? NO_DAYS}
+      series={bars?.series ?? NO_SERIES}
+      status={bars ? 'ready' : reading ? 'loading' : 'no-data'}
+      note={note}
+    />
+  )
+}
 
 /** What every project card needs besides its project. */
 interface CardContext {

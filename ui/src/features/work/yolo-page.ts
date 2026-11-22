@@ -1,6 +1,6 @@
 import type { MetricsDay } from '#shared/protocol/metrics.ts'
 import type { ChangeChoice, FinishedChange, FinishedGroup, FinishedGroupName, Landing, PrMode, YoloChange, YoloPart, YoloPartState, YoloProject, YoloState } from '#shared/protocol/work.ts'
-import type { FunnelStep } from '../numbers/chart-kit.ts'
+import { SERIES_COLOR, type DaySeries, type FunnelStep } from '../numbers/chart-kit.ts'
 import { countWords, lastDays, NO_DATA, shareWords, sumDays, TILE_DAYS } from '../numbers/format.ts'
 import { dateLabel, dayName, whenText } from '../routines/words.ts'
 
@@ -512,6 +512,27 @@ export function gates(yolo: YoloState, { waits, paused }: { waits: string | null
     waiting: finished - free,
     holds,
     shown,
+  }
+}
+
+/** A chart of merges by itself, as `DayBars` draws it. */
+export interface ByItselfBars {
+  /** The 30 days, oldest first; the newest is today. */
+  days: string[]
+  series: DaySeries[]
+  figure: string
+}
+
+/** Merges by itself for each of the last 30 days of `days`, all projects' or one's. Null with no numbers. */
+export function byItselfBars(known: readonly MetricsDay[] | null): ByItselfBars | null {
+  if (!known) return null
+  const days = lastDays(known, TILE_DAYS)
+  const values = days.map((day) => day.mergedByItself)
+  const total = values.reduce((sum, value) => sum + value, 0)
+  return {
+    days: days.map(({ day }) => day),
+    series: [{ key: 'itself', label: 'by itself', color: SERIES_COLOR.itself, values }],
+    figure: total ? `${countWords(total)} in 30 days` : 'none in 30 days',
   }
 }
 
