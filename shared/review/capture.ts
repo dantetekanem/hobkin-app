@@ -1,5 +1,5 @@
+import { detailOrder } from './attention.ts'
 import { alignRows, changedRanges, countChanges, type ChangeRange } from './diff.ts'
-import { fileRole } from './paths.ts'
 import { sha256 } from './sha256.ts'
 import { SIZE_LIMIT, type FileStatus } from './types.ts'
 
@@ -69,8 +69,9 @@ const byPath = (a: { path: string }, b: { path: string }) => (a.path < b.path ? 
 /**
  * Reads both sides of every changed file between `base` and `head`.
  *
- * Detail is kept for the first files within the limits, code and tests before prose and data,
- * so a large lockfile cannot use up the room the code needs. The rest are marked `summarized`.
+ * Detail is kept for the files within the limits in the order `detailOrder` gives: code and tests, the largest change
+ * first, before prose, data, generated files, lockfiles and locale files, so they cannot use up the room the code needs.
+ * The rest are marked `summarized`.
  */
 export async function captureChange(reader: ChangeReader, base: string, head: string, limit: SizeLimit = SIZE_LIMIT): Promise<Capture> {
   const paths = [...(await reader.changed(base, head))].sort(byPath)
@@ -108,7 +109,7 @@ export async function captureChange(reader: ChangeReader, base: string, head: st
 
   let kept = 0
   let changedLines = 0
-  for (const file of [...files].sort((a, b) => detailRank(a) - detailRank(b) || byPath(a, b))) {
+  for (const file of detailOrder(files)) {
     if (file.skipped) continue
     const size = file.additions + file.deletions
     if (kept < limit.files && changedLines + size <= limit.changedLines) {
@@ -129,11 +130,6 @@ export async function captureChange(reader: ChangeReader, base: string, head: st
 }
 
 const missing: Promise<FileRead> = Promise.resolve({ kind: 'missing' })
-
-/** Code and tests keep their detail first, a script by its first line. Prose, data and everything else come after. */
-function detailRank(file: CapturedFile): number {
-  return fileRole(file.path, (file.head ?? file.base ?? '').split('\n', 1)[0]) === 'file' ? 1 : 0
-}
 
 function fingerprint(files: readonly CapturedFile[]): string {
   return sha256(JSON.stringify(files.map((file) => [file.id, file.oldPath ?? null, file.status, file.binary, file.base, file.head])))
