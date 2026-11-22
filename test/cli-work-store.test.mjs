@@ -382,7 +382,8 @@ test('each workload setting is kept in the mode file, so it is still there when 
 
   setChangesADay(root, null);
   setWorkHours(root, null);
-  assert.deepEqual([workloadOf(readMode(root)).changesADay, workloadOf(readMode(root)).hours], [null, null], 'no cap and always are settings too');
+  const cleared = workloadOf(readMode(root));
+  assert.deepEqual([cleared.changesADay, cleared.hours], [null, null], 'no cap and always are settings too');
 });
 
 test('a change of several settings is checked whole, and one wrong value writes none of it', t => {

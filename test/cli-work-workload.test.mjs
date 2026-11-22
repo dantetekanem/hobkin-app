@@ -188,7 +188,8 @@ test('a director with work hours lets its running agent finish and starts nothin
   studied(h, 'web');
   fileItem(h.root, 'api', item('Fix login'), h.clock);
   fileItem(h.root, 'web', item('Fix the footer'), h.clock);
-  const clock = time => `${String(new Date(time).getHours()).padStart(2, '0')}:${String(new Date(time).getMinutes()).padStart(2, '0')}`;
+  // The local time as HH:MM.
+  const clock = time => new Date(time).toTimeString().slice(0, 5);
   setWorkHours(h.root, { from: clock(h.clock - HOUR), to: clock(h.clock + HOUR) });
 
   await h.startedRun();
@@ -271,12 +272,14 @@ test('the work state publishes the workload as it stands, what holds it, the out
   assert.equal(status.holding.kind, 'cap');
   assert.deepEqual(status.outlook, { startedToday: 3, moreToday: 0, nextAt: at(midnight) });
   assert.equal(status.allowanceRequest, null);
-  // The words that were there stay.
+  // The forecast keeps its line beside the outlook.
   assert.match(status.forecast.line, /^Next 8h: /);
 
   writeMode(root, { allowanceRequest: { day: new Date().toDateString(), limit: 100000000, proposed: 200000000, used: 100000000, at: new Date().toISOString() } });
   assert.equal(workStatus(root).allowanceRequest.proposed, 200000000);
 });
+
+const proof = { command: 'kamal app version', saw: 'abc1234' };
 
 /** A project hobkin can watch, with a change that went live at 18:30 and trouble suspected after it. */
 function watchedHome(t) {
@@ -288,14 +291,14 @@ function watchedHome(t) {
   recordLaunch(root, 'api', { item: 'landed', sha: 'abc1234', stage: 'pushed', mergedAt: at(live), pushedAt: at(live), suspectedAt: at(live + 15 * MINUTE) }, live);
   return root;
 }
-const proof = { command: 'kamal app version', saw: 'abc1234' };
 
 test('the hours and the cap hold only new work that starts by itself: a watch, work on finished changes, urgent work and the user\'s pick go, and a pick hobkin made does not', t => {
   const root = watchedHome(t);
   setWorkHours(root, { from: '09:00', to: '18:00' });
   const feature = fileItem(root, 'api', item('Add export', { kind: 'feature' }), evening - HOUR);
-  const finished = updateItem(root, 'api', fileItem(root, 'api', item('Fix login'), evening - 2 * HOUR).id, { state: 'branch', branch: 'hobkin/login', reviewAsked: true }, evening - HOUR);
-  const urgent = fileItem(root, 'api', item('Fix the outage', { urgent: true }), evening - HOUR);
+  const login = fileItem(root, 'api', item('Fix login'), evening - 2 * HOUR);
+  const finished = updateItem(root, 'api', login.id, { state: 'branch', branch: 'hobkin/login', reviewAsked: true }, evening - HOUR);
+  fileItem(root, 'api', item('Fix the outage', { urgent: true }), evening - HOUR);
   const rows = () => Object.fromEntries(plan(root).entries.map(entry => [entry.title, entry.waiting]));
 
   // The look after a deploy YOLO mode made at 18:30, with trouble suspected, goes at 20:00 like a review or an urgent fix.
@@ -308,7 +311,7 @@ test('the hours and the cap hold only new work that starts by itself: a watch, w
   retryItem(root, 'api', finished.id, evening);
   assert.deepEqual(readMode(root).queueByHobkin, [`item:api:${finished.id}`]);
   assert.notEqual(rows()['Fix login'], 'outside work hours until 09:00 tomorrow');
-  assert.equal(rows()['Fix the outage'] === 'outside work hours until 09:00 tomorrow', false);
+  assert.notEqual(rows()['Fix the outage'], 'outside work hours until 09:00 tomorrow');
 
   // A pick of new work hobkin made waits for the hours. The user's own pick of it starts.
   pickNext(root, `item:api:${feature.id}`, { by: 'hobkin' });
@@ -316,7 +319,6 @@ test('the hours and the cap hold only new work that starts by itself: a watch, w
   pickNext(root, `item:api:${feature.id}`);
   assert.equal(rows()['Add export'], null);
   assert.deepEqual(readMode(root).queueByHobkin, [`item:api:${finished.id}`], 'the user\'s word takes the mark off');
-  assert.ok(urgent);
 });
 
 test('the cap counts new changes only: a review or a fix of finished work and a second run of an item are no new change, so with scoring on 3 new changes still start', t => {

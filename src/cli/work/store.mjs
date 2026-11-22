@@ -277,9 +277,10 @@ export function setAgents(root, agents, now = Date.now()) {
  * their work hours and their cap on changes. A home where hobkin never picked has no list, and every pick in it is the user's.
  */
 function pickedByHobkin(mode, key, by, queueNext) {
-  const marked = (mode.queueByHobkin ?? []).filter(entry => entry !== key && queueNext.includes(entry));
+  const hobkins = mode.queueByHobkin ?? [];
+  const marked = hobkins.filter(entry => entry !== key && queueNext.includes(entry));
   // The user's word stands: hobkin picking again what the user picked leaves it theirs.
-  const theirs = mode.queueNext.includes(key) && !(mode.queueByHobkin ?? []).includes(key);
+  const theirs = mode.queueNext.includes(key) && !hobkins.includes(key);
   const marks = by === 'hobkin' && !theirs ? [...marked, key] : marked;
   return marks.length || mode.queueByHobkin ? { queueByHobkin: marks } : {};
 }
@@ -291,7 +292,11 @@ function pickedByHobkin(mode, key, by, queueNext) {
 export function pickNext(root, key, { by = 'user' } = {}) {
   const mode = readMode(root);
   const queueNext = [...new Set([...mode.queueNext, key])];
-  return writeMode(root, { queueNext, queueSkipped: mode.queueSkipped.filter(entry => entry !== key), ...pickedByHobkin(mode, key, by, queueNext) });
+  return writeMode(root, {
+    queueNext,
+    queueSkipped: mode.queueSkipped.filter(entry => entry !== key),
+    ...pickedByHobkin(mode, key, by, queueNext),
+  });
 }
 
 /**
@@ -390,7 +395,7 @@ export function setDailyTokens(root, tokens) {
 
 /*
  * The workload: how much automated work runs (spec 053, docs/guide.md). Each setting is kept in the mode only once the user sets it, so a
- * home that never did runs as work mode always has: no cap on changes, always, ship first at 8, no pull request reviewed by itself.
+ * home that never set one runs with the defaults: no cap on changes, work at any hour, ship first at 8, no pull request reviewed by itself.
  */
 
 /** Which pull requests get an AI review by themselves: none, the user's own, those waiting for the user's review, or both. The host acts on it. */
@@ -451,10 +456,11 @@ export function setWorkload(root, change) {
   if (!names.length) throw Error('Name a setting of the workload to change.');
   const unknown = names.filter(name => !Object.hasOwn(workloadChecks, name));
   if (unknown.length) throw Error(`Not a workload setting: ${unknown.join(', ')}.`);
-  return writeMode(root, Object.assign({}, ...names.map(name => workloadChecks[name](change[name]))));
+  const checked = names.map(name => workloadChecks[name](change[name]));
+  return writeMode(root, Object.assign({}, ...checked));
 }
 
-/** A cap on item runs that start in a local day, or null for none. Picks still start once it is reached, and the next day starts at none. */
+/** A cap on new changes begun in a local day, or null for none. The user's own picks still start once it is reached, and the next day starts at none. */
 export const setChangesADay = (root, changes) => setWorkload(root, { changesADay: changes });
 /** Local times outside which nothing new starts by itself, as `{ from: 'HH:MM', to: 'HH:MM' }`, which may cross midnight, or null for always. */
 export const setWorkHours = (root, hours) => setWorkload(root, { hours });
@@ -483,8 +489,10 @@ export function workHoursAt(hours, now) {
   const minute = clock.getHours() * 60 + clock.getMinutes();
   const from = minuteOfDay(hours.from);
   const to = minuteOfDay(hours.to);
-  const open = from < to ? minute >= from && minute < to : minute >= from || minute < to;
-  return open ? { open, opensAt: null, closesAt: nextClock(hours.to, now) } : { open, opensAt: nextClock(hours.from, now), closesAt: null };
+  const withinOneDay = from < to;
+  const open = withinOneDay ? minute >= from && minute < to : minute >= from || minute < to;
+  if (open) return { open, opensAt: null, closesAt: nextClock(hours.to, now) };
+  return { open, opensAt: nextClock(hours.from, now), closesAt: null };
 }
 
 export const nextDiscoveryAt = ({ lastDiscoveryAt }) => (lastDiscoveryAt

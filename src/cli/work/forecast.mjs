@@ -97,8 +97,7 @@ const spentInTheHourTo = (spends, at) => spends
   .filter(spend => spend.at > at - HOUR_MS && spend.at <= at)
   .reduce((sum, spend) => sum + spend.fresh, 0);
 
-// What held the most minutes back. A tie goes to the agents' pace and then the hour, as it did before priorities had runs to spend, and the
-// user's hours and cap come after those.
+// What held the most minutes back. A tie goes to the agents' pace, then the hour, then the pace by priority, then the user's hours and their cap.
 const mostHeld = held => ['pace', 'hour', 'priority', 'hours', 'cap'].reduce((most, kind) => (held[kind] > held[most] ? kind : most));
 
 /**
@@ -276,7 +275,8 @@ export function forecastAndOutlook(root, plan, { now = Date.now(), running = [] 
   };
   const { started, limit } = playTo(end);
   // The rest of today: the same play, to midnight, unless the window already reaches past it.
-  const changes = (midnight <= end ? started : playTo(midnight).started).filter(row => row.change);
+  const toMidnight = midnight <= end ? started : playTo(midnight).started;
+  const changes = toMidnight.filter(row => row.change);
 
   const forecast = {
     hours: FORECAST_HOURS,

@@ -83,14 +83,19 @@ export const dayEndsAt = now => new Date(now).setHours(24, 0, 0, 0);
 const itemKey = ({ slug, item }) => `${slug}:${item}`;
 
 /**
- * When each item's first run began, ended or running, and the items that ever ran. A record from before runs named their item is a run of its own.
- * A run going now leaves its record only as it ends, so nothing is counted twice.
+ * When each item's first run began, ended or running, keyed by `slug:item`, so the keys are the items that ever ran. A record from before runs
+ * named their item is keyed by the record itself, a run of its own. A run going now leaves its record only as it ends, so nothing is counted twice.
  */
 function firstRuns(events, running, now) {
   const first = new Map();
+  const keyOf = run => (run.item ? itemKey(run) : run);
   const begin = (key, time) => first.set(key, Math.min(first.get(key) ?? Infinity, time));
-  for (const event of events) if (event.lane === 'do') begin(event.item ? itemKey(event) : event, startOf(event));
-  for (const run of running) if (run.lane === 'do') begin(run.item ? itemKey(run) : run, Date.parse(run.startedAt) || now);
+  for (const event of events) {
+    if (event.lane === 'do') begin(keyOf(event), startOf(event));
+  }
+  for (const run of running) {
+    if (run.lane === 'do') begin(keyOf(run), Date.parse(run.startedAt) || now);
+  }
   return first;
 }
 
@@ -105,7 +110,9 @@ function changesOn(root, first, isToday) {
     if (!kinds.has(slug)) kinds.set(slug, new Map(readItems(root, slug).map(item => [item.id, item.kind])));
     return kinds.get(slug).get(id);
   };
-  return [...first].filter(([key, time]) => isToday(time) && (typeof key !== 'string' || kindOf(key) !== 'pr-fix')).length;
+  // A run that names no item counts as a change of its own.
+  const isNewChange = key => typeof key !== 'string' || kindOf(key) !== 'pr-fix';
+  return [...first].filter(([key, time]) => isToday(time) && isNewChange(key)).length;
 }
 
 /**
@@ -120,7 +127,7 @@ export function budgetFor(root, mode, now, running = []) {
   const today = events.filter(event => isToday(timeOf(event)));
   const hour = events.filter(event => now - timeOf(event) < HOUR_MS);
   const spending = totalOf(running, 'tokens');
-  const ran = firstRuns(events, running, now);
+  const firstRunAt = firstRuns(events, running, now);
   const reserved = running.reduce((sum, run) => sum
     + Math.max(0, (run.estimate?.fresh ?? 0) - (run.meter?.tokens ?? run.tokens ?? 0))
     + (run.childReserved ?? 0), 0);
@@ -129,8 +136,8 @@ export function budgetFor(root, mode, now, running = []) {
     used: totalOf(today, 'tokens') + spending,
     cached: totalOf(today, 'cached') + totalOf(running, 'cached'),
     maxRuns: today.filter(event => event.level === 'max').length,
-    changes: changesOn(root, ran, isToday),
-    ran: new Set([...ran.keys()].filter(key => typeof key === 'string')),
+    changes: changesOn(root, firstRunAt, isToday),
+    ran: new Set([...firstRunAt.keys()].filter(key => typeof key === 'string')),
     hourShare: limit / HOURS_OF_WORK,
     hourUsed: totalOf(hour, 'tokens') + spending,
     hourEvents: hour,
