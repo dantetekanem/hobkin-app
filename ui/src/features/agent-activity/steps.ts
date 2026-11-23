@@ -290,46 +290,116 @@ export function summaryOf(entry: ActivityEntry, cwd?: string): string {
   return line.length > 80 ? `${line.slice(0, 79)}…` : line
 }
 
-/** The steps of a job's activity, in order. */
-export function stepsOf(entries: readonly ActivityEntry[], options: ReadOptions = {}): Step[] {
-  const ended = options.ended ?? false
-  const steps: Step[] = []
+/** The entries one step is made from, before it is built. A change's entries are all for one path. */
+interface Group {
+  kind: Step['kind']
+  entries: ActivityEntry[]
+  path?: string
+}
+
+/** Which entries make which step: words alone, commands in a row, edits to one file in a row, reads and searches in a row. */
+function groupsOf(entries: readonly ActivityEntry[], options: ReadOptions): Group[] {
+  const groups: Group[] = []
   for (const entry of entries) {
-    const last = steps.at(-1)
+    const last = groups.at(-1)
     if (entry.kind !== 'tool') {
-      if (entry.text?.trim()) steps.push({ kind: 'says', key: entry.id, entries: [entry], text: entry.text })
+      if (entry.text?.trim()) groups.push({ kind: 'says', entries: [entry] })
       continue
     }
     if (entry.name === 'codemode') {
-      steps.push({ kind: 'codemode', key: entry.id, entries: [entry], state: stateOf(entry, ended) })
+      groups.push({ kind: 'codemode', entries: [entry] })
       continue
     }
     if (options.tasksOnLine && isTaskTool(entry.name) && entry.state !== 'failed') continue
     const family = familyOf(entry.name)
-    if (family === 'shell') {
-      const command = commandOf(entry, ended)
-      if (last?.kind === 'shell') steps[steps.length - 1] = { ...last, entries: [...last.entries, entry], commands: [...last.commands, command] }
-      else steps.push({ kind: 'shell', key: entry.id, entries: [entry], commands: [command] })
-    } else if (family === 'change') {
-      const path = pathOf(entry, options.cwd)
-      if (last?.kind === 'change' && last.change.path === path) {
-        const all = [...last.entries, entry]
-        steps[steps.length - 1] = { ...last, entries: all, change: { ...withCall(last.change, entry, ended), state: changeState(all, ended) } }
-      } else {
-        const change = withCall({ path, hunks: [], whole: null, calls: 0, state: 'done', failures: [] }, entry, ended)
-        steps.push({ kind: 'change', key: entry.id, entries: [entry], change: { ...change, state: changeState([entry], ended) } })
-      }
-    } else if (family === 'other') {
-      const state = stateOf(entry, ended)
-      const failure = state === 'failed' ? failureOf(entry) : undefined
-      steps.push({ kind: 'tool', key: entry.id, entries: [entry], name: entry.name ?? 'tool', summary: summaryOf(entry, options.cwd), state, output: entry.output ?? '', ...(failure ? { failure } : {}) })
-    } else {
-      const look = lookOf(entry, family, options)
-      if (last?.kind === 'looks') steps[steps.length - 1] = { ...last, entries: [...last.entries, entry], looks: [...last.looks, look] }
-      else steps.push({ kind: 'looks', key: entry.id, entries: [entry], looks: [look] })
-    }
+    const kind = family === 'shell' ? 'shell' : family === 'change' ? 'change' : family === 'other' ? 'tool' : 'looks'
+    const path = kind === 'change' ? pathOf(entry, options.cwd) : undefined
+    const joins = (kind === 'shell' || kind === 'looks' || (kind === 'change' && last?.path === path)) && last?.kind === kind
+    if (joins) last.entries.push(entry)
+    else groups.push({ kind, entries: [entry], ...(path === undefined ? {} : { path }) })
   }
-  return steps
+  return groups
+}
+
+/**
+ * A step as it was last built, by its first entry, with what it was built from. The next update builds it again only
+ * when its entries changed, and then only from the first entry that did: the commands and reads before it are kept,
+ * and a change goes on from the file as the calls before it left it.
+ */
+interface Built {
+  entries: readonly ActivityEntry[]
+  ended: boolean
+  cwd: string | undefined
+  step: Step
+  /** A change's file before its last call, for when that call is the one that changed. */
+  beforeLast?: Change
+}
+
+const built = new WeakMap<ActivityEntry, Built>()
+
+const isRunning = (entry: ActivityEntry) => entry.kind === 'tool' && entry.state === 'running'
+
+/** How many entries from the start the two lists hold as the very same objects. */
+function samePrefix(left: readonly ActivityEntry[], right: readonly ActivityEntry[]): number {
+  const most = Math.min(left.length, right.length)
+  let count = 0
+  while (count < most && left[count] === right[count]) count += 1
+  return count
+}
+
+const NO_CHANGE = (path: string): Change => ({ path, hunks: [], whole: null, calls: 0, state: 'done', failures: [] })
+
+function stepOf(group: Group, ended: boolean, options: ReadOptions): Step {
+  const { entries } = group
+  const first = entries[0]!
+  const before = built.get(first)
+  const held = before && before.cwd === options.cwd && before.step.kind === group.kind ? before : undefined
+  const kept = held ? samePrefix(held.entries, entries) : 0
+  // A call that is not running reads the same whether or not the job has ended.
+  const keeps = (entry: ActivityEntry) => held!.ended === ended || !isRunning(entry)
+  if (held && kept === entries.length && kept === held.entries.length && entries.every(keeps)) return held.step
+
+  let step: Step
+  let beforeLast: Change | undefined
+  if (group.kind === 'says') step = { kind: 'says', key: first.id, entries, text: first.text ?? '' }
+  else if (group.kind === 'codemode') step = { kind: 'codemode', key: first.id, entries, state: stateOf(first, ended) }
+  else if (group.kind === 'tool') {
+    const state = stateOf(first, ended)
+    const failure = state === 'failed' ? failureOf(first) : undefined
+    step = { kind: 'tool', key: first.id, entries, name: first.name ?? 'tool', summary: summaryOf(first, options.cwd), state, output: first.output ?? '', ...(failure ? { failure } : {}) }
+  } else if (group.kind === 'shell') {
+    const earlier = held?.step.kind === 'shell' ? held.step.commands : []
+    const commands = entries.map((entry, index) => (index < kept && keeps(entry) ? earlier[index]! : commandOf(entry, ended)))
+    step = { kind: 'shell', key: first.id, entries, commands }
+  } else if (group.kind === 'looks') {
+    const earlier = held?.step.kind === 'looks' ? held.step.looks : []
+    const looks = entries.map((entry, index) => (index < kept && keeps(entry) ? earlier[index]! : lookOf(entry, familyOf(entry.name) as LookKind, options)))
+    step = { kind: 'looks', key: first.id, entries, looks }
+  } else {
+    // The calls kept go on from the file as they left it, after all of them or before the last, which no job ending
+    // changes. Any other change starts again from the first call.
+    let change = NO_CHANGE(group.path ?? '')
+    let from = 0
+    beforeLast = held?.beforeLast
+    if (held?.step.kind === 'change' && kept === held.entries.length) [change, from] = [held.step.change, kept]
+    else if (held?.beforeLast && kept === held.entries.length - 1) [change, from] = [held.beforeLast, kept]
+    for (let index = from; index < entries.length; index++) {
+      if (index === entries.length - 1) beforeLast = change
+      change = withCall(change, entries[index]!, ended)
+    }
+    step = { kind: 'change', key: first.id, entries, change: { ...change, state: changeState(entries, ended) } }
+  }
+  built.set(first, { entries, ended, cwd: options.cwd, step, ...(beforeLast ? { beforeLast } : {}) })
+  return step
+}
+
+/**
+ * The steps of a job's activity, in order. A step whose entries are the ones it was last built from is that same
+ * object, so what draws it can tell it did not change by reference; one update builds only the steps it touched.
+ */
+export function stepsOf(entries: readonly ActivityEntry[], options: ReadOptions = {}): Step[] {
+  const ended = options.ended ?? false
+  return groupsOf(entries, options).map((group) => stepOf(group, ended, options))
 }
 
 /**
