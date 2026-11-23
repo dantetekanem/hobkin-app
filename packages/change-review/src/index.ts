@@ -17,3 +17,4 @@ export { findAgenticSearch, readPack, runScan, scanAnchors, type AnchorScanReque
 export { entriesAbove, searchEntriesAbove, type AnchorScan, type EntriesOutcome, type EntriesRequest, type EntriesSearch, type EntryAbove } from './entries.ts'
 export { candidateTests, detectRunbook, detectRunbooks, runProof, type NodeProof, type ProofRequest, type ProofResult, type Runbook, type RunbookOverride, type TestCandidate } from './proof.ts'
 export { reviewChange, type BlindRecord, type ReviewChangeOptions, type ReviewChangeResult } from './pipeline.ts'
+export { zoneOf } from './zones.ts'

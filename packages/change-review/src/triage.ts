@@ -31,6 +31,9 @@ const LOCALE_CODE = /^[a-z]{2,3}([-_][A-Za-z]{2,4})?$/
 /** A lockfile, which a package manager writes: `pnpm-lock.yaml`, `Gemfile.lock`, `go.sum`. */
 export const isLockfile = (path: string): boolean => LOCKFILE.test(path)
 
+/** A test file by its path: a test folder, or a test's name such as `orders_spec.rb` or `cart.test.ts`. */
+export const isTestPath = (path: string): boolean => TEST.test(path)
+
 interface Kinded {
   kind: BucketKind
   treatment: Treatment

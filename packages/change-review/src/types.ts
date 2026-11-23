@@ -485,6 +485,24 @@ export interface ReviewNode {
   hidden?: string
 }
 
+/**
+ * A named part of the code (spec 055): a layer, what kind of code it is (`controller`, `model`, `host`,
+ * `test:request`), and a subject, what it is about (`admin/order`, `review`). Finer than "the controllers". Made from a
+ * path by `zoneOf`, so the same path is always in the same zone.
+ */
+export interface Zone {
+  /** `component/layer/subject`, with `-` for no component. */
+  id: string
+  layer: string
+  subject: string
+  /** The package, app or part of the repository it is in, when the repository has several. */
+  component?: string
+  /** The words a person would say: "Controllers · Orders", "Host · review", "Tests · Orders requests". */
+  label: string
+  /** The Reviewer's own name for it, when it renamed it. Words only: it moves no part and changes no level. */
+  told?: string
+}
+
 export interface GraphEdge {
   from: string
   to: string
