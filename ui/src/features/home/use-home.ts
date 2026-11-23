@@ -1,10 +1,11 @@
 import { useMemo } from 'react'
-import { useShallow } from 'zustand/react/shallow'
+import { shallow } from 'zustand/vanilla/shallow'
+import type { WorkState } from '#shared/protocol/work.ts'
 import { useActionItems } from '@/features/actions/store.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { useReports } from '@/features/reports/store.ts'
 import { useRoutines } from '@/features/routines/store.ts'
-import { useAgents, useHost } from '@/lib/host/hooks.ts'
+import { useAgents, useHostKept } from '@/lib/host/hooks.ts'
 import { initialHostState, type HostState } from '@/lib/host/state.ts'
 import { useDismissals } from './dismissals.ts'
 import { gatherHomeInput } from './input.ts'
@@ -38,13 +39,30 @@ export function homeHost({ home, question, work, github, integrations, ...snapsh
   return { ...initialHostState, home, question, work, github, integrations, snapshot }
 }
 
+/**
+ * The parts of work mode Home's model reads (`model.ts`). Today's token count, which comes about once a second while
+ * agents write, is not one of them. The host's state keeps a part that did not change as the same object.
+ */
+export const HOME_WORK = ['held', 'agents', 'queue', 'queued', 'projects', 'finished', 'yolo'] as const satisfies readonly (keyof WorkState)[]
+
+type HomeFields = ReturnType<typeof homeHostFields>
+
+const sameForHome = (held: WorkState | null, next: WorkState | null) =>
+  held === next || (held !== null && next !== null && HOME_WORK.every((key) => held[key] === next[key]))
+
+/** The fields held while they say the same, with work mode held while each part of it Home reads is the one held. */
+function keepHomeFields(held: HomeFields, next: HomeFields): HomeFields {
+  const fields = sameForHome(held.work, next.work) ? { ...next, work: held.work } : next
+  return shallow(held, fields) ? held : fields
+}
+
 const NO_AGENTS: HomeInput['agents'] = []
 
 /** Everything Home draws, from what the app already holds. A change of the agents at work makes only their parts again. */
 export function useHomeModel(): HomeModel {
   // The time, once a minute, so "12 min ago" and the day strip stay true while Home is open.
   const now = useNow(true, MINUTE_MS)
-  const fields = useHost(useShallow(homeHostFields))
+  const fields = useHostKept(homeHostFields, keepHomeFields)
   const agents = useAgents()
   const reports = useReports()
   const actions = useActionItems()

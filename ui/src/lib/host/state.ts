@@ -135,8 +135,9 @@ function applyState(state: HostState, message: StateMessage): HostState {
     github: message.github ?? (message.reset ? null : state.github),
     // The same for Pi's MCP servers: a host that reads them sends the slice with every reset.
     integrations: message.integrations ?? (message.reset ? null : state.integrations),
-    // Work mode comes whole with every reset that has it, and null once hobkin's snapshot has none.
-    work: message.work !== undefined ? message.work : message.reset ? null : state.work,
+    // Work mode comes whole with every reset that has it, and null once hobkin's snapshot has none. It comes whole each
+    // time today's token count moves too, so each part that says the same keeps its object.
+    work: message.work !== undefined ? keepSame(state.work, message.work) : message.reset ? null : state.work,
     canvas: message.canvas ?? (message.reset ? null : state.canvas),
     canvases: message.canvases ?? (message.reset ? null : state.canvases),
     // A one-shot instruction arrives only when it is new. A reset clears it, so a reconnect never replays a move or draft.
