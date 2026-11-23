@@ -2,7 +2,8 @@ import type { Grade, WorkProject } from '@/lib/host/index.ts'
 
 /** Which projects the main Work screen lists, and which wait in discovery. Presentation only: no project changes state. */
 
-const GRADE_ORDER: Record<Grade, number> = { P0: 0, P1: 1, P2: 2, P3: 3 }
+/** A priority's place, the most pressing first. */
+export const GRADE_ORDER: Record<Grade, number> = { P0: 0, P1: 1, P2: 2, P3: 3 }
 
 /** Projects hobkin works on, paused ones included, by priority and then in hobkin's order. */
 export function trackedProjects(projects: readonly WorkProject[]): WorkProject[] {

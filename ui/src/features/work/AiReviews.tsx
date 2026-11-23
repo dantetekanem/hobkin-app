@@ -12,23 +12,39 @@ import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
 import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
-import { canReviewAgain, groupReviews, reviewToOpen, type ReviewRow } from './ai-reviews.ts'
-import { DeployWhy, ReviewBadge, ReviewProgress, SectionHeading } from './parts.tsx'
+import { canReviewAgain, groupReviews, reviewToOpen, REVIEW_ORDERS, type PriorityOf, type ReviewGroup, type ReviewRow } from './ai-reviews.ts'
+import { DeployWhy, GradeChip, ReviewBadge, ReviewProgress, SectionHeading, Segmented } from './parts.tsx'
+import { useReviewOrder } from './review-order.ts'
 import { ACTION_LABEL, createRowActions, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
 import type { ReviewListView } from './use-review-list.ts'
 
 /**
  * The AI Reviews tab (spec 032): every review the host knows, finished changes and pull requests together, as what is
- * running, what is ready and what failed, each newest first. A running one says how far along it is, what it is doing
- * now and how long it has taken; a ready one its answer for the whole change (risky or safe to deploy), why, and when
- * it finished. A click opens it.
+ * running, what is ready and what failed, each in the order the switch on the first heading says: by priority, newest
+ * first or oldest first. A running one says how far along it is, what it is doing now and how long it has taken; a
+ * ready one its answer for the whole change (risky or safe to deploy), why, and when it finished. A click opens it.
  * One that is ready or stopped can be run again from its row: the review is built once more at the change's commit.
  * One that is waiting or running can be stopped from its row, alone: several run at a time.
  * Under it, on every row that has them: Remove, and Remove and delete branch.
  */
-export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewListView }) {
-  const groups = groupReviews(reviews.list)
-  const none = groups.unmerged.length + groups.running.length + groups.ready.length + groups.failed.length === 0
+const GROUPS: readonly { group: ReviewGroup; label: string }[] = [
+  // What the user said yes to and has not merged: first, so a yes that did not land is never out of sight.
+  { group: 'unmerged', label: 'Asked to merge, not merged' },
+  { group: 'running', label: 'Running' },
+  { group: 'ready', label: 'Ready' },
+  { group: 'failed', label: 'Failed' },
+]
+
+export function AiReviews({ live, reviews, priorityOf }: {
+  live: boolean
+  reviews: ReviewListView
+  /** Where a review's priority is read, for the order by priority and the chip on its row. */
+  priorityOf: PriorityOf
+}) {
+  const order = useReviewOrder((state) => state.order)
+  const groups = useMemo(() => groupReviews(reviews.list, { order, priorityOf }), [reviews.list, order, priorityOf])
+  const shown = GROUPS.filter(({ group }) => groups[group].length > 0)
+  const none = shown.length === 0
 
   return (
     <div className="flex flex-col gap-10">
@@ -43,11 +59,22 @@ export function AiReviews({ live, reviews }: { live: boolean; reviews: ReviewLis
         </p>
       ) : null}
       {reviews.list && none ? <NoReviews /> : null}
-      {/* What the user said yes to and has not merged: first, so a yes that did not land is never out of sight. */}
-      <Group label="Asked to merge, not merged" rows={groups.unmerged} live={live} onAgain={reviews.refresh} />
-      <Group label="Running" rows={groups.running} live={live} onAgain={reviews.refresh} />
-      <Group label="Ready" rows={groups.ready} live={live} onAgain={reviews.refresh} />
-      <Group label="Failed" rows={groups.failed} live={live} onAgain={reviews.refresh} />
+      {shown.map(({ group, label }, index) => (
+        // The order switch sits on the first heading, so it is always at the top of the list, whichever group that is.
+        <Group key={group} label={label} rows={groups[group]} live={live} onAgain={reviews.refresh} tools={index === 0 ? <OrderSwitch /> : null} />
+      ))}
+    </div>
+  )
+}
+
+/** The order of every group's rows, picked by the user and kept on this machine. */
+function OrderSwitch() {
+  const order = useReviewOrder((state) => state.order)
+  const choose = useReviewOrder((state) => state.choose)
+  return (
+    <div className="ml-auto flex items-center gap-2">
+      <span className="eyebrow">Order</span>
+      <Segmented label="Order of the AI reviews" name="review-order" value={order} options={REVIEW_ORDERS} onChoose={choose} />
     </div>
   )
 }
@@ -67,11 +94,12 @@ function NoReviews() {
   )
 }
 
-function Group({ label, rows, live, onAgain }: { label: string; rows: ReviewRow[]; live: boolean; onAgain: () => void }) {
-  if (!rows.length) return null
+function Group({ label, rows, live, onAgain, tools }: { label: string; rows: ReviewRow[]; live: boolean; onAgain: () => void; tools: ReactNode }) {
   return (
     <section aria-label={label} className="flex flex-col gap-3">
-      <SectionHeading label={label} count={rows.length} />
+      <SectionHeading label={label} count={rows.length}>
+        {tools}
+      </SectionHeading>
       <ul className="flex flex-col gap-2">
         {rows.map((row) => (
           <Card key={row.item.id} row={row} live={live} onAgain={onAgain} />
@@ -195,6 +223,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
           ) : (
             <span className="min-w-0 truncate font-medium text-foreground">{row.where}</span>
           )}
+          <GradeChip grade={row.priority} />
           <span className="shrink-0">· {item.kind === 'pull' ? 'Pull request' : 'Finished change'}</span>
           {people?.author ? (
             <span className="min-w-0 truncate">

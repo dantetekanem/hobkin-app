@@ -32,6 +32,7 @@ import { opensWorkload, type WorkloadSetting } from './workload.ts'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
 import { runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab } from './tab.ts'
+import { prioritiesOfWork } from './review-order.ts'
 import { useReviewList } from './use-review-list.ts'
 import { bindWorkTarget } from './work-target.ts'
 import { yoloAtAGlance } from './yolo-page.ts'
@@ -83,6 +84,7 @@ export function WorkScreen() {
   // The tab says how many reviews run and how many are ready, so the list is followed on either page.
   const reviews = useReviewList(live)
   const counts = reviewCounts(groupReviews(reviews.list))
+  const reviewPriority = useMemo(() => prioritiesOfWork(work), [work])
   const tally = useMemo(() => reviewTallyOf(reviews.list), [reviews.list])
   // The six tiles under the header (053): what waits, merged today, first pass, by itself, AI reviews, today's tokens.
   const tiles = (
@@ -207,7 +209,7 @@ export function WorkScreen() {
           />
           {tab === 'reviews' ? (
             <WorkPage key="reviews" way={way} role="tabpanel" id="work-panel-reviews" aria-labelledby="work-tab-reviews">
-              <AiReviews live={live} reviews={reviews} />
+              <AiReviews live={live} reviews={reviews} priorityOf={reviewPriority} />
             </WorkPage>
           ) : tab === 'numbers' ? (
             <WorkPage key="numbers" way={way} role="tabpanel" id="work-panel-numbers" aria-labelledby="work-tab-numbers">

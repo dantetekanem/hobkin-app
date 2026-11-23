@@ -170,3 +170,48 @@ test('a row names its pull request by number and links to its page: its own, or 
     'pr:acme/web/13': ['acme/web #13', 'https://github.com/acme/web/pull/13'],
   })
 })
+
+test('each group follows the order the user picked: by priority with the longest wait first among equals, newest first, or oldest first', () => {
+  const ready = (id: string, minutesAgo: number, over: Partial<ReviewListItem> = {}) =>
+    item(id, { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(minutesAgo) }) }, updatedAt: at(minutesAgo), ...over })
+  const list = {
+    reviews: [
+      ready('change:storefront:casual', 1),
+      ready('change:storefront:urgent-new', 2),
+      ready('pr:acme/web/12', 3, { kind: 'pull', project: 'acme/web' }),
+      ready('change:storefront:urgent-old', 9),
+    ],
+  }
+  const priorities: Record<string, 'P0' | 'P2'> = {
+    'change:storefront:casual': 'P2',
+    'change:storefront:urgent-new': 'P0',
+    'change:storefront:urgent-old': 'P0',
+  }
+  const priorityOf = (review: ReviewListItem) => priorities[review.id] ?? null
+  const readyIn = (order: 'priority' | 'newest' | 'oldest') => groupReviews(list, { order, priorityOf }).ready.map((row) => row.item.id)
+
+  assert.deepEqual(readyIn('priority'), ['change:storefront:urgent-old', 'change:storefront:urgent-new', 'change:storefront:casual', 'pr:acme/web/12'])
+  assert.deepEqual(readyIn('newest'), ['change:storefront:casual', 'change:storefront:urgent-new', 'pr:acme/web/12', 'change:storefront:urgent-old'])
+  assert.deepEqual(readyIn('oldest'), ['change:storefront:urgent-old', 'pr:acme/web/12', 'change:storefront:urgent-new', 'change:storefront:casual'])
+
+  const unordered = groupReviews(list, { priorityOf }).ready
+
+  assert.deepEqual(unordered.map((row) => row.item.id), readyIn('newest'), 'with no order picked, newest first')
+  assert.deepEqual(unordered.map((row) => row.priority), ['P2', 'P0', null, 'P0'], 'a row says the priority of its work')
+})
+
+test('in any order, reviews under way come before those that wait their turn', () => {
+  const list = {
+    reviews: [
+      item('change:storefront:waits', { assessment: { state: 'queued', head: HEAD } }),
+      item('change:storefront:runs', { assessment: { state: 'running', head: HEAD, percent: 10, startedAt: at(4) } }),
+    ],
+  }
+  const priorityOf = (review: ReviewListItem) => (review.id === 'change:storefront:waits' ? 'P0' : 'P3')
+
+  for (const order of ['priority', 'newest', 'oldest'] as const) {
+    const running = groupReviews(list, { order, priorityOf }).running.map((row) => row.item.id)
+
+    assert.deepEqual(running, ['change:storefront:runs', 'change:storefront:waits'], `in the order ${order}`)
+  }
+})
