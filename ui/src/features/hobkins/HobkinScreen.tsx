@@ -5,6 +5,7 @@ import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, typ
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
+import { Pals } from '@/avatar/Pals.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -38,6 +39,7 @@ import { endingOf, pressEndOf, takeBackEnd, useEnding } from './end.ts'
 import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
 import { useConversation, useMarkSeen, usePageShown } from './use-conversation.ts'
+import { useOnClaudeCode } from './use-pal.ts'
 
 /**
  * A durable hobkin's page: the agent screen for the agent id `hobkin:<id>` (`034-durable-hobkins`). Its name, folder,
@@ -249,6 +251,7 @@ function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: Hobkin
     pressEndOf(id)
   }
   const stopAsking = () => takeBackEnd(id, true)
+  const onClaudeCode = useOnClaudeCode(id, hobkin)
 
   return (
     <motion.div
@@ -261,7 +264,12 @@ function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: Hobkin
       }}
     >
       <div className="flex items-center gap-3">
-        <AgentHood hue={hueOf(id)} size={48} mood={mood} working={hobkin?.state === 'working'} />
+        {/* On Claude Code the crab pal stands beside the face, and while it waits long they fall asleep together. */}
+        {onClaudeCode ? (
+          <Pals hue={hueOf(id)} size={48} mood={mood} working={hobkin?.state === 'working'} restingSince={hobkin?.waiting ? Date.parse(hobkin.waiting.since) : undefined} />
+        ) : (
+          <AgentHood hue={hueOf(id)} size={48} mood={mood} working={hobkin?.state === 'working'} />
+        )}
         <div className="min-w-0 flex-1">
           {naming !== null ? (
             <input
