@@ -148,6 +148,7 @@ export function validateReview(value: unknown): string[] {
 
   for (const node of nodes.values()) {
     for (const id of Array.isArray(node.supports) ? node.supports : []) if (nodes.get(id)?.kind !== 'test') problems.push(`Node ${node.id} supports ${String(id)}, which is not a test of this review.`)
+    if (node.covers !== undefined && (node.kind !== 'test' || !Array.isArray(node.covers) || node.covers.some((id) => nodes.get(id)?.kind !== 'code'))) problems.push(`Node ${node.id}: only a test names what it covers, and each is code of this review.`)
     const chain: unknown = isRecord(node.lifecycle) && isRecord(node.lifecycle.origin) ? node.lifecycle.origin.chain : undefined
     for (const id of Array.isArray(chain) ? chain : []) if (!nodes.has(id) || id === node.id) problems.push(`Node ${node.id} is run from by way of ${String(id)}, which is not another node of this review.`)
   }

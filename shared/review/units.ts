@@ -164,6 +164,12 @@ export function findDeclaration(text: string, symbol: string, testCase = false):
   return start < 0 ? undefined : { startLine: start + 1, endLine: declarationEnd(source, start) + 1 }
 }
 
+/** Every test case of a name in a file, as 1-based first and last line, in the order the file has them. */
+export function testCasesOf(text: string, name: string): { startLine: number; endLine: number }[] {
+  const { cases, spans } = functionOwners(splitLines(text))
+  return [...spans].filter(([key]) => cases.has(key) && nameOf(key) === name).map(([, [start, end]]) => ({ startLine: start + 1, endLine: end + 1 }))
+}
+
 /** Every place a name is declared in a file, as 1-based first and last line, by the same patterns as `findDeclaration`. */
 export function declarationsOf(text: string, symbol: string): { startLine: number; endLine: number }[] {
   const found = [...functionOwners(splitLines(text)).spans].filter(([key]) => nameOf(key) === symbol).map(([, [start, end]]) => ({ startLine: start + 1, endLine: end + 1 }))

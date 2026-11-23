@@ -14,8 +14,8 @@ import { extensionOf, fileName, fileRole } from './paths.ts'
 import { cleanProse, count, listed } from './prose.ts'
 import { declaredSignature } from './signature.ts'
 import { HOST_TEXT_LIMIT, NO_SPEC_NOTICE, PROSE_LIMIT, SIZE_LIMIT, TITLE_LIMIT, type EdgeKind, type NodeIO, type NodeStatus, type ReviewAnchor, type ReviewEdge, type ReviewFile, type ReviewNode, type ReviewPath } from './types.ts'
-import { codeIdentifiers, findDeclaration, importCandidates, importPath, importSpecifiers, isTopStatement, mergeTestSupport, pairTests, prepareUnits, relativeImports, resolveImport, testsThatUse, unitReferences, type Unit, type UnitRange } from './units.ts'
-import { addVicinity, type Vicinity } from './vicinity.ts'
+import { codeIdentifiers, findDeclaration, importCandidates, importPath, importSpecifiers, isTopStatement, mergeTestSupport, pairTests, prepareUnits, relativeImports, resolveImport, testCasesOf, testsThatUse, unitReferences, type Unit, type UnitRange } from './units.ts'
+import { addVicinity, type Vicinity, type VicinityTest } from './vicinity.ts'
 
 export interface PrepareInput {
   id: string
@@ -239,6 +239,7 @@ export async function draftReview(input: PrepareInput): Promise<Draft> {
 
   if (input.vicinity) notices.push(...(await addVicinity(input.vicinity, { capture, nodes, files, headFiles, readHead: input.readHead, wire })))
   await wireTests({ capture, nodes, readHead: input.readHead, vicinity: input.vicinity, wire, edges })
+  await addTestsFromBefore({ capture, nodes, files, headFiles, readHead: input.readHead, vicinity: input.vicinity, results: input.results, wire })
   wireDependencies({ capture, nodes, isChanged, wire })
   wireScriptRuns({ capture, nodes, units, wire })
   wireThroughHelpers({ nodes, edges, units, wire })
@@ -402,6 +403,89 @@ async function wireTests({ capture, nodes, readHead, vicinity, wire, edges }: { 
     const to = holderAt(nodes, ['code'], at.path, at.line)
     if (from && to) wire('exercises', from.id, to.id)
   }
+}
+
+/** The most unchanged tests that covered the code before the change a review shows: for one changed definition, and in all. */
+export const TESTS_FROM_BEFORE = { perDefinition: 3, review: 12 } as const
+
+/** A test that goes through a request, a job or the whole app, by where it lives: these say most about a change. */
+const LIFE_CYCLE_TEST = /(?:^|\/)(?:requests?|integration|e2e|system|acceptance)\/|(?:^|\/)spec\/features\/|[._](?:e2e|request|integration)[._]/
+
+/**
+ * The tests the call-graph scan says use changed code and the change did not touch: each joins the review as a test
+ * that was there before, wired to the code it covers, a few for each changed definition and a dozen in all, the tests
+ * that go through a request first. A test joins only where it is found by its name at head, untouched by the change.
+ */
+async function addTestsFromBefore({ capture, nodes, files, headFiles, readHead, vicinity, results, wire }: { capture: Capture; nodes: ReviewNode[]; files: ReviewFile[]; headFiles: Map<string, string>; readHead: (path: string) => Promise<string | null>; vicinity?: Vicinity; results?: PrepareInput['results']; wire: Wire }) {
+  const fileOf = new Map(capture.files.map((file) => [file.path, file]))
+  const touched = (path: string, startLine: number, endLine: number) => capture.changes.some((change) => change.fileId === fileOf.get(path)?.id && change.side === 'added' && change.startLine <= endLine && startLine <= change.endLine)
+  // The tests of each changed definition, each once, in the scan's order.
+  const wanted = new Map<string, VicinityTest['test'][]>()
+  for (const { test, changed: at } of vicinity?.tests ?? []) {
+    if (test.changed === true || holderAt(nodes, ['test'], test.path, test.line)) continue
+    const code = holderAt(nodes, ['code'], at.path, at.line)
+    if (!code) continue
+    const tests = wanted.get(code.id) ?? []
+    if (!tests.some((entry) => entry.path === test.path && entry.symbol === test.symbol)) wanted.set(code.id, [...tests, test])
+  }
+  const made = new Map<string, ReviewNode>()
+  const taken = new Map<string, number>()
+  const covered = new Map<string, string[]>()
+  const titleOf = new Map(nodes.map((node) => [node.id, node.title]))
+  const join = async (codeId: string, test: VicinityTest['test']) => {
+    const captured = fileOf.get(test.path)
+    const text = captured ? captured.head : (headFiles.get(test.path) ?? (await readHead(test.path)))
+    const found = text == null ? [] : testCasesOf(text, test.symbol)
+    if (text == null || found.length === 0) return
+    const span = found.reduce((best, next) => (Math.abs(next.startLine - test.line) < Math.abs(best.startLine - test.line) ? next : best))
+    if (touched(test.path, span.startLine, span.endLine)) return
+    const key = `${test.path}:${span.startLine}`
+    let node = made.get(key)
+    if (!node) {
+      if (made.size >= TESTS_FROM_BEFORE.review) return
+      if (!captured && !headFiles.has(test.path)) {
+        headFiles.set(test.path, text)
+        files.push(unchangedFile(test.path))
+      }
+      node = {
+        id: `b${made.size + 1}`,
+        kind: 'test',
+        title: cleanProse(testName(test.symbol), TITLE_LIMIT),
+        subtitle: test.path,
+        change: 'unchanged',
+        stats: { additions: 0, deletions: 0 },
+        summary: '',
+        status: results?.[`${test.path} › ${test.symbol}`] ?? 'not-run',
+        anchors: [anchorOf(text, { fileId: captured?.id ?? test.path, side: 'added', ...span })],
+        position: { x: 0, y: 0 },
+      }
+      made.set(key, node)
+      nodes.push(node)
+    }
+    wire('exercises', node.id, codeId)
+    taken.set(codeId, (taken.get(codeId) ?? 0) + 1)
+    covered.set(node.id, [...(covered.get(node.id) ?? []), titleOf.get(codeId) ?? codeId])
+  }
+  // The tests that go through a request first, for every definition, then the rest, a few for each.
+  for (const lifeCycle of [true, false]) {
+    for (const [codeId, tests] of wanted) {
+      for (const test of tests.filter((entry) => LIFE_CYCLE_TEST.test(entry.path) === lifeCycle)) {
+        if ((taken.get(codeId) ?? 0) >= TESTS_FROM_BEFORE.perDefinition) break
+        await join(codeId, test)
+      }
+    }
+  }
+  for (const node of made.values()) node.summary = cleanProse(`This test did not change. It covered ${listed([...new Set(covered.get(node.id))].slice(0, 3))} before this change.`, PROSE_LIMIT.summary)
+}
+
+/** Each test with the ids of the code it is wired to, so what covers a node, before the change or with it, is read off it. */
+export function withCovers(nodes: readonly ReviewNode[], edges: readonly ReviewEdge[]): ReviewNode[] {
+  const kindOf = new Map(nodes.map((node) => [node.id, node.kind]))
+  return nodes.map((node) => {
+    if (node.kind !== 'test') return node
+    const covers = [...new Set(edges.filter((edge) => edge.kind === 'exercises' && edge.from === node.id && kindOf.get(edge.to) === 'code').map((edge) => edge.to))]
+    return { ...node, covers }
+  })
 }
 
 /**

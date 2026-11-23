@@ -4,7 +4,7 @@
  * Unknown ids and impossible wires are corrected or dropped, context is verified against the files at head,
  * every node gets a story step, the story is framed, the graph is laid out, and the result must pass the validator.
  */
-import { anchorOf, edgeId, unchangedFile, type Draft } from './draft.ts'
+import { anchorOf, edgeId, unchangedFile, withCovers, type Draft } from './draft.ts'
 import { testPaths } from './flow.ts'
 import { layoutReview } from './layout.ts'
 import { readModelPass, type ModelContext } from './model.ts'
@@ -275,6 +275,8 @@ export async function completeReview(draft: Draft, modelOutput?: unknown): Promi
 
   const positions = layoutReview(nodes, edges)
   for (const node of nodes) node.position = positions[node.id]!
+  // Once every wire is drawn, the model's too, each test names the code it covers.
+  nodes = withCovers(nodes, edges)
 
   // Unchanged files stay listed only while a node still points into them.
   const referenced = new Set(nodes.flatMap((node) => node.anchors.map((anchor) => anchor.fileId)))
