@@ -43,8 +43,9 @@ function useSampleSchedules(on: boolean, place: SchedulePlace): readonly AgentSc
   const id = place.kind === 'main' ? null : place.id
   return useMemo(() => {
     if (!on) return NONE
-    const owned = kind === 'hobkin' && id ? list.map((schedule) => (schedule.owner?.id === SAMPLE_HOBKIN ? { ...schedule, owner: { kind: 'hobkin' as const, id } } : schedule)) : list
-    return schedulesIn(owned, kind === 'main' || !id ? { kind: 'main' } : { kind, id })
+    if (kind === 'main' || !id) return list
+    const owned = kind === 'hobkin' ? list.map((schedule) => (schedule.owner?.id === SAMPLE_HOBKIN ? { ...schedule, owner: { kind, id } } : schedule)) : list
+    return schedulesIn(owned, { kind, id })
   }, [on, list, kind, id])
 }
 

@@ -107,24 +107,37 @@ export interface ScheduleLineWords {
  * one runs its command, that it runs. With none live, that they ended. With none at all, nothing.
  */
 export function scheduleLine(list: readonly AgentSchedule[], now: number): ScheduleLineWords | null {
-  if (list.length === 0) return null
   const ordered = orderSchedules(list)
   const live = ordered.filter(isLive)
-  if (live.length === 0) {
-    const name = nameOf(ordered[0]!)
-    const text = ordered.length === 1 ? `${name} ended` : `${ordered.length} ended`
-    return { count: 0, lead: 'ended', name, when: 'ended', text, short: ordered.length === 1 ? 'ended' : text }
-  }
-  const first = live[0]!
+  const [first] = live
+  if (!first) return endedLine(ordered)
+
+  const count = live.length
   const state = stateOf(first)
   const lead = state === 'running' ? 'running' : state === 'paused' ? 'paused' : 'waiting'
   const name = nameOf(first)
-  const count = live.length
-  const counted = count > 1 ? `${count} · ` : ''
-  if (lead === 'paused' && count > 1) return { count, lead, name, when: 'paused', text: `${count} paused`, short: `${count} paused` }
+  // Paused ones come last, so when the first is paused every live one is.
+  if (lead === 'paused' && count > 1) {
+    const text = `${count} paused`
+    return { count, lead, name, when: 'paused', text, short: text }
+  }
+
   const when = whenWords(first, now)
   const clock = when.startsWith('in ') ? when.slice(3) : when
+  const counted = count > 1 ? `${count} · ` : ''
   return { count, lead, name, when, text: `${counted}${name} ${when}`, short: `${counted}${clock}` }
+}
+
+/** The line when every schedule has ended: the one that ended last by name, or how many ended. Null with none at all. */
+function endedLine(ended: readonly AgentSchedule[]): ScheduleLineWords | null {
+  const [newest] = ended
+  if (!newest) return null
+  const name = nameOf(newest)
+  if (ended.length > 1) {
+    const text = `${ended.length} ended`
+    return { count: 0, lead: 'ended', name, when: 'ended', text, short: text }
+  }
+  return { count: 0, lead: 'ended', name, when: 'ended', text: `${name} ended`, short: 'ended' }
 }
 
 /** How often it fires: "once", "every minute", "every 2 min", "every hour". */

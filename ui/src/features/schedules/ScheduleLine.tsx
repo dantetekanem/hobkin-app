@@ -114,23 +114,30 @@ export function ScheduleLineView({
   const root = useRef<HTMLDivElement>(null)
   const bar = useRef<HTMLButtonElement>(null)
   // Where the keyboard was when the list opened, to go back to as it closes, and whether a key opened it.
-  const opener = useRef<HTMLElement | null>(null)
-  const [byKey, setByKey] = useState(false)
+  const keyboardWasAt = useRef<HTMLElement | null>(null)
+  const [openedByKey, setOpenedByKey] = useState(false)
   const panelId = useId()
 
-  const setOpen = (next: boolean, fromKey: boolean) => {
-    if (next) {
-      const active = document.activeElement
-      opener.current = active instanceof HTMLElement && active !== document.body ? active : null
-      setByKey(fromKey)
-    } else if (root.current?.contains(document.activeElement)) {
-      const back = opener.current?.isConnected && !root.current.contains(opener.current) ? opener.current : bar.current
+  const openList = (byKey: boolean) => {
+    const active = document.activeElement
+    keyboardWasAt.current = active instanceof HTMLElement && active !== document.body ? active : null
+    setOpenedByKey(byKey)
+    useScheduleList.getState().setOpen(key, true)
+  }
+
+  const closeList = () => {
+    const inside = root.current
+    if (inside?.contains(document.activeElement)) {
+      const before = keyboardWasAt.current
+      const back = before?.isConnected && !inside.contains(before) ? before : bar.current
       back?.focus({ preventScroll: true })
     }
-    useScheduleList.getState().setOpen(key, next)
+    useScheduleList.getState().setOpen(key, false)
   }
-  const latest = useRef(setOpen)
-  latest.current = setOpen
+
+  const toggleByKey = () => (useScheduleList.getState().open === key ? closeList() : openList(true))
+  const latestToggle = useRef(toggleByKey)
+  latestToggle.current = toggleByKey
 
   // Control+Option+W reaches the list from anywhere its place has the keyboard, so it is heard on the window.
   useEffect(() => {
@@ -142,7 +149,7 @@ export function ScheduleLineView({
       const element = root.current
       if (!element || !takesKey(element, main) || inOverlay(event.target, document)) return
       event.preventDefault()
-      latest.current(useScheduleList.getState().open !== key, true)
+      latestToggle.current()
     }
     addEventListener('keydown', onKey)
     return () => removeEventListener('keydown', onKey)
@@ -169,17 +176,17 @@ export function ScheduleLineView({
         if (scheduleListKey(pressOf(event), { open, inList: true }) !== 'close') return
         event.preventDefault()
         event.stopPropagation()
-        setOpen(false, true)
+        closeList()
       }}
     >
       {/* The line's own room, which its words read to know how many of them fit. */}
       <div className="@container w-full min-w-0">
         <AnimatePresence initial={false}>
-          {any ? <LineButton key="line" ref={bar} schedules={ordered} open={open} panelId={panelId} still={still} onToggle={() => setOpen(!open, false)} /> : null}
+          {any ? <LineButton key="line" ref={bar} schedules={ordered} open={open} panelId={panelId} still={still} onToggle={() => (open ? closeList() : openList(false))} /> : null}
         </AnimatePresence>
       </div>
       <AnimatePresence>
-        {open ? <SchedulePanel key="panel" id={panelId} schedules={ordered} main={place.kind === 'main'} still={still} takeKeyboard={byKey} send={send} /> : null}
+        {open ? <SchedulePanel key="panel" id={panelId} schedules={ordered} main={place.kind === 'main'} still={still} takeKeyboard={openedByKey} send={send} /> : null}
       </AnimatePresence>
     </div>
   )
@@ -264,7 +271,11 @@ function useRoomAbove(element: RefObject<HTMLElement | null>): number | undefine
     const row = node?.offsetParent
     if (!node || !row) return
     const area = node.closest('[data-chat-side], [data-canvas-screen]')
-    const measure = () => setRoom(Math.max(LEAST_ROOM, Math.round(row.getBoundingClientRect().top - (area?.getBoundingClientRect().top ?? 0) - LEAVE)))
+    const measure = () => {
+      const areaTop = area?.getBoundingClientRect().top ?? 0
+      const rowTop = row.getBoundingClientRect().top
+      setRoom(Math.max(LEAST_ROOM, Math.round(rowTop - areaTop - LEAVE)))
+    }
     measure()
     addEventListener('resize', measure)
     return () => removeEventListener('resize', measure)
@@ -332,7 +343,8 @@ function ScheduleRow({ schedule, now, main, index, still, send }: { schedule: Ag
   const ended = isEnded(schedule)
   const does = doesWords(schedule)
   const last = lastRunWords(schedule, now)
-  const left = leftWords(schedule, now)
+  // How often it fires and what it has left, or, once it ended, why.
+  const course = ended ? `ended · ${endedWords(schedule)}` : [everyWords(schedule.every), leftWords(schedule, now)].filter(Boolean).join(' · ')
   const delay = Math.min(index, 8) * 0.03
   return (
     <motion.li
@@ -357,7 +369,7 @@ function ScheduleRow({ schedule, now, main, index, still, send }: { schedule: Ag
             {does.text ? ` · ${does.text}` : ''}
           </span>
         )}
-        <span className="truncate text-muted-foreground tabular-nums">{ended ? `ended · ${endedWords(schedule)}` : [everyWords(schedule.every), left].filter(Boolean).join(' · ')}</span>
+        <span className="truncate text-muted-foreground tabular-nums">{course}</span>
         <span className="truncate text-muted-foreground tabular-nums">
           last: <span className={LAST_TONE[last.tone]}>{last.outcome}</span>
           {last.detail ? ` · ${last.detail}` : ''}
@@ -426,19 +438,38 @@ function Stacked({ shown, labels }: { shown: number; labels: readonly string[] }
 const RING = 'shadow-[inset_0_0_0_1.5px_var(--hb-code)]'
 const QUIET_RING = 'shadow-[inset_0_0_0_1.5px_color-mix(in_oklab,var(--hb-border-strong)_70%,transparent)]'
 
-/** How a schedule stands, in a mark beside it, as the tasks list marks its tasks. */
+const MARK_RING: Record<AgentScheduleState, string> = {
+  waiting: RING,
+  running: RING,
+  paused: RING,
+  done: 'bg-[var(--hb-code)]',
+  cancelled: QUIET_RING,
+  expired: QUIET_RING,
+  failed: QUIET_RING,
+}
+
+/** How a schedule stands, in a mark beside it, as the tasks list marks its tasks: a dot that waits or breathes, a pause, a check or a cross. */
 function Mark({ state }: { state: AgentScheduleState }) {
-  const inner =
-    state === 'waiting' ? <span className="size-1.5 rounded-full bg-[var(--hb-code)]" />
-    : state === 'running' ? <span className="aa-running size-1.5 rounded-full bg-[var(--hb-code)]" />
-    : state === 'paused' ? <Pause className="size-2 fill-current text-[var(--hb-code)]" strokeWidth={0} />
-    : state === 'done' ? <Check className="size-2.5 text-background" strokeWidth={3.5} />
-    : state === 'failed' ? <X className="size-2.5 text-bad-fg" strokeWidth={3} />
-    : null
-  const ring = state === 'done' ? 'bg-[var(--hb-code)]' : state === 'waiting' || state === 'running' || state === 'paused' ? RING : QUIET_RING
   return (
-    <span aria-hidden="true" className={cn('mt-px grid size-4 shrink-0 place-items-center rounded-full', ring)}>
-      {inner}
+    <span aria-hidden="true" className={cn('mt-px grid size-4 shrink-0 place-items-center rounded-full', MARK_RING[state])}>
+      <MarkInside state={state} />
     </span>
   )
+}
+
+function MarkInside({ state }: { state: AgentScheduleState }) {
+  switch (state) {
+    case 'waiting':
+      return <span className="size-1.5 rounded-full bg-[var(--hb-code)]" />
+    case 'running':
+      return <span className="aa-running size-1.5 rounded-full bg-[var(--hb-code)]" />
+    case 'paused':
+      return <Pause className="size-2 fill-current text-[var(--hb-code)]" strokeWidth={0} />
+    case 'done':
+      return <Check className="size-2.5 text-background" strokeWidth={3.5} />
+    case 'failed':
+      return <X className="size-2.5 text-bad-fg" strokeWidth={3} />
+    default:
+      return null
+  }
 }
