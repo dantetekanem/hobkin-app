@@ -18,6 +18,7 @@ Two screens for what hobkin brought back. Reports holds what finished runs found
 
 - Both screens render hobkin's snapshot (`reports`, `decisions`, `waiting`) and call hobkin's actions.
 - Reports has hobkin's three filters: All, Scheduled, Work done. A title filter narrows the list. A report opens beside the list as rendered Markdown.
+- A report may fold a part away with `<details>` and `<summary>` (the user, 2026-11-23: "report rendering should support markdown and these html tags"). The reader draws the block as a fold, closed unless it says `open`, with the summary as its label and the Markdown inside it set as the rest of the report is. A fold may hold another. Every other HTML tag still shows as the text it is, and so does a fold written inside code, one with anything but `open` in its tag, and one that is never closed. The raw error hobkin puts at the end of a failed run's report is such a fold. The list's one line for a report never shows the two tags.
 - A report's first line carries its triage (nothing new, useful, critical, blocked). The list shows it as a tone, as the conversation does for notices.
 - "Reply in chat" attaches the report to the next message, as `r` does in the terminal app.
 - An action item opens the way a question does: each thing it can do is written out in words, with arrow keys to choose and Enter to pick. Number keys answer directly.
@@ -76,6 +77,7 @@ Before Discuss, only the last row had a way to chat ("Reply in chat", while work
 - A10. Discuss puts the item on the next message with its kind, its id as hobkin holds it, its title and where it came from: the routine, the project and work item, the branch and its review, the queue, the report. A report goes by its id. The context always fits what `conversation.send` takes.
 - A11. Discuss keeps the words already written, moves the keyboard to the message input, and sends, answers, approves or completes nothing. The item stays open. The next message the user sends carries it, once.
 - A12. Discuss works from the keyboard: `r` or `m` on an item's card or open card, as on a report, but not while typing in the answer field or with a modifier. Right reaches it on a card, and Up and Down in the open card.
+- A13. A report's `<details>` block is a fold in the reader, closed unless it says `open`, with its `<summary>` as the label and its Markdown rendered inside, folds inside folds too. Any other HTML, a fold inside code, and a fold that is never closed stay text.
 
 ## Proof
 
@@ -91,9 +93,11 @@ Before Discuss, only the last row had a way to chat ("Reply in chat", while work
 - A10. `ui/test/actions-discuss.test.ts` › "every kind of action item is discussed by its own identity, and where it came from, as hobkin files it", "an item is discussed with everything its card says, and is told to stay open", "a context longer than hobkin's command takes is cut to fit", "a report of every kind is discussed by its own id, which hobkin looks up in its own list"
 - A11. `ui/test/actions-discuss.test.ts` › "discussing an item keeps the words already written, sends nothing and answers nothing, and the next message carries it"
 - A12. `ui/test/actions-discuss.test.ts` › "r, or m as on Reports, discusses the item that has the keyboard, never while typing or with a modifier"; check: Right to Discuss on a card and Up and Down to it on an open card, then Enter.
+- A13. `ui/test/reports-folds.test.ts`, every test in it; check: a still render of a report with a fold, closed and open.
 
 ## Steps
 
 - [ ] S1 (A1, A2, A3, A7). Reports: list, filters, reader, reply, delete. Client side built on sample data (2026-11-09, 31 UI tests). Left: recording reads in hobkin, the composer sending the report with the next message, and hobkin's deleted list.
 - [ ] S2 (A4, A5, A6, A8). Action items: list, answer flows, empty state, the tab count. Client side built on sample data (2026-11-09); the menu badge counts the screen's own rows. Left: answers going back to hobkin.
 - [ ] S3 (A9, A10, A11, A12). Discuss on every item and every report (2026-11-13): the context rules and the keys with tests, the controls on both screens. Left: the A9 and A12 checks in the window.
+- [ ] S4 (A13). The reader folds `<details>` with its `<summary>`. Files: new `ui/src/features/reports/folds.ts`, `ui/src/features/reports/ReportMarkdown.tsx`, `ui/src/features/reports/report.ts`.
