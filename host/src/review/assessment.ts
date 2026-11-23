@@ -20,6 +20,7 @@ import { count } from '#shared/review/prose.ts'
 import type { NodeBucket, Review, ReviewFileContents, ReviewNode } from '#shared/review/types.ts'
 import { STEP_IDS, type Effect, type Exposure, type Proof, type Undo } from '../../../packages/change-review/src/types.ts'
 import type { HostTree } from './code-hosts.ts'
+import { readEngineFacts, withEngineFacts } from './engine-facts.ts'
 import { readyHostTree } from './host-tree.ts'
 import { testsNotRun, unitStory, unitWords, type UnitPlace, type UnitRun } from './unit-story.ts'
 
@@ -961,8 +962,10 @@ export class Assessments {
     const notRun = (graph?.nodes ?? []).map((node) => node.facts?.proof?.evidence ?? '').find((evidence) => evidence.startsWith(NOT_RUN))?.slice(NOT_RUN.length)
     const tested = { units: assessment.units.units, places, words, runs: [...runs.values()], ...(runs.size === 0 && notRun ? { notRun } : {}), ...(unrun.length ? { unrun } : {}) }
     const nodes = unitWords(levelled, tested)
+    // What the change review's own walk found that the host's did not (spec 055), before attention weighs it.
+    const found = withEngineFacts({ ...levelled, nodes }, readEngineFacts(graph), files)
     // What each node asks of the reviewer, once tests say how they ran (spec 053).
-    const told = withAttention({ ...levelled, nodes }, assessment, this.bucketsOf(target, review, files), testsNotRun(levelled, tested))
+    const told = withAttention(found, assessment, this.bucketsOf(target, review, files), testsNotRun(levelled, tested))
     const story = unitStory(told, { units: assessment.units.units, places, words, story: assessment.story, buckets: assessment.triage?.buckets ?? [] })
     return { ...told, story }
   }

@@ -115,7 +115,7 @@ export function testsNotRun(review: Review, parts: UnitWordsParts): Map<string, 
 }
 
 /** The graph's nodes of a definition of the change review's graph: the same file and overlapping lines, at head or at base. */
-function holdsPlace(review: Review): (node: ReviewNode, place: UnitPlace) => boolean {
+export function holdsPlace(review: Review): (node: ReviewNode, place: Pick<UnitPlace, 'path' | 'lines' | 'change'>) => boolean {
   const files = new Map(review.files.map((file) => [file.id, file]))
   return (node, place) => {
     const side = place.change === 'removed' ? 'deleted' : 'added'

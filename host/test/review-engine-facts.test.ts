@@ -6,6 +6,7 @@ import { captureChange } from '#shared/review/capture.ts'
 import { lines, memoryReader, type Tree } from '#shared/review/memory.ts'
 import { prepareReview } from '#shared/review/prepare.ts'
 import type { Review, ReviewFileContents, ReviewNode } from '#shared/review/types.ts'
+import { validateReview } from '#shared/review/validate.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
 import { assessmentFolder, Assessments } from '../src/review/assessment.ts'
 import { temporaryDirectory } from './support.ts'
@@ -15,13 +16,23 @@ const TARGET = { kind: 'change' as const, slug: 'hobkin', item: '7d02c9' }
 // The change: doingAfter says a tool means research. Its unit test was there before; a request test was too.
 const base: Tree = { 'src/doing.ts': lines('export function doingAfter(previous: string) {', '  return previous;', '}') }
 const head: Tree = { 'src/doing.ts': lines('export function doingAfter(previous: string, event: string) {', "  if (event === 'tool') return 'researching';", '  return previous;', '}') }
-const around: Tree = {
-  'test/doing.test.ts': lines("import { doingAfter } from '../src/doing.ts';", "test('says researching', () => {", "  expect(doingAfter('idle', 'tool')).toBe('researching');", '});'),
-}
+const testFile = lines(
+  "import { doingAfter } from '../src/doing.ts';",
+  "test('says researching', () => {",
+  "  expect(doingAfter('idle', 'tool')).toBe('researching');",
+  '});',
+  "test('keeps idle', () => {",
+  "  expect(doingAfter('idle', 'read')).toBe('idle');",
+  '});',
+)
+const around: Tree = { 'test/doing.test.ts': testFile }
+/** A test file the change deletes, whose one test reaches doingAfter by no name the host can see. */
+const oldTest = lines("test('old way', () => {", "  expect(globalThis.app.run('tool')).toBe('idle');", '});')
+const saysResearching: Vicinity = { links: [], tests: [{ changed: { path: 'src/doing.ts', line: 2 }, test: { path: 'test/doing.test.ts', symbol: 'says researching', line: 3, changed: false } }] }
 
-async function prepared(vicinity: Vicinity = { links: [], tests: [{ changed: { path: 'src/doing.ts', line: 2 }, test: { path: 'test/doing.test.ts', symbol: 'says researching', line: 3, changed: false } }] }) {
+async function prepared(vicinity: Vicinity = saysResearching, removed: Tree = {}) {
   const atHead = { ...head, ...around }
-  const capture = await captureChange(memoryReader({ ...base, ...around }, atHead), 'base', 'head')
+  const capture = await captureChange(memoryReader({ ...base, ...around, ...removed }, atHead), 'base', 'head')
   const review = await prepareReview({
     id: 'change:hobkin:7d02c9',
     change: { project: 'hobkin', item: '7d02c9', title: 'Say a tool is research', branch: 'hobkin/7d02c9' },
@@ -30,7 +41,8 @@ async function prepared(vicinity: Vicinity = { links: [], tests: [{ changed: { p
     readHead: async (path) => (typeof atHead[path] === 'string' ? (atHead[path] as string) : null),
     vicinity,
   })
-  const files: ReviewFileContents[] = review.files.map((file) => ({ fileId: file.id, path: file.path, base: base[file.path] ?? around[file.path] ?? null, head: atHead[file.path] ?? null, binary: false }))
+  const before: Tree = { ...base, ...around, ...removed }
+  const files: ReviewFileContents[] = review.files.map((file) => ({ fileId: file.id, path: file.path, base: (before[file.path] as string | undefined) ?? null, head: (atHead[file.path] as string | undefined) ?? null, binary: false }))
   return { review, files }
 }
 
@@ -79,4 +91,70 @@ test('a review prepared before zones, covers and ways in, with an older graph.js
 
   assert.equal(shown.zones, undefined)
   for (const node of shown.nodes) assert.deepEqual([node.zone, node.covers, node.lifecycle], [undefined, undefined, undefined], node.id)
+})
+
+test('an unchanged test only the change review found joins the review when its file is there to show, wired to the code it covered', async (t) => {
+  const { review, files } = await prepared()
+  const tests = [
+    { path: 'test/doing.test.ts', symbol: 'keeps idle', line: 6, relation: 'before', found: 'scan', lifecycle: false, at_head: 'passed' },
+    // Its file is not one the review holds, so the window could not show it.
+    { path: 'test/elsewhere.test.ts', symbol: 'goes elsewhere', line: 3, relation: 'before', found: 'scan', lifecycle: false, at_head: 'passed' },
+  ]
+  const assessments = reviewed(t, review, { nodes: [{ ...doingAfterNode, tests }] })
+
+  const shown = assessments.present(TARGET, review, files)!
+
+  const doingAfter = titled(shown.nodes, 'doingAfter')
+  const keepsIdle = titled(shown.nodes, 'keeps idle')
+  assert.deepEqual([keepsIdle.change, keepsIdle.status, keepsIdle.covers, keepsIdle.anchors.map(({ startLine, endLine }) => [startLine, endLine])], ['unchanged', 'passed', [doingAfter.id], [[5, 7]]])
+  assert.ok(shown.zones?.some((zone) => zone.id === keepsIdle.zone))
+  assert.equal(titled(shown.nodes, 'goes elsewhere'), undefined)
+  assert.deepEqual(validateReview(shown), [])
+})
+
+test("a test the host shows takes the change review's result at the change's commit when no run told it", async (t) => {
+  const { review, files } = await prepared()
+  const tests = [{ path: 'test/doing.test.ts', symbol: 'says researching', line: 3, relation: 'before', found: 'scan', lifecycle: false, at_head: 'failed' }]
+  const assessments = reviewed(t, review, { nodes: [{ ...doingAfterNode, tests }] })
+
+  const shown = assessments.present(TARGET, review, files)!
+
+  assert.equal(titled(shown.nodes, 'says researching').status, 'failed')
+})
+
+test('a test the change removed is wired to what it covered, and code it alone covered says so', async (t) => {
+  const { review, files } = await prepared({ links: [] }, { 'test/old.test.ts': oldTest })
+  const assessments = reviewed(t, review, { nodes: [doingAfterNode], removed_tests: [{ path: 'test/old.test.ts', symbol: "test('old way')", base_line: 1, names: ['doingAfter'] }] })
+
+  const shown = assessments.present(TARGET, review, files)!
+
+  const doingAfter = titled(shown.nodes, 'doingAfter')
+  const oldWay = titled(shown.nodes, 'old way')
+  assert.deepEqual([oldWay.change, oldWay.covers], ['deleted', [doingAfter.id]])
+  assert.ok(doingAfter.attention?.reasons.includes('The change removed the only test that covered it.'))
+})
+
+test("the change review's way in stands where the host found none, its words whole and its steps where the host shows them", async (t) => {
+  const { review, files } = await prepared({ links: [] })
+  const origin = (label: string) => ({ kind: 'route', label, exact: true, by: 'scan', chain: [{ symbol: 'DoingController#show', path: 'src/controller.ts', line: 1 }], hops: 2 })
+  const assessments = reviewed(t, review, { nodes: [{ ...doingAfterNode, runs_from: { found: 'origins', origins: [origin('GET /doing'), origin('POST /doing')] } }] })
+
+  const shown = assessments.present(TARGET, review, files)!
+
+  assert.deepEqual(titled(shown.nodes, 'doingAfter').lifecycle, {
+    role: 'changed',
+    hops: 2,
+    path: 'GET /doing → DoingController#show → doingAfter',
+    origin: { kind: 'route', label: 'GET /doing', exact: true, chain: [], more: 1 },
+  })
+})
+
+test('a zone the Reviewer named is shown by its name', async (t) => {
+  const { review, files } = await prepared()
+  const zone = titled(review.nodes, 'doingAfter').zone!
+  const assessments = reviewed(t, review, { nodes: [doingAfterNode], zones: [{ id: zone, layer: 'root', subject: 'doing', label: 'Top level · doing', told: 'What hobkin is doing' }] })
+
+  const shown = assessments.present(TARGET, review, files)!
+
+  assert.equal(shown.zones?.find((entry) => entry.id === zone)?.label, 'What hobkin is doing')
 })
