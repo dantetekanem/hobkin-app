@@ -53,6 +53,25 @@ export interface ChangeFacts {
 }
 
 /**
+ * Where a finished change started: the last commit it shares with its default branch, as this machine has it or as
+ * origin has it. hobkin starts a branch from origin's copy, and this machine's copy can have gone its own way: measured
+ * from that one alone, a review would take in other changes origin already holds. A change one of the two already
+ * holds is its own range, as `ownStart` finds it.
+ */
+async function startOfChange({ reader, into, head, recorded }: { reader: GitReader; into: string; head: string; recorded: string | null }): Promise<string> {
+  const onOrigin = `refs/remotes/origin/${into}`
+  const originHasIt = (await reader.resolve(onOrigin)) !== null
+  const defaultBranches = originHasIt ? [into, onOrigin] : [into]
+
+  const forked = await reader.mergeBase(head, ...defaultBranches)
+  if (forked !== head) return forked
+
+  // Merged already, so no commit of it is left over: the copy that holds it says where the change began.
+  const heldHere = !originHasIt || (await reader.contains(into, head))
+  return ownStart({ reader, into: heldHere ? into : onOrigin, head, recorded })
+}
+
+/**
  * Where a change its default branch already holds started: before the merge that brought it in; else where an earlier
  * review of it started, when that is behind it; else its own last commit, so the review always shows what it changed.
  */
@@ -107,9 +126,7 @@ export function changeSource({
       const { facts, repo, target: change } = where(target)
       const reader = git(repo)
       const into = await baseOf(repo)
-      const forked = await reader.mergeBase(into, head)
-      // Merged already, its default branch holds every commit, so the change is its own range, never an empty one.
-      const base = forked === head ? await ownStart({ reader, into, head, recorded: recorded?.(target) ?? null }) : forked
+      const base = await startOfChange({ reader, into, head, recorded: recorded?.(target) ?? null })
       const capture = await captureChange(reader, base, head)
       const specPath = specPathFor(facts.branch, capture.files)
       const specText = specPath ? await reader.text(head, specPath) : null

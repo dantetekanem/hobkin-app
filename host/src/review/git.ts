@@ -20,8 +20,8 @@ export interface GitReader extends ChangeReader {
   commit(ref: string): Promise<GitCommit>
   /** The commit a name points at, or null when it names nothing. */
   resolve(ref: string): Promise<string | null>
-  /** The commit two lines of history last shared. */
-  mergeBase(left: string, right: string): Promise<string>
+  /** The last commit `commit` shares with the other lines of history: with one, or with any of several taken together. */
+  mergeBase(commit: string, ...others: string[]): Promise<string>
   /** A file's text at a commit, or null when it is not there or is binary. */
   text(commit: string, path: string): Promise<string | null>
   /** Whether `older` is `newer` or one of its ancestors. */
@@ -64,8 +64,8 @@ export function gitReader(repository: string): GitReader {
         return null
       }
     },
-    async mergeBase(left, right) {
-      return (await git('merge-base', left, right)).toString('utf8').trim()
+    async mergeBase(commit, ...others) {
+      return (await git('merge-base', commit, ...others)).toString('utf8').trim()
     },
     async contains(newer, older) {
       return git('merge-base', '--is-ancestor', older, newer).then(() => true, () => false)

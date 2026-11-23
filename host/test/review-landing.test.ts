@@ -50,7 +50,7 @@ function project(t: TestContext) {
     git('checkout', '--quiet', 'main')
     return sha
   }
-  return { repo, git, reviewed, moveMain, rebase, addToBranch }
+  return { repo, git, commit, reviewed, moveMain, rebase, addToBranch }
 }
 
 /** Reviews over that project, with hobkin's card and records faked: what its work actions were asked is written down. */
@@ -227,4 +227,39 @@ test('a change its default branch already holds is reviewed over its own commits
   // With no review to say so, its own last commit.
   const alone = await read(forwarded.repo, forwarded.reviewed)
   assert.deepEqual([alone.base, alone.files.length], [forkedAt, 1])
+})
+
+test('a change that started from origin’s default branch is reviewed from there, when this machine’s copy has gone its own way', async (t) => {
+  const { repo, git, commit, moveMain } = project(t)
+  const OWN = 'hobkin/a1b2c3-count-the-items'
+  const read = async (head: string) => {
+    const source = changeSource({ find: () => ({ project: 'shop', title: 'Count the items', branch: OWN, head }), repoOf: () => repo, baseOf: async () => 'main' })
+    return (await source.read({ kind: 'change', slug: 'shop', item: 'a1b2c3' }, head)).capture
+  }
+  // Origin's main holds another change, merged on the code host, that this machine's main never took.
+  git('checkout', '--quiet', '--detach', 'main')
+  const onOrigin = commit('src/teleport.js', 'export const teleport = () => {}\n', 'Another change, merged on the code host')
+  git('update-ref', 'refs/remotes/origin/main', onOrigin)
+  // This machine's main gained a commit of its own, so the two have parted.
+  moveMain()
+  // hobkin starts a branch from origin's main.
+  git('checkout', '--quiet', '-b', OWN, 'refs/remotes/origin/main')
+  const head = commit('src/count.js', 'export const count = (items) => items.length\n', 'Count the items')
+  git('checkout', '--quiet', 'main')
+
+  const waiting = await read(head)
+
+  assert.equal(waiting.base, onOrigin, 'it starts where it left origin’s main')
+  assert.deepEqual(waiting.files.map((file) => file.path), ['src/count.js'], 'and holds none of the other change')
+
+  // Merged on the code host, which this machine's main has not taken either: still its own commits.
+  git('checkout', '--quiet', '--detach', 'refs/remotes/origin/main')
+  git('merge', '--quiet', '--no-ff', '-m', 'Merge pull request: Count the items', OWN)
+  git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+  git('checkout', '--quiet', 'main')
+
+  const merged = await read(head)
+
+  assert.equal(merged.base, onOrigin)
+  assert.deepEqual(merged.files.map((file) => file.path), ['src/count.js'])
 })
