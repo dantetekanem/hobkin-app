@@ -2,6 +2,7 @@ import type { ActivityEntry } from './activity.ts'
 import type { ExecutionTarget } from '../commands/registry.ts'
 import type { HobkinSummary } from './hobkins.ts'
 import type { RunPulse } from './pulse.ts'
+import type { AgentSchedule } from './schedules.ts'
 import type { TeamsAgents } from './teams.ts'
 
 /**
@@ -217,6 +218,11 @@ export interface WireSnapshot {
   unread?: readonly { id: string; text: string }[]
   /** Each working run's pulse by its run id, and the main turn's under `#main` (054-working-line). Missing while nothing works, and on an older hobkin. */
   pulses?: Readonly<Record<string, RunPulse>>
+  /**
+   * The schedules agents keep for themselves (`056-agent-schedules`), live ones and the ones that ended lately, every
+   * owner's together. Not the routines, which are `schedules`. A host from before sends none.
+   */
+  agentSchedules?: readonly AgentSchedule[]
   /** Each run's spawned agents, by run id, only for runs that spawned any. It travels whole, and the host keeps ended runs. */
   jobChildren?: Record<string, readonly RunChild[]>
   /** Main chat's bounded descendants. Owned lifecycle states are independent of legacy teams reports. */
