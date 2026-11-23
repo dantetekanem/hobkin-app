@@ -79,7 +79,7 @@ test('each test of a part says how it relates to the change, how it was found, h
   assert.deepEqual(tests, [
     { path: 'test/e2e/topics.test.js', relation: 'before', found: 'entry', lifecycle: true, at_head: 'passed', shows: 'reaches', why: 'life-cycle test of showTopic: route: showTopic' },
     { path: 'test/flow/old.test.js', symbol: 'an old flow', line: 2, relation: 'before', found: 'scan', lifecycle: true, at_head: 'not-run', why: 'the scan links it; it was not among the tests run' },
-    { path: 'test/render.test.js', symbol: 'renders a mention', line: 4, relation: 'edited', found: 'convention', lifecycle: false, at_head: 'passed', shows: 'still-passes', why: 'named after src/render.js' },
+    { path: 'test/render.test.js', symbol: 'renders a mention', line: 4, relation: 'edited', found: 'convention', lifecycle: false, at_head: 'passed', shows: 'still-passes', why: 'named after src/render.js; this diff edited it' },
     { path: 'test/helpers/posts.test.js', symbol: 'repeated mentions are one lookup', line: 6, relation: 'added', found: 'scan', lifecycle: false, at_head: 'passed', shows: 'proves', why: 'the scan links it to linkUserTags' },
     { path: 'test/helpers/old.test.js', symbol: 'counts each mention', line: 3, relation: 'removed', found: 'diff', lifecycle: false },
   ])
@@ -136,4 +136,43 @@ test('each covering test in a changed file has its own relation: one there befor
     ['test/models/review_test.rb', 'ReviewTest test "score label"', 4, 'before'],
     ['test/models/review_test.rb', 'ReviewTest test "score label caps at five"', 8, 'added'],
   ])
+})
+
+test('each covering test in a changed file gives its own reason: one there before is not said to be changed by this diff, one added says so', () => {
+  const definitions = [
+    { id: 'n8', symbol: 'ReviewTest test "score label"', path: 'test/models/review_test.rb', startLine: 4, endLine: 6, anchors: [{ id: 'n1', lines: [5] }], changed: false },
+    { id: 'n3', symbol: 'ReviewTest test "score label caps at five"', path: 'test/models/review_test.rb', startLine: 8, endLine: 10, anchors: [{ id: 'n1', lines: [9] }], changed: true },
+    { id: 'n4', symbol: 'ReviewTest test "score label rounds"', path: 'test/models/review_test.rb', startLine: 12, endLine: 14, anchors: [{ id: 'n1', lines: [13] }], changed: true },
+  ]
+  const why = 'the scan links it to Review#score_label; this diff changed it and it names score_label; named after app/models/review.rb'
+  const tests = nodeTestsOf(
+    input({
+      node: { id: 'n1', symbol: 'Review#score_label', path: 'app/models/review.rb', kind: 'function' },
+      candidates: [{ path: 'test/models/review_test.rb', why, lifecycle: false, changed: true, found: 'scan' }],
+      definitions,
+      testAnchors: [{ id: 'n3', status: 'added' }, { id: 'n4', status: 'modified' }],
+      status: (path) => (path === 'test/models/review_test.rb' ? 'modified' : undefined),
+      removed: [],
+      runs: [],
+    }),
+  )
+  assert.deepEqual(tests.map((entry) => [entry.relation, entry.why]), [
+    ['before', 'the scan links it to Review#score_label; named after app/models/review.rb; this diff did not change it'],
+    ['edited', 'the scan links it to Review#score_label; this diff changed it and it names score_label; named after app/models/review.rb'],
+    ['added', 'the scan links it to Review#score_label; named after app/models/review.rb; this diff added it'],
+  ])
+})
+
+test('a file found by its name alone, that no test in names the part, says the diff edited the file, not a test of the part', () => {
+  const [entry] = nodeTestsOf(
+    input({
+      node: { id: 'n2', symbol: 'Review.rebuild_all', path: 'app/models/review.rb', kind: 'function' },
+      candidates: [{ path: 'test/models/review_test.rb', why: 'named after app/models/review.rb', lifecycle: false, changed: true, found: 'convention' }],
+      definitions: [],
+      status: (path) => (path === 'test/models/review_test.rb' ? 'modified' : undefined),
+      removed: [],
+      runs: [],
+    }),
+  )
+  assert.deepEqual([entry!.relation, entry!.why], ['edited', 'named after app/models/review.rb, found by its file\'s name; this diff edited the file, and no test in it was found to name Review.rebuild_all'])
 })

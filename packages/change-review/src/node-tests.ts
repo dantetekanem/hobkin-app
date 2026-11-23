@@ -177,6 +177,26 @@ function definitionRelation(definition: TestDefinition, input: NodeTestsInput): 
   return isNew ? 'added' : 'edited'
 }
 
+/** The reason a candidate gets when this diff changed its file and the file names the definition (proof.ts). */
+const CHANGED_REASON = /^this diff changed it and it names /
+
+/**
+ * A covering test's own reason in a changed file: the file's reasons, with what this diff did to this test. The file's
+ * "this diff changed it" is no reason of a test it did not change, nor the words for one it added.
+ */
+function definitionWhy(reasons: readonly string[], relation: NodeTest['relation']): string {
+  const kept = reasons.filter((reason) => !CHANGED_REASON.test(reason))
+  if (relation === 'before') return [...kept, 'this diff did not change it'].join('; ')
+  if (relation === 'added') return [...kept, 'this diff added it'].join('; ')
+  return kept.length < reasons.length ? reasons.join('; ') : [...reasons, 'this diff edited it'].join('; ')
+}
+
+/** A file found by its name alone, in a changed file, where no test names the part: the file was edited, not a test of the part. */
+function conventionWhy(reasons: readonly string[], symbol: string): string {
+  const named = reasons.map((reason) => `${reason}, found by its file's name`)
+  return [...named, `this diff edited the file, and no test in it was found to name ${symbol}`].join('; ')
+}
+
 /** How a test file came to cover the part: how it was found, whether it is a life-cycle test, why, and whether the proof ran it for the part. */
 interface Found {
   found: NodeTest['found']
@@ -199,13 +219,19 @@ function fileTests(path: string, how: Found, definitions: readonly TestDefinitio
     lifecycle: how.lifecycle,
     at_head: atHeadOf(path, input.runs, input.findings),
     ...(shows ? { shows } : {}),
-    ...(how.why ? { why: how.why } : {}),
   }
-  if (!definitions.length) return [{ path, relation: byFile ?? 'edited', ...shared }]
+  const reasons = how.why ? how.why.split('; ') : []
+  if (!definitions.length) {
+    const byName = byFile === undefined && how.found === 'convention' && reasons.length > 0 && reasons.every((reason) => reason.startsWith('named after '))
+    const why = byName ? conventionWhy(reasons, input.node.symbol) : how.why
+    return [{ path, relation: byFile ?? 'edited', ...shared, ...(why ? { why } : {}) }]
+  }
   return definitions.map((definition) => {
     const relation = byFile ?? definitionRelation(definition, input)
+    // In a file the diff did not touch or that it added whole, the file's reasons are each test's.
+    const why = byFile === undefined && reasons.length ? definitionWhy(reasons, relation) : how.why
     const weakened = relation === 'edited' && diff ? weakenedIn(diff, [[definition.startLine, definition.endLine]]) : undefined
-    return { path, symbol: definition.symbol, line: definition.startLine, relation, ...shared, ...(weakened ? { weakened } : {}) }
+    return { path, symbol: definition.symbol, line: definition.startLine, relation, ...shared, ...(why ? { why } : {}), ...(weakened ? { weakened } : {}) }
   })
 }
 
