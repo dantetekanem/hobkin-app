@@ -576,6 +576,12 @@ test('a part only tests call says so, and a caller the scan names as an entry is
   Object.assign(tested.anchors[0]!, { callers: { total: 0, shown: 0, complete: true }, callSites: [], testCallers: 2 })
   const only = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(tested) })
   assert.deepEqual(only.graph.nodes[0]!.runs_from, { found: 'only-tests', tests: 2 })
+  // A real pack lists the tests that use a definition apart from its callers, so they are counted from there.
+  const listed = scanOf()
+  Object.assign(listed.anchors[0]!, { callers: { total: 0, shown: 0, complete: true }, callSites: [] })
+  listed.testDefinitions = [{ id: 'n3', symbol: 'rounds the total', path: 'test/total.test.js', startLine: 5, endLine: 7, anchors: [{ id: 'n1', lines: [6] }], changed: true }]
+  const referred = await reviewChange({ cwd: repo, base, head, out: `${out}-listed`, clock: steadyClock(), scan: scanning(listed) })
+  assert.deepEqual(referred.graph.nodes[0]!.runs_from, { found: 'only-tests', tests: 1 })
 
   const routed = scanOf()
   routed.nodes.c9 = { id: 'c9', symbol: 'OrdersController#create', kind: 'method', path: 'app/controllers/orders_controller.rb', startLine: 2, endLine: 8, entry: { kind: 'controller', exact: true, routes: [{ verbs: ['POST'], path: '/orders', file: 'config/routes.rb', line: 2 }] } }

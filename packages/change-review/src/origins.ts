@@ -126,6 +126,8 @@ export interface RunsFromRequest {
   callers: number
   /** The test call sites the scan found for it. */
   testCallers: number
+  /** The tests the scan lists as using it, apart from its callers, as `testDefinitions` does. */
+  testRefs: number
   /** Whether the scan reported a caller list at all. */
   listed: boolean
   /** The walk's answer for it, when a walk ran from its callers. */
@@ -136,7 +138,7 @@ export interface RunsFromRequest {
  * Where a changed definition runs from, for one whose callers were looked for. Origins, nearest first and at most three;
  * else that only tests call it; else that none was found, with how far the search looked and why it stopped there.
  */
-export function runsFromOf({ origins, looked, callers, testCallers, listed, walked }: RunsFromRequest): RunsFrom {
+export function runsFromOf({ origins, looked, callers, testCallers, testRefs, listed, walked }: RunsFromRequest): RunsFrom {
   const stop = walked?.stop
   if (origins.length) {
     const nearest = once([...origins].sort((a, b) => a.hops - b.hops))
@@ -147,7 +149,8 @@ export function runsFromOf({ origins, looked, callers, testCallers, listed, walk
     ].filter(Boolean)
     return { found: 'origins', origins: nearest.slice(0, MOST_ORIGINS), ...(more > 0 ? { more } : {}), ...(said.length ? { cut: said.join(' ') } : {}) }
   }
-  if (callers === 0 && testCallers > 0) return { found: 'only-tests', tests: testCallers }
+  // A pack lists the tests that use a definition apart from its production callers.
+  if (callers === 0 && (testCallers > 0 || testRefs > 0)) return { found: 'only-tests', tests: testCallers || testRefs }
   if (callers === 0) return { found: 'none', hops: 0, why: listed ? 'The scan found nothing that calls it.' : 'The scan listed nothing that calls it.' }
   const hops = Math.max(looked, stop?.hops ?? 0)
   const within = `Nothing within ${calls(hops)} of it is where work enters`

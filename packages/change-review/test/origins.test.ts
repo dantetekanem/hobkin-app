@@ -56,7 +56,12 @@ test('a part that is itself where work enters is its own origin, with no way to 
 
 test('more than three origins are counted, the nearest kept, and a cut walk is said beside them', () => {
   const origin = (hops: number, line: number) => ({ kind: 'job', label: `J${line}`, exact: true, by: 'scan' as const, symbol: `J${line}`, hops, chain: [{ symbol: `J${line}`, path: 'app/jobs/j.rb', line }] })
-  const said = runsFromOf({ origins: [origin(3, 1), origin(1, 2), origin(2, 3), origin(4, 4)], looked: 1, callers: 2, testCallers: 0, listed: true, walked: { stop: { hops: 6, stopped: 'limit' } } })
+  const said = runsFromOf({ origins: [origin(3, 1), origin(1, 2), origin(2, 3), origin(4, 4)], looked: 1, callers: 2, testCallers: 0, testRefs: 0, listed: true, walked: { stop: { hops: 6, stopped: 'limit' } } })
   assert.deepEqual(said.found === 'origins' && said.origins.map((entry) => entry.label), ['J2', 'J3', 'J1'])
   assert.deepEqual(said.found === 'origins' && [said.more, said.cut], [1, '1 more way in was found. Other ways out were followed for 6 calls, and the way goes on further: what is above that was not looked for.'])
+})
+
+test('a part no production code calls and tests refer to is one only tests call, as a pack lists tests apart from callers', () => {
+  assert.deepEqual(runsFromOf({ origins: [], looked: 0, callers: 0, testCallers: 0, testRefs: 3, listed: true }), { found: 'only-tests', tests: 3 })
+  assert.deepEqual(runsFromOf({ origins: [], looked: 0, callers: 0, testCallers: 0, testRefs: 0, listed: true }), { found: 'none', hops: 0, why: 'The scan found nothing that calls it.' })
 })

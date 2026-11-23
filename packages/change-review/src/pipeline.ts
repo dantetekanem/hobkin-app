@@ -610,6 +610,16 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       problems.push(...walked.value.notes.map((note) => `Entry points: ${note}`))
     }
   }
+  // A test the scan links to a part only by name must hold as a candidate's link does to be said to cover it.
+  const holding = new Map<string, Scan['testDefinitions']>()
+  for (const node of nodes) {
+    const kept: NonNullable<Scan['testDefinitions']> = []
+    for (const definition of scan.testDefinitions ?? []) {
+      if (!definition.anchors.some((anchor) => anchor.id === node.id)) continue
+      if (await scanLinkHolds({ path: definition.path, lifecycle: isLifecycleTestPath(definition.path, config), text: () => readOr(join(cwd, definition.path)) }, node.path)) kept.push(definition)
+    }
+    holding.set(node.id, kept)
+  }
   // Where each part runs from: the origins the pack and the walk found, or why there are none.
   for (const node of nodes) {
     const anchor = scan.anchors.find((item) => item.id === node.id)
@@ -625,6 +635,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
         looked: pack?.hops ?? 0,
         callers: anchor ? callersOf(scan, anchor, config).length : 0,
         testCallers: anchor?.testCallers ?? 0,
+        testRefs: holding.get(node.id)?.length ?? 0,
         listed: Boolean(anchor?.callers || anchor?.callSites),
         ...(walkedFrom.has(node.id) ? { walked: { ...(stops[node.id] ? { stop: stops[node.id] } : {}) } } : {}),
       })
@@ -692,16 +703,6 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   tested = { runs: proof.runs, ...(proof.notRun?.length ? { not_run: proof.notRun } : {}), ...(removedTests.length ? { removed_tests: removedTests } : {}) }
   const statusOf = new Map(meta.files.map((file) => [file.path, file.status]))
   const testAnchors = scan.anchors.filter((anchor) => anchor.kind === 'test' || testFiles.has(anchor.path)).map(({ id, status }) => ({ id, ...(status ? { status } : {}) }))
-  // A test the scan links to a part only by name must hold as a candidate's link does to be said to cover it.
-  const holding = new Map<string, Scan['testDefinitions']>()
-  for (const node of nodes) {
-    const kept: NonNullable<Scan['testDefinitions']> = []
-    for (const definition of scan.testDefinitions ?? []) {
-      if (!definition.anchors.some((anchor) => anchor.id === node.id)) continue
-      if (await scanLinkHolds({ path: definition.path, lifecycle: isLifecycleTestPath(definition.path, config), text: () => readOr(join(cwd, definition.path)) }, node.path)) kept.push(definition)
-    }
-    holding.set(node.id, kept)
-  }
   if (proof.refused) problems.push(`Tests did not run: ${proof.refused}`)
   else if (!proof.clean) problems.push('The checkout was not clean after the test runs.')
   for (const node of nodes) {
