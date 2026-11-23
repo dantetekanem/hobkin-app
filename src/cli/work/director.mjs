@@ -24,7 +24,7 @@ import { toolsHere } from './machines.mjs';
 import { nameOf } from './names.mjs';
 import { watchPile } from './pairs.mjs';
 import { countsAgainst, ideasWanted, planWork, skipsTheHour } from './plan.mjs';
-import { recheckModels } from './proof-checks.mjs';
+import { checkChangeModels, recheckModels } from './proof-checks.mjs';
 import { sameCodeAs } from './proofs.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
@@ -449,6 +449,10 @@ export class WorkDirector {
       .then(opened => {
         if (opened.length) this.onChange();
       })
+      .catch(() => {})
+      // hobkin's own check of each model of a finished change that no run speaks for at its head, YOLO mode on or off. Only one check runs at
+      // a time, so a waiting change's model goes ahead of the weekly ones (`proof-checks.mjs`).
+      .then(() => checkChangeModels(this.root, { now: this.now(), survey: readUnmerged(this.root).projects }))
       .catch(() => {})
       // hobkin's own weekly check of each TLA+ model on a default branch, one at a time (`proof-checks.mjs`).
       .then(() => recheckModels(this.root, { now: this.now(), survey: readUnmerged(this.root).projects }))

@@ -2,14 +2,14 @@ import { spawn as spawnProcess } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { latestMainRun, readRuns } from './proofs.mjs';
-import { chosenProjects, paths, readMode, readProject } from './store.mjs';
+import { latestMainRun, modelFacts, readRuns } from './proofs.mjs';
+import { chosenProjects, paths, readItems, readMode, readProject } from './store.mjs';
 import { gitOrNothing, gitWithin } from './tree.mjs';
 
 /**
- * TLA+ checks hobkin starts itself (_specs/050-tla-proofs): a model at a change's new head when only the code it models changed, and every model
- * on the default branch once a week. Each is `hobkin proof check`, run as hobkin's own job, never an agent's, in a tree of hobkin's own at that
- * commit. That process writes the run, and `proofs.mjs` reads it.
+ * TLA+ checks hobkin starts itself (_specs/050-tla-proofs): each model of a finished change that no run speaks for at the change's head, and
+ * every model on the default branch once a week. Each is `hobkin proof check`, run as hobkin's own job, never an agent's, in a tree of hobkin's
+ * own at that commit. That process writes the run, and `proofs.mjs` reads it.
  */
 
 // A check stops itself after 20 minutes, so one older than this is over whatever its process id now names.
@@ -88,6 +88,35 @@ export async function startCheck(root, check, { now = Date.now(), spawn = spawnP
   mkdirSync(join(root, 'work'), { recursive: true, mode: 0o700 });
   appendFileSync(checksPath(root), `${JSON.stringify(started)}\n`, { mode: 0o600 });
   return started.error ? null : started;
+}
+
+/** The check of each model no run speaks for at a finished change's head, as the survey read that head, naming the change's item. */
+function uncheckedModels(root, slug, units, runs) {
+  const modeled = units.filter(unit => unit.kind === 'branch' && unit.models?.length);
+  return readItems(root, slug).filter(({ state }) => state === 'branch').flatMap(item => {
+    const unit = modeled.find(({ branch }) => branch === item.branch);
+    if (!unit) return [];
+    return modelFacts(runs, { slug, head: unit.sha, specs: unit.models })
+      .filter(({ state }) => state === 'unchecked')
+      .map(({ spec }) => ({ slug, item: item.id, spec, head: unit.sha }));
+  });
+}
+
+/**
+ * After each survey hobkin checks, itself, each model of a finished change that no run speaks for at the change's head, with YOLO mode on or
+ * off and whether or not the change edited the spec. It goes one at a time and only while work mode is on, like the weekly recheck. `survey`
+ * is the survey's projects, which hold each change's head and the models covering it. It answers what it started, or null.
+ */
+export async function checkChangeModels(root, { now = Date.now(), survey = {}, spawn } = {}) {
+  if (!readMode(root).enabled) return null;
+  const runs = readRuns(root);
+  for (const { slug } of chosenProjects(root)) {
+    for (const check of uncheckedModels(root, slug, survey[slug]?.open ?? [], runs)) {
+      const started = await startCheck(root, check, { now, ...(spawn ? { spawn } : {}) });
+      if (started) return started;
+    }
+  }
+  return null;
 }
 
 /**

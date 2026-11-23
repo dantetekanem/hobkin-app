@@ -15,9 +15,10 @@ import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import { readMachines, recordMachines } from '../src/cli/work/machines.mjs';
 import { planWork } from '../src/cli/work/plan.mjs';
+import { checkChangeModels } from '../src/cli/work/proof-checks.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, paths, prFile, readItems, readMode, updateItem, writeMode, writeState } from '../src/cli/work/store.mjs';
-import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
+import { readUnmerged, surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { whyItAsks, yoloPass } from '../src/cli/work/yolo-pass.mjs';
 import { readinessOf, recordReadiness, runReadiness, setYolo } from '../src/cli/work/yolo.mjs';
 import { branched, commit, git, repository, writeJson } from './helpers/work-fixture.mjs';
@@ -215,7 +216,7 @@ test('a finished change to a machine no model covers goes back to its branch for
   await survey(h);
   assert.deepEqual([readinessOf(h.root, 'api').ready, readinessOf(h.root, 'web').ready], [true, true]);
 
-  assert.deepEqual(await yoloPass(h.root, { now: NOW, spawn: () => assert.fail('there is no model to check yet') }), []);
+  assert.deepEqual(await yoloPass(h.root, { now: NOW }), []);
 
   const sent = itemOf(h, touches);
   assert.deepEqual([sent.state, sent.branch, sent.modelAsked, sent.modelAskedFor], ['open', touches.branch, { machines: [CHECKOUT] }, touches.head]);
@@ -241,7 +242,7 @@ test('a model written after the review keeps the scores, and the change merges b
   const holds = finished(h, 'Fix checkout');
   const breaks = finished(h, 'Fix payment', { slug: 'web' });
   await survey(h);
-  await yoloPass(h.root, { now: NOW, spawn: () => assert.fail('there is no model to check yet') });
+  await yoloPass(h.root, { now: NOW });
   assert.deepEqual([itemOf(h, holds).state, itemOf(h, breaks).state], ['open', 'open']);
 
   // Each run commits the model alone and records its branch. Ending it asks for no review: the code the review scored has not changed.
@@ -257,16 +258,17 @@ test('a model written after the review keeps the scores, and the change merges b
   assert.deepEqual(closed.reviewing, [], 'a commit that only wrote a model asks for no new review');
   assert.deepEqual([rowOf(h, holds).head, rowOf(h, holds).review.stale], [heads.get(holds.id), false], 'the scores still speak for the new head');
 
-  // hobkin checks the model it asked for itself, at each new head.
+  // hobkin checks the model it asked for itself, at each new head, one check a pass.
+  assert.deepEqual(await yoloPass(h.root, { now: NOW }), []);
   const { spawn, calls } = fakeSpawn();
-  assert.deepEqual(await yoloPass(h.root, { now: NOW, spawn }), []);
+  for (const now of [NOW, NOW + 1000]) await checkChangeModels(h.root, { now, survey: readUnmerged(h.root).projects, spawn });
   assert.deepEqual(calls.map(args => [flagOf(args, 'check'), flagOf(args, '--item'), flagOf(args, '--head')]).toSorted(), [
     [MODEL, holds.id, heads.get(holds.id)], [MODEL, breaks.id, heads.get(breaks.id)],
   ].toSorted());
 
   writeRun(h, 'checkout-held', { project: 'api', item: holds.id, head: heads.get(holds.id) });
   writeRun(h, 'payment-broke', { project: 'web', item: breaks.id, head: heads.get(breaks.id), outcome: 'broken', broken: 'PaidOnce', traceLength: 5 });
-  const reports = await yoloPass(h.root, { now: NOW + 60000, spawn });
+  const reports = await yoloPass(h.root, { now: NOW + 60000 });
 
   assert.deepEqual(reports.map(({ item, head }) => [item, head]), [[holds.id, heads.get(holds.id)]]);
   assert.deepEqual([itemOf(h, holds).state, onMain(h, holds, heads.get(holds.id))], ['merged', true]);

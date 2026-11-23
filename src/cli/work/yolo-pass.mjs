@@ -8,7 +8,6 @@ import { userTrouble } from './launches.mjs';
 import { readMachines, unmodeledIn } from './machines.mjs';
 import { nameOf } from './names.mjs';
 import { changeHolds } from './patterns.mjs';
-import { startCheck } from './proof-checks.mjs';
 import { changeModels, scoresHoldAt, specName } from './proofs.mjs';
 import { landingList, weighedRows } from './reads.mjs';
 import { readMode, readProject, retryItem, updateItem } from './store.mjs';
@@ -192,25 +191,6 @@ async function mergeAlone(root, { row, unit, now }) {
 }
 
 /**
- * A change heading to a merge by itself that waits only for a model nobody has run at its head, where only the code that model covers changed,
- * gets that model checked by hobkin itself. A change that edited its spec has its own run to cite, unless hobkin sent it back for that model.
- * `startCheck` keeps it to one at a time.
- */
-async function checkWaitingModel(root, { asked, models, spawn, now }) {
-  const askedFor = Boolean(asked.item.modelAskedFor) && asked.item.modelAskedFor === asked.item.review?.head;
-  const waiting = models.filter(({ state, changed }) => state === 'unchecked' && (!changed || askedFor));
-  if (!waiting.length) return;
-
-  const others = models.filter(model => !waiting.includes(model));
-  const headingToAMerge = !whyItAsks({ ...asked, models: others });
-  if (!headingToAMerge) return;
-
-  const { row, item, unit } = asked;
-  const check = { slug: row.slug, item: item.id, spec: waiting[0].spec, head: unit.sha };
-  await startCheck(root, check, { now, ...(spawn ? { spawn } : {}) });
-}
-
-/**
  * A change heading to a merge by itself that waits only for the model of a machine it touches goes back to its own item and branch for that
  * model, once for each review. Its run commits the model and nothing else, so the review's scores still count, and hobkin checks the model at
  * the new head itself, with any model nobody ran yet. Like a review, it goes ahead of new work.
@@ -252,7 +232,7 @@ export function askedOf(root, { yolo, landing, row, item, unit }) {
  * Merges what may merge by itself, at most one change a project, and answers a report of each. `handOff` gives a deploy to the main agent.
  * While YOLO mode is on it also files the readiness work of any project that has none yet.
  */
-export async function yoloPass(root, { now = Date.now(), handOff, spawn } = {}) {
+export async function yoloPass(root, { now = Date.now(), handOff } = {}) {
   const yolo = readYolo(root);
   if (!yolo.on) return [];
   prepareProjects(root, now);
@@ -265,7 +245,6 @@ export async function yoloPass(root, { now = Date.now(), handOff, spawn } = {}) 
     if (mergedOn.has(row.slug)) continue;
     const { asked, models } = askedOf(root, { yolo, landing, row, item, unit });
     if (whyItAsks({ ...asked, models })) {
-      await checkWaitingModel(root, { asked, models, spawn, now });
       askForModel(root, { asked, models, now });
       continue;
     }

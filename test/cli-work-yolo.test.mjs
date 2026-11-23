@@ -787,7 +787,7 @@ test('on a ready project a change whose model broke at its head never merges by 
   writeRun(h, 'broke', { head: broke.head, item: broke.id, ...brokenRun });
   writeRun(h, 'held', { head: held.head, item: held.id });
 
-  const reports = await yoloPass(h.root, { now: NOW, spawn: () => assert.fail('a commit already checked is not checked again') });
+  const reports = await yoloPass(h.root, { now: NOW });
 
   assert.deepEqual(reports.map(({ item }) => item), [held.id]);
   assert.deepEqual([stateOf(h, broke), stateOf(h, held)], ['branch', 'merged']);
