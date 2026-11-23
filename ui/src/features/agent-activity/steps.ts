@@ -412,6 +412,8 @@ export interface Doing {
   lead: string
   subject?: string
   code?: boolean
+  /** The subject is a file's or a folder's path, so a line with little room cuts it from its front (`FilePath`). */
+  path?: boolean
   failed?: boolean
   /** A few words after the subject, such as "exit code 1". */
   note?: string
@@ -451,17 +453,17 @@ export function doingNow(entries: readonly ActivityEntry[], options: ReadOptions
   else if (family === 'change') subject = pathOf(entry, options.cwd)
   else if (family === 'other') subject = entry.name ?? 'a tool'
   else subject = lookOf(entry, family, options).what
-  const code = family !== 'other' || undefined
+  const drawn = { ...(family === 'other' ? {} : { code: true }), ...(family === 'change' || family === 'read' || family === 'list' ? { path: true } : {}) }
   const [running, done, failed] = DOING[family]
   const writes = /^write$/i.test(entry.name ?? '')
   const lead = writes ? (state === 'running' ? 'Writing' : 'Wrote') : state === 'running' ? running : done
 
   if (state === 'failed') {
     const exitCode = family === 'shell' ? commandOf(entry, false).exitCode : undefined
-    return { lead: writes ? 'Could not write' : failed, subject, ...(code ? { code } : {}), failed: true, ...(exitCode === undefined ? {} : { note: `exit code ${exitCode}` }) }
+    return { lead: writes ? 'Could not write' : failed, subject, ...drawn, failed: true, ...(exitCode === undefined ? {} : { note: `exit code ${exitCode}` }) }
   }
-  if (state === 'stopped') return { lead: 'Stopped', subject, ...(code ? { code } : {}) }
-  return { lead, subject, ...(code ? { code } : {}) }
+  if (state === 'stopped') return { lead: 'Stopped', subject, ...drawn }
+  return { lead, subject, ...drawn }
 }
 
 /** Between steps the agent is thinking: after a tool call or before its first step, while its job runs. Never while a tool runs or it writes. */

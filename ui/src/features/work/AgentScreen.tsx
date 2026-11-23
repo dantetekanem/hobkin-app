@@ -7,6 +7,7 @@ import { holdStill, stillVariants, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import type { Mood } from '@/avatar/moods.tsx'
 import { Pals } from '@/avatar/Pals.tsx'
+import { FilePath } from '@/components/FilePath.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { doingNow, exchangeOf, pauseOf, stepCount, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
@@ -414,7 +415,16 @@ function NowLine({ doing }: { doing: Doing }) {
           {doing.subject ? (
             <>
               {' '}
-              {doing.code ? <code className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[0.87em] break-all">{doing.subject}</code> : doing.subject}
+              {doing.path ? (
+                // A path wider than the line loses its first folders, never its file's name.
+                <span className="inline-flex max-w-full align-bottom">
+                  <FilePath path={doing.subject} className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[0.87em]" />
+                </span>
+              ) : doing.code ? (
+                <code className="rounded-md bg-surface-2 px-1.5 py-0.5 font-mono text-[0.87em] break-all">{doing.subject}</code>
+              ) : (
+                doing.subject
+              )}
             </>
           ) : null}
           {doing.note ? <span className="text-muted-foreground"> · {doing.note}</span> : null}

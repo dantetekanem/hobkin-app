@@ -234,8 +234,9 @@ test('thinking is hidden except when long or important', () => {
 
 test('what it is doing now fits one line: the tool it runs, or the last thing it said', () => {
   assert.deepEqual(doingNow([bash('1', 'pnpm test auth\n# and more', 'running')]), { lead: 'Running', subject: 'pnpm test auth', code: true })
-  assert.deepEqual(doingNow([edit('1', '/repo/src/app.ts', 'a', 'b', 'running')], { cwd: '/repo' }), { lead: 'Editing', subject: 'src/app.ts', code: true })
-  assert.deepEqual(doingNow([tool('1', 'read', { path: 'README.md' }, 'running')]), { lead: 'Reading', subject: 'README.md', code: true })
+  // A file path says it is one, so the line cuts it from its front and keeps the file's name.
+  assert.deepEqual(doingNow([edit('1', '/repo/src/app.ts', 'a', 'b', 'running')], { cwd: '/repo' }), { lead: 'Editing', subject: 'src/app.ts', code: true, path: true })
+  assert.deepEqual(doingNow([tool('1', 'read', { path: 'README.md' }, 'running')]), { lead: 'Reading', subject: 'README.md', code: true, path: true })
   assert.deepEqual(doingNow([tool('1', 'grep', { pattern: 'redirect' }, 'running')]), { lead: 'Searching for', subject: 'redirect', code: true })
   assert.deepEqual(doingNow([bash('1', 'pnpm test', 'failed', 'x\n\nCommand exited with code 1')]), { lead: 'Failed', subject: 'pnpm test', code: true, failed: true, note: 'exit code 1' })
   assert.deepEqual(doingNow([bash('1', 'pnpm lint')]), { lead: 'Ran', subject: 'pnpm lint', code: true })
