@@ -206,3 +206,15 @@ test('a test the change review names in a file the review does not hold joins as
   const turn = titled(shown.nodes, 'a turn says what it does')
   assert.deepEqual([turn.change, turn.status, turn.anchors.map(({ startLine, endLine }) => [startLine, endLine])], ['unchanged', 'passed', [[2, 4]]])
 })
+
+test('a test the change removed has no result at the change\'s commit, and says it was removed', async (t) => {
+  const withZero = `${testFile}${lines("test('formats zero', () => {", "  expect(doingAfter('', 'read')).toBe('');", '});')}`
+  const { review, files } = await prepared(saysResearching, { 'test/doing.test.ts': withZero })
+  const assessments = reviewed(t, review, { nodes: [doingAfterNode], runs: [{ kind: 'baseline', tests: ['test/doing.test.ts'], failed: [], exit_code: 0 }] })
+
+  const shown = assessments.present(TARGET, review, files)!
+
+  const zero = titled(shown.nodes, 'formats zero')
+  assert.deepEqual([zero.change, zero.status, zero.summary], ['deleted', undefined, 'Removed by this change. It covered doingAfter.'])
+  assert.deepEqual(validateReview(shown), [])
+})

@@ -121,7 +121,8 @@ function unitNode(unit: Unit, file: CapturedFile, isChanged: ReturnType<typeof c
   const kind = unit.role
   const testCase = kind === 'test' && !unit.helper && !unit.loose
   const named = !unit.loose && kind !== 'file'
-  const status: NodeStatus | undefined = testCase ? (results?.[`${unit.path} › ${unit.symbol}`] ?? 'not-run') : undefined
+  // A test the change removed does not run at the change's commit, so it has no result there.
+  const status: NodeStatus | undefined = testCase && change !== 'deleted' ? (results?.[`${unit.path} › ${unit.symbol}`] ?? 'not-run') : undefined
 
   // What changed, in its own most telling line: the card shows the counts already.
   const line = tellingLine(changedRows(unit, file, isChanged))
@@ -642,6 +643,12 @@ function some(names: readonly string[], shown = 2): string {
 
 const RESULT_WORDS: Partial<Record<NodeStatus, string>> = { passed: 'It passed.', failed: 'It failed.', 'not-run': 'Not run yet.', 'proves-change': 'It proves the change.' }
 
+/** What a test the change removed says: that it is gone, and what it covered. */
+export function removedTestWords(nodes: readonly ReviewNode[], edges: readonly ReviewEdge[], test: ReviewNode): string {
+  const { said, reaches } = testCovers(nodes, edges, test)
+  return cleanProse(`Removed by this change.${reaches ? ` ${said.replace(/^Covers /, 'It covered ')}` : ''}`, PROSE_LIMIT.summary)
+}
+
 /** What a test covers, in words, from its wires: the code it reaches by name, else the package it changed with. */
 export function testCovers(nodes: readonly ReviewNode[], edges: readonly ReviewEdge[], test: ReviewNode): { said: string; reaches: boolean } {
   const byId = new Map(nodes.map((node) => [node.id, node]))
@@ -662,7 +669,7 @@ function describeTests({ nodes, edges, capture, helpers, vicinity }: { nodes: Re
   for (const node of nodes.filter((entry) => entry.kind === 'test' && entry.change !== 'unchanged')) {
     const { said: covers, reaches } = testCovers(nodes, edges, node)
     if (!helpers.has(node.id)) {
-      node.summary = cleanProse(`${covers} ${RESULT_WORDS[node.status ?? 'not-run'] ?? ''}`, PROSE_LIMIT.summary)
+      node.summary = node.change === 'deleted' ? removedTestWords(nodes, edges, node) : cleanProse(`${covers} ${RESULT_WORDS[node.status ?? 'not-run'] ?? ''}`, PROSE_LIMIT.summary)
       continue
     }
     // Who uses the helper: the tests in its own file that call it, and those elsewhere the scan saw use it.

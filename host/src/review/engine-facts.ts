@@ -6,7 +6,7 @@
  * joins only on lines of a file the review holds, so the window can show it, and a way in names only the steps the
  * review has nodes for. Everything in graph.json is read without trust.
  */
-import { edgeId, testCovers, testFromBefore, testName, TESTS_FROM_BEFORE, unchangedFile, withCovers } from '#shared/review/draft.ts'
+import { edgeId, removedTestWords, testCovers, testFromBefore, testName, TESTS_FROM_BEFORE, unchangedFile, withCovers } from '#shared/review/draft.ts'
 import { NODE_SIZE } from '#shared/review/layout.ts'
 import { splitLines } from '#shared/review/lines.ts'
 import { fileName } from '#shared/review/paths.ts'
@@ -199,6 +199,7 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
     return inFile.find((node) => node.title === title) ?? inFile.find((node) => test.line != null && holdsLine(node, test.path, test.line, 'added'))
   }
   const results = new Map<string, NodeStatus>()
+  const removed = new Set<string>()
 
   // Each test the engine says covers a changed part: the host's own, else an unchanged one the review can show.
   for (const part of facts.parts) {
@@ -220,6 +221,7 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
     const byPart = facts.parts.filter((part) => gone.names.includes(part.symbol)).flatMap(codeOf)
     const targets = byPart.length ? byPart : nodes.filter((entry) => entry.kind === 'code' && gone.names.includes(entry.title))
     for (const target of targets) wire(node.id, target.id)
+    removed.add(node.id)
   }
 
   // Where changed code is run from, where the host found no way in.
@@ -233,6 +235,7 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
 
   for (const node of nodes) {
     const result = results.get(node.id)
+    if (removed.has(node.id)) node.summary = removedTestWords(nodes, edges, node)
     if (!result) continue
     node.status = result
     node.summary = cleanProse(`${testCovers(nodes, edges, node).said} ${RESULT_WORDS[result]}`, PROSE_LIMIT.summary)
