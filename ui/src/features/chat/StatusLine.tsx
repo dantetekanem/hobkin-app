@@ -4,6 +4,8 @@ import { MAIN_PULSE, pulsesOf } from '#shared/protocol/pulse.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
+import { MAIN_ROOM, ScheduleLine } from '@/features/schedules/ScheduleLine.tsx'
+import type { SchedulePlace } from '@/features/schedules/schedules.ts'
 import { useHost } from '@/lib/host/index.ts'
 import { tween } from '@/lib/motion.ts'
 import { useChat } from './chat-store.ts'
@@ -80,53 +82,62 @@ export function StatusLine({ reason, problem, said, turnRunning, typing, stopArm
   const pulseShown = pulsing && bubble?.kind === 'doing' && !stopArmed
 
   return (
-    // The row's room is always there, so the input does not move when the bubble or a line comes and goes.
-    <div className="relative flex h-6 items-center gap-2 pl-[112px]">
-      <SpeechBubble bubble={shown} onInspect={setInspecting} />
-      {pulseShown ? (
-        // Unseen and as wide as the bubble floating at the row's left, so the working line is cut before it goes under it.
-        <span aria-hidden="true" className="invisible -ml-4 max-w-[calc(100%-84px)] shrink-0 truncate border px-2.5 text-[12px]">
-          {bubble?.text}
-        </span>
-      ) : null}
-      {bubble?.kind === 'doing' || stopArmed ? (
-        <span className={cn('ml-auto flex items-center gap-2 text-[12px] text-muted-foreground', pulseShown ? 'min-w-0' : 'shrink-0')}>
-          {bubble?.kind === 'doing' && !stopArmed ? (
-            <Pulse run={MAIN_PULSE} fallback={<Elapsed since={startedAt ?? seenAt.current ?? Date.now()} />} className="min-w-0 truncate" />
-          ) : null}
-          {/* One Escape never stops hobkin: the first asks, and this says how to go on. */}
-          {stopArmed ? (
-            <span role="status" className="flex items-center gap-1 text-foreground">
-              <Kbd>esc</Kbd> again to stop, or <Kbd>ctrl</Kbd>
-              <Kbd>c</Kbd>
-            </span>
-          ) : (
-            <span className="flex items-center gap-1">
-              <Kbd>esc</Kbd>
-              <Kbd>esc</Kbd> stops
-            </span>
+    // The row's room is always there, so the input does not move when the bubble or a line comes and goes. Its right end
+    // keeps the schedules line's room too (056), so nothing moves when a schedule appears or ends, and the list rises
+    // from this row.
+    <div className="relative flex h-6 items-center gap-2">
+      <div className="relative flex h-6 min-w-0 flex-1 items-center gap-2 pl-[112px]">
+        <SpeechBubble bubble={shown} onInspect={setInspecting} />
+        {pulseShown ? (
+          // Unseen and as wide as the bubble floating at the row's left, so the working line is cut before it goes under it.
+          <span aria-hidden="true" className="invisible -ml-4 max-w-[calc(100%-84px)] shrink-0 truncate border px-2.5 text-[12px]">
+            {bubble?.text}
+          </span>
+        ) : null}
+        {bubble?.kind === 'doing' || stopArmed ? (
+          <span className={cn('ml-auto flex items-center gap-2 text-[12px] text-muted-foreground', pulseShown ? 'min-w-0' : 'shrink-0')}>
+            {bubble?.kind === 'doing' && !stopArmed ? (
+              <Pulse run={MAIN_PULSE} fallback={<Elapsed since={startedAt ?? seenAt.current ?? Date.now()} />} className="min-w-0 truncate" />
+            ) : null}
+            {/* One Escape never stops hobkin: the first asks, and this says how to go on. */}
+            {stopArmed ? (
+              <span role="status" className="flex items-center gap-1 text-foreground">
+                <Kbd>esc</Kbd> again to stop, or <Kbd>ctrl</Kbd>
+                <Kbd>c</Kbd>
+              </span>
+            ) : (
+              <span className="flex items-center gap-1">
+                <Kbd>esc</Kbd>
+                <Kbd>esc</Kbd> stops
+              </span>
+            )}
+          </span>
+        ) : null}
+        <AnimatePresence mode="wait" initial={false}>
+          {shownLine === null ? null : (
+            <motion.div
+              key={shownLine}
+              // A problem goes by itself; while it is hovered or focused it stays so it can be read.
+              onPointerEnter={shownLine === 'problem' ? () => useChat.getState().readProblem(true) : undefined}
+              onPointerLeave={shownLine === 'problem' ? () => useChat.getState().readProblem(false) : undefined}
+              onFocus={shownLine === 'problem' ? () => useChat.getState().readProblem(true) : undefined}
+              onBlur={shownLine === 'problem' ? () => useChat.getState().readProblem(false) : undefined}
+              role={shownLine === 'problem' ? 'alert' : 'status'}
+              initial={holdStill({ opacity: 0, transform: 'translateY(6px)' }, still)}
+              animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: tween.enter }, still)}
+              exit={holdStill({ opacity: 0, transform: 'translateY(4px)', transition: tween.exit }, still)}
+              className={cn('flex h-6 min-w-0 items-center text-[12px]', shownLine === 'problem' ? 'text-destructive' : 'text-muted-foreground')}
+            >
+              <span className={cn('truncate', shownLine === 'said' && 'text-foreground')}>{shownLine === 'stopping' ? 'stopping…' : shownLine === 'problem' ? problem : shownLine === 'said' ? said : reason}</span>
+            </motion.div>
           )}
-        </span>
-      ) : null}
-      <AnimatePresence mode="wait" initial={false}>
-        {shownLine === null ? null : (
-          <motion.div
-            key={shownLine}
-            // A problem goes by itself; while it is hovered or focused it stays so it can be read.
-            onPointerEnter={shownLine === 'problem' ? () => useChat.getState().readProblem(true) : undefined}
-            onPointerLeave={shownLine === 'problem' ? () => useChat.getState().readProblem(false) : undefined}
-            onFocus={shownLine === 'problem' ? () => useChat.getState().readProblem(true) : undefined}
-            onBlur={shownLine === 'problem' ? () => useChat.getState().readProblem(false) : undefined}
-            role={shownLine === 'problem' ? 'alert' : 'status'}
-            initial={holdStill({ opacity: 0, transform: 'translateY(6px)' }, still)}
-            animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: tween.enter }, still)}
-            exit={holdStill({ opacity: 0, transform: 'translateY(4px)', transition: tween.exit }, still)}
-            className={cn('flex h-6 min-w-0 items-center text-[12px]', shownLine === 'problem' ? 'text-destructive' : 'text-muted-foreground')}
-          >
-            <span className={cn('truncate', shownLine === 'said' && 'text-foreground')}>{shownLine === 'stopping' ? 'stopping…' : shownLine === 'problem' ? problem : shownLine === 'said' ? said : reason}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+        </AnimatePresence>
+      </div>
+      {/* While a turn runs the line gives its room first, so the bubble, the working line and the stop keys keep theirs. */}
+      <ScheduleLine place={HOME} style={{ width: bubble?.kind === 'doing' || stopArmed ? MAIN_ROOM.crowded : MAIN_ROOM.quiet }} />
     </div>
   )
 }
+
+/** The main chat lists every schedule in the home. */
+const HOME: SchedulePlace = { kind: 'main' }
