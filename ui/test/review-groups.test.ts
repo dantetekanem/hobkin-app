@@ -5,6 +5,7 @@ import { nodeRect } from '#shared/review/layout.ts'
 import type { Review, ReviewNode } from '#shared/review/types.ts'
 import { arrange } from '../src/features/review/graph/arrange.ts'
 import { FOCUS_BUDGET, foldArranged, planFocus, type FocusState } from '../src/features/review/graph/focus.ts'
+import { focusLevels } from '../src/features/review/graph/levels.ts'
 import { largeReview } from '../src/features/review/sample/large.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
 import { escapeReview } from '../src/features/review/entry.ts'
@@ -118,6 +119,16 @@ test('past the budget the way in folds into "More of the way in", which keeps wh
   const card = folded.nodes.find((node) => node.id === way.id)!
   assert.deepEqual([card.kind, card.change, card.entry?.kind, card.lifecycle?.role], ['context', 'unchanged', 'route', 'caller'])
   assert.equal(card.position.x, folded.nodes.find((node) => node.title === 'GET /posts/:id')!.position.x)
+})
+
+test('a way in folded into "More of the way in" lights its card, and the wire from it, when the step is on the code it leads to', () => {
+  const { folded } = focusOn(crowdedWayIn())
+  const way = groupNamed(folded.plan, 'More of the way in')
+  assert.equal(folded.foldOf.r40, way.id, "the host's way in to link_user_tags is folded")
+  const levels = focusLevels(folded, ['u1'])
+  assert.equal(levels.nodes[way.id], 'neighbor')
+  const wire = folded.edges.find((edge) => edge.from === way.id && edge.to === 'c1')!
+  assert.equal(levels.wires[wire.id], 'near')
 })
 
 test('a group knows its members, how many files, its lines and why it is safe', () => {

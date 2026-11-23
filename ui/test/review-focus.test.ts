@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import type { Review } from '#shared/review/types.ts'
+import type { Review, ReviewNode } from '#shared/review/types.ts'
 import { focusLevels, hoverLevels, hoverShown } from '../src/features/review/graph/levels.ts'
 import { nodeAlongWire, nodeToward } from '../src/features/review/graph/navigate.ts'
 import { pressKey } from '../src/features/review/keys.ts'
@@ -123,6 +123,28 @@ test('a node with many unchanged callers and callees shows the few that matter a
   for (const id of levels.folded![doingAfter]!.out) assert.equal(moved.fresh.nodes.includes(id), false)
   for (const id of folded) assert.equal(moved.fresh.wires.some((wire) => wire.id === id), false)
   assert.ok(moved.fresh.nodes.includes('v8') && moved.fresh.nodes.includes('v22'))
+})
+
+test("the whole of the focus's way in is lit, however far from it the way in starts", () => {
+  // x is called by a1, a1 by a2, and a2 by two callers listed first and by a3, on the way from the route a5.
+  const node = (id: string, x: number, y: number, extra: Partial<ReviewNode> = {}): ReviewNode => ({ id, kind: 'context', title: id, change: 'unchanged', summary: '', anchors: [], position: { x, y }, ...extra })
+  const nodes = [
+    node('x', 2100, 0, { kind: 'code', change: 'modified' }),
+    node('a1', 1680, 0),
+    node('d1', 1260, -300),
+    node('d2', 1260, -150),
+    node('a2', 1260, 0),
+    node('a3', 840, 0),
+    node('a4', 420, 0),
+    node('a5', 0, 0, { entry: { kind: 'route', exact: true, route: { verbs: ['GET'], path: '/x' } } }),
+  ]
+  const calls = (from: string, to: string) => ({ id: `calls:${from}>${to}`, from, to, kind: 'calls' as const, certainty: 'host' as const })
+  const edges = [calls('a1', 'x'), calls('d1', 'a2'), calls('d2', 'a2'), calls('a2', 'a1'), calls('a3', 'a2'), calls('a4', 'a3'), calls('a5', 'a4')]
+  const levels = focusLevels({ nodes, edges, story: [] }, ['x'])
+  for (const id of ['a1', 'a2', 'a3', 'a4', 'a5']) assert.equal(levels.nodes[id], 'neighbor', `${id} is on the way in`)
+  for (const id of ['calls:a2>a1', 'calls:a3>a2', 'calls:a4>a3', 'calls:a5>a4']) assert.equal(levels.wires[id], 'near', id)
+  // The life cycle around it is drawn as before.
+  assert.deepEqual([levels.nodes.d1, levels.nodes.d2], ['neighbor', 'neighbor'])
 })
 
 test('hovering a node lights its wires and neighbors and dims the rest', () => {

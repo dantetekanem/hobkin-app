@@ -4,6 +4,7 @@
  */
 import { NODE_SIZE } from '#shared/review/layout.ts'
 import type { ReviewEdge, ReviewNode, StoryStep } from '#shared/review/types.ts'
+import { drawnTrail } from './trail.ts'
 
 /**
  * `rest`: nothing is focused, the whole graph is shown.
@@ -41,11 +42,16 @@ export interface Wired {
   edges: readonly Pick<ReviewEdge, 'id' | 'from' | 'to'>[]
 }
 
-/** Enough of a graph to tell a focus's path from its life cycle: what each node is, where it sits, and how the story rides. */
+/**
+ * Enough of a graph to tell a focus's path from its life cycle: what each node is, where it sits, where requests enter
+ * and how the story rides, and for the graph as drawn, the card each folded node is on.
+ */
 export interface Graph {
-  nodes: readonly Pick<ReviewNode, 'id' | 'kind' | 'change' | 'position'>[]
+  nodes: readonly (Pick<ReviewNode, 'id' | 'kind' | 'change' | 'position'> & Partial<Pick<ReviewNode, 'title' | 'entry' | 'lifecycle'>>)[]
   edges: readonly Pick<ReviewEdge, 'id' | 'from' | 'to' | 'kind'>[]
   story?: readonly Pick<StoryStep, 'focus' | 'travel'>[]
+  foldOf?: Readonly<Record<string, string>>
+  groupOf?: Readonly<Record<string, string>>
 }
 
 /**
@@ -104,7 +110,8 @@ export function focusLevels(graph: Graph, focus: readonly string[]): Levels<Node
  * change's code, nearest first, and two callers and two callees the change did not touch, the ones that lead further
  * first and then as the review lists them, most telling first. From those callers the life cycle is followed on through
  * unchanged code, out to where the request comes in. Whatever is left folds into a count on the node, so a node with
- * twenty callees draws a few wires, not a fan of twenty.
+ * twenty callees draws a few wires, not a fan of twenty. The way in to a focus node that is changed code (`trail.ts`)
+ * is drawn whole, however far it starts (spec 055).
  */
 function levelsOf(graph: Graph, focus: readonly string[]): Levels<NodeLevel, WireLevel> {
   const focused = new Set(focus)
@@ -200,6 +207,25 @@ function levelsOf(graph: Graph, focus: readonly string[]): Levels<NodeLevel, Wir
       }
     }
     frontier = next
+  }
+
+  // The way in to each focus node, from where it starts: every hop, and the wire between each two, a folded one too.
+  for (const id of focus) {
+    const hops = drawnTrail(graph, id)
+    for (const hop of hops) if (!focused.has(hop)) shown.add(hop)
+    for (let at = 1; at < hops.length; at += 1) {
+      const [from, to] = [hops[at - 1]!, hops[at]!]
+      for (const edge of touching.get(to) ?? []) {
+        if (across(edge, to) !== from || wires[edge.id] === 'bright') continue
+        if (wires[edge.id] === 'folded') {
+          for (const [end, other] of [[to, from], [from, to]] as const) {
+            const fold = folded[end]
+            for (const side of [fold?.in, fold?.out]) if (side?.includes(other)) side.splice(side.indexOf(other), 1)
+          }
+        }
+        wires[edge.id] = 'near'
+      }
+    }
   }
 
   for (const node of graph.nodes) nodes[node.id] = focused.has(node.id) ? 'focus' : shown.has(node.id) ? 'neighbor' : 'background'
