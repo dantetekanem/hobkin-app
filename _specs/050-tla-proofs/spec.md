@@ -22,6 +22,7 @@ When an agent in work mode touches a state machine, explicit or hidden in the co
 - On the first screens of the design: "yes that is good".
 - On where models live, 2026-11-20: "I prefer `_specs` and not `specs` so is at the top of a folder ... for everything".
 - On a finished change to a state machine that has no model yet, 2026-11-20: "we need to update the proof so it can move along. the score stays".
+- On a review that said "not checked at this commit" of its change's own model, 2026-11-23: "one should never be ignored".
 
 ### The design
 
@@ -113,6 +114,9 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - The look also pipes every machine it found, with the files it lives in, to `hobkin work machines <project>`. hobkin keeps that list in its own work state, `<home>/work/<project>/machines.json`, with the time and whether Java and TLC were found when it came in. It never reads the prose under "State machines" in the project file.
 - A project whose state machines were never looked for with the tools in place has its look due now (A18). hobkin knows this from the time it starts a look with the pinned jar in its home. The jar goes in only after setup found Java or installed it, so the planner does not have to wait for Java to answer.
 - A finished change that touches a machine's file when no spec at its head names that file goes back to its own branch for the model (A19). That happens once for each review, and only when nothing else would stop it merging by itself. The run writes `_specs/tla/<Machine>.tla` and its cfg and commits only those, so the review's scores stand: a review of any commit whose code the head still has, because every later commit changed only `_specs/tla/`, counts as a review of the head (A20).
+- No model of a finished change is left unchecked (A23). After each survey hobkin checks, itself, each model a finished change adds, edits or touches a file of that no run speaks for at the change's head, with YOLO mode on or off. Until 2026-11-23 it did so only in YOLO mode, for a change heading to a merge by itself whose spec was untouched, and otherwise relied on the check the agent runs at the end of its own run. It is still one check at a time, and a check that was tried is not tried again for a week, so a model that cannot run costs one try. The run names the change's item, so the card and the review find it.
+- The window keeps a run for as long as its change waits (A24). The `proofs` slice held the 20 newest runs that ended, so the review of a change whose check was older than those said "not checked at this commit" of a model that was checked. The slice now also holds the newest run of each model of each change that still waits, at any age.
+- A model with no run at the reviewed head is work still owed. Its row in the panel and its line on a node say so in the warning tone, where they were a quiet line.
 
 ## Out of scope
 
@@ -146,6 +150,8 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - A20. A change's review scores still count after commits that change only `_specs/tla/`, so YOLO mode never calls them scores for an older commit and asks for no new review. A model that holds there lets the change merge by itself at its new head. One that breaks keeps it asking, with a proof score of 3 at most. The finished card's proof score line names the model and opens its run.
 - A21. A change review is given hobkin's TLC run at the reviewed head of each model the change adds, edits or touches a file of, and never says no checker result is shown when one is. A model that holds lowers no break found in the code it models, and the review says so.
 - A22. The review panel lists each of the change's models with its result and states, each opening its run on the proof screen, and `T` opens the first.
+- A23. hobkin checks, itself, each model of a finished change that no run speaks for at the change's head, with YOLO mode on or off and whether or not the change edited the spec. One check runs at a time, and one that was tried in the last week is not started again.
+- A24. The review's row and a node's line for a model say what its newest run at the reviewed head said, however many runs ended since, for as long as the change waits. A model with no run there reads as a warning.
 
 ## Proof
 
@@ -190,6 +196,8 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - [x] S13 (A18). Runtime: the look is due now on a project never looked at with the tools in place, a look started with them says so in the project's state, and Run readiness puts a due look first. Files: `hobkin/src/cli/work/{plan,yolo,director}.mjs`. Done in hobkin baec6b2.
 - [x] S14 (A19, A20). Runtime: the survey records which files each covering spec names and the commits whose code the head still has, the YOLO pass sends a change back for its model, a review stands across model-only commits, and the proof score's evidence names its model. The do prompt says how a run writes a model it was sent back for. Files: `hobkin/src/cli/work/{yolo-pass,proofs,unmerged,reads,closing,classified,director,store,plan}.mjs`, `hobkin/src/prompts/work-do.md`. Done in hobkin 1b38ad4. Not seen live yet: a real look piping its machines, and a real run writing a model it was sent back for.
 - [x] S15 (A21, A22). The change review weighs the runs, and its panel lists each model with a way to its run. Spec 032's S15. Not seen live yet.
+- [ ] S16 (A23). Runtime: after each survey hobkin starts the check of each finished change's model that no run speaks for at its head, YOLO mode on or off. Files: `hobkin/src/cli/work/{proof-checks,director,yolo-pass}.mjs`.
+- [ ] S17 (A24). Host and window: the `proofs` slice keeps the newest run of each model of each change that still waits, and a model with no run reads as a warning. Files: `host/src/proofs.ts`, `ui/src/features/review/story/node-models.ts`.
 
 ## Open questions
 
