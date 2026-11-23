@@ -102,7 +102,7 @@ function recordMainStop(root, run, actions) {
 
 export class HobkinRuntime {
   /** `pulses` (`pulse.mjs`), when given, is where the main turn's pulse is kept for whoever publishes it. */
-  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, editReport, metricsNow, pulses = null, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {} } = {}) {
+  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, agentSchedules, editReport, metricsNow, pulses = null, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {} } = {}) {
     this.directory = root;
     this.config = config;
     this.createMain = createMain;
@@ -116,6 +116,8 @@ export class HobkinRuntime {
     this.messageCheck = messageCheck;
     this.stopWorkload = stopWorkload;
     this.ownedAgent = ownedAgent;
+    // What the main agent's schedule tools reach, `{ make, manage }` (056-agent-schedules).
+    this.agentSchedules = agentSchedules;
     this.ownedLifecycle = ownedLifecycle;
     this.ownedActivity = new OwnedActivity();
     this.mainOwnedRoots = new Set();
@@ -353,6 +355,7 @@ export class HobkinRuntime {
       triggerSchedule: (scheduleId, callId, signal) => this.triggerSchedule(scheduleId, `${this.main.sessionId}:${callId}`, signal),
       messageCheck: this.messageCheck,
       stopWorkload: this.stopWorkload,
+      agentSchedules: this.agentSchedules,
       ownedAgent: this.ownedLifecycle ? (request, signal) => {
         const turn = this.mainTurn;
         if (!main || turn?.session !== main || !turn.owned || turn.preflight !== true || turn.stopping || this.resetting || this.closing) throw Error('No active admitted owned turn');

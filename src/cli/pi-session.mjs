@@ -16,7 +16,8 @@ import { attachUserBash } from './user-bash.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { hobkinCommand } from './work/chat.mjs';
 import { HOBKIN_VERSION } from './version.mjs';
-import hobkinBridge from './hobkin-extension.mjs';
+import hobkinBridge, { HOBKIN_BRIDGE_TOOLS } from './hobkin-extension.mjs';
+import { agentScheduleTools } from './schedule-tools.mjs';
 
 /** Caller holds the conversation reservation until the SDK and its compaction/retries settle. */
 export async function withPiCancellation(session, signal, operation) {
@@ -57,7 +58,7 @@ export async function closePiSession(session) {
 
 /** Pi owns the transcript format. Durable stores only its identity and dispatch receipts. */
 export async function openPiSession(
-  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, startup },
+  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, startup },
   dependencies = {},
 ) {
   startup?.signal.throwIfAborted();
@@ -87,6 +88,7 @@ export async function openPiSession(
       messageCheck,
       stopWorkload,
       ownedAgent,
+      agentSchedules,
       prompts: mainPrompts(root, config),
     }, { ...dependencies, bootstrap });
   }
@@ -96,7 +98,8 @@ export async function openPiSession(
     expected,
     file,
     fresh,
-    customTools: [createQuestionTool(askQuestion, root), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root), createStopWorkloadTool(stopWorkload), createOwnedAgentSessionTool(ownedAgent)],
+    customTools: [createQuestionTool(askQuestion, root), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root), createStopWorkloadTool(stopWorkload), createOwnedAgentSessionTool(ownedAgent),
+      ...Object.values(agentScheduleTools(agentSchedules))],
     modelSettings: { root, config },
   }, { ...dependencies, recoverScriptedHistory: false });
 }
@@ -336,8 +339,7 @@ export async function openConversation(
     });
     options = { ...options, customTools: [...customTools, settingsTool] };
   }
-  const bridgeTools = rpcBridge ? ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'owned_agent',
-    ...(rpcBridge.clientExtensionPath ? ['client'] : [])] : [];
+  const bridgeTools = rpcBridge ? [...HOBKIN_BRIDGE_TOOLS, ...(rpcBridge.clientExtensionPath ? ['client'] : [])] : [];
   options.tools = scriptedMain ? ['client'] : [...resources.builtinTools, 'codemode', 'tool_search', ...options.customTools.map(tool => tool.name), ...bridgeTools];
   const { session, modelFallbackMessage } = await (createSession ?? createAgentSession)(options);
   currentSession.current = session;

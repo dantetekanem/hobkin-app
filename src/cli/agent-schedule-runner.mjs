@@ -112,6 +112,15 @@ export class AgentScheduleRunner {
     return this.schedules.filter(schedule => isLive(schedule) && (!owner || sameOwner(schedule.owner, owner))).length;
   }
 
+  /** When the last of an owner's live schedules ends at the latest, or null when it has none. */
+  liveUntil(owner) {
+    const ends = this.schedules.filter(schedule => isLive(schedule) && sameOwner(schedule.owner, owner)).map(schedule => Date.parse(schedule.until));
+    return ends.length ? Math.max(...ends) : null;
+  }
+
+  /** The wakes waiting for one owner, oldest first. */
+  wakesFor(owner) { return this.wakes().filter(wake => sameOwner(wake.owner, owner)); }
+
   /** Makes one for `owner`, its command run in `cwd`. Answers it as the agent reads it, or throws the refusal. */
   make(owner, cwd, asked) {
     if (this.closed) throw Error('hobkin is closing, so it keeps no new schedule now.');
@@ -256,6 +265,12 @@ export class AgentScheduleRunner {
         this.end(schedule, 'expired', expiredWhy(schedule), 'hobkin');
         changed = true;
       }
+    }
+    // A wake whose agent has gone has nobody to reach.
+    const kept = alive ? this.pending.filter(wake => alive(wake.owner) !== false) : this.pending;
+    if (kept.length !== this.pending.length) {
+      this.pending = kept;
+      changed = true;
     }
     if (this.startDue() || changed) this.save();
   }

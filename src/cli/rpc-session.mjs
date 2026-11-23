@@ -17,6 +17,7 @@ import { startRpcProcess } from './rpc-process.mjs';
 import { startMainSessionChild } from './main-session-child.mjs';
 import { SHIPPED_SKILLS } from './skills-extension.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
+import { agentScheduleTools } from './schedule-tools.mjs';
 
 export const extensionPath = fileURLToPath(new URL('./hobkin-extension.mjs', import.meta.url));
 const dialogMethods = new Set(['select', 'confirm', 'input', 'editor']);
@@ -385,7 +386,7 @@ function within(promise, ms, message) {
 
 /** Starts the main chat as `<launcher> --mode rpc`; nothing is submitted, and a binding that differs is disposed. */
 export async function openRpcSession(
-  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, prompts, startup },
+  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, prompts, startup },
   { spawnProcess, signalProcess, startupTimeoutMs = 180000, graceMs, clientBridge, bootstrap, scriptedMain = false } = {},
 ) {
   scriptedMain = scriptedMain === true;
@@ -430,6 +431,8 @@ export async function openRpcSession(
       modelRuntime: () => session.modelCatalog(),
       apply: change => session.apply(change),
     })),
+    // The schedules the main agent keeps for itself, which hobkin runs and wakes it for (056-agent-schedules).
+    ...agentScheduleTools(agentSchedules),
   };
   if (clientBridge) session.tools.client = clientBridge.tool;
   const { command, args } = piCommand(config.launcher, [

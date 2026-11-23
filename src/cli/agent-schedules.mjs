@@ -343,6 +343,56 @@ export function scheduleView(schedule, ownerTitle) {
   };
 }
 
+const WAKE_WORDS = {
+  change: 'when its output changes', failure: 'when a run fails', success: 'when a run passes', always: 'after each run that is not pending', never: 'never: it only runs',
+};
+
+/** What `hobkin_schedule` answers its agent: what was made, when it fires, when it ends, when it wakes, and what to do now. */
+export function scheduledText(schedule, owner) {
+  const repeats = schedule.every === undefined ? '' : `, then every ${spanWords(schedule.every * 1000)}`;
+  const wakes = schedule.command === undefined ? 'with your note' : WAKE_WORDS[schedule.wakeOn];
+  const then = owner.kind === 'run'
+    ? 'End your turn now with one short line saying what you wait for. hobkin closes your process and starts you again on this session when it wakes you, or once more when it ends.'
+    : 'You may end your turn: hobkin starts a turn for you when it wakes you.';
+  return `Scheduled "${schedule.name}" (id ${schedule.id}). It first fires at ${clockWords(Date.parse(schedule.nextAt))}${repeats}, and it ends by ${clockWords(Date.parse(schedule.until))} at the latest. `
+    + `hobkin wakes you ${wakes}, ${MOST_WAKES} times at most. ${then}`;
+}
+
+/** What a run that waited on its schedules is told when hobkin starts it once more after they all ended without a word. */
+export const SCHEDULES_GONE = 'Your schedules have all ended and none of them woke you since you waited. Carry on from where you left off: look once more at what they watched if it still matters, then end as any run ends, with your report.';
+
+/** One wake as its agent reads it in a `<hobkin-schedule>` block, or in the main chat's `<hobkin-wake>`. */
+export const wakeForAgent = wake => ({
+  id: wake.scheduleId,
+  name: wake.name,
+  note: wake.note,
+  what: wake.kind,
+  at: wake.at,
+  ...Object.fromEntries(['outcome', 'exitCode', 'output', 'error', 'wakesLeft', 'until', 'endedWhy']
+    .filter(key => wake[key] !== undefined).map(key => [key, wake[key]])),
+});
+
+/**
+ * Wakes made to fit in `most` characters once `wrap` puts them in their block: each output loses its start, the oldest
+ * wakes' first, as far as it must. Answers the wrapped text.
+ */
+export function fittedWakes(wakes, wrap, most = Infinity) {
+  const shown = wakes.map(wakeForAgent);
+  let text = wrap(shown);
+  for (const wake of shown) {
+    if (text.length <= most) break;
+    if (!wake.output) continue;
+    const keep = Math.max(0, wake.output.length - (text.length - most) - 1);
+    wake.output = keep ? `…${wake.output.slice(-keep)}` : '';
+    text = wrap(shown);
+  }
+  return text;
+}
+
+/** The block a durable hobkin's turn or a run starts with, or is steered, when its schedules wake it. */
+export const scheduleWakeBlock = (wakes, most) => fittedWakes(wakes,
+  shown => `<hobkin-schedule>\n${JSON.stringify({ schedules: shown }).replaceAll('</', '<\\/')}\n</hobkin-schedule>`, most);
+
 /** A schedule as its own agent reads it in a tool's answer: what it does, where it stands and what it has left. */
 export function scheduleForAgent(schedule) {
   const view = scheduleView(schedule);

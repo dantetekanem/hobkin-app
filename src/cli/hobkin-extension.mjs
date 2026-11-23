@@ -7,16 +7,25 @@ import { directionsSection } from './directions.mjs';
 import { createMemoryTool, memorySection } from './memory.mjs';
 import { createQuestionTool } from './questions.mjs';
 import { createCheckMessageTool, createScheduleTool, createSettingsTool, createStopWorkloadTool } from './hobkin-tools.mjs';
+import { createAgentScheduleTool, createAgentSchedulesTool } from './schedule-tools.mjs';
+
+/**
+ * Every tool this extension registers, by name, as the main chat's exact list of bridged tools (`pi-session.mjs`) expects
+ * them. A tool added here is added to that list in the same change.
+ */
+export const HOBKIN_BRIDGE_TOOLS = Object.freeze(['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload',
+  'hobkin_schedule', 'hobkin_schedules', 'owned_agent']);
 
 /**
  * Loaded with --extension by the Pi child that Hobkin starts for its main chat. The tools keep their
  * names, schemas and descriptions; each call runs in Hobkin, which owns the questions, schedules,
- * settings and memory. The model is Pi's, under whatever launcher started it. The chat's Pi also gets the guard against
+ * settings and memory, and the schedules the main agent keeps for itself (056-agent-schedules). The model is Pi's, under whatever launcher started it. The chat's Pi also gets the guard against
  * Pi's code tool crash (`code-tool-crash.mjs`).
  */
 export default function hobkin(pi) {
   guardCodeToolAbort();
-  const tools = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool()];
+  const tools = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool(),
+    createAgentScheduleTool(), createAgentSchedulesTool()];
   for (const tool of tools) {
     pi.registerTool({
       ...tool,

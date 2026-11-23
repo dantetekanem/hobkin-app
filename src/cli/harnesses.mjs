@@ -15,8 +15,10 @@ import { promptFactsIn } from './work/usage.mjs';
 import { agentsOut, defaultTeamsDir } from './teams-agents.mjs';
 import { AGENTS_ENVIRONMENT } from './agent-directions-extension.mjs';
 import { codeToolGuardExtension } from './code-tool-crash.mjs';
-import { askedWait, PI_WAIT_TOOLS, piWaitNote, stoppedMidStep, WAITING } from './run-waits.mjs';
+import { askedWait, MOST_WAITS, PI_WAIT_TOOLS, piWaitNote, stoppedMidStep, WAITING } from './run-waits.mjs';
 import { waitExtension } from './wait-extension.mjs';
+import { scheduleExtension } from './schedule-extension.mjs';
+import { agentScheduleTools, SCHEDULE_TOOLS } from './schedule-tools.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
@@ -53,6 +55,18 @@ const waitCall = placeholder => {
     return null;
   }
 };
+/** A call of `hobkin_schedule` or `hobkin_schedules` that reached the host over the run's bridge (`schedule-extension.mjs`). */
+const isScheduleCall = placeholder => {
+  try {
+    const asked = JSON.parse(placeholder);
+    return asked?.op === 'tool' && SCHEDULE_TOOLS.includes(asked.name);
+  } catch {
+    return false;
+  }
+};
+// A run that waits on its schedules is started again once more this long after the last of them ends, should nothing
+// have woken it by then (056-agent-schedules).
+const SCHEDULES_GRACE_MS = 5 * 60000;
 /** The tools an assistant reply called, by name. */
 const toolCallNames = message => (Array.isArray(message?.content) ? message.content : [])
   .filter(part => part?.type === 'toolCall' && typeof part.name === 'string').map(part => part.name);
@@ -105,13 +119,17 @@ export function buildInvocation(request) {
 
 /**
  * A job that loads tools gets its extensions named up front, so Pi leaves out what Hobkin does not use. Its Pi also
- * loads hobkin's guard against the code tool crash (`code-tool-crash.mjs`), and a run that can wait (`waits` on its
- * request) gets `hobkin_wait` (`wait-extension.mjs`).
+ * loads hobkin's guard against the code tool crash (`code-tool-crash.mjs`), a run that can wait (`waits` on its
+ * request) gets `hobkin_wait` (`wait-extension.mjs`), and one that keeps schedules (`schedules` on its request) gets
+ * `hobkin_schedule` and `hobkin_schedules` (`schedule-extension.mjs`) in place of the Pi scheduler, whose timers would
+ * live only in this process (056-agent-schedules).
  */
 export const namingExtensions = run => async (request, options) => {
   if (!usesTools(request.purpose)) return run(request, options);
   const asked = Date.now();
-  const extensions = [...await extensionPaths(request.cwd), codeToolGuardExtension, ...(Number.isInteger(request.waits) ? [waitExtension] : [])];
+  const schedules = request.schedules === true;
+  const extensions = [...await extensionPaths(request.cwd, { leaveOut: schedules ? ['pi-scheduler'] : [] }), codeToolGuardExtension,
+    ...(Number.isInteger(request.waits) ? [waitExtension] : []), ...(schedules ? [scheduleExtension] : [])];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
   const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };
   return run({ ...request, extensions }, { ...options, turn });
@@ -364,7 +382,7 @@ async function startAndKeep(request, { invocation, env, key, result, startProces
 }
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS, now = Date.now } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, schedules, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS, now = Date.now } = {}) {
   // Before anything else, so a turn nobody timed still counts its process start.
   const entered = Date.now();
   const invocation = buildInvocation(request);
@@ -435,6 +453,16 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     return { ok: true, result: { text, ...wait } };
   };
   const tools = { owned_agent: createOwnedAgentSessionTool((params, signal) => ownedScope.request(params, signal)) };
+  // The run's own schedules (056-agent-schedules), which hobkin hands it as `{ make, manage, liveUntil }` when it keeps
+  // them for this run's agent. Without them a call is refused in plain words.
+  const scheduleTools = agentScheduleTools(schedules);
+  const schedulesUntil = () => {
+    try {
+      return schedules?.liveUntil?.() ?? null;
+    } catch {
+      return null;
+    }
+  };
   const finishOwned = async () => {
     if (joining) return;
     joining = true;
@@ -481,7 +509,9 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       const bridged = record.method === 'input' && record.title === BRIDGE;
       const wait = bridged ? waitCall(record.placeholder) : null;
       if (wait) child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(answerWait(wait)) });
-      else if (bridged && ownedScope) {
+      else if (bridged && isScheduleCall(record.placeholder)) {
+        void serveBridge(record.placeholder, { tools: scheduleTools }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
+      } else if (bridged && ownedScope) {
         void serveBridge(record.placeholder, { tools }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
       } else child.send({ type: 'extension_ui_response', id: record.id, cancelled: true });
     }
@@ -564,7 +594,10 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     await settled.promise;
     result.text = clean(assistant?.content?.filter(part => part.type === 'text').map(part => part.text).join('\n'));
     // A turn that asked to wait and then ended as a turn ends leaves the run waiting, whatever its last words.
-    const waiting = waitAsked !== undefined && assistant?.stopReason === 'stop';
+    const asked = waitAsked !== undefined && assistant?.stopReason === 'stop';
+    // A run that can wait and keeps a live schedule waits for it to wake it, as one that asked to wait does.
+    const scheduledUntil = !asked && assistant?.stopReason === 'stop' && Number.isInteger(request.waits) && request.waits < MOST_WAITS ? schedulesUntil() : null;
+    const waiting = asked || Number.isFinite(scheduledUntil);
     if (!waiting && assistant?.stopReason === 'toolUse') throw Error(stoppedMidStep([...calledLast]));
     if (!waiting && (assistant?.stopReason !== 'stop' || !result.text.trim())) {
       throw Error(`Pi did not finish a response (${assistant?.stopReason ?? 'missing'}).`);
@@ -589,7 +622,10 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     }
     if (stats?.tokens) result.tokens = (stats.tokens.input ?? 0) + (stats.tokens.cacheWrite ?? 0) + (stats.tokens.output ?? 0);
     result.status = waiting ? WAITING : 'completed';
-    if (waiting) result.wait = waitAsked;
+    if (asked) result.wait = waitAsked;
+    else if (waiting) {
+      result.wait = { until: new Date(scheduledUntil + SCHEDULES_GRACE_MS).toISOString(), note: 'Waits for its schedules to wake it.', askedAt: new Date(now()).toISOString(), schedules: true };
+    }
     if (!durable) {
       child.terminate();
       await child.closed;

@@ -40,12 +40,17 @@ export const TOO_LONG = `Write a message of at most ${TELL_MAX} characters.`;
 /** A token for one turn. */
 export const turnToken = () => randomBytes(16).toString('hex');
 
-/** The folder `hobkin tell` writes to, made when missing so the running hobkin can watch it. */
-export function tellRequests(root) {
-  const folder = join(root, 'runtime', 'tell-requests');
+const TELLS = 'tell-requests';
+
+/** A folder under the home's `runtime/` that a command in another process hands requests to the running hobkin through, made when missing. */
+export function requestFolder(root, name) {
+  const folder = join(root, 'runtime', name);
   mkdirSync(folder, { recursive: true, mode: 0o700 });
   return folder;
 }
+
+/** The folder `hobkin tell` writes to, made when missing so the running hobkin can watch it. */
+export const tellRequests = root => requestFolder(root, TELLS);
 
 const writeWhole = (file, value) => {
   writeFileSync(`${file}.tmp`, JSON.stringify(value), { mode: 0o600 });
@@ -123,11 +128,20 @@ export async function runTellCommand(root, args, { env = process.env, input = pr
     if (text.length > TELL_MAX) throw Error(TOO_LONG);
     Object.assign(request, { to, text });
   }
+  return askRunning(root, TELLS, request, { waitMs });
+}
+
+/**
+ * Hands `request` to the running hobkin through the request folder `name` and waits for its answer: the value it
+ * answered with, or its refusal thrown. One hobkin never took is taken back, so it is never done after the command
+ * said it was not.
+ */
+export async function askRunning(root, name, request, { waitMs = ANSWER_WAIT_MS } = {}) {
   if (!await running(root)) throw Error(NOT_RUNNING);
 
   const id = randomUUID();
-  const file = join(tellRequests(root), `${id}.json`);
-  const answer = join(tellRequests(root), `${id}${ANSWER}`);
+  const file = join(requestFolder(root, name), `${id}.json`);
+  const answer = join(requestFolder(root, name), `${id}${ANSWER}`);
   writeWhole(file, request);
   let deadline = Date.now() + waitMs;
   let taken = false;
@@ -139,8 +153,8 @@ export async function runTellCommand(root, args, { env = process.env, input = pr
       return answered.value;
     }
     if (Date.now() >= deadline) {
-      if (taken) throw Error(UNKNOWN);
-      if (takeBack(file)) throw Error(NO_ANSWER);
+      if (taken) throw Error(name === TELLS ? UNKNOWN : 'hobkin took the request but did not answer, so whether it was done is not known.');
+      if (takeBack(file)) throw Error(name === TELLS ? NO_ANSWER : 'Nothing was done: hobkin did not take the request in time. Try once more.');
       // hobkin took it, so its answer is on the way.
       taken = true;
       deadline = Date.now() + waitMs;
@@ -178,12 +192,15 @@ function take(path, name) {
  * at on its own, so one that is not what it should be never costs another its answer. What a write, a take or an
  * answer left behind for over a minute is removed.
  */
-export function takeTellRequests(root, now = Date.now()) {
+export const takeTellRequests = (root, now = Date.now()) => takeRequests(root, TELLS, now);
+
+/** `takeTellRequests` for any request folder. */
+export function takeRequests(root, name, now = Date.now()) {
   const taken = [];
   let folder;
   let names;
   try {
-    folder = tellRequests(root);
+    folder = requestFolder(root, name);
     names = readdirSync(folder);
   } catch {
     return taken;
@@ -210,4 +227,7 @@ export function takeTellRequests(root, now = Date.now()) {
 }
 
 /** The answer the waiting command reads: `{ ok: true, value }` or `{ ok: false, error }`. */
-export const answerTell = (root, id, answer) => writeWhole(join(tellRequests(root), `${id}${ANSWER}`), answer);
+export const answerTell = (root, id, answer) => answerRequest(root, TELLS, id, answer);
+
+/** `answerTell` for any request folder. */
+export const answerRequest = (root, name, id, answer) => writeWhole(join(requestFolder(root, name), `${id}${ANSWER}`), answer);

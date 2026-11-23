@@ -327,6 +327,8 @@ export class Hobkins {
       directions: durableDirections(record.id),
       // The token says who the process is, and the home is where `hobkin tell` reaches hobkin.
       env: { [TURN_TOKEN]: this.tokenOf(record.id), [TURN_HOME]: this.root },
+      // It keeps schedules for itself, which wake it with a turn or a message (056-agent-schedules).
+      schedules: true,
     };
   }
 
@@ -401,6 +403,37 @@ export class Hobkins {
     throw Error('That hobkin is between turns. Send the message again.');
   }
 
+  /**
+   * A schedule this hobkin keeps woke it (056-agent-schedules), with `text`, the block of what it found, `short`, the
+   * same cut to what a message to a working turn may be, and `from`, the schedule as the turn names its sender. A
+   * waiting hobkin takes it as a turn of its own, with a fresh count of messages between hobkins, and a working one
+   * hears it in the turn it is on, as the user's words would reach it. Answers how,
+   * `{ gone: true }` for a hobkin that ended, or null when it cannot take it now, as between turns, to be tried again.
+   */
+  async wake(id, { text, short = text, from }) {
+    const record = this.records[id];
+    if (!record || record.state === 'ended') return { gone: true };
+    if (this.runner.stopped) return null;
+    if (record.state === 'waiting') {
+      const next = await this.change(hobkins => {
+        const current = hobkins[id];
+        if (current?.state !== 'waiting') return null;
+        Object.assign(current, { state: 'working', turns: current.turns + 1, run: turnRunId(id, current.turns + 1), waiting: null, count: randomUUID() });
+        return current;
+      });
+      if (!next) return null;
+      this.startTurn(next, text, from);
+      return { started: true, run: next.run };
+    }
+    try {
+      const { status } = await this.runner.messageCheck({ scheduleId: turnSchedule(id), runId: record.run, message: short }, { durable: true });
+      return { steered: status, run: record.run };
+    } catch (error) {
+      if (/not running|has finished/.test(error.message)) return null;
+      throw error;
+    }
+  }
+
   /** The binding of a turn about to start. A tier is read now, so a tier the user just changed is used at once. */
   binding(engine) {
     if (engine.kind === 'pi') return { harness: 'pi', model: engine.model, effort: engine.effort };
@@ -454,7 +487,8 @@ export class Hobkins {
       return this.runner.runHarness({
         ...this.processStart(record, { harness, model, effort }),
         id: harnessId,
-        prompt: from ? messageBlock(from, asked) : asked,
+        // A schedule's wake is its own block already (`scheduleWakeBlock`).
+        prompt: from && from.kind !== 'schedule' ? messageBlock(from, asked) : asked,
         ...images,
         ...(resume ? { resume } : {}),
         ...(Object.keys(claude).length ? { claude } : {}),

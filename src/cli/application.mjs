@@ -30,12 +30,15 @@ import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
 import { endSessionJob, resumeSessionJob, startKeptSession, startSessionJob, takeSessionRequests } from './session-jobs.mjs';
-import { WAITING } from './run-waits.mjs';
+import { MOST_WAITS, WAITING } from './run-waits.mjs';
 import { AgentScheduleRunner } from './agent-schedule-runner.mjs';
+import { scheduledText, scheduleWakeBlock } from './agent-schedules.mjs';
+import { isTurnRunId } from './hobkin-ids.mjs';
 import { tierBinding } from './tiers.mjs';
-import { failureKey, handOffBrief, hobkinsBrief, isQuietScheduledRun, isWakeBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
+import { agentSchedulesBrief, failureKey, handOffBrief, hobkinsBrief, isQuietScheduledRun, isWakeBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { Hobkins, hobkinSummaries } from './hobkins.mjs';
-import { tellRequests } from './hobkin-tell.mjs';
+import { answerRequest, takeRequests, tellRequests, turnToken } from './hobkin-tell.mjs';
+import { SCHEDULE_ENVIRONMENT, SCHEDULE_REQUESTS } from './agent-schedule-command.mjs';
 import { fileTemplateNews } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
@@ -153,6 +156,28 @@ const PENDING_LOOK_MS = 30000;
 const UNSEEN_MS = 10 * 60000;
 // A decision as the main agent reads it when the user talks it over: its summary, then the question and each choice in words.
 const aboutDecision = ({ tldr, question, choices }) => ({ title: tldr, body: [question, '', ...choices.map(({ label }) => `- ${label}`)].join('\n') });
+
+// What a schedule's wake may be (056-agent-schedules): as a hidden turn of the main chat, and as a message steered into
+// a working turn. A delivery that cannot reach its agent in this long is tried again later.
+const MAIN_WAKE_MOST = 32768;
+const STEER_MOST = 4096;
+const DELIVERY_WAIT_MS = 30000;
+
+const NOT_A_RUN = 'Nothing was done: that is not a run hobkin is running now. hobkin schedule works only from a run hobkin started, while it runs.';
+const NO_COMMANDS = 'This run\'s Claude Code permissions are not "all", so hobkin runs no command for it: a scheduled command would run without the prompt Claude Code would have shown. Schedule a plain wake instead, with no command, and look yourself when it wakes you.';
+
+/** Who a run's schedules belong to: a durable hobkin for its turn, the run itself for a session, and nobody else. */
+function scheduleOwnerOf(runId) {
+  if (isTurnRunId(runId)) return { kind: 'hobkin', id: runId.split(':')[1] };
+  return String(runId).startsWith('session:') ? { kind: 'run', id: runId } : null;
+}
+
+/** Whether `promise` settled true within `ms`. One that takes longer counts as not yet. */
+function within(promise, ms) {
+  let timer;
+  return Promise.race([promise, new Promise(resolve => { timer = setTimeout(() => resolve(false), ms); timer.unref(); })])
+    .finally(() => clearTimeout(timer));
+}
 
 /** The schedules agents keep, as the home holds them. One that cannot be read costs only the schedules: hobkin opens without them. */
 function openAgentSchedules(app) {
@@ -322,6 +347,8 @@ export class HobkinApplication {
       triggerSchedule: (...args) => app.runner.trigger(...args),
       messageCheck: request => app.runner.messageCheck(request),
       stopWorkload: request => app.stopWorkload(request),
+      // The main agent's own schedules, run in its folder (056-agent-schedules).
+      agentSchedules: app.scheduleHandler({ kind: 'main' }, app.config.main.cwd),
       editReport: (result, job) => editReport(result, { ...job, binding: app.config.background, runHarness }),
       pulses: app.pulses,
       onChange: activityOnly => app.requestRefresh(activityOnly),
@@ -444,11 +471,14 @@ export class HobkinApplication {
       // it had, so a start after a wait (`waits` on the request, 053-run-waits) has a root of its own beside its run's.
       const scopeId = admission && (request.waits > 0 ? `${admission.id}:after-wait:${request.waits}` : admission.id);
       const ownedScope = admission && app.runtime.ownedLifecycle.register({ id: scopeId, allowHelpers: false, binding: request, beforeSpawn: options?.beforeSpawn });
+      // A session run and a durable hobkin's turn keep schedules for themselves (056-agent-schedules).
+      const owner = admission && request.schedules === true ? scheduleOwnerOf(admission.id) : null;
+      const schedules = owner ? app.scheduleHandler(owner, request.cwd, { waits: request.waits }) : undefined;
       const cancel = () => { void ownedScope?.cancel(); };
       request.signal?.addEventListener('abort', cancel, { once: true });
       try {
         request.signal?.throwIfAborted();
-        return await run(request, { ...options, metricsRoot, ownedScope,
+        return await run(request, { ...options, metricsRoot, ownedScope, ...(schedules ? { schedules } : {}),
           onControl: child => { if (admission) app.runtime.bindHarness(admission.id, request.id, child); },
         });
       } finally {
@@ -1059,18 +1089,148 @@ export class HobkinApplication {
 
   /**
    * The schedules' second of the runtime's tick: those whose owner ended end with it, those whose lifetime passed end,
-   * and those due fire. A home with no live schedule reads nothing. Trouble here never stops the runtime's tick: it is
-   * kept for the next look and the tick goes on.
+   * those due fire, what `hobkin schedule` asked is answered, and what they found goes to their agents. A home with no
+   * live schedule, no wake and no run on Claude Code to answer reads nothing. Trouble here never stops the runtime's
+   * tick: it is kept for the next look and the tick goes on.
    */
   async tickAgentSchedules() {
-    if (!this.agentSchedules?.live()) return;
+    const asked = this.scheduleTokens?.size > 0;
+    if (!asked && !this.agentSchedules?.live() && !this.agentSchedules?.pending.length) return;
     try {
       const { runs } = await this.runner.runIndex();
+      if (asked) this.takeScheduleRequests(runs);
       this.agentSchedules.tick({ alive: owner => this.scheduleOwnerAlive(owner, runs) });
+      this.deliverScheduleWakes(runs);
       this.agentSchedulesError = null;
     } catch (error) {
       this.agentSchedulesError = String(error?.message ?? error);
     }
+  }
+
+  /**
+   * What an agent's schedule tools reach (056-agent-schedules): `make` and `manage` for its own schedules alone, their
+   * commands run in `cwd`, and `liveUntil`, when the last of them ends, so a run can wait on them. A run that has waited
+   * as often as one may cannot wait for a schedule, so it makes none.
+   */
+  scheduleHandler(owner, cwd, { waits } = {}) {
+    const schedules = () => {
+      if (!this.agentSchedules) throw Error('Schedules are not available here.');
+      return this.agentSchedules;
+    };
+    return {
+      make: params => {
+        if (owner.kind === 'run' && Number.isInteger(waits) && waits >= MOST_WAITS) {
+          throw Error(`This run has waited ${MOST_WAITS} times, the most one run may, so nothing could wake it for a schedule. Finish what you can now and end with your report.`);
+        }
+        const schedule = schedules().make(owner, cwd, params);
+        this.requestRefresh();
+        return { text: scheduledText(schedule, owner), schedule };
+      },
+      manage: params => {
+        const answer = schedules().manage(owner, params);
+        this.requestRefresh();
+        return { text: JSON.stringify(answer), ...answer };
+      },
+      liveUntil: () => this.agentSchedules?.liveUntil(owner) ?? null,
+    };
+  }
+
+  /**
+   * Delivers what schedules found, each to its own agent: a durable hobkin as a turn while it waits or a message into the
+   * turn it is on, and a running run as a message steered in. The main chat's wait for it to be free (`tickWakes`), and
+   * a waiting run's for a place to start in (`tickSessions`). A wake stays until it is delivered.
+   */
+  deliverScheduleWakes(runs) {
+    this.scheduleDeliveries ??= new Set();
+    const byOwner = new Map();
+    for (const wake of this.agentSchedules.wakes()) {
+      const key = JSON.stringify([wake.owner.kind, wake.owner.id ?? null]);
+      byOwner.set(key, [...(byOwner.get(key) ?? []), wake]);
+    }
+    for (const [key, wakes] of byOwner) {
+      const { owner } = wakes[0];
+      if (owner.kind === 'main' || this.scheduleDeliveries.has(key)) continue;
+      if (owner.kind === 'run' && runs[owner.id]?.status !== 'running') continue;
+      this.scheduleDeliveries.add(key);
+      const delivery = owner.kind === 'hobkin' ? this.wakeHobkin(owner.id, wakes) : this.steerRun(owner.id, wakes);
+      void within(delivery, DELIVERY_WAIT_MS)
+        .then(done => { if (done) this.agentSchedules.delivered(wakes.map(wake => wake.id)); })
+        .catch(() => {})
+        .finally(() => this.scheduleDeliveries.delete(key));
+    }
+  }
+
+  /** A durable hobkin hears its schedules: a turn of its own while it waits, the turn it is on while it works. */
+  async wakeHobkin(id, wakes) {
+    const from = { kind: 'schedule', id: wakes[0].scheduleId, title: wakes.length === 1 ? wakes[0].name : `${wakes.length} schedules` };
+    return Boolean(await this.hobkins.wake(id, { text: scheduleWakeBlock(wakes), short: scheduleWakeBlock(wakes, STEER_MOST), from }));
+  }
+
+  /** A running run hears its schedules in the turn it is on, as the main agent's message would reach it. */
+  async steerRun(id, wakes) {
+    const inbox = this.runner.inboxes.get(id);
+    if (!inbox) return false;
+    const send = await inbox.promise;
+    await send(scheduleWakeBlock(wakes));
+    return true;
+  }
+
+  /** What a waiting run's schedules found, for the start that wakes it: read as the start is admitted, and delivered then. */
+  scheduleWakeFor(runId) {
+    const owner = { kind: 'run', id: runId };
+    if (!this.agentSchedules?.wakesFor(owner).length) return undefined;
+    return () => {
+      const wakes = this.agentSchedules.wakesFor(owner);
+      if (!wakes.length) return undefined;
+      this.agentSchedules.delivered(wakes.map(wake => wake.id));
+      return scheduleWakeBlock(wakes);
+    };
+  }
+
+  /**
+   * The environment a run on Claude Code keeps its schedules with (`hobkin schedule`, 056-agent-schedules), for the host
+   * to start that run's process with: a token of the run's own and the home. `commands` says whether hobkin may run a
+   * command for it, which only a run whose Claude Code permissions are "all" may; any other may schedule plain wakes.
+   * Null for a run that keeps no schedules, such as a Work run or a routine. The token names the run only while it runs.
+   */
+  async agentScheduleEnvironment(harnessId, { commands = false } = {}) {
+    const { runs } = await this.runner.runIndex();
+    const run = Object.values(runs).find(item => item.harnessId === harnessId && item.status === 'running');
+    const owner = run && scheduleOwnerOf(run.id);
+    if (!owner) return null;
+    const { cwd, wait } = (await this.runtime.state()).runs[run.id] ?? {};
+    const token = turnToken();
+    (this.scheduleTokens ??= new Map()).set(token, { owner, runId: run.id, cwd, waits: owner.kind === 'run' ? wait?.waits ?? 0 : undefined, commands: commands === true });
+    return { [SCHEDULE_ENVIRONMENT.token]: token, [SCHEDULE_ENVIRONMENT.home]: this.runtime.directory };
+  }
+
+  /** What `hobkin schedule` asked from a run's shell, each answered once, as the run its token names. A token outlives no run. */
+  takeScheduleRequests(runs) {
+    for (const [token, entry] of this.scheduleTokens) if (runs[entry.runId]?.status !== 'running') this.scheduleTokens.delete(token);
+    for (const { id, request } of takeRequests(this.runtime.directory, SCHEDULE_REQUESTS)) {
+      let answer;
+      try {
+        answer = { ok: true, value: this.fromScheduleCommand(request) };
+      } catch (error) {
+        answer = { ok: false, error: String(error?.message ?? error) };
+      }
+      try {
+        answerRequest(this.runtime.directory, SCHEDULE_REQUESTS, id, answer);
+      } catch {
+        // The command then says hobkin did not answer.
+      }
+    }
+  }
+
+  fromScheduleCommand(request) {
+    const entry = typeof request?.token === 'string' ? this.scheduleTokens.get(request.token) : undefined;
+    if (!entry) throw Error(NOT_A_RUN);
+    const handler = this.scheduleHandler(entry.owner, entry.cwd, { waits: entry.waits });
+    if (request.action === 'make') {
+      if (!entry.commands && request.params?.command !== undefined) throw Error(NO_COMMANDS);
+      return handler.make(request.params);
+    }
+    return handler.manage({ action: request.action, ...(request.id === undefined ? {} : { id: request.id }) });
   }
 
   /** The main chat lives as long as hobkin does, a durable hobkin until it is ended, and a run while it runs or waits. */
@@ -1342,6 +1502,15 @@ export class HobkinApplication {
       return this.runtime.send(hobkinsBrief(waits), this.hobkins.mainTurnFor(waits)).then(() => this.hobkins.told(waits))
         .catch(() => { this.hobkinWakeAfter = this.now() + HOBKIN_WAKE_RETRY_MS; }).finally(() => { this.waking = false; });
     }
+    // What the main agent's own schedules found, as soon as it is free (056-agent-schedules). One that does not go, as
+    // with a sign-in that ran out, is tried again after five minutes.
+    const scheduled = this.now() >= (this.scheduleWakeAfter ?? 0) ? this.agentSchedules?.wakesFor({ kind: 'main' }) ?? [] : [];
+    if (scheduled.length) {
+      this.waking = true;
+      return this.runtime.send(agentSchedulesBrief(scheduled, MAIN_WAKE_MOST)).then(() => this.agentSchedules.delivered(scheduled.map(wake => wake.id)))
+        .catch(error => { if (error?.message !== MAIN_BUSY) this.scheduleWakeAfter = this.now() + HOBKIN_WAKE_RETRY_MS; })
+        .finally(() => { this.waking = false; });
+    }
     const failures = this.untoldFailures();
     if (!failures.length) return;
     for (const failure of failures) this.failuresTold.add(failureKey(failure));
@@ -1372,7 +1541,7 @@ export class HobkinApplication {
       };
       const waiting = capacity > 0 && Object.values(index.runs).some(run => run.status === WAITING);
       for (const run of waiting ? (await this.sessionsDue()).slice(0, capacity) : []) {
-        track(resumeSessionJob({ root, runner: this.runner, now: this.now() }, run));
+        track(resumeSessionJob({ root, runner: this.runner, now: this.now() }, run, this.scheduleWakeFor(run.id)));
         capacity--;
       }
       const requests = takeSessionRequests(root, capacity);
@@ -1392,11 +1561,15 @@ export class HobkinApplication {
     }).then(jobs => Promise.all(jobs));
   }
 
-  /** Sessions that wait and whose time has come, earliest first. Read whole, so it is asked only while a run waits. */
+  /**
+   * Sessions that wait and whose time has come, or that their schedules woke (056-agent-schedules), earliest first. Read
+   * whole, so it is asked only while a run waits.
+   */
   async sessionsDue() {
     const now = this.now();
+    const woken = new Set((this.agentSchedules?.wakes() ?? []).filter(wake => wake.owner.kind === 'run').map(wake => wake.owner.id));
     return Object.values((await this.runtime.state()).runs)
-      .filter(run => run.status === WAITING && run.session && Date.parse(run.wait?.until) <= now)
+      .filter(run => run.status === WAITING && run.session && (Date.parse(run.wait?.until) <= now || woken.has(run.id)))
       .toSorted((a, b) => Date.parse(a.wait.until) - Date.parse(b.wait.until));
   }
 
@@ -1760,6 +1933,8 @@ export class HobkinApplication {
 
   async reset() {
     const result = await this.runtime.reset();
+    // The main chat's schedules end with its conversation (056-agent-schedules).
+    this.agentSchedules?.endOwner({ kind: 'main' }, 'the chat was reset');
     this.workNoteSeen = null;
     await this.refreshing?.catch(() => {});
     clearTimeout(this.refreshTimer);

@@ -7,6 +7,7 @@ import { MAX_MESSAGE_BYTES } from './runtime.mjs';
 import { markPosted, recordSessionEnd } from './session-log.mjs';
 import { tierNames } from './tiers.mjs';
 import { resumeNote, WAITING } from './run-waits.mjs';
+import { SCHEDULES_GONE } from './agent-schedules.mjs';
 
 const NAME = /^hobkin-[a-z0-9-]{1,20}-[0-9a-f]{4}$/;
 
@@ -91,6 +92,8 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
       prompt: prompt(),
       sessionFile: join(root, 'jobs', `${request.harnessId}.jsonl`),
       waits,
+      // Its agent keeps schedules for itself, and waits on them as on a wait (056-agent-schedules).
+      schedules: true,
       signal,
     }, { onEvent: event => runner.onActivity(request.id, event), onReady: send => inbox.resolve(send) });
   }, () => { admitted = true; }, { resume });
@@ -131,13 +134,14 @@ export function startSessionJob({ root, runner, model, effort, tier }, session) 
 /**
  * Starts again a session's run that waited and whose time has come (053-run-waits): the same run, harness and session
  * file, on the model and effort it last had, told its note and how long it has been. Its record keeps what the
- * session's end needs (`session`).
+ * session's end needs (`session`). A run its schedules woke is told what they found instead (`woken`, read as the
+ * start is admitted), and one that waited on schedules that all ended without a word is told so (056-agent-schedules).
  */
-export function resumeSessionJob({ root, runner, now }, run) {
+export function resumeSessionJob({ root, runner, now }, run, woken) {
   const { id, kind, scheduleId, title, model, effort, tier, cwd, harnessId, session, wait } = run;
   const request = { id, kind, scheduleId, title, harness: 'pi', model, effort, ...(tier ? { tier } : {}), cwd, harnessId, session };
   return runSessionJob({ root, runner }, request, session, {
-    prompt: () => resumeNote(wait, now),
+    prompt: () => woken?.() ?? (wait.schedules ? SCHEDULES_GONE : resumeNote(wait, now)),
     waits: wait.waits,
     resume: true,
   });

@@ -1,3 +1,5 @@
+import { fittedWakes } from './agent-schedules.mjs';
+
 // Turns hobkin starts for the main agent by itself. The user did not write them and Chat does not show them: the agent's answer is what they see.
 const OPENING = '<hobkin-wake>';
 const MOST_TOLD = 5;
@@ -9,6 +11,12 @@ const brief = details => `${OPENING}\n${JSON.stringify(details).replaceAll('</',
 
 /** Sessions the agent asked with `--wake` to hear about, told as the next message would have told them. */
 export const sessionsBrief = sessions => brief({ sessions });
+
+/**
+ * What the main agent's own schedules found (056-agent-schedules), each as `wakeForAgent` gives it, cut to fit `most`
+ * characters: each output loses its start before anything else goes.
+ */
+export const agentSchedulesBrief = (wakes, most) => fittedWakes(wakes, schedules => brief({ schedules }), most);
 
 /** Commands the agent scheduled that failed, for it to fix or cancel. */
 export const scheduledBrief = failures => brief({ scheduled: failures.slice(0, MOST_TOLD) });

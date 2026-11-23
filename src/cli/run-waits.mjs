@@ -90,7 +90,8 @@ export function resumeNote(wait, now) {
  */
 export function piWaitNote(tools, canWait) {
   const instead = canWait
-    ? 'Then, to carry on at a time, call hobkin_wait with the minutes or a clock time and a note of what to do then, and end your turn saying you are waiting. If nothing needs to wait, finish now with your report.'
+    ? 'Then, to carry on at a time, call hobkin_wait with the minutes or a clock time and a note of what to do then, and end your turn saying you are waiting. '
+      + 'To watch something a command can check, such as CI, use hobkin_schedule instead when you have it, and end your turn. If nothing needs to wait, finish now with your report.'
     : `This run cannot wait, so ${FINISH}.`;
   return `You stopped on ${tools.join(' and ')}. Pi's own waits live inside this Pi process, `
     + 'and hobkin closes that process when your turn ends, so nothing would wake you. '
