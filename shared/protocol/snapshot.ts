@@ -207,6 +207,11 @@ export interface WireSnapshot {
   completedJobReports?: Record<string, { id: string; title: string; body: string; outcome: string; scheduleId?: string; at?: string } | null>
   /** Bounded note receipts by exact run: Pi admitted the marked user message into a turn. No message bodies. */
   steeringReceipts?: Record<string, readonly { noteId: string; at: number }[]>
+  /**
+   * What the user sent that hobkin's model never read before hobkin closed or crashed, as they typed it, for the input (014-continuity
+   * A11). The window puts each id back once. Missing when there is none, and on an older hobkin.
+   */
+  unread?: readonly { id: string; text: string }[]
   /** Each run's spawned agents, by run id, only for runs that spawned any. It travels whole, and the host keeps ended runs. */
   jobChildren?: Record<string, readonly RunChild[]>
   /** Main chat's bounded descendants. Owned lifecycle states are independent of legacy teams reports. */

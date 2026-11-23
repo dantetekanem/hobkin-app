@@ -278,6 +278,16 @@ const stopSettling = screenStore.subscribe(() => {
 })
 import.meta.hot?.dispose(stopSettling)
 
+// What hobkin kept of the words its model never read before it closed or crashed goes into the input once hobkin is open, each once.
+const stopReturning = hostStore.subscribe((state, before) => {
+  const words = state.snapshot.unread
+  if (!isLive(state) || !Array.isArray(words) || (words === before.snapshot.unread && isLive(before))) return
+  const { draft } = useChat.getState()
+  const next = draftReducer(draft, { type: 'returned', words })
+  if (next !== draft) useChat.setState({ draft: next })
+})
+import.meta.hot?.dispose(stopReturning)
+
 // The commands are asked for each time hobkin opens.
 let wasLive = false
 const stopCommands = hostStore.subscribe((state) => {

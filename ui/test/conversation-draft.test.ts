@@ -111,6 +111,18 @@ test('up in an empty message walks back through what the user sent', () => {
   assert.deepEqual(after(emptyDraft, ...write('Again'), ...write('Again')).sent, ['Again'])
 })
 
+test('what hobkin kept of the words it never read goes ahead of the draft once, and a reload does not add it again', () => {
+  const words = [{ id: 'u1', text: 'Check the budget' }, { id: 'u2', text: 'And the taxes' }]
+  const back = after({ ...emptyDraft, text: 'half a thought' }, { type: 'returned', words })
+  assert.equal(back.text, 'Check the budget\n\nAnd the taxes\n\nhalf a thought')
+
+  const reloaded: DraftState = { ...emptyDraft, ...JSON.parse(JSON.stringify(storedDraft(back))) }
+  assert.equal(after(reloaded, { type: 'returned', words }), reloaded)
+
+  const later = after(reloaded, { type: 'returned', words: [...words, { id: 'u3', text: 'Then the rent' }] })
+  assert.equal(later.text, `Then the rent\n\n${back.text}`)
+})
+
 test('what hobkin never read returns to the input, and what it stored leaves the outbox', () => {
   assert.equal(draftAfterStop(['Only weekdays', 'And skip Friday'], 'half a thought'), 'Only weekdays\n\nAnd skip Friday\n\nhalf a thought')
   assert.equal(draftAfterStop([], 'half a thought'), 'half a thought')

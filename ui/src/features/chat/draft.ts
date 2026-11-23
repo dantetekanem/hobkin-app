@@ -40,6 +40,8 @@ export interface DraftState {
   sent: readonly string[]
   /** Which sent message Up brought back, counted from the newest, or null when the text is the user's own. */
   recalled: number | null
+  /** The ids of what hobkin kept of the user's words that were put back in the input, so each comes back once. */
+  returned?: readonly string[]
 }
 
 export type DraftAction =
@@ -63,12 +65,15 @@ export type DraftAction =
   | { type: 'restored'; text: string; attachments: readonly Attachment[] }
   /** A stop returned what hobkin had not read. */
   | { type: 'stopped'; unsent: readonly string[] }
+  /** What hobkin kept of the words it never read before it closed or crashed. */
+  | { type: 'returned'; words: readonly { id: string; text: string }[] }
   | { type: 'recalled'; direction: 'older' | 'newer' }
 
 export const emptyDraft: DraftState = { text: '', attachments: [], kept: [], from: null, place: 'input', leaving: false, sent: [], recalled: null }
 
 const MOST_REMEMBERED = 50
 const MOST_KEPT = 50
+const MOST_RETURNED = 100
 
 const hasDraft = ({ text, attachments }: Pick<DraftState, 'text' | 'attachments'>) => text.trim().length > 0 || attachments.length > 0
 const withUploadHandle = (attachments: readonly Attachment[], id: string, handle: string) =>
@@ -95,9 +100,17 @@ const keep = (state: DraftState, at: number, id: string): DraftState => ({
   recalled: null,
 })
 
-/** What of the draft survives a reload: the words, what was sent, and the kept drafts without their images. */
-export function storedDraft({ text, sent, kept, from }: DraftState): Pick<DraftState, 'text' | 'sent' | 'kept' | 'from'> {
-  return { text, sent, kept: kept.map((entry) => ({ ...entry, attachments: [] })), from }
+/** What of the draft survives a reload: the words, what was sent, the kept drafts without their images, and what came back once. */
+export function storedDraft({ text, sent, kept, from, returned }: DraftState): Pick<DraftState, 'text' | 'sent' | 'kept' | 'from' | 'returned'> {
+  return { text, sent, kept: kept.map((entry) => ({ ...entry, attachments: [] })), from, ...(returned?.length ? { returned } : {}) }
+}
+
+/** The words not put back yet go ahead of what is being typed, as after a stop. */
+function returnWords(state: DraftState, words: readonly { id: string; text: string }[]): DraftState {
+  const fresh = words.filter((word) => typeof word?.id === 'string' && typeof word.text === 'string' && !state.returned?.includes(word.id))
+  if (!fresh.length) return state
+  const returned = [...(state.returned ?? []), ...fresh.map(({ id }) => id)].slice(-MOST_RETURNED)
+  return { ...state, text: draftAfterStop(fresh.map(({ text }) => text), state.text), recalled: null, returned }
 }
 
 const midnight = (at: number) => {
@@ -180,6 +193,8 @@ export function draftReducer(state: DraftState, action: DraftAction): DraftState
       return hasDraft(state) ? state : { ...state, text: action.text, attachments: action.attachments }
     case 'stopped':
       return { ...state, text: draftAfterStop(action.unsent, state.text), recalled: null }
+    case 'returned':
+      return returnWords(state, action.words)
     case 'recalled':
       return recall(state, action.direction)
   }
