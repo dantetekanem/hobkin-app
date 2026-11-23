@@ -114,14 +114,19 @@ const both = (path: string, opener: string, baseOpener = opener) => [block(path,
 const CODE: Draft[] = [
   {
     id: 'u1', kind: 'code', path: HELPER, title: 'link_user_tags', change: 'modified', level: 'high', unit: 'u1',
-    lifecycle: { role: 'changed', hops: 3, path: 'GET /posts/:id → PostsController#show → render_body → link_user_tags' },
+    lifecycle: {
+      role: 'changed',
+      hops: 3,
+      path: 'GET /posts/:id → PostsController#show → render_body → link_user_tags',
+      origin: { kind: 'route', label: 'GET /posts/:id', exact: true, chain: ['c5', 'c2', 'c1'], more: 2 },
+    },
     ranges: both(HELPER, 'def link_user_tags'),
     summary: 'Links every @handle in a post body, dots and dashes too, after one lookup for all the users it names.',
     io: { in: 'a post body as HTML', out: 'the HTML with user tags linked' },
   },
   {
     id: 'u2', kind: 'code', path: SCRIPT, title: 'fetch_errors', change: 'added', level: 'mid', unit: 'u2',
-    lifecycle: { role: 'changed', hops: 0, path: 'No route reaches it within 4 calls: a script someone runs by hand' },
+    lifecycle: { role: 'changed', hops: 0, path: 'No route reaches it within 4 calls: a script someone runs by hand', none: 'no-callers' },
     ranges: [block(SCRIPT, 'added', 'def fetch_errors')],
     summary: 'Asks the production monitor for the errors since a time, with the token in ERRORS_TOKEN.',
     io: { in: 'a time', out: 'the errors, read from JSON' },
