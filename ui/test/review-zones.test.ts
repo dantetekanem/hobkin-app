@@ -167,3 +167,20 @@ test("J and K move to the next and the previous zone, on its first node that nee
   assert.equal(keyOwner({ ...heard, key: 'k' }, true), 'proof')
   assert.equal(keyOwner(heard, false), 'review')
 })
+
+test('however many small zones join Other parts, there is one of it, and the zones of acceptance lines keep their own', () => {
+  const nodes: ReviewNode[] = [
+    ...Array.from({ length: 16 }, (_, index) => codeAt(`n${index}`, `area${index}/thing.rb`)),
+    // Acceptance lines with no path, as a host may send them, and a node with no path that joins Other parts.
+    { ...codeAt('A1', ''), kind: 'criterion', change: 'unchanged' },
+    { ...codeAt('A2', ''), kind: 'criterion', change: 'unchanged' },
+    codeAt('loose', ''),
+  ]
+  const review = { nodes, edges: [] }
+  const { zones, zoneOf } = zonesOf(review, alone(review))
+  assert.ok(zones.length <= MAX_ZONES)
+  assert.equal(new Set(zones.map((zone) => zone.id)).size, zones.length, 'every zone once')
+  assert.equal(zones.filter((zone) => zone.label === 'Other parts').length, 1)
+  assert.equal(zones.find((zone) => zone.id === zoneOf.A1)!.label, 'Acceptance lines')
+  assert.equal(zones.find((zone) => zone.id === zoneOf.loose)!.label, 'Other parts')
+})

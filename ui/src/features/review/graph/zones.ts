@@ -59,6 +59,8 @@ export interface DrawnNode {
 }
 
 const OTHER: ReviewZone = { id: '-/other/other', layer: 'other', subject: 'other', label: 'Other parts' }
+/** Where acceptance lines with no path stand: a spec's zone of its own. */
+const LINES: ReviewZone = { id: '-/_specs/acceptance', layer: '_specs', subject: 'acceptance', label: 'Acceptance lines' }
 const isTestLayer = (layer: string) => layer.startsWith('test:')
 
 /** Each node of the review to its zone, and the zones in order: the host's first, then those named from paths. */
@@ -73,8 +75,9 @@ function baseZones(review: Pick<Review, 'nodes' | 'edges' | 'zones'>): { zones: 
     const namedOf = new Map(named.nodes.map((node) => [node.id, node.zone]))
     const wanted = new Set(missing.map((node) => namedOf.get(node.id)).filter((id): id is string => id != null))
     for (const zone of named.zones) if (wanted.has(zone.id) && !given.has(zone.id)) zones.push(zone)
-    for (const node of missing) zoneOf.set(node.id, namedOf.get(node.id) ?? OTHER.id)
-    if (missing.some((node) => namedOf.get(node.id) == null)) zones.push(OTHER)
+    const unnamed = (node: ReviewNode) => (node.kind === 'criterion' ? LINES : OTHER)
+    for (const node of missing) zoneOf.set(node.id, namedOf.get(node.id) ?? unnamed(node).id)
+    for (const zone of [LINES, OTHER]) if (missing.some((node) => namedOf.get(node.id) == null && unnamed(node) === zone)) zones.push(zone)
   }
   return { zones, zoneOf }
 }
@@ -83,7 +86,7 @@ interface Building {
   zone: ReviewZone
   subjects: number
   members: string[]
-  /** It holds where a request enters, or a part that needs the reviewer: it is the last to join "Other parts". */
+  /** It holds where a request enters, an acceptance line or a part that needs the reviewer: the last to join "Other parts". */
   kept?: boolean
 }
 
@@ -96,7 +99,7 @@ function layerLabel(zone: ReviewZone): string {
 /**
  * Past the most zones, a layer's zones merge into one, the smallest layer first (by how many drawn nodes its zones hold,
  * the later on a tie), until few enough are left. When no layer has two zones, the smallest zones join "Other parts",
- * those that hold where a request enters or a part that needs the reviewer last.
+ * those that hold where a request enters, an acceptance line or a part that needs the reviewer last.
  */
 function merged(zones: readonly Building[]): Building[] {
   let list = [...zones]
@@ -114,10 +117,11 @@ function merged(zones: readonly Building[]): Building[] {
       list = list.flatMap((entry) => (entry === first ? [into] : smallest.includes(entry) ? [] : [entry]))
       continue
     }
-    // No layer has two zones left: the smallest join "Other parts", at the end.
-    const order = [...list].sort((a, b) => Number(a.kept ?? false) - Number(b.kept ?? false) || a.members.length - b.members.length || list.indexOf(b) - list.indexOf(a))
-    const joining = order.slice(0, list.length - MAX_ZONES + 1)
-    const other: Building = { zone: OTHER, subjects: joining.reduce((sum, entry) => sum + entry.subjects, 0), members: joining.flatMap((entry) => entry.members) }
+    // No layer has two zones left: the smallest join "Other parts", at the end, one zone however many join it.
+    const before = list.find((entry) => entry.zone.id === OTHER.id)
+    const order = [...list].filter((entry) => entry !== before).sort((a, b) => Number(a.kept ?? false) - Number(b.kept ?? false) || a.members.length - b.members.length || list.indexOf(b) - list.indexOf(a))
+    const joining = [...(before ? [before] : []), ...order.slice(0, list.length - MAX_ZONES + (before ? 0 : 1))]
+    const other: Building = { zone: OTHER, subjects: joining.reduce((sum, entry) => sum + entry.subjects, 0), members: joining.flatMap((entry) => entry.members), kept: joining.some((entry) => entry.kept) }
     list = [...list.filter((entry) => !joining.includes(entry)), other]
   }
   return list
@@ -157,7 +161,7 @@ export function zonesOf(review: Pick<Review, 'nodes' | 'edges' | 'zones'>, drawn
     const entry = building.get(zoneOfDrawn.get(node.id)!)
     if (!entry) continue
     entry.members.push(node.id)
-    if (node.of.some((id) => nodeOf.get(id)?.entry != null || nodeOf.get(id)?.attention?.tier === 'needs-you')) entry.kept = true
+    if (node.of.some((id) => nodeOf.get(id)?.entry != null || nodeOf.get(id)?.kind === 'criterion' || nodeOf.get(id)?.attention?.tier === 'needs-you')) entry.kept = true
   }
   const present = [...building.values()].filter((entry) => entry.members.length > 0 && known.has(entry.zone.id))
 
