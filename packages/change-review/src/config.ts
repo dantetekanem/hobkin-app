@@ -101,6 +101,11 @@ export function isEntryPath(path: string, config: ReviewConfig = DEFAULT_CONFIG)
   return anyMatch(Object.values(config.entry), path)
 }
 
+/** The name of the first entry rule the path matches, such as `controller` or `handler`: what kind of entry its path makes it. */
+export function entryKindOf(path: string, config: ReviewConfig = DEFAULT_CONFIG): string | undefined {
+  return Object.entries(config.entry).find(([, pattern]) => rx(pattern).test(path))?.[0]
+}
+
 /** The path is a test that goes through the request life cycle, not a unit test. */
 export function isLifecycleTestPath(path: string, config: ReviewConfig = DEFAULT_CONFIG): boolean {
   return anyMatch(config.lifecycleTests, path)

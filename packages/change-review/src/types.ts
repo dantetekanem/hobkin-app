@@ -532,6 +532,8 @@ export interface Origin {
   exact: boolean
   /** `scan`: the search tool says work enters there; `path`: its path is where work enters, by the project's layout. */
   by: 'scan' | 'path'
+  /** Its definition's name: the changed part's own when the part is the origin. */
+  symbol: string
   route?: { verbs: string[]; path: string }
   /** The origin first, the changed part's direct caller last; empty when the part is itself the origin. */
   chain: OriginStep[]

@@ -12,14 +12,15 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { join } from 'node:path'
 import { deployAnswer, type DeployAnswer } from './answer.ts'
 import { blindActions, runBlindCheck } from './blind.ts'
-import { DEFAULT_CONFIG, isEntryPath, isLifecycleTestPath, isNotRequestPath, rx, type ReviewConfig } from './config.ts'
+import { DEFAULT_CONFIG, entryKindOf, isLifecycleTestPath, isNotRequestPath, rx, type ReviewConfig } from './config.ts'
 import { changesCode, curate, type Layout, NOT_MAPPED, standsAloneIn } from './curate.ts'
-import { type EntriesSearch, type EntryAbove, searchEntriesAbove } from './entries.ts'
+import { type EntriesOutcome, type EntriesSearch, type EntryAbove, searchEntriesAbove } from './entries.ts'
 import { type EntryTestSearch, type EntryTestsOutcome, searchEntryTests } from './entrytests.ts'
 import { deriveFacts, goneAtHead, guardsPutOn, type CallerSite } from './facts.ts'
 import { gitRepo } from './git.ts'
 import { type ContextEntry, readReviewAnswer, reviewRequest } from './model.ts'
 import { applyModelChecks } from './model-checks.ts'
+import { packOrigins, runsFromOf, walkOrigin } from './origins.ts'
 import { progressFiles, trackProgress } from './progress.ts'
 import { candidateTests, detectRunbooks, runProof, type ProofRequest, type ProofResult, type RunbookOverride, type TestCandidate } from './proof.ts'
 import { addedParts, carryWords, reshapeMap } from './reshape.ts'
@@ -27,6 +28,7 @@ import { applyRiskEvents, type RejectedEvent } from './risk.ts'
 import { runScan, type ScanOutcome, type ScanRequest } from './scan.ts'
 import { renderStory } from './story.ts'
 import { checkBuckets, triage as triageOf } from './triage.ts'
+import { zoneOf } from './zones.ts'
 import type {
   BlindAction,
   BlindCheck,
@@ -37,15 +39,18 @@ import type {
   GraphEdge,
   ModelCheck,
   ModelRunner,
+  Origin,
   Progress,
   ReviewNode,
   RiskEvent,
+  RunsFrom,
   Scan,
   ScanAnchor,
   StepId,
   StoryWords,
   Triage,
   Units,
+  Zone,
 } from './types.ts'
 
 export interface ReviewChangeOptions {
@@ -130,8 +135,6 @@ const DOUBLE_PATTERNS = [
   'jest\\.mock\\(',
 ]
 
-/** How far up the call graph the review looks for the entry points above a node. */
-const ENTRY_HOPS = 4
 /** The most entry points above one node whose tests are looked for, the nearest first, and the most life-cycle test files run for it. */
 const MOST_ENTRIES = 4
 const MOST_FLOW_FILES = 6
@@ -322,28 +325,46 @@ function changedExcerpt(diffs: readonly FileDiff[], node: Pick<ReviewNode, 'path
     .join('\n…\n')
 }
 
-/** Entry points above a node: walk the callers up to a few hops and keep those whose path is an entry. */
-function entriesOf(scan: Scan, anchor: ScanAnchor, config: ReviewConfig): string[] {
-  const entries = new Set<string>()
-  // Once: an entry point the tool named keeps its kind, and the path rule adds only one it did not name.
-  if (anchor.entry) entries.add(`${anchor.symbol} (${anchor.entry.kind})`)
-  else if (isEntryPath(anchor.path, config)) entries.add(anchor.symbol)
-  let frontier = [anchor.id]
-  const seen = new Set(frontier)
-  for (let hop = 0; hop < ENTRY_HOPS && frontier.length; hop += 1) {
-    const next: string[] = []
-    for (const id of frontier) {
-      for (const edge of scan.edges) {
-        if (edge.relationship !== 'called_by' || edge.to !== id || seen.has(edge.from) || edge.note === 'test') continue
-        seen.add(edge.from)
-        next.push(edge.from)
-        const caller = scan.nodes[edge.from]
-        if (caller && isEntryPath(caller.path, config)) entries.add(caller.symbol)
-      }
-    }
-    frontier = next
+/** The entry points a node sits under, by name, from its origins: the node itself with the kind the scan gave it. */
+const entryNames = (origins: readonly Origin[]) => [...new Set(origins.map((origin) => (origin.hops === 0 && origin.by === 'scan' ? `${origin.symbol} (${origin.kind})` : origin.symbol)))]
+
+/** Why no caller of a part was looked for, when none was: what it is says so. */
+function notLookedFor(node: ReviewNode): RunsFrom | null {
+  const why = (text: string): RunsFrom => ({ found: 'not-looked', why: text })
+  if (node.kind === 'test') return why('A test: the test runner runs it.')
+  if (node.change === 'removed') return why('It is removed, so nothing is left to call.')
+  if (node.findings.some((finding) => finding.rule === NOT_MAPPED)) return why('It was read from the diff with no map, so what calls it was not looked for.')
+  if (node.extras.typeOnly) return why('A type: the compiler checks it and nothing runs it.')
+  if (node.kind === 'general') return why('It takes effect when its file loads, so what calls it was not looked for.')
+  if (node.facts.effect.value === 'text') return why('Only comments or blank lines changed, so what calls it was not looked for.')
+  return null
+}
+
+/** Each step of a way that is a changed part names that part's node, so the way can be followed on the graph. */
+function linkSteps(runsFrom: RunsFrom, nodes: readonly ReviewNode[]): RunsFrom {
+  if (runsFrom.found !== 'origins') return runsFrom
+  const at = new Map(nodes.map((node) => [`${node.path}:${node.lines[0]}`, node.id]))
+  const origins = runsFrom.origins.map((origin) => ({
+    ...origin,
+    chain: origin.chain.map((step) => {
+      const node = at.get(`${step.path}:${step.line}`)
+      return node ? { ...step, node } : step
+    }),
+  }))
+  return { ...runsFrom, origins }
+}
+
+/** The zones the nodes name, each once, in the order the nodes first name them, with the Reviewer's names. */
+function zonesOf(nodes: readonly ReviewNode[], told: ReadonlyMap<string, string>): Zone[] {
+  const zones = new Map<string, Zone>()
+  for (const node of nodes) {
+    const zone = zoneOf(node.path, node.kind === 'test' ? 'test' : undefined)
+    node.zone ??= zone.id
+    if (zones.has(node.zone)) continue
+    const name = told.get(node.zone)
+    zones.set(node.zone, node.zone === zone.id ? { ...zone, ...(name ? { told: name } : {}) } : { id: node.zone, layer: '', subject: '', label: node.zone })
   }
-  return [...entries]
+  return [...zones.values()]
 }
 
 /**
@@ -446,7 +467,11 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const bucketOf = (path: string) => triage.buckets.find((bucket) => bucket.paths.includes(path))?.id
   const testFiles = new Set(triage.buckets.filter((bucket) => bucket.kind === 'test').flatMap((bucket) => bucket.paths))
   const nodes: ReviewNode[] = []
+  const entryKind = (path: string) => entryKindOf(path, config)
+  /** What the diff's own pack shows of where each definition runs from. */
+  const inPack = new Map<string, ReturnType<typeof packOrigins>>()
   for (const anchor of scan.anchors.filter((item) => mapped.has(item.path))) {
+    inPack.set(anchor.id, packOrigins(scan, anchor, entryKind))
     const atHead = await linesAt(head, anchor.path)
     const derived = deriveFacts({
       anchor,
@@ -471,7 +496,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       change,
       changed_lines: anchor.changedLines,
       ...(anchor.language ? { language: anchor.language } : {}),
-      entries: entriesOf(scan, anchor, config),
+      entries: entryNames(inPack.get(anchor.id)!.origins),
       facts: { ...derived.facts, proof: { value: 'unknown', evidence: 'tests have not run yet' } },
       extras: isTypeOnly(anchor) ? { ...derived.extras, typeOnly: true } : derived.extras,
       conditions: derived.conditions,
@@ -505,6 +530,8 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   })
   /** The test runs, once proof has run. */
   let tested: Pick<Graph, 'runs' | 'not_run'> = {}
+  /** The Reviewer's names for zones, by id. */
+  const zoneNames = new Map<string, string>()
   const graphOf = (list: ReviewNode[]): Graph => ({
     schema: 'review-graph/1',
     range: triage.range,
@@ -514,6 +541,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     edges,
     coverage: { truncated: scan.coverage.truncated, notes: scan.coverage.notes },
     ...tested,
+    zones: zonesOf(list, zoneNames),
   })
   save('graph.json', graphOf(nodes))
 
@@ -558,25 +586,51 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   // The entry points above each definition: the callers the scan lists, followed a call at a time to where a request
   // enters. A caller that is an entry point already is one; the others are where the walk starts.
   const above: Record<string, EntryAbove[]> = {}
+  let stops: EntriesOutcome['stops'] = {}
   const walk = options.entriesAbove ?? (options.scan ? null : searchEntriesAbove)
+  // A caller the scan names as an entry is an origin already; the others are where the walk starts.
   const starts = provable.flatMap((node) => {
     const anchor = scan.anchors.find((item) => item.id === node.id)
-    const callers = (anchor?.callSites ?? []).filter((site) => !site.entry).map(({ path, line }) => ({ path, line }))
+    const callers = (anchor?.callSites ?? [])
+      .filter((site) => !site.entry && !scan.nodes[site.id]?.entry)
+      .map(({ path, line, enqueue, guards }) => ({ path, line, ...(enqueue ? { enqueue } : {}), ...(guards.length ? { guard: guards.at(-1)!.text } : {}) }))
     return anchor && !anchor.entry && callers.length ? [{ id: node.id, callers }] : []
   })
+  const walkedFrom = new Set<string>()
   if (walk && starts.length) {
     tracker.tick('map-proof', 0, `map-proof: following the callers of ${starts.length} changed ${starts.length === 1 ? 'definition' : 'definitions'} up to where a request enters`)
-    const walked = await attempt(() => walk({ cwd, starts, isEntry: (path) => isEntryPath(path, config), signal }))
+    const walked = await attempt(() => walk({ cwd, starts, isEntry: entryKind, signal }))
     halt('map-proof')
     if ('failed' in walked) problems.push(`The search for entry points failed: ${walked.failed}. Request tests above the changed definitions are not among the candidates.`)
     else {
       Object.assign(above, walked.value.entries)
+      stops = walked.value.stops ?? {}
+      for (const start of starts) walkedFrom.add(start.id)
       problems.push(...walked.value.notes.map((note) => `Entry points: ${note}`))
     }
   }
+  // Where each part runs from: the origins the pack and the walk found, or why there are none.
+  for (const node of nodes) {
+    const anchor = scan.anchors.find((item) => item.id === node.id)
+    const pack = inPack.get(node.id)
+    const walkedOrigins = (above[node.id] ?? []).map(walkOrigin)
+    const origins = [...(pack?.origins ?? []), ...walkedOrigins.sort((a, b) => a.hops - b.hops)]
+    if (origins.length) node.entries = entryNames(origins)
+    const skipped = origins.length ? null : notLookedFor(node)
+    const runsFrom =
+      skipped ??
+      runsFromOf({
+        origins,
+        looked: pack?.hops ?? 0,
+        callers: anchor ? callersOf(scan, anchor, config).length : 0,
+        testCallers: anchor?.testCallers ?? 0,
+        listed: Boolean(anchor?.callers || anchor?.callSites),
+        ...(walkedFrom.has(node.id) ? { walked: { ...(stops[node.id] ? { stop: stops[node.id] } : {}) } } : {}),
+      })
+    node.runs_from = linkSteps(runsFrom, nodes)
+  }
   for (const node of provable) {
     const found = [...(above[node.id] ?? [])].sort((a, b) => a.hops - b.hops).map((entry) => entry.symbol)
-    for (const symbol of found) if (!node.entries.some((entry) => entry === symbol || entry.startsWith(`${symbol} (`))) node.entries.push(symbol)
     candidates[node.id] = await candidateTests({
       node,
       scan,
@@ -597,7 +651,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
         if (have) {
           have.lifecycle = true
           if (!have.why.includes(why)) have.why = `${have.why}; ${why}`
-        } else candidates[node.id]!.push({ path: hit.path, why, lifecycle: true, changed: changedTests.includes(hit.path) })
+        } else candidates[node.id]!.push({ path: hit.path, why, lifecycle: true, changed: changedTests.includes(hit.path), found: 'entry' })
       }
     }
     // Each life-cycle test file is a slow run of its own: the ones this diff changed first, then as found.

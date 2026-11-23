@@ -552,6 +552,47 @@ test('a search that fails or hangs is a note in the problems and the review goes
   assert.ok(refused.graph.nodes.some((node) => node.id === 'n1'))
 })
 
+test('every part says where it runs from, or why nothing was looked for, and names its zone', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanOf()) })
+  const of = (id: string) => result.graph.nodes.find((node) => node.id === id)!
+  assert.deepEqual(of('n1').runs_from, { found: 'none', hops: 0, why: 'The scan listed nothing that calls it.' })
+  assert.deepEqual(of('n2').runs_from, { found: 'not-looked', why: 'It takes effect when its file loads, so what calls it was not looked for.' })
+  assert.deepEqual(of('n3').runs_from, { found: 'not-looked', why: 'A test: the test runner runs it.' })
+  assert.deepEqual(of('n4').runs_from, { found: 'not-looked', why: 'A type: the compiler checks it and nothing runs it.' })
+  assert.deepEqual(result.graph.nodes.map((node) => node.zone), ['-/src/total', '-/src/config', '-/test:root/total', '-/src/money', '-/test:root/total'])
+  assert.deepEqual(result.graph.zones?.map((zone) => [zone.id, zone.label]), [
+    ['-/src/total', 'Source · total'],
+    ['-/src/config', 'Source · config'],
+    ['-/test:root/total', 'Tests · total'],
+    ['-/src/money', 'Source · money'],
+  ])
+})
+
+test('a part only tests call says so, and a caller the scan names as an entry is where it runs from', async (t) => {
+  const { repo, base, head, out } = project(t)
+  const tested = scanOf()
+  Object.assign(tested.anchors[0]!, { callers: { total: 0, shown: 0, complete: true }, callSites: [], testCallers: 2 })
+  const only = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(tested) })
+  assert.deepEqual(only.graph.nodes[0]!.runs_from, { found: 'only-tests', tests: 2 })
+
+  const routed = scanOf()
+  routed.nodes.c9 = { id: 'c9', symbol: 'OrdersController#create', kind: 'method', path: 'app/controllers/orders_controller.rb', startLine: 2, endLine: 8, entry: { kind: 'controller', exact: true, routes: [{ verbs: ['POST'], path: '/orders', file: 'config/routes.rb', line: 2 }] } }
+  Object.assign(routed.anchors[0]!, { callers: { total: 1, shown: 1, complete: true }, callSites: [{ id: 'c9', symbol: 'OrdersController#create', path: 'app/controllers/orders_controller.rb', line: 5, guards: [{ line: 4, text: 'if order.valid?', branch: 'then' }] }] })
+  const result = await reviewChange({ cwd: repo, base, head, out: `${out}-2`, clock: steadyClock(), scan: scanning(routed) })
+  const total = result.graph.nodes[0]!
+  assert.deepEqual(total.runs_from, {
+    found: 'origins',
+    origins: [
+      {
+        kind: 'controller', label: 'POST /orders', route: { verbs: ['POST'], path: '/orders' }, exact: true, by: 'scan', symbol: 'OrdersController#create', hops: 1,
+        chain: [{ symbol: 'OrdersController#create', path: 'app/controllers/orders_controller.rb', line: 2, call_line: 5, guard: 'if order.valid?' }],
+      },
+    ],
+  })
+  assert.deepEqual(total.entries, ['OrdersController#create'])
+})
+
 // ───────────────────────── A helper, a script and a README: the change these rules were calibrated on ─────────────────────────
 
 const POSTS_BASE = "import { findUser, findUsers } from '../users.js'\n\nexport function linkUserTags(text) {\n  return text.replace(/@(\\d+)/g, (_all, id) => findUser(Number(id))?.name ?? 'someone')\n}\n"
@@ -598,14 +639,30 @@ const mentionsScan = (): Scan =>
   ])
 
 /** The way up, as the search tool finds it: the caller is a helper, and the handler above it is where a request enters. */
-const mentionsEntries: EntriesSearch = async ({ starts }) => ({ entries: Object.fromEntries(starts.map((start) => [start.id, [{ symbol: 'showTopic', path: 'src/handlers/topics.js', hops: 2 }]])), notes: [] })
+const mentionsEntries: EntriesSearch = async ({ starts }) => ({
+  entries: Object.fromEntries(
+    starts.map((start) => [
+      start.id,
+      [
+        {
+          symbol: 'showTopic', path: 'src/handlers/topics.js', hops: 2, line: 3, kind: 'handler', label: 'showTopic', exact: false, by: 'path' as const,
+          chain: [{ symbol: 'showTopic', path: 'src/handlers/topics.js', line: 3, call_line: 4 }, { symbol: 'renderPost', path: 'src/render.js', line: 3, call_line: 4 }],
+        },
+      ],
+    ]),
+  ),
+  notes: [],
+  stops: Object.fromEntries(starts.map((start) => [start.id, { hops: 2 }])),
+})
 const mentionsEntryTests = async ({ symbol }: { symbol: string }) => ({ ok: true as const, tests: symbol === 'showTopic' ? [{ path: 'test/e2e/topics.test.js', found: 'route', detail: 'showTopic' }] : [], notes: [] })
 
 test('a helper its direct tests prove, with an older request test running through it, is safe; the new script nobody could read is said, at mid; the README is counted', async (t) => {
   const { repo, base, head, out, git } = mentionsProject(t)
   const asked: { id: string; callers: readonly { path: string; line: number }[] }[] = []
+  let kindOf: ((path: string) => unknown) | undefined
   const entriesAbove: EntriesSearch = async (request) => {
     asked.push(...request.starts)
+    kindOf = request.isEntry
     return mentionsEntries(request)
   }
   const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove, entryTests: mentionsEntryTests })
@@ -614,6 +671,11 @@ test('a helper its direct tests prove, with an older request test running throug
   assert.deepEqual(asked, [{ id: 'n1', callers: [{ path: 'src/render.js', line: 4 }] }])
   const helper = result.graph.nodes.find((node) => node.id === 'n1')!
   assert.deepEqual(helper.entries, ['showTopic'])
+  // Where it runs from keeps the way: the handler, the render between, and what kind of entry the path rule says it is.
+  assert.equal(helper.runs_from?.found, 'origins')
+  const [origin] = helper.runs_from?.found === 'origins' ? helper.runs_from.origins : []
+  assert.deepEqual(origin!.chain.map((step) => step.symbol), ['showTopic', 'renderPost'])
+  assert.deepEqual([origin!.kind, origin!.label, origin!.by, origin!.hops, origin!.symbol], ['handler', 'showTopic', 'path', 2, 'showTopic'])
   assert.equal(helper.facts.proof.value, 'lifecycle')
   assert.equal(
     helper.facts.proof.evidence,
@@ -640,6 +702,7 @@ test('a helper its direct tests prove, with an older request test running throug
   assert.match(result.story, /\*\*Proof:\*\* .*A life cycle test executes unit 2\. No test shows unit 1\./)
   assert.ok(result.progress.steps.every((step) => step.status === 'done' || step.status === 'skipped'))
   assert.equal(git('status', '--porcelain'), '')
+  assert.equal(kindOf?.('src/handlers/topics.js'), 'handler', 'the walk is told which path rule names an entry')
 })
 
 test('with no request test above it, the same helper is mid by rule 6 and says what no test does', async (t) => {
@@ -652,12 +715,29 @@ test('with no request test above it, the same helper is mid by rule 6 and says w
   assert.deepEqual(helper.findings.map((finding) => finding.rule), ['direct-tests-only'])
   assert.ok(result.problems.includes('Entry points: The search for entry points stopped: agentic-search is not installed.'), result.problems.join('\n'))
   assert.equal(result.units.units.find((unit) => unit.nodes.includes('n1'))!.title, '`linkUserTags`: tests that call it directly fail without the change')
+  // A walk of an older shape says nothing of where it stopped: the pack looked one call out.
+  assert.deepEqual(helper.runs_from, { found: 'none', hops: 1, why: 'Nothing within 1 call of it is where work enters.' })
+})
+
+test('a walk that stopped says so on the part, with how far it looked and where the way ended', async (t) => {
+  const { repo, base, head, out } = mentionsProject(t)
+  const failed: EntriesSearch = async ({ starts }) => ({ entries: { n1: [] }, notes: [], stops: Object.fromEntries(starts.map((start) => [start.id, { hops: 0, stopped: 'failed' as const, reason: 'agentic-search is not installed.' }])) })
+  const helper = (await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove: failed })).graph.nodes.find((node) => node.id === 'n1')!
+  assert.deepEqual(helper.runs_from, { found: 'none', hops: 1, stopped: 'failed', why: 'Nothing within 1 call of it is where work enters, and the search further out failed: agentic-search is not installed.' })
+  const ended: EntriesSearch = async () => ({ entries: { n1: [] }, notes: [], stops: { n1: { hops: 2, top: 'showTopic' } } })
+  const dead = (await reviewChange({ cwd: repo, base, head, out: `${out}-2`, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove: ended })).graph.nodes.find((node) => node.id === 'n1')!
+  assert.deepEqual(dead.runs_from, { found: 'none', hops: 2, top: 'showTopic', why: 'Nothing within 2 calls of it is where work enters: the way out stops at showTopic, and the scan found nothing that calls it.' })
 })
 
 test('a scan handed in brings no walk of its own, and a walk that throws is a note', async (t) => {
   const { repo, base, head, out } = mentionsProject(t)
   const plain = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(mentionsScan()) })
   assert.deepEqual(plain.graph.nodes.find((node) => node.id === 'n1')!.entries, [])
+  assert.deepEqual(plain.graph.nodes.find((node) => node.id === 'n1')!.runs_from, {
+    found: 'none',
+    hops: 1,
+    why: 'Nothing within 1 call of it is where work enters, and what calls its callers was not looked for.',
+  })
   const failing: EntriesSearch = async () => {
     throw new Error('boom')
   }
