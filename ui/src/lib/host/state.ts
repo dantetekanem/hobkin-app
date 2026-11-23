@@ -96,7 +96,7 @@ export const initialHostState: HostState = {
 
 function applyState(state: HostState, message: StateMessage): HostState {
   // A reset replaces what was held in one step, so a reconnect never shows an empty conversation in between.
-  const base = message.reset ? { snapshot: {}, messages: [] } : state
+  const base: Pick<HostState, 'snapshot' | 'messages'> = message.reset ? { snapshot: {}, messages: [] } : state
   const snapshot: WireSnapshot = { ...base.snapshot, ...message.set }
   for (const key of message.unset ?? []) delete snapshot[key]
   // The host sends every run's pulse anew with each publish. A pulse that says the same keeps its object, so a run's
