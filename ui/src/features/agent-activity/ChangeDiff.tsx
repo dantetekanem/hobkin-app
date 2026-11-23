@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { describeFile, expandGap, showWholeFile, startView, unifiedRows, type Diff, type DiffView, type FileSides } from '@/features/review/code/diff-rows.ts'
 import { DiffGapRow, DiffLineRow } from '@/features/review/code/DiffView.tsx'
 import { languageOf } from '@/features/review/code/languages.ts'
+import { startRowsOf } from './change-parts.ts'
 import { coloredUpTo, linesReached } from './colors.ts'
 import { useColors } from './use-colors.ts'
 
@@ -18,7 +19,8 @@ export function ChangeDiff({ file, diff, rows, near }: { file: FileSides; diff: 
   // Lines the user showed with "Show more" belong to the diff they were shown in: the change growing starts again from its changes.
   const [shown, setShown] = useState<{ diff: Diff; view: DiffView } | null>(null)
   const view = shown?.diff === diff ? shown.view : start
-  const items = useMemo(() => unifiedRows(diff, view), [diff, view])
+  // Until "Show more", the rows are the ones the change's counts were made from.
+  const items = useMemo(() => (view === start ? startRowsOf(diff) : unifiedRows(diff, view)), [diff, view, start])
   const drawn = useMemo(() => items.slice(0, rows), [items, rows])
   // Each side is colored only as far as the lines drawn reach: a big file shown by its first lines colors those.
   const reach = useMemo(() => linesReached(drawn), [drawn])

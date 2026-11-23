@@ -6,12 +6,12 @@ import { holdStill, useStill } from '@/app/still.ts'
 import { FilePath } from '@/components/FilePath.tsx'
 import { GrowingMarkdown, risen, sunk } from '@/features/chat/markdown.ts'
 import { useNow } from '@/features/chat/use-now.ts'
-import { diffOf, startView, unifiedRows, type Diff, type FileSides } from '@/features/review/code/diff-rows.ts'
 import { languageOf } from '@/features/review/code/languages.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import './agent-activity.css'
 import { useBlock } from './blocks.ts'
+import { partsOf, type Part } from './change-parts.ts'
 import { ChangeDiff } from './ChangeDiff.tsx'
 import { CodeText, MoreButton } from './CodeText.tsx'
 import { BOX } from './boxes.ts'
@@ -436,31 +436,6 @@ function CommandCard({ command, time }: { command: Command; time?: EntryTime }) 
   )
 }
 
-/** One place a file changed, as the review draws it. */
-interface Part {
-  key: string
-  file: FileSides
-  /** Its diff, worked out once for the counts and the rows. */
-  diff: Diff
-  /** The rows its diff starts with (lines and the gaps between them), and how many of them are lines. */
-  rows: number
-  lines: number
-  additions: number
-  deletions: number
-  /** False for an edit: its place in the file is not known, so it gets no line numbers. */
-  numbered: boolean
-}
-
-function partsOf(change: Change): Part[] {
-  const part = (key: string, base: string | null, head: string, numbered: boolean): Part => {
-    const diff = diffOf(base, head)
-    const rows = unifiedRows(diff, startView(diff))
-    return { key, file: { path: change.path, base, head, binary: false }, diff, rows: rows.length, lines: rows.filter((row) => row.type === 'line').length, additions: diff.additions, deletions: diff.deletions, numbered }
-  }
-  if (change.whole !== null) return [part('whole', null, change.whole, true)]
-  return change.hunks.filter((hunk) => hunk.oldText !== hunk.newText).map((hunk, index) => part(`hunk${index}`, hunk.oldText, hunk.newText, false))
-}
-
 /**
  * A file the agent changed (021 A1, A2): the review's own diff, with syntax colors, added and removed lines tinted
  * and the words that changed marked. It arrives open, unless Settings says otherwise. Edits to one file in a row are
@@ -473,7 +448,12 @@ function ChangeBlock({ change }: { change: Change }) {
   const { open, presses, toggle, more, box } = useUnfold<HTMLDivElement>()
   // Colored only once in or near view: a page's changes far above it wait until they are scrolled to.
   const near = useNear(box)
-  const parts = useMemo(() => partsOf(change), [change])
+  // The change grows in place: a new edit diffs only the place it added or changed, and the rest are the parts drawn.
+  const drawn = useRef<readonly Part[]>([])
+  const parts = useMemo(() => partsOf(change, drawn.current), [change])
+  useEffect(() => {
+    drawn.current = parts
+  }, [parts])
   const additions = parts.reduce((sum, part) => sum + part.additions, 0)
   const deletions = parts.reduce((sum, part) => sum + part.deletions, 0)
   // A big change opens two hundred lines a press: its rows are drawn as they are asked for, never all at once.
