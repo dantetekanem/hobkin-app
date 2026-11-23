@@ -75,6 +75,7 @@ import { projectPerformance, readLocalView, safePerformance } from './view.mjs';
 import { safeSteps, turnFrom } from './turn-metrics.mjs';
 import { withoutSinceNote } from './prompt-parts.mjs';
 import { PastedImages } from './paste-image.mjs';
+import { forgetUnread, readUnread } from './unread.mjs';
 import { deletedReportIds, isQuietRun, readReport, referToReport, reportText, reportTriage, runOutcomeText, savedReportPath, splitReportReference } from './reports.mjs';
 export { readLocalView } from './view.mjs';
 
@@ -260,6 +261,7 @@ export class HobkinApplication {
       editReport: (result, job) => editReport(result, { ...job, binding: app.config.background, runHarness }),
       onChange: activityOnly => app.requestRefresh(activityOnly),
     });
+    app.loadUnread();
     try {
       // A run whose Pi crashed in its code tool starts again once (`code-tool-crash.mjs`).
       runHarness = app.ownedHarness(restartingAfterCodeToolCrash(runHarness));
@@ -744,6 +746,7 @@ export class HobkinApplication {
       waiting: this.waitingNow(visible.reports),
       wins: this.winsToday(),
       connection: 'connected',
+      unread: this.unread,
       busy: this.runtime.mainBusy,
       searching: searchingTool(this.runtime.mainTool),
       tooling: Boolean(this.runtime.mainTool),
@@ -823,13 +826,15 @@ export class HobkinApplication {
     // A main chat whose Pi ended opens the same conversation again for the user's next message.
     await this.runtime.reopenMain();
     const message = report ? referToReport(this.runtime.directory, report, text) : text;
-    const sessions = sessionsToTell(this.runtime.directory);
-    const actions = cardActionsToTell(this.runtime.directory);
+    // What a message still waiting in the turn carries goes with that message alone, and with the next one only if it is never read.
+    const waiting = this.newsWaiting();
+    const sessions = sessionsToTell(this.runtime.directory).filter(({ name }) => !waiting.sessions.has(name));
+    const actions = cardActionsToTell(this.runtime.directory).filter(({ id }) => !waiting.actions.has(id));
     const userDid = actions.filter(action => !action.mainStop);
     const mainStopped = actions.filter(action => action.mainStop);
-    const handedOver = inboxToTell(this.runtime.directory, this.now());
+    const handedOver = inboxToTell(this.runtime.directory, this.now()).filter(({ id }) => !waiting.inbox.has(id));
     const note = workNote({ ...workStatus(this.runtime.directory, this.director.outlook()), sessions, userDid, mainStopped, handed: inboxNews(handedOver) }, this.director.answerCommands());
-    const opening = note === this.workNoteSeen ? '' : note;
+    const opening = note === this.workNoteSeen || waiting.notes.has(note) ? '' : note;
     const learned = this.learner.note(this.runtime.messages());
     // "brief me" brings what a brief is written from, ahead of the words, in the room the work note and the words leave, and Chat shows only the words.
     const room = MAX_MESSAGE_BYTES - Buffer.byteLength(`${opening}${message}`);
@@ -840,17 +845,22 @@ export class HobkinApplication {
     // the prompt itself can stay as it is and the conversation stays cached (`prompt-parts.mjs`). With no room it waits.
     const news = this.runtime.main?.promptNews?.() ?? null;
     const notes = `${opening}${fits ? learned : ''}${brief}`;
-    const since = news && Buffer.byteLength(`${notes}${news.text}${message}`) <= MAX_MESSAGE_BYTES ? news.text : '';
-    const accepted = await this.sendWhenFree(`${notes}${since}${message}`, images, turn);
-    if (since) news.told();
+    const since = news && !waiting.since.has(news.text) && Buffer.byteLength(`${notes}${news.text}${message}`) <= MAX_MESSAGE_BYTES ? news.text : '';
+    // Heard once the model reads it: at once for a message that starts its turn, and for one steered into a turn when Pi takes it in (014-continuity A10).
+    const carried = { sessions, actions, handedOver, note, news: since ? news : null, briefedAt: brief ? new Date(this.now()).toISOString() : null };
+    this.carrying().add(carried);
+    let accepted;
+    try {
+      accepted = await this.sendWhenFree(`${notes}${since}${message}`, images, turn, read => this.heard(carried, read));
+    } catch (error) {
+      this.carrying().delete(carried);
+      throw error;
+    }
     // The user's words reached the main agent's turn, a wake's they joined included, so its messages count from them.
     this.hobkins.userWrote();
     this.pastedImages.remove(images);
-    this.workNoteSeen = note;
-    markHeard(this.runtime.directory, sessions);
-    markCardActionsHeard(this.runtime.directory, actions);
-    markInboxHeard(this.runtime.directory, handedOver);
-    if (brief) writeBriefState(this.runtime.directory, { briefedAt: new Date(this.now()).toISOString() });
+    if (!accepted?.queued) this.heard(carried, true);
+    this.dropUnread();
     if (report) {
       this.telemetry.recordReportDiscussed(report.id, this.now());
       recordEvent(this.runtime.directory, 'report_messaged', { id: report.id });
@@ -860,11 +870,65 @@ export class HobkinApplication {
     return accepted;
   }
 
-  async sendWhenFree(message, attachments, turn) {
+  /**
+   * What the user sent that the model never read before hobkin closed or crashed, as they typed it, for the window to put back in its
+   * input (014-continuity A11). Undefined when there is none. It stays until the user's next message goes.
+   */
+  loadUnread() {
+    try {
+      const kept = readUnread(this.runtime.directory).map(({ id, text }) => ({ id, text: typedPart(text).text })).filter(({ text }) => text.trim());
+      this.unread = kept.length ? kept : undefined;
+    } catch {
+      this.unread = undefined;
+    }
+  }
+
+  /** The window has had them, and the user wrote again. */
+  dropUnread() {
+    if (!this.unread) return;
+    try {
+      forgetUnread(this.runtime.directory);
+      this.unread = undefined;
+    } catch {
+      // They stay, and the window already holds them by their ids.
+    }
+  }
+
+  /** The news each message carries until the model reads it or its turn ends without it. */
+  carrying() {
+    this.carried ??= new Set();
+    return this.carried;
+  }
+
+  newsWaiting() {
+    const waiting = { sessions: new Set(), actions: new Set(), inbox: new Set(), notes: new Set(), since: new Set() };
+    for (const carried of this.carrying()) {
+      for (const { name } of carried.sessions) waiting.sessions.add(name);
+      for (const { id } of carried.actions) waiting.actions.add(id);
+      for (const { id } of carried.handedOver) waiting.inbox.add(id);
+      waiting.notes.add(carried.note);
+      if (carried.news) waiting.since.add(carried.news.text);
+    }
+    return waiting;
+  }
+
+  /** A message the model read has its news heard. One it never read leaves its news for the next message. */
+  heard(carried, read) {
+    if (!this.carrying().delete(carried) || !read) return;
+    const root = this.runtime.directory;
+    carried.news?.told();
+    this.workNoteSeen = carried.note;
+    markHeard(root, carried.sessions);
+    markCardActionsHeard(root, carried.actions);
+    markInboxHeard(root, carried.handedOver);
+    if (carried.briefedAt) writeBriefState(root, { briefedAt: carried.briefedAt });
+  }
+
+  async sendWhenFree(message, attachments, turn, onRead) {
     const images = attachments.length ? this.pastedImages.contents(attachments) : undefined;
     for (;;) {
       try {
-        return await this.runtime.send(message, undefined, images, turn);
+        return await this.runtime.send(message, undefined, images, turn, onRead);
       } catch (error) {
         if (error.message !== MAIN_BUSY) throw error;
         // Only a turn, or a chat too full to wait, holds what the user sent. A compaction hobkin began early gives way.

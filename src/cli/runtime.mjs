@@ -20,6 +20,7 @@ import { readDirections } from './directions.mjs';
 import { recordEvent, recordRunFinished, recordRunStarted } from './events.mjs';
 import { createTurnMetrics } from './turn-metrics.mjs';
 import { clockTime, WAITING } from './run-waits.mjs';
+import { keepUnread, steeringNeverRead } from './unread.mjs';
 
 // The whole conversation is in its messages. This is a view of what it does now, so a long chat keeps only its latest steps.
 const MAIN_ACTIVITY_ENTRIES = 200;
@@ -32,6 +33,8 @@ const MAIN_STOPPING = 'Main conversation is stopping.';
 export const STOP_AGAIN = 'Stop hobkin again to get back what it had not read.';
 // A tool that does not listen for a stop holds Pi's answer until it returns, so a stop waits this long before it says it is unconfirmed.
 const STOP_WAIT_MS = 30000;
+// A close asks Pi for what the model never read, and waits no longer than this for the answer.
+const UNREAD_WAIT_MS = 1000;
 export const MAX_MESSAGE_BYTES = 65536;
 /** A chat past `MAX_SESSION_BYTES` will not reopen, and only images can grow one fast. This much stays free for words. */
 export const IMAGE_ROOM_BYTES = 32 * 1024 * 1024;
@@ -56,6 +59,17 @@ export const descendantReceipt = result => ({
   cleanupScope: result?.agents?.length ? 'captured-rpc-children' : 'none', detachedCleanup: 'unknown',
 });
 const copy = value => JSON.parse(JSON.stringify(value));
+// A user message's words as Pi matches a queued one to it: its text parts, joined by line breaks.
+const userWords = message => (typeof message?.content === 'string' ? message.content
+  : Array.isArray(message?.content) ? message.content.filter(part => part?.type === 'text').map(part => part.text).join('\n') : null);
+// Whoever waits to hear whether a message was read cannot fail the turn that read it.
+const hear = (onRead, read) => {
+  try {
+    onRead?.(read);
+  } catch {
+    // What it does on a read is its own to get right.
+  }
+};
 const costOf = session => {
   const stats = session.getSessionStats();
   return stats.sessionId === session.sessionId && Number.isFinite(stats.cost) && stats.cost >= 0
@@ -84,11 +98,12 @@ function recordMainStop(root, run, actions) {
 }
 
 export class HobkinRuntime {
-  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, editReport, metricsNow, stopWaitMs = STOP_WAIT_MS, onChange = () => {} } = {}) {
+  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, editReport, metricsNow, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {} } = {}) {
     this.directory = root;
     this.config = config;
     this.createMain = createMain;
     this.stopWaitMs = stopWaitMs;
+    this.unreadWaitMs = unreadWaitMs;
     this.onMainStartup = onMainStartup;
     this.metricsNow = metricsNow;
     this.askQuestion = askQuestion;
@@ -131,6 +146,7 @@ export class HobkinRuntime {
       runtime.root = await runtime.harness.root(context, {
         init: async (tx, id) => { await tx.doc(RuntimeDoc, id); },
       });
+      await runtime.keepAbandonedSteering();
       const abandoned = await runtime.interruptAbandonedRuns();
       for (const run of abandoned) {
         logRun(root, run);
@@ -147,6 +163,16 @@ export class HobkinRuntime {
       else if (storage) await storage.close(context);
       await runtime.release();
       throw error;
+    }
+  }
+
+  /** Steering a crash left running whose words the session file does not hold was never read, so its words are kept for the window (014-continuity A11). */
+  async keepAbandonedSteering() {
+    try {
+      const words = steeringNeverRead(await this.state());
+      if (words.length) keepUnread(this.directory, words);
+    } catch {
+      // The open goes on as it did before, without them.
     }
   }
 
@@ -910,7 +936,7 @@ export class HobkinRuntime {
     return { targets: [...targets, ...(this.ownedLifecycle?.targets?.() ?? [])] };
   }
 
-  async queueSteering(text, id, turn, images) {
+  async queueSteering(text, id, turn, images, onRead) {
     const request = {
       id,
       kind: 'main',
@@ -929,6 +955,8 @@ export class HobkinRuntime {
         if (!await this.admit(request)) {
           const existing = (await this.state()).runs[id];
           if (existing?.status === 'running' && existing.parentRunId === turn.id && existing.prompt === text) {
+            // The message taken before has its own sender to tell when it is read. This repeat never reached Pi.
+            hear(onRead, false);
             return { id, queued: true };
           }
           throw Error('A dispatch with this identity already exists.');
@@ -940,8 +968,24 @@ export class HobkinRuntime {
         if (this.main !== turn.session || !turn.session.isStreaming || typeof turn.session.steer !== 'function') {
           throw Error(MAIN_BUSY);
         }
-        await turn.session.steer(text, images);
+        // Watched before Pi takes it, so a read that follows at once is not missed.
+        let watched = false;
+        try {
+          this.awaitRead(turn, id, text, onRead);
+          watched = true;
+        } catch {
+          // Without a watch it counts as read once Pi takes it, as it did before.
+        }
+        let disposition;
+        try {
+          disposition = await turn.session.steer(text, images);
+        } catch (error) {
+          turn.unreadSteered?.delete(id);
+          throw error;
+        }
         turn.children.push(id);
+        // One an extension handled never reaches the model, and nothing of it waits to be read.
+        if (!watched || (disposition === 'handled' && turn.unreadSteered?.delete(id))) hear(onRead, true);
         return { id, queued: true };
       } catch (error) {
         const existing = (await this.state()).runs[id];
@@ -964,6 +1008,37 @@ export class HobkinRuntime {
     }
   }
 
+  /**
+   * A steered message waits in Pi's queue until Pi puts it into the turn, after the tool calls under way, and only then does the model read
+   * it. `onRead` hears true then, or false once the turn ended without it, stopped, closed or failed (014-continuity A10).
+   */
+  awaitRead(turn, id, text, onRead) {
+    if (turn.readsSettled) return hear(onRead, false);
+    turn.unreadSteered ??= new Map();
+    turn.unreadSteered.set(id, { text, onRead });
+    turn.stopReading ??= turn.session.subscribe(event => {
+      if (event?.type !== 'message_end' || event.message?.role !== 'user') return;
+      const words = userWords(event.message);
+      const read = [...turn.unreadSteered].find(([, entry]) => entry.text === words);
+      if (!read) return;
+      turn.unreadSteered.delete(read[0]);
+      hear(read[1].onRead, true);
+    });
+  }
+
+  /** The turn has ended, so what it never read stays unread. */
+  settleReads(turn) {
+    turn.readsSettled = true;
+    try {
+      turn.stopReading?.();
+    } catch {
+      // A session that is gone sends nothing more.
+    }
+    const left = [...(turn.unreadSteered?.values() ?? [])];
+    turn.unreadSteered?.clear();
+    for (const { onRead } of left) hear(onRead, false);
+  }
+
   async finishSteering(turn, status) {
     if (!turn.children.length) return;
     return this.change(state => {
@@ -981,8 +1056,11 @@ export class HobkinRuntime {
     });
   }
 
-  /** `began` says when the user sent these words and what they waited on since (`turnFrom`), for the turn's stage timings. */
-  async send(text, id = randomUUID(), images, began) {
+  /**
+   * `began` says when the user sent these words and what they waited on since (`turnFrom`), for the turn's stage timings. `onRead` hears
+   * whether a message steered into a running turn was read (`awaitRead`). A message that starts its own turn is read, and hears nothing.
+   */
+  async send(text, id = randomUUID(), images, began, onRead) {
     // When the runtime took the words: a turn nobody timed counts from here.
     const handed = Date.now();
     this.check();
@@ -996,13 +1074,13 @@ export class HobkinRuntime {
     if (activeTurn?.session === this.main) {
       if (activeTurn.stopping) throw Error(activeTurn.heldForUnread ? STOP_AGAIN : MAIN_STOPPING);
       if (activeTurn.preflight && this.main.isStreaming && typeof this.main.steer === 'function') {
-        return this.queueSteering(text, id, activeTurn, images);
+        return this.queueSteering(text, id, activeTurn, images, onRead);
       }
       if (this.mainBusy || this.main.isStreaming) throw Error(MAIN_BUSY);
       await this.mainWork;
       this.check();
       if (this.resetting) throw Error('Main conversation is resetting.');
-      return this.send(text, id, images, began);
+      return this.send(text, id, images, began, onRead);
     }
     if (this.mainBusy || this.main.isStreaming) throw Error(MAIN_BUSY);
 
@@ -1111,6 +1189,7 @@ export class HobkinRuntime {
     }).catch(error => {
       this.fault = error;
     }).finally(() => {
+      this.settleReads(turn);
       if (!turn.stopping) {
         if (this.mainTurn === turn) this.mainTurn = null;
         release();
@@ -1148,8 +1227,40 @@ export class HobkinRuntime {
     return true;
   }
 
+  /**
+   * What the running turn never read, which a close leaves unread for good: what waits in Pi's queue, and what a stop took back and has
+   * not given to the user. Its words are kept for the window (014-continuity A11). It waits a moment at most and never fails the close.
+   */
+  async keepUnreadQueue() {
+    const turn = this.mainTurn;
+    // A home whose lock was lost may have another owner now, and nothing is written into it.
+    if (this.unreadKept || this.fault || !turn || turn.session !== this.main) return;
+    this.unreadKept = true;
+    let timer;
+    try {
+      const held = turn.unread && !turn.draftsReturned ? turn.unread : [];
+      const waiting = turn.unreadSteered?.size && typeof turn.session.clearQueue === 'function'
+        ? await Promise.race([
+          Promise.resolve().then(() => turn.session.clearQueue()),
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(Error('Pi did not say what it had not read.')), this.unreadWaitMs);
+            timer.unref?.();
+          }),
+        ])
+        : null;
+      const queued = list => (Array.isArray(list) ? list : []);
+      const words = [...held, ...queued(waiting?.steering), ...queued(waiting?.followUp)].filter(text => typeof text === 'string');
+      if (words.length) keepUnread(this.directory, words);
+    } catch {
+      // The close goes on without them, as it did before.
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   /** A close stops the main chat's Pi, and ends it when it is a process of its own that does not answer in time (`PiRpcSession.quit`). */
-  quitMain() {
+  async quitMain() {
+    await this.keepUnreadQueue();
     const main = this.main;
     return typeof main?.quit === 'function' ? main.quit() : main?.abort();
   }
@@ -1163,6 +1274,8 @@ export class HobkinRuntime {
     if (!this.closePromise) {
       this.closing = true;
       this.closePromise = (async () => {
+        // Before the turn is stopped, while Pi still holds what it had not read.
+        await this.keepUnreadQueue();
         const children = this.ownedLifecycle?.close();
         for (const { controller } of this.active.values()) controller.abort();
         await this.connecting?.catch(() => {});
