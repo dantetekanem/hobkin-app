@@ -108,6 +108,8 @@ export function spawnScan({ file, timeoutMs = SCAN_TIMEOUT_MS }: { file?: string
  */
 interface Door {
   kind: string
+  /** The scan is sure of it: a route a routes file draws, a line of package.json. A handler matched by its key is not. */
+  exact: boolean
   title: string
   file: string
   line: number
@@ -116,8 +118,13 @@ interface Door {
   route?: { verbs: string[]; path: string }
 }
 
-/** What a package exposes is a door of its own; the definition behind it is no entry by itself. */
-const PACKAGE_DOORS = new Set(['command', 'extension', 'export'])
+/**
+ * Doors the scan names by a title: what a package.json exposes (a command, a module Pi loads, an export), a key of a
+ * map of handlers, an event a listener waits for, and an element's prop that runs the code.
+ */
+const NAMED_DOORS = new Set(['command', 'extension', 'export', 'handler', 'listener', 'ui-handler'])
+/** An entry of these kinds comes in by its doors, when it has some; the definition behind them is no entry by itself. */
+const BY_DOORS = new Set([...NAMED_DOORS, 'route'])
 
 interface Definition extends VicinityDefinition {
   id: string
@@ -139,6 +146,11 @@ interface Caller {
   name?: string
   /** Rails renders the action's own template by convention, so there is no call at the line to find. */
   convention: boolean
+  /** The key of the property whose value holds the call, such as `review.prepare` in a map of handlers. */
+  key?: string
+  /** Where work enters at this call, or else the caller's own way in, as the scan says, with the doors it names. */
+  entry?: ReviewEntry
+  doors?: Door[]
 }
 
 interface Anchor extends Definition {
@@ -192,24 +204,33 @@ const text = (value: unknown): string | undefined => (typeof value === 'string' 
 const line = (value: unknown): number | undefined => (Number.isInteger(value) && (value as number) > 0 ? (value as number) : undefined)
 const VERB = /^[A-Z]{3,7}$/
 
-/** The routes that reach an action, and the config line that names it Rails's exceptions app, as the scan's entry says. */
+/**
+ * The doors that reach a definition, as the scan's entry says: its routes, the config line that names it Rails's
+ * exceptions app, and the doors it names by a title. A route or a named door is as sure as the entry; a package.json
+ * line and the exceptions app say so outright.
+ */
 function doorsOf(entry: Raw | undefined): Door[] {
+  const exact = entry?.exact === true
   const routes = list(entry?.routes).flatMap((item): Door[] => {
     const route = record(item)
     const [path, file, at, said] = [text(route?.path), text(route?.file), line(route?.line), text(route?.text)]
     const verbs = list(route?.verbs).filter((verb): verb is string => typeof verb === 'string' && VERB.test(verb))
-    return path?.startsWith('/') && file && isSafePath(file) && at && verbs.length ? [{ kind: 'route', title: `${verbs.join('/')} ${path}`, file, line: at, endLine: at, ...(said ? { text: said } : {}), route: { verbs, path } }] : []
+    return path?.startsWith('/') && file && isSafePath(file) && at && verbs.length ? [{ kind: 'route', exact, title: `${verbs.join('/')} ${path}`, file, line: at, endLine: at, ...(said ? { text: said } : {}), route: { verbs, path } }] : []
   })
   const app = record(entry?.exceptionsApp)
   const [file, at, end, said] = [text(app?.file), line(app?.line), line(app?.endLine), text(app?.text)]
-  const exceptions: Door[] = file && isSafePath(file) && at && end && end >= at ? [{ kind: 'exceptions-app', title: 'config.exceptions_app', file, line: at, endLine: end, ...(said ? { text: said } : {}) }] : []
-  const exposed = list(entry?.doors).flatMap((item): Door[] => {
+  const exceptions: Door[] = file && isSafePath(file) && at && end && end >= at ? [{ kind: 'exceptions-app', exact: true, title: 'config.exceptions_app', file, line: at, endLine: end, ...(said ? { text: said } : {}) }] : []
+  const named = list(entry?.doors).flatMap((item): Door[] => {
     const door = record(item)
     const [kind, title, where, at, said] = [text(door?.kind), text(door?.title), text(door?.file), line(door?.line), text(door?.text)]
-    return kind && PACKAGE_DOORS.has(kind) && title && where && isSafePath(where) && at ? [{ kind, title, file: where, line: at, endLine: at, ...(said ? { text: said } : {}) }] : []
+    if (!kind || !NAMED_DOORS.has(kind) || !title || !where || !isSafePath(where) || !at) return []
+    return [{ kind, exact: PACKAGE_DOORS.has(kind) || exact, title, file: where, line: at, endLine: at, ...(said ? { text: said } : {}) }]
   })
-  return [...routes, ...exceptions, ...exposed]
+  return [...routes, ...exceptions, ...named]
 }
+
+/** What a package.json exposes: its line says so, whatever the entry. */
+const PACKAGE_DOORS = new Set(['command', 'extension', 'export'])
 
 function definitionOf(value: unknown): Definition | undefined {
   const raw = record(value)
@@ -220,7 +241,7 @@ function definitionOf(value: unknown): Definition | undefined {
   return {
     id, path, symbol, startLine, endLine, kind: text(raw.kind) ?? '', language: text(raw.language) ?? '',
     // What a package.json exposes comes in by its doors; a script's statement is where work starts by itself.
-    ...(entry && text(entry.kind) && !(PACKAGE_DOORS.has(text(entry.kind)!) && list(entry.doors).length > 0) ? { entry: { kind: text(entry.kind)!, exact: entry.exact === true } } : {}),
+    ...(entry && text(entry.kind) && !(BY_DOORS.has(text(entry.kind)!) && doors.length > 0) ? { entry: { kind: text(entry.kind)!, exact: entry.exact === true } } : {}),
     ...(doors.length ? { doors } : {}),
   }
 }
@@ -268,9 +289,13 @@ function readPack(details: unknown): Pack | undefined {
         testCallers += 1
         return []
       }
+      const [key, wayIn] = [text(site.key), record(site.entry)]
+      const kind = text(wayIn?.kind)
       return [{
         id, line: at, proven: site.resolution === 'exact', guards: guardsOf(site.guards), enqueues: site.enqueue === true, changed: site.changed === true, boundary: list(site.boundary).length > 0,
         ...(name ? { name } : {}), convention: site.convention === true,
+        ...(key ? { key } : {}),
+        ...(kind ? { entry: { kind, exact: wayIn!.exact === true }, doors: doorsOf(wayIn) } : {}),
       }]
     })
     const known = nodes.get(definition.id)
@@ -373,8 +398,9 @@ function callersOf(anchor: Anchor, nodes: Map<string, Definition>, left: Require
   const usable = anchor.callers.flatMap((caller) => {
     const definition = nodes.get(caller.id)
     if (!definition || caller.id === anchor.id || isTestPath(definition.path)) return []
-    // The type checker sees every call in JavaScript and TypeScript, so a caller it did not prove is another function of that name.
-    const trusted = caller.proven || (anchor.language === 'ruby' && anchor.count.total <= RARE_NAME)
+    // The type checker sees every call in JavaScript and TypeScript, so a caller it did not prove is another function of
+    // that name, unless the scan says work enters there, as at a handler's key: then it is kept, found by name.
+    const trusted = caller.proven || (anchor.language === 'ruby' && anchor.count.total <= RARE_NAME) || caller.entry != null
     if (!trusted) {
       left.byName += 1
       return []
@@ -406,17 +432,34 @@ function addDoors(cycle: Cycle, action: Definition, from: { near: VicinityLink['
       hops: from.hops,
       call: { line: door.line, name: action.symbol, routes: door.text ?? '' },
       proven: true,
-      entry: { kind: door.kind, exact: true, ...(door.route ? { route: door.route } : {}) },
+      entry: { kind: door.kind, exact: door.exact, ...(door.route ? { route: door.route } : {}) },
     }
     cycle.callers.push({ link, root: from.root, from: from.place, to: `door:${door.file}:${door.line}` })
   }
+}
+
+/**
+ * The way in the scan names at a call: a door on the caller's own lines makes the caller a way in, by the door's name
+ * (a handler's key, an event, an element and its prop) or its route; other doors are the caller's doors; an entry with
+ * no door is the caller's own.
+ */
+function wayInAt(caller: Caller, definition: Definition): { entry?: ReviewEntry; named?: string; doors: Door[] } {
+  if (!caller.entry) return { doors: [] }
+  const doors = caller.doors ?? []
+  const own = doors.find((door) => door.file === definition.path && definition.startLine <= door.line && door.line <= definition.endLine)
+  const elsewhere = doors.filter((door) => door !== own)
+  if (own) return { entry: { kind: own.kind, exact: own.exact, ...(own.route ? { route: own.route } : {}) }, ...(own.route ? {} : { named: own.title }), doors: elsewhere }
+  return BY_DOORS.has(caller.entry.kind) && elsewhere.length > 0 ? { doors: elsewhere } : { entry: caller.entry, doors: elsewhere }
 }
 
 /** Adds the callers of a definition, as links one call further out, and puts them on the frontier. */
 function addCallers(cycle: Cycle, anchor: Anchor, nodes: Map<string, Definition>, from: { near: VicinityLink['near']; place: string; hops: number; root: number; best: boolean; changedFiles: Set<string> }) {
   callersOf(anchor, nodes, cycle.left).forEach(({ caller, definition }, index) => {
     const best = from.best && index === 0
-    const entry = entryOf(definition)
+    const site = wayInAt(caller, definition)
+    // What the scan says at the call tells more than a statement running as its file loads: `bus.on('sync', …)` is a listener.
+    const declared = definition.entry
+    const entry = declared ?? site.entry ?? entryOf(definition)
     const link: VicinityLink = {
       near: from.near,
       other: bare(definition),
@@ -429,15 +472,18 @@ function addCallers(cycle: Cycle, anchor: Anchor, nodes: Map<string, Definition>
         ...(caller.enqueues ? { enqueues: true } : {}),
         // What calls a view template renders it.
         ...(anchor.kind === 'template' ? { renders: caller.convention ? ('convention' as const) : true } : {}),
+        ...(caller.key ? { key: caller.key } : {}),
       },
       proven: caller.proven,
       ...(entry ? { entry } : {}),
+      ...(!declared && site.named ? { named: site.named } : {}),
     }
     cycle.callers.push({ link, root: from.root, from: from.place, to: placeOf(definition) })
-    addDoors(cycle, definition, { near: { definition: bare(definition) }, place: placeOf(definition), hops: from.hops + 1, root: from.root })
+    const doored = definition.doors?.length ? definition : { ...definition, doors: site.doors }
+    addDoors(cycle, doored, { near: { definition: bare(definition) }, place: placeOf(definition), hops: from.hops + 1, root: from.root })
     // Where a request enters, nothing further out is looked for, and a changed caller's callers are the change's own.
     // A caller already found is looked into once.
-    if (stopsBefore(definition) || caller.changed || cycle.seen.has(placeOf(definition))) return
+    if (stopsBefore(doored) || stopsAt(entry) || caller.changed || cycle.seen.has(placeOf(definition))) return
     cycle.seen.add(placeOf(definition))
     cycle.frontier.push({ definition, root: from.root, best, atHead: from.hops === 1 && from.changedFiles.has(definition.path) })
   })

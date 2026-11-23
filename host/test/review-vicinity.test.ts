@@ -4,6 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
+import { captureChange } from '#shared/review/capture.ts'
+import { lines, memoryReader } from '#shared/review/memory.ts'
+import { prepareReview } from '#shared/review/prepare.ts'
 import type { VicinityLink } from '#shared/review/vicinity.ts'
 import { gitReferences, scanVicinity, type ReferenceScope, type ScanRun } from '../src/review/vicinity-scan.ts'
 
@@ -372,4 +375,147 @@ test("a side panel scan agentic-search refuses for a newer option, by name, runs
   })
   assert.equal(asked, 1)
   assert.match(refused.notice ?? '', /not shown: not a git repository/)
+})
+
+/**
+ * hobkin-client's own way in to Reviews.prepare, as agentic-search reads it: the window's `review.prepare` command is a
+ * key of the handler map reviewHandlers returns, matched by name. The files are cut down; the pack is the tool's.
+ */
+const seatAt = lines(
+  "import type { Reviews } from './reviews.ts';",
+  '',
+  'export function reviewHandlers(reviews: Reviews) {',
+  '  return {',
+  '    // Asked for by the window or by the user.',
+  "    'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh, asked: true }),",
+  "    'review.again': ({ id }) => {",
+  '      return reviews.prepare(id, { refresh: true });',
+  '    },',
+  '  };',
+  '}',
+)
+const reviewsAt = (body: string) => lines('export class Reviews {', '  prepare(id: string, options: { refresh?: boolean; asked?: boolean }) {', `    return ${body};`, '  }', '}')
+const handlerPack = {
+  files: [{ path: 'host/src/review/reviews.ts' }],
+  nodes: [
+    node('n1', 'host/src/review/reviews.ts', 'Reviews.prepare', 2, 4, { kind: 'method', depth: 0 }),
+    node('n18', 'host/src/backup.ts', 'copyStore', 380, 400),
+    node('n20', 'host/src/review/seat.ts', 'reviewHandlers', 3, 11),
+  ],
+  anchors: [
+    {
+      id: 'n1', symbol: 'Reviews.prepare', kind: 'method', language: 'javascript', path: 'host/src/review/reviews.ts', startLine: 2, endLine: 4, changedLines: [3],
+      callers: [
+        // Another function's `prepare`, matched by name: still left out.
+        caller('n18', 'host/src/backup.ts', 393, { resolution: 'static_candidate' }),
+        caller('n20', 'host/src/review/seat.ts', 6, {
+          resolution: 'static_candidate',
+          key: 'review.prepare',
+          entry: { kind: 'handler', exact: false, doors: [{ kind: 'handler', title: 'review.prepare', file: 'host/src/review/seat.ts', line: 6, text: "'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh, asked: true })," }] },
+        }),
+      ],
+      callerCount: complete(2),
+    },
+  ],
+  edges: [],
+  coverage: { truncatedBy: 'none' },
+}
+
+test('a caller the scan names as a way in at its call site is kept, even matched by name, with its key and its entry, and nothing past it is looked for', async () => {
+  const { run, calls } = fakeScans([handlerPack])
+
+  const found = await scan(run)
+
+  assert.deepEqual(found.links.map(({ other, call, proven, entry, named }) => [other.symbol, call.line, call.key, proven, entry, named]), [['reviewHandlers', 6, 'review.prepare', false, { kind: 'handler', exact: false }, 'review.prepare']])
+  assert.deepEqual(found.left, { byName: 1, perDefinition: 0, further: 0, partial: 0, aside: 0 })
+  assert.equal(calls.length, 1)
+})
+
+test("Reviews.prepare is run from the handler review.prepare, likely, and the review says so from the handler down to it", async () => {
+  const atHead = { 'host/src/review/reviews.ts': reviewsAt('{ id, ...options }'), 'host/src/review/seat.ts': seatAt }
+  const vicinity = await scanVicinity({ repo: '/repo.invalid', base: 'aaa1111', head: 'bbb2222', run: fakeScans([handlerPack]).run, readHead: async (path) => atHead[path as keyof typeof atHead] ?? null, readFolder: () => null })
+  const review = await prepareReview({
+    id: 'change:hobkin-client:055',
+    change: { project: 'hobkin-client', item: '055', title: 'Ask before a review', branch: 'main' },
+    capture: await captureChange(memoryReader({ ...atHead, 'host/src/review/reviews.ts': reviewsAt('{ id }') }, atHead), 'base', 'head'),
+    spec: null,
+    readHead: async (path) => atHead[path as keyof typeof atHead] ?? null,
+    vicinity,
+  })
+
+  const prepare = review.nodes.find((entry) => entry.subtitle === 'host/src/review/reviews.ts')!
+  const handlers = review.nodes.find((entry) => entry.title === 'reviewHandlers')!
+  assert.deepEqual(prepare.lifecycle, {
+    role: 'changed',
+    hops: 1,
+    path: 'The handler review.prepare (likely) → Reviews.prepare',
+    origin: { kind: 'handler', label: 'The handler review.prepare', exact: false, chain: [handlers.id] },
+  })
+  assert.equal(handlers.summary, 'Unchanged. It calls the change. A request likely enters here: the handler review.prepare.')
+  assert.equal(review.edges.find((edge) => edge.from === prepare.id && edge.to === handlers.id)?.label, 'from line 6 in review.prepare, found by name')
+})
+
+test('a definition the scan says a handler, a listener or an element names has those as its doors, as sure as the scan is', async () => {
+  const doorOf = (kind: string, title: string, line: number) => ({ kind, title, file: 'src/main.ts', line, text: `door ${title}` })
+  const anchor = (id: string, symbol: string, startLine: number, entry: object) => ({ id, symbol, kind: 'function', path: 'src/main.ts', startLine, endLine: startLine + 2, changedLines: [startLine + 1], callers: [], callerCount: complete(0), entry })
+  const pack = {
+    files: [{ path: 'src/main.ts' }],
+    nodes: [],
+    anchors: [
+      anchor('n3', 'onAgain', 11, { kind: 'listener', exact: false, doors: [doorOf('listener', 'again', 9)] }),
+      anchor('n5', 'refresh', 21, { kind: 'ui-handler', exact: false, doors: [doorOf('ui-handler', 'RefreshButton onPress', 7)] }),
+      anchor('n2', 'sync', 31, { kind: 'handler', exact: true, doors: [doorOf('handler', 'again', 5)] }),
+      anchor('n4', 'syncNow', 41, { kind: 'route', exact: false, routes: [{ verbs: ['GET', 'POST'], path: '/any', file: 'src/main.ts', line: 17, text: "router.all('/any', syncNow);" }] }),
+    ],
+    edges: [],
+    coverage: { truncatedBy: 'none' },
+  }
+
+  const found = await scan(fakeScans([pack]).run)
+
+  assert.deepEqual(found.links.map(({ other, call, entry }) => [other.symbol, call.routes, entry]), [
+    ['again', 'door again', { kind: 'listener', exact: false }],
+    ['RefreshButton onPress', 'door RefreshButton onPress', { kind: 'ui-handler', exact: false }],
+    ['again', 'door again', { kind: 'handler', exact: true }],
+    ['GET/POST /any', "router.all('/any', syncNow);", { kind: 'route', exact: false, route: { verbs: ['GET', 'POST'], path: '/any' } }],
+  ])
+  assert.equal(found.entries, undefined, 'each comes in by its doors, not as a way in of its own')
+})
+
+test('a caller that is a way in by itself, such as a rake task, is the end of the way, with its kind', async () => {
+  const pack = {
+    files: [{ path: 'app/models/cleanup.rb' }],
+    nodes: [node('m1', 'app/models/cleanup.rb', 'Cleanup.prune', 2, 4, { language: 'ruby', depth: 0 }), node('m2', 'lib/tasks/reports.rake', 'cleanup', 8, 10, { kind: 'task', language: 'ruby' })],
+    anchors: [
+      { id: 'm1', symbol: 'Cleanup.prune', kind: 'singleton_method', language: 'ruby', path: 'app/models/cleanup.rb', startLine: 2, endLine: 4, changedLines: [3], callers: [caller('m2', 'lib/tasks/reports.rake', 9, { entry: { kind: 'task', exact: true } })], callerCount: complete(1) },
+    ],
+    edges: [],
+    coverage: { truncatedBy: 'none' },
+  }
+  const { run, calls } = fakeScans([pack])
+
+  const found = await scan(run)
+
+  assert.deepEqual(found.links.map(({ other, entry }) => [other.symbol, entry]), [['cleanup', { kind: 'task', exact: true }]])
+  assert.equal(calls.length, 1)
+})
+
+test('a statement that registers a listener is that listener, by its event, not code that runs as its file loads', async () => {
+  const listening = "bus.on('sync', (id: string) => sync(id));"
+  const pack = {
+    files: [{ path: 'src/reviews.ts' }],
+    nodes: [node('n2', 'src/reviews.ts', 'sync', 7, 9, { depth: 0 }), node('n10', 'src/bus.ts', listening, 5, 5, { kind: 'statement' })],
+    anchors: [
+      {
+        id: 'n2', symbol: 'sync', kind: 'function', path: 'src/reviews.ts', startLine: 7, endLine: 9, changedLines: [8], callerCount: complete(1),
+        callers: [caller('n10', 'src/bus.ts', 5, { entry: { kind: 'listener', exact: false, doors: [{ kind: 'listener', title: 'sync', file: 'src/bus.ts', line: 5, text: listening }] } })],
+      },
+    ],
+    edges: [],
+    coverage: { truncatedBy: 'none' },
+  }
+
+  const found = await scan(fakeScans([pack]).run)
+
+  assert.deepEqual(found.links.map(({ entry, named }) => [entry, named]), [[{ kind: 'listener', exact: false }, 'sync']])
 })
