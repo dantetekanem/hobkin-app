@@ -50,6 +50,13 @@ const scoresOn = (rows: ReturnType<typeof change>[]) =>
       .map(({ item, scores }) => [item, scores]),
   )
 
+const scoringOn = (rows: ReturnType<typeof change>[]) =>
+  Object.fromEntries(
+    workFrom({ work: { enabled: true, plan: [], projects: [] }, waiting: { branches: rows } })!
+      .finished.flatMap(({ changes }) => changes)
+      .map(({ item, scoring }) => [item, scoring]),
+  )
+
 test("a finished change's card says its kind, rate and scores", () => {
   const scores = { coverage: score(8), proof: score(8), safety: score(9), visibility: score(8), rollback: score(9) }
   const said = scoresOn([
@@ -63,6 +70,29 @@ test("a finished change's card says its kind, rate and scores", () => {
     said.bbbbbb,
     'Feature, general rate 9: coverage 8, proof 8, deploy and data 7, visibility 8, rollback 9. Held whatever the rate: deploy and data is under 8. Scored on an older commit, not this one.',
   )
+  assert.equal(said.cccccc, null)
+})
+
+test("a finished change's card carries the same scores in parts", () => {
+  const scores = { coverage: score(8), proof: score(8), safety: score(7), visibility: score(8) }
+  const said = scoringOn([
+    change('bbbbbb', { kind: 'feature', rate: 9, scores, floors: [{ criterion: 'safety', score: 7, needs: 8 }], stale: true }),
+    change('cccccc', null),
+  ])
+
+  assert.deepEqual(said.bbbbbb, {
+    kind: 'Feature',
+    rate: 9,
+    scores: [
+      { name: 'coverage', score: 8, evidence: 'What the review saw.' },
+      { name: 'proof', score: 8, evidence: 'What the review saw.' },
+      { name: 'deploy and data', score: 7, evidence: 'What the review saw.' },
+      { name: 'visibility', score: 8, evidence: 'What the review saw.' },
+      { name: 'rollback', score: null, evidence: '' },
+    ],
+    floors: [{ name: 'deploy and data', score: 7, needs: 8 }],
+    stale: true,
+  })
   assert.equal(said.cccccc, null)
 })
 

@@ -4,6 +4,23 @@
  * See _specs/011-work.
  */
 
+/**
+ * What hobkin's own scored review gave a finished change (049-yolo-mode), in the Work card's words. A score says how well
+ * a question is answered, never the review's level, which is the risk of a break.
+ */
+export interface ChangeScores {
+  /** Its kind, as the card says it: "Bug fix", "Feature". */
+  kind: string
+  /** The general rate. */
+  rate: number
+  /** The five scores in the card's order, each with its number (null when the review gave none) and its line of evidence. */
+  scores: { name: string; score: number | null; evidence: string }[]
+  /** The floors that hold the change whatever the rate: the score's name, its number and the number it needs. */
+  floors: { name: string; score: number; needs: number }[]
+  /** The scores are for an older commit than the change is at. */
+  stale: boolean
+}
+
 export type Grade = 'P0' | 'P1' | 'P2' | 'P3'
 
 /** Where a project's finished work goes: a local branch with its description, a draft PR, or a PR. hobkin's `prModes`. */
@@ -166,6 +183,8 @@ export interface FinishedChange {
    * how well a question is answered, never the risk of a break, which is the review's level. Null with no scores.
    */
   scores?: string | null
+  /** The same scores in parts, for the review: each with its evidence line. A hobkin or host older than this does not send it. */
+  scoring?: ChangeScores | null
   /** The TLA+ models that cover what it changes, and what hobkin's own runs at its head say of each. A hobkin older than them does not send it. */
   models?: ModelFact[]
   /** When hobkin's own model checks at its head wrote the proof score's evidence, rather than the review: that line, and the run it names. */

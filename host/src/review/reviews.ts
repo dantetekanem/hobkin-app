@@ -8,6 +8,7 @@
  */
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
+import type { ChangeScores } from '#shared/protocol/work.ts'
 import { agentMessage } from '#shared/agent-message.ts'
 import { CLIENT_PRODUCER_VERSION } from '../producer-version.ts'
 import { completeReview, draftReview } from '#shared/review/prepare.ts'
@@ -50,6 +51,8 @@ export interface ChangeCard {
   branch: string | null
   /** Its pull request's address, once one is open. */
   pr: string | null
+  /** What hobkin's own scored review gave it. Missing or null when it has none, or the host is older. */
+  scores?: ChangeScores | null
 }
 
 /** Where a finished change's pull request goes: its GitHub repository as `owner/name`, the branch it merges into, and its own. */
@@ -646,6 +649,7 @@ export class Reviews {
     const stale = known.state === 'ready' && head != null && !this.options.store.has(target, head) && landing?.state !== 'refreshing'
     const mergeAsked = this.mergeAskedOf(target, landing)
     const pr = target.kind === 'change' ? this.pullOfChange(target)?.pr : undefined
+    const scores = target.kind === 'change' ? this.options.card(target.slug, target.item)?.scores : undefined
     const looked = this.lookedStart.get(id)
     const startsAt = looked && looked.head === head ? looked.start : undefined
     return {
@@ -656,6 +660,7 @@ export class Reviews {
       ...(landing ? { landing } : {}),
       ...(mergeAsked ? { mergeAsked } : {}),
       ...(pr ? { pr } : {}),
+      ...(scores ? { scores } : {}),
       ...(startsAt ? { startsAt } : {}),
     }
   }
@@ -778,6 +783,7 @@ export class Reviews {
         ...(status.mergeAsked ? { mergeAsked: status.mergeAsked } : {}),
         ...(status.owner ? { owner: status.owner } : {}),
         ...(status.pr ? { pr: status.pr } : {}),
+        ...(status.scores ? { rate: status.scores.rate } : {}),
         ...(waiting ? { waiting: true as const } : {}),
         updatedAt: new Date(at).toISOString(),
       }

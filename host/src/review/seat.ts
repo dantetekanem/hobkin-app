@@ -296,7 +296,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     head: (target) => (target.kind === 'change' ? (find(target.slug, target.item)?.head ?? null) : null),
     card: (slug, item) => {
       const change = find(slug, item)
-      return change && { landing: change.landing, yes: change.yes, branch: change.branch, pr: change.pr }
+      return change && { landing: change.landing, yes: change.yes, branch: change.branch, pr: change.pr, scores: change.scoring ?? null }
     },
     // Only a live host posts to GitHub or opens a pull request, and only for a verdict the user confirmed.
     ...(seat.live && seat.gh ? { gh: seat.gh, publish: gitPublisher({ repoOf, baseOf: defaultBranch, gh: seat.gh }) } : {}),

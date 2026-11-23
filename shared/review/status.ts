@@ -2,6 +2,7 @@
  * How a review's preparation stands, and what a verdict will do, as the host tells the window.
  * See _specs/005-review-model and _specs/009-review-notes.
  */
+import type { ChangeScores } from '../protocol/work.ts'
 import type { AssessmentStatus, ChangeAssessment } from './assessment.ts'
 import type { NoteEntry, NoteIntent } from './notes.ts'
 import type { NodeIO, NodeKind, NodeStatus, Review, ReviewPath } from './types.ts'
@@ -53,6 +54,8 @@ export interface ReviewStatus {
   owner?: PullOwner
   /** For a finished change that opened a pull request: that pull request's page, as its card gives the address. */
   pr?: string
+  /** For a finished change hobkin's own scored review scored: its kind, general rate and five scores. A pull request has none. */
+  scores?: ChangeScores
   /**
    * For a finished change this host looked up: the commit the change starts from, at the commit it is at. A review
    * built from another start does not show the change as it is.
@@ -188,6 +191,8 @@ export interface ReviewListItem {
   owner?: PullOwner
   /** For a finished change that opened a pull request: that pull request's page, as its card gives the address. */
   pr?: string
+  /** For a finished change hobkin's own scored review scored: its general rate. */
+  rate?: number
   /**
    * A finished change the background prepares when its turn comes: nothing has started at its commit yet, or what started
    * was cut short and starts again. A host older than this does not send it.

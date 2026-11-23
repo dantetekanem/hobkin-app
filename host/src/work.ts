@@ -12,6 +12,7 @@ import {
   REVIEW_PULLS,
   type AllowanceRequest,
   type ChangeChoice,
+  type ChangeScores,
   type FinishedChange,
   type FinishedGroup,
   type Grade,
@@ -310,6 +311,18 @@ function scoreLine({ review }: ReadyRow): string | null {
   return `${KIND_WORDS[review.kind] ?? review.kind}, general rate ${review.rate}: ${each}.${held}${older}`
 }
 
+/** The same scores in parts, for the review: the card's words for the kind and each score, with its evidence. */
+function scoringOf({ review }: ReadyRow): ChangeScores | null {
+  if (!review) return null
+  return {
+    kind: KIND_WORDS[review.kind] ?? review.kind,
+    rate: review.rate,
+    scores: SCORE_WORDS.map(([criterion, name]) => ({ name, score: review.scores[criterion]?.score ?? null, evidence: review.scores[criterion]?.evidence ?? '' })),
+    floors: review.floors.map(({ criterion, score, needs }) => ({ name: SCORE_WORDS.find(([key]) => key === criterion)?.[1] ?? criterion, score, needs })),
+    stale: Boolean(review.stale),
+  }
+}
+
 function mergeLine({ branch, size, pr, conflict, behind }: ReadyRow): string {
   const named = branch ?? 'its branch'
   if (pr) return `It is the PR ${pr}, and merging it merges it on GitHub.`
@@ -380,6 +393,7 @@ export function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
     reason: reasonOf(entry, group),
     safety: entry.safety ? { grade: entry.safety.grade, rating: entry.safety.rating, stale: Boolean(entry.safety.stale) } : null,
     scores: scoreLine(entry),
+    scoring: scoringOf(entry),
     ...(entry.models ? { models: entry.models } : {}),
     proofCheck: proofCheckOf(entry),
     ...(entry.at ? { at: entry.at } : {}),
