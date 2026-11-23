@@ -50,7 +50,7 @@ export function Preparing({ loader, closeReview }: { loader: ReviewLoader; close
 
   return (
     <div ref={root} data-reduced={reduced} className="@container scroll-quiet h-full overflow-y-auto">
-      <motion.div {...enter} className="mx-auto flex w-full max-w-[1040px] flex-col gap-5 px-6 pt-28 pb-12 @3xl:px-10">
+      <motion.div {...enter} className="mx-auto flex w-full max-w-(--page-width) flex-col gap-5 px-6 pt-28 pb-12 @3xl:px-10">
         <Header run={run} awaiting={awaiting} reduced={reduced} />
         {awaiting ? (
           <Ask start={() => void loader.start()} close={closeReview} />

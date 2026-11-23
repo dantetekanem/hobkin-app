@@ -85,7 +85,7 @@ export function Detail({ facts, data, now, zone, schedulesOnly = false, pending,
     // Its own container, so its parts lay out for the card's width rather than the canvas's.
     <div role="region" aria-labelledby={titleId} className="@container absolute inset-0 overflow-hidden rounded-[28px] bg-background" onKeyDown={goBackOnKey}>
       <div className="scroll-quiet h-full overflow-y-auto overscroll-contain">
-        <div className="mx-auto flex max-w-[1040px] flex-col gap-4 px-6 pt-4 pb-6">
+        <div className="mx-auto flex max-w-(--page-width) flex-col gap-4 px-6 pt-4 pb-6">
           <div>
             <Button ref={back} variant="ghost" size="sm" data-stop="" onClick={onClose} className="-ml-1.5">
               <ArrowLeft aria-hidden="true" />
