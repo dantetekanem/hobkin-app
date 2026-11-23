@@ -170,9 +170,15 @@ interface FocusInput {
   covers?: Readonly<Record<string, string>>
 }
 
+/** A node with the cards of tests that go with it: drawn together and folded together. */
+type Unit = Entry[]
+/** The most wanted standing in a unit, as its place in `STANDINGS`, and its first rank. */
+const bestStanding = (unit: Unit) => Math.min(...unit.map((entry) => STANDINGS.indexOf(entry.standing)))
+const bestRank = (unit: Unit) => Math.min(...unit.map((entry) => entry.rank))
+
 /** Opening Focus on a review: what is a card, what folds into which group, and what an open group draws. */
 export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): FocusPlan {
-  const { nodes, groups: testCards, nodeOf } = input
+  const { nodes, groups: testCards, nodeOf, covers = {} } = input
   const membersOf = (node: ReviewNode): ReviewNode[] => {
     const card = testCards[node.id]
     if (!card) return []
@@ -213,31 +219,70 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
   }
   entries.sort((a, b) => STANDINGS.indexOf(a.standing) - STANDINGS.indexOf(b.standing) || a.rank - b.rank || a.index - b.index)
 
+  // A card of tests goes with its subject (spec 055): it is drawn while its subject is, a safe one folds into the group
+  // its subject folds into, and past the budget the two fold together. It never folds on its own.
+  const entryOf = new Map(entries.map((entry) => [entry.node.id, entry]))
+  const subjectOf = new Map<Entry, Entry>()
+  const testsOf = new Map<Entry, Entry[]>()
+  for (const entry of entries) {
+    if (entry.node.kind !== 'test') continue
+    const card = testCards[entry.node.id]
+    const id = card ? (card.subject ?? card.tests.map((test) => covers[test]).find((each) => each != null)) : covers[entry.node.id]
+    const subject = id ? entryOf.get(id) : undefined
+    if (!subject || subject.node.kind === 'test') continue
+    subjectOf.set(entry, subject)
+    testsOf.set(subject, [...(testsOf.get(subject) ?? []), entry])
+  }
+  /** A node with the cards of tests that go with it. */
+  const withTests = (entry: Entry, follows: (test: Entry) => boolean): Unit => [entry, ...(testsOf.get(entry) ?? []).filter(follows)]
+
   // Safe nodes fold by their kind, and safe code by its folder. A group of one is simply its card.
   const byKey = new Map<string, Entry[]>()
   for (const entry of entries) {
-    if (entry.standing !== 'safe') continue
+    if (entry.standing !== 'safe' || subjectOf.has(entry)) continue
     const members = byKey.get(entry.key) ?? []
     members.push(entry)
     byKey.set(entry.key, members)
   }
-  const cards: Entry[] = entries.filter((entry) => entry.standing !== 'safe' || byKey.get(entry.key)!.length === 1)
   const folding = [...byKey.entries()].filter(([, members]) => members.length > 1)
+  // Each safe node folds with the safe cards of tests of its own.
+  const folded = new Set<Entry>()
+  const unitsOf = new Map<string, Unit[]>()
+  for (const [key, members] of folding) {
+    unitsOf.set(key, members.map((head) => withTests(head, (test) => test.standing === 'safe')))
+    for (const entry of unitsOf.get(key)!.flat()) folded.add(entry)
+  }
 
-  // Past the most groups, the smallest folders of safe code join one group, so the graph is not all group cards.
+  // What is drawn: each node that did not fold, a subject with its cards of tests after it, the most wanted first. A card
+  // of tests that asks more than its folded subject is drawn by itself.
+  const units: Unit[] = []
+  for (const entry of entries) {
+    const subject = subjectOf.get(entry)
+    if (folded.has(entry) || (subject && !folded.has(subject))) continue
+    units.push(withTests(entry, (test) => !folded.has(test)))
+  }
+  units.sort((a, b) => bestStanding(a) - bestStanding(b) || bestRank(a) - bestRank(b) || a[0]!.index - b[0]!.index)
+  let drawnCards = units.reduce((sum, unit) => sum + unit.length, 0)
+
+  // Past the most groups, or past the budget less the room kept for opening, the smallest folders of safe code join one
+  // group first, so the graph is not all group cards and a group card gives way before any card does.
   const folders = folding
     .filter(([key]) => key.startsWith('code:'))
     .sort(([, a], [, b]) => a.length - b.length || a[0]!.rank - b[0]!.rank)
-  const merged: Entry[] = []
-  while (folding.length + Number(merged.length > 0) > MAX_GROUPS && folders.length > 0) {
-    const [key, members] = folders.shift()!
+  const merged: Unit[] = []
+  let mergedFolders = 0
+  const groupCount = () => folding.length + Number(merged.length > 0)
+  while ((groupCount() > MAX_GROUPS || drawnCards + groupCount() > FOCUS_BUDGET.cards - OPEN_ROOM) && folders.length > 0) {
+    const [key] = folders.shift()!
     folding.splice(folding.findIndex(([each]) => each === key), 1)
-    merged.push(...members)
+    merged.push(...unitsOf.get(key)!)
+    mergedFolders += 1
   }
 
   const made: FoldGroup[] = []
-  const group = (id: string, kind: FoldGroup['kind'], folder: string | null, where: Standing, label: string, members: Entry[]) => {
-    const sorted = [...members].sort((a, b) => a.rank - b.rank || a.index - b.index)
+  /** A group of what these hold, most wanted first, each subject followed by its cards of tests. */
+  const group = (id: string, kind: FoldGroup['kind'], folder: string | null, where: Standing, label: string, units: readonly Unit[]) => {
+    const sorted = [...units].sort((a, b) => bestRank(a) - bestRank(b) || a[0]!.index - b[0]!.index).flat()
     const paths = new Set(sorted.flatMap(({ node }) => [...membersOf(node), node].map((each) => each.subtitle ?? each.id)))
     const sum = (field: 'additions' | 'deletions') => sorted.reduce((total, { node }) => total + (node.stats?.[field] ?? 0), 0)
     made.push({
@@ -256,23 +301,29 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
   for (const [key, members] of folding) {
     if (key.startsWith('code:')) {
       const folder = key.slice('code:'.length)
-      group(`${PREFIX}${key}`, 'code', folder, 'safe', folder ? `Safe code in ${folder}` : 'Safe code at the top', members)
+      group(`${PREFIX}${key}`, 'code', folder, 'safe', folder ? `Safe code in ${folder}` : 'Safe code at the top', unitsOf.get(key)!)
     } else {
       const kind = key as NodeBucket
       const passed = members.every(({ node }) => node.status === 'passed' || node.status === 'proves-change')
-      group(`${PREFIX}${key}`, kind, null, 'safe', kind === 'test' && !passed ? 'Safe tests' : KIND_LABEL[kind], members)
+      group(`${PREFIX}${key}`, kind, null, 'safe', kind === 'test' && !passed ? 'Safe tests' : KIND_LABEL[kind], unitsOf.get(key)!)
     }
   }
-  if (merged.length > 0) group(`${PREFIX}folders`, 'folders', null, 'safe', 'Safe code in other folders', merged)
-
-  // Past the budget, less the room kept for opening, the least wanted cards fold too, into a group for what they are.
-  const overflow = new Map<Standing, Entry[]>()
-  const total = () => cards.length + made.length + overflow.size
-  while (total() > FOCUS_BUDGET.cards - OPEN_ROOM && cards.length > 0) {
-    const last = cards.pop()!
-    overflow.set(last.standing, [last, ...(overflow.get(last.standing) ?? [])])
+  if (merged.length > 0) {
+    const others = folding.some(([key]) => key.startsWith('code:'))
+    group(`${PREFIX}folders`, 'folders', null, 'safe', others ? 'Safe code in other folders' : `Safe code in ${mergedFolders} ${mergedFolders === 1 ? 'folder' : 'folders'}`, merged)
   }
-  for (const [where, members] of overflow) group(`${PREFIX}more:${where}`, 'more', null, where, MORE_LABEL[where], members)
+
+  // Past the budget still, the least wanted fold too, into a group for what they are: a subject and its cards of tests
+  // together.
+  const overflow = new Map<Standing, Unit[]>()
+  while (drawnCards + made.length + overflow.size > FOCUS_BUDGET.cards - OPEN_ROOM && units.length > 0) {
+    const last = units.pop()!
+    drawnCards -= last.length
+    const where = STANDINGS[bestStanding(last)]!
+    overflow.set(where, [last, ...(overflow.get(where) ?? [])])
+  }
+  for (const [where, popped] of overflow) group(`${PREFIX}more:${where}`, 'more', null, where, MORE_LABEL[where], popped)
+  const cards = units.flat()
 
   // Groups are read in the order of what they hold: what needs the reviewer first, then by their first member's rank.
   const groupRank = (each: FoldGroup) => Math.min(...each.members.map((id) => entries.find((entry) => entry.node.id === id)!.rank))

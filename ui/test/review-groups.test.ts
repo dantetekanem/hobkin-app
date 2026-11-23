@@ -50,7 +50,7 @@ test('Focus draws every node that needs the reviewer and every one worth a look,
   for (const node of wanted) assert.ok(plan.cards.includes(cardOf(arranged, node.id)), `${node.title} is a card`)
 
   const labels = plan.order.map((id) => plan.groups[id]!.label)
-  const kinds = ['Generated files', 'Lockfiles', 'Locale files', 'Moved or renamed', 'Formatting only', 'Docs', 'Tests that pass', 'Safe code in app/models']
+  const kinds = ['Generated files', 'Lockfiles', 'Locale files', 'Moved or renamed', 'Formatting only', 'Docs']
   for (const label of kinds) assert.ok(labels.includes(label), label)
   // Every member of a group is safe, and no safe node is drawn alone while its group has others.
   for (const group of Object.values(plan.groups)) {
@@ -58,9 +58,20 @@ test('Focus draws every node that needs the reviewer and every one worth a look,
     for (const id of group.members) assert.equal(plan.standing[id], 'safe')
     for (const id of group.members) assert.equal(plan.cards.includes(id), false, `${id} is folded`)
   }
-  // Safe code folds by its top folder.
-  for (const id of groupNamed(plan, 'Safe code in app/models').members) assert.match(arranged.nodes.find((node) => node.id === id)!.subtitle!, /^app\/models\//)
+  // With every card of tests beside its subject the budget is tight, so the folders of safe code fold as one, before
+  // any card gives way.
+  assert.equal(labels.filter((label) => /^Safe code in \d+ folders$/.test(label)).length, 1)
+  assert.equal(labels.filter((label) => label.startsWith('Safe code in app/')).length, 0)
+  // With room, safe code folds by its top folder.
+  const roomy = focusOn(withoutTests(large))
+  for (const id of groupNamed(roomy.plan, 'Safe code in app/models').members) assert.match(roomy.arranged.nodes.find((node) => node.id === id)!.subtitle!, /^app\/models\//)
 })
+
+/** A review without its tests and the wires that leave them. */
+function withoutTests(review: Review): Review {
+  const tests = new Set(review.nodes.filter((node) => node.kind === 'test').map((node) => node.id))
+  return { ...review, nodes: review.nodes.filter((node) => !tests.has(node.id)), edges: review.edges.filter((edge) => !tests.has(edge.from) && !tests.has(edge.to)) }
+}
 
 test('unchanged code on the way in never folds with safe code: it keeps a standing of its own, and the routes stay where requests enter', () => {
   const { plan, folded } = focusOn(pull)
@@ -131,6 +142,40 @@ test('a way in folded into "More of the way in" lights its card, and the wire fr
   assert.equal(levels.wires[wire.id], 'near')
 })
 
+/** The large sample with more cards than the budget: 45 of its safe functions rated as needing the reviewer. */
+function crowdedLarge(): Review {
+  const promoted = new Set(large.nodes.filter((node) => node.kind === 'code' && node.attention?.tier === 'safe').slice(0, 45).map((node) => node.id))
+  return { ...large, id: 'crowded', nodes: large.nodes.map((node) => (promoted.has(node.id) ? { ...node, attention: { ...node.attention!, tier: 'needs-you' as const } } : node)) }
+}
+
+test("a card of tests folds only with its subject: drawn while its subject is, and in its subject's group when it folds", () => {
+  for (const review of [large, crowdedLarge()]) {
+    const { arranged, plan } = focusOn(review)
+    assert.equal(plan.order.some((id) => plan.groups[id]!.label === 'Tests that pass'), false, 'no one card for the tests that pass')
+    const cards = arranged.nodes.filter((node) => node.kind === 'test')
+    assert.ok(cards.length > 10)
+    for (const { id } of cards) {
+      const group = arranged.groups[id]
+      const subject = group ? (group.subject ?? arranged.covers[group.tests[0]!]!) : arranged.covers[id]!
+      if (plan.cards.includes(subject)) assert.ok(plan.cards.includes(id), `${review.id}: ${id} is drawn with ${subject}`)
+      if (plan.groupOf[id]) assert.equal(plan.groupOf[id], plan.groupOf[subject], `${review.id}: ${id} folds with ${subject}`)
+    }
+    // A group opened draws a subject with its tests after it.
+    for (const groupId of plan.order) {
+      const members = plan.groups[groupId]!.members
+      for (const [at, id] of members.entries()) {
+        const group = arranged.groups[id]
+        if (!group) continue
+        const subject = group.subject ?? arranged.covers[group.tests[0]!]!
+        assert.ok(members.indexOf(subject) < at, `${groupId}: ${id} comes after ${subject}`)
+      }
+    }
+  }
+  // The budget still holds with every card of tests beside its subject: past it, a subject and its tests fold together.
+  const { folded } = focusOn(crowdedLarge())
+  assert.ok(folded.nodes.length <= FOCUS_BUDGET.cards && folded.edges.length <= FOCUS_BUDGET.wires)
+})
+
 test('a group knows its members, how many files, its lines and why it is safe', () => {
   const { arranged, plan } = focusOn(large)
   const generated = groupNamed(plan, 'Generated files')
@@ -157,10 +202,10 @@ test('opening a group draws its members while the budget lasts; past it they sta
   assert.equal(open.cards.includes(generated.members.at(-1)!), false, 'the last one stays in the outline only')
 
   // The last group opened takes the budget first.
-  const models = groupNamed(closed, 'Safe code in app/models')
-  const both = focusOn(large, { opened: [generated.id, models.id], pinned: [] }).plan
-  assert.deepEqual(both.shown[models.id], models.members)
-  assert.equal(both.shown[generated.id]!.length, room - models.members.length)
+  const docs = groupNamed(closed, 'Docs')
+  const both = focusOn(large, { opened: [generated.id, docs.id], pinned: [] }).plan
+  assert.deepEqual(both.shown[docs.id], docs.members)
+  assert.equal(both.shown[generated.id]!.length, room - docs.members.length)
   // A node reached from the outline is drawn before the rest of its group.
   const last = generated.members.at(-1)!
   const reached = focusOn(large, { opened: [generated.id], pinned: [last] }).plan
@@ -215,16 +260,16 @@ test('an open group opens in place: its members follow its card down and to the 
       }
     }
   }
-  const models = groupNamed(plan, 'Safe code in app/models')
-  const { folded: open } = focusOn(large, { opened: [models.id], pinned: [] })
-  const card = at(open, models.id)
-  assert.deepEqual(card, at(closed, models.id), 'the group card stays where it stood')
-  for (const id of models.members) {
+  const docs = groupNamed(plan, 'Docs')
+  const { folded: open } = focusOn(large, { opened: [docs.id], pinned: [] })
+  const card = at(open, docs.id)
+  assert.deepEqual(card, at(closed, docs.id), 'the group card stays where it stood')
+  for (const id of docs.members) {
     const member = at(open, id)
     assert.ok(member.x >= card.x && member.y >= card.y, `${id} follows its card`)
   }
   // Members read down each column, then on to the next.
-  const columns = models.members.map((id) => at(open, id).x)
+  const columns = docs.members.map((id) => at(open, id).x)
   assert.deepEqual(columns, [...columns].sort((a, b) => a - b))
   assert.deepEqual(focusOn(large).folded.nodes.map((node) => [node.id, node.position]), closed.nodes.map((node) => [node.id, node.position]))
 })
@@ -279,7 +324,7 @@ test('a node folded into a group is reached: its group opens, it is drawn first 
   assert.equal(reached.view.plan.shown[generated.id]![0], last)
   assert.deepEqual(reached.focus, [last])
   // A node of a card of tests that folded is reached on its card.
-  const tests = groupNamed(reached.view.plan, 'Tests that pass')
+  const tests = Object.values(reached.view.plan.groups).find((group) => group.members.some((id) => reached.view.groups[id]))!
   const card = tests.members.find((id) => reached.view.groups[id])!
   const test = reached.view.groups[card]!.tests[0]!
   session.getState().reach(test)

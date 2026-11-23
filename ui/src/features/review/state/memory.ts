@@ -473,7 +473,7 @@ function foldedOf(review: Review, focus: FocusState): Folded {
   let folded = kept.get(key)
   if (!folded) {
     const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
-    const plan = planFocus({ nodes: shape.nodes, groups: shape.groups, nodeOf }, state)
+    const plan = planFocus({ nodes: shape.nodes, groups: shape.groups, nodeOf, covers: shape.covers }, state)
     folded = foldArranged(shape, plan)
     if (kept.size >= KEPT_FOLDS) kept.delete(kept.keys().next().value!)
     kept.set(key, folded)
