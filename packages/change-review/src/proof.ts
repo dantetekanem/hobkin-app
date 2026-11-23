@@ -63,13 +63,19 @@ function object(value: unknown): Record<string, unknown> {
 }
 
 /**
- * The runbook for the checkout at `cwd`: the override when given, else Ruby's (a Rails app is first a Ruby app, even
- * with JavaScript tests beside it), else the one package.json names. Runners are only used where they are installed;
- * nothing is fetched to run them. Null when nothing fits, and then proof is unknown.
+ * Every way the checkout at `cwd` runs its tests, one for each kind of test file: Rails's for `_test.rb`, RSpec's for
+ * `_spec.rb`, and the one package.json names for scripts, so a Rails app's JavaScript tests run with its JavaScript
+ * command. The override, when given, is the only one. Runners are only used where they are installed; nothing is
+ * fetched to run them. Empty when nothing fits, and then proof is unknown.
  */
+export function detectRunbooks(cwd: string, override?: RunbookOverride): Runbook[] {
+  if (override) return [overrideRunbook(override)]
+  return [railsRunbook(cwd), rspecRunbook(cwd), packageRunbook(cwd)].filter((book) => book !== null)
+}
+
+/** The first of `detectRunbooks`: Ruby's before the one package.json names, since a Rails app is first a Ruby app. */
 export function detectRunbook(cwd: string, override?: RunbookOverride): Runbook | null {
-  if (override) return overrideRunbook(override)
-  return rubyRunbook(cwd) ?? packageRunbook(cwd)
+  return detectRunbooks(cwd, override)[0] ?? null
 }
 
 function overrideRunbook({ command, filesAt, env = {}, timeoutMs = RUN_TIMEOUT_MS }: RunbookOverride): Runbook {
@@ -82,12 +88,13 @@ function overrideRunbook({ command, filesAt, env = {}, timeoutMs = RUN_TIMEOUT_M
 
 const runbook = (command: string[], accepts: string[], source: string): Runbook => ({ command, filesAt: 'end', env: {}, timeoutMs: RUN_TIMEOUT_MS, accepts, source })
 
-function rubyRunbook(cwd: string): Runbook | null {
-  if (existsSync(join(cwd, 'bin/rails')) && isFolder(join(cwd, 'test'))) return runbook([join(cwd, 'bin/rails'), 'test'], ['_test.rb'], 'bin/rails with a test folder')
-  if (isFolder(join(cwd, 'spec')) && /\brspec\b/.test(readOr(join(cwd, 'Gemfile')) + readOr(join(cwd, 'Gemfile.lock')))) {
-    return runbook(['bundle', 'exec', 'rspec'], ['_spec.rb'], 'a spec folder with rspec in the Gemfile')
-  }
-  return null
+function railsRunbook(cwd: string): Runbook | null {
+  return existsSync(join(cwd, 'bin/rails')) && isFolder(join(cwd, 'test')) ? runbook([join(cwd, 'bin/rails'), 'test'], ['_test.rb'], 'bin/rails with a test folder') : null
+}
+
+function rspecRunbook(cwd: string): Runbook | null {
+  if (!isFolder(join(cwd, 'spec')) || !/\brspec\b/.test(readOr(join(cwd, 'Gemfile')) + readOr(join(cwd, 'Gemfile.lock')))) return null
+  return runbook(['bundle', 'exec', 'rspec'], ['_spec.rb'], 'a spec folder with rspec in the Gemfile')
 }
 
 function packageRunbook(cwd: string): Runbook | null {
@@ -113,6 +120,10 @@ function packageRunbook(cwd: string): Runbook | null {
 }
 
 const accepts = (book: Runbook, path: string) => book.accepts.length === 0 || book.accepts.some((ending) => path.endsWith(ending))
+
+const TEST_FILES = [...SCRIPT_TEST_FILES, '_test.rb', '_spec.rb', '_test.py', '_test.go']
+/** A test file by its name, whatever runs it. A fixture or helper beside the tests is not one. */
+const isTestFile = (path: string) => TEST_FILES.some((ending) => path.endsWith(ending)) || /(^|\/)test_[^/]+\.py$/.test(path)
 
 // ───────────────────────── Candidates ─────────────────────────
 
@@ -735,9 +746,11 @@ export function doublesIn(text: string, path: string, symbol: string, nodePath: 
 type Started = Extract<ProgramRun, { started: true }>
 /** How a test file did in a run. `not-run`: the runner found no test to run in it. */
 type Outcome = 'passed' | 'failed' | 'timed-out' | 'not-run'
-type Ran = { outcomes: Map<string, Outcome> } | { stopped: string }
+/** How each file did, and for the files whose command could not start, why. */
+type Ran = { outcomes: Map<string, Outcome>; unstarted?: Map<string, string> } | { stopped: string }
 
-interface Runner {
+/** One test command: its runbook, the environment it runs in and its time limit. */
+interface Command {
   cwd: string
   book: Runbook
   env: NodeJS.ProcessEnv
@@ -745,6 +758,19 @@ interface Runner {
   signal?: AbortSignal
   record: (run: TestRun) => void
 }
+
+/** How the proof runs test files: from `cwd`, each with the first command whose runbook takes it. */
+interface Runner {
+  cwd: string
+  commands: readonly Command[]
+  /** The most time one run may take. */
+  timeoutMs: number
+}
+
+/** A command of the review takes this file. */
+const takes = (books: readonly Runbook[], path: string) => books.some((book) => accepts(book, path))
+/** What a review says of test files no command of it takes, before the files. */
+const notTakenBy = (books: readonly Runbook[]) => `this review runs tests with ${listed(books.map((book) => book.source))}, which ${books.length === 1 ? 'does' : 'do'} not take`
 
 const TAIL_LINES = 40
 const TAIL_CHARS = 4_000
@@ -794,10 +820,23 @@ export function couldNotStart(output: string, code: number | null): string | nul
   return null
 }
 
+/** What minitest and RSpec say when they ran no test, and still exit 0. */
+const NONE_RAN = [/\b0 runs, 0 assertions\b/, /\b0 examples, 0 failures\b/]
+
 function outcomeOf(run: Started): Outcome {
   if (run.timedOut) return 'timed-out'
   if (NO_TESTS.some((said) => said.test(run.tail))) return 'not-run'
+  if (run.code === 0 && NONE_RAN.some((said) => said.test(run.tail))) return 'not-run'
   return run.code === 0 ? 'passed' : 'failed'
+}
+
+/** Why a run that failed no file tells nothing of how its files did, or null when its tests ran. */
+function notRunOf(run: Started): string | null {
+  if (run.aborted) return 'the proof was stopped.'
+  if (run.timedOut) return null
+  if (outcomeOf(run) === 'not-run') return 'the test runner found no test to run.'
+  const unstarted = couldNotStart(run.tail, run.code)
+  return unstarted ? `the test command could not start here (${unstarted}).` : null
 }
 
 /**
@@ -830,24 +869,26 @@ function testEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
   return env
 }
 
-async function start(runner: Runner, files: readonly string[]): Promise<Started | { stopped: string }> {
-  const [program, ...args] = runner.book.command
+async function start(command: Command, files: readonly string[]): Promise<Started | { stopped: string }> {
+  const [program, ...args] = command.book.command
   const run = await runProgram(program!, [...args, ...files], {
-    cwd: runner.cwd,
-    env: runner.env,
-    timeoutMs: runner.timeoutMs,
+    cwd: command.cwd,
+    env: command.env,
+    timeoutMs: command.timeoutMs,
     group: true,
-    signal: runner.signal,
+    signal: command.signal,
     overflow: 'tail',
     maxBytes: 1024 * 1024,
   })
   return run.started ? run : { stopped: `${program} could not start: ${run.reason}` }
 }
 
-function testRunOf(runner: Runner, files: readonly string[], kind: TestRun['kind'], node: string | undefined, run: Started, failed: string[]): TestRun {
+/** A run as recorded. `notRun` says why it tells nothing of its files when the run itself cannot say so. */
+function testRunOf(command: Command, files: readonly string[], kind: TestRun['kind'], node: string | undefined, run: Started, failed: string[], notRun?: string): TestRun {
   const failedAt = failed.length ? failuresIn(run.tail, failed) : []
+  const why = notRun ?? (failed.length ? null : notRunOf(run))
   return {
-    command: commandLine([...runner.book.command, ...files]),
+    command: commandLine([...command.book.command, ...files]),
     tests: [...files],
     kind,
     ...(node ? { node } : {}),
@@ -856,34 +897,53 @@ function testRunOf(runner: Runner, files: readonly string[], kind: TestRun['kind
     seconds: run.seconds,
     failed,
     ...(failedAt.length ? { failed_at: failedAt } : {}),
-    ...(run.code !== 0 ? { output_tail: tailOf(run, runner.timeoutMs) } : {}),
+    ...(run.code !== 0 ? { output_tail: tailOf(run, command.timeoutMs) } : {}),
+    ...(why ? { not_run: why } : {}),
   }
 }
 
 /**
- * Runs test files: in one command when there are several, and when that fails, each file alone to learn which ones
- * fail. The batch is recorded first, naming the files that failed alone.
+ * Runs test files, each with the first command whose runbook takes it, one command after another. A command that
+ * could not start before anything was changed leaves its own files unrun, with why, and the others still run.
  */
 async function runFiles(runner: Runner, files: readonly string[], kind: TestRun['kind'], node?: string): Promise<Ran> {
+  const outcomes = new Map<string, Outcome>()
+  const unstarted = new Map<string, string>()
+  for (const command of runner.commands) {
+    const mine = files.filter((file) => runner.commands.find((each) => accepts(each.book, file)) === command)
+    const ran = await runCommand(command, mine, kind, node)
+    if ('stopped' in ran) return ran
+    for (const [file, outcome] of ran.outcomes) outcomes.set(file, outcome)
+    for (const [file, why] of ran.unstarted ?? []) unstarted.set(file, why)
+  }
+  return { outcomes, ...(unstarted.size ? { unstarted } : {}) }
+}
+
+/**
+ * Runs test files with one command: in one run when there are several, and when that fails, each file alone to learn
+ * which ones fail. The batch is recorded first, naming the files that failed alone.
+ */
+async function runCommand(command: Command, files: readonly string[], kind: TestRun['kind'], node?: string): Promise<Ran> {
   if (files.length === 0) return { outcomes: new Map() }
-  const first = await start(runner, files)
+  const first = await start(command, files)
   if ('stopped' in first) return first
-  // Before anything is changed, a command that dies while starting ran no test and failed none: the proof stops here
-  // and says why, so no unit is told its tests fail.
+  // Before anything is changed, a command that dies while starting ran no test and failed none: its files did not
+  // run, and that is said, so no unit is told its tests fail.
   const unstarted = kind === 'baseline' && !node && !first.aborted && !first.timedOut ? couldNotStart(first.tail, first.code) : null
   if (unstarted) {
-    runner.record(testRunOf(runner, files, kind, node, first, []))
-    return { stopped: `the test command could not start here (${unstarted}).` }
+    command.record(testRunOf(command, files, kind, node, first, []))
+    const why = `the test command could not start here (${unstarted}).`
+    return { outcomes: new Map(), unstarted: new Map(files.map((file) => [file, why])) }
   }
   if (files.length === 1 || first.code === 0 || first.aborted) {
-    runner.record(testRunOf(runner, files, kind, node, first, failedIn(first, files)))
+    command.record(testRunOf(command, files, kind, node, first, failedIn(first, files)))
     if (first.aborted) return { stopped: 'the proof was stopped.' }
     return { outcomes: new Map(files.map((file) => [file, outcomeOf(first)])) }
   }
   const alone: [string, Started][] = []
   let stopped: string | null = null
   for (const file of files) {
-    const run = await start(runner, [file])
+    const run = await start(command, [file])
     if ('stopped' in run) {
       stopped = run.stopped
       break
@@ -894,8 +954,9 @@ async function runFiles(runner: Runner, files: readonly string[], kind: TestRun[
       break
     }
   }
-  runner.record(testRunOf(runner, files, kind, node, first, alone.flatMap(([file, run]) => failedIn(run, [file]))))
-  for (const [file, run] of alone) runner.record(testRunOf(runner, [file], kind, node, run, failedIn(run, [file])))
+  // Cut short, the batch cannot say how the files that never ran alone did.
+  command.record(testRunOf(command, files, kind, node, first, alone.flatMap(([file, run]) => failedIn(run, [file])), stopped ?? undefined))
+  for (const [file, run] of alone) command.record(testRunOf(command, [file], kind, node, run, failedIn(run, [file])))
   return stopped ? { stopped } : { outcomes: new Map(alone.map(([file, run]) => [file, outcomeOf(run)])) }
 }
 
@@ -911,11 +972,14 @@ export interface ProofRequest {
   nodes: readonly ProofNode[]
   /** Candidate tests per node id, from `candidateTests`. */
   candidates: Readonly<Record<string, readonly TestCandidate[]>>
-  runbook: Runbook | null
+  /** How the repository runs its tests: one runbook, or one for each kind of test file. A file goes to the first that takes it. */
+  runbook: Runbook | readonly Runbook[] | null
   /** The change's diffs, base to head, as `gitRepo().diffs` reads them. */
   diffs: readonly FileDiff[]
   /** Double patterns, `sym` standing for the definition's name. */
   doublePatterns: readonly string[]
+  /** The test files the change adds or edits, in the checkout: each one is run at head too, picked for a node or not. */
+  changedTests?: readonly string[]
   /** Most time one run may take; the runbook's when not given. */
   timeoutMs?: number
   signal?: AbortSignal
@@ -932,6 +996,8 @@ export interface ProofResult {
   findings: Finding[]
   /** Why no test ran at all. */
   refused?: string
+  /** The test files of `changedTests` that no run ran, each with why. */
+  notRun?: { path: string; why: string }[]
   /** No tracked or untracked file is left changed in the checkout. */
   clean: boolean
 }
@@ -957,14 +1023,14 @@ async function refusalOf(repo: GitRepo, cwd: string, head: string): Promise<{ re
 type Plan = { answer: NodeProof } | { tests: TestCandidate[] }
 
 /** What a node needs before any test runs: an answer already, or the tests to run for it. */
-function planOf(node: ProofNode, candidates: readonly TestCandidate[], book: Runbook): Plan {
+function planOf(node: ProofNode, candidates: readonly TestCandidate[], books: readonly Runbook[]): Plan {
   if (node.change === 'removed') return { answer: settled('not-applicable', 'removed: there is nothing left to run.') }
   if (node.change === 'none') return { answer: settled('not-applicable', 'unchanged: there is nothing to prove.') }
   if (node.kind === 'test') return { answer: settled('not-applicable', 'a test itself, not code a test runs.') }
   const tests = candidates.filter((candidate) => candidate.path !== node.path)
   if (tests.length === 0) return { answer: settled('none', `no test file names ${node.symbol} or is named after ${node.path}.`) }
-  const runnable = tests.filter((candidate) => accepts(book, candidate.path))
-  if (runnable.length === 0) return { answer: unknown(`its tests were not run: this review runs tests with ${book.source}, which does not take ${listed(tests.map((test) => test.path))}.`) }
+  const runnable = tests.filter((candidate) => takes(books, candidate.path))
+  if (runnable.length === 0) return { answer: unknown(`its tests were not run: ${notTakenBy(books)} ${listed(tests.map((test) => test.path))}.`) }
   return { tests: runnable }
 }
 
@@ -991,35 +1057,44 @@ function restore(file: string, original: Buffer) {
  * change again before the next node. Nothing is recorded for a run that did not happen.
  */
 export async function runProof(request: ProofRequest): Promise<ProofResult> {
-  const { cwd, nodes, candidates, runbook: book, diffs, doublePatterns, signal, onRun, parses = checkParses } = request
+  const { cwd, nodes, candidates, runbook, diffs, doublePatterns, signal, onRun, parses = checkParses } = request
+  const books: Runbook[] = !runbook ? [] : 'command' in runbook ? [runbook] : [...runbook]
   const repo = gitRepo(cwd)
   const runs: TestRun[] = []
   const findings: Finding[] = []
   const answers: Record<string, NodeProof> = {}
   const cleanNow = () => repo.clean().catch(() => false)
+  const ownTests = [...new Set(request.changedTests ?? [])].filter(isTestFile)
   const refuse = async (refused: string): Promise<ProofResult> => {
     for (const node of nodes) answers[node.id] = unknown(`tests were not run: ${refused}`)
-    return { nodes: answers, runs, findings, refused, clean: await cleanNow() }
+    const notRun = ownTests.map((path) => ({ path, why: refused }))
+    return { nodes: answers, runs, findings, refused, ...(notRun.length ? { notRun } : {}), clean: await cleanNow() }
   }
 
-  if (!book) return refuse("no way to run this repository's tests was found.")
+  if (books.length === 0) return refuse("no way to run this repository's tests was found.")
   const checked = await refusalOf(repo, cwd, request.head)
   if ('refused' in checked) return refuse(checked.refused)
-  const timeoutMs = request.timeoutMs ?? book.timeoutMs
   const record = (run: TestRun) => {
     runs.push(run)
     onRun?.(run)
   }
-  const runner: Runner = { cwd, book, env: testEnv(book.env), timeoutMs, signal, record }
+  const commands = books.map((book): Command => ({ cwd, book, env: testEnv(book.env), timeoutMs: request.timeoutMs ?? book.timeoutMs, signal, record }))
+  const runner: Runner = { cwd, commands, timeoutMs: Math.max(...commands.map((command) => command.timeoutMs)) }
+  const timeoutOf = (path: string) => commands.find((command) => accepts(command.book, path))?.timeoutMs ?? runner.timeoutMs
 
-  const plans = nodes.map((node) => planOf(node, candidates[node.id] ?? [], book))
-  const baselineFiles = [...new Set(plans.flatMap((plan) => ('tests' in plan ? plan.tests.map((test) => test.path) : [])))]
+  const plans = nodes.map((node) => planOf(node, candidates[node.id] ?? [], books))
+  // The change's own tests run at head whether a node picked them or not: a test is shown passing only where it ran.
+  const picked = plans.flatMap((plan) => ('tests' in plan ? plan.tests.map((test) => test.path) : []))
+  const baselineFiles = [...new Set([...picked, ...ownTests.filter((path) => takes(books, path))])]
   const baseline = await runFiles(runner, baselineFiles, 'baseline')
   let stopped: string | null = 'stopped' in baseline ? baseline.stopped : null
   const atHead = 'outcomes' in baseline ? baseline.outcomes : new Map<string, Outcome>()
+  const unstarted = ('outcomes' in baseline ? baseline.unstarted : undefined) ?? new Map<string, string>()
+  // When no command could start, no test ran at all: the proof stops there and says why.
+  if (!stopped && baselineFiles.length && baselineFiles.every((file) => unstarted.has(file))) stopped = unstarted.get(baselineFiles[0]!)!
   for (const [file, outcome] of atHead) {
     if (outcome === 'failed') findings.push({ rule: 'failing-test', text: `${file} fails here with the change in place.`, by: 'proof' })
-    if (outcome === 'timed-out') findings.push({ rule: 'test-timeout', text: `${file} did not finish within ${timeoutMs / 1000} seconds here, with the change in place.`, by: 'proof' })
+    if (outcome === 'timed-out') findings.push({ rule: 'test-timeout', text: `${file} did not finish within ${timeoutOf(file) / 1000} seconds here, with the change in place.`, by: 'proof' })
   }
   if (!stopped && baselineFiles.length && !(await repo.clean({ untracked: false }))) {
     stopped = 'the tests at head changed tracked files, so later runs would not test the change.'
@@ -1038,8 +1113,13 @@ export async function runProof(request: ProofRequest): Promise<ProofResult> {
     }
     const passing = plan.tests.filter((test) => atHead.get(test.path) === 'passed')
     if (passing.length === 0) {
+      const cannotStart = plan.tests.map((test) => test.path).filter((path) => unstarted.has(path))
+      if (cannotStart.length === plan.tests.length) {
+        answers[node.id] = unknown(`tests were not run: ${unstarted.get(cannotStart[0]!)}`)
+        continue
+      }
       const notRun = plan.tests.filter((test) => atHead.get(test.path) === 'not-run').map((test) => test.path)
-      const failing = plan.tests.map((test) => test.path).filter((path) => !notRun.includes(path))
+      const failing = plan.tests.map((test) => test.path).filter((path) => !notRun.includes(path) && !unstarted.has(path))
       // A test that fails with the change in place is a break only when the change is why. So the failed files run
       // once more with the definition put back: one that passes then is broken by the change, and one that still
       // fails says nothing about it.
@@ -1063,7 +1143,11 @@ export async function runProof(request: ProofRequest): Promise<ProofResult> {
       let fails = ''
       if (failing.length && undone && !undone.why) fails = `its tests fail here with the change and with it put back, so they say nothing about it: ${listed(failing)}`
       else if (failing.length) fails = `its tests fail or hang here with the change in place, and this run could not tell whether the change is why: ${listed(failing)}`
-      const said = [fails, notRun.length ? `the test runner found no test to run in ${listed(notRun)}` : '']
+      const said = [
+        fails,
+        notRun.length ? `the test runner found no test to run in ${listed(notRun)}` : '',
+        cannotStart.length ? `${listed(cannotStart)} did not run: ${unstarted.get(cannotStart[0]!)!.replace(/\.$/, '')}` : '',
+      ]
       answers[node.id] = unknown(`${said.filter(Boolean).join('; ')}.`)
       continue
     }
@@ -1073,7 +1157,12 @@ export async function runProof(request: ProofRequest): Promise<ProofResult> {
       answers[node.id] = unknown(`tests were cut short: ${proved.stopped}`)
     } else answers[node.id] = proved.answer
   }
-  return { nodes: answers, runs, findings, clean: await cleanNow() }
+  const ran = new Set(runs.flatMap((run) => run.tests))
+  const notRun = ownTests.flatMap((path) => {
+    if (!takes(books, path)) return [{ path, why: `${notTakenBy(books)} it.` }]
+    return ran.has(path) ? [] : [{ path, why: stopped ?? 'it was not run.' }]
+  })
+  return { nodes: answers, runs, findings, ...(notRun.length ? { notRun } : {}), clean: await cleanNow() }
 }
 
 interface Mutating {

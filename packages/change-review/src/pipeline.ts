@@ -21,7 +21,7 @@ import { gitRepo } from './git.ts'
 import { type ContextEntry, readReviewAnswer, reviewRequest } from './model.ts'
 import { applyModelChecks } from './model-checks.ts'
 import { progressFiles, trackProgress } from './progress.ts'
-import { candidateTests, detectRunbook, runProof, type ProofRequest, type ProofResult, type RunbookOverride, type TestCandidate } from './proof.ts'
+import { candidateTests, detectRunbooks, runProof, type ProofRequest, type ProofResult, type RunbookOverride, type TestCandidate } from './proof.ts'
 import { addedParts, carryWords, reshapeMap } from './reshape.ts'
 import { applyRiskEvents, type RejectedEvent } from './risk.ts'
 import { runScan, type ScanOutcome, type ScanRequest } from './scan.ts'
@@ -503,6 +503,8 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       },
     ]
   })
+  /** The test runs, once proof has run. */
+  let tested: Pick<Graph, 'runs' | 'not_run'> = {}
   const graphOf = (list: ReviewNode[]): Graph => ({
     schema: 'review-graph/1',
     range: triage.range,
@@ -511,6 +513,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     nodes: list,
     edges,
     coverage: { truncated: scan.coverage.truncated, notes: scan.coverage.notes },
+    ...tested,
   })
   save('graph.json', graphOf(nodes))
 
@@ -533,7 +536,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   if (unmapped.length) problems.push(`Read from the diff alone, with no map: ${unmapped.map((node) => `\`${node.path}\``).join(', ')}.`)
   const provable = nodes.filter((node) => node.kind === 'function' && node.change !== 'removed' && node.facts.effect.value !== 'text')
   tracker.start('map-proof', provable.length, provable.length ? 'map-proof: finding how this repository runs its tests' : 'map-proof: nothing that runs needs proof')
-  const runbook = detectRunbook(cwd, options.runbook)
+  const runbook = detectRunbooks(cwd, options.runbook)
   const changedTests = triage.buckets.filter((bucket) => bucket.kind === 'test').flatMap((bucket) => bucket.paths).filter((path) => existsSync(join(cwd, path)))
   const candidates: Record<string, TestCandidate[]> = {}
   // One search per entry point for the whole review: many nodes can sit under the same one.
@@ -614,6 +617,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     runbook,
     diffs,
     doublePatterns: DOUBLE_PATTERNS,
+    changedTests,
     signal,
     onRun: (run) => {
       if (run.node) proved.add(run.node)
@@ -629,6 +633,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     },
   })
   halt('map-proof')
+  tested = { runs: proof.runs, ...(proof.notRun?.length ? { not_run: proof.notRun } : {}) }
   if (proof.refused) problems.push(`Tests did not run: ${proof.refused}`)
   else if (!proof.clean) problems.push('The checkout was not clean after the test runs.')
   for (const node of nodes) {

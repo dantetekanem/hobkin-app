@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { gitRepo } from '../src/git.ts'
-import { candidateTests, checkParses, couldNotStart, detectRunbook, doublesIn, failuresIn, probeNode, proofOf, revertNode, runProof, type ProofNode, type TestCandidate } from '../src/proof.ts'
+import { candidateTests, checkParses, couldNotStart, detectRunbook, detectRunbooks, doublesIn, failuresIn, probeNode, proofOf, revertNode, runProof, type ProofNode, type RunbookOverride, type TestCandidate } from '../src/proof.ts'
 import type { FileDiff, Scan, TestRun } from '../src/types.ts'
 
 function tempDir(t: TestContext, name: string): string {
@@ -67,6 +67,23 @@ test('the runbook is how this repository runs given test files, and none when no
   const override = detectRunbook(layout({ 'package.json': '{}' }), { command: ['make', 'test', 'FILES='], env: { RAILS_ENV: 'test' }, timeoutMs: 5_000 })
   assert.deepEqual(override && { command: override.command, env: override.env, timeoutMs: override.timeoutMs, accepts: override.accepts }, { command: ['make', 'test', 'FILES='], env: { RAILS_ENV: 'test' }, timeoutMs: 5_000, accepts: [] })
   assert.throws(() => detectRunbook(tmpdir(), { command: [] }), /command/)
+})
+
+test('a repository has a test command for each kind of test file it holds, so a Rails app runs its JavaScript tests with its JavaScript command', (t) => {
+  const layout = (files: Record<string, string>) => {
+    const dir = tempDir(t, 'runbooks')
+    writeIn(dir, files)
+    return dir
+  }
+  const commandsOf = (dir: string, override?: RunbookOverride) => detectRunbooks(dir, override).map((book) => book.command)
+  const rails = layout({ 'bin/rails': '', 'test/test_helper.rb': '', 'package.json': JSON.stringify({ scripts: { test: 'jest' } }), 'node_modules/.bin/jest': '' })
+  assert.deepEqual(commandsOf(rails), [[join(rails, 'bin/rails'), 'test'], [join(rails, 'node_modules/.bin/jest'), '--runTestsByPath']])
+  const both = layout({ 'bin/rails': '', 'test/test_helper.rb': '', 'spec/spec_helper.rb': '', Gemfile: "gem 'rspec-rails'\n" })
+  assert.deepEqual(commandsOf(both), [[join(both, 'bin/rails'), 'test'], ['bundle', 'exec', 'rspec']])
+  assert.deepEqual(commandsOf(layout({ 'spec/runner.js': '' })), [])
+  // A configured runbook is the one way this repository runs its tests.
+  assert.deepEqual(commandsOf(rails, { command: ['make', 'test'] }), [['make', 'test']])
+  assert.deepEqual(detectRunbook(rails)?.command, [join(rails, 'bin/rails'), 'test'], 'the first is still the runbook')
 })
 
 // ───────────────────────── Candidates ─────────────────────────
@@ -690,6 +707,189 @@ test('a test that fails with the change is a break only when it passes with the 
   // label's test fails either way, so it says nothing about the change, and is no break.
   assert.equal(result.nodes.n2?.brokenTests, undefined)
   assert.deepEqual([result.nodes.n2?.value, result.nodes.n2?.evidence], ['unknown', 'its tests fail here with the change and with it put back, so they say nothing about it: test/label.test.ts.'])
+  assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
+})
+
+test('every test file the change adds or edits is run at its commit, picked for a definition or not, and only once', async (t) => {
+  const dir = tempDir(t, 'proof-changed-tests')
+  const git = gitIn(dir)
+  git('init', '--quiet', '--initial-branch=main')
+  const passing = (name: string) => `${TEST_HEADER}\ntest('${name}', () => {\n  assert.equal(1, 1)\n})\n`
+  writeIn(dir, {
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }),
+    'src/price.ts': 'export function price(n: number): number {\n  return n * 2\n}\n',
+    'test/price.test.ts': `${TEST_HEADER}import { price } from '../src/price.ts'\n\ntest('price is a number', () => {\n  assert.equal(typeof price(2), 'number')\n})\n`,
+    'test/gone.test.ts': passing('gone'),
+  })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Start')
+  const base = git('rev-parse', 'HEAD')
+  git('rm', '--quiet', 'test/gone.test.ts')
+  writeIn(dir, {
+    'src/price.ts': 'export function price(n: number): number {\n  return n * 3\n}\n',
+    'test/price.test.ts': `${TEST_HEADER}import { price } from '../src/price.ts'\n\ntest('price is still a number', () => {\n  assert.equal(typeof price(2), 'number')\n})\n`,
+    // A test of a constant: no changed function picks it.
+    'test/limits.test.ts': passing('the limit is ten'),
+    // A helper beside the tests is no test: run as one, it would never end.
+    'test/fixtures/server.mjs': 'setInterval(() => {}, 1000)\n',
+    // A Ruby test in a repository whose only command is node's.
+    'test/models/cart_test.rb': 'class CartTest\nend\n',
+  })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Triple the price')
+  const head = git('rev-parse', 'HEAD')
+  const changedTests = ['test/price.test.ts', 'test/limits.test.ts', 'test/fixtures/server.mjs', 'test/models/cart_test.rb']
+  const diffs = await gitRepo(dir).diffs(base, head)
+  const prove = (nodes: ProofNode[], candidates: Record<string, TestCandidate[]>) =>
+    runProof({ cwd: dir, head, nodes, candidates, runbook: detectRunbook(dir), diffs, changedTests, doublePatterns: DOUBLES, timeoutMs: 10_000 })
+  const byNode = (runs: readonly TestRun[]) => runs.map((run) => [run.kind, run.node ?? '', run.tests.join(' '), run.failed.join(' ')])
+  const notTaken = 'this review runs tests with the test script in package.json runs node --test, which does not take it.'
+
+  // A change of tests alone: nothing to prove, and its tests run at its commit.
+  const alone = await prove([], {})
+  assert.deepEqual(byNode(alone.runs), [['baseline', '', 'test/price.test.ts test/limits.test.ts', '']])
+  assert.deepEqual(alone.notRun, [{ path: 'test/models/cart_test.rb', why: notTaken }])
+
+  // A changed test a definition picked runs once, with the changed tests nobody picked beside it.
+  const node: ProofNode = { id: 'n1', symbol: 'price', kind: 'function', path: 'src/price.ts', lines: [1, 3], change: 'modified' }
+  const picked = await prove([node], { n1: [candidate('test/price.test.ts', false, true)] })
+  assert.deepEqual(byNode(picked.runs)[0], ['baseline', '', 'test/price.test.ts test/limits.test.ts', ''])
+  assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
+})
+
+test('a run that could not start, was stopped or ran no test fails no file and says why, so it passes none', async (t) => {
+  const dir = tempDir(t, 'proof-no-test-ran')
+  const mark = join(tempDir(t, 'proof-mark'), 'started')
+  const git = gitIn(dir)
+  git('init', '--quiet', '--initial-branch=main')
+  writeIn(dir, {
+    'package.json': JSON.stringify({ type: 'module' }),
+    // Says what the mode asks: gems missing, no test found, nothing run by minitest, or a run that hangs once started.
+    'runner.mjs': fileOf(
+      "import { writeFileSync } from 'node:fs'",
+      'const files = process.argv.slice(2)',
+      'const mode = process.env.MODE',
+      "if (mode === 'gems') { console.error('Could not find rails-8.1.3.1 in locally installed gems (Bundler::GemNotFound)'); process.exit(1) }",
+      "if (mode === 'none') { console.log('No test files found, exiting with code 1'); process.exit(1) }",
+      "if (mode === 'zero') { console.log('0 runs, 0 assertions, 0 failures, 0 errors, 0 skips'); process.exit(0) }",
+      "if (mode === 'split' && files.length > 1) process.exit(1)",
+      "if (mode === 'split' && files[0].startsWith('test/a')) process.exit(0)",
+      "writeFileSync(process.env.MARK, files.join(' '))",
+      'setInterval(() => {}, 1000)',
+    ),
+  })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Start')
+  writeIn(dir, { 'test/a.test.js': '// a\n', 'test/b.test.js': '// b\n', 'test/c.test.js': '// c\n' })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Add tests')
+  const head = git('rev-parse', 'HEAD')
+  const changedTests = ['test/a.test.js', 'test/b.test.js', 'test/c.test.js']
+  const prove = (mode: string, signal?: AbortSignal) =>
+    runProof({
+      cwd: dir,
+      head,
+      nodes: [],
+      candidates: {},
+      runbook: detectRunbook(dir, { command: [process.execPath, 'runner.mjs'], env: { MODE: mode, MARK: mark } }),
+      diffs: [],
+      changedTests,
+      doublePatterns: DOUBLES,
+      timeoutMs: 20_000,
+      ...(signal ? { signal } : {}),
+    })
+  const told = (runs: readonly TestRun[]) => runs.map((run) => [run.tests.join(' '), run.failed.join(' '), run.not_run ?? ''])
+  const all = changedTests.join(' ')
+
+  assert.deepEqual(told((await prove('gems')).runs), [[all, '', 'the test command could not start here (Could not find rails-8.1.3.1 in locally installed gems (Bundler::GemNotFound)).']])
+  // Run alone, each file is seen to hold no test the runner runs.
+  const none = 'the test runner found no test to run.'
+  assert.deepEqual(told((await prove('none')).runs), [[all, '', none], ['test/a.test.js', '', none], ['test/b.test.js', '', none], ['test/c.test.js', '', none]])
+  assert.deepEqual(told((await prove('zero')).runs), [[all, '', none]])
+
+  const stopWhenStarted = () => {
+    const controller = new AbortController()
+    rmSync(mark, { force: true })
+    const timer = setInterval(() => {
+      if (existsSync(mark)) controller.abort()
+    }, 50)
+    t.after(() => clearInterval(timer))
+    return controller.signal
+  }
+  assert.deepEqual(told((await prove('hang', stopWhenStarted())).runs), [[all, '', 'the proof was stopped.']])
+  // The batch failed, so each file runs alone: a passes, b is stopped, and c never runs, so the batch says nothing of it.
+  assert.deepEqual(told((await prove('split', stopWhenStarted())).runs), [
+    [all, '', 'the proof was stopped.'],
+    ['test/a.test.js', '', ''],
+    ['test/b.test.js', '', 'the proof was stopped.'],
+  ])
+  assert.equal(git('status', '--porcelain'), '', 'the checkout is clean')
+})
+
+test('each test file goes to the command that takes it, and a command that cannot start stops only its own files', async (t) => {
+  const dir = tempDir(t, 'proof-two-commands')
+  const git = gitIn(dir)
+  git('init', '--quiet', '--initial-branch=main')
+  // Stands in for Rails: it says it ran each file it was given, or that its gems are missing.
+  const rails = (starts: boolean) =>
+    starts
+      ? fileOf('#!/usr/bin/env node', 'const files = process.argv.slice(3)', 'console.log(`${files.length} runs, ${files.length} assertions, 0 failures, 0 errors, 0 skips`)')
+      : fileOf('#!/usr/bin/env node', "console.error('Could not find rails-8.1.3.1 in locally installed gems (Bundler::GemNotFound)')", 'process.exit(1)')
+  const cart = (factor: number) => `export function total(n) {\n  return n * ${factor}\n}\n`
+  writeIn(dir, {
+    'bin/rails': rails(true),
+    'package.json': JSON.stringify({ type: 'module', scripts: { test: 'node --test' } }),
+    'app/javascript/cart.js': cart(2),
+    'test/test_helper.rb': '',
+  })
+  chmodSync(join(dir, 'bin/rails'), 0o755)
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Start')
+  const base = git('rev-parse', 'HEAD')
+  writeIn(dir, {
+    'app/javascript/cart.js': cart(3),
+    'test/javascript/cart.test.js': `${TEST_HEADER}import { total } from '../../app/javascript/cart.js'\n\ntest('triples', () => {\n  assert.equal(total(2), 6)\n})\n`,
+    'test/models/cart_test.rb': 'class CartTest\nend\n',
+    'test/cart_test.py': 'def test_cart(): pass\n',
+  })
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'Triple the total')
+  const head = git('rev-parse', 'HEAD')
+  const node: ProofNode = { id: 'n1', symbol: 'total', kind: 'function', path: 'app/javascript/cart.js', lines: [1, 3], change: 'modified' }
+  const prove = async (at: string) =>
+    runProof({
+      cwd: dir,
+      head: at,
+      nodes: [node],
+      candidates: { n1: [candidate('test/javascript/cart.test.js', false, true)] },
+      runbook: detectRunbooks(dir),
+      diffs: await gitRepo(dir).diffs(base, at),
+      changedTests: ['test/javascript/cart.test.js', 'test/models/cart_test.rb', 'test/cart_test.py'],
+      doublePatterns: DOUBLES,
+      timeoutMs: 10_000,
+    })
+  const told = (runs: readonly TestRun[]) => runs.map((run) => [run.kind, run.command.split(' ')[0] === process.execPath ? 'node' : basename(run.command.split(' ')[0]!), run.tests.join(' '), run.failed.join(' '), run.not_run ?? ''])
+  const notTaken = { path: 'test/cart_test.py', why: 'this review runs tests with bin/rails with a test folder and the test script in package.json runs node --test, which do not take it.' }
+
+  // One run for each command, in the order the runbooks were found.
+  const both = await prove(head)
+  assert.deepEqual(told(both.runs).slice(0, 2), [
+    ['baseline', 'rails', 'test/models/cart_test.rb', '', ''],
+    ['baseline', 'node', 'test/javascript/cart.test.js', '', ''],
+  ])
+  assert.equal(both.nodes.n1?.value, 'isolated', 'the JavaScript test proves the JavaScript change')
+  assert.deepEqual(both.notRun, [notTaken])
+
+  // Rails cannot start here: its tests say why, and the JavaScript ones still run and prove the change.
+  writeIn(dir, { 'bin/rails': rails(false) })
+  git('commit', '--quiet', '-am', 'Rails without its gems')
+  const broken = await prove(git('rev-parse', 'HEAD'))
+  assert.deepEqual(told(broken.runs).slice(0, 2), [
+    ['baseline', 'rails', 'test/models/cart_test.rb', '', 'the test command could not start here (Could not find rails-8.1.3.1 in locally installed gems (Bundler::GemNotFound)).'],
+    ['baseline', 'node', 'test/javascript/cart.test.js', '', ''],
+  ])
+  assert.equal(broken.nodes.n1?.value, 'isolated')
+  assert.deepEqual(broken.notRun, [notTaken])
   assert.equal(git('status', '--porcelain'), '', 'the checkout is the change again')
 })
 

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import type { EntriesSearch } from '../src/entries.ts'
-import type { ProofRequest, ProofResult } from '../src/proof.ts'
+import type { ProofRequest, ProofResult, Runbook } from '../src/proof.ts'
 import { reviewChange } from '../src/pipeline.ts'
 import type { ScanOutcome } from '../src/scan.ts'
 import type { Level, ModelCheck, ModelRunner, Progress, Scan, ScanAnchor, Units } from '../src/types.ts'
@@ -404,6 +404,40 @@ test('a test failing at head is a finding only on the nodes it is a candidate of
   const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanOf()), proof })
   const total = result.graph.nodes.find((node) => node.id === 'n1')!
   assert.deepEqual(total.findings.filter((finding) => finding.rule === 'failing-test').map((finding) => finding.text), [failing('test/total.test.js').text])
+})
+
+test('a change of tests alone runs them at its commit, and the graph keeps every run and why a test of the change did not run', async (t) => {
+  const passing = (name: string) => `${TEST_HEADER}\ntest('${name}', () => {\n  assert.equal(1, 1)\n})\n`
+  const { repo, base, head, out } = repoOf(
+    t,
+    { 'package.json': PACKAGE, 'test/total.test.js': passing('adds') },
+    { 'test/total.test.js': passing('adds two numbers'), 'test/limits.test.js': passing('the limit is ten'), 'test/models/cart_test.rb': 'class CartTest\nend\n' },
+  )
+  const anchors: ScanAnchor[] = [
+    { id: 'n1', symbol: 'adds two numbers', kind: 'test', path: 'test/total.test.js', startLine: 3, endLine: 5, changedLines: [3], status: 'modified', tests: [] },
+    { id: 'n2', symbol: 'the limit is ten', kind: 'test', path: 'test/limits.test.js', startLine: 3, endLine: 5, changedLines: [1, 2, 3, 4, 5], status: 'added', tests: [] },
+  ]
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanWith(anchors)) })
+  const told = (graph: { runs?: { kind: string; node?: string; tests: string[]; failed: string[] }[] }) => (graph.runs ?? []).map((run) => [run.kind, run.node ?? '', [...run.tests].sort().join(' '), run.failed.join(' ')])
+  assert.deepEqual(told(result.graph), [['baseline', '', 'test/limits.test.js test/total.test.js', '']])
+  assert.deepEqual(result.graph.not_run, [{ path: 'test/models/cart_test.rb', why: 'this review runs tests with the test script in package.json runs node --test, which does not take it.' }])
+  const saved = JSON.parse(readFileSync(join(out, 'graph.json'), 'utf8'))
+  assert.deepEqual([told(saved), saved.not_run], [told(result.graph), result.graph.not_run], 'graph.json keeps them')
+})
+
+test('a Rails app’s review runs its JavaScript tests with its JavaScript command, beside Rails’s', async (t) => {
+  const { repo, base, head, out } = repoOf(
+    t,
+    { 'bin/rails': '', 'test/test_helper.rb': '', 'package.json': PACKAGE },
+    { 'test/javascript/cart.test.js': `${TEST_HEADER}\ntest('adds', () => {\n  assert.equal(1, 1)\n})\n` },
+  )
+  const asked: Runbook[] = []
+  const proof = async (request: ProofRequest): Promise<ProofResult> => {
+    asked.push(...[request.runbook ?? []].flat())
+    return { nodes: {}, runs: [], findings: [], clean: true }
+  }
+  await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanWith([])), proof })
+  assert.deepEqual(asked.map((book) => book.source), ['bin/rails with a test folder', 'the test script in package.json runs node --test'])
 })
 
 test('lines deleted inside a definition that is still there make it modified, proven by its tests', async (t) => {

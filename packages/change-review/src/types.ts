@@ -321,6 +321,11 @@ export interface TestRun {
   failed_at?: { path: string; line: number }[]
   /** The last lines of output, for a run that failed. */
   output_tail?: string
+  /**
+   * Why the run tells nothing of how its test files did: the test command could not start, the proof was stopped, or
+   * the runner found no test to run. Absent when its tests ran.
+   */
+  not_run?: string
 }
 
 export interface Finding {
@@ -496,6 +501,10 @@ export interface Graph {
   nodes: ReviewNode[]
   edges: GraphEdge[]
   coverage: { truncated: boolean; notes: string[] }
+  /** Every test run the proof made, in order: also those of the change's own test files that no definition picked. */
+  runs?: TestRun[]
+  /** The test files the change adds or edits that no run ran, each with why. */
+  not_run?: { path: string; why: string }[]
 }
 
 // ───────────────────────── 3. Risk events ─────────────────────────
