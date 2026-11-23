@@ -4,9 +4,10 @@ import { zoneOf } from '../../packages/change-review/src/zones.ts'
 import { captureChange } from '../review/capture.ts'
 import { lines, memoryReader, type Tree } from '../review/memory.ts'
 import { prepareReview } from '../review/prepare.ts'
-import type { Review } from '../review/types.ts'
+import type { Review, ReviewEdge, ReviewNode } from '../review/types.ts'
 import { validateReview } from '../review/validate.ts'
 import type { Vicinity, VicinityDefinition } from '../review/vicinity.ts'
+import { withZones } from '../review/zones.ts'
 
 async function prepared(trees: { base: Tree; head: Tree }, vicinity?: Vicinity): Promise<Review> {
   return prepareReview({
@@ -82,4 +83,39 @@ test("a node's zone is one of the review's, each zone is listed once, and a revi
   assert.equal(validateReview({ ...review, nodes: review.nodes.map((node, index) => (index === 0 ? { ...node, zone: 'nowhere' } : node)) }).length, 1)
   assert.equal(validateReview({ ...review, zones: [...zones, zones[0]!] }).length, 1)
   assert.equal(validateReview({ ...review, zones: [{ ...zones[0]!, label: '' }, ...zones.slice(1)] }).length, 1)
+})
+
+test('zones follow the ways in, one way to its end before the next, even when a zone is reached at several depths', () => {
+  const node = (id: string, kind: ReviewNode['kind'], subtitle: string, entry?: ReviewNode['entry']): ReviewNode => ({ id, kind, title: id, subtitle, change: kind === 'context' ? 'unchanged' : 'modified', summary: '', anchors: [], position: { x: 0, y: 0 }, ...(entry ? { entry } : {}) })
+  const wire = (kind: ReviewEdge['kind'], from: string, to: string): ReviewEdge => ({ id: `${kind}:${from}>${to}`, from, to, kind, certainty: 'host' })
+  const order = (nodes: ReviewNode[], edges: ReviewEdge[]) => withZones(nodes, edges).zones.map((zone) => zone.id)
+  const zonesOf = (...paths: string[]) => paths.map((path) => zoneOf(path).id)
+
+  // Rails: a route reaches the controller and the model; a job and a mailer reach the model too; the model calls a helper.
+  const rails = [
+    node('u1', 'code', 'app/models/review.rb'),
+    node('u2', 'code', 'app/models/review.rb'),
+    node('v1', 'context', 'app/controllers/reviews_controller.rb', { kind: 'controller', exact: true }),
+    node('v2', 'context', 'config/routes.rb', { kind: 'route', exact: true }),
+    node('v3', 'context', 'app/jobs/rebuild_labels_job.rb', { kind: 'job', exact: true }),
+    node('v4', 'context', 'app/helpers/score_helper.rb'),
+    node('v5', 'context', 'app/mailers/review_mailer.rb', { kind: 'mailer', exact: true }),
+  ]
+  const railsWires = [wire('uses', 'u2', 'u1'), wire('called-by', 'u1', 'v1'), wire('called-by', 'v1', 'v2'), wire('called-by', 'u2', 'v3'), wire('calls', 'u1', 'v4'), wire('called-by', 'u1', 'v5')]
+  assert.deepEqual(order(rails, railsWires), zonesOf('config/routes.rb', 'app/controllers/reviews_controller.rb', 'app/jobs/rebuild_labels_job.rb', 'app/mailers/review_mailer.rb', 'app/models/review.rb', 'app/helpers/score_helper.rb'))
+
+  // Node: an import line in the helper's own file uses the changed constant, so the helper is also reached first.
+  const js = [
+    node('u1', 'code', 'src/config.js'),
+    node('u2', 'code', 'src/helpers/score.js'),
+    node('u3', 'code', 'src/legacy.js'),
+    node('u4', 'code', 'src/services/sync.js'),
+    node('v1', 'context', 'src/services/reviews.js'),
+    node('v2', 'context', 'src/handlers/reviews.js'),
+    node('v3', 'context', 'src/server.js', { kind: 'route', exact: true }),
+    node('v4', 'context', 'src/events.js', { kind: 'listener', exact: false }),
+    node('v5', 'context', 'src/helpers/score.js'),
+  ]
+  const jsWires = [wire('uses', 'u2', 'u1'), wire('called-by', 'u2', 'v1'), wire('called-by', 'v1', 'v2'), wire('called-by', 'v2', 'v3'), wire('called-by', 'u4', 'v4'), wire('called-by', 'u1', 'v5')]
+  assert.deepEqual(order(js, jsWires), zonesOf('src/server.js', 'src/handlers/reviews.js', 'src/services/reviews.js', 'src/helpers/score.js', 'src/config.js', 'src/events.js', 'src/services/sync.js', 'src/legacy.js'))
 })

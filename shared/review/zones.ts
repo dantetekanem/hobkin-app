@@ -1,10 +1,12 @@
 /**
  * The zones of a review (spec 055): the part of the code each node is in, a layer and a subject, as the change
  * review's own rule names it from the node's path (`packages/change-review/src/zones.ts`), and the review's zones in
- * the order a request passes them. A request goes along the wires, from what calls to what it reaches, so a zone comes
- * before another when its code is reached first; code no such wire joins comes after the code that is. A test's zone
- * comes right after the code it mirrors, or else after the last code its tests cover. The spec's zone, which no
- * request passes, comes last. Pure, so it is tested without a host.
+ * the order a request passes them. A request goes along the wires, from what calls to what it reaches, and so from zone
+ * to zone: a zone comes after every zone a step reaches it from, a zone a request enters by first, and each way is
+ * followed to where it waits for another before the next way starts. Ties go to a zone with a way in, then to the one
+ * whose code the review lists first. Code no such wire joins comes after the code that is. A test's zone comes right
+ * after the code it mirrors, or else after the last code its tests cover. The spec's zone, which no request passes,
+ * comes last. Pure, so it is tested without a host.
  */
 import { zoneOf } from '../../packages/change-review/src/zones.ts'
 import { cleanProse } from './prose.ts'
@@ -23,6 +25,29 @@ const isTestZone = (zone: ReviewZone) => zone.layer.startsWith('test:')
 /** Two sort keys, compared one part after another. */
 const byKey = (a: readonly number[], b: readonly number[]) => a.reduce((order, value, at) => order || value - b[at]!, 0)
 
+/**
+ * Zones in the order the steps between them go: each comes once every zone a step reaches it from has come, and after
+ * a zone, one it leads to that is now free comes next, so a way is followed to its end. Of the zones free to come, the
+ * one with the smallest key comes first; in a loop, the smallest left.
+ */
+function alongSteps(ids: readonly string[], steps: ReadonlyMap<string, ReadonlySet<string>>, keyOf: (id: string) => readonly number[]): string[] {
+  const waiting = new Map(ids.map((id) => [id, 0]))
+  for (const next of steps.values()) for (const id of next) if (waiting.has(id)) waiting.set(id, waiting.get(id)! + 1)
+  const smallest = (candidates: readonly string[]) => candidates.reduce((best, id) => (byKey(keyOf(id), keyOf(best)) < 0 ? id : best))
+  const order: string[] = []
+  let last: string | undefined
+  while (waiting.size > 0) {
+    const free = [...waiting.keys()].filter((id) => waiting.get(id) === 0)
+    const onward = free.filter((id) => last != null && steps.get(last)?.has(id))
+    const chosen = smallest(onward.length ? onward : free.length ? free : [...waiting.keys()])
+    waiting.delete(chosen)
+    for (const id of steps.get(chosen) ?? []) if (waiting.has(id)) waiting.set(id, waiting.get(id)! - 1)
+    order.push(chosen)
+    last = chosen
+  }
+  return order
+}
+
 /** A node's zone as the review holds it: the rule's words, kept to a title's length. */
 function zoneAt(node: ReviewNode): ReviewZone | undefined {
   if (!node.subtitle) return undefined
@@ -39,35 +64,28 @@ export function withZones(nodes: readonly ReviewNode[], edges: readonly ReviewEd
   const zones = new Map<string, ReviewZone>()
   for (const zone of zoneOfNode.values()) if (!zones.has(zone.id)) zones.set(zone.id, zone)
 
-  // Each node's place along the request: the most nodes a request passes before it. A loop of calls stops growing
-  // once every place could have been reached.
-  const steps = edges.flatMap((edge) => {
-    const ends = passed(edge)
-    return ends && ends[0] !== ends[1] && zoneOfNode.has(ends[0]) && zoneOfNode.has(ends[1]) ? [ends] : []
-  })
-  const placeOf = new Map(nodes.map((node) => [node.id, 0]))
-  for (let round = 0, moved = true; moved && round < nodes.length; round += 1) {
-    moved = false
-    for (const [first, then] of steps) {
-      const next = placeOf.get(first)! + 1
-      if (next > placeOf.get(then)!) {
-        placeOf.set(then, next)
-        moved = true
-      }
-    }
-  }
-  const joined = new Set(steps.flat())
-
-  // A code zone comes where its first node does: joined code first, then by place, then as the nodes come.
+  // A code zone's key: a zone a request enters by first, then as the review lists its code.
   const keyOf = new Map<string, number[]>()
   nodes.forEach((node, index) => {
     const zone = zoneOfNode.get(node.id)
     if (!zone || isTestZone(zone) || node.kind === 'criterion') return
-    const key = [joined.has(node.id) ? 0 : 1, placeOf.get(node.id)!, index]
+    const key = [node.entry ? 0 : 1, index]
     const known = keyOf.get(zone.id)
     if (!known || byKey(key, known) < 0) keyOf.set(zone.id, key)
   })
-  const code = [...keyOf.keys()].sort((a, b) => byKey(keyOf.get(a)!, keyOf.get(b)!))
+
+  // The steps a request takes from one code zone to another.
+  const steps = new Map<string, Set<string>>()
+  for (const edge of edges) {
+    const ends = passed(edge)
+    const [from, to] = ends ? [zoneOfNode.get(ends[0])?.id, zoneOfNode.get(ends[1])?.id] : []
+    if (!from || !to || from === to || !keyOf.has(from) || !keyOf.has(to)) continue
+    steps.set(from, (steps.get(from) ?? new Set()).add(to))
+  }
+  const joined = new Set([...steps.keys(), ...[...steps.values()].flatMap((next) => [...next])])
+  const zoneKey = (id: string) => keyOf.get(id)!
+  const loneZones = [...keyOf.keys()].filter((id) => !joined.has(id)).sort((a, b) => byKey(zoneKey(a), zoneKey(b)))
+  const code = [...alongSteps([...joined], steps, zoneKey), ...loneZones]
   const rankOf = new Map(code.map((id, rank) => [id, rank]))
 
   // A test zone follows the code zone it mirrors, else the last one its tests cover.
