@@ -6,6 +6,7 @@ import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { agentGroups } from '@/features/hobkins/list.ts'
+import { Pulse } from '@/features/pulse/Pulse.tsx'
 import { useTiers } from '@/features/tiers/store.ts'
 import { ChildCluster, ChildFaces } from '@/features/work/ChildAgents.tsx'
 import { agentEntry } from '@/features/work/agent-entry.ts'
@@ -345,12 +346,14 @@ const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, li
 
 /**
  * What the row says under the agent's name. It follows the agent's latest words itself, so the row, which reads the
- * page's layout each time it draws, does not draw again for each of them.
+ * page's layout each time it draws, does not draw again for each of them. While the host sends its run's pulse, the
+ * working line stands where those words were, and they open on hover.
  */
 const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) {
   const update = useAgentWords(agent)
   const asks = agent.asks
   const waits = agent.durable?.state === 'waiting'
+  const run = agent.durable ? agent.durable.run : agent.id
   return asks ? (
       <span className="block truncate text-[11px] text-muted-foreground">{asks}</span>
     ) : agent.waits ? (
@@ -368,7 +371,7 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
       // soft, animated tooltip rather than the browser's plain one.
       <Tooltip>
         <TooltipTrigger render={<span className="block truncate text-[11px] text-muted-foreground" />}>
-          {agent.project} · {update}
+          {agent.project} · <Pulse run={run} fallback={update} />
         </TooltipTrigger>
         <TooltipContent side="right" align="center" sideOffset={10} className="max-w-xs text-left leading-snug whitespace-normal">
           {update}
@@ -377,7 +380,7 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
     ) : (
       // Before it speaks, the plain phase ("running the tests") stands in.
       <span className="block truncate text-[11px] text-muted-foreground">
-        {agent.project} · {agent.doing}
+        {agent.project} · <Pulse run={run} fallback={agent.doing} />
       </span>
     )
 })

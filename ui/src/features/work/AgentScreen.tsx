@@ -20,6 +20,7 @@ import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import { releaseImages } from '@/features/chat/image-uploads.ts'
 import { useNow } from '@/features/chat/use-now.ts'
+import { Pulse } from '@/features/pulse/Pulse.tsx'
 import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
@@ -601,7 +602,7 @@ function Exchange({ agentId, hue, question, waiting, activity }: { agentId: stri
             </AnimatePresence>
           </StepJob.Provider>
           {/* It leaves in the same moment the next step arrives, so the list glides once instead of settling twice. */}
-          <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} /> : <AgentWaits key="waits" agentId={agentId} />}</AnimatePresence>
+          <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} run={agentId} /> : <AgentWaits key="waits" agentId={agentId} />}</AnimatePresence>
         </ShowStamps>
         {activity?.sample ? (
           <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is the agent's own work, as it happens.</li>
@@ -634,9 +635,9 @@ function Exchange({ agentId, hue, question, waiting, activity }: { agentId: stri
 
 /**
  * Between steps the agent is thinking. hobkin keeps none of its thinking, so the canvas only says so, and for how
- * long, counted from its last step (021 A6).
+ * long, counted from its last step (021 A6). While the host sends the run's pulse, its working line says it instead.
  */
-function Thinking({ activity }: { activity: AgentActivity | null }) {
+function Thinking({ activity, run }: { activity: AgentActivity | null; run: string }) {
   const still = useStill()
   const since = useMemo(() => {
     const times = (activity?.entries ?? []).map((entry) => activity?.timeOf(entry.id)).filter((time) => time !== undefined)
@@ -653,8 +654,12 @@ function Thinking({ activity }: { activity: AgentActivity | null }) {
       {/* It is now, so its place in the times' column is empty. */}
       <Stamped line="note">
         <span className="flex items-center gap-2">
-          <span className="aa-running size-1.5 rounded-full bg-current" aria-hidden="true" />
-          Thinking{seconds >= 2 ? ` · ${seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`}` : ''}
+          <span className="aa-running size-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />
+          <Pulse
+            run={run}
+            fallback={<>Thinking{seconds >= 2 ? ` · ${seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`}` : ''}</>}
+            className="min-w-0 truncate"
+          />
         </span>
       </Stamped>
     </motion.li>

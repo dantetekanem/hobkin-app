@@ -20,6 +20,7 @@ import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import type { Attachment } from '@/features/chat/draft.ts'
 import { MessageText } from '@/features/chat/markdown.ts'
+import { Pulse } from '@/features/pulse/Pulse.tsx'
 import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { AgentStopControl, upToAgents, walkSteps } from '@/features/work/AgentScreen.tsx'
@@ -439,7 +440,7 @@ function Conversation({ id, turns, activity, cwd, sending, problem, loading }: C
                 ) : row.kind === 'answer' ? (
                   <Answer key={row.key} turn={row.turn} at={row.at} />
                 ) : (
-                  <Working key={row.key} />
+                  <Working key={row.key} run={run} />
                 ),
               )}
             </AnimatePresence>
@@ -545,8 +546,11 @@ function Answer({ turn, at }: { turn: ShownTurn; at: number | null }) {
   )
 }
 
-/** Between steps of the turn in flight. hobkin keeps none of its thinking. It is now, so its place in the times' column is empty. */
-function Working() {
+/**
+ * Between steps of the turn in flight: its working line while the host sends the run's pulse, else that it thinks. hobkin
+ * keeps none of its thinking. It is now, so its place in the times' column is empty.
+ */
+function Working({ run }: { run: string | null }) {
   const still = useStill()
   return (
     <motion.li
@@ -557,8 +561,8 @@ function Working() {
     >
       <Stamped line="note">
         <span className="flex items-center gap-2">
-          <span className="aa-running size-1.5 rounded-full bg-current" aria-hidden="true" />
-          Thinking
+          <span className="aa-running size-1.5 shrink-0 rounded-full bg-current" aria-hidden="true" />
+          <Pulse run={run} fallback="Thinking" className="min-w-0 truncate" />
         </span>
       </Stamped>
     </motion.li>

@@ -1,7 +1,9 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { MAIN_PULSE, pulsesOf } from '#shared/protocol/pulse.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { Pulse } from '@/features/pulse/Pulse.tsx'
 import { useHost } from '@/lib/host/index.ts'
 import { tween } from '@/lib/motion.ts'
 import { useChat } from './chat-store.ts'
@@ -73,14 +75,25 @@ export function StatusLine({ reason, problem, said, turnRunning, typing, stopArm
   if (bubble) lastThought.current = bubble
   const shown = bubble ?? (inspecting && (lastThought.current?.kind === 'tip' || lastThought.current?.kind === 'reminder') ? lastThought.current : null)
   const shownLine = shown ? null : line
+  const pulsing = useHost((state) => Object.hasOwn(pulsesOf(state.snapshot), MAIN_PULSE))
+  // The turn's working line stands where its elapsed time was, and gets the room between the bubble and the stop keys.
+  const pulseShown = pulsing && bubble?.kind === 'doing' && !stopArmed
 
   return (
     // The row's room is always there, so the input does not move when the bubble or a line comes and goes.
     <div className="relative flex h-6 items-center gap-2 pl-[112px]">
       <SpeechBubble bubble={shown} onInspect={setInspecting} />
+      {pulseShown ? (
+        // Unseen and as wide as the bubble floating at the row's left, so the working line is cut before it goes under it.
+        <span aria-hidden="true" className="invisible -ml-4 max-w-[calc(100%-84px)] shrink-0 truncate border px-2.5 text-[12px]">
+          {bubble?.text}
+        </span>
+      ) : null}
       {bubble?.kind === 'doing' || stopArmed ? (
-        <span className="ml-auto flex shrink-0 items-center gap-2 text-[12px] text-muted-foreground">
-          {bubble?.kind === 'doing' && !stopArmed ? <Elapsed since={startedAt ?? seenAt.current ?? Date.now()} /> : null}
+        <span className={cn('ml-auto flex items-center gap-2 text-[12px] text-muted-foreground', pulseShown ? 'min-w-0' : 'shrink-0')}>
+          {bubble?.kind === 'doing' && !stopArmed ? (
+            <Pulse run={MAIN_PULSE} fallback={<Elapsed since={startedAt ?? seenAt.current ?? Date.now()} />} className="min-w-0 truncate" />
+          ) : null}
           {/* One Escape never stops hobkin: the first asks, and this says how to go on. */}
           {stopArmed ? (
             <span role="status" className="flex items-center gap-1 text-foreground">
