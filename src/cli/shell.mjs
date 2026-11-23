@@ -1,8 +1,11 @@
 import { spawn } from 'node:child_process';
 import { isAbsolute } from 'node:path';
 
-/** Only the compatibility adapter may supply an already-authorized legacy command. */
-export async function executeShell({ command, cwd, signal }, { spawnProcess = spawn, maxOutputBytes = 1048576 } = {}) {
+/**
+ * Only the compatibility adapter may supply an already-authorized legacy command, and hobkin a command an agent
+ * scheduled for itself (`agent-schedule-runner.mjs`). `env` is the environment it starts with, hobkin's own when none.
+ */
+export async function executeShell({ command, cwd, signal, env }, { spawnProcess = spawn, maxOutputBytes = 1048576 } = {}) {
   if (typeof command !== 'string' || !command.trim() || Buffer.byteLength(command) > 65536 || !isAbsolute(cwd ?? '')
     || !Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1) {
     throw Error('Invalid scheduled shell bounds.');
@@ -14,6 +17,7 @@ export async function executeShell({ command, cwd, signal }, { spawnProcess = sp
     // Matches pi-scheduler 0.5.1. The saved command is one argument, never interpolated into another command.
     child = spawnProcess('bash', ['-lc', command], {
       cwd,
+      ...(env ? { env } : {}),
       shell: false,
       detached: process.platform !== 'win32',
       stdio: ['ignore', 'pipe', 'pipe'],

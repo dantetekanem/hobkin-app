@@ -104,3 +104,14 @@ test('invalid bounds and synchronous spawn failure are explicit and never retry'
   assert.equal(result.code, null);
   assert.match(result.error, /missing executable/);
 });
+
+test('a command starts with the environment it is given, and with hobkin\'s own when it is given none', async () => {
+  const seen = [];
+  const spawnProcess = childProgram('process.stdout.write(String(process.env.ONLY_THIS ?? "none"))', (_exe, _args, options) => seen.push(options.env));
+  const given = await executeShell({ command: 'synthetic', cwd, env: { ...process.env, ONLY_THIS: 'given' } }, { spawnProcess });
+  const inherited = await executeShell({ command: 'synthetic', cwd }, { spawnProcess });
+
+  assert.equal(given.stdout, 'given');
+  assert.equal(inherited.stdout, 'none');
+  assert.equal(seen[1], undefined);
+});
