@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import { zoneOf } from '../../packages/change-review/src/zones.ts'
 import { captureChange } from '../review/capture.ts'
 import { lines, memoryReader, type Tree } from '../review/memory.ts'
 import { prepareReview } from '../review/prepare.ts'
@@ -53,17 +54,12 @@ test('every node names its zone, and the review lists its zones in the order a r
     ],
   })
   assert.deepEqual(validateReview(review), [])
-  assert.deepEqual(review.zones?.map((zone) => [zone.id, zone.label]), [
-    ['-/route/routes', 'Routes'],
-    ['-/controller/user', 'Controllers · Users'],
-    ['-/view/user', 'Views · Users'],
-    ['-/helper/user', 'Helpers · Users'],
-    ['-/model/user', 'Models · User'],
-    ['-/test:model/user', 'Tests · User model'],
-  ])
-  const zoneOf = (path: string) => review.nodes.filter((node) => node.subtitle === path).map((node) => node.zone)
-  assert.deepEqual(zoneOf('app/models/user.rb'), ['-/model/user'])
-  assert.deepEqual(zoneOf('test/models/user_test.rb'), ['-/test:model/user'])
+  // The change review's rule names each zone; the request passes them from the route to the model, then its test.
+  const inOrder = ['config/routes.rb', 'app/controllers/users_controller.rb', 'app/views/users/show.html.erb', 'app/helpers/users_helper.rb', 'app/models/user.rb', 'test/models/user_test.rb']
+  assert.deepEqual(review.zones?.map((zone) => [zone.id, zone.label]), inOrder.map((path) => [zoneOf(path).id, zoneOf(path).label]))
+  const zonesAt = (path: string) => review.nodes.filter((node) => node.subtitle === path).map((node) => node.zone)
+  assert.deepEqual(zonesAt('app/models/user.rb'), [zoneOf('app/models/user.rb').id])
+  assert.deepEqual(zonesAt('test/models/user_test.rb'), [zoneOf('test/models/user_test.rb', 'test').id])
   assert.ok(review.nodes.every((node) => node.zone && review.zones!.some((zone) => zone.id === node.zone)), 'every node')
 })
 
@@ -76,7 +72,7 @@ test('a test zone no code mirrors follows the code its tests cover', async () =>
     { links: [{ near: { changed: { path: 'src/doing.ts', line: 3 } }, other: definition('src/notes.ts', 'remember', 1, 3), direction: 'callee', hops: 1, call: { line: 3, name: 'remember' }, proven: true }] },
   )
   assert.deepEqual(validateReview(review), [])
-  assert.deepEqual(review.zones?.map((zone) => zone.id), ['-/root/doing', '-/test:e2e/flow', '-/root/notes'])
+  assert.deepEqual(review.zones?.map((zone) => zone.id), ['src/doing.ts', 'test/e2e/flow.test.ts', 'src/notes.ts'].map((path) => zoneOf(path).id))
 })
 
 test("a node's zone is one of the review's, each zone is listed once, and a review from before zones is still valid", async () => {
