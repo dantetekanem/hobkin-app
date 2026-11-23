@@ -11,6 +11,7 @@ import './agent-activity.css'
 import { useDrop } from './drop.ts'
 import { taskListKey, type TaskKeyPress } from './task-keys.ts'
 import { progressOf, sameTasks, taskLine, tasksOf, titleOf, type AgentTask, type TaskLine, type TaskProgress, type TaskState } from './tasks.ts'
+import { useAgentTasks } from './use-agent-activity.ts'
 
 const NO_TASKS: readonly AgentTask[] = []
 
@@ -56,12 +57,23 @@ function toggleList(root: HTMLElement | null, bar: HTMLButtonElement | null): vo
  * Mount it outside the steps' scroller, in a positioned row: the open list hangs from that row and spans it.
  */
 export function TaskList({ entries, hue }: { entries?: readonly ActivityEntry[]; hue: number }) {
-  const still = useStill()
   const read = useMemo(() => (entries ? tasksOf(entries) : NO_TASKS), [entries])
   // The agent's words arrive many times a second. The list is kept as it is until a task changes, so nothing redraws.
   const held = useRef(read)
   if (!sameTasks(held.current, read)) held.current = read
-  const tasks = held.current
+  return <Tasks tasks={held.current} hue={hue} />
+}
+
+/** The tasks line of one agent's run, which reads the run's tasks itself: nothing around it draws for the agent's steps. */
+export function AgentTaskList({ agentId, hue }: { agentId: string | null; hue: number }) {
+  return <Tasks tasks={useAgentTasks(agentId)} hue={hue} />
+}
+
+/** The tasks line for tasks read elsewhere, kept as they are until a task changes. It draws again only for new tasks. */
+export const Tasks = memo(TaskBar)
+
+function TaskBar({ tasks, hue }: { tasks: readonly AgentTask[]; hue: number }) {
+  const still = useStill()
   const progress = useMemo(() => progressOf(tasks), [tasks])
   const line = useMemo(() => taskLine(progress), [progress])
   const any = tasks.length > 0

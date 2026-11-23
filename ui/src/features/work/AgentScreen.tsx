@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { agentControls, answerAgent, questionOf, runningAgents, useAgent, useAgentControl, type RunningAgent } from '@/app/running-agents.ts'
 import { holdStill, stillVariants, useStill } from '@/app/still.ts'
@@ -10,14 +10,14 @@ import { Pals } from '@/avatar/Pals.tsx'
 import { FilePath } from '@/components/FilePath.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { doingNow, exchangeOf, pauseOf, stepCount, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
+import { exchangeOf, pauseOf, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { earlierRow, useNewest } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
 import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
-import { TaskList } from '@/features/agent-activity/TaskList.tsx'
-import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
+import { AgentTaskList } from '@/features/agent-activity/TaskList.tsx'
+import { useActivityPresence, useAgentActivity, useAgentGlance, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import { releaseImages } from '@/features/chat/image-uploads.ts'
@@ -74,13 +74,13 @@ export function AgentScreen() {
   const finished = agent !== undefined && running === undefined
   const question = questionOf(agentId)
   const waiting = Boolean(running?.asks)
-  const activity = useAgentActivity(agentId)
+  // Only whether there are steps: each part below reads what it shows of them itself, so a step draws only those parts.
+  const presence = useActivityPresence(agentId)
   const notes = useAgentThreads((threads) => (agentId ? threads.notes[agentId] : undefined))
   const still = useStill()
-  const reading = agentReading(Boolean(agent && agentId), (activity?.entries.length ?? 0) > 0 || Boolean(notes?.length) || Boolean(question))
+  const reading = agentReading(Boolean(agent && agentId), presence === 'some' || Boolean(notes?.length) || Boolean(question))
   // The canvas supplies the entry movement; snapshot content never waits for a second entrance.
   const Lift = Plain
-  const Rise = Plain
 
   return (
     // A click inside a canvas previewed from the agents list keeps it open: the list losing the keyboard ends a preview.
@@ -115,23 +115,7 @@ export function AgentScreen() {
               animate={{ opacity: reading ? 0 : 1 }}
               transition={agentEntry(still)}
             >
-              {agent ? (
-                <Rise>
-                  <p className="text-[15px] text-muted-foreground">
-                    {agent.project} · {finished ? 'finished' : waiting ? 'waiting for you' : agent.doing} · {agent.tier}
-                  </p>
-                </Rise>
-              ) : null}
-              {agentId && (agent || activity) ? (
-                <Rise className="w-full">
-                  <Glance agentId={agentId} hue={agent?.hue ?? 0} question={question} waiting={waiting} activity={activity} />
-                </Rise>
-              ) : null}
-              {agentId && agent ? (
-                <Rise className="w-full">
-                  <HelpersGlance runId={agentId} hue={agent.hue} />
-                </Rise>
-              ) : null}
+              <Overview agentId={agentId} agent={agent} finished={finished} waiting={waiting} question={question} held={presence !== 'none'} hidden={reading} />
             </motion.div>
           </motion.div>
           {/* Drawn with the screen, the helpers and the exchange are simply there. Arriving later, they rise in. */}
@@ -150,7 +134,7 @@ export function AgentScreen() {
                 {/* The agents its own Pi started with pi-extended-teams: shown, never controlled (046-teams-layer). A spawn
                     call is a step, so a run that has any is always read here. */}
                 <TeamsStrip runs={[agentId]} hue={agent.hue} runName={agent.title} variant="line" />
-                <TaskList entries={activity?.entries} hue={agent.hue} />
+                <AgentTaskList agentId={agentId} hue={agent.hue} />
               </motion.div>
             ) : null}
           </AnimatePresence>
@@ -163,7 +147,7 @@ export function AgentScreen() {
           <AnimatePresence initial={false}>
             <AgentPart key={agentId} className="absolute inset-0 flex flex-col">
               <AnimatePresence initial={false}>
-                {reading && agent && agentId ? <Exchange key={agentId} agentId={agentId} hue={agent.hue} question={question} waiting={waiting} activity={activity} /> : null}
+                {reading && agent && agentId ? <Exchange key={agentId} agentId={agentId} hue={agent.hue} question={question} waiting={waiting} /> : null}
               </AnimatePresence>
             </AgentPart>
           </AnimatePresence>
@@ -352,15 +336,52 @@ function useLastSeen(agentId: string | null, running: RunningAgent | undefined):
   return current ?? seen.current
 }
 
+interface OverviewProps {
+  agentId: string | null
+  agent: RunningAgent | undefined
+  finished: boolean
+  waiting: boolean
+  question?: string
+  /** The agent has activity, even with no step in it yet. */
+  held: boolean
+  /** It gives way to the exchange while that is read, and draws nothing new until it is back in sight. */
+  hidden: boolean
+}
+
+/** The rest of the small screen, under the face and the name: where the agent works, the glance at it and its helpers. */
+const Overview = memo(function Overview({ agentId, agent, finished, waiting, question, held, hidden }: OverviewProps) {
+  return (
+    <>
+      {agent ? (
+        <Plain>
+          <p className="text-[15px] text-muted-foreground">
+            {agent.project} · {finished ? 'finished' : waiting ? 'waiting for you' : agent.doing} · {agent.tier}
+          </p>
+        </Plain>
+      ) : null}
+      {agentId && (agent || held) ? (
+        <Plain className="w-full">
+          <Glance agentId={agentId} hue={agent?.hue ?? 0} question={question} waiting={waiting} hidden={hidden} />
+        </Plain>
+      ) : null}
+      {agentId && agent ? (
+        <Plain className="w-full">
+          <HelpersGlance runId={agentId} hue={agent.hue} />
+        </Plain>
+      ) : null}
+    </>
+  )
+}, (before, after) => before.hidden && after.hidden)
+
 /**
  * The bottom of the small screen: the agent's question, or what it is doing this moment and how many steps it
  * has taken, or the last thing said to it. Never more, so walking the agents list stays light.
  */
-function Glance({ agentId, hue, question, waiting, activity }: { agentId: string; hue: number; question?: string; waiting: boolean; activity: AgentActivity | null }) {
+const Glance = memo(function Glance({ agentId, hue, question, waiting, hidden }: { agentId: string; hue: number; question?: string; waiting: boolean; hidden: boolean }) {
   const notes = useAgentThreads((threads) => threads.notes[agentId])
   const last = notes?.at(-1)
-  const steps = activity ? stepCount(activity.entries) : 0
-  const doing = useMemo(() => (activity ? doingNow(activity.entries, { ended: activity.ended, cwd: activity.cwd }) : null), [activity])
+  // Hidden behind the steps while they are read, it keeps what it showed and draws nothing new until it is in sight.
+  const { steps, doing } = useAgentGlance(agentId, hidden)
 
   if (waiting && question) {
     return (
@@ -392,7 +413,7 @@ function Glance({ agentId, hue, question, waiting, activity }: { agentId: string
     )
   }
   return <p className="text-[15px] text-muted-foreground">No steps yet. They draw here as it works.</p>
-}
+})
 
 /**
  * What the agent is doing this moment, in one or two lines: the tool it runs or just ran, or the last thing it
@@ -558,9 +579,12 @@ export function walkSteps(event: KeyboardEvent<HTMLOListElement>) {
  * with when it happened in a column at its left. It fills the room between the shrunken header and the input, opens at
  * its newest step, just above the input, and stays there as steps arrive, unless the user has scrolled up to read, and
  * then offers the way back down. A long run draws only its newest steps, with a row above them that draws more, and each
- * step drawn paints only while it is in view.
+ * step drawn paints only while it is in view. It reads the agent's activity itself, so a step draws the exchange alone.
  */
-function Exchange({ agentId, hue, question, waiting, activity }: { agentId: string; hue: number; question?: string; waiting: boolean; activity: AgentActivity | null }) {
+const Exchange = memo(ExchangeSteps)
+
+function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; hue: number; question?: string; waiting: boolean }) {
+  const activity = useAgentActivity(agentId)
   const still = useStill()
   const live = useHasHost()
   const notes = useAgentThreads((threads) => threads.notes[agentId])
@@ -718,9 +742,11 @@ function Said({ note }: { note: AgentNote }) {
 /**
  * The input for talking to one agent, always at the bottom of its canvas. It takes the keyboard when the user clicks
  * it or presses Enter on the agent in the list, never on its own, so walking the list keeps the keyboard there.
- * Images pasted or dropped on it go with the words, as in the main input.
+ * Images pasted or dropped on it go with the words, as in the main input. It draws again only when what it shows changes.
  */
-function TalkInput({ agentId, name, hue, mood, answering, finished }: { agentId: string; name: string; hue: number; mood: Mood; answering: boolean; finished: boolean }) {
+const TalkInput = memo(TalkBox)
+
+function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: string; name: string; hue: number; mood: Mood; answering: boolean; finished: boolean }) {
   const sendNote = useAgentThreads((threads) => threads.send)
   const live = useHasHost()
   const images = useAgentImageInput(agentId, !finished)

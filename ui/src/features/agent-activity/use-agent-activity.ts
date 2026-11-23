@@ -1,9 +1,12 @@
-import { useCallback, useMemo } from 'react'
+import { useRef } from 'react'
 import { MAIN_ACTIVITY, type ActivityEntry, type JobActivity } from '#shared/protocol/activity.ts'
 import { SAMPLE_ACTIVITY } from '@/app/running-agents.ts'
 import { useNow } from '@/features/chat/use-now.ts'
-import { hostStore, useHasHost, useHost, useWatchJob } from '@/lib/host/index.ts'
+import { doingOf, hasHost } from '@/lib/host/frame.ts'
+import { hostStore, useHasHost, useHost, useWatchJob, type HostState } from '@/lib/host/index.ts'
 import { sampleAt, sampleLength } from './sample.ts'
+import { doingNow, stepCount, type Doing } from './steps.ts'
+import { sameTasks, tasksOf, type AgentTask } from './tasks.ts'
 
 /** When this window first saw an entry and, for a tool call it saw start, when the call began and when it ended. */
 export interface EntryTime {
@@ -79,7 +82,10 @@ const stopTiming = hostStore.subscribe((state, previous) => {
   for (const job of timings.keys()) {
     const held = next !== undefined && Object.hasOwn(next, job)
     const kept = job === MAIN_ACTIVITY || job.startsWith('sample:') || held || running.has(job)
-    if (!kept) timings.delete(job)
+    if (!kept) {
+      timings.delete(job)
+      timeReaders.delete(job)
+    }
   }
   for (const job in next) {
     const entries = next[job]
@@ -114,30 +120,123 @@ export interface AgentActivity {
   sample: boolean
 }
 
+/** Each job's one way of reading its times, so a step drawn with it can tell by reference that it reads them the same. */
+const timeReaders = new Map<string, (id: string) => EntryTime | undefined>()
+
+function timeReaderOf(job: string): (id: string) => EntryTime | undefined {
+  let read = timeReaders.get(job)
+  if (!read) timeReaders.set(job, (read = (id) => entryTimeOf(job, id)))
+  return read
+}
+
+const made = new WeakMap<readonly ActivityEntry[], AgentActivity>()
+
+/** The one activity for these entries read this way, so whatever reads it can tell by reference that nothing changed. */
+function activityOf(job: string, entries: readonly ActivityEntry[], cwd: string | undefined, ended: boolean, sample: boolean): AgentActivity {
+  const timeOf = timeReaderOf(job)
+  const known = made.get(entries)
+  if (known && known.timeOf === timeOf && known.cwd === cwd && known.ended === ended && known.sample === sample) return known
+  // The host's are timed as they arrive. A sample's are timed as its frames appear.
+  if (sample) timeEntries(job, entries, Date.now())
+  const activity: AgentActivity = { entries, ...(cwd ? { cwd } : {}), ended, timeOf, sample }
+  made.set(entries, activity)
+  return activity
+}
+
+/** An agent's activity as the host's state holds it, or with no host its sample as far as it has played. */
+function readActivity(state: HostState, agentId: string | null, sampled: { entries: readonly ActivityEntry[]; cwd?: string } | undefined): AgentActivity | null {
+  if (!agentId) return null
+  if (!hasHost(state)) return sampled ? activityOf(`sample:${agentId}`, sampled.entries, sampled.cwd || undefined, false, true) : null
+  const entries = (state.snapshot.jobActivity as JobActivity | undefined)?.[agentId]
+  if (!Array.isArray(entries)) return null
+  const run = state.snapshot.runs?.find((summary) => summary.id === agentId)
+  return activityOf(agentId, entries, run?.cwd || undefined, run?.state !== 'running', false)
+}
+
+interface Reading<Shown> {
+  /** Whether two things shown say the same, so the part need not draw again. */
+  same?: (held: Shown, next: Shown) => boolean
+  /** The part is out of sight: it keeps what it showed and reads nothing new until it is in sight again. */
+  paused?: boolean
+}
+
 /**
- * What one agent has done so far: hobkin's job activity for its run while a host is connected, which the host keeps
- * for a while after the job ends (011 A3), and with no host the sample activity some sample agents have, playing on
- * from when their canvas first opened. Null when there is none.
+ * What one part of an agent's page shows of its activity (`select`). The part draws again only when that says something
+ * new by `same`, not for every step the agent takes, and while `paused` not at all. The activity is hobkin's job
+ * activity for the run while a host is connected, which the host keeps for a while after the job ends (011 A3), and with
+ * no host the sample activity some sample agents have, playing on from when their canvas first opened. Null when there
+ * is none.
  */
-export function useAgentActivity(agentId: string | null): AgentActivity | null {
+export function useAgentActivityOf<Shown>(agentId: string | null, select: (activity: AgentActivity | null) => Shown, { same = Object.is, paused = false }: Reading<Shown> = {}): Shown {
   // While this agent's steps are on screen, the host sends them whole. Every other agent comes as its tail.
   useWatchJob(agentId)
   const live = useHasHost()
-  const hosted = useHost((state) => (agentId ? (state.snapshot.jobActivity as JobActivity | undefined)?.[agentId] : undefined))
-  const run = useHost((state) => (agentId ? state.snapshot.runs?.find((summary) => summary.id === agentId) : undefined))
   const sample = !live && agentId ? SAMPLE_ACTIVITY[agentId] : undefined
   const start = sample && agentId ? sampleStart(agentId) : 0
-  const now = useNow(sample !== undefined && Date.now() - start <= sampleLength(sample), 500)
-  const entries = live ? (Array.isArray(hosted) ? hosted : undefined) : sample ? sampleAt(sample, now - start) : undefined
-  const job = live ? agentId : agentId && `sample:${agentId}`
-  const cwd = live ? run?.cwd : sample?.cwd
-  const ended = live && run?.state !== 'running'
-  const timeOf = useCallback((id: string) => (job ? entryTimeOf(job, id) : undefined), [job])
+  const now = useNow(!paused && sample !== undefined && Date.now() - start <= sampleLength(sample), 500)
+  const sampled = sample ? { entries: sampleAt(sample, now - start), cwd: sample.cwd } : undefined
+  const held = useRef<{ activity: AgentActivity | null; select: typeof select; shown: Shown } | null>(null)
+  return useHost((state) => {
+    if (paused && held.current) return held.current.shown
+    const activity = readActivity(state, agentId, sampled)
+    if (held.current?.activity === activity && held.current.select === select) return held.current.shown
+    const shown = select(activity)
+    held.current = { activity, select, shown: held.current && same(held.current.shown, shown) ? held.current.shown : shown }
+    return held.current.shown
+  })
+}
 
-  return useMemo(() => {
-    if (!job || !entries) return null
-    // The host's are timed as they arrive. A sample's are timed as its frames appear.
-    if (!live) timeEntries(job, entries, Date.now())
-    return { entries, ...(cwd ? { cwd } : {}), ended, timeOf, sample: !live }
-  }, [job, entries, live, cwd, ended, timeOf])
+const whole = (activity: AgentActivity | null) => activity
+
+/** What one agent has done so far, for the part of its page that draws its steps: it draws again for every step. */
+export function useAgentActivity(agentId: string | null): AgentActivity | null {
+  return useAgentActivityOf(agentId, whole)
+}
+
+/** Whether an agent has activity, and any entry in it. */
+export type Presence = 'none' | 'empty' | 'some'
+
+const presenceOf = (activity: AgentActivity | null): Presence => (activity === null ? 'none' : activity.entries.length ? 'some' : 'empty')
+
+/** Whether the agent has activity and any step in it, which changes only when its first entry comes or all go. */
+export function useActivityPresence(agentId: string | null): Presence {
+  return useAgentActivityOf(agentId, presenceOf)
+}
+
+const NO_TASKS: readonly AgentTask[] = []
+const tasksFrom = (activity: AgentActivity | null) => (activity ? tasksOf(activity.entries) : NO_TASKS)
+
+/** The agent's tasks, kept as they are until a task changes. */
+export function useAgentTasks(agentId: string | null): readonly AgentTask[] {
+  return useAgentActivityOf(agentId, tasksFrom, { same: sameTasks })
+}
+
+type Mood = ReturnType<typeof doingOf>['mood']
+
+/** How a face looks while its run works, by the run's newest step. */
+const moodOfSteps = (activity: AgentActivity | null): Mood => doingOf(activity ? activity.entries.slice(-1) : undefined).mood
+
+/** The mood a run's steps give its face, which changes when a tool starts or ends, not for what a tool prints. */
+export function useStepsMood(agentId: string | null): Mood {
+  return useAgentActivityOf(agentId, moodOfSteps)
+}
+
+/** What the agent's page shows of it before its steps: how many steps it has taken, and what it is doing now. */
+export interface Glance {
+  steps: number
+  doing: Doing | null
+}
+
+const glanceOf = (activity: AgentActivity | null): Glance => ({
+  steps: activity ? stepCount(activity.entries) : 0,
+  doing: activity ? doingNow(activity.entries, { ended: activity.ended, cwd: activity.cwd }) : null,
+})
+
+const sameDoing = (left: Doing | null, right: Doing | null) =>
+  left === right || (left !== null && right !== null && left.lead === right.lead && left.subject === right.subject && left.code === right.code && left.path === right.path && left.failed === right.failed && left.note === right.note)
+const sameGlance = (left: Glance, right: Glance) => left.steps === right.steps && sameDoing(left.doing, right.doing)
+
+/** The glance at the agent, which draws again when its step count or what it does changes, and not while `hidden`. */
+export function useAgentGlance(agentId: string | null, hidden: boolean): Glance {
+  return useAgentActivityOf(agentId, glanceOf, { same: sameGlance, paused: hidden })
 }

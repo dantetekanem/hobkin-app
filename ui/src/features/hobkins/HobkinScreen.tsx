@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, type HobkinConversation, type HobkinSummary } from '#shared/protocol/hobkins.ts'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { holdStill, useStill } from '@/app/still.ts'
@@ -11,12 +11,12 @@ import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
-import { TaskList } from '@/features/agent-activity/TaskList.tsx'
+import { AgentTaskList } from '@/features/agent-activity/TaskList.tsx'
 import { earlierRow, useNewest, withEarlier } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
 import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
-import { useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
+import { useAgentActivity, useStepsMood } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import type { Attachment } from '@/features/chat/draft.ts'
@@ -160,8 +160,10 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
   const read = useMemo<HobkinConversation | null>(() => conversation ?? (hobkin?.run ? { hobkin, turns: [] } : null), [conversation, hobkin])
   const turns = useMemo(() => pageTurns(read, hobkin, sent), [read, hobkin, sent])
   // The live turn's steps: the one in flight, or the one just over until a read has its answer. The host keeps them.
-  const activity = useAgentActivity(turns.find((turn) => turn.live)?.run ?? null)
-  const mood = hobkin?.state === 'working' ? doingOf(activity ? [...activity.entries] : undefined).mood : 'idle'
+  const liveRun = turns.find((turn) => turn.live)?.run ?? null
+  // The face reads only the mood the live turn's steps give it. The tasks line and the conversation read the steps themselves.
+  const stepsMood = useStepsMood(liveRun)
+  const mood = hobkin?.state === 'working' ? stepsMood : 'idle'
 
   return (
     <motion.div
@@ -178,12 +180,11 @@ function Part({ id, split, sent, sending }: { id: string; split: boolean; sent: 
       </div>
       {/* The tasks of the turn in flight, as one line that stays in sight above the conversation and opens over it. */}
       <div className="relative z-10 flex shrink-0 justify-center px-[10%]">
-        <TaskList entries={activity?.entries} hue={hueOf(id)} />
+        <AgentTaskList agentId={liveRun} hue={hueOf(id)} />
       </div>
       <Conversation
         id={id}
         turns={turns}
-        activity={activity}
         cwd={hobkin?.cwd}
         sending={sending}
         problem={problem}
@@ -379,7 +380,6 @@ interface ConversationProps {
   /** The hobkin's id: how many of its newest rows are drawn is kept by it. */
   id: string
   turns: readonly ShownTurn[]
-  activity: AgentActivity | null
   cwd?: string
   /** The message on its way to the host now. */
   sending: SendingNote | null
@@ -391,15 +391,19 @@ interface ConversationProps {
  * Each turn's message and answer, oldest at the top, and the turn in flight last with its steps. It opens at the newest
  * and stays there as steps arrive, unless the user scrolled up to read. Up and Down walk it, as an agent's steps. A hobkin
  * with no turn yet has nothing here until its first message is sent. Each row keeps its key while the host catches up
- * with a message sent (`pageRows`), so none is drawn twice. Every row says when it happened, in a column at its left.
+ * with a message sent (`pageRows`), so none is drawn twice. Every row says when it happened, in a column at its left. It
+ * reads the live turn's steps itself, so a step draws the conversation alone.
  */
-function Conversation({ id, turns, activity, cwd, sending, problem, loading }: ConversationProps) {
+const Conversation = memo(ConversationRows)
+
+function ConversationRows({ id, turns, cwd, sending, problem, loading }: ConversationProps) {
   const still = useStill()
   const live = useHasHost()
   const scroll = useFollow(still)
   // The live turn's feed keeps its newest steps. The ones it let go are read from its run's saved session, a page at a
   // time, and come after the turn's message, where the row that reads them stands.
   const run = turns.find((turn) => turn.live)?.run ?? null
+  const activity = useAgentActivity(run)
   const job = live && activity && !activity.sample ? run : null
   const older = useOlderSteps(job)
   const saved = earlierRow(0, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })

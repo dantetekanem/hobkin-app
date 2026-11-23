@@ -1,19 +1,18 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo } from 'react'
 import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { handOffCanvasFocus } from '@/app/focus.ts'
 import { Rise } from '@/app/Reveal.tsx'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Hob } from '@/avatar/Hob.tsx'
-import type { Mood } from '@/avatar/moods.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
-import { sampleAt, sampleLength } from '@/features/agent-activity/sample.ts'
-import { familyOf, pauseOf, stepCount, stepsOf } from '@/features/agent-activity/steps.ts'
+import { sampleLength } from '@/features/agent-activity/sample.ts'
+import { stepsOf } from '@/features/agent-activity/steps.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
-import { TaskList } from '@/features/agent-activity/TaskList.tsx'
+import { Tasks } from '@/features/agent-activity/TaskList.tsx'
 import { mainTimeOf, type EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { turnStartedAt, doingNow as turnWord } from '@/features/chat/doing.ts'
@@ -23,56 +22,28 @@ import { childrenSummary } from '@/features/work/child-summary.ts'
 import { useMainChildren } from '@/features/work/children.ts'
 import { useHasHost, useHost, useWatchJob } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
-import { mainActivityOf, quietLine, quietSince } from './mind.ts'
+import { sampleTimeOf, useMainHead, useMainSteps, useMainTasks, useSampleStart } from './main-steps.ts'
+import { quietLine, quietSince } from './mind.ts'
 import { SAMPLE_MAIN } from './sample.ts'
 
-/** When the sample first played, so it plays on from there. */
-let sampleStart: number | undefined
 /** hobkin's own hue, as its helpers' faces take their colors from it. */
 const HUE = 42
 
-/**
- * When the sample's steps first played. The host's are timed as the host sends them, whether the mind is open or not
- * (`mainTimeOf`), so a mind opened late shows its earlier steps' real times.
- */
-const times = new Map<string, EntryTime>()
-const sampleTimeOf = (id: string) => times.get(id)
-function timeSteps(entries: readonly ActivityEntry[], now: number) {
-  for (const entry of entries) {
-    const time = times.get(entry.id)
-    const running = entry.kind === 'tool' && entry.state === 'running'
-    if (!time) times.set(entry.id, running ? { seen: now, started: now } : { seen: now })
-    else if (!running && time.started !== undefined && time.ended === undefined) time.ended = now
-  }
-}
-
 const capital = (word: string) => word.charAt(0).toUpperCase() + word.slice(1)
 
-/** The face says what the steps say: a tool running, a pause between steps, or rest between turns. hobkin's thinking itself is never shown. */
-function moodOf(entries: readonly ActivityEntry[], busy: boolean): Mood {
-  if (!busy) return 'idle'
-  const last = entries.at(-1)
-  if (last?.kind !== 'tool' || last.state !== 'running') return 'thinking'
-  return ['read', 'search', 'list', 'fetch'].includes(familyOf(last.name)) ? 'searching' : 'working'
-}
-
-/** The main agent's steps, helpers and turn: the host's while one is connected, the sample's before. */
+/** The main agent's helpers and turn: the host's while one is connected, the sample's before. Its steps are read by the parts that show them. */
 function useMain() {
   // While the mind is open, the host sends the main agent's steps whole. Otherwise they come as their tail.
   useWatchJob(MAIN_ACTIVITY)
   const live = useHasHost()
-  const hosted = useHost((state) => mainActivityOf(state.snapshot))
   const hostedBusy = useHost((state) => state.snapshot.busy === true)
   const hostedWord = useHost((state) => turnWord(state.snapshot))
-  const [start] = useState(() => (sampleStart ??= Date.now()))
+  const start = useSampleStart()
   const now = useNow(!live && Date.now() - start <= sampleLength(SAMPLE_MAIN), 500)
   const playing = now - start < sampleLength(SAMPLE_MAIN)
-  const entries = live ? hosted : sampleAt(SAMPLE_MAIN, now - start)
-  useMemo(() => !live && entries && timeSteps(entries, Date.now()), [live, entries])
   const turnStart = useHost((state) => turnStartedAt(state.snapshot))
   return {
     live,
-    entries,
     timeOf: live ? mainTimeOf : sampleTimeOf,
     turnStart: live ? turnStart : null,
     children: useMainChildren(),
@@ -84,23 +55,25 @@ function useMain() {
 
 /**
  * Hobkin's mind: its main agent, the one the chat talks to, as it works right now (Command+J). Its steps read as an
- * agent's do, at the newest unless the user scrolls up. The chat stays usable beside it.
+ * agent's do, at the newest unless the user scrolls up. The chat stays usable beside it. The steps and the tasks line
+ * read the steps themselves, so a step draws the header only when its count or the face changes.
  */
 export function MainAgentScreen() {
   const still = useStill()
-  const { live, entries, timeOf, turnStart, children, busy, word, cwd } = useMain()
-  const steps = entries ? stepCount(entries) : 0
+  const { live, timeOf, turnStart, children, busy, word, cwd } = useMain()
+  const head = useMainHead()
+  const steps = head?.steps ?? 0
   const status = busy ? `${capital(word ?? 'thinking')}${steps ? ` · ${steps === 1 ? '1 step' : `${steps} steps`}` : ''}` : 'Waiting for your next message'
 
   return (
     <div className="relative flex h-full flex-col">
       <Rise className="flex items-center gap-3 px-[10%] pt-(--page-top) pb-2">
-        <Hob mood={moodOf(entries ?? [], busy)} size={48} still={still} />
+        <Hob mood={busy ? (head?.mood ?? 'thinking') : 'idle'} size={48} still={still} />
         <div className="min-w-0 flex-1">
           <h2 className="font-heading text-[20px] font-semibold tracking-[-0.022em]">Hobkin's mind</h2>
           <p className="truncate text-[13px] text-muted-foreground">{status}</p>
         </div>
-        {entries?.length ? (
+        {head?.any ? (
           <span className="flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground">
             <Kbd>⌃O</Kbd>
             opens every block
@@ -109,20 +82,25 @@ export function MainAgentScreen() {
       </Rise>
       {children.length ? <Helpers helpers={children} /> : null}
       {/* Outside the steps' scroller, so it stays in sight as they scroll. Its list opens over them from this row. */}
-      {entries?.length ? (
+      {head?.any ? (
         <div className="relative z-10 flex justify-center px-[10%] pb-2 empty:hidden">
-          <TaskList entries={entries} hue={HUE} />
+          <MainTasks />
         </div>
       ) : null}
-      {entries === null ? (
+      {head === null ? (
         <Blank>Hobkin's mind needs hobkin to restart once: the running hobkin is older than this view and does not send its main agent's steps.</Blank>
-      ) : entries.length === 0 ? (
+      ) : !head.any ? (
         <Blank>{busy ? `${capital(word ?? 'thinking')}. Its steps draw here as it works.` : 'No steps yet. They draw here as hobkin works on your next message.'}</Blank>
       ) : (
-        <Exchange entries={entries} timeOf={timeOf} turnStart={turnStart} ended={!busy} cwd={cwd} word={busy && pauseOf(entries) === 'thinking' ? (word ?? 'thinking') : null} sample={!live} />
+        <Exchange timeOf={timeOf} turnStart={turnStart} ended={!busy} cwd={cwd} word={busy && head.thinking ? (word ?? 'thinking') : null} sample={!live} />
       )}
     </div>
   )
+}
+
+/** The main agent's tasks line, which draws again only when a task changes. */
+function MainTasks() {
+  return <Tasks tasks={useMainTasks()} hue={HUE} />
 }
 
 /**
@@ -164,14 +142,17 @@ function Helpers({ helpers }: { helpers: readonly RunChild[] }) {
   )
 }
 
+const NO_ENTRIES: readonly ActivityEntry[] = []
+
 /**
  * The main agent's steps, top to bottom, drawn as an agent's canvas draws them, each with when it happened in a column
  * at its left. It opens at the newest and stays there as steps arrive, unless the user scrolled up to read, and then
  * offers the way back down. A keyboard handed to the mind lands here, so the arrows, Page keys, Home and End read it.
  */
-function Exchange({ entries, timeOf, turnStart, ended, cwd, word, sample }: { entries: readonly ActivityEntry[]; timeOf: (id: string) => EntryTime | undefined; turnStart: number | null; ended: boolean; cwd?: string; word: string | null; sample: boolean }) {
+function Exchange({ timeOf, turnStart, ended, cwd, word, sample }: { timeOf: (id: string) => EntryTime | undefined; turnStart: number | null; ended: boolean; cwd?: string; word: string | null; sample: boolean }) {
   const still = useStill()
   const scroll = useFollow(still)
+  const entries = useMainSteps() ?? NO_ENTRIES
   // The tasks line above the steps is where task calls show.
   const steps = useMemo(() => stepsOf(entries, { ended, cwd, tasksOnLine: true }), [entries, ended, cwd])
   scroll.note()
