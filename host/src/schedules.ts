@@ -26,6 +26,8 @@ const UNKNOWN = 'hobkin has no such schedule, so nothing changed.'
 const NO_ANSWER = 'hobkin did not say it was done, so the schedule may be as it was.'
 /** As long as a refusal the window shows may be. */
 const REASON_MAX = 300
+/** As long as the contract's reader lets an owner's name be. */
+const OWNER_TITLE_MAX = 120
 
 const isEnded = (schedule: AgentSchedule): boolean => schedule.state !== undefined && ENDED_SCHEDULE_STATES.includes(schedule.state)
 
@@ -40,7 +42,9 @@ function endedWords(schedule: AgentSchedule, outcome: string): string {
 function answered(answer: unknown): { ok: true } {
   const { ok, reason } = (answer ?? {}) as { ok?: unknown; reason?: unknown }
   if (ok === true) return { ok: true }
-  throw new Unavailable(ok === false && typeof reason === 'string' && reason.trim() ? reason.slice(0, REASON_MAX) : NO_ANSWER)
+
+  const saidWhy = ok === false && typeof reason === 'string' && reason.trim() !== ''
+  throw new Unavailable(saidWhy ? reason.slice(0, REASON_MAX) : NO_ANSWER)
 }
 
 export function scheduleHandlers({ operations, schedules }: ScheduleSeat): Pick<HostHandlers, 'schedule.cancel' | 'schedule.pause' | 'schedule.run'> {
@@ -83,9 +87,13 @@ function ownerTitleOf(schedule: AgentSchedule, runs: unknown, hobkins: unknown):
   const owner = schedule.owner
   if (!owner) return undefined
   if (owner.kind === 'main') return 'hobkin'
+
   const rows = owner.kind === 'hobkin' ? hobkins : runs
-  const row = Array.isArray(rows) && owner.id ? (rows as Named[]).find((each) => each?.id === owner.id) : undefined
-  return typeof row?.title === 'string' && row.title.trim() ? row.title.slice(0, 120) : undefined
+  if (!Array.isArray(rows) || !owner.id) return undefined
+
+  const title = (rows as Named[]).find((row) => row?.id === owner.id)?.title
+  if (typeof title !== 'string' || !title.trim()) return undefined
+  return title.slice(0, OWNER_TITLE_MAX)
 }
 
 /** The rows with an owner's name where the runtime gave none. */
@@ -99,8 +107,9 @@ function withOwnerTitles(list: AgentSchedule[], runs: unknown, hobkins: unknown)
 
 /** Every key of a snapshot but its schedules, without reading them. */
 function withoutSchedules<Snapshot extends object>(snapshot: Snapshot): Snapshot {
-  const rows = snapshot as Record<string, unknown>
-  return Object.fromEntries(Object.keys(rows).filter((key) => key !== 'agentSchedules').map((key) => [key, rows[key]])) as Snapshot
+  const fields = snapshot as Record<string, unknown>
+  const kept = Object.keys(fields).filter((key) => key !== 'agentSchedules')
+  return Object.fromEntries(kept.map((key) => [key, fields[key]])) as Snapshot
 }
 
 /**
@@ -117,6 +126,7 @@ export class AgentScheduleReader {
       const { agentSchedules: from, runs, hobkins } = snapshot as { agentSchedules?: unknown; runs?: unknown; hobkins?: unknown }
       const made = this.made
       if (made && made.from === from && made.runs === runs && made.hobkins === hobkins) return made.list
+
       const read = readAgentSchedules(from)
       const list = read && withOwnerTitles(read, runs, hobkins)
       this.made = { from, runs, hobkins, list }

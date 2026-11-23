@@ -39,10 +39,14 @@ export interface AgentsSeat {
  * (spec 053).
  */
 function waitingWords(run: RunSummary, schedules: readonly AgentSchedule[] | undefined): string {
-  const own = (schedules ?? []).filter(({ owner, state }) => owner?.kind === 'run' && owner.id === run.id && state && !ENDED_SCHEDULE_STATES.includes(state))
-  if (!own.length) return 'It waits for its time, so nothing reaches it until it carries on.'
-  const [next] = own.toSorted((one, other) => (one.nextAt ? Date.parse(one.nextAt) : Infinity) - (other.nextAt ? Date.parse(other.nextAt) : Infinity))
-  const which = next!.name ? `its schedule "${next!.name}"` : 'one of its schedules'
+  const isOwnLive = ({ owner, state }: AgentSchedule) =>
+    owner?.kind === 'run' && owner.id === run.id && state !== undefined && !ENDED_SCHEDULE_STATES.includes(state)
+  const firesAt = ({ nextAt }: AgentSchedule) => (nextAt ? Date.parse(nextAt) : Infinity)
+
+  const [soonest] = (schedules ?? []).filter(isOwnLive).toSorted((one, other) => firesAt(one) - firesAt(other))
+  if (!soonest) return 'It waits for its time, so nothing reaches it until it carries on.'
+
+  const which = soonest.name ? `its schedule "${soonest.name}"` : 'one of its schedules'
   return `It waits for ${which} to wake it, so nothing reaches it until then.`
 }
 

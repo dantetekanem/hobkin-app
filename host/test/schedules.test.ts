@@ -13,12 +13,16 @@ const QUIET: AgentSchedule = { id: 'sch-4', state: 'expired' }
 const NAMES = ['schedule.cancel', 'schedule.pause', 'schedule.run'] as const
 
 /** The runtime's three operations, recording each call and answering as `answer` says. */
-function fakeRuntime(answer: (call: unknown[]) => unknown = () => ({ ok: true })) {
+function fakeRuntime(answer: () => unknown = () => ({ ok: true })) {
   const calls: unknown[][] = []
+  const called = (...call: unknown[]) => {
+    calls.push(call)
+    return answer()
+  }
   const operations: ScheduleOperations = {
-    cancel: async (id) => answer(calls[calls.push(['cancel', id]) - 1]!),
-    pause: async (id, paused) => answer(calls[calls.push(['pause', id, paused]) - 1]!),
-    run: async (id) => answer(calls[calls.push(['run', id]) - 1]!),
+    cancel: async (id) => called('cancel', id),
+    pause: async (id, paused) => called('pause', id, paused),
+    run: async (id) => called('run', id),
   }
   return { calls, operations }
 }

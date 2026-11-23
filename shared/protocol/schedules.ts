@@ -97,6 +97,7 @@ const oneOf = <Word extends string>(words: readonly Word[], value: unknown): Wor
 const idOf = (value: unknown): string | undefined => (typeof value === 'string' && value.length > 0 && value.length <= ID_MAX ? value : undefined)
 const countOf = (value: unknown): number | undefined => (Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : undefined)
 const timeOf = (value: unknown): string | undefined => (typeof value === 'string' && value.length <= 64 && Number.isFinite(Date.parse(value)) ? value : undefined)
+const secondsOf = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined)
 
 /** Words no longer than `most`, cut before a character that would be split in two. */
 function cut(value: unknown, most: number): string | undefined {
@@ -136,7 +137,7 @@ function scheduleOf(value: unknown): AgentSchedule | undefined {
   const id = idOf(value.id)
   const state = oneOf(STATES, value.state)
   if (!id || !state) return undefined
-  const every = value.every
+
   return present<AgentSchedule>({
     id,
     owner: ownerOf(value.owner),
@@ -145,7 +146,7 @@ function scheduleOf(value: unknown): AgentSchedule | undefined {
     does: oneOf(['shell', 'wake'] as const, value.does),
     command: cut(value.command, WORDS_MAX.command),
     note: cut(value.note, WORDS_MAX.note),
-    every: typeof every === 'number' && Number.isFinite(every) && every > 0 ? every : undefined,
+    every: secondsOf(value.every),
     state,
     nextAt: timeOf(value.nextAt),
     until: timeOf(value.until),
