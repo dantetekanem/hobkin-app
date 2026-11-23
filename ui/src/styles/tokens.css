@@ -157,6 +157,14 @@
 }
 
 /*
+ * The width of a page's column (app/screen-layout.ts). Exactly 1040px in a window 1728px wide or narrower; a wider
+ * window gives the page half of each extra pixel, up to 1380px (a window 2408px wide).
+ */
+:root {
+  --page-width: clamp(1040px, calc(1040px + (100vw - 1728px) * 0.5), 1380px);
+}
+
+/*
  * Type. The text face is the user's choice (Settings). Space Grotesk stays for headings, labels and the wordmark.
  * Each face gets the weight and tracking it reads best at in a dense interface. Space Grotesk is a display
  * face: as text it needs a little more weight and tighter spacing than its default.
