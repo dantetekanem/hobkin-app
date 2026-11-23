@@ -115,3 +115,25 @@ test('a test of a caller that fails once the part throws reaches it', () => {
   const [entry] = nodeTestsOf(input({ candidates: [caller], definitions: [], proof, removed: [], runs: [run('baseline', ['test/services/reviews.test.js'])] }))
   assert.deepEqual([entry!.relation, entry!.found, entry!.shows], ['before', 'entry', 'reaches'])
 })
+
+test('each covering test in a changed file has its own relation: one there before stays before beside the one the change added', () => {
+  const definitions = [
+    { id: 'n8', symbol: 'ReviewTest test "score label"', path: 'test/models/review_test.rb', startLine: 4, endLine: 6, anchors: [{ id: 'n1', lines: [5] }], changed: false },
+    { id: 'n3', symbol: 'ReviewTest test "score label caps at five"', path: 'test/models/review_test.rb', startLine: 8, endLine: 10, anchors: [{ id: 'n1', lines: [9] }], changed: true },
+  ]
+  const tests = nodeTestsOf(
+    input({
+      node: { id: 'n1', symbol: 'Review#score_label', path: 'app/models/review.rb', kind: 'function' },
+      candidates: [{ path: 'test/models/review_test.rb', why: 'the scan links it to Review#score_label', lifecycle: false, changed: true, found: 'scan' }],
+      definitions,
+      testAnchors: [{ id: 'n3', status: 'added' }],
+      status: (path) => (path === 'test/models/review_test.rb' ? 'modified' : undefined),
+      removed: [],
+      runs: [],
+    }),
+  )
+  assert.deepEqual(tests.map((entry) => [entry.path, entry.symbol, entry.line, entry.relation]), [
+    ['test/models/review_test.rb', 'ReviewTest test "score label"', 4, 'before'],
+    ['test/models/review_test.rb', 'ReviewTest test "score label caps at five"', 8, 'added'],
+  ])
+})

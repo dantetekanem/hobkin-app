@@ -162,17 +162,19 @@ function showsOf(path: string, proof: NodeProof | undefined): NodeTest['shows'] 
   return undefined
 }
 
-/** A test file's relation to the change: by the file's status, and in a changed file by its test definitions that cover the part. */
-function relationOf(path: string, definitions: readonly TestDefinition[], input: NodeTestsInput): NodeTest['relation'] {
-  const status = input.status(path)
+/** A test file's relation to the change by its status, or undefined for a changed file, whose tests each say their own. */
+function fileRelation(status: FileStatus | undefined): NodeTest['relation'] | undefined {
   if (!status) return 'before'
   if (status === 'added' || status === 'copied') return 'added'
   if (status === 'deleted') return 'removed'
-  if (!definitions.length) return 'edited'
-  const changed = definitions.filter((definition) => definition.changed)
-  if (!changed.length) return 'before'
-  const isNew = (definition: TestDefinition) => input.testAnchors.find((anchor) => anchor.id === definition.id)?.status === 'added'
-  return changed.every(isNew) ? 'added' : 'edited'
+  return undefined
+}
+
+/** A covering test's own relation in a changed file: unchanged is before; changed is added when it is new, else edited. */
+function definitionRelation(definition: TestDefinition, input: NodeTestsInput): NodeTest['relation'] {
+  if (!definition.changed) return 'before'
+  const isNew = input.testAnchors.find((anchor) => anchor.id === definition.id)?.status === 'added'
+  return isNew ? 'added' : 'edited'
 }
 
 /** How a test file came to cover the part: how it was found, whether it is a life-cycle test, why, and whether the proof ran it for the part. */
@@ -183,25 +185,28 @@ interface Found {
   picked: boolean
 }
 
-/** One test file of the part, with the test definitions in it that the scan says cover the part. */
-function fileTest(path: string, how: Found, definitions: readonly TestDefinition[], input: NodeTestsInput): NodeTest {
-  const first = definitions[0]
-  const relation = relationOf(path, definitions, input)
+/**
+ * The tests of one test file that cover the part: one for each test definition the scan says covers it, each with its
+ * own relation to the change, or one for the file when the scan names none. How the file did and what it showed are
+ * the file's, since the proof runs files.
+ */
+function fileTests(path: string, how: Found, definitions: readonly TestDefinition[], input: NodeTestsInput): NodeTest[] {
+  const byFile = fileRelation(input.status(path))
   const diff = input.diffs.find((file) => file.path === path)
-  const ranges = definitions.map((definition) => [definition.startLine, definition.endLine] as const)
-  const weakened = relation === 'edited' && diff && ranges.length ? weakenedIn(diff, ranges) : undefined
   const shows = how.picked ? showsOf(path, input.proof) : undefined
-  return {
-    path,
-    ...(first ? { symbol: first.symbol, line: first.startLine } : {}),
-    relation,
+  const shared = {
     found: how.found,
     lifecycle: how.lifecycle,
     at_head: atHeadOf(path, input.runs, input.findings),
     ...(shows ? { shows } : {}),
     ...(how.why ? { why: how.why } : {}),
-    ...(weakened ? { weakened } : {}),
   }
+  if (!definitions.length) return [{ path, relation: byFile ?? 'edited', ...shared }]
+  return definitions.map((definition) => {
+    const relation = byFile ?? definitionRelation(definition, input)
+    const weakened = relation === 'edited' && diff ? weakenedIn(diff, [[definition.startLine, definition.endLine]]) : undefined
+    return { path, symbol: definition.symbol, line: definition.startLine, relation, ...shared, ...(weakened ? { weakened } : {}) }
+  })
 }
 
 /**
@@ -214,13 +219,13 @@ export function nodeTestsOf(input: NodeTestsInput): NodeTest[] {
   const covering = input.definitions.filter((definition) => definition.anchors.some((anchor) => anchor.id === node.id))
   const inFile = (path: string) => covering.filter((definition) => definition.path === path)
 
-  const picked = candidates.map((candidate) =>
-    fileTest(candidate.path, { found: candidate.found ?? 'scan', lifecycle: candidate.lifecycle, why: candidate.why, picked: true }, inFile(candidate.path), input),
+  const picked = candidates.flatMap((candidate) =>
+    fileTests(candidate.path, { found: candidate.found ?? 'scan', lifecycle: candidate.lifecycle, why: candidate.why, picked: true }, inFile(candidate.path), input),
   )
   const pickedPaths = new Set(candidates.map((candidate) => candidate.path))
   const unpicked = [...new Set(covering.map((definition) => definition.path))]
     .filter((path) => !pickedPaths.has(path) && path !== node.path)
-    .map((path) => fileTest(path, { found: 'scan', lifecycle: input.isLifecycleTest(path), why: 'the scan links it; it was not among the tests run', picked: false }, inFile(path), input))
+    .flatMap((path) => fileTests(path, { found: 'scan', lifecycle: input.isLifecycleTest(path), why: 'the scan links it; it was not among the tests run', picked: false }, inFile(path), input))
   const removed = input.removed
     .filter((entry) => entry.names.includes(node.symbol))
     .map((gone): NodeTest => ({ path: gone.path, symbol: gone.symbol, line: gone.base_line, relation: 'removed', found: 'diff', lifecycle: input.isLifecycleTest(gone.path) }))
