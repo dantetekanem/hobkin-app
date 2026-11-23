@@ -47,13 +47,11 @@ function measureIn(element: Element): Measure | null {
   return (text) => context.measureText(text).width + tracking * [...text].length
 }
 
-/** What a watched path shows at its width now, as a change to make, or null when it shows that already. */
-function fitted(element: Element, watch: Watch): (() => void) | null {
-  const measure = watch.width > 0 ? measureIn(element) : null
-  const shown = measure ? fitPath(watch.path, watch.width + SLACK, measure) : watch.path
-  if (shown === watch.shown) return null
-  watch.shown = shown
-  return () => watch.show(shown)
+/** What a watched path shows at its box's last width. */
+function fittedPath(element: Element, watch: Watch): string {
+  if (watch.width <= 0) return watch.path
+  const measure = measureIn(element)
+  return measure ? fitPath(watch.path, watch.width + SLACK, measure) : watch.path
 }
 
 /**
@@ -61,19 +59,31 @@ function fitted(element: Element, watch: Watch): (() => void) | null {
  * paints, so a path never shows a frame of the wrong cut.
  */
 function refit(paths: Iterable<readonly [Element, Watch]>): void {
-  const changes = [...paths].flatMap(([element, watch]) => fitted(element, watch) ?? [])
-  if (changes.length) flushSync(() => changes.forEach((change) => change()))
+  const changes: (() => void)[] = []
+  for (const [element, watch] of paths) {
+    const shown = fittedPath(element, watch)
+    if (shown === watch.shown) continue
+    watch.shown = shown
+    changes.push(() => watch.show(shown))
+  }
+
+  if (changes.length === 0) return
+  flushSync(() => {
+    for (const change of changes) change()
+  })
 }
 
-widths.onSizes = (entries) =>
-  refit(
-    entries.flatMap((entry) => {
-      const watch = widths.watched.get(entry.target)
-      if (!watch) return []
-      watch.width = entry.contentRect.width
-      return [[entry.target, watch] as const]
-    }),
-  )
+widths.onSizes = (entries) => {
+  const resized: [Element, Watch][] = []
+  for (const entry of entries) {
+    const watch = widths.watched.get(entry.target)
+    if (!watch) continue
+    watch.width = entry.contentRect.width
+    resized.push([entry.target, watch])
+  }
+  refit(resized)
+}
+
 // A font that arrives late draws the text at a new width inside the same box.
 widths.onFonts = () => refit(widths.watched)
 

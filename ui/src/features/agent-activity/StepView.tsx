@@ -619,16 +619,7 @@ function Looks({ looks }: { looks: Look[] }) {
       <FoldRow icon={LOOK_ICON[latest.kind]} open={open} onToggle={toggle}>
         <span className="shrink-0 font-medium">{looksSummary(looks)}</span>
         {failed ? <span className="shrink-0 text-[12px] text-bad-fg">{failed === 1 ? '1 failed' : `${failed} failed`}</span> : null}
-        {latest.state !== 'running' ? null : aboutPath(latest.kind) ? (
-          <span className="flex min-w-0 items-baseline text-[12px] text-muted-foreground">
-            <span className="shrink-0 whitespace-pre">{LOOK_WORDS[latest.kind][0]} </span>
-            <FilePath path={latest.what} />
-          </span>
-        ) : (
-          <span className="truncate text-[12px] text-muted-foreground">
-            {LOOK_WORDS[latest.kind][0]} {latest.what}
-          </span>
-        )}
+        {latest.state === 'running' ? <RunningLook look={latest} /> : null}
       </FoldRow>
       {open ? (
         <Opened>
@@ -638,6 +629,24 @@ function Looks({ looks }: { looks: Look[] }) {
         </Opened>
       ) : null}
     </div>
+  )
+}
+
+/** The read or search still running in a folded group, after the group's count. */
+function RunningLook({ look }: { look: Look }) {
+  const words = LOOK_WORDS[look.kind][0]
+  if (!aboutPath(look.kind)) {
+    return (
+      <span className="truncate text-[12px] text-muted-foreground">
+        {words} {look.what}
+      </span>
+    )
+  }
+  return (
+    <span className="flex min-w-0 items-baseline text-[12px] text-muted-foreground">
+      <span className="shrink-0 whitespace-pre">{words} </span>
+      <FilePath path={look.what} />
+    </span>
   )
 }
 

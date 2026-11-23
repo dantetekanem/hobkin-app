@@ -31,12 +31,17 @@ export function fitPath(path: string, width: number, measure: Measure): string {
     const cut = MARK + path.slice(at)
     if (fits(cut)) return cut
   }
+
   const file = path.slice(name)
   if (name > 0 && fits(file)) return file
+  return nameEnd(file, fits)
+}
 
-  // The longest end of the name that fits after the mark. A shorter end is never wider, so it is searched by halves.
-  const letters = [...file]
+/** The longest end of a name that fits after the mark, or the mark alone. A shorter end is never wider, so it is searched by halves. */
+function nameEnd(name: string, fits: (text: string) => boolean): string {
+  const letters = [...name]
   const endOf = (count: number) => MARK + letters.slice(letters.length - count).join('')
+
   let low = 0
   let high = letters.length - 1
   while (low < high) {
