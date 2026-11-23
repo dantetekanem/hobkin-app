@@ -4,7 +4,8 @@
  * there before the change and one it removed, thirteen for a new script) and a test helper, a README change, a CI
  * change, the unchanged callers and callees for the life cycle with the helper's way in named and the script's reason
  * for having none, two nodes nothing wires, and a change review of four units: one high with a question and a watch, one
- * mid and two safe. Every node is rated as the host rates a review. Built from the file texts in `pull-files.ts`, so
+ * mid and two safe. Every node is rated as the host rates a review, and is in a zone as the host names them (spec 055):
+ * "Routes", "Controllers · Posts", "Helpers · Posts", "Tests · Posts helper" and the rest. Built from the file texts in `pull-files.ts`, so
  * every anchor and hash always matches its lines, and checked by the same validator as any review.
  */
 import { LEVEL_WORDS, type ChangeAssessment, type Level, type Unit } from '#shared/review/assessment.ts'
@@ -14,6 +15,7 @@ import { layoutReview } from '#shared/review/layout.ts'
 import { hashLines, splitLines } from '#shared/review/lines.ts'
 import { sha256 } from '#shared/review/sha256.ts'
 import { connectingEdge } from '#shared/review/story.ts'
+import { withZones } from '#shared/review/zones.ts'
 import { NO_SPEC_NOTICE, type AnchorSide, type EdgeKind, type Review, type ReviewAnchor, type ReviewEdge, type ReviewFile, type ReviewFileContents, type ReviewNode, type StoryStep } from '#shared/review/types.ts'
 import { PULL_FILES, type SampleFile } from './pull-files.ts'
 
@@ -378,10 +380,10 @@ function rated(nodes: readonly ReviewNode[]): ReviewNode[] {
   return weighed.map(({ node, bucket, tier, reasons }) => ({ ...node, bucket, attention: { tier, rank: ranks.get(node.id)!, reasons } }))
 }
 
-/** The review the host would have prepared, under the id it was opened by. */
+/** The review the host would have prepared, under the id it was opened by, with its zones as the host names them. */
 export function pullReview(id: string): Review {
   const positions = layoutReview(NODES, EDGES)
-  const nodes = rated(NODES).map((node) => ({ ...node, position: positions[node.id]! }))
+  const { nodes, zones } = withZones(rated(NODES).map((node) => ({ ...node, position: positions[node.id]! })), EDGES)
   const files = filesOf()
   const changed = files.filter((file) => file.status !== 'unchanged')
   return {
@@ -403,6 +405,7 @@ export function pullReview(id: string): Review {
     spec: null,
     files,
     nodes,
+    zones,
     edges: EDGES,
     story: storyOf(nodes),
     summary: 'Post bodies link @handles with dots and dashes, after one lookup for each post. A new script prints the errors production raised, most frequent first.',

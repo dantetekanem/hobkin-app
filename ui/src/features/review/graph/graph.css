@@ -1278,3 +1278,114 @@
 .rv[data-reduced='true'] .rv-pager-arrow {
   transition: none;
 }
+
+/* ───────────────────────────── Zones ───────────────────────────── */
+
+/*
+ * A zone (spec 055) is one quiet box behind its cards and their wires: a faint fill and a hairline, no blur and no
+ * shadow, so it reads as structure and never louder than a card. Its heading sits in the room the layout keeps above
+ * the nodes (`--zone-head`), at the bottom of it, near what it names.
+ */
+.rv-zone {
+  position: absolute;
+  inset: 0;
+  border-radius: 26px;
+  border: 1px solid color-mix(in oklab, var(--hb-text) 9%, transparent);
+  background: color-mix(in oklab, var(--hb-text) 2.5%, transparent);
+}
+.dark .rv-zone {
+  border-color: color-mix(in oklab, var(--hb-text) 10%, transparent);
+  background: color-mix(in oklab, var(--hb-text) 2.2%, transparent);
+}
+.rv-zone-head {
+  position: absolute;
+  top: calc(var(--zone-head) - 46px);
+  left: calc(var(--zone-pad) - 12px);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: calc(100% - 2 * var(--zone-pad) + 24px);
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 11px;
+  color: var(--hb-text);
+  text-align: left;
+  /* The region lets the pointer through to the pane; its heading takes it. */
+  pointer-events: auto;
+}
+.rv-zone-words {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 10px;
+}
+.rv-zone-label {
+  overflow: hidden;
+  font-family: var(--font-heading);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: -0.005em;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: color-mix(in oklab, var(--hb-text) 78%, var(--hb-muted));
+}
+.rv-zone-counts {
+  flex-shrink: 0;
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  font-weight: 550;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--hb-muted);
+}
+/* What the zone asks of the reviewer: a small dot, red when a part needs them, orange when one is worth a look. */
+.rv-zone-mark {
+  flex: 0 0 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+}
+.rv-zone[data-standing='needs-you'] .rv-zone-mark {
+  background: var(--hb-bad);
+}
+.rv-zone[data-standing='worth-a-look'] .rv-zone-mark {
+  background: var(--hb-warn);
+}
+.rv-zone-chevron {
+  flex: 0 0 15px;
+  width: 15px;
+  height: 15px;
+  color: var(--hb-muted);
+}
+
+/* From far away the heading grows inside the same room, on two lines, so the zones read as a map with their counts. */
+.rv[data-far='true'] .rv-zone-head {
+  top: 6px;
+  height: calc(var(--zone-head) - 12px);
+  gap: 14px;
+}
+.rv[data-far='true'] .rv-zone-words {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.rv[data-far='true'] .rv-zone-label {
+  max-width: 100%;
+  font-size: 40px;
+  line-height: 46px;
+  color: var(--hb-text);
+}
+.rv[data-far='true'] .rv-zone-counts {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 24px;
+  line-height: 28px;
+}
+.rv[data-far='true'] .rv-zone-mark {
+  flex-basis: 20px;
+  height: 20px;
+}
+.rv[data-far='true'] .rv-zone-chevron {
+  display: none;
+}

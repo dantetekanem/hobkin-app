@@ -15,3 +15,9 @@ export function useWireEntrance(edgeId: string): { delay: number } | null {
   const plan = useContext(EntranceContext)
   return plan && !plan.quiet ? { delay: plan.wires[edgeId] ?? 0 } : null
 }
+
+/** When a zone's region fades in: with its first node. A region only ever fades, in a large graph too. */
+export function useZoneEntrance(zoneId: string): { delay: number } | null {
+  const plan = useContext(EntranceContext)
+  return plan ? { delay: plan.zones?.[zoneId] ?? 0 } : null
+}

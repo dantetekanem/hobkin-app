@@ -4,6 +4,7 @@ import { nodeRect, ZONE_FRAME } from '#shared/review/layout.ts'
 import type { Review, ReviewNode, ReviewZone } from '#shared/review/types.ts'
 import { MAX_ZONES, regionsOf, zoneWords, zonesOf, type GraphZone } from '../src/features/review/graph/zones.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
+import { planEntrance } from '../src/features/review/graph/entrance-plan.ts'
 
 /** The pull sample as an older host sent it: no zones on it. */
 function unzoned(): Review {
@@ -116,3 +117,21 @@ test('each zone is drawn as a region around its drawn nodes, with room above the
 function codeAt(id: string, path: string): ReviewNode {
   return { id, kind: 'code', title: id, subtitle: path, change: 'modified', summary: '', anchors: [], position: { x: 0, y: 0 } }
 }
+
+test('the entrance brings each region in with its members, zone by zone, and a large graph only fades', () => {
+  const at = (id: string, x: number, y: number, zone: string) => ({ id, position: { x, y }, zone })
+  // The zone of tests stands under the code it covers, in the same columns: it still comes after that code.
+  const nodes = [at('a', 0, 0, 'one'), at('b', 420, 0, 'one'), at('t', 0, 600, 'tests'), at('c', 900, 0, 'two'), at('d', 900, 180, 'two')]
+  const plan = planEntrance(nodes, [{ id: 'w', from: 'a', to: 'c' }])
+  const of = (zone: string) => nodes.filter((node) => node.zone === zone).map((node) => plan.nodes[node.id]!)
+  assert.ok(Math.max(...of('one')) < Math.min(...of('tests')) && Math.max(...of('tests')) < Math.min(...of('two')), 'zone by zone')
+  for (const zone of ['one', 'tests', 'two']) assert.equal(plan.zones[zone], Math.min(...of(zone)), `the region of ${zone} comes in with its first node`)
+  assert.equal(plan.quiet, false)
+  assert.ok(plan.wires.w! > plan.nodes.c!)
+
+  const many = Array.from({ length: 41 }, (_, index) => at(`n${index}`, (index % 5) * 420, Math.floor(index / 5) * 180, `z${index % 5}`))
+  const quiet = planEntrance(many, [])
+  assert.equal(quiet.quiet, true)
+  assert.deepEqual(quiet.wires, {})
+  assert.equal(Object.keys(quiet.zones).length, 5)
+})

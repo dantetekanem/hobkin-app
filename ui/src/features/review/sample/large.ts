@@ -2,12 +2,13 @@
  * A made-up change of 200 files and over 10,000 changed lines (spec 053), built in code from a fixed seed: a billing
  * change with a few parts that need the reviewer, some worth a look, and the rest safe: generated files, lockfiles,
  * locale files, moved files, formatting, docs, tests that pass and small code. Its nodes carry `attention` and
- * `bucket` as a host that rated the change lays them on, so Focus, its groups and the outline can be seen with no
- * host. Pure: every call builds the same review, and it passes the same checks a review from the host does.
+ * `bucket` as a host that rated the change lays them on, and the zones the host names (spec 055), so Focus, its groups,
+ * its zones and the outline can be seen with no host. Pure: every call builds the same review, and it passes the same checks a review from the host does.
  */
 import { layoutRequest } from '#shared/review/layout.ts'
 import { hashLines, splitLines } from '#shared/review/lines.ts'
 import { sha256 } from '#shared/review/sha256.ts'
+import { withZones } from '#shared/review/zones.ts'
 import type { AttentionTier, NodeBucket, Review, ReviewEdge, ReviewFile, ReviewFileContents, ReviewNode, StoryStep } from '#shared/review/types.ts'
 
 export const LARGE_REVIEW_ID = 'large'
@@ -436,9 +437,10 @@ function build(): Built {
     { id: 'closing', kind: 'closing', title: 'What is left open', text: 'Out of scope: changing the gateway. The risk: a retry that charges twice.', focus: [], criteria: [] },
   ]
 
-  // Laid out the way the host lays a review out, so no two nodes overlap.
+  // Laid out the way the host lays a review out, so no two nodes overlap, and each node in its zone as the host names it.
   const placed = layoutRequest(nodes, edges)
   for (const node of nodes) node.position = placed[node.id] ?? position
+  const zoned = withZones(nodes, edges)
 
   const additions = files.reduce((sum, file) => sum + file.additions, 0)
   const deletions = files.reduce((sum, file) => sum + file.deletions, 0)
@@ -461,7 +463,8 @@ function build(): Built {
     snapshot: sha256(contents.map((file) => `${file.fileId}\n${file.base ?? ''}\n${file.head ?? ''}`).join('\n')),
     spec: { path: '_specs/b200-charge-once/spec.md', outcome: story[0]!.text, outOfScope: ['Changing the payment gateway.'], openQuestions: ['Should a refund of a refund be allowed?'] },
     files,
-    nodes,
+    nodes: zoned.nodes,
+    zones: zoned.zones,
     edges,
     story,
     summary: 'Billing charges each invoice once: retries, refunds, totals, proration and rounding change, with generated types, locale files and moved files around them.',

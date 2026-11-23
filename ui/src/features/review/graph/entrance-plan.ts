@@ -1,6 +1,6 @@
 /**
- * The order things arrive in when a review opens for the first time: spec, then tests, then code,
- * then context, with each wire drawing after the nodes it joins have landed.
+ * The order things arrive in when a review opens for the first time: zone by zone (spec 055), each zone's region with
+ * its first node and its columns from left to right, with each wire drawing after the nodes it joins have landed.
  */
 import type { ReviewEdge, ReviewNode } from '#shared/review/types.ts'
 
@@ -9,9 +9,11 @@ export interface EntrancePlan {
   nodes: Record<string, number>
   /** Seconds each wire waits before it draws. */
   wires: Record<string, number>
+  /** Seconds each zone's region waits before it fades in: when its first node starts. */
+  zones: Record<string, number>
   /** Seconds until the last wire has drawn. */
   total: number
-  /** A large graph only fades in, column by column, and draws no wire (spec 053). */
+  /** A large graph only fades in, zone by zone, and draws no wire (spec 053). */
   quiet: boolean
 }
 
@@ -32,14 +34,28 @@ export const ENTRANCE = {
   draw: 0.5,
 } as const
 
-export function planEntrance(nodes: readonly Pick<ReviewNode, 'id' | 'position'>[], edges: readonly Pick<ReviewEdge, 'id' | 'from' | 'to'>[]): EntrancePlan {
-  // Columns are told by where the nodes sit, so nodes the reviewer moved arrive with the column they are in now.
-  const columns = [...new Set(nodes.map((node) => node.position.x))].sort((a, b) => a - b)
+type Arriving = Pick<ReviewNode, 'id' | 'position'> & Partial<Pick<ReviewNode, 'zone'>>
+
+export function planEntrance(nodes: readonly Arriving[], edges: readonly Pick<ReviewEdge, 'id' | 'from' | 'to'>[]): EntrancePlan {
+  // Zones arrive in the order they stand, from the left and then from the top, so a zone of tests under its code comes
+  // after it. Columns are told by where the nodes sit, so nodes the reviewer moved arrive with the column they are in now.
+  const byZone = new Map<string, Arriving[]>()
+  for (const node of nodes) byZone.set(node.zone ?? '', [...(byZone.get(node.zone ?? '') ?? []), node])
+  const corner = (members: readonly Arriving[]) => [Math.min(...members.map((node) => node.position.x)), Math.min(...members.map((node) => node.position.y))] as const
+  const zones = [...byZone].sort(([, a], [, b]) => corner(a)[0] - corner(b)[0] || corner(a)[1] - corner(b)[1])
+
   const delays: Record<string, number> = {}
-  for (const [column, x] of columns.entries()) {
-    const rows = nodes.filter((node) => node.position.x === x).sort((a, b) => a.position.y - b.position.y)
-    const step = Math.min(ENTRANCE.row, ENTRANCE.columnSpread / Math.max(1, rows.length - 1))
-    rows.forEach((node, row) => (delays[node.id] = ENTRANCE.lead + column * ENTRANCE.column + row * step))
+  const starts: Record<string, number> = {}
+  let column = 0
+  for (const [zone, members] of zones) {
+    const columns = [...new Set(members.map((node) => node.position.x))].sort((a, b) => a - b)
+    starts[zone] = ENTRANCE.lead + column * ENTRANCE.column
+    for (const x of columns) {
+      const rows = members.filter((node) => node.position.x === x).sort((a, b) => a.position.y - b.position.y)
+      const step = Math.min(ENTRANCE.row, ENTRANCE.columnSpread / Math.max(1, rows.length - 1))
+      rows.forEach((node, row) => (delays[node.id] = ENTRANCE.lead + column * ENTRANCE.column + row * step))
+      column += 1
+    }
   }
   const quiet = nodes.length > QUIET_ENTRANCE_ABOVE
   const wires: Record<string, number> = {}
@@ -48,5 +64,6 @@ export function planEntrance(nodes: readonly Pick<ReviewNode, 'id' | 'position'>
     wires[edge.id] = Math.max(delays[edge.from] ?? 0, delays[edge.to] ?? 0) + ENTRANCE.afterNodes
     total = Math.max(total, wires[edge.id]! + ENTRANCE.draw)
   }
-  return { nodes: delays, wires, total: Math.max(total, ...Object.values(delays)), quiet }
+  const { '': _loose, ...regions } = starts
+  return { nodes: delays, wires, zones: regions, total: Math.max(total, ...Object.values(delays)), quiet }
 }

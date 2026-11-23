@@ -13,8 +13,10 @@ import { GroupCard } from './GroupCard.tsx'
 import { NodeCard } from './NodeCard.tsx'
 import { TestList } from './TestList.tsx'
 import { Wire } from './Wire.tsx'
+import { ZoneRegion } from './ZoneRegion.tsx'
+import { isRegion, regionsOf } from './zones.ts'
 
-const nodeTypes = { card: NodeCard, fold: GroupCard }
+const nodeTypes = { card: NodeCard, fold: GroupCard, zone: ZoneRegion }
 const edgeTypes = { wire: Wire }
 // The user asked for the badge in the corner to go. React Flow is MIT, and its guide on attribution allows hiding it.
 const PRO_OPTIONS = { hideAttribution: true }
@@ -24,8 +26,12 @@ const ZOOM = { min: 0.08, max: 1.6 }
 const DOTS = { gap: 32, size: 1.6 }
 const fine = typeof matchMedia === 'function' ? matchMedia('(hover: hover) and (pointer: fine)') : null
 
+/** A zone's region: behind every card and wire, never dragged, and only its heading takes the pointer. */
+const REGION = { zIndex: -1, draggable: false, selectable: false, focusable: false, style: { pointerEvents: 'none' as const } }
+
 /**
- * The graph: every node of the review in its column and every wire from a right pin to a left pin.
+ * The graph: every node of the review in its zone and every wire from a right pin to a left pin, each zone a region
+ * behind its nodes (spec 055).
  * It pans by dragging and by two-finger scroll, and zooms by pinch and by Command with scroll.
  * It is a view of the review model: nodes can be moved, and nothing else about the graph can be changed here.
  */
@@ -34,11 +40,16 @@ export function Graph() {
   const rig = useRig()
   const viewNodes = useSession((session) => session.view.nodes)
   const viewEdges = useSession((session) => session.view.edges)
+  const viewZones = useSession((session) => session.view.zones)
   // React Flow puts `light` or `dark` on its own root. Left alone it says `light`, which would bring the
   // light palette back inside the graph while the rest of the app is dark.
   const theme = useTheme()
 
-  const placed = useMemo<Node[]>(
+  const regions = useMemo<Node[]>(
+    () => regionsOf(viewNodes, viewZones).map(({ id, rect }) => ({ id, type: 'zone', position: { x: rect.x, y: rect.y }, width: rect.width, height: rect.height, data: {}, ...REGION })),
+    [viewNodes, viewZones],
+  )
+  const cards = useMemo<Node[]>(
     () =>
       // In reading order, column by column, so the order on screen is the order in the document.
       [...viewNodes]
@@ -59,22 +70,28 @@ export function Graph() {
         }),
     [viewNodes],
   )
+  const placed = useMemo(() => [...regions, ...cards], [cards, regions])
   const edges = useMemo<Edge[]>(() => viewEdges.map((edge) => ({ id: edge.id, type: 'wire', source: edge.from, target: edge.to, selectable: false, focusable: false })), [viewEdges])
   const [nodes, setNodes, onNodesChange] = useNodesState(placed)
   // A large graph mounts only what is in view (spec 053), as the proofs canvas does. A small one is drawn whole, as it was.
   const large = viewNodes.length > QUIET_ENTRANCE_ABOVE
   useEffect(() => setNodes(placed), [placed, setNodes])
 
-  const onNodeClick: NodeMouseHandler = (_event, node) => store.getState().focusOn(node.id)
-  const onNodeDoubleClick: NodeMouseHandler = (_event, node) => void store.getState().openCode(node.id)
+  // A region is not a node of the review: a press on its heading is the heading's own.
+  const onNodeClick: NodeMouseHandler = (_event, node) => {
+    if (!isRegion(node.id)) store.getState().focusOn(node.id)
+  }
+  const onNodeDoubleClick: NodeMouseHandler = (_event, node) => {
+    if (!isRegion(node.id)) void store.getState().openCode(node.id)
+  }
   // Hover counts only when the pointer itself moved. The camera carries nodes under a pointer at rest all
   // the time, and a touch fires a hover on tap: neither is the reviewer pointing at something.
   const pointerMoved = useRef(0)
   const onNodeMouseEnter: NodeMouseHandler = (_event, node) => {
-    if (fine?.matches !== false && performance.now() - pointerMoved.current < 250) store.getState().hoverOn(node.id)
+    if (!isRegion(node.id) && fine?.matches !== false && performance.now() - pointerMoved.current < 250) store.getState().hoverOn(node.id)
   }
   const onNodeMouseMove: NodeMouseHandler = (_event, node) => {
-    if (fine?.matches === false) return
+    if (fine?.matches === false || isRegion(node.id)) return
     pointerMoved.current = performance.now()
     store.getState().hoverOn(node.id)
   }
