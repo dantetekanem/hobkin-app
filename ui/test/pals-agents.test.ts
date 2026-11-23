@@ -14,7 +14,9 @@ test('an agent on Claude Code gets the crab pal, and one on Pi or from an older 
       { ...run, id: 'w2' },
     ],
   }
+
   const [claude, pi] = agentsFrom(snapshot)
+
   assert.equal(claude!.onClaudeCode, true)
   assert.equal('onClaudeCode' in pi!, false, 'a run on Pi stays exactly as it was')
   assert.equal(agentsFrom(snapshot, { includeEnded: true })[0]!.onClaudeCode, true, 'a finished run keeps it on its page')
@@ -33,9 +35,14 @@ test('a durable hobkin on Claude Code gets the crab pal, and one on a tier or a 
     waiting: null,
     createdAt: '2026-11-23T10:00:00.000Z',
   })
-  const [claude, tier, pi] = durableAgents({
-    hobkins: [hobkin('0a1b2c3d', { kind: 'claude', model: 'opus' }), hobkin('0a1b2c3e', { kind: 'tier', tier: 'mid' }), hobkin('0a1b2c3f', { kind: 'pi', model: 'openai/gpt-5', effort: 'high' })],
-  })
+  const hobkins = [
+    hobkin('0a1b2c3d', { kind: 'claude', model: 'opus' }),
+    hobkin('0a1b2c3e', { kind: 'tier', tier: 'mid' }),
+    hobkin('0a1b2c3f', { kind: 'pi', model: 'openai/gpt-5', effort: 'high' }),
+  ]
+
+  const [claude, tier, pi] = durableAgents({ hobkins })
+
   assert.equal(claude!.onClaudeCode, true)
   assert.equal('onClaudeCode' in tier!, false)
   assert.equal('onClaudeCode' in pi!, false)

@@ -29,7 +29,8 @@ const routine = { id: 'r1', harness: 'pi', cwd: '/tmp', prompt: 'Check the inbox
 const durable = { id: 't1', harness: 'claude', purpose: 'durable', cwd: '/tmp/project', prompt: 'Tidy the docs.' }
 
 test('the route tells which runs it sends to Claude Code, and of no run it leaves on Pi', async () => {
-  const workOnly = router(changeClaudeCode(CLAUDE_CODE_DEFAULTS, { enabled: true, kinds: { sessions: false, routines: false } }))
+  const workOnSettings = changeClaudeCode(CLAUDE_CODE_DEFAULTS, { enabled: true, kinds: { sessions: false, routines: false } })
+  const workOnly = router(workOnSettings)
   await workOnly.run(work, {})
   await workOnly.run(routine, {})
   await workOnly.run({ ...routine, id: 'x1', purpose: 'reflection' }, {})
@@ -59,6 +60,7 @@ test("the window's runs say which are on Claude Code, by the harness id the rout
 
   runs.routed('w1')
   const marked = runs.mark(snapshot)
+
   assert.deepEqual(marked.runs, [
     { id: 'run-w1', harnessId: 'w1', title: 'Fix the login redirect', state: 'running', onClaudeCode: true },
     { id: 'run-r1', harnessId: 'r1', title: 'Inbox check', state: 'running' },
@@ -70,13 +72,17 @@ test("the window's runs say which are on Claude Code, by the harness id the rout
 
   runs.routed('r1')
   assert.notEqual(runs.mark(snapshot).runs, marked.runs, 'another run on Claude Code makes new rows')
+
   const saved = { connection: 'offline' }
   assert.equal(runs.mark(saved), saved, 'a snapshot without runs stays as it is')
 })
 
 test('only the latest runs sent to Claude Code are kept', () => {
   const runs = new ClaudeRuns({ most: 2 })
-  for (const id of ['a', 'b', 'c']) runs.routed(id)
-  const marked = runs.mark({ runs: ['a', 'b', 'c'].map((harnessId) => ({ harnessId, title: harnessId, state: 'running' })) })
-  assert.deepEqual(marked.runs!.map((run) => 'onClaudeCode' in run), [false, true, true])
+  const rows = ['a', 'b', 'c'].map((harnessId) => ({ harnessId, title: harnessId, state: 'running' }))
+
+  for (const { harnessId } of rows) runs.routed(harnessId)
+  const marked = runs.mark({ runs: rows })
+
+  assert.deepEqual(marked.runs.map((run) => 'onClaudeCode' in run), [false, true, true])
 })

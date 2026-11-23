@@ -25,6 +25,7 @@ export class ClaudeRuns {
   readonly routed = (harnessId: string): void => {
     this.ids.delete(harnessId)
     this.ids.add(harnessId)
+
     for (const oldest of this.ids) {
       if (this.ids.size <= this.most) break
       this.ids.delete(oldest)
@@ -39,12 +40,19 @@ export class ClaudeRuns {
   mark<Snapshot extends object>(snapshot: Snapshot): Snapshot {
     const { runs } = snapshot as { runs?: unknown }
     if (!Array.isArray(runs) || this.ids.size === 0) return snapshot
-    if (this.made?.from === runs && this.made.version === this.version) return { ...snapshot, runs: this.made.runs }
 
-    const onClaude = (row: Row) => typeof row?.harnessId === 'string' && this.ids.has(row.harnessId)
-    if (!runs.some(onClaude)) return snapshot
-    const marked = runs.map((row) => (onClaude(row) ? { ...row, onClaudeCode: true as const } : row))
+    const made = this.made
+    if (made && made.from === runs && made.version === this.version) {
+      return { ...snapshot, runs: made.runs }
+    }
+
+    if (!runs.some(this.isRouted)) return snapshot
+
+    const marked = runs.map((row) => (this.isRouted(row) ? { ...row, onClaudeCode: true as const } : row))
     this.made = { from: runs, version: this.version, runs: marked }
     return { ...snapshot, runs: marked }
   }
+
+  /** A row of a run the route sent to Claude Code. */
+  private readonly isRouted = (row: Row | null | undefined): boolean => typeof row?.harnessId === 'string' && this.ids.has(row.harnessId)
 }

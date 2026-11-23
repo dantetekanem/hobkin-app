@@ -45,15 +45,13 @@ const RIGHT_CLAW = (
   </>
 )
 
-const BLOCK_EYES = (
-  <>
-    <rect className="hob-fe" x="74" y="135" width="11" height="20" rx="3" />
-    <rect className="hob-fe" x="115" y="135" width="11" height="20" rx="3" />
-  </>
-)
-
-const EYES: Record<'block' | 'happy' | 'closed' | 'low' | 'wide' | 'crossed', ReactNode> = {
-  block: BLOCK_EYES,
+const EYE_SHAPES: Record<'block' | 'happy' | 'closed' | 'low' | 'wide' | 'crossed', ReactNode> = {
+  block: (
+    <>
+      <rect className="hob-fe" x="74" y="135" width="11" height="20" rx="3" />
+      <rect className="hob-fe" x="115" y="135" width="11" height="20" rx="3" />
+    </>
+  ),
   happy: (
     <g className="hob-se" strokeWidth="6">
       <path d="M72 150 Q79.5 137 87 150" />
@@ -86,18 +84,18 @@ const EYES: Record<'block' | 'happy' | 'closed' | 'low' | 'wide' | 'crossed', Re
   ),
 }
 
-/** Each mood's eyes, and the classes in crab.css that move them as a pair and blink them. */
-const MOOD_EYES: Record<CrabMood, { eyes: keyof typeof EYES; look?: string; blink?: boolean }> = {
-  idle: { eyes: 'block', blink: true },
-  working: { eyes: 'block', look: 'hob-cl-down', blink: true },
-  thinking: { eyes: 'block', look: 'hob-cl-up', blink: true },
-  searching: { eyes: 'block', look: 'hob-cl-scan' },
-  listening: { eyes: 'block', look: 'hob-cl-left', blink: true },
-  happy: { eyes: 'happy' },
-  surprised: { eyes: 'wide' },
-  sad: { eyes: 'low', look: 'hob-cl-sad' },
-  dizzy: { eyes: 'crossed' },
-  sleepy: { eyes: 'closed' },
+/** Each mood's eyes: their shape, the class in crab.css that moves them as a pair, and whether they blink. */
+const MOOD_EYES: Record<CrabMood, { shape: keyof typeof EYE_SHAPES; look?: string; blink?: boolean }> = {
+  idle: { shape: 'block', blink: true },
+  working: { shape: 'block', look: 'hob-cl-down', blink: true },
+  thinking: { shape: 'block', look: 'hob-cl-up', blink: true },
+  searching: { shape: 'block', look: 'hob-cl-scan' },
+  listening: { shape: 'block', look: 'hob-cl-left', blink: true },
+  happy: { shape: 'happy' },
+  surprised: { shape: 'wide' },
+  sad: { shape: 'low', look: 'hob-cl-sad' },
+  dizzy: { shape: 'crossed' },
+  sleepy: { shape: 'closed' },
 }
 
 export interface CrabProps {
@@ -114,7 +112,11 @@ export interface CrabProps {
 }
 
 export function Crab({ mood = 'idle', size = 44, still = false, resting = false, greet = null, title }: CrabProps) {
-  const look = MOOD_EYES[mood]
+  const eyes = MOOD_EYES[mood]
+  const greetClass = greet === null ? 'hob-crab-stand' : 'hob-crab-greet'
+  const lookClass = eyes.look ? `hob-crab-look hob-part ${eyes.look}` : 'hob-crab-look hob-part'
+  const blinkClass = eyes.blink ? 'hob-crab-blink hob-cb-on' : 'hob-crab-blink'
+
   return (
     <span
       className="hob hob-crab"
@@ -126,7 +128,7 @@ export function Crab({ mood = 'idle', size = 44, still = false, resting = false,
       style={{ '--hob-size': `${size}px` } as CSSProperties}
     >
       {/* Keyed by the greeting, so each one plays from its start. */}
-      <Layer key={greet ?? 'stand'} className={greet === null ? 'hob-crab-stand' : 'hob-crab-greet'} at={FEET_AT}>
+      <Layer key={greet ?? 'stand'} className={greetClass} at={FEET_AT}>
         <Layer className={`hob-crab-body hob-c-${mood}`} at={FEET_AT}>
           {/* The claws go behind the body, so they can turn about the shoulder without a gap. */}
           <Layer className="hob-claw-near" at={LEFT_SHOULDER}>
@@ -142,9 +144,9 @@ export function Crab({ mood = 'idle', size = 44, still = false, resting = false,
             {BODY}
           </Art>
           {/* Keyed by mood so each mood's own animation starts at its beginning. */}
-          <Layer key={mood} className={['hob-crab-look hob-part', look.look].filter(Boolean).join(' ')} at={EYES_AT}>
-            <Layer className={['hob-crab-blink', look.blink && 'hob-cb-on'].filter(Boolean).join(' ')} at={EYES_AT}>
-              <Art>{EYES[look.eyes]}</Art>
+          <Layer key={mood} className={lookClass} at={EYES_AT}>
+            <Layer className={blinkClass} at={EYES_AT}>
+              <Art>{EYE_SHAPES[eyes.shape]}</Art>
             </Layer>
           </Layer>
         </Layer>

@@ -83,8 +83,14 @@ export function PalCrab({ size, mood, asking = false, working = true, className 
   return <CrabBeside size={size} mood={crab} still resting className={className} title="on Claude Code" />
 }
 
+type CrabBesideProps = Pick<CrabProps, 'mood' | 'still' | 'resting' | 'greet' | 'title'> & {
+  /** Size of the face box it stands beside, in CSS pixels. */
+  size: number
+  className?: string
+}
+
 /** The crab's box beside a face of `size`: its art square set back so it stands on the face's ground, at the face's scale. */
-function CrabBeside({ size, className, ...crab }: { size: number; className?: string } & Pick<CrabProps, 'mood' | 'still' | 'resting' | 'greet' | 'title'>) {
+function CrabBeside({ size, className, ...crab }: CrabBesideProps) {
   const unit = size / MARK_BOX.size
   const art = { left: -(CRAB_SPAN.left - ART_BOX.min) * unit, top: -(MARK_BOX.y - ART_BOX.min) * unit } as CSSProperties
   return (
