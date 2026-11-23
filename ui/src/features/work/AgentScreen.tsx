@@ -97,7 +97,7 @@ export function AgentScreen() {
               <Passing side={side}>
                 {/* A run on Claude Code has the crab pal beside its face. A finished run's record says how it ended. */}
                 {agent.onClaudeCode ? (
-                  <Pals hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished} endedWell={finished && agent.doing === 'completed'} />
+                  <Pals id={agent.id} hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished} endedWell={finished && agent.doing === 'completed'} />
                 ) : (
                   <AgentHood hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished} />
                 )}

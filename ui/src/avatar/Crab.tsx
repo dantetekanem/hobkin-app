@@ -108,12 +108,12 @@ export interface CrabProps {
   still?: boolean
   /** Hold the mood's pose, while a greeting still plays. */
   resting?: boolean
-  /** A new number plays the greeting again: the crab leans toward hobkin, on its left, and bumps a claw. */
-  greet?: number
+  /** A new number plays the greeting again: the crab leans toward hobkin, on its left, and bumps a claw. Null plays none. */
+  greet?: number | null
   title?: string
 }
 
-export function Crab({ mood = 'idle', size = 44, still = false, resting = false, greet = 0, title }: CrabProps) {
+export function Crab({ mood = 'idle', size = 44, still = false, resting = false, greet = null, title }: CrabProps) {
   const look = MOOD_EYES[mood]
   return (
     <span
@@ -126,10 +126,10 @@ export function Crab({ mood = 'idle', size = 44, still = false, resting = false,
       style={{ '--hob-size': `${size}px` } as CSSProperties}
     >
       {/* Keyed by the greeting, so each one plays from its start. */}
-      <Layer key={greet} className="hob-crab-greet" at={FEET_AT}>
+      <Layer key={greet ?? 'stand'} className={greet === null ? 'hob-crab-stand' : 'hob-crab-greet'} at={FEET_AT}>
         <Layer className={`hob-crab-body hob-c-${mood}`} at={FEET_AT}>
           {/* The claws go behind the body, so they can turn about the shoulder without a gap. */}
-          <Layer className="hob-claw-bump" at={LEFT_SHOULDER}>
+          <Layer className="hob-claw-near" at={LEFT_SHOULDER}>
             <Layer className="hob-claw hob-claw-l" at={LEFT_SHOULDER}>
               <Art>{LEFT_CLAW}</Art>
             </Layer>

@@ -70,12 +70,12 @@
 .hob.hob-crab[data-rest] .hob-layer.hob-crab-blink { animation: none; }
 
 /*
- * The greeting, once when the pair first shows and once when a run finishes: the crab leans toward hobkin and lifts its
- * near claw for a bump while hobkin leans back toward it (.pals-face), then both settle. It waits for the page's own
- * entrance to land first.
+ * The greeting, when the pair first shows for a run and when the run finishes: the crab leans toward hobkin and lifts its
+ * near claw for a bump while hobkin leans back toward it (.pals-face-greet), then both settle. It waits for the page's
+ * own entrance to land first.
  */
 .hob-crab .hob-layer.hob-crab-greet { animation: hob-crab-greet 1.1s cubic-bezier(0.77, 0, 0.175, 1) 0.35s both; }
-.hob-crab .hob-layer.hob-claw-bump { animation: hob-crab-bump 1.1s cubic-bezier(0.77, 0, 0.175, 1) 0.35s both; }
+.hob-crab .hob-crab-greet .hob-layer.hob-claw-near { animation: hob-crab-bump 1.1s cubic-bezier(0.77, 0, 0.175, 1) 0.35s both; }
 
 @keyframes hob-crab-breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.025, 1.04); } }
 @keyframes hob-crab-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-1.171875%); } }
@@ -97,13 +97,14 @@
 
 /* The pair (Pals.tsx): hobkin's face leans back toward the crab during the greeting. */
 .pals { display: inline-flex; align-items: flex-end; flex: none; }
-.pals-face { display: block; flex: none; transform-origin: 50% 100%; animation: pals-face-greet 1.1s cubic-bezier(0.77, 0, 0.175, 1) 0.35s both; }
+.pals-face { display: block; flex: none; transform-origin: 50% 100%; }
+.pals-face-greet { animation: pals-face-greet 1.1s cubic-bezier(0.77, 0, 0.175, 1) 0.35s both; }
 .pals-crab { position: relative; display: block; flex: none; }
 .pals-crab-art { position: absolute; display: block; pointer-events: none; }
 @keyframes pals-face-greet { 0%, 100% { transform: rotate(0); } 35%, 62% { transform: rotate(5deg); } }
 
-.pals[data-still] .pals-face,
-:root[data-motion='still'] .pals-face { animation: none; }
+.pals[data-still] .pals-face-greet,
+:root[data-motion='still'] .pals-face-greet { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  :root:not([data-motion='lively']) .pals-face { animation: none; }
+  :root:not([data-motion='lively']) .pals-face-greet { animation: none; }
 }

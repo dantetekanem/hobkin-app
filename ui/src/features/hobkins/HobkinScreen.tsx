@@ -266,7 +266,7 @@ function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: Hobkin
       <div className="flex items-center gap-3">
         {/* On Claude Code the crab pal stands beside the face, and while it waits long they fall asleep together. */}
         {onClaudeCode ? (
-          <Pals hue={hueOf(id)} size={48} mood={mood} working={hobkin?.state === 'working'} restingSince={hobkin?.waiting ? Date.parse(hobkin.waiting.since) : undefined} />
+          <Pals id={id} hue={hueOf(id)} size={48} mood={mood} working={hobkin?.state === 'working'} restingSince={hobkin?.waiting ? Date.parse(hobkin.waiting.since) : undefined} />
         ) : (
           <AgentHood hue={hueOf(id)} size={48} mood={mood} working={hobkin?.state === 'working'} />
         )}

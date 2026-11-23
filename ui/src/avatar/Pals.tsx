@@ -7,6 +7,8 @@ import { palsState, restedLong, SLEEP_AFTER_MS } from './pals.ts'
 import { ART_BOX, MARK_BOX } from './pets.ts'
 
 export interface PalsProps {
+  /** The run or durable hobkin the pair stands for. They greet once in a window for each, not each time it comes back into view. */
+  id?: string
   /** Hue of hobkin's face, as AgentHood takes it. */
   hue: number
   /** Size of hobkin's face box, in CSS pixels. The crab stands beside it at the same scale, on the same ground. */
@@ -38,15 +40,15 @@ function palsWidth(size: number): number {
  * hobkin's face and Claude Code's crab side by side, two pals, for a run on Claude Code. The pair's box is fixed by the
  * face's size, so nothing around it moves as their moods change. The crab takes the face's mood (pals.ts): it taps its
  * claws while the run works, leans in toward hobkin while the run waits, cheers with it when a run ends well and sleeps
- * with it once they have rested long. When the pair first shows, and when a run finishes, they lean together for a claw
- * bump.
+ * with it once they have rested long. When the pair first shows for a run, and when the run finishes, they lean together
+ * for a claw bump.
  */
-export function Pals({ hue, size, mood, asking = false, working = true, endedWell = false, restingSince, still = false, className }: PalsProps) {
+export function Pals({ id, hue, size, mood, asking = false, working = true, endedWell = false, restingSince, still = false, className }: PalsProps) {
   // A crab drawn smaller than a face moves as a whole, so it holds still, as a small row's figure.
   const held = still || (ART_BOX.size * size) / MARK_BOX.size < SMALL_FACE_PX
   const asleep = useRestedLong(working ? undefined : restingSince)
   const state = palsState({ mood, asking, working, endedWell, restedLong: asleep })
-  const greet = useGreeting(working && !endedWell)
+  const greet = useGreeting(id, working && !endedWell)
 
   return (
     <span
@@ -55,7 +57,7 @@ export function Pals({ hue, size, mood, asking = false, working = true, endedWel
       style={{ width: palsWidth(size), height: size }}
     >
       {/* Keyed by the greeting, so hobkin's lean plays from its start with the crab's. */}
-      <span key={greet} className="pals-face" style={{ width: size, height: size }}>
+      <span key={greet ?? 'stand'} className={greet === null ? 'pals-face' : 'pals-face pals-face-greet'} style={{ width: size, height: size }}>
         <AgentHood hue={hue} size={size} mood={state.face} asking={asking} working={working && !endedWell} />
       </span>
       <CrabBeside size={size} mood={state.crab} still={held} resting={!state.moving} greet={greet} />
@@ -94,14 +96,27 @@ function CrabBeside({ size, className, ...crab }: { size: number; className?: st
   )
 }
 
-/** A count that grows each time the run stops working, so the greeting plays then. It starts at 0, which plays it once. */
-function useGreeting(working: boolean): number {
+/** The runs whose pair has greeted in this window, the latest last. On globalThis, so a hot update keeps it. */
+const greeted: Set<string> = ((globalThis as { __hobkinPalsGreeted?: Set<string> }).__hobkinPalsGreeted ??= new Set())
+const MOST_GREETED = 200
+
+/**
+ * The greeting to play, by a number that grows each time: when the pair first shows for a run in this window, and each
+ * time the run stops working. Null while there is none, as when the user comes back to a run the pair has greeted.
+ */
+function useGreeting(id: string | undefined, working: boolean): number | null {
+  const [count, setCount] = useState<number | null>(() => (id !== undefined && greeted.has(id) ? null : 0))
   const [was, setWas] = useState(working)
-  const [count, setCount] = useState(0)
   if (was !== working) {
     setWas(working)
-    if (!working) setCount(count + 1)
+    if (!working) setCount((count ?? -1) + 1)
   }
+  useEffect(() => {
+    if (id === undefined) return
+    greeted.delete(id)
+    greeted.add(id)
+    if (greeted.size > MOST_GREETED) greeted.delete(greeted.values().next().value!)
+  }, [id])
   return count
 }
 
