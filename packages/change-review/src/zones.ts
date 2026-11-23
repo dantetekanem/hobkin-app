@@ -177,40 +177,69 @@ function named(layer: string, segments: readonly string[], component: string | u
   return { layer, subject, written, named: true, label: `${head} · ${sentence(words(written))}` }
 }
 
-/** The code rules, for the path inside its component. */
-function placeOf(component: string | undefined, rest: readonly string[]): Place {
+/** The Rails files that are a layer by where they sit: `config/routes.rb`, the rest of `config/`, `db/`, `lib/tasks/`. */
+function railsFilePlace(component: string | undefined, rest: readonly string[]): Place | undefined {
   const name = rest.at(-1) ?? ''
-  const head = component ? componentWords(component) : undefined
   if (rest[0] === 'config' && rest.length > 1) {
-    if (rest.length === 2 && stemOf(name) === 'routes') return { layer: 'route', subject: 'routes', written: 'routes', named: true, label: head ? `${head} routes` : 'Routes' }
+    if (rest.length === 2 && stemOf(name) === 'routes') {
+      return { layer: 'route', subject: 'routes', written: 'routes', named: true, label: component ? `${componentWords(component)} routes` : 'Routes' }
+    }
     return named('config', [name], component)
   }
   if (rest[0] === 'db' && rest.length > 1) {
-    if (rest[1] === 'migrate' && rest.length > 2) return named('migration', [name], component, (file) => stemOf(file).replace(/^\d+_/, ''))
+    const isMigration = rest[1] === 'migrate' && rest.length > 2
+    if (isMigration) return named('migration', [name], component, (file) => stemOf(file).replace(/^\d+_/, ''))
     return named('schema', [name], component, stemOf)
   }
   if (rest[0] === 'lib' && rest[1] === 'tasks' && rest.length > 2) return named('task', rest.slice(2), component)
+  return undefined
+}
 
-  const root = rest[0] === 'app' && rest[1] === 'javascript' ? 2 : ['app', 'src'].includes(rest[0]!) || (rest[0] === 'lib' && rest[1] !== 'tasks') ? 1 : 0
+/** How many leading folders are a source root: `app/javascript/`, or one of `app/`, `src/` and `lib/` (not `lib/tasks/`). */
+function sourceRootLength(rest: readonly string[]): number {
+  if (rest[0] === 'app' && rest[1] === 'javascript') return 2
+  if (rest[0] === 'app' || rest[0] === 'src') return 1
+  if (rest[0] === 'lib' && rest[1] !== 'tasks') return 1
+  return 0
+}
+
+/** A feature folder: the feature is the subject, the folder under it the layer: `features/review/graph/` is "review graph". */
+function featurePlace(head: string | undefined, inner: readonly string[]): Place {
+  const feature = inner[1]!
+  const layer = inner.length > 3 ? inner[2]! : 'feature'
+  const said = layer === 'feature' ? words(feature) : `${words(feature)} ${words(layer)}`
+  return { layer, subject: feature, written: feature, named: false, label: `${head ?? 'Features'} · ${said}` }
+}
+
+/** A folder of interface code: the folder under it is the subject, or the folder itself for a file right in it. */
+function partPlace(head: string | undefined, layer: string, inner: readonly string[]): Place {
+  const folder = inner[0]!
+  const subject = inner.length > 2 ? inner[1]! : folder
+  const flat = subject === folder
+  let label: string
+  if (head) label = flat ? `${head} · ${words(folder)}` : `${head} · ${words(subject)} ${words(folder)}`
+  else label = flat ? LAYER_WORDS[layer]! : `${LAYER_WORDS[layer]} · ${words(subject)}`
+  return { layer, subject, written: subject, named: false, label }
+}
+
+/** The code rules, for the path inside its component. */
+function placeOf(component: string | undefined, rest: readonly string[]): Place {
+  const railsFile = railsFilePlace(component, rest)
+  if (railsFile) return railsFile
+
+  const name = rest.at(-1) ?? ''
+  const head = component ? componentWords(component) : undefined
+  const root = sourceRootLength(rest)
   const inner = rest.slice(root)
   const first = inner[0]!
   if (inner.length > 1) {
     const layer = NAMED[first] ?? (isRuby(name) ? RUBY_NAMED[first] : undefined)
     if (layer) return named(layer, inner.slice(1), component)
-    if (first === 'features' && inner.length > 2) {
-      const feature = inner[1]!
-      const layerOf = inner.length > 3 ? inner[2]! : 'feature'
-      const said = `${words(feature)}${layerOf === 'feature' ? '' : ` ${words(layerOf)}`}`
-      return { layer: layerOf, subject: feature, written: feature, named: false, label: `${head ?? 'Features'} · ${said}` }
-    }
+    if (first === 'features' && inner.length > 2) return featurePlace(head, inner)
     const part = PARTS[first]
-    if (part) {
-      const subject = inner.length > 2 ? inner[1]! : first
-      const flat = subject === first
-      const label = head ? `${head} · ${flat ? words(first) : `${words(subject)} ${words(first)}`}` : flat ? LAYER_WORDS[part]! : `${LAYER_WORDS[part]} · ${words(subject)}`
-      return { layer: part, subject, written: subject, named: false, label }
-    }
+    if (part) return partPlace(head, part, inner)
   }
+
   if (component) {
     const subject = inner.length > 1 ? first : stemOf(name)
     return { layer: component, subject, written: subject, named: false, label: `${head} · ${words(subject)}` }
@@ -230,9 +259,12 @@ function testPlaceOf(component: string | undefined, rest: readonly string[]): Pl
   let mirrored = rest.filter((folder) => folder !== '__tests__')
   if (mirrored.length > 1 && TEST_ROOTS.has(mirrored[0]!)) mirrored = mirrored.slice(1)
   const name = mirrored.at(-1) ?? ''
-  const untested = `${stemOf(name).replace(/_(test|spec)$/, '').replace(/^test_/, '')}${extensionOf(name)}`
+  // The file the test is named after: `orders_spec.rb` mirrors `orders.rb`, `NodeCard.test.tsx` mirrors `NodeCard.tsx`.
+  const subjectStem = stemOf(name).replace(/_(test|spec)$/, '').replace(/^test_/, '')
+  const untested = `${subjectStem}${extensionOf(name)}`
   const tests = component ? `${componentWords(component)} tests` : 'Tests'
-  const kind = mirrored.length > 1 ? (TEST_KINDS[mirrored[0]!] ?? (isRuby(name) ? RUBY_TEST_KINDS[mirrored[0]!] : undefined)) : undefined
+  const folder = mirrored.length > 1 ? mirrored[0]! : undefined
+  const kind = folder === undefined ? undefined : (TEST_KINDS[folder] ?? (isRuby(name) ? RUBY_TEST_KINDS[folder] : undefined))
   if (kind === 'support') return { layer: 'test:support', subject: 'support', written: 'support', named: false, label: `${tests} · support files` }
   if (kind) {
     const { subject, written } = subjectUnder(kind, [...mirrored.slice(1, -1), untested])
@@ -248,17 +280,20 @@ function testPlaceOf(component: string | undefined, rest: readonly string[]): Pl
   return { ...code, layer: `test:${code.layer}`, label }
 }
 
+/** The component a path is in, and the path inside it: `packages/<x>/…`, `apps/<x>/…`, or a top folder such as `host/`. */
+function splitComponent(parts: readonly string[]): { component?: string; rest: readonly string[] } {
+  if (parts.length > 2 && COMPONENT_HOMES.has(parts[0]!)) return { component: parts[1]!, rest: parts.slice(2) }
+  if (parts.length > 1 && parts[0]! in TOPS) return { component: parts[0]!, rest: parts.slice(1) }
+  return { rest: parts }
+}
+
 /**
  * The zone of a part of the code, from its path: a `test` kind puts any path in a test layer, as the scan does for a
  * helper in a test file. The symbol is taken so a caller can hand in a part as it holds it; no rule reads it, so every
  * part of a file is in the file's zone.
  */
 export function zoneOf(path: string, kind?: string, _symbol?: string): Zone {
-  const parts = path.replace(/^\.\//, '').split('/').filter(Boolean)
-  const atHome = parts.length > 2 && COMPONENT_HOMES.has(parts[0]!)
-  const atTop = !atHome && parts.length > 1 && parts[0]! in TOPS
-  const component = atHome ? parts[1] : atTop ? parts[0] : undefined
-  const rest = atHome ? parts.slice(2) : atTop ? parts.slice(1) : parts
+  const { component, rest } = splitComponent(path.replace(/^\.\//, '').split('/').filter(Boolean))
   const place = kind === 'test' || isTestPath(path) ? testPlaceOf(component, rest) : placeOf(component, rest)
   return {
     id: `${component ?? '-'}/${place.layer}/${place.subject}`,

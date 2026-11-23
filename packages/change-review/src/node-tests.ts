@@ -32,6 +32,19 @@ interface Started {
   body: string[]
 }
 
+/** The test a line starts, at its base line: its name, its indentation, and whether it is a Python `def test_`. */
+function startedAt(text: string, line: number): Started | null {
+  const start = TEST_START.exec(text)
+  if (!start) return null
+  return { name: start[3] ?? start[4]!, line, indent: start[1]!.length, python: Boolean(start[4]), body: [text] }
+}
+
+/** Whether a removed line ends an open block: a Python block where the indentation falls back, any other at its closing line. */
+function endsBlock(block: Started, text: string): boolean {
+  if (indentOf(text) > block.indent) return false
+  return block.python ? text.trim() !== '' : BLOCK_END.test(text)
+}
+
 /** The test blocks a hunk removes whole: their start line is removed, and so is what follows it up to their end. */
 function removedBlocks(lines: readonly string[], oldStart: number): Started[] {
   const blocks: Started[] = []
@@ -40,18 +53,14 @@ function removedBlocks(lines: readonly string[], oldStart: number): Started[] {
   for (const raw of lines) {
     const side = raw[0]
     const text = raw.slice(1)
-    if (side === '-') {
-      const start = TEST_START.exec(text)
-      const ends = open && (open.python ? text.trim() !== '' && indentOf(text) <= open.indent : BLOCK_END.test(text) && indentOf(text) <= open.indent)
-      if (open && ends && !open.python) {
-        open.body.push(text)
-        open = null
-      } else if (open && ends) open = null
-      if (start && !open) {
-        open = { name: start[3] ?? start[4]!, line: at, indent: start[1]!.length, python: Boolean(start[4]), body: [text] }
-        blocks.push(open)
-      } else if (open) open.body.push(text)
-    } else open = null
+    if (side !== '-') open = null
+    else if (open && !endsBlock(open, text)) open.body.push(text)
+    else {
+      // A closing `})` or `end` is the block's last line; a Python block ends before the line that falls back.
+      if (open && !open.python) open.body.push(text)
+      open = startedAt(text, at)
+      if (open) blocks.push(open)
+    }
     if (side !== '+') at += 1
   }
   return blocks
@@ -59,10 +68,8 @@ function removedBlocks(lines: readonly string[], oldStart: number): Started[] {
 
 /** The names of the tests a hunk adds or keeps: a test removed and written again under its name was edited, not removed. */
 function testsKept(lines: readonly string[]): Set<string> {
-  return new Set(lines.filter((line) => line[0] !== '-').flatMap((line) => {
-    const start = TEST_START.exec(line.slice(1))
-    return start ? [start[3] ?? start[4]!] : []
-  }))
+  const kept = lines.filter((line) => line[0] !== '-').flatMap((line) => startedAt(line.slice(1), 0) ?? [])
+  return new Set(kept.map((test) => test.name))
 }
 
 /**
@@ -168,43 +175,60 @@ function relationOf(path: string, definitions: readonly TestDefinition[], input:
   return changed.every(isNew) ? 'added' : 'edited'
 }
 
+/** How a test file came to cover the part: how it was found, whether it is a life-cycle test, why, and whether the proof ran it for the part. */
+interface Found {
+  found: NodeTest['found']
+  lifecycle: boolean
+  why?: string
+  picked: boolean
+}
+
+/** One test file of the part, with the test definitions in it that the scan says cover the part. */
+function fileTest(path: string, how: Found, definitions: readonly TestDefinition[], input: NodeTestsInput): NodeTest {
+  const first = definitions[0]
+  const relation = relationOf(path, definitions, input)
+  const diff = input.diffs.find((file) => file.path === path)
+  const ranges = definitions.map((definition) => [definition.startLine, definition.endLine] as const)
+  const weakened = relation === 'edited' && diff && ranges.length ? weakenedIn(diff, ranges) : undefined
+  const shows = how.picked ? showsOf(path, input.proof) : undefined
+  return {
+    path,
+    ...(first ? { symbol: first.symbol, line: first.startLine } : {}),
+    relation,
+    found: how.found,
+    lifecycle: how.lifecycle,
+    at_head: atHeadOf(path, input.runs, input.findings),
+    ...(shows ? { shows } : {}),
+    ...(how.why ? { why: how.why } : {}),
+    ...(weakened ? { weakened } : {}),
+  }
+}
+
 /**
  * The tests that cover a part: the files its proof picked, each with what it showed; the tests the scan links that
  * the proof did not pick, as not run; and the tests the change removes that name it. The older first.
  */
 export function nodeTestsOf(input: NodeTestsInput): NodeTest[] {
-  const { node, candidates, proof, runs, findings, diffs } = input
+  const { node, candidates } = input
   if (node.kind === 'test') return []
   const covering = input.definitions.filter((definition) => definition.anchors.some((anchor) => anchor.id === node.id))
   const inFile = (path: string) => covering.filter((definition) => definition.path === path)
-  const tests: NodeTest[] = []
-  const add = (path: string, found: NodeTest['found'], lifecycle: boolean, why: string | undefined, picked: boolean) => {
-    const definitions = inFile(path)
-    const first = definitions[0]
-    const relation = relationOf(path, definitions, input)
-    const diff = diffs.find((file) => file.path === path)
-    const weakened = relation === 'edited' && diff && definitions.length ? weakenedIn(diff, definitions.map((definition) => [definition.startLine, definition.endLine] as const)) : undefined
-    const shows = picked ? showsOf(path, proof) : undefined
-    tests.push({
-      path,
-      ...(first ? { symbol: first.symbol, line: first.startLine } : {}),
-      relation,
-      found,
-      lifecycle,
-      at_head: atHeadOf(path, runs, findings),
-      ...(shows ? { shows } : {}),
-      ...(why ? { why } : {}),
-      ...(weakened ? { weakened } : {}),
-    })
-  }
-  for (const candidate of candidates) add(candidate.path, candidate.found ?? 'scan', candidate.lifecycle, candidate.why, true)
-  const picked = new Set(candidates.map((candidate) => candidate.path))
-  for (const path of new Set(covering.map((definition) => definition.path))) {
-    if (picked.has(path) || path === node.path) continue
-    add(path, 'scan', input.isLifecycleTest(path), 'the scan links it; it was not among the tests run', false)
-  }
-  for (const gone of input.removed.filter((entry) => entry.names.includes(node.symbol))) {
-    tests.push({ path: gone.path, symbol: gone.symbol, line: gone.base_line, relation: 'removed', found: 'diff', lifecycle: input.isLifecycleTest(gone.path) })
-  }
-  return tests.map((entry, index) => ({ entry, index })).sort((a, b) => RELATION_ORDER[a.entry.relation] - RELATION_ORDER[b.entry.relation] || a.index - b.index).map(({ entry }) => entry)
+
+  const picked = candidates.map((candidate) =>
+    fileTest(candidate.path, { found: candidate.found ?? 'scan', lifecycle: candidate.lifecycle, why: candidate.why, picked: true }, inFile(candidate.path), input),
+  )
+  const pickedPaths = new Set(candidates.map((candidate) => candidate.path))
+  const unpicked = [...new Set(covering.map((definition) => definition.path))]
+    .filter((path) => !pickedPaths.has(path) && path !== node.path)
+    .map((path) => fileTest(path, { found: 'scan', lifecycle: input.isLifecycleTest(path), why: 'the scan links it; it was not among the tests run', picked: false }, inFile(path), input))
+  const removed = input.removed
+    .filter((entry) => entry.names.includes(node.symbol))
+    .map((gone): NodeTest => ({ path: gone.path, symbol: gone.symbol, line: gone.base_line, relation: 'removed', found: 'diff', lifecycle: input.isLifecycleTest(gone.path) }))
+
+  const tests = [...picked, ...unpicked, ...removed]
+  // Stable: within a relation, the order they were found in.
+  return tests
+    .map((test, index) => ({ test, index }))
+    .sort((a, b) => RELATION_ORDER[a.test.relation] - RELATION_ORDER[b.test.relation] || a.index - b.index)
+    .map(({ test }) => test)
 }

@@ -627,6 +627,8 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     const walkedOrigins = (above[node.id] ?? []).map(walkOrigin)
     const origins = [...(pack?.origins ?? []), ...walkedOrigins.sort((a, b) => a.hops - b.hops)]
     if (origins.length) node.entries = entryNames(origins)
+    const stop = stops[node.id]
+    const walked = walkedFrom.has(node.id) ? { walked: stop ? { stop } : {} } : {}
     const skipped = origins.length ? null : notLookedFor(node)
     const runsFrom =
       skipped ??
@@ -637,7 +639,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
         testCallers: anchor?.testCallers ?? 0,
         testRefs: holding.get(node.id)?.length ?? 0,
         listed: Boolean(anchor?.callers || anchor?.callSites),
-        ...(walkedFrom.has(node.id) ? { walked: { ...(stops[node.id] ? { stop: stops[node.id] } : {}) } } : {}),
+        ...walked,
       })
     node.runs_from = linkSteps(runsFrom, nodes)
   }

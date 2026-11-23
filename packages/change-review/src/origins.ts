@@ -48,28 +48,36 @@ function once(origins: readonly Origin[]): Origin[] {
   })
 }
 
-/**
- * The origins the diff's own pack shows for a changed definition: itself when work enters there, the callers the scan
- * names as entries, and the callers its `called_by` edges reach within a few calls. `hops` is how many calls out the
- * pack had callers to look at.
- */
-export function packOrigins(scan: Scan, anchor: ScanAnchor, entryKind: EntryKindOf, maxHops = PACK_HOPS): { origins: Origin[]; hops: number } {
-  const origins: Origin[] = []
-  if (anchor.entry) origins.push(named(anchor.entry, anchor.symbol, [], 0))
-  else {
-    const rule = entryKind(anchor.path)
-    if (rule) origins.push(byPath(rule, anchor.symbol, [], 0))
-  }
-  let hops = 0
-  for (const site of anchor.callSites ?? []) {
-    hops = 1
+/** The definition itself, when work enters there: by the scan's word, or by its path. */
+function selfOrigin(anchor: ScanAnchor, entryKind: EntryKindOf): Origin | undefined {
+  if (anchor.entry) return named(anchor.entry, anchor.symbol, [], 0)
+  const rule = entryKind(anchor.path)
+  return rule ? byPath(rule, anchor.symbol, [], 0) : undefined
+}
+
+/** The callers the scan names as entries, on the call site or on the caller's node, one call out. */
+function entryCallerOrigins(scan: Scan, anchor: ScanAnchor): Origin[] {
+  return (anchor.callSites ?? []).flatMap((site) => {
     const caller = scan.nodes[site.id]
     const entry = site.entry ?? caller?.entry
-    if (!entry) continue
+    if (!entry) return []
     const guard = site.guards.at(-1)?.text
-    const step: OriginStep = { symbol: site.symbol, path: site.path, line: caller?.startLine ?? site.line, call_line: site.line, ...(site.enqueue ? { enqueues: true } : {}), ...(guard ? { guard } : {}) }
-    origins.push(named(entry, site.symbol, [step], 1))
-  }
+    const step: OriginStep = {
+      symbol: site.symbol,
+      path: site.path,
+      line: caller?.startLine ?? site.line,
+      call_line: site.line,
+      ...(site.enqueue ? { enqueues: true } : {}),
+      ...(guard ? { guard } : {}),
+    }
+    return [named(entry, site.symbol, [step], 1)]
+  })
+}
+
+/** The origins the pack's `called_by` edges reach within `maxHops` calls, and how many calls out they had callers. */
+function edgeOrigins(scan: Scan, anchor: ScanAnchor, entryKind: EntryKindOf, maxHops: number): { origins: Origin[]; hops: number } {
+  const origins: Origin[] = []
+  let hops = 0
   let frontier: { id: string; below: OriginStep[] }[] = [{ id: anchor.id, below: [] }]
   const seen = new Set([anchor.id])
   for (let hop = 1; hop <= maxHops && frontier.length; hop += 1) {
@@ -81,8 +89,16 @@ export function packOrigins(scan: Scan, anchor: ScanAnchor, entryKind: EntryKind
         const caller = scan.nodes[edge.from]
         if (!caller) continue
         hops = Math.max(hops, hop)
+
         const guard = edge.guards?.at(-1)?.text
-        const step: OriginStep = { symbol: caller.symbol, path: caller.path, line: caller.startLine, ...(edge.line ? { call_line: edge.line } : {}), ...(edge.note === 'enqueue' ? { enqueues: true } : {}), ...(guard ? { guard } : {}) }
+        const step: OriginStep = {
+          symbol: caller.symbol,
+          path: caller.path,
+          line: caller.startLine,
+          ...(edge.line ? { call_line: edge.line } : {}),
+          ...(edge.note === 'enqueue' ? { enqueues: true } : {}),
+          ...(guard ? { guard } : {}),
+        }
         const below = [...way.below, step]
         const rule = caller.entry ? undefined : entryKind(caller.path)
         if (caller.entry) origins.push(named(caller.entry, caller.symbol, below.toReversed(), hop))
@@ -92,7 +108,22 @@ export function packOrigins(scan: Scan, anchor: ScanAnchor, entryKind: EntryKind
     }
     frontier = next
   }
-  return { origins: once(origins), hops }
+  return { origins, hops }
+}
+
+/**
+ * The origins the diff's own pack shows for a changed definition: itself when work enters there, the callers the scan
+ * names as entries, and the callers its `called_by` edges reach within a few calls. `hops` is how many calls out the
+ * pack had callers to look at.
+ */
+export function packOrigins(scan: Scan, anchor: ScanAnchor, entryKind: EntryKindOf, maxHops = PACK_HOPS): { origins: Origin[]; hops: number } {
+  const self = selfOrigin(anchor, entryKind)
+  const fromEdges = edgeOrigins(scan, anchor, entryKind, maxHops)
+  const listsCallers = (anchor.callSites ?? []).length > 0
+  return {
+    origins: once([...(self ? [self] : []), ...entryCallerOrigins(scan, anchor), ...fromEdges.origins]),
+    hops: Math.max(listsCallers ? 1 : 0, fromEdges.hops),
+  }
 }
 
 /** An entry point the walk found, as an origin. A walk of an older shape gave only its name, place and distance. */
@@ -134,21 +165,28 @@ export interface RunsFromRequest {
   walked?: { stop?: WalkStop }
 }
 
+/** The nearest origins, each once, with how many more were found and what the walk left out. */
+function nearestOrigins(origins: readonly Origin[], stop: WalkStop | undefined): RunsFrom {
+  const nearest = once([...origins].sort((a, b) => a.hops - b.hops))
+  const more = nearest.length - MOST_ORIGINS
+  const said: string[] = []
+  if (more > 0) said.push(`${more} more way${more === 1 ? '' : 's'} in ${more === 1 ? 'was' : 'were'} found.`)
+  if (stop?.stopped) said.push(`Other ways out were followed for ${calls(stop.hops)}${stoppedWords(stop)}`)
+  return {
+    found: 'origins',
+    origins: nearest.slice(0, MOST_ORIGINS),
+    ...(more > 0 ? { more } : {}),
+    ...(said.length ? { cut: said.join(' ') } : {}),
+  }
+}
+
 /**
  * Where a changed definition runs from, for one whose callers were looked for. Origins, nearest first and at most three;
  * else that only tests call it; else that none was found, with how far the search looked and why it stopped there.
  */
 export function runsFromOf({ origins, looked, callers, testCallers, testRefs, listed, walked }: RunsFromRequest): RunsFrom {
   const stop = walked?.stop
-  if (origins.length) {
-    const nearest = once([...origins].sort((a, b) => a.hops - b.hops))
-    const more = nearest.length - MOST_ORIGINS
-    const said = [
-      more > 0 ? `${more} more way${more === 1 ? '' : 's'} in ${more === 1 ? 'was' : 'were'} found.` : '',
-      stop?.stopped ? `Other ways out were followed for ${calls(stop.hops)}${stoppedWords(stop)}` : '',
-    ].filter(Boolean)
-    return { found: 'origins', origins: nearest.slice(0, MOST_ORIGINS), ...(more > 0 ? { more } : {}), ...(said.length ? { cut: said.join(' ') } : {}) }
-  }
+  if (origins.length) return nearestOrigins(origins, stop)
   // A pack lists the tests that use a definition apart from its production callers.
   if (callers === 0 && (testCallers > 0 || testRefs > 0)) return { found: 'only-tests', tests: testCallers || testRefs }
   if (callers === 0) return { found: 'none', hops: 0, why: listed ? 'The scan found nothing that calls it.' : 'The scan listed nothing that calls it.' }
