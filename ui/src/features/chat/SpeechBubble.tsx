@@ -48,7 +48,8 @@ export function SpeechBubble({ bubble, onInspect }: { bubble: Bubble | null; onI
             'group/bubble absolute bottom-0 left-[96px] z-20 flex min-h-6 min-w-0 items-center rounded-full border border-border bg-card px-2.5 text-[12px] shadow-xs',
             thought
               ? 'max-w-[calc(100%-96px)] cursor-default outline-offset-2 focus-visible:outline-2 focus-visible:outline-ring hover:rounded-2xl hover:py-1 focus-visible:rounded-2xl focus-visible:py-1'
-              : cn('pointer-events-none h-6 select-none', bubble.kind === 'doing' ? 'max-w-[calc(100%-196px)]' : 'max-w-[calc(100%-96px)]'),
+              : // While a turn runs it ends before what the row keeps at its right: 196px, or what the row says beside a schedule (`--status-reserve`).
+                cn('pointer-events-none h-6 select-none', bubble.kind === 'doing' ? 'max-w-[calc(100%-var(--status-reserve,196px))]' : 'max-w-[calc(100%-96px)]'),
           )}
         >
           {thought ? (

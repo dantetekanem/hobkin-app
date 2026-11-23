@@ -5,6 +5,7 @@ import { holdStill, useStill } from '@/app/still.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
 import { ScheduleLine } from '@/features/schedules/ScheduleLine.tsx'
+import { useTurnRoom } from '@/features/schedules/use-turn-room.ts'
 import type { SchedulePlace } from '@/features/schedules/schedules.ts'
 import { useHost } from '@/lib/host/index.ts'
 import { tween } from '@/lib/motion.ts'
@@ -80,21 +81,24 @@ export function StatusLine({ reason, problem, said, turnRunning, typing, stopArm
   const pulsing = useHost((state) => Object.hasOwn(pulsesOf(state.snapshot), MAIN_PULSE))
   // The turn's working line stands where its elapsed time was, and gets the room between the bubble and the stop keys.
   const pulseShown = pulsing && bubble?.kind === 'doing' && !stopArmed
+  // Beside a schedule the row is shared: the working line and the stop keys keep their room, the schedules line takes
+  // what fits, and the bubble the rest (056).
+  const room = useTurnRoom({ crowded: bubble?.kind === 'doing' || stopArmed, givesWay: pulseShown, doing: bubble?.kind === 'doing' ? bubble.text : '' })
 
   return (
     // The row's height is always there, so the input does not move when the bubble, a line or a schedule comes and goes.
     // The schedules line (056) takes width at its right end only while a schedule exists, and its list rises from here.
-    <div className="relative flex h-6 items-center">
-      <div className="relative flex h-6 min-w-0 flex-1 items-center gap-2 pl-[112px]">
+    <div ref={room.row} className="relative flex h-6 items-center">
+      <div className="relative flex h-6 min-w-0 flex-1 items-center gap-2 pl-[112px]" style={room.reserve}>
         <SpeechBubble bubble={shown} onInspect={setInspecting} />
         {pulseShown ? (
           // Unseen and as wide as the bubble floating at the row's left, so the working line is cut before it goes under it.
-          <span aria-hidden="true" className="invisible -ml-4 max-w-[calc(100%-84px)] shrink-0 truncate border px-2.5 text-[12px]">
+          <span aria-hidden="true" className="invisible -ml-4 max-w-[calc(100%+112px-var(--status-reserve,196px))] shrink-0 truncate border px-2.5 text-[12px]">
             {bubble?.text}
           </span>
         ) : null}
         {bubble?.kind === 'doing' || stopArmed ? (
-          <span className={cn('ml-auto flex items-center gap-2 text-[12px] text-muted-foreground', pulseShown ? 'min-w-0' : 'shrink-0')}>
+          <span ref={room.keeps} className={cn('ml-auto flex items-center gap-2 text-[12px] text-muted-foreground', pulseShown ? 'min-w-0' : 'shrink-0')}>
             {bubble?.kind === 'doing' && !stopArmed ? (
               <Pulse run={MAIN_PULSE} fallback={<Elapsed since={startedAt ?? seenAt.current ?? Date.now()} />} className="min-w-0 truncate" />
             ) : null}
@@ -132,8 +136,8 @@ export function StatusLine({ reason, problem, said, turnRunning, typing, stopArm
           )}
         </AnimatePresence>
       </div>
-      {/* With no schedule it takes no room. While a turn runs it gives way first, so the bubble, the working line and the stop keys keep theirs. */}
-      <ScheduleLine place={HOME} inRow={{ crowded: bubble?.kind === 'doing' || stopArmed }} />
+      {/* With no schedule it takes no room. While a turn runs it takes what the working line and the stop keys leave, before the bubble. */}
+      <ScheduleLine place={HOME} inRow={{ width: room.line }} />
     </div>
   )
 }

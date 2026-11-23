@@ -13,7 +13,7 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { createScheduleActions, type ScheduleSend } from './actions.ts'
-import { countWords, lineFit, lineRoom } from './line-fit.ts'
+import { countWords, lineFit } from './line-fit.ts'
 import { scheduleListKey, type ScheduleKeyPress } from './schedule-keys.ts'
 import {
   doesWords,
@@ -33,6 +33,7 @@ import {
   type ScheduleLineWords,
   type SchedulePlace,
 } from './schedules.ts'
+import { useTextMeasure } from './text-measure.ts'
 import { sendSchedule, useScheduleList, useSchedules } from './use-schedules.ts'
 
 /** The line's room in the row under an agent's or a hobkin's talk box, beside the status words, kept with or without schedules. */
@@ -72,11 +73,12 @@ function takesKey(element: HTMLElement, main: boolean): boolean {
  * Escape closes it, with the keyboard back where it was. With none, nothing is drawn.
  *
  * Its room comes one of two ways. On a page the parent gives it a width (`style`) that is kept with or without
- * schedules. In the main chat's status row (`inRow`) it takes room only while a schedule exists, sized from the row
- * (`line-fit.ts`). Either way the parent is a positioned row, and the open list rises from that row's right end. The
- * words fit the room: the name and the countdown, then the count and the countdown, then the dot alone.
+ * schedules. In the main chat's status row (`inRow`) the row gives it its width (`use-turn-room.ts`), none without a
+ * schedule. Either way the parent is a positioned row, and the open list rises from that row's right end. The words
+ * fit the room: the name and the countdown, then the count and the countdown, then the dot with the count, then the
+ * dot alone (`line-fit.ts`).
  */
-export function ScheduleLine({ place, className, style, inRow }: { place: SchedulePlace; className?: string; style?: CSSProperties; inRow?: { crowded: boolean } }) {
+export function ScheduleLine({ place, className, style, inRow }: { place: SchedulePlace; className?: string; style?: CSSProperties; inRow?: { width: number } }) {
   const schedules = useSchedules(place)
   return <ScheduleLineView schedules={schedules} place={place} className={className} style={style} inRow={inRow} />
 }
@@ -95,9 +97,9 @@ export function ScheduleLineView({
   place: SchedulePlace
   className?: string
   style?: CSSProperties
-  /** In the main chat's status row, and whether a turn running there crowds it. */
-  inRow?: { crowded: boolean }
-  /** For a still render, which measures nothing: the row's width in the main chat, the line's own on a page. */
+  /** In the main chat's status row: the width the row gives it. */
+  inRow?: { width: number }
+  /** For a still render, which measures nothing: the line's own width on a page. */
   measured?: number
   send?: ScheduleSend
 }) {
@@ -107,8 +109,8 @@ export function ScheduleLineView({
   const any = ordered.length > 0
   const open = useScheduleList((state) => state.open === key) && any
   const root = useRef<HTMLDivElement>(null)
-  const width = useWidthOf(root, inRow ? 'row' : 'self', measured)
-  const lineWidth = inRow ? lineRoom(width, inRow.crowded) : width
+  const ownWidth = useOwnWidth(root, inRow !== undefined, measured)
+  const lineWidth = inRow ? inRow.width : ownWidth
   // In the main chat the row's height is what stays kept. With no schedule the line takes no width, so the row is
   // what it was without one; with one it takes its room at the row's right end, where nothing was, and the bubble,
   // anchored at its left, is cut sooner. Nothing that can be pressed moves.
@@ -213,7 +215,8 @@ function LineButton({
 }) {
   const counting = schedules.some((schedule) => stateOf(schedule) === 'waiting' && schedule.nextAt)
   const now = useNow(counting)
-  const measure = useTextMeasure(ref)
+  // At the name's weight, so nothing is measured short.
+  const measure = useTextMeasure(ref, 500)
   const line = scheduleLine(schedules, now)
   if (!line) return null
   const fit = lineFit(width, line, measure)
@@ -239,7 +242,11 @@ function LineButton({
       )}
     >
       <Dot lead={line.lead} />
-      {fit.form === 'dot' ? null : <LineWords line={line} name={fit.form === 'full' ? fit.name : null} />}
+      {fit.form === 'dot' ? null : fit.form === 'count' ? (
+        <span className="text-muted-foreground tabular-nums">{line.count}</span>
+      ) : (
+        <LineWords line={line} name={fit.form === 'full' ? fit.name : null} />
+      )}
       {fit.form === 'full' || (fit.form === 'compact' && fit.arrow) ? (
         <ChevronUp className={cn('ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]', open && 'rotate-180')} aria-hidden="true" />
       ) : null}
@@ -262,53 +269,6 @@ function LineWords({ line, name }: { line: ScheduleLineWords; name: string | nul
   )
 }
 
-/**
- * How wide the line or its row is (`self` or `row`), read before the first paint and again as it is resized. A still
- * render gives it instead (`given`).
- */
-function useWidthOf(element: RefObject<HTMLElement | null>, of: 'self' | 'row', given: number | undefined): number {
-  const [width, setWidth] = useState(0)
-  useLayoutEffect(() => {
-    if (given !== undefined) return
-    const node = of === 'self' ? element.current : element.current?.parentElement
-    if (!node) return
-    const read = () => setWidth(node.getBoundingClientRect().width)
-    read()
-    const sizes = new ResizeObserver(read)
-    sizes.observe(node)
-    return () => sizes.disconnect()
-  }, [element, of, given])
-  return given ?? width
-}
-
-/** About how wide a character of the line is, where no canvas can measure it (a still render). */
-const CHARACTER = 6.6
-
-// One canvas for every line's measuring. It holds no state between calls but the font each one sets.
-const measuring = globalThis as { __hobkinScheduleCanvas?: CanvasRenderingContext2D | null }
-
-/**
- * Measures the line's words in the font its button draws them in, read once it is drawn, at the name's weight so
- * nothing is measured short. Before that, and where there is no canvas, by an estimate.
- */
-function useTextMeasure(element: RefObject<HTMLElement | null>): (text: string) => number {
-  const [font, setFont] = useState<string | null>(null)
-  useLayoutEffect(() => {
-    const node = element.current
-    if (!node) return
-    const style = getComputedStyle(node)
-    setFont(`500 ${style.fontSize} ${style.fontFamily}`)
-  }, [element])
-  return useMemo(() => {
-    const context = font ? (measuring.__hobkinScheduleCanvas ??= document.createElement('canvas').getContext('2d')) : null
-    if (!font || !context) return (text: string) => text.length * CHARACTER
-    return (text: string) => {
-      context.font = font
-      return context.measureText(text).width
-    }
-  }, [font])
-}
-
 const DOT: Record<ScheduleLineWords['lead'], string> = {
   waiting: 'bg-[var(--hb-code)]',
   running: 'aa-running bg-[var(--hb-code)]',
@@ -319,6 +279,21 @@ const DOT: Record<ScheduleLineWords['lead'], string> = {
 /** How the line's schedule stands, in a dot: filled while it waits, breathing while it runs, a ring while it is paused or ended. */
 function Dot({ lead }: { lead: ScheduleLineWords['lead'] }) {
   return <span aria-hidden="true" className={cn('size-2 shrink-0 rounded-full', DOT[lead])} />
+}
+
+/** The line's own width on a page, read before the first paint and again as it is resized. A still render gives it. */
+function useOwnWidth(element: RefObject<HTMLElement | null>, given: boolean, measured: number | undefined): number {
+  const [width, setWidth] = useState(0)
+  useLayoutEffect(() => {
+    const node = element.current
+    if (given || measured !== undefined || !node) return
+    const read = () => setWidth(node.getBoundingClientRect().width)
+    read()
+    const sizes = new ResizeObserver(read)
+    sizes.observe(node)
+    return () => sizes.disconnect()
+  }, [element, given, measured])
+  return measured ?? width
 }
 
 /** How tall the open list may be: from the row it rises from up to a little under the top of its side of the window. */
