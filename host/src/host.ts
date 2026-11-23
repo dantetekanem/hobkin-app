@@ -58,6 +58,7 @@ import { readsOf, Windows } from './windows.ts'
 import { TurnRelay } from './turn-relay.ts'
 import { ActivityKeeper } from './activity.ts'
 import { agentHandlers } from './agents.ts'
+import { AgentScheduleReader, scheduleHandlers, scheduleOperationsOf } from './schedules.ts'
 import { hobkinHandlers } from './hobkins.ts'
 import { routineHandlers } from './routines.ts'
 import { appearanceRequest, loadHostAppearance } from './appearance-host.ts'
@@ -277,6 +278,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const claudeCode = new ClaudeCodeSettingsFile(resolveDataRoot(root))
   // The runs sent to Claude Code, which the window's snapshot marks so it draws the crab pal beside their faces.
   const claudeRuns = new ClaudeRuns()
+  // The schedules agents keep for themselves (056-agent-schedules), read without trust on their way to the window.
+  const agentSchedules = new AgentScheduleReader()
   const lookUpClaude = options.claudeStatus ?? (() => claudeStatus({ find: findClaude }))
   const owner = new HomeOwner({
     root,
@@ -394,7 +397,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     themes: appearance.kept(),
     // Work mode for the Work screen, read from the snapshot with hobkin's own rules (011-work).
     work: owner.snapshot ? workOf(owner.snapshot) : null,
-    snapshot: owner.snapshot && { ...activity.keep(claudeRuns.mark(owner.wireSnapshot()!)), reminderOccurrences: reminders() },
+    snapshot: owner.snapshot && { ...activity.keep(claudeRuns.mark(agentSchedules.wire(owner.wireSnapshot()!))), reminderOccurrences: reminders() },
   })
   // hobkin's main conversations, only read, from the home (014-continuity A8). The one its session has open is current.
   // Titles: a small model on the quick tier names a conversation from its first messages, once, and the name is kept
@@ -700,7 +703,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // Close issue closes it through gh on the user's word, declines hobkin's unfinished item for it, and reads GitHub again.
     ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh, refreshGitHub: () => github.refresh() }),
     // Its agents and routines, stopped or told something while they work, by run id (011-work).
-    ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[], models: async () => (await signIn.refresh(), signIn.models ?? null), images: imagesForAgents }),
+    ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[], models: async () => (await signIn.refresh(), signIn.models ?? null), images: imagesForAgents, schedules: () => agentSchedules.read(owner.snapshot) }),
+    // An agent's schedules, cancelled, paused or run now from the window's list, through hobkin's own methods (056).
+    ...scheduleHandlers({ operations: () => scheduleOperationsOf(hobkin()), schedules: () => agentSchedules.read(owner.snapshot) }),
     // Durable hobkins (034-durable-hobkins): hobkin's runtime keeps them, and the host checks only what it knows.
     ...hobkinHandlers({
       app: hobkin,

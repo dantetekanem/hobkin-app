@@ -4,7 +4,7 @@ import { COMMANDS } from '#shared/commands/registry.ts'
 import type { AgentSchedule } from '#shared/protocol/schedules.ts'
 import { createClientTool } from '../src/client-tool.ts'
 import { runCommand, Unavailable } from '../src/commands.ts'
-import { AgentScheduleReader, scheduleHandlers, type ScheduleOperations } from '../src/schedules.ts'
+import { AgentScheduleReader, scheduleHandlers, scheduleOperationsOf, type ScheduleOperations } from '../src/schedules.ts'
 
 const WATCH: AgentSchedule = { id: 'sch-1', owner: { kind: 'run', id: 'session:ship' }, name: 'Watch CI for #412', does: 'shell', command: 'gh pr checks 412', state: 'waiting', every: 120 }
 const NAP: AgentSchedule = { id: 'sch-2', owner: { kind: 'main' }, does: 'wake', note: 'Look at the deploy.', state: 'paused' }
@@ -133,6 +133,56 @@ test('the arguments are checked before any handler: an id the runtime could not 
     assert.equal(!said.ok && said.error.code, 'invalid-arguments', JSON.stringify([name, args]))
   }
   assert.deepEqual(calls, [])
+})
+
+/** hobkin's application as far as schedules go, with the runtime's own method names, answering as the runtime does. */
+class FakeApplication {
+  readonly calls: unknown[][] = []
+  private readonly live: readonly string[]
+
+  constructor(live: readonly string[]) {
+    this.live = live
+  }
+
+  private answer(id: string) {
+    return this.live.includes(id) ? { ok: true } : { ok: false, reason: 'There is no schedule with that id.' }
+  }
+
+  async cancelAgentSchedule(id: string) {
+    this.calls.push(['cancel', id])
+    return this.answer(id)
+  }
+
+  async pauseAgentSchedule(id: string, paused: boolean) {
+    this.calls.push(['pause', id, paused])
+    return this.answer(id)
+  }
+
+  async runAgentSchedule(id: string) {
+    this.calls.push(['run', id])
+    return this.answer(id)
+  }
+}
+
+test("the handlers reach a running application's own schedule methods, and the runtime's refusal passes on", async () => {
+  const app = new FakeApplication(['sch-1'])
+  // The window's list still has sch-2, which the runtime has dropped since.
+  const handlers = scheduleHandlers({ operations: () => scheduleOperationsOf(app), schedules: () => [WATCH, NAP] })
+
+  assert.deepEqual(await runCommand(handlers, 'schedule.pause', { id: 'sch-1', paused: true }), { ok: true, value: { ok: true } })
+  assert.deepEqual(await runCommand(handlers, 'schedule.run', { id: 'sch-1' }), { ok: true, value: { ok: true } })
+  assert.deepEqual(await runCommand(handlers, 'schedule.cancel', { id: 'sch-1' }), { ok: true, value: { ok: true } })
+  assert.ok(refused('There is no schedule with that id.')(await runCommand(handlers, 'schedule.cancel', { id: 'sch-2' })))
+  assert.deepEqual(app.calls, [['pause', 'sch-1', true], ['run', 'sch-1'], ['cancel', 'sch-1'], ['cancel', 'sch-2']])
+})
+
+test('an application from before schedules, or with only some of the methods, has no schedules to act on', async () => {
+  const partial = { cancelAgentSchedule: async () => ({ ok: true }), pauseAgentSchedule: 'not a method' }
+  for (const app of [{}, { kill: async () => true }, partial]) {
+    assert.equal(scheduleOperationsOf(app), null)
+    const handlers = scheduleHandlers({ operations: () => scheduleOperationsOf(app), schedules: () => [WATCH] })
+    assert.ok(refused('Schedules are not available in this hobkin yet. Restart the app to load them.')(await runCommand(handlers, 'schedule.cancel', { id: 'sch-1' })))
+  }
 })
 
 const RUNS = [{ id: 'session:ship', title: 'Ship 412', state: 'waiting' }]

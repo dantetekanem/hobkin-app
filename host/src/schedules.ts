@@ -14,6 +14,29 @@ export interface ScheduleOperations {
   run(id: string): Promise<unknown> | unknown
 }
 
+/** The three methods as hobkin's running application has them. A runtime from before has none. */
+interface ScheduleMethods {
+  cancelAgentSchedule?: unknown
+  pauseAgentSchedule?: unknown
+  runAgentSchedule?: unknown
+}
+
+type Method = (...args: unknown[]) => unknown
+
+const isMethod = (value: unknown): value is Method => typeof value === 'function'
+
+/** The application's own schedule methods as the handlers call them, or nothing when it lacks any of the three. */
+export function scheduleOperationsOf(app: object): ScheduleOperations | null {
+  const { cancelAgentSchedule: cancel, pauseAgentSchedule: pause, runAgentSchedule: run } = app as ScheduleMethods
+  if (!isMethod(cancel) || !isMethod(pause) || !isMethod(run)) return null
+
+  return {
+    cancel: (id) => cancel.call(app, id),
+    pause: (id, paused) => pause.call(app, id, paused),
+    run: (id) => run.call(app, id),
+  }
+}
+
 export interface ScheduleSeat {
   /** The runtime's operations, or nothing from a runtime that has none. Throws `Unavailable` while hobkin is not open. */
   operations: () => ScheduleOperations | null | undefined
