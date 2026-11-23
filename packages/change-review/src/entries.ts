@@ -5,25 +5,61 @@
  * caller, until each way ends where a request enters. What it finds are entry points whose tests the proof may run,
  * nothing more. A scan that fails, or a way cut short, is a note, never a crash.
  */
+import { originWords } from './origins.ts'
 import { scanAnchors } from './scan.ts'
 import type { ScanOutcome } from './scan.ts'
+import type { Origin, OriginStep } from './types.ts'
 
-/** An entry point found above a changed definition, and how many calls away it is. */
+/**
+ * An entry point found above a changed definition, and how many calls away it is. Since spec 055 it keeps what kind of
+ * entry it is, its words and the way to it; those fields are optional so a search written before still answers.
+ */
 export interface EntryAbove {
   /** As the scan names it, such as `TopicsController#show`. */
   symbol: string
   path: string
   hops: number
+  /** Its first line. */
+  line?: number
+  kind?: Origin['kind']
+  label?: string
+  exact?: boolean
+  by?: Origin['by']
+  route?: Origin['route']
+  /** The entry point first, the changed definition's direct caller last. */
+  chain?: OriginStep[]
+}
+
+/** Why a walk from one changed definition ended, and how many calls out the scans answered for it. */
+export interface WalkStop {
+  hops: number
+  /** It was cut: at its limit of calls or of places per scan, out of time, or by a scan that failed. Absent when every way ended. */
+  stopped?: 'limit' | 'time' | 'failed'
+  /** The furthest definition a way ended at with nothing calling it, when one did. */
+  top?: string
+  /** What the failed scan said. */
+  reason?: string
 }
 
 /** Scans the definitions that hold the given places (`path:line`). The pipeline hands in agentic-search; tests a fake. */
 export type AnchorScan = (anchors: readonly string[], options: { timeoutMs: number }) => Promise<ScanOutcome>
 
+/** A place that calls a changed definition: where, and whether the call enqueues it or a condition stands in front of it. */
+export interface StartCaller {
+  path: string
+  line: number
+  enqueue?: boolean
+  guard?: string
+}
+
 export interface EntriesRequest {
   /** Each changed definition by its id, and the places that call it, as the diff scan lists them. */
-  starts: readonly { id: string; callers: readonly { path: string; line: number }[] }[]
-  /** Whether a path is where a request, job or command enters, by the project's own layout. */
-  isEntry: (path: string) => boolean
+  starts: readonly { id: string; callers: readonly StartCaller[] }[]
+  /**
+   * Whether a path is where a request, job or command enters, by the project's own layout: the name of the rule that
+   * says so (its kind), or true for one with no name.
+   */
+  isEntry: (path: string) => boolean | string | undefined
   scan: AnchorScan
   /** How many calls out the way is followed. */
   maxHops?: number
@@ -38,6 +74,8 @@ export interface EntriesOutcome {
   entries: Record<string, EntryAbove[]>
   /** What was not followed, and why, in words. */
   notes: string[]
+  /** Per changed definition with callers to follow, why its walk ended. Absent from a search written before spec 055. */
+  stops?: Record<string, WalkStop>
 }
 
 /** Asks for the entry points above changed definitions. The pipeline takes this as an option, so tests hand in a fake. */
@@ -56,6 +94,11 @@ interface Step {
   path: string
   line: number
   hops: number
+  /** The call at this place: whether it enqueues, and the condition in front of it. */
+  enqueue?: boolean
+  guard?: string
+  /** The definitions passed so far, from the changed definition's direct caller outward. */
+  below: OriginStep[]
 }
 
 const calls = (count: number) => `${count} call${count === 1 ? '' : 's'}`
@@ -63,42 +106,63 @@ const calls = (count: number) => `${count} call${count === 1 ? '' : 's'}`
 /**
  * Follows the callers of each changed definition up to its entry points. A definition is an entry point when the scan
  * says so or its path is one; its own callers are then not followed. Every definition is followed once for each
- * changed definition, and one scan answers for every way at the same distance.
+ * changed definition, and one scan answers for every way at the same distance. Each entry point keeps the way to it.
  */
 export async function entriesAbove({ starts, isEntry, scan, maxHops = ENTRY_HOPS, budgetMs = ENTRIES_BUDGET_MS, now = Date.now, signal }: EntriesRequest): Promise<EntriesOutcome> {
   const entries: Record<string, EntryAbove[]> = Object.fromEntries(starts.map((start) => [start.id, []]))
   const notes: string[] = []
+  const stops: Record<string, WalkStop> = {}
   const started = now()
   /** Per changed definition: the places already asked for, and the definitions already followed. */
   const asked = new Map(starts.map((start) => [start.id, new Set<string>()]))
   const followed = new Map(starts.map((start) => [start.id, new Set<string>()]))
-  const queue = (root: string, path: string, line: number, hops: number, into: Step[]) => {
-    const place = `${path}:${line}`
-    if (asked.get(root)!.has(place)) return
-    asked.get(root)!.add(place)
-    into.push({ root, path, line, hops })
+  const queue = (step: Step, into: Step[]) => {
+    const place = `${step.path}:${step.line}`
+    if (asked.get(step.root)!.has(place)) return
+    asked.get(step.root)!.add(place)
+    into.push(step)
+  }
+  /** Where a root's walk got to: the calls out answered for it, and why it stopped when it was cut. */
+  const reached = (root: string, hops: number) => {
+    const stop = (stops[root] ??= { hops: 0 })
+    stop.hops = Math.max(stop.hops, hops)
+  }
+  const cut = (frontier: readonly Step[], stopped: NonNullable<WalkStop['stopped']>, hops: number, reason?: string) => {
+    for (const root of new Set(frontier.map((step) => step.root))) {
+      reached(root, hops)
+      Object.assign(stops[root]!, { stopped, ...(reason ? { reason } : {}) })
+    }
   }
 
   let frontier: Step[] = []
-  for (const start of starts) for (const caller of start.callers) queue(start.id, caller.path, caller.line, 1, frontier)
+  for (const start of starts) {
+    for (const caller of start.callers) {
+      queue({ root: start.id, path: caller.path, line: caller.line, hops: 1, ...(caller.enqueue ? { enqueue: true } : {}), ...(caller.guard ? { guard: caller.guard } : {}), below: [] }, frontier)
+    }
+  }
+  for (const step of frontier) reached(step.root, 0)
 
   for (let hop = 1; frontier.length > 0; hop += 1) {
     if (signal?.aborted) break
     if (hop > maxHops) {
       notes.push(`The way to an entry point was followed for ${calls(maxHops)} and goes on further: what is above that was not looked for.`)
+      cut(frontier, 'limit', maxHops)
       break
     }
     const time = Math.min(SCAN_MS, budgetMs - (now() - started))
     if (time < LEAST_SCAN_MS) {
       notes.push(`The search for entry points used the time it had after ${calls(hop - 1)}: what is above that was not looked for.`)
+      cut(frontier, 'time', hop - 1)
       break
     }
     const places = [...new Set(frontier.map((step) => `${step.path}:${step.line}`))]
     if (places.length > MOST_PER_SCAN) notes.push(`${places.length - MOST_PER_SCAN} callers ${calls(hop)} out were not followed: one scan follows ${MOST_PER_SCAN}.`)
     const wanted = new Set(places.slice(0, MOST_PER_SCAN))
+    cut(frontier.filter((step) => !wanted.has(`${step.path}:${step.line}`)), 'limit', hop - 1)
     const outcome = await scan([...wanted], { timeoutMs: time })
     if (!outcome.ok) {
       notes.push(`The search for entry points stopped: ${outcome.reason}`)
+      cut(frontier, 'failed', hop - 1, outcome.reason)
       break
     }
     const next: Step[] = []
@@ -106,18 +170,49 @@ export async function entriesAbove({ starts, isEntry, scan, maxHops = ENTRY_HOPS
       if (!wanted.has(`${step.path}:${step.line}`)) continue
       const definition = outcome.scan.anchors.find((anchor) => anchor.path === step.path && anchor.startLine <= step.line && step.line <= anchor.endLine)
       if (!definition) continue
+      reached(step.root, step.hops)
       const key = `${definition.path}:${definition.startLine}`
       if (followed.get(step.root)!.has(key)) continue
       followed.get(step.root)!.add(key)
-      if (definition.entry || isEntry(definition.path)) {
-        entries[step.root]!.push({ symbol: definition.symbol, path: definition.path, hops: step.hops })
+      const here: OriginStep = {
+        symbol: definition.symbol,
+        path: definition.path,
+        line: definition.startLine,
+        call_line: step.line,
+        ...(step.enqueue ? { enqueues: true } : {}),
+        ...(step.guard ? { guard: step.guard } : {}),
+      }
+      const below = [...step.below, here]
+      const byPath = definition.entry ? undefined : isEntry(definition.path)
+      if (definition.entry || byPath) {
+        const kind = definition.entry?.kind ?? (typeof byPath === 'string' ? byPath : 'path')
+        entries[step.root]!.push({
+          symbol: definition.symbol,
+          path: definition.path,
+          hops: step.hops,
+          line: definition.startLine,
+          kind,
+          ...originWords(definition.entry, definition.symbol),
+          exact: definition.entry?.exact ?? false,
+          by: definition.entry ? 'scan' : 'path',
+          chain: below.toReversed(),
+        })
         continue
       }
-      for (const site of definition.callSites ?? []) queue(step.root, site.path, site.line, step.hops + 1, next)
+      const sites = definition.callSites ?? []
+      if (!sites.length) {
+        // A way that ends here: the furthest such definition is where the way out stops.
+        const stop = stops[step.root]!
+        if (!stop.top || step.hops >= stop.hops) stop.top = definition.symbol
+      }
+      for (const site of sites) {
+        const guard = site.guards.at(-1)?.text
+        queue({ root: step.root, path: site.path, line: site.line, hops: step.hops + 1, ...(site.enqueue ? { enqueue: true } : {}), ...(guard ? { guard } : {}), below }, next)
+      }
     }
     frontier = next
   }
-  return { entries, notes }
+  return { entries, notes, stops }
 }
 
 /** The default search: agentic-search in the checkout, one scan for each call further out. */

@@ -481,6 +481,112 @@ export interface NodeLevel {
   if: { text: string; level: Level }[]
 }
 
+// ───────────────────────── 2. The map: where a part runs from, and what tests it (spec 055) ─────────────────────────
+
+/**
+ * The kind of place work enters: as the scan names it (`controller`, `job`, `command`, `export`, `extension`, and the
+ * kinds newer tools add), a path rule's name from the config (`handler`, `consumer`...), or `path` for a path rule with
+ * no name. A kind this package does not know is kept as the tool names it.
+ */
+export type OriginKind =
+  | 'route'
+  | 'controller'
+  | 'job'
+  | 'task'
+  | 'schedule'
+  | 'listener'
+  | 'mailer'
+  | 'channel'
+  | 'command'
+  | 'export'
+  | 'extension'
+  | 'handler'
+  | 'ui-handler'
+  | 'host-command'
+  | 'load'
+  | 'path'
+  | (string & {})
+
+/** One definition on the way from an origin to a changed part. */
+export interface OriginStep {
+  symbol: string
+  path: string
+  /** Its first line at head. */
+  line: number
+  /** Its id in graph.json, when it is a changed part itself. */
+  node?: string
+  /** The line in it that calls the next step, or the changed part for the last step. */
+  call_line?: number
+  /** That call enqueues the next step as a job. */
+  enqueues?: boolean
+  /** The innermost condition in front of that call, as written. */
+  guard?: string
+}
+
+/** A place work enters that reaches a changed part, and the way it takes. */
+export interface Origin {
+  kind: OriginKind
+  /** Its words: a route ("GET /orders/:id"), the scan's own words (a handler's key), or its definition's name. */
+  label: string
+  /** The scan is sure of it: a declared job, a routed action, what package.json names. A path rule is never sure. */
+  exact: boolean
+  /** `scan`: the search tool says work enters there; `path`: its path is where work enters, by the project's layout. */
+  by: 'scan' | 'path'
+  route?: { verbs: string[]; path: string }
+  /** The origin first, the changed part's direct caller last; empty when the part is itself the origin. */
+  chain: OriginStep[]
+  /** Calls from the origin to the part. */
+  hops: number
+}
+
+/**
+ * Where a changed part is run from, said truthfully (spec 055). `origins`: the nearest places work enters that reach
+ * it, at most 3. `only-tests`: something calls it and every caller is a test. `none`: no origin was found within `hops`
+ * calls; `stopped` says when the search stopped short, `top` where a way ended with nothing calling it. The scan's
+ * "complete" is not proof that none exists, so none is never said to exist. `not-looked`: no caller was looked for, as
+ * for a constant, removed code or code read from the diff.
+ */
+export type RunsFrom =
+  | { found: 'origins'; origins: Origin[]; cut?: string }
+  | { found: 'only-tests'; tests: number }
+  | { found: 'none'; hops: number; stopped?: 'limit' | 'time' | 'failed'; top?: string; why: string }
+  | { found: 'not-looked'; why: string }
+
+/** A test that covers a changed part, and what it showed (spec 055). */
+export interface NodeTest {
+  path: string
+  /** The test definition in it that covers the part, when the scan names one. */
+  symbol?: string
+  line?: number
+  /** `before`: there before the change and unchanged by it; `added`, `edited` or `removed` by the change. */
+  relation: 'before' | 'added' | 'edited' | 'removed'
+  /** The scan links it, it imports the part's file, it is named after it, it tests an entry point above it, or the diff shows it. */
+  found: 'scan' | 'import' | 'convention' | 'entry' | 'diff'
+  /** It goes through the request life cycle: a request, controller, integration, system or job test. */
+  lifecycle: boolean
+  /** How it did at the change's commit. */
+  at_head?: 'passed' | 'failed' | 'timed-out' | 'not-run'
+  /**
+   * What it showed with the part changed: it fails without the change (`proves`), it fails once the part is made to throw
+   * (`reaches`), it still passes with the change put back (`still-passes`), or it fails only through a double (`mocks`).
+   */
+  shows?: 'proves' | 'reaches' | 'still-passes' | 'mocks'
+  why?: string
+  /** An edited test that lost assertions: how many, and their lines at base. */
+  weakened?: { assertions_removed: number; lines: number[] }
+}
+
+/** A test the change removes, from the diff's test hunks. */
+export interface RemovedTest {
+  path: string
+  /** The test's name as written: `test('rounds the total')`, `def test_total`. */
+  symbol: string
+  /** Its first line at base. */
+  base_line: number
+  /** The changed parts it named, by symbol. */
+  names: string[]
+}
+
 export interface ReviewNode {
   id: string
   /** `general`: constant, class-body statement, migration, config, dependency, removed definition. */
@@ -491,8 +597,14 @@ export interface ReviewNode {
   change: 'added' | 'modified' | 'removed' | 'none'
   changed_lines: number[]
   language?: string
-  /** Entry points above this node: controller actions, jobs, consumers, commands. */
+  /** Entry points above this node: controller actions, jobs, consumers, commands. Since spec 055, the origins' names. */
   entries: string[]
+  /** Where it is run from (spec 055). Absent from a graph written before. */
+  runs_from?: RunsFrom
+  /** The tests that cover it, each with its relation to the change and what it showed (spec 055). */
+  tests?: NodeTest[]
+  /** The id of its zone in the graph's `zones` (spec 055). */
+  zone?: string
   facts: Facts
   extras: FloorExtras
   /** Conditions found in or in front of this node. */
@@ -558,6 +670,10 @@ export interface Graph {
   runs?: TestRun[]
   /** The test files the change adds or edits that no run ran, each with why. */
   not_run?: { path: string; why: string }[]
+  /** The zones the nodes name, in the order the nodes first name them (spec 055). */
+  zones?: Zone[]
+  /** The tests the change removes (spec 055). */
+  removed_tests?: RemovedTest[]
 }
 
 // ───────────────────────── 3. Risk events ─────────────────────────

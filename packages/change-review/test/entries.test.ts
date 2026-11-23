@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { entriesAbove, type AnchorScan } from '../src/entries.ts'
+import { entriesAbove, type AnchorScan, type EntryAbove } from '../src/entries.ts'
 import type { CallSite, Scan, ScanAnchor } from '../src/types.ts'
 
 const site = (path: string, line: number): CallSite => ({ id: `${path}:${line}`, symbol: '', path, line, guards: [] })
@@ -34,11 +34,14 @@ function scanning(definitions: ScanAnchor[] = DEFINITIONS) {
 
 const isEntry = (path: string) => /(^|\/)controllers\//.test(path)
 const start = { id: 'n1', callers: [{ path: 'app/helpers/posts_helper.rb', line: 23 }] }
+/** Each entry point found as the walk named it before it kept the way: its name, place and distance. */
+const named = (entries: Record<string, EntryAbove[]>) =>
+  Object.fromEntries(Object.entries(entries).map(([id, found]) => [id, found.map(({ symbol, path, hops }) => ({ symbol, path, hops }))]))
 
 test('the way up from a changed definition goes a caller at a time, through templates, to every entry point', async () => {
   const { scan, asked } = scanning()
   const found = await entriesAbove({ starts: [start], isEntry, scan })
-  assert.deepEqual(found.entries, {
+  assert.deepEqual(named(found.entries), {
     n1: [
       { symbol: 'TopicsController#show', path: 'app/controllers/topics_controller.rb', hops: 5 },
       { symbol: 'Museum::TopicsController#show', path: 'app/controllers/museum/topics_controller.rb', hops: 5 },
@@ -61,7 +64,7 @@ test('an entry point ends its way, a definition is followed once, and several ch
     isEntry: (path) => path.includes('/jobs/'),
     scan,
   })
-  assert.deepEqual(found.entries, { a: [{ symbol: 'ReceiptJob#perform', path: 'app/jobs/receipt_job.rb', hops: 2 }], b: [{ symbol: 'ReceiptJob#perform', path: 'app/jobs/receipt_job.rb', hops: 2 }] })
+  assert.deepEqual(named(found.entries), { a: [{ symbol: 'ReceiptJob#perform', path: 'app/jobs/receipt_job.rb', hops: 2 }], b: [{ symbol: 'ReceiptJob#perform', path: 'app/jobs/receipt_job.rb', hops: 2 }] })
   assert.deepEqual(asked, [['app/models/totals.rb:3'], ['app/jobs/receipt_job.rb:5', 'app/models/totals.rb:20']])
 })
 
@@ -77,11 +80,61 @@ test('the walk stops at its limit of calls, when its time is used, and when a sc
 
   const failing: AnchorScan = async () => ({ ok: false, reason: 'agentic-search is not installed.' })
   const failed = await entriesAbove({ starts: [start], isEntry, scan: failing })
-  assert.deepEqual(failed, { entries: { n1: [] }, notes: ['The search for entry points stopped: agentic-search is not installed.'] })
+  assert.deepEqual([failed.entries, failed.notes], [{ n1: [] }, ['The search for entry points stopped: agentic-search is not installed.']])
+
+  // Each way says why it stopped and how far it looked, for the part it starts from.
+  assert.deepEqual(far.stops, { n1: { hops: 3, stopped: 'limit' } })
+  assert.equal(slow.stops?.n1?.stopped, 'time')
+  assert.deepEqual(failed.stops, { n1: { hops: 0, stopped: 'failed', reason: 'agentic-search is not installed.' } })
+})
+
+test('each entry point keeps the way to it: the origin first, every definition between, the changed part\'s caller last', async () => {
+  const found = await entriesAbove({ starts: [start], isEntry, scan: scanning().scan })
+  const [routed, byPath] = found.entries.n1!
+  assert.deepEqual(
+    routed!.chain!.map((step) => [step.symbol, step.line, step.call_line]),
+    [
+      ['TopicsController#show', 20, 26],
+      ['topics/show.html.erb', 1, 26],
+      ['posts/_post.html.erb', 1, 79],
+      ['PostsHelper#escape_post_message', 4, 6],
+      ['PostsHelper#render_post_message', 10, 23],
+    ],
+  )
+  // The scan names the action a controller; the other is one by its path only.
+  assert.deepEqual([routed!.kind, routed!.exact, routed!.by, routed!.line], ['controller', true, 'scan', 20])
+  assert.deepEqual([byPath!.kind, byPath!.exact, byPath!.by], ['path', false, 'path'])
+  assert.equal(byPath!.chain!.length, byPath!.hops)
+  assert.deepEqual(found.stops, { n1: { hops: 5 } })
+})
+
+test('the path rule can name the kind of an entry point, and the scan\'s words and routes are its label', async () => {
+  const definitions = [
+    anchor('render', 'src/render.js', [1, 9], [site('src/handlers/topics.js', 4)]),
+    anchor('showTopic', 'src/handlers/topics.js', [3, 5], []),
+    anchor('OrdersController#show', 'app/controllers/orders_controller.rb', [2, 6], [], { kind: 'controller', exact: true, routes: [{ verbs: ['GET'], path: '/orders/:id', file: 'config/routes.rb', line: 3 }] }),
+    anchor('reviewHandlers', 'host/src/review/seat.ts', [371, 399], [], { kind: 'handler', exact: true, label: 'review.prepare' }),
+  ]
+  const found = await entriesAbove({
+    starts: [{ id: 'a', callers: [{ path: 'src/render.js', line: 2 }] }, { id: 'b', callers: [{ path: 'app/controllers/orders_controller.rb', line: 4 }] }, { id: 'c', callers: [{ path: 'host/src/review/seat.ts', line: 374, enqueue: true }] }],
+    isEntry: (path) => (path.includes('/handlers/') ? 'handler' : false),
+    scan: scanning(definitions).scan,
+  })
+  assert.deepEqual([found.entries.a![0]!.kind, found.entries.a![0]!.label, found.entries.a![0]!.by], ['handler', 'showTopic', 'path'])
+  assert.deepEqual([found.entries.b![0]!.label, found.entries.b![0]!.route], ['GET /orders/:id', { verbs: ['GET'], path: '/orders/:id' }])
+  assert.deepEqual([found.entries.c![0]!.kind, found.entries.c![0]!.label, found.entries.c![0]!.chain![0]!.enqueues], ['handler', 'review.prepare', true])
+})
+
+test('a way that ends where nothing calls the last definition says which one it is', async () => {
+  const definitions = [anchor('renderPost', 'src/render.js', [1, 9], [site('src/topics.js', 4)]), anchor('showTopic', 'src/topics.js', [3, 5], [])]
+  const found = await entriesAbove({ starts: [{ id: 'n1', callers: [{ path: 'src/render.js', line: 2 }] }], isEntry: () => false, scan: scanning(definitions).scan })
+  assert.deepEqual(found.entries, { n1: [] })
+  assert.deepEqual(found.stops, { n1: { hops: 2, top: 'showTopic' } })
 })
 
 test('a changed definition nothing calls needs no scan', async () => {
   const { scan, asked } = scanning()
-  assert.deepEqual(await entriesAbove({ starts: [{ id: 'n1', callers: [] }], isEntry, scan }), { entries: { n1: [] }, notes: [] })
+  const found = await entriesAbove({ starts: [{ id: 'n1', callers: [] }], isEntry, scan })
+  assert.deepEqual([found.entries, found.notes, found.stops], [{ n1: [] }, [], {}])
   assert.equal(asked.length, 0)
 })
