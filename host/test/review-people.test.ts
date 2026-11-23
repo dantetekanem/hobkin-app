@@ -71,7 +71,7 @@ test('who a pull request is from: its author, or the agent that opened it and th
   assert.deepEqual(await pullPeople({ target: corp, author: null, description: '', agents, find }), { author: null })
 })
 
-test("a review's people come from the author it kept, else from its pull request's host; a finished change names nobody", async (t) => {
+test("a review's people come from the author it kept, else from its pull request's host; a finished change hobkin has no card of names nobody", async (t) => {
   const { readFileSync } = await import('node:fs')
   const { Reviews } = await import('../src/review/reviews.ts')
   const { reviewStore } = await import('../src/review/store.ts')
@@ -98,4 +98,40 @@ test("a review's people come from the author it kept, else from its pull request
   assert.deepEqual(await reviews.people('pr:acme/shop/2'), { author: { name: 'dev' } })
   assert.deepEqual(asked, [{ author: 'helper-bot[bot]', description: 'Requested by ana@example.invalid' }, { author: 'dev', description: '' }])
   assert.equal(await reviews.people('change:hobkin:7d02c9'), null)
+})
+
+test("a finished change's people are its pull request's, asked of its host once; a change with no pull request names nobody", async (t) => {
+  const { Reviews } = await import('../src/review/reviews.ts')
+  const { reviewStore } = await import('../src/review/store.ts')
+  const { pullSource } = await import('../src/review/sources.ts')
+  const asked: string[] = []
+  const openedPull = { user: { login: 'helper-bot[bot]' }, body: 'Requested by ana@example.invalid\r\n' }
+  const gh = async (args: readonly string[]) => {
+    asked.push(args.find((word) => word.startsWith('repos/')) ?? args.join(' '))
+    if (args.includes('repos/acme/shop/pulls/482')) return { kind: 'done' as const, stdout: JSON.stringify(openedPull) }
+    return { kind: 'failed' as const, code: 1, stdout: '', stderr: 'HTTP 404' }
+  }
+  const facts: unknown[] = []
+  const reviews = new Reviews({
+    store: reviewStore(temporaryDirectory(t)),
+    sources: { change: pullSource({ gh }), pull: pullSource({ gh }) },
+    work: () => ({ workAction: async () => ({}) }),
+    card: (_slug, item) => ({ landing: 'mergePr', yes: 'Merge it', branch: null, pr: item === 'opened' ? 'https://github.com/Acme/Shop/pull/482' : null }),
+    gh,
+    peopleOf: async (target, said) => (facts.push({ target, ...said }), { author: said.author ? { name: said.author } : null }),
+  })
+  t.after(() => reviews.close())
+
+  const first = await reviews.people('change:hobkin:opened')
+  const again = await reviews.people('change:hobkin:opened')
+
+  assert.deepEqual(first, { author: { name: 'helper-bot[bot]' } })
+  assert.deepEqual(again, first)
+  assert.deepEqual(facts[0], { target: { kind: 'pull', owner: 'acme', repo: 'shop', number: 482 }, author: 'helper-bot[bot]', description: 'Requested by ana@example.invalid' })
+  assert.deepEqual(asked, ['repos/acme/shop/pulls/482'], 'the code host is asked once for the pull request')
+
+  const local = await reviews.people('change:hobkin:local')
+
+  assert.equal(local, null)
+  assert.deepEqual(asked, ['repos/acme/shop/pulls/482'], 'and never for a change that opened none')
 })

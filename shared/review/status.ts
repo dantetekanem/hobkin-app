@@ -51,6 +51,8 @@ export interface ReviewStatus {
    * merged or closed from here. A review prepared before this was recorded has none, and reads as someone else's.
    */
   owner?: PullOwner
+  /** For a finished change that opened a pull request: that pull request's page, as its card gives the address. */
+  pr?: string
 }
 
 /** A person a pull request names: their name, and their profile when it is known. */
@@ -179,6 +181,8 @@ export interface ReviewListItem {
   mergeAsked?: MergeAsked
   /** For a pull request whose review recorded it: who opened it, and whether it is the user's. */
   owner?: PullOwner
+  /** For a finished change that opened a pull request: that pull request's page, as its card gives the address. */
+  pr?: string
   /**
    * A finished change the background prepares when its turn comes: nothing has started at its commit yet, or what started
    * was cut short and starts again. A host older than this does not send it.

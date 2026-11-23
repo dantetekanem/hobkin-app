@@ -310,6 +310,26 @@ const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
+/** Who wrote a pull request, as its host names them, and the description they gave it. */
+interface PullAuthorship {
+  author: string | null
+  description: string
+}
+
+/** A pull request's author and description, as its host says now. */
+async function pullAuthorship(target: PullTarget, api: HostApi): Promise<PullAuthorship> {
+  const path = `repos/${target.owner}/${target.repo}/pulls/${target.number}`
+  try {
+    const pull = JSON.parse(await api({ path })) as { user?: { login?: string }; body?: string | null }
+    return {
+      author: pull.user?.login ?? null,
+      description: (pull.body ?? '').replace(/\r\n?/g, '\n').trim(),
+    }
+  } catch (error) {
+    throw new Unavailable(messageOf(error))
+  }
+}
+
 /** What a review is about when neither a run nor hobkin nor the home can say: the target's own names. */
 const aboutFromTarget = (target: ReviewTarget) =>
   target.kind === 'change' ? { title: target.item, project: target.slug } : { title: `#${target.number}`, project: `${target.owner}/${target.repo}` }
@@ -405,6 +425,8 @@ export class Reviews {
   private readonly cardAtLook = new Map<string, string | null>()
   /** The commit each review's change was last looked up at, for one this host has no status of: a look makes no status. */
   private readonly lookedHead = new Map<string, string>()
+  /** Who wrote each pull request a finished change opened, by the pull request's review name, once its host has been asked. */
+  private readonly openedPullAuthorship = new Map<string, Promise<PullAuthorship>>()
   /** How many notes hobkin has written, so two in the same millisecond still have their own ids. */
   private written = 0
   /** The reviews someone asked for, by the window or by hobkin, as against what the background prepares by itself. */
@@ -621,7 +643,8 @@ export class Reviews {
     // A branch being brought up to date on the user's word moves as it should: that is no newer change to review.
     const stale = known.state === 'ready' && head != null && !this.options.store.has(target, head) && landing?.state !== 'refreshing'
     const mergeAsked = this.mergeAskedOf(target, landing)
-    return { ...known, head, stale, ...(assessment ? { assessment } : {}), ...(landing ? { landing } : {}), ...(mergeAsked ? { mergeAsked } : {}) }
+    const pr = target.kind === 'change' ? this.pullOfChange(target)?.pr : undefined
+    return { ...known, head, stale, ...(assessment ? { assessment } : {}), ...(landing ? { landing } : {}), ...(mergeAsked ? { mergeAsked } : {}), ...(pr ? { pr } : {}) }
   }
 
   /** The commit a review's change is at: what this host last looked up, until `card` names another commit than it did then. */
@@ -741,6 +764,7 @@ export class Reviews {
         ...(known ? { assessment: forList(known) } : {}),
         ...(status.mergeAsked ? { mergeAsked: status.mergeAsked } : {}),
         ...(status.owner ? { owner: status.owner } : {}),
+        ...(status.pr ? { pr: status.pr } : {}),
         ...(waiting ? { waiting: true as const } : {}),
         updatedAt: new Date(at).toISOString(),
       }
@@ -759,11 +783,20 @@ export class Reviews {
     const pulls = new Set<string>()
     for (const id of ids) {
       const target = targetOfReviewId(id)
-      if (target?.kind !== 'change') continue
-      const pull = targetOfReviewId(this.options.card(target.slug, target.item)?.pr ?? '')
-      if (pull?.kind === 'pull') pulls.add(reviewIdOf(pull))
+      const opened = target?.kind === 'change' ? this.pullOfChange(target) : null
+      if (opened) pulls.add(reviewIdOf(opened.pull))
     }
     return pulls
+  }
+
+  /**
+   * The pull request a finished change opened: its page as the change's card gives the address, and the pull request
+   * that address names. Null when it opened none, or the address is no pull request page this host knows.
+   */
+  private pullOfChange(target: ChangeTarget): { pr: string; pull: PullTarget } | null {
+    const pr = this.options.card(target.slug, target.item)?.pr
+    const pull = pr ? targetOfReviewId(pr) : null
+    return pr && pull?.kind === 'pull' ? { pr, pull } : null
   }
 
   /**
@@ -1127,26 +1160,57 @@ export class Reviews {
   }
 
   /**
-   * Who a prepared review's pull request is from: by the author and description its review kept, or, for a review that
-   * kept no author, as the pull request's host says now. A finished change names nobody.
+   * Who a review's pull request is from. For a prepared pull request review: by the author and description its review
+   * kept, or, for a review that kept no author, as the pull request's host says now. For a finished change: as the host
+   * of the pull request it opened says, asked once for each pull request. A change that opened none names nobody.
    */
   async people(id: string): Promise<ReviewPeople | null> {
     const target = this.target(id)
-    if (target.kind !== 'pull') return null
+    if (target.kind === 'change') return this.peopleOfOpenedPull(target)
+
     const { review, meta } = this.loaded(id)
     let author = meta?.owner?.author ?? null
     let description = review.change.description ?? ''
     const api = author ? null : this.apiFor(target)
     if (api) {
-      try {
-        const pull = JSON.parse(await api({ path: `repos/${target.owner}/${target.repo}/pulls/${target.number}` })) as { user?: { login?: string }; body?: string | null }
-        author = pull.user?.login ?? null
-        description = description || (pull.body ?? '').replace(/\r\n?/g, '\n').trim()
-      } catch (error) {
-        throw new Unavailable(messageOf(error))
-      }
+      const said = await pullAuthorship(target, api)
+      author = said.author
+      description = description || said.description
     }
-    return this.options.peopleOf ? this.options.peopleOf(target, { author, description }) : { author: author ? { name: author } : null }
+    return this.peopleNamedBy(target, { author, description })
+  }
+
+  /** Who the pull request a finished change opened is from. Null when it opened none, or its host cannot be asked from here. */
+  private async peopleOfOpenedPull(change: ChangeTarget): Promise<ReviewPeople | null> {
+    const opened = this.pullOfChange(change)
+    if (!opened) return null
+
+    const api = this.apiFor(opened.pull)
+    if (!api) return null
+
+    const authorship = await this.authorshipOfOpenedPull(opened.pull, api)
+    return this.peopleNamedBy(opened.pull, authorship)
+  }
+
+  /** The people a pull request's authorship names, with their profiles where this host looks people up. */
+  private async peopleNamedBy(target: PullTarget, authorship: PullAuthorship): Promise<ReviewPeople> {
+    if (this.options.peopleOf) return this.options.peopleOf(target, authorship)
+
+    return { author: authorship.author ? { name: authorship.author } : null }
+  }
+
+  /** What the host of a finished change's pull request says of who wrote it. An answer is kept; a failed ask is made again. */
+  private authorshipOfOpenedPull(pull: PullTarget, api: HostApi): Promise<PullAuthorship> {
+    const id = reviewIdOf(pull)
+    const kept = this.openedPullAuthorship.get(id)
+    if (kept) return kept
+
+    const asked = pullAuthorship(pull, api).catch((error: unknown) => {
+      this.openedPullAuthorship.delete(id)
+      throw error
+    })
+    this.openedPullAuthorship.set(id, asked)
+    return asked
   }
 
   /** The code hosts the home names besides GitHub, so a pull request page on one opens as its review. None without a code host file. */

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { codeHostOf, learnCodeHosts, pullUrl, reviewFolder, reviewIdOf, targetOfReviewFolder, targetOfReviewId } from '../review/ids.ts'
+import { codeHostOf, learnCodeHosts, pullOfReview, pullUrl, reviewFolder, reviewIdOf, targetOfReviewFolder, targetOfReviewId } from '../review/ids.ts'
 
 test('a pull request on a named code host carries its host in its id, its folder and its page; one on GitHub keeps the names it always had', () => {
   learnCodeHosts([{ name: 'corp', web: 'https://git.example.invalid' }])
@@ -27,4 +27,14 @@ test('a pull request on a named code host carries its host in its id, its folder
   assert.deepEqual(targetOfReviewId('pr:corp:acme/shop/482'), { kind: 'pull', host: 'corp', owner: 'acme', repo: 'shop', number: 482 })
   assert.equal(pullUrl({ kind: 'pull', host: 'corp', owner: 'acme', repo: 'shop', number: 482 }), null)
   assert.equal(targetOfReviewId('https://git.example.invalid/acme/shop/pull/482'), null)
+})
+
+test("a review's pull request is the one it is of, or the one its finished change opened", () => {
+  const pull = { kind: 'pull', owner: 'acme', repo: 'shop', number: 482 } as const
+  assert.deepEqual(pullOfReview('pr:acme/shop/482'), pull)
+  assert.deepEqual(pullOfReview('change:shop:7d02c9', 'https://github.com/Acme/Shop/pull/482'), pull, 'however the address spells the repository')
+  assert.equal(pullOfReview('change:shop:7d02c9'), null, 'a change that opened none has none')
+  assert.equal(pullOfReview('change:shop:7d02c9', null), null)
+  assert.equal(pullOfReview('change:shop:7d02c9', 'https://elsewhere.invalid/acme/shop/pull/1'), null, 'a page on a host nobody named is no pull request here')
+  assert.equal(pullOfReview('change:shop:7d02c9', 'change:shop:another'), null, 'another change is no pull request')
 })

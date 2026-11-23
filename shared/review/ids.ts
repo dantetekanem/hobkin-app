@@ -90,3 +90,14 @@ export function pullUrl(target: Extract<ReviewTarget, { kind: 'pull' }>): string
   const web = target.host ? codeHostOf(target.host)?.web : 'https://github.com'
   return web ? `${web}/${target.owner}/${target.repo}/pull/${target.number}` : null
 }
+
+/**
+ * The pull request a review has: the one it is of, or the one its finished change opened, by the address its card
+ * gives. Null for a change that opened none, and for an address that is no pull request page this side knows.
+ */
+export function pullOfReview(id: string, pr?: string | null): Extract<ReviewTarget, { kind: 'pull' }> | null {
+  const target = targetOfReviewId(id)
+  if (target?.kind === 'pull') return target
+  const opened = pr ? targetOfReviewId(pr) : null
+  return opened?.kind === 'pull' ? opened : null
+}

@@ -906,7 +906,7 @@ export const COMMANDS = {
     hobkin: true,
   },
   'review.people': {
-    description: 'Who a prepared review’s pull request is from: its author, and who it is for when an agent opened it because they asked, each with a link to their profile when one is known. Null for a finished change.',
+    description: 'Who a prepared review’s pull request is from: its author, and who it is for when an agent opened it because they asked, each with a link to their profile when one is known. A finished change answers for the pull request it opened, and with null when it opened none.',
     runs: 'host',
     args: Type.Object({ id: reviewId }, { additionalProperties: false }),
   },
