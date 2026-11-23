@@ -1,6 +1,7 @@
 import type { ActivityEntry } from './activity.ts'
 import type { ExecutionTarget } from '../commands/registry.ts'
 import type { HobkinSummary } from './hobkins.ts'
+import type { RunPulse } from './pulse.ts'
 import type { TeamsAgents } from './teams.ts'
 
 /**
@@ -212,6 +213,8 @@ export interface WireSnapshot {
    * A11). The window puts each id back once. Missing when there is none, and on an older hobkin.
    */
   unread?: readonly { id: string; text: string }[]
+  /** Each working run's pulse by its run id, and the main turn's under `#main` (054-working-line). Missing while nothing works, and on an older hobkin. */
+  pulses?: Readonly<Record<string, RunPulse>>
   /** Each run's spawned agents, by run id, only for runs that spawned any. It travels whole, and the host keeps ended runs. */
   jobChildren?: Record<string, readonly RunChild[]>
   /** Main chat's bounded descendants. Owned lifecycle states are independent of legacy teams reports. */
