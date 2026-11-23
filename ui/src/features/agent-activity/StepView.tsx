@@ -3,6 +3,7 @@ import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, 
 import { createContext, Fragment, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { holdStill, useStill } from '@/app/still.ts'
+import { FilePath } from '@/components/FilePath.tsx'
 import { GrowingMarkdown, risen, sunk } from '@/features/chat/markdown.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { diffOf, startView, unifiedRows, type Diff, type FileSides } from '@/features/review/code/diff-rows.ts'
@@ -483,7 +484,7 @@ function ChangeBlock({ change }: { change: Change }) {
     <div ref={box} className="flex min-w-0 flex-col gap-1.5">
       <FoldRow icon={FilePenLine} open={shown} onToggle={parts.length ? block.toggle : undefined} failed={change.state === 'failed'}>
         <span className="shrink-0 font-medium">{change.state === 'running' ? (change.whole !== null ? 'Writing' : 'Editing') : change.state === 'failed' ? 'Could not change' : verb}</span>
-        <code className="truncate font-mono text-[12px]">{change.path}</code>
+        <FilePath path={change.path} className="font-mono text-[12px]" />
         {additions || deletions ? (
           <span className="shrink-0 font-mono text-[11px] tabular-nums">
             <span className="text-ok-fg">+{additions}</span> <span className="text-bad-fg">−{deletions}</span>
@@ -532,6 +533,9 @@ const LOOK_WORDS: Record<LookKind, [running: string, done: string, failed: strin
   fetch: ['Fetching', 'Fetched', 'Could not fetch'],
 }
 
+/** A read or a listing is about a path, which is cut from its front. A search's pattern and a fetch's address are cut at their end. */
+const aboutPath = (kind: LookKind) => kind === 'read' || kind === 'list'
+
 /** One read or search, named by what it was about. */
 function LookLine({ look }: { look: Look }) {
   const [running, done, failed] = LOOK_WORDS[look.kind]
@@ -540,7 +544,7 @@ function LookLine({ look }: { look: Look }) {
     <span className="flex min-w-0 flex-col">
       <span className="flex min-w-0 items-baseline gap-1.5">
         <span className={cn('shrink-0', look.state === 'failed' && 'text-bad-fg')}>{words}</span>
-        <code className="truncate font-mono text-[12px]">{look.what}</code>
+        {aboutPath(look.kind) ? <FilePath path={look.what} className="font-mono text-[12px]" /> : <code className="truncate font-mono text-[12px]">{look.what}</code>}
         {look.where ? <span className="shrink-0 text-[12px] text-muted-foreground">{look.where}</span> : null}
         {look.state === 'running' ? <span className="aa-running size-1.5 shrink-0 self-center rounded-full bg-current opacity-70" aria-hidden="true" /> : null}
       </span>
@@ -615,7 +619,16 @@ function Looks({ looks }: { looks: Look[] }) {
       <FoldRow icon={LOOK_ICON[latest.kind]} open={open} onToggle={toggle}>
         <span className="shrink-0 font-medium">{looksSummary(looks)}</span>
         {failed ? <span className="shrink-0 text-[12px] text-bad-fg">{failed === 1 ? '1 failed' : `${failed} failed`}</span> : null}
-        {latest.state === 'running' ? <span className="truncate text-[12px] text-muted-foreground">{LOOK_WORDS[latest.kind][0]} {latest.what}</span> : null}
+        {latest.state !== 'running' ? null : aboutPath(latest.kind) ? (
+          <span className="flex min-w-0 items-baseline text-[12px] text-muted-foreground">
+            <span className="shrink-0 whitespace-pre">{LOOK_WORDS[latest.kind][0]} </span>
+            <FilePath path={latest.what} />
+          </span>
+        ) : (
+          <span className="truncate text-[12px] text-muted-foreground">
+            {LOOK_WORDS[latest.kind][0]} {latest.what}
+          </span>
+        )}
       </FoldRow>
       {open ? (
         <Opened>
