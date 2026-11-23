@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { AgentHood } from '@/components/Mark.tsx'
-import { CRAB_SPAN, Crab } from './Crab.tsx'
+import { CRAB_SPAN, Crab, type CrabProps } from './Crab.tsx'
 import { SMALL_FACE_PX } from './face-motion.ts'
 import type { Mood } from './moods.tsx'
 import { palsState, restedLong, SLEEP_AFTER_MS } from './pals.ts'
@@ -29,8 +29,8 @@ export interface PalsProps {
 /** The crab's share of the pair, in the art's units: from its left claw, with room for its lean, to its right. */
 const CRAB_WIDTH = CRAB_SPAN.right - CRAB_SPAN.left
 
-/** The pair's width for a face of this size: the face's box and the crab's beside it. A row that holds a pair keeps this room. */
-export function palsWidth(size: number): number {
+/** The pair's width for a face of this size: the face's box and the crab's beside it. */
+function palsWidth(size: number): number {
   return size + (CRAB_WIDTH * size) / MARK_BOX.size
 }
 
@@ -42,10 +42,8 @@ export function palsWidth(size: number): number {
  * bump.
  */
 export function Pals({ hue, size, mood, asking = false, working = true, endedWell = false, restingSince, still = false, className }: PalsProps) {
-  const unit = size / MARK_BOX.size
-  const artSize = ART_BOX.size * unit
   // A crab drawn smaller than a face moves as a whole, so it holds still, as a small row's figure.
-  const held = still || artSize < SMALL_FACE_PX
+  const held = still || (ART_BOX.size * size) / MARK_BOX.size < SMALL_FACE_PX
   const asleep = useRestedLong(working ? undefined : restingSince)
   const state = palsState({ mood, asking, working, endedWell, restedLong: asleep })
   const greet = useGreeting(working && !endedWell)
@@ -60,10 +58,37 @@ export function Pals({ hue, size, mood, asking = false, working = true, endedWel
       <span key={greet} className="pals-face" style={{ width: size, height: size }}>
         <AgentHood hue={hue} size={size} mood={state.face} asking={asking} working={working && !endedWell} />
       </span>
-      <span className="pals-crab" style={{ width: CRAB_WIDTH * unit, height: size }}>
-        <span className="pals-crab-art" style={{ left: -(CRAB_SPAN.left - ART_BOX.min) * unit, top: -(MARK_BOX.y - ART_BOX.min) * unit } as CSSProperties}>
-          <Crab mood={state.crab} size={artSize} still={held} resting={!state.moving} greet={greet} />
-        </span>
+      <CrabBeside size={size} mood={state.crab} still={held} resting={!state.moving} greet={greet} />
+    </span>
+  )
+}
+
+export interface PalCrabProps {
+  /** Size of the face box it stands beside, in CSS pixels. */
+  size: number
+  mood: Mood
+  asking?: boolean
+  working?: boolean
+  className?: string
+}
+
+/**
+ * The crab alone, held still in its pose, as it stands beside a face of `size` in the pair: for a small row that keeps
+ * the face in a slot of its own. Its box is fixed by `size`.
+ */
+export function PalCrab({ size, mood, asking = false, working = true, className }: PalCrabProps) {
+  const { crab } = palsState({ mood, asking, working })
+  return <CrabBeside size={size} mood={crab} still resting className={className} title="on Claude Code" />
+}
+
+/** The crab's box beside a face of `size`: its art square set back so it stands on the face's ground, at the face's scale. */
+function CrabBeside({ size, className, ...crab }: { size: number; className?: string } & Pick<CrabProps, 'mood' | 'still' | 'resting' | 'greet' | 'title'>) {
+  const unit = size / MARK_BOX.size
+  const art = { left: -(CRAB_SPAN.left - ART_BOX.min) * unit, top: -(MARK_BOX.y - ART_BOX.min) * unit } as CSSProperties
+  return (
+    <span className={['pals-crab', className].filter(Boolean).join(' ')} style={{ width: CRAB_WIDTH * unit, height: size }}>
+      <span className="pals-crab-art" style={art}>
+        <Crab {...crab} size={ART_BOX.size * unit} />
       </span>
     </span>
   )

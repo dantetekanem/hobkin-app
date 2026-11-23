@@ -1,6 +1,7 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { Hob } from '@/avatar/Hob.tsx'
+import { PalCrab } from '@/avatar/Pals.tsx'
 import { usePetChoice } from '@/avatar/use-pet.ts'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -316,6 +317,8 @@ const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, li
           <AgentHood hue={agent.hue} size={agent.durable ? 22 : 24} mood={agent.mood} asking={Boolean(asks)} working={!waits} />
         </span>
       </span>
+      {/* On Claude Code the crab pal stands still beside the face, drawn up close. A row on Pi keeps its layout. */}
+      {agent.onClaudeCode ? <PalCrab className="-ml-2" size={agent.durable ? 22 : 24} mood={agent.mood} asking={Boolean(asks)} working={!waits} /> : null}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-[13px] leading-tight">{agent.title}</span>
         <AgentWords agent={agent} />
