@@ -154,6 +154,38 @@ describe('reviewRequest', () => {
   })
 })
 
+describe('reviewRequest, spec 055', () => {
+  const step = (index: number) => ({ symbol: `step${index}`, path: PATH, line: index + 1 })
+  const origin = (label: string) => ({ kind: 'controller', label, exact: true, by: 'scan' as const, symbol: 'CheckoutController#create', hops: 8, chain: Array.from({ length: 8 }, (_, index) => step(index)) })
+  const tests = Array.from({ length: 10 }, (_, index) => ({ path: `test/t${index}_test.rb`, relation: index < 2 ? ('removed' as const) : ('before' as const), found: 'scan' as const, lifecycle: index === 2, at_head: 'passed' as const, why: 'the scan links it' }))
+  const told = nodes.map((node) =>
+    node.id === 'n5' ? { ...node, zone: '-/service/checkout/totals_calculator', runs_from: { found: 'origins' as const, origins: ['POST /checkout', 'a', 'b', 'c'].map(origin), more: 1 }, tests } : node,
+  )
+  const zones = [{ id: '-/service/checkout/totals_calculator', layer: 'service', subject: 'checkout/totals_calculator', label: 'Services · Checkout totals calculator' }]
+
+  it('sends where each node runs from, the tests that cover it and its zone, each kept short', () => {
+    const request = reviewRequest({ triage, nodes: told, units, code, zones })
+    const { data } = sent(request.prompt)
+    const n5 = data.nodes.find((node) => node.id === 'n5') as SentNode & { zone: string; runs_from: { origins: { label: string; chain: string[] }[]; more: number }; tests: { path: string; relation: string }[] }
+    assert.equal(n5.zone, '-/service/checkout/totals_calculator')
+    assert.deepEqual((data as Sent & { zones: unknown }).zones, [{ id: '-/service/checkout/totals_calculator', label: 'Services · Checkout totals calculator' }])
+    assert.deepEqual(n5.runs_from.origins.map((entry) => entry.label), ['POST /checkout', 'a', 'b'])
+    assert.equal(n5.runs_from.more, 2, 'the one left out is counted with the others found')
+    assert.deepEqual(n5.runs_from.origins[0]!.chain, ['step0', 'step1', 'step2', 'step3', 'step4', 'step5'])
+    assert.deepEqual(n5.tests.map((entry) => [entry.path, entry.relation]), tests.slice(2).map((entry) => [entry.path, 'before']))
+    assert.deepEqual(n5.tests[0], { path: 'test/t2_test.rb', relation: 'before', lifecycle: true, at_head: 'passed' })
+    assert.deepEqual(request.cut, ['where n5 runs from: 4 ways in, the nearest 3 sent, each with its first 6 steps', 'tests of n5: 10, the first 8 sent, the older first'])
+  })
+
+  it('trims where a node runs from and its tests before it trims any code', () => {
+    const full = reviewRequest({ triage, nodes: told, units, code, zones }).prompt.length
+    const tight = reviewRequest({ triage, nodes: told, units, code, zones, limit: full - 1 })
+    assert.deepEqual(tight.cut.slice(2), ['tests and where n5 runs from left out to fit the size limit'])
+    const n5 = sent(tight.prompt).data.nodes.find((node) => node.id === 'n5') as SentNode & { runs_from?: unknown; tests?: unknown }
+    assert.deepEqual([n5.runs_from, n5.tests, n5.code], [undefined, undefined, code.n5])
+  })
+})
+
 describe('readReviewAnswer', () => {
   it('finds the answer in a code fence or among stray text', () => {
     const body = { events: [raise], words: { title: 'Per-line tax rounding behind a flag' }, claims: [] }

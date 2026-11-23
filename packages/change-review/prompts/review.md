@@ -29,9 +29,13 @@ The message is one line saying the rest is data, then one JSON object:
   - `conditions`, `hosts_condition`: condition checks in or in front of the node, the changed lines each one dominates and on which branch, and whether this node holds a check the diff added. A check runs for everyone: its arguments are evaluated on every call.
   - `runs`: the test runs, one line each. `baseline` runs the tests at head. `revert` puts this node's changed lines back to base: when it passes, no test notices the change. `probe` makes the node fail: when it passes, no test executes it. `reach` makes a changed node fail for the life cycle tests that passed with and without its change: one that fails then runs through the node, and one that passes never gets to it.
   - `entries`: entry points above the node. `callers`: how many were found, and whether that list is complete. `sensitive`: money, auth or tenant words in its name or path.
+  - `runs_from`: where it is run from. `origins`: the nearest places work enters that reach it (a route, a controller action, a job, a command, a handler), each with its `kind`, `label`, whether the scan is sure of it (`exact`) and its `chain`, the definitions from the origin down to the node's direct caller. `only-tests`: only tests call it. `none`: the scan found no origin within `hops` calls; `stopped` says the search was cut short, `top` where a way ended. `not-looked`: no caller was looked for, as for a constant or removed code.
+  - `tests`: the tests that cover it, the older first: `relation` (`before`, there before the change and unchanged; `added`, `edited` or `removed` by it), `lifecycle`, `at_head` (how it did at this commit), `shows` (`proves`: fails without the change; `reaches`: runs through it; `still-passes`: passes with the change put back; `mocks`), and `assertions_removed` for an edited test that asserts less.
+  - `zone`: the id of its zone in `zones`.
   - `findings`, `questions`: what earlier steps found or asked. Do not repeat them.
   - `unverified`: the map could not be checked for this node. It is at least `mid`, and that alone is no reason for `high`.
   - `code`: its changed lines (`+` added, `-` removed, a space for context), at most 40 lines.
+- `zones`: the parts of the code the nodes are in, each a layer and a subject with its `id` and `label`, such as "Controllers · Orders".
 - `units`: what the reviewer decides on, in the order the story walks them: each with its node ids, grouping, level, and the template `title`, `where` and `what` you may replace.
 - `context`: unchanged definitions the search found next to the change, each with its `symbol`, `path` and `lines` at head. You may add one to the map as context.
 - `model_checks`: TLC checks hobkin ran itself, at this commit, of the TLA+ models the change adds, edits or touches a file of: the `spec`, the `run`, the `result` (`holds`, `violated` or `error`), the distinct `states`, each rule and whether it `held`, the actions that never fired (`unfired`), and the changed files the spec names in `\* models:` (`models`).
@@ -52,6 +56,12 @@ These are not reasons for a level, and never go in `evidence` as one:
 - The size of the change, or how central the code is.
 
 The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a break that search or a test run found. Rule 3 is an effect nothing undoes. Rule 4 is data or an interface changed for everyone. Rule 5 is a change no test that ran shows; rule 6 is one shown only by tests that call it directly: both are `mid`. Rule 9 is a change of behaviour that tests show through a request: `safe`. Rule 10 is a change behind a condition that is off, run by a test with the condition on, with the off path proven by an unchanged test.
+
+## Where it runs from, and what tests it
+
+- `none` and `only-tests` say what the search saw. The scan misses some ways in (a handler held under a string key, a route built at run time), so never write that no route or caller exists: write that the scan found none within so many calls.
+- A node to assess with an origin and no test through it (no `lifecycle` test that `proves` or `reaches` it) is a finding: send one event at its current level whose evidence names the origin and says no test goes through it, with a `suggest` of the test that would.
+- A `removed` test of changed code, or an `edited` one with `assertions_removed`, is a finding: send one event at the node's current level that names the test and what it checked, and ask whether the change meant to drop it.
 
 ## TLA+ model checks
 
@@ -119,6 +129,7 @@ Rules grouped the nodes into units by structure. You may reshape that map with o
 - `{ "op": "order", "unit", "nodes" }`: the order of the parts inside a unit. The first part at the unit's level is the one the unit's facts and reasons come from.
 - `{ "op": "order", "units" }`: the order the story walks the units. List every unit; the ones you leave out follow.
 - `{ "op": "add", "id", "path", "lines": [first, last], "side", "symbol", "unit", "title", "what", "why" }`: add a part. Point at lines of a file of the change, or at an entry of `context`, at head (`"side": "head"`, the default) or, for removed code, at base. Its lines must not fall inside a part already mapped, and it spans at most 200 lines. Lines the change touched become a part the map missed: no test was looked for, so it is `mid`. Unchanged lines become context, shown beside the change: `safe`. `why` says why it belongs (required). `unit` puts it in a unit. You may send events for it by its `id`.
+- `{ "op": "zone", "zone", "name" }`: a plainer name for a zone of `zones` (at most 60 characters) when its label does not say what the code is about, such as "Checkout pricing" for "Services · Totals calculator". It moves no part and changes no level.
 - `{ "op": "remove", "node", "why" }`: take a part out of the map: it leaves the units and the story and stays in the saved graph with your `why`. Only a `safe` part that nothing can hide behind comes out: never one that is `mid` or `high`, that a test fails with or whose tests could not run, that holds a condition check, that carries a question, or that a claim names.
 
 The map's rules hold whatever you send:

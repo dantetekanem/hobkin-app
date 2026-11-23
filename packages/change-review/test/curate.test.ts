@@ -448,6 +448,34 @@ test('a unit says where it is reached from and what changed in short, plain sent
   assert.deepEqual([unitOf('count').where, unitOf('count').what], ['No route, job or command was found that leads to it.', 'Adds `count`, 2 lines.'])
 })
 
+test('where a unit is reached from says what was looked at: the origin and its way, only tests, none within so many calls, or not looked for', () => {
+  const step = (symbol: string) => ({ symbol, path: `app/${symbol}.rb`, line: 1 })
+  const origin = { kind: 'controller', label: 'GET /topics/:id', exact: true, by: 'scan' as const, symbol: 'TopicsController#show', hops: 3, chain: [step('TopicsController#show'), step('render_post'), step('escape')] }
+  const cases: [ReviewNode['runs_from'], string][] = [
+    [{ found: 'origins', origins: [origin], more: 2 }, 'Reached from GET /topics/:id (TopicsController#show) and 2 more, through render_post and escape.'],
+    [{ found: 'origins', origins: [{ ...origin, label: 'showTopic', symbol: 'showTopic', hops: 2, chain: [step('showTopic'), step('renderPost')] }] }, 'Reached from showTopic, through renderPost.'],
+    [{ found: 'only-tests', tests: 3 }, 'Only tests call it.'],
+    [{ found: 'none', hops: 0, why: 'The scan found nothing that calls it.' }, 'The scan found nothing that calls it.'],
+    [{ found: 'none', hops: 4, top: 'Helper#x', why: '' }, 'The scan found no route, job or command within 4 calls of it: the way out stops at Helper#x.'],
+    [{ found: 'none', hops: 6, stopped: 'limit', why: '' }, 'The scan found no route, job or command within 6 calls of it, and the search stopped there.'],
+    [{ found: 'not-looked', why: 'It is removed, so nothing is left to call.' }, 'It is removed, so nothing is left to call.'],
+  ]
+  for (const [runsFrom, where] of cases) {
+    const part = node('part', { entries: [], runs_from: runsFrom, ...withLevel('mid') })
+    assert.equal(curate({ graph: graph([part]), triage: triageFor([part]), diffs: [] }).units[0]!.where, where)
+  }
+})
+
+test('runs_from, tests and zone change a unit only in where it is reached from: a graph without them reads as it did', () => {
+  const plain = [node('a', { entries: [], ...withLevel('mid') }), node('b', { ...withLevel('high') })]
+  const told = plain.map((part) => ({ ...part, runs_from: { found: 'none' as const, hops: 2, why: '' }, tests: [{ path: 'test/a_test.rb', relation: 'before' as const, found: 'scan' as const, lifecycle: false }], zone: '-/model/a' }))
+  const before = curate({ graph: graph(plain), triage: triageFor(plain), diffs: [] })
+  const after = curate({ graph: { ...graph(told), zones: [{ id: '-/model/a', layer: 'model', subject: 'a', label: 'Models · A' }] }, triage: triageFor(told), diffs: [] })
+  const without = (units: typeof before.units) => units.map(({ where: _where, ...rest }) => rest)
+  assert.deepEqual(without(after.units), without(before.units))
+  assert.deepEqual(before.units.map((unit) => unit.where), ['Reached from Ctl#a.', 'No route, job or command was found that leads to it.'])
+})
+
 test('a title says what is known about whether the change works, and never that code changes behaviour: that is what a change is', () => {
   const titled = (proof: 'isolated' | 'lifecycle' | 'lifecycle-observed', exposure: 'everyone' | 'nobody-yet' = 'everyone') => {
     const a = node('link_user_tags', withLevel('mid', { facts: { ...node('x').facts, proof: { value: proof, evidence: '' }, exposure: { value: exposure, evidence: '' } } }))

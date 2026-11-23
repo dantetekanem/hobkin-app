@@ -543,13 +543,13 @@ export interface Origin {
 
 /**
  * Where a changed part is run from, said truthfully (spec 055). `origins`: the nearest places work enters that reach
- * it, at most 3. `only-tests`: something calls it and every caller is a test. `none`: no origin was found within `hops`
+ * it, at most 3, with how many `more` were found and what `cut` the search short. `only-tests`: something calls it and every caller is a test. `none`: no origin was found within `hops`
  * calls; `stopped` says when the search stopped short, `top` where a way ended with nothing calling it. The scan's
  * "complete" is not proof that none exists, so none is never said to exist. `not-looked`: no caller was looked for, as
  * for a constant, removed code or code read from the diff.
  */
 export type RunsFrom =
-  | { found: 'origins'; origins: Origin[]; cut?: string }
+  | { found: 'origins'; origins: Origin[]; more?: number; cut?: string }
   | { found: 'only-tests'; tests: number }
   | { found: 'none'; hops: number; stopped?: 'limit' | 'time' | 'failed'; top?: string; why: string }
   | { found: 'not-looked'; why: string }

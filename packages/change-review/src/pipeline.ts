@@ -789,7 +789,8 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       .filter((entry) => !mappedIds.has(entry.id) && entry.kind !== 'test' && !testFiles.has(entry.path))
       .sort((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine)
       .map((entry) => ({ symbol: entry.symbol, path: entry.path, lines: [entry.startLine, entry.endLine] }))
-    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code, context, modelChecks })
+    const zones = graphOf(applied.nodes).zones
+    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code, context, modelChecks, ...(zones?.length ? { zones } : {}) })
     problems.push(...request.cut.map((cut) => `Left out of what the Reviewer read: ${cut}`))
     const asked = await attempt(() => model({ pass: 'review', system: request.system, prompt: request.prompt, signal }))
     // A call the signal stopped is the review stopping, not the model failing.
@@ -830,8 +831,10 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
           added: new Set(added.nodes.map((node) => node.id)),
           claims: triage.claims,
           alone: standsAloneIn({ graph: graphOf(applied.nodes), triage, scannedFiles: [...mapped] }),
+          ...(zones?.length ? { zones } : {}),
         })
         problems.push(...reshaped.problems.map(said))
+        for (const [zone, name] of Object.entries(reshaped.zones)) zoneNames.set(zone, name)
         applied = { ...applied, nodes: reshaped.nodes }
         const next = shape(applied.nodes, reshaped.layout)
         words = carryWords({ ...told, units: { ...reshaped.words, ...told.units } }, reshaped.groups, next.units)

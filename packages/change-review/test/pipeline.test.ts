@@ -8,7 +8,8 @@ import type { EntriesSearch } from '../src/entries.ts'
 import type { ProofRequest, ProofResult, Runbook } from '../src/proof.ts'
 import { reviewChange } from '../src/pipeline.ts'
 import type { ScanOutcome } from '../src/scan.ts'
-import type { Level, ModelCheck, ModelRunner, Progress, Scan, ScanAnchor, Units } from '../src/types.ts'
+import { applyRiskEvents } from '../src/risk.ts'
+import type { Level, ModelCheck, ModelRunner, Progress, ReviewNode, Scan, ScanAnchor, Units } from '../src/types.ts'
 
 /** A git repository whose base commit holds `before` and whose head commit holds `after` on top of it. */
 function repoOf(t: TestContext, before: Record<string, string>, after: Record<string, string>) {
@@ -724,12 +725,22 @@ test('a helper its direct tests prove, with an older request test running throug
       ['safe', '`linkUserTags`: a test goes through a request to it'],
     ],
   )
-  assert.equal(result.units.units[1]!.where, 'Reached from showTopic.')
+  assert.equal(result.units.units[1]!.where, 'Reached from showTopic, through renderPost.')
   assert.equal(result.units.attention.files_skipped, 1, 'the README is counted, not read')
   assert.match(result.story, /\*\*Proof:\*\* .*A life cycle test executes unit 2\. No test shows unit 1\./)
   assert.ok(result.progress.steps.every((step) => step.status === 'done' || step.status === 'skipped'))
   assert.equal(git('status', '--porcelain'), '')
   assert.equal(kindOf?.('src/handlers/topics.js'), 'handler', 'the walk is told which path rule names an entry')
+})
+
+test('where a part runs from, its tests and its zone set no level: the same parts without them rate the same', async (t) => {
+  const { repo, base, head, out } = mentionsProject(t)
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove: mentionsEntries, entryTests: mentionsEntryTests })
+  const saved = JSON.parse(readFileSync(join(out, 'graph.json'), 'utf8')) as { nodes: ReviewNode[] }
+  assert.ok(saved.nodes.some((node) => node.runs_from && node.tests && node.zone))
+  const without = saved.nodes.map(({ runs_from: _from, tests: _tests, zone: _zone, ...node }) => ({ ...node, level: null }))
+  const levels = (nodes: readonly ReviewNode[]) => nodes.map((node) => [node.id, node.level?.current, node.level?.rule])
+  assert.deepEqual(levels(applyRiskEvents(without, []).nodes), levels(result.graph.nodes))
 })
 
 test('with no request test above it, the same helper is mid by rule 6 and says what no test does', async (t) => {
@@ -810,6 +821,24 @@ test('the Reviewer reorganizes the map in its one answer: a part renamed, two un
   assert.doesNotMatch(result.story, /Money/, 'the part taken out is not in the story')
   const words = JSON.parse(readFileSync(join(out, 'story-words.json'), 'utf8'))
   assert.equal(words.units[result.units.units[0]!.id].title, 'The total and its precision change together')
+})
+
+test('the Reviewer reads each part\'s zone, and a zone it renames keeps its parts and their levels', async (t) => {
+  const { repo, base, head, out } = project(t)
+  let prompt = ''
+  const model: ModelRunner = async ({ pass, prompt: sent }) => {
+    if (pass !== 'review') return 'nothing'
+    prompt = sent
+    return JSON.stringify({ events: [], claims: [], map: [{ op: 'zone', zone: '-/src/total', name: 'Money sums' }] })
+  }
+  const plain = await reviewChange({ cwd: repo, base, head, out: `${out}-plain`, clock: steadyClock(), scan: scanning(scanOf()) })
+  const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), scan: scanning(scanOf()) })
+  const data = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1)) as { zones: { id: string }[]; nodes: { id: string; zone?: string }[] }
+  assert.ok(data.zones.some((zone) => zone.id === '-/src/total'))
+  assert.equal(data.nodes.find((node) => node.id === 'n1')?.zone, '-/src/total')
+  assert.deepEqual(result.graph.zones?.find((zone) => zone.id === '-/src/total'), { id: '-/src/total', layer: 'src', subject: 'total', label: 'Source · total', told: 'Money sums' })
+  assert.deepEqual(levelsOf(result.units), levelsOf(plain.units))
+  assert.deepEqual(result.units.units.map((unit) => unit.nodes), plain.units.units.map((unit) => unit.nodes))
 })
 
 test('an answer with an empty map gives the same review as one with none', async (t) => {

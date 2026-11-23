@@ -5,8 +5,8 @@
  */
 import { lineKinds } from './comments.ts'
 import type {
-  Bucket, CodeShown, Effect, Exposure, Fact, Facts, FileDiff, Graph, GraphEdge, Hunk, Level, Proof, Question,
-  ReviewNode, Triage, Undo, Unit, Units, Watch,
+  Bucket, CodeShown, Effect, Exposure, Fact, Facts, FileDiff, Graph, GraphEdge, Hunk, Level, Origin, Proof, Question,
+  ReviewNode, RunsFrom, Triage, Undo, Unit, Units, Watch,
 } from './types.ts'
 
 // ───────────────────────── Checking the map ─────────────────────────
@@ -281,9 +281,43 @@ function titleOf(node: ReviewNode): string {
 /** "a", "a and b", "a, b and c". */
 const listed = (items: readonly string[]) => (items.length < 2 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`)
 
+const calls = (count: number) => `${count} call${count === 1 ? '' : 's'}`
+
+/** An origin as the words of a unit say it: its label, with its definition's name when the label is a route or a key. */
+const originSaid = (origin: Origin) => (origin.label === origin.symbol ? origin.label : `${origin.label} (${origin.symbol})`)
+
+/**
+ * Where a part runs from, in one sentence, saying only what was looked at: the nearest origin and the way from it,
+ * that only tests call it, that the scan found none within so many calls (never that none exists: the scan's
+ * "complete" is not proof), or that nothing was looked for.
+ */
+function whereFrom(runsFrom: RunsFrom, node: ReviewNode, onPath: boolean): string {
+  const others = onPath ? 'Other changed code calls it. ' : ''
+  switch (runsFrom.found) {
+    case 'origins': {
+      const names = [...new Set(runsFrom.origins.map(originSaid))]
+      const more = runsFrom.more ? ` and ${runsFrom.more} more` : ''
+      const between = runsFrom.origins[0]!.chain.slice(1).map((step) => step.symbol)
+      const through = between.length ? `, through ${listed(between.length > 3 ? [...between.slice(0, 2), `${between.length - 2} more`] : between)}` : ''
+      return `Reached from ${listed(names)}${more}${through}.`
+    }
+    case 'only-tests':
+      return 'Only tests call it.'
+    case 'none': {
+      if (runsFrom.hops === 0) return 'The scan found nothing that calls it.'
+      const tail = runsFrom.stopped ? ', and the search stopped there' : runsFrom.top ? `: the way out stops at ${runsFrom.top}` : ''
+      return `${others}The scan found no route, job or command within ${calls(runsFrom.hops)} of it${tail}.`
+    }
+    case 'not-looked':
+      return node.facts?.effect?.value === 'load' || node.facts?.exposure?.value === 'at-load' ? 'Takes effect when the file loads.' : runsFrom.why
+  }
+}
+
 /** Where a unit sits on the way a request takes, in one short sentence: what reaches it, or that nothing named does. */
 function whereOf(node: ReviewNode, onPath: boolean): string {
   const condition = node.hosts_condition ? ' It holds a new check that runs for everyone.' : ''
+  // A graph written before spec 055 has no runs_from, and reads as it did.
+  if (node.runs_from) return `${whereFrom(node.runs_from, node, onPath)}${condition}`
   // An entry point once, by its name: the kind it is in brackets is data, not words.
   const entries = [...new Set(node.entries.map((entry) => entry.replace(/ \([\w -]+\)$/, '')))]
   if (entries.length) return `Reached from ${listed(entries.slice(0, 3))}${entries.length > 3 ? ` and ${entries.length - 3} more` : ''}.${condition}`

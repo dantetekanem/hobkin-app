@@ -18,6 +18,8 @@ export type MapOp =
   | { op: 'order'; units: string[] }
   | { op: 'add'; id: string; path: string; lines: [number, number]; side: 'head' | 'base'; symbol?: string; unit?: string; title?: string; what?: string; why: string }
   | { op: 'remove'; node: string; why: string }
+  /** A plainer name for a zone of the graph (spec 055): words only, so no part moves and no level changes. */
+  | { op: 'zone'; zone: string; name: string }
 
 /** The most lines one added part may span: a definition, never a whole file. */
 export const MOST_ADDED_LINES = 200
@@ -39,6 +41,8 @@ function named(op: MapOp): string {
       return `adding ${op.id}`
     case 'remove':
       return `removing ${op.node}`
+    case 'zone':
+      return `naming zone ${op.zone}`
   }
 }
 
@@ -202,6 +206,8 @@ export interface ReshapeInput {
   claims: readonly Claim[]
   /** Nodes that are always a unit of their own (`standsAloneIn`). */
   alone: (id: string) => boolean
+  /** The zones of the graph, which a `zone` operation may rename. */
+  zones?: readonly { id: string; label: string }[]
 }
 
 export interface Reshaped {
@@ -213,6 +219,8 @@ export interface Reshaped {
   groups: { id: string; nodes: string[]; buckets?: string[] }[]
   /** Words given with a unit the answer made or merged, by that id. */
   words: NonNullable<StoryWords['units']>
+  /** The Reviewer's names for zones, by zone id. */
+  zones: Record<string, string>
   problems: string[]
 }
 
@@ -222,6 +230,7 @@ export function reshapeMap(input: ReshapeInput): Reshaped {
   const nodes = new Map(input.nodes.map((node) => [node.id, structuredClone(node)]))
   const groups: Group[] = input.units.map((unit) => ({ id: unit.id, nodes: [...unit.nodes], ...(unit.buckets ? { buckets: unit.buckets } : {}), fixed: unit.grouping === 'bucket', touched: false }))
   const words: Reshaped['words'] = {}
+  const zones: Reshaped['zones'] = {}
   let order: string[] | null = null
 
   const groupOf = (id: string) => groups.find((group) => group.nodes.includes(id))
@@ -314,6 +323,11 @@ export function reshapeMap(input: ReshapeInput): Reshaped {
         }
         break
       }
+      case 'zone': {
+        if (!input.zones?.some((zone) => zone.id === op.zone)) refuse(`no zone ${op.zone} in the map`)
+        else zones[op.zone] = op.name
+        break
+      }
       case 'order': {
         if ('units' in op) {
           const known = op.units.filter((id) => unitById(id))
@@ -343,6 +357,7 @@ export function reshapeMap(input: ReshapeInput): Reshaped {
     layout: touched.length || walk.length ? { groups: touched.map((group) => group.nodes), order: walk.map(unitKey) } : null,
     groups: shown.map(({ id, nodes: members, buckets }) => ({ id, nodes: members, ...(buckets ? { buckets } : {}) })),
     words,
+    zones,
     problems,
   }
 }

@@ -145,7 +145,7 @@ export function runsFromOf({ origins, looked, callers, testCallers, listed, walk
       more > 0 ? `${more} more way${more === 1 ? '' : 's'} in ${more === 1 ? 'was' : 'were'} found.` : '',
       stop?.stopped ? `Other ways out were followed for ${calls(stop.hops)}${stoppedWords(stop)}` : '',
     ].filter(Boolean)
-    return { found: 'origins', origins: nearest.slice(0, MOST_ORIGINS), ...(said.length ? { cut: said.join(' ') } : {}) }
+    return { found: 'origins', origins: nearest.slice(0, MOST_ORIGINS), ...(more > 0 ? { more } : {}), ...(said.length ? { cut: said.join(' ') } : {}) }
   }
   if (callers === 0 && testCallers > 0) return { found: 'only-tests', tests: testCallers }
   if (callers === 0) return { found: 'none', hops: 0, why: listed ? 'The scan found nothing that calls it.' : 'The scan listed nothing that calls it.' }

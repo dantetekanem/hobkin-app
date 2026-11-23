@@ -106,6 +106,20 @@ test('an answer with no map, or an empty one, asks for no reshaping', () => {
   assert.deepEqual(shaped(reshaped.nodes), before, 'the units are the rules’ own')
 })
 
+test('the Reviewer may rename a zone: words only, no part moves and no level changes, and an unknown zone is refused', () => {
+  const nodes = [node('a', 'mid', { zone: '-/model/a' }), node('b', 'safe', { zone: '-/model/b' })]
+  const before = shaped(nodes)
+  const answer = readReviewAnswer(JSON.stringify({ map: [{ op: 'zone', zone: '-/model/a', name: 'Pricing rules' }, { op: 'zone', zone: '-/nowhere', name: 'Elsewhere' }, { op: 'zone', zone: '-/model/b' }] }), { nodes, units: before.units, claims: [] })
+  assert.deepEqual(answer.map, [{ op: 'zone', zone: '-/model/a', name: 'Pricing rules' }, { op: 'zone', zone: '-/nowhere', name: 'Elsewhere' }])
+  assert.ok(answer.problems.some((problem) => /^map\[2\]: zone needs a zone id and a name/.test(problem)), answer.problems.join('\n'))
+  const zones = [{ id: '-/model/a', label: 'Models · A' }, { id: '-/model/b', label: 'Models · B' }]
+  const reshaped = reshapeMap({ nodes, units: before.units, ops: answer.map, added: new Set(), claims: [], alone: () => false, zones })
+  assert.deepEqual(reshaped.zones, { '-/model/a': 'Pricing rules' })
+  assert.deepEqual(reshaped.problems, ['map[1] naming zone -/nowhere was refused: no zone -/nowhere in the map.'])
+  assert.equal(reshaped.layout, null, 'no unit changed')
+  assert.deepEqual(reshaped.nodes, nodes, 'no part moved and no level changed')
+})
+
 // ───────────────────────── Applying it ─────────────────────────
 
 test('the Reviewer redefines parts, moves them, makes, merges and orders units, and every unit keeps the rules’ shape', () => {

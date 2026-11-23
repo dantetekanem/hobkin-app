@@ -9,7 +9,7 @@ import { floor } from './floor.ts'
 import type { MapOp } from './reshape.ts'
 import { nodeLevelOf } from './risk.ts'
 import { EVIDENCE_KINDS, LEVELS } from './types.ts'
-import type { Claim, ClaimStatus, Level, ModelCheck, Question, ReviewNode, RiskEvent, Signal, StoryWords, TestRun, Triage, Unit, Watch } from './types.ts'
+import type { Claim, ClaimStatus, Level, ModelCheck, NodeTest, Question, ReviewNode, RiskEvent, RunsFrom, Signal, StoryWords, TestRun, Triage, Unit, Watch, Zone } from './types.ts'
 
 /** A unit as curate drafted it, before any model words. */
 export type DraftUnit = Pick<Unit, 'id' | 'nodes' | 'grouping' | 'level' | 'title' | 'where' | 'what'>
@@ -24,6 +24,8 @@ export interface ReviewInput {
   context?: readonly ContextEntry[]
   /** What TLC said at this commit of the TLA+ models the change adds, edits or touches a file of: evidence, like a test that ran. */
   modelChecks?: readonly ModelCheck[]
+  /** The zones the nodes name (spec 055), which the Reviewer may rename. */
+  zones?: readonly Zone[]
   /** Most characters the prompt may hold. */
   limit?: number
 }
@@ -64,6 +66,11 @@ const CODE_LINE_CHARS = 240
 const MAX_CLAIMS = 40
 const MAX_DIRECTIVES = 20
 const MAX_CONTEXT = 40
+/** Where a node runs from and what tests it (spec 055): the nearest origins, the first steps of each way, the older tests. */
+const MAX_ORIGINS = 3
+const MAX_STEPS = 6
+const MAX_TESTS = 8
+const TEST_AGE: Record<NodeTest['relation'], number> = { before: 0, edited: 1, added: 2, removed: 3 }
 const RANK: Record<Level, number> = { safe: 0, mid: 1, high: 2 }
 
 // ───────────────────────── Text from a model ─────────────────────────
@@ -151,9 +158,46 @@ interface RequestData {
   directives: string[]
   nodes: NodeData[]
   units: DraftUnit[]
+  zones?: { id: string; label: string }[]
   context?: ContextEntry[]
   model_checks?: ModelCheck[]
   cut: string[]
+}
+
+/** Where a node runs from, as the Reviewer reads it: at most three origins, each way named by its first six steps. */
+function runsFromSent(id: string, runsFrom: RunsFrom, cut: string[]): Record<string, unknown> {
+  if (runsFrom.found !== 'origins') return runsFrom
+  const { origins, more = 0 } = runsFrom
+  const long = origins.some((origin) => origin.chain.length > MAX_STEPS)
+  if (origins.length > MAX_ORIGINS || long) {
+    const kept = origins.length > MAX_ORIGINS ? `${origins.length} ways in, the nearest ${MAX_ORIGINS} sent` : 'its ways in'
+    cut.push(`where ${id} runs from: ${kept}${long ? `, each with its first ${MAX_STEPS} steps` : ''}`)
+  }
+  const extra = more + Math.max(0, origins.length - MAX_ORIGINS)
+  return {
+    found: 'origins',
+    origins: origins.slice(0, MAX_ORIGINS).map(({ kind, label, exact, by, hops, chain }) => ({ kind, label, exact, by, hops, chain: chain.slice(0, MAX_STEPS).map((step) => step.symbol) })),
+    ...(extra ? { more: extra } : {}),
+    ...(runsFrom.cut ? { cut: runsFrom.cut } : {}),
+  }
+}
+
+/** The tests that cover a node, as the Reviewer reads them: at most eight, the older first, each in a few fields. */
+function testsSent(id: string, tests: readonly NodeTest[], cut: string[]): Record<string, unknown>[] {
+  if (tests.length > MAX_TESTS) cut.push(`tests of ${id}: ${tests.length}, the first ${MAX_TESTS} sent, the older first`)
+  return tests
+    .map((test, index) => ({ test, index }))
+    .sort((a, b) => TEST_AGE[a.test.relation] - TEST_AGE[b.test.relation] || a.index - b.index)
+    .slice(0, MAX_TESTS)
+    .map(({ test }) => ({
+      path: test.path,
+      ...(test.symbol ? { symbol: test.symbol } : {}),
+      relation: test.relation,
+      lifecycle: test.lifecycle,
+      ...(test.at_head ? { at_head: test.at_head } : {}),
+      ...(test.shows ? { shows: test.shows } : {}),
+      ...(test.weakened ? { assertions_removed: test.weakened.assertions_removed } : {}),
+    }))
 }
 
 /** The node's level as it stands, or its floor when no level was set yet. */
@@ -187,7 +231,7 @@ function excerpt(id: string, text: string | undefined, cut: string[]): string | 
   return kept.map((line) => (line.length > CODE_LINE_CHARS ? `${line.slice(0, CODE_LINE_CHARS)}…` : line)).join('\n')
 }
 
-function nodeData(node: ReviewNode, code: string | undefined): NodeData {
+function nodeData(node: ReviewNode, code: string | undefined, cut: string[]): NodeData {
   const level = levelOf(node)
   return {
     id: node.id,
@@ -207,6 +251,9 @@ function nodeData(node: ReviewNode, code: string | undefined): NodeData {
     hosts_condition: node.hosts_condition,
     runs: node.runs.map(runLine),
     entries: node.entries,
+    ...(node.runs_from ? { runs_from: runsFromSent(node.id, node.runs_from, cut) } : {}),
+    ...(node.tests?.length ? { tests: testsSent(node.id, node.tests, cut) } : {}),
+    ...(node.zone ? { zone: node.zone } : {}),
     ...(node.callers ? { callers: { total: node.callers.total, complete: node.callers.complete } } : {}),
     sensitive: node.sensitive,
     ...(node.findings.length ? { findings: node.findings.map((finding) => finding.text) } : {}),
@@ -222,15 +269,22 @@ const worstFirst = (a: NodeData, b: NodeData) => Number(a.task === 'words') - Nu
 const promptOf = (data: RequestData) => `${DATA_LINE}\n${JSON.stringify(data)}`
 
 /**
- * Shrinks the data until its prompt fits: first the unchanged context, then the code of the least severe nodes, then
- * the nodes that need only words. Nodes to assess are never dropped; when they alone are too long, the prompt stays
- * long and says so.
+ * Shrinks the data until its prompt fits: first the unchanged context, then where the least severe nodes run from and
+ * their tests, then their code, then the nodes that need only words. Nodes to assess are never dropped; when they alone
+ * are too long, the prompt stays long and says so.
  */
 function fit(data: RequestData, limit: number) {
   const fits = () => promptOf(data).length <= limit
   if (data.context && !fits()) {
     delete data.context
     data.cut.push('the unchanged definitions near the change left out to fit the size limit')
+  }
+  for (const node of data.nodes.toReversed()) {
+    if (fits()) return
+    if (node.runs_from === undefined && node.tests === undefined) continue
+    delete node.runs_from
+    delete node.tests
+    data.cut.push(`tests and where ${node.id} runs from left out to fit the size limit`)
   }
   for (const node of data.nodes.toReversed()) {
     if (fits()) return
@@ -262,8 +316,9 @@ export function reviewRequest(input: ReviewInput): ReviewRequest {
     change: { range: triage.range, mode: triage.mode, description_source: triage.description_source, totals: triage.totals },
     claims: triage.claims.slice(0, MAX_CLAIMS).map(({ text, source }) => ({ text, source })),
     directives: directives.slice(0, MAX_DIRECTIVES),
-    nodes: input.nodes.map((node) => nodeData(node, excerpt(node.id, input.code[node.id], cut))).sort(worstFirst),
+    nodes: input.nodes.map((node) => nodeData(node, excerpt(node.id, input.code[node.id], cut), cut)).sort(worstFirst),
     units: input.units.map(({ id, nodes, grouping, level, title, where, what }) => ({ id, nodes, grouping, level, title, where, what })),
+    ...(input.zones?.length ? { zones: input.zones.map(({ id, label }) => ({ id, label })) } : {}),
     ...(context.length ? { context: context.slice(0, MAX_CONTEXT).map(({ symbol, path, lines }) => ({ symbol, path, lines })) } : {}),
     ...(input.modelChecks?.length
       ? { model_checks: input.modelChecks.map(({ spec, run, result, states, rules, unfired, models, broken, steps, message }) => ({ spec, run, result, states, rules, unfired, models, broken, steps, message })) }
@@ -311,6 +366,7 @@ const LIMITS = {
   nodeWhat: 250,
   why: 300,
   path: 300,
+  zoneName: 60,
 }
 const MAX_MAP_OPS = 60
 const MAX_IN_OP = 50
@@ -619,6 +675,12 @@ function mapOpOf(raw: unknown, at: string, problems: Problems): MapOp | null {
       const why = problems.text(raw.why, LIMITS.why, `${at}.why`)
       if (!node || !why) return problems.drop(at, 'remove needs a node and a why')
       return { op: 'remove', node, why }
+    }
+    case 'zone': {
+      const zone = id(raw.zone)
+      const name = problems.text(raw.name, LIMITS.zoneName, `${at}.name`)
+      if (!zone || zone.length > LIMITS.path || !name) return problems.drop(at, 'zone needs a zone id and a name')
+      return { op: 'zone', zone, name }
     }
     default:
       return problems.drop(at, `unknown op ${shown(raw.op)}`)
