@@ -17,7 +17,7 @@ import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-ste
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
 import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
 import { AgentTaskList } from '@/features/agent-activity/TaskList.tsx'
-import { useActivityPresence, useAgentActivity, useAgentGlance, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
+import { lastStepTime, useActivityPresence, useAgentActivity, useAgentGlance, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import { releaseImages } from '@/features/chat/image-uploads.ts'
@@ -680,10 +680,10 @@ function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; h
  */
 function Thinking({ activity, run }: { activity: AgentActivity | null; run: string }) {
   const still = useStill()
-  const since = useMemo(() => {
-    const times = (activity?.entries ?? []).map((entry) => activity?.timeOf(entry.id)).filter((time) => time !== undefined)
-    return times.length ? Math.max(...times.map((time) => time.ended ?? time.seen)) : undefined
-  }, [activity])
+  // Worked out again only when the steps change, not when the run ends or the clock ticks.
+  const entries = activity?.entries
+  const timeOf = activity?.timeOf
+  const since = useMemo(() => (entries && timeOf ? lastStepTime(entries, timeOf) : undefined), [entries, timeOf])
   const now = useNow(since !== undefined, 1000)
   const seconds = since === undefined ? 0 : Math.max(0, Math.round((now - since) / 1000))
   return (

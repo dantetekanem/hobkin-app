@@ -13,7 +13,7 @@ import { stepsOf } from '@/features/agent-activity/steps.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
 import { Tasks } from '@/features/agent-activity/TaskList.tsx'
-import { mainTimeOf, type EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
+import { lastStepTime, mainTimeOf, type EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
 import { turnStartedAt, doingNow as turnWord } from '@/features/chat/doing.ts'
 import { useNow } from '@/features/chat/use-now.ts'
@@ -108,10 +108,7 @@ function MainTasks() {
  * step, or since its turn began when that came later (mind.ts), as an agent's canvas counts its Thinking.
  */
 function Quiet({ word, entries, timeOf, turnStart }: { word: string; entries: readonly ActivityEntry[]; timeOf: (id: string) => EntryTime | undefined; turnStart: number | null }) {
-  const lastStep = useMemo(() => {
-    const seen = entries.map((entry) => timeOf(entry.id)).filter((time) => time !== undefined).map((time) => time.ended ?? time.seen)
-    return seen.length ? Math.max(...seen) : undefined
-  }, [entries, timeOf])
+  const lastStep = useMemo(() => lastStepTime(entries, timeOf), [entries, timeOf])
   const since = quietSince(lastStep, turnStart)
   const now = useNow(since !== undefined, 1000)
   return (

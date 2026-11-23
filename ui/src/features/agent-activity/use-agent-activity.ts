@@ -65,10 +65,14 @@ function runningNow(runs: unknown): ReadonlySet<string> {
   return listed.running
 }
 
+/** How many jobs the host held steps of at the last message, so one that lets go of a job is told without a look at each. */
+let heldJobs = 0
+
 // Steps are timed as the host sends them, also for agents whose canvas is not open, so their times are right once it
 // is. The main agent's are timed the same way under its own key, whether hobkin's mind is open or not. A job takes its
 // times with it once the host holds none of its steps and does not list it as running: not when a start-over lists
-// nothing for a moment, nor while an agent the window does not watch comes as its tail.
+// nothing for a moment, nor while an agent the window does not watch comes as its tail. The times are looked through
+// for that only when the runs changed or the host let go of a job, not for each message of steps.
 const stopTiming = hostStore.subscribe((state, previous) => {
   const now = Date.now()
   const main = state.snapshot.mainActivity
@@ -76,20 +80,26 @@ const stopTiming = hostStore.subscribe((state, previous) => {
   if (Array.isArray(main) && main !== mainBefore) timeEntries(MAIN_ACTIVITY, main, now, Array.isArray(mainBefore) ? mainBefore : undefined)
   const next = state.snapshot.jobActivity as JobActivity | undefined
   const before = previous.snapshot.jobActivity as JobActivity | undefined
-  const running = runningNow(state.snapshot.runs)
-  if (next === before && state.snapshot.runs === previous.snapshot.runs) return
+  const runsChanged = state.snapshot.runs !== previous.snapshot.runs
+  if (next === before && !runsChanged) return
 
+  let held = 0
+  for (const job in next) {
+    held += 1
+    const entries = next[job]
+    if (entries !== before?.[job] && Array.isArray(entries)) timeEntries(job, entries, now, before?.[job])
+  }
+  const letGo = held < heldJobs
+  heldJobs = held
+  if (!runsChanged && !letGo) return
+
+  const running = runningNow(state.snapshot.runs)
   for (const job of timings.keys()) {
-    const held = next !== undefined && Object.hasOwn(next, job)
-    const kept = job === MAIN_ACTIVITY || job.startsWith('sample:') || held || running.has(job)
+    const kept = job === MAIN_ACTIVITY || job.startsWith('sample:') || (next !== undefined && Object.hasOwn(next, job)) || running.has(job)
     if (!kept) {
       timings.delete(job)
       timeReaders.delete(job)
     }
-  }
-  for (const job in next) {
-    const entries = next[job]
-    if (entries !== before?.[job] && Array.isArray(entries)) timeEntries(job, entries, now, before?.[job])
   }
 })
 
@@ -99,6 +109,25 @@ export const entryTimeOf = (job: string, id: string): EntryTime | undefined => t
 /** When the window first saw each of the main agent's steps, and when a call it saw start ended. */
 export const mainTimeOf = (id: string): EntryTime | undefined => entryTimeOf(MAIN_ACTIVITY, id)
 import.meta.hot?.dispose(stopTiming)
+
+const lastTimes = new WeakMap<readonly ActivityEntry[], { timeOf: (id: string) => EntryTime | undefined; last: number | undefined }>()
+
+/**
+ * When the agent's last step happened: the latest end of a call, or the latest step first seen. Undefined with none
+ * timed. Worked out once for each list of steps: a step's times are set before the list that holds it is read, and a
+ * call that ends comes as a new list.
+ */
+export function lastStepTime(entries: readonly ActivityEntry[], timeOf: (id: string) => EntryTime | undefined): number | undefined {
+  const known = lastTimes.get(entries)
+  if (known?.timeOf === timeOf) return known.last
+  let last: number | undefined
+  for (const entry of entries) {
+    const time = timeOf(entry.id)
+    if (time) last = Math.max(last ?? -Infinity, time.ended ?? time.seen)
+  }
+  lastTimes.set(entries, { timeOf, last })
+  return last
+}
 
 /** When each sample agent's canvas first opened, so its sample plays from there. */
 const sampleStarts = new Map<string, number>()
