@@ -170,7 +170,7 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - [x] S17 (A19, A20, A40). Remove on a row only takes the review out of the list, and a change and its pull request are listed once.
 - [x] S18 (A41). A finished change's review follows its branch in git.
 - [x] S19 (A42, A43). A review links its pull request and names its author, in the panel and in the list. Host 9895e72, window 10fc649. Seen only as a still render: not yet in the live window, and the host has to reload itself before a finished change's link and author show.
-- [ ] S20 (A44). The AI Reviews list is put in the order the user picks: Priority, Newest or Oldest.
+- [x] S20 (A44). The AI Reviews list is put in the order the user picks: Priority, Newest or Oldest. Window 52f3f0c. Seen only as a still render: not yet in the live window.
 
 ## Open questions
 
