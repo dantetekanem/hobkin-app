@@ -24,6 +24,8 @@
   --hb-mark: #16181f;
   --hb-mark-eye: #ffc940;
   --hb-sun: #ffc940;
+  /* Claude's warm terracotta, for the crab pal beside a run on Claude Code (avatar/Crab.tsx). */
+  --hb-crab: #d4714f;
 
   /* Status. Fills are the site's colors. Text variants are darker to pass AA on cream. */
   --hb-ok: #4cc38a;
@@ -79,6 +81,7 @@
   --hb-mark: #f0ead6;
   --hb-mark-eye: #e8a317;
   --hb-sun: #e8a317;
+  --hb-crab: #de7d5c;
 
   --hb-ok: #4cc38a;
   --hb-ok-fg: #4cc38a;

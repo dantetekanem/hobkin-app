@@ -1,0 +1,97 @@
+import { useEffect, useState, type CSSProperties } from 'react'
+import { AgentHood } from '@/components/Mark.tsx'
+import { CRAB_SPAN, Crab } from './Crab.tsx'
+import { SMALL_FACE_PX } from './face-motion.ts'
+import type { Mood } from './moods.tsx'
+import { palsState, restedLong, SLEEP_AFTER_MS } from './pals.ts'
+import { ART_BOX, MARK_BOX } from './pets.ts'
+
+export interface PalsProps {
+  /** Hue of hobkin's face, as AgentHood takes it. */
+  hue: number
+  /** Size of hobkin's face box, in CSS pixels. The crab stands beside it at the same scale, on the same ground. */
+  size: number
+  /** The face's mood, as the page would give the face alone. */
+  mood: Mood
+  /** The run waits for the user. */
+  asking?: boolean
+  /** False: the run rests (it waits for its next turn, or it ended), and both hold their pose. */
+  working?: boolean
+  /** The run ended well: both are happy. */
+  endedWell?: boolean
+  /** Since when the run rests, in milliseconds since the epoch. After a while both fall asleep. */
+  restingSince?: number
+  /** Hold both for good, as a small row does: no loop and no greeting. */
+  still?: boolean
+  className?: string
+}
+
+/** The crab's share of the pair, in the art's units: from its left claw, with room for its lean, to its right. */
+const CRAB_WIDTH = CRAB_SPAN.right - CRAB_SPAN.left
+
+/** The pair's width for a face of this size: the face's box and the crab's beside it. A row that holds a pair keeps this room. */
+export function palsWidth(size: number): number {
+  return size + (CRAB_WIDTH * size) / MARK_BOX.size
+}
+
+/**
+ * hobkin's face and Claude Code's crab side by side, two pals, for a run on Claude Code. The pair's box is fixed by the
+ * face's size, so nothing around it moves as their moods change. The crab takes the face's mood (pals.ts): it taps its
+ * claws while the run works, leans in toward hobkin while the run waits, cheers with it when a run ends well and sleeps
+ * with it once they have rested long. When the pair first shows, and when a run finishes, they lean together for a claw
+ * bump.
+ */
+export function Pals({ hue, size, mood, asking = false, working = true, endedWell = false, restingSince, still = false, className }: PalsProps) {
+  const unit = size / MARK_BOX.size
+  const artSize = ART_BOX.size * unit
+  // A crab drawn smaller than a face moves as a whole, so it holds still, as a small row's figure.
+  const held = still || artSize < SMALL_FACE_PX
+  const asleep = useRestedLong(working ? undefined : restingSince)
+  const state = palsState({ mood, asking, working, endedWell, restedLong: asleep })
+  const greet = useGreeting(working && !endedWell)
+
+  return (
+    <span
+      className={['pals', className].filter(Boolean).join(' ')}
+      data-still={held || undefined}
+      style={{ width: palsWidth(size), height: size }}
+    >
+      {/* Keyed by the greeting, so hobkin's lean plays from its start with the crab's. */}
+      <span key={greet} className="pals-face" style={{ width: size, height: size }}>
+        <AgentHood hue={hue} size={size} mood={state.face} asking={asking} working={working && !endedWell} />
+      </span>
+      <span className="pals-crab" style={{ width: CRAB_WIDTH * unit, height: size }}>
+        <span className="pals-crab-art" style={{ left: -(CRAB_SPAN.left - ART_BOX.min) * unit, top: -(MARK_BOX.y - ART_BOX.min) * unit } as CSSProperties}>
+          <Crab mood={state.crab} size={artSize} still={held} resting={!state.moving} greet={greet} />
+        </span>
+      </span>
+    </span>
+  )
+}
+
+/** A count that grows each time the run stops working, so the greeting plays then. It starts at 0, which plays it once. */
+function useGreeting(working: boolean): number {
+  const [was, setWas] = useState(working)
+  const [count, setCount] = useState(0)
+  if (was !== working) {
+    setWas(working)
+    if (!working) setCount(count + 1)
+  }
+  return count
+}
+
+/** Whether the run has rested since `since` long enough for the pair to sleep, looked at again once it would be. */
+function useRestedLong(since: number | undefined): boolean {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (since === undefined) return
+    const left = since + SLEEP_AFTER_MS - Date.now()
+    if (left <= 0) {
+      setNow(Date.now())
+      return
+    }
+    const timer = setTimeout(() => setNow(Date.now()), left + 100)
+    return () => clearTimeout(timer)
+  }, [since])
+  return restedLong(since, now)
+}
