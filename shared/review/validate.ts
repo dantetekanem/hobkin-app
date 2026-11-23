@@ -10,6 +10,8 @@ import { EDGE_KINDS, HOST_TEXT_LIMIT, MAX_FOCUS, NODE_KINDS, NO_SPEC_NOTICE, PRO
 
 const KIND_NAME: Record<NodeKind, string> = { criterion: 'an acceptance line', test: 'a test', code: 'code', file: 'a file', context: 'context' }
 const HASH = /^[0-9a-f]{64}$/
+const ENTRY_KIND = /^[a-z][a-z-]{0,31}$/
+const NO_WAY_IN = new Set(['no-callers', 'only-tests', 'limit', 'time', 'not-looked'])
 
 const isRecord = (value: unknown): value is Record<string, unknown> => value != null && typeof value === 'object' && !Array.isArray(value)
 const isLine = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 1
@@ -21,14 +23,25 @@ export function kindName(kind: NodeKind): string {
 
 /**
  * A node's place in the life cycle: unchanged context is a caller or a callee at least a call away; changed code or a
- * file is `changed`, its entry some calls out, or none when it is the entry. Either may say its path in a line.
+ * file is `changed`, its entry some calls out, or none when it is the entry. Either may say its path in a line. Changed
+ * code may also name its way in, as an origin and the ids on the way, or why it has none, never both. That the ids are
+ * nodes of the review is checked once every node is known.
  */
 function inLifeCycle(node: ReviewNode): boolean {
   const lifecycle: unknown = node.lifecycle
   if (!isRecord(lifecycle) || (lifecycle.path !== undefined && (!isCleanProse(lifecycle.path, PROSE_LIMIT.summary) || !lifecycle.path))) return false
-  const { role, hops } = lifecycle
-  if (node.kind === 'context') return (role === 'caller' || role === 'callee') && isLine(hops) && hops <= 9
-  return (node.kind === 'code' || node.kind === 'file') && role === 'changed' && isCount(hops) && hops <= 9
+  const { role, hops, origin, none } = lifecycle
+  if (node.kind === 'context') return (role === 'caller' || role === 'callee') && isLine(hops) && hops <= 9 && origin === undefined && none === undefined
+  if (!((node.kind === 'code' || node.kind === 'file') && role === 'changed' && isCount(hops) && hops <= 9)) return false
+  if (none !== undefined && (origin !== undefined || typeof none !== 'string' || !NO_WAY_IN.has(none))) return false
+  return origin === undefined || isOrigin(origin)
+}
+
+/** Where changed code is run from: a kind of entry, its words, whether it is exact, the ids on the way, and how many more ways in. */
+function isOrigin(origin: unknown): boolean {
+  if (!isRecord(origin) || typeof origin.kind !== 'string' || !ENTRY_KIND.test(origin.kind) || typeof origin.exact !== 'boolean') return false
+  if (!isCleanProse(origin.label, TITLE_LIMIT) || !origin.label) return false
+  return Array.isArray(origin.chain) && origin.chain.every((id) => typeof id === 'string') && (origin.more === undefined || isLine(origin.more))
 }
 
 /** A route as a routes file says it: one or more verbs in capitals, and a path from the root. */
@@ -117,7 +130,7 @@ export function validateReview(value: unknown): string[] {
     if (node.lifecycle !== undefined && !inLifeCycle(node)) {
       problems.push(`${name}: context has a place in the life cycle as a caller or a callee some calls away, and changed code or a file as changed, some calls from its entry; its path is a line of plain words.`)
     }
-    if (node.entry !== undefined && (!['code', 'context'].includes(node.kind) || !isRecord(node.entry) || typeof node.entry.kind !== 'string' || !/^[a-z][a-z-]{0,31}$/.test(node.entry.kind) || typeof node.entry.exact !== 'boolean')) {
+    if (node.entry !== undefined && (!['code', 'context'].includes(node.kind) || !isRecord(node.entry) || typeof node.entry.kind !== 'string' || !ENTRY_KIND.test(node.entry.kind) || typeof node.entry.exact !== 'boolean')) {
       problems.push(`${name}: an entry point is code or context, with a kind and whether it is exact.`)
     } else if (node.entry?.route !== undefined && !isRoute(node.entry.route)) problems.push(`${name}: a route has its verbs, such as GET, and its path.`)
     if (!isRecord(node.position) || !Number.isFinite(node.position.x) || !Number.isFinite(node.position.y)) problems.push(`${name} has no place on the graph.`)
@@ -135,6 +148,8 @@ export function validateReview(value: unknown): string[] {
 
   for (const node of nodes.values()) {
     for (const id of Array.isArray(node.supports) ? node.supports : []) if (nodes.get(id)?.kind !== 'test') problems.push(`Node ${node.id} supports ${String(id)}, which is not a test of this review.`)
+    const chain: unknown = isRecord(node.lifecycle) && isRecord(node.lifecycle.origin) ? node.lifecycle.origin.chain : undefined
+    for (const id of Array.isArray(chain) ? chain : []) if (!nodes.has(id) || id === node.id) problems.push(`Node ${node.id} is run from by way of ${String(id)}, which is not another node of this review.`)
   }
 
   const placed = [...nodes.values()].filter((node) => NODE_KINDS.includes(node.kind) && isRecord(node.position))

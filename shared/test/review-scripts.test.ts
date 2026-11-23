@@ -124,9 +124,10 @@ test('a Ruby script with no extension is cut into its definitions and its top-le
 
   // The way in starts on the command line.
   assert.deepEqual(node(command.symbol).entry, { kind: 'command', exact: true })
-  assert.deepEqual(node('run').lifecycle, { role: 'changed', hops: 1, path: 'bin/report (command) → Report.run' })
-  assert.deepEqual(node('total').lifecycle, { role: 'changed', hops: 2, path: 'bin/report (command) → Report.run → Report#total' })
-  assert.deepEqual(node(command.symbol).lifecycle, { role: 'changed', hops: 0, path: 'bin/report (command)' })
+  const origin = { kind: 'command', label: 'bin/report (command)', exact: true }
+  assert.deepEqual(node('run').lifecycle, { role: 'changed', hops: 1, path: 'bin/report (command) → Report.run', origin: { ...origin, chain: [node(command.symbol).id] } })
+  assert.deepEqual(node('total').lifecycle, { role: 'changed', hops: 2, path: 'bin/report (command) → Report.run → Report#total', origin: { ...origin, chain: [node(command.symbol).id, node('run').id] } })
+  assert.deepEqual(node(command.symbol).lifecycle, { role: 'changed', hops: 0, path: 'bin/report (command)', origin: { ...origin, chain: [] } })
   assert.equal(review.edges.find((edge) => edge.from === node(command.symbol).id && edge.to === node('run').id)?.kind, 'calls', 'the last line of the script calls Report.run')
   assert.match(node('sample').unwired ?? '', /reaches none of the code this change touched/, 'a data helper calls none of it')
 })

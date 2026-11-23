@@ -66,7 +66,8 @@ test('a model method a controller calls is reached from the route one step befor
     reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: 1 }],
   })
   assert.deepEqual(validateReview(review), [])
-  assert.deepEqual(titled(review, 'full_name').lifecycle, { role: 'changed', hops: 1, path: 'GET /users/:id → UsersController#show → User#full_name' } satisfies ReviewLifecycle)
+  const chain = [titled(review, 'GET /users/:id').id, titled(review, 'UsersController#show').id]
+  assert.deepEqual(titled(review, 'full_name').lifecycle, { role: 'changed', hops: 1, path: 'GET /users/:id → UsersController#show → User#full_name', origin: { kind: 'route', label: 'GET /users/:id', exact: true, chain } } satisfies ReviewLifecycle)
 
   // The route is a node of its own, unchanged, where routes.rb draws it at this commit.
   const drawn = titled(review, 'GET /users/:id')
@@ -95,7 +96,8 @@ test('a helper a view calls is reached through the view, the action that renders
     reach: [{ changed: helperLine.changed, symbol: 'UsersHelper#display_name', hops: 2 }],
   })
   assert.deepEqual(validateReview(review), [])
-  assert.deepEqual(titled(review, 'display_name').lifecycle, { role: 'changed', hops: 2, path: 'GET /users/:id → UsersController#show → users/show.html.erb → UsersHelper#display_name' })
+  const chain = ['GET /users/:id', 'UsersController#show', 'users/show.html.erb'].map((title) => titled(review, title).id)
+  assert.deepEqual(titled(review, 'display_name').lifecycle, { role: 'changed', hops: 2, path: 'GET /users/:id → UsersController#show → users/show.html.erb → UsersHelper#display_name', origin: { kind: 'route', label: 'GET /users/:id', exact: true, chain } })
   // The view is one definition: the whole file.
   assert.deepEqual(titled(review, 'users/show.html.erb').anchors.map(({ startLine, endLine }) => [startLine, endLine]), [[1, 2]])
   assert.deepEqual(wire(review, 'display_name', 'users/show.html.erb'), ['called-by', 'from line 1, found by name'])
@@ -108,17 +110,17 @@ test('changed code says how far the scan looked when no route reaches it, on the
     links: [{ near: fullNameLine, other: legacy, direction: 'caller', hops: 1, call: { line: 3, name: 'full_name' }, proven: false }],
     reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: LIFE_CYCLE.hops, stopped: 'limit' }],
   })
-  assert.deepEqual(titled(limited, 'full_name').lifecycle, { role: 'changed', hops: 1, path: `No route reaches it within ${LIFE_CYCLE.hops} calls: the way out stops at LegacyHelper#legacy_name.` })
+  assert.deepEqual(titled(limited, 'full_name').lifecycle, { role: 'changed', hops: 1, path: `No route reaches it within ${LIFE_CYCLE.hops} calls: the way out stops at LegacyHelper#legacy_name.`, none: 'limit' })
 
   const ended = await prepared({
     links: [{ near: fullNameLine, other: legacy, direction: 'caller', hops: 1, call: { line: 3, name: 'full_name' }, proven: false }],
     reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: 1 }],
   })
-  assert.equal(titled(ended, 'full_name').lifecycle?.path, 'No route reaches it: nothing the scan could find calls LegacyHelper#legacy_name.')
+  assert.deepEqual(titled(ended, 'full_name').lifecycle, { role: 'changed', hops: 1, path: 'No route reaches it: nothing the scan could find calls LegacyHelper#legacy_name.', none: 'no-callers' })
 
   const alone = await prepared({ links: [], reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: 0 }] })
   const fullName = titled(alone, 'full_name')
-  assert.deepEqual(fullName.lifecycle, { role: 'changed', hops: 0, path: 'No route reaches it: the scan found nothing that calls it.' })
+  assert.deepEqual(fullName.lifecycle, { role: 'changed', hops: 0, path: 'No route reaches it: the scan found nothing that calls it.', none: 'no-callers' })
   assert.equal(fullName.unwired, 'No route reaches it: the scan found nothing that calls it, and no test in this change reaches it.')
   assert.deepEqual(validateReview(alone), [])
 })
@@ -134,8 +136,9 @@ test('a changed action Rails sends failing requests to has its exceptions app on
   })
   assert.deepEqual(validateReview(review), [])
   const action = review.nodes.find((node) => node.subtitle === 'app/controllers/errors_controller.rb')!
-  assert.deepEqual(action.lifecycle, { role: 'changed', hops: 0, path: 'A failing request → config.exceptions_app → ErrorsController#show' })
   const app = titled(review, 'config.exceptions_app')
+  // The action is its own way in, so its chain holds only the door one step before it.
+  assert.deepEqual(action.lifecycle, { role: 'changed', hops: 0, path: 'A failing request → config.exceptions_app → ErrorsController#show', origin: { kind: 'exceptions-app', label: 'config.exceptions_app', exact: true, chain: [app.id] } })
   assert.deepEqual([app.entry, app.anchors.map(({ startLine, endLine }) => [startLine, endLine])], [{ kind: 'exceptions-app', exact: true }, [[3, 5]]])
   assert.equal(app.summary, 'Unchanged. A request enters here: Rails sends a request that raised to its exceptions app, ErrorsController#show.')
 })
@@ -157,9 +160,65 @@ test('a schema a Pi extension registers is reached from where its package.json l
     trees,
   )
   assert.deepEqual(validateReview(review), [])
-  assert.deepEqual(titled(review, 'SearchParams').lifecycle, { role: 'changed', hops: 1, path: 'Pi extension ./index.ts → searchExtension → SearchParams' })
+  assert.deepEqual(titled(review, 'SearchParams').lifecycle, { role: 'changed', hops: 1, path: 'Pi extension ./index.ts → searchExtension → SearchParams', origin: { kind: 'extension', label: 'Pi extension ./index.ts', exact: true, chain: [titled(review, './index.ts').id, titled(review, 'searchExtension').id] } })
   assert.deepEqual(wire(review, 'searchExtension', './index.ts'), ['called-by', 'loads it from line 5'])
   assert.equal(titled(review, './index.ts').summary, 'Unchanged. A request enters here: Pi loads ./index.ts as an extension, as package.json says, and calls searchExtension.')
+})
+
+test('changed code counts the other ways in beside the nearest, each a door or an entry with no door', async () => {
+  const review = await prepared({
+    links: [
+      { near: fullNameLine, other: show, direction: 'caller', hops: 1, call: { line: 3, name: 'full_name' }, proven: true, entry: { kind: 'controller', exact: true } },
+      route({ definition: show }, 2),
+      { near: { definition: show }, other: definition('config/application.rb', 'config.exceptions_app', 3, 5), direction: 'caller', hops: 2, call: { line: 3, name: 'UsersController#show', routes: 'config.exceptions_app = ->(env) {' }, proven: true, entry: { kind: 'exceptions-app', exact: true } },
+    ],
+    reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: 1 }],
+  })
+  assert.deepEqual(validateReview(review), [])
+  assert.deepEqual(titled(review, 'full_name').lifecycle?.origin, { kind: 'route', label: 'GET /users/:id', exact: true, chain: [titled(review, 'GET /users/:id').id, titled(review, 'UsersController#show').id], more: 1 })
+})
+
+test('changed code only tests call says so, in its reason and its words', async () => {
+  const review = await prepared({ links: [], reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: 0, callers: 0, testCallers: 2 }] })
+  assert.deepEqual(titled(review, 'full_name').lifecycle, { role: 'changed', hops: 0, path: 'No route reaches it: only tests call it.', none: 'only-tests' })
+  // Code outside tests calls it too, though none the review can show: that is no caller found, not only tests.
+  const both = await prepared({ links: [], reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: 0, callers: 3, testCallers: 2 }] })
+  assert.equal(titled(both, 'full_name').lifecycle?.none, 'no-callers')
+})
+
+test('a way in stopped by the time the scans had says so as its reason', async () => {
+  const review = await prepared({
+    links: [{ near: fullNameLine, other: definition('app/helpers/legacy_helper.rb', 'LegacyHelper#legacy_name', 2, 4), direction: 'caller', hops: 1, call: { line: 3, name: 'full_name' }, proven: false }],
+    reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: 1, stopped: 'time' }],
+  })
+  assert.equal(titled(review, 'full_name').lifecycle?.none, 'time')
+})
+
+test('changed code the scan did not look around says nothing was looked for, and a review with no scan says nothing at all', async () => {
+  const review = await prepared({ links: [], reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: 0 }] })
+  assert.deepEqual(titled(review, 'display_name').lifecycle, { role: 'changed', hops: 0, none: 'not-looked' })
+  assert.deepEqual(validateReview(review), [])
+  const unscanned = await prepared()
+  assert.ok(unscanned.nodes.every((node) => node.lifecycle === undefined))
+})
+
+test('a way in names nodes of the review, and why none was found is one of the reasons', async () => {
+  const review = await prepared({
+    links: [{ near: fullNameLine, other: show, direction: 'caller', hops: 1, call: { line: 3, name: 'full_name' }, proven: true, entry: { kind: 'controller', exact: true } }, route({ definition: show }, 2)],
+  })
+  const fullName = titled(review, 'full_name')
+  const placed = (lifecycle: unknown) => validateReview({ ...review, nodes: review.nodes.map((node) => (node === fullName ? { ...node, lifecycle } : node)) })
+  const origin = fullName.lifecycle!.origin!
+  assert.deepEqual(placed({ role: 'changed', hops: 1, none: 'only-tests' }), [])
+  for (const wrong of [
+    { role: 'changed', hops: 1, origin: { ...origin, chain: ['nowhere'] } },
+    { role: 'changed', hops: 1, origin: { ...origin, kind: 'Route!' } },
+    { role: 'changed', hops: 1, origin: { ...origin, more: -1 } },
+    { role: 'changed', hops: 1, none: 'gave-up' },
+    { role: 'changed', hops: 1, origin, none: 'limit' },
+  ]) {
+    assert.equal(placed(wrong).length, 1, JSON.stringify(wrong))
+  }
 })
 
 test('a story of units tells the change alone: tests and context in no step still make a valid review', async () => {

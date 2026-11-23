@@ -418,9 +418,38 @@ function wayWords(parts: readonly string[]): string {
 }
 
 /**
+ * Where each way in from a node starts, nearest first: a door, or an entry no door is before. Nothing past an entry is
+ * followed, so a way in is counted once however far its callers go on.
+ */
+function waysInFrom(start: string, byId: ReadonlyMap<string, ReviewNode>, outward: ReadonlyMap<string, readonly string[]>, doors: ReadonlySet<string>): Set<string> {
+  const ends = new Set<string>()
+  const seen = new Set([start])
+  for (const queue = [start]; queue.length > 0; ) {
+    const id = queue.shift()!
+    if (doors.has(id)) {
+      ends.add(id)
+      continue
+    }
+    if (byId.get(id)?.entry) {
+      const own = (outward.get(id) ?? []).filter((next) => doors.has(next))
+      for (const door of own.length ? own : [id]) ends.add(door)
+      continue
+    }
+    for (const next of outward.get(id) ?? []) {
+      if (seen.has(next)) continue
+      seen.add(next)
+      queue.push(next)
+    }
+  }
+  return ends
+}
+
+/**
  * Says on each changed definition the scan looked around the way a request takes to it, along the called-by wires: the
- * nearest entry, with the door one step before it when there is one, and how many calls out the entry is. Where no way
- * reaches an entry, it says how far the scan looked, and where the way out stops.
+ * nearest entry, with the door one step before it when there is one, and how many calls out the entry is. The way is
+ * kept as node ids too, the origin first, with its kind and words, and how many other ways in there are. Where no way
+ * reaches an entry, it says how far the scan looked, where the way out stops, and why in a word. Changed code the scan
+ * did not look around says that nothing was looked for.
  */
 function sayTheWayIn(vicinity: Vicinity, nodes: ReviewNode[], outward: ReadonlyMap<string, readonly string[]>, doors: ReadonlySet<string>, holder: (path: string, line: number) => ReviewNode | undefined) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
@@ -431,9 +460,14 @@ function sayTheWayIn(vicinity: Vicinity, nodes: ReviewNode[], outward: ReadonlyM
   }
   const doorOf = (id: string) => (outward.get(id) ?? []).map((next) => byId.get(next)).find((node) => node != null && doors.has(node.id))
   for (const node of nodes) {
-    if (node.kind !== 'code' || node.change === 'unchanged' || node.change === 'deleted' || node.anchors.every((anchor) => anchor.side !== 'added')) continue
+    if (node.kind !== 'code' || node.change === 'unchanged') continue
     const reach = reachOf.get(node.id)
-    if (!reach && !outward.has(node.id) && !node.entry) continue
+    // Removed code, and code the scan had no anchor for, were never walked.
+    const walked = node.change !== 'deleted' && node.anchors.some((anchor) => anchor.side === 'added') && (reach != null || outward.has(node.id) || node.entry != null)
+    if (!walked) {
+      node.lifecycle = { role: 'changed', hops: 0, none: 'not-looked' }
+      continue
+    }
     // Breadth first, so the nearest entry wins, and among as near the first the scan ranked.
     const before = new Map<string, string | null>([[node.id, null]])
     const depth = new Map<string, number>([[node.id, 0]])
@@ -464,21 +498,28 @@ function sayTheWayIn(vicinity: Vicinity, nodes: ReviewNode[], outward: ReadonlyM
       const hops = depth.get(found)! - (doors.has(entry.id) ? 1 : 0)
       // Changed code by the name the scan reads it by, such as ErrorsController#show, when it has one.
       const name = (step: ReviewNode) => (step.kind === 'code' ? reachOf.get(step.id)?.symbol : undefined) ?? step.title
-      const words = [...startWords(way[0]!, name(way[0]!)), ...way.slice(1).map(name)]
-      node.lifecycle = { role: 'changed', hops: Math.max(0, Math.min(9, hops)), path: wayWords(words) }
+      const start = way[0]!
+      const words = [...startWords(start, name(start)), ...way.slice(1).map(name)]
+      const more = waysInFrom(node.id, byId, outward, doors).size - 1
+      const origin = start.entry && { kind: start.entry.kind, label: cleanProse(words[startWords(start, name(start)).length - 1]!, TITLE_LIMIT), exact: start.entry.exact, chain: way.slice(0, -1).map((step) => step.id), ...(more > 0 ? { more } : {}) }
+      node.lifecycle = { role: 'changed', hops: Math.max(0, Math.min(9, hops)), path: wayWords(words), ...(origin ? { origin } : {}) }
       continue
     }
     // The furthest the way out goes, the first ranked among as far.
     const furthest = [...depth].reduce((best, next) => (next[1] > best[1] ? next : best))
     const top = furthest[1] > 0 ? byId.get(furthest[0]) : undefined
-    node.lifecycle = { role: 'changed', hops: Math.min(9, furthest[1]), path: cleanProse(noWayWords(node, top, reach), PROSE_LIMIT.summary) }
+    const none = !top ? (onlyTests(reach) ? 'only-tests' : 'no-callers') : (reach?.stopped ?? 'no-callers')
+    node.lifecycle = { role: 'changed', hops: Math.min(9, furthest[1]), path: cleanProse(noWayWords(node, top, reach), PROSE_LIMIT.summary), none }
   }
 }
+
+/** Every call site the scan counted for it is in a test. */
+const onlyTests = (reach: VicinityReach | undefined) => (reach?.testCallers ?? 0) > 0 && reach?.callers === 0
 
 /** Why no way in was found, by how far the scan looked: the calls it may follow, the time it had, or no caller left. */
 function noWayWords(node: ReviewNode, top: ReviewNode | undefined, reach: VicinityReach | undefined): string {
   const door = /\.(?:rb|rake|erb|haml|slim|jbuilder|builder)$/.test(node.subtitle ?? '') ? 'route' : 'entry point'
-  if (!top) return `No ${door} reaches it: the scan found nothing that calls it.`
+  if (!top) return onlyTests(reach) ? `No ${door} reaches it: only tests call it.` : `No ${door} reaches it: the scan found nothing that calls it.`
   if (reach?.stopped === 'limit') return `No ${door} reaches it within ${LIFE_CYCLE.hops} calls: the way out stops at ${top.title}.`
   if (reach?.stopped === 'time') return `No ${door} reaches it within the ${count(reach.hops, 'call')} the scans could follow: the way out stops at ${top.title}.`
   return `No ${door} reaches it: nothing the scan could find calls ${top.title}.`
