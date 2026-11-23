@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { readDirections } from './directions.mjs';
+import { MESSAGE_MAX, TITLE_MAX } from './hobkins.mjs';
+import { MAX_MESSAGE_BYTES } from './runtime.mjs';
 import { markPosted, recordSessionEnd } from './session-log.mjs';
 import { tierNames } from './tiers.mjs';
 import { resumeNote, WAITING } from './run-waits.mjs';
@@ -9,28 +11,52 @@ import { resumeNote, WAITING } from './run-waits.mjs';
 const NAME = /^hobkin-[a-z0-9-]{1,20}-[0-9a-f]{4}$/;
 
 /**
- * The sessions `hobkin session` asked for, each taken once. Only the name, title, folder, `--wake` and the tier come
- * from the request: the brief and the report are where that command keeps them, and a request that does not hold up
- * is dropped.
+ * The sessions `hobkin session` asked for, each taken once. Only the name, title, folder, `--wake`, `--keep` and the
+ * tier come from the request: the brief and the report are where that command keeps them, and a request that does not
+ * hold up is dropped. A kept session is a durable hobkin, which takes none of the `capacity` places jobs share, so it is
+ * taken whatever is left of them.
  */
 export function takeSessionRequests(root, capacity = Infinity) {
   const folder = join(root, 'runtime', 'session-requests');
   if (!existsSync(folder)) return [];
   const handoffs = join(root, 'runtime', 'handoffs');
-  return readdirSync(folder).filter(file => file.endsWith('.json')).slice(0, capacity).flatMap(file => {
+  let places = capacity;
+  return readdirSync(folder).filter(file => file.endsWith('.json')).flatMap(file => {
     let request = null;
     try {
       request = JSON.parse(readFileSync(join(folder, file), 'utf8'));
     } catch {
       // A request that cannot be read is dropped with the rest of what does not hold up.
     }
+    const keep = request?.keep === true;
+    if (!keep && places-- <= 0) return [];
     rmSync(join(folder, file), { force: true });
     const { name, title, cwd, wake, tier } = request ?? {};
     const brief = join(handoffs, `${name}.md`);
     if (!NAME.test(name ?? '') || file !== `${name}.json` || typeof title !== 'string' || !isAbsolute(cwd ?? '')
       || !existsSync(cwd) || !statSync(cwd).isDirectory() || !existsSync(brief)) return [];
-    return [{ name, title: title.slice(0, 200) || name, cwd, brief, report: join(handoffs, `${name}.report.md`), wake: wake === true, ...(tierNames.includes(tier) ? { tier } : {}) }];
+    return [{ name, title: title.slice(0, 200) || name, cwd, brief, report: join(handoffs, `${name}.report.md`), wake: wake === true, ...(keep ? { keep } : {}), ...(tierNames.includes(tier) ? { tier } : {}) }];
   });
+}
+
+/**
+ * A kept session (`hobkin session --keep`) starts as a durable hobkin, through the start the window uses, on the tier
+ * its work was given. Its brief is its first message, or a line that points at the brief when it is longer than a
+ * message may be, as a job's is. One that cannot start, as when there are already as many hobkins as may be, ends as a
+ * session that started and failed does: its report says why, and Chat and the main agent hear of it.
+ */
+export async function startKeptSession({ root, hobkins, tier }, session) {
+  const { title, cwd, brief, report } = session;
+  try {
+    const whole = readFileSync(brief, 'utf8');
+    const fits = whole.length <= MESSAGE_MAX && Buffer.byteLength(whole) <= MAX_MESSAGE_BYTES;
+    return await hobkins.start({ text: fits ? whole : `Read ${brief} and follow it.`, cwd, engine: { kind: 'tier', tier }, title: title.slice(0, TITLE_MAX) });
+  } catch (error) {
+    mkdirSync(join(root, 'runtime', 'handoffs'), { recursive: true, mode: 0o700 });
+    writeFileSync(report, `It could not start as a durable hobkin. ${error.message}`, { mode: 0o600 });
+    recordSessionEnd(session);
+    return null;
+  }
 }
 
 /** What a session's end leaves: its last reply as the report when it wrote none, and its end in the session log. */

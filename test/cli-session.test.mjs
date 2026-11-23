@@ -43,14 +43,40 @@ test('a brief of any length reaches the agent as a private file', async t => {
   assert.equal(JSON.stringify(requestsIn(root)).includes('Everything'), false, 'only the name travels in the request');
 });
 
-test('a conversation the user means to carry on in is told the job still ends with its work', async t => {
+test('a kept session asks for a durable hobkin, and says what to tell the user', async t => {
   const root = dataFolder(t);
 
-  const kept = await startSession({ root, brief: 'Carry on from here.', keep: true, cwd: root });
+  const kept = await startSession({ root, title: 'Plan the move', brief: 'Carry on from here.', keep: true, cwd: root, tier: 'high' });
 
-  assert.match(kept.note, /nothing to keep open/);
-  assert.equal(requestsIn(root).length, 1);
+  assert.deepEqual(requestsIn(root), [{ name: kept.name, title: 'Plan the move', cwd: root, wake: false, keep: true, tier: 'high' }]);
+  assert.match(kept.note, /durable hobkin/);
+  assert.equal('report' in kept, false, 'a durable hobkin writes no report');
   assert.equal(parseArguments(['session', '--keep']).keep, true);
+  await assert.rejects(startSession({ root, brief: 'Go.', keep: true, wake: true, cwd: root }), /--wake/);
+});
+
+test('a kept brief ends with how to carry on and still files its work, and a job keeps its own ending', async t => {
+  const root = dataFolder(t);
+  const briefOf = name => readFileSync(join(root, 'runtime', 'handoffs', `${name}.md`), 'utf8');
+
+  const job = await startSession({ root, title: 'Fix totals', brief: 'Fix the totals.', cwd: root });
+  const kept = await startSession({ root, title: 'Plan the move', brief: 'Plan the move.', keep: true, cwd: root });
+
+  assert.ok(briefOf(job.name).includes(job.report));
+  const keptBrief = briefOf(kept.name);
+  assert.ok(keptBrief.startsWith('Plan the move.'));
+  assert.ok(keptBrief.includes(`hobkin work item <project> --home ${root}`), 'it files its branches and steps as work');
+  assert.equal(keptBrief.includes('.report.md'), false, 'it writes no report');
+  assert.notEqual(keptBrief.slice('Plan the move.'.length), briefOf(job.name).slice('Fix the totals.'.length));
+});
+
+test('kept sessions count against a burst like any other', async t => {
+  const root = dataFolder(t);
+  for (let count = 0; count < 3; count++) await startSession({ root, title: `kept ${count}`, brief: 'Go.', keep: true, cwd: root });
+
+  await assert.rejects(startSession({ root, brief: 'Go.', keep: true, cwd: root }), /show the user the exact list/i);
+  await startSession({ root, brief: 'Go.', keep: true, cwd: root, approved: true });
+  assert.equal(requestsIn(root).length, 4);
 });
 
 test('a long brief survives being cut mid-character', async () => {

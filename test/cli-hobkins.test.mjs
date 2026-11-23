@@ -18,6 +18,8 @@ import { readEvents } from '../src/cli/events.mjs';
 import { readReport, savedReportPath } from '../src/cli/reports.mjs';
 import { allCardActions } from '../src/cli/work/card-actions.mjs';
 import { durableDirections } from '../src/cli/hobkins.mjs';
+import { startSession } from '../src/cli/session.mjs';
+import { sessionsToTell } from '../src/cli/session-log.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
 const SUMMARY_KEYS = ['createdAt', 'cwd', 'engine', 'id', 'last', 'run', 'state', 'title', 'turns', 'waiting'];
@@ -488,6 +490,90 @@ test('ending stops the turn and keeps the conversation, and a forty-ninth is ref
   assert.equal((await app.refresh()).hobkins.length, 48);
   await app.hobkins.end(kept[0].id);
   assert.match((await app.hobkins.start({ text: 'One more.', cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } })).id, /^[0-9a-f]{8}$/);
+});
+
+test('hobkin session --keep starts a durable hobkin on the tier named, with its brief as its first message, and it waits, carries on and outlives a restart', async t => {
+  const h = fixture(t);
+  const before = fakeTurns();
+  let app = await h.openApp({ runHarness: before.runHarness });
+  t.after(() => app.close());
+  const { name } = await startSession({ root: h.root, title: 'Plan the move', brief: 'Plan the move to the new server.', keep: true, cwd: h.folder, tier: 'high' });
+
+  await app.tickSessions();
+  const first = await before.nth(0);
+  const [kept] = (await app.refresh()).hobkins;
+  assert.deepEqual([kept.title, kept.cwd, kept.engine, kept.state, kept.turns], ['Plan the move', h.folder, { kind: 'tier', tier: 'high' }, 'working', 1]);
+  assert.equal(first.request.prompt, readFileSync(join(h.root, 'runtime', 'handoffs', `${name}.md`), 'utf8'), 'the brief is its first message');
+  assert.equal(first.request.purpose, 'durable');
+  assert.deepEqual(readdirSync(join(h.root, 'runtime', 'session-requests')), [], 'the request starts once');
+  assert.equal(Object.keys((await app.runtime.state()).runs).some(id => id.startsWith('session:')), false, 'no job runs it');
+
+  answer(first, 'Which rack, the old one or the new one?');
+  await waitingNow(app, kept.id);
+  await app.hobkins.say(kept.id, { text: 'The new one.' });
+  const second = await before.nth(1);
+  assert.deepEqual([second.request.prompt, second.request.sessionFile], ['The new one.', first.request.sessionFile]);
+  answer(second, 'Moved.');
+  await waitingNow(app, kept.id);
+
+  await app.close();
+  app = await h.openApp({ runHarness: fakeTurns().runHarness });
+  const after = await listed(app, kept.id);
+  assert.deepEqual([after.title, after.state, after.turns], ['Plan the move', 'waiting', 2]);
+});
+
+test('a kept session takes none of the places jobs share, and one that names no tier runs on what a job would', async t => {
+  const h = fixture(t);
+  h.config.concurrency = 1;
+  atomicJson(join(h.root, 'config.json'), h.config);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  await startSession({ root: h.root, title: 'Busy job', brief: 'Go.', cwd: h.folder, tier: 'mid' });
+  const busy = app.tickSessions();
+  const job = await turns.nth(0);
+  const next = await startSession({ root: h.root, title: 'Next job', brief: 'Go.', cwd: h.folder, tier: 'mid' });
+  await startSession({ root: h.root, title: 'Kept', brief: 'Go.', keep: true, cwd: h.folder });
+
+  const ticked = app.tickSessions();
+  const kept = await turns.nth(1);
+  assert.equal(kept.request.purpose, 'durable', 'it starts while the only place is taken');
+  assert.deepEqual((await app.refresh()).hobkins.map(hobkin => hobkin.engine), [{ kind: 'tier', tier: 'mid' }]);
+  assert.deepEqual(readdirSync(join(h.root, 'runtime', 'session-requests')), [`${next.name}.json`], 'the next job still waits for a place');
+
+  answer(job, 'Done.');
+  answer(kept, 'Planned.');
+  await Promise.all([busy, ticked]);
+});
+
+test('a kept brief longer than a message may be is pointed at, as a job is', async t => {
+  const h = fixture(t);
+  const turns = fakeTurns();
+  const app = await h.openApp({ runHarness: turns.runHarness });
+  t.after(() => app.close());
+  const { name } = await startSession({ root: h.root, title: 'Long one', brief: 'Everything we said. '.repeat(2000), keep: true, cwd: h.folder, tier: 'mid' });
+
+  await app.tickSessions();
+  const first = await turns.nth(0);
+  assert.equal(first.request.prompt, `Read ${join(h.root, 'runtime', 'handoffs', `${name}.md`)} and follow it.`);
+  answer(first, 'Read it.');
+});
+
+test('a kept session that cannot start is told in Chat and to the main agent, not lost', async t => {
+  const h = fixture(t);
+  const app = await h.openApp({ runHarness: fakeTurns().runHarness });
+  t.after(() => app.close());
+  for (let n = 0; n < 48; n++) await app.hobkins.start({ cwd: h.folder, engine: { kind: 'tier', tier: 'fast' } });
+  const { name } = await startSession({ root: h.root, title: 'One too many', brief: 'Go.', keep: true, cwd: h.folder, approved: true });
+
+  await app.tickSessions();
+  const view = await app.refresh();
+  assert.equal(view.hobkins.length, 48);
+  const notice = view.messages.find(message => message.id === `notice:session:${name}`);
+  assert.match(notice.content, /^One too many: .*already 48 hobkins/);
+  const [told] = sessionsToTell(h.root);
+  assert.deepEqual([told.name, told.title], [name, 'One too many']);
+  assert.match(told.said, /already 48 hobkins/);
 });
 
 test("the main agent's message tool neither lists nor reaches a hobkin's turn", async t => {

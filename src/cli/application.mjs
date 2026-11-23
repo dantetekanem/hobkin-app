@@ -28,7 +28,7 @@ import { ShortReports } from './short-reports.mjs';
 import { moveRoutinesFolder } from './schedules.mjs';
 import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
-import { endSessionJob, resumeSessionJob, startSessionJob, takeSessionRequests } from './session-jobs.mjs';
+import { endSessionJob, resumeSessionJob, startKeptSession, startSessionJob, takeSessionRequests } from './session-jobs.mjs';
 import { WAITING } from './run-waits.mjs';
 import { tierBinding } from './tiers.mjs';
 import { failureKey, handOffBrief, hobkinsBrief, isQuietScheduledRun, isWakeBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
@@ -1154,7 +1154,8 @@ export class HobkinApplication {
 
   /**
    * Sessions `hobkin session` asked for start here as background jobs, each on the model of the tier its work was
-   * given (`tiers.mjs`). The tiers are read as they stand now, so one the user just set is used by the next job.
+   * given (`tiers.mjs`), and a kept one as a durable hobkin on that tier, which needs no free place. The tiers are read
+   * as they stand now, so one the user just set is used by the next job.
    * A session that waited and whose time has come starts again first, earliest first, by the same rule of a free place
    * (053-run-waits), and one with no place keeps waiting for a later tick. Resolves once they have all ended.
    */
@@ -1187,7 +1188,9 @@ export class HobkinApplication {
       }
       for (const session of requests) {
         const { model, effort, tier } = tierBinding(config, session.tier);
-        track(startSessionJob({ root, runner: this.runner, model, effort, tier }, session));
+        track(session.keep
+          ? startKeptSession({ root, hobkins: this.hobkins, tier }, session)
+          : startSessionJob({ root, runner: this.runner, model, effort, tier }, session));
       }
       return [...this.sessionJobs];
     }).then(jobs => Promise.all(jobs));
