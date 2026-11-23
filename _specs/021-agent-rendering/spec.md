@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "ready",
   "depends": ["008-review-code", "011-work"],
-  "updated": "2026-11-15"
+  "updated": "2026-11-23"
 }
 ---
 # How an agent's work is drawn
@@ -41,6 +41,7 @@ An agent's canvas shows its work as it happens, in a form a person can follow at
 - Keys: Up and Down move between blocks, Right or Enter opens a block, Left closes it, Control+O opens or closes them all, End returns to the newest block. Talking to the agent is `011-work`.
 - Every row says when it happened, in a quiet column at its left (the user asked for it on durable hobkins and routines, 2026-11-15). The time is to the second, in the conversation's own clock: "03:59:12 PM", or "15:59:12" where the clock is 24-hour. A row from another calendar day has its date under the time, "Nov 14", with the year when it was another year. A step's time is when hobkin first saw it, which hobkin stamps on each activity entry (`at`). A message's time is when hobkin took it, and until hobkin has it, when the user pressed Enter. An answer's time is when its turn ended. A group times each of its rows: the folded row by its first command, and each open command and each item of an opened list by its own. A row with no time keeps its place in the column, empty, so every row's words start on one line. The user's messages are placed among the steps by the same times. An agent's page and a durable hobkin's page show the column; the main agent's page does not yet.
 - A long run is drawn with a virtual list, so its length does not slow the canvas.
+- A file path too long for its row is cut from its front (the user, 2026-11-23: "it cuts the end of it, the most important part. I want the begin to be cap"). The first folders go, one by one, with one `…` where they were, and the file's name stays: `…/models/change.rb`. How much shows follows the row's width as the window or the split is resized. Only a name wider than the row is cut, also from its front, so its extension stays. A path that fits shows whole. This holds for an edit, a write, a read and a listing, in the step rows and on the line that says what the agent is doing now. A command, a search pattern and an address keep their cut at the end. The whole path is the row's title and what a copy takes. What stands before and after the path keeps its place.
 
 ## Out of scope
 
@@ -64,6 +65,7 @@ An agent's canvas shows its work as it happens, in a form a person can follow at
 - A13. An agent that keeps tasks shows them in one line above its blocks, such as "2 of 5 tasks · in progress: …", which opens to every task with its state and its description. No task call shows as a block, except one that failed.
 - A14. Coming back to an agent's page shown before in this window, its code changes are in their colors on the first paint, without asking the highlighter again. A code change seen for the first time is drawn at once in plain lines of their final size and takes its colors in place, off the page's thread, once it is in or near view; the ones far from view wait until they are scrolled to.
 - A15. On an agent's page and a durable hobkin's page, every step, message and answer shows the time it happened to the second, in one column that reads straight down the page and never crowds a row's words, its state or its duration. A row from another day also shows its date. A row with no time shows none, and its words still start where the others' do.
+- A16. A file path wider than its row shows its last folders and its file's name after one `…`, as many folders as fit, and the whole path when it fits. A name wider than the row is cut from its front. What the row hides and what it shows add up to the whole path.
 
 ## Proof
 
@@ -82,6 +84,7 @@ An agent's canvas shows its work as it happens, in a form a person can follow at
 - A13. `ui/test/agent-tasks.test.ts` › "the tasks read as one line: how many are done, then the one in progress, the next one, or that all are done", "each task keeps the description it was given, and a later one replaces it"; `ui/test/agent-activity.test.ts` › "where the page shows the tasks in their own line, task calls are not steps, and one that failed still is"; check: open an agent that keeps tasks and click its line.
 - A14. `ui/test/agent-colors.test.ts` › "a code change colored once is drawn in its colors at once when it is shown again, without asking the highlighter again", "a code change far from view waits for its colors, and one in or near view asks for them", "what is kept is what was shown most lately, up to a bound on how much code, and only once all of it is colored"; check: move between two agents whose steps hold code changes, and back, and watch for a second paint.
 - A15. `ui/test/agent-stamp.test.ts` › "a step says when it happened to the second, in the conversation's own clock", "a step from another day says its date too, and one from another year its year", "hobkin's written times read as its numbers do, and a step with no time has no stamp" and "the column is as wide as the widest time of day, whatever the hour"; `ui/test/agent-activity.test.ts` › "a step says when it began, and each command and read in a group when it happened" and "the user's messages sit where they were sent, and split a run of steps around them"; `ui/test/hobkins-send.test.ts` › "every row says when it happened: a message when it was asked or sent, a step when it began, an answer when it ended"; `hobkin/test/cli-job-activity.test.mjs` › "each entry keeps when hobkin first saw it, and what comes after never moves it". Seen 2026-11-15 as a still render (server markup with the app's built CSS, no browser, canned activity): a durable hobkin's page in light and dark, with every block opened, at the split's width, and a routine run's page.
+- A16. `ui/test/file-path.test.ts` › "a long path loses its first folders one by one, with one mark where they were", › "the file name stays whole while it fits, and only then is cut from its front", › "the cut follows measured pixels, not characters" and › "what the row holds unseen and what it shows add up to the whole path, which is what a copy takes"; `ui/test/agent-activity.test.ts` › "what it is doing now fits one line: the tool it runs, or the last thing it said" (a path says it is one); check: a still render of a row at 600, 300 and 220 pixels (2026-11-23), then the live window while the split is dragged.
 
 ## Steps
 
@@ -90,6 +93,7 @@ An agent's canvas shows its work as it happens, in a form a person can follow at
 - [ ] S3 (A8, A10). Pinning to the newest block, and the virtual list.
 - [ ] S4 (A9). Keys.
 - [ ] S5 (A1, A5). Live activity through the host.
+- [x] S6 (A16). Paths cut from the front: the rule 36f345e, the step rows 251e152, the line that says what the agent is doing 5409d12. Seen only as a still render: the refit while the window is resized, the first paint and what a copy takes in the window were not seen.
 
 ## Open questions
 
