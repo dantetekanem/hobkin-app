@@ -58,15 +58,17 @@ test('a path of this repository is its part of the app and the folder it is abou
     ['shared/review/types.ts', 'shared', 'review', 'shared', 'Shared · review'],
     ['packages/change-review/src/proof.ts', 'change-review', 'proof', 'change-review', 'Change review · proof'],
     ['src-tauri/src/main.rs', 'src-tauri', 'main', 'src-tauri', 'Native · main'],
-    ['scripts/perf/motion.ts', 'scripts', 'perf', undefined, 'Scripts · perf'],
+    ['scripts/perf/motion.ts', 'scripts', 'perf', undefined, 'Scripts · Perf'],
   ])
 })
 
 test('a generic folder is the layer, and what is under it the subject', () => {
   check([
-    ['src/utils/date.ts', 'utils', 'date', undefined, 'Utils · date'],
+    ['src/utils/date.ts', 'utils', 'date', undefined, 'Utils · Date'],
+    ['src/handlers/reviews.js', 'handler', 'review', undefined, 'Handlers · Reviews'],
+    ['src/widgets/orders.js', 'widgets', 'order', undefined, 'Widgets · Orders'],
     ['src/total.js', 'src', 'total', undefined, 'Source · total'],
-    ['lib/mygem/client.rb', 'mygem', 'client', undefined, 'Mygem · client'],
+    ['lib/mygem/client.rb', 'mygem', 'client', undefined, 'Mygem · Client'],
     ['README.md', 'root', 'README', undefined, 'Top level · README'],
     ['src/components/forms/Input.tsx', 'component', 'forms', undefined, 'Components · forms'],
     ['apps/web/src/pages/checkout/index.tsx', 'page', 'checkout', 'web', 'Web · checkout pages'],
@@ -91,10 +93,19 @@ test('a test takes the subject of the code it mirrors, in a test layer', () => {
     ['ui/src/features/review/graph/NodeCard.test.tsx', 'test:graph', 'review', 'ui', 'Tests · Window review graph'],
     ['ui/test/pals.test.ts', 'test:ui', 'pals', 'ui', 'Tests · Window pals'],
     ['test/total.test.js', 'test:root', 'total', undefined, 'Tests · total'],
+    ['test/utils/date.test.ts', 'test:utils', 'date', undefined, 'Tests · Date utils'],
   ])
   // The request test and the controller share the subject, so each can be found from the other.
   assert.equal(zoneOf('spec/requests/orders_spec.rb').subject, zoneOf('app/controllers/orders_controller.rb').subject)
   assert.equal(zoneOf('host/test/review/assessment.test.ts').subject, zoneOf('host/src/review/assessment.ts').subject)
+})
+
+test('a folder\'s file names its subject by one rule, whether the folder is named by convention or not', () => {
+  for (const folder of ['services', 'handlers', 'widgets']) {
+    const zone = zoneOf(`src/${folder}/reviews.js`)
+    assert.equal(zone.subject, 'review', folder)
+    assert.match(zone.label, / · Reviews$/, folder)
+  }
 })
 
 test('a part the scan calls a test is in a test zone wherever its file is', () => {

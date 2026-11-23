@@ -48,6 +48,7 @@ const NAMED: Record<string, string> = {
   subscribers: 'listener',
   listeners: 'listener',
   routes: 'route',
+  handlers: 'handler',
 }
 /** `commands` holds service objects in Ruby; elsewhere, as in this repository's `shared/commands`, it is a subject. */
 const RUBY_NAMED: Record<string, string> = { commands: 'service' }
@@ -70,6 +71,7 @@ const LAYER_WORDS: Record<string, string> = {
   channel: 'Channels',
   graphql: 'GraphQL',
   listener: 'Listeners',
+  handler: 'Handlers',
   route: 'Routes',
   task: 'Tasks',
   migration: 'Migrations',
@@ -250,8 +252,9 @@ function placeOf(component: string | undefined, rest: readonly string[]): Place 
     if (root && rest.length > 1) return { layer: rest[0]!, subject, written: subject, named: false, label: `${ROOT_WORDS[rest[0]!]} · ${words(subject)}` }
     return { layer: 'root', subject, written: subject, named: false, label: `Top level · ${words(subject)}` }
   }
-  const subject = inner.length > 2 ? inner[1]! : stemOf(name)
-  return { layer: first, subject, written: subject, named: false, label: `${sentence(words(first))} · ${words(subject)}` }
+  // Any other folder is a layer by the same rule as one named by convention: the subject singular, said as written.
+  const written = inner.length > 2 ? inner[1]! : stemOf(name)
+  return { layer: first, subject: singular(written), written, named: true, label: `${sentence(words(first))} · ${sentence(words(written))}` }
 }
 
 /** A test's zone: the kind its test folder names, or else the code at the path it mirrors, in a test layer. */
@@ -273,7 +276,7 @@ function testPlaceOf(component: string | undefined, rest: readonly string[]): Pl
   const code = placeOf(component, [...mirrored.slice(0, -1), untested])
   // A test of code at the top says only what it is about: "Tests · total".
   const label = code.named
-    ? `${tests} · ${sentence(words(code.written))} ${TEST_NOUNS[code.layer] ?? code.layer}`
+    ? `${tests} · ${sentence(words(code.written))} ${TEST_NOUNS[code.layer] ?? words(code.layer)}`
     : code.layer === 'root'
       ? `Tests · ${words(code.subject)}`
       : `Tests · ${code.label.replace(' · ', ' ')}`
