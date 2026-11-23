@@ -266,6 +266,21 @@ test('what the pack says of where work enters is kept: the kind, its words, the 
   assert.deepEqual(odd.anchors[0]!.entry, { kind: 'controller', exact: false })
 })
 
+test('a real pack names the way in at each call site, a property\'s key, and the new kinds of entry with their doors and routes', () => {
+  const packs = JSON.parse(readFileSync(new URL('./fixtures/entry-packs.json', import.meta.url), 'utf8')) as Record<'js' | 'rails', unknown>
+  const js = readPack(packs.js)
+  const prepare = js.anchors.find((anchor) => anchor.symbol === 'Reviews.prepare')!
+  const handler = prepare.callSites!.find((site) => site.line === 6)!
+  assert.equal(handler.key, 'review.prepare')
+  assert.deepEqual(handler.entry, { kind: 'handler', exact: false, doors: [{ kind: 'handler', title: 'review.prepare', file: 'src/seat.ts', line: 6 }] })
+  assert.equal(prepare.callSites!.find((site) => site.symbol === 'menu')!.key, 'prepare', 'a key with no way in is kept on the call')
+  const sync = js.anchors.find((anchor) => anchor.symbol === 'sync')!
+  assert.deepEqual(sync.callSites!.find((site) => site.line === 10)!.entry, { kind: 'route', exact: true, routes: [{ verbs: ['PUT', 'PATCH'], path: '/hono/sync', file: 'src/server.ts', line: 10 }] })
+  assert.deepEqual(js.anchors.find((anchor) => anchor.symbol === 'refresh')!.entry?.kind, 'ui-handler')
+  const rails = readPack(packs.rails)
+  assert.deepEqual(rails.anchors.map((anchor) => [anchor.symbol, anchor.entry?.kind ?? null]), [['ReportMailer#daily', 'mailer'], ['ChatChannel#speak', 'channel'], ['Cleanup.prune', null], ['reports:daily', 'task']])
+})
+
 test('the test call sites of a definition are counted, not taken for its callers', () => {
   const scan = readPack({
     anchors: [

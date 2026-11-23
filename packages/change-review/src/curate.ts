@@ -283,8 +283,14 @@ const listed = (items: readonly string[]) => (items.length < 2 ? (items[0] ?? ''
 
 const calls = (count: number) => `${count} call${count === 1 ? '' : 's'}`
 
-/** An origin as the words of a unit say it: its label, with its definition's name when the label is a route or a key. */
-const originSaid = (origin: Origin) => (origin.label === origin.symbol ? origin.label : `${origin.label} (${origin.symbol})`)
+/**
+ * An origin as the words of a unit say it: its label, with its definition's name when the label is a route or a key,
+ * and "not certain" when the scan is not sure of it or only a path rule says so: it never reads as a fact.
+ */
+function originSaid(origin: Origin): string {
+  const notes = [...(origin.label === origin.symbol ? [] : [origin.symbol]), ...(origin.exact ? [] : ['not certain'])]
+  return notes.length ? `${origin.label} (${notes.join(', ')})` : origin.label
+}
 
 /**
  * Where a part runs from, in one sentence, saying only what was looked at: the nearest origin and the way from it,

@@ -8,13 +8,17 @@
 import type { EntryAbove, WalkStop } from './entries.ts'
 import type { Origin, OriginStep, RunsFrom, Scan, ScanAnchor, ScanEntry } from './types.ts'
 
-/** An origin's words and route, from what the scan says of it: a route first, then its own words, then a door, else its name. */
-export function originWords(entry: ScanEntry | undefined, symbol: string): { label: string; route?: { verbs: string[]; path: string } } {
+/**
+ * An origin's words and route, from what the scan says of it: a route's verbs and path first, then its own words, then a
+ * door's title (a handler's key, a listener's event, a command), then the key of the property that holds the call, else
+ * its definition's name.
+ */
+export function originWords(entry: ScanEntry | undefined, symbol: string, key?: string): { label: string; route?: { verbs: string[]; path: string } } {
   const route = entry?.routes?.[0]
   if (route) return { label: `${route.verbs.join('/')} ${route.path}`, route: { verbs: route.verbs, path: route.path } }
   if (entry?.label) return { label: entry.label }
   const door = entry?.doors?.[0]
-  return { label: door ? door.title : symbol }
+  return { label: door?.title ?? key ?? symbol }
 }
 
 /** Whether a path is where work enters by the project's layout: the rule's name, or true for one with no name. */
@@ -28,8 +32,8 @@ export const MOST_ORIGINS = 3
 const calls = (count: number) => `${count} call${count === 1 ? '' : 's'}`
 
 /** An origin the scan names: a controller action, a job, a command, a handler, or a kind newer than this reader. */
-function named(entry: ScanEntry, symbol: string, chain: OriginStep[], hops: number): Origin {
-  return { kind: entry.kind, ...originWords(entry, symbol), exact: entry.exact, by: 'scan', symbol, chain, hops }
+function named(entry: ScanEntry, symbol: string, chain: OriginStep[], hops: number, key?: string): Origin {
+  return { kind: entry.kind, ...originWords(entry, symbol, key), exact: entry.exact, by: 'scan', symbol, chain, hops }
 }
 
 /** An origin by its path alone, never sure: its kind is the name of the rule that matched. */
@@ -37,11 +41,15 @@ function byPath(rule: string | true, symbol: string, chain: OriginStep[], hops: 
   return { kind: rule === true ? 'path' : rule, label: symbol, exact: false, by: 'path', symbol, chain, hops }
 }
 
-/** Each origin once, by the definition it is, the first kept: the scan's word before a path's, the nearer before the further. */
+/**
+ * Each origin once, by the definition it is and the call it makes, the first kept: the scan's word before a path's, the
+ * nearer before the further. Two keys of one map of handlers are two ways in.
+ */
 function once(origins: readonly Origin[]): Origin[] {
   const seen = new Set<string>()
   return origins.filter((origin) => {
-    const key = origin.chain[0] ? `${origin.chain[0].path}:${origin.chain[0].line}` : 'itself'
+    const top = origin.chain[0]
+    const key = top ? `${top.path}:${top.line}:${top.call_line ?? ''}` : 'itself'
     if (seen.has(key)) return false
     seen.add(key)
     return true
@@ -70,7 +78,7 @@ function entryCallerOrigins(scan: Scan, anchor: ScanAnchor): Origin[] {
       ...(site.enqueue ? { enqueues: true } : {}),
       ...(guard ? { guard } : {}),
     }
-    return [named(entry, site.symbol, [step], 1)]
+    return [named(entry, site.symbol, [step], 1, site.key)]
   })
 }
 

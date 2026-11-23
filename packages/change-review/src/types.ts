@@ -199,8 +199,10 @@ export interface CallSite {
   guards: Guard[]
   /** The call enqueues the definition as a job. */
   enqueue?: boolean
-  /** The caller is itself an entry point. */
+  /** The way in at this call, or the caller's own: a route, a handler, a listener, a job. */
   entry?: ScanEntry
+  /** The key of the property whose value holds the call, such as `review.prepare` in a map of handlers. */
+  key?: string
 }
 
 /** A changed definition or non-callable change, read from an `agentic-search scan` pack. Optional fields arrive with newer versions of the tool. */

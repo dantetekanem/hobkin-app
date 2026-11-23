@@ -454,6 +454,9 @@ test('where a unit is reached from says what was looked at: the origin and its w
   const cases: [ReviewNode['runs_from'], string][] = [
     [{ found: 'origins', origins: [origin], more: 2 }, 'Reached from GET /topics/:id (TopicsController#show) and 2 more, through render_post and escape.'],
     [{ found: 'origins', origins: [{ ...origin, label: 'showTopic', symbol: 'showTopic', hops: 2, chain: [step('showTopic'), step('renderPost')] }] }, 'Reached from showTopic, through renderPost.'],
+    // A way in the scan is not sure of says so, never reads as a fact.
+    [{ found: 'origins', origins: [{ ...origin, kind: 'handler', label: 'review.prepare', symbol: 'reviewHandlers', exact: false, by: 'scan', hops: 1, chain: [step('reviewHandlers')] }] }, 'Reached from review.prepare (reviewHandlers, not certain).'],
+    [{ found: 'origins', origins: [origin, { ...origin, label: 'showTopic', symbol: 'showTopic', exact: false, by: 'path' }] }, 'Reached from GET /topics/:id (TopicsController#show) and showTopic (not certain), through render_post and escape.'],
     [{ found: 'only-tests', tests: 3 }, 'Only tests call it.'],
     [{ found: 'none', hops: 0, why: 'The scan found nothing that calls it.' }, 'The scan found nothing that calls it.'],
     [{ found: 'none', hops: 4, top: 'Helper#x', why: '' }, 'The scan found no route, job or command within 4 calls of it: the way out stops at Helper#x.'],

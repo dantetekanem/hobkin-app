@@ -59,6 +59,7 @@ The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a
 
 ## Where it runs from, and what tests it
 
+- An origin with `exact: false` (a handler, listener or UI handler the scan matched by its shape, or a path rule) is a way in the scan is not certain of: say so, never write it as a fact.
 - `none` and `only-tests` say what the search saw. The scan misses some ways in (a handler held under a string key, a route built at run time), so never write that no route or caller exists: write that the scan found none within so many calls.
 - A node to assess with an origin and no test through it (no `lifecycle` test that `proves` or `reaches` it) is a finding: send one event at its current level whose evidence names the origin and says no test goes through it, with a `suggest` of the test that would.
 - A `removed` test of changed code, or an `edited` one with `assertions_removed`, is a finding: send one event at the node's current level that names the test and what it checked, and ask whether the change meant to drop it.

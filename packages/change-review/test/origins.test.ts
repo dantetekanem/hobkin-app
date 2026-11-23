@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { packOrigins, runsFromOf } from '../src/origins.ts'
+import { readPack } from '../src/scan.ts'
 import type { Scan, ScanAnchor } from '../src/types.ts'
 
 const anchor: ScanAnchor = { id: 'n1', symbol: 'PostsHelper#link_user_tags', kind: 'method', path: 'app/helpers/posts_helper.rb', startLine: 3, endLine: 9, changedLines: [4], tests: [] }
@@ -64,4 +66,26 @@ test('more than three origins are counted, the nearest kept, and a cut walk is s
 test('a part no production code calls and tests refer to is one only tests call, as a pack lists tests apart from callers', () => {
   assert.deepEqual(runsFromOf({ origins: [], looked: 0, callers: 0, testCallers: 0, testRefs: 3, listed: true }), { found: 'only-tests', tests: 3 })
   assert.deepEqual(runsFromOf({ origins: [], looked: 0, callers: 0, testCallers: 0, testRefs: 0, listed: true }), { found: 'none', hops: 0, why: 'The scan found nothing that calls it.' })
+})
+
+test('each way in a real pack names at a call site is an origin: a handler by its key, a route by its verbs and path, a listener, a task', () => {
+  const packs = JSON.parse(readFileSync(new URL('./fixtures/entry-packs.json', import.meta.url), 'utf8')) as Record<'js' | 'rails', unknown>
+  const js = readPack(packs.js)
+  const originsOf = (symbol: string) => packOrigins(js, js.anchors.find((anchor) => anchor.symbol === symbol)!, () => undefined).origins
+  assert.deepEqual(originsOf('Reviews.prepare').map((origin) => [origin.kind, origin.label, origin.exact, origin.symbol]), [
+    ['handler', 'review.prepare', false, 'reviewHandlers'],
+    ['handler', 'review.again', false, 'reviewHandlers'],
+  ])
+  const sync = originsOf('sync')
+  assert.deepEqual(sync[0], { kind: 'handler', label: 'again', exact: true, by: 'scan', symbol: 'sync', chain: [], hops: 0 })
+  // Two keys of one object are two ways in, not one.
+  assert.deepEqual(sync.filter((origin) => origin.symbol === 'commands').map((origin) => origin.label), ['sync', 'again'])
+  assert.deepEqual(
+    sync.filter((origin) => origin.kind === 'route').map((origin) => [origin.label, origin.exact]),
+    [['POST /sync', true], ['GET /reviews/:id/sync', true], ['PUT/PATCH /hono/sync', true], ['DELETE /sync/:id', true], ['GET/POST/PUT/PATCH/DELETE /any', false]],
+  )
+  assert.ok(sync.some((origin) => origin.kind === 'listener' && origin.label === 'review.sync' && origin.exact))
+  const rails = readPack(packs.rails)
+  const prune = rails.anchors.find((anchor) => anchor.symbol === 'Cleanup.prune')!
+  assert.deepEqual(packOrigins(rails, prune, () => undefined).origins.map((origin) => [origin.kind, origin.label, origin.hops]), [['task', 'cleanup', 1]])
 })

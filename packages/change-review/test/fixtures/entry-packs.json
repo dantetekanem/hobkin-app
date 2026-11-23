@@ -1,0 +1,1438 @@
+{
+ "js": {
+  "anchors": [
+   {
+    "id": "n3",
+    "symbol": "onAgain",
+    "kind": "function",
+    "path": "src/main.ts",
+    "startLine": 11,
+    "endLine": 13,
+    "changedLines": [
+     11
+    ],
+    "entry": {
+     "kind": "listener",
+     "exact": false,
+     "doors": [
+      {
+       "kind": "listener",
+       "title": "again",
+       "file": "src/main.ts",
+       "line": 9,
+       "text": "bus.once('again', onAgain);"
+      }
+     ]
+    },
+    "callerCount": {
+     "total": 1,
+     "shown": 1,
+     "complete": true
+    },
+    "tests": [],
+    "callers": [
+     {
+      "id": "n6",
+      "symbol": "bus.once('again', onAgain)",
+      "path": "src/main.ts",
+      "line": 9,
+      "test": false,
+      "resolution": "static_candidate",
+      "guards": [],
+      "entry": {
+       "kind": "listener",
+       "exact": false,
+       "doors": [
+        {
+         "kind": "listener",
+         "title": "again",
+         "file": "src/main.ts",
+         "line": 9,
+         "text": "bus.once('again', onAgain);"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "n1",
+    "symbol": "Reviews.prepare",
+    "kind": "method",
+    "path": "src/reviews.ts",
+    "startLine": 2,
+    "endLine": 4,
+    "changedLines": [
+     2
+    ],
+    "callerCount": {
+     "total": 3,
+     "shown": 3,
+     "complete": true
+    },
+    "tests": [],
+    "callers": [
+     {
+      "id": "n8",
+      "symbol": "menu",
+      "path": "src/menu.ts",
+      "line": 5,
+      "test": false,
+      "resolution": "static_candidate",
+      "guards": [],
+      "key": "prepare"
+     },
+     {
+      "id": "n9",
+      "symbol": "reviewHandlers",
+      "path": "src/seat.ts",
+      "line": 6,
+      "test": false,
+      "resolution": "static_candidate",
+      "guards": [],
+      "key": "review.prepare",
+      "entry": {
+       "kind": "handler",
+       "exact": false,
+       "doors": [
+        {
+         "kind": "handler",
+         "title": "review.prepare",
+         "file": "src/seat.ts",
+         "line": 6,
+         "text": "'review.prepare': ({ id, refresh }: { id: string; refresh?: boolean }) => reviews.prepare(id, { refresh }),"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n9",
+      "symbol": "reviewHandlers",
+      "path": "src/seat.ts",
+      "line": 8,
+      "test": false,
+      "resolution": "static_candidate",
+      "guards": [],
+      "key": "review.again",
+      "entry": {
+       "kind": "handler",
+       "exact": false,
+       "doors": [
+        {
+         "kind": "handler",
+         "title": "review.again",
+         "file": "src/seat.ts",
+         "line": 7,
+         "text": "'review.again': ({ id }: { id: string }) => {"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "n2",
+    "symbol": "sync",
+    "kind": "function",
+    "path": "src/reviews.ts",
+    "startLine": 7,
+    "endLine": 9,
+    "changedLines": [
+     7
+    ],
+    "entry": {
+     "kind": "handler",
+     "exact": true,
+     "doors": [
+      {
+       "kind": "handler",
+       "title": "again",
+       "file": "src/commands.ts",
+       "line": 5,
+       "text": "again: sync,"
+      }
+     ]
+    },
+    "callerCount": {
+     "total": 18,
+     "shown": 18,
+     "complete": true
+    },
+    "tests": [],
+    "callers": [
+     {
+      "id": "n4",
+      "symbol": "syncNow",
+      "path": "src/server.ts",
+      "line": 27,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "route",
+       "exact": true,
+       "routes": [
+        {
+         "verbs": [
+          "POST"
+         ],
+         "path": "/sync",
+         "file": "src/server.ts",
+         "line": 7,
+         "text": "app.post('/sync', auth, syncNow);"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n10",
+      "symbol": "bus.on('sync', (id: string) => sync(id))",
+      "path": "src/bus.ts",
+      "line": 5,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "listener",
+       "exact": false,
+       "doors": [
+        {
+         "kind": "listener",
+         "title": "sync",
+         "file": "src/bus.ts",
+         "line": 5,
+         "text": "bus.on('sync', (id: string) => sync(id));"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n11",
+      "symbol": "commands",
+      "path": "src/commands.ts",
+      "line": 4,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "key": "sync",
+      "entry": {
+       "kind": "handler",
+       "exact": true,
+       "doors": [
+        {
+         "kind": "handler",
+         "title": "sync",
+         "file": "src/commands.ts",
+         "line": 4,
+         "text": "sync: (id: string) => sync(id),"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n11",
+      "symbol": "commands",
+      "path": "src/commands.ts",
+      "line": 5,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "key": "again",
+      "entry": {
+       "kind": "handler",
+       "exact": true,
+       "doors": [
+        {
+         "kind": "handler",
+         "title": "again",
+         "file": "src/commands.ts",
+         "line": 5,
+         "text": "again: sync,"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n12",
+      "symbol": "options",
+      "path": "src/commands.ts",
+      "line": 12,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "key": "on-sync"
+     },
+     {
+      "id": "n13",
+      "symbol": "told",
+      "path": "src/log.ts",
+      "line": 3,
+      "test": false,
+      "resolution": "exact",
+      "guards": []
+     },
+     {
+      "id": "n14",
+      "symbol": "process.on('SIGTERM', () => sync('term'))",
+      "path": "src/main.ts",
+      "line": 6,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "listener",
+       "exact": true,
+       "doors": [
+        {
+         "kind": "listener",
+         "title": "SIGTERM",
+         "file": "src/main.ts",
+         "line": 6,
+         "text": "process.on('SIGTERM', () => sync('term'));"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n15",
+      "symbol": "ipcMain.handle('review.sync', (_event: unknown, id: string) ",
+      "path": "src/main.ts",
+      "line": 7,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "listener",
+       "exact": true,
+       "doors": [
+        {
+         "kind": "listener",
+         "title": "review.sync",
+         "file": "src/main.ts",
+         "line": 7,
+         "text": "ipcMain.handle('review.sync', (_event: unknown, id: string) => sync(id));"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n16",
+      "symbol": "listen('tauri://focus', () => sync('focus'))",
+      "path": "src/main.ts",
+      "line": 8,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "listener",
+       "exact": true,
+       "doors": [
+        {
+         "kind": "listener",
+         "title": "tauri://focus",
+         "file": "src/main.ts",
+         "line": 8,
+         "text": "listen('tauri://focus', () => sync('focus'));"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n17",
+      "symbol": "pipe",
+      "path": "src/main.ts",
+      "line": 16,
+      "test": false,
+      "resolution": "exact",
+      "guards": []
+     },
+     {
+      "id": "n18",
+      "symbol": "watch",
+      "path": "src/main.ts",
+      "line": 20,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "listener",
+       "exact": false,
+       "doors": [
+        {
+         "kind": "listener",
+         "title": "click",
+         "file": "src/main.ts",
+         "line": 20,
+         "text": "button.addEventListener('click', () => sync('click'));"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n8",
+      "symbol": "menu",
+      "path": "src/menu.ts",
+      "line": 6,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "key": "sync"
+     },
+     {
+      "id": "n8",
+      "symbol": "menu",
+      "path": "src/menu.ts",
+      "line": 7,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "key": "again"
+     },
+     {
+      "id": "n19",
+      "symbol": "app.get('/reviews/:id/sync', (req, res) => res.json(sync(req",
+      "path": "src/server.ts",
+      "line": 6,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "route",
+       "exact": true,
+       "routes": [
+        {
+         "verbs": [
+          "GET"
+         ],
+         "path": "/reviews/:id/sync",
+         "file": "src/server.ts",
+         "line": 6,
+         "text": "app.get('/reviews/:id/sync', (req, res) => res.json(sync(req.params.id)));"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n20",
+      "symbol": "hono.on(['PUT', 'PATCH'], '/hono/sync', (c) => c.json(sync('",
+      "path": "src/server.ts",
+      "line": 10,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "route",
+       "exact": true,
+       "routes": [
+        {
+         "verbs": [
+          "PUT",
+          "PATCH"
+         ],
+         "path": "/hono/sync",
+         "file": "src/server.ts",
+         "line": 10,
+         "text": "hono.on(['PUT', 'PATCH'], '/hono/sync', (c) => c.json(sync('x')));"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n21",
+      "symbol": "routes",
+      "path": "src/server.ts",
+      "line": 13,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "route",
+       "exact": true,
+       "routes": [
+        {
+         "verbs": [
+          "DELETE"
+         ],
+         "path": "/sync/:id",
+         "file": "src/server.ts",
+         "line": 13,
+         "text": "api.delete('/sync/:id', (req, res) => res.json(sync(req.params.id)));"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n22",
+      "symbol": "mount",
+      "path": "src/server.ts",
+      "line": 17,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "route",
+       "exact": false,
+       "routes": [
+        {
+         "verbs": [
+          "GET",
+          "POST",
+          "PUT",
+          "PATCH",
+          "DELETE"
+         ],
+         "path": "/any",
+         "file": "src/server.ts",
+         "line": 17,
+         "text": "router.all('/any', () => sync('any'));"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n23",
+      "symbol": "lookup",
+      "path": "src/server.ts",
+      "line": 21,
+      "test": false,
+      "resolution": "exact",
+      "guards": []
+     }
+    ]
+   },
+   {
+    "id": "n4",
+    "symbol": "syncNow",
+    "kind": "function",
+    "path": "src/server.ts",
+    "startLine": 26,
+    "endLine": 28,
+    "changedLines": [
+     26
+    ],
+    "entry": {
+     "kind": "route",
+     "exact": true,
+     "routes": [
+      {
+       "verbs": [
+        "POST"
+       ],
+       "path": "/sync",
+       "file": "src/server.ts",
+       "line": 7,
+       "text": "app.post('/sync', auth, syncNow);"
+      }
+     ]
+    },
+    "callerCount": {
+     "total": 1,
+     "shown": 1,
+     "complete": true
+    },
+    "tests": [],
+    "callers": [
+     {
+      "id": "n7",
+      "symbol": "app.post('/sync', auth, syncNow)",
+      "path": "src/server.ts",
+      "line": 7,
+      "test": false,
+      "resolution": "static_candidate",
+      "guards": [],
+      "entry": {
+       "kind": "route",
+       "exact": true,
+       "routes": [
+        {
+         "verbs": [
+          "POST"
+         ],
+         "path": "/sync",
+         "file": "src/server.ts",
+         "line": 7,
+         "text": "app.post('/sync', auth, syncNow);"
+        }
+       ]
+      }
+     }
+    ]
+   },
+   {
+    "id": "n5",
+    "symbol": "refresh",
+    "kind": "function",
+    "path": "src/ui.ts",
+    "startLine": 1,
+    "endLine": 3,
+    "changedLines": [
+     1
+    ],
+    "entry": {
+     "kind": "ui-handler",
+     "exact": false,
+     "doors": [
+      {
+       "kind": "ui-handler",
+       "title": "RefreshButton onPress",
+       "file": "src/Panel.tsx",
+       "line": 7,
+       "text": "<RefreshButton onPress={refresh} label=\"x\" />"
+      }
+     ]
+    },
+    "callerCount": {
+     "total": 5,
+     "shown": 5,
+     "complete": true
+    },
+    "tests": [],
+    "callers": [
+     {
+      "id": "n24",
+      "symbol": "Panel",
+      "path": "src/Panel.tsx",
+      "line": 6,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "ui-handler",
+       "exact": false,
+       "doors": [
+        {
+         "kind": "ui-handler",
+         "title": "button onClick",
+         "file": "src/Panel.tsx",
+         "line": 6,
+         "text": "<button onClick={() => refresh(id)}>Refresh</button>"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n24",
+      "symbol": "Panel",
+      "path": "src/Panel.tsx",
+      "line": 7,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "ui-handler",
+       "exact": false,
+       "doors": [
+        {
+         "kind": "ui-handler",
+         "title": "RefreshButton onPress",
+         "file": "src/Panel.tsx",
+         "line": 7,
+         "text": "<RefreshButton onPress={refresh} label=\"x\" />"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n24",
+      "symbol": "Panel",
+      "path": "src/Panel.tsx",
+      "line": 8,
+      "test": false,
+      "resolution": "exact",
+      "guards": []
+     },
+     {
+      "id": "n9",
+      "symbol": "reviewHandlers",
+      "path": "src/seat.ts",
+      "line": 6,
+      "test": false,
+      "resolution": "static_candidate",
+      "guards": [],
+      "key": "review.prepare",
+      "entry": {
+       "kind": "handler",
+       "exact": false,
+       "doors": [
+        {
+         "kind": "handler",
+         "title": "review.prepare",
+         "file": "src/seat.ts",
+         "line": 6,
+         "text": "'review.prepare': ({ id, refresh }: { id: string; refresh?: boolean }) => reviews.prepare(id, { refresh }),"
+        }
+       ]
+      }
+     },
+     {
+      "id": "n9",
+      "symbol": "reviewHandlers",
+      "path": "src/seat.ts",
+      "line": 8,
+      "test": false,
+      "resolution": "static_candidate",
+      "guards": [],
+      "key": "review.again",
+      "entry": {
+       "kind": "handler",
+       "exact": false,
+       "doors": [
+        {
+         "kind": "handler",
+         "title": "review.again",
+         "file": "src/seat.ts",
+         "line": 7,
+         "text": "'review.again': ({ id }: { id: string }) => {"
+        }
+       ]
+      }
+     }
+    ]
+   }
+  ],
+  "nodes": [
+   {
+    "id": "n1",
+    "symbol": "Reviews.prepare",
+    "kind": "method",
+    "path": "src/reviews.ts",
+    "startLine": 2,
+    "endLine": 4
+   },
+   {
+    "id": "n2",
+    "symbol": "sync",
+    "kind": "function",
+    "path": "src/reviews.ts",
+    "startLine": 7,
+    "endLine": 9,
+    "entry": {
+     "kind": "handler",
+     "exact": true,
+     "doors": [
+      {
+       "kind": "handler",
+       "title": "again",
+       "file": "src/commands.ts",
+       "line": 5,
+       "text": "again: sync,"
+      }
+     ]
+    }
+   },
+   {
+    "id": "n3",
+    "symbol": "onAgain",
+    "kind": "function",
+    "path": "src/main.ts",
+    "startLine": 11,
+    "endLine": 13,
+    "entry": {
+     "kind": "listener",
+     "exact": false,
+     "doors": [
+      {
+       "kind": "listener",
+       "title": "again",
+       "file": "src/main.ts",
+       "line": 9,
+       "text": "bus.once('again', onAgain);"
+      }
+     ]
+    }
+   },
+   {
+    "id": "n4",
+    "symbol": "syncNow",
+    "kind": "function",
+    "path": "src/server.ts",
+    "startLine": 26,
+    "endLine": 28,
+    "entry": {
+     "kind": "route",
+     "exact": true,
+     "routes": [
+      {
+       "verbs": [
+        "POST"
+       ],
+       "path": "/sync",
+       "file": "src/server.ts",
+       "line": 7,
+       "text": "app.post('/sync', auth, syncNow);"
+      }
+     ]
+    }
+   },
+   {
+    "id": "n5",
+    "symbol": "refresh",
+    "kind": "function",
+    "path": "src/ui.ts",
+    "startLine": 1,
+    "endLine": 3,
+    "entry": {
+     "kind": "ui-handler",
+     "exact": false,
+     "doors": [
+      {
+       "kind": "ui-handler",
+       "title": "RefreshButton onPress",
+       "file": "src/Panel.tsx",
+       "line": 7,
+       "text": "<RefreshButton onPress={refresh} label=\"x\" />"
+      }
+     ]
+    }
+   },
+   {
+    "id": "n6",
+    "symbol": "bus.once('again', onAgain)",
+    "kind": "statement",
+    "path": "src/main.ts",
+    "startLine": 9,
+    "endLine": 9
+   },
+   {
+    "id": "n7",
+    "symbol": "app.post('/sync', auth, syncNow)",
+    "kind": "statement",
+    "path": "src/server.ts",
+    "startLine": 7,
+    "endLine": 7
+   },
+   {
+    "id": "n8",
+    "symbol": "menu",
+    "kind": "function",
+    "path": "src/menu.ts",
+    "startLine": 3,
+    "endLine": 9
+   },
+   {
+    "id": "n9",
+    "symbol": "reviewHandlers",
+    "kind": "function",
+    "path": "src/seat.ts",
+    "startLine": 3,
+    "endLine": 11
+   },
+   {
+    "id": "n10",
+    "symbol": "bus.on('sync', (id: string) => sync(id))",
+    "kind": "statement",
+    "path": "src/bus.ts",
+    "startLine": 5,
+    "endLine": 5
+   },
+   {
+    "id": "n11",
+    "symbol": "commands",
+    "kind": "object",
+    "path": "src/commands.ts",
+    "startLine": 3,
+    "endLine": 6
+   },
+   {
+    "id": "n12",
+    "symbol": "options",
+    "kind": "object",
+    "path": "src/commands.ts",
+    "startLine": 12,
+    "endLine": 12
+   },
+   {
+    "id": "n13",
+    "symbol": "told",
+    "kind": "function",
+    "path": "src/log.ts",
+    "startLine": 3,
+    "endLine": 3
+   },
+   {
+    "id": "n14",
+    "symbol": "process.on('SIGTERM', () => sync('term'))",
+    "kind": "statement",
+    "path": "src/main.ts",
+    "startLine": 6,
+    "endLine": 6
+   },
+   {
+    "id": "n15",
+    "symbol": "ipcMain.handle('review.sync', (_event: unknown, id: string) ",
+    "kind": "statement",
+    "path": "src/main.ts",
+    "startLine": 7,
+    "endLine": 7
+   },
+   {
+    "id": "n16",
+    "symbol": "listen('tauri://focus', () => sync('focus'))",
+    "kind": "statement",
+    "path": "src/main.ts",
+    "startLine": 8,
+    "endLine": 8
+   },
+   {
+    "id": "n17",
+    "symbol": "pipe",
+    "kind": "function",
+    "path": "src/main.ts",
+    "startLine": 15,
+    "endLine": 17
+   },
+   {
+    "id": "n18",
+    "symbol": "watch",
+    "kind": "function",
+    "path": "src/main.ts",
+    "startLine": 19,
+    "endLine": 21
+   },
+   {
+    "id": "n19",
+    "symbol": "app.get('/reviews/:id/sync', (req, res) => res.json(sync(req",
+    "kind": "statement",
+    "path": "src/server.ts",
+    "startLine": 6,
+    "endLine": 6
+   },
+   {
+    "id": "n20",
+    "symbol": "hono.on(['PUT', 'PATCH'], '/hono/sync', (c) => c.json(sync('",
+    "kind": "statement",
+    "path": "src/server.ts",
+    "startLine": 10,
+    "endLine": 10
+   },
+   {
+    "id": "n21",
+    "symbol": "routes",
+    "kind": "function",
+    "path": "src/server.ts",
+    "startLine": 12,
+    "endLine": 14
+   },
+   {
+    "id": "n22",
+    "symbol": "mount",
+    "kind": "function",
+    "path": "src/server.ts",
+    "startLine": 16,
+    "endLine": 18
+   },
+   {
+    "id": "n23",
+    "symbol": "lookup",
+    "kind": "function",
+    "path": "src/server.ts",
+    "startLine": 20,
+    "endLine": 22
+   },
+   {
+    "id": "n24",
+    "symbol": "Panel",
+    "kind": "component",
+    "path": "src/Panel.tsx",
+    "startLine": 3,
+    "endLine": 11
+   }
+  ],
+  "edges": [
+   {
+    "from": "n6",
+    "to": "n3",
+    "name": "onAgain",
+    "relationship": "called_by",
+    "resolution": "static_candidate",
+    "line": 9
+   },
+   {
+    "from": "n7",
+    "to": "n4",
+    "name": "syncNow",
+    "relationship": "called_by",
+    "resolution": "static_candidate",
+    "line": 7
+   },
+   {
+    "from": "n8",
+    "to": "n1",
+    "name": "prepare",
+    "relationship": "called_by",
+    "resolution": "static_candidate",
+    "line": 5
+   },
+   {
+    "from": "n9",
+    "to": "n1",
+    "name": "prepare",
+    "relationship": "called_by",
+    "resolution": "static_candidate",
+    "line": 6
+   },
+   {
+    "from": "n9",
+    "to": "n1",
+    "name": "prepare",
+    "relationship": "called_by",
+    "resolution": "static_candidate",
+    "line": 8
+   },
+   {
+    "from": "n10",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 5
+   },
+   {
+    "from": "n11",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "import",
+    "line": 4
+   },
+   {
+    "from": "n11",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "import",
+    "line": 5
+   },
+   {
+    "from": "n12",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "import",
+    "line": 12
+   },
+   {
+    "from": "n13",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "import",
+    "line": 3
+   },
+   {
+    "from": "n14",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 6
+   },
+   {
+    "from": "n15",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 7
+   },
+   {
+    "from": "n16",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 8
+   },
+   {
+    "from": "n17",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 16
+   },
+   {
+    "from": "n18",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 20
+   },
+   {
+    "from": "n8",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "import",
+    "line": 6
+   },
+   {
+    "from": "n8",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "import",
+    "line": 7
+   },
+   {
+    "from": "n19",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 6
+   },
+   {
+    "from": "n20",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 10
+   },
+   {
+    "from": "n21",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 13
+   },
+   {
+    "from": "n22",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 17
+   },
+   {
+    "from": "n23",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 21
+   },
+   {
+    "from": "n4",
+    "to": "n2",
+    "name": "sync",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "checker",
+    "line": 27
+   },
+   {
+    "from": "n24",
+    "to": "n5",
+    "name": "refresh",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "import",
+    "line": 6
+   },
+   {
+    "from": "n24",
+    "to": "n5",
+    "name": "refresh",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "import",
+    "line": 7
+   },
+   {
+    "from": "n24",
+    "to": "n5",
+    "name": "refresh",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "import",
+    "line": 8
+   },
+   {
+    "from": "n9",
+    "to": "n5",
+    "name": "refresh",
+    "relationship": "called_by",
+    "resolution": "static_candidate",
+    "line": 6
+   },
+   {
+    "from": "n9",
+    "to": "n5",
+    "name": "refresh",
+    "relationship": "called_by",
+    "resolution": "static_candidate",
+    "line": 8
+   }
+  ],
+  "coverage": {
+   "maxDepth": 1,
+   "depthReached": 1,
+   "vicinity": 20,
+   "unresolved": 0,
+   "unresolvedByReason": {
+    "operator": 0,
+    "unknown-receiver": 0,
+    "dynamic": 0,
+    "no-definition": 0
+   },
+   "truncatedBy": "none",
+   "frontier": [],
+   "cycles": [],
+   "notes": [
+    "TypeScript program for tsconfig.json: 4 root files, 87 source files, 139 ms."
+   ],
+   "rgCalls": 10,
+   "elapsedMs": 209
+  }
+ },
+ "rails": {
+  "anchors": [
+   {
+    "id": "n3",
+    "symbol": "ReportMailer#daily",
+    "kind": "method",
+    "path": "app/mailers/report_mailer.rb",
+    "startLine": 2,
+    "endLine": 4,
+    "changedLines": [
+     2
+    ],
+    "entry": {
+     "kind": "mailer",
+     "exact": true
+    },
+    "callerCount": {
+     "total": 1,
+     "shown": 1,
+     "complete": true
+    },
+    "tests": [],
+    "callers": [
+     {
+      "id": "n1",
+      "symbol": "reports:daily",
+      "path": "lib/tasks/reports.rake",
+      "line": 4,
+      "test": false,
+      "resolution": "static_candidate",
+      "guards": [],
+      "entry": {
+       "kind": "task",
+       "exact": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "n4",
+    "symbol": "ChatChannel#speak",
+    "kind": "method",
+    "path": "app/channels/chat_channel.rb",
+    "startLine": 6,
+    "endLine": 8,
+    "changedLines": [
+     6
+    ],
+    "entry": {
+     "kind": "channel",
+     "exact": true
+    },
+    "callerCount": {
+     "total": 0,
+     "shown": 0,
+     "complete": true
+    },
+    "tests": [],
+    "callers": []
+   },
+   {
+    "id": "n2",
+    "symbol": "Cleanup.prune",
+    "kind": "singleton_method",
+    "path": "app/models/cleanup.rb",
+    "startLine": 2,
+    "endLine": 4,
+    "changedLines": [
+     2
+    ],
+    "callerCount": {
+     "total": 1,
+     "shown": 1,
+     "complete": true
+    },
+    "tests": [],
+    "callers": [
+     {
+      "id": "n7",
+      "symbol": "cleanup",
+      "path": "lib/tasks/reports.rake",
+      "line": 9,
+      "test": false,
+      "resolution": "exact",
+      "guards": [],
+      "entry": {
+       "kind": "task",
+       "exact": true
+      }
+     }
+    ]
+   },
+   {
+    "id": "n1",
+    "symbol": "reports:daily",
+    "kind": "task",
+    "path": "lib/tasks/reports.rake",
+    "startLine": 3,
+    "endLine": 5,
+    "changedLines": [
+     4
+    ],
+    "entry": {
+     "kind": "task",
+     "exact": true
+    },
+    "callerCount": {
+     "total": 0,
+     "shown": 0,
+     "complete": false
+    },
+    "tests": [],
+    "callers": []
+   }
+  ],
+  "nodes": [
+   {
+    "id": "n1",
+    "symbol": "reports:daily",
+    "kind": "task",
+    "path": "lib/tasks/reports.rake",
+    "startLine": 3,
+    "endLine": 5,
+    "entry": {
+     "kind": "task",
+     "exact": true
+    }
+   },
+   {
+    "id": "n2",
+    "symbol": "Cleanup.prune",
+    "kind": "singleton_method",
+    "path": "app/models/cleanup.rb",
+    "startLine": 2,
+    "endLine": 4
+   },
+   {
+    "id": "n3",
+    "symbol": "ReportMailer#daily",
+    "kind": "method",
+    "path": "app/mailers/report_mailer.rb",
+    "startLine": 2,
+    "endLine": 4,
+    "entry": {
+     "kind": "mailer",
+     "exact": true
+    }
+   },
+   {
+    "id": "n4",
+    "symbol": "ChatChannel#speak",
+    "kind": "method",
+    "path": "app/channels/chat_channel.rb",
+    "startLine": 6,
+    "endLine": 8,
+    "entry": {
+     "kind": "channel",
+     "exact": true
+    }
+   },
+   {
+    "id": "n5",
+    "symbol": "ReportMailer",
+    "kind": "class",
+    "path": "app/mailers/report_mailer.rb",
+    "startLine": 1,
+    "endLine": 11
+   },
+   {
+    "id": "n6",
+    "symbol": "User",
+    "kind": "class",
+    "path": "app/models/user.rb",
+    "startLine": 1,
+    "endLine": 5
+   },
+   {
+    "id": "n7",
+    "symbol": "cleanup",
+    "kind": "task",
+    "path": "lib/tasks/reports.rake",
+    "startLine": 8,
+    "endLine": 10,
+    "entry": {
+     "kind": "task",
+     "exact": true
+    }
+   }
+  ],
+  "edges": [
+   {
+    "from": "n7",
+    "to": "n2",
+    "name": "prune",
+    "relationship": "called_by",
+    "resolution": "exact",
+    "via": "constant",
+    "line": 9
+   },
+   {
+    "from": "n1",
+    "to": "n3",
+    "name": "daily",
+    "relationship": "called_by",
+    "resolution": "static_candidate",
+    "line": 4
+   }
+  ],
+  "coverage": {
+   "maxDepth": 1,
+   "depthReached": 1,
+   "vicinity": 20,
+   "unresolved": 3,
+   "unresolvedByReason": {
+    "operator": 0,
+    "unknown-receiver": 2,
+    "dynamic": 0,
+    "no-definition": 1
+   },
+   "truncatedBy": "none",
+   "frontier": [],
+   "cycles": [],
+   "notes": [
+    "Ruby index for .: 14 files, 25 definitions, 13 namespaces, built cold, 43 ms."
+   ],
+   "rgCalls": 11,
+   "elapsedMs": 142
+  }
+ }
+}

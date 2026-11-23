@@ -116,6 +116,7 @@ function callSiteOf(value: unknown): CallSite | undefined {
   const said = text(raw.text)
   const resolution = name(raw.resolution)
   const entry = entryOf(raw.entry)
+  const key = name(raw.key)
   return {
     id,
     symbol,
@@ -126,6 +127,7 @@ function callSiteOf(value: unknown): CallSite | undefined {
     guards,
     ...(raw.enqueue === true ? { enqueue: true } : {}),
     ...(entry ? { entry } : {}),
+    ...(key ? { key } : {}),
   }
 }
 
