@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
+import type { AgentSchedule } from '#shared/protocol/schedules.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { agentHandlers, type AgentsApp } from '../src/agents.ts'
 import { runCommand } from '../src/commands.ts'
@@ -40,4 +41,24 @@ test('a run that waits takes no message and no new model until it carries on, an
   assert.deepEqual(changed, { ok: false, error: { code: 'unavailable', message: 'That agent is not working.' } })
   assert.deepEqual(ended, { ok: false, error: { code: 'unavailable', message: 'It had already finished, so nothing was stopped.' } })
   assert.deepEqual(calls, [])
+})
+
+test('a run that waits on its schedule names the schedule that will wake it, and one whose schedules ended waits for its time', async () => {
+  const app = {
+    workAction: async () => ({}),
+    kill: async () => true,
+    runner: { messageCheck: async () => ({ running: [] }) },
+  } satisfies AgentsApp
+  const ship: RunSummary = { id: 'session:ship', kind: 'background', state: 'waiting', title: 'Ship 412', scheduleId: 'session.ship' }
+  const say = (schedules: AgentSchedule[]) => runCommand(agentHandlers({ app: () => app, runs: () => [ship], schedules: () => schedules }), 'agent.say', { run: 'session:ship', text: 'Look now' })
+  const words = (said: unknown) => (said as { error?: { message: string } }).error?.message
+
+  const ended: AgentSchedule = { id: 'sch-0', owner: { kind: 'run', id: 'session:ship' }, name: 'Old watch', state: 'done' }
+  const later: AgentSchedule = { id: 'sch-1', owner: { kind: 'run', id: 'session:ship' }, name: 'Nightly check', state: 'waiting', nextAt: '2026-11-23T23:00:00.000Z' }
+  const soon: AgentSchedule = { id: 'sch-2', owner: { kind: 'run', id: 'session:ship' }, name: 'Watch CI for #412', state: 'waiting', nextAt: '2026-11-23T16:02:00.000Z' }
+  const another: AgentSchedule = { id: 'sch-3', owner: { kind: 'run', id: 'session:other' }, name: 'Not its own', state: 'waiting', nextAt: '2026-11-23T16:00:00.000Z' }
+
+  assert.equal(words(await say([ended, later, soon, another])), 'It waits for its schedule "Watch CI for #412" to wake it, so nothing reaches it until then.')
+  assert.equal(words(await say([{ ...soon, name: undefined, state: 'paused', nextAt: undefined }])), 'It waits for one of its schedules to wake it, so nothing reaches it until then.')
+  assert.equal(words(await say([ended, another])), 'It waits for its time, so nothing reaches it until it carries on.')
 })

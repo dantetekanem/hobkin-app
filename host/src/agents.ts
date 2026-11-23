@@ -1,4 +1,5 @@
 import type { ImageContent } from 'hobkin/src/cli/application.mjs'
+import { ENDED_SCHEDULE_STATES, type AgentSchedule } from '#shared/protocol/schedules.ts'
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import { imageContents, type AgentImages } from './attachments.ts'
@@ -29,6 +30,20 @@ export interface AgentsSeat {
   models?: () => Promise<ModelsState | null>
   /** The images attached to the messages being written. Without them a message can only be words. */
   images?: AgentImages
+  /** The schedules agents keep for themselves, as the window has them (056-agent-schedules). None from a runtime without them. */
+  schedules?: () => readonly AgentSchedule[] | undefined
+}
+
+/**
+ * What a run that waits is waiting for: the soonest of its live schedules to wake it (056-agent-schedules), or its time
+ * (spec 053).
+ */
+function waitingWords(run: RunSummary, schedules: readonly AgentSchedule[] | undefined): string {
+  const own = (schedules ?? []).filter(({ owner, state }) => owner?.kind === 'run' && owner.id === run.id && state && !ENDED_SCHEDULE_STATES.includes(state))
+  if (!own.length) return 'It waits for its time, so nothing reaches it until it carries on.'
+  const [next] = own.toSorted((one, other) => (one.nextAt ? Date.parse(one.nextAt) : Infinity) - (other.nextAt ? Date.parse(other.nextAt) : Infinity))
+  const which = next!.name ? `its schedule "${next!.name}"` : 'one of its schedules'
+  return `It waits for ${which} to wake it, so nothing reaches it until then.`
 }
 
 /** The two ways the terminal's k stops a work agent. */
@@ -36,7 +51,7 @@ const STOPS = { 'for-now': 'later', 'not-approved': 'decline' } as const
 
 const messageOf = (result: unknown) => String((result as { message?: unknown } | null)?.message ?? '')
 
-export function agentHandlers({ app, runs, models, images: attached }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change'> {
+export function agentHandlers({ app, runs, models, images: attached, schedules }: AgentsSeat): Pick<HostHandlers, 'agent.stop' | 'agent.say' | 'agent.change'> {
   /**
    * The run, while it runs, or also while it waits for its time when `waits` says so (spec 053). hobkin's own
    * conversation is no agent: its turn stops from the input.
@@ -45,7 +60,7 @@ export function agentHandlers({ app, runs, models, images: attached }: AgentsSea
     const run = runs().find((entry) => entry.id === id)
     if (run?.kind === 'main') throw new Unavailable("That is hobkin's own conversation. Its turn stops from the input.")
     if (waits && run?.state === 'waiting') return run
-    if (run?.state === 'waiting') throw new Unavailable('It waits for its time, so nothing reaches it until it carries on.')
+    if (run?.state === 'waiting') throw new Unavailable(waitingWords(run, schedules?.()))
     if (!run || run.state !== 'running') throw new Unavailable(ended)
     return run
   }
