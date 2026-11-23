@@ -73,6 +73,8 @@ Nothing is lost between sittings or between front ends. The app reopens where th
 - A7. `ui/test/connection.test.ts` › "reconnects and replaces stale state"
 - A8. `host/test/history.test.ts` › "lists earlier main sessions read-only"
 - A9. check: `pmset -g assertions` shows the assertion during a run and not after.
+- A10. `hobkin/test/cli-unread.test.mjs` › "a steered message counts as read once Pi puts it into the turn, and one a stop takes back never does", › "the news a steered message carries stays unheard until the model reads it, and a stop leaves it for the next message" and › "the news a steered message carries is heard once the model reads it, and the next message does not carry it again"
+- A11. `hobkin/test/cli-unread.test.mjs` › "a close keeps what the model never read, and the next open keeps it once and sends nothing", › "a close whose queue never answers goes on without it", › "after a crash, steering whose words the session file does not hold is kept, and nothing is sent again" and › "after a close, what the model never read waits in the snapshot for the window, without hobkin's notes, until the user sends again"; `ui/test/chat-unread.test.ts` › "what hobkin kept of the words it never read goes into the input once it is open, and a new connection does not add it again"; `ui/test/conversation-draft.test.ts` › "what hobkin kept of the words it never read goes ahead of the draft once, and a reload does not add it again"
 
 ## Steps
 
@@ -82,5 +84,5 @@ Nothing is lost between sittings or between front ends. The app reopens where th
 - [ ] S4 (A6). The shared-home test against hobkin's application, both directions.
 - [ ] S5 (A8). History of earlier sessions.
 - [ ] S6 (A9). Stay awake while work runs.
-- [ ] S7 (A10). Runtime: news is marked heard when the model read the message that carried it.
-- [ ] S8 (A11). Runtime, host and window: a message the model never read is kept across a close, a restart and a crash, and handed back to the input.
+- [x] S7 (A10). Runtime: news is marked heard when the model read the message that carried it. hobkin 491bb3b. Run with fake sessions only: the path through Pi's own process was checked by reading.
+- [x] S8 (A11). Runtime and window: a message the model never read is kept across a close, a restart and a crash, in `runtime/unread.json`, and handed back to the input through the snapshot's `unread`. hobkin 491bb3b, window 807b9ca. The words go when the user's next message is taken. Not seen live. Known gap: a message Pi rewrites before the model reads it, such as a skill it expands, is not matched, so its news repeats once.
