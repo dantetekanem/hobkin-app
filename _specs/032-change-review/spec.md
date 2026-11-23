@@ -166,7 +166,7 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - [x] S16 (A37, A38, A39). Risky is acted on: the fix brief in the engine (0e969de), hobkin's `fixRisk` and `riskStays` (hobkin 42bcb0d), the host sending and filing with `risk-fix.json` (25ad77a), and the header and card words (fecab09). Seen only as a still render: not yet in the live window, and no live review has sent an agent yet.
 - [x] S17 (A19, A20, A40). Remove on a row only takes the review out of the list, and a change and its pull request are listed once.
 - [x] S18 (A41). A finished change's review follows its branch in git.
-- [ ] S19 (A42, A43). A review links its pull request and names its author, in the panel and in the list.
+- [x] S19 (A42, A43). A review links its pull request and names its author, in the panel and in the list. Host 9895e72, window 10fc649. Seen only as a still render: not yet in the live window, and the host has to reload itself before a finished change's link and author show.
 
 ## Open questions
 
