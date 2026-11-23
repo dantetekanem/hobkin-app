@@ -5,8 +5,8 @@
  * without a host.
  *
  * The rule: a node needs the reviewer when the review rated it high or critical, found a test it breaks or a reference
- * it leaves dangling, left a question, found a test that fails, when the blind check disagreed with its unit's level,
- * or when an acceptance line has a warning. It is worth a look when it is mid, no test covers it, it only removes lines,
+ * it leaves dangling, left a question, found a test that fails, when a test the change adds or edits did not run, when
+ * the blind check disagreed with its unit's level, or when an acceptance line has a warning. It is worth a look when it is mid, no test covers it, it only removes lines,
  * or something about it could not be checked. Everything else is safe.
  */
 import { classify, isLockfile } from '../../packages/change-review/src/triage.ts'
@@ -14,8 +14,8 @@ import type { Effect, Proof } from '../../packages/change-review/src/types.ts'
 import type { RatedNode } from './assessment.ts'
 import { alignRows } from './diff.ts'
 import { fileRole } from './paths.ts'
-import { listed } from './prose.ts'
-import type { AttentionTier, ChangeKind, FileStatus, NodeBucket, NodeKind, NodeStatus } from './types.ts'
+import { cleanProse, listed } from './prose.ts'
+import { PROSE_LIMIT, type AttentionTier, type ChangeKind, type FileStatus, type NodeBucket, type NodeKind, type NodeStatus } from './types.ts'
 
 /** What the change review found of one definition a node holds. */
 export type RatedFacts = Omit<RatedNode, 'id' | 'symbol' | 'path' | 'lines' | 'unit'>
@@ -29,6 +29,8 @@ export interface AttentionInput {
   size: number
   /** A test's run, or an acceptance line's proof. */
   status?: NodeStatus
+  /** Why a test did not run, when the change review says. */
+  notRun?: string
   /** Why an acceptance line needs a second look. */
   warning?: string
   /** Every definition the change review rated in its lines. Empty for a node it did not rate. */
@@ -161,7 +163,7 @@ const UNRATED_BUCKETS: Record<NodeBucket, string> = {
 }
 
 /** What is known of a node the change review did not rate: a test's run, an acceptance line's proof, a file's kind. */
-function unratedReasons({ kind, bucket, change, status, warning }: AttentionInput): Reason[] {
+function unratedReasons({ kind, bucket, change, status, notRun, warning }: AttentionInput): Reason[] {
   if (kind === 'context' || (change === 'unchanged' && kind !== 'criterion')) return []
   if (kind === 'criterion') {
     if (warning) return [needs(55, sentence(warning))]
@@ -169,7 +171,12 @@ function unratedReasons({ kind, bucket, change, status, warning }: AttentionInpu
   }
   if (kind === 'test') {
     if (status === 'failed') return [needs(80, 'This test fails with the change in place.')]
-    return status === 'not-run' ? [look(15, 'This test did not run.')] : []
+    if (status !== 'not-run') return []
+    // A test the change adds or edits that never ran shows nothing of the change it came with.
+    if (change === 'added' || change === 'modified') {
+      return [needs(70, cleanProse(sentence(notRun ? `This test of the change did not run: ${notRun}` : 'This test of the change did not run'), PROSE_LIMIT.summary))]
+    }
+    return [look(15, 'This test did not run.')]
   }
   const safe = SAFE_BUCKETS[bucket]
   return safe ? [note(1, safe)] : [look(10, UNRATED_BUCKETS[bucket])]

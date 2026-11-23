@@ -114,6 +114,28 @@ test('a test says how the change review ran it: failing at the change’s commit
   assert.match(words([], 'no way to run this repository’s tests was found.').summary, /Not run: no way to run this repository’s tests was found\.$/)
 })
 
+test('a test passes only where a run that held it ran tests and failed none: one that could not start, was stopped or ran none says why it did not run', async () => {
+  const graph = await review()
+  const test = graph.nodes.find((node) => node.kind === 'test')!
+  const file = 'test/models/cart_test.rb'
+  const other = 'test/models/order_test.rb'
+  type Parts = Parameters<typeof unitWords>[1]
+  const words = (runs: Parts['runs'], unrun?: Parts['unrun']) => unitWords(graph, { units: [], places, words: null, runs, ...(unrun ? { unrun } : {}) }).find((node) => node.id === test.id)!
+  const notRun = (node: ReviewNode, why: string) => {
+    assert.equal(node.status, 'not-run', why)
+    assert.ok(node.summary.endsWith(`Not run: ${why}`), node.summary)
+  }
+  const gems = 'the test command could not start here (Could not find rails-8.1.3.1 in locally installed gems).'
+  notRun(words([{ kind: 'baseline', tests: [file], failed: [], not_run: gems }]), gems)
+  notRun(words([{ kind: 'baseline', tests: [file, other], failed: [], not_run: 'the proof was stopped.' }]), 'the proof was stopped.')
+  // The batch failed in another file, and run alone this one held no test the runner runs.
+  const none = 'the test runner found no test to run.'
+  notRun(words([{ kind: 'baseline', tests: [file, other], failed: [other] }, { kind: 'baseline', tests: [file], failed: [], not_run: none }, { kind: 'baseline', tests: [other], failed: [other] }]), none)
+  const notTaken = 'this review runs tests with bin/rails with a test folder, which does not take it.'
+  notRun(words([{ kind: 'baseline', tests: [other], failed: [] }], [{ path: file, why: notTaken }]), notTaken)
+  assert.equal(words([{ kind: 'baseline', tests: [file, other], failed: [other] }, { kind: 'baseline', tests: [file], failed: [] }]).status, 'passed', 'run alone, it ran and passed')
+})
+
 test('only a test the run failed in proves the change: another test of the same file passed both ways', async () => {
   const graph = await review()
   const test = graph.nodes.find((node) => node.kind === 'test')!

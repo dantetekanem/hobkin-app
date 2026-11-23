@@ -41,6 +41,8 @@ export interface UnitRun {
   failed: readonly string[]
   /** Where in its test files the run failed, when its output said. A test of a failed file with no place here passed. */
   failed_at?: readonly { path: string; line: number }[]
+  /** Why the run tells nothing of how its test files did: its command could not start, it was stopped, or it ran no test. */
+  not_run?: string
 }
 
 export interface UnitStoryParts {
@@ -62,6 +64,54 @@ export interface UnitWordsParts {
   runs: readonly UnitRun[]
   /** Why no test ran, when the change review says so. */
   notRun?: string
+  /** The test files the change adds or edits that no run ran, each with why. */
+  unrun?: readonly { path: string; why: string }[]
+}
+
+/** How the change review's runs went for one test: what it shows, the definitions it proves and runs through, and why it did not run. */
+interface TestTold {
+  status: NodeStatus
+  proves: string[]
+  reaches: string[]
+  why?: string
+}
+
+/**
+ * Each test of the review as the change review's runs went for it, by node id. A test proves the change only when the
+ * run failed in that test: where a run says which places failed, another test of the same file passed. It passes
+ * only where a run that held its file ran tests and failed none in it; a file that ran alone is told by those runs,
+ * since the batch it was in may have run only its other files.
+ */
+function testsTold(review: Review, parts: UnitWordsParts): Map<string, TestTold> {
+  const files = new Map(review.files.map((file) => [file.id, file]))
+  const symbolOf = new Map(parts.places.map((place) => [place.id, place.symbol ?? place.id]))
+  const unrun = new Map((parts.unrun ?? []).map((entry) => [entry.path, entry.why]))
+  const told = new Map<string, TestTold>()
+  for (const node of review.nodes) {
+    if (node.kind !== 'test' || node.status == null || !node.subtitle) continue
+    const path = node.subtitle
+    const ran = parts.runs.filter((run) => run.tests.includes(path))
+    const here = node.anchors.filter((anchor) => anchor.side !== 'deleted' && files.get(anchor.fileId)?.path === path)
+    /** The run failed in this test: in its file, and at one of its own lines when the run says where it failed. */
+    const failedIn = (run: UnitRun) =>
+      run.failed.includes(path) && (run.failed_at == null || run.failed_at.some((at) => at.path === path && here.some((anchor) => anchor.startLine <= at.line && at.line <= anchor.endLine)))
+    const namesOf = (kinds: readonly string[]) => [...new Set(ran.filter((run) => kinds.includes(run.kind) && run.node && failedIn(run)).map((run) => symbolOf.get(run.node!) ?? run.node!))]
+    const failsAtHead = ran.some((run) => run.kind === 'baseline' && run.node == null && failedIn(run))
+    const proves = namesOf(['revert', 'probe'])
+    const atHead = ran.filter((run) => run.kind === 'baseline')
+    const alone = atHead.filter((run) => run.tests.length === 1)
+    const telling = alone.length ? alone : atHead
+    const passes = telling.some((run) => !run.not_run && !failedIn(run))
+    const status: NodeStatus = failsAtHead ? 'failed' : proves.length ? 'proves-change' : passes ? 'passed' : 'not-run'
+    const why = status === 'not-run' ? (telling.find((run) => run.not_run)?.not_run ?? unrun.get(path) ?? parts.notRun) : undefined
+    told.set(node.id, { status, proves, reaches: namesOf(['reach']), ...(why ? { why } : {}) })
+  }
+  return told
+}
+
+/** Why each test of the review that the change review did not run was not run, by node id, where it says. */
+export function testsNotRun(review: Review, parts: UnitWordsParts): Map<string, string> {
+  return new Map([...testsTold(review, parts)].flatMap(([id, told]) => (told.why ? [[id, told.why] as const] : [])))
 }
 
 /** The graph's nodes of a definition of the change review's graph: the same file and overlapping lines, at head or at base. */
@@ -82,15 +132,13 @@ function holdsPlace(review: Review): (node: ReviewNode, place: UnitPlace) => boo
  * Reviewer's line for it, its own member line when the unit groups several, else the unit's "what changed"; and it
  * takes the Reviewer's name for it when that part alone of the unit is on it. Unchanged code the Reviewer put in a unit
  * says the same. Code whose only parts the Reviewer took out of the map says so, and why. A test says what it covers and how the
- * change review's runs went: it proves the change (it fails when the change is put back), it fails at the change's
- * commit, it passes, or it was not run, and why. A test proves the change only when the run failed in that test: where
- * a run says which places failed, another test of the same file passed, and says so.
+ * change review's runs went (`testsTold`): it proves the change (it fails when the change is put back), it fails at the
+ * change's commit, it passes, or it was not run, and why.
  */
 export function unitWords(review: Review, parts: UnitWordsParts): ReviewNode[] {
   const holds = holdsPlace(review)
-  const files = new Map(review.files.map((file) => [file.id, file]))
   const unitOf = new Map(parts.units.flatMap((unit) => unit.nodes.map((id) => [id, unit] as const)))
-  const symbolOf = new Map(parts.places.map((place) => [place.id, place.symbol ?? place.id]))
+  const tests = testsTold(review, parts)
   const code = parts.places.filter((place) => place.kind !== 'test' && !place.broken)
   return review.nodes.map((node) => {
     if (node.kind === 'code' || node.kind === 'file' || node.kind === 'context') {
@@ -108,26 +156,16 @@ export function unitWords(review: Review, parts: UnitWordsParts): ReviewNode[] {
       const title = told.length === 1 && place!.told?.title ? cleanProse(place!.told.title, PROSE_LIMIT.title) : ''
       return { ...node, ...(title ? { title } : {}), ...(said ? { summary: cleanProse(said, PROSE_LIMIT.summary) } : {}) }
     }
-    if (node.kind !== 'test' || node.status == null || !node.subtitle) return node
-    const path = node.subtitle
-    const ran = parts.runs.filter((run) => run.tests.includes(path))
-    const here = node.anchors.filter((anchor) => anchor.side !== 'deleted' && files.get(anchor.fileId)?.path === path)
-    /** The run failed in this test: in its file, and at one of its own lines when the run says where it failed. */
-    const failedIn = (run: UnitRun) =>
-      run.failed.includes(path) && (run.failed_at == null || run.failed_at.some((at) => at.path === path && here.some((anchor) => anchor.startLine <= at.line && at.line <= anchor.endLine)))
-    const namesOf = (kinds: readonly string[]) => [...new Set(ran.filter((run) => kinds.includes(run.kind) && run.node && failedIn(run)).map((run) => symbolOf.get(run.node!) ?? run.node!))]
-    const failsAtHead = ran.some((run) => run.kind === 'baseline' && run.node == null && failedIn(run))
-    const proves = namesOf(['revert', 'probe'])
-    const reaches = namesOf(['reach'])
-    const passes = ran.some((run) => run.kind === 'baseline' && !failedIn(run))
-    const status: NodeStatus = failsAtHead ? 'failed' : proves.length ? 'proves-change' : passes ? 'passed' : 'not-run'
+    const told = tests.get(node.id)
+    if (!told) return node
+    const { status, proves, reaches, why } = told
     const result = {
       failed: "It fails at the change's commit.",
       'proves-change': `It proves the change: it fails when ${listed(proves.slice(0, 2))}${proves.length > 2 ? ' and more' : ''} ${proves.length === 1 ? 'is' : 'are'} put back.`,
       passed: reaches.length
         ? `It runs through ${listed(reaches.slice(0, 2))} and passes, with the change and with it put back: it does not check the change itself.`
         : "It passes at the change's commit, and no change put back made it fail.",
-      'not-run': `Not run${parts.notRun ? `: ${parts.notRun.replace(/\.$/, '')}` : ' by the change review'}.`,
+      'not-run': `Not run${why ? `: ${why.replace(/\.$/, '')}` : ' by the change review'}.`,
     }[status as 'failed' | 'proves-change' | 'passed' | 'not-run']
     return { ...node, status, summary: cleanProse(`${testCovers(review.nodes, review.edges, node).said} ${result}`, PROSE_LIMIT.summary) }
   })

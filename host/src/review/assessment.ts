@@ -21,7 +21,7 @@ import type { NodeBucket, Review, ReviewFileContents, ReviewNode } from '#shared
 import { STEP_IDS, type Effect, type Exposure, type Proof, type Undo } from '../../../packages/change-review/src/types.ts'
 import type { HostTree } from './code-hosts.ts'
 import { readyHostTree } from './host-tree.ts'
-import { unitStory, unitWords, type UnitPlace, type UnitRun } from './unit-story.ts'
+import { testsNotRun, unitStory, unitWords, type UnitPlace, type UnitRun } from './unit-story.ts'
 
 const run = promisify(execFile)
 const GIT_TIMEOUT_MS = 120_000
@@ -60,6 +60,36 @@ export interface ProgressLike {
   steps: { id: string; status: string; done: number; total: number; seconds: number | null; note?: string }[]
 }
 
+/** What the host reads of a test run in the engine's graph.json. */
+interface GraphRun {
+  kind: string
+  node?: string
+  tests?: string[]
+  failed?: string[]
+  failed_at?: { path: string; line: number }[]
+  /** Why the run tells nothing of how its files did. */
+  not_run?: unknown
+}
+
+/** What the host reads of the engine's graph.json: its nodes, every test run, and the change's tests no run ran. */
+interface GraphFile {
+  nodes?: GraphNode[]
+  runs?: GraphRun[]
+  not_run?: { path?: unknown; why?: unknown }[]
+}
+
+/** A run as the unit story reads it. One that says why it tells nothing of its files keeps that reason. */
+function unitRunOf(run: GraphRun): UnitRun {
+  return {
+    kind: run.kind,
+    ...(run.node ? { node: run.node } : {}),
+    tests: run.tests ?? [],
+    failed: run.failed ?? [],
+    ...(run.failed_at ? { failed_at: run.failed_at } : {}),
+    ...(typeof run.not_run === 'string' && run.not_run ? { not_run: run.not_run } : {}),
+  }
+}
+
 /** What the host reads of a node in the engine's graph.json. */
 interface GraphNode {
   id: string
@@ -78,7 +108,7 @@ interface GraphNode {
   /** The Reviewer took it out of the map, for this reason. */
   hidden?: string
   /** The test runs that concern it. */
-  runs?: { kind: string; node?: string; tests?: string[]; failed?: string[]; failed_at?: { path: string; line: number }[] }[]
+  runs?: GraphRun[]
   /** What its change does, how far tests show it, who it reaches and what undoes it, each with what it rests on: a proof of `tests were not run: …` when no test could run. */
   facts?: Partial<Record<'effect' | 'proof' | 'exposure' | 'undo', { value?: unknown; evidence?: string }>>
   /** What the review found of it, by the kind of thing found and who found it. */
@@ -160,17 +190,19 @@ function bucketOf(node: ReviewNode, buckets: ReadonlyMap<string, NodeBucket>): N
  * three reasons in plain words, from the rated definitions its lines at head overlap, and else from what is known of it,
  * such as a test's run or its file's kind; and its bucket, from `buckets`, each changed file's by its path.
  */
-export function withAttention(review: Review, assessment: Pick<ChangeAssessment, 'nodes'>, buckets: ReadonlyMap<string, NodeBucket>): Review {
+export function withAttention(review: Review, assessment: Pick<ChangeAssessment, 'nodes'>, buckets: ReadonlyMap<string, NodeBucket>, notRun: ReadonlyMap<string, string> = new Map()): Review {
   const overlaps = overlapsOf(review, assessment.nodes)
   const weighed = review.nodes.map((node) => {
     const bucket = bucketOf(node, buckets)
     const size = (node.stats?.additions ?? 0) + (node.stats?.deletions ?? 0)
+    const why = notRun.get(node.id)
     const attention = attentionOf({
       kind: node.kind,
       bucket,
       change: node.change,
       size,
       ...(node.status ? { status: node.status } : {}),
+      ...(why ? { notRun: why } : {}),
       ...(node.warning ? { warning: node.warning } : {}),
       rated: overlaps.get(node.id) ?? [],
     })
@@ -887,7 +919,7 @@ export class Assessments {
     const assessment = this.read(target, review.change.head)
     if (!assessment?.units) return null
     const folder = assessmentFolder(this.options.root, target, review.change.head)
-    const graph = readJson<{ nodes?: GraphNode[] }>(join(folder, 'graph.json'))
+    const graph = readJson<GraphFile>(join(folder, 'graph.json'))
     const places: UnitPlace[] = (graph?.nodes ?? []).map(({ id, kind, symbol, path, lines, change, extras, told, hidden }) => ({
       id,
       kind,
@@ -899,18 +931,19 @@ export class Assessments {
       ...(told ? { told } : {}),
       ...(hidden ? { hidden } : {}),
     }))
-    // Every run once: a run that concerns several definitions is listed under each of them.
+    // Every run once: a run that concerns several definitions is listed under each of them, and the graph lists them all.
     const runs = new Map<string, UnitRun>()
-    for (const node of graph?.nodes ?? []) {
-      for (const run of node.runs ?? []) runs.set(JSON.stringify([run.kind, run.node ?? null, run.tests ?? []]), { kind: run.kind, ...(run.node ? { node: run.node } : {}), tests: run.tests ?? [], failed: run.failed ?? [], ...(run.failed_at ? { failed_at: run.failed_at } : {}) })
-    }
+    const recorded = [...(graph?.nodes ?? []).flatMap((node) => node.runs ?? []), ...(graph?.runs ?? [])]
+    for (const run of recorded) runs.set(JSON.stringify([run.kind, run.node ?? null, run.tests ?? []]), unitRunOf(run))
+    const unrun = (graph?.not_run ?? []).flatMap(({ path, why }) => (typeof path === 'string' && typeof why === 'string' ? [{ path, why }] : []))
     const words = readJson<StoryWords>(join(folder, 'story-words.json'))
     const levelled = withLevels(review, assessment)
     // When no test could run, every definition's proof says why.
     const notRun = (graph?.nodes ?? []).map((node) => node.facts?.proof?.evidence ?? '').find((evidence) => evidence.startsWith(NOT_RUN))?.slice(NOT_RUN.length)
-    const nodes = unitWords(levelled, { units: assessment.units.units, places, words, runs: [...runs.values()], ...(runs.size === 0 && notRun ? { notRun } : {}) })
+    const tested = { units: assessment.units.units, places, words, runs: [...runs.values()], ...(runs.size === 0 && notRun ? { notRun } : {}), ...(unrun.length ? { unrun } : {}) }
+    const nodes = unitWords(levelled, tested)
     // What each node asks of the reviewer, once tests say how they ran (spec 053).
-    const told = withAttention({ ...levelled, nodes }, assessment, this.bucketsOf(target, review, files))
+    const told = withAttention({ ...levelled, nodes }, assessment, this.bucketsOf(target, review, files), testsNotRun(levelled, tested))
     const story = unitStory(told, { units: assessment.units.units, places, words, story: assessment.story, buckets: assessment.triage?.buckets ?? [] })
     return { ...told, story }
   }

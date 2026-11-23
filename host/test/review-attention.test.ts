@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { captureChange, type ChangedPath, type ChangeReader } from '#shared/review/capture.ts'
@@ -179,6 +179,29 @@ test('a review opens with every node saying how much attention it asks for, why,
   const rated = read.find((node) => node.id === 'n1')!
   assert.deepEqual([rated.effect, rated.proof, rated.questions, rated.sensitive, rated.blind], ['data', 'none', 1, ['money'], undefined])
   assert.deepEqual(read.find((node) => node.id === 'n2')!.blind, { agrees: false, level: 'high' })
+})
+
+test('a test the change edits that did not run needs the reviewer, with why: its command could not start, or no command takes it', async (t) => {
+  const prepared = await change()
+  const testOf = async (graph: object) => {
+    const { reviews, root } = reviewed(t, prepared)
+    const folder = assessmentFolder(root, TARGET, HEAD_SHA)
+    const nodes = JSON.parse(readFileSync(join(folder, 'graph.json'), 'utf8')).nodes
+    writeFileSync(join(folder, 'graph.json'), JSON.stringify({ nodes, ...graph }))
+    return reviews.get(ID).review.nodes.find((node) => node.kind === 'test' && node.subtitle === 'test/cart.test.ts')!
+  }
+  const asks = (node: ReviewNode, why: string) => {
+    assert.equal(node.status, 'not-run')
+    assert.ok(node.summary.endsWith(`Not run: ${why}`), node.summary)
+    assert.deepEqual([node.attention?.tier, node.attention?.reasons[0]], ['needs-you', `This test of the change did not run: ${why}`])
+  }
+  // The run is one no definition picked: the graph keeps it beside its nodes.
+  const vitest = 'the test command could not start here (Cannot find module vitest).'
+  asks(await testOf({ runs: [{ kind: 'baseline', tests: ['test/cart.test.ts'], failed: [], exit_code: 1, not_run: vitest }] }), vitest)
+  const notTaken = 'this review runs tests with bin/rails with a test folder, which does not take it.'
+  asks(await testOf({ runs: [], not_run: [{ path: 'test/cart.test.ts', why: notTaken }] }), notTaken)
+  const ran = await testOf({ runs: [{ kind: 'baseline', tests: ['test/cart.test.ts'], failed: [], exit_code: 0 }] })
+  assert.deepEqual([ran.status, ran.attention?.tier], ['passed', 'safe'])
 })
 
 test('a review with no AI review ready opens as it did, with no attention and no kind on its nodes, and its stored graph is not drawn again', async (t) => {

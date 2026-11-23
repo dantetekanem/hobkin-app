@@ -9,7 +9,7 @@ const rated = (more: Partial<RatedFacts>): RatedFacts => ({ level: 'safe', criti
 /** Words a reviewer acts on never name the engine's fields or rules. */
 const ENGINE_WORDS = /\b(effect|proof|exposure|undo|unverified|confidence|floor|rule|lifecycle|isolated|mocked|finding)\b|_/i
 
-test('what the reviewer must read needs them: high, critical, a finding, a question, a failed test, the blind check disagreeing, an acceptance line with a warning', () => {
+test('what the reviewer must read needs them: high, critical, a finding, a question, a failed test, a test of the change that did not run, the blind check disagreeing, an acceptance line with a warning', () => {
   const cases: [string, AttentionInput, string][] = [
     ['high', code([rated({ level: 'high', effect: 'data', proof: 'none' })]), 'Changes data it writes, and no test covers it.'],
     ['critical', code([rated({ level: 'high', critical: true, effect: 'interface', proof: 'lifecycle' })]), 'Needs a fix, not only a look.'],
@@ -19,6 +19,12 @@ test('what the reviewer must read needs them: high, critical, a finding, a quest
     ['an open question', code([rated({ level: 'mid', proof: 'isolated', questions: 2 })]), 'It leaves you 2 questions to answer.'],
     ['the blind check disagreeing', code([rated({ level: 'mid', proof: 'isolated', blind: { agrees: false, level: 'high' } })]), 'A second, blind reading would rate it high risk.'],
     ['a failed test', { kind: 'test', bucket: 'test', change: 'modified', size: 3, status: 'failed', rated: [] }, 'This test fails with the change in place.'],
+    [
+      'a test the change adds that did not run',
+      { kind: 'test', bucket: 'test', change: 'added', size: 3, status: 'not-run', notRun: 'the test command could not start here (Could not find rails-8.1.3.1)', rated: [] },
+      'This test of the change did not run: the test command could not start here (Could not find rails-8.1.3.1).',
+    ],
+    ['a test the change edits that did not run', { kind: 'test', bucket: 'test', change: 'modified', size: 3, status: 'not-run', rated: [] }, 'This test of the change did not run.'],
     ['an acceptance line with a warning', { kind: 'criterion', bucket: 'docs', change: 'unchanged', size: 0, status: 'unproven', warning: 'Its Proof line names a test that does not exist', rated: [] }, 'Its Proof line names a test that does not exist.'],
   ]
   for (const [why, input, reason] of cases) {
@@ -35,7 +41,6 @@ test('mid and what is unverified are worth a look; the rest is safe, and says wh
     ['tests that could not run', code([rated({ level: 'mid', proof: 'unknown' })]), 'Its tests could not run here.'],
     ['a map entry that could not be checked', code([rated({ level: 'safe', unverified: true })]), 'Its place in the map could not be checked, so read it yourself.'],
     ['an unsure rating', code([rated({ level: 'safe', confidence: 'low' })]), 'The AI review was unsure of its rating.'],
-    ['a test that did not run', { kind: 'test', bucket: 'test', change: 'added', size: 3, status: 'not-run', rated: [] }, 'This test did not run.'],
     ['an acceptance line nothing proves', { kind: 'criterion', bucket: 'docs', change: 'unchanged', size: 0, status: 'unproven', rated: [] }, 'Nothing proves this acceptance line yet.'],
     ['code the AI review did not rate', code([], { kind: 'file' }), 'The AI review did not rate it, so give it a look.'],
   ]
@@ -67,6 +72,7 @@ test('mid and what is unverified are worth a look; the rest is safe, and says wh
   }
   assert.equal(attentionOf({ kind: 'context', bucket: 'code', change: 'unchanged', size: 0, rated: [] }).tier, 'safe', 'context changed nothing')
   assert.equal(attentionOf({ kind: 'test', bucket: 'test', change: 'modified', size: 3, status: 'proves-change', rated: [] }).tier, 'safe')
+  assert.equal(attentionOf({ kind: 'test', bucket: 'test', change: 'unchanged', size: 0, status: 'not-run', notRun: 'the proof was stopped', rated: [] }).tier, 'safe', 'a test the change did not touch asks nothing')
   assert.equal(attentionOf({ kind: 'criterion', bucket: 'docs', change: 'unchanged', size: 0, status: 'proven', rated: [] }).tier, 'safe')
 })
 
