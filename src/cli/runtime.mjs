@@ -21,11 +21,14 @@ import { recordEvent, recordRunFinished, recordRunStarted } from './events.mjs';
 import { createTurnMetrics } from './turn-metrics.mjs';
 import { clockTime, WAITING } from './run-waits.mjs';
 import { keepUnread, steeringNeverRead } from './unread.mjs';
+import { MAIN_PULSE_KEY, feedPiEvent } from './pulse.mjs';
 
 // The whole conversation is in its messages. This is a view of what it does now, so a long chat keeps only its latest steps.
 const MAIN_ACTIVITY_ENTRIES = 200;
 // The main chat's events after which the whole view reads something new: the conversation, its context, or a compaction under way.
 const WHOLE_VIEW_EVENTS = new Set(['message_end', 'agent_end', 'agent_settled', 'compaction_start', 'compaction_end']);
+// The turn's own start and end bound the main pulse, so the prompt a turn sends once its helpers report goes on with it.
+const TURN_BOUNDS = new Set(['agent_start', 'agent_end']);
 
 export const MAIN_BUSY = 'Main conversation is busy.';
 const MAIN_STOPPING = 'Main conversation is stopping.';
@@ -98,10 +101,12 @@ function recordMainStop(root, run, actions) {
 }
 
 export class HobkinRuntime {
-  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, editReport, metricsNow, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {} } = {}) {
+  /** `pulses` (`pulse.mjs`), when given, is where the main turn's pulse is kept for whoever publishes it. */
+  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, editReport, metricsNow, pulses = null, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {} } = {}) {
     this.directory = root;
     this.config = config;
     this.createMain = createMain;
+    this.pulses = pulses;
     this.stopWaitMs = stopWaitMs;
     this.unreadWaitMs = unreadWaitMs;
     this.onMainStartup = onMainStartup;
@@ -205,6 +210,16 @@ export class HobkinRuntime {
       this.onChange(activityOnly);
     } catch {
       // UI observers cannot change a committed receipt.
+    }
+  }
+
+  /** One step of the main turn's pulse, at the time it happens. The pulse only observes, so its failure never reaches the turn. */
+  stepMainPulse(step) {
+    if (!this.pulses) return;
+    try {
+      step(this.pulses, Date.now());
+    } catch {
+      // The turn goes on without it.
     }
   }
 
@@ -366,6 +381,7 @@ export class HobkinRuntime {
     try {
       unsubscribe = main.subscribe(event => {
         feed.accept(event);
+        if (!TURN_BOUNDS.has(event.type)) this.stepMainPulse((pulses, now) => feedPiEvent(pulses, MAIN_PULSE_KEY, event, now));
         if (event.type === 'tool_execution_start') this.mainTool = event.toolName;
         this.mainDoing = doingAfter(this.mainDoing, event);
         if (event.type === 'compaction_start') {
@@ -1097,6 +1113,7 @@ export class HobkinRuntime {
       children: [],
     };
     this.mainTurn = turn;
+    this.stepMainPulse((pulses, now) => pulses.begin(MAIN_PULSE_KEY, now, text));
     let preflight;
     let disposition;
     const work = this.dispatch({
@@ -1196,6 +1213,7 @@ export class HobkinRuntime {
       }
       this.mainTool = null;
       this.mainDoing = null;
+      this.stepMainPulse(pulses => pulses.end(MAIN_PULSE_KEY));
     });
     return accepted.promise;
   }

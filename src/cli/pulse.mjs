@@ -40,14 +40,32 @@ export function createPulses() {
         phase: 'working',
         direction: 'up',
         promptTokens: estimateTokens(promptText),
+        prompted: false,
         finishedTokens: 0,
         messageTokens: 0,
+        // What was counted when the reply under way was asked for (`replyEnded`).
+        replyFrom: 0,
+      });
+    },
+
+    /**
+     * The run's first user message is its prompt. The count starts from the larger of its estimate and the one the run
+     * began with, so a prompt given at the start counts once. Later messages are not counted.
+     */
+    prompted(key, text) {
+      withRun(key, run => {
+        if (run.prompted) return;
+        run.prompted = true;
+        run.promptTokens = Math.max(run.promptTokens, estimateTokens(text));
       });
     },
 
     /** A request goes to the model: arrow up, token activity now. */
     requestSent(key, now) {
-      withRun(key, run => markTokenActivity(run, now, 'up'));
+      withRun(key, run => {
+        markTokenActivity(run, now, 'up');
+        run.replyFrom = run.finishedTokens + run.messageTokens;
+      });
     },
 
     /** A message starts: a message left unended is kept as counted, and the phase is working. */
@@ -82,6 +100,20 @@ export function createPulses() {
       });
     },
 
+    /**
+     * A reply ends. Its messages may have counted it in parts, as Claude Code's are, so it counts as the larger of what
+     * they counted since its request and the output count the provider reports for the whole reply.
+     */
+    replyEnded(key, now, reportedOutput) {
+      withRun(key, run => {
+        const counted = run.finishedTokens + run.messageTokens - run.replyFrom;
+        const missing = reportedCount(reportedOutput) - counted;
+        if (missing <= 0) return;
+        run.finishedTokens += missing;
+        markTokenActivity(run, now, 'down');
+      });
+    },
+
     /** A tool starts: the phase is working. It is not token activity. */
     toolStarted(key) {
       withRun(key, run => { run.phase = 'working'; });
@@ -107,6 +139,12 @@ export function createPulses() {
 }
 
 const assistantEvent = event => event?.message?.role === 'assistant';
+const userEvent = event => event?.message?.role === 'user';
+// Pi's wire form of an update leaves the message out, and only the assistant's message has updates.
+const assistantUpdate = event => event.message === undefined || assistantEvent(event);
+
+const wordsOf = ({ content }) => (typeof content === 'string' ? content
+  : (Array.isArray(content) ? content : []).filter(part => part?.type === 'text').map(part => part.text).join(''));
 
 const phaseOfAssistantEvent = type => {
   if (typeof type !== 'string') return undefined;
@@ -117,12 +155,14 @@ const phaseOfAssistantEvent = type => {
 
 /**
  * Feeds the pulses from one raw Pi session event of a run, at the time it was seen.
- * The prompt's text comes from the event when it has one, else from `promptText`.
+ * The prompt's text comes from the event when it has one, else from `promptText`, and the run's first user message
+ * takes its place when that is longer. Pi starts again by itself after an agent end that says it will retry, so the run
+ * keeps its pulse through that.
  */
 export function feedPiEvent(pulses, key, event, now, promptText) {
   switch (event?.type) {
     case 'agent_start':
-      pulses.begin(key, now, typeof event.prompt === 'string' ? event.prompt : promptText);
+      if (!pulses.get(key)) pulses.begin(key, now, typeof event.prompt === 'string' ? event.prompt : promptText);
       break;
     case 'turn_start':
       pulses.requestSent(key, now);
@@ -131,19 +171,23 @@ export function feedPiEvent(pulses, key, event, now, promptText) {
       if (assistantEvent(event)) pulses.messageStarted(key);
       break;
     case 'message_update': {
-      if (!assistantEvent(event)) break;
+      if (!assistantUpdate(event)) break;
       const { type, delta } = event.assistantMessageEvent ?? {};
       pulses.arrive(key, now, { phase: phaseOfAssistantEvent(type), delta });
       break;
     }
     case 'message_end':
       if (assistantEvent(event)) pulses.messageEnded(key, now, event.message.usage?.output);
+      else if (userEvent(event)) pulses.prompted(key, wordsOf(event.message));
+      break;
+    case 'turn_end':
+      if (assistantEvent(event)) pulses.replyEnded(key, now, event.message.usage?.output);
       break;
     case 'tool_execution_start':
       pulses.toolStarted(key);
       break;
     case 'agent_end':
-      pulses.end(key);
+      if (event.willRetry !== true) pulses.end(key);
       break;
   }
 }
@@ -159,6 +203,7 @@ const samePulse = (a, b) =>
  */
 export function createPulseWire() {
   const published = new Map();
+  let heldUntil;
 
   return {
     /** The pulses to publish now, as a plain object by key. */
@@ -167,13 +212,26 @@ export function createPulseWire() {
       for (const key of published.keys()) {
         if (!(key in live)) published.delete(key);
       }
+      heldUntil = undefined;
       for (const [key, pulse] of Object.entries(live)) {
         const shown = published.get(key);
-        const due = !shown || now - shown.at >= WIRE_INTERVAL_MS;
-        if (!due || (shown && samePulse(shown.pulse, pulse))) continue;
+        if (shown && samePulse(shown.pulse, pulse)) continue;
+        const dueAt = shown ? shown.at + WIRE_INTERVAL_MS : now;
+        if (now < dueAt) {
+          heldUntil = Math.min(heldUntil ?? dueAt, dueAt);
+          continue;
+        }
         published.set(key, { at: now, pulse });
       }
       return Object.fromEntries([...published].map(([key, { pulse }]) => [key, { ...pulse }]));
+    },
+
+    /**
+     * When the earliest change the last publish held back may go out, or undefined when it held none back. With no
+     * later event, a change held back would otherwise never be published.
+     */
+    heldUntil() {
+      return heldUntil;
     },
   };
 }

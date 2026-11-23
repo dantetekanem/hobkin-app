@@ -6,6 +6,7 @@ import { HobkinRuntime, MAIN_BUSY, MAX_MESSAGE_BYTES, controlWait, descendantRec
 import { createOwnedLifecycle } from './owned-agent-lifecycle.mjs';
 import { HobkinRunner } from './runner.mjs';
 import { JobActivity, MOST_OUTPUT, MOST_STEPS } from './job-activity.mjs';
+import { createPulses, createPulseWire, feedPiEvent } from './pulse.mjs';
 import { TeamsAgents } from './teams-agents.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
 import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
@@ -155,6 +156,9 @@ const aboutDecision = ({ tldr, question, choices }) => ({ title: tldr, body: [qu
 export class HobkinApplication {
   jobActivity = new Map();
   activeJobIds = new Set();
+  // Each working run's pulse and the main turn's, and what of them is on the wire (054-working-line).
+  pulses = createPulses();
+  pulseWire = createPulseWire();
   // Which tick read each Work status, in order, so a rebuild never shows Work older than one already published (`keepNewerWork`).
   workReads = new WeakMap();
   workReadCount = 0;
@@ -188,6 +192,7 @@ export class HobkinApplication {
   }
 
   observeActivity(id, event) {
+    this.feedPulse(id, event);
     try {
       if (!this.jobActivity.has(id)) {
         // A run's newest steps and the ends of each long output. The rest stays in its saved session (`run-steps.mjs`).
@@ -199,6 +204,53 @@ export class HobkinApplication {
       this.requestRefresh(true);
     } catch {
       /* Preview observers cannot fail a job. */
+    }
+  }
+
+  /** A run's pulse follows its events, which the request for a refresh after them publishes. It cannot fail the run. */
+  feedPulse(id, event) {
+    try {
+      feedPiEvent(this.pulses, id, event, this.now());
+    } catch {
+      // The run goes on without it.
+    }
+  }
+
+  /**
+   * The pulses to put on the wire now, or undefined while none works, so an idle snapshot is as it was. On an error there
+   * are none. The wire changes a run's pulse at most once a second (`createPulseWire`), and a change it held back goes
+   * out with a refresh asked for once that second is over, as no event may come after it.
+   */
+  publishedPulses() {
+    try {
+      const published = this.pulseWire.publish(this.pulses, Date.now());
+      this.refreshWhenDue(this.pulseWire.heldUntil());
+      return Object.keys(published).length ? published : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Asks for a refresh of the activity once a change held back may go out. A refresh already asked for sooner stays. */
+  refreshWhenDue(heldUntil) {
+    if (heldUntil === undefined || (this.pulseTimer && this.pulseDue <= heldUntil)) return;
+    clearTimeout(this.pulseTimer);
+    this.pulseDue = heldUntil;
+    this.pulseTimer = setTimeout(() => {
+      this.pulseTimer = null;
+      this.requestRefresh(true);
+    }, heldUntil - Date.now());
+    this.pulseTimer.unref();
+  }
+
+  /** A run's pulse goes once the state says the run no longer runs. One that began after the state was read keeps its own. */
+  endStoppedPulses(runs) {
+    try {
+      for (const id of Object.keys(this.pulses.all())) {
+        if (Object.hasOwn(runs, id) && runs[id].status !== 'running') this.pulses.end(id);
+      }
+    } catch {
+      // The rebuild goes on, and publishes no pulses if they still fail.
     }
   }
 
@@ -259,6 +311,7 @@ export class HobkinApplication {
       messageCheck: request => app.runner.messageCheck(request),
       stopWorkload: request => app.stopWorkload(request),
       editReport: (result, job) => editReport(result, { ...job, binding: app.config.background, runHarness }),
+      pulses: app.pulses,
       onChange: activityOnly => app.requestRefresh(activityOnly),
     });
     app.loadUnread();
@@ -432,6 +485,7 @@ export class HobkinApplication {
     this.snapshot = {
       ...this.snapshot,
       jobActivity: Object.fromEntries([...this.jobActivity].map(([id, feed]) => [id, feed.snapshot()])),
+      pulses: this.publishedPulses(),
       ...this.runtime.helpers(),
       teamsAgents: this.teamsAgents?.snapshot() ?? {},
       mainActivity: this.runtime.mainActivity(),
@@ -719,6 +773,7 @@ export class HobkinApplication {
     for (const id of this.jobActivity.keys()) {
       if (!active.has(id)) this.jobActivity.delete(id);
     }
+    this.endStoppedPulses(state.runs);
     this.noticeRunIds = noticedRunIds;
     for (const { id, tone } of notices.filter(({ id }) => !this.noticesCounted.has(id))) {
       this.noticesCounted.add(id);
@@ -730,6 +785,7 @@ export class HobkinApplication {
       ...this.snapshot,
       ...visible,
       jobActivity,
+      pulses: this.publishedPulses(),
       ...helpers,
       teamsAgents: this.teamsAgents?.snapshot(active) ?? {},
       stopControls: this.runtime.stopControls(),
@@ -1645,6 +1701,7 @@ export class HobkinApplication {
       if (this.openedAt) recordEvent(this.runtime.directory, 'app_closed', { ms: this.now() - this.openedAt });
       this.closing = (async () => {
         clearTimeout(this.refreshTimer);
+        clearTimeout(this.pulseTimer);
         this.shortReports?.close();
         this.moods?.stop();
         this.deletionWatcher?.close();

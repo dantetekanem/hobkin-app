@@ -102,6 +102,90 @@ test('the Pi adapter ignores messages that are not the assistant', () => {
   assert.equal(pulses.get('r').tokens, 0);
 });
 
+test('the Pi adapter reads an update in its wire form, which leaves the message out', () => {
+  const pulses = createPulses();
+  feedPiEvent(pulses, 'r', { type: 'agent_start' }, 0);
+  feedPiEvent(pulses, 'r', { type: 'message_update', usage: { output: 1 }, assistantMessageEvent: { type: 'thinking_delta', delta: 'abcdabcd' } }, 5);
+  assert.deepEqual(pulses.get('r'), { startedAt: 0, lastTokenAt: 5, phase: 'thinking', direction: 'down', tokens: 2 });
+});
+
+test("a run's first user message is its prompt, and the messages after it are not", () => {
+  const pulses = createPulses();
+  const said = (key, content) => feedPiEvent(pulses, key, { type: 'message_end', message: { role: 'user', content } }, 1);
+  feedPiEvent(pulses, 'r', { type: 'agent_start' }, 0);
+  said('r', 'abcdefgh');
+  assert.equal(pulses.get('r').tokens, 2);
+  said('r', 'a'.repeat(40));
+  assert.equal(pulses.get('r').tokens, 2);
+
+  pulses.begin(MAIN_PULSE_KEY, 0, 'abcdefgh');
+  said(MAIN_PULSE_KEY, [{ type: 'text', text: 'abcdefgh' }, { type: 'image', data: 'x'.repeat(400) }]);
+  assert.equal(pulses.get(MAIN_PULSE_KEY).tokens, 2, 'the prompt given at the start counts once, and an image not at all');
+});
+
+test("a retry goes on with the run's pulse, and only the run's own end ends it", () => {
+  const pulses = createPulses();
+  const feed = (event, now) => feedPiEvent(pulses, 'r', event, now);
+  feed({ type: 'agent_start' }, 0);
+  feed(update('text_delta', 'abcdabcd'), 10);
+  feed({ type: 'agent_end', willRetry: true }, 20);
+  feed({ type: 'agent_start' }, 30);
+  assert.deepEqual(pulses.get('r'), { startedAt: 0, lastTokenAt: 10, phase: 'working', direction: 'down', tokens: 2 });
+  feed({ type: 'agent_end', willRetry: false }, 40);
+  assert.equal(pulses.get('r'), undefined);
+  feed({ type: 'agent_start' }, 50);
+  assert.equal(pulses.get('r').startedAt, 50);
+});
+
+test("a reply that comes in parts counts once, and the provider's count for it takes their place when it is more", () => {
+  const pulses = createPulses();
+  const feed = (event, now) => feedPiEvent(pulses, 'r', event, now);
+  const replyEnded = (output, now) => feed({ type: 'turn_end', message: { role: 'assistant', usage: { output } } }, now);
+  // A Claude Code reply as the host gives it: its thinking, then its words as a message of their own.
+  feed({ type: 'agent_start' }, 0);
+  feed({ type: 'message_end', message: { role: 'user', content: [{ type: 'text', text: 'abcdefgh' }] } }, 0);
+  feed({ type: 'message_update', assistantMessageEvent: { type: 'thinking_start', contentIndex: 0 } }, 5);
+  assert.equal(pulses.get('r').phase, 'thinking');
+  feed({ type: 'message_update', assistantMessageEvent: { type: 'thinking_delta', contentIndex: 0, delta: 'a'.repeat(40) } }, 10);
+  feed({ type: 'message_start', message: assistant }, 20);
+  feed({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: 'b'.repeat(20) } }, 30);
+  feed({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'b'.repeat(20) }] } }, 40);
+  assert.equal(pulses.get('r').tokens, 2 + 10 + 5);
+  replyEnded(25, 50);
+  assert.deepEqual(pulses.get('r'), { startedAt: 0, lastTokenAt: 50, phase: 'working', direction: 'down', tokens: 2 + 25 });
+  feed({ type: 'tool_execution_start' }, 60);
+  feed({ type: 'turn_start' }, 70);
+  assert.equal(pulses.get('r').direction, 'up');
+  feed({ type: 'message_update', assistantMessageEvent: { type: 'toolcall_delta', contentIndex: 1, delta: 'c'.repeat(8) } }, 80);
+  replyEnded(1, 90);
+  assert.deepEqual(pulses.get('r'), { startedAt: 0, lastTokenAt: 80, phase: 'working', direction: 'down', tokens: 2 + 25 + 2 });
+
+  // Pi's own turn end carries the message its message end already counted.
+  feed({ type: 'turn_start' }, 100);
+  feed({ type: 'message_start', message: assistant }, 110);
+  feed(update('text_delta', 'abcd'), 120);
+  feed({ type: 'message_end', message: { role: 'assistant', usage: { output: 9 } } }, 130);
+  replyEnded(9, 140);
+  assert.equal(pulses.get('r').tokens, 2 + 25 + 2 + 9);
+  assert.equal(pulses.get('r').lastTokenAt, 130);
+});
+
+test('the wire says when a change it held back may go out, and nothing once it holds none', () => {
+  const pulses = createPulses();
+  const wire = createPulseWire();
+  pulses.begin('r', 0, '');
+  wire.publish(pulses, 0);
+  assert.equal(wire.heldUntil(), undefined);
+  pulses.arrive('r', 300, { delta: 'abcd' });
+  wire.publish(pulses, 300);
+  assert.equal(wire.heldUntil(), 1000);
+  pulses.begin('s', 400, '');
+  wire.publish(pulses, 400);
+  assert.equal(wire.heldUntil(), 1000, 'a new run shows at once and holds nothing back');
+  assert.equal(wire.publish(pulses, 1000).r.tokens, 1);
+  assert.equal(wire.heldUntil(), undefined);
+});
+
 test('the wire shows a new run at once and drops an ended run at once', () => {
   const pulses = createPulses();
   const wire = createPulseWire();
