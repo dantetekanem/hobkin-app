@@ -57,7 +57,7 @@ function StartNowTold({ said }: { said: Said }) {
   )
 }
 
-export function QueueSection({ work, live, variants, turn }: { work: WorkState } & Shared) {
+export function QueueSection({ work, live, variants, turn }: { work: Pick<WorkState, 'queue' | 'queued' | 'projects' | 'enabled'> } & Shared) {
   const [open, setOpen] = useState(false)
   const told = useWorkUi((state) => state.said['queue'])
   // A paused project starts nothing, so its rows leave the queue until it is switched back on.
@@ -247,7 +247,7 @@ function Facts({ project }: { project: WorkProject }) {
   return factsOf(project, now)
 }
 
-export function ProjectsSection({ work, live, variants, turn, onDiscover, discoverRef }: { work: WorkState; onDiscover: () => void; discoverRef: Ref<HTMLButtonElement> } & Shared) {
+export function ProjectsSection({ work, live, variants, turn, onDiscover, discoverRef }: { work: Pick<WorkState, 'projects' | 'folder'>; onDiscover: () => void; discoverRef: Ref<HTMLButtonElement> } & Shared) {
   const tracked = trackedProjects(work.projects)
   const waiting = discoverableProjects(work.projects)
   const proposed = waiting.filter(({ state }) => state === 'proposed').length

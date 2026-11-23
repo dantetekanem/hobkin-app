@@ -1,18 +1,19 @@
 import { Map as MapIcon, Zap } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
 import { useKeptPlace } from '@/app/kept-place.ts'
 import { useView } from '@/app/view-store.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
-import { useRunningAgents } from '@/app/running-agents.ts'
+import { useRunningAgents, type RunningAgent } from '@/app/running-agents.ts'
 import { useStill } from '@/app/still.ts'
 import { useStops } from '@/app/stops.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { SAMPLE_YOLO } from '@/features/settings/yolo.ts'
 import { rowVariants, useArriving } from '@/features/reports/list-motion.ts'
 import type { WorkState } from '@/lib/host/index.ts'
+import { keepSame } from '@/lib/host/keep-same.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { Discovery } from './Discovery.tsx'
@@ -31,7 +32,7 @@ import { WorkloadSheet } from './WorkloadSheet.tsx'
 import { opensWorkload, type WorkloadSetting } from './workload.ts'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
 import { runWork, useWorkUi, useWorkView } from './store.ts'
-import { useWorkTab } from './tab.ts'
+import { useWorkTab, type WorkTab } from './tab.ts'
 import { prioritiesOfWork } from './review-order.ts'
 import { useReviewList } from './use-review-list.ts'
 import { bindWorkTarget } from './work-target.ts'
@@ -40,6 +41,25 @@ import { WorkTiles } from './WorkTiles.tsx'
 import { needsYouNow, oldestAtOf, reviewTallyOf, waitingNow } from './work-tiles.ts'
 
 const TABS = ['work', 'reviews', 'numbers'] as const
+
+/** A piece's turn once the screen has arrived: none. One function, so the sections it goes to hold still. */
+const ARRIVED = () => -1
+
+/** `value`, held while it says the same, so the section it goes to does not draw again for a copy of it. */
+function useSame<Value>(value: Value): Value {
+  const held = useRef(value)
+  held.current = keepSame(held.current, value)
+  return held.current
+}
+
+// Each section draws again only when its own part changes. The agents list takes new words five times a second, work
+// mode comes whole each second while agents write, and the review list is read again while the screen is open.
+const Queue = memo(QueueSection)
+const Finished = memo(FinishedSection)
+const Projects = memo(ProjectsSection)
+const Reviews = memo(AiReviews)
+const Numbers = memo(NumbersTab)
+const Sheet = memo(WorkloadSheet)
 
 /**
  * Work: hobkin and the agents it started, live, with the queue, the finished changes and the projects, and every AI
@@ -59,7 +79,17 @@ export function WorkScreen() {
   const main = useRef<HTMLDivElement | null>(null)
   useStops(main)
   const { work, live } = useWorkView()
-  const worldAvailable = new Set(work?.projects.filter(project => project.state === 'chosen' && project.slug).map(project => project.slug)).size >= 3
+  const projects = work?.projects
+  const worldAvailable = useMemo(() => new Set(projects?.filter(project => project.state === 'chosen' && project.slug).map(project => project.slug)).size >= 3, [projects])
+  // What each part of the page reads of work mode, each held while it says the same.
+  const parts = useSame(
+    work && {
+      queue: { queue: work.queue, queued: work.queued, projects: work.projects, enabled: work.enabled },
+      finished: { finished: work.finished, merging: work.merging },
+      projects: { projects: work.projects, folder: work.folder },
+      priorities: { projects: work.projects, finished: work.finished },
+    },
+  )
   // An item opened from another screen, such as an issue's chip on the GitHub page, takes the keyboard as Work arrives.
   useLayoutEffect(() => bindWorkTarget(main.current), [])
   // Coming back along the trail, the row in focus and the scroll come back too (053). After the handoff above, which goes first.
@@ -81,21 +111,27 @@ export function WorkScreen() {
   useEffect(() => {
     shown.current = tab
   })
-  // The tab says how many reviews run and how many are ready, so the list is followed on either page.
-  const reviews = useReviewList(live)
-  const counts = reviewCounts(groupReviews(reviews.list))
-  const reviewPriority = useMemo(() => prioritiesOfWork(work), [work])
-  const tally = useMemo(() => reviewTallyOf(reviews.list), [reviews.list])
+  // The tab says how many reviews run and how many are ready, so the list is followed on either page. The hook gives a
+  // new view each time it draws: the list, its error and its refresh say whether anything in it changed.
+  const { list: reviewList, error: reviewError, refresh: refreshReviews } = useReviewList(live)
+  const reviews = useMemo(() => ({ list: reviewList, error: reviewError, refresh: refreshReviews }), [reviewList, reviewError, refreshReviews])
+  const counts = useSame(useMemo(() => reviewCounts(groupReviews(reviewList)), [reviewList]))
+  const priorities = parts?.priorities ?? null
+  const reviewPriority = useMemo(() => prioritiesOfWork(priorities), [priorities])
+  const tally = useSame(useMemo(() => reviewTallyOf(reviewList), [reviewList]))
   // The six tiles under the header (053): what waits, merged today, first pass, by itself, AI reviews, today's tokens.
-  const tiles = (
-    <WorkTiles
-      waiting={work ? waitingNow(work) : null}
-      needsYou={work ? needsYouNow(work) : null}
-      oldestAt={work ? oldestAtOf(work) : null}
-      tokensToday={work?.tokensToday ?? null}
-      dailyTokens={work?.dailyTokens ?? null}
-      reviews={tally}
-    />
+  const tiles = useMemo(
+    () => (
+      <WorkTiles
+        waiting={work ? waitingNow(work) : null}
+        needsYou={work ? needsYouNow(work) : null}
+        oldestAt={work ? oldestAtOf(work) : null}
+        tokensToday={work?.tokensToday ?? null}
+        dailyTokens={work?.dailyTokens ?? null}
+        reviews={tally}
+      />
+    ),
+    [work, tally],
   )
 
   // Where the keyboard is in the screen, so it stays when what had it leaves: a merged card, a skipped row.
@@ -106,8 +142,10 @@ export function WorkScreen() {
   // The workload sheet, opened by the button at the end of the status line or by W, at one setting or at the top (053).
   const [sheet, setSheet] = useState<{ at: WorkloadSetting | null } | null>(null)
   const sheetButton = useRef<HTMLButtonElement | null>(null)
-  const openSheet = (at: WorkloadSetting | null) => setSheet({ at })
+  const openSheet = useCallback((at: WorkloadSetting | null) => setSheet({ at }), [])
+  const closeSheet = useCallback(() => setSheet(null), [])
   const trigger = useRef<HTMLButtonElement | null>(null)
+  const discover = useCallback(() => setDiscovering(true), [])
   const closeDiscovery = () => {
     setDiscovering(false)
     requestAnimationFrame(() => trigger.current?.focus({ preventScroll: true }))
@@ -132,6 +170,12 @@ export function WorkScreen() {
     })
   }
   useEffect(keepKeyboard, [work])
+  // The finished cards hold one function, which keeps the keyboard as this screen's latest draw knows to.
+  const latestKeepKeyboard = useRef(keepKeyboard)
+  useLayoutEffect(() => {
+    latestKeepKeyboard.current = keepKeyboard
+  })
+  const rowsLeft = useCallback(() => latestKeepKeyboard.current(), [])
 
   const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
     const target = event.target
@@ -183,9 +227,10 @@ export function WorkScreen() {
     }
   }
 
-  // Every piece of the lists takes its turn as the screen arrives. Later ones arrive on their own.
+  // Every piece of the lists takes its turn as the screen arrives. Later ones arrive on their own, and the sections
+  // hold one function for that, so they draw again only for their own part.
   let order = 0
-  const turn = () => (arriving ? order++ : -1)
+  const turn = arriving ? () => order++ : ARRIVED
   const shared = { live, variants, turn }
 
   return (
@@ -196,49 +241,38 @@ export function WorkScreen() {
           <Header work={work} live={live} working={agents.length} tiles={tiles} onSheet={openSheet} sheetButton={sheetButton} onOpenWorld={worldAvailable ? openWorld : undefined} />
         </Hero>
         <div className="flex flex-col gap-6">
-          <PageTabs
-            id="work"
-            label="Work pages"
-            value={tab}
-            onChoose={chooseTab}
-            tabs={[
-              { value: 'work', label: 'Work' },
-              { value: 'reviews', label: 'AI Reviews', extra: <ReviewCounts counts={counts} /> },
-              { value: 'numbers', label: 'Numbers' },
-            ]}
-          />
+          <WorkTabs tab={tab} counts={counts} onChoose={chooseTab} />
           {tab === 'reviews' ? (
             <WorkPage key="reviews" way={way} role="tabpanel" id="work-panel-reviews" aria-labelledby="work-tab-reviews">
-              <AiReviews live={live} reviews={reviews} priorityOf={reviewPriority} />
+              <Reviews live={live} reviews={reviews} priorityOf={reviewPriority} />
             </WorkPage>
           ) : tab === 'numbers' ? (
             <WorkPage key="numbers" way={way} role="tabpanel" id="work-panel-numbers" aria-labelledby="work-tab-numbers">
-              <NumbersTab />
+              <Numbers />
             </WorkPage>
           ) : (
             <WorkPage key="work" way={way} role="tabpanel" id="work-panel-work" aria-labelledby="work-tab-work" className="flex flex-col gap-10">
               <Rise>
-                <section aria-label="At work" className="flex flex-col gap-3">
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-1">
-                    <h2 className="eyebrow">At work</h2>
-                    <span className="eyebrow tabular-nums">{agents.length}</span>
-                    {agents.some(({ asks }) => asks) ? <span className="text-[11px] font-medium text-sun-fg">· {agents.filter(({ asks }) => asks).length} waiting for you</span> : null}
-                    {work ? <AgentsAtOnce work={work} live={live} /> : null}
-                  </div>
-                  <DelegationMap agents={agents} capacity={work?.agents ?? 0} enabled={work?.enabled ?? false} live={live} />
-                </section>
+                <AtWork
+                  agents={agents}
+                  live={live}
+                  capacity={work?.agents ?? 0}
+                  enabled={work?.enabled ?? false}
+                  allowed={work ? work.agentsAllowed : null}
+                  most={work?.maxAgents ?? 0}
+                />
               </Rise>
-              {work ? (
+              {parts ? (
                 <WhenWorkComes>
                   <Rise>
-                    <QueueSection work={work} {...shared} />
+                    <Queue work={parts.queue} {...shared} />
                   </Rise>
                   {/* What needs the user comes right after the queue, so it is never a long scroll away. */}
                   <Rise>
-                    <FinishedSection work={work} onRowsLeft={keepKeyboard} {...shared} />
+                    <Finished work={parts.finished} onRowsLeft={rowsLeft} {...shared} />
                   </Rise>
                   <Rise>
-                    <ProjectsSection work={work} onDiscover={() => setDiscovering(true)} discoverRef={trigger} {...shared} />
+                    <Projects work={parts.projects} onDiscover={discover} discoverRef={trigger} {...shared} />
                   </Rise>
                 </WhenWorkComes>
               ) : null}
@@ -249,16 +283,65 @@ export function WorkScreen() {
       </div>
       <AnimatePresence>{discovering && work ? <Discovery work={work} live={live} variants={variants} onClose={closeDiscovery} /> : null}</AnimatePresence>
       <AnimatePresence>{listing ? <DecidedPanel key="decided" listing={listing} /> : null}</AnimatePresence>
-      {work ? <WorkloadSheet open={sheet !== null} at={sheet?.at ?? null} work={work} live={live} onClose={() => setSheet(null)} returnTo={sheetButton} /> : null}
+      {work ? <Sheet open={sheet !== null} at={sheet?.at ?? null} work={work} live={live} onClose={closeSheet} returnTo={sheetButton} /> : null}
     </div>
   )
 }
+
+/** Work's pages as tabs, the reviews' counts beside AI Reviews. They draw again when the page or a count changes. */
+const WorkTabs = memo(function WorkTabs({ tab, counts, onChoose }: { tab: WorkTab; counts: Record<ReviewGroup, number>; onChoose: (tab: WorkTab) => void }) {
+  return (
+    <PageTabs
+      id="work"
+      label="Work pages"
+      value={tab}
+      onChoose={onChoose}
+      tabs={[
+        { value: 'work', label: 'Work' },
+        { value: 'reviews', label: 'AI Reviews', extra: <ReviewCounts counts={counts} /> },
+        { value: 'numbers', label: 'Numbers' },
+      ]}
+    />
+  )
+})
+
+/**
+ * Who is at work: how many, how many wait for the user, how many may run at once, and their map. It draws again when
+ * the agents or those numbers change, not for the rest of work mode. `allowed` is null while work mode is not known.
+ */
+const AtWork = memo(function AtWork({
+  agents,
+  live,
+  capacity,
+  enabled,
+  allowed,
+  most,
+}: {
+  agents: RunningAgent[]
+  live: boolean
+  capacity: number
+  enabled: boolean
+  allowed: number | null
+  most: number
+}) {
+  return (
+    <section aria-label="At work" className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-2 px-1">
+        <h2 className="eyebrow">At work</h2>
+        <span className="eyebrow tabular-nums">{agents.length}</span>
+        {agents.some(({ asks }) => asks) ? <span className="text-[11px] font-medium text-sun-fg">· {agents.filter(({ asks }) => asks).length} waiting for you</span> : null}
+        {allowed !== null ? <AgentsAtOnce allowed={allowed} most={most} live={live} /> : null}
+      </div>
+      <DelegationMap agents={agents} capacity={capacity} enabled={enabled} live={live} />
+    </section>
+  )
+})
 
 /**
  * How many work agents may run at once: hobkin's own setting, as `hobkin work agents` sets it, from one to hobkin's
  * most, with the same control as Settings. Running agents finish as they are.
  */
-function AgentsAtOnce({ work, live }: { work: WorkState; live: boolean }) {
+const AgentsAtOnce = memo(function AgentsAtOnce({ allowed, most, live }: { allowed: number; most: number; live: boolean }) {
   const said = useWorkUi((state) => state.said['agents'])
 
   return (
@@ -267,14 +350,14 @@ function AgentsAtOnce({ work, live }: { work: WorkState; live: boolean }) {
       <AgentsStepper
         compact
         label="Work agents that may run at once"
-        value={work.agentsAllowed}
-        most={work.maxAgents}
+        value={allowed}
+        most={most}
         onSave={(agents) => runWork({ do: 'agents', agents }, { live, place: 'agents' })}
       />
       {said?.tone === 'refused' ? <SaidLine tone="refused">{said.text}</SaidLine> : null}
     </div>
   )
-}
+})
 
 /** Beside "AI Reviews": how many run and how many are ready to read. Nothing while there are none. */
 function ReviewCounts({ counts }: { counts: Record<ReviewGroup, number> }) {
@@ -316,9 +399,10 @@ function openYolo() {
  * Work's heading: what is going on, the ways to YOLO mode and World beside the mode switch on the same line, and what
  * the mode means. The buttons and the switch are one group of controls: the same height, centered on the title's line,
  * and kept at the right edge even when they wrap under a long title. The YOLO mode button says how it stands, and it is
- * first, so a longer word grows it to the left and moves nothing beside it.
+ * first, so a longer word grows it to the left and moves nothing beside it. It holds the tiles, so it draws again with
+ * today's token count, and not for the agents' words or a review list that says the same.
  */
-function Header({
+const Header = memo(function Header({
   work,
   live,
   working,
@@ -401,7 +485,7 @@ function Header({
       {live ? null : <p className="text-[12px] text-muted-foreground">Sample data. No host is running, so nothing here reaches hobkin.</p>}
     </header>
   )
-}
+})
 
 /** Work mode's switch. Its knob travels on a spring, and under Still it is simply where it belongs. */
 function ModeSwitch({ on, busy, onToggle }: { on: boolean; busy: boolean; onToggle: () => void }) {

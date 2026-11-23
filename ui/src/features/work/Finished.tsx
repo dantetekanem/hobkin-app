@@ -49,7 +49,7 @@ interface Shared {
   onRowsLeft: () => void
 }
 
-export function FinishedSection({ work, ...shared }: { work: WorkState } & Shared) {
+export function FinishedSection({ work, ...shared }: { work: Pick<WorkState, 'finished' | 'merging'> } & Shared) {
   // A merged change goes on to the right, the way the work goes. One the user said no to is set aside to the left.
   const [leaving, setLeaving] = useState<Leaving>('answered')
   const said = useWorkUi((state) => state.said['finished'])
