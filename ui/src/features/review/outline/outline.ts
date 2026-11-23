@@ -1,11 +1,16 @@
 /**
  * The outline of a review (spec 053): every unit and file of the change, under Needs you, Worth a look and Safe, in the
  * order the host ranked them, the safe ones in the groups the graph folds them into. It is the way to reach anything
- * the graph folded. A review that says nothing of attention lists everything under one heading, in its own order.
- * Pure, so what it lists and how it filters can be tested without drawing it.
+ * the graph folded. A review that says nothing of attention lists everything under one heading, in its own order. By
+ * zone (spec 055), it lists each zone the graph draws, with what it holds and every node in it, the unchanged code on
+ * the way in too. Pure, so what it lists and how it filters can be tested without drawing it.
  */
 import type { NodeKind, Review, ReviewNode } from '#shared/review/types.ts'
+import { zoneWords } from '../graph/zones.ts'
 import type { ReviewView } from '../state/memory.ts'
+
+/** What the outline lists by: what needs the reviewer, or the zones of the graph. */
+export type OutlineView = 'attention' | 'zones'
 
 export interface OutlineRow {
   /** The node of the review. */
@@ -25,8 +30,11 @@ export interface OutlineGroup {
 }
 
 export interface OutlineSection {
-  id: 'needs-you' | 'worth-a-look' | 'safe' | 'all'
+  /** `needs-you`, `worth-a-look`, `safe` or `all`, or by zone, the zone's id. */
+  id: string
   title: string
+  /** By zone, what the zone holds: "1 needs you · 1 changed · 7 tests". A zone whose name matches a filter keeps all of it. */
+  note?: string
   /** What is listed directly under the heading. */
   rows: OutlineRow[]
   /** For Safe: its groups, each opening to its members. */
@@ -93,7 +101,18 @@ export function outlineOf(review: Pick<Review, 'nodes'>, view: Pick<ReviewView, 
   ]
 }
 
-/** The outline with only what matches every word typed, by name or path. A group whose name matches keeps all of it. */
+/** The outline by zone: each zone the graph draws, in its order, with what it holds and every node of the review in it. */
+export function zonesOutline(review: Pick<Review, 'nodes'>, view: Pick<ReviewView, 'zones' | 'zoneOf'>): OutlineSection[] {
+  return view.zones.map((zone) => ({
+    id: zone.id,
+    title: zone.label,
+    note: zoneWords(zone),
+    rows: review.nodes.filter((node) => view.zoneOf[node.id] === zone.id).map(rowOf),
+    groups: [],
+  }))
+}
+
+/** The outline with only what matches every word typed, by name or path. A group or a zone whose name matches keeps all of it. */
 export function filterOutline(sections: readonly OutlineSection[], query: string): OutlineSection[] {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean)
   if (words.length === 0) return [...sections]
@@ -102,7 +121,7 @@ export function filterOutline(sections: readonly OutlineSection[], query: string
   const keepGroup = (group: OutlineGroup) => (matches(group.label) ? group : { ...group, rows: keep(group.rows) })
   return sections.map((section) => ({
     ...section,
-    rows: keep(section.rows),
+    rows: section.note != null && matches(section.title) ? section.rows : keep(section.rows),
     groups: section.groups.map(keepGroup).filter((group) => group.rows.length > 0),
   }))
 }

@@ -10,6 +10,7 @@ import { focusLevels, hoverLevels, type HoverLevel, type Levels, type NodeLevel,
 import { countNotes, noteTarget, type Note, type NoteCounts, type NoteIntent, type NoteTarget } from '../notes/notes.ts'
 import { commitDigits, NO_DIGITS, pressDigit } from '../story/digits.ts'
 import { goBack, goForward, NO_HISTORY, recordFocus, type FocusEntry, type FocusHistory } from '../story/history.ts'
+import type { OutlineView } from '../outline/outline.ts'
 import type { PendingAsk } from '../panel/ask.ts'
 import { backToStep, focusGroup, focusNode, focusOf, goToStep, leaveFocus, offPath, progressOf, startStory, stepFrom, type Fresh, type Moved, type StoryState } from '../story/story.ts'
 import { modeStart, type ReviewMode } from '../story/mode.ts'
@@ -86,6 +87,8 @@ export interface Session {
   outline: boolean
   /** How many times L opened the outline: each time, its filter takes the keyboard (`outline/asked-focus.ts`). */
   outlineAsked: number
+  /** What the outline lists by, Attention or Zones, kept while the review is open. Attention to start. */
+  outlineView: OutlineView
   /** A short word to the reviewer, said again on each press that asks: `key` goes up each time it is said. */
   notice: { key: number; text: string } | null
   /**
@@ -185,6 +188,8 @@ export interface Session {
   toggleSeen(nodeId?: string): boolean
   /** L: opens the outline, or closes it. */
   toggleOutline(): void
+  /** The outline's switch: lists by what needs the reviewer, or by zone. */
+  setOutlineView(view: OutlineView): void
   /**
    * U, and Shift+U back: goes to the next node that needs the reviewer and is not seen, in the host's rank, round from the
    * end to the start, opening its group when it is folded. Says so when none is left. False when it went nowhere.
@@ -456,6 +461,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       seen: seenNow(),
       outline: back ? kept!.outline : firstView.plan.active,
       outlineAsked: 0,
+      outlineView: 'attention',
       notice: null,
       // A place not taken brings nothing back: not its proof, and not its camera (`resumedCamera`).
       proof: back && kept?.proof ? { run: kept.proof, from: null } : null,
@@ -721,6 +727,9 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         return true
       },
       toggleOutline: () => set(get().outline ? { outline: false } : { outline: true, outlineAsked: get().outlineAsked + 1 }),
+      setOutlineView: (outlineView) => {
+        if (outlineView !== get().outlineView) set({ outlineView })
+      },
       placeNow: () => {
         const { story, mode, history, outline, code, proof, view } = get()
         const stepId = (step: number) => view.story[step]?.id ?? ''
