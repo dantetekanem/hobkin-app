@@ -209,6 +209,16 @@ function importsFile(text: string | null, path: string): boolean {
 }
 
 /**
+ * Whether a test the scan links to a definition by name runs it. A common name reaches tests of other code: in
+ * JavaScript and TypeScript a test that runs the definition directly imports its file, and one that goes through the
+ * life cycle is kept on its name. Elsewhere the scan's link is taken.
+ */
+export async function scanLinkHolds(test: { path: string; lifecycle: boolean; text: () => string | null | Promise<string | null> }, nodePath: string): Promise<boolean> {
+  if (!SCRIPT_FILES.includes(extname(nodePath)) || test.lifecycle) return true
+  return importsFile(await test.text(), nodePath)
+}
+
+/**
  * The test files that may prove a node: the tests the scan links to it, the test files this diff changed that name
  * it, and the files named after its source file. Only files that exist are kept, the node's own file never.
  */
@@ -237,13 +247,11 @@ export async function candidateTests({
     if (!firstFound.has(path)) firstFound.set(path, found)
   }
   const anchor = scan.anchors.find((item) => item.id === node.id) ?? scan.anchors.find((item) => item.path === node.path && item.symbol === node.symbol)
-  // The scan links tests by name, and a common name reaches tests of other code. In JavaScript and TypeScript a test
-  // that runs the definition directly imports its file; one that goes through the life cycle is kept on its name.
-  const script = SCRIPT_FILES.includes(extname(node.path))
+  // The scan links tests by name; a link holds as `scanLinkHolds` says.
   const linked = new Set<string>()
   for (const test of anchor?.tests ?? []) {
     if (linked.size === MOST_LINKED_TESTS && !linked.has(test.path)) break
-    if (script && !isLifecycleTest(test.path) && !importsFile(await read(test.path), node.path)) continue
+    if (!(await scanLinkHolds({ path: test.path, lifecycle: isLifecycleTest(test.path), text: () => read(test.path) }, node.path))) continue
     linked.add(test.path)
     add(test.path, `the scan links it to ${node.symbol}`, 'scan')
   }

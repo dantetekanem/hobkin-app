@@ -105,3 +105,17 @@ The design works on today's `pack.json`. Where the pack is silent an implementat
 **Needed.** Proof is established by running the tests that drive the entry points above a change, with coverage. Something has to say which test files those are.
 
 **Change.** `agentic-search search --intent tests` for an entry point should also return tests found by convention and by route: the controller's request, integration and system tests (path and class naming), tests whose URL helpers resolve to the action when `config/routes.rb` parses, and for a job, tests that enqueue or perform it. Label each hit with how it was found. Whether a test executes the changed lines is not a search fact; coverage decides that.
+
+## 11. What the review reads of origins and tests (spec 055)
+
+Read against pi-agentic-search `4a0f239`. The review now keeps, and sends on in `graph.json` as `runs_from` and `tests`:
+
+- `entry.kind` and `entry.exact` on anchors, on the pack's nodes and on call sites, with `entry.routes` (verbs, path, file, line) and `entry.doors` (kind, title, file, line). A kind it does not know is kept as named, with a plain label.
+- `entry.label`, or `entry.key`, as the origin's words when there is no route: the key of a string-keyed handler (`'review.prepare': ...`). Neither is emitted today; whichever the tool chooses, say so here.
+- Call sites with `test: true`: counted as `testCallers` on the anchor, so "only tests call it" can be said. `callerCount.total` is read as production call sites only.
+- `--tests all` on the diff scan, and `testDefinitions` (id, symbol, path, lines, `anchors[].lines`, `changed`). With it `anchor.tests` is no longer cut at 8, so the review takes at most 8 linked test files per definition as proof candidates, as before; the rest are listed, not run.
+
+**Missing.**
+- No origin for this monorepo's own way in: a registry of string-keyed handlers (`host/src/review/seat.ts:374`, `'review.prepare': ({ id }) => reviews.prepare(id)`, dispatched by `runCommand`) is no caller of `Reviews.prepare` to the scan, so its walk finds a wrong name match (`copyStore`) and stops with `callerCount.complete: true`. The review never says "no route exists" because of this: it says the scan found none within so many calls. Kinds wanted: `handler` (label: the key), `listener`, `route` (a Node route registration), `task`, `mailer`, `channel`, `ui-handler`.
+- `testDefinitions` does not say whether a test definition existed at base, so "added" and "edited" are told apart by the file's status and the test anchor's `status`, and a modified file's test with no anchor reads as edited.
+- Removed tests are not in the pack: the review reads them from the diff's test hunks (a removed `test(`, `it(` or `def test_` block), by text.

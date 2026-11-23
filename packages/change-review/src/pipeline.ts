@@ -20,9 +20,10 @@ import { deriveFacts, goneAtHead, guardsPutOn, type CallerSite } from './facts.t
 import { gitRepo } from './git.ts'
 import { type ContextEntry, readReviewAnswer, reviewRequest } from './model.ts'
 import { applyModelChecks } from './model-checks.ts'
+import { nodeTestsOf, removedTestsOf } from './node-tests.ts'
 import { packOrigins, runsFromOf, walkOrigin } from './origins.ts'
 import { progressFiles, trackProgress } from './progress.ts'
-import { candidateTests, detectRunbooks, runProof, type ProofRequest, type ProofResult, type RunbookOverride, type TestCandidate } from './proof.ts'
+import { candidateTests, detectRunbooks, runProof, scanLinkHolds, type ProofRequest, type ProofResult, type RunbookOverride, type TestCandidate } from './proof.ts'
 import { addedParts, carryWords, reshapeMap } from './reshape.ts'
 import { applyRiskEvents, type RejectedEvent } from './risk.ts'
 import { runScan, type ScanOutcome, type ScanRequest } from './scan.ts'
@@ -528,8 +529,8 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       },
     ]
   })
-  /** The test runs, once proof has run. */
-  let tested: Pick<Graph, 'runs' | 'not_run'> = {}
+  /** The test runs, once proof has run, and the tests the change removes. */
+  let tested: Pick<Graph, 'runs' | 'not_run' | 'removed_tests'> = {}
   /** The Reviewer's names for zones, by id. */
   const zoneNames = new Map<string, string>()
   const graphOf = (list: ReviewNode[]): Graph => ({
@@ -687,7 +688,20 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     },
   })
   halt('map-proof')
-  tested = { runs: proof.runs, ...(proof.notRun?.length ? { not_run: proof.notRun } : {}) }
+  const removedTests = removedTestsOf(diffs, [...new Set(nodes.filter((node) => node.kind !== 'test').map((node) => node.symbol))])
+  tested = { runs: proof.runs, ...(proof.notRun?.length ? { not_run: proof.notRun } : {}), ...(removedTests.length ? { removed_tests: removedTests } : {}) }
+  const statusOf = new Map(meta.files.map((file) => [file.path, file.status]))
+  const testAnchors = scan.anchors.filter((anchor) => anchor.kind === 'test' || testFiles.has(anchor.path)).map(({ id, status }) => ({ id, ...(status ? { status } : {}) }))
+  // A test the scan links to a part only by name must hold as a candidate's link does to be said to cover it.
+  const holding = new Map<string, Scan['testDefinitions']>()
+  for (const node of nodes) {
+    const kept: NonNullable<Scan['testDefinitions']> = []
+    for (const definition of scan.testDefinitions ?? []) {
+      if (!definition.anchors.some((anchor) => anchor.id === node.id)) continue
+      if (await scanLinkHolds({ path: definition.path, lifecycle: isLifecycleTestPath(definition.path, config), text: () => readOr(join(cwd, definition.path)) }, node.path)) kept.push(definition)
+    }
+    holding.set(node.id, kept)
+  }
   if (proof.refused) problems.push(`Tests did not run: ${proof.refused}`)
   else if (!proof.clean) problems.push('The checkout was not clean after the test runs.')
   for (const node of nodes) {
@@ -697,6 +711,19 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     }
     const answer = proof.nodes[node.id]
     if (answer) node.facts.proof = { value: answer.value, evidence: answer.evidence }
+    node.tests = nodeTestsOf({
+      node,
+      candidates: candidates[node.id] ?? [],
+      definitions: holding.get(node.id) ?? [],
+      testAnchors,
+      ...(answer ? { proof: answer } : {}),
+      runs: proof.runs,
+      findings: proof.findings,
+      status: (path) => statusOf.get(path),
+      diffs,
+      removed: removedTests,
+      isLifecycleTest: (path) => isLifecycleTestPath(path, config),
+    })
     if (answer?.observedBy.some((path) => changedTests.includes(path))) node.extras.testChangedWithIt = true
     const mine = new Set((candidates[node.id] ?? []).map((candidate) => candidate.path))
     node.runs = proof.runs.filter((run) => run.node === node.id || (run.kind === 'baseline' && run.tests.some((test) => mine.has(test))))

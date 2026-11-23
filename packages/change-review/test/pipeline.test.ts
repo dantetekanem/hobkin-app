@@ -593,6 +593,28 @@ test('a part only tests call says so, and a caller the scan names as an entry is
   assert.deepEqual(total.entries, ['OrdersController#create'])
 })
 
+test('a test the change removes, and one it edits to assert less, are on the part they covered', async (t) => {
+  const tests = (both: boolean) =>
+    `${TEST_HEADER}import { total } from '../src/total.js'\n\ntest('rounds', () => {\n  assert.equal(total(1.2, 1.4), 3)\n${both ? '  assert.equal(total(0.5, 0.5), 1)\n' : ''}})\n${both ? "\ntest('adds', () => {\n  assert.equal(total(1, 2), 3)\n})\n" : ''}`
+  const { repo, base, head, out } = repoOf(
+    t,
+    { 'package.json': PACKAGE, 'src/total.js': 'export function total(a, b) {\n  return Math.round(a + b)\n}\n', 'test/total.test.js': tests(true) },
+    { 'src/total.js': 'export function total(a, b) {\n  return Math.round(a + b + 0)\n}\n', 'test/total.test.js': tests(false) },
+  )
+  const scan = scanWith([
+    { id: 'n1', symbol: 'total', kind: 'function', path: 'src/total.js', startLine: 1, endLine: 3, changedLines: [2], language: 'javascript', status: 'modified', tests: [{ id: 't1', symbol: 'rounds', path: 'test/total.test.js', line: 5 }] },
+    { id: 't1', symbol: 'rounds', kind: 'test', path: 'test/total.test.js', startLine: 5, endLine: 7, changedLines: [], language: 'javascript', status: 'modified', tests: [] },
+  ])
+  scan.testDefinitions = [{ id: 't1', symbol: 'rounds', path: 'test/total.test.js', startLine: 5, endLine: 7, anchors: [{ id: 'n1', lines: [6] }], changed: true }]
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan) })
+  assert.deepEqual(result.graph.removed_tests, [{ path: 'test/total.test.js', symbol: 'adds', base_line: 10, names: ['total'] }])
+  const total = result.graph.nodes.find((node) => node.id === 'n1')!
+  assert.deepEqual(total.tests, [
+    { path: 'test/total.test.js', symbol: 'rounds', line: 5, relation: 'edited', found: 'scan', lifecycle: false, at_head: 'passed', shows: 'still-passes', why: 'the scan links it to total; this diff changed it and it names total; named after src/total.js', weakened: { assertions_removed: 1, lines: [7] } },
+    { path: 'test/total.test.js', symbol: 'adds', line: 10, relation: 'removed', found: 'diff', lifecycle: false },
+  ])
+})
+
 // ───────────────────────── A helper, a script and a README: the change these rules were calibrated on ─────────────────────────
 
 const POSTS_BASE = "import { findUser, findUsers } from '../users.js'\n\nexport function linkUserTags(text) {\n  return text.replace(/@(\\d+)/g, (_all, id) => findUser(Number(id))?.name ?? 'someone')\n}\n"
@@ -676,6 +698,11 @@ test('a helper its direct tests prove, with an older request test running throug
   const [origin] = helper.runs_from?.found === 'origins' ? helper.runs_from.origins : []
   assert.deepEqual(origin!.chain.map((step) => step.symbol), ['showTopic', 'renderPost'])
   assert.deepEqual([origin!.kind, origin!.label, origin!.by, origin!.hops, origin!.symbol], ['handler', 'showTopic', 'path', 2, 'showTopic'])
+  // The request test that covered it before the change is on it, beside the direct test the change added.
+  assert.deepEqual(helper.tests!.map((entry) => [entry.path, entry.relation, entry.found, entry.lifecycle, entry.at_head, entry.shows]), [
+    ['test/e2e/topics.test.js', 'before', 'entry', true, 'passed', 'reaches'],
+    ['test/helpers/posts.test.js', 'added', 'scan', false, 'passed', 'proves'],
+  ])
   assert.equal(helper.facts.proof.value, 'lifecycle')
   assert.equal(
     helper.facts.proof.evidence,
