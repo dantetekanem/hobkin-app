@@ -62,17 +62,30 @@ The user, 2026-11-23: "the review is not connecting dots, i dont see what is the
 
 ## Proof
 
+- A1. `packages/change-review/test/zones.test.ts` › "a Rails path is a layer and the subject its file names, singular, with its namespace", › "a path of this repository is its part of the app and the folder it is about", › "a test takes the subject of the code it mirrors, in a test layer" and › "the same path gives the same zone, and a label is never a path"
+- A2. `packages/change-review/test/pipeline.test.ts` › "every part says where it runs from, or why nothing was looked for, and names its zone"; `packages/change-review/test/origins.test.ts` › "each way in a real pack names at a call site is an origin: a handler by its key, a route by its verbs and path, a listener, a task"
+- A3. `packages/change-review/test/pipeline.test.ts` › "every part says where it runs from, or why nothing was looked for, and names its zone"; `shared/test/review-lifecycle.test.ts` › "changed code only tests call says so, in its reason and its words"
+- A4. `packages/change-review/test/pipeline.test.ts` › "a test the change removes, and one it edits to assert less, are on the part they covered" and the mentions fixture in the same file, whose unchanged request test is marked as there before
+- A5. `packages/change-review/test/pipeline.test.ts` › "a test the change removes, and one it edits to assert less, are on the part they covered"
+- A6. `packages/change-review/test/curate.test.ts` › "runs_from, tests and zone change a unit only in where it is reached from: a graph without them reads as it did"; `packages/change-review/test/pipeline.test.ts` › "where a part runs from, its tests and its zone set no level: the same parts without them rate the same"
+- A7. `shared/test/review-lifecycle.test.ts` › "changed code counts the other ways in beside the nearest, each a door or an entry with no door"; `host/test/review-engine-facts.test.ts` › "the change review's way in stands where the host found none, its words whole and its steps where the host shows them"
+- A8. `shared/test/review-covering.test.ts` › "an unchanged test that covered changed code before the change joins the review, wired to that code, and says so" and › "at most 3 unchanged tests join for a changed definition and 12 for a review, the life-cycle tests first"; `host/test/review-engine-facts.test.ts` › "a test the change removed is wired to what it covered, and code it alone covered says so"
+- A9. `shared/test/review-zones.test.ts` › "every node names its zone, and the review lists its zones in the order a request passes them, a test after the code it mirrors"; `host/test/review-engine-facts.test.ts` › "a review prepared before zones, covers and ways in, with an older graph.json, reads as it did"
+- A10. `ui/test/review-groups.test.ts` › "unchanged code on the way in never folds with safe code: it keeps a standing of its own, and the routes stay where requests enter" and › "past the budget the way in folds into "More of the way in", which keeps where a request enters and its life cycle"; `ui/test/review-trail.test.ts` › "found by itself, the way in to link_user_tags runs from GET /posts/:id, the nearest, and counts the other two", › "the host's chain wins: its origin, its words and its count" and › "with no way in it says why: in the review's words, in an older review's, or in what the graph shows"; `ui/test/review-focus.test.ts` › "the whole of the focus's way in is lit, however far from it the way in starts"; `ui/test/review-camera.test.ts` › "the frame takes in the focus's caller and its card of tests only when they fit at a reading size"; check: a still render of the step card with its From row, light and dark (2026-11-23), then the live window.
+- A11. `ui/test/review-groups.test.ts` › "a card of tests folds only with its subject: drawn while its subject is, and in its subject's group when it folds"; `ui/test/review-node-tests.test.ts` › "the tests of changed code are told apart: there before, added or edited, and removed, each a failure first" and › "a test that says what it covers is listed by that, and one that does not by its wires"; check: the same still render, then the live window.
+- A13. In pi-agentic-search, `test/life-cycle.test.ts` › "a call inside a function that is the value of an object's property, or an argument, is a caller: the definition that holds it", › "a map of handlers by name is a way in: each key a handler, exact only where the code reads the map by a key it is given", › "a listener is a way in, named by its event, and exact where the receiver is a known event source", › "a route a Node app registers is a way in, with its verbs and path as Rails routes have them" and › "a rake task is a way in, named with its namespace, and what it calls has it as a caller"; check: `agentic-search scan --anchor host/src/review/reviews.ts:867 --max-depth 1 --callers all` in this repository lists `reviewHandlers` in "review.prepare" as a handler, not exact (2026-11-23).
+
 ## Steps
 
-- [ ] S1 (A1). Engine: zones from paths.
-- [ ] S2 (A2, A3). Engine: origins with their chain, their kind and why a walk stopped.
-- [ ] S3 (A4, A5). Engine: the tests of each definition, their relation to the change and their result.
-- [ ] S4 (A6). Engine: the Reviewer's data and prompt, the units' words, renaming a zone.
-- [ ] S5 (A7, A8, A9). Host and shared: the way in as nodes, the tests that were there before, zones on the model.
-- [ ] S6 (A10). Window: the way in stays in view.
-- [ ] S7 (A11). Window: tests connected.
+- [x] S1 (A1). Engine: zones from paths. 6800752, 490be20. Two changes from the notes: a top folder named `components` is no package, and a file right under a source root is in that root's zone.
+- [x] S2 (A2, A3). Engine: origins with their chain, their kind and why a walk stopped. 175c7c1, c755934, 02770d1, and 087776f for the search tool's new kinds. An origin the scan is not sure of says "(not certain)".
+- [x] S3 (A4, A5). Engine: the tests of each definition, their relation to the change and their result. fb8c6bd. Added and edited are told apart by the file's and the test's status in the diff, and removed tests are found by their text in the diff's test hunks.
+- [x] S4 (A6). Engine: the Reviewer's data and prompt, the units' words, renaming a zone. b45c188, d92e9db. Run against fixtures only: no model call, and no real review of a repository against the updated search tool.
+- [x] S5 (A7, A8, A9). Host and shared: the way in as nodes, the tests that were there before, zones on the model. c2062cb, 8c13166, 727bc13, b884f6d, 026d077. Tested from hand-written engine output: not against a real `graph.json` or a live host.
+- [x] S6 (A10). Window: the way in stays in view. 97a40d8, f99521e, e6796f7, 586b99b, db83a06. Seen only as still renders: not in the live window.
+- [x] S7 (A11). Window: tests connected. 5385a4f, b1d0fca. Seen only as still renders. The list of tests under a card on the graph is not split in three yet, and a removed test counts as not run in a card's counts.
 - [ ] S8 (A12). Window: zones on the graph.
-- [ ] S9 (A13). Search tool: handler maps, listeners, routes and tasks.
+- [x] S9 (A13). Search tool: handler maps, listeners, routes and tasks, with mailers, channels and JSX event props. pi-agentic-search 9a4d5f9 to 07935e8, its `dist/` rebuilt. A handler read by key in another file stays not exact, which is this repository's own case.
 
 ## Open questions
 
