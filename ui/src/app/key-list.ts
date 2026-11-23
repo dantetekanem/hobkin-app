@@ -31,6 +31,7 @@ export const KEY_LIST: readonly KeyEntry[] = [
   { keys: 'esc', does: 'Close the canvas', where: 'the canvas' },
   { keys: '⌘S', does: 'Save the drawing', where: 'the canvas, on a drawing' },
   { keys: 'T  ⇧T', does: 'Open, close or expand the proof', where: 'a review' },
+  { keys: 'J  K', does: 'Next and previous zone', where: 'a review, outside the proof' },
   { keys: 'J  K', does: 'Next and previous model', where: 'a proof run' },
   { keys: 'F  ⇧F', does: 'Next and previous thing that failed', where: 'a proof run' },
   { keys: '1  2  3', does: 'Run, State graph, Math', where: 'a proof run' },
