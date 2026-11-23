@@ -148,3 +148,28 @@ test('the walk keeps the tests the scan links to each definition it follows, so 
   const found = await entriesAbove({ starts: [{ id: 'n2', callers: [{ path: 'src/services/reviews.js', line: 4 }] }], isEntry: () => false, scan: scanning(definitions).scan })
   assert.deepEqual(found.tests, { 'src/services/reviews.js:3': [{ symbol: 'a review shows its score', path: 'test/services/reviews.test.js', line: 5 }] })
 })
+
+test('a call the scan names as a way in ends its way there, by its key, with no scan of the place it is in', async () => {
+  const handlerSite: CallSite = {
+    id: 'h1', symbol: 'handlers', path: 'src/commands.js', line: 4, guards: [], key: 'review.prepare',
+    entry: { kind: 'handler', exact: true, doors: [{ kind: 'handler', title: 'review.prepare', file: 'src/commands.js', line: 4 }] },
+  }
+  const definitions = [
+    anchor('prepareReview', 'src/services/reviews.js', [7, 9], [handlerSite]),
+    anchor('handlers', 'src/commands.js', [3, 5], [site('src/commands.js', 8)]),
+    anchor('dispatch', 'src/commands.js', [7, 9], []),
+  ]
+  const { scan, asked } = scanning(definitions)
+  const found = await entriesAbove({ starts: [{ id: 'n2', callers: [{ path: 'src/services/reviews.js', line: 8 }] }], isEntry: () => false, scan })
+  assert.deepEqual(found.entries.n2, [
+    {
+      symbol: 'handlers', path: 'src/commands.js', hops: 2, line: 4, kind: 'handler', label: 'review.prepare', exact: true, by: 'scan',
+      chain: [
+        { symbol: 'handlers', path: 'src/commands.js', line: 4, call_line: 4 },
+        { symbol: 'prepareReview', path: 'src/services/reviews.js', line: 7, call_line: 8 },
+      ],
+    },
+  ])
+  assert.deepEqual(asked, [['src/services/reviews.js:8']], 'the handler map is not scanned for its own callers')
+  assert.deepEqual(found.stops, { n2: { hops: 2 } })
+})

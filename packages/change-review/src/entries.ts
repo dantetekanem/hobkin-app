@@ -214,7 +214,35 @@ export async function entriesAbove({ starts, isEntry, scan, maxHops = ENTRY_HOPS
       }
       for (const site of sites) {
         const guard = site.guards.at(-1)?.text
-        queue({ root: step.root, path: site.path, line: site.line, hops: step.hops + 1, ...(site.enqueue ? { enqueue: true } : {}), ...(guard ? { guard } : {}), below }, next)
+        if (!site.entry) {
+          queue({ root: step.root, path: site.path, line: site.line, hops: step.hops + 1, ...(site.enqueue ? { enqueue: true } : {}), ...(guard ? { guard } : {}), below }, next)
+          continue
+        }
+        // The scan names this call a way in (a route, a handler under its key, a listener): the way ends at it.
+        const place = `${site.path}:${site.line}`
+        if (asked.get(step.root)!.has(place)) continue
+        asked.get(step.root)!.add(place)
+        const top: OriginStep = {
+          symbol: site.symbol,
+          path: site.path,
+          line: outcome.scan.nodes[site.id]?.startLine ?? site.line,
+          call_line: site.line,
+          ...(site.enqueue ? { enqueues: true } : {}),
+          ...(guard ? { guard } : {}),
+        }
+        const hops = step.hops + 1
+        reached(step.root, hops)
+        entries[step.root]!.push({
+          symbol: site.symbol,
+          path: site.path,
+          hops,
+          line: top.line,
+          kind: site.entry.kind,
+          ...originWords(site.entry, site.symbol, site.key),
+          exact: site.entry.exact,
+          by: 'scan',
+          chain: [...below, top].toReversed(),
+        })
       }
     }
     frontier = next
