@@ -135,7 +135,7 @@ The Work screen shows one hobkin delegating to many. hobkin sits on the left of 
 - [x] S4 (A5, A6, A7). Finished changes: groups, cards, actions, and the link to Change Review. Proof: `node --test host/test/work.test.ts` passes "finished changes keep hobkin's groups and reasons", "merge passes hobkin's refusal through" and "a group action lists its targets before acting" (2026-11-10).
 - [x] S8 (A20, A21, A22, A23). The Work screen (`ui/src/features/work/WorkScreen.tsx`): sample and live data, the keyboard, the map's movement, and the links to pull requests. Proof: `node --test ui/test/work.test.ts` passes, and the checks under A21 to A23 (2026-11-10).
 - [x] S9 (A24, A25, A26). The projects list in Work with each project's state and hobkin's answers to a proposal (`work.proposal`), the number of work agents at once (`work.agents`), and no Herdr for any home (`keepToSurroundings` in `host/src/owner.ts`). Proof: the three tests pass (2026-11-10). Seen in Chrome on sample data: Down from the switch reached the agent count, Right made it 3 and the map drew a third place; Enter on a proposal took it, and it joined the taken projects with its own settings.
-- [ ] S10 (A35). Runtime: the survey measures a finished change from where it left its default branch, on this machine or on origin. Files: `hobkin/src/cli/work/unmerged.mjs`, `hobkin/src/cli/work/tree.mjs`.
+- [ ] S16 (A35). Runtime: the survey measures a finished change from where it left its default branch, on this machine or on origin. Files: `hobkin/src/cli/work/unmerged.mjs`, `hobkin/src/cli/work/tree.mjs`.
 
 ## Open questions
 
