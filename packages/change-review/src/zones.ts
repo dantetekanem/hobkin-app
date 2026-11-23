@@ -54,6 +54,9 @@ const RUBY_NAMED: Record<string, string> = { commands: 'service' }
 /** Folders of interface code: each is a layer, and the folder under it the subject. */
 const PARTS: Record<string, string> = { components: 'component', hooks: 'hook', pages: 'page', stores: 'state', state: 'state' }
 
+/** The source roots, as words for a file right under one. */
+const ROOT_WORDS: Record<string, string> = { src: 'Source', lib: 'Library', app: 'App' }
+
 const LAYER_WORDS: Record<string, string> = {
   controller: 'Controllers',
   model: 'Models',
@@ -188,7 +191,8 @@ function placeOf(component: string | undefined, rest: readonly string[]): Place 
   }
   if (rest[0] === 'lib' && rest[1] === 'tasks' && rest.length > 2) return named('task', rest.slice(2), component)
 
-  const inner = rest[0] === 'app' && rest[1] === 'javascript' ? rest.slice(2) : ['app', 'src'].includes(rest[0]!) || (rest[0] === 'lib' && rest[1] !== 'tasks') ? rest.slice(1) : rest
+  const root = rest[0] === 'app' && rest[1] === 'javascript' ? 2 : ['app', 'src'].includes(rest[0]!) || (rest[0] === 'lib' && rest[1] !== 'tasks') ? 1 : 0
+  const inner = rest.slice(root)
   const first = inner[0]!
   if (inner.length > 1) {
     const layer = NAMED[first] ?? (isRuby(name) ? RUBY_NAMED[first] : undefined)
@@ -213,6 +217,8 @@ function placeOf(component: string | undefined, rest: readonly string[]): Place 
   }
   if (inner.length === 1) {
     const subject = stemOf(name)
+    // A file right under a source root is in that root's layer: `src/total.js` is "Source · total".
+    if (root && rest.length > 1) return { layer: rest[0]!, subject, written: subject, named: false, label: `${ROOT_WORDS[rest[0]!]} · ${words(subject)}` }
     return { layer: 'root', subject, written: subject, named: false, label: `Top level · ${words(subject)}` }
   }
   const subject = inner.length > 2 ? inner[1]! : stemOf(name)
@@ -233,7 +239,12 @@ function testPlaceOf(component: string | undefined, rest: readonly string[]): Pl
     return { layer: `test:${kind}`, subject, written, named: true, label: `${tests} · ${sentence(words(written))} ${TEST_NOUNS[kind] ?? kind}` }
   }
   const code = placeOf(component, [...mirrored.slice(0, -1), untested])
-  const label = code.named ? `${tests} · ${sentence(words(code.written))} ${TEST_NOUNS[code.layer] ?? code.layer}` : `Tests · ${code.label.replace(' · ', ' ')}`
+  // A test of code at the top says only what it is about: "Tests · total".
+  const label = code.named
+    ? `${tests} · ${sentence(words(code.written))} ${TEST_NOUNS[code.layer] ?? code.layer}`
+    : code.layer === 'root'
+      ? `Tests · ${words(code.subject)}`
+      : `Tests · ${code.label.replace(' · ', ' ')}`
   return { ...code, layer: `test:${code.layer}`, label }
 }
 

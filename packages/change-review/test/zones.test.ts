@@ -65,6 +65,7 @@ test('a path of this repository is its part of the app and the folder it is abou
 test('a generic folder is the layer, and what is under it the subject', () => {
   check([
     ['src/utils/date.ts', 'utils', 'date', undefined, 'Utils · date'],
+    ['src/total.js', 'src', 'total', undefined, 'Source · total'],
     ['lib/mygem/client.rb', 'mygem', 'client', undefined, 'Mygem · client'],
     ['README.md', 'root', 'README', undefined, 'Top level · README'],
     ['src/components/forms/Input.tsx', 'component', 'forms', undefined, 'Components · forms'],
@@ -89,6 +90,7 @@ test('a test takes the subject of the code it mirrors, in a test layer', () => {
     ['packages/change-review/test/proof.test.ts', 'test:change-review', 'proof', 'change-review', 'Tests · Change review proof'],
     ['ui/src/features/review/graph/NodeCard.test.tsx', 'test:graph', 'review', 'ui', 'Tests · Window review graph'],
     ['ui/test/pals.test.ts', 'test:ui', 'pals', 'ui', 'Tests · Window pals'],
+    ['test/total.test.js', 'test:root', 'total', undefined, 'Tests · total'],
   ])
   // The request test and the controller share the subject, so each can be found from the other.
   assert.equal(zoneOf('spec/requests/orders_spec.rb').subject, zoneOf('app/controllers/orders_controller.rb').subject)
