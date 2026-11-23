@@ -400,6 +400,190 @@ export function openBlocks(positions: Positions, kindOf: (id: string) => NodeKin
   return placed
 }
 
+/**
+ * The room a zone's region keeps (spec 055): `pad` beside and under its nodes, `head` above them for its heading, which
+ * grows from far away inside that room and never over a card, and `gap` between two regions.
+ */
+export const ZONE_FRAME = { pad: 28, head: 96, gap: 64 } as const
+
+/** A node as the zones' layout needs it: its zone, by the id of one of the zones given. */
+export type ZoneNode = WayNode & { zone?: string }
+
+/** A zone as the layout needs it: a zone of tests (`test:` layer) sits under the code it mirrors. */
+export interface LayoutZone {
+  id: string
+  layer: string
+}
+
+/** The region of a zone around its nodes: room beside and under them, and above them for its heading. */
+export function zoneRect(rects: readonly Rect[]): Rect {
+  const box = boundsOf(rects)
+  return {
+    x: box.x - ZONE_FRAME.pad,
+    y: box.y - ZONE_FRAME.head,
+    width: box.width + 2 * ZONE_FRAME.pad,
+    height: box.height + ZONE_FRAME.head + ZONE_FRAME.pad,
+  }
+}
+
+/** The region of each zone, from where its nodes stand, in the order its first node comes. A node with no zone has none. */
+export function zoneRects(nodes: readonly ZoneNode[], positions: Positions): Map<string, Rect> {
+  const members = new Map<string, Rect[]>()
+  for (const node of nodes) {
+    const at = positions[node.id]
+    if (!at || node.zone == null) continue
+    members.set(node.zone, [...(members.get(node.zone) ?? []), nodeRect(node.kind, at)])
+  }
+  return new Map([...members].map(([zone, rects]) => [zone, zoneRect(rects)]))
+}
+
+const CELL = { width: Math.max(...Object.values(NODE_SIZE).map((size) => size.width)), height: Math.max(...Object.values(NODE_SIZE).map((size) => size.height)) }
+
+/** Nodes wired to nothing beside them, as a grid read down each column, from a top left corner. */
+function gridOf(nodes: readonly LayoutNode[], left = 0, top = 0): Positions {
+  const rows = Math.min(nodes.length, Math.max(BLOCK_ROWS, Math.ceil(Math.sqrt(nodes.length))))
+  const positions: Positions = {}
+  nodes.forEach((node, index) => {
+    positions[node.id] = { x: left + Math.floor(index / rows) * (CELL.width + BLOCK_GAP), y: top + (index % rows) * (CELL.height + ROW_GAP) }
+  })
+  return positions
+}
+
+/** The wires between two of these nodes. */
+const wiresWithin = (ids: ReadonlySet<string>, edges: readonly LayoutEdge[]) => edges.filter((edge) => edge.from !== edge.to && ids.has(edge.from) && ids.has(edge.to))
+
+/** The far edges of placed nodes. */
+function extent(positions: Positions, kindOf: (id: string) => NodeKind): { right: number; bottom: number } {
+  const ids = Object.keys(positions)
+  return {
+    right: Math.max(0, ...ids.map((id) => positions[id]!.x + NODE_SIZE[kindOf(id)].width)),
+    bottom: Math.max(0, ...ids.map((id) => positions[id]!.y + NODE_SIZE[kindOf(id)].height)),
+  }
+}
+
+/** A zone of code on its own, from its top left corner: columns by call depth inside it, as the request goes. */
+function codeBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[]): Positions {
+  const inside = wiresWithin(new Set(members.map((node) => node.id)), edges)
+  if (inside.length === 0) return gridOf(members)
+  const depth = bandDepths(members.map((node) => node.id), inside, MAX_WAY_COLUMNS)
+  const columns = columnsAt(members, depth, 0)
+  const tops = settleColumns(columns.map((entry) => entry.column), inside)
+  const highest = Math.min(...tops.values())
+  const positions: Positions = {}
+  for (const { index, column } of columns) for (const node of column.nodes) positions[node.id] = { x: index * (CELL.width + COLUMN_GAP), y: Math.round(tops.get(node.id)! - highest) }
+  return positions
+}
+
+/**
+ * A zone of tests under the code it mirrors, from a top: each test wants to stand just left of the leftmost thing it
+ * covers above it, so its wire rises to it from a right pin into a left one, and takes the first row with room there.
+ */
+function testBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[], above: Positions, top: number): Positions {
+  const wanted = new Map<string, number>()
+  for (const node of members) {
+    const xs = edges.filter((edge) => edge.from === node.id && edge.to !== node.id && above[edge.to]).map((edge) => above[edge.to]!.x)
+    wanted.set(node.id, xs.length > 0 ? Math.min(...xs) - CELL.width - LANE.lead : 0)
+  }
+  const rows: [number, number][][] = []
+  const positions: Positions = {}
+  const order = members.map((node, index) => ({ node, index })).sort((a, b) => wanted.get(a.node.id)! - wanted.get(b.node.id)! || a.index - b.index)
+  for (const { node } of order) {
+    const left = wanted.get(node.id)!
+    const right = left + NODE_SIZE[node.kind].width
+    let row = 0
+    while (rows[row]?.some(([from, to]) => left < to + LANE.room && from < right + LANE.room)) row += 1
+    ;(rows[row] ??= []).push([left, right])
+    positions[node.id] = { x: Math.round(left), y: Math.round(top + row * (CELL.height + ROW_GAP)) }
+  }
+  return positions
+}
+
+/** The code zone a zone of tests sits under: the one most of its wires lead to, the nearest before it on a tie, else the code zone before it. */
+function hostOf(tests: string, order: readonly string[], isTests: (zone: string) => boolean, zoneOfNode: ReadonlyMap<string, string>, edges: readonly LayoutEdge[]): string | null {
+  const at = order.indexOf(tests)
+  const reached = new Map<string, number>()
+  for (const edge of edges) {
+    const [from, to] = [zoneOfNode.get(edge.from), zoneOfNode.get(edge.to)]
+    if (from === tests && to != null && !isTests(to)) reached.set(to, (reached.get(to) ?? 0) + 1)
+  }
+  const distance = (zone: string) => (order.indexOf(zone) < at ? at - order.indexOf(zone) : order.length + order.indexOf(zone))
+  const [best] = [...reached].sort(([a, one], [b, two]) => two - one || distance(a) - distance(b))
+  if (best) return best[0]
+  return [...order.slice(0, at)].reverse().find((zone) => !isTests(zone)) ?? null
+}
+
+/**
+ * The graph by zone (spec 055, the user, 2026-11-23: "so I can see the zone of the change"). Each zone is one block,
+ * the blocks left to right in the order the zones are given, which is the order a request passes them, so a request
+ * still reads left to right. Inside a block, columns by call depth. A zone of tests sits under the code it mirrors, each
+ * test just left of what it covers, so its wire is short and still leaves a right pin into a left one (spec 006). The
+ * acceptance lines of a spec lead, as spec 006 has them, so their wires to the tests run forward too. A node in a zone
+ * not given stands in a block after the rest.
+ *
+ * Each block keeps the room of its region (`ZONE_FRAME`): no two regions overlap, every node is inside its own, and the
+ * regions' tops are on one line. `blocks` are groups opened in place (`openBlocks`): a group grows its own zone, and a
+ * member of another zone stands in its own, after what is there. The same nodes always give the same layout.
+ */
+export function layoutZones(nodes: readonly ZoneNode[], edges: readonly LayoutEdge[], zones: readonly LayoutZone[], blocks: readonly Block[] = []): Positions {
+  const OTHER = '\u0000other'
+  const listed = new Map(zones.map((zone) => [zone.id, zone]))
+  const zoneOfNode = new Map(nodes.map((node) => [node.id, node.zone != null && listed.has(node.zone) ? node.zone : OTHER]))
+  const kindOf = new Map(nodes.map((node) => [node.id, node.kind]))
+  const kind = (id: string) => kindOf.get(id) ?? 'file'
+  const isTests = (zone: string) => listed.get(zone)?.layer.startsWith('test:') ?? false
+
+  // Members of open groups are placed after the rest, so opening a group never moves what stood before it opened.
+  const opening = blocks.filter((block) => zoneOfNode.has(block.at))
+  const opened = new Set(opening.flatMap((block) => block.ids).filter((id) => kindOf.has(id) && !opening.some((block) => block.at === id)))
+  const membersOf = new Map<string, ZoneNode[]>()
+  for (const node of nodes) {
+    if (opened.has(node.id)) continue
+    const zone = zoneOfNode.get(node.id)!
+    membersOf.set(zone, [...(membersOf.get(zone) ?? []), node])
+  }
+  const order = [...zones.map((zone) => zone.id), OTHER].filter((zone) => membersOf.has(zone) || [...opened].some((id) => zoneOfNode.get(id) === zone))
+  const lead = order.filter((zone) => (membersOf.get(zone) ?? []).length > 0 && membersOf.get(zone)!.every((node) => node.kind === 'criterion'))
+
+  // The stacks: a zone of code, with the zones of tests under it.
+  const docked = new Map<string, string[]>()
+  const alone: string[] = []
+  for (const zone of order) {
+    const host = isTests(zone) ? hostOf(zone, order, isTests, zoneOfNode, edges) : null
+    if (host != null && !lead.includes(host)) docked.set(host, [...(docked.get(host) ?? []), zone])
+    else alone.push(zone)
+  }
+  const stacks = [...lead, ...alone.filter((zone) => !lead.includes(zone))].map((zone) => [zone, ...(docked.get(zone) ?? [])])
+
+  /** A block opened in place, then the members of other zones' open groups after what stands in it. */
+  const finish = (zone: string, standing: Positions): Positions => {
+    const own = opening.filter((block) => zoneOfNode.get(block.at) === zone && standing[block.at])
+    const placed = openBlocks(standing, kind, own.map((block) => ({ at: block.at, ids: block.ids.filter((id) => opened.has(id) && zoneOfNode.get(id) === zone) })))
+    const visitors = nodes.filter((node) => opened.has(node.id) && zoneOfNode.get(node.id) === zone && !placed[node.id])
+    if (visitors.length === 0) return placed
+    const room = extent(placed, kind)
+    const top = Object.keys(placed).length > 0 ? Math.min(...Object.values(placed).map((point) => point.y)) : 0
+    return { ...placed, ...gridOf(visitors, Object.keys(placed).length > 0 ? room.right + COLUMN_GAP : 0, top) }
+  }
+
+  const positions: Positions = {}
+  let cursor = 0
+  for (const [head, ...under] of stacks) {
+    const members = membersOf.get(head!) ?? []
+    let placed = finish(head!, isTests(head!) ? gridOf(members) : codeBlock(members, edges))
+    const above = placed
+    for (const zone of under) {
+      const top = extent(placed, kind).bottom + ZONE_FRAME.pad + ZONE_FRAME.gap + ZONE_FRAME.head
+      placed = { ...placed, ...finish(zone, testBlock(membersOf.get(zone) ?? [], edges, above, top)) }
+    }
+    // The stack's regions start where the one before ends, their tops on one line.
+    const regions = [head!, ...under].map((zone) => zoneRect(Object.keys(placed).filter((id) => zoneOfNode.get(id) === zone).map((id) => nodeRect(kind(id), placed[id]!))))
+    const box = boundsOf(regions)
+    for (const [id, point] of Object.entries(placed)) positions[id] = { x: Math.round(point.x - box.x + cursor), y: Math.round(point.y - box.y) }
+    cursor += box.width + ZONE_FRAME.gap
+  }
+  return positions
+}
+
 /** The box around a set of nodes. */
 export function boundsOf(rects: readonly Rect[]): Rect {
   if (rects.length === 0) return { x: 0, y: 0, width: 0, height: 0 }

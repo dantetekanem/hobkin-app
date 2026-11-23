@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { columnsOf, LANE_GAP, layoutRequest, layoutReview, nodeRect, pinPoints, MAX_CODE_COLUMNS, NODE_SIZE, type LayoutEdge, type LayoutNode } from '../review/layout.ts'
+import { columnsOf, LANE_GAP, layoutRequest, layoutReview, layoutZones, nodeRect, pinPoints, MAX_CODE_COLUMNS, NODE_SIZE, ZONE_FRAME, zoneRects, type LayoutEdge, type LayoutNode, type LayoutZone, type ZoneNode } from '../review/layout.ts'
 import { stressReview } from '../review/stress.ts'
 import type { NodeKind } from '../review/types.ts'
 
@@ -203,4 +203,126 @@ test('a request reads left to right: where it enters, the callers, the change, w
   assert.ok(Object.values(positions).every((position) => Number.isInteger(position.x) && Number.isInteger(position.y)))
   assert.deepEqual(layoutRequest(all, wires), positions)
   assert.equal(kind('route'), 'context')
+})
+
+/** A request through four zones, a zone of tests that mirrors the third, and a spec's acceptance lines. */
+function zoned() {
+  const zones: LayoutZone[] = [
+    { id: 'routes', layer: 'route' },
+    { id: 'controllers', layer: 'controller' },
+    { id: 'helpers', layer: 'helper' },
+    { id: 'helper-tests', layer: 'test:helper' },
+    { id: 'models', layer: 'model' },
+    { id: 'spec', layer: '_specs' },
+  ]
+  const at = (id: string, kind: NodeKind, zone: string, more: Partial<ZoneNode> = {}): ZoneNode => ({ id, kind, zone, ...more })
+  const entry = { kind: 'route' }
+  const all: ZoneNode[] = [
+    at('A1', 'criterion', 'spec'),
+    at('t-render', 'test', 'helper-tests'),
+    at('t-link', 'test', 'helper-tests'),
+    at('t-link-2', 'test', 'helper-tests'),
+    at('link', 'code', 'helpers', { change: 'modified' }),
+    at('render', 'context', 'helpers', { change: 'unchanged' }),
+    at('posts', 'context', 'controllers', { change: 'unchanged' }),
+    at('feeds', 'context', 'controllers', { change: 'unchanged' }),
+    at('get-post', 'context', 'routes', { change: 'unchanged', entry }),
+    at('get-feed', 'context', 'routes', { change: 'unchanged', entry }),
+    at('user', 'context', 'models', { change: 'unchanged' }),
+    // A node whose zone the review does not list still has a place.
+    at('stray', 'file', 'nowhere'),
+  ]
+  const wires = [
+    wire('get-post', 'posts'),
+    wire('get-feed', 'feeds'),
+    wire('posts', 'render'),
+    wire('feeds', 'render'),
+    wire('render', 'link'),
+    wire('link', 'user'),
+    wire('t-render', 'render'),
+    wire('t-link', 'link'),
+    wire('t-link-2', 'link'),
+    wire('A1', 't-link'),
+  ]
+  return { zones, all, wires }
+}
+
+test('zones: one block for each, in the order given, none overlapping another, and every node inside its own', () => {
+  const { zones, all, wires } = zoned()
+  const positions = layoutZones(all, wires, zones)
+  assert.deepEqual(Object.keys(positions).sort(), all.map((entry) => entry.id).sort(), 'every node has a place')
+  assertNoOverlap(all, positions)
+
+  const rects = zoneRects(all.map((entry) => (entry.zone === 'nowhere' ? { ...entry, zone: undefined } : entry)), positions)
+  const listed = [...rects.keys()]
+  for (const [index, one] of listed.entries()) {
+    for (const two of listed.slice(index + 1)) assert.equal(overlaps(rects.get(one)!, rects.get(two)!), false, `the zones ${one} and ${two} overlap`)
+  }
+  for (const entry of all.filter((each) => each.zone !== 'nowhere')) {
+    const box = rects.get(entry.zone!)!
+    const rect = nodeRect(entry.kind, positions[entry.id]!)
+    assert.ok(rect.x >= box.x + ZONE_FRAME.pad && rect.x + rect.width <= box.x + box.width - ZONE_FRAME.pad, `${entry.id} is inside its zone across`)
+    assert.ok(rect.y >= box.y + ZONE_FRAME.head && rect.y + rect.height <= box.y + box.height - ZONE_FRAME.pad, `${entry.id} is inside its zone down, under its heading`)
+  }
+
+  // A request reads left to right: each zone of code after the one it passes first, the regions' tops on one line.
+  const code = ['routes', 'controllers', 'helpers', 'models'].map((id) => rects.get(id)!)
+  for (let index = 1; index < code.length; index += 1) {
+    assert.ok(code[index - 1]!.x + code[index - 1]!.width + ZONE_FRAME.gap <= code[index]!.x, `${zones[index]!.id} comes after the zone before it`)
+    assert.equal(code[index]!.y, code[0]!.y)
+  }
+  // Inside a block, columns by call depth: the caller before what it calls.
+  assert.ok(positions.render!.x < positions.link!.x)
+  assert.equal(positions['get-post']!.x, positions['get-feed']!.x)
+  // The acceptance lines lead, as spec 006 has them, so their wires to the tests run forward.
+  assert.ok(rects.get('spec')!.x + rects.get('spec')!.width <= code[0]!.x)
+  // A node the review puts in no zone it lists stands after the rest.
+  assert.ok(positions.stray!.x > code.at(-1)!.x)
+
+  // The same review always lays out the same way, in whole points, its first region at the origin.
+  assert.deepEqual(layoutZones(all, wires, zones), positions)
+  assert.ok(Object.values(positions).every((position) => Number.isInteger(position.x) && Number.isInteger(position.y)))
+  assert.equal(Math.min(...[...rects.values()].map((rect) => rect.x)), 0)
+  assert.equal(Math.min(...[...rects.values()].map((rect) => rect.y)), 0)
+})
+
+test('zones: a zone of tests sits under the code it mirrors, each test just left of what it covers, so its wire is short', () => {
+  const { zones, all, wires } = zoned()
+  const positions = layoutZones(all, wires, zones)
+  const rects = zoneRects(all, positions)
+  const [tests, helpers] = [rects.get('helper-tests')!, rects.get('helpers')!]
+  assert.ok(tests.y >= helpers.y + helpers.height + ZONE_FRAME.gap, 'under the zone it mirrors, with room between')
+  assert.ok(tests.x < helpers.x + helpers.width && helpers.x < tests.x + tests.width, 'beside it, not off in a corner')
+  for (const [test, subject] of [['t-link', 'link'], ['t-render', 'render']] as const) {
+    const [from, to] = [positions[test]!, positions[subject]!]
+    assert.ok(from.x + NODE_SIZE.test.width < to.x, `${test} sits left of ${subject}, so its wire leaves a right pin into a left one`)
+    assert.ok(to.x - from.x < 2 * NODE_SIZE.test.width, `${test} sits near ${subject}`)
+  }
+  assert.equal(overlaps(nodeRect('test', positions['t-link']!), nodeRect('test', positions['t-link-2']!)), false)
+})
+
+test('zones: a group opened in place grows its own zone, and no two zones overlap', () => {
+  const zones: LayoutZone[] = [{ id: 'one', layer: 'service' }, { id: 'two', layer: 'model' }, { id: 'three', layer: 'model' }]
+  const all: ZoneNode[] = [
+    { id: 'fold:a', kind: 'file', zone: 'one' },
+    { id: 'b', kind: 'code', zone: 'one' },
+    ...Array.from({ length: 9 }, (_, index): ZoneNode => ({ id: `m${index}`, kind: 'code', zone: 'one' })),
+    // An open group can hold a node of another zone: it stands in its own.
+    { id: 'far', kind: 'code', zone: 'three' },
+    { id: 'c', kind: 'code', zone: 'two' },
+    { id: 'd', kind: 'code', zone: 'three' },
+  ]
+  const wires = [wire('fold:a', 'b'), wire('b', 'c'), wire('c', 'd')]
+  const closed = layoutZones(all.filter((entry) => !/^m\d|far/.test(entry.id)), wires, zones)
+  const blocks = [{ at: 'fold:a', ids: [...Array.from({ length: 9 }, (_, index) => `m${index}`), 'far'] }]
+  const open = layoutZones(all, wires, zones, blocks)
+  assertNoOverlap(all, open)
+  assert.deepEqual(open['fold:a'], closed['fold:a'], 'the group card stays where it stood')
+  for (let index = 0; index < 9; index += 1) assert.ok(open[`m${index}`]!.x >= open['fold:a']!.x && open[`m${index}`]!.y >= open['fold:a']!.y)
+  const rects = zoneRects(all, open)
+  assert.equal(overlaps(rects.get('one')!, rects.get('two')!), false)
+  assert.equal(overlaps(rects.get('two')!, rects.get('three')!), false)
+  const three = rects.get('three')!
+  assert.ok(open.far!.x >= three.x && open.far!.x + NODE_SIZE.code.width <= three.x + three.width, 'the member of another zone stands in its own zone')
+  assert.deepEqual(layoutZones(all, wires, zones, blocks), open)
 })
