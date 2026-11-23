@@ -13,6 +13,7 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { createScheduleActions, type ScheduleSend } from './actions.ts'
+import { countWords, lineFit, lineRoom } from './line-fit.ts'
 import { scheduleListKey, type ScheduleKeyPress } from './schedule-keys.ts'
 import {
   doesWords,
@@ -33,19 +34,6 @@ import {
   type SchedulePlace,
 } from './schedules.ts'
 import { sendSchedule, useScheduleList, useSchedules } from './use-schedules.ts'
-
-/**
- * The line's room at the right end of the main chat's status row, as wide whether there are schedules or not, so
- * nothing moves when one appears or ends. When the row is short the line gives first. While the row is quiet it has
- * 40% of the row, between 8.5rem and 14rem, and shows a name where one fits. While a turn runs, the face's bubble, the
- * working line and "esc esc stops" keep their room: in a row under 30rem (the chat at its first width and narrower)
- * the line is its mark alone, 1.75rem; from 31rem it is 7rem, its count and countdown with no name; from 36rem it
- * keeps its whole room.
- */
-export const MAIN_ROOM = {
-  quiet: 'clamp(8.5rem, 40%, 14rem)',
-  crowded: 'max(clamp(1.75rem, calc((100% - 30rem) * 9), 7rem), min(calc((100% - 36rem) * 99), clamp(8.5rem, 40%, 14rem)))',
-} as const
 
 /** The line's room in the row under an agent's or a hobkin's talk box, beside the status words, kept with or without schedules. */
 export const PAGE_ROOM = 'min(13rem, 46%)'
@@ -81,15 +69,16 @@ function takesKey(element: HTMLElement, main: boolean): boolean {
  * The schedules agents keep for themselves (`056-agent-schedules`), in one line near the input: with one, its name and
  * when it fires, "Watch CI in 1:42"; with more, how many and the next, "2 · Watch CI in 1:42"; while one runs its
  * command, that it runs. A press, Enter on it, or Control+Option+W opens every one above it, and the same again or
- * Escape closes it, with the keyboard back where it was. With none, nothing is drawn, and its room stays.
+ * Escape closes it, with the keyboard back where it was. With none, nothing is drawn.
  *
- * The parent gives it its room (`className` or `style`, a width it keeps whatever the line says) and a positioned row:
- * the open list rises from that row's right end. The words fit the room: the name goes first when it is short, then
- * the count, and at the narrowest only its mark is left.
+ * Its room comes one of two ways. On a page the parent gives it a width (`style`) that is kept with or without
+ * schedules. In the main chat's status row (`inRow`) it takes room only while a schedule exists, sized from the row
+ * (`line-fit.ts`). Either way the parent is a positioned row, and the open list rises from that row's right end. The
+ * words fit the room: the name and the countdown, then the count and the countdown, then the dot alone.
  */
-export function ScheduleLine({ place, className, style }: { place: SchedulePlace; className?: string; style?: CSSProperties }) {
+export function ScheduleLine({ place, className, style, inRow }: { place: SchedulePlace; className?: string; style?: CSSProperties; inRow?: { crowded: boolean } }) {
   const schedules = useSchedules(place)
-  return <ScheduleLineView schedules={schedules} place={place} className={className} style={style} />
+  return <ScheduleLineView schedules={schedules} place={place} className={className} style={style} inRow={inRow} />
 }
 
 /** The line for given schedules, with no host: what `ScheduleLine` draws, and what a still render draws. */
@@ -98,12 +87,18 @@ export function ScheduleLineView({
   place,
   className,
   style,
+  inRow,
+  measured,
   send = sendSchedule,
 }: {
   schedules: readonly AgentSchedule[]
   place: SchedulePlace
   className?: string
   style?: CSSProperties
+  /** In the main chat's status row, and whether a turn running there crowds it. */
+  inRow?: { crowded: boolean }
+  /** For a still render, which measures nothing: the row's width in the main chat, the line's own on a page. */
+  measured?: number
   send?: ScheduleSend
 }) {
   const still = useStill()
@@ -112,6 +107,12 @@ export function ScheduleLineView({
   const any = ordered.length > 0
   const open = useScheduleList((state) => state.open === key) && any
   const root = useRef<HTMLDivElement>(null)
+  const width = useWidthOf(root, inRow ? 'row' : 'self', measured)
+  const lineWidth = inRow ? lineRoom(width, inRow.crowded) : width
+  // In the main chat the row's height is what stays kept. With no schedule the line takes no width, so the row is
+  // what it was without one; with one it takes its room at the row's right end, where nothing was, and the bubble,
+  // anchored at its left, is cut sooner. Nothing that can be pressed moves.
+  const rootStyle = inRow ? { width: any ? lineWidth : 0, marginLeft: any ? 8 : 0 } : style
   const bar = useRef<HTMLButtonElement>(null)
   // Where the keyboard was when the list opened, to go back to as it closes, and whether a key opened it.
   const keyboardWasAt = useRef<HTMLElement | null>(null)
@@ -171,7 +172,7 @@ export function ScheduleLineView({
       ref={root}
       data-schedule-line={any ? '' : undefined}
       className={cn('flex min-w-0 shrink-0 items-center justify-end', className)}
-      style={style}
+      style={rootStyle}
       onKeyDown={(event) => {
         if (scheduleListKey(pressOf(event), { open, inList: true }) !== 'close') return
         event.preventDefault()
@@ -179,12 +180,9 @@ export function ScheduleLineView({
         closeList()
       }}
     >
-      {/* The line's own room, which its words read to know how many of them fit. */}
-      <div className="@container w-full min-w-0">
-        <AnimatePresence initial={false}>
-          {any ? <LineButton key="line" ref={bar} schedules={ordered} open={open} panelId={panelId} still={still} onToggle={() => (open ? closeList() : openList(false))} /> : null}
-        </AnimatePresence>
-      </div>
+      <AnimatePresence initial={false}>
+        {any ? <LineButton key="line" ref={bar} schedules={ordered} width={lineWidth} open={open} panelId={panelId} still={still} onToggle={() => (open ? closeList() : openList(false))} /> : null}
+      </AnimatePresence>
       <AnimatePresence>
         {open ? <SchedulePanel key="panel" id={panelId} schedules={ordered} main={place.kind === 'main'} still={still} takeKeyboard={openedByKey} send={send} /> : null}
       </AnimatePresence>
@@ -196,11 +194,29 @@ export function ScheduleLineView({
  * The pressable line. It alone counts the seconds, and only while one of its schedules waits for its time. A line that
  * comes after the page opened rises in; one there already is simply there.
  */
-function LineButton({ ref, schedules, open, panelId, still, onToggle }: { ref: RefObject<HTMLButtonElement | null>; schedules: readonly AgentSchedule[]; open: boolean; panelId: string; still: boolean; onToggle: () => void }) {
+function LineButton({
+  ref,
+  schedules,
+  width,
+  open,
+  panelId,
+  still,
+  onToggle,
+}: {
+  ref: RefObject<HTMLButtonElement | null>
+  schedules: readonly AgentSchedule[]
+  width: number
+  open: boolean
+  panelId: string
+  still: boolean
+  onToggle: () => void
+}) {
   const counting = schedules.some((schedule) => stateOf(schedule) === 'waiting' && schedule.nextAt)
   const now = useNow(counting)
+  const measure = useTextMeasure(ref)
   const line = scheduleLine(schedules, now)
   if (!line) return null
+  const fit = lineFit(width, line, measure)
   return (
     <motion.button
       ref={ref}
@@ -216,39 +232,81 @@ function LineButton({ ref, schedules, open, panelId, still, onToggle }: { ref: R
       whileTap={holdStill({ transform: 'translateY(0px) scale(0.97)', transition: { duration: 0.14 } }, still)}
       style={{ transformOrigin: '100% 50%' }}
       className={cn(
-        'pressable flex h-6 w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-full bg-surface-2 pr-1.5 pl-2 text-[12px] outline-none focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
-        // At its narrowest only the mark is left, in the middle of a round button.
-        '@max-[3.25rem]:justify-center @max-[3.25rem]:px-0',
+        // Its paddings, gaps, dot and arrow are the ones line-fit.ts counts.
+        'pressable flex h-6 w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-full bg-surface-2 px-2 text-[12px] outline-none focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
+        // At its narrowest only the dot is left, in the middle of a round button.
+        fit.form === 'dot' && 'justify-center px-0',
       )}
     >
       <Dot lead={line.lead} />
-      <LineWords line={line} />
-      <ChevronUp className={cn('ml-auto hidden size-3.5 shrink-0 text-muted-foreground transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)] @min-[5.5rem]:block', open && 'rotate-180')} aria-hidden="true" />
+      {fit.form === 'dot' ? null : <LineWords line={line} name={fit.form === 'full' ? fit.name : null} />}
+      {fit.form === 'full' || (fit.form === 'compact' && fit.arrow) ? (
+        <ChevronUp className={cn('ml-auto size-3.5 shrink-0 text-muted-foreground transition-transform duration-[220ms] ease-[cubic-bezier(0.23,1,0.32,1)]', open && 'rotate-180')} aria-hidden="true" />
+      ) : null}
     </motion.button>
   )
 }
 
-/**
- * As many of the line's words as its room holds: the time from 3.25rem, the count from 4.75rem, the name from 8rem
- * (9.5rem beside a count), and the "in" before the time from 10.5rem.
- */
-function LineWords({ line }: { line: ScheduleLineWords }) {
+/** The line's words: with a name, the count, the name and when ("3 · Watch CI in 1:42"); with none, the count and the countdown ("3 · 1:42"). */
+function LineWords({ line, name }: { line: ScheduleLineWords; name: string | null }) {
   // "2 paused" and "2 ended" have no name to leave out.
-  if (line.text === line.short) {
-    return <span className="hidden min-w-0 truncate text-muted-foreground @min-[3.25rem]:inline">{line.text}</span>
-  }
-  const counting = line.when.startsWith('in ')
-  const many = line.count > 1
+  if (line.text === line.short) return <span className="min-w-0 truncate text-muted-foreground">{line.text}</span>
+  const whenTone = line.lead === 'running' ? 'text-[var(--hb-code-fg)]' : 'text-muted-foreground'
+  const clock = name === null && line.when.startsWith('in ') ? line.when.slice(3) : line.when
   return (
     <span className="flex min-w-0 items-baseline gap-1 tabular-nums">
-      {many ? <span className="hidden shrink-0 text-muted-foreground @min-[4.75rem]:inline">{line.count} ·</span> : null}
-      <span className={cn('hidden min-w-0 truncate', many ? '@min-[9.5rem]:inline' : '@min-[8rem]:inline', line.lead === 'ended' ? 'text-muted-foreground' : 'font-medium')}>{line.name}</span>
-      <span className={cn('hidden shrink-0 @min-[3.25rem]:inline', line.lead === 'running' ? 'text-[var(--hb-code-fg)]' : 'text-muted-foreground')}>
-        {counting ? <span className="hidden @min-[10.5rem]:inline">in </span> : null}
-        {counting ? line.when.slice(3) : line.when}
-      </span>
+      {line.count > 1 ? <span className="shrink-0 text-muted-foreground">{countWords(line)}</span> : null}
+      {name === null ? null : <span className={cn('min-w-0 truncate', line.lead === 'ended' ? 'text-muted-foreground' : 'font-medium')}>{name}</span>}
+      <span className={cn('min-w-0 truncate', whenTone)}>{clock}</span>
     </span>
   )
+}
+
+/**
+ * How wide the line or its row is (`self` or `row`), read before the first paint and again as it is resized. A still
+ * render gives it instead (`given`).
+ */
+function useWidthOf(element: RefObject<HTMLElement | null>, of: 'self' | 'row', given: number | undefined): number {
+  const [width, setWidth] = useState(0)
+  useLayoutEffect(() => {
+    if (given !== undefined) return
+    const node = of === 'self' ? element.current : element.current?.parentElement
+    if (!node) return
+    const read = () => setWidth(node.getBoundingClientRect().width)
+    read()
+    const sizes = new ResizeObserver(read)
+    sizes.observe(node)
+    return () => sizes.disconnect()
+  }, [element, of, given])
+  return given ?? width
+}
+
+/** About how wide a character of the line is, where no canvas can measure it (a still render). */
+const CHARACTER = 6.6
+
+// One canvas for every line's measuring. It holds no state between calls but the font each one sets.
+const measuring = globalThis as { __hobkinScheduleCanvas?: CanvasRenderingContext2D | null }
+
+/**
+ * Measures the line's words in the font its button draws them in, read once it is drawn, at the name's weight so
+ * nothing is measured short. Before that, and where there is no canvas, by an estimate.
+ */
+function useTextMeasure(element: RefObject<HTMLElement | null>): (text: string) => number {
+  const [font, setFont] = useState<string | null>(null)
+  useLayoutEffect(() => {
+    const node = element.current
+    if (!node) return
+    const style = getComputedStyle(node)
+    setFont(`500 ${style.fontSize} ${style.fontFamily}`)
+  }, [element])
+  return useMemo(() => {
+    const context = font ? (measuring.__hobkinScheduleCanvas ??= document.createElement('canvas').getContext('2d')) : null
+    if (!font || !context) return (text: string) => text.length * CHARACTER
+    return (text: string) => {
+      context.font = font
+      return context.measureText(text).width
+    }
+  }, [font])
 }
 
 const DOT: Record<ScheduleLineWords['lead'], string> = {

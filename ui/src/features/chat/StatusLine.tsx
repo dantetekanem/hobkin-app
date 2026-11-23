@@ -4,7 +4,7 @@ import { MAIN_PULSE, pulsesOf } from '#shared/protocol/pulse.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
-import { MAIN_ROOM, ScheduleLine } from '@/features/schedules/ScheduleLine.tsx'
+import { ScheduleLine } from '@/features/schedules/ScheduleLine.tsx'
 import type { SchedulePlace } from '@/features/schedules/schedules.ts'
 import { useHost } from '@/lib/host/index.ts'
 import { tween } from '@/lib/motion.ts'
@@ -82,10 +82,9 @@ export function StatusLine({ reason, problem, said, turnRunning, typing, stopArm
   const pulseShown = pulsing && bubble?.kind === 'doing' && !stopArmed
 
   return (
-    // The row's room is always there, so the input does not move when the bubble or a line comes and goes. Its right end
-    // keeps the schedules line's room too (056), so nothing moves when a schedule appears or ends, and the list rises
-    // from this row.
-    <div className="relative flex h-6 items-center gap-2">
+    // The row's height is always there, so the input does not move when the bubble, a line or a schedule comes and goes.
+    // The schedules line (056) takes width at its right end only while a schedule exists, and its list rises from here.
+    <div className="relative flex h-6 items-center">
       <div className="relative flex h-6 min-w-0 flex-1 items-center gap-2 pl-[112px]">
         <SpeechBubble bubble={shown} onInspect={setInspecting} />
         {pulseShown ? (
@@ -133,8 +132,8 @@ export function StatusLine({ reason, problem, said, turnRunning, typing, stopArm
           )}
         </AnimatePresence>
       </div>
-      {/* While a turn runs the line gives its room first, so the bubble, the working line and the stop keys keep theirs. */}
-      <ScheduleLine place={HOME} style={{ width: bubble?.kind === 'doing' || stopArmed ? MAIN_ROOM.crowded : MAIN_ROOM.quiet }} />
+      {/* With no schedule it takes no room. While a turn runs it gives way first, so the bubble, the working line and the stop keys keep theirs. */}
+      <ScheduleLine place={HOME} inRow={{ crowded: bubble?.kind === 'doing' || stopArmed }} />
     </div>
   )
 }
