@@ -4,7 +4,7 @@ import { captureChange } from '../review/capture.ts'
 import { hashLines } from '../review/lines.ts'
 import { lines, memoryReader, type Tree } from '../review/memory.ts'
 import { prepareReview } from '../review/prepare.ts'
-import type { Review, ReviewLifecycle, ReviewNode } from '../review/types.ts'
+import type { Review, ReviewEntry, ReviewLifecycle, ReviewNode } from '../review/types.ts'
 import { validateReview } from '../review/validate.ts'
 import { LIFE_CYCLE, type Vicinity, type VicinityDefinition, type VicinityLink } from '../review/vicinity.ts'
 
@@ -219,6 +219,38 @@ test('a way in names nodes of the review, and why none was found is one of the r
   ]) {
     assert.equal(placed(wrong).length, 1, JSON.stringify(wrong))
   }
+})
+
+test('a way in a handler, an event, an element, a task, a mailer or a channel opens is said by its own name', async () => {
+  const legacy = definition('app/helpers/legacy_helper.rb', 'LegacyHelper#legacy_name', 2, 4)
+  const cases: [ReviewEntry, string | undefined, string, string][] = [
+    [{ kind: 'handler', exact: true }, 'review.prepare', 'The handler review.prepare', 'A request enters here: the handler review.prepare.'],
+    [{ kind: 'listener', exact: true }, 'review.sync', 'The review.sync event', 'A request enters here: it runs on the review.sync event.'],
+    [{ kind: 'ui-handler', exact: true }, 'button onClick', "The button's onClick", "A request enters here: the button's onClick."],
+    [{ kind: 'task', exact: true }, undefined, 'The task LegacyHelper#legacy_name', 'A request enters here: the task LegacyHelper#legacy_name, run from the command line.'],
+    [{ kind: 'mailer', exact: true }, undefined, 'The mailer LegacyHelper#legacy_name', 'A request enters here: the mailer LegacyHelper#legacy_name, which sends an email.'],
+    [{ kind: 'channel', exact: true }, undefined, 'The channel LegacyHelper#legacy_name', 'A request enters here: the channel LegacyHelper#legacy_name, which a browser calls over its socket.'],
+  ]
+  for (const [entry, named, opening, said] of cases) {
+    const review = await prepared({
+      links: [{ near: fullNameLine, other: legacy, direction: 'caller', hops: 1, call: { line: 3, name: 'full_name' }, proven: true, entry, ...(named ? { named } : {}) }],
+      reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: 1 }],
+    })
+    assert.deepEqual(validateReview(review), [], entry.kind)
+    const lifecycle = titled(review, 'full_name').lifecycle!
+    assert.deepEqual([lifecycle.path, lifecycle.origin?.kind, lifecycle.origin?.label], [`${opening} → User#full_name`, entry.kind, opening], entry.kind)
+    assert.equal(titled(review, 'LegacyHelper#legacy_name').summary, `Unchanged. It calls the change. ${said}`, entry.kind)
+  }
+})
+
+test('a way in the scan is not sure of reads as likely, in its words and on its origin, never as a fact', async () => {
+  const review = await prepared({
+    links: [{ near: fullNameLine, other: show, direction: 'caller', hops: 1, call: { line: 3, name: 'full_name' }, proven: true, entry: { kind: 'controller', exact: false } }],
+    reach: [{ changed: fullNameLine.changed, symbol: 'User#full_name', hops: 1 }],
+  })
+  const lifecycle = titled(review, 'full_name').lifecycle!
+  assert.deepEqual([lifecycle.path, lifecycle.origin?.exact], ['UsersController#show (likely) → User#full_name', false])
+  assert.equal(titled(review, 'UsersController#show').summary, 'Unchanged. It calls the change. A request likely enters here: a controller action.')
 })
 
 test('a story of units tells the change alone: tests and context in no step still make a valid review', async () => {

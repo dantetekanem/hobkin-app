@@ -50,6 +50,8 @@ export interface VicinityCall {
   renders?: true | 'convention'
   /** Not a call: the other end sends requests to the near end, a route or a config line, and this is its line as written. `name` is then the action's. */
   routes?: string
+  /** The key of the property whose value holds the call, such as `review.prepare` in a map of handlers. */
+  key?: string
 }
 
 export interface VicinityLink {
@@ -66,6 +68,8 @@ export interface VicinityLink {
   proven: boolean
   /** The other end is where a request enters. */
   entry?: ReviewEntry
+  /** What the way in at the other end goes by, as the scan names it at this call: a handler's key, an event, an element and its prop. */
+  named?: string
 }
 
 /** What the scan left out before the host looked at anything, by why. */
@@ -231,6 +235,8 @@ export async function addVicinity(vicinity: Vicinity, graph: VicinityGraph): Pro
   const outward = new Map<string, string[]>()
   /** The nodes that are a door a request comes in by: a route, a config line, a line of package.json. */
   const doors = new Set<string>()
+  /** What the way in at a node goes by, as the scan named it at the call: a handler's key, an event, an element and its prop. */
+  const named = new Map<string, string>()
   let made = 0
 
   for (const link of vicinity.links) {
@@ -293,6 +299,7 @@ export async function addVicinity(vicinity: Vicinity, graph: VicinityGraph): Pro
         }
         far = contextNode(`v${(made += 1)}`, link, spot)
         if (link.call.routes != null) doors.add(far.id)
+        if (link.named) named.set(far.id, link.named)
         placed.set(`${spot.fileId}:${spot.startLine}`, far)
         nodes.push(far)
         if (!fileByPath.has(spot.path) && !graph.headFiles.has(spot.path)) {
@@ -313,7 +320,7 @@ export async function addVicinity(vicinity: Vicinity, graph: VicinityGraph): Pro
     const node = holder(changed.path, changed.line)
     if (node && ENTRY_KIND.test(entry.kind)) node.entry = { kind: entry.kind, exact: entry.exact === true }
   }
-  sayTheWayIn(vicinity, nodes, outward, doors, (path, line) => holder(path, line))
+  sayTheWayIn(vicinity, nodes, outward, doors, named, (path, line) => holder(path, line))
 
   const why = [...left.values()]
   return noticesOf(vicinity, made, why.filter((reason) => reason === 'missing').length, why.filter((reason) => reason === 'limit').length)
@@ -358,7 +365,7 @@ function contextNode(id: string, link: VicinityLink, spot: Spot): ReviewNode {
     title: cleanProse(route ? routeWords(route) : script ? spot.path : link.other.symbol, TITLE_LIMIT) || spot.path,
     subtitle: spot.path,
     change: 'unchanged',
-    summary: cleanProse(entry && door ? doorWords(entry, spot, link.other.symbol, link.call.name) : `${roleWords(link)}${entry ? ` ${entryWords(entry)}` : ''}`, PROSE_LIMIT.summary),
+    summary: cleanProse(entry && door ? doorWords(entry, spot, link.other.symbol, link.call.name) : `${roleWords(link)}${entry ? ` ${entryWords(entry, link.named ?? link.other.symbol)}` : ''}`, PROSE_LIMIT.summary),
     lifecycle: { role: link.direction, hops: link.hops },
     ...(entry ? { entry } : {}),
     anchors: [{ fileId: spot.fileId, side: 'added', startLine: spot.startLine, endLine: spot.endLine, hash: hashLines(spot.text, spot.startLine, spot.endLine) }],
@@ -374,36 +381,71 @@ function roleWords({ direction, hops, call }: VicinityLink): string {
   return call.enqueues ? 'Unchanged. It enqueues the change to run later.' : 'Unchanged. It calls the change.'
 }
 
-function entryWords({ kind, exact }: ReviewEntry): string {
-  if (kind === 'controller') return `A request enters here: a controller action${exact ? ' a route names' : ''}.`
-  if (kind === 'job') return 'A request enters here: a job the queue runs.'
+/** How a request comes in, said as sure as the scan is: a way in it is not sure of is only likely. */
+const enters = (exact: boolean) => (exact ? 'A request enters here' : 'A request likely enters here')
+
+/** An element and the prop that runs the code, as the scan names them: `button onClick` is the button's onClick. */
+function elementWords(named: string): string {
+  const at = named.lastIndexOf(' ')
+  return at > 0 ? `the ${named.slice(0, at)}'s ${named.slice(at + 1)}` : `the ${named}`
+}
+
+/** Where a request enters, for the code there: what it is, and its name when the scan gives one, such as a handler's key. */
+function entryWords({ kind, exact, route }: ReviewEntry, named: string): string {
+  const comes = enters(exact)
+  if (kind === 'controller') return `${comes}: a controller action${exact ? ' a route names' : ''}.`
+  if (kind === 'job') return `${comes}: a job the queue runs.`
   if (kind === 'load') return 'It runs as its file loads, so the life cycle starts here.'
-  if (kind === 'command') return 'A request enters here: it runs when the script is run from the command line.'
-  return `A request enters here (${kind}).`
+  if (kind === 'command') return `${comes}: it runs when the script is run from the command line.`
+  if (kind === 'handler') return `${comes}: the handler ${named}.`
+  if (kind === 'listener') return `${comes}: it runs on the ${named} event.`
+  if (kind === 'ui-handler') return `${comes}: ${elementWords(named)}.`
+  if (kind === 'task') return `${comes}: the task ${named}, run from the command line.`
+  if (kind === 'mailer') return `${comes}: the mailer ${named}, which sends an email.`
+  if (kind === 'channel') return `${comes}: the channel ${named}, which a browser calls over its socket.`
+  if (kind === 'route' && route) return `${comes}: ${routeWords(route)}.`
+  return `${comes} (${kind}).`
 }
 
 /** What a door says: where it sends a request, to the code the scan names. */
 function doorWords(entry: ReviewEntry, spot: Spot, title: string, action: string): string {
-  if (entry.kind === 'route' && entry.route) return `Unchanged. A request enters here: ${spot.path} sends ${routeWords(entry.route)} to ${action}.`
-  if (entry.kind === 'exceptions-app') return `Unchanged. A request enters here: Rails sends a request that raised to its exceptions app, ${action}.`
-  if (entry.kind === 'command') return `Unchanged. A request enters here: ${spot.path} makes ${title} a command, which runs ${action}.`
-  if (entry.kind === 'extension') return `Unchanged. A request enters here: Pi loads ${title} as an extension, as ${spot.path} says, and calls ${action}.`
-  if (entry.kind === 'export') return `Unchanged. A request enters here: ${spot.path} exports ${action} as ${title}.`
-  return `Unchanged. A request enters here (${entry.kind}).`
+  const comes = `Unchanged. ${enters(entry.exact)}`
+  if (entry.kind === 'route' && entry.route) return `${comes}: ${spot.path} sends ${routeWords(entry.route)} to ${action}.`
+  if (entry.kind === 'exceptions-app') return `${comes}: Rails sends a request that raised to its exceptions app, ${action}.`
+  if (entry.kind === 'command') return `${comes}: ${spot.path} makes ${title} a command, which runs ${action}.`
+  if (entry.kind === 'extension') return `${comes}: Pi loads ${title} as an extension, as ${spot.path} says, and calls ${action}.`
+  if (entry.kind === 'export') return `${comes}: ${spot.path} exports ${action} as ${title}.`
+  if (entry.kind === 'handler') return `${comes}: ${spot.path} makes ${action} the handler ${title}.`
+  if (entry.kind === 'listener') return `${comes}: ${spot.path} runs ${action} on the ${title} event.`
+  if (entry.kind === 'ui-handler') return `${comes}: ${spot.path} runs ${action} from ${elementWords(title)}.`
+  return `${comes} (${entry.kind}).`
 }
 
-/** How a way in starts, in words: a route by its verbs and path, a door or an entry by what sends the request. */
-function startWords(node: ReviewNode, title: string): string[] {
+const capitalized = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(1)}`
+
+/**
+ * How a way in starts, in words: a route by its verbs and path, a door or an entry by what sends the request, and by
+ * its own name, such as a handler's key, where the scan gives one. The last of them is the origin's label.
+ */
+function openingWords(node: ReviewNode, title: string, named = title): string[] {
   const route = routeOf(node.entry)
   if (route) return [routeWords(route)]
-  if (node.entry?.kind === 'exceptions-app') return ['A failing request', title]
-  if (node.entry?.kind === 'job') return ['The job queue', title]
+  const kind = node.entry?.kind
+  if (kind === 'exceptions-app') return ['A failing request', title]
+  if (kind === 'job') return ['The job queue', title]
   // A command goes by its name, a script by its path: agentic-search (command), bin/production-errors (command).
-  if (node.entry?.kind === 'command') return [`${node.kind === 'context' ? node.title : (node.subtitle ?? title)} (command)`]
-  if (node.entry?.kind === 'extension') return [`Pi extension ${title}`]
-  if (node.entry?.kind === 'export') return [`Export ${title}`]
+  if (kind === 'command') return [`${node.kind === 'context' ? node.title : (node.subtitle ?? title)} (command)`]
+  if (kind === 'extension') return [`Pi extension ${title}`]
+  if (kind === 'export') return [`Export ${title}`]
+  if (kind === 'handler') return [`The handler ${named}`]
+  if (kind === 'listener') return [`The ${named} event`]
+  if (kind === 'ui-handler') return [capitalized(elementWords(named))]
+  if (kind === 'task' || kind === 'mailer' || kind === 'channel') return [`The ${kind} ${named}`]
   return [title]
 }
+
+/** The opening of a way in as its line says it: a way in the scan is not sure of says it is only likely. */
+const sureWords = (node: ReviewNode, opening: readonly string[]) => (node.entry?.exact === false ? [...opening.slice(0, -1), `${opening.at(-1)} (likely)`] : [...opening])
 
 /** The way in as one line, cut in its middle when it is too long, so where it starts and the change itself both show. */
 function wayWords(parts: readonly string[]): string {
@@ -451,7 +493,7 @@ function waysInFrom(start: string, byId: ReadonlyMap<string, ReviewNode>, outwar
  * reaches an entry, it says how far the scan looked, where the way out stops, and why in a word. Changed code the scan
  * did not look around says that nothing was looked for.
  */
-function sayTheWayIn(vicinity: Vicinity, nodes: ReviewNode[], outward: ReadonlyMap<string, readonly string[]>, doors: ReadonlySet<string>, holder: (path: string, line: number) => ReviewNode | undefined) {
+function sayTheWayIn(vicinity: Vicinity, nodes: ReviewNode[], outward: ReadonlyMap<string, readonly string[]>, doors: ReadonlySet<string>, named: ReadonlyMap<string, string>, holder: (path: string, line: number) => ReviewNode | undefined) {
   const byId = new Map(nodes.map((node) => [node.id, node]))
   const reachOf = new Map<string, VicinityReach>()
   for (const reach of vicinity.reach ?? []) {
@@ -499,12 +541,12 @@ function sayTheWayIn(vicinity: Vicinity, nodes: ReviewNode[], outward: ReadonlyM
       // Changed code by the name the scan reads it by, such as ErrorsController#show, when it has one.
       const name = (step: ReviewNode) => (step.kind === 'code' ? reachOf.get(step.id)?.symbol : undefined) ?? step.title
       const start = way[0]!
-      const opening = startWords(start, name(start))
+      const opening = openingWords(start, name(start), named.get(start.id))
       const more = waysInFrom(node.id, byId, outward, doors).size - 1
       node.lifecycle = {
         role: 'changed',
         hops: Math.max(0, Math.min(9, hops)),
-        path: wayWords([...opening, ...way.slice(1).map(name)]),
+        path: wayWords([...sureWords(start, opening), ...way.slice(1).map(name)]),
         ...(start.entry ? { origin: originOf(start.entry, opening.at(-1)!, way.slice(0, -1), more) } : {}),
       }
       continue
@@ -551,7 +593,16 @@ function noWayWords(node: ReviewNode, top: ReviewNode | undefined, reach: Vicini
 }
 
 /** What a door does to the code it reaches, for its wire. */
-const DOOR_VERB: Record<string, string> = { route: 'routes it', 'exceptions-app': 'sends it failing requests', command: 'runs it', extension: 'loads it', export: 'exports it' }
+const DOOR_VERB: Record<string, string> = {
+  route: 'routes it',
+  'exceptions-app': 'sends it failing requests',
+  command: 'runs it',
+  extension: 'loads it',
+  export: 'exports it',
+  handler: 'names it a handler',
+  listener: 'runs it on an event',
+  'ui-handler': 'runs it from the interface',
+}
 
 const KEYWORD = /^(?:if|elsif|else if|unless|while|until|case|when|switch|for)\b/
 
@@ -581,8 +632,10 @@ function wireLabel(link: VicinityLink, line: number, guard: VicinityGuard | unde
               : call.enqueues
                 ? `enqueues it from line ${line}`
                 : `from line ${line}`
+  // A call in a property's value says which one, as a handler map's key.
+  const within = link.direction === 'caller' && call.key ? `${where} in ${call.key}` : where
   const condition = guard && guardWords(guard)
-  return cleanProse([where, ...(condition ? [condition] : []), ...(link.proven ? [] : ['found by name'])].join(', '), PROSE_LIMIT.label)
+  return cleanProse([within, ...(condition ? [condition] : []), ...(link.proven ? [] : ['found by name'])].join(', '), PROSE_LIMIT.label)
 }
 
 /** The scan's own notice, and a line on what the life cycle shows and what it left out, with why. */
