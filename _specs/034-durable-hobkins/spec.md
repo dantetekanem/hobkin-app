@@ -41,7 +41,8 @@ Command+N starts a new hobkin that the user drives themselves. It is durable: it
 - When a turn ends, the hobkin waits. If its page is on screen then, or the user opens it within 20 seconds, nothing more happens: the user saw it.
 - Otherwise the main hobkin gets a turn of its own as soon as it is free: a `<hobkin-wake>` block with `hobkins`, each with its title, how the turn ended and what it said last. The main hobkin tells the user in a line or two. Each wait is told once.
 - A turn that failed or was cut off is told the same way, with what went wrong.
-- The main hobkin can read a durable hobkin's conversation (`hobkin.read`) and message one (`hobkin.tell`, under Messages between hobkins). It cannot start one, end one or speak to one as the user. Those are the window's: its `client` tool runs none of `hobkin.start`, `hobkin.say` and `hobkin.end`, and its `message_check` tool neither lists nor reaches a durable hobkin.
+- The main hobkin can read a durable hobkin's conversation (`hobkin.read`) and message one (`hobkin.tell`, under Messages between hobkins). It cannot end one or speak to one as the user, and it starts one only with `hobkin session --keep`, as the next decision says. Its `client` tool runs none of `hobkin.start`, `hobkin.say` and `hobkin.end`, and its `message_check` tool neither lists nor reaches a durable hobkin.
+- The main hobkin can start a durable hobkin with `hobkin session --keep` (the user, 2026-11-23: "the agent can start agents that WONT kill them automatically, so it can work in complex tasks that needs my input as well"). Until then `--keep` did nothing: a session was a job that ended when its turn did, and its process was killed. A kept session is now a durable hobkin. Its brief is its first message, it runs on the tier the command names, it stays in the list when a turn ends, it waits for the user with no limit, the user steps in and talks to it, and it is still there after a restart. Only the user ends it. The limits hold: at most 48 hobkins, and a fourth session in 30 minutes needs `--approved`. `--wake` still does not go with `--keep`, because a kept hobkin does not end, and the main hobkin hears of its waits as it does of any hobkin's. A session without `--keep` is the job it was.
 - A wake the main hobkin cannot take, as with a sign-in that ran out, is tried again after five minutes, not on the next tick.
 
 ### Messages between hobkins
@@ -132,6 +133,7 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 - A32. While a waiting hobkin on Pi has its page on screen in a showing window, the window tells the host, and its Pi process is started if none is kept. A working hobkin, an ended one and one on Claude Code start nothing, and the main hobkin cannot send it. A runtime from before answers yes and starts nothing.
 - A33. A `/model` or `/effort` line in the talk box changes the hobkin's model or thinking level instead of being sent, and its answer shows under the box.
 - A34. Images pasted or dropped on the talk box go with the message, as in the main input and an agent's input: while it waits they start the next turn with the words, and while it works they reach the turn in flight, on Pi and on Claude Code. A message can be images alone. One that fails gives its images back to the box, and the page shows the images with the message they went with.
+- A35. `hobkin session --keep` starts a durable hobkin with the brief as its first message, on the tier the command names. It runs its first turn and then waits, takes the user's next message on the same conversation, and is there after a restart. A session without `--keep` is still a job that ends with its work.
 
 ## Proof
 
@@ -183,6 +185,7 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 - [x] S9 (A31). A hobkin started with no first message has its Pi process started while the user writes it.
 - [x] S10 (A32, A33). The page tells the host it is on screen, and a /model or /effort line changes a hobkin's model.
 - [ ] S11 (A34). Images in a message to a durable hobkin: `hobkins.say` with `images` (hobkin 25f94c7), `hobkin.say` with the images attached for it, and the talk box's tray. The A34 tests pass (2026-11-21). Left: the check.
+- [ ] S12 (A35). Runtime: a kept session is a durable hobkin. Files: `hobkin/src/cli/{session,session-jobs,application}.mjs`, `hobkin/src/prompts/v2-runtime.md`.
 
 ## Open questions
 
