@@ -3,7 +3,7 @@
   "id": "054-working-line",
   "title": "Every hobkin's working line: time, tokens and when it goes quiet",
   "kind": "work",
-  "status": "ready",
+  "status": "done",
   "depends": ["011-work", "034-durable-hobkins"],
   "updated": "2026-11-23"
 }
@@ -57,11 +57,19 @@ While any hobkin works, the main agent, a durable hobkin or an agent hobkin star
 - A4. The window shows the line for each of the three where its working sign is today, and nothing moves when the line appears, changes or goes.
 - A5. With no pulse on the wire, each place shows what it showed before.
 
+## Proof
+
+- A1. `hobkin/test/cli-pulse.test.mjs`, every test in it.
+- A2. `shared/test/pulse.test.ts`, every test in it; check: a still render of the line in its three places, plain, as a warning and as trouble.
+- A3. `hobkin/test/cli-pulses-wire.test.mjs`, every test in it; `host/test/claude-code-stream.test.ts`, the test of what a pulse needs from Claude Code's stream.
+- A4. check: a still render of the status row, the list row at two widths and the working row. Not seen in the live window.
+- A5. check: by reading. Each place gives the component what it showed before as its fallback, and the component shows it while the snapshot has no pulse for that run.
+
 ## Steps
 
-- [ ] S1 (A1, A2). The pulse observer in the runtime and the line in `shared/`, both pure and not yet used.
-- [ ] S2 (A3). The runtime feeds the observer from the main session and from every observed run, publishes `pulses`, and Claude Code's stream passes on thinking and the output count.
-- [ ] S3 (A4, A5). The window's line in the status row, the durable hobkin's page, the list and the agent's page.
+- [x] S1 (A1, A2). The pulse observer in the runtime and the line in `shared/`. hobkin ee8241d, client 7617b9a.
+- [x] S2 (A3). The runtime feeds the observer from the main session and from every observed run and publishes `pulses`, and Claude Code's stream passes on what a pulse needs. hobkin 6767c00, client c5c3516 and b5f628b. Run with fake sessions only. A main turn Pi starts by itself has no pulse, and a run prompted again after it ended starts a new pulse with its time at zero.
+- [x] S3 (A4, A5). The window's line in the status row, the durable hobkin's page, the list and the agent's page. Client 393522e and 991828c. In the list a run that went quiet says so first, and the agent's latest words open on hover. The notice is joined with a middle dot where the extension has a hyphen. Seen only as a still render.
 
 ## Open questions
 
