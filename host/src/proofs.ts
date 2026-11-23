@@ -244,6 +244,11 @@ export interface KeeperOptions {
   /** Turn the folder watch off: a test of the poll. */
   watch?: boolean
   pollMs?: number
+  /**
+   * The changes that still wait for the user. The slice keeps the newest ended run of each of their models at any age,
+   * so a review finds a check made before 20 newer runs ended. Without it, or when it throws, the slice is the newest 20.
+   */
+  waiting?: () => Iterable<{ project: string; item: string }>
 }
 
 /** Keeps the `proofs` slice: reads the folder when it changes and now and then, each run at most twice a second. */
@@ -369,12 +374,33 @@ export class ProofsKeeper {
     runs.sort((a, b) => Date.parse(b.started || '') - Date.parse(a.started || '') || b.id.localeCompare(a.id))
     const running = runs.filter((run) => run.outcome === 'checking')
     const ended = runs.filter((run) => run.outcome !== 'checking').slice(0, RECENT_RUNS)
-    const kept = [...running, ...ended].sort((a, b) => runs.indexOf(a) - runs.indexOf(b))
+    const owed = this.owed(runs, ended)
+    const kept = [...running, ...ended, ...owed].sort((a, b) => runs.indexOf(a) - runs.indexOf(b))
 
     const next: ProofsState = { runs: kept, ...(this.tools ? { tools: this.tools } : {}) }
     if (JSON.stringify(next) === JSON.stringify(this.state)) return
     this.state = next
     this.options.onChange()
+  }
+
+  /** The newest ended run of each model of each waiting change that the newest runs left out. `runs` is newest first. */
+  private owed(runs: ProofRunSummary[], ended: ProofRunSummary[]): ProofRunSummary[] {
+    if (!this.options.waiting) return []
+    let waiting: Set<string>
+    try {
+      waiting = new Set([...this.options.waiting()].map(({ project, item }) => `${project}\u0000${item}`))
+    } catch {
+      return []
+    }
+    if (!waiting.size) return []
+    const seen = new Set<string>()
+    return runs.filter((run) => {
+      if (run.outcome === 'checking' || !run.project || !run.item || !waiting.has(`${run.project}\u0000${run.item}`)) return false
+      const model = `${run.project}\u0000${run.item}\u0000${run.spec}`
+      if (seen.has(model)) return false
+      seen.add(model)
+      return !ended.includes(run)
+    })
   }
 
   /** A run's summary, kept while its files are unchanged and, while it runs, for at least the gap. */

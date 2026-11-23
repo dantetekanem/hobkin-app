@@ -108,6 +108,35 @@ test('the keeper holds running runs and the 20 newest, and says when the folder 
   assert.ok(changes > before)
 })
 
+test('a change that waits keeps the newest ended run of each of its models, however old', async (t) => {
+  const home = temporaryDirectory(t)
+  const ended = (id: string, seconds: number, start: object) => {
+    const folder = join(home, 'proofs', id)
+    writeEvents(folder, [{ ...startEvent, ...start, at: at(seconds) }])
+    writeFileSync(join(folder, 'result.json'), JSON.stringify({ outcome: 'holds', finished: at(seconds + 1) }))
+  }
+  ended('old-a', -900, {})
+  ended('older-a', -950, {})
+  ended('old-b', -800, { spec: '_specs/tla/Other.tla' })
+  ended('old-elsewhere', -700, { item: 'finished-long-ago' })
+  for (let n = 0; n < 25; n++) ended(`new-${String(n).padStart(2, '0')}`, n, { item: 'busy' })
+  const waiting = [{ project: 'api', item: 'queue' }]
+  const keeper = new ProofsKeeper({ home: () => home, onChange: () => {}, tools: () => tools, pollMs: 20, waiting: () => waiting })
+  t.after(() => keeper.close())
+  await pause(700)
+  const ids = keeper.state.runs.map((run) => run.id)
+  assert.equal(ids.length, 22)
+  assert.deepEqual(ids.slice(-2), ['old-b', 'old-a'])
+  assert.equal(ids[0], 'new-24')
+  assert.equal(ids.includes('older-a') || ids.includes('old-elsewhere'), false)
+  assert.equal('samples' in keeper.state.runs[0]!, false)
+
+  const failing = new ProofsKeeper({ home: () => home, onChange: () => {}, tools: () => tools, pollMs: 20, waiting: () => { throw new Error('not ready') } })
+  t.after(() => failing.close())
+  await pause(700)
+  assert.equal(failing.state.runs.length, 20)
+})
+
 test('a run is read at most twice a second', async (t) => {
   const { home, folder } = homeWith(t, 'live', [startEvent, progress(1, 1)], { pid: String(process.pid) })
   let changes = 0
