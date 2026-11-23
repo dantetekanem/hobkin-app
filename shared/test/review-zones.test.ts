@@ -104,7 +104,8 @@ test('zones follow the ways in, one way to its end before the next, even when a 
   const railsWires = [wire('uses', 'u2', 'u1'), wire('called-by', 'u1', 'v1'), wire('called-by', 'v1', 'v2'), wire('called-by', 'u2', 'v3'), wire('calls', 'u1', 'v4'), wire('called-by', 'u1', 'v5')]
   assert.deepEqual(order(rails, railsWires), zonesOf('config/routes.rb', 'app/controllers/reviews_controller.rb', 'app/jobs/rebuild_labels_job.rb', 'app/mailers/review_mailer.rb', 'app/models/review.rb', 'app/helpers/score_helper.rb'))
 
-  // Node: an import line in the helper's own file uses the changed constant, so the helper is also reached first.
+  // Node: an import line in the helper's own file uses the changed constant, so the helper is also reached first; and a
+  // handler reaches the service by another way, which goes before the listener's own way.
   const js = [
     node('u1', 'code', 'src/config.js'),
     node('u2', 'code', 'src/helpers/score.js'),
@@ -115,7 +116,9 @@ test('zones follow the ways in, one way to its end before the next, even when a 
     node('v3', 'context', 'src/server.js', { kind: 'route', exact: true }),
     node('v4', 'context', 'src/events.js', { kind: 'listener', exact: false }),
     node('v5', 'context', 'src/helpers/score.js'),
+    node('v6', 'context', 'src/commands.js', { kind: 'handler', exact: true }),
+    node('v7', 'context', 'src/services/reviews.js'),
   ]
-  const jsWires = [wire('uses', 'u2', 'u1'), wire('called-by', 'u2', 'v1'), wire('called-by', 'v1', 'v2'), wire('called-by', 'v2', 'v3'), wire('called-by', 'u4', 'v4'), wire('called-by', 'u1', 'v5')]
-  assert.deepEqual(order(js, jsWires), zonesOf('src/server.js', 'src/handlers/reviews.js', 'src/services/reviews.js', 'src/helpers/score.js', 'src/config.js', 'src/events.js', 'src/services/sync.js', 'src/legacy.js'))
+  const jsWires = [wire('uses', 'u2', 'u1'), wire('called-by', 'u2', 'v1'), wire('called-by', 'v1', 'v2'), wire('called-by', 'v2', 'v3'), wire('called-by', 'u4', 'v4'), wire('called-by', 'u1', 'v5'), wire('called-by', 'u2', 'v7'), wire('called-by', 'v7', 'v6')]
+  assert.deepEqual(order(js, jsWires), zonesOf('src/server.js', 'src/handlers/reviews.js', 'src/commands.js', 'src/services/reviews.js', 'src/helpers/score.js', 'src/config.js', 'src/events.js', 'src/services/sync.js', 'src/legacy.js'))
 })

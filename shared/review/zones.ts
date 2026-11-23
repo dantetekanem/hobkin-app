@@ -25,23 +25,47 @@ const isTestZone = (zone: ReviewZone) => zone.layer.startsWith('test:')
 /** Two sort keys, compared one part after another. */
 const byKey = (a: readonly number[], b: readonly number[]) => a.reduce((order, value, at) => order || value - b[at]!, 0)
 
+/** Whether a zone leads, a step at a time, to any of `targets`. */
+function leadsTo(start: string, targets: ReadonlySet<string>, steps: ReadonlyMap<string, ReadonlySet<string>>): boolean {
+  const seen = new Set([start])
+  for (const queue = [start]; queue.length > 0; ) {
+    for (const next of steps.get(queue.shift()!) ?? []) {
+      if (targets.has(next)) return true
+      if (!seen.has(next)) {
+        seen.add(next)
+        queue.push(next)
+      }
+    }
+  }
+  return false
+}
+
 /**
- * Zones in the order the steps between them go: each comes once every zone a step reaches it from has come, and after
- * a zone, one it leads to that is now free comes next, so a way is followed to its end. Of the zones free to come, the
- * one with the smallest key comes first; in a loop, the smallest left.
+ * Zones in the order the steps between them go: each comes once every zone a step reaches it from has come. After a
+ * zone, one it leads to that is now free comes next, so a way is followed to its end; where the way waits for another
+ * way into the same zone, that way comes next. Otherwise, and among as good, the smallest key comes first; in a loop,
+ * the smallest left.
  */
 function alongSteps(ids: readonly string[], steps: ReadonlyMap<string, ReadonlySet<string>>, keyOf: (id: string) => readonly number[]): string[] {
   const waiting = new Map(ids.map((id) => [id, 0]))
   for (const next of steps.values()) for (const id of next) if (waiting.has(id)) waiting.set(id, waiting.get(id)! + 1)
   const smallest = (candidates: readonly string[]) => candidates.reduce((best, id) => (byKey(keyOf(id), keyOf(best)) < 0 ? id : best))
   const order: string[] = []
+  /** The zones the ways placed so far lead to and that still wait for another way in. */
+  const wanted = new Set<string>()
   let last: string | undefined
   while (waiting.size > 0) {
     const free = [...waiting.keys()].filter((id) => waiting.get(id) === 0)
     const onward = free.filter((id) => last != null && steps.get(last)?.has(id))
-    const chosen = smallest(onward.length ? onward : free.length ? free : [...waiting.keys()])
+    const unblocking = free.filter((id) => leadsTo(id, wanted, steps))
+    const chosen = smallest(onward.length ? onward : unblocking.length ? unblocking : free.length ? free : [...waiting.keys()])
     waiting.delete(chosen)
-    for (const id of steps.get(chosen) ?? []) if (waiting.has(id)) waiting.set(id, waiting.get(id)! - 1)
+    wanted.delete(chosen)
+    for (const id of steps.get(chosen) ?? []) {
+      if (!waiting.has(id)) continue
+      waiting.set(id, waiting.get(id)! - 1)
+      if (waiting.get(id)! > 0) wanted.add(id)
+    }
     order.push(chosen)
     last = chosen
   }
