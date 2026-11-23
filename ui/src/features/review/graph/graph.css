@@ -1299,11 +1299,15 @@
 }
 .rv-zone-head {
   position: absolute;
-  top: calc(var(--zone-head) - 46px);
+  /* Clear of the tags a card wears on its top edge. */
+  top: calc(var(--zone-head) - 56px);
   left: calc(var(--zone-pad) - 12px);
-  display: flex;
+  display: grid;
+  /* The name and the counts share the room when it is short, each cut with an ellipsis. */
+  grid-template-columns: auto minmax(0, max-content) minmax(0, max-content) auto;
   align-items: center;
-  gap: 9px;
+  column-gap: 9px;
+  width: max-content;
   max-width: calc(100% - 2 * var(--zone-pad) + 24px);
   height: 34px;
   padding: 0 12px;
@@ -1313,13 +1317,8 @@
   /* The region lets the pointer through to the pane; its heading takes it. */
   pointer-events: auto;
 }
-.rv-zone-words {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 10px;
-}
 .rv-zone-label {
+  min-width: 0;
   overflow: hidden;
   font-family: var(--font-heading);
   font-size: 14px;
@@ -1330,7 +1329,9 @@
   color: color-mix(in oklab, var(--hb-text) 78%, var(--hb-muted));
 }
 .rv-zone-counts {
-  flex-shrink: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-family: var(--font-heading);
   font-size: 12.5px;
   font-weight: 550;
@@ -1340,7 +1341,7 @@
 }
 /* What the zone asks of the reviewer: a small dot, red when a part needs them, orange when one is worth a look. */
 .rv-zone-mark {
-  flex: 0 0 8px;
+  width: 8px;
   height: 8px;
   border-radius: 50%;
   background: transparent;
@@ -1352,39 +1353,41 @@
   background: var(--hb-warn);
 }
 .rv-zone-chevron {
-  flex: 0 0 15px;
   width: 15px;
   height: 15px;
   color: var(--hb-muted);
 }
 
-/* From far away the heading grows inside the same room, on two lines, so the zones read as a map with their counts. */
+/*
+ * From far away the heading grows inside the same room, on two lines, so the zones read as a map with their counts. It
+ * ends well above the cards, whose tags stand higher from far away.
+ */
 .rv[data-far='true'] .rv-zone-head {
-  top: 6px;
-  height: calc(var(--zone-head) - 12px);
-  gap: 14px;
+  top: 2px;
+  grid-template-columns: auto minmax(0, max-content);
+  grid-template-rows: auto auto;
+  align-content: center;
+  column-gap: 12px;
+  height: calc(var(--zone-head) - 26px);
 }
-.rv[data-far='true'] .rv-zone-words {
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
+.rv[data-far='true'] .rv-zone-mark {
+  grid-row: 1;
+  width: 18px;
+  height: 18px;
 }
 .rv[data-far='true'] .rv-zone-label {
-  max-width: 100%;
-  font-size: 40px;
-  line-height: 46px;
+  grid-column: 2;
+  font-size: 34px;
+  line-height: 40px;
   color: var(--hb-text);
 }
 .rv[data-far='true'] .rv-zone-counts {
-  max-width: 100%;
+  grid-column: 2;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 24px;
-  line-height: 28px;
-}
-.rv[data-far='true'] .rv-zone-mark {
-  flex-basis: 20px;
-  height: 20px;
+  font-size: 21px;
+  line-height: 26px;
 }
 .rv[data-far='true'] .rv-zone-chevron {
   display: none;

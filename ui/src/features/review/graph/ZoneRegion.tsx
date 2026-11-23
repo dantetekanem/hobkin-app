@@ -30,10 +30,8 @@ function ZoneRegionComponent({ id }: NodeProps) {
   const said = (
     <>
       <span className="rv-zone-mark" aria-hidden="true" />
-      <span className="rv-zone-words">
-        <span className="rv-zone-label">{zone.label}</span>
-        <span className="rv-zone-counts">{words}</span>
-      </span>
+      <span className="rv-zone-label">{zone.label}</span>
+      <span className="rv-zone-counts">{words}</span>
     </>
   )
   return (

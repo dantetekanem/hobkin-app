@@ -6,9 +6,18 @@ import { spring, tween } from '@/lib/motion.ts'
 import { useSession, useSessionStore } from '../state/context.tsx'
 import { seenAll } from '../state/session.ts'
 import { useEntrance } from './entrance.tsx'
+import type { FoldGroup, Standing } from './focus.ts'
 import { hoverShown } from './levels.ts'
 
 const count = (value: number) => value.toLocaleString('en-US')
+
+/** The word in a group card's corner: a folded zone says what it most asks of the reviewer (spec 055). */
+function kindWords(kind: FoldGroup['kind'], standing: Standing): string {
+  if (standing === 'safe') return 'Safe'
+  if (standing === 'context') return 'Unchanged'
+  if (kind !== 'zone') return 'Group'
+  return standing === 'needs-you' ? 'Needs you' : standing === 'worth-a-look' ? 'Worth a look' : 'Zone'
+}
 
 /**
  * A group card of a large change (spec 053, `graph/focus.ts`): the safe nodes of one kind or one folder, folded into one
@@ -59,7 +68,7 @@ function GroupCardComponent({ id }: NodeProps) {
               <span className="rv-title" title={group.label}>
                 {group.label}
               </span>
-              <span className="rv-kind">{group.standing === 'safe' ? 'Safe' : around ? 'Unchanged' : 'Group'}</span>
+              <span className="rv-kind">{kindWords(group.kind, group.standing)}</span>
             </header>
             <div className="rv-body">
               <p className="rv-fold-count">
