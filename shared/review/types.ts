@@ -114,6 +114,16 @@ export interface ReviewNode {
    * so this is what ties it to them. The graph folds it in with those tests.
    */
   supports?: string[]
+  /**
+   * The zone it belongs to: the `id` of one of the review's `zones` (spec 055). Code, tests, context and files each
+   * have one. Missing on a review from an older host, and the graph then names zones from paths itself.
+   */
+  zone?: string
+  /**
+   * For a test: the ids of the code nodes it covers (spec 055). With `change`, this says what tested the code before:
+   * an `unchanged` test was there before the change, an `added` or `modified` one came with it, a `deleted` one is gone.
+   */
+  covers?: string[]
   anchors: ReviewAnchor[]
   /** Top left corner on the graph. A node's size comes from its kind, see `NODE_SIZE` in layout.ts. */
   position: { x: number; y: number }
@@ -133,6 +143,31 @@ export interface ReviewLifecycle {
    * found, such as "No route reaches it within 4 calls". Optional for context.
    */
   path?: string
+  /**
+   * For changed code: where it is run from (spec 055), the nearest way in. `chain` holds node ids, the origin first and
+   * the node's own caller last, so each step can be shown and gone to. `kind` is the origin's `ReviewEntry` kind, and
+   * `label` its words, such as "GET /users/:id" or "ChargeJob#perform". `more` counts the other ways in that were found.
+   */
+  origin?: { kind: string; label: string; exact: boolean; chain: string[]; more?: number }
+  /**
+   * For changed code with no `origin`: why. `no-callers`: the scan found nothing that calls it. `only-tests`: every
+   * caller is a test. `limit` and `time`: the walk stopped before it reached a way in. `not-looked`: nothing was
+   * looked for, as for a constant or removed code.
+   */
+  none?: 'no-callers' | 'only-tests' | 'limit' | 'time' | 'not-looked'
+}
+
+/** A named part of the code a review's nodes are grouped into on the graph (spec 055): a layer and a subject. */
+export interface ReviewZone {
+  id: string
+  /** What kind of code it is, such as `controller`, `model`, `job`, `host` or `test:request`. */
+  layer: string
+  /** What it is about, such as `order` or `review`. */
+  subject: string
+  /** The words on the graph, such as "Controllers · Orders". */
+  label: string
+  /** The package or app it is in, in a repository with several. */
+  component?: string
 }
 
 /**
@@ -262,6 +297,8 @@ export interface Review {
   story: StoryStep[]
   /** The tests' paths, test first. Missing in reviews prepared before paths existed. */
   paths?: ReviewPath[]
+  /** The zones its nodes name by `zone`, in the order a request passes them (spec 055). Missing from an older host. */
+  zones?: ReviewZone[]
   summary: string
   /** Plain statements about the review itself: "This change has no spec.", "12 files are summarized." */
   notices: string[]
