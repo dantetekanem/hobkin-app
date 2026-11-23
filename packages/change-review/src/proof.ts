@@ -136,7 +136,18 @@ export interface TestCandidate {
   lifecycle: boolean
   /** This diff added or changed it. */
   changed: boolean
+  /**
+   * How it was found first: the scan links it (`scan`), this diff changed it and it names the definition (`diff`), it is
+   * named after the definition's file (`convention`), or it is a life-cycle test of an entry point above it (`entry`).
+   */
+  found?: 'scan' | 'diff' | 'convention' | 'entry'
 }
+
+/**
+ * The most tests the scan links to one definition that are candidates. With every test listed, a common name links many;
+ * this is as many as the scan gave before it listed them all, so proof runs no more files than it did.
+ */
+export const MOST_LINKED_TESTS = 8
 
 /** The name a symbol is called by: `total` for `Cart#total`, `Shop.total` or `Billing::Cart.total`. */
 function shortName(symbol: string): string {
@@ -218,31 +229,36 @@ export async function candidateTests({
   read: (path: string) => string | null | Promise<string | null>
 }): Promise<TestCandidate[]> {
   const reasons = new Map<string, string[]>()
-  const add = (path: string, why: string) => {
+  const firstFound = new Map<string, NonNullable<TestCandidate['found']>>()
+  const add = (path: string, why: string, found: NonNullable<TestCandidate['found']>) => {
     if (path === node.path) return
     const said = reasons.get(path) ?? []
     if (!said.includes(why)) reasons.set(path, [...said, why])
+    if (!firstFound.has(path)) firstFound.set(path, found)
   }
   const anchor = scan.anchors.find((item) => item.id === node.id) ?? scan.anchors.find((item) => item.path === node.path && item.symbol === node.symbol)
   // The scan links tests by name, and a common name reaches tests of other code. In JavaScript and TypeScript a test
   // that runs the definition directly imports its file; one that goes through the life cycle is kept on its name.
   const script = SCRIPT_FILES.includes(extname(node.path))
+  const linked = new Set<string>()
   for (const test of anchor?.tests ?? []) {
+    if (linked.size === MOST_LINKED_TESTS && !linked.has(test.path)) break
     if (script && !isLifecycleTest(test.path) && !importsFile(await read(test.path), node.path)) continue
-    add(test.path, `the scan links it to ${node.symbol}`)
+    linked.add(test.path)
+    add(test.path, `the scan links it to ${node.symbol}`, 'scan')
   }
   const name = shortName(node.symbol)
   const named = asWord(name)
   for (const path of changedTestPaths) {
     const text = await read(path)
-    if (text !== null && named.test(text)) add(path, `this diff changed it and it names ${name}`)
+    if (text !== null && named.test(text)) add(path, `this diff changed it and it names ${name}`, 'diff')
   }
-  for (const path of conventionNames(node.path)) add(path, `named after ${node.path}`)
+  for (const path of conventionNames(node.path)) add(path, `named after ${node.path}`, 'convention')
 
   const changed = new Set(changedTestPaths)
   const candidates: TestCandidate[] = []
   for (const [path, why] of reasons) {
-    if (await exists(path)) candidates.push({ path, why: why.join('; '), lifecycle: isLifecycleTest(path), changed: changed.has(path) })
+    if (await exists(path)) candidates.push({ path, why: why.join('; '), lifecycle: isLifecycleTest(path), changed: changed.has(path), found: firstFound.get(path)! })
   }
   return candidates
 }

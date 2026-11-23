@@ -8,7 +8,7 @@ import { accessSync, constants, mkdtempSync, readFileSync, rmSync, statSync } fr
 import { homedir, tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { runProgram } from './git.ts'
-import type { CallSite, Dangling, Guard, Scan, ScanAnchor, ScanEdge } from './types.ts'
+import type { CallSite, Dangling, Guard, Scan, ScanAnchor, ScanEdge, ScanEntry, TestDefinition } from './types.ts'
 
 // ───────────────────────── Reading a pack ─────────────────────────
 
@@ -29,7 +29,7 @@ function all<T>(value: unknown, read: (item: unknown) => T | undefined): T[] | u
 }
 
 /** The kinds of item a pack can lose, in the order the coverage note names them. */
-const LOST = ['anchor', 'anchor field', 'anchor test', 'node', 'edge', 'dangling entry', 'test group', 'test entry', 'file'] as const
+const LOST = ['anchor', 'anchor field', 'anchor test', 'node', 'edge', 'dangling entry', 'test group', 'test entry', 'test definition', 'file'] as const
 type Lost = (typeof LOST)[number]
 
 /** What was left out, per kind of item, for the coverage note. */
@@ -70,6 +70,40 @@ function guardOf(value: unknown): Guard | undefined {
   return { line: at, text: said, branch: branch as Guard['branch'] }
 }
 
+function routeOf(value: unknown): NonNullable<ScanEntry['routes']>[number] | undefined {
+  const raw = record(value)
+  const verbs = all(raw?.verbs, name)
+  const path = name(raw?.path)
+  const file = name(raw?.file)
+  const at = line(raw?.line)
+  return verbs?.length && path && file && at !== undefined ? { verbs, path, file, line: at } : undefined
+}
+
+function doorOf(value: unknown): NonNullable<ScanEntry['doors']>[number] | undefined {
+  const raw = record(value)
+  const kind = name(raw?.kind)
+  const title = name(raw?.title)
+  const file = name(raw?.file)
+  const at = line(raw?.line)
+  return kind && title && file && at !== undefined ? { kind, title, file, line: at } : undefined
+}
+
+/**
+ * Where work enters, as the tool says: a kind and whether it is sure, with its words, routes and doors when each has
+ * the expected shape. A kind this reader does not know is kept as the tool names it. Routes or doors of an odd shape
+ * are left out whole, and the entry is still one.
+ */
+function entryOf(value: unknown): ScanEntry | undefined {
+  const raw = record(value)
+  const kind = name(raw?.kind)
+  const exact = flag(raw?.exact)
+  if (!raw || !kind || exact === undefined) return undefined
+  const label = name(raw.label) ?? name(raw.key)
+  const routes = all(raw.routes, routeOf)
+  const doors = all(raw.doors, doorOf)
+  return { kind, exact, ...(label ? { label } : {}), ...(routes?.length ? { routes } : {}), ...(doors?.length ? { doors } : {}) }
+}
+
 /** A call site: its place and its guards (none when the tool reports none). A site of a test is not a caller of the code. */
 function callSiteOf(value: unknown): CallSite | undefined {
   const raw = record(value)
@@ -81,9 +115,7 @@ function callSiteOf(value: unknown): CallSite | undefined {
   if (!raw || !id || symbol === undefined || !path || at === undefined || !guards) return undefined
   const said = text(raw.text)
   const resolution = name(raw.resolution)
-  const entry = record(raw.entry)
-  const entryKind = text(entry?.kind)
-  const exact = flag(entry?.exact)
+  const entry = entryOf(raw.entry)
   return {
     id,
     symbol,
@@ -93,7 +125,7 @@ function callSiteOf(value: unknown): CallSite | undefined {
     ...(resolution ? { resolution } : {}),
     guards,
     ...(raw.enqueue === true ? { enqueue: true } : {}),
-    ...(entryKind !== undefined && exact !== undefined ? { entry: { kind: entryKind, exact } } : {}),
+    ...(entry ? { entry } : {}),
   }
 }
 
@@ -148,17 +180,16 @@ function optionalFields(raw: Raw, tally: Tally): Partial<ScanAnchor> {
   keep('guards', all(raw.guards, lineGuardsOf))
   keep('effects', all(raw.effects, effectOf))
   keep('loadTime', flag(raw.loadTime))
-  const entry = record(raw.entry)
-  const entryKind = text(entry?.kind)
-  const exact = flag(entry?.exact)
-  keep('entry', entryKind !== undefined && exact !== undefined ? { kind: entryKind, exact } : undefined)
+  keep('entry', entryOf(raw.entry))
   const semanticFingerprint = name(raw.semanticFingerprint)
   if (semanticFingerprint) fields.semanticFingerprint = semanticFingerprint
   // The call-site list is `callers` itself, with a count beside it in newer packs. A partly read list would read as
-  // every caller, so it goes whole. A site of a test is no caller of the code.
+  // every caller, so it goes whole. A site of a test is no caller of the code, but that tests call it is counted.
   if (Array.isArray(raw.callers)) {
     const sites = all(raw.callers.filter((item) => record(item)?.test !== true), callSiteOf)
     if (sites) fields.callSites = sites
+    const tested = raw.callers.filter((item) => record(item)?.test === true).length
+    if (tested) fields.testCallers = tested
   }
   const counted = record(raw.callerCount) ?? (Array.isArray(raw.callers) ? undefined : record(raw.callers))
   if (counted) {
@@ -209,7 +240,27 @@ function nodeOf(value: unknown): Scan['nodes'][string] | undefined {
   const startLine = line(raw?.startLine)
   const endLine = line(raw?.endLine)
   if (!id || symbol === undefined || !kind || !path || startLine === undefined || endLine === undefined) return undefined
-  return { id, symbol, kind, path, startLine, endLine }
+  const entry = entryOf(raw?.entry)
+  return { id, symbol, kind, path, startLine, endLine, ...(entry ? { entry } : {}) }
+}
+
+/** A test that references changed definitions: its place, and which of them it references on which lines. */
+function testDefinitionOf(value: unknown): TestDefinition | undefined {
+  const raw = record(value)
+  const id = name(raw?.id)
+  const symbol = text(raw?.symbol)
+  const path = name(raw?.path)
+  const startLine = line(raw?.startLine)
+  const endLine = line(raw?.endLine)
+  const anchors = all(raw?.anchors, (item) => {
+    const anchor = record(item)
+    const of = name(anchor?.id)
+    const lines = all(anchor?.lines, line)
+    return of && lines ? { id: of, lines } : undefined
+  })
+  const changed = flag(raw?.changed)
+  if (!id || symbol === undefined || !path || startLine === undefined || endLine === undefined || !anchors || changed === undefined) return undefined
+  return { id, symbol, path, startLine, endLine, anchors, changed }
 }
 
 /** An edge needs its source and what kind of link it is; the target is absent for calls nothing in the repository defines. */
@@ -302,11 +353,13 @@ export function readPack(pack: unknown): Scan {
   const nodes: Scan['nodes'] = {}
   for (const node of each(root.nodes, 'node', tally, nodeOf)) nodes[node.id] = node
   const anchors = each(root.anchors, 'anchor', tally, (item) => anchorOf(item, languageOf, tally))
-  for (const { id, symbol, kind, path, startLine, endLine } of anchors) nodes[id] ??= { id, symbol, kind, path, startLine, endLine }
+  for (const { id, symbol, kind, path, startLine, endLine, entry } of anchors) nodes[id] ??= { id, symbol, kind, path, startLine, endLine, ...(entry ? { entry } : {}) }
 
   const edges = each(root.edges, 'edge', tally, edgeOf)
   const dangling = each(root.dangling, 'dangling entry', tally, danglingOf).filter((item): item is Dangling => item !== null)
   const tests = each(root.testGroups, 'test group', tally, (item) => testGroupOf(item, tally))
+  // Absent unless the scan was asked for every test: no list is not the same as a list of none.
+  const testDefinitions = Array.isArray(root.testDefinitions) ? each(root.testDefinitions, 'test definition', tally, testDefinitionOf) : undefined
 
   const coverage = record(root.coverage)
   const truncatedBy = text(coverage?.truncatedBy) ?? 'unknown'
@@ -324,6 +377,7 @@ export function readPack(pack: unknown): Scan {
     edges,
     dangling,
     tests,
+    ...(testDefinitions ? { testDefinitions } : {}),
     files: files.map(({ path, kind, status, language }) => ({ path, kind, status, ...(language ? { language } : {}) })),
     coverage: {
       truncated: truncatedBy !== 'none' || skippedAnchors > 0 || tally.get('dangling entry') > 0,
@@ -372,6 +426,8 @@ export interface ScanRequest {
   depth?: number
   /** List every call site of each changed definition, so a caller list can be complete. On unless set to `false`. */
   allCallers?: boolean
+  /** List every test that references a changed definition, changed or not, in `testDefinitions`. On unless set to `false`. */
+  allTests?: boolean
   signal?: AbortSignal
 }
 
@@ -394,8 +450,8 @@ export function withoutRefusedOption(args: readonly string[], reason: string): s
  * Scans the change from `base` to `head` in the checkout at `cwd`. The pack holds source, so it is written to a
  * folder of its own, read, and removed. A scan that cannot run answers why, never a partial scan.
  */
-export function runScan({ cwd, base, head, program, timeoutMs = SCAN_TIMEOUT_MS, maxAnchors, maxNodes, depth, allCallers = true, signal }: ScanRequest): Promise<ScanOutcome> {
-  return scanOf(['--diff', `${base}..${head}`], { cwd, program, timeoutMs, maxAnchors, maxNodes, depth, allCallers, signal })
+export function runScan({ cwd, base, head, program, timeoutMs = SCAN_TIMEOUT_MS, maxAnchors, maxNodes, depth, allCallers = true, allTests = true, signal }: ScanRequest): Promise<ScanOutcome> {
+  return scanOf(['--diff', `${base}..${head}`], { cwd, program, timeoutMs, maxAnchors, maxNodes, depth, allCallers, allTests, signal })
 }
 
 export interface AnchorScanRequest {
@@ -416,7 +472,7 @@ export function scanAnchors({ cwd, anchors, program, timeoutMs = SCAN_TIMEOUT_MS
   return scanOf(anchors.flatMap((anchor) => ['--anchor', anchor]), { cwd, program, timeoutMs, maxAnchors: anchors.length, depth: 1, allCallers: true, signal })
 }
 
-async function scanOf(target: string[], { cwd, program, timeoutMs = SCAN_TIMEOUT_MS, maxAnchors, maxNodes, depth, allCallers, signal }: Omit<ScanRequest, 'base' | 'head'>): Promise<ScanOutcome> {
+async function scanOf(target: string[], { cwd, program, timeoutMs = SCAN_TIMEOUT_MS, maxAnchors, maxNodes, depth, allCallers, allTests, signal }: Omit<ScanRequest, 'base' | 'head'>): Promise<ScanOutcome> {
   const file = program ?? findAgenticSearch()
   if (!file) return { ok: false, reason: 'agentic-search is not installed.' }
   const folder = mkdtempSync(join(tmpdir(), 'change-review-scan-'))
@@ -431,6 +487,7 @@ async function scanOf(target: string[], { cwd, program, timeoutMs = SCAN_TIMEOUT
       '--output-dir',
       out,
       ...(allCallers ? ['--callers', 'all'] : []),
+      ...(allTests ? ['--tests', 'all'] : []),
       ...option('--max-anchors', maxAnchors),
       ...option('--max-nodes', maxNodes),
       ...option('--max-depth', depth),

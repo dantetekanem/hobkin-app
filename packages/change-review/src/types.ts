@@ -170,6 +170,22 @@ export interface Guard {
   branch: 'then' | 'else' | 'after-return'
 }
 
+/**
+ * What the scan says of a definition where work enters (spec 055): its kind (`controller`, `job`, `command`, `export`,
+ * `extension`, and kinds newer tools name, such as `handler`, `listener`, `route`, `task`, `mailer`, `channel`,
+ * `ui-handler`), whether it is sure, its own words when it has them, and the routes and package doors that reach it.
+ */
+export interface ScanEntry {
+  kind: string
+  exact: boolean
+  /** The tool's words for it, such as the key a string-keyed handler map holds it under: `review.prepare`. */
+  label?: string
+  /** The routes that reach a controller action, and the line of the routes file that draws each. */
+  routes?: { verbs: string[]; path: string; file: string; line: number }[]
+  /** What a package.json exposes it as: a command, a module Pi loads, a name the package exports. */
+  doors?: { kind: string; title: string; file: string; line: number }[]
+}
+
 /** One place that calls a changed definition, from the anchor's `callers` list (`--callers all` lists every one). */
 export interface CallSite {
   /** The calling node's id in the pack. */
@@ -184,7 +200,7 @@ export interface CallSite {
   /** The call enqueues the definition as a job. */
   enqueue?: boolean
   /** The caller is itself an entry point. */
-  entry?: { kind: string; exact: boolean }
+  entry?: ScanEntry
 }
 
 /** A changed definition or non-callable change, read from an `agentic-search scan` pack. Optional fields arrive with newer versions of the tool. */
@@ -213,10 +229,13 @@ export interface ScanAnchor {
   effects?: { kind: 'write' | 'enqueue' | 'cache'; line: number; text: string }[]
   /** Takes effect when code loads or deploys. */
   loadTime?: boolean
-  entry?: { kind: string; exact: boolean }
+  entry?: ScanEntry
+  /** Production call sites: tests that call it are not counted here. */
   callers?: { total: number; shown: number; complete: boolean }
   /** The call sites the pack lists for this definition: every one when `callers.complete`. */
   callSites?: CallSite[]
+  /** How many of the call sites the pack lists are in tests (spec 055). Absent when none is. */
+  testCallers?: number
   /** The tool's hash of the definition's meaning, to tell a rewrite from a rename or a move. */
   semanticFingerprint?: string
   /** Tests that reference this definition by name. */
@@ -246,15 +265,31 @@ export interface Dangling {
   references: { path: string; line: number; text: string }[]
 }
 
+/** A test that references changed definitions, as `--tests all` lists it in the pack's `testDefinitions`. */
+export interface TestDefinition {
+  /** Its node id in the pack. */
+  id: string
+  symbol: string
+  path: string
+  startLine: number
+  endLine: number
+  /** The changed definitions it references, by anchor id, with the lines of the test that do. */
+  anchors: { id: string; lines: number[] }[]
+  /** The diff changes this test definition. */
+  changed: boolean
+}
+
 /** The scan, read without trust: what the floor and the facts need. */
 export interface Scan {
   anchors: ScanAnchor[]
-  /** Every node of the pack by id, anchors and their neighbours, for names and places. */
-  nodes: Record<string, { id: string; symbol: string; kind: string; path: string; startLine: number; endLine: number }>
+  /** Every node of the pack by id, anchors and their neighbours, for names and places, and where work enters. */
+  nodes: Record<string, { id: string; symbol: string; kind: string; path: string; startLine: number; endLine: number; entry?: ScanEntry }>
   edges: ScanEdge[]
   dangling: Dangling[]
   /** Changed test files and the test definitions in them. */
   tests: { path: string; entries: { symbol: string; startLine: number; endLine: number }[] }[]
+  /** Every test that references a changed definition, changed or not. Absent when the scan was not asked for every test. */
+  testDefinitions?: TestDefinition[]
   /** Files the scan classified, with its class: code, test, generated, other, and newer classes; `language` is absent where it has no parser. */
   files: { path: string; kind: string; status: string; language?: string }[]
   coverage: { truncated: boolean; truncatedBy: string; skippedAnchors: number; unresolved: number; notes: string[] }

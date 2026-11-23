@@ -174,7 +174,7 @@ test('runScan runs agentic-search on the range, reads its pack and removes the f
   assert.equal(answer.ok && answer.scan.anchors.length, 7)
   const args = fake.args()
   const out = args[args.indexOf('--output-dir') + 1]!
-  assert.deepEqual(args.filter((arg) => arg !== out), ['scan', '--diff', 'aaa..bbb', '--cwd', fake.dir, '--json', '--output-dir', '--callers', 'all', '--max-anchors', '200', '--max-nodes', '300', '--max-depth', '2'])
+  assert.deepEqual(args.filter((arg) => arg !== out), ['scan', '--diff', 'aaa..bbb', '--cwd', fake.dir, '--json', '--output-dir', '--callers', 'all', '--tests', 'all', '--max-anchors', '200', '--max-nodes', '300', '--max-depth', '2'])
   assert.equal(existsSync(out), false, 'the pack holds source, so its folder is removed')
 })
 
@@ -203,7 +203,8 @@ test("a scan that agentic-search refuses for a newer option, by name, runs once 
   const answer = await runScan({ cwd: older.dir, base: 'aaa', head: 'bbb', program: older.program })
   assert.equal(answer.ok, true)
   const calls = readFileSync(join(older.dir, 'calls.jsonl'), 'utf8').trim().split('\n').map((line) => JSON.parse(line) as string[])
-  assert.deepEqual([calls.length, calls[0]!.includes('--callers'), calls[1]!.includes('--callers'), calls[1]!.includes('all')], [2, true, false, false])
+  assert.deepEqual([calls.length, calls[0]!.includes('--callers'), calls[1]!.includes('--callers'), calls[1]!.filter((arg) => arg === 'all').length], [2, true, false, 1])
+  assert.deepEqual(calls[1]!.slice(calls[1]!.indexOf('--tests'), calls[1]!.indexOf('--tests') + 2), ['--tests', 'all'], 'the option it took stays')
 
   const refusing = fakeProgram(t, "process.stderr.write('agentic-search: --max-anchors must be an integer from 1 to 100\\n'); process.exit(2)")
   assert.deepEqual(await runScan({ cwd: refusing.dir, base: 'a', head: 'b', program: refusing.program, maxAnchors: 500 }), { ok: false, reason: '--max-anchors must be an integer from 1 to 100' })
@@ -243,6 +244,60 @@ test('a pack with caller counts, call sites with guards, entry and a fingerprint
   assert.deepEqual(anchor.entry, { kind: 'job', exact: true })
   assert.equal(anchor.semanticFingerprint, '728053b6b252e936')
   assert.deepEqual(scan.edges[0], { from: 'n3', to: 'n1', name: 'perform', relationship: 'called_by', resolution: 'exact', line: 6, note: 'enqueue', guards, via: 'constant' })
+})
+
+test('what the pack says of where work enters is kept: the kind, its words, the routes and the doors, on anchors and nodes', () => {
+  const routes = [{ verbs: ['GET'], path: '/orders/:id', file: 'config/routes.rb', line: 4, text: 'resources :orders' }]
+  const doors = [{ kind: 'command', title: 'shop-report', file: 'package.json', line: 7, text: '"shop-report": "bin/report"' }]
+  const scan = readPack({
+    anchors: [
+      { id: 'n1', symbol: 'OrdersController#show', kind: 'method', path: 'app/controllers/orders_controller.rb', startLine: 3, endLine: 9, changedLines: [4], entry: { kind: 'controller', exact: true, routes }, tests: [] },
+      { id: 'n2', symbol: 'report', kind: 'statement', path: 'bin/report', startLine: 1, endLine: 1, changedLines: [1], entry: { kind: 'command', exact: true, doors }, tests: [] },
+      { id: 'n3', symbol: 'reviewHandlers', kind: 'function', path: 'host/src/review/seat.ts', startLine: 371, endLine: 399, changedLines: [374], entry: { kind: 'handler', exact: true, label: 'review.prepare' }, tests: [] },
+    ],
+    nodes: [{ id: 'n7', symbol: 'ChargeJob#perform', kind: 'method', path: 'app/jobs/charge_job.rb', startLine: 2, endLine: 6, entry: { kind: 'job', exact: true } }],
+  })
+  assert.deepEqual(scan.anchors[0]!.entry, { kind: 'controller', exact: true, routes: [{ verbs: ['GET'], path: '/orders/:id', file: 'config/routes.rb', line: 4 }] })
+  assert.deepEqual(scan.anchors[1]!.entry, { kind: 'command', exact: true, doors: [{ kind: 'command', title: 'shop-report', file: 'package.json', line: 7 }] })
+  assert.deepEqual(scan.anchors[2]!.entry, { kind: 'handler', exact: true, label: 'review.prepare' })
+  assert.deepEqual(scan.nodes.n7!.entry, { kind: 'job', exact: true })
+  // A route of an odd shape is left out on its own: the entry is still an entry.
+  const odd = readPack({ anchors: [{ id: 'n1', symbol: 'a', kind: 'method', path: 'a.rb', startLine: 1, endLine: 2, changedLines: [1], entry: { kind: 'controller', exact: false, routes: [{ verbs: 'GET' }] }, tests: [] }] })
+  assert.deepEqual(odd.anchors[0]!.entry, { kind: 'controller', exact: false })
+})
+
+test('the test call sites of a definition are counted, not taken for its callers', () => {
+  const scan = readPack({
+    anchors: [
+      {
+        id: 'n1', symbol: 'total', kind: 'function', path: 'src/total.js', startLine: 1, endLine: 3, changedLines: [2],
+        callerCount: { total: 0, shown: 0, complete: true },
+        callers: [
+          { id: 'n5', symbol: 'adds two numbers', path: 'test/total.test.js', line: 4, guards: [], test: true },
+          { id: 'n6', symbol: 'rounds', path: 'test/total.test.js', line: 9, guards: [], test: true },
+        ],
+        tests: [],
+      },
+    ],
+  })
+  assert.deepEqual(scan.anchors[0]!.callSites, [])
+  assert.equal(scan.anchors[0]!.testCallers, 2)
+})
+
+test('the test definitions the pack lists with every test are kept with the changed definitions each references', () => {
+  const scan = readPack({
+    testDefinitions: [
+      { id: 'n9', symbol: 'a topic shows its posts', path: 'test/e2e/topics.test.js', startLine: 4, endLine: 6, anchors: [{ id: 'n1', lines: [5] }], changed: false, setup: [] },
+      { id: 'n10', symbol: 'repeated mentions are one lookup', path: 'test/helpers/posts.test.js', startLine: 6, endLine: 10, anchors: [{ id: 'n1', lines: [8, 9] }], changed: true, setup: [] },
+      { id: 'n11', symbol: 'no anchors' },
+    ],
+  })
+  assert.deepEqual(scan.testDefinitions, [
+    { id: 'n9', symbol: 'a topic shows its posts', path: 'test/e2e/topics.test.js', startLine: 4, endLine: 6, anchors: [{ id: 'n1', lines: [5] }], changed: false },
+    { id: 'n10', symbol: 'repeated mentions are one lookup', path: 'test/helpers/posts.test.js', startLine: 6, endLine: 10, anchors: [{ id: 'n1', lines: [8, 9] }], changed: true },
+  ])
+  assert.match(scan.coverage.notes.at(-1)!, /1 test definition\b/)
+  assert.equal(readPack({}).testDefinitions, undefined, 'a pack written without every test has none, which is not the same as no test')
 })
 
 test('call sites with an unexpected shape are left out whole, and an edge with odd guards keeps none of them', () => {

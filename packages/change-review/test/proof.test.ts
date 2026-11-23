@@ -107,14 +107,28 @@ test('candidate tests: what the scan links, changed tests that name the symbol, 
   }
 
   assert.deepEqual(await candidateTests({ ...args, node: { id: 'n1', symbol: 'Shop.total', path: 'src/shop.ts' } }), [
-    { path: 'test/flow/checkout.test.ts', why: 'the scan links it to Shop.total', lifecycle: true, changed: false },
-    { path: 'test/rounding.test.ts', why: 'this diff changed it and it names total', lifecycle: false, changed: true },
-    { path: 'test/shop.test.ts', why: 'named after src/shop.ts', lifecycle: false, changed: false },
+    { path: 'test/flow/checkout.test.ts', why: 'the scan links it to Shop.total', lifecycle: true, changed: false, found: 'scan' },
+    { path: 'test/rounding.test.ts', why: 'this diff changed it and it names total', lifecycle: false, changed: true, found: 'diff' },
+    { path: 'test/shop.test.ts', why: 'named after src/shop.ts', lifecycle: false, changed: false, found: 'convention' },
   ])
   assert.deepEqual(await candidateTests({ ...args, node: { id: 'n2', symbol: 'Cart#total', path: 'app/models/cart.rb' } }), [
-    { path: 'test/rounding.test.ts', why: 'this diff changed it and it names total', lifecycle: false, changed: true },
-    { path: 'test/models/cart_test.rb', why: 'named after app/models/cart.rb', lifecycle: false, changed: false },
+    { path: 'test/rounding.test.ts', why: 'this diff changed it and it names total', lifecycle: false, changed: true, found: 'diff' },
+    { path: 'test/models/cart_test.rb', why: 'named after app/models/cart.rb', lifecycle: false, changed: false, found: 'convention' },
   ])
+})
+
+test('of the tests the scan links, eight are candidates, as many as the scan gave before it listed every test', async () => {
+  const linked = Array.from({ length: 11 }, (_, index) => ({ id: `t${index}`, symbol: 'total', path: `spec/models/cart_${index}_spec.rb`, line: 1 }))
+  const scan = { anchors: [{ id: 'n1', tests: linked }] } as unknown as Scan
+  const found = await candidateTests({
+    node: { id: 'n1', symbol: 'Cart#total', path: 'app/models/cart.rb' },
+    scan,
+    changedTestPaths: [],
+    isLifecycleTest: () => false,
+    exists: (path) => linked.some((test) => test.path === path),
+    read: () => '',
+  })
+  assert.deepEqual(found.map((candidate) => candidate.path), linked.slice(0, 8).map((test) => test.path))
 })
 
 test('a test the scan links only by name must import the definition’s file, unless it goes through the life cycle', async () => {
