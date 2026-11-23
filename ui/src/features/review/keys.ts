@@ -155,6 +155,11 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
   // the spec names, is a comment's; U is the nearest key no other part of the review or its proofs holds.
   if (key === 'u' || key === 'U') return session.nextUnseen(shift ? -1 : 1), true
 
+  // J and K go to the next and the previous zone (spec 055), as they go to the next and the previous model in the proof,
+  // which has them only while it has the keyboard (`keyOwner`).
+  if (!shift && (key === 'j' || key === 'J')) return session.nextZone(1), true
+  if (!shift && (key === 'k' || key === 'K')) return session.nextZone(-1), true
+
   // T for TLA+: the proof beside the review, which T again closes, and Shift+T for its full page (spec 053).
   if (key === 't' || key === 'T') return effects.proofKey(shift), true
 

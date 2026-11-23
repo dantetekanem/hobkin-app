@@ -195,6 +195,13 @@ export interface Session {
    * end to the start, opening its group when it is folded. Says so when none is left. False when it went nowhere.
    */
   nextUnseen(delta: 1 | -1): boolean
+  /**
+   * J, and K back (spec 055): goes to the next zone the graph draws, round from the last to the first, on its first node
+   * that needs the reviewer in the host's rank, else its first node as drawn, in Story and Free Roam alike. A zone the
+   * reviewer folded is gone to on its card. From the whole graph, J goes to the first zone and K to the last. False when
+   * the graph draws no zone.
+   */
+  nextZone(delta: 1 | -1): boolean
   /** Says a short word to the reviewer (`notice`). */
   say(text: string): void
   /** Opens the proof beside the review on a run, or shows another run in it. Nothing else of the review moves. */
@@ -782,6 +789,26 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         const onLastUnseen = wanted.some((id) => here.has(id) && !seen.has(id))
         say(onLastUnseen ? 'This is the last node that needs you and is not seen yet.' : 'Every node that needs you is seen.')
         return false
+      },
+      nextZone: (delta) => {
+        const { view, focus, pointed, nodeOf } = get()
+        const drawn = view.zones.filter((zone) => view.nodes.some((node) => node.zone === zone.id))
+        if (drawn.length === 0) return false
+        const on = pointed ?? focus[0]
+        const here = drawn.findIndex((zone) => zone.id === view.nodes.find((node) => node.id === on)?.zone)
+        const at = here < 0 ? (delta > 0 ? 0 : drawn.length - 1) : (here + delta + drawn.length) % drawn.length
+        const zone = drawn[at]!
+        const [wanted] = zone.nodes
+          .map((id) => nodeOf.get(id))
+          .filter((node): node is ReviewNode => node?.attention?.tier === 'needs-you')
+          .sort((a, b) => a.attention!.rank - b.attention!.rank)
+        if (wanted && !(fold.zones ?? []).includes(zone.id)) {
+          get().reach(wanted.id)
+          return true
+        }
+        const [first] = view.nodes.filter((node) => node.zone === zone.id).sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y)
+        get().focusOn(first!.id)
+        return true
       },
       toggleGroup: (groupId) => {
         const zone = get().view.plan.groups[groupId]

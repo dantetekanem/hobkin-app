@@ -5,6 +5,9 @@ import type { Review, ReviewNode, ReviewZone } from '#shared/review/types.ts'
 import { MAX_ZONES, regionsOf, zoneWords, zonesOf, type GraphZone } from '../src/features/review/graph/zones.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
 import { planEntrance } from '../src/features/review/graph/entrance-plan.ts'
+import { keyOwner, pressKey } from '../src/features/review/keys.ts'
+import { createReviewMemory } from '../src/features/review/state/memory.ts'
+import { createSession } from '../src/features/review/state/session.ts'
 
 /** The pull sample as an older host sent it: no zones on it. */
 function unzoned(): Review {
@@ -134,4 +137,33 @@ test('the entrance brings each region in with its members, zone by zone, and a l
   assert.equal(quiet.quiet, true)
   assert.deepEqual(quiet.wires, {})
   assert.equal(Object.keys(quiet.zones).length, 5)
+})
+
+test("J and K move to the next and the previous zone, on its first node that needs the reviewer, in Story and Free Roam; in the proof they are the proof's", () => {
+  const keys = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
+  const session = createSession(pullReview('pr:hobkin-sample/storefront/482'), createReviewMemory())
+  const press = (key: string) => pressKey(session.getState(), { key, shift: false, alt: false }, keys)
+  const zones = session.getState().view.zones
+  const zoneOn = () => session.getState().view.nodes.find((node) => node.id === session.getState().focus[0])?.zone
+
+  assert.equal(press('j'), true)
+  assert.equal(zoneOn(), zones[0]!.id, 'from the whole graph, J goes to the first zone')
+  assert.deepEqual(session.getState().focus, ['c5'], 'on its first node, as it is drawn, when none needs the reviewer')
+  press('j')
+  assert.equal(zoneOn(), zones[1]!.id)
+  press('k')
+  press('k')
+  assert.equal(zoneOn(), zones.at(-1)!.id, 'K from the first zone goes round to the last')
+
+  // A zone with a part that needs the reviewer is entered on it.
+  const helpers = zones.findIndex((zone) => zone.label === 'Helpers · Posts')
+  session.getState().setMode('roam')
+  for (let step = 0; step <= helpers; step += 1) press('j')
+  assert.deepEqual(session.getState().focus, ['u1'], 'in Free Roam too')
+
+  // With the keyboard in the proof beside the review, J and K are the proof's.
+  const heard = { key: 'j', shift: false, meta: false, ctrl: false, alt: false, typing: false }
+  assert.equal(keyOwner(heard, true), 'proof')
+  assert.equal(keyOwner({ ...heard, key: 'k' }, true), 'proof')
+  assert.equal(keyOwner(heard, false), 'review')
 })
