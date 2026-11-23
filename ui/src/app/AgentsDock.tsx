@@ -371,7 +371,7 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
       // soft, animated tooltip rather than the browser's plain one.
       <Tooltip>
         <TooltipTrigger render={<span className="block truncate text-[11px] text-muted-foreground" />}>
-          {agent.project} · <Pulse run={run} fallback={update} />
+          {agent.project} · <Pulse run={run} fallback={update} noticeFirst />
         </TooltipTrigger>
         <TooltipContent side="right" align="center" sideOffset={10} className="max-w-xs text-left leading-snug whitespace-normal">
           {update}
@@ -380,7 +380,7 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
     ) : (
       // Before it speaks, the plain phase ("running the tests") stands in.
       <span className="block truncate text-[11px] text-muted-foreground">
-        {agent.project} · <Pulse run={run} fallback={agent.doing} />
+        {agent.project} · <Pulse run={run} fallback={agent.doing} noticeFirst />
       </span>
     )
 })

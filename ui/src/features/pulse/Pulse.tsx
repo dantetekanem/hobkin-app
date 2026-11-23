@@ -17,21 +17,25 @@ export function usePulse(run: string | null): RunPulse | null {
 /**
  * One run's working line while the host sends its pulse (`054-working-line`): `Working… (7m 7s · ↓ 30.0k tokens)`,
  * then the quiet notice in its tone. Without a pulse it shows `fallback`, what the place showed before. It is inline
- * text with tabular figures, so it sits in any one line slot and its container decides where it is cut.
+ * text with tabular figures, so it sits in any one line slot and its container decides where it is cut. A narrow slot
+ * asks for `noticeFirst`, so a run that went quiet says so before the line is cut.
  */
-export function Pulse({ run, fallback, className }: { run: string | null; fallback: ReactNode; className?: string }) {
+export function Pulse({ run, fallback, className, noticeFirst = false }: { run: string | null; fallback: ReactNode; className?: string; noticeFirst?: boolean }) {
   const pulse = usePulse(run)
-  return pulse ? <PulseWords pulse={pulse} className={className} /> : <>{fallback}</>
+  return pulse ? <PulseWords pulse={pulse} className={className} noticeFirst={noticeFirst} /> : <>{fallback}</>
 }
 
 /** The line itself: the one part that counts the seconds, so only it draws again each second. */
-function PulseWords({ pulse, className }: { pulse: RunPulse; className?: string }) {
+function PulseWords({ pulse, className, noticeFirst }: { pulse: RunPulse; className?: string; noticeFirst: boolean }) {
   const now = useNow(true)
   const { words, notice, tone } = pulseLine(pulse, now)
+  const quiet = notice ? <span className={TONE_TEXT[tone]}>{notice}</span> : null
+
   return (
     <span className={cn('tabular-nums', className)}>
+      {quiet && noticeFirst ? <>{quiet} · </> : null}
       {words}
-      {notice ? <span className={TONE_TEXT[tone]}> · {notice}</span> : null}
+      {quiet && !noticeFirst ? <> · {quiet}</> : null}
     </span>
   )
 }
