@@ -54,6 +54,7 @@ function durableAgent(hobkin: HobkinSummary, activity: Activity): ListedAgent {
     // Its color is its own, not its turn's, so it keeps it from one turn to the next.
     hue: hueOf(hobkin.id),
     kind: 'session',
+    ...(hobkin.engine.kind === 'claude' ? { onClaudeCode: true as const } : {}),
     durable: {
       id: hobkin.id,
       state: run ? 'working' : 'waiting',

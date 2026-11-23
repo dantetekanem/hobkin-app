@@ -92,6 +92,8 @@ export interface AgentWait {
 /** An agent as the host's runs make it: a sample agent's fields, and for a run that waits for its time, its wait. */
 export interface HostedAgent extends SampleAgent {
   waits?: AgentWait
+  /** It runs on Claude Code, so its face has the crab pal beside it (avatar/Pals.tsx). */
+  onClaudeCode?: true
 }
 
 /** A waiting run's note in one plain line, as the list says an agent's words. */
@@ -179,6 +181,7 @@ function buildAgents(snapshot: WireSnapshot, includeEnded: boolean): HostedAgent
         hue: hueOf(run.id),
         kind,
         ...(waits ? { waits: { until: run.waitUntil ?? '', ...(update ? { note: update } : {}) } } : {}),
+        ...(run.onClaudeCode ? { onClaudeCode: true as const } : {}),
       }
     })
 }
