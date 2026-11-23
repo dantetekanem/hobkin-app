@@ -107,17 +107,23 @@ function unitNode(unit: Unit, file: CapturedFile, isChanged: ReturnType<typeof c
   // A unit is new when every line it holds was added, and gone when every line was removed. Blank lines do not count:
   // a diff may hand the empty line between two functions to either of them.
   let untouched = false
+  // A unit whose only changed lines are blank, such as the empty line a diff added after it, did not change.
+  let changedWords = false
   for (const range of unit.ranges) {
     const text = splitLines(sideText(file, range.side))
     for (let line = range.startLine; line <= range.endLine; line += 1) {
+      const said = (text[line - 1] ?? '').trim() !== ''
       if (isChanged(range.fileId, range.side, line)) {
         if (range.side === 'added') additions += 1
         else deletions += 1
-      } else if ((text[line - 1] ?? '').trim()) untouched = true
+        changedWords ||= said
+      } else if (said) untouched = true
     }
   }
   const sides = new Set(unit.ranges.map((range) => range.side))
-  const change = untouched || sides.size > 1 ? 'modified' : sides.has('added') ? 'added' : 'deleted'
+  const unchanged = !changedWords && untouched
+  const change = unchanged ? 'unchanged' : untouched || sides.size > 1 ? 'modified' : sides.has('added') ? 'added' : 'deleted'
+  if (unchanged) additions = deletions = 0
   const kind = unit.role
   const testCase = kind === 'test' && !unit.helper && !unit.loose
   const named = !unit.loose && kind !== 'file'

@@ -95,3 +95,15 @@ test('every test says which code it covers, a changed test as well as one that w
   const wrong = { ...review, nodes: review.nodes.map((node) => (node.kind === 'test' ? { ...node, covers: ['nowhere'] } : node)) }
   assert.equal(validateReview(wrong).length, 3, 'a test covers code of this review')
 })
+
+test('a test whose only changed line is a blank one beside it was there before the change, so it is unchanged', async () => {
+  const before = lines('require "test_helper"', '', 'class ReviewTest < ActiveSupport::TestCase', '  test "score label" do', '    assert_equal "3 of 5", reviews(:one).score_label', '  end', 'end')
+  const after = lines('require "test_helper"', '', 'class ReviewTest < ActiveSupport::TestCase', '  test "score label" do', '    assert_equal "3 of 5", reviews(:one).score_label', '  end', '', '  test "score label caps at five" do', '    assert_equal "5 of 5", reviews(:many).score_label', '  end', 'end')
+  const review = await prepared({ links: [] }, { base: { ...base, 'test/models/review_test.rb': before }, head: { ...head, 'test/models/review_test.rb': after } }, {})
+
+  const scoreLabel = titled(review, 'score label')
+
+  assert.deepEqual([scoreLabel.change, scoreLabel.stats], ['unchanged', { additions: 0, deletions: 0 }])
+  assert.equal(titled(review, 'score label caps at five').change, 'added')
+  assert.deepEqual(validateReview(review), [])
+})
