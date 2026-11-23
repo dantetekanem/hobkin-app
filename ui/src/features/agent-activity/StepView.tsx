@@ -21,7 +21,7 @@ import { earlierWords, type EarlierRow } from './newest.ts'
 import { wholeOutput } from './older-steps.ts'
 import { previewOf } from './preview.ts'
 import { RowStamp, Stamped } from './Stamp.tsx'
-import { atOf, foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
+import { atOf, foldOf, looksSummary, sameStep, shownCommandsKey, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
 import { useUnfold } from './unfold.ts'
 import { proofCheckOf } from '@/features/proofs/proof-match.ts'
 import { ProofCheckStep, useCheckRun } from '@/features/proofs/ProofCheckStep.tsx'
@@ -256,6 +256,8 @@ function ShellGroup({ commands, timeOf }: { commands: Command[]; timeOf: TimeOf 
   const still = useStill()
   const { open, toggle } = useBlock('shell')
   const { folded, open: shown } = foldOf(commands)
+  // Motion measures where the commands are only when one comes or goes, not each time one prints more.
+  const layoutKey = shownCommandsKey(shown)
   return (
     <div className="flex flex-col gap-1.5">
       {folded.length ? (
@@ -281,6 +283,7 @@ function ShellGroup({ commands, timeOf }: { commands: Command[]; timeOf: TimeOf 
               key={command.id}
               // Under Still nothing travels, not even to make room.
               layout={still ? false : 'position'}
+              layoutDependency={layoutKey}
               initial={holdStill(sunk, still)}
               animate={holdStill({ ...risen, transition: { ...arriving, layout: spring.sheet } }, still)}
               // It gives way to the next command by sliding up into the row above.
