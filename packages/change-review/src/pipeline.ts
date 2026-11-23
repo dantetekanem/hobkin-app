@@ -588,6 +588,8 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   // enters. A caller that is an entry point already is one; the others are where the walk starts.
   const above: Record<string, EntryAbove[]> = {}
   let stops: EntriesOutcome['stops'] = {}
+  /** The tests the walk's scans link to each definition it followed, by `path:startLine`. */
+  let walkTests: NonNullable<EntriesOutcome['tests']> = {}
   const walk = options.entriesAbove ?? (options.scan ? null : searchEntriesAbove)
   // A caller the scan names as an entry is an origin already; the others are where the walk starts.
   const starts = provable.flatMap((node) => {
@@ -606,6 +608,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     else {
       Object.assign(above, walked.value.entries)
       stops = walked.value.stops ?? {}
+      walkTests = walked.value.tests ?? {}
       for (const start of starts) walkedFrom.add(start.id)
       problems.push(...walked.value.notes.map((note) => `Entry points: ${note}`))
     }
@@ -668,12 +671,29 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
         } else candidates[node.id]!.push({ path: hit.path, why, lifecycle: true, changed: changedTests.includes(hit.path), found: 'entry' })
       }
     }
-    // Each life-cycle test file is a slow run of its own: the ones this diff changed first, then as found.
-    const flows = candidates[node.id]!.filter((candidate) => candidate.lifecycle).sort((a, b) => Number(b.changed) - Number(a.changed))
+    // The tests of the definitions on the nearest way in, nearest to the part first: what covered it before, through a caller.
+    const nearest = node.runs_from?.found === 'origins' ? node.runs_from.origins[0] : undefined
+    for (const step of (nearest?.chain ?? []).toReversed()) {
+      for (const hit of walkTests[`${step.path}:${step.line}`] ?? []) {
+        if (hit.path === node.path || !existsSync(join(cwd, hit.path))) continue
+        const lifecycle = isLifecycleTestPath(hit.path, config)
+        if (!(await scanLinkHolds({ path: hit.path, lifecycle, text: () => readOr(join(cwd, hit.path)) }, step.path))) continue
+        const why = `a test of ${step.symbol}, on the way in from ${nearest!.label}`
+        const have = candidates[node.id]!.find((candidate) => candidate.path === hit.path)
+        if (have) {
+          have.through ??= step.symbol
+          if (!have.why.includes(why)) have.why = `${have.why}; ${why}`
+        } else candidates[node.id]!.push({ path: hit.path, why, lifecycle, changed: changedTests.includes(hit.path), found: 'entry', through: step.symbol })
+      }
+    }
+    // Each life-cycle test file, and each test of a caller on the way in, is a slow run of its own: the ones this diff
+    // changed first, then as found.
+    const flows = candidates[node.id]!.filter((candidate) => candidate.lifecycle || candidate.through).sort((a, b) => Number(b.changed) - Number(a.changed))
     if (flows.length > MOST_FLOW_FILES) {
       const left = new Set(flows.slice(MOST_FLOW_FILES))
       candidates[node.id] = candidates[node.id]!.filter((candidate) => !left.has(candidate))
-      problems.push(`${left.size} of the ${flows.length} life-cycle test files found for ${node.symbol} were not run: ${MOST_FLOW_FILES} are run for one definition.`)
+      const kinds = flows.some((candidate) => !candidate.lifecycle) ? 'life-cycle and caller' : 'life-cycle'
+      problems.push(`${left.size} of the ${flows.length} ${kinds} test files found for ${node.symbol} were not run: ${MOST_FLOW_FILES} are run for one definition.`)
     }
   }
   const proved = new Set<string>()

@@ -141,6 +141,11 @@ export interface TestCandidate {
    * named after the definition's file (`convention`), or it is a life-cycle test of an entry point above it (`entry`).
    */
   found?: 'scan' | 'diff' | 'convention' | 'entry'
+  /**
+   * A test of this caller on the way in from an origin: not a life-cycle test, so it is never proof that a request
+   * works, but one that fails once the definition is made to throw runs through it.
+   */
+  through?: string
 }
 
 /**
@@ -654,12 +659,16 @@ export interface NodeProof {
   reachedBy: string[]
   /** The test files that fail with the change in place and pass once it is put back: the change breaks them. */
   brokenTests?: string[]
+  /** The tests of a caller on the way in among those that run through the definition. Absent when none does. */
+  reachedByCallers?: string[]
 }
 
 /** Which life-cycle tests run through a definition that direct tests prove: those tried, those that do, or why none could be tried. */
 export interface Reach {
   tried: readonly TestCandidate[]
   reached: readonly TestCandidate[]
+  /** The tests of a caller on the way in that ran with the definition made to throw and failed: they run through it. */
+  byCallers?: readonly TestCandidate[]
   why?: string
 }
 
@@ -703,7 +712,22 @@ export function proofOf({
   const observedBy = paths(failed)
   const doubles = failed.flatMap((item) => item.doubles)
   const stillPass = ended('passed')
-  const answer = (value: Proof, evidence: string, reachedBy: string[] = []): NodeProof => ({ value, evidence, observedBy, doubles, stillPass, reachedBy })
+  const byCallers = reach?.byCallers ?? []
+  const callerPaths = byCallers.map((candidate) => candidate.path)
+  const answer = (value: Proof, evidence: string, reachedBy: string[] = []): NodeProof => ({
+    value,
+    evidence,
+    observedBy,
+    doubles,
+    stillPass,
+    reachedBy,
+    ...(callerPaths.length ? { reachedByCallers: callerPaths } : {}),
+  })
+  // Said after what the life-cycle tests showed: a caller's test reaches the definition, and that is all it shows.
+  const callers = [...new Set(byCallers.flatMap((candidate) => (candidate.through ? [candidate.through] : [])))]
+  const fromCallers = callerPaths.length
+    ? `; ${listed(callerPaths)} ${callerPaths.length === 1 ? 'runs' : 'run'} through it from ${listed(callers)} (${callerPaths.length === 1 ? 'it fails' : 'they fail'} when ${symbol} is made to throw)`
+    : ''
 
   if (failed.length === 0) {
     const cut = ended('timed-out')
@@ -740,9 +764,9 @@ export function proofOf({
   if (reach?.why) return answer('isolated', `${shown}; whether a life-cycle test runs through it could not be checked: ${reach.why}`)
   if (reach?.tried.length) {
     const files = `${reach.tried.length} life-cycle test file${reach.tried.length === 1 ? ' was' : 's were'}`
-    return answer('isolated', `${shown}; ${files} run with ${symbol} made to throw, and none runs through it.`)
+    return answer('isolated', `${shown}; ${files} run with ${symbol} made to throw, and none runs through it${fromCallers}.`)
   }
-  return answer('isolated', `${shown}; no life-cycle test was found to try.`)
+  return answer('isolated', `${shown}; no life-cycle test was found to try${fromCallers}.`)
 }
 
 /**
@@ -1304,7 +1328,8 @@ async function proveNode({
   // change put back are run with the definition made to throw. They passed twice already, so one that fails now
   // fails because it runs through the definition.
   const failed = observations.filter((item) => item.outcome === 'failed' && item.doubles.length === 0)
-  const waiting = observations.filter((item) => item.outcome === 'passed' && item.candidate.lifecycle).map((item) => item.candidate)
+  // The tests of a caller on the way in are run with the life-cycle tests, and reported apart: they show reach only.
+  const waiting = observations.filter((item) => item.outcome === 'passed' && (item.candidate.lifecycle || item.candidate.through)).map((item) => item.candidate)
   let reach: Reach | undefined
   if (mutation === 'revert' && failed.length > 0 && !failed.some((item) => item.candidate.lifecycle) && waiting.length > 0) {
     const thrown = probeNode(text, node)
@@ -1313,7 +1338,13 @@ async function proveNode({
     else {
       const through = await runWith(thrown.text, waiting, 'reach')
       if ('stopped' in through) return through
-      reach = { tried: waiting, reached: waiting.filter((test) => through.outcomes.get(test.path) === 'failed') }
+      const reached = waiting.filter((test) => through.outcomes.get(test.path) === 'failed')
+      const byCallers = reached.filter((test) => !test.lifecycle)
+      reach = {
+        tried: waiting.filter((test) => test.lifecycle),
+        reached: reached.filter((test) => test.lifecycle),
+        ...(byCallers.length ? { byCallers } : {}),
+      }
     }
   }
   return { answer: proofOf({ symbol: node.symbol, mutation, observations, ...(reach ? { reach } : {}), timeoutMs: runner.timeoutMs }) }

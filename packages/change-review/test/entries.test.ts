@@ -138,3 +138,13 @@ test('a changed definition nothing calls needs no scan', async () => {
   assert.deepEqual([found.entries, found.notes, found.stops], [{ n1: [] }, [], {}])
   assert.equal(asked.length, 0)
 })
+
+test('the walk keeps the tests the scan links to each definition it follows, so tests of a caller on the way can be run', async () => {
+  const tested = (definition: ScanAnchor, tests: ScanAnchor['tests']) => ({ ...definition, tests })
+  const definitions = [
+    tested(anchor('findReview', 'src/services/reviews.js', [3, 5], [site('src/handlers/reviews.js', 4)]), [{ id: 't1', symbol: 'a review shows its score', path: 'test/services/reviews.test.js', line: 5 }]),
+    anchor('showReview', 'src/handlers/reviews.js', [3, 5], [], { kind: 'route', exact: true }),
+  ]
+  const found = await entriesAbove({ starts: [{ id: 'n2', callers: [{ path: 'src/services/reviews.js', line: 4 }] }], isEntry: () => false, scan: scanning(definitions).scan })
+  assert.deepEqual(found.tests, { 'src/services/reviews.js:3': [{ symbol: 'a review shows its score', path: 'test/services/reviews.test.js', line: 5 }] })
+})

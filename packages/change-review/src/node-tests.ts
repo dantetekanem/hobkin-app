@@ -157,7 +157,7 @@ function atHeadOf(path: string, runs: readonly TestRun[], findings: readonly Fin
 function showsOf(path: string, proof: NodeProof | undefined): NodeTest['shows'] {
   if (!proof) return undefined
   if (proof.observedBy.includes(path)) return proof.doubles.some((double) => double.startsWith(`${path}:`)) ? 'mocks' : 'proves'
-  if (proof.reachedBy.includes(path)) return 'reaches'
+  if (proof.reachedBy.includes(path) || proof.reachedByCallers?.includes(path)) return 'reaches'
   if (proof.stillPass.includes(path)) return 'still-passes'
   return undefined
 }

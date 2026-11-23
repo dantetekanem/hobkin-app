@@ -108,3 +108,10 @@ test('an edited test of the part that lost assertions is weakened', () => {
 test('a test has no tests of its own', () => {
   assert.deepEqual(nodeTestsOf(input({ node: { id: 't1', symbol: 'rounds', path: 'test/total.test.js', kind: 'test' } })), [])
 })
+
+test('a test of a caller that fails once the part throws reaches it', () => {
+  const caller = { path: 'test/services/reviews.test.js', why: 'a test of findReview, on the way from GET /reviews/:id', lifecycle: false, changed: false, found: 'entry' as const, through: 'findReview' }
+  const proof = { value: 'isolated' as const, evidence: '', observedBy: [], doubles: [], stillPass: ['test/services/reviews.test.js'], reachedBy: [], reachedByCallers: ['test/services/reviews.test.js'] }
+  const [entry] = nodeTestsOf(input({ candidates: [caller], definitions: [], proof, removed: [], runs: [run('baseline', ['test/services/reviews.test.js'])] }))
+  assert.deepEqual([entry!.relation, entry!.found, entry!.shows], ['before', 'entry', 'reaches'])
+})

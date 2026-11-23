@@ -76,6 +76,11 @@ export interface EntriesOutcome {
   notes: string[]
   /** Per changed definition with callers to follow, why its walk ended. Absent from a search written before spec 055. */
   stops?: Record<string, WalkStop>
+  /**
+   * The tests the scan links to each definition the walk followed, by its place (`path:startLine`): the tests of a caller
+   * on the way in, which may run through the changed definition too.
+   */
+  tests?: Record<string, { symbol: string; path: string; line: number }[]>
 }
 
 /** Asks for the entry points above changed definitions. The pipeline takes this as an option, so tests hand in a fake. */
@@ -112,6 +117,7 @@ export async function entriesAbove({ starts, isEntry, scan, maxHops = ENTRY_HOPS
   const entries: Record<string, EntryAbove[]> = Object.fromEntries(starts.map((start) => [start.id, []]))
   const notes: string[] = []
   const stops: Record<string, WalkStop> = {}
+  const tests: NonNullable<EntriesOutcome['tests']> = {}
   const started = now()
   /** Per changed definition: the places already asked for, and the definitions already followed. */
   const asked = new Map(starts.map((start) => [start.id, new Set<string>()]))
@@ -174,6 +180,7 @@ export async function entriesAbove({ starts, isEntry, scan, maxHops = ENTRY_HOPS
       const key = `${definition.path}:${definition.startLine}`
       if (followed.get(step.root)!.has(key)) continue
       followed.get(step.root)!.add(key)
+      if (definition.tests.length && !tests[key]) tests[key] = definition.tests.map(({ symbol, path, line }) => ({ symbol, path, line }))
       const here: OriginStep = {
         symbol: definition.symbol,
         path: definition.path,
@@ -212,7 +219,7 @@ export async function entriesAbove({ starts, isEntry, scan, maxHops = ENTRY_HOPS
     }
     frontier = next
   }
-  return { entries, notes, stops }
+  return { entries, notes, stops, tests }
 }
 
 /** The default search: agentic-search in the checkout, one scan for each call further out. */

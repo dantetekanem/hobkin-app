@@ -316,6 +316,11 @@ test('the proof value follows what failed: changed life-cycle tests first, doubl
   assert.equal(value([{ candidate: flowOld, outcome: 'not-run', doubles: [] }, { candidate: unit, outcome: 'passed', doubles: [] }]), 'unknown', 'a file the runner did not run proves nothing')
   assert.equal(value([{ candidate: flowOld, outcome: 'unsettled', doubles: [] }, { candidate: unit, outcome: 'passed', doubles: [] }]), 'unknown', 'a failure that happens at head too proves nothing')
 
+  // A test of a caller on the way in that fails once the definition throws runs through it; it is no life-cycle test, so the value stays.
+  const caller = { ...candidate('test/services/reviews.test.ts', false, false), through: 'findReview' }
+  const byCaller = proofOf({ symbol: 'total', mutation: 'revert', observations: [...direct, { candidate: caller, outcome: 'passed', doubles: [] }], reach: { tried: [flowOld, flowNew], reached: [], byCallers: [caller] } })
+  assert.deepEqual([byCaller.value, byCaller.reachedByCallers], ['isolated', ['test/services/reviews.test.ts']])
+  assert.equal(byCaller.evidence, 'test/unit.test.ts fails when total is put back to base; 2 life-cycle test files were run with total made to throw, and none runs through it; test/services/reviews.test.ts runs through it from findReview (it fails when total is made to throw).')
   const answer = proofOf({ symbol: 'total', mutation: 'probe', observations: [{ candidate: flowOld, outcome: 'failed', doubles: [] }, { candidate: unit, outcome: 'passed', doubles: [] }] })
   assert.deepEqual(answer, { value: 'lifecycle', evidence: 'test/flow/old.test.ts fails when total is made to throw: a life-cycle test this diff did not change.', observedBy: ['test/flow/old.test.ts'], doubles: [], stillPass: ['test/unit.test.ts'], reachedBy: [] })
 })
