@@ -31,6 +31,7 @@ import { holdBrief, isHoldBrief, nextHoldTurn } from './holds.mjs';
 import { markHeard, markPosted, markWoken, sessionNotice, sessionReports, sessionsToPost, sessionsToTell, sessionsToWake } from './session-log.mjs';
 import { endSessionJob, resumeSessionJob, startKeptSession, startSessionJob, takeSessionRequests } from './session-jobs.mjs';
 import { WAITING } from './run-waits.mjs';
+import { AgentScheduleRunner } from './agent-schedule-runner.mjs';
 import { tierBinding } from './tiers.mjs';
 import { failureKey, handOffBrief, hobkinsBrief, isQuietScheduledRun, isWakeBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { Hobkins, hobkinSummaries } from './hobkins.mjs';
@@ -152,6 +153,17 @@ const PENDING_LOOK_MS = 30000;
 const UNSEEN_MS = 10 * 60000;
 // A decision as the main agent reads it when the user talks it over: its summary, then the question and each choice in words.
 const aboutDecision = ({ tldr, question, choices }) => ({ title: tldr, body: [question, '', ...choices.map(({ label }) => `- ${label}`)].join('\n') });
+
+/** The schedules agents keep, as the home holds them. One that cannot be read costs only the schedules: hobkin opens without them. */
+function openAgentSchedules(app) {
+  const schedules = new AgentScheduleRunner({ root: app.runtime.directory, now: app.now, onChange: () => app.requestRefresh() });
+  try {
+    schedules.open();
+  } catch (error) {
+    app.agentSchedulesError = String(error?.message ?? error);
+  }
+  return schedules;
+}
 
 export class HobkinApplication {
   jobActivity = new Map();
@@ -316,6 +328,8 @@ export class HobkinApplication {
     });
     app.loadUnread();
     try {
+      // The schedules agents keep for themselves (056-agent-schedules), before the main chat opens with its tools for them.
+      app.agentSchedules = openAgentSchedules(app);
       // A run whose Pi crashed in its code tool starts again once (`code-tool-crash.mjs`).
       runHarness = app.ownedHarness(restartingAfterCodeToolCrash(runHarness));
       // A report's short version comes in the background once the report is listed, and the list refreshes when it does (051-short-reports).
@@ -358,6 +372,7 @@ export class HobkinApplication {
           // Before the wakes, so a message `hobkin tell` left this second can go in this tick's.
           await app.hobkins.tick();
           app.tickWakes();
+          await app.tickAgentSchedules();
           void app.tickSessions();
           app.tickCompaction();
           retireOffers(app.runtime.directory, app.now());
@@ -793,6 +808,8 @@ export class HobkinApplication {
       completedJobReports,
       counts: loaded.counts,
       schedules: loaded.schedules,
+      // The schedules agents keep for themselves, live and ended in the last hour (056-agent-schedules), not the routines above.
+      agentSchedules: this.agentScheduleView(state),
       usage: this.usageOf(state, version),
       memoryBytes: memoryBytes(this.runtime.directory),
       reportAttention: this.telemetry.attention(runs.filter(run => !run.hobkin), this.now()),
@@ -1012,6 +1029,65 @@ export class HobkinApplication {
       }
     }
     return this.runner.kill(runId, stop);
+  }
+
+  /**
+   * The window's own commands for a schedule an agent keeps for itself (056-agent-schedules): cancel it, hold it or let
+   * it go on, or run it now. Each answers `{ ok: true }`, or `{ ok: false, reason }` in plain words for an unknown or
+   * ended schedule. hobkin's own agents change theirs with their tools, never with these.
+   */
+  async cancelAgentSchedule(id) { return this.scheduleCommand(id, schedules => schedules.cancel(id, 'user')); }
+
+  async pauseAgentSchedule(id, paused) {
+    if (typeof paused !== 'boolean') return { ok: false, reason: 'Say whether to pause it or let it go on.' };
+    return this.scheduleCommand(id, schedules => schedules.pause(id, paused, 'user'));
+  }
+
+  async runAgentSchedule(id) { return this.scheduleCommand(id, schedules => schedules.runNow(id)); }
+
+  scheduleCommand(id, command) {
+    if (!this.agentSchedules) return { ok: false, reason: 'This hobkin keeps no schedules yet.' };
+    if (typeof id !== 'string' || !id) return { ok: false, reason: 'There is no schedule with that id.' };
+    try {
+      const answer = command(this.agentSchedules);
+      this.requestRefresh();
+      return answer;
+    } catch (error) {
+      return { ok: false, reason: String(error?.message ?? error) };
+    }
+  }
+
+  /**
+   * The schedules' second of the runtime's tick: those whose owner ended end with it, those whose lifetime passed end,
+   * and those due fire. A home with no live schedule reads nothing. Trouble here never stops the runtime's tick: it is
+   * kept for the next look and the tick goes on.
+   */
+  async tickAgentSchedules() {
+    if (!this.agentSchedules?.live()) return;
+    try {
+      const { runs } = await this.runner.runIndex();
+      this.agentSchedules.tick({ alive: owner => this.scheduleOwnerAlive(owner, runs) });
+      this.agentSchedulesError = null;
+    } catch (error) {
+      this.agentSchedulesError = String(error?.message ?? error);
+    }
+  }
+
+  /** The main chat lives as long as hobkin does, a durable hobkin until it is ended, and a run while it runs or waits. */
+  scheduleOwnerAlive(owner, runs) {
+    if (owner.kind === 'main') return true;
+    if (owner.kind === 'hobkin') return Boolean(this.hobkins?.records?.[owner.id]) && this.hobkins.records[owner.id].state !== 'ended';
+    return ['running', WAITING].includes(runs[owner.id]?.status);
+  }
+
+  /** Every schedule as the window shows it, each with its owner's name. None when they cannot be read. */
+  agentScheduleView(state) {
+    try {
+      return this.agentSchedules?.view(owner => (owner.kind === 'main' ? 'hobkin'
+        : owner.kind === 'hobkin' ? state.hobkins?.[owner.id]?.title : state.runs?.[owner.id]?.title)) ?? [];
+    } catch {
+      return [];
+    }
   }
 
   /**
@@ -1710,7 +1786,8 @@ export class HobkinApplication {
         try {
           // The dashboard has just cancelled any open question, and a quit must not reach the agent as an answer.
           const children = this.runtime.ownedLifecycle?.close();
-          await Promise.all([children, this.runtime.quitMain(), this.runner?.stop(), this.memoryIndex?.stop()]);
+          // A scheduled command running now stops too, and the next start counts its run as cut off.
+          await Promise.all([children, this.runtime.quitMain(), this.runner?.stop(), this.memoryIndex?.stop(), this.agentSchedules?.close()]);
           // A durable hobkin's turn stopped here reads as cut off, so its record is written before the store closes.
           await this.hobkins?.idle();
           // No turn runs now, so the processes kept for the hobkins' next turns close too.
