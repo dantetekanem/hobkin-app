@@ -227,6 +227,7 @@ export function withAttention(review: Review, assessment: Pick<ChangeAssessment,
       ...(node.warning ? { warning: node.warning } : {}),
       ...(way ? { wayIn: way } : {}),
       ...(gone ? { testsGone: gone } : {}),
+      ...(node.assertionsRemoved ? { assertionsRemoved: node.assertionsRemoved } : {}),
       rated: overlaps.get(node.id) ?? [],
     })
     return { node, bucket, size, ...attention }

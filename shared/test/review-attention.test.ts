@@ -254,6 +254,12 @@ test('changed code whose only covering tests the change removed is worth a look,
   assert.deepEqual(attentionOf(code([], { testsGone: 2 })).reasons[0], 'The change removed every test that covered it.')
 })
 
+test('a test the change took assertions out of is worth a look, and says how many', () => {
+  const edited: AttentionInput = { kind: 'test', bucket: 'test', change: 'modified', size: 2, status: 'passed', rated: [] }
+  assert.deepEqual(attentionOf({ ...edited, assertionsRemoved: 2 }), { tier: 'worth-a-look', strength: 40, reasons: ['The change took 2 assertions out of it.'] })
+  assert.deepEqual(attentionOf(edited).tier, 'safe')
+})
+
 test('unchanged context on the way in to changed code says so, and stays apart from safe code with nothing to say', () => {
   const context: AttentionInput = { kind: 'context', bucket: 'code', change: 'unchanged', size: 0, rated: [] }
   assert.deepEqual(attentionOf(context), { tier: 'safe', strength: 0, reasons: [] })

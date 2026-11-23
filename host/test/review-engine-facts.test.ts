@@ -218,3 +218,19 @@ test('a test the change removed has no result at the change\'s commit, and says 
   assert.deepEqual([zero.change, zero.status, zero.summary], ['deleted', undefined, 'Removed by this change. It covered doingAfter.'])
   assert.deepEqual(validateReview(shown), [])
 })
+
+test('an edited test that lost assertions says how many the change took out of it, and asks for a look', async (t) => {
+  const stronger = testFile.replace("  expect(doingAfter('idle', 'tool')).toBe('researching');\n", "  expect(doingAfter('idle', 'tool')).toBe('researching');\n  expect(doingAfter('busy', 'tool')).toBe('researching');\n")
+  const { review, files } = await prepared({ links: [] }, { 'test/doing.test.ts': stronger })
+  const tests = [{ path: 'test/doing.test.ts', symbol: 'says researching', line: 3, relation: 'edited', found: 'scan', lifecycle: false, at_head: 'passed', shows: 'still-passes', weakened: { assertions_removed: 1, lines: [4] } }]
+  const assessments = reviewed(t, review, { nodes: [{ ...doingAfterNode, tests }] })
+
+  const shown = assessments.present(TARGET, review, files)!
+
+  const weakened = titled(shown.nodes, 'says researching')
+  assert.equal(weakened.change, 'modified')
+  assert.equal(weakened.assertionsRemoved, 1)
+  assert.match(weakened.summary, /The change took 1 assertion out of it\.$/)
+  assert.deepEqual([weakened.attention?.tier, weakened.attention?.reasons[0]], ['worth-a-look', 'The change took 1 assertion out of it.'])
+  assert.deepEqual(validateReview(shown), [])
+})

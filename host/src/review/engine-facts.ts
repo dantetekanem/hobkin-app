@@ -23,7 +23,7 @@ type EngineRunsFrom =
   | { found: 'only-tests' }
   | { found: 'none'; stopped?: Extract<RunsFrom, { found: 'none' }>['stopped']; why: string }
   | { found: 'not-looked'; why: string }
-type EngineTest = Pick<NodeTest, 'path' | 'symbol' | 'line' | 'relation' | 'at_head' | 'shows'>
+type EngineTest = Pick<NodeTest, 'path' | 'symbol' | 'line' | 'relation' | 'at_head' | 'shows'> & { assertionsRemoved?: number }
 
 /** A changed part of the engine's graph, as far as the host lays it over the review. */
 interface EnginePart {
@@ -94,7 +94,9 @@ function testOf(value: unknown): EngineTest[] {
   const [path, symbol, at, relation] = [text(test?.path), text(test?.symbol), line(test?.line), oneOf(RELATIONS, test?.relation)]
   if (!test || !path || !isSafePath(path) || !relation) return []
   const [atHead, shows] = [oneOf(AT_HEAD, test.at_head), oneOf(SHOWS, test.shows)]
-  return [{ path, relation, ...(symbol ? { symbol } : {}), ...(at ? { line: at } : {}), ...(atHead ? { at_head: atHead } : {}), ...(shows ? { shows } : {}) }]
+  const removed = record(test.weakened)?.assertions_removed
+  const assertionsRemoved = Number.isInteger(removed) && (removed as number) > 0 ? (removed as number) : undefined
+  return [{ path, relation, ...(symbol ? { symbol } : {}), ...(at ? { line: at } : {}), ...(atHead ? { at_head: atHead } : {}), ...(shows ? { shows } : {}), ...(assertionsRemoved ? { assertionsRemoved } : {}) }]
 }
 
 /** The facts of graph.json the host lays over a review. A graph written before spec 055 has none of them. */
@@ -200,6 +202,7 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
   }
   const results = new Map<string, NodeStatus>()
   const removed = new Set<string>()
+  const weakened = new Map<string, number>()
 
   // Each test the engine says covers a changed part: the host's own, else an unchanged one the review can show.
   for (const part of facts.parts) {
@@ -211,6 +214,7 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
       for (const target of code) wire(node.id, target.id)
       const result = resultOf(test)
       if (result && node.status === 'not-run') results.set(node.id, result)
+      if (test.assertionsRemoved && node.change === 'modified') weakened.set(node.id, Math.max(weakened.get(node.id) ?? 0, test.assertionsRemoved))
     }
   }
 
@@ -236,9 +240,16 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
   for (const node of nodes) {
     const result = results.get(node.id)
     if (removed.has(node.id)) node.summary = removedTestWords(nodes, edges, node)
-    if (!result) continue
-    node.status = result
-    node.summary = cleanProse(`${testCovers(nodes, edges, node).said} ${RESULT_WORDS[result]}`, PROSE_LIMIT.summary)
+    if (result) {
+      node.status = result
+      node.summary = cleanProse(`${testCovers(nodes, edges, node).said} ${RESULT_WORDS[result]}`, PROSE_LIMIT.summary)
+    }
+    const lost = weakened.get(node.id)
+    if (!lost) continue
+    node.assertionsRemoved = lost
+    const took = `The change took ${lost === 1 ? '1 assertion' : `${lost} assertions`} out of it.`
+    // The words of what it lost come last, so they are never what a long summary cuts.
+    node.summary = `${cleanProse(node.summary, PROSE_LIMIT.summary - took.length - 1)} ${took}`
   }
   const allFiles = [...review.files, ...joinedFiles]
   if (review.zones === undefined) return { ...review, files: allFiles, nodes, edges }

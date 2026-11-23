@@ -39,6 +39,8 @@ export interface AttentionInput {
   testsGone?: number
   /** For unchanged context on the way in to changed code (spec 055): that code's name. */
   wayIn?: string
+  /** For a test the change edited: how many assertions it took out of it. */
+  assertionsRemoved?: number
 }
 
 /** A node's tier, how strong its reasons are together, and the strongest three of them. */
@@ -205,12 +207,18 @@ function lostTestReasons({ kind, change, testsGone = 0 }: AttentionInput): Reaso
   return [look(65, testsGone === 1 ? 'The change removed the only test that covered it.' : 'The change removed every test that covered it.')]
 }
 
+/** What a test asks when the change took assertions out of it: it may no longer check what it did. */
+function weakenedReasons({ kind, assertionsRemoved = 0 }: AttentionInput): Reason[] {
+  if (kind !== 'test' || assertionsRemoved < 1) return []
+  return [look(40, `The change took ${assertionsRemoved === 1 ? '1 assertion' : `${assertionsRemoved} assertions`} out of it.`)]
+}
+
 /** A node's tier and its reasons, the strongest first. A node over several definitions takes the worst of them. */
 export function attentionOf(input: AttentionInput): Weighed {
   const ownReasons = input.rated.length ? input.rated.flatMap(ratedReasons) : unratedReasons(input)
   const lost = lostTestReasons(input)
   // That the change removed its tests says more than that none covers it.
-  const found = [...(lost.length ? ownReasons.filter((reason) => reason.text !== UNTESTED) : ownReasons), ...lost, ...removalReasons(input)]
+  const found = [...(lost.length ? ownReasons.filter((reason) => reason.text !== UNTESTED) : ownReasons), ...lost, ...weakenedReasons(input), ...removalReasons(input)]
 
   // A reason given more than once is said once, at its strongest.
   const byText = new Map<string, Reason>()

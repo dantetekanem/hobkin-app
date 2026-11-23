@@ -139,6 +139,7 @@ export function validateReview(value: unknown): string[] {
     }
     if (node.unwired !== undefined && (!isCleanProse(node.unwired, PROSE_LIMIT.summary) || !node.unwired)) problems.push(`${name}: why nothing wires it must be a few plain words.`)
     if (node.zone !== undefined && (typeof node.zone !== 'string' || !zoneIds.has(node.zone))) problems.push(`${name} is in ${String(node.zone)}, which is not a zone of this review.`)
+    if (node.assertionsRemoved !== undefined && (node.kind !== 'test' || !isLine(node.assertionsRemoved))) problems.push(`${name}: only a test counts the assertions the change took out of it.`)
     if (node.supports !== undefined && (node.kind !== 'test' || !Array.isArray(node.supports) || node.supports.some((id) => typeof id !== 'string'))) problems.push(`${name}: only a test helper names the tests it supports.`)
     if (node.io !== undefined && (!isRecord(node.io) || !isCleanProse(node.io.in, PROSE_LIMIT.io) || !isCleanProse(node.io.out, PROSE_LIMIT.io))) problems.push(`${name}: what goes in and out must be plain text.`)
     if (node.stats !== undefined && (!isRecord(node.stats) || !isCount(node.stats.additions) || !isCount(node.stats.deletions))) problems.push(`${name} must count its added and removed lines.`)

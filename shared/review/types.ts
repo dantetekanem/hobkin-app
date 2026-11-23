@@ -124,6 +124,8 @@ export interface ReviewNode {
    * an `unchanged` test was there before the change, an `added` or `modified` one came with it, a `deleted` one is gone.
    */
   covers?: string[]
+  /** For a test the change edited: how many assertions the change took out of it, as the change review found (spec 055). */
+  assertionsRemoved?: number
   anchors: ReviewAnchor[]
   /** Top left corner on the graph. A node's size comes from its kind, see `NODE_SIZE` in layout.ts. */
   position: { x: number; y: number }
