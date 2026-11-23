@@ -13,6 +13,7 @@ import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { SignInState } from '#shared/protocol/signin.ts'
 import type { ChatMessage, WireSnapshot } from '#shared/protocol/snapshot.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
+import { keepSame } from './keep-same.ts'
 import { applyTurnEvent, settleLive, type LiveTurn } from './live.ts'
 
 /**
@@ -98,6 +99,9 @@ function applyState(state: HostState, message: StateMessage): HostState {
   const base = message.reset ? { snapshot: {}, messages: [] } : state
   const snapshot: WireSnapshot = { ...base.snapshot, ...message.set }
   for (const key of message.unset ?? []) delete snapshot[key]
+  // The host sends every run's pulse anew with each publish. A pulse that says the same keeps its object, so a run's
+  // working line draws again only for its own pulse.
+  if (message.set?.pulses !== undefined) snapshot.pulses = keepSame(base.snapshot.pulses, message.set.pulses)
   // Job activity comes as steps. A host from before them sends the whole key in `set`, applied just above. The main
   // chat's steps go to its own key, so the jobs are copied once, and not at all for a message of main steps alone.
   if (message.activity) {
