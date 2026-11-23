@@ -1,7 +1,8 @@
 /**
  * The files of the sample pull request (`pull.ts`), both sides of each: a Rails blog whose post helper now links user
  * tags with dots and dashes, and a new script that prints the errors production raised. Made up, shaped like the
- * user's #78: one changed helper, eighteen tests, a README, a new script, and the code around them that did not change.
+ * user's #78: one changed helper, twenty tests (one of them there before the change, one it removed), a README, a new
+ * script, and the code around them that did not change.
  */
 
 export interface SampleFile {
@@ -209,6 +210,15 @@ const helperTest: SampleFile = {
     '    assert_includes html, %(<a href="/users/#{@mira.id}">@mira</a>)',
     '  end',
     '',
+    "  test 'links a tag at the start of a paragraph' do",
+    "    assert link_user_tags('<p>@mira wrote this</p>').start_with?('<p><a')",
+    '  end',
+    '',
+    "  test 'looks each tag up by its handle' do",
+    "    User.expects(:find_by).with(handle: 'mira').returns(@mira)",
+    "    link_user_tags('<p>Thanks @mira</p>')",
+    '  end',
+    '',
     "  test 'leaves a tag to an unknown user as text' do",
     "    assert_equal '<p>Hi @nobody</p>', link_user_tags('<p>Hi @nobody</p>')",
     '  end',
@@ -229,6 +239,10 @@ const helperTest: SampleFile = {
     '  test "links a tag to the user\'s profile" do',
     "    html = link_user_tags('<p>Thanks @mira</p>')",
     '    assert_includes html, %(<a class="user-tag" href="/users/#{@mira.id}">@mira</a>)',
+    '  end',
+    '',
+    "  test 'links a tag at the start of a paragraph' do",
+    "    assert link_user_tags('<p>@mira wrote this</p>').start_with?('<p><a')",
     '  end',
     '',
     "  test 'links a handle with dots and dashes' do",

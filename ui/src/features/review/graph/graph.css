@@ -255,6 +255,18 @@
 .rv-counts [data-tone='none'] {
   color: var(--hb-muted);
 }
+/* How a card's tests stand to the change, in the step card's words: there before, added or edited, removed. */
+.rv-split {
+  overflow: hidden;
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--hb-muted);
+}
 .rv-group-toggle {
   display: inline-flex;
   flex: none;
@@ -742,26 +754,42 @@
   text-wrap: balance;
 }
 /*
- * Where changed code is run from (spec 055), in one line under the title on every card of changed code, so nothing under
- * it moves from step to step. A long way gives up the middle of its names, each kept whole in its tooltip.
+ * Where changed code is run from (spec 055), two lines tall under the title on every card of changed code, so nothing
+ * under it moves from step to step: the origin and the count of other ways in, then the calls on the way. A long way
+ * gives up the end of its names, each kept whole in its tooltip. A reason for no way in may take both lines.
  */
 .rv-step-from {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  height: 26px;
-  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: 26px 26px;
+  column-gap: 8px;
+  row-gap: 2px;
   margin-top: -4px;
-  overflow: hidden;
   font-size: 14px;
-  white-space: nowrap;
 }
 .rv-step-from-label {
-  flex: none;
-  margin-right: 5px;
   font-family: var(--font-heading);
   font-weight: 650;
+  line-height: 26px;
   color: var(--hb-muted);
+}
+.rv-step-from-line {
+  display: flex;
+  grid-column: 2;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.rv-step-from > .rv-step-from-why {
+  display: -webkit-box;
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 26px;
 }
 .rv-step-hop {
   flex: 0 1 auto;
@@ -777,9 +805,6 @@
   white-space: nowrap;
   color: var(--hb-text);
   background: color-mix(in oklab, var(--hb-text) 7%, transparent);
-}
-.rv-step-hop[data-origin] {
-  flex-shrink: 0.4;
 }
 .rv-step-hop-kind {
   margin-right: 6px;
@@ -802,7 +827,8 @@
 }
 .rv-step-from-more {
   flex: none;
-  margin-left: 6px;
+  margin-left: auto;
+  padding-left: 8px;
   font-size: 13px;
   color: var(--hb-muted);
 }
@@ -887,6 +913,26 @@
   display: flex;
   flex-direction: column;
   margin: 0 -8px;
+}
+/* There before, Added or edited, Removed: always the three, in that order, each with its count or None. */
+.rv-step-tests-group {
+  display: flex;
+  flex-direction: column;
+}
+.rv-step-tests-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 0 1px;
+  font-family: var(--font-heading);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--hb-muted);
+}
+.rv-step-tests-count {
+  font-variant-numeric: tabular-nums;
 }
 .rv-step-tests .rv-tests-row {
   padding: 5px 8px;

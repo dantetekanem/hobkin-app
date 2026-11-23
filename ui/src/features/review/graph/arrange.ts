@@ -81,9 +81,13 @@ function groupBy<Value>(values: readonly Value[], keyOf: (value: Value) => strin
 }
 const isHelper = (node: ReviewNode) => node.kind === 'test' && (node.supports?.length ?? 0) > 0
 
-/** What a test covers: the changed code its wires lead to first, else whatever they lead to first. */
-function subjectOf(test: string, edges: readonly ReviewEdge[], nodeOf: ReadonlyMap<string, ReviewNode>): string | null {
-  const reached = edges.filter((edge) => edge.from === test && edge.kind === 'exercises' && nodeOf.get(edge.to)?.kind !== 'test').map((edge) => edge.to)
+/**
+ * What a test covers: the changed code it says it covers first (`covers`), else that its wires lead to first, else
+ * whatever they lead to first. A test the change removed says it and has no wire.
+ */
+function subjectOf(test: ReviewNode, edges: readonly ReviewEdge[], nodeOf: ReadonlyMap<string, ReviewNode>): string | null {
+  const said = (test.covers ?? []).filter((id) => nodeOf.has(id) && nodeOf.get(id)!.kind !== 'test')
+  const reached = said.length > 0 ? said : edges.filter((edge) => edge.from === test.id && edge.kind === 'exercises' && nodeOf.get(edge.to)?.kind !== 'test').map((edge) => edge.to)
   return reached.find((id) => !isUnchanged(nodeOf.get(id))) ?? reached[0] ?? null
 }
 
@@ -111,7 +115,7 @@ function foldTests(nodes: readonly ReviewNode[], edges: readonly ReviewEdge[], n
   const tests = nodes.filter((node) => node.kind === 'test' && !isHelper(node))
   const covers: Record<string, string> = {}
   for (const test of tests) {
-    const subject = subjectOf(test.id, edges, nodeOf)
+    const subject = subjectOf(test, edges, nodeOf)
     if (subject) covers[test.id] = subject
   }
 

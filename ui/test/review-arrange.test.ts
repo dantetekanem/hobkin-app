@@ -22,15 +22,17 @@ test('tests fold into one card for each subject, with their helper, and never st
   const groups = Object.values(shape.groups)
   const of = (title: string) => groups.find((group) => group.subject === titled(pull, title).id)!
 
-  // Three cards: five tests for the helper, six for fetch_errors with the helper they use, seven for report.
+  // Three cards: seven tests for the helper, the one the change removed among them by what it says it covers, six for
+  // fetch_errors with the helper they use, seven for report.
   assert.deepEqual(groups.map((group) => [shape.nodes.find((node) => node.id === group.id)!.title, group.tests.length, group.helpers.length]), [
-    ['5 tests for link_user_tags', 5, 0],
+    ['7 tests for link_user_tags', 7, 0],
     ['6 tests for fetch_errors', 6, 1],
     ['7 tests for report', 7, 0],
   ])
+  assert.ok(of('link_user_tags').tests.includes(titled(pull, 'looks each tag up by its handle').id))
   assert.deepEqual(of('fetch_errors').helpers, [titled(pull, 'stub_monitor').id])
   // What ran, what failed, what was not run, and what proves the change.
-  assert.deepEqual(of('link_user_tags').counts, { ran: 5, failed: 0, notRun: 0, proves: 3 })
+  assert.deepEqual(of('link_user_tags').counts, { ran: 6, failed: 0, notRun: 1, proves: 3 })
   assert.deepEqual(of('fetch_errors').counts, { ran: 6, failed: 1, notRun: 0, proves: 0 })
   assert.deepEqual(of('report').counts, { ran: 6, failed: 0, notRun: 1, proves: 0 })
   // A card is as loud as its worst test: a failed one shows.

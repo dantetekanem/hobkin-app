@@ -1,10 +1,11 @@
 /**
  * A sample pull request, so the Review screen can be seen with a change review and no host: shaped like the user's #78.
- * One changed helper (`link_user_tags`) on the path of every post page, eighteen tests (five for the helper, thirteen
- * for a new script) and a test helper, a README change, a CI change, four unchanged callers and callees for the life
- * cycle, two nodes nothing wires, and a change review of four units: one high with a question and a watch, one mid and
- * two safe. Built from the file texts in `pull-files.ts`, so every anchor and hash always matches its lines, and
- * checked by the same validator as any review.
+ * One changed helper (`link_user_tags`) on the path of every post page, twenty tests (seven for the helper, one of them
+ * there before the change and one it removed, thirteen for a new script) and a test helper, a README change, a CI
+ * change, the unchanged callers and callees for the life cycle with the helper's way in named and the script's reason
+ * for having none, two nodes nothing wires, and a change review of four units: one high with a question and a watch, one
+ * mid and two safe. Every node is rated as the host rates a review. Built from the file texts in `pull-files.ts`, so
+ * every anchor and hash always matches its lines, and checked by the same validator as any review.
  */
 import { LEVEL_WORDS, type ChangeAssessment, type Level, type Unit } from '#shared/review/assessment.ts'
 import { attentionOf, pathBucket, rankAttention, type RatedFacts } from '#shared/review/attention.ts'
@@ -215,6 +216,23 @@ const FILES_ALONE: Draft[] = [
   },
 ]
 
+/**
+ * Two more tests of the helper, as a host that knows what tested the code before shows them: one there before the
+ * change that still passes, wired to the helper, and one the change removed, which only says what it covered.
+ */
+const HELPER_BEFORE: Draft[] = [
+  {
+    id: `u${nextTest++}`, kind: 'test', path: HELPER_TEST, title: 'links a tag at the start of a paragraph', change: 'unchanged', status: 'passed', covers: ['u1'],
+    ranges: [block(HELPER_TEST, 'added', quoted('links a tag at the start of a paragraph'))],
+    summary: 'Renders "@mira wrote this" and expects the paragraph to open with her link. It was there before the change.',
+  },
+  {
+    id: `u${nextTest++}`, kind: 'test', path: HELPER_TEST, title: 'looks each tag up by its handle', change: 'deleted', status: 'not-run', covers: ['u1'],
+    ranges: [block(HELPER_TEST, 'deleted', quoted('looks each tag up by its handle'))],
+    summary: 'Expected one lookup for each tag. The change finds every user a post names in one query, so it was removed.',
+  },
+]
+
 const CONTEXT: Draft[] = [
   {
     id: 'c1', kind: 'context', path: HELPER, title: 'render_body', change: 'unchanged', lifecycle: { role: 'caller', hops: 1 },
@@ -265,12 +283,13 @@ const CONTEXT: Draft[] = [
   },
 ]
 
-const DRAFTS = [...CODE, ...helperTests, ...fetchTests, ...reportTests, SUPPORT, ...FILES_ALONE, ...CONTEXT]
+const DRAFTS = [...CODE, ...helperTests, ...HELPER_BEFORE, ...fetchTests, ...reportTests, SUPPORT, ...FILES_ALONE, ...CONTEXT]
 const NODES = DRAFTS.map(nodeOf)
 
 const wire = (kind: EdgeKind, from: string, to: string, label?: string): ReviewEdge => ({ id: `${kind}:${from}>${to}`, from, to, kind, ...(label ? { label } : {}), certainty: 'host' })
 const EDGES: ReviewEdge[] = [
   ...helperTests.map((test) => wire('exercises', test.id, 'u1')),
+  wire('exercises', HELPER_BEFORE[0]!.id, 'u1'),
   ...fetchTests.map((test) => wire('exercises', test.id, 'u2')),
   ...reportTests.map((test) => wire('exercises', test.id, 'u3')),
   wire('called-by', 'u1', 'c1', 'html = link_user_tags(html)'),

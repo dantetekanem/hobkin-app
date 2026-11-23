@@ -7,6 +7,7 @@ import { spring, tween } from '@/lib/motion.ts'
 import { notesAbout } from '../state/quick-notes.ts'
 import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
 import { seenAll, type Session } from '../state/session.ts'
+import { splitCounts } from '../story/node-tests.ts'
 import { isLineCount, type TestGroup } from './arrange.ts'
 import { useEntrance } from './entrance.tsx'
 import { KIND, LevelBadge, needsALook, statusOf } from './kinds.tsx'
@@ -43,6 +44,13 @@ function NodeCardComponent({ id }: NodeProps) {
   const store = useSessionStore()
   const node = useSession((session) => session.nodeOf.get(id))
   const group = useSession((session) => session.view.groups[id])
+  // A card of tests says how its tests stand to the change, as the step card lists them (spec 055).
+  const split = useSession((session) => {
+    const tests = session.view.groups[id]?.tests
+    if (!tests) return null
+    const { before, changed, removed } = splitCounts(tests.map((test) => session.nodeOf.get(test)))
+    return `${before} there before · ${changed} added or edited · ${removed} removed`
+  })
   const covers = useSession((session) => {
     const subject = session.view.covers[id]
     return subject ? (session.nodeOf.get(subject)?.title ?? null) : null
@@ -161,7 +169,12 @@ function NodeCardComponent({ id }: NodeProps) {
                 </p>
               ) : null}
               {group ? (
-                <GroupCounts group={group} />
+                <>
+                  <GroupCounts group={group} />
+                  <p className="rv-split" title={split ?? undefined}>
+                    {split}
+                  </p>
+                </>
               ) : test && node.supports?.length ? (
                 <p className="rv-covers">
                   Used by {node.supports.length} {node.supports.length === 1 ? 'test' : 'tests'}
@@ -185,6 +198,7 @@ function NodeCardComponent({ id }: NodeProps) {
               ) : null}
               <div className="rv-facts">
                 <Fact node={node} />
+                {group ? <Proves group={group} /> : null}
                 {group ? (
                   <button
                     type="button"
@@ -256,11 +270,11 @@ function NodeCardComponent({ id }: NodeProps) {
   )
 }
 
-/** What the tests of a card did: how many ran, failed and were not run, and how many prove the change. */
+/** What the tests of a card did: how many ran, failed and were not run. How many prove the change is in its footer. */
 function GroupCounts({ group }: { group: TestGroup }) {
-  const { ran, failed, notRun, proves } = group.counts
+  const { ran, failed, notRun } = group.counts
   return (
-    <p className="rv-counts" aria-label={`${ran} ran, ${failed} failed, ${notRun} not run${proves ? `, ${proves} prove the change` : ''}`}>
+    <p className="rv-counts" aria-label={`${ran} ran, ${failed} failed, ${notRun} not run`}>
       <span data-tone="ok">
         <Check aria-hidden="true" />
         {ran} ran
@@ -273,13 +287,21 @@ function GroupCounts({ group }: { group: TestGroup }) {
         <Minus aria-hidden="true" />
         {notRun} not run
       </span>
-      {proves > 0 ? (
-        <span data-tone="ok" title="These fail with the change undone, so they prove the change itself.">
-          <ShieldCheck aria-hidden="true" />
-          {proves} prove it
-        </span>
-      ) : null}
     </p>
+  )
+}
+
+/** How many of a card's tests prove the change, in its footer beside its lines. */
+function Proves({ group }: { group: TestGroup }) {
+  const { proves } = group.counts
+  if (proves === 0) return null
+  return (
+    <span className="rv-counts" aria-label={`${proves} prove the change`}>
+      <span data-tone="ok" title="These fail with the change undone, so they prove the change itself.">
+        <ShieldCheck aria-hidden="true" />
+        {proves} prove it
+      </span>
+    </span>
   )
 }
 

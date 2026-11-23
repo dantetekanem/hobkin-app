@@ -12,7 +12,7 @@ import { AskLink } from '../panel/AskLink.tsx'
 import { questionAsk } from '../panel/ask.ts'
 import { useReduced, useSessionStore } from '../state/context.tsx'
 import type { ModelLine } from './node-models.ts'
-import { noTestWords, testsFor, type TestsGraph } from './node-tests.ts'
+import { firstTests, NO_TEST, noTestWords, splitTests, TEST_HEADINGS, testsFor, type TestsGraph } from './node-tests.ts'
 import type { CardContent } from './StepCard.tsx'
 import { useModelLines } from './use-model-checks.ts'
 import { isBlindNote, plainSentences, proofWords, reachWords, tldrOf, watchWords } from './words.ts'
@@ -128,9 +128,10 @@ export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode,
 }
 
 /**
- * Where changed code is run from (spec 055), always in this place under the title: the way in, origin first with its
- * kind, each call on the way a press that goes to it (B comes back), and how many other ways in there are; or why there
- * is none. One line: a long way shortens its names, each whole in its tooltip.
+ * Where changed code is run from (spec 055), always in this place under the title and always two lines tall, so nothing
+ * under it moves: the origin with its kind and how many other ways in there are, then each call on the way to the
+ * code's own caller, each a press that goes to it (B comes back); or why there is none. A long way shortens its names,
+ * each whole in its tooltip.
  */
 function From({ trail, nodeOf, onGo }: { trail: Trail; nodeOf: CardGraph['nodeOf']; onGo: (id: string) => void }) {
   const hop = (id: string, at: number) => {
@@ -145,15 +146,16 @@ function From({ trail, nodeOf, onGo }: { trail: Trail; nodeOf: CardGraph['nodeOf
     )
     // A hop the review has no node for is told, but there is nothing to go to.
     return nodeOf.has(id) ? (
-      <button type="button" className="rv-step-hop pressable" data-origin={origin ? '' : undefined} title={`${words}. Go to it.`} onClick={() => onGo(id)}>
+      <button type="button" className="rv-step-hop pressable" title={`${words}. Go to it.`} onClick={() => onGo(id)}>
         {parts}
       </button>
     ) : (
-      <span className="rv-step-hop" data-origin={origin ? '' : undefined} title={words}>
+      <span className="rv-step-hop" title={words}>
         {parts}
       </span>
     )
   }
+  const [origin, ...calls] = trail.chain
   return (
     <div className="rv-step-from" aria-label="Where it is run from">
       <span className="rv-step-from-label">From</span>
@@ -161,61 +163,86 @@ function From({ trail, nodeOf, onGo }: { trail: Trail; nodeOf: CardGraph['nodeOf
         <span className="rv-step-from-why" title={trail.why}>
           {trail.why}
         </span>
-      ) : trail.chain.length === 0 && trail.origin ? (
-        <span className="rv-step-from-why">
-          <span className="rv-step-hop-kind">{originWords(trail.origin.kind)}</span>
-          It starts here.
+      ) : origin == null ? (
+        <span className="rv-step-from-line">
+          <span className="rv-step-from-why">
+            <span className="rv-step-hop-kind">{originWords(trail.origin!.kind)}</span>
+            It starts here.
+          </span>
         </span>
       ) : (
-        trail.chain.map((id, at) => (
-          <Fragment key={id}>
-            {at > 0 ? <ChevronRight className="rv-step-from-sep" aria-hidden="true" /> : null}
-            {hop(id, at)}
-          </Fragment>
-        ))
+        <>
+          <span className="rv-step-from-line">
+            {hop(origin, 0)}
+            {trail.more > 0 ? (
+              <span className="rv-step-from-more">
+                +{trail.more} more {trail.more === 1 ? 'way' : 'ways'} in
+              </span>
+            ) : null}
+          </span>
+          <span className="rv-step-from-line">
+            {calls.map((id, at) => (
+              <Fragment key={id}>
+                <ChevronRight className="rv-step-from-sep" aria-hidden="true" />
+                {hop(id, at + 1)}
+              </Fragment>
+            ))}
+          </span>
+        </>
       )}
-      {trail.more > 0 ? (
-        <span className="rv-step-from-more">
-          +{trail.more} more {trail.more === 1 ? 'way' : 'ways'} in
-        </span>
-      ) : null}
     </div>
   )
 }
 
 /**
- * The tests of what is in focus: each by name and result, a failed one first, and a press on one shows its code without
- * leaving the node. Past four, the rest wait behind "Show N more". A model in focus says what TLC said of it at the
- * reviewed head, under them. When neither covers it, the card says so plainly.
+ * The tests of what is in focus, under three headings always there (spec 055): There before, Added or edited, and
+ * Removed, an empty one saying None. Each by name and result, a failed one first, and a press on one shows its code
+ * without leaving the node. Past four, the rest wait behind "Show N more", each heading keeping one of its own while
+ * there is room. A model in focus says what TLC said of it at the reviewed head, under them. When the change review
+ * names what proves it and no test of the review covers it, the card says that.
  */
 function Tests({ focus, graph, unit, models, code, onShow }: { focus: readonly string[]; graph: TestsGraph; unit: Unit | undefined; models: readonly ModelLine[]; code: string | null; onShow: (id: string) => void }) {
   const [all, setAll] = useState(false)
   const tests = testsFor(focus, graph)
+  const split = splitTests(tests)
   // One test behind a button would take the room of its own row: the list folds only when it hides two or more.
   const folds = tests.length > TESTS_SHOWN + 1
+  const shown = folds && !all ? firstTests(split, TESTS_SHOWN) : null
+  const proven = tests.length === 0 && models.length === 0 ? noTestWords(unit) : NO_TEST
   return (
     <section className="rv-step-tests" aria-label="Tests">
       <h4 className="rv-step-section-title">Tests</h4>
-      {tests.length === 0 ? (
-        models.length > 0 ? null : <p className="rv-step-quiet">{noTestWords(unit)}</p>
-      ) : (
-        <ul className="rv-step-tests-rows">
-          {(folds && !all ? tests.slice(0, TESTS_SHOWN) : tests).map((test) => {
-            const result = statusOf(test)
-            return (
-              <li key={test.id}>
-                <button type="button" className="rv-tests-row" data-current={code === test.id} title={test.summary} onClick={() => onShow(test.id)}>
-                  <result.icon className="rv-tests-icon" data-tone={result.tone} aria-hidden="true" />
-                  <span className="rv-tests-name">{test.title}</span>
-                  <span className="rv-tests-result" data-tone={result.tone}>
-                    {result.text}
-                  </span>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
-      )}
+      {TEST_HEADINGS.map(([key, words]) => {
+        const listed = split[key]
+        const rows = shown ? listed.filter((test) => shown.has(test.id)) : listed
+        return (
+          <div key={key} className="rv-step-tests-group" aria-label={words}>
+            <h5 className="rv-step-tests-heading">
+              <span>{words}</span>
+              <span className="rv-step-tests-count">{listed.length === 0 ? 'None' : listed.length}</span>
+            </h5>
+            {rows.length > 0 ? (
+              <ul className="rv-step-tests-rows">
+                {rows.map((test) => {
+                  const result = statusOf(test)
+                  return (
+                    <li key={test.id}>
+                      <button type="button" className="rv-tests-row" data-current={code === test.id} title={test.summary} onClick={() => onShow(test.id)}>
+                        <result.icon className="rv-tests-icon" data-tone={result.tone} aria-hidden="true" />
+                        <span className="rv-tests-name">{test.title}</span>
+                        <span className="rv-tests-result" data-tone={result.tone}>
+                          {result.text}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+            ) : null}
+          </div>
+        )
+      })}
+      {proven !== NO_TEST ? <p className="rv-step-quiet">{proven}</p> : null}
       {folds ? (
         <button type="button" className="rv-step-more" aria-expanded={all} onClick={() => setAll((open) => !open)}>
           {all ? 'Show fewer' : `Show ${tests.length - TESTS_SHOWN} more`}

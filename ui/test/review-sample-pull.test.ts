@@ -17,7 +17,7 @@ test('every sample pull request opens the sample pull request, under its own id'
   for (const id of ['sample', 'stress', 'pr:octo/storefront/482', 'pr:hobkin-sample/storefront/x', 'change:hobkin/7d02c9']) assert.equal(isSamplePull(id), false, id)
 })
 
-test('the sample is shaped like the pull request the user reviewed: one helper, eighteen tests, a script, the life cycle', () => {
+test('the sample is shaped like the pull request the user reviewed: one helper, twenty tests, a script, the life cycle', () => {
   const review = open(SAMPLE_PULL)
   const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
   const titled = (title: string) => review.nodes.find((node) => node.title === title)!
@@ -26,8 +26,18 @@ test('the sample is shaped like the pull request the user reviewed: one helper, 
   const helper = titled('link_user_tags')
   assert.deepEqual([helper.kind, helper.subtitle, helper.change], ['code', 'app/helpers/posts_helper.rb', 'modified'])
   const cases = review.nodes.filter((node) => node.kind === 'test' && !node.supports)
-  assert.equal(cases.length, 18)
-  assert.equal(exercising(helper.id).length, 5)
+  assert.equal(cases.length, 20)
+  assert.equal(exercising(helper.id).length, 6)
+  // One test of the helper was there before the change and still runs, wired to it; one the change removed, which only
+  // says what it covered.
+  const kept = titled('links a tag at the start of a paragraph')
+  const gone = titled('looks each tag up by its handle')
+  assert.deepEqual([kept.change, kept.status, kept.covers, exercising(helper.id).includes(kept.id)], ['unchanged', 'passed', [helper.id], true])
+  assert.deepEqual([gone.change, gone.covers, exercising(helper.id).includes(gone.id)], ['deleted', [helper.id], false])
+  assert.ok(gone.anchors.every((anchor) => anchor.side === 'deleted'))
+  // The helper's way in, as the host names it, and why the script has none.
+  assert.deepEqual(helper.lifecycle?.origin?.chain.map((id) => nodeOf.get(id)!.title), ['GET /posts/:id', 'PostsController#show', 'render_body'])
+  assert.equal(titled('fetch_errors').lifecycle?.none, 'no-callers')
   const script = review.nodes.filter((node) => node.subtitle === 'script/production_errors.rb')
   assert.equal(script.flatMap((node) => exercising(node.id)).length, 13)
   // Real results, every kind of them, and each test says what it covers.
@@ -49,7 +59,7 @@ test('the sample is shaped like the pull request the user reviewed: one helper, 
 
   // Three to five callers and callees the change did not touch, for the life cycle, and where requests enter: two
   // routes, and the app's answer to a failing request.
-  const around = review.nodes.filter((node) => node.change === 'unchanged')
+  const around = review.nodes.filter((node) => node.kind === 'context')
   const entries = around.filter((node) => node.entry && node.entry.kind !== 'controller')
   assert.deepEqual(entries.map((node) => [node.entry!.kind, node.title]), [['route', 'GET /posts/:id'], ['route', 'GET /feed'], ['exceptions-app', 'config.exceptions_app']])
   const code = around.filter((node) => !entries.includes(node))
