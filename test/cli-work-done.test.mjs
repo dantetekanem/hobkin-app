@@ -117,6 +117,48 @@ test('a branch of markdown alone says so, and one touching code does not', async
   assert.equal(unit(h, 'hobkin/code').onlyDocs, false);
 });
 
+test('with this machine\'s main and origin\'s parted, a finished change holds only its own commits', async t => {
+  const h = workspace(t);
+  mkdirSync(join(h.checkout, '_specs', 'tla'), { recursive: true });
+  commit(h.checkout, '_specs/tla/Queue.tla', '---- MODULE Queue ----\n\\* models: queue.txt\n====\n');
+  commit(h.checkout, '_specs/tla/WorkItem.tla', '---- MODULE WorkItem ----\n\\* models: app.txt\n====\n');
+  withOrigin(h.base, h.checkout);
+  // Merged on origin since, to a file a model names, and missing from this machine's main, which went its own way.
+  git(h.checkout, 'switch', '-q', '--detach');
+  commit(h.checkout, 'queue.txt', 'merged on origin\n');
+  git(h.checkout, 'push', '-q', 'origin', 'HEAD:main');
+  git(h.checkout, 'switch', '-q', 'main');
+  commit(h.checkout, 'local.txt', 'merged here\n');
+  git(h.checkout, 'fetch', '-q', 'origin');
+  // A run starts its branch from origin's main.
+  const fromOrigin = (name, file, text) => {
+    git(h.checkout, 'switch', '-q', '-c', name, 'origin/main');
+    commit(h.checkout, file, text);
+    git(h.checkout, 'switch', '-q', 'main');
+  };
+  fromOrigin('hobkin/fix', 'app.txt', 'fixed\n');
+  fromOrigin('hobkin/model', '_specs/tla/Door.tla', '---- MODULE Door ----\n\\* models: door.txt\n====\n');
+  fromOrigin('hobkin/guide', 'GUIDE.md', '# Guide\n');
+  fromOrigin('hobkin/7-fix', 'seven.txt', 'seven\n');
+  const fix = finished(h, 'hobkin/fix');
+  for (const name of ['hobkin/model', 'hobkin/guide']) finished(h, name);
+  finished(h, 'hobkin/7-fix', { state: 'pr', pr: 'https://example.com/pull/7' });
+
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify([pull(7, { headRefOid: tipOf(h, 'hobkin/7-fix') })]), reviews: h.reviews });
+
+  const own = name => {
+    const { paths, size, models = [], sameCode = [] } = unit(h, name);
+    return { paths, files: size.files, models: models.map(({ spec }) => spec), sameCode };
+  };
+  assert.deepEqual(own('hobkin/fix'), { paths: ['app.txt'], files: 1, models: ['_specs/tla/WorkItem.tla'], sameCode: [] });
+  assert.deepEqual(own('hobkin/model'), { paths: ['_specs/tla/Door.tla'], files: 1, models: ['_specs/tla/Door.tla'], sameCode: [] }, 'a change that only wrote a model has no code of its own');
+  assert.equal(unit(h, 'hobkin/guide').onlyDocs, true);
+  assert.deepEqual(unit(h, 'hobkin/7-fix').paths, ['seven.txt'], 'a PR is measured the same way');
+
+  await mergeItem(h.root, 'api', fix.id);
+  assert.deepEqual(read(h, fix).landed.size, { additions: 1, deletions: 1, files: 1 }, 'what a merge records is the change alone');
+});
+
 test('a branch underneath another finished branch folds into it', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/first', 'first.txt', 'first\n');

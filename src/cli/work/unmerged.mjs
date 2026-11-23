@@ -223,9 +223,26 @@ async function conflictsWith(repo, tip, name) {
 
 const lines = text => text.split('\n').filter(Boolean);
 
+/** The copies of the default branch a change can have left: this machine's, and origin's when origin has one. Asked once a project. */
+async function defaultCopies(repo, base) {
+  const onOrigin = `refs/remotes/origin/${base}`;
+  const originHasIt = Boolean(base) && Boolean(await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', onOrigin));
+  return originHasIt ? [base, onOrigin] : [base];
+}
+
+/**
+ * Where a change left its default branch: the nearest commit its head shares with either copy. A run branches from origin's, so once the two
+ * part, this machine's alone would count what origin merged since as the change's own. A head one copy already holds is measured from this
+ * machine's copy, as before.
+ */
+async function startOfChange(repo, copies, head) {
+  const forked = head ? await gitOrNothing(repo, 'merge-base', head, ...copies) : '';
+  return forked && forked !== head ? forked : copies[0];
+}
+
 /** What the branch changes, whatever it sits on, so a rebase that changed nothing has the same answer. */
-async function changeOf(repo, base, name) {
-  const diff = await gitOrNothing(repo, 'diff', '-U0', '--no-color', `${base}...${name}`);
+async function changeOf(repo, start, name) {
+  const diff = await gitOrNothing(repo, 'diff', '-U0', '--no-color', `${start}...${name}`);
   const changed = lines(diff).filter(line => !/^(@@|index )/.test(line)).join('\n');
   return createHash('sha256').update(changed).digest('hex').slice(0, 16);
 }
@@ -291,43 +308,47 @@ function fileLine(line) {
 }
 
 /** What a change touches, reading only. A rename is a delete and an add here, because a test moved away is a test that no longer runs where it did. */
-async function pathsOf(repo, base, name) {
-  const range = `${base}...${name}`;
+async function pathsOf(repo, start, name) {
+  const range = `${start}...${name}`;
   const files = lines(await gitOrNothing(repo, ...plainPaths, '--numstat', range)).map(fileLine);
   const deleted = lines(await gitOrNothing(repo, ...plainPaths, '--name-only', '--diff-filter=D', range));
   return { area: areaOf(files), paths: files.map(({ path }) => path).slice(0, MOST_PATHS), deletedTests: deleted.filter(isTestPath) };
 }
 
-const sizeOfRange = async (repo, base, name) => sizeOf(await gitOrNothing(repo, 'diff', '--shortstat', `${base}...${name}`));
+const sizeOfRange = async (repo, start, name) => sizeOf(await gitOrNothing(repo, 'diff', '--shortstat', `${start}...${name}`));
 
 /** What a merge records about the branch it is about to land, because once it lands the two have nothing left to compare. */
 export async function changeFacts(repo, base, name) {
-  const { area } = await pathsOf(repo, base, name);
-  return { area, size: await sizeOfRange(repo, base, name) };
+  const head = await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${name}`);
+  const start = await startOfChange(repo, await defaultCopies(repo, base), head);
+  const { area } = await pathsOf(repo, start, name);
+  return { area, size: await sizeOfRange(repo, start, name) };
 }
 
-async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, finished, others, previous }) {
-  const change = await changeOf(repo, base, name);
+async function branchUnit({ repo, copies, tip, branch: { name, at, sha }, grades, finished, others, previous }) {
+  // What it holds is measured from where it left its default branch. How far behind it is, and whether it conflicts, from where it lands.
+  const start = await startOfChange(repo, copies, sha);
+  const change = await changeOf(repo, start, name);
   const before = (previous.open ?? []).find(unit => unit.branch === name);
-  const touched = await pathsOf(repo, base, name);
+  const touched = await pathsOf(repo, start, name);
   // The TLA+ models at its head that cover what it touches, whose runs at that head speak for it (`proofs.mjs`).
   const models = await modelsAt(repo, sha, touched.paths);
   // The commits whose code this head still has, since only models changed after them, so a review of one still counts.
-  const sameCode = await sameCodeAs(repo, base, name);
+  const sameCode = await sameCodeAs(repo, start, name);
   return {
     kind: 'branch',
     branch: name,
     sha,
     title: commitTitle(await gitOrNothing(repo, 'log', '-1', '--format=%B', name)),
     openedAt: new Date(at).toISOString(),
-    size: await sizeOfRange(repo, base, name),
+    size: await sizeOfRange(repo, start, name),
     ...touched,
     ...(models.length ? { models } : {}),
     ...(sameCode.length ? { sameCode } : {}),
     behind: await commitsBehind(repo, tip, name),
     // Not knowing is an answer, so nothing here can cost a project its survey.
     conflict: await conflictsWith(repo, tip, name).catch(() => null),
-    onlyDocs: await changesOnlyDocs(repo, base, name),
+    onlyDocs: await changesOnlyDocs(repo, start, name),
     change,
     safety: await safetyOf({ repo, name, sha, change, grades, before, sameCode }),
     ...await placesOf({ repo, name, sha, finished, others }),
@@ -339,11 +360,11 @@ async function branchUnit({ repo, base, tip, branch: { name, at, sha }, grades, 
  * can still match a review of it, but there is nothing to compare with an older grade or to stack, so it gets no more than that. A PR ships on its
  * host, so a local branch of the user's that holds its head, such as one preparing a release on top of it, is not where it went.
  */
-async function pullHead({ repo, base, pr, grades, finished, previous }) {
+async function pullHead({ repo, start, pr, grades, finished, previous }) {
   const sha = pr.headRefOid ?? null;
   if (!sha) return { sha, safety: null };
   const here = Boolean(await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `${sha}^{commit}`));
-  const change = here ? await changeOf(repo, base, sha) : null;
+  const change = here ? await changeOf(repo, start, sha) : null;
   const before = (previous.open ?? []).find(unit => unit.branch === pr.headRefName);
   return {
     sha,
@@ -385,16 +406,20 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   const withPull = new Set(ownPulls.filter(pr => pr.state !== 'CLOSED').map(pr => pr.headRefName));
   const bare = branches.filter(branch => !branch.merged && !withPull.has(branch.name) && !BACKUP_BRANCH.test(branch.name));
   const others = await usersBranches(repo, base, finished);
-  const units = await Promise.all(bare.map(branch => branchUnit({ repo, base, tip, branch, grades, finished, others, previous })));
+  const copies = await defaultCopies(repo, base);
+  const units = await Promise.all(bare.map(branch => branchUnit({ repo, copies, tip, branch, grades, finished, others, previous })));
   const landed = await mergedHere({ repo, base, units, previous });
   // Git keeps no date for a local merge, so one seen now is dated now.
   const merges = [previous.lastMergeAt, landed.length ? new Date(now).toISOString() : null, ...ownPulls.map(pr => pr.mergedAt)];
   // A PR's head is known locally when a run made it, and a merge from elsewhere leaves nothing else to tell what it touched.
-  const surveyPull = async pr => ({
-    ...pullUnit(pr),
-    ...await pathsOf(repo, base, pr.headRefName),
-    ...await pullHead({ repo, base, pr, grades, finished, previous }),
-  });
+  const surveyPull = async pr => {
+    const start = await startOfChange(repo, copies, pr.headRefOid);
+    return {
+      ...pullUnit(pr),
+      ...await pathsOf(repo, start, pr.headRefName),
+      ...await pullHead({ repo, start, pr, grades, finished, previous }),
+    };
+  };
   const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(surveyPull));
   // The TLA+ models on the default branch with the files each models, which its readiness and the weekly recheck read.
   const specs = (await specsAt(repo, tip)).map(({ spec, sha256, models }) => ({ spec, sha256, models }));
