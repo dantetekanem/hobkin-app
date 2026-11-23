@@ -91,7 +91,7 @@ export function modelLines(proofs: ProofsState | null, change: ReviewedChange, s
   const named = specs.length > 1
   return specs.map((spec) => {
     const run = runAt(proofs, change, spec)
-    const { said, tone } = run ? saidOf(run) : { said: 'not checked at this commit', tone: 'quiet' as const }
+    const { said, tone } = run ? saidOf(run) : { said: 'not checked at this commit', tone: 'warn' as const }
     return { spec, run: run?.id ?? null, text: `${named ? `TLC · ${specFile(spec)}` : 'TLC'}: ${said}`, tone }
   })
 }
@@ -143,6 +143,6 @@ export function reviewModelRows(proofs: ProofsState | null, change: ReviewedChan
     if (run) return { spec, file, run: run.id, ...rowSaid(run) }
     const older = runsForItem(proofs, change.project, change.item).find((candidate) => candidate.spec === spec)
     if (older) return { spec, file, run: older.id, said: 'checked at an older commit', tone: 'quiet' }
-    return { spec, file, run: null, said: 'not checked at this commit', tone: 'quiet' }
+    return { spec, file, run: null, said: 'not checked at this commit', tone: 'warn' }
   })
 }

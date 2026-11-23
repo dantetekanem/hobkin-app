@@ -75,7 +75,7 @@ test('a model node says what TLC said at the reviewed head, and opens that run',
 test('a check of another commit or item never speaks for the reviewed head', () => {
   const older = run({ id: 'older', head: '0d3c53d99913e333731649d0904f54309cdd6b04' })
   const elsewhere = run({ id: 'elsewhere', item: 'ffff' })
-  assert.deepEqual(modelLines(slice(older, elsewhere), change, [SPEC]), [{ spec: SPEC, run: null, text: 'TLC: not checked at this commit', tone: 'quiet' }])
+  assert.deepEqual(modelLines(slice(older, elsewhere), change, [SPEC]), [{ spec: SPEC, run: null, text: 'TLC: not checked at this commit', tone: 'warn' }])
   assert.deepEqual(modelLines(null, change, [SPEC])[0]?.text, 'TLC: not checked at this commit')
   // A short head is the same commit.
   assert.equal(modelLines(slice(run({ head: 'bad8d2a' })), change, [SPEC])[0]?.text, 'TLC: holds in 7 states')
@@ -90,7 +90,7 @@ test("the panel lists each of the change's models by file, with what TLC said at
   const row = (said: string, tone: string, run: string | null, spec = SPEC) => ({ spec, file: spec.split('/').at(-1), said, tone, run })
   assert.deepEqual(reviewModelRows(slice(run()), change, [SPEC]), [row('holds · 7 states', 'ok', '20261121-032648-reviewsentreceipts-adug')])
   // A model the change edits that nothing checked still has its row, so a check that starts takes its place.
-  assert.deepEqual(reviewModelRows(slice(), change, [SPEC]), [row('not checked at this commit', 'quiet', null)])
+  assert.deepEqual(reviewModelRows(slice(), change, [SPEC]), [row('not checked at this commit', 'warn', null)])
   assert.deepEqual(reviewModelRows(slice(run({ id: 'live', outcome: 'checking', stats: { generated: 9, distinct: 1204, queue: 2, depth: 2 } })), change, [SPEC]), [row('checking · 1,204 states', 'live', 'live')])
   const broke = run({ id: 'broke', outcome: 'broken', broken: 'NoRepost', traceLength: 6 })
   assert.deepEqual(reviewModelRows(slice(broke), change, [SPEC]), [row('NoRepost breaks · 5 steps', 'bad', 'broke')])
