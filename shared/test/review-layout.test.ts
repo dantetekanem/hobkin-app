@@ -293,12 +293,15 @@ test('zones: a zone of tests sits under the code it mirrors, each test just left
   const [tests, helpers] = [rects.get('helper-tests')!, rects.get('helpers')!]
   assert.ok(tests.y >= helpers.y + helpers.height + ZONE_FRAME.gap, 'under the zone it mirrors, with room between')
   assert.ok(tests.x < helpers.x + helpers.width && helpers.x < tests.x + tests.width, 'beside it, not off in a corner')
-  for (const [test, subject] of [['t-link', 'link'], ['t-render', 'render']] as const) {
-    const [from, to] = [positions[test]!, positions[subject]!]
-    assert.ok(from.x + NODE_SIZE.test.width < to.x, `${test} sits left of ${subject}, so its wire leaves a right pin into a left one`)
-    assert.ok(to.x - from.x < 2 * NODE_SIZE.test.width, `${test} sits near ${subject}`)
-  }
+  const [from, to] = [positions['t-link']!, positions.link!]
+  assert.ok(from.x + NODE_SIZE.test.width < to.x, 't-link sits left of link, so its wire leaves a right pin into a left one')
+  assert.ok(to.x - from.x < 2 * NODE_SIZE.test.width, 't-link sits near link')
+  // A test of code in the first column stands under it, so the zone's region starts where its code does, tests or none.
+  assert.equal(positions['t-render']!.x, positions.render!.x)
+  assert.ok(tests.x >= helpers.x)
   assert.equal(overlaps(nodeRect('test', positions['t-link']!), nodeRect('test', positions['t-link-2']!)), false)
+  const untested = layoutZones(all.filter((entry) => entry.kind !== 'test'), wires, zones)
+  assert.equal(zoneRects(all, untested).get('helpers')!.x, helpers.x, "folding the zone's tests away leaves its heading where it was")
 })
 
 test('zones: a group opened in place grows its own zone, and no two zones overlap', () => {

@@ -70,13 +70,16 @@ test('the graph reads the way a request goes, zone by zone, with each zone of te
   const zoneOf = (title: string) => shape.zones.findIndex((zone) => zone.id === at(title).zone)
   for (const node of shape.nodes) assert.ok(shape.zones.some((zone) => zone.id === node.zone), `${node.title} is in a zone`)
   assert.ok(zoneOf('GET /posts/:id') < zoneOf('PostsController#show') && zoneOf('PostsController#show') < zoneOf('link_user_tags') && zoneOf('link_user_tags') < zoneOf('User.find_by_handles'))
-  // Tests are off the way: each card sits under the code of its subject's zone, just left of what it covers.
+  // Tests are off the way: each card sits under the code of its subject's zone, just left of what it covers, or right
+  // under it when it is in the zone's first column.
   for (const group of Object.values(shape.groups)) {
     const card = shape.nodes.find((node) => node.id === group.id)!
     const subject = shape.nodes.find((node) => node.id === group.subject)!
     const code = shape.nodes.filter((node) => node.zone === subject.zone)
     assert.ok(card.position.y > Math.max(...code.map((node) => node.position.y + nodeRect(node.kind, node.position).height)), `${card.title} sits under its subject's zone`)
-    assert.ok(card.position.x + 288 < subject.position.x, `${card.title} sits left of ${subject.title}`)
+    const first = Math.min(...code.map((node) => node.position.x))
+    if (subject.position.x === first) assert.equal(card.position.x, subject.position.x, `${card.title} sits under ${subject.title}`)
+    else assert.ok(card.position.x + 288 < subject.position.x && card.position.x >= first, `${card.title} sits left of ${subject.title}`)
   }
   // A changed node nothing wires stays among the rest: there is no block apart.
   assert.ok(!('apart' in shape))

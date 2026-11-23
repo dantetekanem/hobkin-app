@@ -476,13 +476,15 @@ function codeBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[]): 
 
 /**
  * A zone of tests under the code it mirrors, from a top: each test wants to stand just left of the leftmost thing it
- * covers above it, so its wire rises to it from a right pin into a left one, and takes the first row with room there.
+ * covers above it, so its wire rises to it from a right pin into a left one, and takes the first row with room there. It
+ * never stands left of the code above, so the code zone's region, and its heading, start where the stack does whether
+ * its tests are drawn or folded with it: a test of code in the first column stands under it.
  */
 function testBlock(members: readonly ZoneNode[], edges: readonly LayoutEdge[], above: Positions, top: number): Positions {
   const wanted = new Map<string, number>()
   for (const node of members) {
     const xs = edges.filter((edge) => edge.from === node.id && edge.to !== node.id && above[edge.to]).map((edge) => above[edge.to]!.x)
-    wanted.set(node.id, xs.length > 0 ? Math.min(...xs) - CELL.width - LANE.lead : 0)
+    wanted.set(node.id, xs.length > 0 ? Math.max(0, Math.min(...xs) - CELL.width - LANE.lead) : 0)
   }
   const rows: [number, number][][] = []
   const positions: Positions = {}
