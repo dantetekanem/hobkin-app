@@ -30,6 +30,7 @@ Nothing is lost between sittings or between front ends. The app reopens where th
 - "Stop the work" interrupts the runs, waits for their receipts and exits the host.
 - With nothing running, closing the window exits the host.
 - While work runs, the host keeps the Mac awake, as the terminal app does. The display may still sleep.
+- A message the user sent that the model never read comes back to the input (the user, 2026-11-23: "the main agent is terrible, terrible tracking context. is he losing new messages?"). A message sent while the main agent works is steered into its turn, and the model reads it after the tool calls under way. Stop already hands the unread ones back. A close, a restart onto newer code and a crash did not: the words were gone, and the news they carried, such as a session that ended, was already marked heard. Now hobkin keeps what was not read. At a close it asks the session for its unread queue. After a crash, a steered message whose words are not in the session file was not read. When hobkin opens again those words are in the window's input, ahead of what the user had typed, once. hobkin does not send them to the model again by itself, so "never replayed" holds. News counts as heard only once the model read the message that carried it.
 
 ### Memory from run to run
 
@@ -58,6 +59,8 @@ Nothing is lost between sittings or between front ends. The app reopens where th
 - A7. A reload of the window, or a crash of the UI alone, reattaches to the running host and loses no message.
 - A8. The History section lists earlier main sessions with their dates. Opening one shows its messages read-only.
 - A9. While a run is active the Mac does not idle-sleep, and it can sleep again once nothing is running.
+- A10. News a message carries (a session that ended, a card's action, a handed-over message, the brief) counts as heard only once the model has read that message. A message steered into a running turn and never read, because the turn was stopped or hobkin closed or crashed, leaves its news unheard, and the next message carries it.
+- A11. A message hobkin accepted that the model never read is not lost when hobkin closes, restarts or crashes. When hobkin opens again it is in the window's input, ahead of what was typed there, once. hobkin never sends it to the model again by itself.
 
 ## Proof
 
@@ -79,3 +82,5 @@ Nothing is lost between sittings or between front ends. The app reopens where th
 - [ ] S4 (A6). The shared-home test against hobkin's application, both directions.
 - [ ] S5 (A8). History of earlier sessions.
 - [ ] S6 (A9). Stay awake while work runs.
+- [ ] S7 (A10). Runtime: news is marked heard when the model read the message that carried it.
+- [ ] S8 (A11). Runtime, host and window: a message the model never read is kept across a close, a restart and a crash, and handed back to the input.
