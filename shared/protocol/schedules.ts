@@ -78,3 +78,100 @@ export interface SchedulePause {
   id: string
   paused: boolean
 }
+
+/** The most rows the window gets: twenty live in the home at most, and the ones that ended lately. */
+export const AGENT_SCHEDULES_MAX = 100
+
+const STATES: readonly AgentScheduleState[] = ['waiting', 'running', 'paused', ...ENDED_SCHEDULE_STATES]
+const OUTCOMES: readonly AgentScheduleOutcome[] = ['passed', 'failed', 'pending', 'timed-out', 'error']
+const OWNERS: readonly AgentScheduleOwner['kind'][] = ['main', 'hobkin', 'run']
+/** An id is kept whole or not at all, since a cut one would name another schedule or owner. */
+const ID_MAX = 128
+/** As long as the tools let an agent write each, and the rest short enough for a row. */
+const WORDS_MAX = { name: 80, command: 4000, note: 1000, ownerTitle: 120, endedWhy: 200, line: 200 } as const
+
+type Row = Record<string, unknown>
+
+const isRow = (value: unknown): value is Row => typeof value === 'object' && value !== null && !Array.isArray(value)
+const oneOf = <Word extends string>(words: readonly Word[], value: unknown): Word | undefined => (words.includes(value as Word) ? (value as Word) : undefined)
+const idOf = (value: unknown): string | undefined => (typeof value === 'string' && value.length > 0 && value.length <= ID_MAX ? value : undefined)
+const countOf = (value: unknown): number | undefined => (Number.isSafeInteger(value) && (value as number) >= 0 ? (value as number) : undefined)
+const timeOf = (value: unknown): string | undefined => (typeof value === 'string' && value.length <= 64 && Number.isFinite(Date.parse(value)) ? value : undefined)
+
+/** Words no longer than `most`, cut before a character that would be split in two. */
+function cut(value: unknown, most: number): string | undefined {
+  if (typeof value !== 'string') return undefined
+  if (value.length <= most) return value
+  const end = /[\uD800-\uDBFF]/.test(value[most - 1]!) ? most - 1 : most
+  return value.slice(0, end)
+}
+
+/** Only the fields that have a value, so a missing one is missing rather than undefined. */
+const present = <Shape extends object>(fields: { [Key in keyof Shape]: Shape[Key] | undefined }): Shape =>
+  Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as Shape
+
+function ownerOf(value: unknown): AgentScheduleOwner | undefined {
+  if (!isRow(value)) return undefined
+  const kind = oneOf(OWNERS, value.kind)
+  return kind && present<AgentScheduleOwner>({ kind, id: idOf(value.id) })
+}
+
+function lastOf(value: unknown): AgentScheduleRun | undefined {
+  if (!isRow(value)) return undefined
+  const at = timeOf(value.at)
+  const outcome = oneOf(OUTCOMES, value.outcome)
+  if (!at || !outcome) return undefined
+  return present<AgentScheduleRun>({
+    at,
+    outcome,
+    exitCode: Number.isSafeInteger(value.exitCode) ? (value.exitCode as number) : undefined,
+    woke: typeof value.woke === 'boolean' ? value.woke : undefined,
+    line: cut(value.line, WORDS_MAX.line),
+  })
+}
+
+/** One row in the contract's shape, or nothing for a row with no id or a state the window cannot place. */
+function scheduleOf(value: unknown): AgentSchedule | undefined {
+  if (!isRow(value)) return undefined
+  const id = idOf(value.id)
+  const state = oneOf(STATES, value.state)
+  if (!id || !state) return undefined
+  const every = value.every
+  return present<AgentSchedule>({
+    id,
+    owner: ownerOf(value.owner),
+    ownerTitle: cut(value.ownerTitle, WORDS_MAX.ownerTitle),
+    name: cut(value.name, WORDS_MAX.name),
+    does: oneOf(['shell', 'wake'] as const, value.does),
+    command: cut(value.command, WORDS_MAX.command),
+    note: cut(value.note, WORDS_MAX.note),
+    every: typeof every === 'number' && Number.isFinite(every) && every > 0 ? every : undefined,
+    state,
+    nextAt: timeOf(value.nextAt),
+    until: timeOf(value.until),
+    runs: countOf(value.runs),
+    maxRuns: countOf(value.maxRuns),
+    wakes: countOf(value.wakes),
+    maxWakes: countOf(value.maxWakes),
+    last: lastOf(value.last),
+    endedWhy: cut(value.endedWhy, WORDS_MAX.endedWhy),
+  })
+}
+
+/**
+ * The runtime's `agentSchedules` read without trust: each row checked into the shape above, words cut short, a row the
+ * window cannot place dropped, and an id given twice kept once. A runtime that has none reads as none.
+ */
+export function readAgentSchedules(value: unknown): AgentSchedule[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const seen = new Set<string>()
+  const schedules: AgentSchedule[] = []
+  for (const row of value) {
+    if (schedules.length >= AGENT_SCHEDULES_MAX) break
+    const schedule = scheduleOf(row)
+    if (!schedule || seen.has(schedule.id)) continue
+    seen.add(schedule.id)
+    schedules.push(schedule)
+  }
+  return schedules
+}
