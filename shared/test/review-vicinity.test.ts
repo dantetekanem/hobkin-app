@@ -116,6 +116,8 @@ test('the life cycle runs from where a request starts, through the callers, to t
   assert.match(said, /2 callers matched only by name/)
   assert.match(said, /callers of 1 definition go further/)
   assert.match(said, /could not list every caller of 3/)
+  const cut = await prepared({ ...lifeCycle, left: { partial: 3, cut: [{ symbol: 'listen', shown: 2, total: 9 }, { symbol: 'start', shown: 1, total: 4 }, { symbol: 'remember', shown: 3, total: 3 }] } })
+  assert.match(cut.notices.join(' '), /The scan listed only 2 of the 9 callers of listen, 1 of the 4 callers of start and the callers of 1 more definition in part\./)
   assert.deepEqual(validateReview(review), [])
 })
 

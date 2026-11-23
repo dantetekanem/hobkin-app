@@ -82,6 +82,8 @@ export interface VicinityLeft {
   further?: number
   /** Definitions whose callers the scan could not list in full: a name too common to search, or too many places. */
   partial?: number
+  /** Those definitions, each with how many callers the scan listed of how many it counted, when it says. */
+  cut?: { symbol: string; shown: number; total: number }[]
   /** Callers on other ways out, past the few ways kept for each changed definition. */
   aside?: number
 }
@@ -638,9 +640,16 @@ function wireLabel(link: VicinityLink, line: number, guard: VicinityGuard | unde
   return cleanProse([within, ...(condition ? [condition] : []), ...(link.proven ? [] : ['found by name'])].join(', '), PROSE_LIMIT.label)
 }
 
+/** The callers the scan listed only in part, by how many of how many, the first two by name. */
+function cutWords(cut: NonNullable<VicinityLeft['cut']>): string {
+  const named = cut.slice(0, 2).map(({ symbol, shown, total }) => (total > shown ? `${shown} of the ${total} callers of ${symbol}` : `some of the callers of ${symbol}`))
+  const rest = cut.length - named.length
+  return listed([...named, ...(rest > 0 ? [`the callers of ${count(rest, 'more definition')} in part`] : [])])
+}
+
 /** The scan's own notice, and a line on what the life cycle shows and what it left out, with why. */
 function noticesOf(vicinity: Vicinity, shown: number, missing: number, overLimit: number): string[] {
-  const { byName = 0, perDefinition = 0, further = 0, partial = 0, aside = 0 } = vicinity.left ?? {}
+  const { byName = 0, perDefinition = 0, further = 0, partial = 0, aside = 0, cut = [] } = vicinity.left ?? {}
   const leftOut = [
     overLimit ? `${overLimit} past the limit of ${VICINITY_LIMIT}` : '',
     missing ? `${missing} not found at this commit` : '',
@@ -650,7 +659,7 @@ function noticesOf(vicinity: Vicinity, shown: number, missing: number, overLimit
   ].filter(Boolean)
   const reach = [
     further ? `the callers of ${count(further, 'definition')} go further than the ${LIFE_CYCLE.hops} calls followed` : '',
-    partial ? `the scan could not list every caller of ${partial}` : '',
+    partial ? (cut.length ? `the scan listed only ${cutWords(cut)}` : `the scan could not list every caller of ${partial}`) : '',
   ].filter(Boolean)
   const said: string[] = []
   if (leftOut.length || reach.length) {

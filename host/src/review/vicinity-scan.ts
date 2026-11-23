@@ -156,8 +156,8 @@ interface Caller {
 interface Anchor extends Definition {
   changedLines: number[]
   callers: Caller[]
-  /** How many production call sites the scan found, and whether it listed them all. */
-  count: { total: number; complete: boolean }
+  /** How many production call sites the scan found, how many it listed, and whether that is all of them. */
+  count: { total: number; shown: number; complete: boolean }
   /** How many of the call sites it listed are in tests. */
   testCallers: number
   /** The tests that use it, changed or not, by the scan's id for each when it gives one. */
@@ -306,7 +306,11 @@ function readPack(details: unknown): Pack | undefined {
       ...(definition.doors ?? known?.doors ? { doors: definition.doors ?? known?.doors } : {}),
       changedLines: list(anchor.changedLines).flatMap((at) => (line(at) ? [at as number] : [])),
       callers,
-      count: { total: Number.isInteger(counted?.total) ? (counted!.total as number) : callers.length, complete: counted?.complete === true },
+      count: {
+        total: Number.isInteger(counted?.total) ? (counted!.total as number) : callers.length,
+        shown: Number.isInteger(counted?.shown) ? (counted!.shown as number) : callers.length,
+        complete: counted?.complete === true,
+      },
       testCallers,
       tests: list(anchor.tests).flatMap((entry) => {
         const test = record(entry)
@@ -390,11 +394,13 @@ interface Cycle {
   doors: Set<string>
   /** The changed definitions whose ways out the scans left unfollowed, and why. */
   stopped: Map<number, 'limit' | 'time'>
-  left: Required<VicinityLeft>
+  left: Required<Omit<VicinityLeft, 'cut' | 'partial'>>
+  /** The definitions whose callers the scan listed only in part, by place, each once however many scans read it. */
+  cut: Map<string, NonNullable<VicinityLeft['cut']>[number]>
 }
 
 /** The callers of one definition worth showing, best first: where a request enters, the change itself, proven, rendered by convention, a boundary, another file. */
-function callersOf(anchor: Anchor, nodes: Map<string, Definition>, left: Required<VicinityLeft>): { caller: Caller; definition: Definition }[] {
+function callersOf(anchor: Anchor, nodes: Map<string, Definition>, { left, cut }: Pick<Cycle, 'left' | 'cut'>): { caller: Caller; definition: Definition }[] {
   const usable = anchor.callers.flatMap((caller) => {
     const definition = nodes.get(caller.id)
     if (!definition || caller.id === anchor.id || isTestPath(definition.path)) return []
@@ -407,7 +413,7 @@ function callersOf(anchor: Anchor, nodes: Map<string, Definition>, left: Require
     }
     return [{ caller, definition }]
   })
-  if (!anchor.count.complete) left.partial += 1
+  if (!anchor.count.complete) cut.set(placeOf(anchor), { symbol: anchor.symbol, shown: anchor.count.shown, total: anchor.count.total })
   const score = ({ caller, definition }: (typeof usable)[number]) => [entryOf(definition) ? 0 : 1, caller.changed ? 0 : 1, caller.proven ? 0 : 1, caller.convention ? 0 : 1, caller.boundary ? 0 : 1, definition.path === anchor.path ? 1 : 0]
   const sorted = usable.sort((a, b) => {
     const [x, y] = [score(a), score(b)]
@@ -454,7 +460,7 @@ function wayInAt(caller: Caller, definition: Definition): { entry?: ReviewEntry;
 
 /** Adds the callers of a definition, as links one call further out, and puts them on the frontier. */
 function addCallers(cycle: Cycle, anchor: Anchor, nodes: Map<string, Definition>, from: { near: VicinityLink['near']; place: string; hops: number; root: number; best: boolean; changedFiles: Set<string> }) {
-  callersOf(anchor, nodes, cycle.left).forEach(({ caller, definition }, index) => {
+  callersOf(anchor, nodes, cycle).forEach(({ caller, definition }, index) => {
     const best = from.best && index === 0
     const site = wayInAt(caller, definition)
     // What the scan says at the call tells more than a statement running as its file loads: `bus.on('sync', …)` is a listener.
@@ -491,7 +497,7 @@ function addCallers(cycle: Cycle, anchor: Anchor, nodes: Map<string, Definition>
 
 /** The first call out from each changed definition: its callers, its doors, and what its changed lines call. */
 function firstCalls(pack: Pack): Cycle & { entries: NonNullable<Vicinity['entries']> } {
-  const cycle: Cycle = { roots: [], callers: [], callees: [], frontier: [], seen: new Set(), doors: new Set(), stopped: new Map(), left: { byName: 0, perDefinition: 0, further: 0, partial: 0, aside: 0 } }
+  const cycle: Cycle = { roots: [], callers: [], callees: [], frontier: [], seen: new Set(), doors: new Set(), stopped: new Map(), left: { byName: 0, perDefinition: 0, further: 0, aside: 0 }, cut: new Map() }
   const entries: NonNullable<Vicinity['entries']> = []
   const changedIds = new Set(pack.anchors.map((anchor) => anchor.id))
   const roots = pack.anchors.filter((anchor) => !isTestPath(anchor.path) && anchor.changedLines.length > 0)
@@ -751,7 +757,8 @@ function finish(cycle: Cycle, entries: NonNullable<Vicinity['entries']>, notes: 
     return { changed: root.changed, symbol: root.symbol, hops, ...(stopped ? { stopped } : {}), ...called }
   })
   const notice = notes.join(' ')
-  return { links, ...(tests.length ? { tests } : {}), ...(entries.length ? { entries } : {}), ...(reach.length ? { reach } : {}), ...(notice ? { notice } : {}), left: cycle.left }
+  const left = { ...cycle.left, partial: cycle.cut.size, ...(cycle.cut.size ? { cut: [...cycle.cut.values()] } : {}) }
+  return { links, ...(tests.length ? { tests } : {}), ...(entries.length ? { entries } : {}), ...(reach.length ? { reach } : {}), ...(notice ? { notice } : {}), left }
 }
 
 /**
@@ -838,7 +845,7 @@ export async function scanVicinity({
 
   try {
     // What the change calls and what calls it: the changed lines and their definitions, read at head.
-    const first = await scan(['--diff', `${base}..${head}`], ['--max-depth', '1', '--max-anchors', '60', '--max-nodes', '120', '--budget-ms', '30000', '--tests', 'all'], SCAN_TIMEOUT_MS)
+    const first = await scan(['--diff', `${base}..${head}`], ['--max-depth', '1', '--max-anchors', '60', '--max-nodes', '120', '--budget-ms', '30000', '--callers', 'all', '--tests', 'all'], SCAN_TIMEOUT_MS)
     if (!('pack' in first)) return notShown(first.reason)
     const cycle = firstCalls(first.pack)
     const notes = stoppedEarly(first.pack)
@@ -854,7 +861,7 @@ export async function scanVicinity({
       const root = roots.indexOf(anchor)
       const places = await referencesOf(anchor, references, readHead)
       // Found by name and checked again at head: the scan's own word that it could not list every caller goes.
-      if (places.length > 0 && !anchor.count.complete) cycle.left.partial = Math.max(0, cycle.left.partial - 1)
+      if (places.length > 0) cycle.cut.delete(placeOf(anchor))
       places.forEach(({ definition, line: at, proven }, index) => {
         const link: VicinityLink = { near: { changed: { path: anchor.path, line: anchor.changedLines[0]! } }, other: definition, direction: 'caller', hops: 1, call: { line: at, name: declaredName(anchor.symbol), reference: true }, proven }
         cycle.callers.push({ link, root, from: placeOf(anchor), to: placeOf(definition) })
@@ -884,7 +891,7 @@ export async function scanVicinity({
         else unfollowed([from], 'limit')
       }
       if (starts.length === 0) break
-      const next = await scan(starts.flatMap(({ from, line: at }) => ['--anchor', `${from.definition.path}:${at}`]), ['--max-depth', '1', '--max-anchors', String(starts.length), '--max-nodes', '60', '--budget-ms', '20000'], time)
+      const next = await scan(starts.flatMap(({ from, line: at }) => ['--anchor', `${from.definition.path}:${at}`]), ['--max-depth', '1', '--max-anchors', String(starts.length), '--max-nodes', '60', '--budget-ms', '20000', '--callers', 'all'], time)
       if (!('pack' in next)) {
         unfollowed(starts.map(({ from }) => from), 'time')
         notes.push(`The callers further out than ${hop - 1} call${hop - 1 === 1 ? '' : 's'} are not shown: ${next.reason}`)

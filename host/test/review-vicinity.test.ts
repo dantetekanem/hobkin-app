@@ -136,7 +136,7 @@ test('the life cycle follows proven callers out to where a request enters, and k
   ])
   assert.deepEqual(found.entries, [{ changed: { path: 'app/controllers/checkouts_controller.rb', line: 5 }, entry: { kind: 'controller', exact: true } }])
   // guess matched only by name; local is a fourth callee of doingAfter; Cart#total has more callers than the scan could list.
-  assert.deepEqual(found.left, { byName: 1, perDefinition: 1, further: 0, partial: 1, aside: 0 })
+  assert.deepEqual(found.left, { byName: 1, perDefinition: 1, further: 0, partial: 1, aside: 0, cut: [{ symbol: 'Cart#total', shown: 6, total: 40 }] })
 
   assert.deepEqual(calls[0]!.slice(0, 6), ['scan', '--diff', 'aaa1111..bbb2222', '--cwd', '/repo.invalid', '--json'])
   // The next scans read the project's folder, so helper, which the first one read at head, is given where the folder has it.
@@ -365,7 +365,7 @@ test("a side panel scan agentic-search refuses for a newer option, by name, runs
     return calls.length === 2 ? { ok: true, stdout: JSON.stringify({ details: diff }) } : { ok: false, reason: 'no pack for this scan' }
   }
   const found = await scan(older)
-  assert.deepEqual([calls[0]!.includes('--tests'), calls[1]!.includes('--tests'), calls[1]!.includes('all')], [true, false, false])
+  assert.deepEqual([calls[0]!.includes('--tests'), calls[1]!.includes('--tests'), calls[1]!.filter((arg) => arg === 'all').length], [true, false, 1], 'only the refused option and its value go')
   assert.ok(found.links.some((link) => link.other.symbol === 'listen'), 'the scan without it maps the change')
 
   let asked = 0
@@ -518,4 +518,22 @@ test('a statement that registers a listener is that listener, by its event, not 
   const found = await scan(fakeScans([pack]).run)
 
   assert.deepEqual(found.links.map(({ entry, named }) => [entry, named]), [[{ kind: 'listener', exact: false }, 'sync']])
+})
+
+test('every scan asks for every caller, so a second caller in the same file is never cut, and a cut still left says how many', async () => {
+  const cut = {
+    files: [{ path: 'src/helpers/score.js' }],
+    nodes: [node('n2', 'src/helpers/score.js', 'formatScore', 3, 6, { depth: 0 })],
+    anchors: [{ id: 'n2', symbol: 'formatScore', kind: 'function', path: 'src/helpers/score.js', startLine: 3, endLine: 6, changedLines: [4], callers: [], callerCount: { total: 5, shown: 2, complete: false } }],
+    edges: [],
+    coverage: { truncatedBy: 'none' },
+  }
+  const { run, calls } = fakeScans([diff, second, third])
+
+  await scan(run)
+  const found = await scan(fakeScans([cut]).run)
+
+  const callersOption = (args: string[]) => args[args.indexOf('--callers') + 1]
+  assert.deepEqual(calls.map(callersOption), ['all', 'all', 'all'])
+  assert.deepEqual([found.left?.partial, found.left?.cut], [1, [{ symbol: 'formatScore', shown: 2, total: 5 }]])
 })
