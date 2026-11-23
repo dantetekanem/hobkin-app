@@ -671,14 +671,18 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
         } else candidates[node.id]!.push({ path: hit.path, why, lifecycle: true, changed: changedTests.includes(hit.path), found: 'entry' })
       }
     }
-    // The tests of the definitions on the nearest way in, nearest to the part first: what covered it before, through a caller.
-    const nearest = node.runs_from?.found === 'origins' ? node.runs_from.origins[0] : undefined
-    for (const step of (nearest?.chain ?? []).toReversed()) {
+    // The tests of the definitions on its ways in, nearest to the part first: what covered it before, through a caller.
+    // Two ways in at the same distance are both followed, so which one the walk found first does not decide.
+    const origins = node.runs_from?.found === 'origins' ? node.runs_from.origins : []
+    const steps = origins
+      .flatMap((origin) => origin.chain.toReversed().map((step, distance) => ({ step, distance, origin })))
+      .sort((a, b) => a.distance - b.distance)
+    for (const { step, origin } of steps) {
       for (const hit of walkTests[`${step.path}:${step.line}`] ?? []) {
         if (hit.path === node.path || !existsSync(join(cwd, hit.path))) continue
         const lifecycle = isLifecycleTestPath(hit.path, config)
         if (!(await scanLinkHolds({ path: hit.path, lifecycle, text: () => readOr(join(cwd, hit.path)) }, step.path))) continue
-        const why = `a test of ${step.symbol}, on the way in from ${nearest!.label}`
+        const why = `a test of ${step.symbol}, on the way in from ${origin.label}`
         const have = candidates[node.id]!.find((candidate) => candidate.path === hit.path)
         if (have) {
           have.through ??= step.symbol

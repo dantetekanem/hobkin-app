@@ -70,10 +70,17 @@ const scoreScan = (): Scan => {
   }
 }
 
-/** The walk as agentic-search answers it: a route above the service, and the service's own test, which the walk's scan links to it. */
+/**
+ * The walk as agentic-search answers it: a handler held under a key, found first, and a route above the service, at the
+ * same distance; and the service's own test, which the walk's scan links to it.
+ */
 const walk = (withTests: boolean): EntriesSearch => async () => ({
   entries: {
     n2: [
+      {
+        symbol: 'handlers', path: 'src/commands.js', hops: 2, line: 3, kind: 'handler', label: 'review.prepare', exact: true, by: 'scan' as const,
+        chain: [{ symbol: 'handlers', path: 'src/commands.js', line: 3, call_line: 4 }, { symbol: 'prepareReview', path: 'src/services/reviews.js', line: 7, call_line: 8 }],
+      },
       {
         symbol: 'showReview', path: 'src/handlers/reviews.js', hops: 2, line: 3, kind: 'route', label: 'GET /reviews/:id', exact: true, by: 'scan' as const,
         chain: [{ symbol: 'showReview', path: 'src/handlers/reviews.js', line: 3, call_line: 4 }, { symbol: 'findReview', path: 'src/services/reviews.js', line: 3, call_line: 4 }],
