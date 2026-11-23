@@ -350,11 +350,28 @@ function rated(nodes: readonly ReviewNode[]): ReviewNode[] {
   const weighed = nodes.map((node) => {
     const unit = node.unit ? unitOf.get(node.unit) : undefined
     const facts: RatedFacts[] = unit
-      ? [{ level: unit.level, critical: unit.critical, effect: unit.facts.effect.value, proof: unit.facts.proof.value, exposure: unit.facts.exposure.value, undo: unit.facts.undo.value, questions: unit.questions.length }]
+      ? [
+          {
+            level: unit.level,
+            critical: unit.critical,
+            effect: unit.facts.effect.value,
+            proof: unit.facts.proof.value,
+            exposure: unit.facts.exposure.value,
+            undo: unit.facts.undo.value,
+            questions: unit.questions.length,
+          },
+        ]
       : []
     const bucket = node.kind === 'test' ? 'test' : pathBucket(node.subtitle ?? '')
     const size = (node.stats?.additions ?? 0) + (node.stats?.deletions ?? 0)
-    const weight = attentionOf({ kind: node.kind, bucket, change: node.change, size, ...(node.status ? { status: node.status } : {}), rated: facts })
+    const weight = attentionOf({
+      kind: node.kind,
+      bucket,
+      change: node.change,
+      size,
+      ...(node.status ? { status: node.status } : {}),
+      rated: facts,
+    })
     return { node, bucket, size, ...weight }
   })
   const ranks = rankAttention(weighed.map(({ node, tier, strength, size }) => ({ id: node.id, tier, strength, size })))

@@ -222,14 +222,20 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
   // A card of tests goes with its subject (spec 055): it is drawn while its subject is, a safe one folds into the group
   // its subject folds into, and past the budget the two fold together. It never folds on its own.
   const entryOf = new Map(entries.map((entry) => [entry.node.id, entry]))
+  /** What a drawn test covers: a card's subject, else what its first test covers; a test drawn alone, what it covers. */
+  const coveredBy = (id: string): string | undefined => {
+    const card = testCards[id]
+    if (!card) return covers[id]
+    return card.subject ?? card.tests.map((test) => covers[test]).find((each) => each != null)
+  }
   const subjectOf = new Map<Entry, Entry>()
   const testsOf = new Map<Entry, Entry[]>()
   for (const entry of entries) {
     if (entry.node.kind !== 'test') continue
-    const card = testCards[entry.node.id]
-    const id = card ? (card.subject ?? card.tests.map((test) => covers[test]).find((each) => each != null)) : covers[entry.node.id]
-    const subject = id ? entryOf.get(id) : undefined
+    const covered = coveredBy(entry.node.id)
+    const subject = covered ? entryOf.get(covered) : undefined
     if (!subject || subject.node.kind === 'test') continue
+
     subjectOf.set(entry, subject)
     testsOf.set(subject, [...(testsOf.get(subject) ?? []), entry])
   }

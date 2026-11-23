@@ -346,7 +346,10 @@ export function frameStep({ focus, others = [], along = [], area, card = null, m
     for (const rect of along) {
       const wanted = [...taken, rect]
       const trial = zooms.map((zoom) => optionAt(zoom, chosen.kept, full, wanted)).reduce((best, option) => (cheaper(option.cost, best.cost) ? option : best))
-      if (!trial.fits || trial.cost[0]! > 0 || trial.cost[2]! > chosen.cost[2]!) continue
+      const coversNone = trial.cost[0] === 0
+      const coversNoMore = trial.cost[2]! <= chosen.cost[2]!
+      if (!trial.fits || !coversNone || !coversNoMore) continue
+
       taken = wanted
       chosen = trial
     }

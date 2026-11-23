@@ -210,18 +210,24 @@ function levelsOf(graph: Graph, focus: readonly string[]): Levels<NodeLevel, Wir
   }
 
   // The way in to each focus node, from where it starts: every hop, and the wire between each two, a folded one too.
+  /** Takes a wire a focus node folded off its count, so it is drawn and no longer counted. */
+  const unfold = (end: string, other: string) => {
+    for (const side of [folded[end]?.in, folded[end]?.out]) {
+      const at = side?.indexOf(other) ?? -1
+      if (at >= 0) side!.splice(at, 1)
+    }
+  }
   for (const id of focus) {
     const hops = drawnTrail(graph, id)
     for (const hop of hops) if (!focused.has(hop)) shown.add(hop)
+
     for (let at = 1; at < hops.length; at += 1) {
       const [from, to] = [hops[at - 1]!, hops[at]!]
       for (const edge of touching.get(to) ?? []) {
         if (across(edge, to) !== from || wires[edge.id] === 'bright') continue
         if (wires[edge.id] === 'folded') {
-          for (const [end, other] of [[to, from], [from, to]] as const) {
-            const fold = folded[end]
-            for (const side of [fold?.in, fold?.out]) if (side?.includes(other)) side.splice(side.indexOf(other), 1)
-          }
+          unfold(to, from)
+          unfold(from, to)
         }
         wires[edge.id] = 'near'
       }

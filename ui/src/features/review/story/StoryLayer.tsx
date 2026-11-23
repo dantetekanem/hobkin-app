@@ -172,9 +172,11 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null, resume = nu
       // A step, a jump, hobkin's cursor, G on a focus, or opening on one: the step is framed with its card beside its node,
       // and with the last call on the way in to its changed code and the card of that code's tests when they read too.
       const changed = told.find((id) => isChangedCode(nodeOf.get(id)))
-      const along = changed
-        ? [drawnTrail(view, changed).at(-2), testCardOf(view, changed)].filter((id): id is string => id != null && !told.includes(id) && rectOf.has(id)).map((id) => rectOf.get(id)!)
-        : []
+      const caller = changed ? drawnTrail(view, changed).at(-2) : undefined
+      const tests = changed ? testCardOf(view, changed) : null
+      const along = [caller, tests]
+        .filter((id): id is string => id != null && !told.includes(id) && rectOf.has(id))
+        .map((id) => rectOf.get(id)!)
       const shot = frameStep({ focus: told.map((id) => rectOf.get(id)!), others, along, area, card })
       target = shot.camera
       if (shot.card && content) {

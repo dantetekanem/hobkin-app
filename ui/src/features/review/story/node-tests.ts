@@ -79,8 +79,12 @@ export function splitCounts(tests: readonly (Pick<ReviewNode, 'change'> | undefi
 export function firstTests(split: SplitTests, most: number): Set<string> {
   const shown = new Set<string>()
   const lists = TEST_HEADINGS.map(([key]) => split[key])
-  for (let round = 0; shown.size < most && lists.some((list) => list.length > round); round += 1) {
-    for (const list of lists) if (list[round] && shown.size < most) shown.add(list[round]!.id)
+  const longest = Math.max(...lists.map((list) => list.length))
+  for (let round = 0; round < longest; round += 1) {
+    for (const list of lists) {
+      const test = list[round]
+      if (test && shown.size < most) shown.add(test.id)
+    }
   }
   return shown
 }

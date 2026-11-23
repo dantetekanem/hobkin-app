@@ -6,7 +6,7 @@
  * calls, such as a controller action its route reaches, is passed on the way. With none found it says why, in the
  * review's words when it has them. Pure.
  */
-import type { ReviewEdge, ReviewLifecycle, ReviewNode } from '#shared/review/types.ts'
+import type { ReviewEdge, ReviewEntry, ReviewLifecycle, ReviewNode } from '#shared/review/types.ts'
 
 /** What the way in reads of a node. */
 export type TrailNode = Pick<ReviewNode, 'id' | 'kind' | 'change'> & Partial<Pick<ReviewNode, 'title' | 'entry' | 'lifecycle' | 'unwired'>>
@@ -62,35 +62,49 @@ export function isChangedCode(node: Pick<ReviewNode, 'kind' | 'change'> | undefi
   return node != null && (node.kind === 'code' || node.kind === 'file') && node.change !== 'unchanged'
 }
 
+/** The two ends of a call wire, or null for any other wire. A `called-by` wire runs from the code its caller calls. */
+function callOf(edge: TrailGraph['edges'][number]): { caller: string; callee: string } | null {
+  if (edge.kind === 'calls') return { caller: edge.from, callee: edge.to }
+  if (edge.kind === 'called-by') return { caller: edge.to, callee: edge.from }
+  return null
+}
+
 /** Who calls each node along the call wires, each once, in the review's order. */
 function callersOf(graph: TrailGraph, index: ReadonlyMap<string, number>): Map<string, string[]> {
   const callers = new Map<string, string[]>()
   for (const edge of graph.edges) {
-    // A `calls` wire runs from the caller; a `called-by` wire runs from the code its caller calls.
-    const [callee, caller] = edge.kind === 'calls' ? [edge.to, edge.from] : edge.kind === 'called-by' ? [edge.from, edge.to] : [null, null]
-    if (callee == null || caller == null || callee === caller || !index.has(callee) || !index.has(caller)) continue
-    const known = callers.get(callee) ?? []
-    if (!known.includes(caller)) callers.set(callee, [...known, caller])
+    const call = callOf(edge)
+    if (!call || call.caller === call.callee || !index.has(call.caller) || !index.has(call.callee)) continue
+
+    const known = callers.get(call.callee) ?? []
+    if (!known.includes(call.caller)) callers.set(call.callee, [...known, call.caller])
   }
   for (const list of callers.values()) list.sort((a, b) => index.get(a)! - index.get(b)!)
   return callers
 }
 
-/** The way in to a part of the change, or null for anything else. */
-export function trailOf(graph: TrailGraph, id: string): Trail | null {
-  const index = new Map(graph.nodes.map((node, at) => [node.id, at]))
-  const node = graph.nodes[index.get(id) ?? -1]
-  if (!node || !isChangedCode(node)) return null
-  const told = node.lifecycle?.origin
-  if (told) return { chain: [...told.chain], origin: { kind: told.kind, label: told.label, exact: told.exact }, more: told.more ?? 0, why: null }
+/** Where a way in starts: the node a request enters by, and how it enters. */
+function originOf(node: TrailNode, entry: ReviewEntry): Origin {
+  return {
+    kind: entry.kind,
+    label: node.title ?? node.id,
+    exact: entry.exact,
+  }
+}
 
-  // Up the call wires a level at a time, each level in the review's order, so the nearest comes first.
-  const callers = callersOf(graph, index)
+/**
+ * The ways in found up the call wires from a node, a level at a time and each level in the review's order, so the
+ * nearest comes first: those nothing calls, else every entry reached. With each node reached, the node it was reached
+ * from, one call nearer the change.
+ */
+function walkUp(graph: TrailGraph, id: string, index: ReadonlyMap<string, number>, callers: ReadonlyMap<string, readonly string[]>) {
   const towardChange = new Map<string, string>()
   const seen = new Set([id])
   const roots: string[] = []
   const entries: string[] = []
-  for (let level = [id]; level.length > 0; ) {
+
+  let level = [id]
+  while (level.length > 0) {
     const next: string[] = []
     for (const at of level) {
       for (const caller of callers.get(at) ?? []) {
@@ -101,6 +115,7 @@ export function trailOf(graph: TrailGraph, id: string): Trail | null {
       }
     }
     next.sort((a, b) => index.get(a)! - index.get(b)!)
+
     for (const reached of next) {
       if (!graph.nodes[index.get(reached)!]!.entry) continue
       entries.push(reached)
@@ -109,23 +124,50 @@ export function trailOf(graph: TrailGraph, id: string): Trail | null {
     level = next
   }
 
-  const ways = roots.length > 0 ? roots : entries
+  return { ways: roots.length > 0 ? roots : entries, towardChange }
+}
+
+/** Why a part of the change has no way in: the review's reason, an older review's line, why nothing wires it, or what the graph shows. */
+function whyNone(node: TrailNode, called: boolean): string {
+  const none = node.lifecycle?.none
+  if (none) return NO_WAY_IN[none]
+  if (node.lifecycle?.path) return node.lifecycle.path
+  if (node.unwired) return node.unwired
+  return called ? 'None of its callers in the review leads to a way in.' : 'The review shows no caller of it.'
+}
+
+/** The way in to a part of the change, or null for anything else. */
+export function trailOf(graph: TrailGraph, id: string): Trail | null {
+  const index = new Map(graph.nodes.map((node, at) => [node.id, at]))
+  const node = graph.nodes[index.get(id) ?? -1]
+  if (!node || !isChangedCode(node)) return null
+
+  const told = node.lifecycle?.origin
+  if (told) {
+    return {
+      chain: [...told.chain],
+      origin: { kind: told.kind, label: told.label, exact: told.exact },
+      more: told.more ?? 0,
+      why: null,
+    }
+  }
+
+  const callers = callersOf(graph, index)
+  const { ways, towardChange } = walkUp(graph, id, index, callers)
   const start = ways[0]
   if (start != null) {
     const chain: string[] = []
     for (let at = start; at !== id; at = towardChange.get(at)!) chain.push(at)
+    // Every way in the walk found is an entry.
     const origin = graph.nodes[index.get(start)!]!
-    return { chain, origin: { kind: origin.entry!.kind, label: origin.title ?? origin.id, exact: origin.entry!.exact }, more: ways.length - 1, why: null }
+    return { chain, origin: originOf(origin, origin.entry!), more: ways.length - 1, why: null }
   }
-  if (node.entry) return { chain: [], origin: { kind: node.entry.kind, label: node.title ?? node.id, exact: node.entry.exact }, more: 0, why: null }
 
-  const none = node.lifecycle?.none
-  const why =
-    (none ? NO_WAY_IN[none] : undefined) ??
-    node.lifecycle?.path ??
-    node.unwired ??
-    ((callers.get(id) ?? []).length > 0 ? 'None of its callers in the review leads to a way in.' : 'The review shows no caller of it.')
-  return { chain: [], origin: null, more: 0, why }
+  // Code a request enters by itself, with nothing above it, is its own way in.
+  if (node.entry) return { chain: [], origin: originOf(node, node.entry), more: 0, why: null }
+
+  const called = (callers.get(id) ?? []).length > 0
+  return { chain: [], origin: null, more: 0, why: whyNone(node, called) }
 }
 
 /** Enough of the graph as drawn to find a way in on it: each folded node's card, and each folded test's. */
