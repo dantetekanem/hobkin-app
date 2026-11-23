@@ -31,7 +31,7 @@ export interface RunningAgent extends ListedAgent {
 }
 
 const POOL: RunningAgent[] = [
-  { id: 'a1', title: 'Fix the login redirect loop', project: 'storefront', doing: 'running the auth tests', tier: 'high', hue: 262, mood: 'working', kind: 'work' },
+  { id: 'a1', title: 'Fix the login redirect loop', project: 'storefront', doing: 'running the auth tests', tier: 'high', hue: 262, mood: 'working', kind: 'work', onClaudeCode: true },
   {
     id: 'a2',
     title: 'Look for dependency updates',
@@ -70,7 +70,7 @@ const POOL: RunningAgent[] = [
   },
   { id: 'a6', title: 'Refresh the install guide', project: 'docs-site', doing: 'checking the commands', tier: 'fast', hue: 150, mood: 'working', kind: 'work' },
   { id: 'a7', title: 'Watch the last release', project: 'storefront', doing: 'reading the error log', tier: 'fast', hue: 40, mood: 'searching', kind: 'work' },
-  { id: 'a8', title: 'Plan the rate limiter', project: 'billing-api', doing: 'tracing the request path', tier: 'max', hue: 290, mood: 'thinking', kind: 'work' },
+  { id: 'a8', title: 'Plan the rate limiter', project: 'billing-api', doing: 'tracing the request path', tier: 'max', hue: 290, mood: 'thinking', kind: 'work', onClaudeCode: true },
 ]
 
 /** The questions answered in this window. Sample state: the host will say which agents are waiting. */
