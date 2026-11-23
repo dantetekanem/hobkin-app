@@ -126,8 +126,10 @@ const hobkinEngine = Type.Union([
   Type.Object({ kind: Type.Literal('claude'), model: Type.Optional(oneOf(CLAUDE_MODELS)), effort: Type.Optional(oneOf(HOBKIN_CLAUDE_EFFORTS)) }, { additionalProperties: false }),
   Type.Object({ kind: Type.Literal('pi'), model: Type.String({ pattern: '^[a-z0-9][a-z0-9._-]{0,63}/\\S{1,256}$' }), effort: oneOf(MAIN_EFFORTS) }, { additionalProperties: false }),
 ])
+/** One of the schedules an agent keeps for itself, by the runtime's id for it (`056-agent-schedules`). */
+const scheduleId = Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$' })
 /** A work project by hobkin's slug for it, and one of its items by id. */
-const projectSlug = Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' })
+const projectSlug =Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' })
 const workItem = words(64)
 /** A proof run's id, the name of its folder in hobkin's home. */
 const proofRunId = Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,80}$' })
@@ -1198,6 +1200,26 @@ export const COMMANDS = {
     args: Type.Object({ run: words(256), model: Type.Optional(words(200)), effort: Type.Optional(oneOf(MAIN_EFFORTS)) }, { additionalProperties: false }),
     rule: ({ model, effort }) => (model !== undefined || effort !== undefined ? null : 'need a model or a thinking level to change'),
   },
+  // The schedules agents keep for themselves (056-agent-schedules), from the window's list. hobkin's own agents change
+  // theirs with their own tools, so only the window sends these.
+  'schedule.cancel': {
+    description: "Cancel one of the schedules an agent keeps for itself, by its id: it never runs or wakes its agent again. Refused for a schedule hobkin does not have or one that has ended.",
+    runs: 'host',
+    args: Type.Object({ id: scheduleId }, { additionalProperties: false }),
+    outside: true,
+  },
+  'schedule.pause': {
+    description: "Pause one of the schedules an agent keeps for itself, by its id, or with `paused` false let it go on. A paused schedule does not run. Refused for a schedule hobkin does not have or one that has ended.",
+    runs: 'host',
+    args: Type.Object({ id: scheduleId, paused: Type.Boolean() }, { additionalProperties: false }),
+    outside: true,
+  },
+  'schedule.run': {
+    description: "Run one of the schedules an agent keeps for itself now, by its id, as if its time had come. Refused for a schedule hobkin does not have, one that has ended, and one already running.",
+    runs: 'host',
+    args: Type.Object({ id: scheduleId }, { additionalProperties: false }),
+    outside: true,
+  },
   'routine.run': {
     description:
       "Run a routine once now, by its id, as hobkin's run_routine does: even when it is off or not due, and no setting changes. hobkin refuses while it is already running or its background places are full. Answers once the run has started; its report comes later in Reports.",
@@ -1482,6 +1504,10 @@ export interface CommandResults {
   'agent.say': { queued: boolean }
   /** What the agent works on now, in words. */
   'agent.change': { message: string }
+  /** The runtime took it. A refusal comes as the command's error, in the runtime's words. */
+  'schedule.cancel': { ok: true }
+  'schedule.pause': { ok: true }
+  'schedule.run': { ok: true }
   'agent.session': SavedJobSession
   'activity.before': OlderSteps
   /** Null when the session saved no such tool result. */
