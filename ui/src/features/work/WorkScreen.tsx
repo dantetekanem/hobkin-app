@@ -80,7 +80,10 @@ export function WorkScreen() {
   useStops(main)
   const { work, live } = useWorkView()
   const projects = work?.projects
-  const worldAvailable = useMemo(() => new Set(projects?.filter(project => project.state === 'chosen' && project.slug).map(project => project.slug)).size >= 3, [projects])
+  const worldAvailable = useMemo(() => {
+    const chosen = projects?.filter(project => project.state === 'chosen' && project.slug).map(project => project.slug)
+    return new Set(chosen).size >= 3
+  }, [projects])
   // What each part of the page reads of work mode, each held while it says the same.
   const parts = useSame(
     work && {

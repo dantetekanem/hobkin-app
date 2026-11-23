@@ -48,8 +48,11 @@ export const HOME_WORK = ['held', 'agents', 'queue', 'queued', 'projects', 'fini
 
 type HomeFields = ReturnType<typeof homeHostFields>
 
-const sameForHome = (held: WorkState | null, next: WorkState | null) =>
-  held === next || (held !== null && next !== null && HOME_WORK.every((key) => held[key] === next[key]))
+function sameForHome(held: WorkState | null, next: WorkState | null): boolean {
+  if (held === next) return true
+  if (held === null || next === null) return false
+  return HOME_WORK.every((key) => held[key] === next[key])
+}
 
 /** The fields held while they say the same, with work mode held while each part of it Home reads is the one held. */
 function keepHomeFields(held: HomeFields, next: HomeFields): HomeFields {
@@ -78,5 +81,8 @@ export function useHomeModel(): HomeModel {
     [now, fields, reports, actions, routines, dismissed],
   )
   const held = useRef<HomeModel | null>(null)
-  return useMemo(() => (held.current = keepSame(held.current, withAgents(parts, agents))), [parts, agents])
+  return useMemo(() => {
+    held.current = keepSame(held.current, withAgents(parts, agents))
+    return held.current
+  }, [parts, agents])
 }

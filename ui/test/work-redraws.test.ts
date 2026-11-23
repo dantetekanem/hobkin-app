@@ -22,8 +22,14 @@ const answerReviews = (list: ReviewList) => {
   for (const reader of reviewReaders) reader()
 }
 const refresh = () => {}
+function readReviews(reader: () => void) {
+  reviewReaders.add(reader)
+  return () => {
+    reviewReaders.delete(reader)
+  }
+}
 function useReviewList() {
-  const list = useSyncExternalStore((reader) => (reviewReaders.add(reader), () => void reviewReaders.delete(reader)), () => reviewList)
+  const list = useSyncExternalStore(readReviews, () => reviewList)
   return { list, error: null, refresh }
 }
 
