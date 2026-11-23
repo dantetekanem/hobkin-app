@@ -23,6 +23,7 @@ import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import { releaseImages } from '@/features/chat/image-uploads.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
+import { PAGE_ROOM, ScheduleLine } from '@/features/schedules/ScheduleLine.tsx'
 import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
@@ -767,7 +768,7 @@ function TalkInput({ agentId, name, hue, mood, answering, finished }: { agentId:
   const label = finished ? `${name} has finished` : answering ? `Answer ${name}` : `Message ${name}`
 
   return (
-    <div className="pointer-events-auto mt-auto shrink-0 px-[10%] pt-2 pb-5">
+    <div className="pointer-events-auto mt-auto shrink-0 px-[10%] pt-2 pb-2">
       <form
         className={cn(
           'rounded-[26px] border-[1.5px] bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring',
@@ -825,18 +826,25 @@ function TalkInput({ agentId, name, hue, mood, answering, finished }: { agentId:
           </button>
         </div>
       </form>
-      {problem || images.problem ? (
-        <p role="alert" className="mt-1.5 px-3 text-[11px] text-bad-fg">
-          {problem ?? images.problem}
-        </p>
-      ) : said ? (
-        <p role="status" className="mt-1.5 px-3 text-[11px] text-muted-foreground">
-          {said}
-        </p>
-      ) : finished ? (
-        // Only what the user cannot tell by looking: the keys are in the key list, not under every input.
-        <p className="mt-1.5 px-3 text-[11px] text-muted-foreground">It has finished, so nothing more reaches it.</p>
-      ) : null}
+      {/* Always there, so the box does not move when words or a schedule come and go: the words at the left, the
+          agent's own schedules at the right (056), whose list rises from this row. */}
+      <div className="relative mt-1 flex min-h-6 items-start gap-3 px-3">
+        <div className="min-w-0 flex-1 py-1 text-[11px] leading-4">
+          {problem || images.problem ? (
+            <p role="alert" className="text-bad-fg">
+              {problem ?? images.problem}
+            </p>
+          ) : said ? (
+            <p role="status" className="text-muted-foreground">
+              {said}
+            </p>
+          ) : finished ? (
+            // Only what the user cannot tell by looking: the keys are in the key list, not under every input.
+            <p className="text-muted-foreground">It has finished, so nothing more reaches it.</p>
+          ) : null}
+        </div>
+        <ScheduleLine place={{ kind: 'run', id: agentId }} style={{ width: PAGE_ROOM }} />
+      </div>
     </div>
   )
 }

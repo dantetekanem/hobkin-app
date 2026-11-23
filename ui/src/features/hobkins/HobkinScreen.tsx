@@ -22,6 +22,7 @@ import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import type { Attachment } from '@/features/chat/draft.ts'
 import { MessageText } from '@/features/chat/markdown.ts'
 import { Pulse } from '@/features/pulse/Pulse.tsx'
+import { PAGE_ROOM, ScheduleLine } from '@/features/schedules/ScheduleLine.tsx'
 import { TeamsStrip } from '@/features/teams/TeamsStrip.tsx'
 import { useModelChoices } from '@/features/tiers/models.ts'
 import { AgentStopControl, upToAgents, walkSteps } from '@/features/work/AgentScreen.tsx'
@@ -649,7 +650,7 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
   const placeholder = images.dropping ? 'Drop the image to attach it' : fresh && !working ? 'What should it do first?' : label
 
   return (
-    <div className="shrink-0 px-[10%] pt-2 pb-5">
+    <div className="shrink-0 px-[10%] pt-2 pb-2">
       <form
         className={cn(
           'rounded-[26px] border-[1.5px] bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring',
@@ -709,17 +710,24 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
           </button>
         </div>
       </form>
-      {problem || images.problem ? (
-        <p role="alert" className="mt-1.5 px-3 text-[11px] text-bad-fg">
-          {problem ?? images.problem}
-        </p>
-      ) : said ? (
-        <p role="status" className="mt-1.5 px-3 text-[11px] text-muted-foreground">
-          {said}
-        </p>
-      ) : connected ? null : (
-        <p className="mt-1.5 px-3 text-[11px] text-muted-foreground">hobkin is not connected, so nothing can be sent.</p>
-      )}
+      {/* Always there, so the box does not move when words or a schedule come and go: the words at the left, the
+          hobkin's own schedules at the right (056), whose list rises from this row. */}
+      <div className="relative mt-1 flex min-h-6 items-start gap-3 px-3">
+        <div className="min-w-0 flex-1 py-1 text-[11px] leading-4">
+          {problem || images.problem ? (
+            <p role="alert" className="text-bad-fg">
+              {problem ?? images.problem}
+            </p>
+          ) : said ? (
+            <p role="status" className="text-muted-foreground">
+              {said}
+            </p>
+          ) : connected ? null : (
+            <p className="text-muted-foreground">hobkin is not connected, so nothing can be sent.</p>
+          )}
+        </div>
+        <ScheduleLine place={{ kind: 'hobkin', id }} style={{ width: PAGE_ROOM }} />
+      </div>
     </div>
   )
 }

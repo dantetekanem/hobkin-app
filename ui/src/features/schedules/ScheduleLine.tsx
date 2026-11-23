@@ -47,6 +47,9 @@ export const MAIN_ROOM = {
   crowded: 'max(clamp(1.75rem, calc((100% - 30rem) * 9), 7rem), min(calc((100% - 36rem) * 99), clamp(8.5rem, 40%, 14rem)))',
 } as const
 
+/** The line's room in the row under an agent's or a hobkin's talk box, beside the status words, kept with or without schedules. */
+export const PAGE_ROOM = 'min(13rem, 46%)'
+
 /** The list never covers the header above it, and has at least this much room. */
 const LEAVE = 64
 const LEAST_ROOM = 160
