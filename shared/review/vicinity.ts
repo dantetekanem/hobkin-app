@@ -85,7 +85,8 @@ export interface VicinityLeft {
 /** A test that uses a changed definition, as the scan found it: the changed line it reaches, and where the test is. */
 export interface VicinityTest {
   changed: { path: string; line: number }
-  test: { path: string; symbol: string; line: number }
+  /** `changed`: the diff touches the test itself, as the scan's test definitions say. Missing from an older scan. */
+  test: { path: string; symbol: string; line: number; changed?: boolean }
 }
 
 /** How far the scans followed the callers of one changed definition, and why they went no further. */
@@ -97,6 +98,9 @@ export interface VicinityReach {
   hops: number
   /** `limit`: the calls the life cycle follows ran out; `time`: the scans could go no further, out of time or failing. Otherwise no caller was left. */
   stopped?: 'limit' | 'time'
+  /** The call sites outside tests the scan counted, and those in tests, so "only tests call it" can be said. Missing from an older host. */
+  callers?: number
+  testCallers?: number
 }
 
 export interface Vicinity {

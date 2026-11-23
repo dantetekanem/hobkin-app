@@ -243,6 +243,50 @@ test('a changed constant, which no one calls, has what uses it by name as its ca
   assert.deepEqual(vicinity.tests, [{ changed: { path: 'src/extension.ts', line: 4 }, test: { path: 'test/cli.test.ts', symbol: 'cli matches pi', line: 9 } }])
 })
 
+test('a changed definition only tests call keeps their count beside its other callers, so the review can say only tests call it', async () => {
+  const pack = {
+    files: [{ path: 'src/doing.ts' }],
+    nodes: [node('n1', 'src/doing.ts', 'doingAfter', 4, 8, { depth: 0 }), node('t1', 'test/doing.test.ts', 'says researching', 3, 5, { kind: 'test' }), node('t2', 'test/doing.test.ts', 'says working', 7, 9, { kind: 'test' })],
+    anchors: [
+      {
+        id: 'n1', symbol: 'doingAfter', kind: 'function', path: 'src/doing.ts', startLine: 4, endLine: 8, changedLines: [5],
+        callers: [caller('t1', 'test/doing.test.ts', 4, { test: true }), caller('t2', 'test/doing.test.ts', 8, { test: true })], callerCount: complete(0),
+      },
+    ],
+    edges: [],
+    coverage: { truncatedBy: 'none' },
+  }
+  const found = await scan(fakeScans([pack]).run)
+  assert.deepEqual(found.links, [], 'a test is never a way in')
+  assert.deepEqual(found.reach, [{ changed: { path: 'src/doing.ts', line: 5 }, symbol: 'doingAfter', hops: 0, callers: 0, testCallers: 2 }])
+})
+
+test('each test that uses the change says whether the change touched it, from the scan’s own test definitions, and one it lists only there comes too', async () => {
+  const pack = {
+    files: [{ path: 'src/extension.ts' }, { path: 'test/doing.test.ts' }],
+    nodes: [node('n2', 'src/extension.ts', 'searchExtension', 3, 5, { depth: 0 })],
+    anchors: [
+      {
+        id: 'n2', symbol: 'searchExtension', kind: 'function', path: 'src/extension.ts', startLine: 3, endLine: 5, changedLines: [4], callers: [], callerCount: complete(0),
+        tests: [{ id: 't9', symbol: 'cli matches pi', path: 'test/cli.test.ts', line: 9, text: '' }],
+      },
+    ],
+    testDefinitions: [
+      { id: 't9', symbol: 'cli matches pi', path: 'test/cli.test.ts', startLine: 8, endLine: 12, anchors: [{ id: 'n2', lines: [9] }], changed: false, setup: [] },
+      { id: 't10', symbol: 'doing says researching', path: 'test/doing.test.ts', startLine: 3, endLine: 6, anchors: [{ id: 'n2', lines: [4, 5] }], changed: true, setup: [] },
+      // Another definition's test is not this one's.
+      { id: 't11', symbol: 'other', path: 'test/other.test.ts', startLine: 1, endLine: 3, anchors: [{ id: 'n7', lines: [2] }], changed: false, setup: [] },
+    ],
+    edges: [],
+    coverage: { truncatedBy: 'none' },
+  }
+  const found = await scan(fakeScans([pack]).run)
+  assert.deepEqual(found.tests, [
+    { changed: { path: 'src/extension.ts', line: 4 }, test: { path: 'test/cli.test.ts', symbol: 'cli matches pi', line: 9, changed: false } },
+    { changed: { path: 'src/extension.ts', line: 4 }, test: { path: 'test/doing.test.ts', symbol: 'doing says researching', line: 4, changed: true } },
+  ])
+})
+
 test('a changed Ruby constant is looked for in its own file only, since no other Ruby file imports it, and its use there is still its caller', async () => {
   const plan = ['class Plan', '  LIMITS = {', '    free: 1,', '  }.freeze', '', '  def allowed?(count)', '    count <= LIMITS[:free]', '  end', 'end', ''].join('\n')
   const pack = {

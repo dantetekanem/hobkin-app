@@ -146,8 +146,21 @@ interface Anchor extends Definition {
   callers: Caller[]
   /** How many production call sites the scan found, and whether it listed them all. */
   count: { total: number; complete: boolean }
-  /** The tests that use it, changed or not. */
-  tests: { path: string; symbol: string; line: number }[]
+  /** How many of the call sites it listed are in tests. */
+  testCallers: number
+  /** The tests that use it, changed or not, by the scan's id for each when it gives one. */
+  tests: { id?: string; path: string; symbol: string; line: number }[]
+}
+
+/** A test that references changed definitions, as the scan's `testDefinitions` list it with `--tests all`. */
+interface TestDefinition {
+  id: string
+  path: string
+  symbol: string
+  /** The changed definitions it references, each with the first line that does. */
+  anchors: { id: string; line: number }[]
+  /** The diff touches the test itself. */
+  changed: boolean
 }
 
 interface Edge {
@@ -168,6 +181,7 @@ interface Pack {
   anchors: Anchor[]
   edges: Edge[]
   files: Set<string>
+  testDefinitions: TestDefinition[]
   stopped: string | null
 }
 
@@ -231,10 +245,16 @@ function readPack(details: unknown): Pack | undefined {
     const anchor = record(item)
     if (!definition || !anchor) return []
     const counted = record(anchor.callerCount)
+    let testCallers = 0
     const callers = list(anchor.callers).flatMap((entry): Caller[] => {
       const site = record(entry)
       const [id, at, name] = [text(site?.id), line(site?.line), text(site?.name)]
-      if (!site || !id || !at || site.test === true) return []
+      if (!site || !id || !at) return []
+      // A test is never a way in, but that tests call it is worth saying.
+      if (site.test === true) {
+        testCallers += 1
+        return []
+      }
       return [{
         id, line: at, proven: site.resolution === 'exact', guards: guardsOf(site.guards), enqueues: site.enqueue === true, changed: site.changed === true, boundary: list(site.boundary).length > 0,
         ...(name ? { name } : {}), convention: site.convention === true,
@@ -249,10 +269,11 @@ function readPack(details: unknown): Pack | undefined {
       changedLines: list(anchor.changedLines).flatMap((at) => (line(at) ? [at as number] : [])),
       callers,
       count: { total: Number.isInteger(counted?.total) ? (counted!.total as number) : callers.length, complete: counted?.complete === true },
+      testCallers,
       tests: list(anchor.tests).flatMap((entry) => {
         const test = record(entry)
-        const [path, symbol, at] = [text(test?.path), text(test?.symbol), line(test?.line)]
-        return path && symbol && at && isSafePath(path) ? [{ path, symbol, line: at }] : []
+        const [id, path, symbol, at] = [text(test?.id), text(test?.path), text(test?.symbol), line(test?.line)]
+        return path && symbol && at && isSafePath(path) ? [{ ...(id ? { id } : {}), path, symbol, line: at }] : []
       }),
     }]
   })
@@ -263,8 +284,19 @@ function readPack(details: unknown): Pack | undefined {
     return [{ from, to, name: text(edge.name) ?? '', relationship, proven: edge.resolution === 'exact', byName: edge.resolution === 'static_candidate', ...(text(edge.via) ? { via: text(edge.via) } : {}), line: at, guards: guardsOf(edge.guards) }]
   })
   const files = new Set(list(raw.files).flatMap((item) => (text(record(item)?.path) ? [text(record(item)?.path)!] : [])))
+  const testDefinitions = list(raw.testDefinitions).flatMap((item): TestDefinition[] => {
+    const test = record(item)
+    const [id, path, symbol] = [text(test?.id), text(test?.path), text(test?.symbol)]
+    if (!test || !id || !path || !symbol || !isSafePath(path)) return []
+    const anchored = list(test.anchors).flatMap((entry) => {
+      const anchor = record(entry)
+      const [of, at] = [text(anchor?.id), list(anchor?.lines).find((value) => line(value) != null) as number | undefined]
+      return of && at ? [{ id: of, line: at }] : []
+    })
+    return [{ id, path, symbol, anchors: anchored, changed: test.changed === true }]
+  })
   const truncated = record(raw.coverage)?.truncatedBy
-  return { nodes, anchors, edges, files, stopped: typeof truncated === 'string' && truncated !== 'none' ? truncated : null }
+  return { nodes, anchors, edges, files, testDefinitions, stopped: typeof truncated === 'string' && truncated !== 'none' ? truncated : null }
 }
 
 // ───────────────────────── Choosing the life cycle ─────────────────────────
@@ -314,6 +346,9 @@ interface Root {
   place: string
   changed: { path: string; line: number }
   symbol: string
+  /** The call sites outside tests the scan counted, and those in tests. */
+  callers: number
+  testCallers: number
 }
 
 interface Cycle {
@@ -414,7 +449,7 @@ function firstCalls(pack: Pack): Cycle & { entries: NonNullable<Vicinity['entrie
   // A changed action's doors are its own, so they are linked before another changed definition reaches it as a caller.
   roots.forEach((anchor, root) => {
     const changed = { path: anchor.path, line: anchor.changedLines[0]! }
-    cycle.roots.push({ place: placeOf(anchor), changed, symbol: anchor.symbol })
+    cycle.roots.push({ place: placeOf(anchor), changed, symbol: anchor.symbol, callers: anchor.count.total, testCallers: anchor.testCallers })
     if (anchor.entry) entries.push({ changed, entry: anchor.entry })
     addDoors(cycle, anchor, { near: { changed }, place: placeOf(anchor), hops: 1, root })
   })
@@ -662,15 +697,35 @@ function finish(cycle: Cycle, entries: NonNullable<Vicinity['entries']>, notes: 
   const reach: VicinityReach[] = cycle.roots.map((root, index) => {
     const hops = Math.max(0, ...cycle.callers.filter((ranked) => ranked.root === index && !ranked.to.startsWith('door:')).map((ranked) => ranked.link.hops))
     const stopped = cycle.stopped.get(index)
-    return { changed: root.changed, symbol: root.symbol, hops, ...(stopped ? { stopped } : {}) }
+    // Tests that call it are counted beside the other call sites, so only tests calling it can be told.
+    const called = root.testCallers > 0 ? { callers: root.callers, testCallers: root.testCallers } : {}
+    return { changed: root.changed, symbol: root.symbol, hops, ...(stopped ? { stopped } : {}), ...called }
   })
   const notice = notes.join(' ')
   return { links, ...(tests.length ? { tests } : {}), ...(entries.length ? { entries } : {}), ...(reach.length ? { reach } : {}), ...(notice ? { notice } : {}), left: cycle.left }
 }
 
-/** The tests the scan says use each changed definition, at the definition's first changed line. */
+/**
+ * The tests the scan says use each changed definition, at the definition's first changed line: those it names by the
+ * definition, then those its test definitions say reference it, each once. A test says whether the diff touched it when
+ * the test definitions say so.
+ */
 function testsOf(pack: Pack): VicinityTest[] {
-  return pack.anchors.flatMap((anchor) => (anchor.changedLines.length ? anchor.tests.map((test) => ({ changed: { path: anchor.path, line: anchor.changedLines[0]! }, test })) : []))
+  const definitionOf = new Map(pack.testDefinitions.map((test) => [test.id, test]))
+  return pack.anchors.flatMap((anchor) => {
+    if (!anchor.changedLines.length) return []
+    const changed = { path: anchor.path, line: anchor.changedLines[0]! }
+    const named = anchor.tests.map(({ id, ...test }) => {
+      const definition = id ? definitionOf.get(id) : undefined
+      return { id, test: { ...test, ...(definition ? { changed: definition.changed } : {}) } }
+    })
+    const listed = pack.testDefinitions.flatMap((test) => {
+      const at = test.anchors.find((entry) => entry.id === anchor.id)
+      if (!at || named.some((entry) => entry.id === test.id || (entry.test.path === test.path && entry.test.symbol === test.symbol))) return []
+      return [{ test: { path: test.path, symbol: test.symbol, line: at.line, changed: test.changed } }]
+    })
+    return [...named, ...listed].map(({ test }) => ({ changed, test }))
+  })
 }
 
 /**
