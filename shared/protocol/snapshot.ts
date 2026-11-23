@@ -66,6 +66,8 @@ export interface RunSummary {
   cwd?: string
   startedAt?: string
   work?: { slug?: string; item?: string; lane?: string }
+  /** The host sent this run to Claude Code (033-claude-code-agents), so the window draws a crab pal beside its face. A host from before sends none. */
+  onClaudeCode?: true
   stalled?: boolean
   /**
    * A run whose state is `waiting` (spec 053) ended its turn to carry on at a time, with no process: when, as an ISO

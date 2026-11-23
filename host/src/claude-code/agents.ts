@@ -12,6 +12,8 @@ export interface ClaudeCodeHooks {
   settings: () => ClaudeCodeSettings & { tiers?: ClaudeTiers }
   findClaude: () => string | null
   ask: Ask
+  /** Told the harness id of each run sent to Claude Code (`ClaudeRuns.routed`). */
+  onClaude?: (harnessId: string) => void
 }
 
 /**
@@ -34,5 +36,6 @@ export async function agentHarness(hooks: ClaudeCodeHooks, runFor: HarnessRoute[
     findClaude: hooks.findClaude,
     runFor,
     directions: claudeDirections(harnesses.workDirections, background),
+    ...(hooks.onClaude ? { onClaude: hooks.onClaude } : {}),
   })
 }

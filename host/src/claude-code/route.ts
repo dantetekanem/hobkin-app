@@ -42,6 +42,8 @@ export interface HarnessRoute {
   runFor: (harnessId: string, signal?: AbortSignal) => Promise<RunFacts | undefined>
   /** What a run with this purpose is told. */
   directions: (purpose: string | undefined) => string
+  /** Told the harness id of each run sent to Claude Code, as it starts there, so the window can draw it so (`runs.ts`). */
+  onClaude?: (harnessId: string) => void
 }
 
 // Only agents that use tools move. Reflection, compatibility checks, the humanizer and the rest of hobkin's own upkeep stay on Pi.
@@ -127,6 +129,7 @@ export function routeHarness(route: HarnessRoute): Harness {
       const durable = { ...route.settings(), ...chosen.settings, permissions: 'all' as const }
       if (!claude) return notInstalled(request, durable)
       const run = await route.runFor(String(request.id), request.signal instanceof AbortSignal ? request.signal : undefined)
+      route.onClaude?.(String(request.id))
       return route.claude(chosen.ownLevel ? { ...request, effort: undefined } : request, options, {
         claude,
         settings: durable,
@@ -159,6 +162,7 @@ export function routeHarness(route: HarnessRoute): Harness {
     const claude = route.findClaude()
     // The user chose Claude Code for these agents, so a missing one is a failure to fix, not a reason to spend Pi instead.
     if (!claude) return notInstalled(request, chosen)
+    route.onClaude?.(String(request.id))
     return route.claude(request, options, {
       claude,
       settings: chosen,
