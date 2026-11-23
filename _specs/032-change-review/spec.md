@@ -152,6 +152,7 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - A43. `host/test/review-people.test.ts` › "a finished change's people are its pull request's, asked of its host once; a change with no pull request names nobody"; check: the same still render, then the live window.
 - A44. `ui/test/work-ai-reviews.test.ts` › "each group follows the order the user picked: by priority with the longest wait first among equals, newest first, or oldest first" and › "in any order, reviews under way come before those that wait their turn"; `ui/test/work-review-order.test.ts` › "a review's priority is its finished change's own grade, else its project's priority, and a pull request has none" and › "the order the user picked reads back as it was kept, and anything else reads as newest"; check: a still render of the list in each order, light and dark (2026-11-23), then the live window.
 - A45. `host/test/review-landing.test.ts` › "a change that started from origin’s default branch is reviewed from there, when this machine’s copy has gone its own way"
+- A46. `host/test/review-stale.test.ts` › "an opened review says where its change starts now, so one built from another start can be told" and › "a review whose source cannot say where its change starts says nothing of it"; `ui/test/review-outdated.test.ts` › "a review built from another start than its change has now says so, with both commits" and › "a review of its change as it stands says nothing"
 
 ## Steps
 
@@ -175,7 +176,7 @@ When hobkin ships a change, the client reviews it in the background. It sorts th
 - [x] S18 (A41). A finished change's review follows its branch in git.
 - [x] S19 (A42, A43). A review links its pull request and names its author, in the panel and in the list. Host 9895e72, window 10fc649. Seen only as a still render: not yet in the live window, and the host has to reload itself before a finished change's link and author show.
 - [x] S20 (A44). The AI Reviews list is put in the order the user picks: Priority, Newest or Oldest. Window 52f3f0c. Seen only as a still render: not yet in the live window.
-- [ ] S21 (A45, A46). A finished change's review starts where the change left its default branch, on this machine or on origin, and a review built from another start says it is outdated.
+- [x] S21 (A45, A46). A finished change's review starts where the change left its default branch, on this machine or on origin, and a review built from another start says it is outdated. The start c8236f2, the notice ff747f1. Checked against rpsleague's own commits, read only: from `main` the range a66f8c2..c38b753 is 6 files, from origin's `main` it is e61c0fb..c38b753 and 1 file. Not yet seen in the live window: the host has to reload itself first, and a review built before this keeps its range until it is built again.
 
 ## Open questions
 
