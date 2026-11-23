@@ -14,7 +14,7 @@ import { extensionOf, fileName, fileRole } from './paths.ts'
 import { cleanProse, count, listed } from './prose.ts'
 import { declaredSignature } from './signature.ts'
 import { HOST_TEXT_LIMIT, NO_SPEC_NOTICE, PROSE_LIMIT, SIZE_LIMIT, TITLE_LIMIT, type EdgeKind, type NodeIO, type NodeStatus, type ReviewAnchor, type ReviewEdge, type ReviewFile, type ReviewNode, type ReviewPath } from './types.ts'
-import { codeIdentifiers, findDeclaration, importCandidates, importPath, importSpecifiers, isTopStatement, mergeTestSupport, pairTests, prepareUnits, relativeImports, resolveImport, testCasesOf, testsThatUse, unitReferences, type Unit, type UnitRange } from './units.ts'
+import { codeIdentifiers, findDeclaration, importCandidates, importPath, importSpecifiers, isTopStatement, mergeTestSupport, pairTests, prepareUnits, relativeImports, resolveImport, testCaseNear, testsThatUse, unitReferences, type Unit, type UnitRange } from './units.ts'
 import { addVicinity, type Vicinity, type VicinityTest } from './vicinity.ts'
 
 export interface PrepareInput {
@@ -408,6 +408,22 @@ async function wireTests({ capture, nodes, readHead, vicinity, wire, edges }: { 
 /** The most unchanged tests that covered the code before the change a review shows: for one changed definition, and in all. */
 export const TESTS_FROM_BEFORE = { perDefinition: 3, review: 12 } as const
 
+/** A test that was there before the change, as found at head: its lines in its file, and how it ran when that is known. */
+export function testFromBefore(id: string, test: Pick<VicinityTest['test'], 'path' | 'symbol'>, text: string, range: Omit<UnitRange, 'side'>, status: NodeStatus): ReviewNode {
+  return {
+    id,
+    kind: 'test',
+    title: cleanProse(testName(test.symbol), TITLE_LIMIT),
+    subtitle: test.path,
+    change: 'unchanged',
+    stats: { additions: 0, deletions: 0 },
+    summary: 'This test did not change.',
+    status,
+    anchors: [anchorOf(text, { ...range, side: 'added' })],
+    position: { x: 0, y: 0 },
+  }
+}
+
 /** A test that goes through a request, a job or the whole app, by where it lives: these say most about a change. */
 const LIFE_CYCLE_TEST = /(?:^|\/)(?:requests?|integration|e2e|system|acceptance)\/|(?:^|\/)spec\/features\/|[._](?:e2e|request|integration)[._]/
 
@@ -432,36 +448,27 @@ async function addTestsFromBefore({ capture, nodes, files, headFiles, readHead, 
   const taken = new Map<string, number>()
   const covered = new Map<string, string[]>()
   const titleOf = new Map(nodes.map((node) => [node.id, node.title]))
-  const join = async (codeId: string, test: VicinityTest['test']) => {
+  /** The node of a test found at head, made the first time it joins, while the review has room for one more. */
+  const nodeOf = async (test: VicinityTest['test']): Promise<ReviewNode | undefined> => {
     const captured = fileOf.get(test.path)
     const text = captured ? captured.head : (headFiles.get(test.path) ?? (await readHead(test.path)))
-    const found = text == null ? [] : testCasesOf(text, test.symbol)
-    if (text == null || found.length === 0) return
-    const span = found.reduce((best, next) => (Math.abs(next.startLine - test.line) < Math.abs(best.startLine - test.line) ? next : best))
-    if (touched(test.path, span.startLine, span.endLine)) return
+    const span = text == null ? undefined : testCaseNear(text, test.symbol, test.line)
+    if (text == null || !span || touched(test.path, span.startLine, span.endLine)) return undefined
     const key = `${test.path}:${span.startLine}`
-    let node = made.get(key)
-    if (!node) {
-      if (made.size >= TESTS_FROM_BEFORE.review) return
-      if (!captured && !headFiles.has(test.path)) {
-        headFiles.set(test.path, text)
-        files.push(unchangedFile(test.path))
-      }
-      node = {
-        id: `b${made.size + 1}`,
-        kind: 'test',
-        title: cleanProse(testName(test.symbol), TITLE_LIMIT),
-        subtitle: test.path,
-        change: 'unchanged',
-        stats: { additions: 0, deletions: 0 },
-        summary: '',
-        status: results?.[`${test.path} › ${test.symbol}`] ?? 'not-run',
-        anchors: [anchorOf(text, { fileId: captured?.id ?? test.path, side: 'added', ...span })],
-        position: { x: 0, y: 0 },
-      }
-      made.set(key, node)
-      nodes.push(node)
+    const known = made.get(key)
+    if (known || made.size >= TESTS_FROM_BEFORE.review) return known
+    if (!captured && !headFiles.has(test.path)) {
+      headFiles.set(test.path, text)
+      files.push(unchangedFile(test.path))
     }
+    const node = testFromBefore(`b${made.size + 1}`, test, text, { fileId: captured?.id ?? test.path, ...span }, results?.[`${test.path} › ${test.symbol}`] ?? 'not-run')
+    made.set(key, node)
+    nodes.push(node)
+    return node
+  }
+  const join = async (codeId: string, test: VicinityTest['test']) => {
+    const node = await nodeOf(test)
+    if (!node) return
     wire('exercises', node.id, codeId)
     taken.set(codeId, (taken.get(codeId) ?? 0) + 1)
     covered.set(node.id, [...(covered.get(node.id) ?? []), titleOf.get(codeId) ?? codeId])

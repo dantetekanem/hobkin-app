@@ -20,6 +20,9 @@ function passed(edge: ReviewEdge): [first: string, then: string] | null {
 
 const isTestZone = (zone: ReviewZone) => zone.layer.startsWith('test:')
 
+/** Two sort keys, compared one part after another. */
+const byKey = (a: readonly number[], b: readonly number[]) => a.reduce((order, value, at) => order || value - b[at]!, 0)
+
 /** A node's zone as the review holds it: the rule's words, kept to a title's length. */
 function zoneAt(node: ReviewNode): ReviewZone | undefined {
   if (!node.subtitle) return undefined
@@ -62,9 +65,9 @@ export function withZones(nodes: readonly ReviewNode[], edges: readonly ReviewEd
     if (!zone || isTestZone(zone) || node.kind === 'criterion') return
     const key = [joined.has(node.id) ? 0 : 1, placeOf.get(node.id)!, index]
     const known = keyOf.get(zone.id)
-    if (!known || key.reduce((order, value, at) => order || value - known[at]!, 0) < 0) keyOf.set(zone.id, key)
+    if (!known || byKey(key, known) < 0) keyOf.set(zone.id, key)
   })
-  const code = [...keyOf.keys()].sort((a, b) => keyOf.get(a)!.reduce((order, value, at) => order || value - keyOf.get(b)![at]!, 0))
+  const code = [...keyOf.keys()].sort((a, b) => byKey(keyOf.get(a)!, keyOf.get(b)!))
   const rankOf = new Map(code.map((id, rank) => [id, rank]))
 
   // A test zone follows the code zone it mirrors, else the last one its tests cover.

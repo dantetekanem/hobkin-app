@@ -164,10 +164,15 @@ export function findDeclaration(text: string, symbol: string, testCase = false):
   return start < 0 ? undefined : { startLine: start + 1, endLine: declarationEnd(source, start) + 1 }
 }
 
-/** Every test case of a name in a file, as 1-based first and last line, in the order the file has them. */
-export function testCasesOf(text: string, name: string): { startLine: number; endLine: number }[] {
+/** The test case of a name in a file nearest a line, as 1-based first and last line. Undefined when the file has none. */
+export function testCaseNear(text: string, name: string, line: number): { startLine: number; endLine: number } | undefined {
   const { cases, spans } = functionOwners(splitLines(text))
-  return [...spans].filter(([key]) => cases.has(key) && nameOf(key) === name).map(([, [start, end]]) => ({ startLine: start + 1, endLine: end + 1 }))
+  let nearest: { startLine: number; endLine: number } | undefined
+  for (const [key, [start, end]] of spans) {
+    if (!cases.has(key) || nameOf(key) !== name) continue
+    if (!nearest || Math.abs(start + 1 - line) < Math.abs(nearest.startLine - line)) nearest = { startLine: start + 1, endLine: end + 1 }
+  }
+  return nearest
 }
 
 /** Every place a name is declared in a file, as 1-based first and last line, by the same patterns as `findDeclaration`. */

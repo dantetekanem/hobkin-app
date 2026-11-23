@@ -233,6 +233,19 @@ const guardsOf = (value: unknown): VicinityGuard[] =>
     return at && said && branch && BRANCHES.has(branch) ? [{ line: at, text: said, branch: branch as VicinityGuard['branch'] }] : []
   })
 
+function testDefinitionOf(value: unknown): TestDefinition[] {
+  const test = record(value)
+  const [id, path, symbol] = [text(test?.id), text(test?.path), text(test?.symbol)]
+  if (!test || !id || !path || !symbol || !isSafePath(path)) return []
+  const anchors = list(test.anchors).flatMap((entry) => {
+    const anchor = record(entry)
+    const anchorId = text(anchor?.id)
+    const first = list(anchor?.lines).map(line).find((at) => at != null)
+    return anchorId && first ? [{ id: anchorId, line: first }] : []
+  })
+  return [{ id, path, symbol, anchors, changed: test.changed === true }]
+}
+
 function readPack(details: unknown): Pack | undefined {
   const raw = record(details)
   if (!raw) return undefined
@@ -284,17 +297,7 @@ function readPack(details: unknown): Pack | undefined {
     return [{ from, to, name: text(edge.name) ?? '', relationship, proven: edge.resolution === 'exact', byName: edge.resolution === 'static_candidate', ...(text(edge.via) ? { via: text(edge.via) } : {}), line: at, guards: guardsOf(edge.guards) }]
   })
   const files = new Set(list(raw.files).flatMap((item) => (text(record(item)?.path) ? [text(record(item)?.path)!] : [])))
-  const testDefinitions = list(raw.testDefinitions).flatMap((item): TestDefinition[] => {
-    const test = record(item)
-    const [id, path, symbol] = [text(test?.id), text(test?.path), text(test?.symbol)]
-    if (!test || !id || !path || !symbol || !isSafePath(path)) return []
-    const anchored = list(test.anchors).flatMap((entry) => {
-      const anchor = record(entry)
-      const [of, at] = [text(anchor?.id), list(anchor?.lines).find((value) => line(value) != null) as number | undefined]
-      return of && at ? [{ id: of, line: at }] : []
-    })
-    return [{ id, path, symbol, anchors: anchored, changed: test.changed === true }]
-  })
+  const testDefinitions = list(raw.testDefinitions).flatMap(testDefinitionOf)
   const truncated = record(raw.coverage)?.truncatedBy
   return { nodes, anchors, edges, files, testDefinitions, stopped: typeof truncated === 'string' && truncated !== 'none' ? truncated : null }
 }
@@ -717,14 +720,15 @@ function testsOf(pack: Pack): VicinityTest[] {
     const changed = { path: anchor.path, line: anchor.changedLines[0]! }
     const named = anchor.tests.map(({ id, ...test }) => {
       const definition = id ? definitionOf.get(id) : undefined
-      return { id, test: { ...test, ...(definition ? { changed: definition.changed } : {}) } }
+      return definition ? { ...test, changed: definition.changed } : test
     })
-    const listed = pack.testDefinitions.flatMap((test) => {
-      const at = test.anchors.find((entry) => entry.id === anchor.id)
-      if (!at || named.some((entry) => entry.id === test.id || (entry.test.path === test.path && entry.test.symbol === test.symbol))) return []
-      return [{ test: { path: test.path, symbol: test.symbol, line: at.line, changed: test.changed } }]
+    const namedIds = new Set(anchor.tests.flatMap((test) => (test.id ? [test.id] : [])))
+    const isNamed = (test: TestDefinition) => namedIds.has(test.id) || named.some((entry) => entry.path === test.path && entry.symbol === test.symbol)
+    const referencing = pack.testDefinitions.flatMap((test) => {
+      const reference = test.anchors.find((entry) => entry.id === anchor.id)
+      return reference && !isNamed(test) ? [{ path: test.path, symbol: test.symbol, line: reference.line, changed: test.changed }] : []
     })
-    return [...named, ...listed].map(({ test }) => ({ changed, test }))
+    return [...named, ...referencing].map((test) => ({ changed, test }))
   })
 }
 

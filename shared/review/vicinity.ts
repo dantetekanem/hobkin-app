@@ -12,7 +12,7 @@
 import type { Capture } from './capture.ts'
 import { hashLines, splitLines } from './lines.ts'
 import { cleanProse, count, isSafePath, listed } from './prose.ts'
-import { HOST_TEXT_LIMIT, PROSE_LIMIT, TITLE_LIMIT, type EdgeKind, type ReviewEntry, type ReviewFile, type ReviewNode } from './types.ts'
+import { HOST_TEXT_LIMIT, PROSE_LIMIT, TITLE_LIMIT, type EdgeKind, type ReviewEntry, type ReviewFile, type ReviewLifecycle, type ReviewNode } from './types.ts'
 import { blockAt, declarationsOf } from './units.ts'
 
 /** A definition, as 1-based first and last line in a file, where the scan read it. */
@@ -499,22 +499,47 @@ function sayTheWayIn(vicinity: Vicinity, nodes: ReviewNode[], outward: ReadonlyM
       // Changed code by the name the scan reads it by, such as ErrorsController#show, when it has one.
       const name = (step: ReviewNode) => (step.kind === 'code' ? reachOf.get(step.id)?.symbol : undefined) ?? step.title
       const start = way[0]!
-      const words = [...startWords(start, name(start)), ...way.slice(1).map(name)]
+      const opening = startWords(start, name(start))
       const more = waysInFrom(node.id, byId, outward, doors).size - 1
-      const origin = start.entry && { kind: start.entry.kind, label: cleanProse(words[startWords(start, name(start)).length - 1]!, TITLE_LIMIT), exact: start.entry.exact, chain: way.slice(0, -1).map((step) => step.id), ...(more > 0 ? { more } : {}) }
-      node.lifecycle = { role: 'changed', hops: Math.max(0, Math.min(9, hops)), path: wayWords(words), ...(origin ? { origin } : {}) }
+      node.lifecycle = {
+        role: 'changed',
+        hops: Math.max(0, Math.min(9, hops)),
+        path: wayWords([...opening, ...way.slice(1).map(name)]),
+        ...(start.entry ? { origin: originOf(start.entry, opening.at(-1)!, way.slice(0, -1), more) } : {}),
+      }
       continue
     }
     // The furthest the way out goes, the first ranked among as far.
     const furthest = [...depth].reduce((best, next) => (next[1] > best[1] ? next : best))
     const top = furthest[1] > 0 ? byId.get(furthest[0]) : undefined
-    const none = !top ? (onlyTests(reach) ? 'only-tests' : 'no-callers') : (reach?.stopped ?? 'no-callers')
-    node.lifecycle = { role: 'changed', hops: Math.min(9, furthest[1]), path: cleanProse(noWayWords(node, top, reach), PROSE_LIMIT.summary), none }
+    node.lifecycle = {
+      role: 'changed',
+      hops: Math.min(9, furthest[1]),
+      path: cleanProse(noWayWords(node, top, reach), PROSE_LIMIT.summary),
+      none: noWayReason(top, reach),
+    }
+  }
+}
+
+/** Where a way in starts, as the review keeps it: the origin's kind and words, and the ids from it to the node's own caller. */
+function originOf(entry: ReviewEntry, label: string, steps: readonly ReviewNode[], more: number): NonNullable<ReviewLifecycle['origin']> {
+  return {
+    kind: entry.kind,
+    label: cleanProse(label, TITLE_LIMIT),
+    exact: entry.exact,
+    chain: steps.map((step) => step.id),
+    ...(more > 0 ? { more } : {}),
   }
 }
 
 /** Every call site the scan counted for it is in a test. */
 const onlyTests = (reach: VicinityReach | undefined) => (reach?.testCallers ?? 0) > 0 && reach?.callers === 0
+
+/** Why no way in was found, in a word: nothing calls it, only tests do, or the walk stopped before an entry. */
+function noWayReason(top: ReviewNode | undefined, reach: VicinityReach | undefined): NonNullable<ReviewLifecycle['none']> {
+  if (!top) return onlyTests(reach) ? 'only-tests' : 'no-callers'
+  return reach?.stopped ?? 'no-callers'
+}
 
 /** Why no way in was found, by how far the scan looked: the calls it may follow, the time it had, or no caller left. */
 function noWayWords(node: ReviewNode, top: ReviewNode | undefined, reach: VicinityReach | undefined): string {

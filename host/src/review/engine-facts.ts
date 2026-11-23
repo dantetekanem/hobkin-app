@@ -6,12 +6,11 @@
  * joins only on lines of a file the review holds, so the window can show it, and a way in names only the steps the
  * review has nodes for. Everything in graph.json is read without trust.
  */
-import { edgeId, testCovers, testName, TESTS_FROM_BEFORE, withCovers } from '#shared/review/draft.ts'
+import { edgeId, testCovers, testFromBefore, testName, TESTS_FROM_BEFORE, withCovers } from '#shared/review/draft.ts'
 import { NODE_SIZE } from '#shared/review/layout.ts'
-import { hashLines } from '#shared/review/lines.ts'
 import { cleanProse, isSafePath } from '#shared/review/prose.ts'
 import { PROSE_LIMIT, TITLE_LIMIT, type NodeStatus, type Review, type ReviewEdge, type ReviewFileContents, type ReviewLifecycle, type ReviewNode } from '#shared/review/types.ts'
-import { testCasesOf } from '#shared/review/units.ts'
+import { testCaseNear } from '#shared/review/units.ts'
 import { withZones } from '#shared/review/zones.ts'
 import type { NodeTest, Origin, OriginStep, RemovedTest, RunsFrom } from '../../../packages/change-review/src/types.ts'
 import { holdsPlace } from './unit-story.ts'
@@ -150,8 +149,14 @@ function engineLifecycle(part: EnginePart, node: ReviewNode, stepAt: (step: { pa
   // The engine's word on why there is none counts only where the host did not look itself.
   if (!said || (host && host.none !== 'not-looked')) return undefined
   const path = cleanProse(said.why, PROSE_LIMIT.summary)
-  const none = said.found === 'not-looked' ? 'not-looked' : said.stopped === 'limit' ? 'limit' : said.stopped ? 'time' : 'no-callers'
-  return { role: 'changed', hops: host?.hops ?? 0, ...(path ? { path } : {}), none }
+  return { role: 'changed', hops: host?.hops ?? 0, ...(path ? { path } : {}), none: noWayReason(said) }
+}
+
+/** Why the engine found no way in, in the review's word: a search that failed ran out of what it could do, as one out of time. */
+function noWayReason(said: Extract<EngineRunsFrom, { found: 'none' | 'not-looked' }>): NonNullable<ReviewLifecycle['none']> {
+  if (said.found === 'not-looked') return 'not-looked'
+  if (said.stopped === 'limit') return 'limit'
+  return said.stopped ? 'time' : 'no-callers'
 }
 
 /**
@@ -170,7 +175,13 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
     edges.push({ id: edgeId('exercises', from, to), from, to, kind: 'exercises', certainty: 'host' })
   }
   const codeOf = (place: Pick<EnginePart, 'path' | 'lines' | 'change'>) => nodes.filter((node) => node.kind === 'code' && holds(node, place))
-  const atHead = (path: string, at: number) => (node: ReviewNode) => node.subtitle === path && node.anchors.some((anchor) => anchor.side === 'added' && anchor.startLine <= at && at <= anchor.endLine)
+  const holdsLine = (node: ReviewNode, path: string, at: number, side: 'added' | 'deleted') => node.subtitle === path && node.anchors.some((anchor) => anchor.side === side && anchor.startLine <= at && at <= anchor.endLine)
+  /** The review's own node of a test the engine names: by its name, else by a line of it. */
+  const shownTest = (test: EngineTest) => {
+    const inFile = nodes.filter((node) => node.kind === 'test' && node.subtitle === test.path)
+    const title = test.symbol ? cleanProse(testName(test.symbol), TITLE_LIMIT) : undefined
+    return inFile.find((node) => node.title === title) ?? inFile.find((node) => test.line != null && holdsLine(node, test.path, test.line, 'added'))
+  }
   const results = new Map<string, NodeStatus>()
 
   // Each test the engine says covers a changed part: the host's own, else an unchanged one the review can show.
@@ -178,8 +189,7 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
     const code = codeOf(part)
     for (const test of code.length ? part.tests : []) {
       if (test.relation === 'removed') continue
-      const own = nodes.filter((node) => node.kind === 'test' && node.subtitle === test.path)
-      const node = own.find((entry) => test.symbol != null && entry.title === cleanProse(testName(test.symbol), TITLE_LIMIT)) ?? (test.line ? own.find(atHead(test.path, test.line)) : undefined) ?? (test.relation === 'before' ? joinBefore(test, code) : undefined)
+      const node = shownTest(test) ?? (test.relation === 'before' ? joinBefore(test, code) : undefined)
       if (!node) continue
       for (const target of code) wire(node.id, target.id)
       const result = resultOf(test)
@@ -189,17 +199,18 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
 
   // What a removed test covered, by the names it used.
   for (const gone of facts.removed) {
-    const node = nodes.find((entry) => entry.kind === 'test' && entry.subtitle === gone.path && entry.anchors.some((anchor) => anchor.side === 'deleted' && anchor.startLine <= gone.base_line && gone.base_line <= anchor.endLine))
+    const node = nodes.find((entry) => entry.kind === 'test' && holdsLine(entry, gone.path, gone.base_line, 'deleted'))
     if (!node) continue
-    const named = facts.parts.filter((part) => gone.names.includes(part.symbol)).flatMap(codeOf)
-    for (const target of named.length ? named : nodes.filter((entry) => entry.kind === 'code' && gone.names.includes(entry.title))) wire(node.id, target.id)
+    const byPart = facts.parts.filter((part) => gone.names.includes(part.symbol)).flatMap(codeOf)
+    const targets = byPart.length ? byPart : nodes.filter((entry) => entry.kind === 'code' && gone.names.includes(entry.title))
+    for (const target of targets) wire(node.id, target.id)
   }
 
   // Where changed code is run from, where the host found no way in.
   for (const part of facts.parts) {
     for (const node of part.runsFrom ? codeOf(part) : []) {
       if (node.lifecycle?.origin) continue
-      const said = engineLifecycle(part, node, (step) => nodes.find((entry) => entry.kind !== 'test' && atHead(step.path, step.line)(entry)))
+      const said = engineLifecycle(part, node, (step) => nodes.find((entry) => entry.kind !== 'test' && holdsLine(entry, step.path, step.line, 'added')))
       if (said) node.lifecycle = said
     }
   }
@@ -229,24 +240,16 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
     const before = nodes.filter((node) => node.kind === 'test' && node.change === 'unchanged')
     const coveringBefore = (id: string) => before.filter((node) => wired.has(`${node.id}>${id}`)).length
     if (before.length >= TESTS_FROM_BEFORE.review || code.every((target) => coveringBefore(target.id) >= TESTS_FROM_BEFORE.perDefinition)) return undefined
-    const found = testCasesOf(text, test.symbol)
-    if (found.length === 0) return undefined
-    const span = found.reduce((best, next) => (Math.abs(next.startLine - (test.line ?? 0)) < Math.abs(best.startLine - (test.line ?? 0)) ? next : best))
-    const bottom = Math.max(0, ...nodes.map((node) => node.position.y + NODE_SIZE[node.kind].height))
-    const added = nodes.length - review.nodes.length
+    const span = testCaseNear(text, test.symbol, test.line ?? 1)
+    if (!span) return undefined
     let id = before.length + 1
     while (nodes.some((node) => node.id === `b${id}`)) id += 1
-    const node: ReviewNode = {
-      id: `b${id}`,
-      kind: 'test',
-      title: cleanProse(testName(test.symbol), TITLE_LIMIT),
-      subtitle: test.path,
-      change: 'unchanged',
-      stats: { additions: 0, deletions: 0 },
+    const bottom = Math.max(0, ...nodes.map((node) => node.position.y + NODE_SIZE[node.kind].height))
+    const joined = nodes.length - review.nodes.length
+    const node = {
+      ...testFromBefore(`b${id}`, { path: test.path, symbol: test.symbol }, text, { fileId: file.id, ...span }, 'not-run'),
       summary: 'This test did not change. The change review found it covers this code.',
-      status: 'not-run',
-      anchors: [{ fileId: file.id, side: 'added', ...span, hash: hashLines(text, span.startLine, span.endLine) }],
-      position: { x: added * (NODE_SIZE.test.width + 40), y: bottom + 80 },
+      position: { x: joined * (NODE_SIZE.test.width + 40), y: bottom + 80 },
     }
     nodes = [...nodes, node]
     return node

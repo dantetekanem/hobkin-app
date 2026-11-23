@@ -195,7 +195,8 @@ function standingOf(nodes: readonly ReviewNode[]): { wayIn: Map<string, string>;
   for (const node of nodes) for (const id of node.lifecycle?.origin?.chain ?? []) if (!wayIn.has(id)) wayIn.set(id, node.title)
   const covering = new Map<string, ReviewNode[]>()
   for (const test of nodes.filter((node) => node.kind === 'test')) for (const id of test.covers ?? []) covering.set(id, [...(covering.get(id) ?? []), test])
-  const testsGone = new Map([...covering].flatMap(([id, tests]) => (tests.every((test) => test.change === 'deleted') ? [[id, tests.length] as const] : [])))
+  const testsGone = new Map<string, number>()
+  for (const [id, tests] of covering) if (tests.every((test) => test.change === 'deleted')) testsGone.set(id, tests.length)
   return { wayIn, testsGone }
 }
 
