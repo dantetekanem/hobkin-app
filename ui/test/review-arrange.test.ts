@@ -53,7 +53,7 @@ test('tests fold into one card for each subject, with their helper, and never st
   assert.equal(shape.covers[titled(pull, 'links a handle with dots and dashes').id], titled(pull, 'link_user_tags').id)
 })
 
-test('the graph reads the way a request goes, with its tests in a lane under it', () => {
+test('the graph reads the way a request goes, zone by zone, with each zone of tests under the code it covers', () => {
   const shape = arrange(pull)
   const at = (title: string) => shape.nodes.find((node) => node.title === title)!
   const x = (title: string) => at(title).position.x
@@ -66,13 +66,16 @@ test('the graph reads the way a request goes, with its tests in a lane under it'
   assert.ok(shape.edges.some((edge) => edge.from === at('render_body').id && edge.to === at('link_user_tags').id && edge.kind === 'calls'))
   assert.ok(shape.edges.some((edge) => edge.from === at('GET /posts/:id').id && edge.to === at('PostsController#show').id))
 
-  // Tests are off the way: each card sits under it, just left of what it covers.
-  const way = shape.nodes.filter((node) => node.kind !== 'test')
-  const bottom = Math.max(...way.map((node) => node.position.y + nodeRect(node.kind, node.position).height))
+  // Every drawn node is in a zone, and the routes, the controllers, the helper and the model come in that order.
+  const zoneOf = (title: string) => shape.zones.findIndex((zone) => zone.id === at(title).zone)
+  for (const node of shape.nodes) assert.ok(shape.zones.some((zone) => zone.id === node.zone), `${node.title} is in a zone`)
+  assert.ok(zoneOf('GET /posts/:id') < zoneOf('PostsController#show') && zoneOf('PostsController#show') < zoneOf('link_user_tags') && zoneOf('link_user_tags') < zoneOf('User.find_by_handles'))
+  // Tests are off the way: each card sits under the code of its subject's zone, just left of what it covers.
   for (const group of Object.values(shape.groups)) {
     const card = shape.nodes.find((node) => node.id === group.id)!
     const subject = shape.nodes.find((node) => node.id === group.subject)!
-    assert.ok(card.position.y > bottom, `${card.title} sits under the way`)
+    const code = shape.nodes.filter((node) => node.zone === subject.zone)
+    assert.ok(card.position.y > Math.max(...code.map((node) => node.position.y + nodeRect(node.kind, node.position).height)), `${card.title} sits under its subject's zone`)
     assert.ok(card.position.x + 288 < subject.position.x, `${card.title} sits left of ${subject.title}`)
   }
   // A changed node nothing wires stays among the rest: there is no block apart.

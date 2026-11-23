@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import type { Review } from '#shared/review/types.ts'
-import { applyMemory, createReviewMemory, memoryKey, memoryStorage } from '../src/features/review/state/memory.ts'
+import { applyMemory, createReviewMemory, LAYOUT_VERSION, memoryKey, memoryStorage } from '../src/features/review/state/memory.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const positionOf = (review: Review, storage: ReturnType<typeof memoryStorage>, id: string) =>
@@ -45,4 +45,18 @@ test('a saved position that makes no sense is ignored', () => {
   // Storage written by something else, or left by an older version, never breaks a review.
   storage.setItem('hobkin-client-review', JSON.stringify({ state: { reviews: { [memoryKey(sample)]: { positions: { [node.id]: { x: 'left' } }, wires: 7 } } }, version: 1 }))
   assert.deepEqual(positionOf(sample, storage, node.id), laidOut(sample, node.id))
+})
+
+test('positions saved for the layout before zones are dropped once, and a node moved since stays where it was put', () => {
+  const storage = memoryStorage()
+  const node = sample.nodes[3]!
+  // An older window saved this place, with no layout version: it was made for the old layout.
+  storage.setItem('hobkin-client-review', JSON.stringify({ state: { reviews: { [memoryKey(sample)]: { positions: { [node.id]: { x: 5, y: 5 } }, wires: {} } } }, version: 1 }))
+  assert.deepEqual(positionOf(sample, storage, node.id), laidOut(sample, node.id), 'the old place is dropped')
+
+  const memory = createReviewMemory(storage)
+  assert.equal(memory.getState().of(sample).layout, LAYOUT_VERSION)
+  memory.getState().moveNode(sample, node.id, { x: 40, y: 60 })
+  assert.deepEqual(positionOf(sample, storage, node.id), { x: 40, y: 60 }, 'a place saved on the zones layout is kept')
+  assert.deepEqual(positionOf(sample, storage, node.id), { x: 40, y: 60 }, 'and kept again: it is dropped only once')
 })

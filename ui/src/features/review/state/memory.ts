@@ -40,8 +40,16 @@ export interface NoteDraft {
   editing?: string
 }
 
+/**
+ * The layout the saved positions were made for. A node moved on another layout would stand in the wrong place, so
+ * positions saved for an older one are dropped, once, as the memory is read (2: by zone, spec 055).
+ */
+export const LAYOUT_VERSION = 2
+
 export interface ReviewMemory {
   positions: Record<string, Point>
+  /** The layout the positions were made for (`LAYOUT_VERSION`). */
+  layout: number
   wires: Record<string, WireDecision>
   progress: StoredProgress | null
   /** The review has been opened before, so its entrance has played. */
@@ -103,7 +111,7 @@ export interface MemoryState {
   markSeen(review: Review, marks: readonly string[], seen: boolean): void
 }
 
-const EMPTY: ReviewMemory = { positions: {}, wires: {}, progress: null, opened: false, notes: [], draft: null, seen: null }
+const EMPTY: ReviewMemory = { positions: {}, layout: LAYOUT_VERSION, wires: {}, progress: null, opened: false, notes: [], draft: null, seen: null }
 const STORAGE_NAME = 'hobkin-client-review'
 
 /** A review prepared again from another head is another review, so its key carries the fingerprint of its bytes. */
@@ -120,7 +128,8 @@ const strings = (value: unknown): string[] => (Array.isArray(value) ? value.filt
 function readMemory(value: unknown): ReviewMemory {
   if (!isRecord(value)) return EMPTY
   const positions: Record<string, Point> = {}
-  for (const [id, point] of Object.entries(isRecord(value.positions) ? value.positions : {})) {
+  const sameLayout = value.layout === LAYOUT_VERSION
+  for (const [id, point] of Object.entries(sameLayout && isRecord(value.positions) ? value.positions : {})) {
     if (isPoint(point)) positions[id] = { x: point.x, y: point.y }
   }
 
@@ -144,6 +153,7 @@ function readMemory(value: unknown): ReviewMemory {
 
   return {
     positions,
+    layout: LAYOUT_VERSION,
     wires,
     progress,
     opened: value.opened === true,
@@ -444,7 +454,7 @@ export interface ViewEdge extends ReviewEdge {
  * Each review is arranged once, from all its wires, so removing a proposed wire never moves a node. A review whose nodes
  * say what they ask of the reviewer is drawn in Focus (`graph/focus.ts`): its safe nodes fold into group cards.
  */
-export interface ReviewView extends Pick<Folded, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'stepOf' | 'plan' | 'foldOf'> {
+export interface ReviewView extends Pick<Folded, 'hidden' | 'groups' | 'groupOf' | 'covers' | 'stepOf' | 'plan' | 'foldOf' | 'zones' | 'zoneOf'> {
   nodes: ReviewNode[]
   edges: ViewEdge[]
   /** Proposed wires the reviewer removed. They are not drawn, and they can be brought back. */
@@ -465,15 +475,15 @@ const folds = new WeakMap<Review, Map<string, Folded>>()
 const KEPT_FOLDS = 16
 function foldedOf(review: Review, focus: FocusState): Folded {
   const shape = arrangedOf(review)
-  // A review that says nothing of attention folds nothing, however it is asked.
-  const state = hasAttention(review.nodes) ? focus : NO_FOCUS
-  const key = `${state.opened.join(' ')}|${state.pinned.join(' ')}`
+  // A review that says nothing of attention folds nothing, however it is asked, but the zones the reviewer folded.
+  const state = hasAttention(review.nodes) ? focus : { ...NO_FOCUS, ...(focus.zones ? { zones: focus.zones } : {}) }
+  const key = `${state.opened.join(' ')}|${state.pinned.join(' ')}|${(state.zones ?? []).join(' ')}`
   let kept = folds.get(review)
   if (!kept) folds.set(review, (kept = new Map()))
   let folded = kept.get(key)
   if (!folded) {
     const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
-    const plan = planFocus({ nodes: shape.nodes, groups: shape.groups, nodeOf, covers: shape.covers }, state)
+    const plan = planFocus({ nodes: shape.nodes, groups: shape.groups, nodeOf, covers: shape.covers, zones: shape.zones }, state)
     folded = foldArranged(shape, plan)
     if (kept.size >= KEPT_FOLDS) kept.delete(kept.keys().next().value!)
     kept.set(key, folded)

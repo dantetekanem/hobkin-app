@@ -165,8 +165,14 @@ export interface Session {
    * opened to, on its card. False when none was open.
    */
   closeGroups(): boolean
-  /** Enter on a group card: opens it, or closes it when it is open. */
+  /** Enter on a group card: opens it, or closes it when it is open. A zone's card opens the zone again. */
   toggleGroup(groupId: string): boolean
+  /**
+   * A zone's heading (spec 055): folds the whole zone into one card, its way in on a card of its own, or opens it again.
+   * A reviewer on what folded is on its card, and one on the card is on the zone's first node once it opens. A zone of
+   * tests folds only with the code it covers: false for one, and for a zone the review does not have.
+   */
+  toggleZone(zoneId: string): boolean
   /**
    * Goes to any node of the review, drawn or folded: a node folded into a group opens that group, drawn first in it, and
    * is focused. The outline and the next-unseen key go this way.
@@ -672,8 +678,11 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         if (opened !== get().opened) set({ opened })
       },
       openGroup: (groupId) => {
-        if (!get().view.plan.groups[groupId]) return false
-        refold({ opened: [...fold.opened.filter((id) => id !== groupId), groupId], pinned: fold.pinned })
+        const group = get().view.plan.groups[groupId]
+        if (!group) return false
+        // A zone the reviewer folded opens as a zone, not in place.
+        if (group.kind === 'zone') return group.zone != null && (fold.zones ?? []).includes(group.zone) && get().toggleZone(group.zone)
+        refold({ ...fold, opened: [...fold.opened.filter((id) => id !== groupId), groupId], pinned: fold.pinned })
         const drawnNow = [groupId, ...(get().view.plan.shown[groupId] ?? [])]
         apply(focusGroup(graph(), get().story, drawnNow), 'jump')
         return true
@@ -685,6 +694,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         // The reviewer on the group, or on what it opened to, is put back on its card. Anywhere else, they stay there.
         const inside = get().focus.some((each) => each === id || members.has(each))
         refold({
+          ...fold,
           opened: fold.opened.filter((each) => each !== id),
           pinned: fold.pinned.filter((pin) => !members.has(pin)),
         })
@@ -698,7 +708,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         // The group the reviewer is on, its card or a member, the last opened first.
         const holds = (id: string) => focus.some((each) => each === id || view.plan.groupOf[each] === id)
         const holding = [...fold.opened].reverse().find(holds)
-        refold({ opened: [], pinned: [] })
+        refold({ ...fold, opened: [], pinned: [] })
         if (holding != null) apply(focusNode(graph(), get().story, holding, { alone: get().mode === 'roam' }), 'detour')
         return true
       },
@@ -764,14 +774,40 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         say(onLastUnseen ? 'This is the last node that needs you and is not seen yet.' : 'Every node that needs you is seen.')
         return false
       },
-      toggleGroup: (groupId) => (fold.opened.includes(groupId) ? get().closeGroup(groupId) : get().openGroup(groupId)),
+      toggleGroup: (groupId) => {
+        const zone = get().view.plan.groups[groupId]
+        if (zone?.kind === 'zone' && zone.zone != null) return get().toggleZone(zone.zone)
+        return fold.opened.includes(groupId) ? get().closeGroup(groupId) : get().openGroup(groupId)
+      },
+      toggleZone: (zoneId) => {
+        const { view, focus } = get()
+        const zone = view.zones.find((each) => each.id === zoneId)
+        if (!zone || zone.tests) return false
+        const folded = fold.zones ?? []
+        const opening = folded.includes(zoneId)
+        const onCard = focus.some((id) => view.plan.groups[id]?.kind === 'zone' && view.plan.groups[id]!.zone === zoneId)
+        refold({ ...fold, zones: opening ? folded.filter((id) => id !== zoneId) : [...folded, zoneId] })
+        if (opening && onCard) {
+          const drawn = new Set(get().view.nodes.map((node) => node.id))
+          const first = zone.members.find((id) => drawn.has(id))
+          if (first) apply(focusNode(graph(), get().story, first, { alone: get().mode === 'roam' }), 'detour')
+        }
+        return true
+      },
       reach: (nodeId) => {
-        const { view } = get()
-        const card = view.groupOf[nodeId] ?? nodeId
-        const group = view.foldOf[card]
-        if (group && isFoldGroup(group)) {
+        const holding = () => {
+          const { view } = get()
+          const card = view.groupOf[nodeId] ?? nodeId
+          const group = view.foldOf[card]
+          return { card, group, folded: group ? view.plan.groups[group] : undefined }
+        }
+        // A node in a zone the reviewer folded opens the zone first, then the group Focus folded it into, if any.
+        const inZone = holding().folded
+        if (inZone?.kind === 'zone' && inZone.zone != null) refold({ ...fold, zones: (fold.zones ?? []).filter((id) => id !== inZone.zone) })
+        const { card, group, folded } = holding()
+        if (group && isFoldGroup(group) && folded?.kind !== 'zone') {
           const pinned = [card, ...fold.pinned.filter((pin) => pin !== card)].slice(0, FOCUS_BUDGET.cards)
-          refold({ opened: [...fold.opened.filter((id) => id !== group), group], pinned })
+          refold({ ...fold, opened: [...fold.opened.filter((id) => id !== group), group], pinned })
         }
         get().focusOn(nodeId)
       },

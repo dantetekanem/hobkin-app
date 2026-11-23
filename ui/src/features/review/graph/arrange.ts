@@ -3,15 +3,17 @@
  * order a request goes through it.
  *
  * Tests fold into one card for each subject, the node they cover, with the test helpers they use. More single tests
- * than a few fold by their file. The graph is laid out from what is drawn, the request's way (`layoutRequest`): where it
- * enters, the unchanged code that leads to the change, the change, what it calls, and the tests in a lane under it. A
- * changed node nothing wires stays in its place among the rest, and its card says so. A story step that focused a
- * folded test focuses its card. Pure, and the same review always comes out the same.
+ * than a few fold by their file. Each node is in a zone (`zones.ts`, spec 055), and the graph is laid out by zone from
+ * what is drawn (`layoutZones`): one block for each, in the order a request passes them, so a request still reads from
+ * where it enters through the code that leads to the change, the change and what it calls, with each zone of tests under
+ * the code it mirrors. A changed node nothing wires stays in its place among the rest, and its card says so. A story
+ * step that focused a folded test focuses its card. Pure, and the same review always comes out the same.
  */
-import { layoutRequest } from '#shared/review/layout.ts'
+import { layoutZones } from '#shared/review/layout.ts'
 import { fileName } from '#shared/review/paths.ts'
 import type { NodeStatus, Review, ReviewEdge, ReviewNode, StoryStep } from '#shared/review/types.ts'
 import { isUnchanged } from './levels.ts'
+import { zonesOf, type GraphZone } from './zones.ts'
 
 /** What the tests of a card did: how many ran (passed, failed or proved the change), failed, and were not run. */
 export interface TestCounts {
@@ -60,6 +62,10 @@ export interface Arranged {
   groupOf: Record<string, string>
   /** Each test, by its id, to the node it covers: the changed code its wire leads to first. */
   covers: Record<string, string>
+  /** The zones the graph draws, in the order a request passes them. Each drawn node's `zone` is the id of one. */
+  zones: GraphZone[]
+  /** Each drawn node and each node of the review, by its id, to the id of its zone. */
+  zoneOf: Record<string, string>
 }
 
 const PREFIX = 'tests:'
@@ -248,7 +254,7 @@ function joinWires(edges: readonly ReviewEdge[], end: (id: string) => string): {
  */
 const requestWise = (edge: ReviewEdge): ReviewEdge => (edge.kind === 'called-by' ? { ...edge, kind: 'calls', from: edge.to, to: edge.from } : edge)
 
-export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'>): Arranged {
+export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'> & Partial<Pick<Review, 'zones'>>): Arranged {
   const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
   const wires = review.edges.map(requestWise)
   const { groups: folded, covers } = foldTests(review.nodes, wires, nodeOf)
@@ -268,12 +274,15 @@ export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'>): Arra
     else if (groups[card]!.tests[0] === node.id || (groups[card]!.tests.length === 0 && groups[card]!.helpers[0] === node.id)) drawn.push(cardOf(groups[card]!, nodeOf))
   }
   const { edges, wireOf } = joinWires(wires, end)
-  const positions = layoutRequest(drawn, edges)
+  const holds = (id: string) => (groups[id] ? [...groups[id]!.tests, ...groups[id]!.helpers] : [id])
+  const { zones, zoneOf } = zonesOf(review, drawn.map((node) => ({ id: node.id, of: holds(node.id) })), covers)
+  const zoned = drawn.map((node) => ({ ...node, zone: zoneOf[node.id]! }))
+  const positions = layoutZones(zoned, edges, zones)
   const drawnOf = new Map(drawn.map((node) => [node.id, node]))
   const { steps: story, stepOf } = foldStory(review.story, end, wireOf, (id) => drawnOf.get(id)?.title ?? id, (id) => (groups[id]?.tests ?? []).map((test) => nodeOf.get(test)!))
 
   return {
-    nodes: drawn.map((node) => ({ ...node, position: positions[node.id] ?? node.position })),
+    nodes: zoned.map((node) => ({ ...node, position: positions[node.id] ?? node.position })),
     edges,
     story,
     stepOf,
@@ -281,5 +290,7 @@ export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'>): Arra
     groups,
     groupOf,
     covers,
+    zones,
+    zoneOf,
   }
 }

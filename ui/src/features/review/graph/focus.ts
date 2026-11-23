@@ -1,17 +1,23 @@
 /**
  * Focus (spec 053): a large change opens on the few parts that need the reviewer. Every node that needs them and every
- * one worth a look is a card. Safe nodes fold into group cards: by kind (generated files, lockfiles, locale files, moved
- * files, formatting, docs, tests), and safe code by its top folder. Unchanged code on the way in to the change is never
- * folded with safe code (spec 055): it is how a reviewer sees where the change is run from. Opening a group turns its
- * members into cards, up to the budget; past it they stay in the outline only. Nothing is ever drawn past the budget of
- * cards and wires.
+ * one worth a look is a card. Safe nodes fold into group cards by zone (spec 055): by kind (generated files, lockfiles,
+ * locale files, moved files, formatting, docs, tests) and safe code, each in its zone. Unchanged code on the way in to
+ * the change is never folded with safe code: it is how a reviewer sees where the change is run from. Opening a group
+ * turns its members into cards, up to the budget; past it they stay in the outline only. Nothing is ever drawn past the
+ * budget of cards and wires.
  *
- * A review whose nodes say nothing about attention (every review an older host prepared) is not folded at all: it
- * draws as it always did. Pure, and the same review in the same state always folds the same way.
+ * The reviewer can fold a whole zone into one card by its heading (`FocusState.zones`): its code on the way in folds
+ * into a card of its own, which keeps where a request enters, and each part takes its cards of tests with it. A zone of
+ * tests folds only with the code it covers, since a card of tests folds only with its subject.
+ *
+ * A review whose nodes say nothing about attention (every review an older host prepared) is not folded at all but for
+ * the zones the reviewer folds: it draws as it always did. Pure, and the same review in the same state always folds the
+ * same way.
  */
-import { layoutRequest, openBlocks, type Positions } from '#shared/review/layout.ts'
+import { layoutZones, type Positions } from '#shared/review/layout.ts'
 import type { AttentionTier, NodeBucket, ReviewNode } from '#shared/review/types.ts'
 import type { Arranged, ArrangedEdge, TestGroup, ViewStep } from './arrange.ts'
+import type { GraphZone } from './zones.ts'
 
 /** The most cards and wires a review ever mounts. */
 export const FOCUS_BUDGET = { cards: 60, wires: 120 } as const
@@ -20,7 +26,7 @@ export const FOCUS_BUDGET = { cards: 60, wires: 120 } as const
  * it, so opening any group draws at least this many of its members, and a node reached from the outline or by U is drawn.
  */
 export const OPEN_ROOM = 16
-/** The most groups of safe nodes: past it, the smallest folders of safe code fold into one group. */
+/** The most groups of safe nodes: past it, the smallest zones of safe code fold into one group. */
 export const MAX_GROUPS = 12
 
 const PREFIX = 'fold:'
@@ -49,13 +55,16 @@ function standingOf(node: ReviewNode, rated: Attended | undefined): Standing {
 
 export interface FoldGroup {
   id: string
-  /** A kind of safe change, the safe code of one folder (`code`), of several small folders (`folders`), or the cards past the budget (`more`). */
-  kind: NodeBucket | 'folders' | 'more'
-  /** Safe code's folder, such as `app/models`. Empty at the top of the repository. */
-  folder: string | null
+  /**
+   * A kind of safe change, the safe code of one zone (`code`), of several small zones (`zones`), the cards past the
+   * budget (`more`), or a zone the reviewer folded (`zone`).
+   */
+  kind: NodeBucket | 'zones' | 'more' | 'zone'
+  /** The zone it stands in: its members', or for one that holds several zones, its first member's. */
+  zone: string | null
   /** Whose nodes it holds. Safe, except for the cards a budget left over. */
   standing: Standing
-  /** What it holds, in a few words: "Generated files", "Safe code in app/models". */
+  /** What it holds, in a few words: "Generated files", "Safe code in Models · Order". */
   label: string
   /** The drawn nodes it holds, most wanted first. A card of tests stands for its tests. */
   members: string[]
@@ -72,12 +81,14 @@ export interface FocusState {
   opened: readonly string[]
   /** Nodes reached from the outline or by the next-unseen key, the latest first: they are drawn before the rest of their group. */
   pinned: readonly string[]
+  /** The zones the reviewer folded by their heading, by id (spec 055). */
+  zones?: readonly string[]
 }
 
 export const NO_FOCUS: FocusState = { opened: [], pinned: [] }
 
 export interface FocusPlan {
-  /** False for a review with no attention on its nodes: nothing folds. */
+  /** False for a review with no attention on its nodes: nothing folds but the zones the reviewer folded. */
   active: boolean
   /** Every drawn id, most wanted first: the cards, the members of open groups, then the group cards. */
   cards: string[]
@@ -117,11 +128,6 @@ export function hasAttention(nodes: readonly ReviewNode[]): boolean {
   return nodes.some((node) => node.attention != null)
 }
 
-/** The folder safe code is grouped by: the first two folders of its path, such as `app/models`. Empty at the top. */
-export function topFolder(path: string | undefined): string {
-  return (path ?? '').split('/').slice(0, -1).slice(0, 2).join('/')
-}
-
 const KIND_LABEL: Record<NodeBucket, string> = {
   code: 'Safe code',
   test: 'Tests that pass',
@@ -132,7 +138,7 @@ const KIND_LABEL: Record<NodeBucket, string> = {
   format: 'Formatting only',
   docs: 'Docs',
 }
-const WHY: Record<NodeBucket | 'folders' | 'more', string> = {
+const WHY: Record<FoldGroup['kind'], string> = {
   code: 'The review found nothing in this code that needs you.',
   test: 'They pass, and the review found nothing in them that needs you.',
   generated: 'A tool wrote these from its input, so they follow from what changed elsewhere.',
@@ -141,8 +147,9 @@ const WHY: Record<NodeBucket | 'folders' | 'more', string> = {
   moved: 'They moved or were renamed with little or nothing changed inside.',
   format: 'Only spacing and layout changed: the code does the same.',
   docs: 'Words for people to read: no code runs differently.',
-  folders: 'The review found nothing in this code that needs you.',
+  zones: 'The review found nothing in this code that needs you.',
   more: 'More than the graph draws at once. Open it, or find each in the outline.',
+  zone: 'You folded this zone. Open it again here, or by its heading.',
 }
 const MORE_LABEL: Record<Standing, string> = {
   'needs-you': 'More that needs you',
@@ -162,12 +169,15 @@ interface Entry {
 }
 
 interface FocusInput {
+  /** The drawn nodes, each with its zone (`Arranged.nodes`). */
   nodes: readonly ReviewNode[]
   /** The cards of tests, by the drawn id that stands for them. */
   groups: Readonly<Record<string, TestGroup>>
   nodeOf: ReadonlyMap<string, ReviewNode>
   /** Each test, by its id, to the node it covers (`Arranged.covers`). */
   covers?: Readonly<Record<string, string>>
+  /** The zones, for their words (`Arranged.zones`). */
+  zones?: readonly Pick<GraphZone, 'id' | 'label' | 'tests'>[]
 }
 
 /** A node with the cards of tests that go with it: drawn together and folded together. */
@@ -178,7 +188,9 @@ const bestRank = (unit: Unit) => Math.min(...unit.map((entry) => entry.rank))
 
 /** Opening Focus on a review: what is a card, what folds into which group, and what an open group draws. */
 export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): FocusPlan {
-  const { nodes, groups: testCards, nodeOf, covers = {} } = input
+  const { nodes, groups: testCards, nodeOf, covers = {}, zones = [] } = input
+  const zoneNamed = new Map(zones.map((zone) => [zone.id, zone]))
+  const folds = new Set((state.zones ?? []).filter((id) => zoneNamed.has(id) && !zoneNamed.get(id)!.tests))
   const membersOf = (node: ReviewNode): ReviewNode[] => {
     const card = testCards[node.id]
     if (!card) return []
@@ -201,10 +213,11 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
       standing: where,
       rank: rated?.rank ?? Number.POSITIVE_INFINITY,
       index,
-      key: bucket === 'code' ? `code:${topFolder(node.subtitle)}` : bucket,
+      key: `${bucket}:${node.zone ?? ''}`,
     }
   })
-  if (Object.keys(attended).length === 0) {
+  const rated = Object.keys(attended).length > 0
+  if (!rated && folds.size === 0) {
     return {
       active: false,
       cards: nodes.map((node) => node.id),
@@ -242,10 +255,23 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
   /** A node with the cards of tests that go with it. */
   const withTests = (entry: Entry, follows: (test: Entry) => boolean): Unit => [entry, ...(testsOf.get(entry) ?? []).filter(follows)]
 
-  // Safe nodes fold by their kind, and safe code by its folder. A group of one is simply its card.
+  // A zone the reviewer folded folds whole: each part with all its cards of tests, and its way in into a card of its own.
+  // A card of tests with no subject never folds on its own, so it stays drawn.
+  const byZone = new Map<string, Unit[]>()
+  const inZoneFold = new Set<Entry>()
+  for (const entry of entries) {
+    const zone = entry.node.zone
+    if (zone == null || !folds.has(zone) || subjectOf.has(entry) || entry.node.kind === 'test') continue
+    const key = `${zone}${entry.standing === 'context' ? ':way' : ''}`
+    const unit = withTests(entry, () => true)
+    byZone.set(key, [...(byZone.get(key) ?? []), unit])
+    for (const each of unit) inZoneFold.add(each)
+  }
+
+  // Safe nodes fold by their kind and their zone. A group of one is simply its card.
   const byKey = new Map<string, Entry[]>()
   for (const entry of entries) {
-    if (entry.standing !== 'safe' || subjectOf.has(entry)) continue
+    if (entry.standing !== 'safe' || subjectOf.has(entry) || inZoneFold.has(entry)) continue
     const members = byKey.get(entry.key) ?? []
     members.push(entry)
     byKey.set(entry.key, members)
@@ -264,37 +290,37 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
   const units: Unit[] = []
   for (const entry of entries) {
     const subject = subjectOf.get(entry)
-    if (folded.has(entry) || (subject && !folded.has(subject))) continue
-    units.push(withTests(entry, (test) => !folded.has(test)))
+    if (folded.has(entry) || inZoneFold.has(entry) || (subject && !folded.has(subject) && !inZoneFold.has(subject))) continue
+    units.push(withTests(entry, (test) => !folded.has(test) && !inZoneFold.has(test)))
   }
   units.sort((a, b) => bestStanding(a) - bestStanding(b) || bestRank(a) - bestRank(b) || a[0]!.index - b[0]!.index)
   let drawnCards = units.reduce((sum, unit) => sum + unit.length, 0)
 
-  // Past the most groups, or past the budget less the room kept for opening, the smallest folders of safe code join one
+  // Past the most groups, or past the budget less the room kept for opening, the smallest zones of safe code join one
   // group first, so the graph is not all group cards and a group card gives way before any card does.
-  const folders = folding
+  const smallZones = folding
     .filter(([key]) => key.startsWith('code:'))
     .sort(([, a], [, b]) => a.length - b.length || a[0]!.rank - b[0]!.rank)
   const merged: Unit[] = []
-  let mergedFolders = 0
-  const groupCount = () => folding.length + Number(merged.length > 0)
-  while ((groupCount() > MAX_GROUPS || drawnCards + groupCount() > FOCUS_BUDGET.cards - OPEN_ROOM) && folders.length > 0) {
-    const [key] = folders.shift()!
+  let mergedZones = 0
+  const groupCount = () => folding.length + Number(merged.length > 0) + byZone.size
+  while ((groupCount() > MAX_GROUPS || drawnCards + groupCount() > FOCUS_BUDGET.cards - OPEN_ROOM) && smallZones.length > 0) {
+    const [key] = smallZones.shift()!
     folding.splice(folding.findIndex(([each]) => each === key), 1)
     merged.push(...unitsOf.get(key)!)
-    mergedFolders += 1
+    mergedZones += 1
   }
 
   const made: FoldGroup[] = []
-  /** A group of what these hold, most wanted first, each subject followed by its cards of tests. */
-  const group = (id: string, kind: FoldGroup['kind'], folder: string | null, where: Standing, label: string, units: readonly Unit[]) => {
+  /** A group of what these hold, most wanted first, each subject followed by its cards of tests. It stands in its first member's zone. */
+  const group = (id: string, kind: FoldGroup['kind'], where: Standing, label: string, units: readonly Unit[]) => {
     const sorted = [...units].sort((a, b) => bestRank(a) - bestRank(b) || a[0]!.index - b[0]!.index).flat()
     const paths = new Set(sorted.flatMap(({ node }) => [...membersOf(node), node].map((each) => each.subtitle ?? each.id)))
     const sum = (field: 'additions' | 'deletions') => sorted.reduce((total, { node }) => total + (node.stats?.[field] ?? 0), 0)
     made.push({
       id,
       kind,
-      folder,
+      zone: sorted[0]?.node.zone ?? null,
       standing: where,
       label,
       members: sorted.map(({ node }) => node.id),
@@ -304,31 +330,42 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
       why: WHY[kind],
     })
   }
+  const labelOf = (zone: string) => zoneNamed.get(zone)?.label ?? ''
+  /** A kind that folds in more than one zone says which: "Docs in Docs · billing". */
+  const kindZones = new Map<string, number>()
+  for (const [key] of folding) kindZones.set(key.split(':')[0]!, (kindZones.get(key.split(':')[0]!) ?? 0) + 1)
   for (const [key, members] of folding) {
-    if (key.startsWith('code:')) {
-      const folder = key.slice('code:'.length)
-      group(`${PREFIX}${key}`, 'code', folder, 'safe', folder ? `Safe code in ${folder}` : 'Safe code at the top', unitsOf.get(key)!)
-    } else {
-      const kind = key as NodeBucket
-      const passed = members.every(({ node }) => node.status === 'passed' || node.status === 'proves-change')
-      group(`${PREFIX}${key}`, kind, null, 'safe', kind === 'test' && !passed ? 'Safe tests' : KIND_LABEL[kind], unitsOf.get(key)!)
-    }
+    const [bucket, ...rest] = key.split(':')
+    const zone = rest.join(':')
+    const kind = bucket as NodeBucket
+    const passed = members.every(({ node }) => node.status === 'passed' || node.status === 'proves-change')
+    const words = kind === 'test' && !passed ? 'Safe tests' : KIND_LABEL[kind]
+    const many = kind === 'code' || (kindZones.get(bucket!) ?? 0) > 1
+    group(`${PREFIX}${key}`, kind, 'safe', many && labelOf(zone) ? `${words} in ${labelOf(zone)}` : words, unitsOf.get(key)!)
   }
   if (merged.length > 0) {
     const others = folding.some(([key]) => key.startsWith('code:'))
-    group(`${PREFIX}folders`, 'folders', null, 'safe', others ? 'Safe code in other folders' : `Safe code in ${mergedFolders} ${mergedFolders === 1 ? 'folder' : 'folders'}`, merged)
+    group(`${PREFIX}zones`, 'zones', 'safe', others ? 'Safe code in other zones' : `Safe code in ${mergedZones} ${mergedZones === 1 ? 'zone' : 'zones'}`, merged)
+  }
+  // Each zone the reviewer folded: its parts, and its way in on a card of its own.
+  for (const [key, zoneUnits] of byZone) {
+    const way = key.endsWith(':way')
+    const zone = way ? key.slice(0, -':way'.length) : key
+    const both = byZone.has(`${zone}:way`) && byZone.has(zone)
+    const where = way ? 'context' : STANDINGS[Math.min(...zoneUnits.map(bestStanding))]!
+    group(`${PREFIX}zone:${key}`, 'zone', where, way && both ? `${labelOf(zone)}, on the way in` : labelOf(zone), zoneUnits)
   }
 
   // Past the budget still, the least wanted fold too, into a group for what they are: a subject and its cards of tests
-  // together.
+  // together. A review the host did not rate draws as it always did.
   const overflow = new Map<Standing, Unit[]>()
-  while (drawnCards + made.length + overflow.size > FOCUS_BUDGET.cards - OPEN_ROOM && units.length > 0) {
+  while (rated && drawnCards + made.length + overflow.size > FOCUS_BUDGET.cards - OPEN_ROOM && units.length > 0) {
     const last = units.pop()!
     drawnCards -= last.length
     const where = STANDINGS[bestStanding(last)]!
     overflow.set(where, [last, ...(overflow.get(where) ?? [])])
   }
-  for (const [where, popped] of overflow) group(`${PREFIX}more:${where}`, 'more', null, where, MORE_LABEL[where], popped)
+  for (const [where, popped] of overflow) group(`${PREFIX}more:${where}`, 'more', where, MORE_LABEL[where], popped)
   const cards = units.flat()
 
   // Groups are read in the order of what they hold: what needs the reviewer first, then by their first member's rank.
@@ -344,8 +381,8 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
   for (const each of made) for (const id of each.members) groupOf[id] = each.id
 
   // An open group draws its members, the pinned first, while the budget lasts. The last opened is served first. The
-  // groups made for what did not fit are counted once: they are among the groups now.
-  const open = state.opened.filter((id, index, all) => groups[id] != null && all.lastIndexOf(id) === index)
+  // groups made for what did not fit are counted once: they are among the groups now. A zone folded opens by its heading.
+  const open = state.opened.filter((id, index, all) => groups[id] != null && groups[id]!.kind !== 'zone' && all.lastIndexOf(id) === index)
   let room = FOCUS_BUDGET.cards - cards.length - made.length
   const shown: Record<string, string[]> = {}
   for (const id of [...open].reverse()) {
@@ -357,7 +394,7 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
   }
   const drawn = [...cards.map((entry) => entry.node.id), ...open.flatMap((id) => shown[id]!), ...made.map((each) => each.id)]
   return {
-    active: true,
+    active: rated,
     cards: drawn,
     groups,
     order: made.map((each) => each.id),
@@ -386,7 +423,7 @@ function groupNode(group: FoldGroup, nodeOf: ReadonlyMap<string, ReviewNode>): R
     id: group.id,
     kind: group.kind === 'test' ? 'test' : 'file',
     title: group.label,
-    ...(group.folder ? { subtitle: group.folder } : {}),
+    ...(group.zone != null ? { zone: group.zone } : {}),
     change: 'modified',
     stats: { additions: group.additions, deletions: group.deletions },
     summary: group.why,
@@ -418,9 +455,9 @@ function wireOrder(edges: readonly ArrangedEdge[], plan: FocusPlan, ridden: Read
 }
 
 /**
- * Where Focus draws its nodes. The graph is laid out as it stands with every group closed, the request's way as always
- * (`layoutRequest`), from every wire, drawn or not: so opening or closing a group never moves the rest of the graph
- * about. Each open group then opens in place, its members after its card, and what is beside it and below it makes room.
+ * Where Focus draws its nodes. The graph is laid out by zone as it stands with every group closed (`layoutZones`), from
+ * every wire, drawn or not: so opening or closing a group never moves the rest of the graph about. Each open group then
+ * opens in place, its members after its card, and what is beside it and below it in its zone makes room.
  */
 function layoutFolded(arranged: Arranged, nodes: readonly ReviewNode[], plan: FocusPlan): Positions {
   const opened = new Set(plan.open.flatMap((id) => plan.shown[id]!))
@@ -431,9 +468,8 @@ function layoutFolded(arranged: Arranged, nodes: readonly ReviewNode[], plan: Fo
     .map((edge) => ({ from: closed(edge.from), to: closed(edge.to) }))
     .filter((edge) => edge.from !== edge.to && kept.has(edge.from) && kept.has(edge.to))
 
-  const kindOf = new Map(nodes.map((node) => [node.id, node.kind]))
   const blocks = plan.open.map((id) => ({ at: id, ids: plan.shown[id]! }))
-  return openBlocks(layoutRequest(standing, wires), (id) => kindOf.get(id) ?? 'file', blocks)
+  return layoutZones(nodes, wires, arranged.zones, blocks)
 }
 
 /**
@@ -442,7 +478,7 @@ function layoutFolded(arranged: Arranged, nodes: readonly ReviewNode[], plan: Fo
  * step that focused a folded node focuses its group's card.
  */
 export function foldArranged(arranged: Arranged, plan: FocusPlan): Folded {
-  if (!plan.active) return { ...arranged, plan, foldOf: {} }
+  if (!plan.active && plan.order.length === 0) return { ...arranged, plan, foldOf: {} }
   const drawn = new Set(plan.cards)
   const foldOf: Record<string, string> = {}
   for (const [id, group] of Object.entries(plan.groupOf)) if (!drawn.has(id)) foldOf[id] = group

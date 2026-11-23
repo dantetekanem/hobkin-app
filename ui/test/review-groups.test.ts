@@ -20,7 +20,7 @@ const pull = pullReview('pr:hobkin-sample/storefront/482')
 function focusOn(review: Review, state?: FocusState) {
   const arranged = arrange(review)
   const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
-  const plan = planFocus({ nodes: arranged.nodes, groups: arranged.groups, nodeOf, covers: arranged.covers }, state)
+  const plan = planFocus({ nodes: arranged.nodes, groups: arranged.groups, nodeOf, covers: arranged.covers, zones: arranged.zones }, state)
   return { arranged, plan, folded: foldArranged(arranged, plan) }
 }
 /** Where a node of the review is drawn: itself, or the card of tests that holds it. */
@@ -42,7 +42,7 @@ test('a review whose nodes say nothing about attention folds nothing, and draws 
   assert.equal(folded.edges, arranged.edges)
 })
 
-test('Focus draws every node that needs the reviewer and every one worth a look, and folds the safe ones by kind and by folder', () => {
+test('Focus draws every node that needs the reviewer and every one worth a look, and folds the safe ones by kind and by zone', () => {
   const { arranged, plan } = focusOn(large)
   assert.equal(plan.active, true)
   const wanted = large.nodes.filter((node) => node.attention && node.attention.tier !== 'safe')
@@ -58,13 +58,20 @@ test('Focus draws every node that needs the reviewer and every one worth a look,
     for (const id of group.members) assert.equal(plan.standing[id], 'safe')
     for (const id of group.members) assert.equal(plan.cards.includes(id), false, `${id} is folded`)
   }
-  // With every card of tests beside its subject the budget is tight, so the folders of safe code fold as one, before
-  // any card gives way.
-  assert.equal(labels.filter((label) => /^Safe code in \d+ folders$/.test(label)).length, 1)
-  assert.equal(labels.filter((label) => label.startsWith('Safe code in app/')).length, 0)
-  // With room, safe code folds by its top folder.
+  // With every card of tests beside its subject the budget is tight, so the smallest zones of safe code fold as one,
+  // before any card gives way.
+  assert.equal(labels.filter((label) => /^Safe code in \d+ zones$/.test(label)).length, 1)
+  // Every group stands in one zone, and every group of safe code in one zone holds only that zone's code and says it.
   const roomy = focusOn(withoutTests(large))
-  for (const id of groupNamed(roomy.plan, 'Safe code in app/models').members) assert.match(roomy.arranged.nodes.find((node) => node.id === id)!.subtitle!, /^app\/models\//)
+  const zoneOf = (id: string) => roomy.arranged.nodes.find((node) => node.id === id)!.zone
+  const byZone = Object.values(roomy.plan.groups).filter((group) => group.kind === 'code')
+  assert.ok(byZone.length > 1)
+  for (const group of byZone) {
+    const zone = roomy.arranged.zones.find((each) => each.id === group.zone)!
+    assert.equal(group.label, `Safe code in ${zone.label}`)
+    for (const id of group.members) assert.equal(zoneOf(id), zone.id, `${id} is in ${zone.label}`)
+  }
+  for (const group of Object.values(focusOn(large).plan.groups)) assert.ok(group.zone != null, `${group.label} stands in a zone`)
 })
 
 /** A review without its tests and the wires that leave them. */
@@ -83,9 +90,9 @@ test('unchanged code on the way in never folds with safe code: it keeps a standi
     assert.ok(plan.cards.includes(node.id), `${node.title} is a card`)
   }
   assert.deepEqual(plan.order.map((id) => plan.groups[id]!.label).filter((label) => /config|controllers|helpers|models/.test(label)), [])
-  // The layout still finds the ways a request enters: the routes in the first column, then each call on its way.
+  // The layout still reads the way a request goes: the routes' zone first, then each call on its way.
   const x = (title: string) => folded.nodes.find((node) => node.title === title)!.position.x
-  assert.equal(x('GET /posts/:id'), 0)
+  assert.equal(x('GET /posts/:id'), Math.min(...folded.nodes.filter((node) => node.kind !== 'criterion').map((node) => node.position.x)))
   for (const [left, right] of [['GET /posts/:id', 'PostsController#show'], ['PostsController#show', 'render_body'], ['render_body', 'link_user_tags']]) assert.ok(x(left!) < x(right!), `${left} before ${right}`)
   // The large sample's routes are cards too.
   const routes = large.nodes.filter((node) => node.kind === 'context')
@@ -126,10 +133,48 @@ test('past the budget the way in folds into "More of the way in", which keeps wh
   assert.ok(way.members.length > 0 && way.members.every((id) => id.startsWith('r')), 'only the way in folds into it')
   assert.ok(plan.cards.includes('c1') && plan.cards.includes('c5'), 'the way in the review lists first stays drawn')
 
-  // Its card is unchanged code where a request enters, so the layout keeps it in the column of the routes.
+  // Its card is unchanged code where a request enters, and it stands in the zone of the routes it holds.
   const card = folded.nodes.find((node) => node.id === way.id)!
   assert.deepEqual([card.kind, card.change, card.entry?.kind, card.lifecycle?.role], ['context', 'unchanged', 'route', 'caller'])
-  assert.equal(card.position.x, folded.nodes.find((node) => node.title === 'GET /posts/:id')!.position.x)
+  assert.equal(card.zone, folded.nodes.find((node) => node.title === 'GET /posts/:id')!.zone)
+})
+
+test('a zone the reviewer folds is one card, its way in on a card of its own that keeps where a request enters, each part with its tests', () => {
+  const helpers = arrange(pull).zones.find((zone) => zone.label === 'Helpers · Posts')!
+  const { plan, folded } = focusOn(pull, { opened: [], pinned: [], zones: [helpers.id] })
+  const parts = plan.groups[`fold:zone:${helpers.id}`]!
+  const way = plan.groups[`fold:zone:${helpers.id}:way`]!
+  assert.deepEqual([parts.kind, parts.zone, parts.label], ['zone', helpers.id, 'Helpers · Posts'])
+  assert.ok(parts.members.includes('u1') && parts.members.includes('tests:u1'), 'link_user_tags takes its card of tests with it')
+  assert.deepEqual(way.members, ['c1'], 'render_body is on the way in, so it never folds with the change')
+  assert.equal(way.standing, 'context')
+  assert.equal(way.label, 'Helpers · Posts, on the way in')
+  const card = folded.nodes.find((node) => node.id === way.id)!
+  assert.deepEqual([card.kind, card.change, card.lifecycle?.role], ['context', 'unchanged', 'caller'])
+  for (const id of ['u1', 'c1', 'tests:u1']) assert.equal(plan.cards.includes(id), false, `${id} folds`)
+  // The zone's region holds its cards, and no other zone's region overlaps it.
+  assert.equal(folded.nodes.filter((node) => node.zone === helpers.id).length, 2)
+
+  // A zone of tests folds only with the code it covers, so folding it alone folds nothing.
+  const tests = arrange(pull).zones.find((zone) => zone.tests)!
+  assert.deepEqual(focusOn(pull, { opened: [], pinned: [], zones: [tests.id] }).plan.order, focusOn(pull).plan.order)
+  // Opening it again puts the graph back as it was.
+  assert.deepEqual(focusOn(pull, { opened: [], pinned: [] }).folded.nodes.map((node) => [node.id, node.position]), focusOn(pull).folded.nodes.map((node) => [node.id, node.position]))
+})
+
+test('a review the host did not rate folds only the zones the reviewer folds, and the budget holds with every zone folded', () => {
+  const zones = arrange(sample).zones
+  const one = zones.find((zone) => !zone.tests && zone.members.length > 1)!
+  const { plan, folded } = focusOn(sample, { opened: [], pinned: [], zones: [one.id] })
+  assert.equal(plan.active, false, 'it still says nothing of attention')
+  assert.deepEqual(plan.order.map((id) => plan.groups[id]!.kind), plan.order.map(() => 'zone'))
+  assert.ok(folded.nodes.length < arrange(sample).nodes.length)
+  for (const review of [large, crowdedLarge()]) {
+    const all = arrange(review).zones.filter((zone) => !zone.tests).map((zone) => zone.id)
+    const { folded: closed } = focusOn(review, { opened: [], pinned: [], zones: all })
+    assert.ok(closed.nodes.length <= FOCUS_BUDGET.cards && closed.edges.length <= FOCUS_BUDGET.wires)
+    assert.ok(Object.values(closed.plan.groups).filter((group) => group.kind === 'zone').length >= all.length)
+  }
 })
 
 test('a way in folded into "More of the way in" lights its card, and the wire from it, when the step is on the code it leads to', () => {
@@ -329,4 +374,25 @@ test('a node folded into a group is reached: its group opens, it is drawn first 
   const test = reached.view.groups[card]!.tests[0]!
   session.getState().reach(test)
   assert.deepEqual(session.getState().focus, [card])
+})
+
+test("a zone's heading folds it into one card and opens it again; Enter on its card opens it, on its first node", () => {
+  const session = createSession(pull, createReviewMemory())
+  const helpers = session.getState().view.zones.find((zone) => zone.label === 'Helpers · Posts')!
+  const card = `fold:zone:${helpers.id}`
+  session.getState().focusOn('u1')
+  assert.equal(session.getState().toggleZone(helpers.id), true)
+  assert.ok(session.getState().view.nodes.some((node) => node.id === card))
+  assert.deepEqual(session.getState().focus, [card], 'the reviewer on what folded is on its card')
+
+  assert.equal(press(session, 'Enter'), true)
+  assert.equal(session.getState().view.nodes.some((node) => node.id === card), false, 'Enter on the card opens the zone')
+  assert.deepEqual(session.getState().focus, [helpers.members[0]])
+
+  // A zone of tests has no fold of its own, and a node in a folded zone is reached by opening it.
+  assert.equal(session.getState().toggleZone(session.getState().view.zones.find((zone) => zone.tests)!.id), false)
+  session.getState().toggleZone(helpers.id)
+  session.getState().reach('c1')
+  assert.equal(session.getState().view.nodes.some((node) => node.id === card), false)
+  assert.deepEqual(session.getState().focus, ['c1'])
 })
