@@ -1,5 +1,5 @@
 import type { AssessmentSummary } from '#shared/review/assessment.ts'
-import { targetOfReviewId } from '#shared/review/ids.ts'
+import { pullOfReview, pullUrl } from '#shared/review/ids.ts'
 import { shownAsRow, type ReviewList, type ReviewListItem } from '#shared/review/status.ts'
 
 /**
@@ -16,8 +16,10 @@ export type ReviewGroup = 'unmerged' | 'running' | 'ready' | 'failed'
 export interface ReviewRow {
   item: ReviewListItem
   group: ReviewGroup
-  /** The project, or `owner/repo #n` for a pull request. */
+  /** The project, or `owner/repo` for a pull request, with the number of the pull request the review has. */
   where: string
+  /** The page of the pull request the review has: its own, or the one its finished change opened. Null when it has none. */
+  link: string | null
   /** What it is doing now, for a running one; why it stopped, for a failed one; empty for a ready one. */
   line: string
   /** How far along a running one is, from 0 to 100, when it says. */
@@ -59,11 +61,16 @@ export function groupOf(item: ReviewListItem): ReviewGroup | null {
   return null
 }
 
-/** The project, or `owner/repo #n` for a pull request, as the host names its repository. */
-function whereOf(item: ReviewListItem): string {
-  const target = targetOfReviewId(item.id)
-  if (target?.kind !== 'pull') return item.project
-  return `${item.project || `${target.owner}/${target.repo}`} #${target.number}`
+/**
+ * Where a review's change lives: its name, which is the project, or `owner/repo` for a pull request as the host names
+ * its repository, with the number of the pull request it has, and that pull request's page.
+ */
+function placeOf(item: ReviewListItem): Pick<ReviewRow, 'where' | 'link'> {
+  const pull = pullOfReview(item.id, item.pr)
+  if (!pull) return { where: item.project, link: null }
+
+  const name = item.project || `${pull.owner}/${pull.repo}`
+  return { where: `${name} #${pull.number}`, link: pullUrl(pull) }
 }
 
 function rowOf(item: ReviewListItem): ReviewRow | null {
@@ -71,7 +78,7 @@ function rowOf(item: ReviewListItem): ReviewRow | null {
   if (!group) return null
   const { assessment } = item
   const running = assessment?.state === 'running'
-  const row: ReviewRow = { item, group, where: whereOf(item), line: '', percent: null, startedAt: null, at: null, summary: null }
+  const row: ReviewRow = { item, group, ...placeOf(item), line: '', percent: null, startedAt: null, at: null, summary: null }
   if (group === 'unmerged') {
     const { state, why, at, message } = item.mergeAsked!
     // A code host that merges in its own time says what it does; a finished change waits for hobkin to bring it up to date.

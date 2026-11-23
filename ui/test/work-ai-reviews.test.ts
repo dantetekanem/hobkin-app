@@ -151,3 +151,22 @@ test("a merge a code host does in its own time shows that host's own sentence on
   const groups = groupReviews({ reviews: [item('pr:corp:acme/shop/7', { kind: 'pull', mergeAsked: { at: at(1), state: 'waiting', message: 'The merge queue lands it once its checks pass.' } })] })
   assert.deepEqual(groups.unmerged.map((row) => row.line), ['You said merge. The merge queue lands it once its checks pass.'])
 })
+
+test('a row names its pull request by number and links to its page: its own, or the one a finished change opened', () => {
+  const rows = rowsOf({
+    reviews: [
+      item('change:storefront:b1', { pr: 'https://github.com/Acme/Web/pull/12' }),
+      item('change:storefront:b2', {}),
+      item('change:storefront:b3', { pr: 'https://elsewhere.invalid/acme/web/pull/9' }),
+      item('pr:acme/web/13', { kind: 'pull', project: 'acme/web' }),
+    ],
+  })
+
+  assert.deepEqual(Object.fromEntries(rows.map((row) => [row.item.id, [row.where, row.link]])), {
+    'change:storefront:b1': ['storefront #12', 'https://github.com/acme/web/pull/12'],
+    'change:storefront:b2': ['storefront', null],
+    // An address that is no pull request page here is never a link.
+    'change:storefront:b3': ['storefront', null],
+    'pr:acme/web/13': ['acme/web #13', 'https://github.com/acme/web/pull/13'],
+  })
+})

@@ -5,7 +5,8 @@ import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { waited } from '@/features/reports/time.ts'
-import { byLineWords, peopleOfOwner } from '@/features/review/panel/by-line.ts'
+import { peopleOfOwner } from '@/features/review/panel/by-line.ts'
+import { ByLineNames } from '@/features/review/panel/ByLine.tsx'
 import { usePullPeople } from '@/features/review/use-people.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
@@ -171,52 +172,67 @@ function StopReview({ id, live, onStopped }: { id: string; live: boolean; onStop
 function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: () => void }) {
   const { item } = row
   const Kind = item.kind === 'pull' ? GitPullRequest : GitBranch
-  // Who it is from, as words: the row is itself a button, so its names are no links. The host is asked once for each
-  // review, and the panel shares the answer; until it says, the author the review recorded.
-  const people = usePullPeople(item.id, live && item.kind === 'pull')
-  const byLine = item.kind === 'pull' ? byLineWords(people ?? peopleOfOwner(item.owner)) : null
+  // Who its pull request is from: its own, or the one a finished change opened. The host is asked once for each review,
+  // and the panel shares the answer; until it says, the author a pull request's review recorded.
+  const hasPullRequest = item.kind === 'pull' || row.link !== null
+  const answered = usePullPeople(item.id, live && hasPullRequest)
+  const recorded = item.kind === 'pull' ? peopleOfOwner(item.owner) : null
+  const people = answered ?? recorded
   const again = canReviewAgain(row)
   // A row with no action, as someone else's pull request while its review runs, has no row of them.
   const actions = rowActions(row)
   return (
     // The row is the card: opening it and running it again are two buttons, side by side, never one inside the other.
     <li className="flex flex-col rounded-3xl bg-background transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 has-[[data-review-id]:focus-visible]:bg-tone-2">
-      <button
-        type="button"
-        data-stop=""
-        data-review-id={item.id}
-        onClick={() => useView.getState().openReviewFor(reviewToOpen(item, live))}
-        className="flex w-full scroll-mt-[124px] scroll-mb-6 flex-col gap-2.5 rounded-3xl p-5 pb-2.5 text-left outline-offset-[-2px]"
-      >
-        <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted-foreground">
+      {/* The button that opens the review is stretched under the line above it, so that line's links sit beside the button and the rest of the line still opens the review. */}
+      <div className="relative isolate flex flex-col">
+        <p className="pointer-events-none relative z-[1] flex min-w-0 items-center gap-2 px-5 pt-5 text-[13px] text-muted-foreground [&_a]:pointer-events-auto">
           <Kind aria-hidden="true" className="size-4 shrink-0" />
-          <span className="min-w-0 truncate font-medium text-foreground">{row.where}</span>
+          {row.link ? (
+            <a href={row.link} target="_blank" rel="noopener noreferrer" data-stop="" className="min-w-0 truncate font-medium text-foreground underline decoration-foreground/35 underline-offset-2 hover:decoration-foreground">
+              {row.where}
+            </a>
+          ) : (
+            <span className="min-w-0 truncate font-medium text-foreground">{row.where}</span>
+          )}
           <span className="shrink-0">· {item.kind === 'pull' ? 'Pull request' : 'Finished change'}</span>
-          {byLine ? <span className="min-w-0 truncate">· {byLine}</span> : null}
-          <When row={row} />
-        </span>
-        <span className="flex items-start gap-3">
-          <span className="min-w-0 flex-1 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{item.title}</span>
-          {row.group === 'ready' && !row.summary ? (
-            <span className="inline-flex h-7 shrink-0 items-center rounded-full bg-surface-2 px-3 font-heading text-[13px] font-medium text-muted-foreground">Review ready</span>
-          ) : row.group === 'ready' ? (
-            <ReviewBadge status={item.assessment} size="md" />
-          ) : row.group === 'failed' ? (
-            <ReviewBadge status={{ state: 'failed', head: item.head, error: row.line }} size="md" />
+          {people?.author ? (
+            <span className="min-w-0 truncate">
+              · <ByLineNames people={people} />
+            </span>
           ) : null}
-        </span>
-        {row.group === 'running' ? (
-          <span className="flex flex-col gap-2">
-            {row.percent !== null ? (
-              <span className="flex items-center gap-3">
-                <ReviewProgress percent={row.percent} label={`${item.title}: ${row.percent}% reviewed`} />
-                <span className="shrink-0 font-heading text-[14px] font-semibold tabular-nums">{row.percent}%</span>
-              </span>
+          <When row={row} />
+        </p>
+        <button
+          type="button"
+          data-stop=""
+          data-review-id={item.id}
+          onClick={() => useView.getState().openReviewFor(reviewToOpen(item, live))}
+          className="stretched flex w-full scroll-mt-[164px] scroll-mb-6 flex-col gap-2.5 rounded-3xl px-5 pt-2.5 pb-2.5 text-left"
+        >
+          <span className="flex items-start gap-3">
+            <span className="min-w-0 flex-1 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{item.title}</span>
+            {row.group === 'ready' && !row.summary ? (
+              <span className="inline-flex h-7 shrink-0 items-center rounded-full bg-surface-2 px-3 font-heading text-[13px] font-medium text-muted-foreground">Review ready</span>
+            ) : row.group === 'ready' ? (
+              <ReviewBadge status={item.assessment} size="md" />
+            ) : row.group === 'failed' ? (
+              <ReviewBadge status={{ state: 'failed', head: item.head, error: row.line }} size="md" />
             ) : null}
-            <span className="text-[14px] leading-snug">{row.line}</span>
           </span>
-        ) : null}
-      </button>
+          {row.group === 'running' ? (
+            <span className="flex flex-col gap-2">
+              {row.percent !== null ? (
+                <span className="flex items-center gap-3">
+                  <ReviewProgress percent={row.percent} label={`${item.title}: ${row.percent}% reviewed`} />
+                  <span className="shrink-0 font-heading text-[14px] font-semibold tabular-nums">{row.percent}%</span>
+                </span>
+              ) : null}
+              <span className="text-[14px] leading-snug">{row.line}</span>
+            </span>
+          ) : null}
+        </button>
+      </div>
       <div className="flex min-h-8 items-center gap-3 px-5 pb-4">
         {row.summary ? <DeployWhy summary={row.summary} head={item.head} /> : null}
         {row.group === 'failed' ? <span className="min-w-0 text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}

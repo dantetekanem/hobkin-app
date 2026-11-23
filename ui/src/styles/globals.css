@@ -346,6 +346,34 @@
     transform: none;
   }
 
+  /*
+   * A button stretched under the whole of its row, so a link on the row sits beside the button, never inside it. The
+   * row is `relative` and the button is not. What lies over the button lets clicks through, except its links. The focus
+   * ring goes around everything a click on the button covers.
+   */
+  .stretched,
+  .stretched:focus-visible {
+    outline: none;
+  }
+
+  .stretched::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+
+  .stretched:focus-visible::after {
+    outline: 2px solid var(--hb-focus);
+    outline-offset: -2px;
+  }
+
+  /* What the button itself holds stays over that layer, so a hover still reaches it. */
+  .stretched > * {
+    position: relative;
+    z-index: 1;
+  }
+
   /* Thin scrollbars that stay out of the way. */
   .scroll-quiet {
     scrollbar-width: thin;

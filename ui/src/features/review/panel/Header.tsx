@@ -1,8 +1,8 @@
 import { Check, ChevronDown, ChevronsLeft, FolderGit2, GitCommitHorizontal, GitPullRequest, Hand, Inbox, RefreshCw, TriangleAlert, Wrench, X } from 'lucide-react'
 import { useState, type CSSProperties, type ReactNode } from 'react'
 import type { ChangeAssessment } from '#shared/review/assessment.ts'
-import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
-import type { ReviewPerson, ReviewStatus } from '#shared/review/status.ts'
+import { pullOfReview, pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
+import type { ReviewStatus } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
 import { PAGE_TOP } from '@/app/screen-layout.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
@@ -12,6 +12,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { openTarget } from '@/features/home/navigate.ts'
 import { cn } from '@/lib/utils.ts'
 import { usePullPeople } from '../use-people.ts'
+import { ByLineNames } from './ByLine.tsx'
 import { headerBadge, type HeaderBadge, type HeaderFix } from './sidebar.ts'
 
 /**
@@ -23,11 +24,13 @@ import { headerBadge, type HeaderBadge, type HeaderFix } from './sidebar.ts'
 export const MENU = { width: 560, bottom: PAGE_TOP + 30, gap: 12 } as const
 
 /**
- * The top of the review panel, the same for the whole review, whatever the step: which project changes, the change's
- * title with its overall risk right under it, always there ("Safe", "Mid risk" or "High risk", how far along the
- * change review is, that it failed and why, or that there is none), "Merged" beside it once the change merged, how
- * many units sit at each level, its size and the commits it was built from, and for a pull request from GitHub the
- * description its author wrote, behind a button. What the change does is told under "What matters".
+ * The top of the review panel, the same for the whole review, whatever the step: which project changes, as a link to
+ * its pull request with the number when it has one (its own, or the one a finished change opened), the change's
+ * title, who the pull request is from, and the overall risk right under that, always there ("Safe", "Mid risk" or
+ * "High risk", how far along the change review is, that it failed and why, or that there is none), "Merged" beside it
+ * once the change merged, how many units sit at each level, its size and the commits it was built from, and for a
+ * pull request from GitHub the description its author wrote, behind a button. What the change does is told under
+ * "What matters".
  */
 export function PanelHeader({ review, overlap, onHide, onClose, live, preparation, assessment, rebuild }: {
   review: Review
@@ -42,10 +45,18 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
   rebuild: () => void
 }) {
   const [described, setDescribed] = useState(false)
-  const target = targetOfReviewId(review.id)
-  const pull = target?.kind === 'pull'
+  const pull = targetOfReviewId(review.id)?.kind === 'pull'
+  // The pull request this review has: its own, or the one its finished change opened.
+  const pullRequest = pullOfReview(review.id, preparation?.pr)
+  const pullRequestPage = pullRequest ? pullUrl(pullRequest) : null
   const { project, item, title, files, additions, deletions, description, base, head } = review.change
   const Place = pull ? GitPullRequest : FolderGit2
+  const place = (
+    <>
+      <Place className="size-3.5 shrink-0" aria-hidden="true" />
+      <span className="truncate">{placeName(review, pullRequest?.number ?? null)}</span>
+    </>
+  )
 
   return (
     <header className="px-4 pt-3 pb-3.5">
@@ -53,22 +64,13 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
       {overlap > 0 ? <div aria-hidden="true" className="float-right" style={{ width: overlap, height: MENU.bottom - 14 }} /> : null}
       <div className="flex items-center gap-1">
         <p className="flex min-w-0 flex-1 items-center gap-1.5 font-heading text-[13px] font-semibold text-muted-foreground" title={pull ? `${project}${item}` : `The project ${project}`}>
-          {target?.kind === 'pull' && pullUrl(target) ? (
-            // The pull request's own page, opened in the browser as every link in the window is. Underlined, as the panel's links are.
-            <a href={pullUrl(target)!} target="_blank" rel="noopener noreferrer" data-stop className="flex min-w-0 items-center gap-1.5 underline underline-offset-2 hover:text-foreground">
-              <Place className="size-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">
-                {project} {item}
-              </span>
+          {pullRequestPage ? (
+            // The pull request's page, opened in the browser as every link in the window is. Underlined, as the panel's links are.
+            <a href={pullRequestPage} target="_blank" rel="noopener noreferrer" data-stop className="flex min-w-0 items-center gap-1.5 underline underline-offset-2 hover:text-foreground">
+              {place}
             </a>
           ) : (
-            <>
-              <Place className="size-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">
-                {project}
-                {pull ? ` ${item}` : ''}
-              </span>
-            </>
+            place
           )}
         </p>
         <QuietButton label="Hide the panel" keys="S" onClick={onHide}>
@@ -79,7 +81,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
         </QuietButton>
       </div>
       <h2 className="mt-1 font-heading text-[17px] leading-[1.28] font-semibold tracking-[-0.02em] text-pretty [overflow-wrap:anywhere]">{title}</h2>
-      {pull ? <ByLine id={review.id} live={live} /> : null}
+      {pullRequest && live ? <ByLine id={review.id} /> : null}
       {/* A change that lands is never reviewed again, so its review offers no "Try again". */}
       <Risk badge={headerBadge(assessment, preparation?.assessment)} live={live && !preparation?.landing} merged={preparation?.landing?.state === 'merged'} rebuild={rebuild} />
       <div className="mt-2.5 flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-[13px] text-muted-foreground">
@@ -122,24 +124,26 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
 }
 
 /**
- * Who a pull request is from, under its title: "By" its author, or "By" the agent and "for" the person who asked, each
- * a link to their profile when one is known, opened in the browser. Nothing without a host, or when nobody is named.
+ * What the top line calls the change: a pull request by its repository and number, a finished change by its project,
+ * with the number of the pull request it opened once it has one.
  */
-function ByLine({ id, live }: { id: string; live: boolean }) {
-  const people = usePullPeople(id, live)
-  if (!people?.author) return null
-  const named = (person: ReviewPerson) =>
-    person.url ? (
-      <a href={person.url} target="_blank" rel="noopener noreferrer" data-stop className="underline underline-offset-2 hover:text-foreground">
-        {person.name}
-      </a>
-    ) : (
-      <span>{person.name}</span>
-    )
+function placeName(review: Review, openedNumber: number | null): string {
+  const { project, item } = review.change
+  if (targetOfReviewId(review.id)?.kind === 'pull') return `${project} ${item}`
+  if (openedNumber !== null) return `${project} #${openedNumber}`
+  return project
+}
+
+/**
+ * Who the review's pull request is from, under its title, as the host says: "By" its author, or "By" the agent and
+ * "for" the person who asked, each a link to their profile when one is known. The line keeps its height while the host
+ * is asked, so nothing under it moves when the names arrive.
+ */
+function ByLine({ id }: { id: string }) {
+  const people = usePullPeople(id, true)
   return (
-    <p className="mt-1 text-[13px] leading-snug text-muted-foreground [overflow-wrap:anywhere]">
-      By {named(people.author)}
-      {people.for ? <>, for {named(people.for)}</> : null}
+    <p className="mt-1 min-h-[1.375em] text-[13px] leading-snug text-muted-foreground [overflow-wrap:anywhere]">
+      <ByLineNames people={people} />
     </p>
   )
 }

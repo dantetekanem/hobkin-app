@@ -4,10 +4,16 @@
  */
 import type { PullOwner } from '#shared/review/status.ts'
 
-/** The people a by-line names, each by the name they go by. */
+/** Someone a by-line names: the name they go by, and their profile when one is known. */
+export interface Named {
+  name: string
+  url?: string
+}
+
+/** The people a by-line names. */
 export interface PullPeople {
-  author: { name: string } | null
-  for?: { name: string }
+  author: Named | null
+  for?: Named
 }
 
 export function byLineWords(people: PullPeople | null | undefined): string | null {
