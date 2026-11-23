@@ -276,8 +276,10 @@ test('zones: one block for each, in the order given, none overlapping another, a
   assert.equal(positions['get-post']!.x, positions['get-feed']!.x)
   // The acceptance lines lead, as spec 006 has them, so their wires to the tests run forward.
   assert.ok(rects.get('spec')!.x + rects.get('spec')!.width <= code[0]!.x)
-  // A node the review puts in no zone it lists stands after the rest.
-  assert.ok(positions.stray!.x > code.at(-1)!.x)
+  // A node the review puts in no zone it lists stands in a block of its own, which no wire joins: under the zones of
+  // the column where the change is.
+  assert.equal(positions.stray!.x, positions.render!.x)
+  assert.ok(positions.stray!.y > rects.get('helper-tests')!.y + rects.get('helper-tests')!.height)
 
   // The same review always lays out the same way, in whole points, its first region at the origin.
   assert.deepEqual(layoutZones(all, wires, zones), positions)
@@ -302,6 +304,44 @@ test('zones: a zone of tests sits under the code it mirrors, each test just left
   assert.equal(overlaps(nodeRect('test', positions['t-link']!), nodeRect('test', positions['t-link-2']!)), false)
   const untested = layoutZones(all.filter((entry) => entry.kind !== 'test'), wires, zones)
   assert.equal(zoneRects(all, untested).get('helpers')!.x, helpers.x, "folding the zone's tests away leaves its heading where it was")
+})
+
+test('zones: zones a request reaches together stand one under the other, so no wire runs behind a zone it skips', () => {
+  const zones: LayoutZone[] = [
+    { id: 'routes', layer: 'route' },
+    { id: 'posts', layer: 'controller' },
+    { id: 'feeds', layer: 'controller' },
+    { id: 'helpers', layer: 'helper' },
+    { id: 'script', layer: 'script' },
+  ]
+  const all: ZoneNode[] = [
+    { id: 'get-post', kind: 'context', zone: 'routes', entry: {} },
+    { id: 'get-feed', kind: 'context', zone: 'routes', entry: {} },
+    { id: 'post', kind: 'context', zone: 'posts' },
+    { id: 'feed', kind: 'context', zone: 'feeds' },
+    { id: 'render', kind: 'code', zone: 'helpers', change: 'modified' },
+    // Changed code nothing calls stands under the change, not under where a request enters.
+    { id: 'fetch', kind: 'code', zone: 'script', change: 'added' },
+  ]
+  const wires = [wire('get-post', 'post'), wire('get-feed', 'feed'), wire('post', 'render'), wire('feed', 'render')]
+  const positions = layoutZones(all, wires, zones)
+  const rects = zoneRects(all, positions)
+  const [posts, feeds, helpers, script] = ['posts', 'feeds', 'helpers', 'script'].map((id) => rects.get(id)!)
+  assert.equal(posts!.x, feeds!.x, 'the two controllers share a column')
+  assert.ok(posts!.y + posts!.height + ZONE_FRAME.gap <= feeds!.y, 'in the order given, one under the other')
+  assert.ok(rects.get('routes')!.x + rects.get('routes')!.width < posts!.x && posts!.x + posts!.width < helpers!.x)
+  assert.equal(script!.x, helpers!.x)
+  assert.ok(script!.y >= helpers!.y + helpers!.height + ZONE_FRAME.gap)
+  // No wire passes behind a zone it does not reach: each runs from one column to the next.
+  for (const edge of wires) {
+    const [from, to] = [all.find((entry) => entry.id === edge.from)!.zone!, all.find((entry) => entry.id === edge.to)!.zone!]
+    const [left, right] = [rects.get(from)!, rects.get(to)!]
+    for (const [zone, rect] of rects) {
+      if (zone === from || zone === to) continue
+      assert.ok(rect.x + rect.width <= left.x + left.width || rect.x >= right.x, `${edge.from} to ${edge.to} runs clear of ${zone}`)
+    }
+  }
+  assertNoOverlap(all, positions)
 })
 
 test('zones: a group opened in place grows its own zone, and no two zones overlap', () => {

@@ -514,6 +514,21 @@ function hostOf(tests: string, order: readonly string[], isTests: (zone: string)
   return [...order.slice(0, at)].reverse().find((zone) => !isTests(zone)) ?? null
 }
 
+/** The code zone each zone of tests sits under, worked out from the whole graph: most of its wires lead there. */
+export function zoneDocks(nodes: readonly ZoneNode[], edges: readonly LayoutEdge[], zones: readonly LayoutZone[]): Record<string, string> {
+  const listed = new Map(zones.map((zone) => [zone.id, zone]))
+  const zoneOfNode = new Map(nodes.flatMap((node) => (node.zone != null && listed.has(node.zone) ? [[node.id, node.zone] as const] : [])))
+  const present = new Set(zoneOfNode.values())
+  const order = zones.map((zone) => zone.id).filter((zone) => present.has(zone))
+  const isTests = (zone: string) => listed.get(zone)?.layer.startsWith('test:') ?? false
+  const docks: Record<string, string> = {}
+  for (const zone of order.filter(isTests)) {
+    const host = hostOf(zone, order, isTests, zoneOfNode, edges)
+    if (host != null) docks[zone] = host
+  }
+  return docks
+}
+
 /**
  * The graph by zone (spec 055, the user, 2026-11-23: "so I can see the zone of the change"). Each zone is one block,
  * the blocks left to right in the order the zones are given, which is the order a request passes them, so a request
@@ -522,11 +537,12 @@ function hostOf(tests: string, order: readonly string[], isTests: (zone: string)
  * acceptance lines of a spec lead, as spec 006 has them, so their wires to the tests run forward too. A node in a zone
  * not given stands in a block after the rest.
  *
- * Each block keeps the room of its region (`ZONE_FRAME`): no two regions overlap, every node is inside its own, and the
- * regions' tops are on one line. `blocks` are groups opened in place (`openBlocks`): a group grows its own zone, and a
- * member of another zone stands in its own, after what is there. The same nodes always give the same layout.
+ * Each block keeps the room of its region (`ZONE_FRAME`): no two regions overlap and every node is inside its own.
+ * `blocks` are groups opened in place (`openBlocks`): a group grows its own zone, and a member of another zone stands in
+ * its own, after what is there. `docks` says which code each zone of tests sits under (`zoneDocks`), so a graph whose
+ * nodes fold keeps its tests where the whole graph has them. The same nodes always give the same layout.
  */
-export function layoutZones(nodes: readonly ZoneNode[], edges: readonly LayoutEdge[], zones: readonly LayoutZone[], blocks: readonly Block[] = []): Positions {
+export function layoutZones(nodes: readonly ZoneNode[], edges: readonly LayoutEdge[], zones: readonly LayoutZone[], blocks: readonly Block[] = [], docks: Readonly<Record<string, string>> = {}): Positions {
   const OTHER = '\u0000other'
   const listed = new Map(zones.map((zone) => [zone.id, zone]))
   const zoneOfNode = new Map(nodes.map((node) => [node.id, node.zone != null && listed.has(node.zone) ? node.zone : OTHER]))
@@ -550,7 +566,8 @@ export function layoutZones(nodes: readonly ZoneNode[], edges: readonly LayoutEd
   const docked = new Map<string, string[]>()
   const alone: string[] = []
   for (const zone of order) {
-    const host = isTests(zone) ? hostOf(zone, order, isTests, zoneOfNode, edges) : null
+    const given = docks[zone] != null && order.includes(docks[zone]!) && !isTests(docks[zone]!) ? docks[zone]! : null
+    const host = isTests(zone) ? (given ?? hostOf(zone, order, isTests, zoneOfNode, edges)) : null
     if (host != null && !lead.includes(host)) docked.set(host, [...(docked.get(host) ?? []), zone])
     else alone.push(zone)
   }
@@ -567,9 +584,8 @@ export function layoutZones(nodes: readonly ZoneNode[], edges: readonly LayoutEd
     return { ...placed, ...gridOf(visitors, Object.keys(placed).length > 0 ? room.right + COLUMN_GAP : 0, top) }
   }
 
-  const positions: Positions = {}
-  let cursor = 0
-  for (const [head, ...under] of stacks) {
+  // Each stack on its own, from its top left corner, with the box of its regions.
+  const built = stacks.map(([head, ...under]) => {
     const members = membersOf.get(head!) ?? []
     let placed = finish(head!, isTests(head!) ? gridOf(members) : codeBlock(members, edges))
     const above = placed
@@ -577,13 +593,51 @@ export function layoutZones(nodes: readonly ZoneNode[], edges: readonly LayoutEd
       const top = extent(placed, kind).bottom + ZONE_FRAME.pad + ZONE_FRAME.gap + ZONE_FRAME.head
       placed = { ...placed, ...finish(zone, testBlock(membersOf.get(zone) ?? [], edges, above, top)) }
     }
-    // The stack's regions start where the one before ends, their tops on one line.
     const regions = [head!, ...under].map((zone) => zoneRect(Object.keys(placed).filter((id) => zoneOfNode.get(id) === zone).map((id) => nodeRect(kind(id), placed[id]!))))
-    const box = boundsOf(regions)
-    for (const [id, point] of Object.entries(placed)) positions[id] = { x: Math.round(point.x - box.x + cursor), y: Math.round(point.y - box.y) }
-    cursor += box.width + ZONE_FRAME.gap
+    return { head: head!, placed, box: boundsOf(regions) }
+  })
+
+  // The stacks stand in columns by how far along the request their code is, those a request reaches together one under
+  // the other, so a wire never runs behind a zone it does not reach.
+  const columnOf = columnsOfStacks(built.map((stack) => stack.head), lead, zoneOfNode, isTests, nodes, edges, stacks)
+  const positions: Positions = {}
+  let cursor = 0
+  for (const column of [...new Set(built.map((stack) => columnOf.get(stack.head)!))].sort((a, b) => a - b)) {
+    let top = 0
+    let width = 0
+    for (const { placed, box } of built.filter((stack) => columnOf.get(stack.head) === column)) {
+      for (const [id, point] of Object.entries(placed)) positions[id] = { x: Math.round(point.x - box.x + cursor), y: Math.round(point.y - box.y + top) }
+      top += box.height + ZONE_FRAME.gap
+      width = Math.max(width, box.width)
+    }
+    cursor += width + ZONE_FRAME.gap
   }
   return positions
+}
+
+/**
+ * The column of each stack: the acceptance lines first, then each zone of code by the longest way a request takes to
+ * it through other zones, the zones it enters by first. A zone no wire joins to another stands in the column of the
+ * first zone the change touched, under the zones there.
+ */
+function columnsOfStacks(heads: readonly string[], lead: readonly string[], zoneOfNode: ReadonlyMap<string, string>, isTests: (zone: string) => boolean, nodes: readonly ZoneNode[], edges: readonly LayoutEdge[], stacks: readonly string[][]): Map<string, number> {
+  const headOf = new Map(stacks.flatMap(([head, ...under]) => [head!, ...under].map((zone) => [zone, head!] as const)))
+  const code = heads.filter((head) => !lead.includes(head))
+  const between: LayoutEdge[] = []
+  for (const edge of edges) {
+    const [from, to] = [zoneOfNode.get(edge.from), zoneOfNode.get(edge.to)]
+    if (from == null || to == null || isTests(from) || isTests(to) || lead.includes(from) || lead.includes(to)) continue
+    const [one, two] = [headOf.get(from), headOf.get(to)]
+    if (one != null && two != null && one !== two && !between.some((each) => each.from === one && each.to === two)) between.push({ from: one, to: two })
+  }
+  const depth = bandDepths(code, between, code.length + 1)
+  const wired = new Set(between.flatMap((edge) => [edge.from, edge.to]))
+  const touched = (head: string) => nodes.some((node) => headOf.get(zoneOfNode.get(node.id)!) === head && node.kind !== 'context' && node.change != null && node.change !== 'unchanged')
+  const changed = code.find((head) => wired.has(head) && touched(head))
+  const loose = changed != null ? depth.get(changed)! : 0
+  const columns = new Map<string, number>()
+  for (const head of heads) columns.set(head, lead.includes(head) ? -1 : wired.has(head) ? depth.get(head)! : loose)
+  return columns
 }
 
 /** The box around a set of nodes. */

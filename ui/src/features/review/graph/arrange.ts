@@ -9,7 +9,7 @@
  * the code it mirrors. A changed node nothing wires stays in its place among the rest, and its card says so. A story
  * step that focused a folded test focuses its card. Pure, and the same review always comes out the same.
  */
-import { layoutZones } from '#shared/review/layout.ts'
+import { layoutZones, zoneDocks } from '#shared/review/layout.ts'
 import { fileName } from '#shared/review/paths.ts'
 import type { NodeStatus, Review, ReviewEdge, ReviewNode, StoryStep } from '#shared/review/types.ts'
 import { isUnchanged } from './levels.ts'
@@ -66,6 +66,8 @@ export interface Arranged {
   zones: GraphZone[]
   /** Each drawn node and each node of the review, by its id, to the id of its zone. */
   zoneOf: Record<string, string>
+  /** The code zone each zone of tests sits under, as the whole graph has it, kept when its nodes fold (`zoneDocks`). */
+  docks: Record<string, string>
 }
 
 const PREFIX = 'tests:'
@@ -277,7 +279,8 @@ export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'> & Part
   const holds = (id: string) => (groups[id] ? [...groups[id]!.tests, ...groups[id]!.helpers] : [id])
   const { zones, zoneOf } = zonesOf(review, drawn.map((node) => ({ id: node.id, of: holds(node.id) })), covers)
   const zoned = drawn.map((node) => ({ ...node, zone: zoneOf[node.id]! }))
-  const positions = layoutZones(zoned, edges, zones)
+  const docks = zoneDocks(zoned, edges, zones)
+  const positions = layoutZones(zoned, edges, zones, [], docks)
   const drawnOf = new Map(drawn.map((node) => [node.id, node]))
   const { steps: story, stepOf } = foldStory(review.story, end, wireOf, (id) => drawnOf.get(id)?.title ?? id, (id) => (groups[id]?.tests ?? []).map((test) => nodeOf.get(test)!))
 
@@ -292,5 +295,6 @@ export function arrange(review: Pick<Review, 'nodes' | 'edges' | 'story'> & Part
     covers,
     zones,
     zoneOf,
+    docks,
   }
 }
