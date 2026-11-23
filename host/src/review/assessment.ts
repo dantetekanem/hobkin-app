@@ -186,16 +186,33 @@ function bucketOf(node: ReviewNode, buckets: ReadonlyMap<string, NodeBucket>): N
 }
 
 /**
+ * What the review's own way in and tests say of each node (spec 055): the changed code each context node is on the way
+ * in to, by name, and for changed code how many tests covered it when the change removed every one.
+ */
+function standingOf(nodes: readonly ReviewNode[]): { wayIn: Map<string, string>; testsGone: Map<string, number> } {
+  const wayIn = new Map<string, string>()
+  for (const node of nodes) for (const id of node.lifecycle?.origin?.chain ?? []) if (!wayIn.has(id)) wayIn.set(id, node.title)
+  const covering = new Map<string, ReviewNode[]>()
+  for (const test of nodes.filter((node) => node.kind === 'test')) for (const id of test.covers ?? []) covering.set(id, [...(covering.get(id) ?? []), test])
+  const testsGone = new Map([...covering].flatMap(([id, tests]) => (tests.every((test) => test.change === 'deleted') ? [[id, tests.length] as const] : [])))
+  return { wayIn, testsGone }
+}
+
+/**
  * The review with how much attention each node asks for laid over it (spec 053): its tier, its place from 1 and up to
  * three reasons in plain words, from the rated definitions its lines at head overlap, and else from what is known of it,
- * such as a test's run or its file's kind; and its bucket, from `buckets`, each changed file's by its path.
+ * such as a test's run or its file's kind; and its bucket, from `buckets`, each changed file's by its path. Context on
+ * the way in to changed code says so, and so does changed code whose every test the change removed.
  */
 export function withAttention(review: Review, assessment: Pick<ChangeAssessment, 'nodes'>, buckets: ReadonlyMap<string, NodeBucket>, notRun: ReadonlyMap<string, string> = new Map()): Review {
   const overlaps = overlapsOf(review, assessment.nodes)
+  const { wayIn, testsGone } = standingOf(review.nodes)
   const weighed = review.nodes.map((node) => {
     const bucket = bucketOf(node, buckets)
     const size = (node.stats?.additions ?? 0) + (node.stats?.deletions ?? 0)
     const why = notRun.get(node.id)
+    const way = node.kind === 'context' ? wayIn.get(node.id) : undefined
+    const gone = testsGone.get(node.id)
     const attention = attentionOf({
       kind: node.kind,
       bucket,
@@ -204,6 +221,8 @@ export function withAttention(review: Review, assessment: Pick<ChangeAssessment,
       ...(node.status ? { status: node.status } : {}),
       ...(why ? { notRun: why } : {}),
       ...(node.warning ? { warning: node.warning } : {}),
+      ...(way ? { wayIn: way } : {}),
+      ...(gone ? { testsGone: gone } : {}),
       rated: overlaps.get(node.id) ?? [],
     })
     return { node, bucket, size, ...attention }

@@ -5,7 +5,7 @@ import { test, type TestContext } from 'node:test'
 import { captureChange, type ChangedPath, type ChangeReader } from '#shared/review/capture.ts'
 import { prepareReview } from '#shared/review/prepare.ts'
 import type { Review, ReviewFileContents, ReviewNode } from '#shared/review/types.ts'
-import { assessmentFolder, Assessments } from '../src/review/assessment.ts'
+import { assessmentFolder, Assessments, withAttention } from '../src/review/assessment.ts'
 import { Reviews } from '../src/review/reviews.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
@@ -286,4 +286,23 @@ test('what a change removes is at least worth a look, and a removal other code s
   const fixture = nodes.find((node) => node.subtitle === 'test/fixtures/cart.json')!
   assert.deepEqual([fixture.kind, fixture.attention?.tier, fixture.attention?.reasons[0]], ['file', 'worth-a-look', 'It removes part of the tests: check that what they covered still is.'])
   assert.deepEqual(assessments.read(TARGET, HEAD_SHA)!.nodes.map((node) => [node.id, node.removed]), [['n1', true], ['n2', true]], 'the removed definitions are carried, marked removed')
+})
+
+test("context on the way in, and code whose only test the change removed, say so from the review's own way in and covers", () => {
+  const node = (id: string, kind: ReviewNode['kind'], change: ReviewNode['change'], more: Partial<ReviewNode> = {}): ReviewNode => ({ id, kind, title: `${id} title`, subtitle: `src/${id}.ts`, change, summary: '', anchors: [], position: { x: 0, y: 0 }, ...more })
+  const nodes = [
+    node('c1', 'context', 'unchanged', { lifecycle: { role: 'caller', hops: 1 } }),
+    node('c2', 'context', 'unchanged', { lifecycle: { role: 'callee', hops: 1 } }),
+    node('u1', 'code', 'modified', { lifecycle: { role: 'changed', hops: 1, origin: { kind: 'route', label: 'GET /posts/:id', exact: true, chain: ['c1'] } } }),
+    node('u2', 'code', 'modified'),
+    node('t1', 'test', 'deleted', { status: 'not-run', covers: ['u2'] }),
+    node('t2', 'test', 'deleted', { status: 'not-run', covers: ['u1'] }),
+    node('t3', 'test', 'unchanged', { status: 'passed', covers: ['u1'] }),
+  ]
+  const review = { files: [], nodes, edges: [], story: [] } as unknown as Review
+  const told = new Map(withAttention(review, { nodes: [] }, new Map()).nodes.map((entry) => [entry.id, entry.attention!]))
+  assert.deepEqual(told.get('c1')!.reasons, ['On the way in to u1 title: a request passes here first.'])
+  assert.deepEqual(told.get('c2')!.reasons, [], 'what the change calls is not on its way in')
+  assert.equal(told.get('u2')!.reasons[0], 'The change removed the only test that covered it.')
+  assert.ok(!told.get('u1')!.reasons.some((reason) => reason.startsWith('The change removed')), 'a test that was there before still covers it')
 })

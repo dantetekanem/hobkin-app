@@ -248,6 +248,20 @@ test('detail goes to code and tests first, then other files, then generated file
   )
 })
 
+test('changed code whose only covering tests the change removed is worth a look, and says so in place of no test covering it', () => {
+  const untested = attentionOf(code([rated({ level: 'mid', proof: 'none' })], { testsGone: 1 }))
+  assert.deepEqual([untested.tier, untested.reasons], ['worth-a-look', ['The change removed the only test that covered it.']])
+  assert.deepEqual(attentionOf(code([], { testsGone: 2 })).reasons[0], 'The change removed every test that covered it.')
+})
+
+test('unchanged context on the way in to changed code says so, and stays apart from safe code with nothing to say', () => {
+  const context: AttentionInput = { kind: 'context', bucket: 'code', change: 'unchanged', size: 0, rated: [] }
+  assert.deepEqual(attentionOf(context), { tier: 'safe', strength: 0, reasons: [] })
+  const onTheWay = attentionOf({ ...context, wayIn: 'link_user_tags' })
+  assert.deepEqual([onTheWay.tier, onTheWay.reasons], ['safe', ['On the way in to link_user_tags: a request passes here first.']])
+  assert.ok(onTheWay.strength > 0, 'it ranks before safe code that says nothing')
+})
+
 test('a node that only removes lines is at least worth a look, and a test it removes says so', () => {
   const removed = (more: Partial<AttentionInput>): AttentionInput => ({ kind: 'code', bucket: 'code', change: 'deleted', size: 5, rated: [], ...more })
   assert.deepEqual(attentionOf(removed({ rated: [rated({ level: 'safe', proof: 'not-applicable' })] })).reasons, ['It only removes code: check nothing still needs it.'], 'even when rated safe')

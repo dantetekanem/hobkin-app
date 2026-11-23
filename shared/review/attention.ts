@@ -35,6 +35,10 @@ export interface AttentionInput {
   warning?: string
   /** Every definition the change review rated in its lines. Empty for a node it did not rate. */
   rated: readonly RatedFacts[]
+  /** For changed code every test that covered it is one the change removed: how many there were. */
+  testsGone?: number
+  /** For unchanged context on the way in to changed code (spec 055): that code's name. */
+  wayIn?: string
 }
 
 /** A node's tier, how strong its reasons are together, and the strongest three of them. */
@@ -92,6 +96,8 @@ function joined(lead: string, clauses: readonly string[]): string {
   return sentence(`${[lead, ...clauses.slice(0, -1)].join(', ')}, and ${clauses.at(-1)}`)
 }
 
+const UNTESTED = 'No test covers it.'
+
 /** No test reaches changed code that does something. */
 const untested = (facts: RatedFacts) => facts.proof === 'none' && facts.effect !== 'text' && facts.level !== 'safe'
 
@@ -105,7 +111,7 @@ function ratedReasons(facts: RatedFacts): Reason[] {
   if (facts.critical) reasons.push(needs(90, 'Needs a fix, not only a look.'))
   // The engine's level weighs its tests already: no test is worth a look, first of that tier, and never needs the reviewer alone.
   if (facts.level === 'high') reasons.push(needs(60, highWords(facts)))
-  else if (untested(facts)) reasons.push(look(60, 'No test covers it.'))
+  else if (untested(facts)) reasons.push(look(60, UNTESTED))
   if (facts.blind && !facts.blind.agrees) {
     const blindLevel = facts.blind.level
     const text = blindLevel ? `A second, blind reading would rate it ${LEVEL_NAMES[blindLevel]}.` : 'A second, blind reading disagrees with its rating.'
@@ -163,8 +169,10 @@ const UNRATED_BUCKETS: Record<NodeBucket, string> = {
 }
 
 /** What is known of a node the change review did not rate: a test's run, an acceptance line's proof, a file's kind. */
-function unratedReasons({ kind, bucket, change, status, notRun, warning }: AttentionInput): Reason[] {
-  if (kind === 'context' || (change === 'unchanged' && kind !== 'criterion')) return []
+function unratedReasons({ kind, bucket, change, status, notRun, warning, wayIn }: AttentionInput): Reason[] {
+  // Context asks nothing of the reviewer, but on the way in it says where it stands, so it is not taken for safe code.
+  if (kind === 'context') return wayIn ? [note(5, cleanProse(`On the way in to ${wayIn}: a request passes here first.`, PROSE_LIMIT.summary))] : []
+  if (change === 'unchanged' && kind !== 'criterion') return []
   if (kind === 'criterion') {
     if (warning) return [needs(55, sentence(warning))]
     return status === 'proven' ? [] : [look(15, 'Nothing proves this acceptance line yet.')]
@@ -191,10 +199,18 @@ function removalReasons({ kind, bucket, change }: AttentionInput): Reason[] {
   return [look(35, removesCode ? 'It only removes code: check nothing still needs it.' : 'It only removes lines: check nothing still needs them.')]
 }
 
+/** What changed code asks when the change removed every test that covered it: whatever those tests checked, nothing checks now. */
+function lostTestReasons({ kind, change, testsGone = 0 }: AttentionInput): Reason[] {
+  if (kind !== 'code' || change === 'deleted' || testsGone < 1) return []
+  return [look(65, testsGone === 1 ? 'The change removed the only test that covered it.' : 'The change removed every test that covered it.')]
+}
+
 /** A node's tier and its reasons, the strongest first. A node over several definitions takes the worst of them. */
 export function attentionOf(input: AttentionInput): Weighed {
   const ownReasons = input.rated.length ? input.rated.flatMap(ratedReasons) : unratedReasons(input)
-  const found = [...ownReasons, ...removalReasons(input)]
+  const lost = lostTestReasons(input)
+  // That the change removed its tests says more than that none covers it.
+  const found = [...(lost.length ? ownReasons.filter((reason) => reason.text !== UNTESTED) : ownReasons), ...lost, ...removalReasons(input)]
 
   // A reason given more than once is said once, at its strongest.
   const byText = new Map<string, Reason>()
