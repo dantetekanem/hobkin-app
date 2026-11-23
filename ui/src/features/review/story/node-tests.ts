@@ -39,6 +39,25 @@ export function testsFor(focus: readonly string[], graph: TestsGraph): ReviewNod
   return [...tests.filter((test) => test.status === 'failed'), ...tests.filter((test) => test.status !== 'failed')]
 }
 
+/** Enough of the graph as drawn to find the card of a node's tests. */
+export interface DrawnTests {
+  nodes: readonly { id: string }[]
+  /** Each test, by its id, to the node it covers. */
+  covers: Readonly<Record<string, string>>
+  /** Each folded test, by its id, to its card. */
+  groupOf: Readonly<Record<string, string>>
+}
+
+/** The card drawn for the tests that cover a node: their card, or a test drawn alone. Null when none is drawn. */
+export function testCardOf(graph: DrawnTests, id: string): string | null {
+  const drawn = new Set(graph.nodes.map((node) => node.id))
+  for (const [test, subject] of Object.entries(graph.covers)) {
+    const card = graph.groupOf[test] ?? test
+    if (subject === id && drawn.has(card)) return card
+  }
+  return null
+}
+
 /** Proof that comes from tests: a unit proven so by tests the review has no node for still names them. */
 const BY_TESTS: ReadonlySet<Unit['facts']['proof']['value']> = new Set(['lifecycle-observed', 'lifecycle', 'isolated', 'mocked'])
 

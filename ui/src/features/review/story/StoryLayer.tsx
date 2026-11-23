@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import type { Unit } from '#shared/review/assessment.ts'
 import { boundsOf, nodeRect, type Point, type Rect } from '#shared/review/layout.ts'
 import { spring, tween } from '@/lib/motion.ts'
+import { drawnTrail, isChangedCode } from '../graph/trail.ts'
 import { wireCurve } from '../graph/wire-path.ts'
 import { inProofPanel } from '../keys.ts'
 import type { AskCommand } from '../panel/ask.ts'
@@ -14,6 +15,7 @@ import { unitInFocus } from '../reading/model.ts'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import { notesAbout, notesOnStep } from '../state/quick-notes.ts'
 import { BesideCard, besideRect, type BesidePlace } from './Beside.tsx'
+import { testCardOf } from './node-tests.ts'
 import { cameraFor, composeShot, frameOpening, frameStep, framingOf, placeCard, pointToScreen, revealNode, viewportFor, type Camera, type CardSide, type PlacedCard, type Size, type Viewport } from './camera.ts'
 import { NotesBody } from './NotesBody.tsx'
 import { StepBody, type CardGraph } from './StepBody.tsx'
@@ -162,8 +164,13 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null, resume = nu
         nextBeside = { key: content.key, node: told[0]!, kind: nodeOf.get(told[0]!)!.kind, side: placed.side, offset: placed.offset, zoom: camera.zoom, width, height: placed.height, most: Math.max(placed.height, CARD_MOST) }
       }
     } else if (framing === 'step') {
-      // A step, a jump, hobkin's cursor, G on a focus, or opening on one: the step is framed with its card beside its node.
-      const shot = frameStep({ focus: told.map((id) => rectOf.get(id)!), others, area, card })
+      // A step, a jump, hobkin's cursor, G on a focus, or opening on one: the step is framed with its card beside its node,
+      // and with the last call on the way in to its changed code and the card of that code's tests when they read too.
+      const changed = told.find((id) => isChangedCode(nodeOf.get(id)))
+      const along = changed
+        ? [drawnTrail(view, changed).at(-2), testCardOf(view, changed)].filter((id): id is string => id != null && !told.includes(id) && rectOf.has(id)).map((id) => rectOf.get(id)!)
+        : []
+      const shot = frameStep({ focus: told.map((id) => rectOf.get(id)!), others, along, area, card })
       target = shot.camera
       if (shot.card && content) {
         const node = told[shot.card.anchor]!
@@ -197,7 +204,7 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null, resume = nu
     }
     setBesidePlace(nextBeside)
     setPlacement(nextCard)
-  }, [area, canvas.height, canvas.width, content, focus, move, nodeOf, reduced, resume, rig, view.edges, view.nodes, width])
+  }, [area, canvas.height, canvas.width, content, focus, move, nodeOf, reduced, resume, rig, view, width])
 
   const shownBeside = besidePlace && content && besidePlace.key === content.key ? besidePlace : null
   const shownCard = placement && content?.kind === 'step' && placement.key === content.key ? { placement, content } : null

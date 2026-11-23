@@ -226,6 +226,11 @@ export interface StepFrameInput {
   focus: readonly Rect[]
   /** Every other node, in graph coordinates: the card covers as little of them as it can. */
   others?: readonly Rect[]
+  /**
+   * What the frame also takes in, first first, each only while all of it fits at a reading size with the card covering
+   * none of it: the focus's caller and its card of tests (spec 055). In graph coordinates.
+   */
+  along?: readonly Rect[]
   /** The uncovered part of the canvas, in canvas pixels: the menus at the top, the pager and the code panel at the bottom, the steps panel on the left. */
   area: Rect
   /** The card's width and the height it wants, in canvas pixels. Null frames the focus alone. */
@@ -252,24 +257,26 @@ function readingZooms(most: number, least: number): number[] {
 /**
  * Frames a step (the user, 2026-11-12): its focus at a size its cards read at, from 0.9 to 1.2, and its card beside
  * the node it tells, in the uncovered area. The card takes the place that covers the least of the other nodes, on the
- * right first. The camera never pulls back for what the focus is wired to. A focus spread too wide to read keeps the
- * card's node in the frame with the nearest of the rest. A card taller than the room scrolls.
+ * right first. The camera pulls back for what the focus is wired to only to take in its caller and its tests, and only
+ * as far as they read (`along`). A focus spread too wide to read keeps the card's node in the frame with the nearest of
+ * the rest. A card taller than the room scrolls.
  */
-export function frameStep({ focus, others = [], area, card = null, maxZoom = FRAME.maxZoom, reading = FRAME.reading }: StepFrameInput): StepFrame {
+export function frameStep({ focus, others = [], along = [], area, card = null, maxZoom = FRAME.maxZoom, reading = FRAME.reading }: StepFrameInput): StepFrame {
   const margin = marginOf(area)
   const room = { width: area.width - margin * 2, height: area.height - margin * 2 }
   const full = card ? { width: Math.min(card.width, room.width), height: Math.min(card.height, room.height) } : null
   const scaled = (rect: Rect, zoom: number): Rect => ({ x: rect.x * zoom, y: rect.y * zoom, width: rect.width * zoom, height: rect.height * zoom })
 
   type Option = { zoom: number; anchor: number; kept: number[]; placed: Beside | null; box: Rect; fits: boolean; cost: number[] }
-  /** The best way to show these focus nodes at this zoom, with the card beside one of them. */
-  const optionAt = (zoom: number, kept: readonly number[], size = full): Option => {
+  /** The best way to show these focus nodes, and what comes along with them, at this zoom, with the card beside one of them. */
+  const optionAt = (zoom: number, kept: readonly number[], size = full, besides: readonly Rect[] = []): Option => {
     const rects = focus.map((rect) => scaled(rect, zoom))
-    const shown = kept.map((index) => rects[index]!)
+    const alongside = besides.map((rect) => scaled(rect, zoom))
+    const shown = [...kept.map((index) => rects[index]!), ...alongside]
     const rest = others.map((rect) => scaled(rect, zoom))
     let best: Option | null = null
     for (const anchor of kept) {
-      const focusAround = rects.filter((_, index) => index !== anchor)
+      const focusAround = [...rects.filter((_, index) => index !== anchor), ...alongside]
       const places = size ? placesFor(rects[anchor]!, size, [...focusAround, ...rest]) : [{ placed: null, rank: 0 }]
       for (const { placed, rank } of places) {
         const box = boundsOf([...shown, ...(placed ? [placed] : [])])
@@ -329,6 +336,19 @@ export function frameStep({ focus, others = [], area, card = null, maxZoom = FRA
     if (trial.fits && trial.cost[0]! <= chosen.cost[0]!) {
       chosen = trial
       whole = kept.length === focus.length
+    }
+  }
+
+  // The focus framed whole at a reading size takes in its caller and its tests, each while all of it still reads, the
+  // card covers none of it and covers no more of the rest than before.
+  if (chosen.fits && whole && chosen.zoom >= reading - 1e-9) {
+    let taken: Rect[] = []
+    for (const rect of along) {
+      const wanted = [...taken, rect]
+      const trial = zooms.map((zoom) => optionAt(zoom, chosen.kept, full, wanted)).reduce((best, option) => (cheaper(option.cost, best.cost) ? option : best))
+      if (!trial.fits || trial.cost[0]! > 0 || trial.cost[2]! > chosen.cost[2]!) continue
+      taken = wanted
+      chosen = trial
     }
   }
 

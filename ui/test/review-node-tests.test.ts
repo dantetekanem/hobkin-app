@@ -5,7 +5,7 @@ import { arrange } from '../src/features/review/graph/arrange.ts'
 import { pullAssessment, pullReview } from '../src/features/review/sample/pull.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
 import { createSession } from '../src/features/review/state/session.ts'
-import { noTestWords, testsFor } from '../src/features/review/story/node-tests.ts'
+import { noTestWords, testCardOf, testsFor } from '../src/features/review/story/node-tests.ts'
 import { proofWords } from '../src/features/review/story/words.ts'
 
 const pull = pullReview('pr:hobkin-sample/storefront/482')
@@ -28,6 +28,14 @@ test('the tests of a node are the ones that cover it, wherever they are folded, 
   assert.deepEqual(ids(testsFor([idOf('link_user_tags'), 'tests:u1'], graph)), ['u4', 'u5', 'u6', 'u7', 'u8'])
   // Nothing covers the README.
   assert.deepEqual(testsFor([idOf('README.md')], graph), [])
+})
+
+test('the card of tests a frame takes in is the one drawn for the code they cover', () => {
+  assert.equal(testCardOf(shape, idOf('link_user_tags')), 'tests:u1')
+  assert.equal(testCardOf(shape, idOf('report')), 'tests:u3')
+  assert.equal(testCardOf(shape, idOf('README.md')), null)
+  // A card folded into a group is not drawn, so it is not framed.
+  assert.equal(testCardOf({ ...shape, nodes: shape.nodes.filter((node) => node.id !== 'tests:u1') }, idOf('link_user_tags')), null)
 })
 
 test('an acceptance line lists the tests that prove it, and a wire the reviewer removed no longer counts', () => {

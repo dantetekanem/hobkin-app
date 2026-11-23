@@ -146,6 +146,32 @@ test('the camera never pulls back for what the focus is wired to', () => {
   assert.ok(Math.abs(closer.camera.zoom - whole.camera.zoom * FRAME.closer) < 1e-9)
 })
 
+test("the frame takes in the focus's caller and its card of tests only when they fit at a reading size", () => {
+  const area = uncoveredArea({ width: 1400, height: 900 }, { top: TOP, bottom: RAIL, left: 300 })
+  const node = { x: 840, y: 0, width: 288, height: 136 }
+  const caller = { x: 420, y: 0, width: 288, height: 120 }
+  const tests = { x: 476, y: 276, width: 288, height: 136 }
+  const card = { width: CARD, height: 260 }
+  const today = frameStep({ focus: [node], others: [caller, tests], area, card })
+  assert.equal(inside(toScreen(caller, today.camera, area), area), false, 'framed alone, the caller is out of the frame')
+
+  const shot = frameStep({ focus: [node], along: [caller, tests], others: [caller, tests], area, card })
+  assert.ok(shot.camera.zoom >= FRAME.reading - 1e-9, `framed at ${shot.camera.zoom}`)
+  for (const rect of [node, caller, tests]) {
+    const onScreen = toScreen(rect, shot.camera, area)
+    assert.ok(inside(onScreen, area), 'the node, its caller and its tests are in the frame')
+    assert.equal(overlap(shot.card!, onScreen), false, 'and the card covers none of them')
+  }
+  assert.ok(inside(shot.card!, area))
+
+  // Too far to take in at a reading size: framed as it always was. Of two, the one that fits comes in.
+  const far = { ...caller, x: -2400 }
+  assert.deepEqual(frameStep({ focus: [node], along: [far], others: [far, tests], area, card }), frameStep({ focus: [node], others: [far, tests], area, card }))
+  const one = frameStep({ focus: [node], along: [far, tests], others: [far, tests], area, card })
+  assert.ok(inside(toScreen(tests, one.camera, area), area) && !inside(toScreen(far, one.camera, area), area))
+  assert.ok(one.camera.zoom >= FRAME.reading - 1e-9)
+})
+
 test('a focus spread too far to read keeps its card, its node and the nearest of the rest', () => {
   // The steps panel open on a canvas of a common size: 692 by 704 points are left.
   const area = uncoveredArea({ width: 988, height: 840 }, { top: TOP, bottom: RAIL, left: 296 })
