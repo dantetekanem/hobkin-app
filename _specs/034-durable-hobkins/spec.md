@@ -171,6 +171,7 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 - A32. `ui/test/hobkin-page-shown.test.ts` › "the hobkin's id comes back when its page is on screen, the window shows, and it waits on Pi" and › "nothing comes back while the page is away, the window is hidden, it works, runs on Claude Code or is missing"; `host/test/change-model.test.ts` › "a page shown reaches the runtime with the id, a runtime from before answers yes, and the main hobkin neither lists nor runs it"; check: restart the app, open a waiting hobkin's page, wait five seconds and send a short question (not seen live yet).
 - A33. `ui/test/change-line.test.ts` › "a line that starts with /model or /effort is a change, with the one word it takes"; `host/test/change-model.test.ts` › "a durable hobkin is changed through the hobkin, and the answer tells whether its turn took it"; check: type /effort high in a working hobkin's box (not seen live yet).
 - A34. `hobkin/test/cli-hobkins.test.mjs` › "a message to a durable hobkin takes the images the user attached, as its next turn or in the turn in flight"; `host/test/agent-images.test.ts` › "a message to a durable hobkin carries the images attached for it"; `ui/test/agent-images.test.ts` › "sent images go with the note and stay drawn there, and a message that did not go gives them back"; `ui/test/hobkins-page.test.ts` › "images sent from the page show with their message, on its way, once sent and once read"; check: paste a screenshot into a waiting hobkin's box and send it alone (not seen live yet).
+- A35. `hobkin/test/cli-hobkins.test.mjs` › "hobkin session --keep starts a durable hobkin on the tier named, with its brief as its first message, and it waits, carries on and outlives a restart", and the three tests after it on places, a long brief and a start that fails; `hobkin/test/cli-session.test.mjs`, the three tests of a kept session.
 
 ## Steps
 
@@ -185,7 +186,7 @@ The user, 2026-11-13: a durable hobkin asked to tell the main hobkin something r
 - [x] S9 (A31). A hobkin started with no first message has its Pi process started while the user writes it.
 - [x] S10 (A32, A33). The page tells the host it is on screen, and a /model or /effort line changes a hobkin's model.
 - [ ] S11 (A34). Images in a message to a durable hobkin: `hobkins.say` with `images` (hobkin 25f94c7), `hobkin.say` with the images attached for it, and the talk box's tray. The A34 tests pass (2026-11-21). Left: the check.
-- [ ] S12 (A35). Runtime: a kept session is a durable hobkin. Files: `hobkin/src/cli/{session,session-jobs,application}.mjs`, `hobkin/src/prompts/v2-runtime.md`.
+- [x] S12 (A35). Runtime: a kept session is a durable hobkin. hobkin 9c7df1f, and the prompts and the usage line 4a0ed9e. Run only with fake turns: no kept hobkin was started for real, and nothing was seen in the live window. A kept hobkin gets no `AGENTS.md` directions, as a hobkin started from the window gets none.
 
 ## Open questions
 
