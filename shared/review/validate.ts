@@ -99,6 +99,20 @@ export function validateReview(value: unknown): string[] {
     if (!isCount(file.additions) || !isCount(file.deletions)) problems.push(`File ${file.id} must count its added and removed lines.`)
   }
 
+  // The zones the nodes are in, each once, with its words (spec 055). A review from before zones has none.
+  const zoneIds = new Set<string>()
+  if (review.zones !== undefined && !Array.isArray(review.zones)) problems.push('zones must be a list.')
+  for (const zone of Array.isArray(review.zones) ? review.zones : []) {
+    if (!isRecord(zone) || typeof zone.id !== 'string' || !zone.id) {
+      problems.push('A zone has no id.')
+      continue
+    }
+    if (zoneIds.has(zone.id)) problems.push(`Zone ${zone.id} is listed twice.`)
+    zoneIds.add(zone.id)
+    const told = typeof zone.layer === 'string' && typeof zone.subject === 'string' && isCleanProse(zone.label, PROSE_LIMIT.title) && zone.label
+    if (!told || (zone.component !== undefined && typeof zone.component !== 'string')) problems.push(`Zone ${zone.id} has no layer or subject, or its words are not a short plain line.`)
+  }
+
   const nodes = new Map<string, ReviewNode>()
   for (const node of review.nodes) {
     if (!isRecord(node) || typeof node.id !== 'string' || !node.id) {
@@ -124,6 +138,7 @@ export function validateReview(value: unknown): string[] {
       if (node[field] !== undefined && !isCleanProse(node[field], HOST_TEXT_LIMIT)) problems.push(`${name}: ${field} must be plain text.`)
     }
     if (node.unwired !== undefined && (!isCleanProse(node.unwired, PROSE_LIMIT.summary) || !node.unwired)) problems.push(`${name}: why nothing wires it must be a few plain words.`)
+    if (node.zone !== undefined && (typeof node.zone !== 'string' || !zoneIds.has(node.zone))) problems.push(`${name} is in ${String(node.zone)}, which is not a zone of this review.`)
     if (node.supports !== undefined && (node.kind !== 'test' || !Array.isArray(node.supports) || node.supports.some((id) => typeof id !== 'string'))) problems.push(`${name}: only a test helper names the tests it supports.`)
     if (node.io !== undefined && (!isRecord(node.io) || !isCleanProse(node.io.in, PROSE_LIMIT.io) || !isCleanProse(node.io.out, PROSE_LIMIT.io))) problems.push(`${name}: what goes in and out must be plain text.`)
     if (node.stats !== undefined && (!isRecord(node.stats) || !isCount(node.stats.additions) || !isCount(node.stats.deletions))) problems.push(`${name} must count its added and removed lines.`)

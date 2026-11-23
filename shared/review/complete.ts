@@ -24,6 +24,7 @@ import {
 } from './types.ts'
 import { findDeclaration } from './units.ts'
 import { kindName, validateReview, wireProblem } from './validate.ts'
+import { withZones } from './zones.ts'
 
 export interface Completed {
   review: Review
@@ -275,8 +276,9 @@ export async function completeReview(draft: Draft, modelOutput?: unknown): Promi
 
   const positions = layoutReview(nodes, edges)
   for (const node of nodes) node.position = positions[node.id]!
-  // Once every wire is drawn, the model's too, each test names the code it covers.
-  nodes = withCovers(nodes, edges)
+  // Once every wire is drawn, the model's too, each test names the code it covers, and every node its zone.
+  const zoned = withZones(withCovers(nodes, edges), edges)
+  nodes = zoned.nodes
 
   // Unchanged files stay listed only while a node still points into them.
   const referenced = new Set(nodes.flatMap((node) => node.anchors.map((anchor) => anchor.fileId)))
@@ -304,6 +306,7 @@ export async function completeReview(draft: Draft, modelOutput?: unknown): Promi
     edges,
     story,
     paths,
+    zones: zoned.zones,
     summary: model.summary || cleanProse(input.change.title, PROSE_LIMIT.stepText),
     notices: draft.notices,
   }
