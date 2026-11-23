@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { shallow } from 'zustand/vanilla/shallow'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { useActionItems } from '@/features/actions/store.ts'
@@ -6,6 +6,7 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { useReports } from '@/features/reports/store.ts'
 import { useRoutines } from '@/features/routines/store.ts'
 import { useAgents, useHostKept } from '@/lib/host/hooks.ts'
+import { keepSame } from '@/lib/host/keep-same.ts'
 import { initialHostState, type HostState } from '@/lib/host/state.ts'
 import { useDismissals } from './dismissals.ts'
 import { gatherHomeInput } from './input.ts'
@@ -58,7 +59,11 @@ function keepHomeFields(held: HomeFields, next: HomeFields): HomeFields {
 
 const NO_AGENTS: HomeInput['agents'] = []
 
-/** Everything Home draws, from what the app already holds. A change of the agents at work makes only their parts again. */
+/**
+ * Everything Home draws, from what the app already holds. A change of the agents at work makes only their parts again,
+ * and each part of the model that says the same as before stays the object it was, so a section draws again only for
+ * its own part.
+ */
 export function useHomeModel(): HomeModel {
   // The time, once a minute, so "12 min ago" and the day strip stay true while Home is open.
   const now = useNow(true, MINUTE_MS)
@@ -72,5 +77,6 @@ export function useHomeModel(): HomeModel {
     () => homeParts(gatherHomeInput(now, homeHost(fields), reports, actions, routines, dismissed, NO_AGENTS)),
     [now, fields, reports, actions, routines, dismissed],
   )
-  return useMemo(() => withAgents(parts, agents), [parts, agents])
+  const held = useRef<HomeModel | null>(null)
+  return useMemo(() => (held.current = keepSame(held.current, withAgents(parts, agents))), [parts, agents])
 }

@@ -6,12 +6,20 @@ import type { WorkState } from '../../shared/protocol/work.ts'
 import { applyHostMessage } from '../src/lib/host/state.ts'
 import { sampleWork } from '../src/features/work/sample.ts'
 import { mountCounting } from './render-count.ts'
-import { readViews } from './view-draws.ts'
+import { counted, mountView, passing, readViews, stillMotion } from './view-draws.ts'
 
 Object.defineProperty(globalThis, 'window', { configurable: true, value: {
   localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
 } })
-readViews()
+// Home's sections, each counting its draws, under Home's own layout. Motion and the entrance draw only their children.
+const sections: Record<string, number> = {}
+const section = (name: string) => counted(sections, name)
+readViews({
+  'motion/react': { motion: stillMotion, AnimatePresence: passing },
+  'app/Reveal.tsx': { Rise: passing, Hero: passing },
+  'features/home/Stage.tsx': { Stage: section('Stage'), StatusChips: section('StatusChips') },
+  'features/home/Sections.tsx': Object.fromEntries(['Today', 'Needs', 'Yolo', 'Problems', 'Week', 'Projects', 'Custom'].map((name) => [name, section(name)])),
+})
 mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
 const { HostConnection } = await import('../src/lib/host/connection.ts')
 mock.method(HostConnection.prototype, 'start', () => { throw new Error('Connection must stay stopped') })
@@ -23,6 +31,7 @@ const { useRoutines } = await import('../src/features/routines/store.ts')
 const { gatherHomeInput } = await import('../src/features/home/input.ts')
 const { homeModel } = await import('../src/features/home/model.ts')
 const { HOME_WORK, useHomeModel } = await import('../src/features/home/use-home.ts')
+const { HomeView } = await import('../src/features/home/HomeView.tsx')
 after(() => {
   mock.restoreAll()
   mock.timers.reset()
@@ -59,6 +68,18 @@ test("today's token counts in work mode build none of Home's model, and a part H
   await mounted.change(() => sendWork({ tokensToday: 200_000, held: 'Paused until 9:00' }))
   assert.equal(builds, 1, 'work held is on Home, so it builds once')
   assert.ok(model!.header.chips.some(({ label }) => label === 'Work held'))
+  await mounted.unmount()
+})
+
+test('an agent that starts a tool draws the stage that shows it, and none of the sections that do not', async () => {
+  const Home = () => createElement(HomeView, { model: useHomeModel() })
+  const mounted = await mountView(() => createElement(Home))
+  assert.ok(sections.Stage && sections.Needs && sections.Projects, 'every section drew as Home mounted')
+  for (const name of Object.keys(sections)) delete sections[name]
+
+  const tool = { id: 'tool:1', kind: 'tool' as const, name: 'bash', state: 'running' as const, input: '{"command":"ls"}' }
+  await mounted.change(() => send({ type: 'state', rev: rev++, activity: [{ op: 'update', job: 'worker', entry: tool }] }))
+  assert.deepEqual(sections, { Stage: 1 }, 'the agents at work are on the stage only')
   await mounted.unmount()
 })
 

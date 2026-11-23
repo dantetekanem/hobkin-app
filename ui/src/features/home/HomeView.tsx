@@ -1,4 +1,5 @@
 import { motion, type Variants } from 'motion/react'
+import { memo } from 'react'
 import { Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { stagger, staggerDelay } from '@/lib/motion.ts'
@@ -15,6 +16,18 @@ const pieces: Variants = {
 
 const CELL = 'flex min-w-0 flex-col'
 
+// Each section draws again only when its own part of the model changes. The agents at work change up to five times a
+// second, and only the stage shows them.
+const StageSection = memo(Stage)
+const ChipsSection = memo(StatusChips)
+const TodaySection = memo(Today)
+const NeedsSection = memo(Needs)
+const YoloSection = memo(Yolo)
+const ProblemsSection = memo(Problems)
+const WeekSection = memo(Week)
+const ProjectsSection = memo(Projects)
+const CustomSection = memo(Custom)
+
 /**
  * Home, drawn from its model: the stage with hobkin, the card that matters most and the agents at work, the status
  * chips under it, today's runs, then what needs the user, YOLO mode, problems, the week and the projects. The layout is
@@ -29,23 +42,23 @@ export function HomeView({ model }: { model: HomeModel }) {
       <motion.div variants={pieces} className={`${SCREEN_COLUMN} @container flex flex-col gap-5`}>
         {/* The chips ride in the stage's piece: a piece that turns up after the screen arrived would stay hidden. */}
         <Rise className="flex flex-col gap-3">
-          <Stage model={model} unavailable={unavailable} onDismiss={dismiss} />
-          <StatusChips header={model.header} />
+          <StageSection model={model} unavailable={unavailable} onDismiss={dismiss} />
+          <ChipsSection header={model.header} />
         </Rise>
         <Rise>
-          <Today upcoming={model.upcoming} unavailable={unavailable} />
+          <TodaySection upcoming={model.upcoming} unavailable={unavailable} />
         </Rise>
         <div className="grid grid-cols-2 gap-4 @max-[760px]:grid-cols-1">
-          <Rise className={CELL}><Needs needs={model.needs} unavailable={unavailable} /></Rise>
-          <Rise className={CELL}><Yolo yolo={model.yolo} /></Rise>
-          <Rise className={CELL}><Problems problems={model.problems} unavailable={unavailable} /></Rise>
-          <Rise className={CELL}><Week week={model.week} unavailable={unavailable} /></Rise>
+          <Rise className={CELL}><NeedsSection needs={model.needs} unavailable={unavailable} /></Rise>
+          <Rise className={CELL}><YoloSection yolo={model.yolo} /></Rise>
+          <Rise className={CELL}><ProblemsSection problems={model.problems} unavailable={unavailable} /></Rise>
+          <Rise className={CELL}><WeekSection week={model.week} unavailable={unavailable} /></Rise>
           <Rise className={`${CELL} col-span-full`}>
-            <Projects projects={model.projects} connections={model.connections} unavailable={unavailable} />
+            <ProjectsSection projects={model.projects} connections={model.connections} unavailable={unavailable} />
           </Rise>
           {/* hobkin writes these at any time, so they show as they come rather than wait for the screen's entrance. */}
           {custom.map(spec => (
-            <div key={spec.id} className={CELL}><Custom spec={spec} now={model.upcoming.day.now} /></div>
+            <div key={spec.id} className={CELL}><CustomSection spec={spec} now={model.upcoming.day.now} /></div>
           ))}
         </div>
       </motion.div>
