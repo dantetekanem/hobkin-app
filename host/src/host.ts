@@ -12,6 +12,7 @@ import { agentImages, Attachments } from './attachments.ts'
 import { appStateHandlers } from './app-state.ts'
 import { createClientTool } from './client-tool.ts'
 import { claudeStatus, findClaude } from './claude-code/install.ts'
+import { ClaudeRuns } from './claude-code/runs.ts'
 import { ClaudeCodeSettingsFile } from './claude-code/settings.ts'
 import type { ClaudeCodeStatus } from '#shared/protocol/claude-code.ts'
 import type { PiSetup } from '#shared/protocol/setup.ts'
@@ -274,6 +275,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   // How hobkin's other agents use Claude Code (033-claude-code-agents), kept beside the custom theme in the home's data root.
   const { resolveDataRoot } = await import('hobkin/src/cli/migration/admission.mjs')
   const claudeCode = new ClaudeCodeSettingsFile(resolveDataRoot(root))
+  // The runs sent to Claude Code, which the window's snapshot marks so it draws the crab pal beside their faces.
+  const claudeRuns = new ClaudeRuns()
   const lookUpClaude = options.claudeStatus ?? (() => claudeStatus({ find: findClaude }))
   const owner = new HomeOwner({
     root,
@@ -293,7 +296,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     tools: [client],
     modelRuntime: live ? async () => ((await access()) as Partial<LiveModelAccess>).runtime : undefined,
-    claudeCode: { settings: () => claudeCode.read(), findClaude, ask: questions.ask },
+    claudeCode: { settings: () => claudeCode.read(), findClaude, ask: questions.ask, onClaude: claudeRuns.routed },
   })
   const customTheme = appearanceSession(
     { captureExecution: () => live ? owner.captureExecution() : null },
@@ -391,7 +394,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     themes: appearance.kept(),
     // Work mode for the Work screen, read from the snapshot with hobkin's own rules (011-work).
     work: owner.snapshot ? workOf(owner.snapshot) : null,
-    snapshot: owner.snapshot && { ...activity.keep(owner.wireSnapshot()!), reminderOccurrences: reminders() },
+    snapshot: owner.snapshot && { ...activity.keep(claudeRuns.mark(owner.wireSnapshot()!)), reminderOccurrences: reminders() },
   })
   // hobkin's main conversations, only read, from the home (014-continuity A8). The one its session has open is current.
   // Titles: a small model on the quick tier names a conversation from its first messages, once, and the name is kept
