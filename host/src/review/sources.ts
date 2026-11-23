@@ -31,6 +31,8 @@ export interface ReadWatch {
 export interface ReviewSource {
   /** The commit the change is at now, or null when it is gone: merged, closed or deleted. */
   head(target: ReviewTarget): Promise<string | null>
+  /** Where the change starts at that commit, for a source that reads it with git here. A review is built from there. */
+  start?(target: ReviewTarget, head: string): Promise<string>
   /** The whole change at that commit. */
   read(target: ReviewTarget, head: string, watch?: ReadWatch): Promise<ChangeInput>
 }
@@ -114,7 +116,12 @@ export function changeSource({
     if (!repo) throw new Error(`hobkin knows no folder for the project ${target.slug}.`)
     return { facts, repo, target }
   }
+  const startAt = async (target: ReviewTarget, head: string) => {
+    const { repo } = where(target)
+    return startOfChange({ reader: git(repo), into: await baseOf(repo), head, recorded: recorded?.(target) ?? null })
+  }
   return {
+    start: startAt,
     async head(target) {
       const { facts, repo } = where(target)
       // Where its branch is now is asked of git. The card can be a commit behind, as right after an agent reworked the
@@ -125,8 +132,7 @@ export function changeSource({
     async read(target, head, watch) {
       const { facts, repo, target: change } = where(target)
       const reader = git(repo)
-      const into = await baseOf(repo)
-      const base = await startOfChange({ reader, into, head, recorded: recorded?.(target) ?? null })
+      const base = await startAt(target, head)
       const capture = await captureChange(reader, base, head)
       const specPath = specPathFor(facts.branch, capture.files)
       const specText = specPath ? await reader.text(head, specPath) : null

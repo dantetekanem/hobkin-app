@@ -13,6 +13,7 @@ import { openTarget } from '@/features/home/navigate.ts'
 import { cn } from '@/lib/utils.ts'
 import { usePullPeople } from '../use-people.ts'
 import { ByLineNames } from './ByLine.tsx'
+import { outdatedNotice } from './outdated.ts'
 import { headerBadge, type HeaderBadge, type HeaderFix } from './sidebar.ts'
 
 /**
@@ -293,20 +294,18 @@ function QuietButton({ label, keys, onClick, children }: { label: string; keys: 
   )
 }
 
-/** Says when the review was built for an older commit than the change is at now, and offers to build it again. */
+/**
+ * Says when the review is not of its change as it stands, built for an older commit or from another start, and offers
+ * to build it again.
+ */
 function Outdated({ review, preparation, live, rebuild }: { review: Review; preparation: ReviewStatus | null; live: boolean; rebuild: () => void }) {
   if (!live || !preparation) return null
-  const rebuilding = preparation.phase != null
-  const moved = preparation.head != null && preparation.head !== review.change.head
-  if (!moved && !rebuilding) return null
+  const notice = outdatedNotice(review.change, preparation)
+  if (!notice) return null
   return (
     <div role="status" className="mt-2.5 flex items-start gap-2 rounded-xl bg-sun/15 px-2.5 py-2 text-[13.5px] leading-snug text-sun-fg">
-      <p className="min-w-0 flex-1">
-        {rebuilding
-          ? `Building the review again${preparation.head ? ` for ${preparation.head.slice(0, 7)}` : ''}. This one stays open until it is ready.`
-          : `Outdated. Built for ${review.change.head.slice(0, 7)}, and the change is now at ${preparation.head!.slice(0, 7)}.`}
-      </p>
-      {rebuilding ? null : (
+      <p className="min-w-0 flex-1">{notice.words}</p>
+      {notice.rebuilding ? null : (
         <Button size="sm" variant="outline" data-stop className="h-7 shrink-0 px-2.5 text-[13px]" onClick={rebuild}>
           <RefreshCw />
           Rebuild

@@ -425,6 +425,8 @@ export class Reviews {
   private readonly cardAtLook = new Map<string, string | null>()
   /** The commit each review's change was last looked up at, for one this host has no status of: a look makes no status. */
   private readonly lookedHead = new Map<string, string>()
+  /** Where each change started when this host last looked, and the commit it was at then: a start holds for that commit alone. */
+  private readonly lookedStart = new Map<string, { head: string; start: string }>()
   /** Who wrote each pull request a finished change opened, by the pull request's review name, once its host has been asked. */
   private readonly openedPullAuthorship = new Map<string, Promise<PullAuthorship>>()
   /** How many notes hobkin has written, so two in the same millisecond still have their own ids. */
@@ -644,7 +646,18 @@ export class Reviews {
     const stale = known.state === 'ready' && head != null && !this.options.store.has(target, head) && landing?.state !== 'refreshing'
     const mergeAsked = this.mergeAskedOf(target, landing)
     const pr = target.kind === 'change' ? this.pullOfChange(target)?.pr : undefined
-    return { ...known, head, stale, ...(assessment ? { assessment } : {}), ...(landing ? { landing } : {}), ...(mergeAsked ? { mergeAsked } : {}), ...(pr ? { pr } : {}) }
+    const looked = this.lookedStart.get(id)
+    const startsAt = looked && looked.head === head ? looked.start : undefined
+    return {
+      ...known,
+      head,
+      stale,
+      ...(assessment ? { assessment } : {}),
+      ...(landing ? { landing } : {}),
+      ...(mergeAsked ? { mergeAsked } : {}),
+      ...(pr ? { pr } : {}),
+      ...(startsAt ? { startsAt } : {}),
+    }
   }
 
   /** The commit a review's change is at: what this host last looked up, until `card` names another commit than it did then. */
@@ -801,7 +814,8 @@ export class Reviews {
 
   /**
    * Asks where the change is now, at most once a minute for each review, so an opened review can say it is outdated.
-   * A pull request is asked of GitHub, a finished change's branch of git. Nothing is prepared here: the reviewer chooses when to rebuild.
+   * A pull request is asked of GitHub, a finished change's branch of git, with where the change starts at that commit.
+   * Nothing is prepared here: the reviewer chooses when to rebuild.
    */
   async lookAgain(id: string, now: () => number = this.options.now ?? Date.now): Promise<void> {
     const target = this.target(id)
@@ -810,7 +824,8 @@ export class Reviews {
     if ((last != null && at - last < LOOK_AGAIN_MS) || this.landingOf(target)?.state === 'merged') return
     this.lookedAt.set(id, at)
     try {
-      const head = await (target.kind === 'change' ? this.options.sources.change : this.options.sources.pull).head(target)
+      const source = target.kind === 'change' ? this.options.sources.change : this.options.sources.pull
+      const head = await source.head(target)
       if (!head) return
       this.cardAtLook.set(id, this.options.head?.(target) ?? null)
       // A review this host knows of moves to the commit. Of any other only the commit is kept: a look makes no status,
@@ -822,9 +837,19 @@ export class Reviews {
         this.lookedHead.set(id, head)
         this.options.onChange?.()
       }
+      if (source.start) this.keepStart(id, head, await source.start(target, head))
     } catch (error) {
       this.options.log?.(`Review ${id} could not look up its commit: ${messageOf(error)}`)
     }
+  }
+
+  /** Keeps where a change starts at the commit it was looked up at, and says so when that is news. */
+  private keepStart(id: string, head: string, start: string) {
+    const kept = this.lookedStart.get(id)
+    if (kept?.head === head && kept.start === start) return
+
+    this.lookedStart.set(id, { head, start })
+    this.options.onChange?.()
   }
 
   /**

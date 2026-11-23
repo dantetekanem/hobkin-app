@@ -13,7 +13,7 @@ const sample = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sam
 const files = JSON.parse(readFileSync(new URL('../../ui/src/features/review/sample/files.json', import.meta.url), 'utf8')) as ReviewFileContents[]
 const NEWER = 'f'.repeat(40)
 
-function reviewsAt(t: TestContext, id: string, { current = null as string | null, remote = sample.change.head } = {}) {
+function reviewsAt(t: TestContext, id: string, { current = null as string | null, remote = sample.change.head, startsAt = null as string | null } = {}) {
   const store = reviewStore(temporaryDirectory(t))
   store.write(targetOfReviewId(id)!, sample, files)
   let asked = 0
@@ -22,6 +22,8 @@ function reviewsAt(t: TestContext, id: string, { current = null as string | null
       asked += 1
       return remote
     },
+    // A source that can say where its change starts, as a finished change's does.
+    ...(startsAt ? { start: async () => startsAt } : {}),
     read: async () => {
       throw new Error('Nothing is rebuilt in this test.')
     },
@@ -85,4 +87,26 @@ test("once a change's branch was looked up, its review goes by that commit, what
   assert.equal(asked(), 1)
   assert.deepEqual([reviews.status(id).stale, reviews.status(id).head], [true, NEWER], 'the branch moved, so the review says it is outdated')
   assert.equal(reviews.list().reviews.find((item) => item.id === id)?.head, NEWER)
+})
+
+test('an opened review says where its change starts now, so one built from another start can be told', async (t) => {
+  const id = 'change:hobkin:7d02c9'
+  const ELSEWHERE = 'b'.repeat(40)
+  const { reviews } = reviewsAt(t, id, { startsAt: ELSEWHERE })
+
+  assert.equal('startsAt' in reviews.status(id), false, 'nothing says so before it is looked up')
+
+  await reviews.lookAgain(id, () => 0)
+
+  assert.equal(reviews.status(id).startsAt, ELSEWHERE)
+  assert.notEqual(reviews.get(id).review.change.base, ELSEWHERE, 'the review it holds was built from another start, and still opens')
+})
+
+test('a review whose source cannot say where its change starts says nothing of it', async (t) => {
+  const id = 'pr:acme/shop/482'
+  const { reviews } = reviewsAt(t, id)
+
+  await reviews.lookAgain(id, () => 0)
+
+  assert.equal('startsAt' in reviews.status(id), false)
 })

@@ -232,10 +232,9 @@ test('a change its default branch already holds is reviewed over its own commits
 test('a change that started from origin’s default branch is reviewed from there, when this machine’s copy has gone its own way', async (t) => {
   const { repo, git, commit, moveMain } = project(t)
   const OWN = 'hobkin/a1b2c3-count-the-items'
-  const read = async (head: string) => {
-    const source = changeSource({ find: () => ({ project: 'shop', title: 'Count the items', branch: OWN, head }), repoOf: () => repo, baseOf: async () => 'main' })
-    return (await source.read({ kind: 'change', slug: 'shop', item: 'a1b2c3' }, head)).capture
-  }
+  const CHANGE = { kind: 'change', slug: 'shop', item: 'a1b2c3' } as const
+  const sourceAt = (head: string) => changeSource({ find: () => ({ project: 'shop', title: 'Count the items', branch: OWN, head }), repoOf: () => repo, baseOf: async () => 'main' })
+  const read = async (head: string) => (await sourceAt(head).read(CHANGE, head)).capture
   // Origin's main holds another change, merged on the code host, that this machine's main never took.
   git('checkout', '--quiet', '--detach', 'main')
   const onOrigin = commit('src/teleport.js', 'export const teleport = () => {}\n', 'Another change, merged on the code host')
@@ -251,6 +250,7 @@ test('a change that started from origin’s default branch is reviewed from ther
 
   assert.equal(waiting.base, onOrigin, 'it starts where it left origin’s main')
   assert.deepEqual(waiting.files.map((file) => file.path), ['src/count.js'], 'and holds none of the other change')
+  assert.equal(await sourceAt(head).start?.(CHANGE, head), onOrigin, 'asked alone, it names the same start')
 
   // Merged on the code host, which this machine's main has not taken either: still its own commits.
   git('checkout', '--quiet', '--detach', 'refs/remotes/origin/main')

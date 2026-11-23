@@ -53,6 +53,11 @@ export interface ReviewStatus {
   owner?: PullOwner
   /** For a finished change that opened a pull request: that pull request's page, as its card gives the address. */
   pr?: string
+  /**
+   * For a finished change this host looked up: the commit the change starts from, at the commit it is at. A review
+   * built from another start does not show the change as it is.
+   */
+  startsAt?: string
 }
 
 /** A person a pull request names: their name, and their profile when it is known. */
