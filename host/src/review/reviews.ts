@@ -1058,7 +1058,9 @@ export class Reviews {
 
   /** Both sides of one file of a prepared review. */
   file(id: string, fileId: string): ReviewFileContents {
-    const file = this.loaded(id).files.find((entry) => entry.fileId === fileId)
+    const { files, review } = this.loaded(id)
+    // A test file the change review found joins the review as it is shown, read at its commit.
+    const file = files.find((entry) => entry.fileId === fileId) ?? this.options.assessments?.shownFile(this.target(id), review.change.head, fileId)
     if (!file) throw new Error(`${fileId} is not a file of this review.`)
     return file
   }

@@ -9,14 +9,14 @@
  * The engine stands apart from this app (`packages/change-review`); this file only hands it a checkout, a range and a
  * model, and reads back what it wrote.
  */
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { reviewFolder, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import { DEPLOY_WORDS, deployOf, deployWhy, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus, type AssessmentSummary, type BlindCheck, type ChangeAssessment, type Level, type RatedNode, type StoryWords, type Unit, type Units } from '#shared/review/assessment.ts'
 import { attentionOf, fileBuckets, pathBucket, rankAttention } from '#shared/review/attention.ts'
-import { count } from '#shared/review/prose.ts'
+import { count, isSafePath } from '#shared/review/prose.ts'
 import type { NodeBucket, Review, ReviewFileContents, ReviewNode } from '#shared/review/types.ts'
 import { STEP_IDS, type Effect, type Exposure, type Proof, type Undo } from '../../../packages/change-review/src/types.ts'
 import type { HostTree } from './code-hosts.ts'
@@ -26,6 +26,8 @@ import { testsNotRun, unitStory, unitWords, type UnitPlace, type UnitRun } from 
 
 const run = promisify(execFile)
 const GIT_TIMEOUT_MS = 120_000
+/** A file read at a commit for the review being opened, so the window never waits long on it. */
+const GIT_SHOW_TIMEOUT_MS = 10_000
 
 /** What the engine is asked to do: review the change from `base` to `head`, checked out at `cwd`, writing into `out`. */
 export interface AssessRequest {
@@ -620,6 +622,8 @@ export class Assessments {
   private readonly records = new Map<string, RunRecord>()
   /** Each reviewed commit's file buckets, found once from both sides of its files. */
   private readonly buckets = new Map<string, Map<string, NodeBucket>>()
+  /** Files read at a reviewed commit for the tests the change review found, each once, null when git had none. */
+  private readonly heads = new Map<string, string | null>()
   /** The last one waiting for each review tree, so a tree has one user at a time. */
   private readonly turns = new Map<string, Promise<void>>()
   private readonly controller = new AbortController()
@@ -964,11 +968,39 @@ export class Assessments {
     const tested = { units: assessment.units.units, places, words, runs: [...runs.values()], ...(runs.size === 0 && notRun ? { notRun } : {}), ...(unrun.length ? { unrun } : {}) }
     const nodes = unitWords(levelled, tested)
     // What the change review's own walk found that the host's did not (spec 055), before attention weighs it.
-    const found = withEngineFacts({ ...levelled, nodes }, readEngineFacts(graph), files)
+    const found = withEngineFacts({ ...levelled, nodes }, readEngineFacts(graph), files, (path) => this.headText(target, review.change.head, path))
     // What each node asks of the reviewer, once tests say how they ran (spec 053).
     const told = withAttention(found, assessment, this.bucketsOf(target, review, files), testsNotRun(levelled, tested))
     const story = unitStory(told, { units: assessment.units.units, places, words, story: assessment.story, buckets: assessment.triage?.buckets ?? [] })
     return { ...told, story }
+  }
+
+  /**
+   * A file as it is at a reviewed commit, read from git in the review's checkout or the project's folder, once. Null when
+   * neither has it, or the path is not one inside the repository.
+   */
+  private headText(target: ReviewTarget, head: string, path: string): string | null {
+    const key = `${this.key(target, head)}\u0000${path}`
+    if (this.heads.has(key)) return this.heads.get(key)!
+    const places = [this.options.hostTree?.(target)?.path ?? treeOf(this.options.root, target), target.kind === 'change' ? this.options.repoOf(target.slug) : null]
+    let text: string | null = null
+    for (const place of isSafePath(path) ? places : []) {
+      if (!place || !existsSync(place)) continue
+      try {
+        text = execFileSync('git', ['-C', place, 'show', `${head}:${path}`], { encoding: 'utf8', timeout: GIT_SHOW_TIMEOUT_MS, maxBuffer: 4 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'], env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
+        break
+      } catch {
+        // Not at that commit here.
+      }
+    }
+    this.heads.set(key, text)
+    return text
+  }
+
+  /** A file the review was shown with that its prepared files do not hold: one read at the commit for a test the change review found. */
+  shownFile(target: ReviewTarget, head: string, fileId: string): ReviewFileContents | null {
+    const text = this.heads.get(`${this.key(target, head)}\u0000${fileId}`)
+    return text == null ? null : { fileId, path: fileId, base: text, head: text, binary: false }
   }
 
   /**
@@ -1014,7 +1046,7 @@ export class Assessments {
   /** Forgets what this host remembers of a target's change reviews, once its files are gone. */
   forget(target: ReviewTarget): void {
     const mine = `${reviewIdOf(target)}@`
-    for (const map of [this.live, this.records, this.buckets]) for (const key of [...map.keys()]) if (key.startsWith(mine)) map.delete(key)
+    for (const map of [this.live, this.records, this.buckets, this.heads]) for (const key of [...map.keys()]) if (key.startsWith(mine)) map.delete(key)
   }
 
   close(): void {

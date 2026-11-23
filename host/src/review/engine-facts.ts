@@ -6,10 +6,12 @@
  * joins only on lines of a file the review holds, so the window can show it, and a way in names only the steps the
  * review has nodes for. Everything in graph.json is read without trust.
  */
-import { edgeId, testCovers, testFromBefore, testName, TESTS_FROM_BEFORE, withCovers } from '#shared/review/draft.ts'
+import { edgeId, testCovers, testFromBefore, testName, TESTS_FROM_BEFORE, unchangedFile, withCovers } from '#shared/review/draft.ts'
 import { NODE_SIZE } from '#shared/review/layout.ts'
+import { splitLines } from '#shared/review/lines.ts'
+import { fileName } from '#shared/review/paths.ts'
 import { cleanProse, isSafePath } from '#shared/review/prose.ts'
-import { PROSE_LIMIT, TITLE_LIMIT, type NodeStatus, type Review, type ReviewEdge, type ReviewFileContents, type ReviewLifecycle, type ReviewNode } from '#shared/review/types.ts'
+import { PROSE_LIMIT, TITLE_LIMIT, type NodeStatus, type Review, type ReviewEdge, type ReviewFile, type ReviewFileContents, type ReviewLifecycle, type ReviewNode } from '#shared/review/types.ts'
 import { testCaseNear } from '#shared/review/units.ts'
 import { withZones } from '#shared/review/zones.ts'
 import type { NodeTest, Origin, OriginStep, RemovedTest, RunsFrom } from '../../../packages/change-review/src/types.ts'
@@ -159,15 +161,29 @@ function noWayReason(said: Extract<EngineRunsFrom, { found: 'none' | 'not-looked
   return said.stopped ? 'time' : 'no-callers'
 }
 
+/** The lines of a test the engine names in a file: by its name as written, or the words its quotes hold, nearest its line. */
+function caseIn(text: string, symbol: string, line = 1): { startLine: number; endLine: number } | undefined {
+  const quoted = /["'`]([^"'`]+)["'`]\s*$/.exec(symbol)?.[1]
+  return testCaseNear(text, symbol, line) ?? (quoted ? testCaseNear(text, quoted, line) : undefined)
+}
+
+/** A whole file's lines, up to its last line with something on it. */
+function wholeFile(text: string): { startLine: number; endLine: number } | undefined {
+  const last = splitLines(text).findLastIndex((entry) => entry.trim() !== '') + 1
+  return last >= 1 ? { startLine: 1, endLine: last } : undefined
+}
+
 /**
  * The review with the engine's facts over it. A review prepared before zones keeps none, and gets no covers; any other
- * has its covers and zones found again for what joined, with the Reviewer's names for its zones.
+ * has its covers and zones found again for what joined, with the Reviewer's names for its zones. `readHead` reads a
+ * file at the change's commit, for a test in a file the review does not hold yet; the file then joins the review.
  */
-export function withEngineFacts(review: Review, facts: EngineFacts, files: readonly ReviewFileContents[] = []): Review {
+export function withEngineFacts(review: Review, facts: EngineFacts, files: readonly ReviewFileContents[] = [], readHead: (path: string) => string | null = () => null): Review {
   if (!hasFacts(facts)) return review
   const holds = holdsPlace(review)
   let nodes = review.nodes.map((node) => ({ ...node }))
   const edges: ReviewEdge[] = [...review.edges]
+  const joinedFiles: ReviewFile[] = []
   const wired = new Set(edges.map((edge) => `${edge.from}>${edge.to}`))
   const wire = (from: string, to: string) => {
     if (wired.has(`${from}>${to}`)) return
@@ -221,34 +237,41 @@ export function withEngineFacts(review: Review, facts: EngineFacts, files: reado
     node.status = result
     node.summary = cleanProse(`${testCovers(nodes, edges, node).said} ${RESULT_WORDS[result]}`, PROSE_LIMIT.summary)
   }
-  if (review.zones === undefined) return { ...review, nodes, edges }
+  const allFiles = [...review.files, ...joinedFiles]
+  if (review.zones === undefined) return { ...review, files: allFiles, nodes, edges }
   const zoned = withZones(withCovers(nodes, edges), edges)
   const zones = zoned.zones.map((zone) => {
     const name = facts.zoneNames.get(zone.id)
     return name ? { ...zone, label: cleanProse(name, PROSE_LIMIT.title) || zone.label } : zone
   })
-  return { ...review, nodes: zoned.nodes, edges, zones }
+  return { ...review, files: allFiles, nodes: zoned.nodes, edges, zones }
 
   /**
-   * An unchanged test the host's scan did not find, on lines of a file the review holds unchanged, within the few a
-   * changed part and a review take. It goes below every other node until the window lays the graph out.
+   * An unchanged test the host's scan did not find, within the few a changed part and a review take: in a file the
+   * review holds unchanged, or one read at the change's commit, which joins the review. A test the engine names is its
+   * own lines; one it found by its file alone, as a request test of a way in, is the whole file. It goes below every
+   * other node until the window lays the graph out.
    */
   function joinBefore(test: EngineTest, code: readonly ReviewNode[]): ReviewNode | undefined {
-    const file = review.files.find((entry) => entry.path === test.path)
-    const text = files.find((entry) => entry.fileId === file?.id)?.head
-    if (!file || file.status !== 'unchanged' || text == null || !test.symbol) return undefined
+    const held = [...review.files, ...joinedFiles].find((entry) => entry.path === test.path)
+    if (held && held.status !== 'unchanged') return undefined
+    const text = (held ? files.find((entry) => entry.fileId === held.id)?.head : undefined) ?? readHead(test.path)
+    const span = text == null ? undefined : test.symbol ? caseIn(text, test.symbol, test.line) : wholeFile(text)
+    if (text == null || !span) return undefined
+    const same = nodes.find((node) => node.kind === 'test' && node.subtitle === test.path && node.anchors.some((anchor) => anchor.side === 'added' && anchor.startLine === span.startLine && anchor.endLine === span.endLine))
+    if (same) return same
     const before = nodes.filter((node) => node.kind === 'test' && node.change === 'unchanged')
     const coveringBefore = (id: string) => before.filter((node) => wired.has(`${node.id}>${id}`)).length
     if (before.length >= TESTS_FROM_BEFORE.review || code.every((target) => coveringBefore(target.id) >= TESTS_FROM_BEFORE.perDefinition)) return undefined
-    const span = testCaseNear(text, test.symbol, test.line ?? 1)
-    if (!span) return undefined
+    if (!held) joinedFiles.push(unchangedFile(test.path))
     let id = before.length + 1
     while (nodes.some((node) => node.id === `b${id}`)) id += 1
     const bottom = Math.max(0, ...nodes.map((node) => node.position.y + NODE_SIZE[node.kind].height))
     const joined = nodes.length - review.nodes.length
+    const made = testFromBefore(`b${id}`, { path: test.path, symbol: test.symbol ?? fileName(test.path) }, text, { fileId: held?.id ?? test.path, ...span }, 'not-run')
     const node = {
-      ...testFromBefore(`b${id}`, { path: test.path, symbol: test.symbol }, text, { fileId: file.id, ...span }, 'not-run'),
-      summary: 'This test did not change. The change review found it covers this code.',
+      ...made,
+      summary: test.symbol ? 'This test did not change. The change review found it covers this code.' : 'This test file did not change. The change review found it goes through this code.',
       position: { x: joined * (NODE_SIZE.test.width + 40), y: bottom + 80 },
     }
     nodes = [...nodes, node]

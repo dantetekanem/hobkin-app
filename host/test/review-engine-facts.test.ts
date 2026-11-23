@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -47,7 +48,7 @@ async function prepared(vicinity: Vicinity = saysResearching, removed: Tree = {}
 }
 
 /** What the change review left in the home for the review's commit: one unit over doingAfter, and `graph`. */
-function reviewed(t: TestContext, review: Review, graph: object): Assessments {
+function reviewed(t: TestContext, review: Review, graph: object, repo: string | null = null): Assessments {
   const root = temporaryDirectory(t)
   const folder = assessmentFolder(root, TARGET, review.change.head)
   mkdirSync(folder, { recursive: true })
@@ -62,8 +63,25 @@ function reviewed(t: TestContext, review: Review, graph: object): Assessments {
   })
   write('story.md', '# Say a tool is research\n')
   write('graph.json', graph)
-  return new Assessments({ root, run: async () => Promise.reject(new Error('not run here')), repoOf: () => null })
+  return new Assessments({ root, run: async () => Promise.reject(new Error('not run here')), repoOf: () => repo })
 }
+
+/** The project's repository, with `files` committed: the review's head is that commit. */
+function committed(t: TestContext, files: Record<string, string>): { repo: string; sha: string } {
+  const repo = temporaryDirectory(t)
+  for (const [path, text] of Object.entries(files)) {
+    mkdirSync(join(repo, path, '..'), { recursive: true })
+    writeFileSync(join(repo, path), text)
+  }
+  const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
+  git('init', '--quiet', '--initial-branch=main')
+  git('add', '-A')
+  git('commit', '--quiet', '-m', 'head')
+  return { repo, sha: git('rev-parse', 'HEAD') }
+}
+
+/** A request test the review does not hold: the change review found it through the way in, by its file alone. */
+const flowTest = lines("import { doingAfter } from '../../src/doing.ts';", "test('a turn says what it does', () => {", "  expect(doingAfter('idle', 'tool')).toBe('researching');", '});', '')
 
 const doingAfterNode = { id: 'n1', kind: 'function', symbol: 'doingAfter', path: 'src/doing.ts', lines: [1, 4], change: 'modified', level: { current: 'mid' }, critical: false, findings: [], questions: [], sensitive: [] }
 const titled = (nodes: readonly ReviewNode[], title: string) => nodes.find((node) => node.title === title)!
@@ -157,4 +175,34 @@ test('a zone the Reviewer named is shown by its name', async (t) => {
   const shown = assessments.present(TARGET, review, files)!
 
   assert.equal(shown.zones?.find((entry) => entry.id === zone)?.label, 'What hobkin is doing')
+})
+
+test('a test the change review found through the way in, with no name, joins as its whole file, read at the change\'s commit', async (t) => {
+  const { repo, sha } = committed(t, { 'test/e2e/flow.test.ts': flowTest })
+  const { review: prepared_, files } = await prepared({ links: [] })
+  const review = { ...prepared_, change: { ...prepared_.change, head: sha } }
+  const tests = [{ path: 'test/e2e/flow.test.ts', relation: 'before', found: 'entry', lifecycle: true, at_head: 'not-run' }]
+  const assessments = reviewed(t, review, { nodes: [{ ...doingAfterNode, tests }] }, repo)
+
+  const shown = assessments.present(TARGET, review, files)!
+
+  const doingAfter = titled(shown.nodes, 'doingAfter')
+  const flow = titled(shown.nodes, 'flow.test.ts')
+  assert.deepEqual([flow.kind, flow.change, flow.covers, flow.anchors.map(({ fileId, startLine, endLine }) => [fileId, startLine, endLine])], ['test', 'unchanged', [doingAfter.id], [['test/e2e/flow.test.ts', 1, 4]]])
+  assert.ok(shown.files.some((file) => file.path === 'test/e2e/flow.test.ts' && file.status === 'unchanged'))
+  assert.equal(assessments.shownFile(TARGET, sha, 'test/e2e/flow.test.ts')?.head, flowTest, 'the window can open it')
+  assert.deepEqual(validateReview(shown), [])
+})
+
+test('a test the change review names in a file the review does not hold joins as that test, read at the change\'s commit', async (t) => {
+  const { repo, sha } = committed(t, { 'test/e2e/flow.test.ts': flowTest })
+  const { review: prepared_, files } = await prepared({ links: [] })
+  const review = { ...prepared_, change: { ...prepared_.change, head: sha } }
+  const tests = [{ path: 'test/e2e/flow.test.ts', symbol: 'a turn says what it does', line: 3, relation: 'before', found: 'entry', lifecycle: true, at_head: 'passed' }]
+  const assessments = reviewed(t, review, { nodes: [{ ...doingAfterNode, tests }] }, repo)
+
+  const shown = assessments.present(TARGET, review, files)!
+
+  const turn = titled(shown.nodes, 'a turn says what it does')
+  assert.deepEqual([turn.change, turn.status, turn.anchors.map(({ startLine, endLine }) => [startLine, endLine])], ['unchanged', 'passed', [[2, 4]]])
 })
