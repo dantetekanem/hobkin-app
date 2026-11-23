@@ -177,6 +177,8 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - A20. `hobkin/test/cli-work-machines.test.mjs` › "a model written after the review keeps the scores, and the change merges by itself once the model holds"
 - A21. `packages/change-review/test/pipeline.test.ts`, `packages/change-review/test/floor.test.ts`, `packages/change-review/test/answer.test.ts` and `host/test/review-model-checks.test.ts`, as spec 032's A35 lists them.
 - A22. `ui/test/review-model-checks.test.ts` and `ui/test/review-panel.test.ts`, as spec 032's A36 lists them; check: a still render of the panel's rows.
+- A23. `hobkin/test/cli-work-proofs.test.mjs` › "hobkin checks each model of a finished change that no run speaks for at its head, with YOLO mode off and whether or not the change edited the spec" and › "hobkin checks one model of a finished change at a time, never one it tried this week, and none while work mode is off"
+- A24. `host/test/proofs.test.ts` › "a change that waits keeps the newest ended run of each of its models, however old"; `ui/test/review-model-checks.test.ts`, the cases of a model with no run.
 
 ## Steps
 
@@ -196,8 +198,8 @@ Every view keeps its controls still when the content changes: fixed heights, cla
 - [x] S13 (A18). Runtime: the look is due now on a project never looked at with the tools in place, a look started with them says so in the project's state, and Run readiness puts a due look first. Files: `hobkin/src/cli/work/{plan,yolo,director}.mjs`. Done in hobkin baec6b2.
 - [x] S14 (A19, A20). Runtime: the survey records which files each covering spec names and the commits whose code the head still has, the YOLO pass sends a change back for its model, a review stands across model-only commits, and the proof score's evidence names its model. The do prompt says how a run writes a model it was sent back for. Files: `hobkin/src/cli/work/{yolo-pass,proofs,unmerged,reads,closing,classified,director,store,plan}.mjs`, `hobkin/src/prompts/work-do.md`. Done in hobkin 1b38ad4. Not seen live yet: a real look piping its machines, and a real run writing a model it was sent back for.
 - [x] S15 (A21, A22). The change review weighs the runs, and its panel lists each model with a way to its run. Spec 032's S15. Not seen live yet.
-- [ ] S16 (A23). Runtime: after each survey hobkin starts the check of each finished change's model that no run speaks for at its head, YOLO mode on or off. Files: `hobkin/src/cli/work/{proof-checks,director,yolo-pass}.mjs`.
-- [ ] S17 (A24). Host and window: the `proofs` slice keeps the newest run of each model of each change that still waits, and a model with no run reads as a warning. Files: `host/src/proofs.ts`, `ui/src/features/review/story/node-models.ts`.
+- [x] S16 (A23). Runtime: after each survey hobkin starts the check of each finished change's model that no run speaks for at its head, YOLO mode on or off, and only while work mode is on. hobkin 0fddfcb. It takes the place of the check the YOLO pass started. Not seen live yet.
+- [x] S17 (A24). Host and window: the `proofs` slice keeps the newest run of each model of each change that still waits, and a model with no run reads as a warning. Host 5c352df, window ff856d6. Not seen live yet.
 
 ## Open questions
 

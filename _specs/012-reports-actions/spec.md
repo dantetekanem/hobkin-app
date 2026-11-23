@@ -100,4 +100,4 @@ Before Discuss, only the last row had a way to chat ("Reply in chat", while work
 - [ ] S1 (A1, A2, A3, A7). Reports: list, filters, reader, reply, delete. Client side built on sample data (2026-11-09, 31 UI tests). Left: recording reads in hobkin, the composer sending the report with the next message, and hobkin's deleted list.
 - [ ] S2 (A4, A5, A6, A8). Action items: list, answer flows, empty state, the tab count. Client side built on sample data (2026-11-09); the menu badge counts the screen's own rows. Left: answers going back to hobkin.
 - [ ] S3 (A9, A10, A11, A12). Discuss on every item and every report (2026-11-13): the context rules and the keys with tests, the controls on both screens. Left: the A9 and A12 checks in the window.
-- [ ] S4 (A13). The reader folds `<details>` with its `<summary>`. Files: new `ui/src/features/reports/folds.ts`, `ui/src/features/reports/ReportMarkdown.tsx`, `ui/src/features/reports/report.ts`.
+- [x] S4 (A13). The reader folds `<details>` with its `<summary>`. Window 167e40f. Seen only as a still render: not yet in the live window.
