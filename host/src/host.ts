@@ -319,12 +319,14 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const github = new GitHub({ source: options.github ?? sampleGitHubSource(), onChange: publish, wanted: connected, log })
   // Integrations reads Pi's MCP servers only when asked, through Pi's own code, and hides their secrets before anything is sent.
   // TLA+ proof runs, read from hobkin's home when its files change (050-tla-proofs).
-  const proofs = new ProofsKeeper({
-    home: () => owner.app?.runtime.directory ?? null,
-    onChange: () => publish(),
-    // The finished changes still waiting for the user keep their newest check in the slice, however many runs came after it. workOf is made below and read only when the keeper scans.
-    waiting: () => (owner.snapshot ? workOf(owner.snapshot)?.finished.flatMap((group) => group.changes.map((change) => ({ project: change.slug, item: change.item }))) ?? [] : []),
-  })
+  // The finished changes that still wait for the user keep their newest check in the slice, however many runs came after it.
+  // `workOf` is made below and read only when the keeper scans.
+  const waitingChanges = () => {
+    const work = owner.snapshot ? workOf(owner.snapshot) : null
+    const changes = work?.finished.flatMap((group) => group.changes) ?? []
+    return changes.map((change) => ({ project: change.slug, item: change.item }))
+  }
+  const proofs = new ProofsKeeper({ home: () => owner.app?.runtime.directory ?? null, onChange: () => publish(), waiting: waitingChanges })
   const integrations = new Integrations({ source: options.integrations ?? (() => piMcpSourceFor({ live, root })), onChange: publish, log })
   // Skills and Pi extensions read Pi's resources only when a page asks, and change them only through `pi config`'s own code (039-skills-and-extensions).
   const skills = new Skills({ source: () => piSkillSourceFor({ live, root }), log })
