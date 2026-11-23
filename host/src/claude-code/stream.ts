@@ -3,8 +3,9 @@ import { randomUUID } from 'node:crypto'
 /**
  * Claude Code's stream, as a Pi run gives it (`033-claude-code-agents`). `claude -p --output-format stream-json` prints
  * one record per line. This turns them into the events hobkin's `JobActivity` reads from a Pi run, so the dock and the
- * agent canvas draw a Claude run unchanged, and into lines of a session file in Pi's format, so Work reads its usage,
- * its activity and its identity as it reads a Pi run's. Pure: nothing here reads or writes anything.
+ * agent canvas draw a Claude run unchanged and hobkin's pulse follows it (`pulse.mjs`), and into lines of a session
+ * file in Pi's format, so Work reads its usage, its activity and its identity as it reads a Pi run's. Pure: nothing here
+ * reads or writes anything.
  */
 
 /** A record Claude Code printed. */
@@ -74,6 +75,13 @@ function piOutput(tool: string, text: string, isError: boolean): string {
 const messageStart = (): PiEvent => ({ type: 'message_start', message: { role: 'assistant' } })
 const textDelta = (text: string): PiEvent => ({ type: 'message_update', assistantMessageEvent: { type: 'text_delta', contentIndex: 0, delta: text } })
 const messageEnd = (role: 'assistant' | 'user', text: string, images: unknown[] = []): PiEvent => ({ type: 'message_end', message: { role, content: [{ type: 'text', text }, ...images] } })
+/** Thinking or a tool call as Pi streams it. Only hobkin's pulse reads these (`pulse.mjs`): nothing draws them. */
+const partUpdate = (type: string, index: unknown, delta?: string): PiEvent => ({
+  type: 'message_update',
+  assistantMessageEvent: { type, contentIndex: index, ...(delta === undefined ? {} : { delta }) },
+})
+/** A reply ended, with its whole output as Claude counts it. Its words were their own messages, so the count comes on its own. */
+const replyEnd = (output: number): PiEvent => ({ type: 'turn_end', message: { role: 'assistant', usage: { output } } })
 
 /** The images in a user message, as Pi names them, without their bytes: hobkin's runner counts them to match a note. */
 const imagesIn = (content: unknown) =>
@@ -102,6 +110,10 @@ export class ClaudeStream {
   private readonly recorded = new Set<string>()
   private readonly counted = none()
   private readonly tools = new Map<string, string>()
+  /** Whether Claude works on a message: from the first sign of it to its result. */
+  private working = false
+  /** Whether the reply to come was asked for, by the message or by the tool results that went back. */
+  private asked = false
 
   constructor({ cwd, now = () => new Date(), newId = randomUUID }: StreamOptions) {
     this.cwd = cwd
@@ -124,12 +136,14 @@ export class ClaudeStream {
       if (record.type === 'user') this.toolResults(record, lines)
       return { events, lines }
     }
+    if (record.type === 'stream_event' || record.type === 'assistant' || record.isReplay === true) this.start(events)
     if (record.type === 'system' && record.subtype === 'init') this.started(record, lines)
     else if (record.type === 'stream_event' && isRecord(record.event)) this.streamed(record.event, events, lines)
     else if (record.type === 'assistant' && isRecord(record.message)) this.assistant(record.message, events, lines)
     else if (record.type === 'user' && isRecord(record.message)) this.user(record, events, lines)
     else if (record.type === 'result') {
       this.close(events)
+      this.rest(events)
       this.flush(lines)
       this.countElsewhere(record.modelUsage, lines)
       this.result = record
@@ -142,6 +156,7 @@ export class ClaudeStream {
     const events: PiEvent[] = []
     const lines: SessionLine[] = []
     this.close(events)
+    this.rest(events)
     this.flush(lines)
     return { events, lines }
   }
@@ -167,16 +182,21 @@ export class ClaudeStream {
   private streamed(event: Record<string, unknown>, events: PiEvent[], lines: SessionLine[]): void {
     if (event.type === 'message_start') {
       this.close(events)
+      if (!this.asked) this.ask(events)
       if (isRecord(event.message)) this.meter(event.message, lines)
     } else if (event.type === 'content_block_start') {
       this.close(events)
       const block = isRecord(event.content_block) ? event.content_block : {}
+      if (block.type === 'thinking') events.push(partUpdate('thinking_start', event.index))
+      if (block.type === 'tool_use') events.push(partUpdate('toolcall_start', event.index))
       if (block.type !== 'text') return
       this.open = { index: event.index, text: textOf(block.text) }
       events.push(messageStart())
       if (this.open.text) events.push(textDelta(this.open.text))
     } else if (event.type === 'content_block_delta') {
       const change = isRecord(event.delta) ? event.delta : {}
+      if (change.type === 'thinking_delta') events.push(partUpdate('thinking_delta', event.index, textOf(change.thinking)))
+      if (change.type === 'input_json_delta') events.push(partUpdate('toolcall_delta', event.index, textOf(change.partial_json)))
       const text = textOf(change.text)
       if (!this.open || event.index !== this.open.index) return
       if (change.type !== 'text_delta' || !text) return
@@ -184,6 +204,9 @@ export class ClaudeStream {
       events.push(textDelta(text))
     } else if (event.type === 'message_delta' && this.reply) {
       merge(this.reply.usage, event.usage)
+    } else if (event.type === 'message_stop') {
+      events.push(replyEnd(this.reply?.usage.output ?? 0))
+      this.asked = false
     }
   }
 
@@ -234,7 +257,30 @@ export class ClaudeStream {
         result: { content: [{ type: 'text', text: output }] },
       })
     }
+    // Claude sends its next request with the results.
+    this.ask(events)
     this.toolResults(record, lines)
+  }
+
+  /** Claude takes a message: the run works, and the message asks for the first reply. */
+  private start(events: PiEvent[]): void {
+    if (this.working) return
+    this.working = true
+    this.asked = true
+    events.push({ type: 'agent_start' })
+  }
+
+  /** Claude's result: the run rests until a message it queued starts it again. */
+  private rest(events: PiEvent[]): void {
+    if (!this.working) return
+    this.working = false
+    events.push({ type: 'agent_end' })
+  }
+
+  /** A request goes to the model. */
+  private ask(events: PiEvent[]): void {
+    this.asked = true
+    events.push({ type: 'turn_start' })
   }
 
   /** A line for each tool result, as Pi writes one. hobkin's hold brief reads a failed call's tool and words from it. */

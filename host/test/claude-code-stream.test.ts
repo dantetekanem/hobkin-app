@@ -124,6 +124,72 @@ test("Claude's stream becomes the activity a Pi run gives", () => {
   assert.ok(receipts[1]!.index > lastWords, 'the receipt follows the words it arrived in')
 })
 
+test("Claude's stream tells hobkin's pulse when the run works, each request, its thinking, its tool input and each reply's output", () => {
+  const stream = new ClaudeStream({ cwd: '/work' })
+  const events = (...records: Record<string, unknown>[]) => records.flatMap((record) => stream.accept(record).events)
+  // Each event by what it is, as `pulse.mjs` reads it: its type, the part of a reply an update carries, whose message ends.
+  const named = (list: Record<string, unknown>[]) => list.map((event) => {
+    const part = event.assistantMessageEvent as { type: string } | undefined
+    const message = event.message as { role: string } | undefined
+    if (part) return `${event.type}:${part.type}`
+    return event.type === 'message_end' ? `${event.type}:${message!.role}` : String(event.type)
+  })
+  const stop = streamed({ type: 'message_stop' })
+  const result = { type: 'result', subtype: 'success', is_error: false, result: 'Done.', session_id: SESSION }
+
+  assert.deepEqual(events(init), [], 'Claude has not taken a message yet')
+  const first = events(
+    replay('Fix the build.'),
+    streamed({ type: 'message_start', message: { id: 'msg_1', model: MODEL, usage: usage(10, 1, 200) } }),
+    streamed({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }),
+    streamed({ type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'A private plan.' } }),
+    assistant('msg_1', { type: 'thinking', thinking: 'A private plan.', signature: 'signed' }),
+    streamed({ type: 'content_block_stop', index: 0 }),
+    ...textBlock(1, "I'll check."),
+    assistant('msg_1', { type: 'text', text: "I'll check." }),
+    streamed({ type: 'content_block_stop', index: 1 }),
+    streamed({ type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: {} } }),
+    streamed({ type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '{"command":"npm test"}' } }),
+    assistant('msg_1', { type: 'tool_use', id: 'toolu_1', name: 'Bash', input: { command: 'npm test' } }),
+    streamed({ type: 'content_block_stop', index: 2 }),
+    streamed({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 45 } }),
+    stop,
+    toolResult('toolu_1', 'All tests pass.'),
+    streamed({ type: 'message_start', message: { id: 'msg_2', model: MODEL, usage: usage(20, 1) } }),
+    ...textBlock(0, 'Done.'),
+    assistant('msg_2', { type: 'text', text: 'Done.' }),
+    streamed({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 3 } }),
+    stop,
+    result,
+  )
+  assert.deepEqual(named(first), [
+    'agent_start', 'message_end:user',
+    'message_update:thinking_start', 'message_update:thinking_delta',
+    'message_start', 'message_update:text_delta', 'message_end:assistant',
+    'message_update:toolcall_start', 'message_update:toolcall_delta', 'tool_execution_start',
+    'turn_end',
+    'tool_execution_end', 'turn_start',
+    'message_start', 'message_update:text_delta', 'message_end:assistant',
+    'turn_end',
+    'agent_end',
+  ])
+  const parts = first.flatMap((event) => (event.assistantMessageEvent ? [event.assistantMessageEvent] : []))
+  assert.deepEqual(parts.slice(0, 2), [{ type: 'thinking_start', contentIndex: 0 }, { type: 'thinking_delta', contentIndex: 0, delta: 'A private plan.' }])
+  assert.deepEqual(parts.slice(3, 5), [{ type: 'toolcall_start', contentIndex: 2 }, { type: 'toolcall_delta', contentIndex: 2, delta: '{"command":"npm test"}' }])
+  const outputs = first.filter((event) => event.type === 'turn_end').map((event) => event.message)
+  assert.deepEqual(outputs, [{ role: 'assistant', usage: { output: 45 } }, { role: 'assistant', usage: { output: 3 } }], "each reply's whole output, as Claude counts it")
+
+  // A reply that comes without a request marked before it, as after Claude retried one, marks its own.
+  assert.deepEqual(named(events(
+    replay('And the README.'),
+    streamed({ type: 'message_start', message: { id: 'msg_3', model: MODEL, usage: usage(30, 1) } }),
+    stop,
+    streamed({ type: 'message_start', message: { id: 'msg_4', model: MODEL, usage: usage(30, 1) } }),
+  )), ['agent_start', 'message_end:user', 'turn_end', 'turn_start'], 'a message queued for after the result starts the run again')
+  assert.deepEqual(named(stream.end().events), ['agent_end'], 'a stream cut off ends the run')
+  assert.deepEqual(stream.end().events, [], 'once')
+})
+
 test("each reply's usage goes in the session record once it is final, with what Claude counted elsewhere", () => {
   let clock = 0
   const stream = new ClaudeStream({ cwd: '/work', now: () => new Date(Date.UTC(2026, 10, 12, 9, 0, clock++)), newId: () => `line-${clock}` })
