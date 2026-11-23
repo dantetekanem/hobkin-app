@@ -6,6 +6,7 @@ import { agentControls, answerAgent, questionOf, runningAgents, useAgent, useAge
 import { holdStill, stillVariants, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import type { Mood } from '@/avatar/moods.tsx'
+import { Pals } from '@/avatar/Pals.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { doingNow, exchangeOf, pauseOf, stepCount, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
@@ -94,7 +95,12 @@ export function AgentScreen() {
           >
             {agent ? (
               <Passing side={side}>
-                <AgentHood hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished} />
+                {/* A run on Claude Code has the crab pal beside its face. A finished run's record says how it ended. */}
+                {agent.onClaudeCode ? (
+                  <Pals hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished} endedWell={finished && agent.doing === 'completed'} />
+                ) : (
+                  <AgentHood hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished} />
+                )}
               </Passing>
             ) : null}
             <Lift>
