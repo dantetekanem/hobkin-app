@@ -15,7 +15,7 @@ import {
   summarize,
   undoRemove,
 } from '../src/features/reports/inbox.ts'
-import { kindOf, readerParts, sourceOf, splitErrorDetails, summaryOf, toneOf, triageOf, type Report } from '../src/features/reports/report.ts'
+import { kindOf, readerParts, sourceOf, summaryOf, toneOf, triageOf, type Report } from '../src/features/reports/report.ts'
 import { replyToReport, useReportReply } from '../src/features/reports/reply.ts'
 
 const report = (id: string, over: Partial<Report> = {}): Report => ({
@@ -229,25 +229,6 @@ test('the reader shows the triage apart from the text', () => {
   })
   assert.deepEqual(readerParts(report('a', { body: 'Nothing new' })), { triage: { level: 'nothing' }, markdown: '' })
   assert.deepEqual(readerParts(report('a', { body: '# Notes\n\nText.', outcome: 'failed' })), { triage: null, markdown: '# Notes\n\nText.' })
-})
-
-test("a failed run's raw error, collapsed at the end of its report, comes apart from the text so the reader can fold it", () => {
-  const stack = 'Harness exited before completion (1). Error: boom\n    at tool (file:///tool.js:1:1)'
-  assert.deepEqual(splitErrorDetails(`The run failed: Harness exited before completion (1).\n\n<details><summary>Error details</summary>\n\n\`\`\`text\n${stack}\n\`\`\`\n\n</details>`), {
-    markdown: 'The run failed: Harness exited before completion (1).',
-    errorDetails: stack,
-  })
-  // A longer fence keeps an error with backticks in it whole.
-  assert.deepEqual(splitErrorDetails('Useful: done.\n\n---\n\nPi crashed.\n\n<details><summary>Error details</summary>\n\n````text\nFailed: ```oops```\n````\n\n</details>\n'), {
-    markdown: 'Useful: done.\n\n---\n\nPi crashed.',
-    errorDetails: 'Failed: ```oops```',
-  })
-  // Anything else that looks like it stays the text it is.
-  for (const markdown of [
-    'Text.\n\n<details><summary>Notes</summary>\n\n```text\nmine\n```\n\n</details>',
-    '<details><summary>Error details</summary>\n\n```text\nraw\n```\n\n</details>\n\nMore text after it.',
-    'Plain text.',
-  ]) assert.deepEqual(splitErrorDetails(markdown), { markdown, errorDetails: null })
 })
 
 test('the list line says what a report found', () => {

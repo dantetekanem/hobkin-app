@@ -1,12 +1,13 @@
-import { memo, type ComponentProps } from 'react'
+import { memo, useMemo, type ComponentProps } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { splitErrorDetails } from './report.ts'
+import { foldsOf, type ReportPart } from './folds.ts'
 
 /**
  * A report's Markdown, set for reading. What a run wrote is never markup of ours: raw HTML shows as the text it
  * is, a link keeps only a safe address and opens outside the app, and a picture is never fetched, because an
- * address a report chose could tell someone it was read. The same rules as the conversation's Markdown.
+ * address a report chose could tell someone it was read. The one HTML it draws is a fold, `<details>` with its
+ * `<summary>` (`folds.ts`), whose inside is Markdown under these same rules.
  */
 
 type Tag = keyof Components & keyof React.JSX.IntrinsicElements
@@ -59,20 +60,36 @@ const components: Components = {
 
 const plugins = [remarkGfm]
 
-/** A failed run's raw error, which hobkin collapses at the end of its report, stays folded under "Error details" as plain text. */
-export const ReportMarkdown = memo(function ReportMarkdown({ text }: { text: string }) {
-  const { markdown, errorDetails } = splitErrorDetails(text)
+/** What a fold's label may hold of Markdown: marks within a line. Anything else in it shows as its words. */
+const LABEL_MARKS = ['strong', 'em', 'del', 'code', 'a']
+
+function Parts({ parts }: { parts: readonly ReportPart[] }) {
   return (
     <>
-      <ReactMarkdown remarkPlugins={plugins} components={components}>
-        {markdown}
-      </ReactMarkdown>
-      {errorDetails === null ? null : (
-        <details className="my-4">
-          <summary className="cursor-pointer text-sm text-muted-foreground">Error details</summary>
-          <pre className={PRE}>{errorDetails}</pre>
-        </details>
+      {parts.map((part, index) =>
+        part.kind === 'markdown' ? (
+          <ReactMarkdown key={index} remarkPlugins={plugins} components={components}>
+            {part.text}
+          </ReactMarkdown>
+        ) : (
+          <details key={index} open={part.open} className="my-4">
+            <summary className="cursor-pointer text-sm text-muted-foreground">
+              <ReactMarkdown remarkPlugins={plugins} components={components} allowedElements={LABEL_MARKS} unwrapDisallowed>
+                {part.summary}
+              </ReactMarkdown>
+            </summary>
+            <div className="mt-2">
+              <Parts parts={part.parts} />
+            </div>
+          </details>
+        ),
       )}
     </>
   )
+}
+
+/** A failed run's raw error, which hobkin collapses at the end of its report, is one of its folds: "Error details", over the error as code. */
+export const ReportMarkdown = memo(function ReportMarkdown({ text }: { text: string }) {
+  const parts = useMemo(() => foldsOf(text), [text])
+  return <Parts parts={parts} />
 })

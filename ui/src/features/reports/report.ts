@@ -108,6 +108,8 @@ export function plainLine(line: string): string {
     .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
     .replace(/\*\*|__|`|~~/g, '')
     .replace(/^\s*(#{1,6}|[-*+>]|\d+[.)])\s+/, '')
+    // A fold's tags (`folds.ts`) are no words of the report.
+    .replace(/<\/?(?:details|summary)(?:\s+open)?\s*>/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim()
 }
@@ -133,16 +135,6 @@ export function summaryOf(report: Report): string {
   if (triage?.message) return plainLine(triage.message)
   if (triage) return 'Nothing new.'
   return firstTellingLine(report)
-}
-
-// hobkin ends a failed or restarted run's report with its raw error collapsed (`runReport` in hobkin's reports.mjs).
-const ERROR_DETAILS = /\n*<details><summary>Error details<\/summary>\n\n(`{3,})text\n([\s\S]*?)\n\1\n\n<\/details>\s*$/
-
-/** That collapsed error apart from the Markdown before it, or null when a report ends any other way. */
-export function splitErrorDetails(markdown: string): { markdown: string; errorDetails: string | null } {
-  const found = ERROR_DETAILS.exec(markdown)
-  if (!found) return { markdown, errorDetails: null }
-  return { markdown: markdown.slice(0, found.index).trim(), errorDetails: found[2] }
 }
 
 /**
