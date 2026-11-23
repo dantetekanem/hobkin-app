@@ -1,8 +1,10 @@
 /**
  * Focus (spec 053): a large change opens on the few parts that need the reviewer. Every node that needs them and every
  * one worth a look is a card. Safe nodes fold into group cards: by kind (generated files, lockfiles, locale files, moved
- * files, formatting, docs, tests), and safe code by its top folder. Opening a group turns its members into cards, up to
- * the budget; past it they stay in the outline only. Nothing is ever drawn past the budget of cards and wires.
+ * files, formatting, docs, tests), and safe code by its top folder. Unchanged code on the way in to the change is never
+ * folded with safe code (spec 055): it is how a reviewer sees where the change is run from. Opening a group turns its
+ * members into cards, up to the budget; past it they stay in the outline only. Nothing is ever drawn past the budget of
+ * cards and wires.
  *
  * A review whose nodes say nothing about attention (every review an older host prepared) is not folded at all: it
  * draws as it always did. Pure, and the same review in the same state always folds the same way.
@@ -34,10 +36,16 @@ export interface Attended {
 
 /**
  * Where a drawn node stands, most wanted first: what needs the reviewer, what is worth a look, the spec's acceptance
- * lines, whatever the host did not rate, and what is safe.
+ * lines, whatever the host did not rate, the unchanged code on the way in and out (`context`), and what is safe.
  */
-export type Standing = AttentionTier | 'criterion' | 'unrated'
-const STANDINGS: readonly Standing[] = ['needs-you', 'worth-a-look', 'criterion', 'unrated', 'safe']
+export type Standing = AttentionTier | 'criterion' | 'unrated' | 'context'
+const STANDINGS: readonly Standing[] = ['needs-you', 'worth-a-look', 'criterion', 'unrated', 'context', 'safe']
+
+/** Its standing: what the host said of it, except that the code around the change it calls safe keeps a standing of its own. */
+function standingOf(node: ReviewNode, rated: Attended | undefined): Standing {
+  if (node.kind === 'context' && (!rated || rated.tier === 'safe')) return 'context'
+  return rated ? rated.tier : node.kind === 'criterion' ? 'criterion' : 'unrated'
+}
 
 export interface FoldGroup {
   id: string
@@ -141,6 +149,7 @@ const MORE_LABEL: Record<Standing, string> = {
   'worth-a-look': 'More worth a look',
   criterion: 'More acceptance lines',
   unrated: 'More of the change',
+  context: 'More of the way in',
   safe: 'More safe changes',
 }
 
@@ -157,6 +166,8 @@ interface FocusInput {
   /** The cards of tests, by the drawn id that stands for them. */
   groups: Readonly<Record<string, TestGroup>>
   nodeOf: ReadonlyMap<string, ReviewNode>
+  /** Each test, by its id, to the node it covers (`Arranged.covers`). */
+  covers?: Readonly<Record<string, string>>
 }
 
 /** Opening Focus on a review: what is a card, what folds into which group, and what an open group draws. */
@@ -176,7 +187,7 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
   const standing: Record<string, Standing> = {}
   const entries: Entry[] = nodes.map((node, index) => {
     const rated = attended[node.id]
-    const where: Standing = rated ? rated.tier : node.kind === 'criterion' ? 'criterion' : 'unrated'
+    const where = standingOf(node, rated)
     standing[node.id] = where
     const bucket = rated?.bucket ?? 'code'
     return {
@@ -308,9 +319,13 @@ export interface Folded extends Arranged {
   foldOf: Record<string, string>
 }
 
-/** The node a group card is drawn from. Its kind places it: a group of tests sits with the tests, any other with the code. */
-function groupNode(group: FoldGroup): ReviewNode {
-  return {
+/**
+ * The node a group card is drawn from. Its kind places it: a group of tests sits with the tests, any other with the code.
+ * "More of the way in" is unchanged code on the way a request goes, where one enters when any of its members is such a
+ * place, so the layout keeps the column requests enter by and the life cycle is followed on through it.
+ */
+function groupNode(group: FoldGroup, nodeOf: ReadonlyMap<string, ReviewNode>): ReviewNode {
+  const node: ReviewNode = {
     id: group.id,
     kind: group.kind === 'test' ? 'test' : 'file',
     title: group.label,
@@ -321,6 +336,11 @@ function groupNode(group: FoldGroup): ReviewNode {
     anchors: [],
     position: { x: 0, y: 0 },
   }
+  if (group.standing !== 'context') return node
+  const members = group.members.map((id) => nodeOf.get(id)).filter((member): member is ReviewNode => member != null)
+  const entry = members.find((member) => member.entry)?.entry
+  const hops = Math.max(1, ...members.map((member) => member.lifecycle?.hops ?? 1))
+  return { ...node, kind: 'context', change: 'unchanged', ...(entry ? { entry } : {}), lifecycle: { role: 'caller', hops } }
 }
 
 /** A wire's place when the budget is short: the story's own first, then those between cards, the most wanted first. */
@@ -394,7 +414,8 @@ export function foldArranged(arranged: Arranged, plan: FocusPlan): Folded {
   const edges = [...joined.values()].filter((edge) => kept.has(edge.id))
 
   // In the review's own order, then the groups in the order they are read, so the layout does not hang on what is open.
-  const nodes = [...arranged.nodes.filter((node) => drawn.has(node.id)), ...plan.order.map((id) => groupNode(plan.groups[id]!))]
+  const arrangedOf = new Map(arranged.nodes.map((node) => [node.id, node]))
+  const nodes = [...arranged.nodes.filter((node) => drawn.has(node.id)), ...plan.order.map((id) => groupNode(plan.groups[id]!, arrangedOf))]
   const positions = layoutFolded(arranged, nodes, plan)
   const story: ViewStep[] = arranged.story.map((step) => {
     const { travel, ...rest } = step

@@ -6,6 +6,7 @@ import type { Review, ReviewNode } from '#shared/review/types.ts'
 import { arrange } from '../src/features/review/graph/arrange.ts'
 import { FOCUS_BUDGET, foldArranged, planFocus, type FocusState } from '../src/features/review/graph/focus.ts'
 import { largeReview } from '../src/features/review/sample/large.ts'
+import { pullReview } from '../src/features/review/sample/pull.ts'
 import { escapeReview } from '../src/features/review/entry.ts'
 import { pressKey } from '../src/features/review/keys.ts'
 import { createReviewMemory } from '../src/features/review/state/memory.ts'
@@ -13,11 +14,12 @@ import { createSession } from '../src/features/review/state/session.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const large = largeReview().review
+const pull = pullReview('pr:hobkin-sample/storefront/482')
 
 function focusOn(review: Review, state?: FocusState) {
   const arranged = arrange(review)
   const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
-  const plan = planFocus({ nodes: arranged.nodes, groups: arranged.groups, nodeOf }, state)
+  const plan = planFocus({ nodes: arranged.nodes, groups: arranged.groups, nodeOf, covers: arranged.covers }, state)
   return { arranged, plan, folded: foldArranged(arranged, plan) }
 }
 /** Where a node of the review is drawn: itself, or the card of tests that holds it. */
@@ -57,6 +59,65 @@ test('Focus draws every node that needs the reviewer and every one worth a look,
   }
   // Safe code folds by its top folder.
   for (const id of groupNamed(plan, 'Safe code in app/models').members) assert.match(arranged.nodes.find((node) => node.id === id)!.subtitle!, /^app\/models\//)
+})
+
+test('unchanged code on the way in never folds with safe code: it keeps a standing of its own, and the routes stay where requests enter', () => {
+  const { plan, folded } = focusOn(pull)
+  assert.equal(plan.active, true, 'the sample is rated as the host rates a review')
+  const around = pull.nodes.filter((node) => node.kind === 'context')
+  for (const node of around) {
+    assert.equal(node.attention?.tier, 'safe', `the host rates ${node.title} safe`)
+    assert.equal(plan.standing[node.id], 'context')
+    assert.ok(plan.cards.includes(node.id), `${node.title} is a card`)
+  }
+  assert.deepEqual(plan.order.map((id) => plan.groups[id]!.label).filter((label) => /config|controllers|helpers|models/.test(label)), [])
+  // The layout still finds the ways a request enters: the routes in the first column, then each call on its way.
+  const x = (title: string) => folded.nodes.find((node) => node.title === title)!.position.x
+  assert.equal(x('GET /posts/:id'), 0)
+  for (const [left, right] of [['GET /posts/:id', 'PostsController#show'], ['PostsController#show', 'render_body'], ['render_body', 'link_user_tags']]) assert.ok(x(left!) < x(right!), `${left} before ${right}`)
+  // The large sample's routes are cards too.
+  const routes = large.nodes.filter((node) => node.kind === 'context')
+  assert.ok(routes.length > 0 && routes.every((node) => focusOn(large).plan.cards.includes(node.id)))
+})
+
+/** The sample pull request with forty more routes that reach render_body, more cards than the budget has room for. */
+function crowdedWayIn(): Review {
+  const routes: ReviewNode[] = Array.from({ length: 40 }, (_, index) => ({
+    id: `r${index + 1}`,
+    kind: 'context',
+    title: `GET /extra/${index + 1}`,
+    subtitle: 'config/routes.rb',
+    change: 'unchanged',
+    summary: 'Another way to a post.',
+    lifecycle: { role: 'caller', hops: 2 },
+    entry: { kind: 'route', exact: true, route: { verbs: ['GET'], path: `/extra/${index + 1}` } },
+    attention: { tier: 'safe', rank: 100 + index, reasons: [] },
+    bucket: 'code',
+    anchors: [],
+    position: { x: 0, y: 0 },
+  }))
+  const u1 = pull.nodes.find((node) => node.title === 'link_user_tags')!
+  // The host names the last of them as link_user_tags's way in.
+  const nodes = pull.nodes.map((node) => (node.id === u1.id ? { ...node, lifecycle: { role: 'changed' as const, hops: 2, origin: { kind: 'route', label: 'GET /extra/40', exact: true, chain: ['r40', 'c1'] } } } : node))
+  return {
+    ...pull,
+    nodes: [...nodes, ...routes],
+    edges: [...pull.edges, ...routes.map((route) => ({ id: `called-by:c1>${route.id}`, from: 'c1', to: route.id, kind: 'called-by' as const, certainty: 'host' as const }))],
+  }
+}
+
+test('past the budget the way in folds into "More of the way in", which keeps where a request enters and its life cycle', () => {
+  const { plan, folded } = focusOn(crowdedWayIn())
+  assert.ok(folded.nodes.length <= FOCUS_BUDGET.cards)
+  const way = groupNamed(plan, 'More of the way in')
+  assert.equal(way.standing, 'context')
+  assert.ok(way.members.length > 0 && way.members.every((id) => id.startsWith('r')), 'only the way in folds into it')
+  assert.ok(plan.cards.includes('c1') && plan.cards.includes('c5'), 'the way in the review lists first stays drawn')
+
+  // Its card is unchanged code where a request enters, so the layout keeps it in the column of the routes.
+  const card = folded.nodes.find((node) => node.id === way.id)!
+  assert.deepEqual([card.kind, card.change, card.entry?.kind, card.lifecycle?.role], ['context', 'unchanged', 'route', 'caller'])
+  assert.equal(card.position.x, folded.nodes.find((node) => node.title === 'GET /posts/:id')!.position.x)
 })
 
 test('a group knows its members, how many files, its lines and why it is safe', () => {

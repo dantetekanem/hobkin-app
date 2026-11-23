@@ -406,6 +406,8 @@ function build(): Built {
     node.level = 'safe'
   }
   for (const test of tests.filter((entry) => !entry.attention)) rate(test, 'safe', 'test', [SAFE_REASON.test])
+  // The host finds nothing to say of the code around the change, so it rates the routes safe, with no reason.
+  for (const route of nodes.filter((entry) => entry.kind === 'context')) rate(route, 'safe', 'code', [])
   // The larger a safe file, the earlier it is read.
   const linesOf = ({ node }: { node: ReviewNode }) => node.stats!.additions + node.stats!.deletions
   for (const { node, bucket } of [...wholes].sort((a, b) => linesOf(b) - linesOf(a))) rate(node, 'safe', bucket, [SAFE_REASON[bucket]])

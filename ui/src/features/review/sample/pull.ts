@@ -7,6 +7,7 @@
  * checked by the same validator as any review.
  */
 import { LEVEL_WORDS, type ChangeAssessment, type Level, type Unit } from '#shared/review/assessment.ts'
+import { attentionOf, pathBucket, rankAttention, type RatedFacts } from '#shared/review/attention.ts'
 import { alignRows } from '#shared/review/diff.ts'
 import { layoutReview } from '#shared/review/layout.ts'
 import { hashLines, splitLines } from '#shared/review/lines.ts'
@@ -315,10 +316,31 @@ function filesOf(): ReviewFile[] {
   })
 }
 
+/**
+ * Each node with how much it asks of the reviewer, as the host lays it on once the change review is ready
+ * (`withAttention` in the host): a unit's facts on the code it holds, a test's run, a file's kind. The code around the
+ * change has none of these, so it is safe, as in every review the host rates.
+ */
+function rated(nodes: readonly ReviewNode[]): ReviewNode[] {
+  const unitOf = new Map(UNITS.map((unit) => [unit.id, unit]))
+  const weighed = nodes.map((node) => {
+    const unit = node.unit ? unitOf.get(node.unit) : undefined
+    const facts: RatedFacts[] = unit
+      ? [{ level: unit.level, critical: unit.critical, effect: unit.facts.effect.value, proof: unit.facts.proof.value, exposure: unit.facts.exposure.value, undo: unit.facts.undo.value, questions: unit.questions.length }]
+      : []
+    const bucket = node.kind === 'test' ? 'test' : pathBucket(node.subtitle ?? '')
+    const size = (node.stats?.additions ?? 0) + (node.stats?.deletions ?? 0)
+    const weight = attentionOf({ kind: node.kind, bucket, change: node.change, size, ...(node.status ? { status: node.status } : {}), rated: facts })
+    return { node, bucket, size, ...weight }
+  })
+  const ranks = rankAttention(weighed.map(({ node, tier, strength, size }) => ({ id: node.id, tier, strength, size })))
+  return weighed.map(({ node, bucket, tier, reasons }) => ({ ...node, bucket, attention: { tier, rank: ranks.get(node.id)!, reasons } }))
+}
+
 /** The review the host would have prepared, under the id it was opened by. */
 export function pullReview(id: string): Review {
   const positions = layoutReview(NODES, EDGES)
-  const nodes = NODES.map((node) => ({ ...node, position: positions[node.id]! }))
+  const nodes = rated(NODES).map((node) => ({ ...node, position: positions[node.id]! }))
   const files = filesOf()
   const changed = files.filter((file) => file.status !== 'unchanged')
   return {

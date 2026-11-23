@@ -30,6 +30,8 @@ function GroupCardComponent({ id }: NodeProps) {
 
   if (!group) return null
   const tests = group.kind === 'test'
+  // "More of the way in" is code around the change, and reads as it does.
+  const around = group.standing === 'context'
   const members = group.members.length
   const what = tests ? (members === 1 ? 'card of tests' : 'cards of tests') : members === 1 ? 'part' : 'parts'
   return (
@@ -43,7 +45,7 @@ function GroupCardComponent({ id }: NodeProps) {
       >
         <div
           className="rv-node rv-fold"
-          data-kind={tests ? 'test' : 'file'}
+          data-kind={tests ? 'test' : around ? 'context' : 'file'}
           data-status={tests ? 'passed' : undefined}
           data-level={level}
           data-hover={hover}
@@ -57,7 +59,7 @@ function GroupCardComponent({ id }: NodeProps) {
               <span className="rv-title" title={group.label}>
                 {group.label}
               </span>
-              <span className="rv-kind">{group.standing === 'safe' ? 'Safe' : 'Group'}</span>
+              <span className="rv-kind">{group.standing === 'safe' ? 'Safe' : around ? 'Unchanged' : 'Group'}</span>
             </header>
             <div className="rv-body">
               <p className="rv-fold-count">
