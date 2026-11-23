@@ -57,6 +57,8 @@ export interface ReviewRow {
   at: number | null
   /** A ready change review's summary: its answer for the change, and why. Null when it has none. */
   summary: AssessmentSummary | null
+  /** The general rate hobkin's scored review gave a finished change. Null when it was not scored. */
+  rate: number | null
 }
 
 export interface ReviewGroups {
@@ -105,7 +107,7 @@ function rowOf(item: ReviewListItem, priorityOf: PriorityOf): ReviewRow | null {
   if (!group) return null
   const { assessment } = item
   const running = assessment?.state === 'running'
-  const row: ReviewRow = { item, group, ...placeOf(item), priority: priorityOf(item), line: '', percent: null, startedAt: null, at: null, summary: null }
+  const row: ReviewRow = { item, group, ...placeOf(item), priority: priorityOf(item), line: '', percent: null, startedAt: null, at: null, summary: null, rate: item.rate ?? null }
   if (group === 'unmerged') {
     const { state, why, at, message } = item.mergeAsked!
     // A code host that merges in its own time says what it does; a finished change waits for hobkin to bring it up to date.

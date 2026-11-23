@@ -215,3 +215,15 @@ test('in any order, reviews under way come before those that wait their turn', (
     assert.deepEqual(running, ['change:storefront:runs', 'change:storefront:waits'], `in the order ${order}`)
   }
 })
+
+test("a scored change's row carries its general rate, and a row with none carries none", () => {
+  const rows = rowsOf({
+    reviews: [
+      item('change:storefront:a1', { rate: 8.4 }),
+      item('change:storefront:a2', {}),
+      item('pr:acme/web/12', { kind: 'pull', project: 'acme/web' }),
+    ],
+  })
+  const rates = Object.fromEntries(rows.map((row) => [row.item.id, row.rate]))
+  assert.deepEqual(rates, { 'change:storefront:a1': 8.4, 'change:storefront:a2': null, 'pr:acme/web/12': null })
+})

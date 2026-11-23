@@ -225,6 +225,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
           )}
           <GradeChip grade={row.priority} />
           <span className="shrink-0">· {item.kind === 'pull' ? 'Pull request' : 'Finished change'}</span>
+          {row.rate != null ? <span className="shrink-0">· rate {row.rate}</span> : null}
           {people?.author ? (
             <span className="min-w-0 truncate">
               · <ByLineNames people={people} />

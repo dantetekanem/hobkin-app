@@ -1,11 +1,14 @@
 import { ChevronRight, CircleHelp } from 'lucide-react'
 import { useState } from 'react'
+import type { ChangeScores } from '#shared/protocol/work.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
-import { useSessionStore } from '../state/context.tsx'
+import { useSession, useSessionStore } from '../state/context.tsx'
 import { useModelRows } from '../story/use-model-checks.ts'
 import { AskLink } from './AskLink.tsx'
 import { InlineCode } from './InlineCode.tsx'
 import { ModelChecks } from './ModelChecks.tsx'
+import { Scores } from './Scores.tsx'
+import { scoresWanted } from './scores.ts'
 import type { UnitMatter, WhatMatters as Matters } from './sidebar.ts'
 
 const HEADING = 'font-heading text-[12.5px] font-semibold tracking-[0.06em] text-muted-foreground uppercase'
@@ -19,12 +22,13 @@ const SHOWN = 4
  * and how many questions are open, which goes to the step of the first. The step itself is told on the canvas. For a
  * hobkin change, each TLA+ model and what TLC said of it at the reviewed head sits under what it does, each opening its run.
  */
-export function WhatMatters({ matters, ask }: { matters: Matters; ask: ((text: string) => Promise<boolean>) | null }) {
+export function WhatMatters({ matters, ask, scores }: { matters: Matters; ask: ((text: string) => Promise<boolean>) | null; scores?: ChangeScores | null }) {
   const store = useSessionStore()
   const [whole, setWhole] = useState(false)
   const models = useModelRows()
+  const scored = useSession((session) => scoresWanted(session.review.id))
   const { does, questions } = matters
-  if (!does && matters.units.length === 0 && questions.count === 0 && models.length === 0) return null
+  if (!does && matters.units.length === 0 && questions.count === 0 && models.length === 0 && !scored) return null
   const units = whole ? matters.units : matters.units.slice(0, SHOWN)
   const go = (unit: UnitMatter) => {
     if (unit.step != null) store.getState().goTo(unit.step)
@@ -41,6 +45,8 @@ export function WhatMatters({ matters, ask }: { matters: Matters; ask: ((text: s
           </div>
         </div>
       ) : null}
+
+      {scored ? <Scores scores={scores} heading={HEADING} /> : null}
 
       {models.length > 0 ? <ModelChecks rows={models} heading={HEADING} /> : null}
 
