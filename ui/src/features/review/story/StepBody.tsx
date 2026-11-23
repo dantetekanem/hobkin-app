@@ -1,5 +1,5 @@
-import { ArrowLeft, Check, ChevronDown, ChevronUp, CornerDownLeft, LoaderCircle, Minus, TriangleAlert, X, type LucideIcon } from 'lucide-react'
-import { useState, type ReactNode } from 'react'
+import { ArrowLeft, Check, ChevronDown, ChevronRight, ChevronUp, CornerDownLeft, LoaderCircle, Minus, TriangleAlert, X, type LucideIcon } from 'lucide-react'
+import { Fragment, useMemo, useState, type ReactNode } from 'react'
 import type { Unit } from '#shared/review/assessment.ts'
 import type { ReviewNode } from '#shared/review/types.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils.ts'
 import type { Tone } from '../../proofs/run/run-view.ts'
 import { isLineCount } from '../graph/arrange.ts'
 import { KIND, LevelBadge, statusOf } from '../graph/kinds.tsx'
+import { isChangedCode, originWords, trailOf, type Trail } from '../graph/trail.ts'
 import { AskLink } from '../panel/AskLink.tsx'
 import { questionAsk } from '../panel/ask.ts'
 import { useReduced, useSessionStore } from '../state/context.tsx'
@@ -16,9 +17,13 @@ import type { CardContent } from './StepCard.tsx'
 import { useModelLines } from './use-model-checks.ts'
 import { isBlindNote, plainSentences, proofWords, reachWords, tldrOf, watchWords } from './words.ts'
 
-/** What the card needs to know of the graph: the review's wires, what each test covers, the cards of folded tests, every node. */
+/**
+ * What the card needs to know of the graph: the review's wires, what each test covers, the cards of folded tests, every
+ * node, and the review's own nodes in its order, for the way in.
+ */
 export interface CardGraph extends TestsGraph {
   covers: Readonly<Record<string, string>>
+  nodes: readonly ReviewNode[]
 }
 
 export interface CardActions {
@@ -26,6 +31,8 @@ export interface CardActions {
   back(): void
   /** Shows a test's code in the code panel, and leaves the focus where it is. */
   showTest(id: string): void
+  /** Moves the focus to a node, opening its group when it is folded. B comes back. */
+  goTo(id: string): void
 }
 
 interface BodyProps {
@@ -52,19 +59,22 @@ const TESTS_SHOWN = 4
 
 /**
  * The step told on its card beside its node (the user, 2026-11-12: "that step must be a TLDR of 1 paragraph, TOP. the
- * rest must be in a 'Read More'"). On top, its level, its title and one short paragraph. Under them, always, the tests
- * of what is in focus (the user, 2026-11-14), so every move shows them in the same place. "Read more", closed at first,
- * holds the rest, each part short: the way a request takes, why it is rated so, its questions with a way to ask hobkin,
- * how it is proven, who it reaches, what to watch and what it holds. Open code is always at the bottom. A node the
- * reviewer went to off the path is told the same way, with the way back. Drawn twice: once unseen, to measure it.
+ * rest must be in a 'Read More'"). On top, its level, its title, where changed code is run from, and one short
+ * paragraph. Under them, always, the tests of what is in focus (the user, 2026-11-14), so every move shows them in the
+ * same place. "Read more", closed at first, holds the rest, each part short: where the unit says it sits, why it is
+ * rated so, its questions with a way to ask hobkin, how it is proven, who it reaches, what to watch and what it holds.
+ * Open code is always at the bottom. A node the reviewer went to off the path is told the same way, with the way back.
+ * Drawn twice: once unseen, to measure it.
  */
 export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode, brief, code }: BodyProps) {
   const [more, setMore] = useState(false)
   const node = content.kind === 'node' ? content.node : undefined
   const focus = content.kind === 'step' ? content.step.focus : [content.node.id]
+  const changed = focus.find((id) => isChangedCode(graph.nodeOf.get(id)))
+  const trail = useMemo(() => (changed ? trailOf(graph, changed) : null), [changed, graph])
   const level = unit?.level ?? (content.kind === 'step' ? content.step.level : content.node.level)
   const tldr = tldrOf(content.kind === 'step' ? content.step : { text: isLineCount(content.node.summary) ? '' : content.node.summary }, unit)
-  const details = unit ? unitDetails(unit, focus, graph, ask) : nodeDetails(content, graph)
+  const details = unit ? unitDetails(unit, ask) : nodeDetails(content, graph)
   const models = useModelLines(focus)
 
   return (
@@ -74,6 +84,7 @@ export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode,
         {level ? <LevelBadge level={level} critical={unit?.critical} /> : null}
       </div>
       <h3 className="rv-step-claim">{content.kind === 'step' ? content.step.title : content.node.title}</h3>
+      {trail ? <From trail={trail} nodeOf={graph.nodeOf} onGo={actions.goTo} /> : null}
       {brief ? null : (
         <>
           {tldr ? <p className="rv-step-text">{tldr}</p> : null}
@@ -112,6 +123,62 @@ export function StepBody({ content, unit, gap, graph, ask, actions, canOpenCode,
           </div>
         </>
       )}
+    </div>
+  )
+}
+
+/**
+ * Where changed code is run from (spec 055), always in this place under the title: the way in, origin first with its
+ * kind, each call on the way a press that goes to it (B comes back), and how many other ways in there are; or why there
+ * is none. One line: a long way shortens its names, each whole in its tooltip.
+ */
+function From({ trail, nodeOf, onGo }: { trail: Trail; nodeOf: CardGraph['nodeOf']; onGo: (id: string) => void }) {
+  const hop = (id: string, at: number) => {
+    const origin = at === 0 ? trail.origin : null
+    const name = origin?.label ?? nodeOf.get(id)?.title ?? id
+    const words = origin ? `${originWords(origin.kind)} ${name}` : name
+    const parts = (
+      <>
+        {origin ? <span className="rv-step-hop-kind">{originWords(origin.kind)}</span> : null}
+        {name}
+      </>
+    )
+    // A hop the review has no node for is told, but there is nothing to go to.
+    return nodeOf.has(id) ? (
+      <button type="button" className="rv-step-hop pressable" data-origin={origin ? '' : undefined} title={`${words}. Go to it.`} onClick={() => onGo(id)}>
+        {parts}
+      </button>
+    ) : (
+      <span className="rv-step-hop" data-origin={origin ? '' : undefined} title={words}>
+        {parts}
+      </span>
+    )
+  }
+  return (
+    <div className="rv-step-from" aria-label="Where it is run from">
+      <span className="rv-step-from-label">From</span>
+      {trail.why != null ? (
+        <span className="rv-step-from-why" title={trail.why}>
+          {trail.why}
+        </span>
+      ) : trail.chain.length === 0 && trail.origin ? (
+        <span className="rv-step-from-why">
+          <span className="rv-step-hop-kind">{originWords(trail.origin.kind)}</span>
+          It starts here.
+        </span>
+      ) : (
+        trail.chain.map((id, at) => (
+          <Fragment key={id}>
+            {at > 0 ? <ChevronRight className="rv-step-from-sep" aria-hidden="true" /> : null}
+            {hop(id, at)}
+          </Fragment>
+        ))
+      )}
+      {trail.more > 0 ? (
+        <span className="rv-step-from-more">
+          +{trail.more} more {trail.more === 1 ? 'way' : 'ways'} in
+        </span>
+      ) : null}
     </div>
   )
 }
@@ -217,21 +284,19 @@ const Line = ({ text, className = 'rv-step-line' }: { text: string; className?: 
   </p>
 )
 
-/** The way a request takes to the changed code a step tells: from the scan, else where the unit says it sits. */
-function wayOf(unit: Pick<Unit, 'where'> | null, focus: readonly string[], graph: CardGraph): string | null {
-  const scanned = focus.map((id) => graph.nodeOf.get(id)?.lifecycle).find((lifecycle) => lifecycle?.role === 'changed' && lifecycle.path)?.path
-  return scanned ?? (unit ? plainSentences(unit.where).join(' ') || null : null)
-}
-
-/** What "Read more" holds for a step the change review told, each part short. */
-function unitDetails(unit: Unit, focus: readonly string[], graph: CardGraph, ask: BodyProps['ask']): ReactNode[] {
-  const way = wayOf(unit, focus, graph)
+/** What "Read more" holds for a step the change review told, each part short. The way in is on the card already. */
+function unitDetails(unit: Unit, ask: BodyProps['ask']): ReactNode[] {
+  const where = plainSentences(unit.where).join(' ')
   const why = unit.why_level.map((reason) => plainSentences(reason).join(' ')).filter(Boolean).slice(0, MOST)
   const questions = unit.questions.filter((question) => !isBlindNote(question))
   const blind = unit.questions.filter(isBlindNote)
   const watch = watchWords(unit).slice(0, MOST)
   return [
-    way ? <Line key="way" text={way} className="rv-step-way" /> : null,
+    where ? (
+      <p key="where" className="rv-step-where">
+        {where}
+      </p>
+    ) : null,
     why.length > 0 ? (
       <Section key="why" title={unit.level === 'safe' ? 'Why it is safe' : `Why it is ${unit.level === 'high' ? 'high' : 'mid'} risk`}>
         <ul className="rv-step-list">
@@ -284,15 +349,13 @@ function unitDetails(unit: Unit, focus: readonly string[], graph: CardGraph, ask
 
 /**
  * What "Read more" holds for a step or a node the change review has not told: what the graph knows of its nodes. Its
- * tests are on the card already.
+ * tests and its way in are on the card already.
  */
 function nodeDetails(content: CardContent, graph: CardGraph): ReactNode[] {
   const nodes = (content.kind === 'step' ? content.step.focus : [content.node.id]).map((id) => graph.nodeOf.get(id)).filter((node): node is ReviewNode => node != null)
   const covered = nodes.filter((node) => node.kind === 'test' && graph.covers[node.id]).map((node) => graph.nodeOf.get(graph.covers[node.id]!)?.title)
   const io = nodes.find((node) => node.io && (node.io.in || node.io.out))?.io
-  const way = wayOf(null, nodes.map((node) => node.id), graph)
   return [
-    way ? <Line key="way" text={way} className="rv-step-way" /> : null,
     covered.length > 0 ? <p key="covers" className="rv-step-fact">Covers {covered.join(', ')}.</p> : null,
     io ? (
       <p key="io" className="rv-step-fact">

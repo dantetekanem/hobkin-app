@@ -113,15 +113,20 @@ export function StoryLayer({ canvas, panelHeight, units, ask = null, resume = nu
   // The card lists the tests of its focus from the review's own wires, without the proposed ones the reviewer removed.
   const graphFacts = useMemo<CardGraph>(() => {
     const removed = new Set(view.removed.map((edge) => edge.id))
-    return { covers: view.covers, groups: view.groups, nodeOf, edges: review.edges.filter((edge) => !removed.has(edge.id)) }
-  }, [nodeOf, review.edges, view.covers, view.groups, view.removed])
+    return { covers: view.covers, groups: view.groups, nodeOf, nodes: review.nodes, edges: review.edges.filter((edge) => !removed.has(edge.id)) }
+  }, [nodeOf, review.edges, review.nodes, view.covers, view.groups, view.removed])
   // What a step shows is its own: a step told beside its neighbor's node asks about, and opens, none of that node's.
   const own = content?.kind === 'step' ? content.step.focus : focus
   // hobkin is asked about a node of the review: a card of folded tests stands for its first test.
   const about = content?.kind === 'node' ? content.node.id : own[0]
   const askAbout = useAskHobkin(ask, about ? (view.groups[about]?.tests[0] ?? about) : null)
   const actions = useMemo(
-    () => ({ openCode: () => void store.getState().openCode(), back: () => store.getState().back(), showTest: (id: string) => void store.getState().showTest(id) }),
+    () => ({
+      openCode: () => void store.getState().openCode(),
+      back: () => store.getState().back(),
+      showTest: (id: string) => void store.getState().showTest(id),
+      goTo: (id: string) => store.getState().reach(id),
+    }),
     [store],
   )
 

@@ -741,14 +741,69 @@
   overflow-wrap: anywhere;
   text-wrap: balance;
 }
-.rv-step-way {
-  overflow: hidden;
+/*
+ * Where changed code is run from (spec 055), in one line under the title on every card of changed code, so nothing under
+ * it moves from step to step. A long way gives up the middle of its names, each kept whole in its tooltip.
+ */
+.rv-step-from {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 26px;
+  min-width: 0;
   margin-top: -4px;
-  font-family: var(--font-mono);
+  overflow: hidden;
   font-size: 14px;
-  line-height: 1.4;
   white-space: nowrap;
+}
+.rv-step-from-label {
+  flex: none;
+  margin-right: 5px;
+  font-family: var(--font-heading);
+  font-weight: 650;
+  color: var(--hb-muted);
+}
+.rv-step-hop {
+  flex: 0 1 auto;
+  min-width: 4.5em;
+  overflow: hidden;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 24px;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--hb-text);
+  background: color-mix(in oklab, var(--hb-text) 7%, transparent);
+}
+.rv-step-hop[data-origin] {
+  flex-shrink: 0.4;
+}
+.rv-step-hop-kind {
+  margin-right: 6px;
+  font-family: var(--font-heading);
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--hb-muted);
+}
+.rv-step-from-sep {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--hb-muted);
+}
+.rv-step-from-why {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--hb-muted);
+}
+.rv-step-from-more {
+  flex: none;
+  margin-left: 6px;
+  font-size: 13px;
   color: var(--hb-muted);
 }
 .rv-step-where {
