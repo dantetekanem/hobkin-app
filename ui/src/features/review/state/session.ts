@@ -794,19 +794,24 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         const { view, focus, pointed, nodeOf } = get()
         const drawn = view.zones.filter((zone) => view.nodes.some((node) => node.zone === zone.id))
         if (drawn.length === 0) return false
+
+        // The zone the reviewer is on, and the one after it, round from the last to the first.
         const on = pointed ?? focus[0]
         const here = drawn.findIndex((zone) => zone.id === view.nodes.find((node) => node.id === on)?.zone)
-        const at = here < 0 ? (delta > 0 ? 0 : drawn.length - 1) : (here + delta + drawn.length) % drawn.length
-        const zone = drawn[at]!
-        const [wanted] = zone.nodes
+        const from = here < 0 ? (delta > 0 ? -1 : drawn.length) : here
+        const zone = drawn[(from + delta + drawn.length) % drawn.length]!
+
+        const [needsYou] = zone.nodes
           .map((id) => nodeOf.get(id))
           .filter((node): node is ReviewNode => node?.attention?.tier === 'needs-you')
           .sort((a, b) => a.attention!.rank - b.attention!.rank)
-        if (wanted && !(fold.zones ?? []).includes(zone.id)) {
-          get().reach(wanted.id)
+        if (needsYou && !(fold.zones ?? []).includes(zone.id)) {
+          get().reach(needsYou.id)
           return true
         }
-        const [first] = view.nodes.filter((node) => node.zone === zone.id).sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y)
+        const [first] = view.nodes
+          .filter((node) => node.zone === zone.id)
+          .sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y)
         get().focusOn(first!.id)
         return true
       },

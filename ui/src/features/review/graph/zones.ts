@@ -66,22 +66,28 @@ const isTestLayer = (layer: string) => layer.startsWith('test:')
 /** Each node of the review to its zone, and the zones in order: the host's first, then those named from paths. */
 function baseZones(review: Pick<Review, 'nodes' | 'edges' | 'zones'>): { zones: ReviewZone[]; zoneOf: Map<string, string> } {
   const given = new Map((review.zones ?? []).map((zone) => [zone.id, zone]))
-  const zoneOf = new Map<string, string>()
-  const missing = review.nodes.filter((node) => !(node.zone != null && given.has(node.zone)))
-  for (const node of review.nodes) if (node.zone != null && given.has(node.zone)) zoneOf.set(node.id, node.zone)
   const zones = [...given.values()]
-  if (missing.length > 0) {
-    const named = withZones(review.nodes, review.edges)
-    const namedOf = new Map(named.nodes.map((node) => [node.id, node.zone]))
-    const wanted = new Set(missing.map((node) => namedOf.get(node.id)).filter((id): id is string => id != null))
-    for (const zone of named.zones) if (wanted.has(zone.id) && !given.has(zone.id)) zones.push(zone)
-    const unnamed = (node: ReviewNode) => (node.kind === 'criterion' ? LINES : OTHER)
-    for (const node of missing) zoneOf.set(node.id, namedOf.get(node.id) ?? unnamed(node).id)
-    for (const zone of [LINES, OTHER]) if (missing.some((node) => namedOf.get(node.id) == null && unnamed(node) === zone)) zones.push(zone)
+  const zoneOf = new Map<string, string>()
+  const missing: ReviewNode[] = []
+  for (const node of review.nodes) {
+    if (node.zone != null && given.has(node.zone)) zoneOf.set(node.id, node.zone)
+    else missing.push(node)
+  }
+  if (missing.length === 0) return { zones, zoneOf }
+
+  // The rest are named from their paths by the host's rule; a node with no path is an acceptance line or another part.
+  const named = withZones(review.nodes, review.edges)
+  const namedOf = new Map(named.nodes.map((node) => [node.id, node.zone]))
+  const unnamed = (node: ReviewNode) => (node.kind === 'criterion' ? LINES : OTHER)
+  const wanted = new Set(missing.map((node) => namedOf.get(node.id) ?? unnamed(node).id))
+  for (const node of missing) zoneOf.set(node.id, namedOf.get(node.id) ?? unnamed(node).id)
+  for (const zone of [...named.zones, LINES, OTHER]) {
+    if (wanted.has(zone.id) && !given.has(zone.id)) zones.push(zone)
   }
   return { zones, zoneOf }
 }
 
+/** A zone as it is built: the drawn nodes in it, and how many subjects it holds once small zones merge into it. */
 interface Building {
   zone: ReviewZone
   subjects: number
@@ -93,51 +99,86 @@ interface Building {
 /** The words of a layer whose small zones merged: "Controllers", or for tests "Tests · request". */
 function layerLabel(zone: ReviewZone): string {
   const head = zone.label.split(' · ')[0]!
-  return isTestLayer(zone.layer) ? `${head} · ${zone.layer.slice('test:'.length).replace(/[_-]+/g, ' ')}` : head
+  if (!isTestLayer(zone.layer)) return head
+  return `${head} · ${zone.layer.slice('test:'.length).replace(/[_-]+/g, ' ')}`
+}
+
+const layerKey = (entry: Building) => `${entry.zone.component ?? '-'}/${entry.zone.layer}`
+
+/** Several zones as one, which holds all they hold. */
+function joined(zone: ReviewZone, entries: readonly Building[]): Building {
+  return {
+    zone,
+    subjects: entries.reduce((sum, entry) => sum + entry.subjects, 0),
+    members: entries.flatMap((entry) => entry.members),
+    kept: entries.some((entry) => entry.kept),
+  }
+}
+
+/** The smallest layer that has more than one zone, by how many drawn nodes its zones hold, the later on a tie. */
+function smallestLayer(list: readonly Building[]): Building[] | undefined {
+  const layers = new Map<string, Building[]>()
+  for (const entry of list) layers.set(layerKey(entry), [...(layers.get(layerKey(entry)) ?? []), entry])
+  const size = (entries: readonly Building[]) => entries.reduce((sum, entry) => sum + entry.members.length, 0)
+  const firstAt = (entries: readonly Building[]) => list.indexOf(entries[0]!)
+  return [...layers.values()]
+    .filter((entries) => entries.length > 1)
+    .sort((a, b) => size(a) - size(b) || firstAt(b) - firstAt(a))[0]
+}
+
+/** A layer's zones merged into one, where its first zone stood. */
+function mergeLayer(list: readonly Building[], layer: readonly Building[]): Building[] {
+  const first = layer[0]!
+  const zone: ReviewZone = {
+    id: `${layerKey(first)}/*`,
+    layer: first.zone.layer,
+    subject: '*',
+    label: layerLabel(first.zone),
+    ...(first.zone.component ? { component: first.zone.component } : {}),
+  }
+  const into = joined(zone, layer)
+  return list.flatMap((entry) => (entry === first ? [into] : layer.includes(entry) ? [] : [entry]))
+}
+
+/** The smallest zones joined into "Other parts", at the end, those to keep last, so that the most are left: one Other parts. */
+function joinOther(list: readonly Building[]): Building[] {
+  const before = list.find((entry) => entry.zone.id === OTHER.id)
+  const byNeed = list
+    .filter((entry) => entry !== before)
+    .sort((a, b) => Number(a.kept ?? false) - Number(b.kept ?? false) || a.members.length - b.members.length || list.indexOf(b) - list.indexOf(a))
+  const more = list.length - MAX_ZONES + (before ? 0 : 1)
+  const joining = [...(before ? [before] : []), ...byNeed.slice(0, more)]
+  return [...list.filter((entry) => !joining.includes(entry)), joined(OTHER, joining)]
 }
 
 /**
- * Past the most zones, a layer's zones merge into one, the smallest layer first (by how many drawn nodes its zones hold,
- * the later on a tie), until few enough are left. When no layer has two zones, the smallest zones join "Other parts",
- * those that hold where a request enters, an acceptance line or a part that needs the reviewer last.
+ * Past the most zones, a layer's zones merge into one, the smallest layer first, until few enough are left. When no
+ * layer has two zones, the smallest zones join "Other parts", those that hold where a request enters, an acceptance line
+ * or a part that needs the reviewer last.
  */
 function merged(zones: readonly Building[]): Building[] {
   let list = [...zones]
-  const layerKey = (entry: Building) => `${entry.zone.component ?? '-'}/${entry.zone.layer}`
   while (list.length > MAX_ZONES) {
-    const layers = new Map<string, Building[]>()
-    for (const entry of list) layers.set(layerKey(entry), [...(layers.get(layerKey(entry)) ?? []), entry])
-    const size = (entries: readonly Building[]) => entries.reduce((sum, entry) => sum + entry.members.length, 0)
-    const firstAt = (entries: readonly Building[]) => list.indexOf(entries[0]!)
-    const [smallest] = [...layers.values()].filter((entries) => entries.length > 1).sort((a, b) => size(a) - size(b) || firstAt(b) - firstAt(a))
-    if (smallest) {
-      const [first] = smallest
-      const zone: ReviewZone = { id: `${layerKey(first!)}/*`, layer: first!.zone.layer, subject: '*', label: layerLabel(first!.zone), ...(first!.zone.component ? { component: first!.zone.component } : {}) }
-      const into: Building = { zone, subjects: smallest.reduce((sum, entry) => sum + entry.subjects, 0), members: smallest.flatMap((entry) => entry.members), kept: smallest.some((entry) => entry.kept) }
-      list = list.flatMap((entry) => (entry === first ? [into] : smallest.includes(entry) ? [] : [entry]))
-      continue
-    }
-    // No layer has two zones left: the smallest join "Other parts", at the end, one zone however many join it.
-    const before = list.find((entry) => entry.zone.id === OTHER.id)
-    const order = [...list].filter((entry) => entry !== before).sort((a, b) => Number(a.kept ?? false) - Number(b.kept ?? false) || a.members.length - b.members.length || list.indexOf(b) - list.indexOf(a))
-    const joining = [...(before ? [before] : []), ...order.slice(0, list.length - MAX_ZONES + (before ? 0 : 1))]
-    const other: Building = { zone: OTHER, subjects: joining.reduce((sum, entry) => sum + entry.subjects, 0), members: joining.flatMap((entry) => entry.members), kept: joining.some((entry) => entry.kept) }
-    list = [...list.filter((entry) => !joining.includes(entry)), other]
+    const layer = smallestLayer(list)
+    list = layer ? mergeLayer(list, layer) : joinOther(list)
   }
   return list
 }
 
 /** What a zone's parts ask of the reviewer, and what it holds. */
-function countsOf(zone: string, nodes: readonly ReviewNode[], zoneOf: Readonly<Record<string, string>>, covers: Readonly<Record<string, string>>, tests: boolean) {
+function countsOf(zone: string, nodes: readonly ReviewNode[], zoneOf: Readonly<Record<string, string>>, covers: Readonly<Record<string, string>>, tests: boolean): Pick<GraphZone, 'counts' | 'standing'> {
   const inside = nodes.filter((node) => zoneOf[node.id] === zone)
-  const isTest = (node: ReviewNode) => node.kind === 'test' && !(node.supports?.length)
+  const isTest = (node: ReviewNode) => node.kind === 'test' && !node.supports?.length
+  const coversHere = (node: ReviewNode) => covers[node.id] != null && zoneOf[covers[node.id]!] === zone
   const changed = inside.filter((node) => node.kind !== 'criterion' && node.change !== 'unchanged')
-  const covering = tests ? inside.filter(isTest) : nodes.filter((node) => isTest(node) && covers[node.id] != null && zoneOf[covers[node.id]!] === zone)
+  // A zone of tests counts its own tests; a zone of code, the tests that cover its code.
+  const counted = tests ? inside.filter(isTest) : nodes.filter((node) => isTest(node) && coversHere(node))
   const counts: ZoneCounts = {
     changed: changed.length,
     needsYou: inside.filter((node) => node.attention?.tier === 'needs-you').length,
-    tests: covering.length,
+    tests: counted.length,
   }
+
   let standing: ZoneStanding = 'context'
   if (counts.needsYou > 0) standing = 'needs-you'
   else if (inside.some((node) => node.attention?.tier === 'worth-a-look')) standing = 'worth-a-look'
@@ -152,28 +193,31 @@ function countsOf(zone: string, nodes: readonly ReviewNode[], zoneOf: Readonly<R
  */
 export function zonesOf(review: Pick<Review, 'nodes' | 'edges' | 'zones'>, drawn: readonly DrawnNode[], covers: Readonly<Record<string, string>> = {}): Zoned {
   const base = baseZones(review)
-  const zoneOfDrawn = new Map(drawn.map((node) => [node.id, base.zoneOf.get(node.of[0] ?? node.id) ?? base.zoneOf.get(node.id) ?? OTHER.id]))
-  const building = new Map<string, Building>()
-  const known = new Map([...base.zones, OTHER].map((zone) => [zone.id, zone]))
-  for (const zone of [...base.zones, OTHER]) building.set(zone.id, { zone, subjects: 1, members: [] })
   const nodeOf = new Map(review.nodes.map((node) => [node.id, node]))
+  /** A drawn node's zone before any merge: its first node's. */
+  const firstZoneOf = new Map(drawn.map((node) => [node.id, base.zoneOf.get(node.of[0] ?? node.id) ?? base.zoneOf.get(node.id) ?? OTHER.id]))
+  const keepsItsName = (id: string) => {
+    const node = nodeOf.get(id)
+    return node?.entry != null || node?.kind === 'criterion' || node?.attention?.tier === 'needs-you'
+  }
+
+  const building = new Map<string, Building>()
+  for (const zone of [...base.zones, OTHER]) building.set(zone.id, { zone, subjects: 1, members: [] })
   for (const node of drawn) {
-    const entry = building.get(zoneOfDrawn.get(node.id)!)
+    const entry = building.get(firstZoneOf.get(node.id)!)
     if (!entry) continue
     entry.members.push(node.id)
-    if (node.of.some((id) => nodeOf.get(id)?.entry != null || nodeOf.get(id)?.kind === 'criterion' || nodeOf.get(id)?.attention?.tier === 'needs-you')) entry.kept = true
+    if (node.of.some(keepsItsName)) entry.kept = true
   }
-  const present = [...building.values()].filter((entry) => entry.members.length > 0 && known.has(entry.zone.id))
+  const present = [...building.values()].filter((entry) => entry.members.length > 0)
+  const zones = merged(present)
 
   const zoneOf: Record<string, string> = {}
-  const zones = merged(present).map((entry) => {
-    for (const id of entry.members) zoneOf[id] = entry.zone.id
-    return entry
-  })
-  // A node of the review is in the zone of the card that holds it, or else its own.
+  for (const entry of zones) for (const id of entry.members) zoneOf[id] = entry.zone.id
+  // A node of the review is in the zone of the card that holds it, or else where its own zone went.
   for (const node of drawn) for (const id of node.of) zoneOf[id] ??= zoneOf[node.id]!
-  const byOld = new Map(present.flatMap((entry) => entry.members.map((id) => [zoneOfDrawn.get(id)!, zoneOf[id]!] as const)))
-  for (const node of review.nodes) zoneOf[node.id] ??= byOld.get(base.zoneOf.get(node.id) ?? OTHER.id) ?? zones[0]?.zone.id ?? OTHER.id
+  const mergedInto = new Map(present.flatMap((entry) => entry.members.map((id) => [firstZoneOf.get(id)!, zoneOf[id]!] as const)))
+  for (const node of review.nodes) zoneOf[node.id] ??= mergedInto.get(base.zoneOf.get(node.id) ?? OTHER.id) ?? zones[0]?.zone.id ?? OTHER.id
 
   return {
     zones: zones.map(({ zone, subjects, members }) => {

@@ -331,17 +331,20 @@ export function planFocus(input: FocusInput, state: FocusState = NO_FOCUS): Focu
     })
   }
   const labelOf = (zone: string) => zoneNamed.get(zone)?.label ?? ''
-  /** A kind that folds in more than one zone says which: "Docs in Docs · billing". */
-  const kindZones = new Map<string, number>()
-  for (const [key] of folding) kindZones.set(key.split(':')[0]!, (kindZones.get(key.split(':')[0]!) ?? 0) + 1)
+  /** A key's kind of safe change and its zone: `code:-/model/order` is safe code in that zone. */
+  const parts = (key: string) => {
+    const at = key.indexOf(':')
+    return { kind: key.slice(0, at) as NodeBucket, zone: key.slice(at + 1) }
+  }
+  // Safe code says its zone. Another kind says it only when it folds in more than one zone: "Docs in Docs · billing".
+  const zonesOfKind = new Map<NodeBucket, number>()
+  for (const [key] of folding) zonesOfKind.set(parts(key).kind, (zonesOfKind.get(parts(key).kind) ?? 0) + 1)
   for (const [key, members] of folding) {
-    const [bucket, ...rest] = key.split(':')
-    const zone = rest.join(':')
-    const kind = bucket as NodeBucket
+    const { kind, zone } = parts(key)
     const passed = members.every(({ node }) => node.status === 'passed' || node.status === 'proves-change')
     const words = kind === 'test' && !passed ? 'Safe tests' : KIND_LABEL[kind]
-    const many = kind === 'code' || (kindZones.get(bucket!) ?? 0) > 1
-    group(`${PREFIX}${key}`, kind, 'safe', many && labelOf(zone) ? `${words} in ${labelOf(zone)}` : words, unitsOf.get(key)!)
+    const saysZone = (kind === 'code' || zonesOfKind.get(kind)! > 1) && labelOf(zone) !== ''
+    group(`${PREFIX}${key}`, kind, 'safe', saysZone ? `${words} in ${labelOf(zone)}` : words, unitsOf.get(key)!)
   }
   if (merged.length > 0) {
     const others = folding.some(([key]) => key.startsWith('code:'))
