@@ -42,6 +42,7 @@ While any hobkin works, the main agent, a durable hobkin or an agent hobkin star
 - The main agent: the status row above the input, where its elapsed time is.
 - A durable hobkin: the working row of its page, and its row in the list.
 - An agent hobkin started: its row in the list, and the thinking row of its own page.
+- In the list the line goes ahead of the agent's latest words and does not take their place (the user, 2026-11-23, asked for both). A run that went quiet says so first, so a narrow row cuts the words and never the notice.
 - Nothing moves. The line goes only where a line of fixed height already is, its figures are tabular, and the quiet notice changes the line's words and tone, never its height.
 
 ## Out of scope
@@ -69,7 +70,7 @@ While any hobkin works, the main agent, a durable hobkin or an agent hobkin star
 
 - [x] S1 (A1, A2). The pulse observer in the runtime and the line in `shared/`. hobkin ee8241d, client 7617b9a.
 - [x] S2 (A3). The runtime feeds the observer from the main session and from every observed run and publishes `pulses`, and Claude Code's stream passes on what a pulse needs. hobkin 6767c00, client c5c3516 and b5f628b. Run with fake sessions only. A main turn Pi starts by itself has no pulse, and a run prompted again after it ended starts a new pulse with its time at zero.
-- [x] S3 (A4, A5). The window's line in the status row, the durable hobkin's page, the list and the agent's page. Client 393522e and 991828c. In the list a run that went quiet says so first, and the agent's latest words open on hover. The notice is joined with a middle dot where the extension has a hyphen. Seen only as a still render.
+- [x] S3 (A4, A5). The window's line in the status row, the durable hobkin's page, the list and the agent's page. Client 393522e and 991828c. In the list a run that went quiet says so first, and the line goes ahead of the agent's latest words. The notice is joined with a middle dot where the extension has a hyphen. Seen only as a still render.
 
 ## Open questions
 

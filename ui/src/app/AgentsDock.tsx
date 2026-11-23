@@ -347,7 +347,7 @@ const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, li
 /**
  * What the row says under the agent's name. It follows the agent's latest words itself, so the row, which reads the
  * page's layout each time it draws, does not draw again for each of them. While the host sends its run's pulse, the
- * working line stands where those words were, and they open on hover.
+ * working line goes ahead of those words, and the whole of them opens on hover.
  */
 const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) {
   const update = useAgentWords(agent)
@@ -371,7 +371,7 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
       // soft, animated tooltip rather than the browser's plain one.
       <Tooltip>
         <TooltipTrigger render={<span className="block truncate text-[11px] text-muted-foreground" />}>
-          {agent.project} · <Pulse run={run} fallback={update} noticeFirst />
+          {agent.project} · <Pulse run={run} fallback={update} noticeFirst after={<> · {update}</>} />
         </TooltipTrigger>
         <TooltipContent side="right" align="center" sideOffset={10} className="max-w-xs text-left leading-snug whitespace-normal">
           {update}
@@ -380,7 +380,7 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
     ) : (
       // Before it speaks, the plain phase ("running the tests") stands in.
       <span className="block truncate text-[11px] text-muted-foreground">
-        {agent.project} · <Pulse run={run} fallback={agent.doing} noticeFirst />
+        {agent.project} · <Pulse run={run} fallback={agent.doing} noticeFirst after={<> · {agent.doing}</>} />
       </span>
     )
 })

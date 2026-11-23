@@ -18,11 +18,27 @@ export function usePulse(run: string | null): RunPulse | null {
  * One run's working line while the host sends its pulse (`054-working-line`): `Working… (7m 7s · ↓ 30.0k tokens)`,
  * then the quiet notice in its tone. Without a pulse it shows `fallback`, what the place showed before. It is inline
  * text with tabular figures, so it sits in any one line slot and its container decides where it is cut. A narrow slot
- * asks for `noticeFirst`, so a run that went quiet says so before the line is cut.
+ * asks for `noticeFirst`, so a run that went quiet says so before the line is cut. `after` follows the line, for a
+ * place that goes on showing what it showed before.
  */
-export function Pulse({ run, fallback, className, noticeFirst = false }: { run: string | null; fallback: ReactNode; className?: string; noticeFirst?: boolean }) {
+interface PulseProps {
+  run: string | null
+  fallback: ReactNode
+  className?: string
+  noticeFirst?: boolean
+  after?: ReactNode
+}
+
+export function Pulse({ run, fallback, className, noticeFirst = false, after = null }: PulseProps) {
   const pulse = usePulse(run)
-  return pulse ? <PulseWords pulse={pulse} className={className} noticeFirst={noticeFirst} /> : <>{fallback}</>
+  if (!pulse) return <>{fallback}</>
+
+  return (
+    <>
+      <PulseWords pulse={pulse} className={className} noticeFirst={noticeFirst} />
+      {after}
+    </>
+  )
 }
 
 /** The line itself: the one part that counts the seconds, so only it draws again each second. */
