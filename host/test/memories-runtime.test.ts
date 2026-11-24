@@ -88,17 +88,35 @@ test("a memory an agent saves reaches the window as a quiet line with its note, 
   const line = seen.messages.find(noted)!
   assert.equal(line.role, 'notice')
   assert.equal(line.tone, 'quiet')
-  assert.equal(line.content, 'Remembered from Claude Code: The user lives in Lisbon')
+  assert.equal(line.content, 'Remembered from another session (Claude Code): The user lives in Lisbon')
   assert.deepEqual(Object.keys(line.memory!).sort(), ['change', 'did', 'name'])
   assert.equal(line.memory!.did, 'added')
-
-  // The line's change is what Undo sends, and the stamp moves again.
   const stampAfterAdd = seen.snapshot.memoriesStamp
-  const undone = await window.command('memory.undo', { change: line.memory!.change })
+
+  // What another session saved is not kept until the user or the main chat keeps it, and the user keeps it by saving it.
+  const listMemory = async () => {
+    const listed = await window.command('memory.list', {})
+    return (listed.ok ? (listed.value as MemoryList).memories : []).find(({ name }) => name === handed.memory)
+  }
+  const unkept = await listMemory()
+  assert.equal(unkept?.unconfirmed, true)
+  const { name, description, text, kind, version } = unkept!
+  const keptBy = await window.command('memory.save', { name, description, text, kind, version })
+  assert.ok(keptBy.ok && (keptBy.value as MemorySaved).saved, JSON.stringify(keptBy))
+  const kept = keptBy.value as Extract<MemorySaved, { saved: true }>
+  assert.equal(kept.memory.unconfirmed, undefined)
+  assert.equal((await listMemory())?.unconfirmed, undefined)
+
+  // The line's change is one hobkin knows, which the keep has moved past; the keep's own change can be taken back.
+  await window.command('app.refresh', {})
+  const stampAfterKeep = (await window.until((view) => view.snapshot.memoriesStamp !== stampAfterAdd, 'a stamp after the keep')).snapshot.memoriesStamp
+  const tooLate = await window.command('memory.undo', { change: line.memory!.change })
+  assert.deepEqual(tooLate.ok && tooLate.value, { ok: false, reason: `"${handed.memory}" changed since; edit it instead.` })
+  const undone = await window.command('memory.undo', { change: kept.change })
   assert.deepEqual(undone.ok && undone.value, { ok: true })
   await window.command('app.refresh', {})
   // The view is the window's live one, so each stamp is taken as it is then.
-  const stampAfterUndo = (await window.until((view) => view.snapshot.memoriesStamp !== stampAfterAdd, 'a stamp after the undo')).snapshot.memoriesStamp
+  const stampAfterUndo = (await window.until((view) => view.snapshot.memoriesStamp !== stampAfterKeep, 'a stamp after the undo')).snapshot.memoriesStamp
 
   // A change to the right-now list moves it as well.
   const listed = await window.command('memory.list', {})

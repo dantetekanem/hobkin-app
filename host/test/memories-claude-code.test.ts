@@ -10,7 +10,7 @@ import { routeHarness, type ClaudeLaunch, type RunFacts } from '../src/claude-co
 import { temporaryDirectory } from './support.ts'
 
 // A routine, a session run and a Work run on Claude Code read hobkin's memories as the same runs on Pi do
-// (057-shared-memory): the index in the request hobkin built, and the background directions on reading and suggesting.
+// (057-shared-memory): the index in the request hobkin built, whose header says how to read one whole and suggest one.
 
 const BACKGROUND = readFileSync(new URL('../prompts/background.md', import.meta.resolve('hobkin/src/cli/harnesses.mjs')), 'utf8')
 const RUNS: Record<string, RunFacts> = {
@@ -86,11 +86,12 @@ test('a run on Claude Code is told to read a memory whole with hobkin memory, an
   const { run, sent } = router(changeClaudeCode(CLAUDE_CODE_DEFAULTS, { enabled: true }))
   for (const request of requests) await run(request, {})
 
+  // The rules come in the header of the index the request carries, for Pi's tools and for a shell alike.
   for (const { request, launch } of sent) {
-    const directions = launch!.directions
-    assert.match(directions, /`hobkin memory get <name>` and `hobkin memory search <words>` in your shell when you have no such tool/, String(request.id))
-    assert.match(directions, /This job cannot save one\./, String(request.id))
-    assert.match(directions, /`hobkin memory suggest` with the memory as JSON on standard input/, String(request.id))
+    const { memories } = JSON.parse(String(request.prompt)) as { memories: string }
+    assert.match(memories, /Read one whole with hobkin_recall, or with `hobkin memory get <name>` in your shell when you have no such tool\./, String(request.id))
+    assert.match(memories, /You cannot save one: suggest/, String(request.id))
+    assert.match(memories, /with hobkin_suggest_memory, or `hobkin memory suggest` with it as JSON on standard input/, String(request.id))
     assert.equal(launch!.env?.HOBKIN_RUN, RUNS[String(request.id)]!.title, 'its suggestion names the run')
   }
 })
