@@ -430,7 +430,7 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
       onScroll={scroll.onScroll}
       className="scroll-quiet relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-[10%] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
     >
-      <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="The conversation" className="aa-transcript mt-auto flex flex-col gap-3 pt-2 pb-3">
+      <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="The conversation" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
         {newest.earlier ? <EarlierSteps row={{ kind: 'held', count: newest.earlier }} onMore={newest.more} /> : null}
         <ShowStamps>
           <StepJob.Provider value={job}>
@@ -482,7 +482,7 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
   )
 }
 
-const STEP = 'outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]'
+const STEP = 'rounded-[18px] outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]'
 
 /**
  * What began a turn, or what the user added while it worked. The user's own words sit on their side. Words another
@@ -496,8 +496,8 @@ function Said({ text, images, at, added = false, sending = false, from = null }:
       <Stamped at={at} line={from ? 'from' : 'bubble'}>
         <div
           className={cn(
-            'w-fit max-w-[72%] px-3.5 py-2 text-left text-[15px] leading-relaxed break-words group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
-            from ? 'border border-border' : 'ml-auto bg-secondary',
+            'w-fit max-w-[72%] rounded-2xl px-3.5 py-2 text-left text-[15px] leading-relaxed break-words group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
+            from ? 'rounded-bl-md border border-border' : 'ml-auto rounded-br-md bg-secondary',
           )}
         >
           {from ? <p className="mb-1 text-[11px] leading-normal text-muted-foreground">From {from}</p> : null}

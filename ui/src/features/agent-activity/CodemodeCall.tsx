@@ -7,7 +7,7 @@ import { useUnfold } from './unfold.ts'
 export function CodemodeCall({ entry, ended = false, correlation }: { entry: ActivityEntry; ended?: boolean; correlation?: SavedCodemode['correlation'] }) {
   const { open, toggle, box } = useUnfold<HTMLDivElement>()
   const model = codemodeOf(entry, ended)
-  return <div ref={box} className="flex min-w-0 flex-col gap-3 bg-card px-4 py-3 shadow-[inset_0_0_0_1px_var(--hb-border)]">
+  return <div ref={box} className="flex min-w-0 flex-col gap-3 rounded-2xl bg-card px-4 py-3 shadow-[inset_0_0_0_1px_var(--hb-border)]">
     <button type="button" data-step-toggle aria-expanded={open} onClick={toggle} className="flex min-w-0 items-center justify-between gap-3 text-left text-[13px]">
       <span className="font-mono font-medium">codemode</span><span className={model.state === 'failed' || model.state === 'stopped' ? 'text-bad-fg' : 'text-muted-foreground'}>Script · {model.state === 'done' ? 'completed' : model.state}</span>
       <span className="text-xs text-muted-foreground">{open ? 'Hide source / raw' : 'Source / raw'}</span>

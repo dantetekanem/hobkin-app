@@ -2,15 +2,6 @@
  * The parts of an agent's activity that the review's diff and Tailwind do not cover.
  */
 
-/*
- * Inside a transcript (the agent's page, a durable hobkin's page and the mind) every box and row is square. Its own
- * boxes and rows are drawn square where they are made; these are the ones other parts draw: the agent's code in what
- * it said, the diff's marked words and its presses, an image sent, and every press. A running dot keeps its shape.
- */
-.aa-transcript :is(pre, code, img, button, .dv-word) {
-  border-radius: 0;
-}
-
 /* A hairline over the diff's own background, so it stands off a canvas of nearly the same color. */
 .aa-diff {
   position: relative;

@@ -164,7 +164,7 @@ function Exchange({ timeOf, turnStart, ended, cwd, word, sample }: { timeOf: (id
       initial={holdStill({ opacity: 0, transform: 'translateY(24px)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: { duration: 0.24, delay: 0.06 } } }, still)}
     >
-      <ol ref={scroll.content} aria-label="What hobkin has done" className="aa-transcript mt-auto flex flex-col gap-3 pt-2 pb-10">
+      <ol ref={scroll.content} aria-label="What hobkin has done" className="mt-auto flex flex-col gap-3 pt-2 pb-10">
         <ShowStamps>
           {/* The steps drawn with the mind are simply there. Later ones arrive, and nothing leaves with a motion. */}
           <Arrivals>
