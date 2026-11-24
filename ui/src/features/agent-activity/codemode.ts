@@ -99,6 +99,22 @@ export function codemodeText({ script, calls }: CodemodeWords): string {
   return script ? `${script} · ${said}` : said
 }
 
+/**
+ * Why a codemode row that finished carries the warning mark instead of its tick: some tool call of its script failed
+ * or did not finish. Null when every call passed, none was reported or known, or the script did not finish, which
+ * keeps the mark its state has.
+ */
+export function codemodeWarning({ state, operations }: Pick<Codemode, 'state' | 'operations'>): string | null {
+  if (state !== 'done' || !operations) return null
+  const failed = operations.filter((operation) => operation.status === 'error').length
+  const unfinished = operations.filter((operation) => operation.status !== 'ok' && operation.status !== 'error').length
+  if (!failed && !unfinished) return null
+
+  if (operations.length === 1) return `The script finished. Its one tool call ${failed ? 'failed' : 'did not finish'}.`
+  const parts = [failed ? `${failed} failed` : '', unfinished ? `${unfinished} did not finish` : ''].filter(Boolean)
+  return `The script finished. Of its ${operations.length} tool calls, ${parts.join(' and ')}.`
+}
+
 /** How long a tool call took, as the app says a time: 361 ms, 1.2 s, 1m 05s. */
 export function callTime(ms: number): string {
   if (Math.round(ms) < 1000) return `${Math.round(ms)} ms`

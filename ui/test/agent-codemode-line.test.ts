@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
-import { callTime, codemodeOf, codemodeText, codemodeWords } from '../src/features/agent-activity/codemode.ts'
+import { callTime, codemodeOf, codemodeText, codemodeWarning, codemodeWords } from '../src/features/agent-activity/codemode.ts'
 
 const call = (name: string, status: string) => ({ id: `${name}-call`, name, args: 'preview', status })
 
@@ -74,6 +74,27 @@ test('the tally counts each kind in the order it was first seen', () => {
   const words = wordsOf(script([call('read', 'ok'), call('bash', 'ok'), call('read', 'ok'), call('ls', 'ok'), call('bash', 'ok')]))
 
   assert.equal(words.calls?.tally, '2 read, 2 bash, ls')
+})
+
+const warningOf = (entry: ActivityEntry, ended = false) => codemodeWarning(codemodeOf(entry, ended))
+
+test('a script that finished keeps its tick only when every tool call it made passed', () => {
+  assert.equal(warningOf(script([call('bash', 'ok'), call('read', 'ok')])), null)
+  assert.equal(warningOf(script([])), null)
+  assert.equal(warningOf(script(undefined)), null)
+})
+
+test('a script that finished with a call that failed or did not finish warns, and says how many', () => {
+  assert.equal(warningOf(script([call('bash', 'error'), call('read', 'ok'), call('read', 'ok'), call('ls', 'ok')])), 'The script finished. Of its 4 tool calls, 1 failed.')
+  assert.equal(warningOf(script([call('bash', 'error'), call('read', 'cancelled'), call('ls', 'ok')])), 'The script finished. Of its 3 tool calls, 1 failed and 1 did not finish.')
+  assert.equal(warningOf(script([call('bash', 'running')])), 'The script finished. Its one tool call did not finish.')
+  assert.equal(warningOf(script([call('bash', 'error')])), 'The script finished. Its one tool call failed.')
+})
+
+test('a script that failed, was stopped or still runs keeps the mark it has', () => {
+  assert.equal(warningOf(script([call('bash', 'error')], 'failed')), null)
+  assert.equal(warningOf(script([call('bash', 'error'), call('read', 'running')], 'running'), true), null)
+  assert.equal(warningOf(script([call('bash', 'error'), call('read', 'running')], 'running')), null)
 })
 
 test('a tool call takes its time as the app says one', () => {

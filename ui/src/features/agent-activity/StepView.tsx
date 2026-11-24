@@ -14,7 +14,7 @@ import { ChangeDiff } from './ChangeDiff.tsx'
 import { CodeText, MoreButton } from './CodeText.tsx'
 import { BOX } from './boxes.ts'
 import { CodemodeCall } from './CodemodeCall.tsx'
-import { codemodeOf, codemodeText, codemodeWords, type CodemodeWords } from './codemode.ts'
+import { codemodeOf, codemodeText, codemodeWarning, codemodeWords, type CodemodeWords } from './codemode.ts'
 import { cutOf, cutWords, type CutState } from './cut-output.ts'
 import { earlierWords, type EarlierRow } from './newest.ts'
 import { wholeOutput } from './older-steps.ts'
@@ -149,8 +149,11 @@ function duration(ms: number): string {
   return seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
 }
 
-/** How a call stands, in a word and a mark. A running one breathes and counts its time. */
-export function StateMark({ state, time, exitCode }: { state: CallState; time?: EntryTime; exitCode?: number }) {
+/**
+ * How a call stands, in a word and a mark. A running one breathes and counts its time. One that finished with a
+ * `warning` (a call inside it that did not pass) carries the warning mark in the tick's place, the warning its title.
+ */
+export function StateMark({ state, time, exitCode, warning }: { state: CallState; time?: EntryTime; exitCode?: number; warning?: string }) {
   const running = state === 'running'
   const now = useNow(running && time?.started !== undefined, 1000)
   if (running) {
@@ -171,9 +174,9 @@ export function StateMark({ state, time, exitCode }: { state: CallState; time?: 
   }
   const took = time?.started !== undefined && time.ended !== undefined ? duration(time.ended - time.started) : null
   return (
-    <span className="flex shrink-0 items-center gap-1 text-[11px] opacity-70 tabular-nums">
-      <Check className="size-3 text-ok-fg" aria-hidden="true" />
-      <span className="sr-only">passed</span>
+    <span title={warning} className={cn('flex shrink-0 items-center gap-1 text-[11px] tabular-nums', !warning && 'opacity-70')}>
+      {warning ? <TriangleAlert className="size-3 text-warn-fg" aria-hidden="true" /> : <Check className="size-3 text-ok-fg" aria-hidden="true" />}
+      <span className="sr-only">{warning ?? 'passed'}</span>
       {took}
     </span>
   )
@@ -648,7 +651,10 @@ function OtherTool({ id, name, summary, state, output, failure }: { id: string; 
  */
 function CodemodeStep({ entry, state }: { entry: ActivityEntry; state: CallState }) {
   const { open, toggle } = useBlock('other')
-  const words = useMemo(() => codemodeWords(codemodeOf(entry, state === 'stopped')), [entry, state])
+  const { words, warning } = useMemo(() => {
+    const model = codemodeOf(entry, state === 'stopped')
+    return { words: codemodeWords(model), warning: codemodeWarning(model) }
+  }, [entry, state])
   return (
     <div className="flex flex-col gap-1.5">
       <FoldRow icon={Braces} open={open} onToggle={toggle} failed={state === 'failed'}>
@@ -656,7 +662,7 @@ function CodemodeStep({ entry, state }: { entry: ActivityEntry; state: CallState
         <code className="shrink-0 font-mono text-[12px]">codemode</code>
         <CodemodeLine words={words} />
         <span className="ml-auto">
-          <StateMark state={state} />
+          <StateMark state={state} warning={warning ?? undefined} />
         </span>
       </FoldRow>
       {open ? <CodemodeCall entry={entry} ended={state === 'stopped'} /> : null}
