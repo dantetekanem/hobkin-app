@@ -58,6 +58,8 @@ export async function buildContext(schedule, latestOutcome = null, memory = [], 
       text: String(runOutcomeText(latestOutcome)).slice(0, 4096),
     } : null,
     ...(work ? { work } : { decide: check.decide, action: check.action, reportId: check.reportId }),
+    // What started a workflow handed its run (065-integration-drops), such as a command's arguments and answer.
+    ...(check.input === undefined ? {} : { input: check.input }),
   };
   let prompt = JSON.stringify(envelope);
   assertPromptBytes(prompt, maxPromptBytes, 'context envelope');

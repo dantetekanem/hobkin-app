@@ -11,6 +11,7 @@ import { TeamsAgents } from './teams-agents.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
 import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
 import { agentKindOf, integrationOffer } from './integrations.mjs';
+import { workflowFoldersOf } from './workflows.mjs';
 import { restartingAfterCodeToolCrash } from './code-tool-crash.mjs';
 import { withShippedSkills } from './skills-extension.mjs';
 import { UsageLedger } from './usage.mjs';
@@ -326,7 +327,9 @@ export class HobkinApplication {
    * `callTool(name, args, { agent, id }, signal)`, which runs one and answers `{ text, failed? }`. `hookedTools()` names
    * the tools whose calls it hears in every agent, or says `all`: `beforeTool({ agent, id, name, args })` may answer
    * `{ block: reason }` or `{ args }`, and `afterTool(call, { text, failed })` may answer `{ text, failed }`. `agent` is
-   * `#main` for the main conversation and the run's id for any other. Without it no agent is given anything new.
+   * `#main` for the main conversation and the run's id for any other. `workflowFolders()` gives each integration's
+   * folder of workflows, `[{ id, folder, tools }]`, which run as routines do with only those tools (`workflows.mjs`).
+   * Without it no agent is given anything new.
    */
   static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, harnessWarms, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch, integrations = null } = {}) {
     signal?.throwIfAborted();
@@ -409,6 +412,7 @@ export class HobkinApplication {
         config: app.config,
         runHarness,
         now,
+        ...(typeof integrations?.workflowFolders === 'function' ? { workflows: () => workflowFoldersOf(integrations) } : {}),
         compatibility: app.delivery.adapter,
         onActivity: (id, event) => app.observeActivity(id, event),
         onTick: async () => {
@@ -482,6 +486,23 @@ export class HobkinApplication {
     }
   }
 
+  /**
+   * Starts one run of a workflow (`<integration>/<name>`) now, with `input` in its context, and answers `{ run }`, the
+   * run's id. It refuses a workflow that is unknown or turned off, and one that would go past the background capacity.
+   */
+  async startWorkflow(id, input) {
+    const started = await this.runner.startWorkflow(id, input);
+    this.requestRefresh();
+    return started;
+  }
+
+  /** Turns a workflow on or off, kept in the home, and answers `{ id, enabled }`. A workflow turned off does not run. */
+  async setWorkflowEnabled(id, enabled) {
+    const changed = await this.runner.setWorkflowEnabled(id, enabled);
+    this.requestRefresh();
+    return changed;
+  }
+
   ownedHarness(run) {
     const app = this, metricsRoot = app.runtime.directory;
     return async (request, options) => {
@@ -506,7 +527,10 @@ export class HobkinApplication {
       // What integrations offer this kind of agent (065-integration-drops), run in the host as the run hobkin knows. A
       // durable hobkin's process started ahead of its turn is given the same, so the turn can take it.
       const kind = agentKindOf(request.purpose);
-      const offer = kind && integrationOffer(app.integrations, kind);
+      // A workflow's run (`<integration>/<name>`) is offered its integration's tools alone.
+      const workflow = admission?.scheduleId?.includes('/') ? admission.scheduleId.split('/')[0] : null;
+      const only = workflow === null ? undefined : workflowFoldersOf(app.integrations).find(item => item.id === workflow)?.tools ?? [];
+      const offer = kind && integrationOffer(app.integrations, kind, { only });
       const integrations = offer ? { host: app.integrations, offer, agent: admission?.id ?? request.id } : undefined;
       const cancel = () => { void ownedScope?.cancel(); };
       request.signal?.addEventListener('abort', cancel, { once: true });

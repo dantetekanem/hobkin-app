@@ -11,6 +11,7 @@ import { keepsMemories, runIndex } from './memories.mjs';
 import { imagesProblem } from './paste-image.mjs';
 import { checkHold, keepOnceFile, openCheck, scheduleDefinition } from './checks.mjs';
 import { MOST_CONCURRENCY } from './config.mjs';
+import { hasSchedule, loadWorkflows, switchWorkflow } from './workflows.mjs';
 
 function partsAt(formatter, time) {
   return Object.fromEntries(formatter.formatToParts(time)
@@ -85,7 +86,8 @@ function occurrenceAt(schedule, formatter, date, at) {
   const due = instants.get(key) ?? keep(instants, key, wallInstant(formatter, date, at));
   if (!Number.isFinite(due)) return null;
   const localDate = `${date.year}-${String(date.month).padStart(2, '0')}-${String(date.day).padStart(2, '0')}`;
-  const id = `${schedule.id}:${localDate}${Array.isArray(schedule.at) || schedule.window ? `:${at}` : ''}`;
+  // A workflow's id has a slash, which a run's id may not (`<integration>/<name>`), and no routine's id has a colon.
+  const id = `${schedule.id.replaceAll('/', ':')}:${localDate}${Array.isArray(schedule.at) || schedule.window ? `:${at}` : ''}`;
   return { id, scheduledAt: new Date(due).toISOString(), localDate };
 }
 
@@ -185,16 +187,22 @@ function runningCheckCount(index) {
 }
 
 const noteUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// What a workflow's start hands its run, as JSON, at most this big.
+const MOST_INPUT_BYTES = 32768;
 const notQueued = message => Object.assign(Error(message), { notQueued: true });
 
 export class HobkinRunner {
   pendingNotes = new Map();
   receivedNotes = new Map();
 
-  constructor({ runtime, root, config, now = () => new Date(), runHarness = defaultRunHarness, compatibilityDue = null, compatibility = null, onActivity = () => {}, onTick = () => {} }) {
+  /**
+   * `workflows`, when given, says which folders of workflows the host's integrations have (`workflows.mjs`,
+   * 065-integration-drops): they run beside the routines, and are only ever read.
+   */
+  constructor({ runtime, root, config, now = () => new Date(), runHarness = defaultRunHarness, compatibilityDue = null, compatibility = null, onActivity = () => {}, onTick = () => {}, workflows = null }) {
     if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > MOST_CONCURRENCY) throw Error(`concurrency must be 1–${MOST_CONCURRENCY}`);
     if (!Number.isFinite(new Date(config.initializedAt).getTime())) throw Error('Invalid scheduler configuration bounds');
-    Object.assign(this, { runtime, root, config, now, runHarness, compatibilityDue, compatibility, onTick });
+    Object.assign(this, { runtime, root, config, now, runHarness, compatibilityDue, compatibility, onTick, workflows });
     this.onActivity = (id, event) => {
       try {
         this.receiveNote(id, event);
@@ -231,9 +239,19 @@ export class HobkinRunner {
     return this.ticking;
   }
 
+  /** The routines, and after them every workflow of the host's integrations. Without workflows, the routines alone. */
+  loadAll() {
+    const routines = loadSchedules(this.root);
+    if (!this.workflows) return routines;
+    const background = this.config.background ?? {};
+    const defaults = { model: background.model ?? null, effort: background.effort, cwd: background.cwd ?? this.config.main?.cwd };
+    const flows = loadWorkflows(this.root, this.workflows(), defaults);
+    return { ...routines, schedules: [...routines.schedules, ...flows.schedules], errors: [...routines.errors, ...flows.errors] };
+  }
+
   async performTick() {
     const now = new Date(this.now());
-    this.loaded = loadSchedules(this.root);
+    this.loaded = this.loadAll();
     this.lastError = null;
     const index = await this.runIndex();
     // Every run whole, results and all, is read only for a routine that is due and has not run: its hold and its start
@@ -251,6 +269,8 @@ export class HobkinRunner {
         }
         continue;
       }
+      // A workflow with no schedule of its own starts only when its integration starts it (`startWorkflow`).
+      if (schedule.integration && !hasSchedule(schedule)) continue;
       const occurrence = this.compatibilityDue
         ? this.compatibilityDue(schedule, now, { notBefore: notBeforeFor(schedule, this.config), defaultDue: dueOccurrence })
         : dueOccurrence(schedule, now, { notBefore: notBeforeFor(schedule, this.config) });
@@ -280,6 +300,8 @@ export class HobkinRunner {
     // Whether a time has run needs only each run's routine, occurrence and status.
     const index = await this.runIndex();
     for (const schedule of this.loaded.schedules) {
+      // A workflow's folder is only read: its once file stays where it is, and stays finished.
+      if (schedule.integration) continue;
       const own = runsOfRoutine(index, schedule.id);
       if (!isFinishedOnce(schedule, own, now, notBeforeFor(schedule, this.config))) continue;
       try {
@@ -311,8 +333,9 @@ export class HobkinRunner {
     return this.serialize(async () => {
       signal?.throwIfAborted();
       if (this.stopped) throw Error('Runner has stopped');
-      this.loaded = loadSchedules(this.root);
-      const native = this.loaded.schedules.filter(item => item.cadence !== 'compatibility');
+      this.loaded = this.loadAll();
+      // A workflow is its integration's to start (`startWorkflow`), never a routine run by name.
+      const native = this.loaded.schedules.filter(item => item.cadence !== 'compatibility' && !item.integration);
       if (!scheduleId) return {
         schedules: native.slice(0, 20).map(({ id, title, enabled }) => ({ id, title, enabled })),
         more: native.length > 20,
@@ -347,12 +370,55 @@ export class HobkinRunner {
           || [...this.jobs.keys()].some(id => state.runs[id]?.scheduleId === scheduleId)) throw Error('Routine is already running.');
       }
       const changed = changeSchedule(this.root, scheduleId, change, new Date(this.now()));
-      this.loaded = loadSchedules(this.root);
+      this.loaded = this.loadAll();
       return changed;
     });
   }
 
-  async startNative(schedule, occurrence, state, signal, onAdmitted) {
+  /**
+   * Starts one run of a workflow now, as its integration asks: on a press, after a command, or from its own code. `input`
+   * goes into the run's context as it is. Several runs of one workflow may run at once, each taking a place as a check does.
+   */
+  startWorkflow(id, input) {
+    return this.serialize(async () => {
+      if (this.stopped) throw Error('Runner has stopped');
+      let given;
+      try {
+        given = input === undefined ? undefined : JSON.parse(JSON.stringify(input));
+      } catch {
+        throw Error("A workflow's input must be JSON.");
+      }
+      if (given !== undefined && Buffer.byteLength(JSON.stringify(given)) > MOST_INPUT_BYTES) throw Error(`A workflow's input may be at most ${MOST_INPUT_BYTES} bytes.`);
+      this.loaded = this.loadAll();
+      const workflow = this.loaded.schedules.find(item => item.integration && item.id === id);
+      if (!workflow) throw Error('Unknown workflow.');
+      if (!workflow.enabled) throw Error('That workflow is turned off.');
+      const state = await this.runtime.state();
+      if (this.scheduledJobCount(state) >= this.config.concurrency) throw Error('Background capacity is full.');
+      const run = `once:${createHash('sha256').update(randomUUID()).digest('hex')}`;
+      const accepted = Promise.withResolvers();
+      const occurrence = { id: run, requestedAt: new Date(this.now()).toISOString(), trigger: 'manual' };
+      const { work } = await this.startNative(workflow, occurrence, state, undefined, accepted.resolve, { input: given });
+      await Promise.race([accepted.promise, work.then(() => {
+        throw Error(this.lastError ?? 'Dispatch failed before admission.');
+      })]);
+      return { run };
+    });
+  }
+
+  /** Turns a workflow on or off, in the home: its file is never written. */
+  setWorkflowEnabled(id, enabled) {
+    return this.serialize(async () => {
+      if (this.stopped) throw Error('Runner has stopped');
+      if (typeof enabled !== 'boolean') throw Error('Say whether the workflow is on: true or false.');
+      if (!this.loadAll().schedules.some(item => item.integration && item.id === id)) throw Error('Unknown workflow.');
+      switchWorkflow(this.root, id, enabled, new Date(this.now()));
+      this.loaded = this.loadAll();
+      return { id, enabled };
+    });
+  }
+
+  async startNative(schedule, occurrence, state, signal, onAdmitted, { input } = {}) {
     if (schedule.harness !== 'pi') throw Error('Execution requires an explicit Pi binding.');
     const previous = Object.values(state.runs)
       .filter(run => run.scheduleId === schedule.id && run.status !== 'running')
@@ -362,12 +428,12 @@ export class HobkinRunner {
     // hobkin's shared memories, as an index in the request and with tools to read one whole and suggest one (057-shared-memory).
     const memories = keepsMemories(this.root);
     const prompt = await buildContext(schedule, previous, readMemory(this.root), { ...openCheck(this.root, schedule.id), decide, action, reportId: occurrence.id,
-      ...(memories ? { memories: runIndex(this.root, 'hobkin_recall') } : {}) });
+      ...(memories ? { memories: runIndex(this.root, 'hobkin_recall') } : {}), ...(input === undefined ? {} : { input }) });
     const id = randomUUID();
     const directory = join(this.root, 'jobs');
     await mkdir(directory, { recursive: true, mode: 0o700 });
     // Revalidate the complete folder after asynchronous preflight; stale definitions grant no authority.
-    const fresh = loadSchedules(this.root);
+    const fresh = this.loadAll();
     const current = fresh.schedules.find(item => item.id === schedule.id);
     if (!current || JSON.stringify(current) !== JSON.stringify(schedule)) {
       throw Error('Routine changed during preflight; not dispatched');
@@ -389,7 +455,7 @@ export class HobkinRunner {
       harnessId: id,
       definition: scheduleDefinition(schedule),
     }, async signal => {
-      const admitted = loadSchedules(this.root).schedules.find(item => item.id === schedule.id);
+      const admitted = this.loadAll().schedules.find(item => item.id === schedule.id);
       if (!admitted || JSON.stringify(admitted) !== JSON.stringify(schedule)) {
         throw Error('Routine changed before provider dispatch');
       }
@@ -503,6 +569,9 @@ export class HobkinRunner {
       if (schedule.enabled) {
         if (this.loaded.errors.some(error => error.path === schedule.path)) {
           nextRun = { state: 'blocked', at: null };
+        } else if (schedule.integration && !hasSchedule(schedule)) {
+          // A workflow with no schedule runs only when its integration starts it.
+          nextRun = { state: related.some(run => run.status === 'running') ? 'running' : 'unscheduled', at: null };
         } else if (related.some(run => run.status === 'running')) {
           // A recurring check's next slot still counts as upcoming work while this run finishes.
           const next = schedule.cadence === 'compatibility' ? null
