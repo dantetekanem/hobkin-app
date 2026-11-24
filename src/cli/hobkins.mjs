@@ -15,7 +15,7 @@ import { tierBinding, tierNames } from './tiers.mjs';
 import { turnFrom } from './turn-metrics.mjs';
 import { keptPrompt } from './prompt-parts.mjs';
 import { directionsSection, readDirections } from './directions.mjs';
-import { keepsMemories, MAIN_INDEX_BYTES, memorySnapshot } from './memories.mjs';
+import { MAIN_INDEX_BYTES, memorySnapshot } from './memories.mjs';
 import { memoryHandler } from './memory-tools.mjs';
 import { answerMemoryRequest, MEMORY_REQUESTS } from './memory-command.mjs';
 import { answerRequest, takeRequests } from './hobkin-tell.mjs';
@@ -370,8 +370,9 @@ export class Hobkins {
       env: { [TURN_TOKEN]: this.tokenOf(record.id), [TURN_HOME]: this.root },
       // It keeps schedules for itself, which wake it with a turn or a message (056-agent-schedules).
       schedules: true,
-      // On Pi it reads and saves hobkin's memories with their tools, once the home keeps any (057-shared-memory).
-      ...(harness === 'pi' && keepsMemories(this.root) ? { memories: 'keeper' } : {}),
+      // On Pi it reads and saves hobkin's memories with their tools, the first one too, since the user talks to it
+      // (057-shared-memory).
+      ...(harness === 'pi' ? { memories: 'keeper' } : {}),
     };
   }
 

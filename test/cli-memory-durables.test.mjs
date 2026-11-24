@@ -135,3 +135,19 @@ test("a durable hobkin's directions carry the user's own directions with their n
   assert.equal(h.calls[1].request.directions, durableDirections(other.id), 'directions that cannot be read leave its own as they were');
   h.calls[1].end.resolve({ status: 'completed', text: 'Done.', cost: null });
 });
+
+test('a durable hobkin on Pi in a home with no memories yet gets the tools to save the first one, and no folder is made until it does', { timeout: 10000 }, async t => {
+  const { existsSync } = await import('node:fs');
+  const h = home(t);
+  const app = await h.open();
+  const { id } = await app.hobkins.start({ text: 'Plan the trip.', cwd: h.root, engine: { kind: 'tier', tier: 'mid' }, title: 'Trip planner' });
+  await until(() => h.calls.length === 1);
+  const [{ request, options }] = h.calls;
+  assert.equal(request.memories, 'keeper');
+  assert.match(request.directions, /hobkin_remember/);
+  assert.equal(existsSync(join(h.root, 'memories')), false);
+  await options.memories.remember({ action: 'add', name: 'lives-in-lisbon', kind: 'user', description: 'Lives in Lisbon' });
+  assert.deepEqual(readMemories(h.root).memories.map(memory => [memory.name, memory.added.by.kind]), [['lives-in-lisbon', 'hobkin']]);
+  h.calls[0].end.resolve({ status: 'completed', text: 'Planned.', cost: null });
+  await until(async () => (await app.hobkins.read(id)).hobkin.state === 'waiting');
+});
