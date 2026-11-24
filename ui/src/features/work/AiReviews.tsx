@@ -12,6 +12,7 @@ import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
 import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
+import type { NeedNumbers } from '@/features/review/panel/needs.ts'
 import { canReviewAgain, groupReviews, reviewToOpen, REVIEW_ORDERS, type PriorityOf, type ReviewGroup, type ReviewRow } from './ai-reviews.ts'
 import { DeployWhy, GradeChip, ReviewBadge, ReviewProgress, SectionHeading, Segmented } from './parts.tsx'
 import { useReviewOrder } from './review-order.ts'
@@ -225,7 +226,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
           )}
           <GradeChip grade={row.priority} />
           <span className="shrink-0">· {item.kind === 'pull' ? 'Pull request' : 'Finished change'}</span>
-          {row.rate != null ? <span className="shrink-0">· rate {row.rate}</span> : null}
+          {row.needs ? <RowNeeds needs={row.needs} /> : row.rate != null ? <span className="shrink-0">· rate {row.rate}</span> : null}
           {people?.author ? (
             <span className="min-w-0 truncate">
               · <ByLineNames people={people} />
@@ -273,6 +274,30 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
       </div>
       {actions.length ? <RowActions row={row} actions={actions} live={live} onChanged={onAgain} /> : null}
     </li>
+  )
+}
+
+/**
+ * The review's own answers to the user's five questions (spec 058), small, in the user's order, each after its short
+ * word, then the general rate. Plain numbers: the evidence is in the review. It sits in the row's top line, never among
+ * its controls.
+ */
+function RowNeeds({ needs }: { needs: NeedNumbers }) {
+  const said = [...needs.numbers.map(({ word, value }) => `${word} ${value}`), ...(needs.rate ? [`general rate ${needs.rate}`] : [])].join(', ')
+  return (
+    <span className="flex shrink-0 items-baseline gap-1.5 tabular-nums" aria-label={`Rated: ${said}`} title={said}>
+      <span aria-hidden="true">·</span>
+      {needs.numbers.map(({ name, word, value }) => (
+        <span key={name} aria-hidden="true">
+          {word} <span className="font-semibold text-foreground">{value}</span>
+        </span>
+      ))}
+      {needs.rate ? (
+        <span aria-hidden="true">
+          · rate <span className="font-semibold text-foreground">{needs.rate}</span>
+        </span>
+      ) : null}
+    </span>
   )
 }
 

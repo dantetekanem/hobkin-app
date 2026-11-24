@@ -216,6 +216,24 @@ test('in any order, reviews under way come before those that wait their turn', (
   }
 })
 
+test("a row carries the review's five ratings and its rate, a pull request's too, and nothing when it is not rated", () => {
+  const scores = { coverage: { score: 8, evidence: 'Covered.' }, proof: { score: 4, evidence: 'Capped at 4: no test added.' }, safety: { score: 7, evidence: 'No data.' }, rollback: { score: 9, evidence: 'A revert.' } }
+  const rows = rowsOf({
+    reviews: [
+      item('change:storefront:a1', { needs: [{ kind: 'bug-fix', scores: { ...scores, visibility: { score: 6, evidence: 'Errors are reported.' } }, rate: 7.4, head: HEAD, by: 'change-review' }] }),
+      item('pr:acme/web/12', { kind: 'pull', project: 'acme/web', needs: [{ scores, head: HEAD, by: 'change-review' }] }),
+      item('change:storefront:a2', { rate: 8.4 }),
+    ],
+  })
+  const shown = Object.fromEntries(rows.map((row) => [row.item.id, row.needs && `${row.needs.numbers.map(({ word, value }) => `${word} ${value}`).join(' · ')} · rate ${row.needs.rate ?? '–'}`]))
+
+  assert.deepEqual(shown, {
+    'change:storefront:a1': 'Cover 8 · Proof 4 · Deploy 7 · Watch 6 · Undo 9 · rate 7.4',
+    'pr:acme/web/12': 'Cover 8 · Proof 4 · Deploy 7 · Watch – · Undo 9 · rate –',
+    'change:storefront:a2': null,
+  })
+})
+
 test("a scored change's row carries its general rate, and a row with none carries none", () => {
   const rows = rowsOf({
     reviews: [

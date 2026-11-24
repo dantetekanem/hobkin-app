@@ -1,4 +1,5 @@
 import type { AssessmentRequest, AssessmentStatus, AssessmentSummary } from '#shared/review/assessment.ts'
+import type { ReviewNeeds } from '#shared/review/needs.ts'
 import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
 
 /**
@@ -48,14 +49,28 @@ function sampleReviews(now: number): ReviewList {
     }
   }
 
+  /** The review's own answers to the user's five questions (spec 058), at its commit; none for visibility without monitoring. */
+  const rated = (row: ReviewListItem, numbers: [number, number, number, number | null, number], rate: number | null): ReviewListItem => {
+    const [coverage, proof, safety, visibility, rollback] = numbers
+    const scores: NonNullable<ReviewNeeds['scores']> = {
+      coverage: { score: coverage, evidence: 'Tests reach every changed definition.' },
+      proof: { score: proof, evidence: 'Tests were added with the change.' },
+      safety: { score: safety, evidence: 'Nothing is written that a revert leaves behind.' },
+      ...(visibility == null ? {} : { visibility: { score: visibility, evidence: 'Errors reach the error tracker.' } }),
+      rollback: { score: rollback, evidence: 'One revert takes it back.' },
+    }
+    return { ...row, needs: [{ kind: 'bug-fix', scores, ...(rate == null ? {} : { rate }), head: row.head ?? sha('0'), by: 'change-review', at: row.updatedAt }] }
+  }
+
   return {
     reviews: [
       pull('storefront', 482, 'Keep the cart total between page loads', { files: 6, added: 120, removed: 14 }, { state: 'running', percent: 35, now: 'Reading the six files the change touches', startedAt: ago(2) }, 0),
       change('storefront', '4c9e21', 'Remember the shipping address', '9b04d2aa', { state: 'running', head: null, percent: 62, now: 'Running the checkout tests in the review tree', startedAt: ago(4) }, 0),
       change('docs-site', 'a7f3b9', 'Document the export command', '77c1e9f0', { state: 'queued', head: null }, 1),
       change('storefront', '8d2f60', 'Fix the login redirect after a password reset', '2e6b0c41', { state: 'ready', head: null, summary: summary('mid', { needsYou: 0, worthALook: 2, safe: 3 }, 50) }, 50),
-      pull('storefront', 479, 'Fix the login redirect after a password reset', { files: 2, added: 18, removed: 4 }, { state: 'ready', summary: summary('mid', { needsYou: 0, worthALook: 1, safe: 2 }, 90) }, 90),
-      change('billing-api', '5e7c21', 'Patch the webhook retry', 'f3a9c1e7', { state: 'ready', head: null, summary: summary('safe', { needsYou: 0, worthALook: 0, safe: 4 }, 120) }, 120),
+      // A pull request's repository has no monitoring known: four numbers and no general rate.
+      rated(pull('storefront', 479, 'Fix the login redirect after a password reset', { files: 2, added: 18, removed: 4 }, { state: 'ready', summary: summary('mid', { needsYou: 0, worthALook: 1, safe: 2 }, 90) }, 90), [7, 5, 6, null, 8], null),
+      rated(change('billing-api', '5e7c21', 'Patch the webhook retry', 'f3a9c1e7', { state: 'ready', head: null, summary: summary('safe', { needsYou: 0, worthALook: 0, safe: 4 }, 120) }, 120), [8, 7, 9, 6, 9], 8.2),
       change('storefront', 'd2c4e8', 'Move the cart into one module', 'c0ffee12', { state: 'ready', head: null, summary: summary('high', { needsYou: 2, worthALook: 3, safe: 5 }, 180, true) }, 180),
       pull('api', 1185, 'Move rate limits into the gateway', { files: 9, added: 310, removed: 120 }, { state: 'ready', summary: summary('high', { needsYou: 1, worthALook: 2, safe: 4 }, 240) }, 240),
       change('billing-api', '0f6a3b', 'Round invoices once', '51d8a3be', { state: 'failed', head: null, error: 'The tests would not start in the review tree: its packages are not installed.' }, 300),

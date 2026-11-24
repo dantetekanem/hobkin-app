@@ -2,6 +2,7 @@ import type { Grade } from '#shared/protocol/work.ts'
 import type { AssessmentSummary } from '#shared/review/assessment.ts'
 import { pullOfReview, pullUrl } from '#shared/review/ids.ts'
 import { shownAsRow, type ReviewList, type ReviewListItem } from '#shared/review/status.ts'
+import { needNumbers, type NeedNumbers } from '../review/panel/needs.ts'
 import { GRADE_ORDER } from './projects.ts'
 
 /**
@@ -59,6 +60,8 @@ export interface ReviewRow {
   summary: AssessmentSummary | null
   /** The general rate hobkin's scored review gave a finished change. Null when it was not scored. */
   rate: number | null
+  /** The review's own answers to the user's five questions, and its rate (spec 058). Null when it is not rated. */
+  needs: NeedNumbers | null
 }
 
 export interface ReviewGroups {
@@ -107,7 +110,19 @@ function rowOf(item: ReviewListItem, priorityOf: PriorityOf): ReviewRow | null {
   if (!group) return null
   const { assessment } = item
   const running = assessment?.state === 'running'
-  const row: ReviewRow = { item, group, ...placeOf(item), priority: priorityOf(item), line: '', percent: null, startedAt: null, at: null, summary: null, rate: item.rate ?? null }
+  const row: ReviewRow = {
+    item,
+    group,
+    ...placeOf(item),
+    priority: priorityOf(item),
+    line: '',
+    percent: null,
+    startedAt: null,
+    at: null,
+    summary: null,
+    rate: item.rate ?? null,
+    needs: needNumbers(item.needs, item.head ?? undefined),
+  }
   if (group === 'unmerged') {
     const { state, why, at, message } = item.mergeAsked!
     // A code host that merges in its own time says what it does; a finished change waits for hobkin to bring it up to date.
