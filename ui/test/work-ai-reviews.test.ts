@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AssessmentSummary } from '#shared/review/assessment.ts'
 import type { ReviewListItem } from '#shared/review/status.ts'
-import { canReviewAgain, groupReviews, reviewCounts, reviewToOpen, rowsOf } from '../src/features/work/ai-reviews.ts'
+import { canReviewAgain, canReviewNow, groupReviews, nothingChanged, repoLinesOf, reviewCounts, reviewToOpen, rowsOf } from '../src/features/work/ai-reviews.ts'
 
 const HEAD = 'f3a9c1e7'.padEnd(40, '0')
 const at = (minutesAgo: number) => new Date(Date.parse('2026-11-12T12:00:00Z') - minutesAgo * 60_000).toISOString()
@@ -214,6 +214,59 @@ test('in any order, reviews under way come before those that wait their turn', (
 
     assert.deepEqual(running, ['change:storefront:runs', 'change:storefront:waits'], `in the order ${order}`)
   }
+})
+
+const OLDER = 'e1d2c3b'.padEnd(40, '0')
+/** A repository's rows as a host that keeps a line of reviews sends them, with the line above them. */
+const lineList = () => ({
+  repos: [
+    { project: 'shop', current: 3, waiting: 12, outdated: 2, builtThisWeek: 9, tokensThisWeek: 1_100_000 },
+    { project: 'storefront', current: 1, waiting: 0, outdated: 0, builtThisWeek: 2 },
+  ],
+  reviews: [
+    item('change:shop:w3', { project: 'shop', state: 'idle', waiting: true, turn: { ahead: 3, why: 'Waits its turn: 3 ahead in shop.' }, updatedAt: at(1) }),
+    item('change:shop:w1', { project: 'shop', state: 'idle', waiting: true, turn: { ahead: 1, why: 'Waits its turn: 1 ahead in shop.' }, updatedAt: at(2) }),
+    item('change:shop:old', { project: 'shop', outdated: { builtFor: OLDER }, turn: { ahead: 4, why: 'Waits its turn: 4 ahead in shop.' }, assessment: { state: 'ready', head: OLDER } }),
+    item('change:shop:carried', { project: 'shop', carried: { from: OLDER, why: 'Only its start moved, and its tests passed at this commit.' }, assessment: { state: 'ready', head: HEAD } }),
+    item('change:storefront:now', { assessment: { state: 'running', head: HEAD, percent: 10, startedAt: at(3) } }),
+  ],
+})
+
+test("each repository's line counts its current, waiting and outdated reviews and what they cost this week", () => {
+  assert.deepEqual(
+    repoLinesOf(lineList()).map((line) => line.words),
+    ['shop: 3 current · 12 waiting · 2 outdated · 9 built this week, about 1.1M tokens', 'storefront: 1 current · 0 waiting · 0 outdated · 2 built this week'],
+  )
+  // A host from before the line sends none, and the list has no line.
+  assert.deepEqual(repoLinesOf({ reviews: lineList().reviews }), [])
+  assert.deepEqual(repoLinesOf(null), [])
+})
+
+test('a row that waits says why and how many are ahead, and folds under Waiting for its repository, the nearest first', () => {
+  const list = lineList()
+  const [shop, storefront] = repoLinesOf(list)
+
+  assert.deepEqual(shop!.waiting.map((row) => [row.item.id, row.turn?.why]), [
+    ['change:shop:w1', 'Waits its turn: 1 ahead in shop.'],
+    ['change:shop:w3', 'Waits its turn: 3 ahead in shop.'],
+  ])
+  assert.ok(shop!.waiting.every(canReviewNow), 'each offers Review now')
+  assert.deepEqual(storefront!.waiting, [])
+  // Folded under their repository, they are not in Running too.
+  assert.deepEqual(groupReviews(list).running.map((row) => row.item.id), ['change:storefront:now'])
+  // With no line from the host, a row that waits stays in Running, as it was.
+  assert.deepEqual(groupReviews({ reviews: list.reviews }).running.map((row) => row.item.id).sort(), ['change:shop:w1', 'change:shop:w3', 'change:storefront:now'])
+})
+
+test('an outdated row says for which commit it was built, and a carried one from which commit it was carried and why it holds', () => {
+  const rows = Object.fromEntries(rowsOf(lineList()).map((row) => [row.item.id, row]))
+
+  assert.equal(rows['change:shop:old']!.standing, 'Outdated: built for e1d2c3b. Waits its turn: 4 ahead in shop.')
+  assert.equal(rows['change:shop:carried']!.standing, 'Carried from e1d2c3b, not built again. Only its start moved, and its tests passed at this commit.')
+  assert.equal(rows['change:storefront:now']!.standing, null)
+  // Nothing changed since the carried review, so Review again asks first. The outdated one is built at once.
+  assert.equal(nothingChanged(rows['change:shop:carried']!), true)
+  assert.equal(nothingChanged(rows['change:shop:old']!), false)
 })
 
 test("a row carries the review's five ratings and its rate, a pull request's too, and nothing when it is not rated", () => {

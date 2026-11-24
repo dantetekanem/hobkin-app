@@ -1,4 +1,4 @@
-import { GitBranch, GitPullRequest, RotateCcw, Square, TriangleAlert } from 'lucide-react'
+import { ChevronDown, ChevronUp, GitBranch, GitPullRequest, Play, RotateCcw, Square, TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import { useView } from '@/app/view-store.ts'
@@ -13,10 +13,10 @@ import { heldDown } from '@/features/review/verdict.ts'
 import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { NeedNumbers } from '@/features/review/panel/needs.ts'
-import { canReviewAgain, groupReviews, reviewToOpen, REVIEW_ORDERS, type PriorityOf, type ReviewGroup, type ReviewRow } from './ai-reviews.ts'
+import { canReviewAgain, canReviewNow, groupReviews, nothingChanged, repoLinesOf, reviewToOpen, REVIEW_ORDERS, type PriorityOf, type RepoLine, type ReviewGroup, type ReviewRow } from './ai-reviews.ts'
 import { DeployWhy, GradeChip, ReviewBadge, ReviewProgress, SectionHeading, Segmented } from './parts.tsx'
 import { useReviewOrder } from './review-order.ts'
-import { ACTION_LABEL, createRowActions, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
+import { ACTION_LABEL, createReviewAgain, createRowActions, NOTHING_CHANGED, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
 import type { ReviewListView } from './use-review-list.ts'
 
 /**
@@ -44,8 +44,9 @@ export function AiReviews({ live, reviews, priorityOf }: {
 }) {
   const order = useReviewOrder((state) => state.order)
   const groups = useMemo(() => groupReviews(reviews.list, { order, priorityOf }), [reviews.list, order, priorityOf])
+  const lines = useMemo(() => repoLinesOf(reviews.list, priorityOf), [reviews.list, priorityOf])
   const shown = GROUPS.filter(({ group }) => groups[group].length > 0)
-  const none = shown.length === 0
+  const none = shown.length === 0 && lines.length === 0
 
   return (
     <div className="flex flex-col gap-10">
@@ -60,6 +61,7 @@ export function AiReviews({ live, reviews, priorityOf }: {
         </p>
       ) : null}
       {reviews.list && none ? <NoReviews /> : null}
+      {lines.length > 0 ? <RepoLines lines={lines} live={live} onAgain={reviews.refresh} /> : null}
       {shown.map(({ group, label }, index) => (
         // The order switch sits on the first heading, so it is always at the top of the list, whichever group that is.
         <Group key={group} label={label} rows={groups[group]} live={live} onAgain={reviews.refresh} tools={index === 0 ? <OrderSwitch /> : null} />
@@ -77,6 +79,52 @@ function OrderSwitch() {
       <span className="eyebrow">Order</span>
       <Segmented label="Order of the AI reviews" name="review-order" value={order} options={REVIEW_ORDERS} onChoose={choose} />
     </div>
+  )
+}
+
+/**
+ * A line for each repository above the rows (spec 058): its reviews current, waiting and outdated, and what this week's
+ * cost. Its rows that wait their turn fold under "Waiting (N)", closed at first; the button keeps its place at the end
+ * of the line, and the rows open under it.
+ */
+function RepoLines({ lines, live, onAgain }: { lines: RepoLine[]; live: boolean; onAgain: () => void }) {
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set())
+  const toggle = (project: string) =>
+    setOpen((before) => {
+      const next = new Set(before)
+      if (!next.delete(project)) next.add(project)
+      return next
+    })
+
+  return (
+    <section aria-label="Repositories" className="flex flex-col gap-3">
+      <SectionHeading label="Repositories" count={lines.length} />
+      <ul className="flex flex-col gap-3">
+        {lines.map((line) => {
+          const opened = open.has(line.project)
+          return (
+            <li key={line.project} className="flex flex-col gap-2">
+              <div className="flex min-h-9 items-center gap-3 rounded-2xl bg-background px-5 py-1.5">
+                <p className="min-w-0 flex-1 text-[14px] leading-snug tabular-nums [overflow-wrap:anywhere]">{line.words}</p>
+                {line.waiting.length > 0 ? (
+                  <Button variant="outline" size="sm" data-stop="" aria-expanded={opened} onClick={() => toggle(line.project)} className="shrink-0">
+                    Waiting ({line.waiting.length})
+                    {opened ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+                  </Button>
+                ) : null}
+              </div>
+              {opened ? (
+                <ul aria-label={`Waiting in ${line.project}`} className="flex flex-col gap-2 pl-6">
+                  {line.waiting.map((row) => (
+                    <Card key={row.item.id} row={row} live={live} onAgain={onAgain} />
+                  ))}
+                </ul>
+              ) : null}
+            </li>
+          )
+        })}
+      </ul>
+    </section>
   )
 }
 
@@ -127,38 +175,69 @@ function When({ row }: { row: ReviewRow }) {
   return <span className="ml-auto shrink-0 pl-2 tabular-nums">{whenOf(row, now)}</span>
 }
 
-/**
- * "Review again" on a row: the host builds the review once more at the change's commit, tests and model pass
- * included, and the row moves to Running. It says so while the host is asked, and says why when the host refuses.
- */
-function ReviewAgain({ id, live, onAgain }: { id: string; live: boolean; onAgain: () => void }) {
-  const [asking, setAsking] = useState(false)
-  const [refused, setRefused] = useState<string | null>(null)
+/** Sample rows have no host: building one says so, and nothing runs. */
+const sampleBuild = async () => {
+  throw new Error('This is sample data, so no review runs here.')
+}
 
-  const again = async () => {
-    if (!live) return setRefused('This is sample data, so no review runs here.')
-    setAsking(true)
-    setRefused(null)
-    try {
-      await runCommand('review.prepare', { id, refresh: true })
-      onAgain()
-    } catch (error) {
-      setRefused(error instanceof Error ? error.message : String(error))
-    } finally {
-      setAsking(false)
-    }
-  }
+/**
+ * "Review again" on a row, or "Review now" on one that waits its turn (spec 058): the host builds the review once more
+ * at the change's commit, or builds a waiting one at once outside its repository's line, and the row moves to Running.
+ * With nothing changed since the review, Review again first says so and what it costs, and builds it on a second press
+ * within ten seconds; the button keeps its width while it asks, so nothing beside it moves. It says so while the host
+ * is asked, and why when the host refuses.
+ */
+function ReviewAgain({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: () => void }) {
+  const now = canReviewNow(row)
+  const unchanged = !now && nothingChanged(row)
+  // Read when the host took it, so a list that reads itself again with a new function never starts this over.
+  const started = useRef(onAgain)
+  started.current = onAgain
+  const again = useMemo(
+    () => createReviewAgain({ id: row.item.id, unchanged, now, command: live ? (name, args) => runCommand(name, args) : sampleBuild, started: () => started.current() }),
+    [row.item.id, unchanged, now, live],
+  )
+  useEffect(() => () => again.cancel(), [again])
+  const { armed, busy, error } = useStore(again)
+  const said = error ?? (armed ? NOTHING_CHANGED : null)
+  const label = now ? 'Review now' : 'Review again'
 
   return (
-    <span className="ml-auto flex shrink-0 items-center gap-2">
-      {refused ? (
-        <span role="alert" className="max-w-[20rem] text-[13px] leading-snug text-bad-fg">
-          {refused}
+    <span
+      className="ml-auto flex shrink-0 items-center gap-2"
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !again.getState().armed) return
+        event.preventDefault()
+        event.stopPropagation()
+        again.cancel()
+      }}
+    >
+      {said ? (
+        <span role={error ? 'alert' : 'status'} className={cn('max-w-[22rem] text-[13px] leading-snug', error ? 'text-bad-fg' : 'text-foreground')}>
+          {said}
         </span>
       ) : null}
-      <Button variant="outline" size="sm" data-stop="" disabled={asking} title="Builds this review again at the change's commit: its tests and one model pass." onClick={() => void again()} className="shrink-0">
-        <RotateCcw aria-hidden="true" />
-        {asking ? 'Starting…' : 'Review again'}
+      <Button
+        variant="outline"
+        size="sm"
+        data-stop=""
+        aria-pressed={armed}
+        disabled={busy}
+        title={now ? "Builds this review now, outside its repository's line: its tests and one model pass." : "Builds this review again at the change's commit: its tests and one model pass."}
+        // A key still down from the first press only repeats: it never gives the second.
+        onKeyDown={(event) => {
+          if (heldDown(event)) event.preventDefault()
+        }}
+        onClick={() => void again.press()}
+        className="shrink-0"
+      >
+        {now ? <Play aria-hidden="true" /> : <RotateCcw aria-hidden="true" />}
+        {/* Each of its words holds the button's place; only the one that applies shows, and only it is read. */}
+        <span className="grid justify-items-center">
+          <span className={cn('col-start-1 row-start-1', (armed || busy) && 'invisible')}>{label}</span>
+          <span className={cn('col-start-1 row-start-1', !armed && 'invisible')}>Click again to confirm</span>
+          <span className={cn('col-start-1 row-start-1', !busy && 'invisible')}>Starting…</span>
+        </span>
       </Button>
     </span>
   )
@@ -251,6 +330,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
               <ReviewBadge status={{ state: 'failed', head: item.head, error: row.line }} size="md" />
             ) : null}
           </span>
+          {row.standing ? <span className="text-[14px] leading-snug text-muted-foreground">{row.standing}</span> : null}
           {row.group === 'running' ? (
             <span className="flex flex-col gap-2">
               {row.percent !== null ? (
@@ -268,7 +348,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
         {row.summary ? <DeployWhy summary={row.summary} head={item.head} /> : null}
         {row.group === 'failed' ? <span className="min-w-0 text-[14px] leading-snug text-bad-fg">{row.line}</span> : null}
         {row.group === 'unmerged' ? <span className={row.item.mergeAsked?.state === 'failed' ? 'min-w-0 text-[14px] leading-snug text-bad-fg' : 'min-w-0 text-[14px] leading-snug text-muted-foreground'}>{row.line}</span> : null}
-        {again ? <ReviewAgain id={item.id} live={live} onAgain={onAgain} /> : null}
+        {again || canReviewNow(row) ? <ReviewAgain row={row} live={live} onAgain={onAgain} /> : null}
         {/* A row that waits its turn has nothing running to stop. */}
         {!again && !item.waiting ? <StopReview id={item.id} live={live} onStopped={onAgain} /> : null}
       </div>

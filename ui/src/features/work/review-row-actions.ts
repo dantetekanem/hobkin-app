@@ -66,6 +66,49 @@ function createRemoval({ id, command, removed }: { id: string; command: RowComma
   return Object.assign(store, { press, cancel })
 }
 
+/** What Review again says first when nothing changed since the review (spec 058 A6). */
+export const NOTHING_CHANGED = 'Nothing changed since this review. It costs a whole review again.'
+
+type BuildCommand = (name: 'review.prepare', args: { id: string; refresh?: boolean }) => Promise<unknown>
+
+/**
+ * Review again on a row, or Review now on a row that waits its turn (spec 058). Review now builds it at once, outside
+ * its repository's line. Review again builds the review once more at the change's commit; when nothing changed since
+ * the review it first says so and what it costs, and builds it only on a second press within ten seconds, as the row's
+ * other confirms do. `started` hears that the host took it, so the list is read again.
+ */
+export function createReviewAgain({ id, unchanged, now = false, command, started }: { id: string; unchanged: boolean; now?: boolean; command: BuildCommand; started: () => void }) {
+  const store = createStore<{ armed: boolean; busy: boolean; error: string | null }>(() => ({ armed: false, busy: false, error: null }))
+  let waiting: ReturnType<typeof setTimeout> | undefined
+  const cancel = () => {
+    clearTimeout(waiting)
+    if (store.getState().armed) store.setState({ armed: false })
+  }
+  const press = async () => {
+    const { armed, busy } = store.getState()
+    if (busy) return
+    clearTimeout(waiting)
+    if (unchanged && !now && !armed) {
+      store.setState({ armed: true, error: null })
+      waiting = setTimeout(cancel, CONFIRM_MS)
+      return
+    }
+
+    store.setState({ armed: false, busy: true, error: null })
+    try {
+      await command('review.prepare', now ? { id } : { id, refresh: true })
+      started()
+    } catch (error) {
+      store.setState({ error: messageOf(error) })
+    } finally {
+      store.setState({ busy: false })
+    }
+  }
+  /** What the row says while it waits for the second press. */
+  const said = () => (store.getState().armed ? NOTHING_CHANGED : null)
+  return Object.assign(store, { press, cancel, said })
+}
+
 /**
  * A row's actions. `head` is the commit the list knows the review at, or null when it knows none. `changed` hears that
  * the host did one, so the list is read again and the row leaves it.

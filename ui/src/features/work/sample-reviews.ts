@@ -6,7 +6,9 @@ import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
  * AI reviews for a window with no host, in the shape the host's `review.list` sends. They are the Work sample's
  * finished changes and the GitHub sample's pull requests, so the AI Reviews tab, a Work card's badge and a GitHub row
  * agree, and between them show every state: running, waiting its turn, ready at each level, failed, and none at all.
- * Times count back from when the window opened. Nothing here came from a review.
+ * A repository of its own, shop, shows a line of reviews (spec 058): its line, rows that wait their turn, an outdated
+ * review and a carried one; two rows carry the user's five ratings. Times count back from when the window opened.
+ * Nothing here came from a review.
  */
 
 const MINUTE_MS = 60_000
@@ -62,8 +64,45 @@ function sampleReviews(now: number): ReviewList {
     return { ...row, needs: [{ kind: 'bug-fix', scores, ...(rate == null ? {} : { rate }), head: row.head ?? sha('0'), by: 'change-review', at: row.updatedAt }] }
   }
 
+  /** A finished change of a repository whose line is full: it waits its turn, with how many are ahead (spec 058). */
+  const waits = (slug: string, item: string, title: string, head: string, ahead: number, minutes: number): ReviewListItem => ({
+    id: `change:${slug}:${item}`,
+    kind: 'change',
+    title,
+    project: slug,
+    head: sha(head),
+    state: 'idle',
+    phase: null,
+    error: null,
+    waiting: true,
+    turn: { ahead, why: `Waits its turn: ${ahead} ahead in ${slug}.` },
+    updatedAt: ago(minutes),
+  })
+  const shopReady = summary('safe', { needsYou: 0, worthALook: 1, safe: 3 }, 70)
+
   return {
+    // A line for each repository, from a host that keeps a line of reviews for each (spec 058).
+    repos: [
+      { project: 'shop', current: 3, waiting: 4, outdated: 1, builtThisWeek: 9, tokensThisWeek: 1_100_000 },
+      { project: 'storefront', current: 3, waiting: 0, outdated: 0, builtThisWeek: 5, tokensThisWeek: 640_000 },
+    ],
     reviews: [
+      // shop: three kept current, one of them carried to a newer start, one outdated, and four waiting their turn.
+      rated(change('shop', 'c33e10', 'Retry a declined card once', 'c33e10a4', { state: 'ready', head: null, summary: shopReady }, 70), [7, 6, 5, 7, 8], 6.9),
+      {
+        ...change('shop', 'a11f02', 'Ship orders in one box when they fit', 'a11f02b7', { state: 'ready', head: null, summary: summary('safe', { needsYou: 0, worthALook: 0, safe: 4 }, 95) }, 95),
+        carried: { from: sha('a11f0177'), why: 'Only its start moved: the same commits on a newer main, and its tests passed at this commit.' },
+      },
+      {
+        ...change('shop', 'b22d4c', 'Show the delivery window at checkout', 'b22d4c90', { state: 'ready', head: null, summary: summary('mid', { needsYou: 0, worthALook: 2, safe: 2 }, 260) }, 260),
+        outdated: { builtFor: sha('b22d3a11') },
+        turn: { ahead: 5, why: 'Waits its turn: 5 ahead in shop.' },
+      },
+      waits('shop', 'd44a71', 'Show stock per warehouse', 'd44a7122', 1, 30),
+      waits('shop', 'e55b82', 'Remember the last payment method', 'e55b8233', 2, 45),
+      waits('shop', 'f66c93', 'Split the order emails by step', 'f66c9344', 3, 80),
+      waits('shop', '077da4', 'Round the tax per line', '077da455', 4, 140),
+
       pull('storefront', 482, 'Keep the cart total between page loads', { files: 6, added: 120, removed: 14 }, { state: 'running', percent: 35, now: 'Reading the six files the change touches', startedAt: ago(2) }, 0),
       change('storefront', '4c9e21', 'Remember the shipping address', '9b04d2aa', { state: 'running', head: null, percent: 62, now: 'Running the checkout tests in the review tree', startedAt: ago(4) }, 0),
       change('docs-site', 'a7f3b9', 'Document the export command', '77c1e9f0', { state: 'queued', head: null }, 1),
