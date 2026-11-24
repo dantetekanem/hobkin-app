@@ -19,6 +19,7 @@ test("a review's ratings are read without trust: whole scores from 1 to 10 with 
 
   assert.deepEqual(readNeeds(sent), sent, 'visibility left out: no monitoring is known')
   assert.deepEqual(readNeeds({ ...sent, rate: 7.5 })?.rate, 7.5)
+  assert.deepEqual([readNeeds({ ...sent, monitoring: 'unknown' })?.monitoring, readNeeds({ ...sent, monitoring: 'maybe' })?.monitoring], ['unknown', undefined])
 
   // A score that is no whole number from 1 to 10, or has no evidence, is dropped; the others stay.
   const odd = readNeeds({ ...sent, scores: { coverage: score(11), proof: score(6.5), safety: score(9, ''), rollback: score(7, 'one\ntwo'), visibility: score(5) } })

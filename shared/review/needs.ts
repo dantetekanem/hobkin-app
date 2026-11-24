@@ -42,6 +42,8 @@ export interface ReviewNeeds {
   by: 'change-review' | 'hobkin'
   /** When they were made, as an ISO time. */
   at?: string
+  /** Whether the project's monitoring was known to the change review: unknown means no visibility was asked for. */
+  monitoring?: 'given' | 'unknown'
 }
 
 /** The most characters a line of evidence, or of what is missing, has: hobkin's own limit. */
@@ -84,6 +86,7 @@ export function readNeeds(value: unknown): ReviewNeeds | undefined {
     head: sent.head,
     by: sent.by,
     ...(typeof sent.at === 'string' && !Number.isNaN(Date.parse(sent.at)) ? { at: sent.at } : {}),
+    ...(sent.monitoring === 'given' || sent.monitoring === 'unknown' ? { monitoring: sent.monitoring } : {}),
   }
 }
 

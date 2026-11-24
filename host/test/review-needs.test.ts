@@ -25,7 +25,7 @@ const ENGINE_NEEDS = {
 test("the change review's ratings take hobkin's general rate and floors by hobkin's own formula, and only what it needs is there", () => {
   const rated = engineNeeds({ needs: ENGINE_NEEDS })!
 
-  assert.deepEqual(rated, { kind: 'bug-fix', scores: ENGINE_NEEDS.scores, missing: 'A test of the empty cart.', rate: 7.4, floors: [{ name: 'safety', score: 6, needs: 8 }], head: HEAD, by: 'change-review' })
+  assert.deepEqual(rated, { kind: 'bug-fix', scores: ENGINE_NEEDS.scores, missing: 'A test of the empty cart.', rate: 7.4, floors: [{ name: 'safety', score: 6, needs: 8 }], head: HEAD, by: 'change-review', monitoring: 'given' })
   // No monitoring known: no visibility, so no general rate; the floors of the four there still hold.
   const { visibility: _visibility, ...four } = ENGINE_NEEDS.scores
   const unknown = engineNeeds({ needs: { ...ENGINE_NEEDS, scores: four, monitoring: 'unknown' } })!
