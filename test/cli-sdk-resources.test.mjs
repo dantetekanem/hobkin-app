@@ -178,7 +178,7 @@ for (const [scriptedMain, active] of [[false], [true], [true, []], [true, ['clie
   await result.session.bindExtensions({ mode: 'rpc' });
   if (scriptedMain) assert.deepEqual(h.session.getActiveToolNames(), ['client']);
   assert.match((await handlers.before_agent_start({ systemPrompt: 'base' }, ctx)).systemPrompt, /base/);
-  assert.deepEqual(calls, scriptedMain ? [] : ['persona', 'directions', 'memory', 'decided']);
+  assert.deepEqual(calls, scriptedMain ? [] : ['persona', 'directions', 'memory', 'memories', 'decided']);
   if (scriptedMain) {
     assert.deepEqual(tools, []); assert.equal(h.options().modelRuntime, undefined);
     assert.equal(result.services.settingsManager, h.options().settingsManager);
