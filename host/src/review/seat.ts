@@ -28,6 +28,7 @@ import { reviewCode, reviewMap } from './guide.ts'
 import { mergePlan, movedSince } from './landing.ts'
 import { reviewModelChecks } from './model-checks.ts'
 import { monitoringLines } from './ratings.ts'
+import { carryReview } from './carry.ts'
 import { chatTeller } from './notify.ts'
 import type { WhoIsMe } from './owner.ts'
 import { peopleFinder, pullPeople } from './people.ts'
@@ -253,8 +254,29 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     const item = readItems(seat.data(), target.slug).find((entry) => entry.id === target.item)
     return item != null && WORKING.includes(item.state)
   }
+  /**
+   * A finished change's newest review carried to the commit its branch moved to, when it still holds there: in the
+   * review's checkout, with the change's tests run once and no model asked (spec 058). Only a live host carries.
+   */
+  const carry = assessments
+    ? async (target: Extract<ReviewTarget, { kind: 'change' }>, head: string) => {
+        const repo = repoOf(target.slug)
+        if (!repo) return { carried: false as const, why: `hobkin knows no folder for the project ${target.slug}.` }
+        return carryReview({
+          root: seat.root,
+          store,
+          inTree: (into, from, at, use, base) => assessments.inTree(into, from, at, use, undefined, base),
+          target,
+          repo,
+          into: await intoOf(repo),
+          head,
+          scan: (base, at) => scanVicinity({ repo, base, head: at }),
+        })
+      }
+    : undefined
   const reviews: Reviews = new Reviews({
     ...(assessments ? { assessments } : {}),
+    ...(carry ? { carry } : {}),
     keepCurrent,
     backAtWork,
     describe,

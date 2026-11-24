@@ -32,6 +32,7 @@ import { riskShown, riskStep, type RiskWork } from './risk-fix.ts'
 import type { ReviewSource } from './sources.ts'
 import type { Prepared, ReviewStore } from './store.ts'
 import { KEPT_CURRENT, lineOf, type Line, type LineChange } from './turns.ts'
+import type { Carried } from './carry.ts'
 
 /** How often reviewed pull requests are asked of GitHub, to see which are no longer open. */
 const SWEEP_EVERY_MS = 2 * 60_000
@@ -158,6 +159,11 @@ export interface ReviewsOptions {
   keepCurrent?: () => number | undefined
   /** Whether an agent works on a change again, as hobkin's items say: its waiting review is dropped, and its row says why. */
   backAtWork?: (target: ChangeTarget) => boolean
+  /**
+   * Carries a change's newest review to the commit it moved to when the review still holds there (spec 058, A5),
+   * instead of building it again. A host given none builds it again, as before.
+   */
+  carry?: (target: ChangeTarget, head: string) => Promise<Carried>
 }
 
 /** A pull request, as a review target. */
@@ -444,6 +450,8 @@ export class Reviews {
   private readonly userAsked = new Set<string>()
   /** The pull requests the background was last handed to review by themselves, as the user's setting names them. */
   private watchedPulls = new Set<string>()
+  /** The reviews being carried to their change's new commit now. */
+  private readonly carrying = new Set<string>()
   private readonly controller = new AbortController()
   private working = false
   /** When each review last asked where its change is now. */
@@ -678,6 +686,7 @@ export class Reviews {
     const startsAt = looked && looked.head === head ? looked.start : undefined
     // A change not built at its commit says why it waits, and how many are ahead of it.
     const turn = !known.phase && (stale || (head != null && !this.options.store.has(target, head))) ? this.turnOf(id, target) : undefined
+    const carriedFrom = assessment?.state === 'ready' ? assessment.summary?.carried : undefined
     // The ratings of the review that opens: of the commit it was built for, which they name, when the change moved on.
     const needs = this.needsOf(target, stale ? (this.opened.get(id)?.review.change.head ?? at) : at)
     return {
@@ -686,6 +695,7 @@ export class Reviews {
       stale,
       ...(turn ? { turn } : {}),
       ...(needs.length ? { needs } : {}),
+      ...(carriedFrom ? { carried: { from: carriedFrom.from, why: carriedFrom.why } } : {}),
       ...(assessment ? { assessment } : {}),
       ...(landing ? { landing } : {}),
       ...(mergeAsked ? { mergeAsked } : {}),
@@ -824,6 +834,7 @@ export class Reviews {
         ...(turn ? { turn } : {}),
         ...(outdated ? { outdated: { builtFor: builtFor! } } : {}),
         ...(needs.length ? { needs } : {}),
+        ...(known?.state === 'ready' && known.summary?.carried ? { carried: { from: known.summary.carried.from, why: known.summary.carried.why } } : {}),
         updatedAt: new Date(at).toISOString(),
       }
       return [{ item, at }]
@@ -2037,6 +2048,31 @@ export class Reviews {
     return [own, hobkins].filter((needs): needs is ReviewNeeds => needs != null)
   }
 
+  /**
+   * A change that moved keeps its review when it still holds at the new commit: carried there, its tests run once and
+   * no model asked. When it does not hold, or the carry fails, it is built again, and the log says why.
+   */
+  private carryOrBuild(id: string, target: ChangeTarget, head: string) {
+    if (this.carrying.has(id)) return
+    this.carrying.add(id)
+    this.say(id, `Checking whether its review still holds at ${head.slice(0, 7)}.`)
+    const build = (why: string) => {
+      this.options.log?.(`Review ${id} at ${head.slice(0, 7)} is built again: ${why}`)
+      this.prepare(id)
+    }
+    void this.options.carry!(target, head)
+      .then(
+        (carried) => {
+          if (!carried.carried) return build(carried.why)
+          this.options.log?.(`Review ${id} carried from ${carried.from.slice(0, 7)} to ${head.slice(0, 7)}: ${carried.why}`)
+          this.say(id, `Carried from ${carried.from.slice(0, 7)}: ${carried.why}`)
+          this.set(id, { state: 'ready', phase: null, stale: false, head, preparedAt: new Date(this.now()).toISOString() })
+        },
+        (error: unknown) => build(`its carry failed: ${messageOf(error)}`),
+      )
+      .finally(() => this.carrying.delete(id))
+  }
+
   /** Why a change waits instead of being built by itself, and how many are ahead of it in its repository's line. */
   private turnOf(id: string, target: ReviewTarget): ReviewTurn | undefined {
     if (this.preparing(id)) return undefined
@@ -2066,7 +2102,8 @@ export class Reviews {
       if (own) return
       const newest = store.newest(target)
       const moved = head ? !store.has(target, head) : updatedAt ? Date.parse(updatedAt) > (newest?.at ?? 0) : false
-      if (!newest || moved) this.prepare(id)
+      if (newest && moved && head && target.kind === 'change' && this.options.carry) this.carryOrBuild(id, target, head)
+      else if (!newest || moved) this.prepare(id)
       else if (target.kind === 'change' && head && this.assessmentDue(target, head)) {
         // Never started at this commit, or cut short by a quit or a crash: it starts, once.
         const stored = store.read(target, head)

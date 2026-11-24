@@ -6,8 +6,9 @@ import { test, type TestContext } from 'node:test'
 import type { AssessmentSummary } from '#shared/review/assessment.ts'
 import type { Review } from '#shared/review/types.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
-import { assessmentFolder } from '../src/review/assessment.ts'
+import { assessmentFolder, Assessments } from '../src/review/assessment.ts'
 import { carryReview, type TestRun } from '../src/review/carry.ts'
+import { Reviews } from '../src/review/reviews.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
 
@@ -134,6 +135,35 @@ test('commits of specs or docs alone carry the review and say so', async (t) => 
   // Code on top is no carry.
   const coded = project.commitOnBranch({ 'src/other.js': 'export const other = 3\n' })
   assert.deepEqual(await carrier(project).carry(coded), { carried: false, why: 'Its code changed since the commit it was built for.' })
+})
+
+test('the background carries a change that moved in the line instead of building it again, and the review says it was carried and from where', async (t) => {
+  const project = reviewed(t)
+  const head = project.rebaseOnto({ 'src/other.js': 'export const other = 2\n' })
+  const { carry } = carrier(project)
+  const reads: string[] = []
+  const assessments = new Assessments({ root: project.root, run: async () => Promise.reject(new Error('no model is asked')), repoOf: () => project.repo })
+  const reviews = new Reviews({
+    store: project.store,
+    sources: {
+      change: { head: async () => head, read: async (_target, at) => (reads.push(at), Promise.reject(new Error('not built here'))) },
+      pull: { head: async () => null, read: async () => Promise.reject(new Error('no')) },
+    },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    head: () => head,
+    assessments,
+    carry: (_target, at) => carry(at),
+  })
+  t.after(() => reviews.close())
+
+  reviews.watch([{ id: 'change:shop:4c9e21', head, project: 'Shop' }])
+  for (let turn = 0; turn < 100 && !project.store.has(TARGET, head); turn += 1) await new Promise((resolve) => setTimeout(resolve, 20))
+
+  assert.deepEqual(reads, [], 'nothing was built again')
+  const status = reviews.status('change:shop:4c9e21')
+  assert.deepEqual([status.state, status.stale, status.carried?.from], ['ready', false, project.built])
+  assert.equal(reviews.list().reviews.find((row) => row.id === 'change:shop:4c9e21')?.carried?.from, project.built)
 })
 
 function readHeadOf(repo: string, ref: string): string {
