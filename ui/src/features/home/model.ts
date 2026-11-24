@@ -1,4 +1,3 @@
-import { catalogMatch } from '#shared/integrations/servers.ts'
 import { remindersOf, type ReminderOccurrence } from '#shared/protocol/reminders.ts'
 import type { ConfiguredServer } from '#shared/integrations/types.ts'
 import type { GitHubConnection, GitHubPull } from '#shared/protocol/github.ts'
@@ -100,11 +99,6 @@ function waitingAction(item: WaitingRow, change: FinishedChange | undefined): Ho
   return open(target, 'Decide')
 }
 
-/** One name for a server: the catalog's, for a service it knows, or the name in Pi's file. */
-function serverName(server: ConfiguredServer): string {
-  return catalogMatch(server)?.name ?? server.name
-}
-
 function needsOf(input: HomeInput): Need[] {
   const needs: Need[] = []
   const { question } = input
@@ -168,7 +162,7 @@ function needsOf(input: HomeInput): Need[] {
   for (const server of input.integrations?.servers.filter(server => server.state === 'sign-in') ?? []) {
     needs.push(need('connection', {
       id: `connection:${server.name}`,
-      title: `Sign in to ${serverName(server)}`,
+      title: `Sign in to ${server.name}`,
       detail: 'hobkin cannot use it until you sign in.',
       tone: 'warn',
       target: screen('integrations'),
@@ -306,7 +300,7 @@ function problemsOf(input: HomeInput): HomeRow[] {
     .filter(server => server.state === 'failed')
     .map(server => row({
       id: `connection:${server.name}`,
-      title: `${serverName(server)} could not connect`,
+      title: `${server.name} could not connect`,
       detail: server.error,
       tone: 'bad',
       target: screen('integrations'),
@@ -428,13 +422,12 @@ function connectionsOf(input: HomeInput): HomeModel['connections'] {
     })
   }
   for (const server of input.integrations?.servers ?? []) {
-    const entry = catalogMatch(server)
     tiles.push({
       key: server.name,
-      name: entry?.name ?? server.name,
+      name: server.name,
       ...SERVER[server.state],
       note: serverNote(server),
-      mark: entry ? serviceMark(entry.id) : ownMark(server.name),
+      mark: ownMark(server.name),
       target: screen('integrations'),
     })
   }

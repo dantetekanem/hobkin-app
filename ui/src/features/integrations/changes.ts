@@ -1,8 +1,5 @@
-import { buildEntry, fillProblems, withEnabled } from '#shared/integrations/entry.ts'
-import { freeName } from '#shared/integrations/servers.ts'
-import type { CatalogEntry, ConfiguredServer, ServerTool } from '#shared/integrations/types.ts'
-
-export { fillProblems }
+import { withEnabled } from '#shared/integrations/entry.ts'
+import type { ConfiguredServer, ServerTool } from '#shared/integrations/types.ts'
 
 /**
  * What each action on the Integrations screen does to the list of configured servers, on sample data, for a window
@@ -12,32 +9,6 @@ export { fillProblems }
 
 /** Where a connection lands once Pi has reached the server. */
 export type Outcome = 'connected' | 'sign-in'
-
-type Values = Readonly<Record<string, string>>
-
-/**
- * Adds a catalog service, connecting, under a name no other server has, with what the person filled in
- * written into its entry. Null when Pi cannot use the service or a fill is missing or wrong.
- */
-export function begin(servers: readonly ConfiguredServer[], entry: CatalogEntry, values: Values): { servers: ConfiguredServer[]; name: string } | null {
-  const built = entry.usable ? buildEntry(entry, values) : null
-  if (!built) return null
-  const name = freeName(
-    entry.id,
-    servers.map((server) => server.name),
-  )
-  return { name, servers: [...servers, { name, entry: built, state: 'connecting', tools: [], error: null }] }
-}
-
-/** A service that signs in through the browser asks for it once Pi reaches it. One that reads a key from the environment is connected. */
-export function outcomeOf(entry: CatalogEntry): Outcome {
-  return entry.connect.kind === 'oauth' ? 'sign-in' : 'connected'
-}
-
-/** The tools the maker's page names, as a connected server reports them. */
-export function toolsOf(entry: CatalogEntry | null): ServerTool[] {
-  return (entry?.tools ?? []).map(({ name, does, effect }) => ({ name, does, effect }))
-}
 
 function change(servers: readonly ConfiguredServer[], name: string, when: (server: ConfiguredServer) => boolean, next: (server: ConfiguredServer) => ConfiguredServer): ConfiguredServer[] {
   const at = servers.findIndex((server) => server.name === name)
@@ -75,7 +46,7 @@ export function turnOn(servers: readonly ConfiguredServer[], name: string): Conf
   return change(servers, name, (server) => server.state === 'off', (server) => ({ ...server, entry: withEnabled(server.entry, true), state: 'connecting' }))
 }
 
-/** The entry is deleted. A catalog service goes back to the catalog. */
+/** The entry is deleted. */
 export function remove(servers: readonly ConfiguredServer[], name: string): ConfiguredServer[] {
   return servers.filter((server) => server.name !== name)
 }

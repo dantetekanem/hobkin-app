@@ -675,9 +675,9 @@ test('connections show gh and each Pi server, and a server waiting for sign-in n
   assert.equal(model.connections.tiles[3]?.note, 'Timed out')
   assert.equal(model.connections.summary, '2 connected · 1 needs sign-in · 1 failing')
   const need = model.needs.rows.find(row => row.kind === 'connection')
-  assert.equal(need?.title, 'Sign in to Stripe')
+  assert.equal(need?.title, 'Sign in to stripe')
   assert.deepEqual(need?.action.target, { to: 'screen', screen: 'integrations' })
-  assert.ok(model.problems.rows.some(row => row.title === 'Sentry could not connect' && row.detail === 'Timed out'))
+  assert.ok(model.problems.rows.some(row => row.title === 'sentry could not connect' && row.detail === 'Timed out'))
   assert.deepEqual(homeModel(input()).connections, { known: false, tiles: [], summary: null })
 })
 

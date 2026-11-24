@@ -1,37 +1,15 @@
-import type { CatalogEntry, ConfiguredServer, Split } from '#shared/integrations/types.ts'
+import type { ConfiguredServer } from '#shared/integrations/types.ts'
 
 /**
- * What the screen draws of the MCP servers: one item per tile, in the three parts. An item's key stays the same while
- * it moves between the catalog and the connected part, so its tile can travel from one to the other. GitHub is not
- * one of them: it is a full integration, with a card of its own.
+ * What the screen draws of the MCP servers: one item per tile, in the order of Pi's file. A full integration is not
+ * one of them: its window part draws a card of its own.
  */
-export type Item =
-  | { kind: 'service'; key: string; entry: CatalogEntry; server: ConfiguredServer | null }
-  | { kind: 'own'; key: string; server: ConfiguredServer }
-
-export interface Items {
-  connected: Item[]
-  available: Item[]
-  own: Item[]
+export interface Item {
+  /** The server's name: it is the one thing that stays the same while the server changes state. */
+  key: string
+  server: ConfiguredServer
 }
 
-/** Keys of the person's own servers carry a mark of their own, so a server called `linear` is never taken for the catalog's Linear. */
-export const OWN = 'own~'
-
-export function itemsOf(split: Split): Items {
-  const seen = new Set<string>()
-  return {
-    connected: split.connected.map(({ entry, server }) => {
-      // The first server of a service has the service's own key, the one its catalog tile had. Another one for the same service gets its name added.
-      const key = seen.has(entry.id) ? `${entry.id}~${server.name}` : entry.id
-      seen.add(entry.id)
-      return { kind: 'service', key, entry, server }
-    }),
-    available: split.available.map((entry) => ({ kind: 'service', key: entry.id, entry, server: null })),
-    own: split.own.map((server) => ({ kind: 'own', key: `${OWN}${server.name}`, server })),
-  }
-}
-
-export function allItems(items: Items): Item[] {
-  return [...items.connected, ...items.available, ...items.own]
+export function itemsOf(servers: readonly ConfiguredServer[]): Item[] {
+  return servers.map((server) => ({ key: server.name, server }))
 }

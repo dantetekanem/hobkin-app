@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { CATALOG } from '#shared/integrations/catalog.ts'
-import { serviceMark } from '../src/features/integrations/marks.ts'
+import { setWindowParts } from '../src/integration/registry.ts'
+import { ownMark, serviceMark } from '../src/features/integrations/marks.ts'
 
-test('GitHub keeps its mark outside the MCP catalog, and no catalog service takes its hue', () => {
-  const github = serviceMark('github')
-  assert.deepEqual(github, { symbol: 'Gh', hue: 162 })
-  for (const entry of CATALOG) assert.notEqual(serviceMark(entry.id).hue, github.hue, entry.id)
+test('a full integration has the mark its window part sets, and an MCP server has the one its name gives', () => {
+  try {
+    setWindowParts([{ manifest: { id: 'acme' }, unknown: null, sample: () => null, mark: { symbol: 'Ac', hue: 40 } } as never])
+    assert.deepEqual(serviceMark('acme'), { symbol: 'Ac', hue: 40 })
+    assert.deepEqual(serviceMark('notes'), ownMark('notes'))
+    assert.equal(ownMark('notes').symbol, 'No')
+    assert.equal(ownMark('notes').hue, ownMark('notes').hue, 'the same name keeps the same hue')
+  } finally {
+    setWindowParts([])
+  }
 })

@@ -1,18 +1,15 @@
-import { AppWindow, Ban, CircleAlert, Globe, KeyRound, LoaderCircle, LogIn, MapPin, Power, SquareTerminal, type LucideIcon } from 'lucide-react'
+import { CircleAlert, Globe, LoaderCircle, LogIn, Power, SquareTerminal, type LucideIcon } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { useEffect, useState, type ReactNode } from 'react'
 import { targetOf } from '#shared/integrations/servers.ts'
-import type { CatalogEntry, ConfiguredServer } from '#shared/integrations/types.ts'
+import type { ConfiguredServer } from '#shared/integrations/types.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import type { Item } from './items.ts'
-import { ownMark, serviceMark } from './marks.ts'
+import { ownMark } from './marks.ts'
 import { sampleRoutines } from './sample-data.ts'
 import { ServiceMark } from './ServiceMark.tsx'
-
-type ServiceItem = Extract<Item, { kind: 'service' }>
-type OwnItem = Extract<Item, { kind: 'own' }>
 
 /** True when the app should not move: Movement is Still, or it follows a Mac that asks for less. Pulses and blur are off then. */
 export function useStill(): boolean {
@@ -146,16 +143,6 @@ function Now({ server, using, live, routinesOf }: { server: ConfiguredServer; us
   )
 }
 
-/** How a service in the catalog connects, in a few words. */
-export function hintOf(entry: CatalogEntry): { icon: LucideIcon; text: string } {
-  if (!entry.usable) return { icon: Ban, text: 'Pi cannot use it yet' }
-  if (entry.connect.kind === 'header') return { icon: KeyRound, text: 'Needs a key' }
-  if (entry.connect.kind === 'command') return { icon: SquareTerminal, text: 'Runs on this Mac' }
-  if (entry.connect.env.length > 0) return { icon: AppWindow, text: 'Needs an app of your own' }
-  if (entry.connect.fills.length > 0) return { icon: MapPin, text: 'Needs its address' }
-  return { icon: LogIn, text: 'Signs in' }
-}
-
 // The keyboard's ring is drawn inside the tile, because the tile clips what it holds while it changes size in flight.
 const TILE_BUTTON =
   'flex w-full gap-3 rounded-[22px] text-left -outline-offset-2 scroll-mt-[124px] scroll-mb-6 transition-transform duration-[140ms] ease-out hover:bg-surface-2/50 active:scale-[0.985]'
@@ -167,7 +154,7 @@ function TileBody({ itemKey, children, className }: { itemKey: string; children:
       layout
       layoutId={`svc-${itemKey}`}
       transition={spring.screen}
-      // Only a tile that leaves for good plays this: one of the person's own servers, removed.
+      // Only a tile that leaves for good plays this: a server that is removed.
       exit={{ opacity: 0, transform: 'translateY(10px) scale(0.96)', transition: tween.exit }}
       style={{ borderRadius: 22 }}
       className={cn('overflow-hidden bg-background', className)}
@@ -186,48 +173,8 @@ interface TileProps<Of> {
   onOpen: (key: string) => void
 }
 
-/** A catalog service: compact while it waits in the catalog, fuller once it is configured. */
-export function ServiceTile({ item, live, still, onOpen }: TileProps<ServiceItem>) {
-  const { key, entry, server } = item
-  // The pulse of a tool in use is sample life, so a live tile stays quiet until the host reports real calls.
-  const using = useBusy(server, still || live)
-  const hint = hintOf(entry)
-
-  return (
-    <TileBody itemKey={key}>
-      <button
-        type="button"
-        data-key-stop=""
-        data-tile={key}
-        aria-label={`${entry.name}, ${server ? stateText(server) : `not connected. ${hint.text}`}`}
-        onClick={() => onOpen(key)}
-        className={cn(TILE_BUTTON, server ? 'items-start p-4' : 'items-center p-3')}
-      >
-        <ServiceMark look={serviceMark(entry.id)} size={server ? 44 : 36} layoutId={`mark-${key}`} busy={using !== null} />
-        <motion.span layout="position" transition={spring.screen} className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="min-w-0 flex-1 truncate font-heading text-[15px] leading-tight font-semibold tracking-[-0.015em]">{entry.name}</span>
-            {server ? <StateChip server={server} /> : null}
-          </span>
-          {server ? (
-            <>
-              <span className="mt-0.5 block truncate text-[13px] text-muted-foreground">{entry.line}</span>
-              <Now server={server} using={using} live={live} routinesOf={entry.id} />
-            </>
-          ) : (
-            <span className={cn('mt-0.5 flex items-center gap-1 text-[12px]', entry.usable ? 'text-muted-foreground' : 'text-warn-fg')}>
-              <hint.icon className="size-3.5 shrink-0" aria-hidden="true" />
-              <span className="truncate">{hint.text}</span>
-            </span>
-          )}
-        </motion.span>
-      </button>
-    </TileBody>
-  )
-}
-
-/** A server the person added themselves: its name, where it lives, its state and tools, and its last error. */
-export function OwnTile({ item, live, still, onOpen }: TileProps<OwnItem>) {
+/** A server in Pi's configuration: its name, where it lives, its state and tools, and its last error. */
+export function ServerTile({ item, live, still, onOpen }: TileProps<Item>) {
   const { key, server } = item
   const using = useBusy(server, still || live)
   const target = targetOf(server.entry)
@@ -239,7 +186,7 @@ export function OwnTile({ item, live, still, onOpen }: TileProps<OwnItem>) {
         type="button"
         data-key-stop=""
         data-tile={key}
-        aria-label={`${server.name}, your own ${target.kind === 'remote' ? 'remote server' : 'local command'}, ${stateText(server)}`}
+        aria-label={`${server.name}, ${target.kind === 'remote' ? 'remote server' : 'local command'}, ${stateText(server)}`}
         onClick={() => onOpen(key)}
         className={cn(TILE_BUTTON, 'items-start p-4')}
       >

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from 'react'
-import type { CatalogEntry, ConfiguredServer } from '#shared/integrations/types.ts'
+import type { ConfiguredServer } from '#shared/integrations/types.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import { runCommand, useHasHost, useHost } from '@/lib/host/index.ts'
 import { shouldLookAtServers, shownServers } from './source.ts'
@@ -23,7 +23,6 @@ export function useServers(): Servers {
 
 /** What the screen can do. Each rejects with the reason it did not happen, in words the screen shows. */
 export interface IntegrationActions {
-  connect(entry: CatalogEntry, values: Record<string, string>): Promise<void>
   signIn(name: string): Promise<void>
   retry(name: string): Promise<void>
   turnOff(name: string): Promise<void>
@@ -35,9 +34,6 @@ export interface IntegrationActions {
 
 /** On sample data the actions change the screen's own store, so each can be seen before a host is there. */
 const sampleActions: IntegrationActions = {
-  connect: async (entry, values) => {
-    if (!useIntegrations.getState().connect(entry, values)) throw Error(`${entry.name} could not be added.`)
-  },
   signIn: async (name) => useIntegrations.getState().signIn(name),
   retry: async (name) => useIntegrations.getState().retry(name),
   turnOff: async (name) => useIntegrations.getState().turnOff(name),
@@ -51,9 +47,6 @@ const sampleActions: IntegrationActions = {
  * the host then reports. Signing in happens in a terminal, with `pi mcp login`, so here it means looking again.
  */
 const hostActions: IntegrationActions = {
-  connect: async (entry, values) => {
-    await runCommand('integrations.add', { service: entry.id, ...(Object.keys(values).length > 0 ? { values } : {}) })
-  },
   signIn: async () => {
     await runCommand('integrations.refresh')
   },
