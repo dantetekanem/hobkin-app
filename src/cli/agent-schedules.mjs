@@ -27,7 +27,6 @@ export const NO_END = 'none';
 export const TIMEOUT_MS = 2 * MINUTE;
 export const SHORTEST_TIMEOUT_MS = 5000;
 export const LONGEST_TIMEOUT_MS = 10 * MINUTE;
-export const MOST_RUNS = 1440;
 // How many times a schedule wakes its agent when the agent says nothing. It may say any number, or none for no cap.
 export const DEFAULT_WAKES = 12;
 /** A schedule's cap on wakes: its own, null for none, or the default for one stored before schedules had their own. */
@@ -130,7 +129,8 @@ function timing({ every: everyAsked, expiresIn, timeoutMs, maxRuns, maxWakes, pe
   if (!Number.isInteger(timeout) || timeout < SHORTEST_TIMEOUT_MS || timeout > LONGEST_TIMEOUT_MS) {
     return refuse('Give timeoutMs from 5000 to 600000, which is 5 seconds to 10 minutes.');
   }
-  if (maxRuns !== undefined && (!Number.isInteger(maxRuns) || maxRuns < 1 || maxRuns > MOST_RUNS)) return refuse(`Give maxRuns from 1 to ${MOST_RUNS}.`);
+  // As many runs as its agent caps it at, with no most, and no cap unless it says one.
+  if (maxRuns !== undefined && (!Number.isInteger(maxRuns) || maxRuns < 1)) return refuse('maxRuns is a number of runs from 1. Without it, there is no cap on runs.');
   const capped = Number.isInteger(maxWakes) && maxWakes >= 1;
   if (maxWakes !== undefined && maxWakes !== NO_END && !capped) {
     return refuse(`maxWakes is a number of wakes from 1, or ${NO_END} for no cap. Without it, ${DEFAULT_WAKES}.`);

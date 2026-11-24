@@ -152,3 +152,11 @@ test('a span of days reads in days, so a schedule of three days reads "3 days", 
   assert.equal(week.endedWhy, 'its 7 days ran out');
   assert.match(scheduledText(make({ every: '1d', note: 'Look.', expiresIn: '3d' }), main), /, then every 1 day, and it ends by/);
 });
+
+test('a schedule runs as many times as its agent caps it at, with no most, and with no cap when it says nothing', () => {
+  const plain = { every: '1m', note: 'Look at the job.', expiresIn: 'none', maxWakes: 'none' };
+  assert.equal(make({ ...plain, maxRuns: 5000 }).maxRuns, 5000);
+  assert.equal(make(plain).maxRuns, undefined, 'no cap unless it says one');
+  assert.match(ask({ ...plain, maxRuns: 0 }).refused, /maxRuns is a number of runs from 1/);
+  assert.match(ask({ ...plain, maxRuns: 2.5 }).refused, /maxRuns is a number of runs from 1/);
+});

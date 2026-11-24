@@ -7,7 +7,7 @@ Schedule something for yourself: a shell command hobkin runs on a timer, or a pl
 - `wakeOn` (a command only): `change` (the default when it repeats; its first run only sets what to compare with), `failure`, `success`, `always` (the default when it fires once) or `never`.
 - `stopOn` (a repeating command only): `success` or `failure` ends it on the first run that passes or fails. Default `never`.
 - `pendingExit`: up to 4 exit codes that mean "not yet, look again". Such a run wakes you for nothing, stops nothing and is no failure.
-- `maxRuns`: at most this many runs, up to 1440. `expiresIn`: its lifetime, `2h` unless you say, any duration such as `3d`, or `none` for no end. `maxWakes`: the most times it wakes you, `12` unless you say, or `none`.
+- `maxRuns`: at most this many runs, no cap unless you say. `expiresIn`: its lifetime, `2h` unless you say, any duration such as `3d`, or `none` for no end. `maxWakes`: the most times it wakes you, `12` unless you say, or `none`.
 - `timeoutMs`: how long one run may take, 5000 to 600000, 120000 unless you say. hobkin ends a run that takes longer, and it counts as a failure.
 - `name`: a few words the user sees in the window, such as "Watch CI for #412".
 
