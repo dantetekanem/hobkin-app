@@ -111,6 +111,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
         ) : null}
         <StackButton stack={stack} />
       </div>
+      <StackLine stack={stack} />
       {/* Under the commits it shows, every review keeps a place for a carry, so nothing moves when one is said. */}
       <Carried status={preparation} />
       {pull && described ? (
@@ -124,7 +125,6 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
           )}
         </div>
       ) : null}
-      <StackLine stack={stack} />
       <Outdated review={review} preparation={preparation} live={live} rebuild={rebuild} />
     </header>
   )
