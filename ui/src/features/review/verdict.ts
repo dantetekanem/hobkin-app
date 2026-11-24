@@ -39,7 +39,7 @@ interface VerdictOptions {
   command: VerdictCommands
   saveNotes: () => Promise<void>
   current: () => boolean
-  done?: (verdict: Verdict, message: string) => void | Promise<void>
+  done?: (verdict: Verdict, message: string) => void | Promise<unknown>
   failed?: (verdict: Verdict, reason: string) => Promise<boolean>
 }
 
@@ -209,7 +209,7 @@ export function verdictKind(id: string): 'change' | 'pull' {
 interface VerdictChoicesOptions extends Omit<VerdictOptions, 'done'> {
   comments?: () => string[]
   markSent?: (ids: readonly string[]) => void
-  landed?: (verdict: Verdict, message: string) => void | Promise<void>
+  landed?: (verdict: Verdict, message: string) => void | Promise<unknown>
 }
 
 export function createVerdictChoices({ comments = () => [], markSent = () => {}, landed, ...options }: VerdictChoicesOptions) {

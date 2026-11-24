@@ -17,6 +17,9 @@ import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { NeedNumbers } from '@/features/review/panel/needs.ts'
 import { buildButton, canReviewAgain, canReviewNow, groupReviews, nothingChanged, repoLinesOf, reviewToOpen, REVIEW_ORDERS, type PriorityOf, type RepoLine, type ReviewGroup, type ReviewRow } from './ai-reviews.ts'
+import { offersStory, sortStory, stackLookup, waitingRows } from './review-story.ts'
+import { useStory } from './story-store.ts'
+import { useWorkView } from './store.ts'
 import { DeployWhy, GradeChip, ReviewBadge, ReviewProgress, SectionHeading, Segmented } from './parts.tsx'
 import { useReviewOrder } from './review-order.ts'
 import { ACTION_LABEL, createReviewAgain, createRowActions, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
@@ -48,6 +51,9 @@ export function AiReviews({ live, reviews, priorityOf }: {
   const order = useReviewOrder((state) => state.order)
   const groups = useMemo(() => groupReviews(reviews.list, { order, priorityOf }), [reviews.list, order, priorityOf])
   const lines = useMemo(() => repoLinesOf(reviews.list, priorityOf), [reviews.list, priorityOf])
+  const { work } = useWorkView()
+  const waiting = useMemo(() => waitingRows(groups, lines), [groups, lines])
+  const stackOf = useMemo(() => stackLookup((work?.finished ?? []).flatMap((group) => group.changes)), [work])
   const shown = GROUPS.filter(({ group }) => groups[group].length > 0)
   const none = shown.length === 0 && lines.length === 0
 
@@ -63,12 +69,33 @@ export function AiReviews({ live, reviews, priorityOf }: {
           Reading the reviews…
         </p>
       ) : null}
+      {live && offersStory(waiting) ? <StoryOffer count={waiting.length} onStart={() => startStory(sortStory(waiting, stackOf))} /> : null}
       {reviews.list && none ? <NoReviews /> : null}
       {lines.length > 0 ? <RepoLines lines={lines} live={live} onAgain={reviews.refresh} /> : null}
       {shown.map(({ group, label }, index) => (
         // The order switch sits on the first heading, so it is always at the top of the list, whichever group that is.
         <Group key={group} label={label} rows={groups[group]} live={live} onAgain={reviews.refresh} tools={index === 0 ? <OrderSwitch /> : null} />
       ))}
+    </div>
+  )
+}
+
+/** Opens the first review of the story, whose order is fixed now (spec 064). */
+function startStory(queue: readonly ReviewRow[]) {
+  const first = useStory.getState().start(queue.map((row) => row.item.id))
+  if (first) useView.getState().openReviewFor(first)
+}
+
+/** The offer to go through the reviews waiting on the user one by one: one quiet line at the top of the list. */
+function StoryOffer({ count, onStart }: { count: number; onStart: () => void }) {
+  return (
+    <div className="-mb-4 flex min-h-9 items-center gap-3 px-1">
+      <p className="min-w-0 flex-1 text-[14px] leading-snug text-muted-foreground tabular-nums">
+        {count} changes wait for you. Go through them one by one, easiest first?
+      </p>
+      <Button variant="outline" size="sm" data-stop="" onClick={onStart} className="shrink-0">
+        Start
+      </Button>
     </div>
   )
 }

@@ -1,4 +1,6 @@
+import type { FinishedChange } from '#shared/protocol/work.ts'
 import { deployOf } from '#shared/review/assessment.ts'
+import { layerReviewId } from '../review/stack-strip.ts'
 import { GRADE_ORDER } from './projects.ts'
 import type { RepoLine, ReviewGroups, ReviewRow } from './ai-reviews.ts'
 
@@ -15,6 +17,15 @@ export type StackOf = (row: ReviewRow) => { id: string; layer: number } | null
 
 /** Every review waiting on the user, in the list's order: ready, then running, then those waiting their turn under a repository's line. */
 export const waitingRows = (groups: ReviewGroups, lines: readonly RepoLine[]): ReviewRow[] => [...groups.ready, ...groups.running, ...lines.flatMap(({ waiting }) => waiting)]
+
+/** Where a review stands in its stack, read from the finished changes: by the review a layer opens. */
+export function stackLookup(changes: readonly FinishedChange[]): StackOf {
+  const places = new Map<string, { id: string; layer: number }>()
+  for (const change of changes) {
+    if (change.stack) places.set(layerReviewId(change), { id: change.stack.id, layer: change.stack.layer })
+  }
+  return (row) => places.get(row.item.id) ?? null
+}
 
 export const offersStory = (rows: readonly ReviewRow[]): boolean => rows.length >= STORY_FROM
 

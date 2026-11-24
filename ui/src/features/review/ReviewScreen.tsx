@@ -22,6 +22,8 @@ import { Hob } from '@/avatar/Hob.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Dock, Notice } from './Chrome.tsx'
 import { clampShare, CodePanel, PANEL_SHARE, panelKey } from './code/CodePanel.tsx'
+import { useStory } from '@/features/work/story-store.ts'
+import { useStoryGone } from '@/features/work/use-story-waiting.ts'
 import { DevTools } from './dev/DevTools.tsx'
 import { useDev } from './dev/dev.ts'
 import { EntranceContext } from './graph/entrance.tsx'
@@ -96,6 +98,9 @@ export function ReviewScreen() {
   const closeReview = useView((view) => view.closeReview)
   const home = useHost((state) => state.home)
   const live = Boolean(home) && !SAMPLE_REVIEWS.includes(reviewId ?? 'sample')
+  // Leaving the review for the list, an Escape or another screen without a verdict ends the story (spec 064).
+  const onReview = useView((view) => view.screen === 'review')
+  useEffect(() => () => useStory.getState().left(reviewId ?? ''), [reviewId, onReview])
   const loader = useMemo(() => {
     const id = reviewId ?? 'sample'
     const scope = live ? `host:${home}` : 'sample'
@@ -230,15 +235,24 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
       here.current = false
     }
   }, [])
+  // A story goes on to its next review once a verdict closed this one, with no click (spec 064).
+  const gone = useStoryGone(live)
+  const goneNow = useRef(gone)
+  goneNow.current = gone
   const landed = useMemo(
-    () => (done: Verdict, message: string) =>
-      afterVerdict(done, message, {
+    () => async (done: Verdict, message: string) => {
+      useStory.getState().landed(review.id)
+      const closed = await afterVerdict(done, message, {
         kind: verdictKind(review.id),
         here: () => here.current,
         close: () => here.current && close(),
         celebrate: (kind, words) => celebrate({ kind, message: words }),
         landing: loader.look,
-      }),
+      })
+      if (!closed) return
+      const next = useStory.getState().next((id) => goneNow.current(id))
+      if (next) useView.getState().openReviewFor(next)
+    },
     [close, loader, review.id],
   )
   const graph = useRef<HTMLDivElement>(null)

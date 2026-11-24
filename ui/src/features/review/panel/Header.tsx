@@ -15,6 +15,7 @@ import { usePullPeople } from '../use-people.ts'
 import { ByLineNames } from './ByLine.tsx'
 import { carriedLine, outdatedNotice } from './outdated.ts'
 import { StackStrip } from './StackStrip.tsx'
+import { StoryPlace } from './StoryPlace.tsx'
 import { headerBadge, type HeaderBadge, type HeaderFix } from './sidebar.ts'
 
 /**
@@ -75,6 +76,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
             place
           )}
         </p>
+        <StoryPlace onStop={onClose} />
         <QuietButton label="Hide the panel" keys="S" onClick={onHide}>
           <ChevronsLeft />
         </QuietButton>
