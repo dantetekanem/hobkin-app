@@ -2,8 +2,9 @@
  * The line of each repository's reviews (spec 058): which finished changes the background keeps reviewed at the commit
  * they are at, and, for each other one, how many are ahead of it and why it waits. A repository keeps a few current,
  * three unless the workload says otherwise, and never more. The line is Work's order with P0 work first; of its places,
- * at most one goes to the change that has waited longest past two days, so none waits for ever and a home full of old
- * changes still builds only its few. A change that conflicts, is being brought up to date to merge, or
+ * at most one goes to the change that has waited longest past two days since it finished and has no review at its
+ * commit; once that review is built the place passes to the next, so each is reviewed once in time, one at a time, and
+ * a home full of old changes still builds only its few. A change that conflicts, is being brought up to date to merge, or
  * that an agent works on again is not in the line, and says why. What the user asks for is not in here at all: it is
  * always built, and pushes nothing out. Pure, and worked out again from what is there on every look, so a host that
  * reloads its code loses nothing.
@@ -25,8 +26,10 @@ export interface LineChange {
   refreshing?: boolean
   /** An agent works on it again. */
   atWork?: boolean
-  /** When it finished, or hobkin last wrote it, as an ISO time. */
+  /** When it finished, as an ISO time: its clock for the longest wait. */
   at?: string
+  /** It has a review at the commit it is at, so the place for the longest wait passes on. */
+  reviewed?: boolean
 }
 
 export interface Line {
@@ -71,9 +74,9 @@ export function lineOf(changes: readonly LineChange[], { keep = KEPT_CURRENT, no
       else inLine.push(change)
     }
     const urgent = inLine.filter((change) => change.grade === 'P0')
-    // The one that waited longest past two days takes one place, the rest follow Work's order.
+    // The one that waited longest past two days with no review at its commit takes one place; the rest follow Work's order.
     const longest = inLine
-      .filter((change) => change.grade !== 'P0' && waitedTooLong(change, now))
+      .filter((change) => change.grade !== 'P0' && !change.reviewed && waitedTooLong(change, now))
       .reduce<LineChange | undefined>((oldest, change) => (!oldest || Date.parse(change.at!) < Date.parse(oldest.at!) ? change : oldest), undefined)
     const rest = inLine.filter((change) => !urgent.includes(change) && change !== longest)
     const ordered = [...urgent, ...(longest ? [longest] : []), ...rest]

@@ -307,6 +307,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     ...(CARRIES_REVIEWS && carry ? { carry } : {}),
     keepCurrent,
     backAtWork,
+    finishedAt: finishTimes(repoOf, seat.log),
     reviewsADay,
     dayLedger,
     closed,
@@ -443,6 +444,28 @@ function keepCleaning(
   first.unref()
   every.unref()
   cleaning.set(seat.root, { first, every })
+}
+
+/**
+ * When each change finished, for its line's clock: when its head commit was written, as git says. Each commit is read
+ * once, in the background, and kept; until it is known the line goes by hobkin's own time, as before.
+ */
+export function finishTimes(repoOf: (slug: string) => string | null, log?: (line: string) => void) {
+  const known = new Map<string, string | null>()
+  return (target: Extract<ReviewTarget, { kind: 'change' }>, head: string | null): string | null => {
+    if (!head) return null
+    const key = `${target.slug}\n${head}`
+    if (known.has(key)) return known.get(key) ?? null
+    known.set(key, null)
+    const repo = repoOf(target.slug)
+    if (repo) {
+      gitIn(repo, 'log', '-1', '--format=%aI', head).then(
+        (at) => known.set(key, Number.isFinite(Date.parse(at)) ? at : null),
+        (error: unknown) => log?.(`Reviews: when ${target.slug} ${head.slice(0, 7)} finished could not be read, so its line goes by hobkin's time: ${error instanceof Error ? error.message : String(error)}`),
+      )
+    }
+    return null
+  }
 }
 
 /** The quick tier, as the grammar check asks it: the model the blind check runs on. */

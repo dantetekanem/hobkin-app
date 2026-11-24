@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { reviewIdOf } from '#shared/review/ids.ts'
 import type { Review } from '#shared/review/types.ts'
 import { Reviews, type Watched } from '../src/review/reviews.ts'
+import { finishTimes } from '../src/review/seat.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { lineOf, type LineChange } from '../src/review/turns.ts'
 import { temporaryDirectory } from './support.ts'
@@ -68,6 +72,25 @@ test('four P0 changes: three are built and the fourth waits its turn first in li
   assert.equal(line.waits.get('change:shop:c5')?.ahead, 4)
 })
 
+test('every change past two days is reviewed once in time, one at a time: the place passes on once its review is built', () => {
+  // Twenty changes that all finished days ago, c20 the longest ago.
+  const changes = finished(20, (index) => ({ at: new Date(NOW - (60 + index) * HOUR).toISOString() }))
+  const reviewed = new Set<string>()
+  const taken: string[] = []
+  for (let day = 0; day < 20; day += 1) {
+    const line = lineOf(changes.map((change) => ({ ...change, reviewed: reviewed.has(change.id) })), { now: NOW })
+    const longest = [...line.current].find((id) => !['change:shop:c1', 'change:shop:c2'].includes(id))
+    if (longest) {
+      taken.push(longest)
+      reviewed.add(longest)
+    }
+  }
+
+  assert.equal(new Set(taken).size, 18, 'each of the other eighteen in turn')
+  assert.equal(taken[0], 'change:shop:c20')
+  assert.equal(taken[1], 'change:shop:c19')
+})
+
 test('the number kept current is the workload’s when it is a whole number, else three', () => {
   assert.equal(lineOf(finished(6), { now: NOW, keep: 5 }).current.size, 5)
   for (const keep of [0, -1, 2.5, Number.NaN]) assert.equal(lineOf(finished(6), { now: NOW, keep }).current.size, 3, String(keep))
@@ -79,7 +102,7 @@ const sha = (index: number, round = 0) => `${String(round)}${index.toString(16).
 const watchedChanges = (count: number, round = 0): Watched[] => Array.from({ length: count }, (_, index) => ({ id: `change:shop:c${index + 1}`, head: sha(index + 1, round), project: 'Shop', grade: null, conflict: false, at: new Date().toISOString() }))
 
 /** A host whose change source records each change whose review starts, and holds each start until it is let go. */
-function background(t: TestContext, { held = false, backAtWork = () => false }: { held?: boolean; backAtWork?: (id: string) => boolean } = {}) {
+function background(t: TestContext, { held = false, backAtWork = () => false, finishedAt }: { held?: boolean; backAtWork?: (id: string) => boolean; finishedAt?: (id: string) => string | null } = {}) {
   const root = temporaryDirectory(t)
   const started: string[] = []
   const waiting: (() => void)[] = []
@@ -104,6 +127,7 @@ function background(t: TestContext, { held = false, backAtWork = () => false }: 
     // As the Work screen names them.
     describe: (target) => (target.kind === 'change' ? { title: target.item, project: 'Shop' } : null),
     backAtWork: (target) => backAtWork(reviewIdOf(target)),
+    ...(finishedAt ? { finishedAt: (target: { kind: 'change'; slug: string; item: string }) => finishedAt(reviewIdOf(target)) } : {}),
   })
   t.after(() => reviews.close())
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
@@ -237,4 +261,32 @@ test("pull requests the workload names wait in their repository's line like chan
 
   assert.deepEqual(built, ['pr:acme/shop/1', 'pr:acme/shop/2', 'pr:acme/shop/3'])
   assert.equal(reviews.status('pr:acme/shop/5').turn?.why, 'Waits its turn: 4 ahead in acme/shop. Not reviewed yet, so nothing checks it by itself.')
+})
+
+test('the line\'s clock is when a change finished, not when hobkin last wrote it', async (t) => {
+  const { reviews, watch, started, settle } = background(t, { finishedAt: (id) => (id === 'change:shop:c5' ? new Date(Date.now() - 72 * 60 * 60 * 1000).toISOString() : null) })
+
+  // hobkin wrote every item just now, which is no finish.
+  watch(watchedChanges(5))
+  await settle()
+
+  assert.deepEqual(started.sort(), ['change:shop:c1', 'change:shop:c2', 'change:shop:c5'])
+  assert.equal(reviews.status('change:shop:c3').turn?.ahead, 3)
+})
+
+test("the host reads when a change finished from its head commit, once, and says nothing until it knows", async (t) => {
+  const repo = temporaryDirectory(t)
+  const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_DATE: '2026-11-20T08:00:00Z', GIT_COMMITTER_DATE: '2026-11-23T08:00:00Z' } }).trim()
+  git('init', '--quiet', '--initial-branch=main')
+  writeFileSync(join(repo, 'a.txt'), 'a\n')
+  git('add', '.')
+  git('commit', '--quiet', '-m', 'Finish')
+  const head = git('rev-parse', 'HEAD')
+  const finished = finishTimes((slug) => (slug === 'shop' ? repo : null))
+  const target = { kind: 'change' as const, slug: 'shop', item: 'a1' }
+
+  assert.equal(finished(target, head), null)
+  await new Promise((resolve) => setTimeout(resolve, 200))
+  assert.equal(Date.parse(finished(target, head)!), Date.parse('2026-11-20T08:00:00Z'))
+  assert.equal(finished({ kind: 'change', slug: 'blog', item: 'b1' }, head), null)
 })

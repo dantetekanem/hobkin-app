@@ -166,6 +166,8 @@ export interface ReviewsOptions {
   keepCurrent?: () => number | undefined
   /** Whether an agent works on a change again, as hobkin's items say: its waiting review is dropped, and its row says why. */
   backAtWork?: (target: ChangeTarget) => boolean
+  /** When a change at a commit finished, as an ISO time, or null while that is not known: the line's clock for it. */
+  finishedAt?: (target: ChangeTarget, head: string | null) => string | null
   /**
    * Carries a change's newest review to the commit it moved to when the review still holds there (spec 058, A5),
    * instead of building it again. A host given none builds it again, as before.
@@ -2064,10 +2066,14 @@ export class Reviews {
           // One of hobkin's own, or one hobkin cannot tell yet, is never built by itself, so it takes no place.
           if (this.options.ownPull && this.options.ownPull(target) !== false) return []
           const name = `${target.owner}/${target.repo}`
-          return [{ id: entry.id, repo: `pull:${target.host ?? ''}:${name}`, name, ...(entry.updatedAt ? { at: entry.updatedAt } : {}) }]
+          const reviewed = entry.head != null && this.options.store.has(target, entry.head)
+          return [{ id: entry.id, repo: `pull:${target.host ?? ''}:${name}`, name, reviewed, ...(entry.updatedAt ? { at: entry.updatedAt } : {}) }]
         }
         const refreshing = this.landingOf(target)?.state === 'refreshing'
-        return [{ id: entry.id, repo: target.slug, name: entry.project ?? target.slug, grade: entry.grade ?? null, conflict: entry.conflict ?? null, refreshing, ...(entry.at ? { at: entry.at } : {}) }]
+        // Its clock is when it finished; hobkin's own time, which any write resets, only while that cannot be read.
+        const at = this.options.finishedAt?.(target, entry.head ?? null) ?? entry.at
+        const reviewed = entry.head != null && this.options.store.has(target, entry.head)
+        return [{ id: entry.id, repo: target.slug, name: entry.project ?? target.slug, grade: entry.grade ?? null, conflict: entry.conflict ?? null, refreshing, reviewed, ...(at ? { at } : {}) }]
       })
       return lineOf(weighed, { keep: this.options.keepCurrent?.() ?? KEPT_CURRENT, now: this.now() })
     } catch (error) {
