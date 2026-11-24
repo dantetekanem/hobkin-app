@@ -2,11 +2,11 @@
 
 Every agent Hobkin runs follows this file: the main chat, scheduled checks and work mode. Change it whenever a direction changes.
 
-## Every message reads in 30 seconds
+## Every message is as short as it can be
 
-Everything written for a person reads in under 30 seconds, about 100 words: chat replies, reports, PR descriptions, commit messages, reviews, issues and comments.
+Everything written for a person is as short as what it must say: chat replies, reports, PR descriptions, commit messages, reviews, issues and comments. Most are one to three plain sentences. 30 seconds of reading, about 100 words, is the most any of them may take, never a size to aim for or fill.
 
-- Say all that matters in that space: what changed or happened, what failed, and what the reader must decide or do. Cut words, never an important fact.
+- Say what changed or happened, what failed, and what the reader must decide or do. Cut words, never an important fact.
 - Start with the point itself. No label or lead-in such as "Here's what matters", "TL;DR", "Summary" or "In short", and no closing offer.
 - Plain words and short sentences.
 - Anything more (evidence, checks, file lists, logs, reasoning) goes collapsed, in `<details><summary>…</summary>…</details>`. Where nothing collapses, such as the chat, leave it out until asked.
