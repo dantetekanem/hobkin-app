@@ -201,8 +201,37 @@ function scan(root, { includePrivate, now }) {
     }
   }
   memories.sort((a, b) => a.name.localeCompare(b.name));
-  // One nobody has kept yet, as another session handed it over, is read only where private ones are (057-shared-memory).
-  return { memories: includePrivate ? memories : memories.filter(memory => !memory.unconfirmed), unreadable };
+  if (includePrivate) return { memories, unreadable };
+  // One nobody has kept yet, as another session handed it over, is read only where private ones are (057-shared-memory),
+  // and a reader of shared ones never meets a link to, or the name of, one it may not read.
+  const shown = memories.filter(memory => !memory.unconfirmed);
+  const hidden = new Set([...privateNames(root), ...memories.filter(memory => memory.unconfirmed).map(memory => memory.name)]);
+  return { memories: hidden.size ? shown.map(memory => withoutHiddenLinks(memory, hidden)) : shown, unreadable };
+}
+
+/** The names in the private folder, read as names alone, so a reader of shared memories can be kept from them. */
+function privateNames(root) {
+  try {
+    return readdirSync(privateFolder(root)).filter(file => file.endsWith('.md')).map(file => file.slice(0, -3));
+  } catch {
+    return [];
+  }
+}
+
+/** A memory as a reader that may not read the `hidden` ones sees it: every link to those out of its words and its links. */
+function withoutHiddenLinks(memory, hidden) {
+  const linksHidden = words => [...words.matchAll(LINK)].some(match => hidden.has(match[1]));
+  if (!linksHidden(`${memory.description}\n${memory.text ?? ''}`)) return memory;
+  const outOfWords = words => words.replace(LINK, (whole, link) => (hidden.has(link) ? '' : whole))
+    .replace(/ {2,}/g, ' ').replace(/ ([.,;:])/g, '$1').trim();
+  const links = (memory.links ?? []).filter(link => !hidden.has(link));
+  const { links: _all, ...rest } = memory;
+  return {
+    ...rest,
+    description: outOfWords(memory.description),
+    ...(memory.text ? { text: outOfWords(memory.text) } : {}),
+    ...(links.length ? { links } : {}),
+  };
 }
 
 /**

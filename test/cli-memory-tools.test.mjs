@@ -126,3 +126,20 @@ test('recall says the user said something only for words that came from the user
   const said = name => /The user said/.test(main.recall({ name }).text);
   assert.deepEqual(['from-chat', 'from-window', 'from-run', 'from-session'].map(said), [true, true, false, false]);
 });
+
+test('a reader never sees a link to, or the name of, a memory it may not read', async t => {
+  const root = home(t);
+  const as = { by: { kind: 'user' }, now: NOW };
+  addMemory(root, { name: 'partner-name', kind: 'user', description: 'Partner is called Ana', private: true }, as);
+  addMemory(root, { name: 'car-insurance', kind: 'date', description: 'Car insurance renews every March 3, see [[partner-name]]', text: 'The car is shared with [[partner-name]] and [[tax-papers]]; renew before March 3.' }, as);
+  addMemory(root, { name: 'tax-papers', kind: 'pointer', description: 'Tax papers are in ~/Documents/Taxes' }, as);
+  const run = memoryTools(memoryHandler(root, { kind: 'run', id: 'check:1', title: 'Check' }, { now: () => NOW }));
+  const recalled = text(await call(run, RECALL_TOOL, { name: 'car-insurance' }));
+  assert.doesNotMatch(recalled, /partner/);
+  assert.match(recalled, /\[\[tax-papers\]\]/, 'a link it may read stays');
+  assert.match(recalled, /Links: tax-papers\.$/m);
+  const { runIndex } = await import('../src/cli/memories.mjs');
+  assert.doesNotMatch(runIndex(root, 'hobkin_recall'), /partner/);
+  const main = memoryTools(memoryHandler(root, { kind: 'main' }, { now: () => NOW }));
+  assert.match(text(await call(main, RECALL_TOOL, { name: 'car-insurance' })), /Links: partner-name, tax-papers\./);
+});
