@@ -38,7 +38,7 @@ import { tierBinding } from './tiers.mjs';
 import { agentSchedulesBrief, failureKey, handOffBrief, hobkinsBrief, isQuietScheduledRun, isWakeBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { Hobkins, hobkinSummaries } from './hobkins.mjs';
 import { answerRequest, takeRequests, tellRequests, turnToken } from './hobkin-tell.mjs';
-import { SCHEDULE_ENVIRONMENT, SCHEDULE_REQUESTS } from './agent-schedule-command.mjs';
+import { SCHEDULE_ENVIRONMENT, SCHEDULE_REQUESTS, scheduleAskedHere } from './agent-schedule-command.mjs';
 import { fileTemplateNews } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
@@ -1086,7 +1086,8 @@ export class HobkinApplication {
    * tick: it is kept for the next look and the tick goes on.
    */
   async tickAgentSchedules() {
-    const asked = this.scheduleTokens?.size > 0;
+    // A home where `hobkin schedule` never ran and no run holds a token has nothing to answer.
+    const asked = this.scheduleTokens?.size > 0 || scheduleAskedHere(this.runtime.directory);
     if (!asked && !this.agentSchedules?.live() && !this.agentSchedules?.pending.length) return;
     try {
       const { runs } = await this.runner.runIndex();
@@ -1207,6 +1208,7 @@ export class HobkinApplication {
 
   /** What `hobkin schedule` asked from a run's shell, each answered once, as the run its token names. A token outlives no run. */
   takeScheduleRequests(runs) {
+    this.scheduleTokens ??= new Map();
     for (const [token, entry] of this.scheduleTokens) if (runs[entry.runId]?.status !== 'running') this.scheduleTokens.delete(token);
     for (const { id, request } of takeRequests(this.runtime.directory, SCHEDULE_REQUESTS)) {
       let answer;
@@ -1224,7 +1226,7 @@ export class HobkinApplication {
   }
 
   fromScheduleCommand(request) {
-    const entry = typeof request?.token === 'string' ? this.scheduleTokens.get(request.token) : undefined;
+    const entry = typeof request?.token === 'string' ? this.scheduleTokens?.get(request.token) : undefined;
     if (!entry) throw Error(NOT_A_RUN);
     // A session run on Claude Code has no waiting outcome, so its schedules end with its turn.
     const handler = this.scheduleHandler(entry.owner, entry.cwd, { waits: entry.waits, canWait: false });

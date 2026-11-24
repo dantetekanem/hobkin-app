@@ -1,3 +1,5 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { askRunning, requestFolder, TURN_HOME } from './hobkin-tell.mjs';
 import { SCHEDULE_TOKEN } from './agent-schedule-runner.mjs';
 
@@ -32,6 +34,12 @@ async function readAll(input) {
 
 /** The folder `hobkin schedule` writes to. */
 export const scheduleRequests = root => requestFolder(root, SCHEDULE_REQUESTS);
+
+/**
+ * Whether `hobkin schedule` has ever asked in this home: its folder exists once it has. The running hobkin answers what
+ * is in it on every tick from then on, a token it no longer holds included, so no command waits out its answer time.
+ */
+export const scheduleAskedHere = root => existsSync(join(root, 'runtime', SCHEDULE_REQUESTS));
 
 /**
  * `hobkin schedule [list | make | cancel <id> | pause <id> | resume <id> | run <id>]`. It answers with what the running

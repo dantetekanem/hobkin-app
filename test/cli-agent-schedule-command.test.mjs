@@ -77,6 +77,10 @@ test('a run on Claude Code schedules with hobkin schedule and its own token, and
   void app.tickSessions();
   await until(() => h.calls.length === 1);
   const [{ request }] = h.calls;
+  const forged = { [SCHEDULE_ENVIRONMENT.token]: 'f'.repeat(32), [SCHEDULE_ENVIRONMENT.home]: h.root };
+  const unknownAt = Date.now();
+  await assert.rejects(schedule(app, forged, ['list']), /not a run hobkin is running now/, 'a made-up token is refused before any token was given');
+  assert.ok(Date.now() - unknownAt < 2000, 'at once, not after the answer time');
 
   const asked = await app.agentScheduleEnvironment(request.id, { commands: false });
   assert.deepEqual(Object.keys(asked).sort(), [SCHEDULE_ENVIRONMENT.home, SCHEDULE_ENVIRONMENT.token].sort());
@@ -94,7 +98,7 @@ test('a run on Claude Code schedules with hobkin schedule and its own token, and
   const { schedules } = await schedule(app, asked, ['list']);
   assert.deepEqual(schedules.map(item => item.name), ['Look again']);
   assert.equal((await schedule(app, asked, ['cancel', made.schedule.id])).schedule.state, 'cancelled');
-  await assert.rejects(schedule(app, { ...asked, [SCHEDULE_ENVIRONMENT.token]: 'f'.repeat(32) }, ['list']), /not a run hobkin is running now/);
+  await assert.rejects(schedule(app, forged, ['list']), /not a run hobkin is running now/);
 
   const all = await app.agentScheduleEnvironment(request.id, { commands: true });
   const watch = await schedule(app, all, ['make'], json({ name: 'Watch CI', command: 'gh pr checks 412', every: '2m', pendingExit: [8], note: 'Read the checks.' }));
@@ -102,5 +106,9 @@ test('a run on Claude Code schedules with hobkin schedule and its own token, and
 
   h.calls[0].end.resolve({ status: 'completed', text: 'Useful: Done.', cost: null });
   await until(async () => (await app.runtime.state()).runs[runId].status === 'completed');
+  // The tick that drops the ended run's token comes before the command asks, as it did when this test was flaky.
+  await app.tickAgentSchedules();
+  const endedAt = Date.now();
   await assert.rejects(schedule(app, all, ['list']), /not a run hobkin is running now/, 'the token names the run only while it runs');
+  assert.ok(Date.now() - endedAt < 2000, 'at once, not after the answer time');
 });
