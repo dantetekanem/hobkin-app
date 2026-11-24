@@ -28,7 +28,8 @@ export function gradesOf(needs: ReviewNeeds | null | undefined, head: string | n
   const scores = {} as Record<NeedName, NeedScore>
   for (const name of NEED_NAMES) {
     const given = needs.scores[name]
-    if (!given) return null
+    // hobkin takes a score only with its line of evidence, so one without is not whole yet.
+    if (!given || !given.evidence.trim()) return null
     scores[name] = { score: given.score, evidence: given.evidence }
   }
   return { kind: needs.kind, head: needs.head, scores }
