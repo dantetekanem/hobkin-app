@@ -25,9 +25,12 @@ export const isOn = (project: YoloProject): boolean => project.on !== false
 export function projectOrder(projects: readonly YoloProject[], kept: readonly string[] | null): YoloProject[] {
   const grouped = [...projects.filter(isOn), ...projects.filter((project) => !isOn(project))]
   if (!kept) return grouped
+
   const place = new Map(kept.map((slug, index) => [slug, index]))
-  const known = projects.filter(({ slug }) => place.has(slug)).toSorted((a, b) => place.get(a.slug)! - place.get(b.slug)!)
-  return [...known, ...grouped.filter(({ slug }) => !place.has(slug))]
+  const placeOf = ({ slug }: YoloProject) => place.get(slug) ?? Infinity
+  const known = projects.filter(({ slug }) => place.has(slug)).toSorted((a, b) => placeOf(a) - placeOf(b))
+  const added = grouped.filter(({ slug }) => !place.has(slug))
+  return [...known, ...added]
 }
 
 /** The one quiet line a project YOLO mode is off for shows in place of its card, with its count of waiting changes when hobkin sends them. */
