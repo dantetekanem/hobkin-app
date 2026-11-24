@@ -1,5 +1,5 @@
 import { CircleCheck, TriangleAlert } from 'lucide-react'
-import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import type { ReviewLanding, ReviewStatus, VerdictPreview } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
@@ -13,7 +13,8 @@ import type { Note } from '../notes/notes.ts'
 import '../preparing/preparing.css'
 import { reviewMemory, useSession } from '../state/context.tsx'
 import { unseenNeeds, unseenWords } from './evidence.ts'
-import { CONFIRM_MS, createVerdictChoices, handOver, heldDown, VERDICT_CHOICES, verdictChoices, verdictComments, verdictKind, type VerdictCommands } from '../verdict.ts'
+import { CONFIRM_MS, createVerdictChoices, handOver, heldDown, VERDICT_CHOICES, verdictComments, verdictKind, type VerdictCommands } from '../verdict.ts'
+import { createReviewRemoval, footOf, KEEPS, REMOVE_REVIEW_LINES, removeChoices, type RemoveChoice } from './foot.ts'
 
 /** The choices that send the reviewer's comments, and have nothing to send without one. */
 const needsComment = (verdict: Verdict) => verdict === 'request-changes' || verdict === 'comment'
@@ -23,15 +24,13 @@ const noHost: VerdictCommands = async () => {
 }
 const nothingToSave = async () => {}
 const inField = () => document.activeElement?.closest('input, textarea, [contenteditable="true"]') != null
-/** Whether all of an element is in sight inside the box that scrolls it. */
-const inSight = (element: Element, box: Element) => {
-  const shown = box.getBoundingClientRect()
-  const at = element.getBoundingClientRect()
-  return at.top >= shown.top && at.bottom <= shown.bottom
-}
 
-/** The choice the panel offers first: merging is what a review that passes ends with. */
+/** The choice the foot offers first: merging is what a review that passes ends with. */
 const PRIMARY: Verdict = 'approve-merge'
+/** What the foot says when a review is removed, which the screen closes on. */
+const REMOVED = 'Removed the review.'
+/** The height of what the foot says, whatever it says, so nothing above it moves. What does not fit scrolls. */
+const SLOT = 'h-[140px]'
 
 /** Where a change landed, in a line: "Merged into main at e44106a · 4:13 PM", with the day when it was not today. */
 function mergedWords({ into, sha, at }: ReviewLanding): string {
@@ -44,19 +43,23 @@ function mergedWords({ into, sha, at }: ReviewLanding): string {
 }
 
 /**
- * The verdict, at the foot of the review panel, confirmed in place. Every choice is the host's own verdict, for the
- * commit of the review on screen. The first click asks the host what it will do: the same button then reads "Click
- * again to confirm", with what will happen in the box under the choices, and a second click within ten seconds does
- * it. Approve and merge of a finished change whose branch moved since the review reads "Click again to merge it as it
- * is now", as the host merges it where it is now. After ten seconds, on Escape, or when the keyboard leaves the
- * choices, it goes back. A key held down never gives the second click. Once the host has done it, `landed` hears so.
+ * The verdict, fixed at the foot of the review panel and confirmed in place (`footOf`). Four choices in four places that
+ * never move: Approve, Approve and merge, the third (Send fixes, or Comment on a pull request) and Remove. Each is the
+ * host's own verdict, for the commit of the review on screen. The first click asks the host what it will do: the same
+ * button then reads "Click again to confirm", with what will happen under the choices, and a second click within ten
+ * seconds does it. Approve and merge of a finished change whose branch moved since the review reads "Merge it as it is
+ * now". After ten seconds, on Escape, or when the keyboard leaves the foot, it goes back. A key held down never gives
+ * the second click. Once the host has done it, `landed` hears so.
  *
- * A change that lands is past choosing (spec 032). While an agent brings it up to date the choices wait, and the box
+ * Remove is the review and the code. Its first click does nothing: the foot shows what will go and two ways, "Remove it
+ * and delete the branch", which has the keyboard, and "Only remove the review", which keeps the branch and the pull
+ * request. For another author's pull request there is no branch of the user's to delete: one confirm takes the review out.
+ *
+ * A change that lands is past choosing (spec 032). While an agent brings it up to date the choices wait, and the foot
  * says so. Once it merged, where it landed takes the choices' place.
  *
  * Nothing moves on the way (the user, 2026-11-12: "approve and merge is doing a weird jump"): the choices keep their
- * size whatever they say, the line that takes their place keeps their room, and the box keeps its height whatever it
- * holds, scrolling what does not fit.
+ * size and place whatever they say, and what the foot says keeps its height, scrolling what does not fit.
  */
 export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, status }: {
   review: Review
@@ -74,8 +77,9 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
   status?: ReviewStatus | null
 }) {
   const kind = verdictKind(review.id)
-  // Someone else's pull request is approved or commented on: its author merges or closes it.
-  const offered = verdictChoices(review.id, status?.owner)
+  // Someone else's pull request is approved or commented on, and only its review is removed: its author merges or closes it.
+  const foot = footOf(review.id, status?.owner)
+  const choosable = removeChoices(foot.remove)
   const comments = verdictComments(review.id, notes).length
   const landing = status?.landing ?? null
   const merged = landing?.state === 'merged'
@@ -87,12 +91,14 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
   const doing = useRef<Verdict | null>(null)
   // The choice whose first click the host is answering.
   const asking = useRef<Verdict | null>(null)
-  const buttons = useRef(new Map<Verdict, HTMLButtonElement>())
+  const buttons = useRef(new Map<string, HTMLButtonElement>())
   // Read when a verdict lands, so a new one given later is the one that runs.
   const onLanded = useRef(landed)
   onLanded.current = landed
   const onAsk = useRef(ask)
   onAsk.current = ask
+  // Remove was pressed and the foot is showing what goes.
+  const [removing, setRemoving] = useState(false)
 
   const choices = useMemo(
     () =>
@@ -112,10 +118,15 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
   useEffect(() => choices.connect(), [choices])
   const flow = useStore(choices)
   const armed = flow.preview?.verdict ?? null
+  const removal = useMemo(
+    () => createReviewRemoval({ id: review.id, command: verdict ?? noHost, removed: () => onLanded.current?.('discard', REMOVED) }),
+    [review.id, verdict],
+  )
+  const removalFlow = useStore(removal)
   // A yes is never blocked: with nodes that need the reviewer not seen, its first press says how many (spec 053).
   const unseen = useSession((session) => unseenNeeds(session.review.nodes, session.seen))
-  // The box under the choices is there only while it has something to say.
-  const says = Boolean(landing) || flow.busy || flow.error != null || flow.preview != null || flow.message != null || !live
+  // What the foot shows for Remove: what goes, with its choices, once it was pressed.
+  const removeShown = foot.remove === 'both' ? removing && (armed === 'discard-branch' || flow.busy || flow.error != null) : removalFlow.asked || removalFlow.busy || (removing && removalFlow.error != null)
 
   // What a shown verdict sends is the notes as they stood. When they change, it is taken back, to be shown again.
   useEffect(() => {
@@ -131,17 +142,26 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
     })
   }, [choices, review])
 
+  // Remove goes back to its button once nothing waits and nothing is wrong.
+  useEffect(() => {
+    if (removing && !armed && !flow.busy && flow.error == null && !removalFlow.asked && !removalFlow.busy && removalFlow.error == null) setRemoving(false)
+  }, [armed, flow.busy, flow.error, removalFlow.asked, removalFlow.busy, removalFlow.error, removing])
+  // Another choice taken takes Remove back.
+  useEffect(() => {
+    if (armed && armed !== 'discard-branch') {
+      removal.cancel()
+      setRemoving(false)
+    }
+  }, [armed, removal])
+
   // The button that waits for its second click holds the keyboard, so Enter gives it and leaving takes it back. A key
   // still down from the first only repeats there, and the button stops repeats (`heldDown`): it takes a key pressed anew.
-  // A choice armed by its key from the graph can be out of sight: the verdict then comes into view, as little as it
-  // takes. One that was clicked is in sight, so nothing scrolls.
+  // Remove's default, "Remove it and delete the branch", or its one choice, holds it the same way.
   useEffect(() => {
-    const button = armed ? buttons.current.get(armed) : undefined
-    if (!button) return
-    if (!inField()) button.focus({ preventScroll: true })
-    const box = button.closest('.rv-scroll')
-    if (box && !inSight(button, box)) section.current?.scrollIntoView({ block: 'nearest' })
-  }, [armed])
+    const target = armed === 'discard-branch' ? 'remove-delete' : removalFlow.asked ? 'remove-review' : armed
+    const button = target ? buttons.current.get(target) : undefined
+    if (button && !inField()) button.focus({ preventScroll: true })
+  }, [armed, removalFlow.asked])
 
   // A change that starts to land, here or elsewhere, takes back a choice that waits. A choice that held the keyboard
   // can no longer hold it, so the keyboard goes to the box under the choices, and stays in the review.
@@ -149,8 +169,9 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
   useLayoutEffect(() => {
     if (!landingState) return
     if (!doing.current) choices.cancel()
+    removal.cancel()
     if (section.current?.contains(document.activeElement)) box.current?.focus({ preventScroll: true })
-  }, [landingState, choices])
+  }, [landingState, choices, removal])
 
   const press = async (choice: Verdict) => {
     if (choices.getState().busy) return
@@ -163,32 +184,60 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
       asking.current = null
     }
   }
+  // Remove's first press shows what goes: the host's own words for the no that deletes the branch, or, for another
+  // author's pull request, what taking only the review out does.
+  const pressRemove = () => {
+    if (flow.busy || removalFlow.busy) return
+    setRemoving(true)
+    if (foot.remove === 'both') void press('discard-branch')
+    else {
+      choices.cancel()
+      removal.ask()
+    }
+  }
+  const choose = (choice: RemoveChoice) => {
+    if (choice.id === 'delete') void press('discard-branch')
+    else {
+      choices.cancel()
+      void removal.run()
+    }
+  }
+  const stepBack = () => {
+    choices.cancel()
+    removal.cancel()
+    setRemoving(false)
+  }
+  const waiting = armed != null || removalFlow.asked
+  const off = !verdict || landing != null
+  // Under the choices, the foot has a box only while it has something to say.
+  const says = Boolean(landing) || flow.busy || flow.error != null || flow.preview != null || flow.message != null || !live
 
   return (
     <section
       ref={section}
       aria-label="Verdict"
-      className="flex flex-col gap-1.5"
+      className="flex flex-col gap-2"
       // Escape steps back from the second click before it reaches the review, which would close.
       onKeyDownCapture={(event) => {
-        if (event.key !== 'Escape' || doing.current || !(flow.preview || flow.busy)) return
+        if (event.key !== 'Escape' || doing.current || !(waiting || flow.busy)) return
         event.preventDefault()
-        choices.cancel()
+        stepBack()
       }}
       onBlur={(event) => {
-        if (!doing.current && choices.getState().preview && !event.currentTarget.contains(event.relatedTarget)) choices.cancel()
+        if (doing.current || event.currentTarget.contains(event.relatedTarget)) return
+        if (choices.getState().preview) choices.cancel()
+        removal.cancel()
       }}
     >
-      {/* The choices' place. Once the change merged, where it landed is told in it, at the choices' size. */}
+      {/* The choices' place, a grid of four that never changes. Once the change merged, where it landed is told in it, at its size. */}
       <div className="grid">
-        <div className={cn('col-start-1 row-start-1 flex flex-col gap-1.5', merged && 'invisible')} inert={merged}>
-          {offered.choices.map((choice) => {
-            const waiting = armed === choice.verdict
+        <div className={cn('col-start-1 row-start-1 grid grid-cols-[5fr_7fr] gap-1.5', merged && 'invisible')} inert={merged}>
+          {foot.slots.map((choice) => {
+            const waitingHere = armed === choice.verdict
             const working = flow.busy && (doing.current === choice.verdict || asking.current === choice.verdict)
             const primary = choice.verdict === PRIMARY
-            // The no, and the no that deletes the branch too, read apart from the yeses, in the color of what cannot be taken back.
-            const discards = choice.verdict === 'discard' || choice.verdict === 'discard-branch'
-            const secondClick = choice.verdict === 'approve-merge' && moved ? 'Click again to merge it as it is now' : 'Click again to confirm'
+            const secondClick = choice.verdict === 'approve-merge' && moved ? 'Merge it as it is now' : 'Click again to confirm'
+            const label = VERDICT_CHOICES[kind].find((entry) => entry.verdict === choice.verdict)
             return (
               <Button
                 key={choice.verdict}
@@ -198,26 +247,27 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
                 }}
                 data-stop
                 data-verdict={choice.verdict}
-                data-armed={waiting}
-                aria-pressed={waiting}
+                data-armed={waitingHere}
+                aria-pressed={waitingHere}
+                title={choice.offered ? undefined : (foot.why ?? undefined)}
                 variant={primary ? 'default' : 'outline'}
-                className={cn('rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3.5 text-[14px] font-semibold', discards && 'text-destructive hover:text-destructive')}
+                className="rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3 text-[14px] font-semibold"
                 // Not disabled while the host works: a focused button that is disabled drops the keyboard out of the review.
-                // A click then does nothing. A change that lands is past choosing.
-                disabled={!verdict || landing != null || (needsComment(choice.verdict) && comments === 0)}
+                // A click then does nothing. A change that lands is past choosing, and some choices are not this review's to give.
+                disabled={off || !choice.offered || (needsComment(choice.verdict) && comments === 0)}
                 // A stopped key presses nothing: Enter held from the first click, or Space held while it was clicked, does not confirm.
                 onKeyDown={(event) => {
                   if (heldDown(event)) event.preventDefault()
                 }}
                 onClick={() => void press(choice.verdict)}
               >
-                {waiting ? (
+                {waitingHere ? (
                   <>
                     <span className="truncate">{secondClick}</span>
                     <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} />
                   </>
                 ) : working ? (
-                  <span className="truncate">{doing.current === choice.verdict ? choice.doing : 'Checking…'}</span>
+                  <span className="truncate">{doing.current === choice.verdict ? label?.doing : 'Checking…'}</span>
                 ) : (
                   <>
                     <span className="truncate">
@@ -230,7 +280,20 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
               </Button>
             )
           })}
-          {offered.why ? <p className="px-1 text-[13px] leading-snug text-pretty text-muted-foreground">{offered.why}</p> : null}
+          {/* Remove, in the fourth place: the review and the code. It reads apart from the yeses, in the color of what cannot be taken back. */}
+          <Button
+            data-stop
+            data-remove
+            data-armed={removeShown}
+            aria-pressed={removeShown}
+            variant="outline"
+            className="rv-verdict relative h-9 w-full justify-between overflow-hidden rounded-full px-3 text-[14px] font-semibold text-destructive hover:text-destructive"
+            disabled={off}
+            onClick={pressRemove}
+          >
+            <span className="truncate">Remove</span>
+            {removeShown ? <span className="rv-confirm-time" aria-hidden="true" style={{ animationDuration: `${CONFIRM_MS}ms` }} /> : null}
+          </Button>
         </div>
         {merged ? (
           <p className="col-start-1 row-start-1 flex items-center gap-2 self-center px-1 font-heading text-[15px] leading-snug font-semibold text-pretty">
@@ -240,24 +303,93 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
         ) : null}
       </div>
 
-      {/* Only when there is something to say. Focusable, so a click into it to scroll keeps the keyboard with the verdict and takes nothing back. */}
-      {says ? (
-        <div ref={box} role="status" tabIndex={-1} className="rv-scroll mt-1 max-h-[132px] overflow-y-auto rounded-xl bg-background px-3 py-2.5 text-[14px] leading-[1.45] [overflow-wrap:anywhere] outline-none">
-          <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} unseen={unseen} />
-        </div>
-      ) : null}
+      {/* What the foot says, in a place of its own size. Focusable, so a click into it to scroll keeps the keyboard with the verdict and takes nothing back. */}
+      <div className={cn(SLOT, 'flex min-h-0 flex-col gap-1.5')}>
+        {removeShown ? (
+          <RemoveSaid ways={foot.remove} choices={choosable} flow={flow} removal={removalFlow} lines={flow.preview?.verdict === 'discard-branch' ? flow.preview.lines : null} buttons={buttons} onChoose={choose} />
+        ) : (
+          <div
+            ref={box}
+            role="status"
+            tabIndex={-1}
+            className={cn('rv-scroll min-h-0 flex-1 overflow-y-auto rounded-xl px-3 py-2.5 text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] outline-none', says && 'bg-background')}
+          >
+            <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} unseen={unseen} why={foot.why} />
+          </div>
+        )}
+      </div>
     </section>
+  )
+}
+
+/**
+ * What Remove says once pressed: what will go, and its choices under it, "Remove it and delete the branch" first, as the
+ * default. A choice that cannot be given yet, because the host has not said what it deletes, waits.
+ */
+export function RemoveSaid({ ways, choices, flow, removal, lines, buttons, onChoose }: {
+  ways: 'both' | 'review'
+  choices: RemoveChoice[]
+  flow: { busy: boolean; preview: VerdictPreview | null; error: string | null }
+  removal: { busy: boolean; error: string | null }
+  lines: readonly string[] | null
+  buttons: { current: Map<string, HTMLButtonElement> }
+  onChoose: (choice: RemoveChoice) => void
+}): ReactNode {
+  const error = flow.error ?? removal.error
+  const working = flow.busy || removal.busy
+  const said = ways === 'review' ? REMOVE_REVIEW_LINES : lines
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-1.5" aria-label="What Remove will do">
+      <div role="status" tabIndex={-1} className="rv-scroll flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto rounded-xl bg-background px-3 py-2 text-[13.5px] leading-[1.4] text-pretty [overflow-wrap:anywhere] outline-none">
+        {error ? (
+          <p className="flex items-start gap-2 text-bad-fg">
+            <TriangleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+            <span>{error}</span>
+          </p>
+        ) : working && !said ? (
+          <p className="text-muted-foreground">Asking the host what it will do…</p>
+        ) : (
+          <>
+            {said?.map((line, index) => <p key={index}>{line}</p>)}
+            {ways === 'both' ? <p className="text-muted-foreground">{KEEPS}</p> : null}
+          </>
+        )}
+      </div>
+      <div className="flex shrink-0 flex-col gap-1.5">
+        {choices.map((choice) => (
+          <Button
+            key={choice.id}
+            ref={(element) => {
+              if (element) buttons.current.set(`remove-${choice.id}`, element)
+              else buttons.current.delete(`remove-${choice.id}`)
+            }}
+            data-stop
+            data-remove-choice={choice.id}
+            variant={choice.id === 'delete' || ways === 'review' ? 'destructive' : 'outline'}
+            className="h-8 w-full justify-center rounded-full px-3 text-[13.5px] font-semibold"
+            disabled={working || (choice.id === 'delete' && flow.preview?.verdict !== 'discard-branch')}
+            // A stopped key presses nothing: the Enter that gave the first press does not give the second.
+            onKeyDown={(event) => {
+              if (heldDown(event)) event.preventDefault()
+            }}
+            onClick={() => onChoose(choice)}
+          >
+            <span className="truncate">{choice.label}</span>
+          </Button>
+        ))}
+      </div>
+    </div>
   )
 }
 
 const labelOf = (kind: 'change' | 'pull', verdict: Verdict) => VERDICT_CHOICES[kind].find((choice) => choice.verdict === verdict)?.label ?? ''
 
 /**
- * What the box under the choices says: how the change lands, the host at work, what a choice will do while it waits for
+ * What the foot says: how the change lands, the host at work, what a choice will do while it waits for
  * its second click, the host's reason when it will not do it, its words when it did, or the sample notice. Nothing
  * when there is nothing to say.
  */
-function Said({ kind, live, flow, doing, landing, unseen }: {
+function Said({ kind, live, flow, doing, landing, unseen, why }: {
   kind: 'change' | 'pull'
   live: boolean
   flow: { busy: boolean; preview: VerdictPreview | null; error: string | null; message: string | null }
@@ -265,6 +397,8 @@ function Said({ kind, live, flow, doing, landing, unseen }: {
   landing: ReviewLanding | null
   /** How many nodes that need the reviewer are not seen. */
   unseen: number
+  /** Why a choice is off, for someone else's pull request. */
+  why: string | null
 }): ReactNode {
   if (landing?.state === 'merged') return <p className="text-pretty text-muted-foreground">Nothing is left to decide here.</p>
   if (landing?.state === 'refreshing') {
@@ -288,7 +422,18 @@ function Said({ kind, live, flow, doing, landing, unseen }: {
   if (flow.preview) return <Preview kind={kind} preview={flow.preview} unseen={isYes(flow.preview.verdict) ? unseenWords(unseen) : null} />
   if (flow.message) return <Markdown text={flow.message} />
   if (!live) return <p className="text-muted-foreground">Sample review: nothing is sent from here.</p>
-  return null
+  return (
+    <div className="flex flex-col gap-1.5 text-muted-foreground">
+      {why ? <p className="text-pretty">{why}</p> : null}
+      <p className="text-pretty">
+        Each choice shows what it does, then asks once more.
+      </p>
+      <p className="flex items-center gap-1">
+        <Kbd>⌘</Kbd>
+        <Kbd>?</Kbd> lists every key.
+      </p>
+    </div>
+  )
 }
 
 /** The yeses, whose first press says what the reviewer has not seen. */

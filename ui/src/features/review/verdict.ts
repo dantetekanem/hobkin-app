@@ -5,7 +5,7 @@ import type { Note } from '#shared/review/notes.ts'
 import type { PullOwner, ReviewLanding, VerdictPreview } from '#shared/review/status.ts'
 import { usersComments, type Verdict } from '#shared/review/verdict.ts'
 
-type VerdictCommand = 'review.preview' | 'review.verdict'
+type VerdictCommand = 'review.preview' | 'review.verdict' | 'review.remove'
 export type VerdictCommands = <Name extends VerdictCommand>(name: Name, args: CommandArgs<Name>) => Promise<CommandResults[Name]>
 interface State {
   busy: boolean

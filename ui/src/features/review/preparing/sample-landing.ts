@@ -115,6 +115,8 @@ export function sampleLandings(clock: () => number = Date.now) {
           sample.yes ??= clock()
           return { message: REFRESHING }
         }
+        case 'review.remove':
+          return { id, removed: true }
         default:
           throw new Error(`A sample review has no ${name}.`)
       }

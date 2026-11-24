@@ -33,22 +33,6 @@ export function NoteMarks({ comments, questions }: { comments: number; questions
   )
 }
 
-export function NoteButton({ intent, keys, onClick }: { intent: NoteIntent; keys: string; onClick: () => void }) {
-  const Icon = intent === 'question' ? CircleHelp : MessageSquare
-  return (
-    <button
-      type="button"
-      data-stop
-      onClick={onClick}
-      className="flex h-8 items-center gap-1.5 rounded-full bg-background px-3 font-heading text-[13px] font-medium transition-transform duration-[140ms] ease-[var(--ease-out)] active:scale-[0.97] [&_svg]:size-3.5"
-    >
-      <Icon aria-hidden="true" />
-      {intent === 'question' ? 'Question' : 'Comment'}
-      <Kbd>{keys}</Kbd>
-    </button>
-  )
-}
-
 /**
  * Opens a note where it was written, for a quick read on the canvas (the user, 2026-11-12: "comments should open a
  * panel near the node for quick read"): the notes beside the node it is about, or the node of its lines, else those

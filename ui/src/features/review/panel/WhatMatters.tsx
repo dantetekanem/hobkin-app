@@ -44,7 +44,7 @@ export function WhatMatters({ matters, ask, status }: { matters: Matters; ask: (
   }
 
   return (
-    <section aria-label="What matters" className="flex flex-col gap-3 border-t border-border px-4 pt-3.5 pb-4">
+    <section aria-label="What matters" className="flex flex-col gap-2.5 border-t border-border px-4 pt-3 pb-3">
       <ScoresLine line={line} />
 
       {shows.does && does ? (

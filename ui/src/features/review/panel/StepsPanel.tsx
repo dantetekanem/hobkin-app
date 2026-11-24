@@ -8,7 +8,6 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useDragEdge } from '@/app/drag-edge.ts'
 import { spring } from '@/lib/motion.ts'
-import { cn } from '@/lib/utils.ts'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import type { Size } from '../story/camera.ts'
 import type { VerdictCommands } from '../verdict.ts'
@@ -16,7 +15,8 @@ import { Actions } from './Actions.tsx'
 import { Evidence } from './Evidence.tsx'
 import type { AskCommand } from './ask.ts'
 import { MENU, PanelHeader } from './Header.tsx'
-import { NoteButton, NoteRow } from './notes.tsx'
+import { NoteRow } from './notes.tsx'
+import { panelSections } from './sections.ts'
 import { whatMatters } from './sidebar.ts'
 import { useAskHobkin } from './use-ask.ts'
 import { WhatMatters } from './WhatMatters.tsx'
@@ -55,10 +55,12 @@ const HEADING = 'font-heading text-[12.5px] font-semibold tracking-[0.06em] text
  * The review panel, on the left of the review, full height, in the order the user reads a review (2026-11-12: "the
  * order is: this step > description that matters for me > agent I can ping and ask > other info"), where the step is
  * told on the canvas, in its card, and never again here ("step is just duplicating side bar"). At its top, the same
- * for the whole review: which project changes, the title with its overall risk, its size and its commits. Then,
- * scrolling and the same on every step: what the change does and what needs a look, the comments and questions, the
- * verdict, and the keys. A note is written, and hobkin asked, in the review's input at the bottom of the canvas
- * (`NoteInput`), and hobkin answers in its own chat: nothing here imitates the chat (the user, 2026-11-12).
+ * for the whole review: which project changes, the title with its overall risk, its size and its commits. Then, in the
+ * middle, the same on every step: the five scores, what needs a look, the notes written on the review and the evidence;
+ * in Free Roam, where no story says it, also what the change does. The middle scrolls only when it does not fit. At its
+ * foot, never scrolling and in the same places for every review, the verdict (`Actions`). A note is written, and hobkin
+ * asked, in the review's input at the bottom of the canvas (`NoteInput`), and hobkin answers in its own chat: nothing
+ * here imitates the chat (the user, 2026-11-12).
  *
  * It stays open. The reviewer can hide it, with its chevron or S, to give the graph its width: a strip is left that
  * brings it back. Hidden, it comes back while the keyboard is in it. The part of it on screen counts as covered, so
@@ -78,6 +80,7 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
   const nodes = useSession((session) => session.view.nodes)
   const notes = useSession((session) => session.notes)
   const removed = useSession((session) => session.view.removed)
+  const mode = useSession((session) => session.mode)
   const [hidden, setHidden] = useState(false)
   const [within, setWithin] = useState(false)
 
@@ -110,6 +113,8 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
 
   // The notes in the order they were written, the newest last.
   const listed = useMemo(() => [...notes].sort((a, b) => a.at - b.at), [notes])
+  const shows = panelSections({ mode, does: null, notices: review.notices.length, notes: notes.length })
+  const looks = (shows.notices ? review.notices.length : 0) + (removed.length > 0 ? 1 : 0)
   // The frame's menu floats over the top middle of the canvas. Where it covers the panel's top, the header flows around
   // it. On a canvas so narrow that too little would be left beside it, the header starts under it.
   const overlap = Math.max(0, Math.round(width - (canvas.width - MENU.width) / 2 + MENU.gap))
@@ -165,39 +170,30 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
         <div className="rv-scroll min-h-0 flex-1 overflow-y-auto">
           <WhatMatters matters={matters} ask={ask} status={chrome.preparation} />
 
-          <section aria-label="Comments and questions" className="flex flex-col gap-2.5 px-4 pt-4 pb-3.5">
-            <h3 className={HEADING}>Comments and questions</h3>
-            {/* Each starts its note in the review's input, at the bottom of the canvas. */}
-            <div className="flex flex-wrap gap-1.5">
-              <NoteButton intent="comment" keys="N" onClick={() => store.getState().startNote('comment')} />
-              <NoteButton intent="question" keys="D" onClick={() => store.getState().startNote('question')} />
-            </div>
-            <div ref={noteList} className="rv-scroll max-h-[320px] overflow-y-auto" aria-label="Notes">
-              {listed.length === 0 ? null : (
+          {shows.comments ? (
+            <section aria-label="Comments and questions" className="flex flex-col gap-2 px-4 pt-3 pb-3">
+              <h3 className={HEADING}>Comments and questions</h3>
+              <div ref={noteList} className="rv-scroll max-h-[240px] overflow-y-auto" aria-label="Notes">
                 <ol className="flex flex-col gap-1.5">
                   {listed.map((note) => (
                     <NoteRow key={note.id} note={note} review={review} />
                   ))}
                 </ol>
-              )}
-            </div>
-          </section>
+              </div>
+            </section>
+          ) : null}
 
-          <div className="flex flex-col gap-2.5 border-t border-border px-4 pt-3.5 pb-4">
-            {/* What the verdict rests on, right above it (spec 053). */}
+          {/* What the verdict rests on, last in the middle, right above the foot (spec 053). */}
+          <div className="flex flex-col gap-2.5 border-t border-border px-4 pt-3 pb-3">
             <Evidence assessment={chrome.assessment} status={chrome.preparation?.assessment} parts={matters.units} heading={HEADING} />
-            <h3 className={cn(HEADING, 'mt-1')}>Verdict</h3>
-            <Actions review={review} notes={notes} live={chrome.live} verdict={chrome.verdict} saveNotes={chrome.saveNotes} status={chrome.preparation} ask={ask} {...(chrome.landed ? { landed: chrome.landed } : {})} />
           </div>
 
-          <footer className="flex flex-col gap-1.5 border-t border-border px-4 py-3 text-[12.5px] text-muted-foreground">
-            {review.notices.length > 0 || removed.length > 0 ? (
+          {looks > 0 ? (
+            <footer className="px-4 py-2 text-[12.5px] text-muted-foreground">
               <details>
-                <summary className="cursor-default text-[13px]">{review.notices.length + (removed.length > 0 ? 1 : 0)} notes on this review</summary>
+                <summary className="cursor-default text-[13px]">{looks} notes on this review</summary>
                 <div className="mt-1 flex flex-col gap-1 text-[13px] leading-snug">
-                  {review.notices.map((notice) => (
-                    <p key={notice}>{notice}</p>
-                  ))}
+                  {shows.notices ? review.notices.map((notice) => <p key={notice}>{notice}</p>) : null}
                   {removed.length > 0 ? (
                     <p>
                       {removed.length === 1 ? 'One proposed wire is removed.' : `${removed.length} proposed wires are removed.`}{' '}
@@ -208,12 +204,13 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
                   ) : null}
                 </div>
               </details>
-            ) : null}
-            <p className="flex items-center justify-end gap-1">
-              <Kbd>⌘</Kbd>
-              <Kbd>?</Kbd> keys
-            </p>
-          </footer>
+            </footer>
+          ) : null}
+        </div>
+
+        {/* The verdict never scrolls: its foot is the same place for every review. */}
+        <div className="shrink-0 border-t border-border px-4 pt-3 pb-3.5">
+          <Actions review={review} notes={notes} live={chrome.live} verdict={chrome.verdict} saveNotes={chrome.saveNotes} status={chrome.preparation} ask={ask} {...(chrome.landed ? { landed: chrome.landed } : {})} />
         </div>
       </div>
 
