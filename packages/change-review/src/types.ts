@@ -422,7 +422,7 @@ export interface FloorExtras {
   context?: boolean
   /**
    * Rules 1 and 2: a TLA+ model this diff adds or edits, its spec or its config, and what TLC said of it at this commit.
-   * `holds` is safe and `violated` a break; otherwise its words are said beside the row that decides.
+   * `holds` is safe; `violated` needs base/consumer attribution and is at least mid, not a confirmed regression.
    */
   model?: { result: 'holds' | 'violated' | 'error' | 'unproven'; said: string }
   /** What TLC said at this commit of the models that name this file in `\* models:`. Said beside the row that decides; it never decides. */
@@ -688,6 +688,10 @@ export const EVIDENCE_KINDS = ['equivalent', 'off-path-identical', 'unreferenced
 /** One line of risk-events.jsonl (schemas/risk-event.schema.json). Events are the whole history: replaying them from the floors gives the graph. */
 export interface RiskEvent {
   node: string
+  /** Whether the diff causes the finding; absent on older producers. */
+  origin?: 'introduced' | 'worsened' | 'pre-existing' | 'unknown'
+  /** Base/head evidence for the same input and actual consumer. */
+  comparison?: string
   /** The node's level after this finding. Equal to the floor when nothing changes. */
   level: Level
   direction: 'up' | 'down' | 'sideways' | 'time'

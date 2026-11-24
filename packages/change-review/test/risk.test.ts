@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
 import { floor } from '../src/floor.ts'
+import { readReviewAnswer } from '../src/model.ts'
 import { applyRiskEvents, checkInvariants, nodeLevelOf } from '../src/risk.ts'
 import type { Effect, Exposure, FloorExtras, Proof, ReviewNode, RiskEvent, Undo } from '../src/types.ts'
 
@@ -61,6 +62,30 @@ describe('nodeLevelOf', () => {
 })
 
 describe('applyRiskEvents', () => {
+  it('keeps an exposed old failure separate from merge risk, but blocks a regression', () => {
+    const old = event({ node: 'a', origin: 'pre-existing', comparison: 'The same input fails at base and head; the diff only adds validation.', critical: true })
+    const regression = event({ node: 'b', origin: 'introduced', comparison: 'The consumer passes at base and fails at head with the same input.', critical: true })
+    const nodes = [node('a'), node('b')]
+    const parsed = readReviewAnswer(JSON.stringify({ events: [old, regression] }), { nodes, units: [], claims: [] })
+    assert.deepEqual(parsed.problems, [])
+    const result = apply(nodes, parsed.events)
+    assert.equal(result.rejected.length, 0)
+    assert.equal(levelOf(result.nodes, 'a'), 'safe')
+    assert.equal(result.nodes[0]?.critical, false)
+    assert.ok(result.nodes[0]!.findings.some((finding) => /Pre-existing; nonblocking/.test(finding.text)))
+    assert.equal(levelOf(result.nodes, 'b'), 'high')
+    assert.equal(result.nodes[1]?.critical, true)
+    assert.equal(result.nodes[0]?.level?.why.some((why) => why.includes('retry loop')), false)
+    const independent = apply([node('a', { broken: 'The diff removes a function still called by checkout.' })], [old])
+    assert.equal(levelOf(independent.nodes, 'a'), 'high')
+    assert.equal(independent.nodes[0]?.critical, true)
+  })
+
+  it('does not treat a missing base comparison as proof of an old failure', () => {
+    const result = apply([node('a')], [event({ node: 'a', origin: 'pre-existing' })])
+    assert.equal(result.rejected.length, 1)
+  })
+
   it('raises freely, lowers only with evidence, never to safe where no test showed the change, and replays the same', () => {
     const nodes = [node('a'), node('b', { proof: 'none' }), node('c', { effect: 'data', proof: 'none' })]
     const events: RiskEvent[] = [

@@ -43,6 +43,8 @@ const fromFailingTest = (event: RiskEvent) => event.by === 'proof' || event.rule
 /** Why an event is not valid on its own (FOUNDATION 5.2 and the risk-event schema), or null. */
 function malformed(event: RiskEvent): string | null {
   if (typeof event.evidence !== 'string' || event.evidence.trim().length < MIN_EVIDENCE) return `evidence is shorter than ${MIN_EVIDENCE} characters`
+  if (event.origin !== undefined && !oneOf(['introduced', 'worsened', 'pre-existing', 'unknown'], event.origin)) return 'bad origin'
+  if (event.origin === 'pre-existing' && (typeof event.comparison !== 'string' || event.comparison.trim().length < MIN_EVIDENCE)) return 'pre-existing needs base/head comparison evidence'
   if (!oneOf(LEVELS, event.level)) return `bad level: ${String(event.level)}`
   if (!oneOf(DIRECTIONS, event.direction)) return `bad direction: ${String(event.direction)}`
   if (!oneOf(ASPECTS, event.aspect)) return `bad aspect: ${String(event.aspect)}`
@@ -108,6 +110,15 @@ export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly R
     const bad = malformed(event)
     if (bad) {
       rejected.push({ event, reason: bad })
+      continue
+    }
+    if (event.origin === 'pre-existing') {
+      addOnce(node.findings, {
+        rule: 'pre-existing',
+        text: `Pre-existing; nonblocking: ${event.evidence} ${event.comparison}`,
+        ...(event.lines ? { lines: event.lines } : {}),
+        by: event.by ?? 'model',
+      }, findingKey)
       continue
     }
     const level = node.level

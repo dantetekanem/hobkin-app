@@ -916,17 +916,49 @@ test('a TLA+ model TLC checked at the head is evidence the Reviewer is given: it
   assert.equal(result.answer.deploy, 'safe')
 })
 
-test('a TLA+ model whose rule TLC found broken at the head is a break the change carries, and the code it models is told so', async (t) => {
+for (const origin of ['pre-existing', 'introduced', 'worsened'] as const) {
+  test(`Review steps distinguish ${origin} consumer failure`, async (t) => {
+    const { repo, base, head, out } = modeledSale(t)
+    const historical = origin === 'pre-existing'
+    const title = historical ? 'Validation exposes an old stock failure' : 'The stock consumer now fails'
+    const explanation = historical
+      ? 'The same stock input fails before and after; new validation exposes it without changing a required consumer.'
+      : 'The same stock input passed before; the changed stock consumer now rejects it.'
+    const model: ModelRunner = async ({ pass, prompt }) => {
+      if (pass !== 'review') return null
+      const data = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1))
+      const unit = data.units.find((unit: { nodes: string[] }) => unit.nodes.includes('n1'))
+      return JSON.stringify({
+        events: [{ node: 'n1', level: 'high', critical: true, origin, comparison: explanation, direction: 'up', aspect: 'failure', evidence: 'The stock consumer rejects the input of four units against three in stock.' }],
+        words: { units: { [unit.id]: { title, what: explanation } } },
+      })
+    }
+    const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(saleScan()), proof: noTestsRan, model })
+    const part = result.graph.nodes.find((node) => node.id === 'n1')!
+    const unit = result.units.units.find((unit) => unit.nodes.includes('n1'))!
+    assert.equal(part.level?.current, historical ? 'mid' : 'high')
+    assert.equal(part.critical, !historical)
+    assert.equal(unit.level, historical ? 'mid' : 'high')
+    assert.equal(result.answer.deploy, historical ? 'safe' : 'risky')
+    assert.ok(result.story.includes(title))
+    assert.ok(result.story.includes(explanation))
+    assert.ok(part.findings.some((finding) => historical ? finding.text.includes('Pre-existing; nonblocking') : finding.text.includes('stock consumer')))
+  })
+}
+
+test('a head-only TLC failure stays visible without claiming the diff caused it', async (t) => {
   const { repo, base, head, out } = modeledSale(t)
   const broke = saleCheck({ result: 'violated', broken: 'StockInBounds', steps: 4, rules: [{ name: 'StockInBounds', kind: 'invariant', held: false }] })
   const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(saleScan()), proof: noTestsRan, modelChecks: [broke] })
 
   const { part } = readFromDiff(result, SALE_SPEC)
-  assert.deepEqual([part?.level?.current, part?.level?.rule, part?.critical, part?.level?.why[0]], ['high', 1, true, 'TLC checked Sale.tla at this commit: StockInBounds breaks in 4 steps.'])
-  assert.equal(result.answer.deploy, 'risky')
+  assert.equal(part?.level?.current, 'mid')
+  assert.equal(part?.critical, false)
+  assert.match(part?.level?.why.join(' ') ?? '', /StockInBounds breaks in 4 steps.*merge impact is unknown/)
+  assert.equal(result.answer.deploy, 'safe')
   const sell = result.graph.nodes.find((node) => node.id === 'n1')!
   assert.deepEqual(
     [sell.level?.current, sell.findings.find((finding) => finding.rule === 'model-violated')?.text],
-    ['mid', 'Sale.tla models this file, and TLC found StockInBounds broken in 4 steps at this commit: the code or the model is wrong.'],
+    ['mid', 'Sale.tla models this file, and TLC found StockInBounds broken in 4 steps at this commit: merge impact is unknown without a base comparison and the consuming path.'],
   )
 })

@@ -19,7 +19,12 @@ const sentence = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(
  * file, or of a model that is no evidence, is said after the row's reason, and never moves the level.
  */
 export function floor(input: FloorInput): Floor {
-  const decided = rowOf(input)
+  let decided = rowOf(input)
+  if (input.model?.result === 'violated') {
+    const why = `${sentence(input.model.said)} The check is at head only; merge impact is unknown until compared with base and its consumers.`
+    if (decided.level === 'safe') decided = { ...decided, level: 'mid', rule: 11 }
+    decided = { ...decided, why: `${decided.why} ${why}` }
+  }
   const told = [input.model && !['holds', 'violated'].includes(input.model.result) ? input.model.said : null, input.modeledBy].filter((said): said is string => Boolean(said))
   return told.length ? { ...decided, why: [decided.why, ...told.map(sentence)].join(' ') } : decided
 }
@@ -29,7 +34,6 @@ function rowOf(input: FloorInput): Floor {
   const shown = THROUGH_A_REQUEST.has(proof)
 
   if (input.broken) return row(1, 'high', sentence(input.broken), { critical: true })
-  if (input.model?.result === 'violated') return row(1, 'high', sentence(input.model.said), { critical: true })
   if (input.context) return row(2, 'safe', 'Nothing in it changed: it is shown for context.')
   if (input.model?.result === 'holds') return row(2, 'safe', sentence(input.model.said))
   if (effect === 'text') return row(2, 'safe', 'Only comments, whitespace or translations changed.')

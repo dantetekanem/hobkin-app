@@ -80,11 +80,12 @@ describe('floor table rows', () => {
     const f = run({ exposure: 'nobody-yet', undo: 'rollback', proof: 'not-applicable' })
     assert.deepEqual([f.level, f.rule, f.critical], ['mid', 11, false])
   })
-  it('a TLA+ model TLC checked at this commit: holding is safe, a broken rule is a break, and anything else is said beside the row that decides', () => {
+  it('a TLA+ model TLC checked at this commit: holding is safe, a head-only broken rule needs attribution, and anything else is said beside the row that decides', () => {
     const holds = run({ proof: 'unknown', model: { result: 'holds', said: 'TLC checked Sale.tla at this commit: it holds in 15 states' } })
     assert.deepEqual([holds.level, holds.rule, holds.why], ['safe', 2, 'TLC checked Sale.tla at this commit: it holds in 15 states.'])
     const broke = run({ proof: 'unknown', model: { result: 'violated', said: 'TLC checked Sale.tla at this commit: StockInBounds breaks in 4 steps' } })
-    assert.deepEqual([broke.level, broke.rule, broke.critical], ['high', 1, true])
+    assert.deepEqual([broke.level, broke.rule, broke.critical], ['mid', 5, false])
+    assert.match(broke.why, /merge impact is unknown/)
     // A hold with an action that never ran checked nothing that action guards: no evidence, so the rows below decide.
     const unproven = run({ proof: 'unknown', model: { result: 'unproven', said: 'TLC checked Sale.tla at this commit: it held, but Restock never ran' } })
     assert.deepEqual([unproven.level, unproven.rule, unproven.why], ['mid', 5, 'No test that ran shows these lines work. TLC checked Sale.tla at this commit: it held, but Restock never ran.'])

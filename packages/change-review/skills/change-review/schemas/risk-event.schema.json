@@ -11,7 +11,20 @@
     "evidence"
   ],
   "additionalProperties": false,
+  "allOf": [{
+    "if": { "required": ["origin"], "properties": { "origin": { "const": "pre-existing" } } },
+    "then": { "required": ["comparison"] }
+  }],
   "properties": {
+    "origin": {
+      "enum": ["introduced", "worsened", "pre-existing", "unknown"],
+      "description": "Attribution relative to base and actual consumers."
+    },
+    "comparison": {
+      "type": "string",
+      "minLength": 20,
+      "description": "Base/head evidence for the same input and consumer; required for pre-existing."
+    },
     "node": {
       "type": "string",
       "description": "Node id from graph.json."

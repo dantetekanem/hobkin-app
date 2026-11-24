@@ -41,6 +41,14 @@ The message is one line saying the rest is data, then one JSON object:
 - `model_checks`: TLC checks hobkin ran itself, at this commit, of the TLA+ models the change adds, edits or touches a file of: the `spec`, the `run`, the `result` (`holds`, `violated` or `error`), the distinct `states`, each rule and whether it `held`, the actions that never fired (`unfired`), and the changed files the spec names in `\* models:` (`models`).
 - `cut`: what was left out to keep the data short. Something missing from the data is not evidence that it is missing from the code.
 
+## Merge impact relative to base
+
+Answer what merging this diff can break compared with its base, not whether every file or check at head is healthy. Trace actual consumers: runtime callers, CI/build jobs, validators, generators and deployment. No file extension is a safety exemption; a model or config can break a required check or change generated/runtime behaviour.
+
+For each finding set `origin` to `introduced`, `worsened`, `pre-existing` or `unknown`. In `comparison`, name the same input/state, consumer and base versus head outcomes, or the code evidence establishing that difference. A head-only failure does not establish origin. Missing base evidence means `unknown`, never `pre-existing`.
+
+A verified old failure merely exposed by new checking is `pre-existing`: keep it visible as a separate nonblocking finding, not a merge blocker. Its event does not change the node's level, critical status, risk reasons or suggestions. Name it as pre-existing in titles and explanations; never say this diff broke it. If the diff makes that old failure block a required consumer, changes its reach, severity or outcome, assess that added impact as `worsened`, separately from the old defect. Match story/unit titles, explanations and the overall answer to the resulting merge impact. Existing independent risks remain in force.
+
 ## Levels
 
 A level is the risk that the change breaks something: the code, or what runs in production. Nothing else.
@@ -66,7 +74,7 @@ The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a
 
 ## TLA+ model checks
 
-A model check in `model_checks` is a result, like a test that ran. Never say that no checker result is shown when one is there: name the model, its result and its states. A check that holds, with no `unfired` action, shows the model's rules keep in every state TLC reached: the model's own lines are shown working, and it is evidence for the design of the files it models. It is not a test of those lines, so it lowers no level of code and outweighs no break you find in it. Say what the model leaves out when the break lies there. A `violated` rule is a break the check showed: the code or the model is wrong. A check with an `unfired` action, or an `error`, shows nothing about what it did not reach.
+A model check in `model_checks` is a result, like a test that ran. Never say that no checker result is shown when one is there: name the model, its result and its states. A check that holds, with no `unfired` action, shows the model's rules keep in every state TLC reached: the model's own lines are shown working, and it is evidence for the design of the files it models. It is not a test of those lines, so it lowers no level of code and outweighs no break you find in it. Say what the model leaves out when the break lies there. A `violated` rule shows a failure at head, not that this diff caused it. Compare base and head and inspect actual consumers before attributing merge impact; record a verified unchanged failure separately as pre-existing and nonblocking. A check with an `unfired` action, or an `error`, shows nothing about what it did not reach.
 
 ## What you may change
 
@@ -193,6 +201,8 @@ Answer with one JSON object and nothing else: no text before or after it, no cod
 An event has these fields and no others:
 
 - `node` (required): a node id from the data, or the id of a part your `map` adds.
+- `origin`: `introduced`, `worsened`, `pre-existing` or `unknown`, as defined above.
+- `comparison`: concrete base/head evidence; required for `pre-existing`.
 - `level` (required): `safe`, `mid` or `high`: the node's level after this event; its current level when nothing changes.
 - `direction` (required): `up`, `down`, `sideways` or `time`.
 - `aspect` (required): `behaviour`, `performance` or `failure`.

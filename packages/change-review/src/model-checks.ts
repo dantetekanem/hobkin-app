@@ -1,7 +1,7 @@
 /**
  * TLA+ model checks in a change review (050-tla-proofs): what TLC said at the reviewed head of each model the change
  * adds, edits or touches a file of, from the runs hobkin made itself. A check is evidence like a test that ran. A model
- * the diff adds or edits is shown holding by a check that holds, and is a break when a rule breaks. For a file a model
+ * the diff adds or edits is shown holding by a check that holds; a failure at head alone does not establish merge impact. For a file a model
  * names in `\* models:`, the check is said in its level's reasons and never sets the level: a model is not a test of the
  * lines, so it lowers no break found in them.
  */
@@ -35,7 +35,7 @@ function modeledWords(check: ModelCheck): string {
   if (holdsAsEvidence(check)) {
     return `${file} models this file and holds in ${count(check.states)} states at this commit: that shows its rules keep in the model, not that these lines work, and it lowers no break found in them`
   }
-  if (check.result === 'violated') return `${file} models this file, and TLC found ${check.broken ?? 'a rule'} broken${steps(check)} at this commit: the code or the model is wrong`
+  if (check.result === 'violated') return `${file} models this file, and TLC found ${check.broken ?? 'a rule'} broken${steps(check)} at this commit: merge impact is unknown without a base comparison and the consuming path`
   if (check.result === 'error') return `${file} models this file, and TLC could not check it at this commit`
   return `${file} models this file and held at this commit, but ${listed(check.unfired)} never ran, so it is no evidence`
 }

@@ -338,7 +338,7 @@ const SUGGEST_KINDS = ['add-flag', 'resolve-callers', 'restructure', 'add-test']
 const SIGNAL_KINDS = ['metric', 'log', 'trace', 'error-report'] as const
 const STATUSES = ['verified', 'contradicted', 'unverifiable'] as const satisfies readonly ClaimStatus[]
 /** The fields of schemas/risk-event.schema.json, and `watch` from types.ts. */
-const EVENT_FIELDS = ['node', 'level', 'direction', 'aspect', 'evidence', 'evidence_kind', 'lines', 'critical', 'confidence', 'rule', 'questions', 'suggest', 'watch', 'by']
+const EVENT_FIELDS = ['origin', 'comparison', 'node', 'level', 'direction', 'aspect', 'evidence', 'evidence_kind', 'lines', 'critical', 'confidence', 'rule', 'questions', 'suggest', 'watch', 'by']
 const WORD_FIELDS = ['title', 'does', 'answer', 'setting', 'units']
 const MIN_EVIDENCE = 20
 const MAX_EVENTS_PER_NODE = 10
@@ -516,6 +516,9 @@ function eventOf(raw: unknown, index: number, nodes: ReadonlySet<string>, proble
     aspect: raw.aspect as RiskEvent['aspect'],
     evidence: problems.capped(raw.evidence as string, LIMITS.evidence, `${at}.evidence`),
   }
+  if (raw.origin !== undefined) event.origin = raw.origin as RiskEvent['origin']
+  const comparison = problems.text(raw.comparison, LIMITS.evidence, `${at}.comparison`)
+  if (comparison) event.comparison = comparison
   if (raw.evidence_kind !== undefined) event.evidence_kind = raw.evidence_kind as RiskEvent['evidence_kind']
   if (raw.critical !== undefined) event.critical = raw.critical as boolean
   if (raw.confidence !== undefined) event.confidence = raw.confidence as RiskEvent['confidence']

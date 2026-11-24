@@ -237,7 +237,7 @@ const isBroken = (node: ReviewNode) => Boolean(node.extras?.broken) || node.find
 /** What TLC said of a TLA+ model the diff adds or edits, as a title ends. */
 const MODEL_SAID: Record<NonNullable<ReviewNode['extras']['model']>['result'], string> = {
   holds: 'TLC checked it at this commit, and it holds',
-  violated: 'TLC checked it at this commit, and a rule breaks',
+  violated: 'TLC found a failure at head; merge impact is unknown',
   unproven: 'TLC checked it at this commit, but not every action ran',
   error: 'TLC could not check it at this commit',
 }
