@@ -259,7 +259,7 @@ export function ChangeRow({ change, lowest, place = null, bare = false, initiall
         className={cn('@container flex scroll-mt-[124px] scroll-mb-6 flex-col rounded-2xl bg-background px-4 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2', 'py-3', reviewId && 'pressable')}
       >
         {bare ? null : (
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-2 gap-y-2 @[860px]:grid-cols-[14rem_minmax(0,1fr)_4.5rem_8.5rem_auto_auto]">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-2 gap-y-2 @[860px]:grid-cols-[6.5rem_minmax(0,1fr)_4.5rem_8.5rem_auto_auto]">
             <Grades block={block} lowest={lowest} />
             <div className="col-span-4 row-start-2 flex min-w-0 flex-col gap-1 @[860px]:col-span-1 @[860px]:col-start-2 @[860px]:row-start-1 @[860px]:mr-1">
               <div className="flex h-6 min-w-0 items-center gap-2">
