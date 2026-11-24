@@ -731,7 +731,7 @@ test('a helper its direct tests prove, with an older request test running throug
       ['safe', '`linkUserTags`: a test goes through a request to it'],
     ],
   )
-  assert.equal(result.units.units[1]!.where, 'Reached from showTopic (not certain), through renderPost.', 'a path rule is not sure of a way in')
+  assert.equal(result.units.units[1]!.where, 'Reached from showTopic (likely), through renderPost.', 'a path rule is not sure of a way in')
   assert.equal(result.units.attention.files_skipped, 1, 'the README is counted, not read')
   assert.match(result.story, /\*\*Proof:\*\* .*A life cycle test executes unit 2\. No test shows unit 1\./)
   assert.ok(result.progress.steps.every((step) => step.status === 'done' || step.status === 'skipped'))

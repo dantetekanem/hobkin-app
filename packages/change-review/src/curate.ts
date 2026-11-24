@@ -286,10 +286,10 @@ const calls = (count: number) => `${count} call${count === 1 ? '' : 's'}`
 
 /**
  * An origin as the words of a unit say it: its label, with its definition's name when the label is a route or a key,
- * and "not certain" when the scan is not sure of it or only a path rule says so: it never reads as a fact.
+ * and "likely" when the scan is not sure of it or only a path rule says so, as the host says it: it never reads as a fact.
  */
 function originSaid(origin: Origin): string {
-  const notes = [...(origin.label === origin.symbol ? [] : [origin.symbol]), ...(origin.exact ? [] : ['not certain'])]
+  const notes = [...(origin.label === origin.symbol ? [] : [origin.symbol]), ...(origin.exact ? [] : ['likely'])]
   return notes.length ? `${origin.label} (${notes.join(', ')})` : origin.label
 }
 
