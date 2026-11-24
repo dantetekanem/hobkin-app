@@ -160,3 +160,16 @@ test('a schedule runs as many times as its agent caps it at, with no most, and w
   assert.match(ask({ ...plain, maxRuns: 0 }).refused, /maxRuns is a number of runs from 1/);
   assert.match(ask({ ...plain, maxRuns: 2.5 }).refused, /maxRuns is a number of runs from 1/);
 });
+
+test('pendingExit takes as many exit codes as the agent names, each from 0 to 255 and kept once, and a code it names is pending even when it is 0', () => {
+  const plain = { every: '2m', note: 'Read the checks.', command: 'bin/check', expiresIn: '1d' };
+  const many = make({ ...plain, pendingExit: [8, 9, 10, 11, 12, 13, 8] });
+  assert.deepEqual(many.pendingExit, [8, 9, 10, 11, 12, 13], 'each once');
+  assert.match(ask({ ...plain, pendingExit: [256] }).refused, /pendingExit is a list of exit codes from 0 to 255/);
+  assert.match(ask({ ...plain, pendingExit: [-1] }).refused, /pendingExit is a list of exit codes from 0 to 255/);
+  assert.match(ask({ ...plain, pendingExit: 8 }).refused, /pendingExit is a list of exit codes/);
+
+  const zero = make({ ...plain, pendingExit: [0] });
+  const after = afterRun(zero, { fired: NOW, result: { code: 0, stdout: 'still running', stderr: '', killed: false } }, NOW + 1000);
+  assert.deepEqual([after.schedule.history.at(-1).outcome, after.wake], ['pending', null], 'exit 0 named as not yet is not yet');
+});

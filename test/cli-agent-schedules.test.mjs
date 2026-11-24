@@ -29,7 +29,7 @@ test('a schedule is refused with no note, a bad interval or timeout, or past the
   assert.match(ask({ in: '3h', note: 'Look.' }).refused, /after its lifetime ends/);
   assert.match(ask({ in: '10m', note: 'Look.', wakeOn: 'change', command: 'true' }).refused, /needs every/);
   assert.match(ask({ in: '10m', note: 'Look.', wakeOn: 'failure' }).refused, /are for a command/);
-  assert.match(ask({ every: '2m', note: 'Look.', command: 'true', pendingExit: [1, 2, 3, 4, 5] }).refused, /up to 4 exit codes/);
+  assert.match(ask({ every: '2m', note: 'Look.', command: 'true', pendingExit: [1, 256] }).refused, /exit codes from 0 to 255/);
 
   const live = Array.from({ length: 5 }, (_, at) => make({ every: '2m', note: 'Look.' }, { id: `m${at}` }));
   assert.match(ask({ every: '2m', note: 'One more.' }, { live }).refused, /already keep 5 live schedules/);

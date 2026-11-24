@@ -31,7 +31,6 @@ export const LONGEST_TIMEOUT_MS = 10 * MINUTE;
 export const DEFAULT_WAKES = 12;
 /** A schedule's cap on wakes: its own, null for none, or the default for one stored before schedules had their own. */
 export const wakeCap = schedule => (schedule.maxWakes === undefined ? DEFAULT_WAKES : schedule.maxWakes);
-export const MOST_PENDING_CODES = 4;
 export const MOST_PER_OWNER = 5;
 export const MOST_IN_HOME = 20;
 /** What is kept of each stream of a run's output, and what a wake carries of it. */
@@ -136,9 +135,10 @@ function timing({ every: everyAsked, expiresIn, timeoutMs, maxRuns, maxWakes, pe
     return refuse(`maxWakes is a number of wakes from 1, or ${NO_END} for no cap. Without it, ${DEFAULT_WAKES}.`);
   }
 
-  const exitCode = code => Number.isInteger(code) && code >= 1 && code <= 255;
-  if (pendingExit !== undefined && (!Array.isArray(pendingExit) || pendingExit.length > MOST_PENDING_CODES || !pendingExit.every(exitCode))) {
-    return refuse(`Give pendingExit as up to ${MOST_PENDING_CODES} exit codes from 1 to 255 that mean "not yet".`);
+  // As many codes as its agent names, each kept once, 0 too for a command that exits 0 while it waits.
+  const exitCode = code => Number.isInteger(code) && code >= 0 && code <= 255;
+  if (pendingExit !== undefined && (!Array.isArray(pendingExit) || !pendingExit.every(exitCode))) {
+    return refuse('pendingExit is a list of exit codes from 0 to 255 that mean "not yet".');
   }
   if (wakeOn !== undefined && !WAKE_ON.includes(wakeOn)) return refuse(`wakeOn is one of ${WAKE_ON.join(', ')}.`);
   if (stopOn !== undefined && !STOP_ON.includes(stopOn)) return refuse(`stopOn is one of ${STOP_ON.join(', ')}.`);
@@ -277,8 +277,9 @@ export function runOutcome(schedule, result, { timedOut = false } = {}) {
   if (timedOut) return 'timed-out';
   if (result?.interrupted) return 'interrupted';
   if (result?.code === null || result?.code === undefined) return result?.killed ? 'failed' : 'error';
-  if (result.code === 0) return 'passed';
-  return schedule.pendingExit?.includes(result.code) ? 'pending' : 'failed';
+  // A code its agent named as "not yet" is pending first, 0 included.
+  if (schedule.pendingExit?.includes(result.code)) return 'pending';
+  return result.code === 0 ? 'passed' : 'failed';
 }
 
 const failing = outcome => outcome === 'failed' || outcome === 'timed-out' || outcome === 'error';

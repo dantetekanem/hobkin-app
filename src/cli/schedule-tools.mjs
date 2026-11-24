@@ -27,7 +27,7 @@ const scheduleParameters = Type.Object({
   every: Type.Optional(Type.String({ description: 'Repeat this often, 1m or longer, such as 6h or 1d. Without it, it fires once.' })),
   wakeOn: Type.Optional(oneOf(WAKE_ON)),
   stopOn: Type.Optional(oneOf(STOP_ON)),
-  pendingExit: Type.Optional(Type.Array(Type.Integer(), { description: 'Up to 4 exit codes that mean "not yet".' })),
+  pendingExit: Type.Optional(Type.Array(Type.Integer(), { description: 'Exit codes, 0 to 255, that mean "not yet".' })),
   maxRuns: Type.Optional(Type.Integer({ description: 'At most this many runs. No cap unless you say.' })),
   maxWakes: Type.Optional(Type.Union([Type.Integer(), Type.Literal('none')], { description: 'At most this many wakes, or none for no cap. Default 12.' })),
   expiresIn: Type.Optional(Type.String({ description: 'Its lifetime, 2h unless you say: any duration, such as 3d, or none for no end.' })),
