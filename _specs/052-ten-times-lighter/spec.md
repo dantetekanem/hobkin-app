@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": [],
-  "updated": "2026-11-21"
+  "updated": "2026-11-23"
 }
 ---
 # Ten times lighter: 100 agents on one Mac
@@ -18,7 +18,8 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 
 - Work follows what changed and what is on screen. Nothing is redone per agent, per kept step or per second while its inputs are the same.
 - The window draws host messages once per animation frame. A list of agents takes new words at most five times a second. The open agent's page and the chat follow every frame. A hidden window applies messages and draws nothing.
-- Endless motion runs on the compositor: transform and opacity of HTML boxes only. A face under 40 px moves as a whole. Larger faces keep their moods, drawn as stacked layers. A face nobody can see is not mounted or holds still.
+- Endless motion runs on the compositor: transform and opacity of HTML boxes only. A face under 40 px moves as a whole. Larger faces move their parts, drawn as stacked layers. A face nobody can see is not mounted or holds still.
+- Faces move on change (2026-11-23). The user chose: "Move on change: A face and its crab play their motion for about 2 seconds when the mood changes (starts working, asks, finishes), then rest in the mood's pose. Idle cost near 0. Blinks can stay as a rare single blink." Each face animation plays the whole number of loops closest to two seconds and holds its last frame, so it stops where a loop ends and nothing jumps. A face that mounts already in a mood rests without playing (`ui/src/avatar/mood-play.ts`). A face of 40 px or more blinks once every 6 to 10 seconds, every face on one timer for the window, and none blinks while the window is hidden or away, under Still, or off screen (`ui/src/avatar/blink.ts`). No face animation is endless. This replaces larger faces keeping their moods' loops: measured that day in WebKit, an idle agent's page cost 13 to 14.5% of a core with every animation on and 0% with none, and the faces' loops were nearly all of it.
 - The runtime rebuilds its whole view when a message, a turn or a run ends, or when a file it reads changes. Words and tool steps travel as activity.
 - Tests hold budgets as counts: list builds, draws, rebuilds, reads. Times come from the scripts under `scripts/perf/` in each repository, which the test run does not include.
 - Background agent processes, and what they start, run at utility priority on macOS (`taskpolicy -c utility`): work agents, routines, helpers, a hobkin's turns, Claude Code runs and change review's test runs. The window, the host and the main chat's own process keep normal priority, so they keep the fast cores when every core is busy.
@@ -49,7 +50,7 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - A3. Host messages that arrive inside one animation frame draw once. A list of agents takes new words at most five times a second. A hidden window draws nothing and shows the latest state when it comes back, with no message lost.
 - A4. The agents dock mounts at most six rows however many agents run, and the arrow keys still reach every agent.
 - A5. While a reply streams, a chat row whose message did not change does not draw again, and streaming text parses only its open block.
-- A6. No endless animation needs the main thread: each moves only transform or opacity of an HTML box, and none is set on part of an SVG.
+- A6. No endless animation needs the main thread: each moves only transform or opacity of an HTML box, and none is set on part of an SVG. No face animation is endless (2026-11-23).
 - A7. Motion nobody can see is stopped: the chat while the canvas covers it, and everything while the window is hidden or has been in the background for a minute.
 - A8. The lines that change with every step of an agent (its current line, its counts, its tasks, hobkin's speech bubble) swap without adding a style sheet to the page.
 - A9. On the live app with two agents running, the window's content and GPU processes together use 4% of a core or less. They used 39%.
@@ -122,6 +123,7 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - [x] S21 (A22, A23). Limits and the pace of starts: hobkin d668d5d, 54d815d, 6fa5932, d37922f; client 198c746, e47e347, 636dc01, 4f2bc10, a77ec7b.
 - [x] S22 (A24). Backups hold only hobkin's own: b53c75c, 341504a, acc9d2b, e549b45; hobkin 322ae19 tells agents to keep builds and virtual machines out of the home.
 - [x] S23 (A25). An agent's page moves as it did before this work: 5f4ce62, e8738de.
+- [x] S24 (A6). Faces move on change and blink on one timer: d11d28a, f8fba78, 44ef73a, a06eaa2. The motion check went from 144 endless animations, 120 of them on faces, to 24 and none on a face. Not yet seen in a window.
 - [x] S20 (A21). Post-processing of the changed code, a review by someone who did not write it, and the closing numbers in `notes.md`. Three reviews, twelve defects found and fixed; 178 client and 232 runtime tests of the changed files pass, typecheck is clean, and the 3 runtime tests that fail did so before this work.
 
 ## Open questions
