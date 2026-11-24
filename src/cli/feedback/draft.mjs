@@ -37,6 +37,8 @@ const SECRET_PATTERNS = [
   [/\b[0-9a-f]{32,}\b/gi, '[key removed]'],
   [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[email removed]'],
 ];
+/** The same shapes but the email's: what a memory is refused for (`memories.mjs`), where an email is not a secret. */
+export const SECRET_SHAPES = Object.freeze(SECRET_PATTERNS.filter(([, replacement]) => replacement !== '[email removed]').map(([pattern]) => pattern));
 // Someone else's home folder names them too.
 const ANY_HOME = /(?:\/Users|\/home)\/[^/\s]+|[A-Za-z]:\\Users\\[^\\\s]+/g;
 const KIND_FIRST = /^(bug|crash|template|idea)(?::\s*|\s+|$)([\s\S]*)$/;
