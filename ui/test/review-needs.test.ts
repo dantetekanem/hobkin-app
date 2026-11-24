@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ChangeScores } from '#shared/protocol/work.ts'
 import type { ReviewNeeds } from '#shared/review/needs.ts'
-import { hobkinView, needNumbers, questionsView, rateWords, ratingsOf, NO_MONITORING, QUESTIONS } from '../src/features/review/panel/needs.ts'
+import { needNumbers, rateWords, ratingsOf, scoresLine, NO_MONITORING, QUESTIONS } from '../src/features/review/panel/needs.ts'
 
 const HEAD = 'abc1234'.padEnd(40, 'f')
 const OLDER = 'b1d0b1d'.padEnd(40, 'e')
@@ -31,67 +31,69 @@ const withoutMonitoring = (): ReviewNeeds => {
   return rest
 }
 
-test('every review opens with the five ratings in the user\'s order, their evidence, the kind, the rate and what is missing', () => {
-  const view = questionsView({ yours: rated(), head: HEAD, underWay: false })
+test('the scores are one line: the general rate first, then each question as a short word and its number, with its question and evidence as the tooltip', () => {
+  const line = scoresLine({ yours: rated(), head: HEAD, underWay: false })
 
-  assert.equal(view.state, 'rated')
-  assert.deepEqual(view.rows.map((row) => row.question), Object.values(QUESTIONS))
-  assert.deepEqual(view.rows.map((row) => row.number), ['8', '4', '7', '6', '9'])
-  // A rating the facts capped says so in its evidence, as the engine wrote it.
-  assert.equal(view.rows[1]!.evidence, rated().scores.proof!.evidence)
-  assert.equal(view.lead, 'Bug fix · general rate 7.4')
-  assert.equal(view.floors, 'Held whatever the rate: proof is 4, needs 6.')
-  assert.equal(view.note, 'Still missing: A request test that renders a post with tags in its text and in code.')
-  assert.equal(view.by, 'Rated by this review at abc1234')
+  assert.equal(line.state, 'rated')
+  assert.equal(line.rate, '7.4')
+  assert.deepEqual(line.items.map(({ word, value }) => [word, value]), [['Coverage', '8'], ['Proof', '4'], ['Safety', '7'], ['Visibility', '6'], ['Rollback', '9']])
+  // Nothing is lost: each question and its line of evidence, as the engine wrote it, are the tooltip.
+  assert.equal(line.items[1]!.tip, `${QUESTIONS.proof} ${rated().scores.proof!.evidence}`)
+  assert.equal(line.holds, 'Held whatever the rate: proof is 4, needs 6.')
+  assert.equal(line.tip, 'Bug fix · general rate 7.4\nStill missing: A request test that renders a post with tags in its text and in code.\nRated by this review at abc1234')
+  assert.equal(line.quiet, null)
 })
 
-test('a pull request with no monitoring known shows four numbers, says monitoring is not known, and has no general rate', () => {
-  const view = questionsView({ yours: withoutMonitoring(), head: HEAD, underWay: false })
+test('a pull request with no monitoring known has four numbers and a dash, no rate, and says why in the tooltips', () => {
+  const line = scoresLine({ yours: withoutMonitoring(), head: HEAD, underWay: false })
 
-  assert.equal(view.state, 'unwatched')
-  assert.deepEqual(view.rows.map((row) => row.number), ['8', '4', '7', '–', '9'])
-  assert.equal(view.rows[3]!.evidence, NO_MONITORING)
-  assert.equal(view.lead, 'Bug fix · no general rate without monitoring')
+  assert.equal(line.state, 'unwatched')
+  assert.equal(line.rate, null)
+  assert.deepEqual(line.items.map(({ value }) => value), ['8', '4', '7', '–', '9'])
+  assert.equal(line.items[3]!.tip, `${QUESTIONS.visibility} ${NO_MONITORING}`)
+  assert.match(line.tip, /no general rate without monitoring/)
 })
 
-test('with no ratings, the part says whether they are coming or why there are none, in the same rows', () => {
-  const coming = questionsView({ yours: null, head: HEAD, underWay: true })
-  assert.equal(coming.state, 'pending')
-  assert.equal(coming.lead, 'Not rated yet: the review is being built.')
-  assert.equal(coming.note, 'Its ratings come with its answer.')
+test('with no ratings, one short quiet line says whether they are coming or why there are none, and nothing else', () => {
+  const coming = scoresLine({ yours: null, head: HEAD, underWay: true })
+  assert.deepEqual([coming.state, coming.quiet, coming.items], ['pending', 'Not rated yet: the review is being built.', []])
 
-  const none = questionsView({ yours: null, head: HEAD, underWay: false })
-  assert.equal(none.state, 'unrated')
-  assert.equal(none.lead, 'Not rated. Review again rates it.')
-  assert.equal(none.note, 'This review is older than the ratings, or its answer gave none.')
-
-  for (const view of [coming, none]) {
-    assert.equal(view.rows.length, 5, 'every row keeps its place')
-    assert.ok(view.rows.every((row) => row.number === '–' && row.evidence === ''))
-    assert.equal(view.by, null)
-  }
+  const none = scoresLine({ yours: null, head: HEAD, underWay: false })
+  assert.deepEqual([none.state, none.quiet, none.items], ['unrated', 'Not rated. Review again rates it.', []])
 })
 
-test('ratings made at an older commit than the review shows say so', () => {
-  const view = questionsView({ yours: rated({ head: OLDER }), head: HEAD, underWay: false })
-  assert.equal(view.state, 'older')
-  assert.deepEqual(view.rows.map((row) => row.number), ['8', '4', '7', '6', '9'])
-  assert.equal(view.by, 'Rated at b1d0b1d, an older commit than this review shows')
-  // The host's own words win when it says where they were made, as for a carried review.
-  const carried = questionsView({ yours: rated({ head: OLDER, atOtherCommit: 'Rated at b1d0b1d, where this review was built, before it was carried to abc1234.' }), head: OLDER, underWay: false })
+test('ratings made at an older commit than the review shows say so, in the host\'s words when it gives them', () => {
+  const line = scoresLine({ yours: rated({ head: OLDER }), head: HEAD, underWay: false })
+  assert.deepEqual([line.state, line.older], ['older', true])
+  assert.match(line.tip, /Rated at b1d0b1d, an older commit than this review shows$/)
+
+  const carried = scoresLine({ yours: rated({ head: OLDER, atOtherCommit: 'Rated at b1d0b1d, where this review was built, before it was carried to abc1234.' }), head: OLDER, underWay: false })
   assert.equal(carried.state, 'older', 'the host says they are of another commit, whatever the panel was given')
-  assert.equal(carried.by, 'Rated at b1d0b1d, where this review was built, before it was carried to abc1234.')
+  assert.match(carried.tip, /before it was carried to abc1234\.$/)
 })
 
-test('visibility with no monitoring known reads as not known, and one the review dropped with monitoring known as no answer', () => {
+test("hobkin's own run is no second block: it marks the numbers it scores more than a point apart, and is the line only when the review has none", () => {
+  const near = rated({ by: 'hobkin', scores: { ...rated().scores, proof: { score: 5, evidence: 'Three tests prove it.' } } })
+  assert.deepEqual(scoresLine({ yours: rated(), hobkins: near, head: HEAD, underWay: false }).items.map((item) => item.hobkin), [null, null, null, null, null])
+
+  const far = rated({ by: 'hobkin', scores: { ...rated().scores, proof: { score: 8, evidence: 'The suite passes.' } } })
+  const marked = scoresLine({ yours: rated(), hobkins: far, head: HEAD, underWay: false })
+  assert.deepEqual(marked.items.map((item) => item.hobkin), [null, '8', null, null, null])
+  assert.match(marked.items[1]!.tip, /hobkin's own run scored it 8\.$/)
+  assert.equal(marked.by, 'review')
+
+  const alone = scoresLine({ yours: null, hobkins: far, head: HEAD, underWay: false })
+  assert.equal(alone.by, 'hobkin')
+  assert.equal(alone.quiet, null)
+  assert.match(alone.tip, /Rated by hobkin at abc1234$/)
+})
+
+test('visibility with no monitoring known reads as not known on a row', () => {
   const unknown = { ...withoutMonitoring(), monitoring: 'unknown' as const }
-  assert.equal(questionsView({ yours: unknown, head: HEAD, underWay: false }).rows[3]!.evidence, NO_MONITORING)
   assert.equal(needNumbers([unknown])!.numbers[3]!.value, 'not known')
 
   const dropped = { ...withoutMonitoring(), monitoring: 'given' as const }
-  const view = questionsView({ yours: dropped, head: HEAD, underWay: false })
-  assert.equal(view.state, 'rated')
-  assert.deepEqual([view.rows[3]!.number, view.rows[3]!.evidence], ['–', ''])
+  assert.equal(scoresLine({ yours: dropped, head: HEAD, underWay: false }).state, 'rated')
   assert.equal(needNumbers([dropped])!.numbers[3]!.value, '–')
 })
 
@@ -118,22 +120,6 @@ test("a status's ratings are read without trust: the review's own at its commit,
 
   assert.deepEqual(ratingsOf(null, HEAD), { yours: null, hobkins: null })
   assert.deepEqual(ratingsOf({ needs: 'not a list' }, HEAD), { yours: null, hobkins: null })
-})
-
-test("hobkin's own scores fold when they agree with the review's within a point, and open with each difference marked when they do not", () => {
-  const near = rated({ by: 'hobkin', rate: 7.9, scores: { ...rated().scores, proof: { score: 5, evidence: 'Three tests prove it.' } } })
-  const agrees = hobkinView(rated(), near)
-  assert.equal(agrees.state, 'agrees')
-  assert.equal(agrees.lead, 'Bug fix, general rate 7.9')
-
-  const far = rated({ by: 'hobkin', scores: { ...rated().scores, proof: { score: 8, evidence: 'The suite passes.' } } })
-  const differs = hobkinView(rated(), far)
-  assert.equal(differs.state, 'differs')
-  assert.deepEqual(differs.rows.map((row) => row.differs), [null, '4 in this review', null, null, null])
-
-  assert.equal(hobkinView(null, far).state, 'alone')
-  assert.equal(hobkinView(rated(), null).state, 'none')
-  assert.doesNotMatch(hobkinView(rated(), null).lead, /Work card/, 'no button that no longer scores is named')
 })
 
 test('a row and the YOLO mode page read the ratings in a few words', () => {

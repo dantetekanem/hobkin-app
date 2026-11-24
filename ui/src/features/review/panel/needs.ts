@@ -1,10 +1,9 @@
 /**
- * "Your questions" (spec 058 A13): the user's five questions of every AI review, a finished change and a pull request
- * alike, each with its number out of 10 and its one line of evidence, in the user's own order and words; then the kind
- * of change, the general rate, any floor that holds it, what is still missing, and who rated it at which commit. The
- * numbers are the review's own, read without trust from what the host sends (`needs`); hobkin's own scored run, where a
- * finished change has one, is told apart under them. The evidence is what the user reads: a number the facts capped says
- * so in its evidence, as the engine wrote it. Pure.
+ * The user's five questions of every AI review (spec 058 A13), a finished change and a pull request alike, as numbers
+ * out of 10 in the user's order. The panel shows only the numbers, each with its question and its line of evidence as
+ * its tooltip (`scoresLine`), and a row of the list shows them in a few words (`needNumbers`). The numbers are the
+ * review's own, read without trust from what the host sends (`needs`); hobkin's own scored run, where a finished change
+ * has one, is told apart on the same line. Pure.
  */
 import type { ChangeScores } from '#shared/protocol/work.ts'
 import { NEED_KINDS, NEED_NAMES, readNeedsList, type NeedKind, type NeedName, type NeedScore, type ReviewNeeds } from '#shared/review/needs.ts'
@@ -93,29 +92,38 @@ export function ratingsOf(status: { needs?: unknown; scores?: ChangeScores | nul
 }
 
 /** `rated`: all five, or all but visibility with monitoring known. `unwatched`: no visibility, as with no monitoring known. */
-export type QuestionsState = 'rated' | 'unwatched' | 'older' | 'pending' | 'unrated'
+export type ScoresState = 'rated' | 'unwatched' | 'older' | 'pending' | 'unrated'
 
-export interface QuestionRow {
+/** The panel's word for each question, whole, where the numbers have a line to themselves. */
+export const PANEL_WORDS: Readonly<Record<NeedName, string>> = { coverage: 'Coverage', proof: 'Proof', safety: 'Safety', visibility: 'Visibility', rollback: 'Rollback' }
+
+/** One score on the line: its word and number, and its tooltip, which is its question and its line of evidence. */
+export interface ScoreItem {
   name: NeedName
-  question: string
-  /** Its number out of 10, or a dash with none. */
-  number: string
-  /** Its one line of evidence, as the review wrote it. Empty with no answer. */
-  evidence: string
+  word: string
+  /** The number, or a dash with none. */
+  value: string
+  tip: string
+  /** hobkin's own number when it is more than a point from this one, so the line can mark it. */
+  hobkin: string | null
 }
 
-export interface QuestionsView {
-  state: QuestionsState
-  /** Always the five, in the user's order. The panel draws them only for a review that was rated. */
-  rows: QuestionRow[]
-  /** The kind of change and the general rate, or that it is not rated. */
-  lead: string
-  /** The floors that hold it whatever the rate, in a line. */
-  floors: string | null
-  /** What proof is still missing, or why there are no ratings. */
-  note: string | null
-  /** Who rated it and at which commit. */
-  by: string | null
+/**
+ * The five scores as the panel's one line. `rate`: the general rate, first on the line when there is one. `holds`: what
+ * holds the change whatever the rate, one line. `tip`: the rest in a tooltip, the kind, why there is no rate, what is
+ * still missing and who rated it at which commit. `quiet`: the one short line a review with no ratings shows instead of
+ * the numbers. `by`: "hobkin" when the numbers are hobkin's own scored run, shown because the review has none of its own.
+ */
+export interface ScoresLine {
+  state: ScoresState
+  items: ScoreItem[]
+  rate: string | null
+  holds: string | null
+  tip: string
+  quiet: string | null
+  by: 'review' | 'hobkin'
+  /** Whether the numbers were made at another commit than the one shown, so they never read as current. */
+  older: boolean
 }
 
 const lineOf = (parts: readonly (string | null)[]) => {
@@ -123,13 +131,8 @@ const lineOf = (parts: readonly (string | null)[]) => {
   return said.charAt(0).toUpperCase() + said.slice(1)
 }
 
-function rowsOf(needs: ReviewNeeds | null, unwatched: boolean): QuestionRow[] {
-  return NEED_NAMES.map((name) => {
-    const answer: NeedScore | undefined = needs?.scores[name]
-    const evidence = answer?.evidence ?? (needs && name === 'visibility' && unwatched ? NO_MONITORING : '')
-    return { name, question: QUESTIONS[name], number: answer ? String(answer.score) : NONE, evidence }
-  })
-}
+/** Two numbers are apart when they are more than a point from each other. */
+const APART = 1
 
 function floorsOf(needs: ReviewNeeds): string | null {
   if (!needs.floors?.length) return null
@@ -137,78 +140,58 @@ function floorsOf(needs: ReviewNeeds): string | null {
   return `Held whatever the rate: ${held.join('; ')}.`
 }
 
+function itemsOf(needs: ReviewNeeds, unwatched: boolean, other: ReviewNeeds | null): ScoreItem[] {
+  return NEED_NAMES.map((name) => {
+    const answer: NeedScore | undefined = needs.scores[name]
+    const evidence = answer?.evidence ?? (name === 'visibility' && unwatched ? NO_MONITORING : '')
+    const theirs = other?.scores[name]?.score
+    const hobkin = answer && theirs != null && Math.abs(theirs - answer.score) > APART ? String(theirs) : null
+    return {
+      name,
+      word: PANEL_WORDS[name],
+      value: answer ? String(answer.score) : NONE,
+      tip: [QUESTIONS[name], evidence, hobkin ? `hobkin's own run scored it ${hobkin}.` : ''].filter(Boolean).join(' '),
+      hobkin,
+    }
+  })
+}
+
 /**
- * The review's own ratings as its panel opens with them. With none, a line says whether they are coming with the review
- * being built, or why there are none, and the panel draws no rows.
+ * The scores line (spec 058): the review's own five numbers, each a short word and its number, with the general rate
+ * first. Each number's question and evidence are its tooltip. A review with no ratings has one short line instead.
+ * hobkin's own scored run is never a second block: where it is more than a point from the review's on a question, that
+ * number carries hobkin's in its tooltip and a mark. Where the review has no ratings of its own, hobkin's numbers are
+ * the line, marked as hobkin's. Pure.
  */
-export function questionsView({ yours, head, underWay }: { yours: ReviewNeeds | null; head: string; underWay: boolean }): QuestionsView {
-  if (!yours) {
-    return underWay
-      ? { state: 'pending', rows: rowsOf(null, false), lead: 'Not rated yet: the review is being built.', floors: null, note: 'Its ratings come with its answer.', by: null }
-      : { state: 'unrated', rows: rowsOf(null, false), lead: 'Not rated. Review again rates it.', floors: null, note: 'This review is older than the ratings, or its answer gave none.', by: null }
+export function scoresLine({ yours, hobkins, head, underWay }: { yours: ReviewNeeds | null; hobkins?: ReviewNeeds | null; head: string; underWay: boolean }): ScoresLine {
+  const own = yours ?? null
+  const shown = own ?? hobkins ?? null
+  if (!shown) {
+    const quiet = underWay ? 'Not rated yet: the review is being built.' : 'Not rated. Review again rates it.'
+    return { state: underWay ? 'pending' : 'unrated', items: [], rate: null, holds: null, tip: quiet, quiet, by: 'review', older: false }
   }
 
-  const unwatched = notWatched(yours)
+  const unwatched = notWatched(shown)
   // The host says when they were made at another commit than the one shown, as for a carried review, in its own words.
-  const older = yours.atOtherCommit != null || yours.head !== head
-  const kind = yours.kind ? KIND_WORDS[yours.kind] : null
-  const rate = yours.rate != null ? `general rate ${yours.rate}` : unwatched ? 'no general rate without monitoring' : null
-  const by = older ? (yours.atOtherCommit ?? `Rated at ${short(yours.head)}, an older commit than this review shows`) : `Rated by this review at ${short(yours.head)}`
+  const older = shown.atOtherCommit != null || shown.head !== head
+  const kind = shown.kind ? KIND_WORDS[shown.kind] : null
+  const rate = shown.rate != null ? `general rate ${shown.rate}` : unwatched ? 'no general rate without monitoring' : null
+  const by = older ? (shown.atOtherCommit ?? `Rated at ${short(shown.head)}, an older commit than this review shows`) : `Rated by ${own ? 'this review' : 'hobkin'} at ${short(shown.head)}`
+  const tip = [lineOf([kind, rate]), shown.missing ? `Still missing: ${shown.missing}` : null, by].filter(Boolean).join('\n')
   return {
     state: older ? 'older' : unwatched ? 'unwatched' : 'rated',
-    rows: rowsOf(yours, unwatched),
-    lead: lineOf([kind, rate]),
-    floors: floorsOf(yours),
-    note: yours.missing ? `Still missing: ${yours.missing}` : null,
-    by,
+    items: itemsOf(shown, unwatched, own ? (hobkins ?? null) : null),
+    rate: shown.rate != null ? String(shown.rate) : null,
+    holds: floorsOf(shown),
+    tip,
+    quiet: null,
+    by: own ? 'review' : 'hobkin',
+    older,
   }
 }
 
 /** No visibility, because nothing is known of the repository's monitoring: not a visibility the review left out. */
 const notWatched = (needs: ReviewNeeds) => needs.scores.visibility == null && needs.monitoring !== 'given'
-
-/** `none`: hobkin has not scored it. `agrees`: within a point of the review's on every question both answer, so it folds. */
-export type HobkinState = 'none' | 'agrees' | 'differs' | 'alone'
-
-export interface HobkinView {
-  state: HobkinState
-  lead: string
-  rows: (QuestionRow & { differs: string | null })[]
-  floors: string | null
-  /** Set when its scores are for an older commit than the one shown. */
-  older: string | null
-}
-
-/** Two numbers agree when they are at most a point apart. */
-const AGREE = 1
-
-/**
- * hobkin's own scored run, told apart under the review's own: folded when both are there and agree within a point on
- * every question both answer, open with each difference marked when they do not, and open alone when the review has no
- * ratings of its own. `head` is the commit shown, when its scores are to be checked against it.
- */
-export function hobkinView(yours: ReviewNeeds | null, hobkins: ReviewNeeds | null, head?: string): HobkinView {
-  if (!hobkins) return { state: 'none', lead: 'It has not scored this change.', rows: [], floors: null, older: null }
-
-  const rows = rowsOf(hobkins, false).map((row) => {
-    const mine = hobkins.scores[row.name]?.score
-    const theirs = yours?.scores[row.name]?.score
-    const apart = mine != null && theirs != null && Math.abs(mine - theirs) > AGREE
-    return { ...row, differs: apart ? `${theirs} in this review` : null }
-  })
-  const kind = hobkins.kind ? KIND_WORDS[hobkins.kind] : null
-  const rate = hobkins.rate != null ? `general rate ${hobkins.rate}` : null
-  const state: HobkinState = !yours ? 'alone' : rows.some((row) => row.differs) ? 'differs' : 'agrees'
-  // Its heading names it as hobkin's, so its line says only what it found.
-  const said = [kind, rate].filter(Boolean).join(', ')
-  return {
-    state,
-    lead: said ? `${said.charAt(0).toUpperCase()}${said.slice(1)}` : 'Scored, with no kind or rate',
-    rows,
-    floors: floorsOf(hobkins),
-    older: head != null && hobkins.head !== head ? 'Scored on an older commit, not this one.' : null,
-  }
-}
 
 /** A row's five numbers in the user's order, each with its short word, and the general rate. */
 export interface NeedNumbers {

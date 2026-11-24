@@ -5,12 +5,11 @@ import { Markdown } from '@/features/chat/markdown.ts'
 import { useSession, useSessionStore } from '../state/context.tsx'
 import { useModelRows } from '../story/use-model-checks.ts'
 import { AskLink } from './AskLink.tsx'
-import { HobkinScores } from './HobkinScores.tsx'
 import { InlineCode } from './InlineCode.tsx'
 import { ModelChecks } from './ModelChecks.tsx'
-import { hobkinView, questionsView, ratingsOf } from './needs.ts'
-import { Questions } from './Questions.tsx'
-import { scoresWanted } from './scores.ts'
+import { ratingsOf, scoresLine } from './needs.ts'
+import { panelSections } from './sections.ts'
+import { ScoresLine } from './ScoresLine.tsx'
 import type { UnitMatter, WhatMatters as Matters } from './sidebar.ts'
 
 const HEADING = 'font-heading text-[12.5px] font-semibold tracking-[0.06em] text-muted-foreground uppercase'
@@ -19,8 +18,8 @@ const SHOWN = 4
 
 /**
  * Under the panel's header, the same on every step (the user, 2026-11-12: "Sidebar should be a constant explanation
- * of what this does. not long."): first the user's own questions answered (spec 058), and for a finished change
- * hobkin's own scored run under them; then what the change does, in three sentences at most; one line for each unit
+ * of what this does. not long."): the five scores on one line (spec 058); then, in Free Roam only, since
+ * the story's opening says it otherwise, what the change does, in three sentences at most; one line for each unit
  * that needs a look, its level and its claim, which goes to the step that tells it, with a quick link that asks hobkin
  * about it; and how many questions are open, which goes to the step of the first. The step itself is told on the
  * canvas. For a hobkin change, each TLA+ model and what TLC said of it at the reviewed head sits under what it does,
@@ -30,12 +29,14 @@ export function WhatMatters({ matters, ask, status }: { matters: Matters; ask: (
   const store = useSessionStore()
   const [whole, setWhole] = useState(false)
   const models = useModelRows()
-  const scored = useSession((session) => scoresWanted(session.review.id))
+  const mode = useSession((session) => session.mode)
   const head = useSession((session) => session.review.change.head)
   const assessment = status?.assessment?.state
   const underWay = status?.state === 'preparing' || assessment === 'queued' || assessment === 'running'
   const { yours, hobkins } = useMemo(() => ratingsOf(status, head), [status, head])
+  const line = useMemo(() => scoresLine({ yours, hobkins, head, underWay }), [yours, hobkins, head, underWay])
   const { does, questions } = matters
+  const shows = panelSections({ mode, does, notices: 0, notes: 0 })
   const units = whole ? matters.units : matters.units.slice(0, SHOWN)
   const go = (unit: UnitMatter) => {
     if (unit.step != null) store.getState().goTo(unit.step)
@@ -43,12 +44,10 @@ export function WhatMatters({ matters, ask, status }: { matters: Matters; ask: (
   }
 
   return (
-    <section aria-label="What this change does" className="flex flex-col gap-3 border-t border-border px-4 pt-3.5 pb-4">
-      <Questions view={questionsView({ yours, head, underWay })} heading={HEADING} />
+    <section aria-label="What matters" className="flex flex-col gap-3 border-t border-border px-4 pt-3.5 pb-4">
+      <ScoresLine line={line} />
 
-      {scored ? <HobkinScores key={`${head}:${hobkins?.head ?? ''}`} view={hobkinView(yours, hobkins, head)} heading={HEADING} /> : null}
-
-      {does ? (
+      {shows.does && does ? (
         <div className="flex flex-col gap-1.5">
           <h3 className={HEADING}>What this change does</h3>
           <div className="text-[15px] leading-[1.55] text-pretty [overflow-wrap:anywhere]">
