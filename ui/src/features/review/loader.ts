@@ -5,6 +5,7 @@ import type { ReviewLanding, ReviewNotes, ReviewStatus } from '#shared/review/st
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import { ReviewRefused } from '#shared/review/validate.ts'
 import { mergeHostNotes } from './notes/merge.ts'
+import { reviewStarted } from '../work/review-started.ts'
 import { startOf, underWay } from './preparing-model.ts'
 import { memoryKey, type MemoryState } from './state/memory.ts'
 import type { StoreApi } from 'zustand/vanilla'
@@ -184,6 +185,7 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
         // A change that lands is never built again, even when asked: there is nothing newer to review.
         const rebuild = refresh && !current.preparation?.landing
         preparation = rebuild ? await command('review.prepare', { id, refresh: true }) : await command('review.status', { id })
+        if (rebuild) reviewStarted(id)
         if (disposed || turn !== generation) return
         const open = store.getState().review
         if (preparation.landing && open) {
@@ -199,7 +201,10 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
           patch({ preparation, status: open ? 'ready' : 'awaiting', startedAt: null })
           return
         }
-        if (idle && !preparation.landing) preparation = await command('review.prepare', { id })
+        if (idle && !preparation.landing) {
+          preparation = await command('review.prepare', { id })
+          reviewStarted(id)
+        }
         if (disposed || turn !== generation) return
         patch({ preparation, ...clock(preparation) })
         if (!opens(preparation)) {
@@ -267,6 +272,7 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
     const turn = ++generation
     try {
       const preparation = await command('review.prepare', { id })
+      reviewStarted(id)
       if (disposed || turn !== generation) return
       const ready = opens(preparation)
       patch({ preparation, status: preparation.state === 'failed' ? 'error' : ready ? 'loading' : 'preparing', error: preparation.error, ...clock(preparation) })

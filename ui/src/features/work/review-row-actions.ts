@@ -2,6 +2,7 @@ import { createStore } from 'zustand/vanilla'
 import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
 import { CONFIRM_MS, createVerdictChoices } from '../review/verdict.ts'
 import { canReviewAgain, type ReviewRow } from './ai-reviews.ts'
+import { reviewStarted } from './review-started.ts'
 
 /**
  * The actions on a row of the AI Reviews tab (spec 032), shown on the row. Remove (`remove`) takes the review out of the
@@ -110,6 +111,7 @@ export function createReviewAgain({ id, unchanged, now = false, command, started
     store.setState({ armed: false, busy: true, error: null })
     try {
       const answer = await command('review.prepare', now ? { id } : { id, refresh: true })
+      reviewStarted(id)
       const nothingBuilt = armed ? null : againOf(answer)
       if (nothingBuilt) arm(nothingBuilt)
       else started()

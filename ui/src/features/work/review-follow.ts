@@ -1,6 +1,7 @@
 import type { CommandArgs, CommandResults } from '#shared/commands/registry.ts'
 import type { AssessmentStatus } from '#shared/review/assessment.ts'
-import type { ReviewStatus } from '#shared/review/status.ts'
+import type { PreparePhase, ReviewStatus } from '#shared/review/status.ts'
+import { onReviewStarted } from './review-started.ts'
 
 /**
  * Following one card's change review (spec 032): the host is asked how it stands, and asked again while it is queued
@@ -22,15 +23,19 @@ export function underWay(status: AssessmentStatus | undefined): boolean {
   return status?.state === 'queued' || status?.state === 'running'
 }
 
+/** What preparing the review itself is doing, in the words the review list uses. Waiting its turn is no work yet. */
+const PREPARING: Record<Exclude<PreparePhase, 'queued'>, string> = { reading: 'Reading the change', arranging: 'Arranging the story', checking: 'Checking the result' }
+
 /**
  * How a card's change review stands, from its review's status. While the host prepares the review itself, as it does
- * first when asked to review again, the change review it starts after that counts as queued. A host that runs no
- * change review says nothing of one, and neither does this.
+ * when a review is opened or asked for again, the card says it is reviewing, with what it is doing; while that waits
+ * its turn, that it is queued. A host that runs no change review says nothing of one, and neither does this.
  */
 export function assessmentOf(status: ReviewStatus): AssessmentStatus | undefined {
-  const { assessment } = status
-  if (!assessment || !status.phase || underWay(assessment)) return assessment
-  return { state: 'queued', head: status.head }
+  const { assessment, phase } = status
+  if (!assessment || !phase || underWay(assessment)) return assessment
+  if (phase === 'queued') return { state: 'queued', head: status.head }
+  return { state: 'running', head: status.head, now: PREPARING[phase] }
 }
 
 export interface ChangeReviewFollow {
@@ -75,11 +80,16 @@ export function followChangeReview({ id, run, onStatus }: { id: string; run: Cha
   }
 
   ask()
+  // A review started in this window is asked about at once, so the card says it is reviewing as it starts.
+  const stopHearing = onReviewStarted(id, () => {
+    if (!stopped) ask()
+  })
   return {
     again: () => send(() => run('review.prepare', { id, refresh: true })),
     stop() {
       stopped = true
       clearTimeout(timer)
+      stopHearing()
     },
   }
 }

@@ -28,8 +28,9 @@ export function useChangeReview(id: string | null, head: string | null): { asses
   }, [id, head, home])
 
   const again = useCallback(() => follow.current?.again() ?? Promise.reject(new Error('This change has no review to run again.')), [])
-  // Render against the current commit, even before the next effect starts or if its request fails.
-  const matchesCard = last && last.id === id && last.home === home && head !== null && last.status.head === head
+  // Render against the current commit, even before the next effect starts or if its request fails. A card that knows
+  // no commit, such as a stack's layer hobkin did not list, takes the review as the host has it.
+  const matchesCard = last && last.id === id && last.home === home && (head === null || last.status.head === head)
   const assessment = matchesCard ? last.status : undefined
   return { assessment, again }
 }

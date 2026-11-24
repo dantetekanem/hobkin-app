@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import type { AssessmentStatus } from '../../shared/review/assessment.ts'
 import { IDLE_STATUS, type PreparePhase, type ReviewStatus } from '../../shared/review/status.ts'
 import { followChangeReview, type ChangeReviewCommands } from '../src/features/work/review-follow.ts'
+import { reviewStarted } from '../src/features/work/review-started.ts'
 
 const ID = 'change:storefront:d2c4e8'
 const HEAD = 'c0ffee12'.padEnd(40, '0')
@@ -132,4 +133,44 @@ test('an ask that fails while the review is under way is asked again five second
   await answered()
   assert.equal(host.asked, 3)
   assert.deepEqual(shown, ['running', 'ready'], 'the failed ask changed nothing on the card')
+})
+
+test('while the review itself is being prepared the card says it is reviewing, and while it waits its turn that it is queued', async () => {
+  for (const [phase, state, now] of [
+    ['reading', 'running', 'Reading the change'],
+    ['arranging', 'running', 'Arranging the story'],
+    ['checking', 'running', 'Checking the result'],
+    ['queued', 'queued', undefined],
+  ] as const) {
+    const host = hostAt({ state: 'idle', head: HEAD }, phase)
+    const shown: (AssessmentStatus | undefined)[] = []
+    const follow = followChangeReview({ id: ID, run: host.run, onStatus: (status) => shown.push(status) })
+    await answered()
+    follow.stop()
+    assert.equal(shown[0]?.state, state, phase)
+    assert.equal(shown[0]?.now, now, phase)
+  }
+})
+
+test('a review started in this window is asked about at once by every card that shows it, and by no other', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const host = hostAt({ state: 'idle', head: HEAD })
+  const shown: (string | undefined)[] = []
+  const follow = followChangeReview({ id: ID, run: host.run, onStatus: (status) => shown.push(status?.state) })
+  await answered()
+  assert.equal(host.asked, 1)
+
+  host.phase = 'reading'
+  reviewStarted('change:storefront:another')
+  await answered()
+  assert.equal(host.asked, 1, 'another review starting asks nothing')
+  reviewStarted(ID)
+  await answered()
+  assert.equal(host.asked, 2, 'asked at once, not thirty seconds later')
+  assert.deepEqual(shown, ['idle', 'running'])
+
+  follow.stop()
+  reviewStarted(ID)
+  await answered()
+  assert.equal(host.asked, 2, 'a card that went away asks nothing')
 })
