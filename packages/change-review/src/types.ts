@@ -615,6 +615,8 @@ export interface NeedScore {
   facts?: string[]
   /** The Reviewer's own number, and why the facts the review measured hold it lower, when a cap bit. */
   capped?: { from: number; why: string }
+  /** Set by hobkin's rule, not given by the Reviewer: visibility when no monitoring is known. */
+  byRule?: true
 }
 
 /** The Reviewer's answer to the user's questions, read and checked: only the scores that hold. */
@@ -635,6 +637,17 @@ export interface ReviewNeeds extends Answered {
   by: 'change-review'
   /** Whether the project's monitoring was handed in. Unknown: no visibility score is asked for. */
   monitoring: 'given' | 'unknown'
+}
+
+/**
+ * A review whose ratings are not all there after the tries (spec 063): what the answer still lacked, how many narrow
+ * calls were made and why in one line. Never a guessed number in its place.
+ */
+export interface NotRated {
+  /** Narrow calls made to get what was missing. */
+  tries: number
+  missing: ('kind' | NeedCriterion)[]
+  why: string
 }
 
 export interface ReviewNode {
@@ -726,6 +739,8 @@ export interface Graph {
   removed_tests?: RemovedTest[]
   /** The user's five questions answered (spec 058). Absent when the Reviewer gave none that held: not rated. */
   needs?: ReviewNeeds
+  /** Set when `needs` is not complete after the tries. */
+  notRated?: NotRated
 }
 
 // ───────────────────────── 3. Risk events ─────────────────────────

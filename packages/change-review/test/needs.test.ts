@@ -77,13 +77,12 @@ test('a pull request is rated the same way, with monitoring unknown when none is
   assert.equal(data().monitoring, 'unknown')
   assert.deepEqual(data(['Errors go to Sentry, with an alert to the user.', 'Way back: kamal rollback.']).monitoring, ['Errors go to Sentry, with an alert to the user.', 'Way back: kamal rollback.'])
 
-  // With no monitoring known there is no visibility score: one given anyway is a guess, and is not kept.
+  // With no monitoring known the visibility the Reviewer gave is a guess and is not kept: it is 3 by rule, and says so.
   const problems: string[] = []
-  const unknown = capNeeds(answered(), facts({ monitoring: false, dataOrLoad: ['total'] }), 'abc123', problems)!
-  assert.deepEqual([unknown.monitoring, unknown.scores.visibility, Object.keys(unknown.scores)], ['unknown', undefined, ['coverage', 'proof', 'safety', 'rollback']])
+  const unknown = capNeeds(answered(), facts({ monitoring: false, dataOrLoad: ['total'] }), 'abc123', problems)
+  assert.deepEqual([unknown.monitoring, Object.keys(unknown.scores)], ['unknown', ['coverage', 'proof', 'safety', 'visibility', 'rollback']])
+  assert.deepEqual(unknown.scores.visibility, { score: 3, evidence: 'no monitoring is known for this project, so a regression would not show', byRule: true })
   assert.deepEqual(problems, ['needs.scores.visibility: a visibility rating was given with no monitoring known, and was not kept'])
-  // A review whose only rating was that guess is not rated.
-  assert.equal(capNeeds({ kind: 'feature', scores: { visibility: score(9) } }, facts({ monitoring: false }), 'abc123', []), undefined)
 })
 
 test("a cap's words join the evidence as one clean line, whatever the names it gives look like", () => {

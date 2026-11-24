@@ -6,7 +6,9 @@
  */
 import { isTestPath } from './triage.ts'
 import { changesOnlyModels, isModelFile, modelsOf } from './tla.ts'
-import type { Answered, ChangedFile, ModelCheck, NeedCriterion, NeedScore, ReviewNeeds, ReviewNode } from './types.ts'
+import { readRatings } from './model.ts'
+import { NEED_CRITERIA, NEED_KINDS } from './types.ts'
+import type { Answered, ChangedFile, ModelCheck, NeedCriterion, NeedKind, NeedScore, NotRated, ReviewNeeds, ReviewNode } from './types.ts'
 
 /** What the caps read, as the review measured it. */
 export interface NeedsFacts {
@@ -83,13 +85,13 @@ function capsOf(facts: NeedsFacts): Partial<Record<NeedCriterion, { most: number
   else if (!facts.onlyModels && facts.testsChanged === 0) caps.proof = { most: 4, why: 'no test was added or changed with the change' }
   if (facts.high.length) caps.safety = { most: 5, why: `${named(facts.high)} ${several(facts.high) ? 'are' : 'is'} rated high` }
   if (facts.undoNone.length) caps.rollback = { most: 4, why: `nothing undoes ${named(facts.undoNone)}` }
-  // With no monitoring known there is no visibility score at all (`capNeeds`). With monitoring given, whether it covers
+  // With no monitoring known visibility is set by rule (`capNeeds`). With monitoring given, whether it covers
   // a part that writes data or runs at load is the Reviewer's to judge: the prompt asks for 4 or less where it does not.
   return caps
 }
 
 /** A score held to its cap, the cap said at the end of its evidence, within the length hobkin keeps. */
-function held(kept: NeedScore, cap: { most: number; why: string } | undefined): NeedScore {
+function heldTo(kept: NeedScore, cap: { most: number; why: string } | undefined): NeedScore {
   if (!cap || kept.score <= cap.most) return kept
   // The cap's words join the evidence as prose: one line, single spaces, within the length hobkin keeps.
   const why = oneLine(cap.why)
@@ -100,19 +102,112 @@ function held(kept: NeedScore, cap: { most: number; why: string } | undefined): 
   return { ...kept, score: cap.most, evidence: `${evidence}${said}`.slice(0, LONGEST_EVIDENCE), capped: { from: kept.score, why } }
 }
 
+/** The rating visibility gets when no monitoring is known: a stated rule, never the Reviewer's guess (spec 063). */
+export const VISIBILITY_BY_RULE: NeedScore = { score: 3, evidence: 'no monitoring is known for this project, so a regression would not show', byRule: true }
+
+/** How many narrow calls a review makes for ratings still missing, when the host passes no number. */
+export const DEFAULT_RATING_TRIES = 3
+
 /**
  * The Reviewer's answers to the user's questions, held to what the review measured, at the review's commit. With no
- * monitoring known, a visibility score is a guess: it is not kept, and `problems` says so. Undefined when no score is
- * left: not rated, never a guessed number.
+ * monitoring known a visibility score the Reviewer gave is a guess: it is not kept, and `problems` says so. Visibility
+ * is then 3 by rule and says so, which keeps the general rate. Every other rating is the Reviewer's, never invented.
  */
-export function capNeeds(answered: Answered, facts: NeedsFacts, head: string, problems: string[] = []): ReviewNeeds | undefined {
+export function capNeeds(answered: Answered, facts: NeedsFacts, head: string, problems: string[] = []): ReviewNeeds {
   const caps = capsOf(facts)
   const given = Object.entries(answered.scores).filter(([criterion]) => {
     if (criterion !== 'visibility' || facts.monitoring) return true
     problems.push('needs.scores.visibility: a visibility rating was given with no monitoring known, and was not kept')
     return false
   })
-  if (!given.length) return undefined
-  const scores = Object.fromEntries(given.map(([criterion, kept]) => [criterion, held(kept!, caps[criterion as NeedCriterion])]))
+  const held = given.map(([criterion, kept]) => [criterion, heldTo(kept!, caps[criterion as NeedCriterion])] as const)
+  const byRule = facts.monitoring ? [] : ([['visibility', VISIBILITY_BY_RULE]] as const)
+  const scores = Object.fromEntries(NEED_CRITERIA.flatMap((criterion) => [...held, ...byRule].filter(([name]) => name === criterion)))
   return { ...answered, scores, head, by: 'change-review', monitoring: facts.monitoring ? 'given' : 'unknown' }
+}
+
+/** The ratings a review needs from the Reviewer: all five, or four when no monitoring is known and visibility is set by rule. */
+const requiredOf = (facts: NeedsFacts): NeedCriterion[] => NEED_CRITERIA.filter((criterion) => criterion !== 'visibility' || facts.monitoring)
+
+const MOST_OF_REVIEW = 30_000
+
+/** What the narrow call is told, and what it asks for: only the ratings that are missing. */
+function ratingsRequest({ held, missing, kind, review, monitoring, attempt, of }: { held: Answered['scores']; missing: readonly ('kind' | NeedCriterion)[]; kind?: NeedKind; review: string; monitoring?: readonly string[]; attempt: number; of: number }) {
+  const system = [
+    "You are the Reviewer of a change. Your earlier answer left some of the user's ratings out or malformed. Give only the ratings named in `missing`, each from 1 to 10, as the user reads them: a whole number and one line of evidence that names what it rests on.",
+    'Never give a rating that is not in `missing`. Answer with one JSON object: {"needs":{"kind":"<one of ' + NEED_KINDS.join(', ') + '>","scores":{"<name>":{"score":7,"evidence":"one line"}}}}. The kind is needed only when `missing` names it.',
+  ].join('\n')
+  const data = { ask: 'missing-ratings', try: attempt, of, kind: kind ?? null, missing, given: held, monitoring: monitoring?.length ? monitoring : 'unknown', review: review.slice(0, MOST_OF_REVIEW) }
+  return { system, prompt: `Ratings still missing\n${JSON.stringify(data)}` }
+}
+
+/** The names of what is missing as words: "coverage", "coverage and proof", "the kind, coverage and proof". */
+const lacking = (names: readonly ('kind' | NeedCriterion)[]) => {
+  const words = names.map((name) => (name === 'kind' ? 'the kind' : name))
+  return words.length < 2 ? words[0]! : `${words.slice(0, -1).join(', ')} and ${words.at(-1)}`
+}
+
+/** One call to the Reviewer for ratings: its text, nothing when it gave none, or why it could not be asked. */
+export type AskRatings = (call: { system: string; prompt: string }) => Promise<{ text: string | null } | { failed: string }>
+
+/**
+ * The five ratings of a review, always (spec 063). What the Reviewer's answer lacks, a missing score or one that did
+ * not hold, is asked again in a narrow call that names only what is still missing, at most `tries` times and never
+ * once more than needed. A score the Reviewer gave is never replaced. After the last try what is missing stays
+ * missing and `notRated` says how many tries and why: never a guessed number. Only visibility with no monitoring
+ * known is set by rule, and says so.
+ */
+export async function rateNeeds(input: {
+  answered?: Answered
+  facts: NeedsFacts
+  head: string
+  /** The finished review's story: what the narrow call is told the review found. */
+  review: string
+  monitoring?: readonly string[]
+  tries: number
+  /** Absent: there is no model to ask. */
+  ask?: AskRatings
+  problems?: string[]
+}): Promise<{ needs?: ReviewNeeds; notRated?: NotRated }> {
+  const { facts, head, review, monitoring, ask } = input
+  const problems = input.problems ?? []
+  const allowed = Math.max(0, Math.floor(Number.isFinite(input.tries) ? input.tries : DEFAULT_RATING_TRIES))
+  const required = requiredOf(facts)
+  let kind = input.answered?.kind
+  const scores: Answered['scores'] = { ...input.answered?.scores }
+  const missingNow = (): ('kind' | NeedCriterion)[] => [...(kind ? [] : (['kind'] as const)), ...required.filter((criterion) => !scores[criterion])]
+  let reason = input.answered ? 'the answer lacked ratings' : 'the answer had no ratings'
+  let tried = 0
+  while (ask && tried < allowed && missingNow().length) {
+    tried += 1
+    const missing = missingNow()
+    const call = ratingsRequest({ held: scores, missing, ...(kind ? { kind } : {}), review, ...(monitoring ? { monitoring } : {}), attempt: tried, of: allowed })
+    const answer = await ask(call)
+    if ('failed' in answer) {
+      reason = `the Reviewer could not be asked (${answer.failed})`
+      problems.push(`The ratings were asked for again (try ${tried} of ${allowed}) and the Reviewer could not be asked: ${answer.failed}.`)
+      continue
+    }
+    if (answer.text == null) {
+      reason = 'the Reviewer gave no answer'
+      continue
+    }
+    const read = readRatings(answer.text, missing.filter((name): name is NeedCriterion => name !== 'kind'), missing.includes('kind'))
+    if (read.kind && !kind) kind = read.kind
+    for (const criterion of required) if (read.scores[criterion] && !scores[criterion]) scores[criterion] = read.scores[criterion]
+    const left = missingNow()
+    if (left.length) {
+      reason = read.why.find((line) => left.some((name) => line.startsWith(`${name}:`))) ?? read.why[0] ?? 'the answer lacked ratings'
+      problems.push(`Ratings asked for again (try ${tried} of ${allowed}): ${reason}.`)
+    }
+  }
+  const missing = missingNow()
+  const needs = kind ? capNeeds({ kind, ...(input.answered?.missing ? { missing: input.answered.missing } : {}), scores }, facts, head, problems) : undefined
+  if (!missing.length) return { needs }
+  const why = !ask
+    ? `there is no model to ask: the answer lacked ${lacking(missing)}`
+    : tried === 0
+      ? `no tries were allowed: the answer lacked ${lacking(missing)}`
+      : `after ${tried} ${tried === 1 ? 'try' : 'tries'} the answer still lacked ${lacking(missing)}: ${reason}`
+  return { ...(needs ? { needs } : {}), notRated: { tries: tried, missing, why } }
 }

@@ -9,7 +9,7 @@ import { floor } from './floor.ts'
 import type { MapOp } from './reshape.ts'
 import { nodeLevelOf } from './risk.ts'
 import { EVIDENCE_KINDS, LEVELS, NEED_CRITERIA, NEED_KINDS } from './types.ts'
-import type { Answered, Claim, ClaimStatus, Level, ModelCheck, NeedScore, NodeTest, Question, ReviewNode, RiskEvent, RunsFrom, Signal, StoryWords, TestRun, Triage, Unit, Watch, Zone } from './types.ts'
+import type { Answered, Claim, ClaimStatus, Level, ModelCheck, NeedCriterion, NeedKind, NeedScore, NodeTest, Question, ReviewNode, RiskEvent, RunsFrom, Signal, StoryWords, TestRun, Triage, Unit, Watch, Zone } from './types.ts'
 
 /** A unit as curate drafted it, before any model words. */
 export type DraftUnit = Pick<Unit, 'id' | 'nodes' | 'grouping' | 'level' | 'title' | 'where' | 'what'>
@@ -787,6 +787,30 @@ function claimsOf(value: unknown, known: readonly Claim[], problems: Problems): 
     else settled.push({ ...claim, status: raw.status, evidence: problems.capped(raw.evidence, LIMITS.claim, `${at}.evidence`) })
   }
   return settled
+}
+
+/**
+ * The answer to a narrow call for ratings still missing (spec 063), read without trust: `{ needs: { kind, scores } }` or
+ * `{ scores }`. Only the criteria asked for are read, each as the first answer's are; `why` says in a line what a
+ * criterion asked for lacked, so a later try and the review can say it.
+ */
+export function readRatings(text: string, asked: readonly NeedCriterion[], wantKind: boolean): { kind?: NeedKind; scores: Answered['scores']; why: string[] } {
+  const found = jsonObjectIn(text, ['needs', 'scores'])
+  const body = found && isRecord(found.needs) ? found.needs : found
+  if (!body) return { scores: {}, why: ['the answer was no JSON object with ratings'] }
+  const problems = new Problems()
+  const raw = isRecord(body.scores) ? body.scores : {}
+  const scores: Answered['scores'] = {}
+  for (const criterion of asked) {
+    if (raw[criterion] === undefined) problems.list.push(`${criterion}: not in the answer`)
+    else {
+      const kept = needScoreOf(raw[criterion], criterion, problems)
+      if (kept) scores[criterion] = kept
+    }
+  }
+  const kind = wantKind && oneOf(NEED_KINDS, body.kind) ? body.kind : undefined
+  if (wantKind && !kind) problems.list.push(`kind: not one of ${NEED_KINDS.join(', ')}`)
+  return { ...(kind ? { kind } : {}), scores, why: problems.list.map((line) => line.replace(/; dropped$/, '')) }
 }
 
 const withNeeds = (needs: Answered | undefined) => (needs ? { needs } : {})
