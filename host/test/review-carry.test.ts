@@ -7,13 +7,17 @@ import type { AssessmentSummary } from '#shared/review/assessment.ts'
 import type { Review } from '#shared/review/types.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
 import { assessmentFolder, Assessments } from '../src/review/assessment.ts'
-import { carryReview, type TestRun } from '../src/review/carry.ts'
+import { carryReview, runTests, type TestRun } from '../src/review/carry.ts'
 import { Reviews } from '../src/review/reviews.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
 
 const TARGET = { kind: 'change' as const, slug: 'shop', item: '4c9e21' }
 const BRANCH = 'hobkin/4c9e21-round-the-total'
+
+/** The changed file: it imports the rate, and names the receipt's words it reads. */
+const TOTAL_AT_BASE = "import { rate } from './rate.js'\nexport const receipt = 'prompts/receipt.md'\nexport const total = (a, b) => (a + b) * rate\n"
+const TOTAL_AT_HEAD = "import { rate } from './rate.js'\nexport const receipt = 'prompts/receipt.md'\nexport const total = (a, b) => Math.round((a + b) * rate)\n"
 
 /** A project with main and a finished branch on it, and the change's review and change review built at the branch's commit. */
 function reviewed(t: TestContext, { callers = [] }: { callers?: { path: string; title: string }[] } = {}) {
@@ -26,14 +30,17 @@ function reviewed(t: TestContext, { callers = [] }: { callers?: { path: string; 
     writeFileSync(join(repo, path), text)
   }
   git('init', '--quiet', '--initial-branch=main')
-  write('src/total.js', 'export const total = (a, b) => a + b\n')
+  write('src/total.js', TOTAL_AT_BASE)
+  write('src/rate.js', 'export const rate = 1\n')
   write('src/other.js', 'export const other = 1\n')
-  write('test/total.test.js', "test('total', () => {})\n")
+  write('prompts/receipt.md', 'Total\n')
+  write('test/support/items.js', 'export const items = []\n')
+  write('test/total.test.js', "import { items } from './support/items.js'\nimport { total } from '../src/total.js'\ntest('total', () => {})\n")
   git('add', '.')
   git('commit', '--quiet', '-m', 'Start')
   const start = git('rev-parse', 'HEAD')
   git('checkout', '--quiet', '-b', BRANCH)
-  write('src/total.js', 'export const total = (a, b) => Math.round(a + b)\n')
+  write('src/total.js', TOTAL_AT_HEAD)
   git('commit', '--quiet', '-am', 'Round the total')
   const built = git('rev-parse', 'HEAD')
   git('checkout', '--quiet', 'main')
@@ -42,7 +49,7 @@ function reviewed(t: TestContext, { callers = [] }: { callers?: { path: string; 
     change: { project: 'shop', item: TARGET.item, title: 'Round the total', branch: BRANCH, base: start, head: built },
     nodes: callers.map(({ path, title }, index) => ({ id: `v${index + 1}`, kind: 'context', title, subtitle: path, change: 'unchanged', summary: '', lifecycle: { role: 'caller', hops: 1 }, anchors: [], position: { x: 0, y: 0 } })),
   } as unknown as Review
-  const files = [{ fileId: 'src/total.js', path: 'src/total.js', base: 'export const total = (a, b) => a + b\n', head: 'export const total = (a, b) => Math.round(a + b)\n', binary: false }]
+  const files = [{ fileId: 'src/total.js', path: 'src/total.js', base: TOTAL_AT_BASE, head: TOTAL_AT_HEAD, binary: false }]
   const store = reviewStore(root)
   store.write(TARGET, review, files, { preparedAt: '2026-11-22T10:00:00.000Z', storyBy: 'host' })
   const folder = assessmentFolder(root, TARGET, built)
@@ -94,7 +101,7 @@ test('a change rebased with the same commits onto a main that changed nothing it
   const carried = await carry(head)
 
   const start = readHeadOf(project.repo, 'main')
-  assert.deepEqual(carried, { carried: true, from: project.built, why: `Only its start moved: the same commits on ${start.slice(0, 7)}, and nothing it read changed.` })
+  assert.deepEqual(carried, { carried: true, from: project.built, why: `Only its start moved: the same commits on ${start.slice(0, 7)}, and nothing it depends on changed.` })
   assert.deepEqual(ran, [['test/total.test.js']])
   assert.ok(project.store.has(TARGET, head))
   const summary = JSON.parse(readFileSync(join(assessmentFolder(project.root, TARGET, head), 'summary.json'), 'utf8')) as AssessmentSummary
@@ -131,10 +138,10 @@ test('commits of specs or docs alone carry the review and say so', async (t) => 
 
   const carried = await carrier(project).carry(head)
 
-  assert.deepEqual(carried, { carried: true, from: project.built, why: 'Only specs or Markdown changed since the commit it was built for, so the code it read is the same.' })
+  assert.deepEqual(carried, { carried: true, from: project.built, why: 'Only specs or docs nothing reads changed since the commit it was built for, so the code it read is the same.' })
   // Code on top is no carry.
   const coded = project.commitOnBranch({ 'src/other.js': 'export const other = 3\n' })
-  assert.deepEqual(await carrier(project).carry(coded), { carried: false, why: 'Its code changed since the commit it was built for.' })
+  assert.deepEqual(await carrier(project).carry(coded), { carried: false, why: 'Its code changed since the commit it was built for: src/other.js is no spec or document nothing reads.' })
 })
 
 test('the background carries a change that moved in the line instead of building it again, and the review says it was carried and from where', async (t) => {
@@ -192,6 +199,58 @@ test('Review again with nothing changed says so, and that it costs a whole revie
   reviews.prepare('change:shop:4c9e21', { refresh: true, asked: true })
   await settle()
   assert.deepEqual(reads, [project.built], 'the second press builds it')
+})
+
+test('main changed something the change imports, calls or names, or that its tests import: it is built again', async (t) => {
+  const refusals: [Record<string, string>, Vicinity | undefined, RegExp][] = [
+    [{ 'src/rate.js': 'export const rate = 2\n' }, undefined, /src\/rate\.js, which the change or its tests use, changed/],
+    [{ 'src/tax.js': 'export const tax = 2\n' }, { links: [{ near: { changed: { path: 'src/total.js', line: 3 } }, other: { path: 'src/tax.js', symbol: 'tax', startLine: 1, endLine: 1 }, direction: 'callee', hops: 1, call: { line: 3, name: 'tax' }, proven: true }] }, /src\/tax\.js, which the change or its tests use, changed/],
+    [{ 'test/support/items.js': 'export const items = [1]\n' }, undefined, /the test test\/support\/items\.js changed/],
+    [{ 'prompts/receipt.md': 'Total due\n' }, undefined, /prompts\/receipt\.md, which the change or its tests name, changed/],
+  ]
+  for (const [files, scan, why] of refusals) {
+    const project = reviewed(t)
+    const head = project.rebaseOnto(files)
+    const { carry, ran } = carrier(project, scan ? { scan } : {})
+    const carried = await carry(head)
+    assert.equal(carried.carried, false, Object.keys(files)[0])
+    assert.match(carried.why, why)
+    assert.deepEqual(ran, [], 'nothing runs once it does not hold')
+  }
+})
+
+test('main changed a manifest, a lockfile, a config, a migration, a schema or added a test: it is built again', async (t) => {
+  for (const path of ['package.json', 'pnpm-lock.yaml', 'config/limits.json', 'db/migrate/20261123_add_cents.rb', 'db/schema.rb', 'test/rounding.test.js']) {
+    const project = reviewed(t)
+    const head = project.rebaseOnto({ [path]: '{}\n' })
+    const carried = await carrier(project).carry(head)
+    assert.equal(carried.carried, false, path)
+    assert.match(carried.why, new RegExp(path.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')), path)
+  }
+})
+
+test('a Markdown file the code reads is code, so a branch commit of it alone builds the review again', async (t) => {
+  const project = reviewed(t)
+  const head = project.commitOnBranch({ 'prompts/receipt.md': 'Total due\n' })
+
+  const carried = await carrier(project).carry(head)
+
+  assert.deepEqual(carried, { carried: false, why: 'Its code changed since the commit it was built for: prompts/receipt.md is no spec or document nothing reads.' })
+})
+
+test("the change's tests carry it only when the runner counts every one passed: none skipped, and at least one", async (t) => {
+  const tree = temporaryDirectory(t)
+  writeFileSync(join(tree, 'package.json'), JSON.stringify({ name: 'shop', type: 'module', scripts: { test: 'node --test' } }))
+  mkdirSync(join(tree, 'test'))
+  writeFileSync(join(tree, 'test', 'passes.test.js'), "import { test } from 'node:test'\ntest('adds', () => {})\n")
+  writeFileSync(join(tree, 'test', 'skips.test.js'), "import { test } from 'node:test'\ntest('adds', { skip: true }, () => {})\n")
+  writeFileSync(join(tree, 'test', 'empty.test.js'), "// No test here.\n")
+
+  assert.deepEqual(await runTests(tree, ['test/passes.test.js']), { passed: true })
+  const skipped = await runTests(tree, ['test/skips.test.js'])
+  assert.deepEqual([skipped.passed, skipped.why], [false, 'test/skips.test.js: 1 test skipped, so the change\'s tests did not all run.'])
+  const none = await runTests(tree, ['test/empty.test.js'])
+  assert.deepEqual([none.passed, none.why], [false, 'test/empty.test.js: no test ran.'])
 })
 
 function readHeadOf(repo: string, ref: string): string {
