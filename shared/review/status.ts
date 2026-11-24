@@ -326,11 +326,13 @@ export function readRepoLines(value: unknown): ReviewRepoLine[] {
 }
 
 /**
- * Whether the AI Reviews list shows a review as a row: something of it ran, runs or waits its turn, or a merge the user
- * asked for has not happened. One that is only known, as a review the user stopped before anything ran, is no row.
+ * Whether the review list shows a review as a row: something of it ran, runs or waits its turn, or a merge the user
+ * asked for failed. A merge that waits has no row: the user gave their yes, and it is not theirs to act on until it
+ * fails. One that is only known, as a review the user stopped before anything ran, is no row.
  */
 export function shownAsRow(item: ReviewListItem): boolean {
-  if (item.mergeAsked || item.waiting) return true
+  if (item.mergeAsked) return item.mergeAsked.state === 'failed'
+  if (item.waiting) return true
   if (item.state !== 'idle') return true
   const assessment = item.assessment?.state
   return assessment != null && assessment !== 'idle'

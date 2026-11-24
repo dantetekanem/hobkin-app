@@ -131,25 +131,19 @@ test('a review that is ready or stopped can be run again, and one under way cann
   assert.deepEqual(rows.map((row) => [row.group, canReviewAgain(row)]), [['running', false], ['ready', true], ['failed', true]])
 })
 
-test('a merge the user asked for that has not happened comes first in the list, with why, until it merges', () => {
+test('a merge that failed keeps its row first in the list, with why; one that waits has no row, and is counted nowhere', () => {
   const groups = groupReviews({
     reviews: [
       item('change:storefront:b1', { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(5) }) } }),
       item('change:storefront:m1', { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(9) }) }, mergeAsked: { at: at(2), state: 'failed', why: 'It moved since it was offered, so nothing merged.' } }),
       item('change:storefront:m2', { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(9) }) }, mergeAsked: { at: at(1), state: 'waiting' } }),
+      item('pr:corp:acme/shop/7', { kind: 'pull', mergeAsked: { at: at(1), state: 'waiting', message: 'The merge queue lands it once its checks pass.' } }),
     ],
   })
-  assert.deepEqual(groups.unmerged.map((row) => [row.item.id, row.line]), [
-    ['change:storefront:m2', 'You said merge. hobkin is bringing it up to date, and merges it after that.'],
-    ['change:storefront:m1', 'You said merge, and it did not merge: It moved since it was offered, so nothing merged.'],
-  ])
-  assert.deepEqual(groups.ready.map((row) => row.item.id), ['change:storefront:b1'], 'it is listed once, where it will be looked for')
-  assert.equal(reviewCounts(groups).unmerged, 2)
-})
-
-test("a merge a code host does in its own time shows that host's own sentence on its row", () => {
-  const groups = groupReviews({ reviews: [item('pr:corp:acme/shop/7', { kind: 'pull', mergeAsked: { at: at(1), state: 'waiting', message: 'The merge queue lands it once its checks pass.' } })] })
-  assert.deepEqual(groups.unmerged.map((row) => row.line), ['You said merge. The merge queue lands it once its checks pass.'])
+  assert.deepEqual(groups.unmerged.map((row) => [row.item.id, row.line]), [['change:storefront:m1', 'You said merge, and it did not merge: It moved since it was offered, so nothing merged.']])
+  assert.deepEqual(groups.ready.map((row) => row.item.id), ['change:storefront:b1'], 'a waiting merge is in no group')
+  assert.deepEqual(groups.running, [])
+  assert.equal(reviewCounts(groups).unmerged, 1)
 })
 
 test('a row names its pull request by number and links to its page: its own, or the one a finished change opened', () => {

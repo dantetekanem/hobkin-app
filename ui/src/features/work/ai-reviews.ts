@@ -14,7 +14,7 @@ import { GRADE_ORDER } from './projects.ts'
 
 export type { ReviewList, ReviewListItem }
 
-/** `unmerged`: the user said merge and it has not merged. It comes before everything else. */
+/** `unmerged`: the user said merge and it failed. It comes before everything else. */
 export type ReviewGroup = 'unmerged' | 'running' | 'ready' | 'failed'
 
 /**
@@ -83,7 +83,7 @@ const timeOf = (iso: string | null | undefined): number | null => {
 }
 
 /**
- * A merge the user asked for that has not happened comes before all else: it is the one row they are waiting on.
+ * A merge the user asked for that failed comes before all else: it is the one row that needs them.
  * Running beats failed, so a review asked for again after it stopped shows as running, and so does a finished change
  * the host says waits its turn. One that never ran and waits for nothing has no group.
  */
@@ -142,10 +142,9 @@ function rowOf(item: ReviewListItem, priorityOf: PriorityOf): ReviewRow | null {
     standing: standingOf(item, turn),
   }
   if (group === 'unmerged') {
-    const { state, why, at, message } = item.mergeAsked!
-    // A code host that merges in its own time says what it does; a finished change waits for hobkin to bring it up to date.
-    const waits = message ? `You said merge. ${message}` : 'You said merge. hobkin is bringing it up to date, and merges it after that.'
-    row.line = state === 'waiting' ? waits : `You said merge, and it did not merge: ${why ?? 'no reason was given.'}`
+    // Only a merge that failed has a row: one that waits is not listed.
+    const { why, at } = item.mergeAsked!
+    row.line = `You said merge, and it did not merge: ${why ?? 'no reason was given.'}`
     row.at = timeOf(at)
     row.summary = assessment?.state === 'ready' ? (assessment.summary ?? null) : null
   } else if (group === 'running') {
