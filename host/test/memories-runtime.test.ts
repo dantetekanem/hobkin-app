@@ -2,10 +2,13 @@ import assert from 'node:assert/strict'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
+import { remember } from 'hobkin/src/cli/inbox.mjs'
+import { resolveDataRoot } from 'hobkin/src/cli/migration/admission.mjs'
 import type { MemoryForgot, MemoryList, MemoryNowChanged, MemorySaved } from '#shared/protocol/memory.ts'
+import type { ChatMessage } from '#shared/protocol/snapshot.ts'
 import { runCommand } from '../src/commands.ts'
 import { memoryHandlers, memoryOperationsAt } from '../src/memories.ts'
-import { temporaryDirectory } from './support.ts'
+import { afterTest, Client, hostFor, temporaryDirectory } from './support.ts'
 
 // hobkin's own memory functions (its src/cli/memory-window.mjs) on a temporary home. Invented memories.
 
@@ -65,4 +68,43 @@ test('a private memory is listed for the window as private, and the right-now li
   assert.notEqual(added.nowVersion, nowVersion)
   const again = await run<MemoryNowChanged>('memory.now.change', { action: 'add', text: 'Reply to the landlord', version: nowVersion })
   assert.equal(again.ok, false, 'the version it was read at has moved on')
+})
+
+test("a memory an agent saves reaches the window as a quiet line with its note, and the snapshot's stamp moves with every change", async (t) => {
+  const host = await hostFor(t)
+  const window = await Client.connect(host)
+  afterTest(t, () => window.close())
+  const first = await window.live()
+  const stampAtStart = first.snapshot.memoriesStamp
+  assert.match(String(stampAtStart), /^[0-9a-f]{16}$/)
+
+  // Another of the user's sessions, here a Claude Code one, hands hobkin a fact with `hobkin remember`, which saves it at once.
+  const handed = remember(resolveDataRoot(host.root), { words: ['The', 'user', 'lives', 'in', 'Lisbon'], from: 'Claude Code' }, Date.now(), { env: {} })
+  assert.ok(handed.memory, handed.message)
+  await window.command('app.refresh', {})
+
+  const noted = (message: ChatMessage) => message.memory?.name === handed.memory
+  const seen = await window.until((view) => view.messages.some(noted) && view.snapshot.memoriesStamp !== stampAtStart, 'the quiet line and a new stamp')
+  const line = seen.messages.find(noted)!
+  assert.equal(line.role, 'notice')
+  assert.equal(line.tone, 'quiet')
+  assert.equal(line.content, 'Remembered from Claude Code: The user lives in Lisbon')
+  assert.deepEqual(Object.keys(line.memory!).sort(), ['change', 'did', 'name'])
+  assert.equal(line.memory!.did, 'added')
+
+  // The line's change is what Undo sends, and the stamp moves again.
+  const stampAfterAdd = seen.snapshot.memoriesStamp
+  const undone = await window.command('memory.undo', { change: line.memory!.change })
+  assert.deepEqual(undone.ok && undone.value, { ok: true })
+  await window.command('app.refresh', {})
+  // The view is the window's live one, so each stamp is taken as it is then.
+  const stampAfterUndo = (await window.until((view) => view.snapshot.memoriesStamp !== stampAfterAdd, 'a stamp after the undo')).snapshot.memoriesStamp
+
+  // A change to the right-now list moves it as well.
+  const listed = await window.command('memory.list', {})
+  const { nowVersion } = (listed.ok ? listed.value : {}) as MemoryList
+  const added = await window.command('memory.now.change', { action: 'add', text: 'Book the dentist', version: nowVersion })
+  assert.ok(added.ok && (added.value as MemoryNowChanged).ok, JSON.stringify(added))
+  await window.command('app.refresh', {})
+  await window.until((view) => view.snapshot.memoriesStamp !== stampAfterUndo, 'a stamp after the right-now list changed')
 })

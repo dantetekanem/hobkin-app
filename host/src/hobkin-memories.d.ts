@@ -26,5 +26,5 @@ declare module 'hobkin/src/cli/memories.mjs' {
 
 declare module 'hobkin/src/cli/inbox.mjs' {
   /** `hobkin remember` from another of the user's sessions: saved at once as a memory, and said in Chat with its change. */
-  export function remember(root: string, handed: { words: string; from: string }, now?: number, options?: { env?: Record<string, string | undefined> }): { ok: boolean; id: string; memory?: string; message: string }
+  export function remember(root: string, handed: { words: readonly string[]; from: string },now?: number, options?: { env?: Record<string, string | undefined> }): { ok: boolean; id: string; memory?: string; message: string }
 }
