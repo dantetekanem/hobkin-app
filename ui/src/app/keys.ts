@@ -11,7 +11,7 @@ import { useSettings } from '@/features/settings/store.ts'
 import { pressForceStopOf } from '@/features/work/force-stop.ts'
 import { focusAgentsDock } from './AgentsDock.tsx'
 import { answerNext, runningAgents } from './running-agents.ts'
-import { resolveEscape, resolveKey, type KeyAction, type KeyContext, type Zone } from './key-map.ts'
+import { keyboardHomeFor, resolveEscape, resolveKey, type KeyAction, type KeyContext, type Zone } from './key-map.ts'
 import { inOverlay, installFrameKeys } from './key-page.ts'
 import { travel } from './location.ts'
 import { inMenu, walkScreens, type ScreenId } from './screens.ts'
@@ -159,7 +159,7 @@ function perform(action: KeyAction): boolean {
       view.closeVeil()
       view.toggleSettings()
       // Opening hands the keyboard to Settings, which puts it on its first control. Closing sends it home.
-      if (useView.getState().screen === 'settings') requestCanvasFocus()
+      if (useView.getState().screen === 'settings' || keyboardHomeFor(useView.getState().screen) === 'canvas') requestCanvasFocus()
       else focusInput()
       return true
     case 'answer-agent':
@@ -176,6 +176,9 @@ function perform(action: KeyAction): boolean {
       } else if (useView.getState().screen === 'settings') {
         // Back in Settings, onto the button that opened the page just left.
         requestCanvasFocus(`[data-opens="${view.screen}"]`)
+      } else if (keyboardHomeFor(useView.getState().screen) === 'canvas') {
+        // Back on an agent's screen, the keyboard stays on it: the message input would close it.
+        requestCanvasFocus()
       } else {
         useView.getState().disengageCanvas()
         focusInput()

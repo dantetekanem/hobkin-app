@@ -199,6 +199,14 @@ function veilKey(key: string): KeyAction | null {
   return null
 }
 
+/**
+ * Where the keyboard goes when a screen is left for `screen`. An agent's screen keeps it: the message input closes an
+ * agent's screen when it takes focus, so sending the keyboard home would lose the agent just came back to.
+ */
+export function keyboardHomeFor(screen: ScreenId): 'canvas' | 'input' {
+  return screen === 'agent' ? 'canvas' : 'input'
+}
+
 const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations', 'skills', 'extensions', 'memory', 'world', 'yolo', 'project', 'proof']
 
 /**
