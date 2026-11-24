@@ -1,7 +1,7 @@
 import type { WindowPart } from './contract.ts'
 
 /**
- * The integrations' window parts the window found when it started (_specs/064-integration-drops). `loaded.ts` finds
+ * The integrations' window parts the window found when it started (_specs/065-integration-drops). `loaded.ts` finds
  * them in `integrations/*\/window.tsx` and hands them here once, before the app draws. Tests hand their own. The list
  * lives on `globalThis`, so a hot update of this module keeps it.
  */

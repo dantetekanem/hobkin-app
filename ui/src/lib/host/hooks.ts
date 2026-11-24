@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef } from 'react'
 import { useStore } from 'zustand'
 import type { StoreApi } from 'zustand/vanilla'
 import { sampleAgents, sampleModels, sampleProjects, sampleSessions, sampleStatus, type SampleAgent, type SampleProject, type SampleSession } from '@/app/sample.ts'
-import { GITHUB_UNKNOWN, sampleGitHub, type GitHubState } from '#shared/protocol/github.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import type { ProofsState } from '#shared/protocol/proofs.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
@@ -145,20 +144,6 @@ export function useActionItemCount(): number {
   const decisions = useHost((state) => state.snapshot.decisions)
   const waiting = useHost((state) => state.snapshot.waiting)
   return live ? actionItemCountFrom({ decisions, waiting }) : sampleStatus.actionItems
-}
-
-/** Made-up GitHub for a window with no host. Its times count back from when the window opened. */
-const SAMPLE_GITHUB = sampleGitHub(Date.now())
-
-/**
- * The user's GitHub as the host reads it through gh: the pull requests waiting for their review, their own pull
- * requests and their issues. Sample data until a host answers, and "not known yet" from a host that has not said.
- * The `github.refresh` command reads it again.
- */
-export function useGitHub(): GitHubState {
-  const live = useHasHost()
-  const github = useHost((state) => state.github)
-  return live ? (github ?? GITHUB_UNKNOWN) : SAMPLE_GITHUB
 }
 
 /**

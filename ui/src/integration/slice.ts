@@ -10,10 +10,10 @@ export function sampleOf(id: string): unknown {
   return samples.get(id)
 }
 
-type Held = Pick<HostState, 'slices' | 'github'>
+type Held = Pick<HostState, 'slices'>
 
-/** What the host last said of an integration. Until the switch, GitHub's is still read from `state.github` (a bridge to remove). */
-export const heldSlice = (state: Held, id: string): unknown => state.slices[id] ?? (id === 'github' ? state.github : undefined)
+/** What the host last said of an integration. */
+export const heldSlice = (state: Held, id: string): unknown => state.slices[id]
 
 /** The slice an integration shows, without a hook: the part's sample with no host, else the host's slice, else its unknown. */
 export function sliceOf<State>(id: string, state: Held, hasHost: boolean): State {

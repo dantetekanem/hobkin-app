@@ -48,7 +48,8 @@ try {
     const loaded = path => performance.getEntriesByType('resource').map(x => x.name).filter(x => new URL(x).pathname === path).at(-1) ?? path;
     const { useView } = await import(loaded('/src/app/view-store.ts'));
     const { sampleGitHub } = await import('/@fs' + ${JSON.stringify(process.cwd())} + '/shared/protocol/github.ts');
-    const { openPullRequestReview, openOnGitHub } = await import('/src/features/github/open.ts');
+    const { openPullRequestReview } = await import('/@fs' + ${JSON.stringify(process.cwd())} + '/integrations/github/window/review.ts');
+    const { openLink: openOnGitHub } = await import('/src/lib/open-link.ts');
     const sample = sampleGitHub(Date.now());
     const { hostStore } = await import(loaded('/src/lib/host/client.ts'));
     const { HostConnection } = await import(loaded('/src/lib/host/connection.ts'));

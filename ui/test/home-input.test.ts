@@ -79,7 +79,7 @@ test('new-home hello masks retained A facts until B publishes; same-home loss ke
     reportAttention: { lastLookAt: '2026-01-01T00:00:00Z' },
     reminderOccurrences: { home: '/fake/A', entries: [] },
     wins: { today: { merged: 1, decided: 0 }, streak: 1 },
-  }, github })
+  }, slices: { github } })
   const before = gather()
 
   assert.equal(before.reports[0]?.id, 'A-report')
@@ -102,7 +102,7 @@ test('new-home hello masks retained A facts until B publishes; same-home loss ke
 
   assert.deepEqual(gather(), before)
   hello('/fake/B')
-  assert.equal(hostStore.getState().github, github, 'reducer still retains A before reset')
+  assert.equal(hostStore.getState().slices.github, github, 'reducer still retains A before reset')
   unavailable()
   reset()
   const after = gather()
@@ -123,7 +123,7 @@ test('sample sources stay excluded and epoch resets recompute even with identica
   useReports.setState({ sample: false })
   useActionItems.setState({ sample: true })
   useRoutines.setState({ sample: 'full' })
-  hostStore.setState({ github: sampleGitHub(1000) })
+  hostStore.setState({ slices: { github: sampleGitHub(1000) } })
   const input = gather()
   assert.deepEqual(input.waiting, [])
   assert.deepEqual(input.routines, [])

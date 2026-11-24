@@ -6,7 +6,7 @@ import type { SpotlightTarget } from '../app/spotlight-entries.ts'
 import type { HomeContribution } from '../features/home/types.ts'
 
 /**
- * What an integration's window part gives the window (_specs/064-integration-drops). The folder's `window.tsx`
+ * What an integration's window part gives the window (_specs/065-integration-drops). The folder's `window.tsx`
  * default-exports a `WindowPart`. The window finds it when it starts and never imports anything else of the folder.
  * Everything an integration shows goes through this shape.
  */

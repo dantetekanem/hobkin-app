@@ -7,7 +7,7 @@ import { GitHubScreen } from './window/GitHubScreen.tsx'
 import { githubHome } from './window/home.ts'
 import { githubSpotlight } from './window/spotlight.ts'
 
-/** GitHub's part of the window (_specs/064-integration-drops): its page, its card on Integrations, its mark, and the pull requests Work reads. */
+/** GitHub's part of the window (_specs/065-integration-drops): its page, its card on Integrations, its mark, and the pull requests Work reads. */
 const part: WindowPart<GitHubState> = {
   manifest,
   unknown: GITHUB_UNKNOWN,

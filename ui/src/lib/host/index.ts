@@ -9,7 +9,6 @@ export {
   useActionItemCount,
   useAgents,
   useConnection,
-  useGitHub,
   useHasHost,
   useHost,
   useHostEqual,
@@ -28,7 +27,6 @@ export {
   type Models,
 } from './hooks.ts'
 export { canUseModel, isLive, type HostState, type Link } from './state.ts'
-export type { ChecksState, GitHubConnection, GitHubIssue, GitHubPull, GitHubState, ReviewState } from '#shared/protocol/github.ts'
 export type { KeyHelp, ModelChoice, ModelsState, ProviderAccess } from '#shared/protocol/models.ts'
 export type { PendingQuestion, QuestionReply } from '#shared/protocol/question.ts'
 export type { ChangeChoice, FinishedChange, FinishedGroup, Grade, PrMode, QueueRow, WorkProject, WorkState } from '#shared/protocol/work.ts'
