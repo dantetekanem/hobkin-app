@@ -1,42 +1,56 @@
 import { readMemory, readMemoryList, type MemoryForget, type MemoryForgot, type MemoryList, type MemoryNowChange, type MemoryNowChanged, type MemorySave, type MemorySaved, type MemoryUndone } from '#shared/protocol/memory.ts'
-import { Unavailable, type HostHandlers } from './commands.ts'
+import type { HostHandlers } from './commands.ts'
 
 /**
  * What hobkin remembers for every agent it runs (057-shared-memory), on its way from hobkin's runtime to the window's
- * Memory page and the page's changes back. hobkin's runtime keeps the memories and every rule about them; the host reads
- * its list without trust, checks a change against the version the page read, and passes it on as the user's own.
- * Refusals are answers in plain words, so the page keeps the user's draft and says why. Nothing a memory says is logged.
+ * Memory page and the page's changes back. hobkin's runtime keeps the memories and every rule about them, and makes
+ * each change it gets from here the user's own, from the window. The host reads its answers without trust and checks a
+ * change against the version the page read. A refusal is an answer in plain words, so the page keeps the user's draft
+ * and says why; a runtime that throws (a disk error) fails the command with its error. Nothing a memory says is logged.
  */
 
-/** Who makes every change that comes from the window: the user, there. */
-export interface MemoryWho {
-  by: { kind: 'user' }
-  source: { kind: 'window' }
-}
-
-/**
- * The runtime's memory functions as the handlers call them. Each answers in the contract's shape, read without trust; a
- * refusal is such an answer, and a throw means the runtime broke.
- */
+/** The runtime's functions for the window. Each answers in the contract's shape, read without trust; a refusal is such an answer. */
 export interface MemoryOperations {
   /** `{ memories, now, nowVersion, unreadable }`. */
   list(): Promise<unknown> | unknown
   /** `{ saved: true, memory, change }` or `{ saved: false, message }`. */
-  save(memory: MemorySave, who: MemoryWho): Promise<unknown> | unknown
+  save(memory: MemorySave): Promise<unknown> | unknown
   /** `{ forgot: true, change }` or `{ forgot: false, message }`. */
-  forget(forget: MemoryForget, who: MemoryWho): Promise<unknown> | unknown
+  forget(forget: MemoryForget): Promise<unknown> | unknown
   /** `{ ok: true }` or `{ ok: false, reason }`. */
-  undo(change: string, who: MemoryWho): Promise<unknown> | unknown
+  undo(change: string): Promise<unknown> | unknown
   /** `{ ok: true, now, nowVersion }` or `{ ok: false, reason }`. */
-  changeNow(change: MemoryNowChange, who: MemoryWho): Promise<unknown> | unknown
+  changeNow(change: MemoryNowChange): Promise<unknown> | unknown
+}
+
+/**
+ * hobkin's functions for the window's Memory page. A hobkin from before has no such file, so it is looked up when a
+ * command asks for it rather than resolved ahead.
+ */
+const WINDOW_SURFACE = 'hobkin/src/cli/memory-window.mjs'
+
+type Method = (...args: unknown[]) => unknown
+
+const isMethod = (value: unknown): value is Method => typeof value === 'function'
+
+/** hobkin's memory functions for the home's data in `root`, or nothing from a hobkin that has none or lacks one of them. */
+export async function memoryOperationsAt(root: string): Promise<MemoryOperations | null> {
+  const surface = (await import(WINDOW_SURFACE)) as Record<string, unknown>
+  const { memoryList, memorySave, memoryForget, memoryUndo, memoryNowChange } = surface
+  if (!isMethod(memoryList) || !isMethod(memorySave) || !isMethod(memoryForget) || !isMethod(memoryUndo) || !isMethod(memoryNowChange)) return null
+  return {
+    list: () => memoryList(root),
+    save: (memory) => memorySave(root, memory),
+    forget: (forget) => memoryForget(root, forget),
+    undo: (change) => memoryUndo(root, { change }),
+    changeNow: (change) => memoryNowChange(root, change),
+  }
 }
 
 export interface MemorySeat {
-  /** The runtime's functions, or nothing from a runtime that has none. Throws `Unavailable` while hobkin is not open. */
+  /** The runtime's functions, or nothing from a runtime that has none. One that cannot load them throws. */
   operations: () => Promise<MemoryOperations | null | undefined> | MemoryOperations | null | undefined
 }
-
-const WINDOW: MemoryWho = { by: { kind: 'user' }, source: { kind: 'window' } }
 
 const NOT_AVAILABLE = 'This hobkin has no memory yet. Restart the app to load it.'
 const STALE_SAVE = 'This memory changed since you opened it, so your change was not saved. Your draft is kept: look at the memory as it is now, then save again.'
@@ -97,22 +111,20 @@ function nowChanged(answer: unknown): MemoryNowChanged {
 }
 
 export function memoryHandlers({ operations }: MemorySeat): Pick<HostHandlers, 'memory.list' | 'memory.save' | 'memory.forget' | 'memory.undo' | 'memory.now.change'> {
-  /**
-   * Runs `work` with the runtime's functions. hobkin not open says so; a runtime without memories, or one that breaks,
-   * says it has none yet. Either way `refused` puts the words in the command's own answer.
-   */
+  /** Runs `work` with the runtime's functions, or answers through `refused` that this hobkin has no memory yet. */
   const withRuntime = async <Result>(refused: (words: string) => Result, work: (runtime: MemoryOperations) => Promise<Result>): Promise<Result> => {
+    let runtime: MemoryOperations | null | undefined
     try {
-      const runtime = await operations()
-      return runtime ? await work(runtime) : refused(NOT_AVAILABLE)
-    } catch (error) {
-      return refused(error instanceof Unavailable ? error.message : NOT_AVAILABLE)
+      runtime = await operations()
+    } catch {
+      runtime = null
     }
+    return runtime ? work(runtime) : refused(NOT_AVAILABLE)
   }
 
   const listOf = async (runtime: MemoryOperations): Promise<MemoryList> => readMemoryList(await runtime.list())
 
-  /** Why a change to a memory read at `version` cannot go, when the memory has moved on or gone since; null when it may. */
+  /** Whether a memory read at `version` has moved on or gone since; null when the change may go. */
   const moved = async (runtime: MemoryOperations, name: string | undefined, version: string | undefined): Promise<'stale' | 'gone' | null> => {
     if (version === undefined || name === undefined) return null
     const now = (await listOf(runtime)).memories.find((memory) => memory.name === name)
@@ -128,32 +140,30 @@ export function memoryHandlers({ operations }: MemorySeat): Pick<HostHandlers, '
         async (runtime) => {
           const why = await moved(runtime, memory.name, memory.version)
           if (why) return { saved: false, message: why === 'gone' ? GONE_SAVE : STALE_SAVE }
-          return saved(await runtime.save(memory, WINDOW))
+          return saved(await runtime.save(memory))
         },
       ),
     'memory.forget': (forget) =>
       withRuntime(
         (message): MemoryForgot => ({ forgot: false, message }),
         async (runtime) => {
-          // A memory already gone is the runtime's to answer for: it may have been forgotten by this same click before.
+          // A memory already gone is the runtime's to answer for: the same click may have forgotten it a moment before.
           if ((await moved(runtime, forget.name, forget.version)) === 'stale') return { forgot: false, message: STALE_FORGET }
-          return forgot(await runtime.forget(forget, WINDOW))
+          return forgot(await runtime.forget(forget))
         },
       ),
     'memory.undo': ({ change }) =>
       withRuntime(
         (reason): MemoryUndone => ({ ok: false, reason }),
-        async (runtime) => undone(await runtime.undo(change, WINDOW)),
+        async (runtime) => undone(await runtime.undo(change)),
       ),
     'memory.now.change': (change) =>
       withRuntime(
         (reason): MemoryNowChanged => ({ ok: false, reason }),
         async (runtime) => {
-          if (change.version !== undefined) {
-            const { nowVersion } = await listOf(runtime)
-            if (nowVersion !== undefined && nowVersion !== change.version) return { ok: false, reason: STALE_NOW }
-          }
-          return nowChanged(await runtime.changeNow(change, WINDOW))
+          const { nowVersion } = await listOf(runtime)
+          if (nowVersion !== undefined && change.version !== nowVersion) return { ok: false, reason: STALE_NOW }
+          return nowChanged(await runtime.changeNow(change))
         },
       ),
   }
