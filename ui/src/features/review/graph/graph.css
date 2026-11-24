@@ -1330,6 +1330,8 @@
 }
 .rv-zone-counts {
   min-width: 0;
+  /* The name keeps the rest of the heading (`countsRoom`). */
+  max-width: var(--counts-room, none);
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--font-heading);
@@ -1358,36 +1360,74 @@
   color: var(--hb-muted);
 }
 
+/* At reading size the heading says the words that fit (`headingWords`); from far away, the layer over the subject. */
+.rv-zone-near {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rv-zone-layer,
+.rv-zone-subject {
+  display: none;
+}
+
 /*
- * From far away the heading grows inside the same room, on two lines, so the zones read as a map with their counts. It
- * ends well above the cards, whose tags stand higher from far away.
+ * From far away the heading grows inside the same room, so the zones read as a map: the layer small with the counts
+ * beside it, and under them the subject large, which is what tells two zones of a layer apart and is cut only at its
+ * end. A zone with no subject of its own says its name large. It ends well above the cards, whose tags stand higher
+ * from far away.
  */
 .rv[data-far='true'] .rv-zone-head {
   top: 2px;
-  grid-template-columns: auto minmax(0, max-content);
-  grid-template-rows: auto auto;
+  /* The counts' column is the flexible one, so the subject under both columns never widens the layer's. */
+  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
+  grid-template-areas:
+    '. layer counts'
+    'mark subject subject';
   align-content: center;
   column-gap: 12px;
   height: calc(var(--zone-head) - 26px);
 }
+.rv[data-far='true'] .rv-zone-label {
+  display: contents;
+}
+.rv[data-far='true'] .rv-zone-near {
+  display: none;
+}
 .rv[data-far='true'] .rv-zone-mark {
-  grid-row: 1;
+  grid-area: mark;
   width: 18px;
   height: 18px;
 }
-.rv[data-far='true'] .rv-zone-label {
-  grid-column: 2;
-  font-size: 34px;
-  line-height: 40px;
-  color: var(--hb-text);
-}
-.rv[data-far='true'] .rv-zone-counts {
-  grid-column: 2;
+.rv[data-far='true'] .rv-zone-layer {
+  grid-area: layer;
+  display: block;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 21px;
   line-height: 26px;
+  color: color-mix(in oklab, var(--hb-text) 78%, var(--hb-muted));
+}
+.rv[data-far='true'] .rv-zone-subject {
+  grid-area: subject;
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 36px;
+  line-height: 42px;
+  color: var(--hb-text);
+}
+.rv[data-far='true'] .rv-zone-counts {
+  grid-area: counts;
+  max-width: none;
+  font-size: 21px;
+  line-height: 26px;
+}
+/* A name with no layer has the small line to its counts. */
+.rv[data-far='true'] .rv-zone-head[data-one-line='true'] .rv-zone-counts {
+  grid-area: layer / layer / counts / counts;
 }
 .rv[data-far='true'] .rv-zone-chevron {
   display: none;

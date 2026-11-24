@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { nodeRect, ZONE_FRAME } from '#shared/review/layout.ts'
 import type { Review, ReviewNode, ReviewZone } from '#shared/review/types.ts'
-import { MAX_ZONES, regionsOf, zoneWords, zonesOf, type GraphZone } from '../src/features/review/graph/zones.ts'
+import { headingRoom, headingWords, MAX_ZONES, regionsOf, zoneTitle, zoneWords, zonesOf, type GraphZone } from '../src/features/review/graph/zones.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
 import { planEntrance } from '../src/features/review/graph/entrance-plan.ts'
 import { keyOwner, pressKey } from '../src/features/review/keys.ts'
@@ -183,4 +183,29 @@ test('however many small zones join Other parts, there is one of it, and the zon
   assert.equal(zones.filter((zone) => zone.label === 'Other parts').length, 1)
   assert.equal(zones.find((zone) => zone.id === zoneOf.A1)!.label, 'Acceptance lines')
   assert.equal(zones.find((zone) => zone.id === zoneOf.loose)!.label, 'Other parts')
+})
+
+test("a zone's heading never loses its subject before its layer: the whole name, the layer's first word, the subject, then the subject cut", () => {
+  const zone = (label: string, subjects = 1) => ({ label, subjects })
+  assert.deepEqual(zoneTitle(zone('Controllers · Posts')), { layer: 'Controllers', subject: 'Posts' })
+  // A merged zone, Other parts and a name the Reviewer gave have no subject of their own: one line.
+  for (const one of [zone('Controllers', 3), zone('Tests · billing', 12), zone('Other parts'), zone('Rendering posts')]) {
+    assert.deepEqual(zoneTitle(one), { layer: null, subject: one.label })
+  }
+
+  const title = zoneTitle(zone('Host controllers · Admin orders'))
+  const wide = headingWords(title, 1000, 14)
+  assert.equal(wide, 'Host controllers · Admin orders')
+  const room = (text: string) => text.length * 14 * 0.6
+  assert.equal(headingWords(title, room('Host · Admin orders'), 14), 'Host · Admin orders', 'the layer gives way to its first word first')
+  assert.equal(headingWords(title, room('Admin orders'), 14), 'Admin orders', 'then the layer goes, and the subject stays')
+  assert.equal(headingWords(title, 20, 14), 'Admin orders', 'then only the subject is left, for the end of it to be cut')
+  for (let width = 0; width < 400; width += 10) assert.match(headingWords(title, width, 14), /Admin orders$/, `at ${width} the subject is whole`)
+  assert.equal(headingWords(zoneTitle(zone('Script · production errors')), room('production errors'), 14), 'production errors', 'a one-word layer goes whole')
+  assert.equal(headingWords(zoneTitle(zone('Controllers', 3)), 10, 14), 'Controllers')
+
+  // The room a heading has at reading size: its region less its padding, its mark and chevron, and room for some counts.
+  assert.ok(headingRoom(344, 'Unchanged') > room('Controllers · Posts'), 'a one-column zone says "Controllers · Posts" whole')
+  assert.ok(headingRoom(344, '2 need you · 13 tests') < headingRoom(344, 'Unchanged'))
+  assert.ok(headingRoom(344, '2 need you · 13 tests · and a great many more words') > room('production err'), 'counts never take all the room')
 })

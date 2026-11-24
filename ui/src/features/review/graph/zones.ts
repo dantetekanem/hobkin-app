@@ -9,7 +9,7 @@
  * review's nodes in it, what changed, what needs the reviewer, its tests, and its standing. Pure, and the same review
  * always gives the same zones.
  */
-import { zoneRects, type Rect } from '#shared/review/layout.ts'
+import { ZONE_FRAME, zoneRects, type Rect } from '#shared/review/layout.ts'
 import type { NodeKind, Review, ReviewNode, ReviewZone } from '#shared/review/types.ts'
 import { withZones } from '#shared/review/zones.ts'
 
@@ -251,6 +251,58 @@ export function zoneWords(zone: Pick<GraphZone, 'counts' | 'subjects' | 'tests'>
     tests > 0 ? some(tests, 'test', 'tests') : '',
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(' · ') : 'Unchanged'
+}
+
+/** A zone's name as its heading says it: its layer and its subject, or one line for a zone with no subject of its own. */
+export interface ZoneTitle {
+  layer: string | null
+  subject: string
+}
+
+/**
+ * "Controllers · Posts" is the layer "Controllers" and the subject "Posts". A zone that merged a layer's subjects,
+ * Other parts and a name the Reviewer gave have no subject of their own: their name is one line.
+ */
+export function zoneTitle(zone: Pick<GraphZone, 'label' | 'subjects'>): ZoneTitle {
+  const at = zone.label.indexOf(' · ')
+  if (zone.subjects > 1 || at < 0) return { layer: null, subject: zone.label }
+  return { layer: zone.label.slice(0, at), subject: zone.label.slice(at + ' · '.length) }
+}
+
+/** About how wide a line of the heading's letters is: each takes this share of the type's size. */
+const LETTER = 0.6
+const widthOf = (text: string, size: number) => text.length * size * LETTER
+
+/** The heading's type at reading size, and what sits beside its name: padding, mark, chevron and the gaps (`graph.css`). */
+export const HEADING = { size: 14, countsSize: 12.5, beside: 24 + 8 + 9 + 15 + 9 + 9, overhang: 24 } as const
+
+/**
+ * The room a heading's name has at reading size in a region this wide: the heading's room less what sits beside the
+ * name, and less the counts, which never take more than two fifths of it.
+ */
+export function headingRoom(regionWidth: number, counts: string): number {
+  const heading = regionWidth - 2 * ZONE_FRAME.pad + HEADING.overhang - HEADING.beside
+  const forCounts = Math.min(widthOf(counts, HEADING.countsSize), countsRoom(regionWidth))
+  return Math.max(0, heading - forCounts)
+}
+
+/** The most room a heading's counts take at reading size, so its name keeps the rest: two fifths of the heading. */
+export function countsRoom(regionWidth: number): number {
+  return Math.max(0, (regionWidth - 2 * ZONE_FRAME.pad + HEADING.overhang - HEADING.beside) * 0.4)
+}
+
+/**
+ * What a heading says at reading size in `room` points of type `size` (the user, 2026-11-23: zones are "more granular"
+ * than a layer, "in a subject", so the subject is the last to go): the whole name, then the layer's first word with the
+ * subject, then the subject alone, which the heading cuts at its end when even that is too wide.
+ */
+export function headingWords(title: ZoneTitle, room: number, size: number): string {
+  if (title.layer == null) return title.subject
+  const forms = [`${title.layer} · ${title.subject}`]
+  const firstWord = title.layer.split(' ')[0]!
+  if (firstWord !== title.layer) forms.push(`${firstWord} · ${title.subject}`)
+  forms.push(title.subject)
+  return forms.find((form) => widthOf(form, size) <= room) ?? title.subject
 }
 
 /** A zone drawn as a region behind its nodes. */
