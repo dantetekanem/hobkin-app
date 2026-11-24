@@ -3,7 +3,7 @@ import type { CommandDefinition } from '../commands/registry.ts'
 /**
  * An integration is a folder under `integrations/` at the repository's root, such as `integrations/github/`. The app's
  * core never imports one: the host and the window find each folder when they start, and a folder that is not there
- * leaves nothing behind. See _specs/064-integration-drops and `integrations/README.md`.
+ * leaves nothing behind. See _specs/065-integration-drops and `integrations/README.md`.
  *
  * The manifest is the folder's `integration.ts`, whose default export is the value `defineIntegration` returns. It is
  * plain data the host and the window both read, with no Node and no DOM.

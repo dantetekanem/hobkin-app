@@ -17,7 +17,7 @@ Integrations is a canvas screen where the user sees every service hobkin can rea
 ## Decisions
 
 - Integrations are of two kinds. A full integration connects its own way and provides a whole page in the app. An MCP integration is an MCP server in Pi's configuration (`~/.pi/agent/mcp.json`, under `mcpServers`): Pi connects them, and routines and agents get their tools. The client adds no second mechanism for MCP servers, so the terminal app and `pi mcp list` see the same connections.
-- Each full integration is a folder under `integrations/` and draws its own card above the MCP servers (`064-integration-drops`). GitHub is the first. It connects through gh, GitHub's command line tool, with the login gh already has (`024-github`), and its page is Pages › GitHub. Its card says how gh stands and as which account, what the page holds, opens the page, and holds the setting that shows GitHub in the menu. A GitHub MCP server the user configured themselves shows with the other servers, like any other.
+- Each full integration is a folder under `integrations/` and draws its own card above the MCP servers (`065-integration-drops`). GitHub is the first. It connects through gh, GitHub's command line tool, with the login gh already has (`024-github`), and its page is Pages › GitHub. Its card says how gh stands and as which account, what the page holds, opens the page, and holds the setting that shows GitHub in the menu. A GitHub MCP server the user configured themselves shows with the other servers, like any other.
 - The screen shows the full integrations' cards first, then the MCP servers Pi's configuration has, in the order of its file.
 - The catalog is gone. On 2026-11-24 the user, looking at the section "10 more hobkin can reach" (Linear, Notion, Jira and Confluence, Sentry, Stripe, Cloudflare, Supabase, GitLab, Intercom, Todoist, each "Signs in"), said: "remove this too, they dont exist". No service is offered for adding, `integrations.add` is gone, and a server that matched a catalog entry shows like any other configured server, by its own name.
 - A server is listed with its name, whether it is a remote address or a local command, its state, its tools, and its last error.
@@ -69,7 +69,7 @@ Integrations is a canvas screen where the user sees every service hobkin can rea
 - [x] S3 (A2, A5, A6, A10, A11). Host: read Pi's configuration and state, turn servers on and off, in a development configuration. The host tests pass through Pi's own code against a test Pi folder and a local stdio server, with no network.
 - [x] S4 (A9). Secrets hidden throughout, and removing a server.
 - [ ] S5 (A12). The full integrations' cards above the MCP servers, from each integration's window part. Source and tests done; not yet seen in the window.
-- [x] S6 (A12). The catalog gone, 2026-11-24 (`064-integration-drops`, S6): its file, the add flow and `integrations.add`, the catalog's tiles and form, and the sample catalog data. S1, the catalog with each entry's vendor source, went with it.
+- [x] S6 (A12). The catalog gone, 2026-11-24 (`065-integration-drops`, S6): its file, the add flow and `integrations.add`, the catalog's tiles and form, and the sample catalog data. S1, the catalog with each entry's vendor source, went with it.
 
 ## Open questions
 

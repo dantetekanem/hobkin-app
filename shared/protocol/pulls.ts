@@ -1,7 +1,7 @@
 /**
  * A pull request as the app knows it, whichever integration read it: Change Review prepares reviews of the open ones
  * in the background (spec 053), and Work and the trail show where one stands. GitHub's integration reads them through
- * gh (`integrations/github/`). See _specs/064-integration-drops.
+ * gh (`integrations/github/`). See _specs/065-integration-drops.
  */
 
 /** Where a pull request's review stands. `waiting`: a review is asked for and none has been given yet. */

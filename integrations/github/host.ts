@@ -6,7 +6,7 @@ import { issueHandlers, issueWorkReader } from './host/issues.ts'
 import { sampleGitHubSource } from './host/sample.ts'
 
 /**
- * GitHub's part of the host (_specs/024-github, _specs/064-integration-drops): the GitHub reader and the issue
+ * GitHub's part of the host (_specs/024-github, _specs/065-integration-drops): the GitHub reader and the issue
  * commands. It reads through gh when the host has gh and shows made-up data otherwise.
  */
 

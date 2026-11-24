@@ -1,6 +1,6 @@
 ---
 {
-  "id": "064-integration-drops",
+  "id": "065-integration-drops",
   "title": "An integration is a folder the core never imports",
   "kind": "work",
   "status": "doing",
@@ -30,6 +30,18 @@ The user's words, 2026-11-24: "integrations right now is patching the code, this
 - The catalog is removed (the user, 2026-11-24). Integrations lists the full integrations, then the MCP servers Pi's file has, as Pi reports them. `integrations.add` goes with it; turning a server on or off and removing one stay.
 - `integrations/README.md` is written for an agent that has never seen the app: the folder, each field and hook with a small example, how to test one, and a checklist. It names only what the code does.
 
+## Agents: tools, hooks on tool calls, workflows
+
+The user, 2026-11-24 at 18:15: "i will want integrations to work not just by making apis, but even adding intelligence. tool calling is a critical thing on hobkin. for example I might want to build custom workflows (kind of work mode) by casting a few directions".
+
+Today only hobkin's main conversation gets a tool from the host (`client`, through hobkin's bridge). Runs and durable hobkins get a fixed set (`namingExtensions` in hobkin's `src/cli/harnesses.mjs`), and nothing outside an agent's own process can stop or change a tool call. Pi can: its extension events `tool_call` (block a call, or change its input) and `tool_result` (change what the agent reads). hobkin uses them once, to keep helpers to their tools.
+
+- Tools. A host part may give agents tools: each has a name, a description, TypeBox parameters, which agents get it (the main conversation, runs, durable hobkins; all three when it says nothing), and an `execute(args, { agent, signal })` that runs in the host. hobkin's runtime gives each of those Pi agents one proxy per tool through its bridge, so the call runs in the host and its answer goes back to the agent. A helper gets one only when its role lists it. A tool's name is the integration's id with `_` for `-`, then `_`, then its own name, so `github_find_pull`. With no integration tools, no agent loads anything new.
+- Hooks on tool calls. A host part may hook calls to the tools it names, or to every tool: `before` may let a call through, refuse it with a reason the agent reads, or change its arguments; `after` may change what the agent reads back. hobkin's runtime loads one extension into every Pi agent that asks the host only for a call to a hooked tool, so a call nothing hooks never leaves the agent's process. Hooks run in folder order: the first refusal wins, and changed arguments pass to the next hook. A hook that throws or has not answered within 10 seconds lets the call through as it was, and the host logs why, unless the hook says it must refuse when it fails.
+- Workflows. A folder's `workflows/<name>.md` is a workflow: a routine's file (JSON front matter with its title, model or tier, effort, folder, and a schedule as a routine has, or none), plus `on`, what else starts it: `press` (a button on the integration's card and an entry in the spotlight), `after:<command>` (once that app command ended well, its arguments and answer handed to the run), and `start` (the integration's own code, `context.startWorkflow(name, input)`). Its body is the directions. hobkin's runtime reads each integration's `workflows/` as a second source of routines, read only, each named `<id>/<name>`, and runs one as a routine runs: one run with those directions, its input and the integration's tools, which reports in Reports and may file work and start helpers as any run may. Nothing is written into the home but whether the user turned a workflow off.
+- Claude Code agents (the `claude` engine) get none of these here: they would need an MCP server of the host's (open question).
+- The host hands hobkin's application one `integrations` option: the tools offered (names, descriptions, JSON schemas, which agents), a call to run one, the hooked tool names, the before and after calls, and the workflow folders with each one's tools. The application gives back `startWorkflow(id, input)`. A runtime from before ignores the option, and the host runs on without these.
+
 ## Out of scope
 
 - hobkin's runtime use of GitHub (opening and merging pull requests, picking up issues).
@@ -46,6 +58,9 @@ The user's words, 2026-11-24: "integrations right now is patching the code, this
 - A6. The Integrations screen has no catalog and no way to add a catalog service; Pi's configured servers show as before, with their states, tools and actions.
 - A7. An agent given only `integrations/README.md` builds a working integration.
 - A8. The packaged app stages each folder's host files.
+- A9. An integration's tool is in the tool list of the main conversation, a run and a durable hobkin on Pi, and a call runs its `execute` in the host with the agent named, and the agent reads its answer. With no integration tools, agents load nothing new.
+- A10. A `before` hook refuses a call to a hooked tool with its reason and changes another's arguments; an `after` hook changes what the agent reads; a call to a tool nothing hooks never reaches the host; a hook that throws or is slow lets the call through, unless it says to refuse.
+- A11. A workflow file runs on its schedule, on a press, after its command, and when its integration starts it, with its directions, its input and the integration's tools, and its run is in Reports. Turned off, it does not run.
 
 ## Proof
 
@@ -57,6 +72,9 @@ The user's words, 2026-11-24: "integrations right now is patching the code, this
 - A6. `host/test/integrations.test.ts`, `ui/test/integrations-*.test.ts`; check: the screen in light and dark.
 - A7. check: a fresh agent builds a small integration in a scratch copy from the README alone.
 - A8. `scripts/package` rules test.
+- A9. hobkin's harness tests with a fake host (a run and a durable hobkin see the tool and call it), `host/test/integration-host.test.ts` (the host runs `execute` and answers); check: the main conversation calls a test integration's tool on a scratch home.
+- A10. hobkin's extension test (block, change, after, an unhooked call never asks, a slow or throwing hook), `host/test/integration-host.test.ts` (hooks in folder order).
+- A11. hobkin's schedules and runner tests on a workflow folder (schedule, press, start, turned off), `host/test/integration-host.test.ts` (`after:<command>`, `startWorkflow`).
 
 ## Steps
 
@@ -68,3 +86,7 @@ The user's words, 2026-11-24: "integrations right now is patching the code, this
 - [ ] S6. The catalog gone (lane C).
 - [ ] S7. The switch: the host and window run GitHub from the folder only, the old files gone (lead with H1 and W1).
 - [ ] S8. `integrations/README.md`, A1 and A7 (lead).
+- [ ] S9. hobkin's runtime: the `integrations` option, host tools bridged into every Pi agent, the tool-call hook extension, workflow folders as a read-only source of routines, `startWorkflow` (lane R, in `~/Poetry/hobkin`).
+- [ ] S10. The host: `tools`, `toolHooks` and workflows in the contract, served to the runtime, `context.startWorkflow`, `after:<command>` starts, a command to press a workflow.
+- [ ] S11. The window: a workflow's press on its card and in the spotlight.
+- [ ] S12. The README covers tools, hooks and workflows, with an example of each; A9 to A11.

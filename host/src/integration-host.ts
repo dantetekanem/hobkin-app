@@ -11,7 +11,7 @@ import type { GhCall } from './review/gh.ts'
 import type { WorkApp } from './work.ts'
 
 /**
- * The integrations the host runs (_specs/064-integration-drops): the folders under `integrations/`, each with a
+ * The integrations the host runs (_specs/065-integration-drops): the folders under `integrations/`, each with a
  * manifest and, if it has one, a host part. The core never imports one by name. This finds them when the host starts,
  * gives each part its context, and passes on what the host does: commands, tool calls, merges, state. A folder that
  * fails anywhere is logged with why and left out whole, its commands never registered.

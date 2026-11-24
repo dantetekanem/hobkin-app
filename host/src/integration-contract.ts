@@ -4,7 +4,7 @@ import type { GhCall } from './review/gh.ts'
 import type { WorkApp } from './work.ts'
 
 /**
- * What an integration's host part is given and what it gives back (_specs/064-integration-drops). The folder's
+ * What an integration's host part is given and what it gives back (_specs/065-integration-drops). The folder's
  * `host.ts` default-exports a `HostPartFactory`. The host calls it once at start, with a context of its own, and never
  * imports anything else of the folder. Everything an integration does in the host goes through these two shapes.
  */
