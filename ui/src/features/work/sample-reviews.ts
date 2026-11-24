@@ -106,6 +106,10 @@ function sampleReviews(now: number): ReviewList {
       pull('storefront', 482, 'Keep the cart total between page loads', { files: 6, added: 120, removed: 14 }, { state: 'running', percent: 35, now: 'Reading the six files the change touches', startedAt: ago(2) }, 0),
       change('storefront', '4c9e21', 'Remember the shipping address', '9b04d2aa', { state: 'running', head: null, percent: 62, now: 'Running the checkout tests in the review tree', startedAt: ago(4) }, 0),
       change('docs-site', 'a7f3b9', 'Document the export command', '77c1e9f0', { state: 'queued', head: null }, 1),
+      // A stack of five: each layer's review shows that layer alone.
+      change('rpsleague', 'e1a001', 'Enemy AI 1/5: Remove the unused enemy planner', '57ac1e1a001', { state: 'ready', head: null, summary: summary('safe', { needsYou: 0, worthALook: 0, safe: 3 }, 40) }, 40),
+      change('rpsleague', 'e1a002', 'Enemy AI 2/5: Cover the existing enemy turn limits', '57ac2e1a002', { state: 'ready', head: null, summary: summary('mid', { needsYou: 0, worthALook: 1, safe: 3 }, 38) }, 38),
+      change('rpsleague', 'e1a003', 'Enemy AI 3/5: Pick a target in one place', '57ac3e1a003', { state: 'running', head: null, percent: 48, now: 'Reading the three files the layer touches', startedAt: ago(3) }, 0),
       change('storefront', '8d2f60', 'Fix the login redirect after a password reset', '2e6b0c41', { state: 'ready', head: null, summary: summary('mid', { needsYou: 0, worthALook: 2, safe: 3 }, 50) }, 50),
       // A pull request's repository has no monitoring known: four numbers and no general rate.
       rated(pull('storefront', 479, 'Fix the login redirect after a password reset', { files: 2, added: 18, removed: 4 }, { state: 'ready', summary: summary('mid', { needsYou: 0, worthALook: 1, safe: 2 }, 90) }, 90), [7, 5, 6, null, 8], null),

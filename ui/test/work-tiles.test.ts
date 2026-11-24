@@ -22,9 +22,9 @@ test("the six tiles read what waits, the AI reviews and today's tokens from Work
     ['waiting', 'merged', 'first-pass', 'by-itself', 'ai-reviews', 'tokens'],
   )
   const tile = byKey(tiles)
-  // Every finished change waits for the user's yes or no, whatever its group: 3 ready, 1 to refresh, 2 that need them, 1 left a note.
-  assert.equal(waitingNow(work), 7)
-  assert.equal(tile.waiting!.figure, '7')
+  // Every finished change waits for the user's yes or no, whatever its group: 8 ready (a stack of five among them), 3 to refresh (a stack of two among them), 2 that need them, 1 left a note.
+  assert.equal(waitingNow(work), 14)
+  assert.equal(tile.waiting!.figure, '14')
   // The sample's oldest finished change was last written 26 hours ago.
   assert.equal(tile.waiting!.context, 'oldest 26 h')
   assert.deepEqual([tile.merged!.figure, tile.merged!.context], ['7', '4 by itself'])
@@ -60,7 +60,7 @@ test('with a host older than the numbers, the tiles keep their boxes and say so,
     assert.equal(tile[key]!.figure, NO_DATA, key)
     assert.equal(tile[key]!.context, 'this host sends none yet', key)
   }
-  assert.equal(tile.waiting!.figure, '7')
+  assert.equal(tile.waiting!.figure, '14')
   assert.equal(tile['ai-reviews']!.figure, '0')
   assert.equal(tile.tokens!.figure, '38M')
 

@@ -17,6 +17,8 @@ import { cn } from '@/lib/utils.ts'
 import type { MergingRow } from '#shared/protocol/work.ts'
 import type { HobkinChoice } from './actions.ts'
 import { endAtWord, needsFirst } from './finished-cards.ts'
+import { StackGroup, type DrawCard } from './StackGroup.tsx'
+import { arrange, placeOf, type Arranged } from './stacks.ts'
 import { GradeChip, IssueLink, PullLink, ReviewBadge, SaidLine, SectionHeading } from './parts.tsx'
 import { ProofCheckLine, ProofChips } from '@/features/proofs/ProofChips.tsx'
 import { saysHigh } from './review-badge.ts'
@@ -59,8 +61,8 @@ export function FinishedSection({ work, ...shared }: { work: Pick<WorkState, 'fi
     <section aria-label="Finished changes" className="flex flex-col gap-4">
       <SectionHeading label="Finished changes" count={total} />
       <AnimatePresence>{said ? <Told key={said.text} said={said} /> : null}</AnimatePresence>
-      {needsFirst(work.finished).map((group) => (
-        <Group key={group.name} group={group} leaving={leaving} onLeaving={setLeaving} {...shared} />
+      {arrange(needsFirst(work.finished)).map((arranged) => (
+        <Group key={arranged.group.name} arranged={arranged} leaving={leaving} onLeaving={setLeaving} {...shared} />
       ))}
       {total === 0 ? <p className="px-1 text-[13.5px] text-muted-foreground">Nothing finished waits for you.</p> : null}
       {work.merging?.length ? <MergingGroup rows={work.merging} variants={shared.variants} turn={shared.turn} /> : null}
@@ -174,7 +176,8 @@ function Told({ said }: { said: Said }) {
   )
 }
 
-function Group({ group, leaving, onLeaving, live, variants, turn, onRowsLeft }: { group: FinishedGroup; leaving: Leaving; onLeaving: (leaving: Leaving) => void } & Shared) {
+function Group({ arranged, leaving, onLeaving, live, variants, turn, onRowsLeft }: { arranged: Arranged; leaving: Leaving; onLeaving: (leaving: Leaving) => void } & Shared) {
+  const { group, entries } = arranged
   const place = `group:${group.name}`
   const busy = useWorkUi((state) => Boolean(state.busy[place]))
   const [asking, setAsking] = useState(false)
@@ -218,9 +221,15 @@ function Group({ group, leaving, onLeaving, live, variants, turn, onRowsLeft }: 
       <AnimatePresence>{asking && group.action ? <GroupQuestion key="asking" group={group} onAnswer={(yes) => void answer(yes)} /> : null}</AnimatePresence>
       <ul className="relative flex flex-col gap-2">
         <AnimatePresence mode="popLayout" custom={leaving} onExitComplete={onRowsLeft}>
-          {group.changes.map((change) => (
-            <ChangeCard key={change.key} change={change} group={group} live={live} variants={variants} order={turn()} onLeaving={onLeaving} />
-          ))}
+          {entries.map((entry) => {
+            if (entry.kind === 'stack') {
+              const drawCard: DrawCard = ({ change, group: own }, place, whole) => (
+                <ChangeCard key={change.key} change={change} group={own} place={place} live={live} variants={variants} order={whole ? turn() : -1} onLeaving={onLeaving} />
+              )
+              return <StackGroup key={entry.key} entry={entry} live={live} variants={variants} order={turn()} leaving={leaving} onRowsLeft={onRowsLeft} drawCard={drawCard} />
+            }
+            return <ChangeCard key={entry.key} change={entry.at.change} group={entry.at.group} place={entry.place ? placeOf(entry.place) : null} live={live} variants={variants} order={turn()} onLeaving={onLeaving} />
+          })}
         </AnimatePresence>
       </ul>
     </div>
@@ -329,7 +338,7 @@ function variantOf(choice: HobkinChoice, risky: boolean): 'default' | 'outline' 
   return risky ? 'outline' : 'default'
 }
 
-function ChangeCard({ change, group, live, variants, order, onLeaving }: { change: FinishedChange; group: FinishedGroup; live: boolean; variants: Variants; order: number; onLeaving: (leaving: Leaving) => void }) {
+export function ChangeCard({ change, group, place = null, live, variants, order, onLeaving }: { change: FinishedChange; group: FinishedGroup; /** "2 of 5", when the change is a layer of a stack. */ place?: string | null; live: boolean; variants: Variants; order: number; onLeaving: (leaving: Leaving) => void }) {
   const still = useStill()
   const busy = useWorkUi((state) => Boolean(state.busy[change.key] || state.busy[`group:${group.name}`]))
   const said = useWorkUi((state) => state.said[change.key])
@@ -415,7 +424,10 @@ function ChangeCard({ change, group, live, variants, order, onLeaving }: { chang
                   <p className="eyebrow">{change.project}</p>
                   <IssueLink issue={change.issue} />
                 </div>
-                <h4 className="mt-0.5 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{change.title}</h4>
+                <h4 className="mt-0.5 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">
+                  {place ? <span className="mr-2 text-[12px] font-medium tracking-normal text-muted-foreground tabular-nums">{place}</span> : null}
+                  {change.title}
+                </h4>
               </div>
               <ReviewBadge status={assessment} size="md" />
               {reviewId ? <OpenArrow className="mt-1.5" /> : null}

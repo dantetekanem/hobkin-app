@@ -1,5 +1,5 @@
 import type { DecidedChange, WorkMetrics } from '#shared/protocol/metrics.ts'
-import type { FinishedChange, FinishedGroup, FinishedGroupName, GroupPlan, MergingRow, WorkHolding, WorkHours, WorkIssue, WorkProject, WorkState, Workload } from '#shared/protocol/work.ts'
+import type { FinishedChange, FinishedGroup, FinishedGroupName, GroupPlan, MergingRow, StackPlace, WorkHolding, WorkHours, WorkIssue, WorkProject, WorkState, Workload } from '#shared/protocol/work.ts'
 import { tokenWords } from '../numbers/format.ts'
 import { clockTime } from '../reports/time.ts'
 
@@ -56,11 +56,13 @@ export function groupOf(name: FinishedGroupName, changes: FinishedChange[]): Fin
     return { name, heading: 'Left for you', why, action: null, changes }
   }
   const words = GROUP_WORDS[name]
+  // A layer with one under it that has not landed waits, so the group's yes does not carry it.
+  const landing = changes.filter(({ stack }) => !stack || stack.layer === 1)
   return {
     name,
     heading: words.name,
-    why: words.why(changes.length),
-    action: { label: words.action(changes.length), question: words.question(changes.length), plan: planOf(name, changes), underWay: words.underWay(changes.length) },
+    why: words.why(landing.length),
+    action: { label: words.action(landing.length), question: words.question(landing.length), plan: planOf(name, landing), underWay: words.underWay(landing.length) },
     changes,
   }
 }
@@ -78,6 +80,51 @@ const merging = (rest: Omit<FinishedChange, 'key' | 'review' | 'behind' | 'confl
   landing: rest.pr ? 'mergePr' : 'merge',
   ...rest,
 })
+
+/** One layer of a sample stack: it lands after the layer under it, so only the bottom one is given a merge. */
+function layerOf(stack: Omit<StackPlace, 'layer' | 'below' | 'base'>, layer: number, item: string, title: string, lines: number, about: string, over: Partial<FinishedChange> = {}): FinishedChange {
+  const below = layer === 1 ? null : `${stack.id.slice(0, 5)}${layer - 1}`
+  const choices: FinishedChange['choices'] = [
+    ...(layer === 1 ? [{ value: 'merge' as const, label: 'Merge it' }] : []),
+    { value: 'diff', label: 'Show the diff' },
+    { value: 'review', label: 'Review it again' },
+    { value: 'decline', label: 'Cancel it' },
+  ]
+  return merging({
+    slug: 'rpsleague',
+    project: 'RPSLEAGUE',
+    item,
+    title,
+    grade: 'P1',
+    branch: `hobkin/${item}-${title.split(': ').at(-1)!.toLowerCase().replaceAll(' ', '-')}`,
+    head: sha(`57ac${layer}${item}`),
+    pr: null,
+    about,
+    proof: 'cargo test: every test passes at this layer, built on the one under it.',
+    yes: layer === 1 ? `Merge it puts this layer (${lines} lines) into the default branch on this machine. Nothing is pushed.` : `It lands after layer ${layer - 1}, so it cannot merge yet.`,
+    reason: layer === 1 ? 'With proof, no conflict and no grade against it.' : `Layer ${layer - 1} lands first.`,
+    safety: { grade: 'safe', rating: 'A', stale: false },
+    size: { lines, files: 3 },
+    stack: { ...stack, layer, below: layer === 1 ? null : below, base: layer === 1 ? null : sha('ba5e') },
+    choices,
+    ...over,
+  })
+}
+
+const ENEMY_AI = { id: 'e1a001', of: 5, name: 'Enemy AI' }
+const ENEMY_LAYERS: FinishedChange[] = [
+  layerOf(ENEMY_AI, 1, 'e1a001', 'Enemy AI 1/5: Remove the unused enemy planner', 140, 'The planner that nothing calls any more is gone, with the two tests that only exercised it.'),
+  layerOf(ENEMY_AI, 2, 'e1a002', 'Enemy AI 2/5: Cover the existing enemy turn limits', 96, 'The turn limit an enemy already obeys now has a test for each way it can run out.'),
+  layerOf(ENEMY_AI, 3, 'e1a003', 'Enemy AI 3/5: Pick a target in one place', 210, 'Choosing who an enemy attacks happens in one function instead of three.'),
+  layerOf(ENEMY_AI, 4, 'e1a004', 'Enemy AI 4/5: Let an enemy wait a turn', 74, 'An enemy with no target in reach waits instead of walking toward the nearest door.'),
+  layerOf(ENEMY_AI, 5, 'e1a005', 'Enemy AI 5/5: Show what an enemy will do next', 188, 'The next move of each enemy is drawn on the board before the player acts.'),
+]
+
+const SAVE_LOADING = { id: 'b2c001', of: 2, name: 'Save files' }
+const SAVE_LAYERS: FinishedChange[] = [
+  layerOf(SAVE_LOADING, 1, 'b2c001', 'Save files 1/2: Write a save to a temporary file first', 58, 'A save is written beside the old one and renamed over it, so a crash leaves the old save whole.'),
+  layerOf(SAVE_LOADING, 2, 'b2c002', 'Save files 2/2: Say why a save could not be read', 41, 'A save that cannot be read names the reason on the load screen instead of starting a new game.'),
+]
 
 const READY: FinishedChange[] = [
   merging({
@@ -103,6 +150,7 @@ const READY: FinishedChange[] = [
       { value: 'decline', label: 'Cancel it' },
     ],
   }),
+  ...ENEMY_LAYERS,
   merging({
     slug: 'storefront',
     project: 'storefront',
@@ -177,6 +225,7 @@ const REFRESH: FinishedChange[] = [
       { value: 'decline', label: 'Cancel it' },
     ],
   }),
+  ...SAVE_LAYERS,
 ]
 
 const NEEDS: FinishedChange[] = [
@@ -372,7 +421,7 @@ const SAMPLE_WORKLOAD: Workload = {
   dailyTokens: 100_000_000,
   hours: null,
   shipFirst: true,
-  shipFirstAt: 8,
+  shipFirstAt: 16,
   reviewOnFinish: false,
   reviewPulls: 'none',
 }
