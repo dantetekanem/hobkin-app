@@ -323,7 +323,8 @@ const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, li
         <span className="block truncate text-[13px] leading-tight">{agent.title}</span>
         <AgentWords agent={agent} />
       </span>
-      <ChildCluster runId={agent.durable?.run ?? agent.id} hue={agent.hue} summaryId={`${id}-${agent.id}-children`} />
+      {/* Its helpers by the agent's own id, as its screen finds them: a durable hobkin's turn has an id of its own that holds none. */}
+      <ChildCluster runId={agent.id} hue={agent.hue} summaryId={`${id}-${agent.id}-children`} />
       {agent.durable && agent.durable.engine.kind !== 'tier' ? (
         <span className="rounded-full border border-border px-1.5 text-[10px] leading-4 font-medium text-muted-foreground">
           {agent.durable.engine.kind === 'claude' ? 'claude' : 'custom'}
