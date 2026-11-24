@@ -4,7 +4,7 @@ import { shownTitle } from 'hobkin/src/cli/work/groups.mjs'
 import { githubRepoOf } from 'hobkin/src/cli/work/issues.mjs'
 import { readItems } from 'hobkin/src/cli/work/store.mjs'
 import type { FinishedChange, FinishedGroup, MergingRow, QueueRow, WorkIssue, WorkState } from '#shared/protocol/work.ts'
-import { changeOf, workFrom } from './work.ts'
+import { changeOf, stacksTogether, workFrom } from './work.ts'
 
 /**
  * Work mode as the Work screen draws it (`workFrom`), with what hobkin keeps and its snapshot's groups leave out: the
@@ -204,7 +204,8 @@ function withItems(snapshot: HobkinSnapshot, root: () => string, reposOf: Return
     ...work,
     queue,
     projects,
-    finished: left ? [...finished, left] : finished,
+    // Once more with Left for you beside the other groups: a stack whose bottom layer left a note stands there, whole.
+    finished: stacksTogether(left ? [...finished, left] : finished),
     merging: mergingRows(closing, itemOf),
   }
 }

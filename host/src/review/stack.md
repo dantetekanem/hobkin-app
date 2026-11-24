@@ -27,7 +27,7 @@ These are aims. You may miss one when the code gives you no clean seam, but say 
 
 Make a git worktree for yourself, from the commit the change starts from. Work only there. Never work in the user's working folder, and never on the original branch.
 
-Make one branch for each layer, each built on the one below. Name them so the order is plain, for example `stack/<short-name>/1-<what>`, `stack/<short-name>/2-<what>`.
+Make one branch for each layer, each built on the one below. Give each layer a title that says what it does, with no number in it: hobkin shows each layer's place in the stack itself. Name them so the order is plain, for example `stack/<short-name>/1-<what>`, `stack/<short-name>/2-<what>`.
 
 ## The proof
 

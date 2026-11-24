@@ -497,6 +497,46 @@ function finishedFrom(rows: readonly ReadyRow[]): FinishedGroup[] {
   })
 }
 
+/** The layers of a stack in the order they land. */
+const bottomFirst = (first: FinishedChange, second: FinishedChange) => (first.stack?.layer ?? 0) - (second.stack?.layer ?? 0)
+
+/**
+ * A stack stands whole, in the group its bottom layer is in (060-make-it-a-stack). hobkin files a layer that waits
+ * for the one under it with what needs the user, but it needs nothing from the user yet, so it goes under its bottom
+ * layer, bottom first, after what that group already held. A waiting layer whose bottom is in no group stays where it
+ * was, and a group left with nothing is not sent.
+ */
+export function stacksTogether(groups: readonly FinishedGroup[]): FinishedGroup[] {
+  const groupOf = new Map<string, FinishedGroup['name']>()
+  for (const group of groups) {
+    for (const change of group.changes) groupOf.set(change.key, group.name)
+  }
+
+  /** The group a waiting layer belongs in, when that is another group than the one it is in. */
+  const homeOf = (change: FinishedChange, here: FinishedGroup['name']): FinishedGroup['name'] | null => {
+    const waits = change.stack && change.stack.below !== null
+    if (!waits) return null
+
+    const home = groupOf.get(`${change.slug}:${change.stack!.id}`)
+    return home && home !== here ? home : null
+  }
+
+  const leaving = groups.flatMap((group) => group.changes.flatMap((change) => {
+    const home = homeOf(change, group.name)
+    return home ? [{ change, home }] : []
+  }))
+  if (!leaving.length) return [...groups]
+
+  const gone = new Set(leaving.map(({ change }) => change.key))
+  return groups
+    .map((group) => {
+      const staying = group.changes.filter(({ key }) => !gone.has(key))
+      const arriving = leaving.filter(({ home }) => home === group.name).map(({ change }) => change).toSorted(bottomFirst)
+      return { ...group, changes: [...staying, ...arriving] }
+    })
+    .filter(({ changes }) => changes.length > 0)
+}
+
 const queueRowOf = (row: PlanRow): QueueRow => ({
   key: row.key,
   kind: row.kind,
@@ -573,7 +613,7 @@ export function workFrom(snapshot: HobkinSnapshot): WorkState | null {
     queue: (work.plan ?? []).map(queueRowOf),
     queued: work.queued ?? 0,
     projects: projectsFrom(work.projects ?? []),
-    finished: finishedFrom(waiting?.branches ?? []),
+    finished: stacksTogether(finishedFrom(waiting?.branches ?? [])),
     yolo: work.yolo ?? null,
     ...workloadPartsOf(work),
   }

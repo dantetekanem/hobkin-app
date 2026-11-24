@@ -143,6 +143,33 @@ test('a layer that waits for the one under it has no merge among its choices, an
   assert.equal(cardOf('b2b2b2').yes, 'It cannot merge until layer 1 of its stack has landed.')
 })
 
+test('a stack stands whole in the group its bottom layer is in, and its waiting layers are not counted as needing the user', () => {
+  const place = (layer: number, below: string | null) => ({ id: 'a1a1a1', layer, of: 3, name: null, below, base: below ? 'abc1234' : null })
+  const rows = [
+    change('shop', 'c3c3c3', 'Third', { gap: 'stacked', stack: place(3, 'b2b2b2') }),
+    change('shop', 'z9z9z9', 'Alone'),
+    change('shop', 'b2b2b2', 'Second', { gap: 'stacked', stack: place(2, 'a1a1a1') }),
+    change('shop', 'a1a1a1', 'Bottom', { stack: place(1, null) }),
+  ]
+
+  const work = workFrom({ work: status(), waiting: { branches: rows } })!
+
+  const groupOf = (item: string) => work.finished.find(({ changes }) => changes.some((card) => card.key === `shop:${item}`))!
+  const home = groupOf('a1a1a1')
+  assert.deepEqual([groupOf('b2b2b2').name, groupOf('c3c3c3').name], [home.name, home.name])
+  const inHome = home.changes.map(({ item }) => item)
+  assert.deepEqual(inHome.slice(inHome.indexOf('b2b2b2')), ['b2b2b2', 'c3c3c3'], 'the layers that arrive come in order, after what the group held')
+  assert.equal(work.finished.filter(({ changes }) => changes.length === 0).length, 0, 'a group left with nothing is not sent')
+})
+
+test('a waiting layer whose bottom is in no group stays where hobkin put it', () => {
+  const stack = { id: 'gone00', layer: 2, of: 2, name: null, below: 'gone00', base: 'abc1234' }
+
+  const work = workFrom({ work: status(), waiting: { branches: [change('shop', 'b2b2b2', 'Second', { gap: 'stacked', stack })] } })!
+
+  assert.deepEqual(work.finished.map(({ name, changes }) => [name, changes.length]), [['needs', 1]])
+})
+
 test('finished changes keep hobkin\'s groups and reasons', () => {
   const work = workFrom({ work: status(), waiting: { branches } })
   assert.ok(work)
