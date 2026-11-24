@@ -182,7 +182,8 @@ export function yoloStatus(root, now = Date.now()) {
     changes: changes.filter(({ slug }) => slug === project.slug).map(changeFact),
     merged: ledger.filter(line => line.slug === project.slug && line.target).toReversed().map(merge => mergeFact(merge, readings)),
   }));
-  return { ...view, waits: whyWorkModeWaits(readMode(root), now), projects };
+  // Whether YOLO mode takes a change waiting on its pull request at all (`yolo-pulls.mjs`), so the window says what it does.
+  return { ...view, waits: whyWorkModeWaits(readMode(root), now), pullRequests: pullRequestsMerge(), projects };
 }
 
 /**

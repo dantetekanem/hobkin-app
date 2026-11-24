@@ -11,7 +11,7 @@ import { changeHolds } from './patterns.mjs';
 import { changeModels, scoresHoldAt, specName } from './proofs.mjs';
 import { landingList, weighedRows } from './reads.mjs';
 import { chosenProjects, readItems, readMode, readProject, retryItem, updateItem } from './store.mjs';
-import { holdProject, prepareProjects, readinessOf, readYolo, yoloOnProject } from './yolo.mjs';
+import { holdProject, prepareProjects, readinessOf, readYolo, settleSwitches, yoloOnProject } from './yolo.mjs';
 import { defaultPullGh, mergeOwnPull, pullCandidates, pullRequestsMerge, PULLS_OFF, pullSurveyed, signedInUser } from './yolo-pulls.mjs';
 
 /**
@@ -287,6 +287,8 @@ function adoptLostMerges(root, now) {
  * merge commit the host did not say hands on no deploy, so that merge is asked about like any other.
  */
 export async function yoloPass(root, { now = Date.now(), handOff, gh = defaultPullGh } = {}) {
+  // From the first pass on, each project's switch is written down, so one taken on Work later starts off.
+  settleSwitches(root);
   // Whatever the switches say now: these merged on an earlier pass.
   const adopted = adoptLostMerges(root, now);
   const yolo = readYolo(root);

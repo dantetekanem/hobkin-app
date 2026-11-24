@@ -56,8 +56,8 @@ const projectSwitches = ({ yoloProjects }) => (yoloProjects && typeof yoloProjec
 /**
  * Whether YOLO mode works on this project, by the project's own switch, which only the window sets. The main switch still decides first, and
  * this says nothing about it. A home where no project's switch was set yet keeps what it had: with YOLO mode off, every project, and with it
- * on, each project it took on, which is each one its readiness work was filed on. Once any switch is set, they are all written down, so a
- * project chosen after that starts off, and only the user turns it on.
+ * on, each project it took on, which is each one its readiness work was filed on. Once any switch is set, or the owner's pass has run
+ * (`settleSwitches`), they are all written down, so a project chosen after that starts off, and only the user turns it on.
  */
 export function yoloOnProject(root, slug, mode = readMode(root)) {
   const set = projectSwitches(mode);
@@ -68,6 +68,16 @@ export function yoloOnProject(root, slug, mode = readMode(root)) {
 // Every chosen project's switch as it stands now, so writing one, or flipping the main switch, changes no other project.
 const settledSwitches = (root, mode) => projectSwitches(mode)
   ?? Object.fromEntries(chosenProjects(root).map(({ slug }) => [slug, yoloOnProject(root, slug, mode)]));
+
+/**
+ * Writes every chosen project's switch down as it stands, once, in a home with none written yet. The owner's pass does it, so from the first
+ * pass of a hobkin that has the switches, which is when the window can show them, a project taken on Work later starts off.
+ */
+export function settleSwitches(root) {
+  const mode = readMode(root);
+  if (projectSwitches(mode)) return;
+  writeMode(root, { yoloProjects: settledSwitches(root, mode) });
+}
 
 function fileReadiness(root, project, now) {
   const readiness = {

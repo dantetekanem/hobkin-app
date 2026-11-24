@@ -5,6 +5,7 @@ import { fileActionItem, latestAnswer, openDecisions } from '../decisions.mjs';
 import { publishItem } from './controls.mjs';
 import { nameOf } from './names.mjs';
 import { chosenProjects, fileItem, ownerView, prFile, readItems, runnableStates, updateItem } from './store.mjs';
+import { yoloOnProject } from './yolo.mjs';
 
 /**
  * The parts of a project's readiness for YOLO mode, and what becomes of each one a readiness run found not in place. Its change goes on a branch
@@ -214,12 +215,13 @@ const toOffer = ({ key, state, branch, prTried }) => (key === READY_KEY || key.s
  * and each one it set parts up on. It pushes the branch and opens its PR the way the user's own Open PR does (`publishItem`), once for each
  * branch, and a PR that will not open keeps its branch for the user's yes, saying why. Nothing merges. A branch whose run is still going waits.
  * The readiness run's own try, from wherever that run is, is not the last: the owner's survey tries once more, so a push that run's
- * place could not make still gets its chance.
+ * place could not make still gets its chance. A project YOLO mode is off on has nothing pushed or opened, until the user turns it on.
  */
 export async function openReadinessPulls(root, { slug = null, gh, lastTry = true, now = Date.now() } = {}) {
   const { running } = ownerView(root);
   const opened = [];
-  for (const project of chosenProjects(root).filter(chosen => !slug || chosen.slug === slug)) {
+  const offered = chosenProjects(root).filter(chosen => (!slug || chosen.slug === slug) && yoloOnProject(root, chosen.slug));
+  for (const project of offered) {
     const runs = item => running.some(run => run.slug === project.slug && run.item === item.id);
     for (const item of readItems(root, project.slug).filter(found => toOffer(found) && !runs(found))) {
       try {

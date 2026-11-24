@@ -9,9 +9,10 @@ import { recordMachines } from '../src/cli/work/machines.mjs';
 import { chooseProject, fileItem, readItems, readMode, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { yoloPass } from '../src/cli/work/yolo-pass.mjs';
+import { openReadinessPulls } from '../src/cli/work/yolo-parts.mjs';
 import { writeYoloReports } from '../src/cli/work/yolo-report.mjs';
 import { recordReadiness, reviewsByItself, runReadiness, setYolo, setYoloProject, yoloOnProject, yoloView } from '../src/cli/work/yolo.mjs';
-import { branched, git, repository } from './helpers/work-fixture.mjs';
+import { branched, git, repository, withOrigin } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 const READY_KEY = 'yolo:ready';
@@ -89,7 +90,7 @@ test('a home where YOLO mode was on before projects had switches keeps it on whe
   await yoloPass(h.root, { now: NOW });
 
   assert.equal(readinessItem(h, 'docs'), undefined, 'the pass never takes a project on by itself');
-  assert.equal(readMode(h.root).yoloProjects, undefined, 'and writes no switch');
+  assert.deepEqual(readMode(h.root).yoloProjects, { api: true, web: true, docs: false }, 'and writes each switch down as it stood');
 });
 
 test('a project turned off is never made ready, reviewed or merged by YOLO mode, and its changes wait for the user', async t => {
@@ -146,4 +147,40 @@ test('turning a project off sets its queued readiness work aside and on puts it 
   assert.throws(() => setYoloProject(h.root, 'nowhere', true, NOW), /not a project work mode works on/);
   await assert.rejects(runWorkCommand(h.root, ['yolo', 'api', 'off']), /Pipe what the monitoring showed/, 'no hobkin work command sets a project\'s switch');
   assert.equal(yoloOnProject(h.root, 'api'), true);
+});
+
+test('once a pass has run, a project taken on Work later starts off, even where YOLO mode was never on, and turning YOLO mode on leaves it off', async t => {
+  const h = workspace(t, ['api']);
+  assert.equal(yoloOnProject(h.root, 'api'), true, 'before any pass, a home is as it was');
+
+  await yoloPass(h.root, { now: NOW });
+
+  assert.deepEqual(readMode(h.root).yoloProjects, { api: true }, 'the pass writes each project down as it stands');
+  choose(h, 'late');
+  assert.deepEqual(switches(h), { api: true, late: false });
+  const turned = setYolo(h.root, { on: true }, NOW);
+  assert.deepEqual([turned.filed.map(({ slug }) => slug), yoloOnProject(h.root, 'late')], [['api'], false]);
+});
+
+test('a readiness branch on a project YOLO mode is off on is not pushed or opened as a pull request', async t => {
+  const h = workspace(t, ['api']);
+  withOrigin(h.base, h.checkouts.api);
+  setYolo(h.root, { on: true }, NOW);
+  const { id } = readinessItem(h, 'api');
+  updateItem(h.root, 'api', id, { state: 'doing' }, NOW);
+  branched(h.checkouts.api, 'hobkin/ready-tests');
+  recordReadiness(h.root, 'api', { ...allReady(), tests: { branch: 'hobkin/ready-tests', how: 'bin/test runs again.', proof: 'It ran.' } }, NOW);
+  updateItem(h.root, 'api', id, { state: 'done' }, NOW);
+  const calls = [];
+  const gh = async args => {
+    calls.push(args);
+    return args[1] === 'create' ? 'https://github.invalid/the-user/api/pull/9\n' : '[]';
+  };
+
+  setYoloProject(h.root, 'api', false, NOW);
+  assert.deepEqual(await openReadinessPulls(h.root, { gh, now: NOW }), []);
+  assert.deepEqual(calls, []);
+
+  setYoloProject(h.root, 'api', true, NOW);
+  assert.equal((await openReadinessPulls(h.root, { gh, now: NOW })).length, 1);
 });
