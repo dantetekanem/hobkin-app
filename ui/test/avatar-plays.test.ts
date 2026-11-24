@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { settlePlays, type Play } from '../src/avatar/mood-play.ts'
+import { createElement, useState, type RefObject } from 'react'
+import { settlePlays, useMoodPlay, type Play } from '../src/avatar/mood-play.ts'
+import { mountCounting } from './render-count.ts'
 
 interface StandIn {
   /** The keyframes' name of a CSS animation. A transition, or a blink played from script, has none. */
@@ -67,4 +69,67 @@ test('a face whose mood changes plays its motion from the start, also a play it 
   settlePlays(afterChange, true)
 
   assert.deepEqual(said, ['hob-part-sway from the start', 'hob-ear-flick from the start'])
+})
+
+/** A face's box with one animation that has been running a while: it counts the face's plays and rests. */
+function countingFace() {
+  const counts = { plays: 0, rests: 0 }
+  const running: Play = {
+    animationName: 'hob-mood',
+    playState: 'running',
+    get currentTime() {
+      return 500
+    },
+    set currentTime(_from) {
+      counts.plays += 1
+    },
+    finish() {
+      counts.rests += 1
+    },
+  }
+  const root = { current: { getAnimations: () => [running] } as unknown as HTMLElement }
+  return { counts, root }
+}
+
+/** Mounts a face in `first` and returns how to change its mood, as the page would. */
+async function mountFace(root: RefObject<HTMLElement | null>, first: string) {
+  let changeMood: (mood: string) => void = () => {}
+  function Face() {
+    const [mood, setMood] = useState(first)
+    changeMood = setMood
+    useMoodPlay(root, mood)
+    return null
+  }
+  const mounted = await mountCounting(() => createElement(Face))
+  return {
+    show: (mood: string) => mounted.change(() => changeMood(mood)),
+    unmount: () => mounted.unmount(),
+  }
+}
+
+test('an agent at work flipping between thinking, working and searching plays once, as it starts, and not at each flip', async () => {
+  const { counts, root } = countingFace()
+  const face = await mountFace(root, 'idle')
+
+  await face.show('thinking')
+  const playsOnStarting = counts.plays
+  for (const mood of ['working', 'thinking', 'searching', 'working']) await face.show(mood)
+
+  assert.equal(playsOnStarting, 1)
+  assert.equal(counts.plays - playsOnStarting, 0, 'no play over the four flips at work')
+  assert.equal(counts.rests, 1 + 4, 'it rests as it mounts, and shows each mood at work at rest')
+  await face.unmount()
+})
+
+test('a face plays once as it starts working and once as it finishes', async () => {
+  const { counts, root } = countingFace()
+  const face = await mountFace(root, 'idle')
+
+  await face.show('working')
+  const playsOnStarting = counts.plays
+  await face.show('happy')
+
+  assert.equal(playsOnStarting, 1, 'idle to working')
+  assert.equal(counts.plays - playsOnStarting, 1, 'working to happy')
+  await face.unmount()
 })
