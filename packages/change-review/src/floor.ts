@@ -21,21 +21,39 @@ const sentence = (text: string) => `${text.charAt(0).toUpperCase()}${text.slice(
 export function floor(input: FloorInput): Floor {
   let decided = rowOf(input)
   if (input.model?.result === 'violated') {
-    const why = `${sentence(input.model.said)} The check is at head only; merge impact is unknown until compared with base and its consumers.`
+    // The model's row already says what broke.
+    const why = 'The check is at head only; merge impact is unknown until compared with base and its consumers.'
     if (decided.level === 'safe') decided = { ...decided, level: 'mid', rule: 11 }
     decided = { ...decided, why: `${decided.why} ${why}` }
   }
-  const told = [input.model && !['holds', 'violated'].includes(input.model.result) ? input.model.said : null, input.modeledBy].filter((said): said is string => Boolean(said))
+  // A model's own words are in its row; what models this file is said beside the row that decides.
+  const told = [input.modeledBy].filter((said): said is string => Boolean(said))
   return told.length ? { ...decided, why: [decided.why, ...told.map(sentence)].join(' ') } : decided
+}
+
+/**
+ * A TLA+ model or its config is a specification: nothing of it runs in production, so it is never high and never
+ * critical. Its check decides: holding with every action run is safe; a broken rule is worth a look, and asks for a
+ * fix before merging; a check that did not run or finish asks that it pass.
+ */
+function modelRow(model: NonNullable<FloorInput['model']>): Floor {
+  if (model.result === 'holds') return row(2, 'safe', sentence(model.said))
+  if (model.result === 'violated') {
+    const text = `its model check fails (${model.said}): fix the model or the code it models before merging`
+    return row(5, 'mid', `${sentence(model.said)} Its model check fails: fix the model or the code it models before merging.`, { finding: { rule: 'model-check-fails', text, by: 'floor' } })
+  }
+  const why = model.result === 'unchecked' ? sentence(model.said) : `${sentence(model.said)} It needs to pass before merging.`
+  return row(5, 'mid', why, { finding: { rule: 'model-check-not-run', text: why.replace(/\.$/, ''), by: 'floor' } })
 }
 
 function rowOf(input: FloorInput): Floor {
   const { effect, proof, exposure, undo } = input
   const shown = THROUGH_A_REQUEST.has(proof)
 
+  if (input.model) return modelRow(input.model)
+
   if (input.broken) return row(1, 'high', sentence(input.broken), { critical: true })
   if (input.context) return row(2, 'safe', 'Nothing in it changed: it is shown for context.')
-  if (input.model?.result === 'holds') return row(2, 'safe', sentence(input.model.said))
   if (effect === 'text') return row(2, 'safe', 'Only comments, whitespace or translations changed.')
   if (input.unreferencedRemoval) return row(2, 'safe', 'Nothing that remains refers to what was removed.')
   if (input.bucketChecksPassed) return row(2, 'safe', 'The checks for this kind of change all passed.')

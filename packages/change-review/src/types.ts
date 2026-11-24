@@ -423,8 +423,9 @@ export interface FloorExtras {
   /**
    * Rules 1 and 2: a TLA+ model this diff adds or edits, its spec or its config, and what TLC said of it at this commit.
    * `holds` is safe; `violated` needs base/consumer attribution and is at least mid, not a confirmed regression.
+   * `unchecked`: no check ran at this commit. A model is a specification, so it is never high or critical.
    */
-  model?: { result: 'holds' | 'violated' | 'error' | 'unproven'; said: string }
+  model?: { result: 'holds' | 'violated' | 'error' | 'unproven' | 'unchecked'; said: string }
   /** What TLC said at this commit of the models that name this file in `\* models:`. Said beside the row that decides; it never decides. */
   modeledBy?: string
 }

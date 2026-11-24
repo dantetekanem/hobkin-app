@@ -240,6 +240,7 @@ const MODEL_SAID: Record<NonNullable<ReviewNode['extras']['model']>['result'], s
   violated: 'TLC found a failure at head; merge impact is unknown',
   unproven: 'TLC checked it at this commit, but not every action ran',
   error: 'TLC could not check it at this commit',
+  unchecked: 'its model check was not run at this commit',
 }
 
 /** The title of a single node, a claim built from its facts. No model words. */

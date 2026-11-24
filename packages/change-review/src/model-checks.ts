@@ -5,6 +5,7 @@
  * names in `\* models:`, the check is said in its level's reasons and never sets the level: a model is not a test of the
  * lines, so it lowers no break found in them.
  */
+import { isModelFile } from './tla.ts'
 import type { FloorExtras, ModelCheck, ReviewNode } from './types.ts'
 
 const count = (value: number) => value.toLocaleString('en-US')
@@ -44,11 +45,15 @@ const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`)
 
 /**
  * Puts each check on the parts it speaks for: the model's own spec and config, and each file it names in `\* models:`.
- * A violation is also a finding on each file it models. Changes the nodes in place.
+ * A violation is also a finding on each file it models. A model or config no check speaks for is marked unchecked.
+ * Changes the nodes in place.
  */
 export function applyModelChecks(nodes: ReviewNode[], checks: readonly ModelCheck[]): void {
+  const paths = [...nodes.map((node) => node.path), ...checks.map((check) => check.spec)]
   for (const node of nodes) {
     const own = checks.find((check) => node.path === check.spec || node.path === check.spec.replace(/\.tla$/, '.cfg'))
+    // A model or its config with no check at this commit, as for a pull request: it needs one that passes.
+    if (!own && isModelFile(node.path, paths)) node.extras.model = { result: 'unchecked', said: 'Its model check was not run at this commit, and it needs to pass' }
     if (own) {
       node.extras.model = modelOf(own)
       // TLC, not a test, decides a model: a check that holds or breaks is its proof.

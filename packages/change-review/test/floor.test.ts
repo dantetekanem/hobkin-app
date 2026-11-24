@@ -88,7 +88,7 @@ describe('floor table rows', () => {
     assert.match(broke.why, /merge impact is unknown/)
     // A hold with an action that never ran checked nothing that action guards: no evidence, so the rows below decide.
     const unproven = run({ proof: 'unknown', model: { result: 'unproven', said: 'TLC checked Sale.tla at this commit: it held, but Restock never ran' } })
-    assert.deepEqual([unproven.level, unproven.rule, unproven.why], ['mid', 5, 'No test that ran shows these lines work. TLC checked Sale.tla at this commit: it held, but Restock never ran.'])
+    assert.deepEqual([unproven.level, unproven.rule, unproven.why], ['mid', 5, 'TLC checked Sale.tla at this commit: it held, but Restock never ran. It needs to pass before merging.'])
   })
   it('what a model of a file says is told beside the row that decides, and never decides', () => {
     const modeledBy = 'Sale.tla models this file and holds in 15 states at this commit'
