@@ -36,7 +36,7 @@ The user, 2026-11-24, with a picture of two "Left for you" cards filling a scree
 - Three lines at most, in this order:
   1. A quiet line of facts: the project, its issue, its size, how far behind it is, its checks and its pull request, which opens on GitHub from here.
   2. The title, on one line, with the priority before it and the review's state after it.
-  3. The sentence that matters for its group, on two lines at most: in "Left for you" the note its run left, marked as the agent's words; in "Needs you" why it needs the user; in the other groups what the change did.
+  3. (Replaced by spec 066-work-one-list: one sentence by what matters for the change, not by group.) The sentence that matters for its group, on two lines at most: in "Left for you" the note its run left, marked as the agent's words; in "Needs you" why it needs the user; in the other groups what the change did.
 - At the right, the one action that fits its group, then the way to open the row: in "Left for you" Answer, which opens the row with the reply box under the note; where it can merge, its yes, in the words it has today; where neither applies, Review.
 - A row's height does not change while it is closed, whatever happens to it.
 - What a yes does is the button's own tooltip, and is in the open row.
@@ -58,7 +58,7 @@ The user, 2026-11-24, with a picture of two "Left for you" cards filling a scree
 ### Stacks and groups
 
 - A stack keeps its one quiet heading. Its bottom layer is a row like any other, with "1 of 5" before its title, and the layers above stay one line each. A layer's line opens as it does today.
-- A group keeps its heading, its count and its one yes.
+- A group keeps its heading, its count and its one yes. (Replaced by spec 066-work-one-list: Work has no groups, no group sentence and no group yes.)
 - The lines that say what hobkin answered, and a refusal, stay where a card had them.
 
 ## Out of scope

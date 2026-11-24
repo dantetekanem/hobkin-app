@@ -1,9 +1,8 @@
-import type { ChangeChoice, FinishedChange, FinishedGroup, StackPlace } from '#shared/protocol/work.ts'
+import type { FinishedChange, StackPlace } from '#shared/protocol/work.ts'
 
 /**
  * What a finished change's row says (_specs/061-finished-changes-rows). Pure, so it is tested without a window: the
- * facts line's parts in order, the one sentence for the change's group, the one action for its group, and what a key
- * does on the row.
+ * facts line's parts in order and what a key does on the row. Its sentence, tags and action are in `change-list.ts`.
  */
 
 /** Where a pull request stands on GitHub, as far as a row says it. */
@@ -51,37 +50,6 @@ export function factsOf(change: Pick<FinishedChange, 'project' | 'issue' | 'size
   if (change.pr) facts.push({ kind: 'pull' })
   if (change.models?.length) facts.push({ kind: 'models', text: plural(change.models.length, 'model check') })
   return facts
-}
-
-/** What kind of sentence a row leads with: the run's note, the reason a change needs the user, or what it did. */
-export type SentenceKind = 'note' | 'reason' | 'did'
-
-/**
- * The one sentence for the change's group: in "Left for you" the note its run left, in "Needs you" why it needs the
- * user, elsewhere what it did. Where the one it should be is missing, the reason stands in, since every change has one.
- */
-export function sentenceOf(change: Pick<FinishedChange, 'left' | 'reason' | 'about'>, group: Pick<FinishedGroup, 'name'>): { kind: SentenceKind; text: string } | null {
-  const own = ownSentence(change, group)
-  if (own) return own
-  return change.reason ? { kind: 'reason', text: change.reason } : null
-}
-
-function ownSentence(change: Pick<FinishedChange, 'left' | 'reason' | 'about'>, group: Pick<FinishedGroup, 'name'>): { kind: SentenceKind; text: string } | null {
-  if (group.name === 'left') return change.left ? { kind: 'note', text: change.left } : null
-  if (group.name === 'needs') return change.reason ? { kind: 'reason', text: change.reason } : null
-  return change.about ? { kind: 'did', text: change.about } : null
-}
-
-const LANDS: readonly ChangeChoice[] = ['merge', 'mergePr', 'refreshMerge', 'rebase']
-
-/** The one action on a closed row: Review where a run left a note, the change's own yes where it has one, and Review otherwise. */
-export type RowAction = { kind: 'yes'; choice: ChangeChoice; label: string } | { kind: 'review'; label: 'Review' }
-
-export function actionOf(change: Pick<FinishedChange, 'choices'>, group: Pick<FinishedGroup, 'name'>): RowAction {
-  if (group.name === 'left') return { kind: 'review', label: 'Review' }
-  const yes = change.choices.find(({ value }) => LANDS.includes(value))
-  if (yes) return { kind: 'yes', choice: yes.value, label: yes.label }
-  return { kind: 'review', label: 'Review' }
 }
 
 /** "1 of 5", before a layer's title. */

@@ -8,31 +8,36 @@ import { finishedReviewId } from '@/features/review/entry.ts'
 import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
 import { ProofCheckLine, ProofChips } from '@/features/proofs/ProofChips.tsx'
 import { usePullRequests } from '@/integration/use-pulls.ts'
-import { type FinishedChange, type FinishedGroup } from '@/lib/host/index.ts'
+import { type FinishedChange } from '@/lib/host/index.ts'
 import { openLink } from '@/lib/open-link.ts'
 import { cn } from '@/lib/utils.ts'
 import type { HobkinChoice } from './actions.ts'
-import { actionOf, factsOf, placeBefore, rowKey, sentenceOf, type Fact, type Tone } from './change-row.ts'
-import { ClampedLine, CloseWithoutMerging, REVIEW_AGAIN_TITLE, ReplyBox, SAMPLE_REVIEW_AGAIN, UNDER_WAY, prNumber, variantOf } from './change-controls.tsx'
+import { factsOf, placeBefore, rowKey, type Fact, type Tone } from './change-row.ts'
+import { actionOf, gradeBlockOf, sentenceOf, tagsOf, type Tag } from './change-list.ts'
+import { Grades } from './Grades.tsx'
+import { RowMenu } from './RowMenu.tsx'
+import { useChangeActions } from './row-actions.ts'
+import { ClampedLine, CloseWithoutMerging, REVIEW_AGAIN_TITLE, ReplyBox, UNDER_WAY, prNumber, variantOf } from './change-controls.tsx'
 import { endAtWord } from './finished-cards.ts'
 import { GradeChip, IssueLink, PullLink, ReviewBadge, SaidLine } from './parts.tsx'
 import { saysHigh } from './review-badge.ts'
 import { underWay } from './review-follow.ts'
 import { clickPressesRow } from './row-press.ts'
 import { sampleAssessmentOf } from './sample-reviews.ts'
-import { runWork, useWorkUi } from './store.ts'
+import { useWorkUi } from './store.ts'
 import { useChangeReview } from './use-change-review.ts'
 
 /**
- * A finished change as a short row that opens in place (_specs/061-finished-changes-rows). Closed, it is three lines:
- * the facts, the title with its priority and its review's state, and the one sentence for its group, with the one
- * action for its group and a chevron at the right. Open, it shows everything a card held in two columns, under the
- * same three lines, which do not move.
+ * A finished change as a short row that opens in place (_specs/061-finished-changes-rows, and 066-work-one-list for
+ * what it says). Closed, it has the general rate and the five grades in front, or the words for why it has none, then
+ * its title with its priority, its small tags and one sentence, its size, its one action and a chevron. Open, it
+ * shows everything a card held in two columns, under the same lines, which do not move.
  */
 
 interface Props {
   change: FinishedChange
-  group: FinishedGroup
+  /** The user's lowest rate: the least a change may be rated for its row to offer Merge. */
+  lowest: number
   /** "2 of 5", when the change is a layer of a stack whose place the caller knows. A stack's own layers say it themselves. */
   place?: string | null
   /** A stack layer's open row: only what an open row holds, since the layer's line above it says its place and title. */
@@ -66,6 +71,12 @@ function Part({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
+const TAG_TONE: Record<Tag['tone'], string> = { note: 'text-warn-fg', bad: 'text-bad-fg', quiet: 'text-muted-foreground' }
+
+function TagChip({ tag }: { tag: Tag }) {
+  return <span className={cn('mr-1.5 inline-block rounded-full border border-border px-2 align-[1px] text-[11px] leading-[18px] font-medium whitespace-nowrap', TAG_TONE[tag.tone])}>{tag.text}</span>
+}
+
 function openingMotion({ still, bare }: { still: boolean; bare: boolean }) {
   if (still) return { initial: bare ? false : { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0, transition: { duration: 0.1 } } }
   const shut = { height: 0, opacity: 0, overflow: 'hidden' }
@@ -76,12 +87,10 @@ function openingMotion({ still, bare }: { still: boolean; bare: boolean }) {
   }
 }
 
-export function ChangeRow({ change, group, place = null, bare = false, initiallyOpen = false, live, variants, order, onLeaving }: Props) {
+export function ChangeRow({ change, lowest, place = null, bare = false, initiallyOpen = false, live, variants, order, onLeaving }: Props) {
   const still = useStill()
-  const busy = useWorkUi((state) => Boolean(state.busy[change.key] || state.busy[`group:${group.name}`]))
   const said = useWorkUi((state) => state.said[change.key])
   const pulls = usePullRequests()
-  const [chosen, setChosen] = useState<HobkinChoice | null>(null)
   const [noting, setNoting] = useState(false)
   const [opened, setOpened] = useState(initiallyOpen)
   const open = bare || opened
@@ -90,42 +99,18 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
   // A sample row's change review is the sample's, so nothing is asked for it.
   const followed = useChangeReview(live ? reviewId : null, change.head)
   const assessment = live ? followed.assessment : sampleAssessmentOf(change)
-  const { again } = followed
+  const { busy, chosen, choose, reviewAgain } = useChangeActions({ change, live, onLeaving, again: followed.again, onDone: () => setNoting(false) })
   const risky = saysHigh(assessment)
-  const facts = factsOf(change, pull)
-  const sentence = sentenceOf(change, group)
-  const action = actionOf(change, group)
+  // The project is the list's heading and what stands in the way is a tag, so the open row keeps the rest.
+  const facts = factsOf(change, pull).filter(({ kind }) => kind !== 'project' && kind !== 'behind')
+  const sentence = sentenceOf(change)
+  const tags = tagsOf(change, pull)
+  const block = gradeBlockOf(change, assessment?.state)
+  const action = actionOf(change, lowest)
   const placed = place ?? placeBefore(change.stack)
 
   const review = () => {
     if (reviewId) useView.getState().openReviewFor(reviewId)
-  }
-
-  // "Review again" runs the change review once more in the host. hobkin's own review, an agent run, is never asked for.
-  const reviewAgain = async () => {
-    if (!live) {
-      useWorkUi.getState().note(change.key, { tone: 'refused', text: SAMPLE_REVIEW_AGAIN })
-      return
-    }
-    try {
-      await again()
-      useWorkUi.getState().forget(change.key)
-    } catch (error) {
-      useWorkUi.getState().note(change.key, { tone: 'refused', text: error instanceof Error ? error.message : String(error) })
-    }
-  }
-
-  const choose = async (choice: Exclude<HobkinChoice, 'review'>, note?: string) => {
-    setChosen(choice)
-    // What merges goes on to the right; what is set aside, said no to or closed unmerged, goes to the left.
-    onLeaving(choice === 'decline' || choice === 'done' ? 'deleted' : 'answered')
-    const result = await runWork({ do: 'change', change, choice, ...(note === undefined ? {} : { note }) }, { live, place: change.key })
-    setChosen(null)
-    if (result.tone !== 'done') return
-    // The row leaves with its answer, so what hobkin said goes to the section.
-    setNoting(false)
-    useWorkUi.getState().forget(change.key)
-    if (result.text) useWorkUi.getState().note('finished', result)
   }
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -155,8 +140,9 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
     }
     const choice = action.choice as Exclude<HobkinChoice, 'review'>
     const label = busy && chosen === choice ? (UNDER_WAY[choice] ?? `${action.label}…`) : action.label
+    const variant = action.kind === 'merge' ? variantOf(choice, risky) : 'outline'
     return (
-      <Button {...control} variant={variantOf(choice, risky)} title={change.yes} onClick={() => void choose(choice)} className="max-w-[16rem] min-w-0">
+      <Button {...control} variant={variant} title={change.yes} onClick={() => void choose(choice)} className="max-w-[16rem] min-w-0">
         <span className="truncate">{label}</span>
       </Button>
     )
@@ -167,6 +153,14 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
 
   const body = (
     <div className={cn('flex flex-col gap-3 pb-1', !bare && 'border-t border-border/60 pt-3')}>
+      <div className="flex min-h-5 flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px] text-muted-foreground">
+        {facts.map((fact, index) => (
+          <span key={fact.kind + index} className="flex items-center gap-1.5">
+            {index > 0 ? <span aria-hidden="true">·</span> : null}
+            <FactPart fact={fact} change={change} />
+          </span>
+        ))}
+      </div>
       <div className="grid grid-cols-1 gap-x-8 gap-y-3 @[900px]:grid-cols-2">
         <div className="flex min-w-0 flex-col gap-3 empty:hidden">
           {change.about ? (
@@ -199,7 +193,7 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
         </div>
       </div>
       <p className="text-[12px] leading-snug break-words text-muted-foreground">
-        {change.reason} {change.yes}
+        {change.yes}
       </p>
       <div className="flex flex-wrap items-center gap-1.5">
         {change.choices.map(({ value, label }) => {
@@ -265,17 +259,9 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
         className={cn('@container flex scroll-mt-[124px] scroll-mb-6 flex-col rounded-2xl bg-background px-4 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2', 'py-3', reviewId && 'pressable')}
       >
         {bare ? null : (
-          <div className="flex items-center gap-3">
-            <div className="order-2 flex shrink-0 items-center">{closedAction()}</div>
-            <div className="order-1 flex min-w-0 flex-1 flex-col gap-1">
-              <div className="flex h-5 min-w-0 items-center gap-x-1.5 overflow-hidden text-[12px] text-muted-foreground">
-                {facts.map((fact, index) => (
-                  <span key={fact.kind + index} className="flex shrink-0 items-center gap-1.5">
-                    {index > 0 ? <span aria-hidden="true">·</span> : null}
-                    <FactPart fact={fact} change={change} />
-                  </span>
-                ))}
-              </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto] items-center gap-x-2 gap-y-2 @[860px]:grid-cols-[14rem_minmax(0,1fr)_4.5rem_8.5rem_auto_auto]">
+            <Grades block={block} lowest={lowest} />
+            <div className="col-span-4 row-start-2 flex min-w-0 flex-col gap-1 @[860px]:col-span-1 @[860px]:col-start-2 @[860px]:row-start-1 @[860px]:mr-1">
               <div className="flex h-6 min-w-0 items-center gap-2">
                 <GradeChip grade={change.grade} />
                 {placed ? <span className="shrink-0 text-[12px] font-medium text-muted-foreground tabular-nums">{placed}</span> : null}
@@ -284,17 +270,20 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
                 </h4>
                 <ReviewBadge status={assessment} />
               </div>
-              {sentence ? (
-                <p className="line-clamp-2 text-[13.5px] leading-[19px] break-words">
-                  {sentence.kind === 'note' ? (
-                    <>
-                      <span aria-hidden="true" title="Its run's own words to you" className="mr-1.5 inline-block size-1.5 -translate-y-px rounded-full bg-warn-fg" />
-                      <span className="sr-only">Its note to you: </span>
-                    </>
-                  ) : null}
-                  {sentence.text}
+              {sentence || tags.length ? (
+                <p className="line-clamp-2 text-[13.5px] leading-[22px] break-words">
+                  {tags.map((tag) => (
+                    <TagChip key={tag.text} tag={tag} />
+                  ))}
+                  {sentence?.kind === 'note' ? <span className="sr-only">Its note to you: </span> : null}
+                  {sentence?.text}
                 </p>
               ) : null}
+            </div>
+            <span className="hidden text-right text-[12px] text-muted-foreground tabular-nums @[860px]:block">{change.size ? `${change.size.lines.toLocaleString('en-US')} lines` : ''}</span>
+            <div className="col-start-2 row-start-1 flex min-w-0 items-center justify-end @[860px]:col-start-4">{closedAction()}</div>
+            <div className="col-start-3 row-start-1 @[860px]:col-start-5">
+              <RowMenu change={change} live={live} actions={{ busy, chosen, choose, reviewAgain }} reviewing={underWay(assessment)} onReply={() => { setOpened(true); setNoting(true) }} />
             </div>
             <Button
               {...control}
@@ -305,7 +294,7 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
               aria-label={open ? 'Close the details' : 'Open the details'}
               title={open ? 'Close the details (Space)' : 'Open the details (Space)'}
               onClick={() => setOpened((was) => !was)}
-              className="order-3 shrink-0 text-muted-foreground"
+              className="col-start-4 row-start-1 shrink-0 text-muted-foreground @[860px]:col-start-6"
             >
               <Chevron aria-hidden="true" />
             </Button>

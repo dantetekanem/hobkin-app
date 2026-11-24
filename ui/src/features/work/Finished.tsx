@@ -1,27 +1,28 @@
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useMemo, useState } from 'react'
 import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import type { Leaving } from '@/features/reports/list-motion.ts'
-import type { FinishedGroup, WorkState } from '@/lib/host/index.ts'
+import { useHost, type WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { ChangeRow } from './ChangeRow.tsx'
-import { needsFirst } from './finished-cards.ts'
+import { entriesOf, lowestOf, projectsOf, sortEntries, tallyOf, tallyWords, type ProjectRows } from './change-list.ts'
+import { OrderControl } from './OrderControl.tsx'
+import { useOrderChoice } from './order-choice.ts'
 import { StackGroup, type DrawCard } from './StackGroup.tsx'
-import { arrange, placeOf, type Arranged } from './stacks.ts'
+import { placeOf } from './stacks.ts'
 import { SectionHeading } from './parts.tsx'
-import { runWork, useWorkUi, type Said } from './store.ts'
+import { useWorkUi, type Said } from './store.ts'
 
 /**
- * Finished changes in hobkin's groups, the one that needs the user first, then what runs left for the user, then ready
- * to merge and refresh then merge. Each is a short row (`ChangeRow`, spec 061): its facts, its title with its priority
- * and the level its change review found, the one sentence for its group, and the one action that fits it. A row opens
- * in place to everything a card held, and "Review" opens the change in Change Review. A group's one yes first lists
- * every title it acts on, in the order they go, and then says how each went.
+ * Finished changes as one list (_specs/066-work-one-list). Every change is a short row (`ChangeRow`, spec 061) with
+ * the general rate and the five grades in front, its title with its priority and small tags, one sentence, and the one
+ * action that fits it. The projects are quiet headings over their rows, a visual aid only, and the chips above the
+ * page filter them. An order control and a tally line sit under the heading. hobkin's groups are not shown: the host
+ * still sends them, and they are flattened here. A row opens in place to everything a card held.
  *
- * A "Left for you" row leads with the note its run left and offers Answer, and no merge: Review, Ask for changes, and
- * Close without merging, which takes a second click. What the user said merge to leaves at once (the user, 2026-11-24:
- * "when i do a merge it should IMMEDIATELLY remove the nodes/cards"): it has no row here while it is brought up to date.
+ * What the user said merge to leaves at once (the user, 2026-11-24: "when i do a merge it should IMMEDIATELLY remove the
+ * nodes/cards"): it has no row here while it is brought up to date.
  */
 
 interface Shared {
@@ -37,16 +38,30 @@ export function FinishedSection({ work, only, ...shared }: { work: Pick<WorkStat
   // A merged change goes on to the right, the way the work goes. One the user said no to is set aside to the left.
   const [leaving, setLeaving] = useState<Leaving>('answered')
   const said = useWorkUi((state) => state.said['finished'])
-  const total = work.finished.reduce((sum, { changes }) => sum + changes.length, 0)
+  const order = useOrderChoice((state) => state.order)
+  const chooseOrder = useOrderChoice((state) => state.choose)
+  const { finished } = work
+  // The user's lowest rate, which a row's Merge needs. A number, so the section draws again only when it changes.
+  const lowest = useHost((state) => lowestOf(state.work?.yolo))
+  // Everything below is derived from the state, the filter and the order alone, so it is worked out once for each.
+  const entries = useMemo(() => entriesOf(finished), [finished])
+  const projects = useMemo(() => projectsOf(sortEntries(entries, order)), [entries, order])
+  const tally = useMemo(() => tallyOf(entries, lowest), [entries, lowest])
 
   return (
-    <section aria-label="Finished changes" className="flex flex-col gap-4">
-      <SectionHeading label="Finished changes" count={total} />
+    <section aria-label="Finished changes" className="flex flex-col gap-3">
+      <SectionHeading label="Finished changes" count={tally.changes}>
+        <div className="ml-auto min-w-0">
+          <OrderControl value={order} onChoose={chooseOrder} />
+        </div>
+      </SectionHeading>
+      <p className="min-h-5 px-1 text-[13px] leading-5 text-muted-foreground tabular-nums">
+        {tally.changes === 0 && only ? `Nothing finished for ${only} waits for you.` : tallyWords(tally, lowest)}
+      </p>
       <AnimatePresence>{said ? <Told key={said.text} said={said} /> : null}</AnimatePresence>
-      {arrange(needsFirst(work.finished)).map((arranged) => (
-        <Group key={arranged.group.name} arranged={arranged} leaving={leaving} onLeaving={setLeaving} {...shared} />
+      {projects.map((project) => (
+        <Project key={project.slug} project={project} lowest={lowest} leaving={leaving} onLeaving={setLeaving} {...shared} />
       ))}
-      {total === 0 ? <p className="px-1 text-[13.5px] text-muted-foreground">{only ? `Nothing finished for ${only} waits for you.` : 'Nothing finished waits for you.'}</p> : null}
     </section>
   )
 }
@@ -86,119 +101,27 @@ function Told({ said }: { said: Said }) {
   )
 }
 
-function Group({ arranged, leaving, onLeaving, live, variants, turn, onRowsLeft }: { arranged: Arranged; leaving: Leaving; onLeaving: (leaving: Leaving) => void } & Shared) {
-  const { group, entries } = arranged
-  const place = `group:${group.name}`
-  const busy = useWorkUi((state) => Boolean(state.busy[place]))
-  const [asking, setAsking] = useState(false)
-  const button = useRef<HTMLButtonElement | null>(null)
-
-  const answer = async (yes: boolean) => {
-    setAsking(false)
-    requestAnimationFrame(() => button.current?.focus({ preventScroll: true }))
-    if (!yes) return
-    onLeaving('answered')
-    const said = await runWork({ do: 'group', group }, { live, place })
-    useWorkUi.getState().forget(place)
-    useWorkUi.getState().note('finished', said)
-  }
-
+/** One project's rows under its quiet heading: its name and how many changes it holds. A visual aid only. */
+function Project({ project, lowest, leaving, onLeaving, live, variants, turn, onRowsLeft }: { project: ProjectRows; lowest: number; leaving: Leaving; onLeaving: (leaving: Leaving) => void } & Shared) {
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-2 px-1 pt-1">
-        <div className="min-w-0">
-          <h3 className="flex items-baseline gap-2 font-heading text-[16px] leading-tight font-semibold tracking-[-0.015em]">
-            {group.heading}
-            <span className="text-[13px] font-medium text-muted-foreground tabular-nums">{group.changes.length}</span>
-          </h3>
-          {group.why ? <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">{group.why}</p> : null}
-        </div>
-        {group.action ? (
-          <Button
-            ref={button}
-            variant={group.name === 'merge' ? 'default' : 'outline'}
-            data-stop=""
-            aria-expanded={asking}
-            disabled={busy}
-            focusableWhenDisabled
-            onClick={() => setAsking(true)}
-            className="scroll-mt-[124px] scroll-mb-6"
-          >
-            {busy ? group.action.underWay : group.action.label}
-          </Button>
-        ) : null}
-      </div>
-      <AnimatePresence>{asking && group.action ? <GroupQuestion key="asking" group={group} onAnswer={(yes) => void answer(yes)} /> : null}</AnimatePresence>
+      <h3 className="flex items-baseline gap-2 px-1 pt-1 text-[12.5px] leading-5 font-medium text-muted-foreground">
+        {project.name}
+        <span className="font-normal tabular-nums opacity-70">{project.count}</span>
+      </h3>
       <ul className="relative flex flex-col gap-2">
         <AnimatePresence mode="popLayout" custom={leaving} onExitComplete={onRowsLeft}>
-          {entries.map((entry) => {
+          {project.entries.map((entry) => {
             if (entry.kind === 'stack') {
-              const drawCard: DrawCard = ({ change, group: own }, place, whole) => (
-                <ChangeRow key={change.key} change={change} group={own} place={place} bare={!whole} live={live} variants={variants} order={whole ? turn() : -1} onLeaving={onLeaving} />
+              const drawCard: DrawCard = ({ change }, place, whole) => (
+                <ChangeRow key={change.key} change={change} lowest={lowest} place={place} bare={!whole} live={live} variants={variants} order={whole ? turn() : -1} onLeaving={onLeaving} />
               )
-              return <StackGroup key={entry.key} entry={entry} live={live} variants={variants} order={turn()} leaving={leaving} onRowsLeft={onRowsLeft} drawCard={drawCard} />
+              return <StackGroup key={entry.key} entry={entry} live={live} variants={variants} order={turn()} leaving={leaving} onRowsLeft={onRowsLeft} lowest={lowest} onLeaving={onLeaving} drawCard={drawCard} />
             }
-            return <ChangeRow key={entry.key} change={entry.at.change} group={entry.at.group} place={entry.place ? placeOf(entry.place) : null} live={live} variants={variants} order={turn()} onLeaving={onLeaving} />
+            return <ChangeRow key={entry.key} change={entry.at.change} lowest={lowest} place={entry.place ? placeOf(entry.place) : null} live={live} variants={variants} order={turn()} onLeaving={onLeaving} />
           })}
         </AnimatePresence>
       </ul>
     </div>
-  )
-}
-
-/** The page a group's yes is given on: every title it acts on, numbered in the order they go, under their projects, and what the yes does. */
-function GroupQuestion({ group, onAnswer }: { group: FinishedGroup; onAnswer: (yes: boolean) => void }) {
-  const still = useStill()
-  const yes = useRef<HTMLButtonElement | null>(null)
-  const action = group.action!
-  useEffect(() => yes.current?.focus({ preventScroll: true }), [])
-
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // From "Not now" Escape first steps back to the yes. From the yes it leaves the question, and the frame leaves the key alone.
-    if (event.key !== 'Escape' || event.defaultPrevented) return
-    event.preventDefault()
-    onAnswer(false)
-  }
-
-  return (
-    <motion.div
-      data-work-item=""
-      role="group"
-      aria-label={action.question}
-      onKeyDown={onKeyDown}
-      className="flex flex-col gap-3 rounded-3xl bg-background px-5 py-4 shadow-panel"
-      initial={still ? { opacity: 0 } : { opacity: 0, transform: 'translateY(-10px) scale(0.98)' }}
-      animate={still ? { opacity: 1 } : { opacity: 1, transform: 'translateY(0px) scale(1)' }}
-      exit={still ? { opacity: 0, transition: { duration: 0.14 } } : { opacity: 0, transform: 'translateY(-6px) scale(0.98)', transition: { duration: 0.14 } }}
-      transition={{ type: 'spring', duration: 0.42, bounce: 0.12 }}
-    >
-      <p className="font-heading text-[15px] leading-snug font-semibold tracking-[-0.01em]">{action.question}</p>
-      <div className="flex flex-col gap-2.5">
-        {action.plan.projects.map((project) => (
-          <div key={project.slug}>
-            <p className="eyebrow">{project.project}</p>
-            <ol className="mt-1 flex flex-col gap-1">
-              {project.steps.map((step) => (
-                <li key={step.number} className="flex gap-2 text-[13.5px] leading-snug">
-                  <span className="w-5 shrink-0 text-right text-muted-foreground tabular-nums">{step.number}.</span>
-                  <span className="min-w-0">
-                    {step.title} <span className="text-muted-foreground">· {step.note}</span>
-                  </span>
-                </li>
-              ))}
-            </ol>
-          </div>
-        ))}
-      </div>
-      <p className="max-w-[70ch] text-[12.5px] leading-relaxed text-muted-foreground">{action.plan.about}</p>
-      <div className="flex flex-wrap gap-2">
-        <Button ref={yes} variant={group.name === 'merge' ? 'default' : 'outline'} data-stop="" data-work-main="" onClick={() => onAnswer(true)}>
-          {action.label}
-        </Button>
-        <Button variant="ghost" tabIndex={-1} data-row-control="" onClick={() => onAnswer(false)}>
-          Not now
-        </Button>
-      </div>
-    </motion.div>
   )
 }

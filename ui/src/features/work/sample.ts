@@ -589,11 +589,41 @@ const WRITTEN_HOURS_AGO: Record<string, number> = {
   'storefront:8d2f60': 0.7,
 }
 
+const SCORE_NAMES = ['coverage', 'proof', 'deploy and data', 'visibility', 'rollback'] as const
+
+/** The five scores hobkin's review gave some of the sample's changes, in the card's order. Changes not listed here are not scored. */
+const SAMPLE_SCORES: Record<string, { kind: string; scores: [number, number, number, number | null, number]; floor?: number }> = {
+  'billing-api:5e7c21': { kind: 'Bug fix', scores: [9, 9, 9, 8, 10] },
+  'storefront:4c9e21': { kind: 'Feature', scores: [9, 8, 9, 8, 9] },
+  'storefront:8d2f60': { kind: 'Bug fix', scores: [8, 7, 8, 7, 7] },
+  'docs-site:a7f3b9': { kind: 'Docs', scores: [9, 9, 10, 8, 10] },
+  'storefront:d2c4e8': { kind: 'Refactor', scores: [6, 5, 7, 6, 7] },
+  'billing-api:0f6a3b': { kind: 'Bug fix', scores: [9, 9, 8, 8, 4], floor: 4 },
+  'storefront:f41c07': { kind: 'Bug fix', scores: [7, 8, 8, 7, 8] },
+  'api:e7d204': { kind: 'Refactor', scores: [6, 5, 5, 6, 7] },
+  'shop:d51b36': { kind: 'Feature', scores: [8, 8, 9, null, 8] },
+  'rpsleague:e1a001': { kind: 'Refactor', scores: [9, 8, 9, 8, 9] },
+  'rpsleague:e1a002': { kind: 'Tests', scores: [9, 9, 10, 9, 10] },
+  'rpsleague:e1a003': { kind: 'Refactor', scores: [8, 8, 8, 7, 8] },
+  'rpsleague:b2c001': { kind: 'Bug fix', scores: [9, 9, 9, 8, 9] },
+}
+
+/** A sample change's scores in the host's two shapes: the one line and the parts. */
+function scoredOf(change: FinishedChange): Pick<FinishedChange, 'scores' | 'scoring'> {
+  const own = SAMPLE_SCORES[change.key]
+  if (!own) return {}
+  const rate = Math.floor((own.scores.reduce<number>((sum, score) => sum + (score ?? 0), 0) / own.scores.filter((score) => score !== null).length) * 10) / 10
+  const parts = SCORE_NAMES.map((name, index) => ({ name, score: own.scores[index]!, evidence: 'Sample evidence.' }))
+  const floors = own.floor === undefined ? [] : [{ name: 'rollback', score: own.floor, needs: 7 }]
+  const line = parts.map(({ name, score }) => `${name} ${score ?? '?'}`).join(', ')
+  return { scores: `${own.kind}, general rate ${rate}: ${line}.`, scoring: { kind: own.kind, rate, scores: parts, floors, stale: false } }
+}
+
 export function sampleWork(now = Date.now()): WorkState {
   const made = sampleState(now)
   const written = (change: FinishedChange): FinishedChange => {
     const hoursAgo = WRITTEN_HOURS_AGO[change.key] ?? 1
-    return { ...change, at: new Date(now - hoursAgo * HOUR_MS).toISOString() }
+    return { ...change, at: new Date(now - hoursAgo * HOUR_MS).toISOString(), ...scoredOf(change) }
   }
   const finished = made.finished.map((group) => ({ ...group, changes: group.changes.map(written) }))
   const work = { ...made, finished }
