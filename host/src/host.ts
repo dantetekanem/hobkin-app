@@ -27,6 +27,7 @@ import { setupWorkHandlers } from './setup-work.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
 import { IntegrationHost, type IntegrationModule } from './integration-host.ts'
 import { ToolCallWatcher } from './tool-calls.ts'
+import { startOf, workflowHandlers } from './workflows.ts'
 import type { JobActivity } from '#shared/protocol/activity.ts'
 import { openablePath, readTextFile } from './files.ts'
 import { execFileSync } from 'node:child_process'
@@ -312,6 +313,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       clipboard: attachments.clipboard,
     },
     tools: [client],
+    // What the integrations give agents (tools, hooks on tool calls, workflows), read as hobkin opens.
+    integrations: () => integrationHost?.runtimeOption() ?? null,
     modelRuntime: live ? async () => ((await access()) as Partial<LiveModelAccess>).runtime : undefined,
     claudeCode: {
       settings: () => claudeCode.read(),
@@ -425,6 +428,10 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     hobkin,
     dataRoot: () => hobkin().runtime.directory,
     snapshotWork: () => owner.snapshot?.work,
+    workflows: {
+      start: (id, input) => startOf(hobkin())(id, input),
+      rows: () => (Array.isArray(owner.snapshot?.schedules) ? owner.snapshot.schedules : []),
+    },
   }))
   const facts = () => ({
     owner: owner.wireState(),
@@ -792,6 +799,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'agent.session': ({ report }) => readJobSession({ data: () => hobkin().runtime.directory, snapshot: () => ({ reports: owner.snapshot?.reports, completedJobReports: owner.snapshot?.completedJobReports }), state: () => hobkin().runtime.state() }, report),
     // A run's steps its feed let go, and a tool's whole output, read back from its saved session (052 S18).
     ...olderStepsHandlers({ data: () => hobkin().runtime.directory, state: () => hobkin().runtime.state() }),
+    // An integration's workflows: the user's press, and turning one on or off.
+    ...workflowHandlers({ app: hobkin }),
     'history.list': () => history.list(),
     'history.open': ({ id }) => history.open(id),
   }

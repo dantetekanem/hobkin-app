@@ -37,6 +37,8 @@ export interface OwnerOptions {
   onSessionEvent: (event: PiSessionEvent) => void
   /** hobkin's other calls into its front end: questions, presence, what to show, and where images come from. */
   frontEnd?: Pick<OpenOptions, 'askQuestion' | 'presence' | 'showDone' | 'showRow' | 'clipboard'>
+  /** What the integrations give agents (tools, hooks, workflows), read each time hobkin opens. Nothing when it gives none. */
+  integrations?: () => object | null
   /** Tools the app adds to hobkin's main session, such as `client`. */
   tools?: readonly SessionTool[]
   /** UI model access when no live main session can provide its own catalog. */
@@ -389,10 +391,12 @@ export class HomeOwner {
       check()
       const model = await this.model()
       check()
+      const integrations = this.options.integrations?.()
       const app = await HobkinApplication.open(root, {
         ...model,
         onMainStartup: (startup) => this.retainStartup(startup, lifecycle),
         ...this.options.frontEnd,
+        ...(integrations ? { integrations } : {}),
         onChange: (snapshot) => this.publish(snapshot),
       })
       if (this.closed || slot.fenced) return void (await app.close())
