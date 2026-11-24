@@ -32,7 +32,7 @@ The user, 2026-11-23: "I also need schedule tasks to run inside Hobkin, like my 
 - Schedules are kept in the home (`runtime/agent-schedules.json`) and fire on the runtime's one-second tick. Three commands run at once at most, and a schedule never runs twice at once. After a restart a run that was cut off counts as interrupted, an overdue schedule fires once, an expired one ends quietly, and a wake that was not delivered is delivered.
 - A run on Claude Code has no tool bridge. It schedules through `hobkin schedule` in its shell, with a token of its own, the way `hobkin tell` works. A run on Claude Code whose permissions are not "all" may schedule wakes only: a scheduled command would run without the prompt Claude Code would have shown.
 - The window gets every schedule in the snapshot as `agentSchedules` (`shared/protocol/schedules.ts`). `schedules` stays the routines. `schedule.cancel`, `schedule.pause` and `schedule.run` are the window's alone: hobkin's own agents use their tools.
-- In the main chat the schedules are a line at the right end of the status row above the input, which always keeps its room, so nothing moves when one appears. On an agent's page and a durable hobkin's page the line under the talk box becomes a row that is always there, the status words at its left and the schedules at its right.
+- In the main chat the schedules are a line at the right end of the status row above the input. The row keeps its height, and with no schedule the line takes no width, so the row is as it was. While a turn runs, the working line (spec 054) and the stop hint keep the width they have with no schedule; the schedules line takes the widest of its forms that fits in what is left (name and countdown, count and countdown, the dot with the count, the dot alone), and the bubble takes the rest. On an agent's page and a durable hobkin's page the line under the talk box becomes a row that is always there, the status words at its left and the schedules at its right.
 - The line says how many there are and the next one with its countdown, "2 · Watch CI in 1:42". With none, nothing is drawn in its place. A press, or Control+Option+W, opens the list upward, as the tasks line opens its list. Each row says what it does, when it fires next, how often, what its last run found, and the runs and time it has left, with Run now, Pause or Resume, and Cancel, which asks for a second press. The main chat lists every schedule in the home with its owner; a page lists its own.
 - The countdown is text that changes once a second. The only endless motion is a running schedule's dot, on opacity.
 
@@ -59,13 +59,18 @@ The user, 2026-11-23: "I also need schedule tasks to run inside Hobkin, like my 
 
 ## Proof
 
+- A9. `shared/test/schedules.test.ts` › "a runtime that has none reads as none, and an empty list as an empty one"; `host/test/schedules.test.ts` › "the handlers reach a running application's own schedule methods, and the runtime's refusal passes on", › "an unknown or ended schedule is refused in plain words, and the runtime is never asked" and › "only the window sends them: hobkin's own client tool neither lists nor runs them"; `host/test/schedules-host.test.ts` › "the window gets the runtime's schedules in the snapshot, and the host answers its commands"
+- A10. `ui/test/schedules.test.ts` › "the line says nothing with no schedule, the name and countdown of one, and the count and the next of many" and › "the main chat shows every schedule in the home, and a page shows only its own agent’s"; `ui/test/schedules-line-fit.test.ts`, every test in it (which form the line takes in the room it has, and what keeps its room while a turn runs); check: still renders of the status row with none, one and three schedules at 460 and 360 pixels, idle and with a turn running, and of both pages, light and dark (2026-11-23), then the live window.
+- A11. `ui/test/schedules.test.ts` › "what the last run found: how it ended, its exit code, how long ago and whether it woke the agent"; `ui/test/schedules-actions.test.ts` › "Cancel asks first, and only a second press within ten seconds cancels", › "Control+Option+W opens and closes the schedules, whatever character Option makes W type" and › "Escape closes the open list only while the keyboard is in it or on its line"; check: a still render of the open list with a running, a waiting, a paused and an ended schedule, light and dark (2026-11-23), then the live window.
+- A12. `ui/test/schedules.test.ts` › "the sample schedules keep counting down: a repeating one that came due moves on to its next time"
+
 ## Steps
 
 - [ ] S1 (A1, A2, A3). Runtime: the rules, the store, the tick and the commands.
 - [ ] S2 (A4, A5, A6, A7). Runtime: the tools for the main chat, durable hobkins and session runs, and the wakes.
 - [ ] S3 (A8). Runtime and host: `hobkin schedule` for runs on Claude Code.
-- [ ] S4 (A9). Host and protocol: the snapshot's list and the three commands.
-- [ ] S5 (A10, A11, A12). Window: the line near the input and its list.
+- [x] S4 (A9). Host and protocol: the snapshot's list and the three commands. 2b291b1, 0155a70, 3c4e836, 6a9be9e. Tested with a fake of the runtime and one scripted host: no real schedule has gone through a host. The host must reload itself before the window gets any.
+- [x] S5 (A10, A11, A12). Window: the line near the input and its list. c501f42, 0585cff, 5bab651, a6bfe0b, 09e9327. With no schedule the status row is as it was. While a turn runs, the working line and the stop hint keep their room and the line takes the widest form that fits, down to its dot. Seen only as still renders, with sample schedules: not in the live window, and not with a real schedule.
 
 ## Open questions
 
