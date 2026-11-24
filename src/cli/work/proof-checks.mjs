@@ -2,8 +2,9 @@ import { spawn as spawnProcess } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { atomicJson } from '../config.mjs';
 import { latestMainRun, modelFacts, readRuns } from './proofs.mjs';
-import { chosenProjects, paths, readItems, readMode, readProject } from './store.mjs';
+import { chosenProjects, paths, readItems, readJson, readMode, readProject } from './store.mjs';
 import { gitOrNothing, gitWithin } from './tree.mjs';
 
 /**
@@ -119,6 +120,24 @@ export async function checkChangeModels(root, { now = Date.now(), survey = {}, s
   return null;
 }
 
+const rechecksPath = root => join(root, 'work', 'model-rechecks.json');
+const readRechecks = root => {
+  const asked = readJson(rechecksPath(root), []);
+  return Array.isArray(asked) ? asked : [];
+};
+
+/**
+ * Asks for a check of these specs on the default branch as soon as it moves past `from`, the commit the last survey read there, without waiting
+ * out the week. YOLO mode calls it after a merge that fixed a model broken there (`yolo-pass.mjs`).
+ */
+export function askRecheck(root, slug, specs, from) {
+  const kept = readRechecks(root).filter(asked => asked.slug !== slug || !specs.includes(asked.spec));
+  mkdirSync(join(root, 'work'), { recursive: true, mode: 0o700 });
+  atomicJson(rechecksPath(root), [...kept, ...specs.map(spec => ({ slug, spec, from: from ?? null }))]);
+}
+
+const forgetRecheck = (root, slug, spec) => atomicJson(rechecksPath(root), readRechecks(root).filter(asked => asked.slug !== slug || asked.spec !== spec));
+
 /**
  * Once a week, and as soon as a spec reaches the default branch with no run of it, hobkin checks each spec there itself, one at a time and only
  * while work mode is on. `survey` is the survey's projects, which hold each one's specs on the default branch.
@@ -128,13 +147,19 @@ export async function recheckModels(root, { now = Date.now(), survey = {}, spawn
   const runs = readRuns(root);
   for (const { slug } of chosenProjects(root)) {
     const { head, specs = [] } = survey[slug]?.models ?? {};
+    const asked = readRechecks(root).filter(each => each.slug === slug);
     for (const { spec, sha256 } of specs) {
       const last = latestMainRun(runs, { slug, spec, sha256 });
       const checkedThisWeek = last && now - Date.parse(last.finished ?? last.started) < CHECK_EVERY_MS;
-      if (checkedThisWeek) continue;
+      // A spec asked for after a merge is due once the default branch has moved past the commit it was asked at.
+      const movedOn = asked.some(each => each.spec === spec && head && head !== each.from);
+      if (checkedThisWeek && !movedOn) continue;
 
       const started = await startCheck(root, { slug, spec, head }, { now, ...(spawn ? { spawn } : {}) });
-      if (started) return started;
+      if (started) {
+        if (movedOn) forgetRecheck(root, slug, spec);
+        return started;
+      }
     }
   }
   return null;

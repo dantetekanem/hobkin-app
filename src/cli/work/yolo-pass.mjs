@@ -6,11 +6,13 @@ import { mergeItem, whyWorkModeWaits } from './controls.mjs';
 import { AFTER_DEPLOY_MINUTES, deployHeld, READINGS, readingFrom, sawIn } from './deploys.mjs';
 import { userTrouble } from './launches.mjs';
 import { readMachines, unmodeledIn } from './machines.mjs';
+import { askRecheck } from './proof-checks.mjs';
 import { nameOf } from './names.mjs';
 import { changeHoldsWith } from './patterns.mjs';
 import { changeModels, scoresHoldAt, specName } from './proofs.mjs';
 import { heldByItsGrade, landingList, ratingWords, weighedRows } from './reads.mjs';
 import { readMode, readProject, retryItem, updateItem } from './store.mjs';
+import { readUnmerged } from './unmerged.mjs';
 import { holdProject, prepareProjects, readinessOf, readYolo, settleSwitches, yoloOnProject } from './yolo.mjs';
 import { FLOOR_RULES, floorsOf, RULE_DEFAULTS, rulesOf } from './yolo-rules.mjs';
 import { defaultPullGh, mergeOwnPull, pullCandidates, pullRequestsMerge, PULLS_OFF, pullSurveyed, signedInUser } from './yolo-pulls.mjs';
@@ -65,6 +67,21 @@ function readJsonLines(file) {
 }
 
 const asks = (why, setting = null) => ({ why, setting });
+
+const brokenVerb = specs => (specs.length > 1 ? 'break' : 'breaks');
+
+// A project held by a broken model says which, as the models part names it, so the user sees what to fix or which switch to move.
+function notReady({ holds = [], brokenModels = [] }) {
+  const named = brokenModels.map(specName).join(', ');
+  return holds.includes('noModelBreaks') && named ? `its project is not ready for YOLO mode: ${named} ${brokenVerb(brokenModels)} on the default branch` : 'its project is not ready for YOLO mode';
+}
+
+// With a change that makes a broken model hold allowed to merge, the change must cover every spec broken on the default branch and hold at its head.
+function brokenNotFixed({ brokenModels = [] }, models) {
+  const unfixed = brokenModels.filter(spec => models.find(model => model.spec === spec)?.state !== 'holds');
+  if (!unfixed.length) return null;
+  return `${unfixed.map(specName).join(', ')} ${brokenVerb(unfixed)} on the default branch, and this change does not make ${unfixed.length > 1 ? 'them' : 'it'} hold`;
+}
 const LEFT_NOTE = /^it still has work left/;
 
 // What the landing list checks after a run's note, which a user who lets that note go still wants held. Earlier branches stay held (`row.holds`).
@@ -98,7 +115,9 @@ export function holdOf({ yolo, on, project, readiness, landable, leftOut = null,
   // `on` is the project's own switch.
   if (on === false) return asks('YOLO mode is off on its project');
   if (project?.paused) return asks('its project is paused');
-  if (!readiness.ready) return asks('its project is not ready for YOLO mode', readiness.holds?.[0] ?? null);
+  if (!readiness.ready) return asks(notReady(readiness), readiness.holds?.[0] ?? null);
+  const unfixed = rules.brokenModelFixMayMerge ? brokenNotFixed(readiness, models) : null;
+  if (unfixed) return asks(unfixed, 'brokenModelFixMayMerge');
   const left = landingHold({ landable, leftOut, row, rules });
   if (left) return left;
   if (!WAITS_TO_MERGE.includes(item.state)) return asks(`its item is ${item.state}, not finished work waiting to merge`);
@@ -319,6 +338,8 @@ export async function yoloPass(root, { now = Date.now(), handOff, gh = defaultPu
     if (!landed) continue;
     mergedOn.set(row.slug, (mergedOn.get(row.slug) ?? 0) + 1);
     const { project, readiness } = asked;
+    // A merge that made every broken model hold has the default branch checked again at once, and does not wait the week.
+    if (readiness.brokenModels?.length) askRecheck(root, row.slug, readiness.brokenModels, readUnmerged(root).projects[row.slug]?.models?.head);
     const known = Boolean(landed.target);
     const { pr = null, relied = null } = landed;
     reports.push(report(root, { project, item, head: unit.sha, target: landed.target ?? unit.sha, pr, relied, readiness, handOff: known ? handOff : undefined, now }));

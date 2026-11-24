@@ -244,7 +244,9 @@ function modelsPart(root, slug) {
 function needsOf(record, parts, rules) {
   if (!record) return { needs: ['Its readiness has not been checked yet.'], holds: [] };
   if (record.held && rules.holdAfterRegression) return { needs: [`A regression showed after "${record.held.title}" deployed. Retry its readiness work once that is fixed.`], holds: ['holdAfterRegression'] };
-  const holding = PARTS.filter(name => parts[name].blocks && rules[BAR_RULES[name]] !== false);
+  // A broken model does not hold the project while the user lets a change that makes it hold go (`holdOf` reads `brokenModels` for that).
+  const lifted = name => name === 'models' && rules.brokenModelFixMayMerge;
+  const holding = PARTS.filter(name => parts[name].blocks && rules[BAR_RULES[name]] !== false && !lifted(name));
   return { needs: holding.map(name => `${partWords[name]}: ${needOf(parts[name])}`), holds: holding.map(name => BAR_RULES[name]).filter(Boolean) };
 }
 
@@ -259,8 +261,11 @@ export function readinessOf(root, slug) {
   const items = readItems(root, slug);
   const own = items.find(({ key }) => key === READY_KEY) ?? null;
   const parts = partsOf(root, { record, items, own, models: modelsPart(root, slug) });
-  const { needs, holds } = needsOf(record, parts, rulesOf(root, slug));
-  return { ready: needs.length === 0, needs, holds, parts, at: record?.at ?? null, item: own?.id ?? null };
+  const rules = rulesOf(root, slug);
+  const { needs, holds } = needsOf(record, parts, rules);
+  // The specs that break on the default branch while the project may not merge on top of them, by name, for each change to answer.
+  const broken = parts.models.blocks && rules.noModelBreaks ? mainModels(root, slug).filter(({ state }) => state === 'broken').map(({ spec }) => spec) : [];
+  return { ready: needs.length === 0, needs, holds, brokenModels: broken, parts, at: record?.at ?? null, item: own?.id ?? null };
 }
 
 /** Whether YOLO mode may merge a change on this project by itself once a review scores it: on, on this project too, and the project ready. */
