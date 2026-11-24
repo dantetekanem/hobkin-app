@@ -240,6 +240,8 @@ function fullHome(t: import('node:test').TestContext) {
     'hobkins/a1b2c3d4.jsonl', 'canvas/state.json', 'runtime/hobkin.sqlite', 'runtime/view.json', 'runtime/handoffs/job.md',
     'runtime/handoffs/job.report.md', 'runtime/handoffs/sessions.jsonl', 'client/reviews/r.json', 'client/titles.json',
     'work/app/items.jsonl', 'work/app/project.md', 'work/app/prs/1.json',
+    // The memories every agent shares (057), a private one and one forgotten that can still come back, and their changes.
+    'memories/lives-in-lisbon.md', 'memories/private/partner-name.md', 'memories/forgotten/old-car-2026-11-01T09-00-00Z.md', 'memories/changes.jsonl',
   ]
   const leftOutOfIt = [
     'work/app/trees/3fa9c1/node_modules/big.js', 'work/app/trees/3fa9c1/src/app.ts', 'work/app/runs/r1/home/file', 'work/app/reviews/c1/file',

@@ -68,6 +68,7 @@ const OWN_AT_HOME: Names = [
   'hobkins', // hobkins.mjs
   'imported', // history.mjs, delivery.mjs, pi-session.mjs: what `hobkin import` brought
   'memory.md', // memory.mjs
+  'memories', // memories.mjs: one memory a file, with its `private/` and `forgotten/` folders and `changes.jsonl`
   'migration', // migration/journal.mjs: a migration's journal and its data
   'active.json', // migration/admission.mjs: which migrated data is the home's
   'notes', // pi-session.mjs, memory-index.mjs
