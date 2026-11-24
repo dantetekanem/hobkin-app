@@ -28,6 +28,7 @@ The app opens in a Mac window and in a browser tab and shows its full frame on s
 - The frame owns the keyboard map of `019-keyboard`.
 - The Tauri shell only opens the window in this step. Starting the host comes in `002-host`.
 - A page's column grows with a bigger window (the user, 2026-11-23: "dashboard and others can be a bit larger in the width for bigger screens, i want max to reach 30%+ of what is now, but in my current screen is fine"). Every one-column and two-pane page takes its width from one custom property, `--page-width` (`ui/src/styles/tokens.css`, read by `ui/src/app/screen-layout.ts`). It is 1040px in a window 1728px wide or narrower, the width of the user's screen that day. A wider window gives the page half of each extra pixel, up to 1380px, a third more, in a window 2408px wide. Reading widths, the chat column, dialogs and the review graph keep their own.
+- A screen never stays dead on one failure (the user, 2026-11-23, of a screen that showed "This screen could not be drawn": "the screen should never die"). The net under each canvas screen mounts the screen anew when it fails to draw, which mends a failure of what was mounted, as when a hot update changes a part's hooks under it. A screen that fails again within five seconds shows the failure in its own words, the parts of the app it came through, and Try again beside Back to Work. While the app is developed, a hot update tries a failed screen again by itself. The chat, the menu and the other screens go on working throughout.
 
 ## Out of scope
 
@@ -52,6 +53,7 @@ The app opens in a Mac window and in a browser tab and shows its full frame on s
 - A13. The canvas fills the right side of the window, flush at the top, bottom and right. Its left edge is rounded and shadowed where it meets the chat. The screen menu floats over its top, and there is no bar across the top of the window.
 - A14. Changing theme opens the new theme in a circle from the control that was used. No part of the window switches color in a hard cut.
 - A15. In a window 1728px wide or narrower a page's column is 1040px, as before. It is 1136px at 1920, and 1380px at 2408 and wider. Every page that was 1040px wide follows the one definition.
+- A16. A canvas screen that fails to draw once is mounted anew and shows no failure. One that fails again at once shows what went wrong, where, and Try again, which draws the screen once it can be drawn.
 
 ## Proof
 
@@ -67,6 +69,7 @@ The app opens in a Mac window and in a browser tab and shows its full frame on s
 - A13. check: measure the canvas against the window in both themes. The gaps at the top, right and bottom are zero.
 - A14. check: switch theme with the header button and from Settings, and watch the reveal.
 - A15. check: `rg -n "1040" ui/src` finds the number only in `tokens.css` and in sample data; the built style sheet holds `--page-width` and the three rules that read it (2026-11-23). Not seen in a window.
+- A16. `ui/test/screen-boundary.test.ts` › "a screen that fails once on what was mounted is drawn afresh by itself, and never shows a failure" and › "a screen that fails again at once says what went wrong and where, and Try again draws it once it can"; `ui/test/screen-recovery.test.ts` › "a screen that fails to draw is drawn afresh by itself, and only one that fails again at once shows what went wrong" and › "the failure names the parts it came through, innermost first, in this window and in a browser"
 
 ## Steps
 
@@ -76,3 +79,4 @@ The app opens in a Mac window and in a browser tab and shows its full frame on s
 - [ ] S4 (A2, A7, A8, A9, A10, A12, A13, A14). Build the frame: the chat column with its header and veil, the agents under the input, the divider, and the floating canvas with its menu and traveling screens, on a sample store.
 - [ ] S5 (A1). Add the Tauri shell that opens the UI in a window.
 - [x] S6 (A15). The page width as one custom property: 8602378, and the two pages that wrote the number themselves 3b5cdac. Not seen in a window. At the widest, the 260px blocks of the GitHub rows and the 600px proof chart keep their size.
+- [x] S7 (A16). The screen's net mends a first failure by itself: a6328b0. The failure the user saw was not traced to one part: no hook is called under a condition anywhere in the window's code, so a hot update of a mounted part is the likely cause. Not seen in the window.
