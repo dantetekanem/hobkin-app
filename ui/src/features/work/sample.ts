@@ -306,6 +306,103 @@ const LEFT: FinishedChange[] = [
   }),
 ]
 
+/** A change whose run left the user a note, for the list on the "Left for you" page. */
+function leftOf(rest: Pick<FinishedChange, 'slug' | 'project' | 'item' | 'title' | 'left'> & Partial<FinishedChange>): FinishedChange {
+  const slug = rest.title.toLowerCase().replaceAll(/[^a-z0-9]+/g, '-').replace(/-$/, '')
+  return merging({
+    grade: 'P2',
+    branch: `hobkin/${rest.item}-${slug}`,
+    head: sha(`1ef7${rest.item}`),
+    pr: null,
+    about: null,
+    proof: null,
+    yes: 'Close without merging marks it done: nothing merges, and its branch stays as it is.',
+    reason: 'Its run left you a note, so no group merges it until you answer.',
+    safety: null,
+    size: { lines: 30, files: 2 },
+    landing: 'merge',
+    choices: [
+      { value: 'diff', label: 'Show the diff' },
+      { value: 'done', label: 'Close without merging' },
+    ],
+    ...rest,
+  })
+}
+
+const MORE_LEFT: FinishedChange[] = [
+  leftOf({
+    slug: 'billing-api',
+    project: 'billing-api',
+    item: 'c20a91',
+    title: 'Round invoice totals once, at the end',
+    grade: 'P0',
+    issue: sampleIssue('billing-api', 212),
+    about: 'An invoice adds its lines at full precision and rounds the total once, so a total no longer drifts by a cent from the sum of its rounded lines.',
+    proof:
+      'pnpm test invoices: 94 pass. A new test builds 40 invoices of 3 to 12 lines with prices ending in a half cent and checks that the stored total equals the rounded sum. The old code failed 11 of the 40. The export that reads the totals was run on a copy of last month and its file matches the ledger to the cent.',
+    left: 'Old invoices keep their rounded lines, so a reprint of one from March would now show a total one cent off. Decide whether reprints use the old rule, or I add a flag that records which rule made each invoice.',
+    size: { lines: 112, files: 5 },
+    behind: 1,
+    models: [
+      { spec: '_specs/tla/Invoice.tla', state: 'holds', run: 'run-sample-invoice', line: 'TLC: 4 of 4 hold in 48,211 states' },
+      { spec: '_specs/tla/Export.tla', state: 'holds', run: 'run-sample-export' },
+      { spec: '_specs/tla/Ledger.tla', state: 'unchecked' },
+    ],
+    proofCheck: { line: 'Invoice totals hold in every state the model reaches', run: 'run-sample-invoice' },
+    scores: 'Fix · general rate 8.1 · proof 8 · risk 7 · scope 9 · clarity 8 · tests 9',
+  }),
+  leftOf({
+    slug: 'shop',
+    project: 'shop',
+    item: 'd51b36',
+    title: 'Show the delivery window at checkout',
+    about: 'Checkout shows the carrier\'s delivery window under each shipping choice and keeps it when the address changes.',
+    left: 'The carrier\'s sandbox key is not in this project\'s settings, so I only ran against the stub. Add the key, or tell me which carrier account the window should come from before this goes anywhere near real orders.',
+    issue: sampleIssue('shop', 88),
+    size: { lines: 74, files: 4 },
+    behind: 5,
+  }),
+  leftOf({
+    slug: 'api',
+    project: 'api',
+    item: 'e7d204',
+    title: 'Move rate limits into the gateway',
+    grade: 'P1',
+    about: 'Rate limits are read from one table in the gateway instead of from each service, so a limit changes in one place.',
+    proof:
+      'cargo test --workspace: 212 pass. A load script sent 5,000 requests a minute at three routes and the gateway returned 429 on exactly the requests over each route\'s limit. The services no longer import the old limits file, and a grep for it finds nothing left.',
+    left: 'Two services still call each other directly and skip the gateway, so their limits do not apply. I left them alone because moving those calls changes who pays for the traffic. Say if I should move them in this change.',
+    size: { lines: 430, files: 14 },
+    behind: 2,
+    models: [{ spec: '_specs/tla/RateLimit.tla', state: 'holds', run: 'run-sample-limits' }],
+  }),
+  leftOf({
+    slug: 'docs-site',
+    project: 'docs-site',
+    item: 'f09c4a',
+    title: 'Document the export command',
+    about: 'The export command has its own page with every flag, two worked examples and the exit codes.',
+    proof:
+      'The docs build passes and the link checker found no broken link in the 41 pages. Both examples were run against the sample project and their output was pasted as it came. The flags table was compared with the command\'s own help text, line by line.',
+    left: 'The page says export writes to the current folder, but the command also reads a config file when one exists there, and I could not tell which wins. Tell me the rule or point me at the code that decides it.',
+    size: null,
+  }),
+  leftOf({
+    slug: 'shop',
+    project: 'shop',
+    item: '1ab7e2',
+    title: 'Remember the shipping address',
+    grade: 'P1',
+    issue: sampleIssue('shop', 91),
+    about: 'A signed-in customer\'s last shipping address is filled in at checkout, and a new address is saved only when they tick the box.',
+    proof:
+      'pnpm test address: 37 pass, including a customer with two saved addresses and one who unticks the box. The migration adds one nullable column and was run forward and back on a copy of the sample database with no row lost. The address is not written to the logs: the logging test checks for it.',
+    left: 'Saving an address is personal data, and I do not know if the privacy page needs a line about it. Someone should read it before this ships, and tell me if the text is mine to write.',
+    size: { lines: 96, files: 6 },
+    models: [{ spec: '_specs/tla/Checkout.tla', state: 'holds', run: 'run-sample-checkout' }],
+  }),
+]
+
 /** What the user said yes to that an agent is bringing up to date before hobkin merges it. */
 const MERGING = (now: number): MergingRow[] => [
   {
@@ -421,7 +518,7 @@ const SAMPLE_WORKLOAD: Workload = {
   dailyTokens: 100_000_000,
   hours: null,
   shipFirst: true,
-  shipFirstAt: 16,
+  shipFirstAt: 24,
   reviewOnFinish: false,
   reviewPulls: 'none',
 }
@@ -525,7 +622,7 @@ function sampleState(now: number): WorkState {
     ],
     queued: 7,
     projects: projects(now),
-    finished: [groupOf('merge', READY), groupOf('refresh', REFRESH), groupOf('needs', NEEDS), groupOf('left', LEFT)],
+    finished: [groupOf('merge', READY), groupOf('refresh', REFRESH), groupOf('needs', NEEDS), groupOf('left', [...LEFT, ...MORE_LEFT])],
     merging: MERGING(now),
     workload: SAMPLE_WORKLOAD,
     allowance: null,
