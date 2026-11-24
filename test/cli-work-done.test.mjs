@@ -159,7 +159,7 @@ test('with this machine\'s main and origin\'s parted, a finished change holds on
   assert.deepEqual(read(h, fix).landed.size, { additions: 1, deletions: 1, files: 1 }, 'what a merge records is the change alone');
 });
 
-test('a branch underneath another finished branch folds into it', async t => {
+test('a branch built on another finished branch waits for the one under it', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/first', 'first.txt', 'first\n');
   git(h.checkout, 'switch', '-q', 'hobkin/first');
@@ -171,8 +171,8 @@ test('a branch underneath another finished branch folds into it', async t => {
 
   await survey(h);
 
-  assert.equal(row(h, first).gap, 'stacked');
-  assert.equal(row(h, second).gap, 'land');
+  assert.equal(row(h, first).gap, 'land');
+  assert.equal(row(h, second).gap, 'stacked');
   assert.equal(row(h, second).holds, 1);
 });
 
@@ -323,14 +323,14 @@ test('a note that only says the work waits for the user\'s yes to ship keeps not
   assert.deepEqual(named(leftOut), ['mixed', 'personal', 'work']);
 });
 
-test('a branch stays out when it brings along earlier work a review rated below safe', async t => {
+test('a layer over one a review rated below safe waits for it, and the one under stays out on its own rating', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/under', 'under.txt', 'under\n');
   git(h.checkout, 'switch', '-q', 'hobkin/under');
   git(h.checkout, 'switch', '-q', '-c', 'hobkin/over');
   commit(h.checkout, 'over.txt', 'over\n');
   git(h.checkout, 'switch', '-q', 'main');
-  finished(h, 'hobkin/under', proved);
+  const under = finished(h, 'hobkin/under', proved);
   const over = finished(h, 'hobkin/over', proved);
   reviewed(h, tipOf(h, 'hobkin/under'), 'medium', 'C');
   reviewed(h, tipOf(h, 'hobkin/over'));
@@ -339,10 +339,11 @@ test('a branch stays out when it brings along earlier work a review rated below 
   const { landable, leftOut } = landingList(h.root);
 
   assert.deepEqual(landable, []);
-  assert.match(leftOut.find(({ item }) => item === over.id).why, /brings .*medium C/);
+  assert.match(leftOut.find(({ item }) => item === under.id).why, /medium C/);
+  assert.equal(leftOut.find(({ item }) => item === over.id).why, 'it lands after the layer under it');
 });
 
-test('branches on top of unrated work can land, and every one on top of work a review held back stays out', async t => {
+test('the bottom layer can land on its proof, and a review that held it back keeps it out', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/under', 'under.txt', 'under\n');
   git(h.checkout, 'switch', '-q', 'hobkin/under');
@@ -352,15 +353,15 @@ test('branches on top of unrated work can land, and every one on top of work a r
   git(h.checkout, 'switch', '-q', '-c', 'hobkin/right');
   commit(h.checkout, 'right.txt', 'right\n');
   git(h.checkout, 'switch', '-q', 'main');
-  finished(h, 'hobkin/under');
-  const left = finished(h, 'hobkin/left', proved);
-  const right = finished(h, 'hobkin/right', proved);
+  const under = finished(h, 'hobkin/under', proved);
+  finished(h, 'hobkin/left', proved);
+  finished(h, 'hobkin/right', proved);
   reviewed(h, tipOf(h, 'hobkin/left'));
   reviewed(h, tipOf(h, 'hobkin/right'));
   const landable = () => landingList(h.root).landable.map(row => row.item).toSorted();
 
   await survey(h);
-  assert.deepEqual(landable(), [left.id, right.id].toSorted());
+  assert.deepEqual(landable(), [under.id], 'the layers over it wait');
 
   reviewed(h, tipOf(h, 'hobkin/under'), 'risky', 'D');
   await survey(h);
@@ -399,7 +400,7 @@ test('an open PR is on the landing list at the head its host reports, with that 
   assert.equal(unit(h, 'hobkin/3-fix').conflict, true);
   assert.match(why[conflicted.id], /agent is still working on it/, 'a conflict gets its rebase, and stays out until then');
   assert.match(why[unseen.id], /no open PR/);
-  assert.match(why[stacked.id], /brings hobkin\/base/);
+  assert.match(why[stacked.id], /lands after the layer under it/);
   assert.equal(why[sameBranch.id], undefined, 'one branch is one row, and the PR speaks for it');
   assert.equal(read(h, good).state, 'pr', 'nothing is relabelled');
   assert.equal(readyItems(h.root).some(({ item }) => item === good.id), false, 'a PR merges on its host, so the walk stays local work');
@@ -1026,7 +1027,7 @@ test('the survey says what each branch touches, reading only', async t => {
   assert.equal(title, 'Readme');
 });
 
-test('a merge writes what landed, and a stacked branch it brought along lands too', async t => {
+test('a merge writes what landed, and the layer over it merges on its own once it is the bottom', async t => {
   const h = workspace(t);
   mkdirSync(join(h.checkout, 'lib', 'money'), { recursive: true });
   git(h.checkout, 'switch', '-qc', 'hobkin/first');
@@ -1039,15 +1040,18 @@ test('a merge writes what landed, and a stacked branch it brought along lands to
   reviewed(h, tipOf(h, 'hobkin/second'));
   await survey(h);
 
+  await mergeItem(h.root, 'api', first.id, { now: NOW });
+  assert.equal(read(h, first).landed.area, 'lib/money');
+  assert.equal(read(h, first).landed.sha, tipOf(h, 'main'));
+  await survey(h);
+
   await mergeItem(h.root, 'api', second.id, { route: 'key', read: 'diff', readMs: 4200, now: NOW });
 
   const { sha, at, route, read: seen, readMs, safety, quality, size, area, spot } = read(h, second).landed;
   assert.equal(sha, tipOf(h, 'main'));
   assert.deepEqual([at, route, seen, readMs, spot], [new Date(NOW).toISOString(), 'key', 'diff', 4200, false]);
   assert.deepEqual([safety.grade, safety.rating, quality.rating, area], ['safe', 'A', 'A', 'lib/money']);
-  assert.deepEqual(size, { additions: 3, deletions: 0, files: 2 });
-  assert.equal(read(h, first).landed.area, 'lib/money');
-  assert.equal(read(h, first).landed.sha, tipOf(h, 'main'));
+  assert.deepEqual(size, { additions: 2, deletions: 0, files: 1 }, 'what the layer merged is its own change');
 });
 
 test('a merge from the command line is the chat route, with nothing read', async t => {

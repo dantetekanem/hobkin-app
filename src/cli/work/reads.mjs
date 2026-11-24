@@ -216,17 +216,18 @@ const withMainAgent = item => Date.parse(item.withMainAgent?.until ?? '') > Date
 const closingNow = item => withMainAgent(item)
   || (runnableStates.includes(item.state) && (item.kind === SHIP_KIND || item.reviewAsked || item.workNote));
 
-function gapOf(item, unit, items) {
+function gapOf(item, unit, items, stack) {
   if (item.kind === 'yours') return 'yours';
   if (unit.landedOn) return 'elsewhere';
-  if (unit.stackedUnder) return 'stacked';
+  // A stack lands bottom first, so a layer with one under it that has not landed waits for it.
+  if (stack?.below) return 'stacked';
   // The branch first: the clock is read only for the items on it.
   if (items.some(other => other.branch === item.branch && closingNow(other))) return 'closing';
   if (item.state === 'done') return 'unlanded';
   return unit.conflict ? 'rebase' : 'land';
 }
 
-/** Everything a branch would bring with it, because merging it merges them too. A grade on the top one says nothing about these. */
+/** Everything a branch would bring with it, because merging it merges them too. A grade on the branch says nothing about these. */
 const stackedBeneath = ({ branch }, units) => units.filter(unit => unit.heldBy?.includes(branch));
 
 // A card says what the work did in a few lines, so this is enough of a description to read at a glance. A proof is what the user decides on, so a
@@ -275,6 +276,8 @@ function readyRow(root, project, item, items, openUnits = []) {
   const unit = openUnits.find(({ branch: name }) => name === branch) ?? {};
   const { behind = null, conflict = null, size = null, safety = null, onlyDocs = false, landedOn = null, sha = null } = unit;
   const models = changeModels(root, project.slug, unit);
+  // Where it stands among the finished branches built on each other, or null when none is under or over it.
+  const stack = stackPlaces(items, openUnits).get(branch) ?? null;
   return {
     slug: project.slug,
     project: nameOf(project),
@@ -305,9 +308,8 @@ function readyRow(root, project, item, items, openUnits = []) {
     launch,
     onlyDocs,
     landedOn,
-    gap: gapOf(item, unit, items),
-    // Where it stands among the finished branches built on each other, or null when none is under or over it.
-    stack: stackPlaces(items, openUnits).get(branch) ?? null,
+    gap: gapOf(item, unit, items, stack),
+    stack,
     holds: stackedBeneath(unit, openUnits).length,
     described: existsSync(prFile(root, project.slug, id)),
     proved: Boolean(proof),
@@ -381,7 +383,7 @@ export const heldByItsGrade = ({ safety }) => Boolean(safety) && !safety.stale &
 const gapWords = {
   yours: 'only a person can do it',
   elsewhere: 'it is already on another branch',
-  stacked: 'it lands with the branch above it',
+  stacked: 'it lands after the layer under it',
   closing: 'an agent is still working on it',
   rebase: 'it conflicts with the default branch',
   unlanded: 'its item says done, so it goes through the walk',

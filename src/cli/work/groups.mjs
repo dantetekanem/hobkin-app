@@ -11,7 +11,7 @@ export function shownTitle(title) {
 
 /**
  * What one yes on a list may carry: git says nothing is in the way, the commit the card shows is known, so the merge can be pinned to it, there is proof,
- * no grade is against it, nothing is left for the user, and it brings no other branch along, so the yes covers exactly what was listed.
+ * no grade is against it, nothing is left for the user, no layer under it waits to land first, and it brings no other branch along, so the yes covers exactly what was listed.
  */
 const oneYesCarries = entry => entry.conflict === false
   && Boolean(entry.head)
@@ -19,6 +19,7 @@ const oneYesCarries = entry => entry.conflict === false
   && !heldByItsGrade(entry)
   && !entry.left
   && !entry.unread
+  && !entry.stack?.below
   && !entry.holds;
 
 /** `merge` lands as it is, `refresh` is behind its base and goes to an agent first, and `needs` waits for the user to open it. */

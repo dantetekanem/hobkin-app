@@ -3,7 +3,7 @@ import { localDay, SHIP_FIRST_AT, workloadOf } from './store.mjs';
 /** How much finished work may wait, across every project, before more work stops being the way to get things shipped, unless the user sets another number. */
 export { SHIP_FIRST_AT };
 
-// Rows the Done tab lists to land. A branch stacked under another has the gap `stacked`, so it counts once.
+// Rows the Done tab lists to land. A layer with one under it that has not landed has the gap `stacked`, so only the layer that can land counts.
 const gapsThatMove = ['land', 'rebase', 'unlanded'];
 
 export const pileOf = rows => rows.filter(({ gap }) => gapsThatMove.includes(gap));

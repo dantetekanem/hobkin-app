@@ -68,6 +68,7 @@ test('finished branches built one on the other are layers of one stack, counted 
   assert.deepEqual(placeOf(h, one), { id: one.id, layer: 1, of: 3, name: 'The split of the big change', below: null, base: null });
   assert.deepEqual(placeOf(h, two), { id: one.id, layer: 2, of: 3, name: 'The split of the big change', below: one.id, base: tipOf(h, 'hobkin/one') });
   assert.deepEqual(placeOf(h, three), { id: one.id, layer: 3, of: 3, name: 'The split of the big change', below: two.id, base: tipOf(h, 'hobkin/two') });
+  assert.deepEqual([one, two, three].map(item => row(h, item).gap), ['land', 'stacked', 'stacked']);
 });
 
 test('a finished branch with nothing under or over it is in no stack', async t => {
@@ -78,6 +79,77 @@ test('a finished branch with nothing under or over it is in no stack', async t =
 
   assert.equal(row(h, alone).stack, null);
   assert.equal(row(h, alone).gap, 'land');
+});
+
+test('the bottom layer merges alone, and the layer above it is then the bottom of what is left', async t => {
+  const h = workspace(t);
+  const [one, two, three] = chain(h);
+  await survey(h);
+
+  await mergeItem(h.root, 'api', one.id, { now: NOW });
+
+  assert.equal(read(h, one).state, 'merged');
+  assert.deepEqual([read(h, two).state, read(h, three).state], ['branch', 'branch'], 'nothing above came along');
+  assert.deepEqual([onMain(h, 'hobkin-one.txt'), onMain(h, 'hobkin-two.txt')], [true, false]);
+
+  await survey(h);
+
+  assert.deepEqual(placeOf(h, two), { id: two.id, layer: 1, of: 2, name: null, below: null, base: null });
+  assert.equal(placeOf(h, three).layer, 2);
+  assert.deepEqual([row(h, two).gap, row(h, three).gap], ['land', 'stacked']);
+});
+
+test('a merge, a publish and a refresh of a layer with one under it are refused, naming the layer that lands first', async t => {
+  const h = workspace(t);
+  const [one, two] = chain(h);
+  await survey(h);
+  const first = `"${one.title}" lands first: it is the layer under this one.`;
+
+  await assert.rejects(mergeItem(h.root, 'api', two.id, { now: NOW }), error => error.message.includes(first));
+  await assert.rejects(publishItem(h.root, 'api', two.id, { gh: async () => assert.fail('no host is asked'), now: NOW }), error => error.message.includes(first));
+  await assert.rejects(async () => refreshThenMerge(h.root, 'api', two.id, { now: NOW }), error => error.message.includes(first));
+  updateItem(h.root, 'api', two.id, { state: 'pr', pr: 'https://example.invalid/pull/2' }, NOW);
+  await assert.rejects(mergePullRequest(h.root, 'api', two.id, { gh: async () => assert.fail('no host is asked'), now: NOW }), error => error.message.includes(first));
+
+  assert.equal(onMain(h, 'hobkin-two.txt'), false);
+});
+
+test('a layer above is left out of the landing list and never offered, and says it lands after the layer under it', async t => {
+  const h = workspace(t);
+  const [, two] = chain(h);
+  await survey(h);
+
+  const { leftOut } = landingList(h.root);
+
+  assert.equal(leftOut.find(({ item }) => item === two.id).why, 'it lands after the layer under it');
+  const offer = offerFor({ slug: 'api', item: read(h, two), unit: {}, gap: 'stacked', records: new Map() });
+  assert.equal(offer.offerable, false);
+  assert.ok(offer.why.some(words => /layer under it/.test(words)), offer.why.join('; '));
+});
+
+const scored = Object.fromEntries(['coverage', 'proof', 'safety', 'visibility', 'rollback'].map(name => [name, { score: 10, evidence: `Saw ${name}.` }]));
+const allReady = Object.fromEntries(['tests', 'errors', 'slowQueries', 'performance', 'logs', 'alerts', 'rollback', 'deploy'].map(part => [part, { ready: true, how: `${part} is in place.` }]));
+
+test('YOLO mode merges the bottom layer and asks about the layers above it, one pass at a time', async t => {
+  const h = workspace(t);
+  setYolo(h.root, { on: true }, NOW);
+  const readiness = readItems(h.root, 'api').find(({ key }) => key === 'yolo:ready');
+  updateItem(h.root, 'api', readiness.id, { state: 'doing' }, NOW);
+  recordReadiness(h.root, 'api', allReady, NOW);
+  updateItem(h.root, 'api', readiness.id, { state: 'merged' }, NOW);
+  const [one, two] = chain(h);
+  for (const item of [one, two]) updateItem(h.root, 'api', item.id, { review: { kind: 'bug-fix', scores: scored, head: tipOf(h, item.branch) } }, NOW);
+  await survey(h);
+
+  const reports = await yoloPass(h.root, { now: NOW });
+
+  assert.equal(reports.length, 1);
+  assert.deepEqual([read(h, one).state, read(h, two).state], ['merged', 'branch']);
+
+  await survey(h);
+  await yoloPass(h.root, { now: NOW });
+
+  assert.equal(read(h, two).state, 'merged');
 });
 
 test('the name given when a layer is registered is on every layer, and an agent cannot set it afterwards', async t => {

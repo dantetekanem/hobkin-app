@@ -285,19 +285,18 @@ async function holdsAllOf(repo, other, name) {
 }
 
 /** Where else this work sits. The newest branches of the user's are enough, because work lands on what is being worked on. */
-async function placesOf({ repo, name, sha, finished, others }) {
+async function placesOf({ repo, name, sha, others }) {
   const holders = (await holdersOf(repo, sha)).filter(([holder]) => holder !== name);
-  const stackedUnder = holders.find(([holder, tip]) => finished.has(holder) && tip !== sha)?.[0] ?? null;
-  // `stackedUnder` folds a row into one branch. Landing either of two branches on top brings this along, and this list says so.
+  // Landing any branch that holds this one brings it along, and this list says which. Which of them are finished layers of a stack is read from it (`stacks.mjs`).
   const heldBy = holders.filter(([, tip]) => tip !== sha).map(([holder]) => holder);
   const merged = others.find(other => holders.some(([holder]) => holder === other));
-  if (merged) return { stackedUnder, heldBy, landedOn: merged };
+  if (merged) return { heldBy, landedOn: merged };
 
   // One at a time, because a survey already runs one of these for every branch of a project together.
   for (const other of others) {
-    if (await holdsAllOf(repo, other, name)) return { stackedUnder, heldBy, landedOn: other };
+    if (await holdsAllOf(repo, other, name)) return { heldBy, landedOn: other };
   }
-  return { stackedUnder, heldBy, landedOn: null };
+  return { heldBy, landedOn: null };
 }
 
 const plainPaths = ['-c', 'core.quotePath=false', 'diff', '--no-renames'];
@@ -325,7 +324,7 @@ export async function changeFacts(repo, base, name) {
   return { area, size: await sizeOfRange(repo, start, name) };
 }
 
-async function branchUnit({ repo, copies, tip, branch: { name, at, sha }, grades, finished, others, previous }) {
+async function branchUnit({ repo, copies, tip, branch: { name, at, sha }, grades, others, previous }) {
   // What it holds is measured from where it left its default branch. How far behind it is, and whether it conflicts, from where it lands.
   const start = await startOfChange(repo, copies, sha);
   const change = await changeOf(repo, start, name);
@@ -351,7 +350,7 @@ async function branchUnit({ repo, copies, tip, branch: { name, at, sha }, grades
     onlyDocs: await changesOnlyDocs(repo, start, name),
     change,
     safety: await safetyOf({ repo, name, sha, change, grades, before, sameCode }),
-    ...await placesOf({ repo, name, sha, finished, others }),
+    ...await placesOf({ repo, name, sha, others }),
   };
 }
 
@@ -360,7 +359,7 @@ async function branchUnit({ repo, copies, tip, branch: { name, at, sha }, grades
  * can still match a review of it, but there is nothing to compare with an older grade or to stack, so it gets no more than that. A PR ships on its
  * host, so a local branch of the user's that holds its head, such as one preparing a release on top of it, is not where it went.
  */
-async function pullHead({ repo, start, pr, grades, finished, previous }) {
+async function pullHead({ repo, start, pr, grades, previous }) {
   const sha = pr.headRefOid ?? null;
   if (!sha) return { sha, safety: null };
   const here = Boolean(await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `${sha}^{commit}`));
@@ -370,7 +369,7 @@ async function pullHead({ repo, start, pr, grades, finished, previous }) {
     sha,
     change,
     safety: await safetyOf({ repo, name: sha, sha, change, grades, before }),
-    ...(here ? await placesOf({ repo, name: pr.headRefName, sha, finished, others: [] }) : {}),
+    ...(here ? await placesOf({ repo, name: pr.headRefName, sha, others: [] }) : {}),
   };
 }
 
@@ -407,7 +406,7 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   const bare = branches.filter(branch => !branch.merged && !withPull.has(branch.name) && !BACKUP_BRANCH.test(branch.name));
   const others = await usersBranches(repo, base, finished);
   const copies = await defaultCopies(repo, base);
-  const units = await Promise.all(bare.map(branch => branchUnit({ repo, copies, tip, branch, grades, finished, others, previous })));
+  const units = await Promise.all(bare.map(branch => branchUnit({ repo, copies, tip, branch, grades, others, previous })));
   const landed = await mergedHere({ repo, base, units, previous });
   // Git keeps no date for a local merge, so one seen now is dated now.
   const merges = [previous.lastMergeAt, landed.length ? new Date(now).toISOString() : null, ...ownPulls.map(pr => pr.mergedAt)];
@@ -423,7 +422,7 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
       ...pullUnit(pr),
       ...read,
       headHere,
-      ...await pullHead({ repo, start, pr, grades, finished, previous }),
+      ...await pullHead({ repo, start, pr, grades, previous }),
     };
   };
   const openPulls = await Promise.all(ownPulls.filter(pr => pr.state === 'OPEN').map(surveyPull));

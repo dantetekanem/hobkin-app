@@ -1,4 +1,4 @@
-import { handOff, isFinished, mergeItem, mergePullRequest, reply, toldOf, whyWorkModeWaits } from './controls.mjs';
+import { assertLandsFirst, handOff, isFinished, mergeItem, mergePullRequest, reply, toldOf, whyWorkModeWaits } from './controls.mjs';
 import { findItem, findProject, nameOf } from './names.mjs';
 import { ownerView, readItems, readMode, readProject, readProjects, retryItem, updateItem } from './store.mjs';
 
@@ -24,6 +24,7 @@ export function refreshThenMerge(root, reference, id, { read = 'none', readMs = 
   if (ownerView(root).running.some(run => run.slug === project.slug && run.item === item.id)) {
     throw Error(`"${item.title}" is already running. hobkin work cancel ${item.id} stops it.`);
   }
+  assertLandsFirst(root, project, item);
 
   const held = whyWorkModeWaits(readMode(root), now);
   if (held) return handOff(root, { project, item, why: held, now }, REFRESH_JOB);

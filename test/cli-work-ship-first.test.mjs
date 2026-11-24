@@ -178,7 +178,7 @@ test('watch looks keep running and every other look is new work', () => {
   assert.equal(startsNewWork({ kind: 'item', item: { kind: 'feature', state: 'open' } }), true);
 });
 
-test('the pile counts what can move, and a stacked branch under another counts once', () => {
+test('the pile counts what can move, and a layer waiting on the one under it does not count', () => {
   const rows = [{ gap: 'land' }, { gap: 'rebase' }, { gap: 'unlanded' }, { gap: 'stacked' }, { gap: 'closing' }, { gap: 'yours' }, { gap: 'elsewhere' }];
 
   assert.equal(pileOf(rows).length, 3);
@@ -393,30 +393,6 @@ test('a branch that moved after the pair was filed does not merge', async t => {
 
   assert.equal(stateOf(h, rated).state, 'branch');
   assert.match(message, /moved/);
-});
-
-test('a branch on earlier work a review held back never merges that work: the earlier branch goes for its review', async t => {
-  const h = workspace(t);
-  branched(h.checkout, 'hobkin/under', 'under.txt', 'under\n');
-  git(h.checkout, 'switch', '-q', 'hobkin/under');
-  git(h.checkout, 'switch', '-q', '-c', 'hobkin/over');
-  commit(h.checkout, 'over.txt', 'over\n');
-  git(h.checkout, 'switch', '-q', 'main');
-  const place = (name, title) => {
-    const { id } = fileItem(h.root, 'api', item(title), now);
-    return updateItem(h.root, 'api', id, { state: 'branch', branch: name, ...proved }, now);
-  };
-  const under = place('hobkin/under', 'Under');
-  place('hobkin/over', 'Over');
-  reviewed(h, tipOf(h, 'hobkin/under'), 'medium', 'C');
-  reviewed(h, tipOf(h, 'hobkin/over'));
-  await survey(h);
-  finishedOn(h.root, 'api', SHIP_FIRST_AT);
-
-  bringPair(h.root, now);
-
-  const [first] = pair(h.root).answerTo.rows;
-  assert.deepEqual([first.item, first.step], [under.id, 'review']);
 });
 
 test('later holds pairs for two hours, then the same two come back', async t => {

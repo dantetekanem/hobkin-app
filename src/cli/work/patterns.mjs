@@ -19,7 +19,7 @@ const TRAVELLING_AREAS = ['docs', 'tests', 'deps'];
 const NO_WAY_BACK = ['one-way', 'permanent'];
 const gapWords = {
   elsewhere: 'already on another branch',
-  stacked: 'sits under a newer branch',
+  stacked: 'it lands after the layer under it',
   closing: 'an agent is on it',
   yours: 'only a person can do this',
   unlanded: 'its item says done, so it goes through the walk',

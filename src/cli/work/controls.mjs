@@ -13,6 +13,7 @@ import { userTrouble } from './launches.mjs';
 import { findItem, findProject, nameOf, projectNamed, runsNamed } from './names.mjs';
 import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER, weighedRows } from './reads.mjs';
+import { layerUnder } from './stacks.mjs';
 import {
   answerAllowance, assertLevel, chooseProject, doableKinds, dropProject, fileItem, itemTree, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, pickNow, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
   requestCancel, retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeDirections, writeMode,
@@ -515,6 +516,13 @@ async function closeWhatLanded({ root, repo, slug, merged, target, landing, now 
   return closing.length;
 }
 
+/** A stack lands bottom first, so a layer with one under it that has not landed is neither merged, published nor refreshed before it. */
+export function assertLandsFirst(root, project, item) {
+  const units = readUnmerged(root).projects[project.slug]?.open ?? [];
+  const under = layerUnder(item, readItems(root, project.slug), units);
+  if (under) throw Error(`"${under.title}" lands first: it is the layer under this one.`);
+}
+
 const assertSameHead = (title, offered, head) => {
   if (offered && offered !== head) throw Error(`"${title}" moved since it was offered, so nothing merged. It needs reading again.`);
 };
@@ -529,6 +537,7 @@ export async function mergeItem(root, reference, id, { route = 'chat', read = 'n
   const { title, branch, state } = item;
   assertNotRunning(root, project, item);
   if (!statesThatMerge.includes(state) || !branch) throw Error(`"${title}" is ${state}, so there is no local branch to merge.`);
+  assertLandsFirst(root, project, item);
 
   const repo = project.path ?? paths(root, project.slug).clone;
   const base = await defaultBranch(repo);
@@ -595,6 +604,7 @@ async function ownPullOf(repo, item, gh) {
  */
 export async function mergePullRequest(root, reference, id, { head = null, url = null, gh = ghWithin(MERGE_PR_TIMEOUT_MS), now = Date.now() } = {}) {
   const { project, item } = prOf(root, reference, id);
+  assertLandsFirst(root, project, item);
   const repo = project.path ?? paths(root, project.slug).clone;
   const address = url ?? await ownPullOf(repo, item, gh);
   const pinned = head ? ['--match-head-commit', head] : [];
@@ -658,6 +668,7 @@ export async function publishItem(root, reference, id, { head = null, gh = ghWit
   assertNotRunning(root, project, item);
   if (state === 'pr' && item.pr) return cardReply(project, item, OPENED_PR, named => `${named} has its PR open already.`);
   if (!statesThatMerge.includes(state) || !branch) throw Error(`"${title}" is ${state}, so there is no finished branch to open a PR for.`);
+  assertLandsFirst(root, project, item);
 
   const repo = project.path ?? paths(root, project.slug).clone;
   const tip = await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `refs/heads/${branch}`);
