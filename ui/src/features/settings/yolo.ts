@@ -43,6 +43,7 @@ export const SAMPLE_YOLO: YoloState = {
     {
       slug: 'storefront',
       name: 'storefront',
+      on: true,
       ready: true,
       needs: [],
       work: 'landed',
@@ -61,6 +62,7 @@ export const SAMPLE_YOLO: YoloState = {
     {
       slug: 'search-api',
       name: 'search-api',
+      on: true,
       ready: true,
       needs: [],
       work: 'landed',
@@ -75,6 +77,7 @@ export const SAMPLE_YOLO: YoloState = {
     {
       slug: 'billing-api',
       name: 'billing-api',
+      on: true,
       ready: false,
       needs: ['Tests: its PR waits for your merge.'],
       work: 'landed',
@@ -90,6 +93,8 @@ export const SAMPLE_YOLO: YoloState = {
     {
       slug: 'docs-site',
       name: 'docs-site',
+      // The user turned YOLO mode off here, so the page shows it as one line.
+      on: false,
       ready: false,
       needs: ['Tests: its branch waits for your merge.'],
       work: 'waiting',
@@ -99,7 +104,10 @@ export const SAMPLE_YOLO: YoloState = {
         slowQueries: { state: 'done', line: 'It has no database.' },
         deploy: { state: 'done', line: 'Nothing deploys: the site is built by its host.', deploys: false },
       }),
-      changes: [],
+      changes: [
+        { item: 'd4', title: 'Fix the broken anchor links', kind: 'a bug fix', rate: 9, why: 'YOLO mode is off on its project' },
+        { item: 'd5', title: 'Bump the link checker', kind: 'a package update', rate: 9.4, why: 'YOLO mode is off on its project' },
+      ],
       merged: [],
     },
   ],
@@ -116,8 +124,8 @@ export const yoloValue = (yolo: YoloState): string => (yolo.on ? `On · ${readyC
 
 /** What the switch means as it stands. */
 export function yoloSays(yolo: YoloState): string {
-  if (!yolo.on) return 'Every merge and deploy asks you. Turning this on merges nothing: hobkin first files one feature on each project to get it ready.'
-  return `On a ready project, a small change its review rates ${yolo.rate} or more merges and deploys by itself, and hobkin reports it. Features and everything else still ask you.`
+  if (!yolo.on) return 'Every merge and deploy asks you. Turning this on merges nothing: hobkin first files one feature on each project it is on for to get it ready.'
+  return `On a ready project it is on for, a small change its review rates ${yolo.rate} or more merges and deploys by itself, and hobkin reports it. Features and everything else still ask you.`
 }
 
 /** The rates the user may pick, lowest first. */

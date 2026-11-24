@@ -11,6 +11,48 @@ import { dateLabel, dayName, whenText } from '../routines/words.ts'
  * and which button can be pressed.
  */
 
+/** Whether hobkin sends this project's own switch. One older than the switch sends none, and the page then shows none. */
+export const hasSwitch = (project: YoloProject): boolean => typeof project.on === 'boolean'
+
+/** Whether YOLO mode works on this project by its own switch. A project with no switch is as the main switch says. */
+export const isOn = (project: YoloProject): boolean => project.on !== false
+
+/**
+ * The projects in the order the page shows them: those YOLO mode is on for first, then the ones it is off for, each group in
+ * hobkin's order. `kept` is the order the page opened with, which holds while it is open, so a project whose switch was just
+ * pressed stays under the pointer and moves to its group on the next visit. A project new since goes at the end, in its group.
+ */
+export function projectOrder(projects: readonly YoloProject[], kept: readonly string[] | null): YoloProject[] {
+  const grouped = [...projects.filter(isOn), ...projects.filter((project) => !isOn(project))]
+  if (!kept) return grouped
+  const place = new Map(kept.map((slug, index) => [slug, index]))
+  const known = projects.filter(({ slug }) => place.has(slug)).toSorted((a, b) => place.get(a.slug)! - place.get(b.slug)!)
+  return [...known, ...grouped.filter(({ slug }) => !place.has(slug))]
+}
+
+/** The one quiet line a project YOLO mode is off for shows in place of its card, with its count of waiting changes when hobkin sends them. */
+export function offLine({ changes }: YoloProject): string {
+  const count = changes?.length ?? 0
+  if (!count) return 'YOLO mode is off here: its changes wait for you.'
+  return `YOLO mode is off here: its ${count} finished ${count === 1 ? 'change waits' : 'changes wait'} for you.`
+}
+
+/** What a project's switch is before the user touched it, said once over the projects while hobkin sends switches. */
+export function switchesSay({ projects }: YoloState): string | null {
+  if (!projects.some(hasSwitch)) return null
+  return 'Each project has its own switch. A project YOLO mode was already working on stays on until you turn it off, and one taken on Work later starts off.'
+}
+
+/** The sample after a project's switch is pressed, so the page answers with no host as hobkin would. */
+export const sampleSwitch = (yolo: YoloState, slug: string, on: boolean): YoloState => ({
+  ...yolo,
+  projects: yolo.projects.map((project) => (project.slug === slug ? { ...project, on } : project)),
+})
+
+/** What the gates count, for their title and a reader. Only the projects YOLO mode is on for pass through them. */
+export const GATES_COUNTS = (rate: number): string =>
+  `Of the finished changes waiting now on the projects YOLO mode is on for, how many are rated ${rate} or more, and how many of those nothing holds. hobkin keeps no history of each gate, so this counts now.`
+
 /** The button on Work's header, at a glance: "Off", or "On · 2 of 5 ready". */
 export function yoloAtAGlance({ on, ready, projects }: YoloState): string {
   if (!on) return 'Off'
@@ -288,7 +330,9 @@ function mergesOf(project: YoloProject, context: VerdictContext): StatusLine {
   const next = firstChange(project.changes ?? [])
   if (next && !next.why) return { state: 'Merging', tone: 'live', text: `"${next.title}" merges by itself on the next pass: ${next.kind} rated ${next.rate}.` }
   if (next?.why) return stuck(`Nothing can merge by itself. "${next.title}" asks you: ${sentence(next.why)}`)
-  if (context.prMode !== 'off') return stuck('PR mode is on here, so each change goes up as a PR for your merge, and YOLO mode merges no PR.')
+  if (context.prMode !== 'off') {
+    return { state: 'Idle', tone: 'quiet', text: `Nothing waits to merge. Each change goes up as a PR, and the next small one rated ${context.rate} or more merges there by itself once its checks pass.` }
+  }
   return { state: 'Idle', tone: 'quiet', text: `Nothing waits to merge. The next small change rated ${context.rate} or more merges by itself.` }
 }
 
@@ -435,7 +479,7 @@ export function trustTiles(known: readonly MetricsDay[] | null, note: string | n
       label: 'By itself',
       figure: known ? shareWords(shareOf(byItself, merged)) : NO_DATA,
       context: !known ? missing : merged ? `${countWords(byItself)} of ${countWords(merged)} merges in 30 days` : 'nothing merged in 30 days',
-      counts: 'Of the changes merged over 30 days, the share hobkin merged by itself in YOLO mode. The bars are that share for each day.',
+      counts: 'Of the changes merged over 30 days on every project, the share hobkin merged by itself in YOLO mode. The bars are that share for each day.',
       series: series((day) => shareOf(day.mergedByItself, day.mergedByItself + day.mergedByYou)),
       most: 1,
     },
@@ -444,7 +488,7 @@ export function trustTiles(known: readonly MetricsDay[] | null, note: string | n
       label: 'Regressed after deploy',
       ...(known && byItself ? { figure: countWords(total.regressed), after: `of ${countWords(byItself)}` } : { figure: NO_DATA }),
       context: !known ? missing : byItself ? 'merged by itself in 30 days' : 'nothing by itself in 30 days',
-      counts: 'Of the changes hobkin merged by itself over 30 days, those whose reading after their deploy regressed. The bars are those regressions by day.',
+      counts: 'Of the changes hobkin merged by itself over 30 days on every project, those whose reading after their deploy regressed. The bars are those regressions by day.',
       series: series((day) => day.regressed),
     },
     {
@@ -452,7 +496,7 @@ export function trustTiles(known: readonly MetricsDay[] | null, note: string | n
       label: 'Held for you',
       figure: known ? countWords(held) : NO_DATA,
       context: !known ? missing : 'decided by you in 30 days',
-      counts: 'Changes that waited for your yes or no over 30 days instead of merging by themselves: merged on your yes, or declined. The bars are those of each day.',
+      counts: 'Changes on every project that waited for your yes or no over 30 days instead of merging by themselves: merged on your yes, or declined. The bars are those of each day.',
       series: series((day) => day.mergedByYou + day.declined),
     },
   ]
@@ -498,14 +542,15 @@ function shownHolds(holds: GateHold[]): GateHold[] {
  * what holds it, not a history of each gate, so this counts now: the changes finished, those rated at or above the user's
  * rate, and those of them nothing holds. What holds the rest is counted in the words the state gives: what holds every
  * merge first (YOLO mode off, work mode waiting, the project paused on Work), then a project still getting ready, then the
- * change's own reason. A rate under the user's is one reason, whatever the rate.
+ * change's own reason. A rate under the user's is one reason, whatever the rate. A project YOLO mode is off for passes no
+ * gate, so its changes are not counted here: its own line on the page says how many wait.
  */
 export function gates(yolo: YoloState, { waits, paused }: { waits: string | null; paused: ReadonlySet<string> }): Gates {
   const counts = new Map<string, number>()
   let finished = 0
   let rated = 0
   let free = 0
-  for (const project of yolo.projects) {
+  for (const project of yolo.projects.filter(isOn)) {
     // What holds every change of the project comes before a change's own reason.
     const projectHold =
       mergesHeld(project, { on: yolo.on, waits, paused: paused.has(project.slug) }) ?? (project.ready ? null : `${project.name} is getting ready`)
