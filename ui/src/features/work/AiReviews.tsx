@@ -13,6 +13,7 @@ import { rowOffersStack } from '@/features/review/stack-start.ts'
 import { useStackStart } from '@/features/review/use-stack-start.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
+import { pullScreen } from '@/integration/pull-screen.ts'
 import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { NeedNumbers } from '@/features/review/panel/needs.ts'
@@ -160,15 +161,19 @@ export function RepoLines({ lines, live, onAgain, openAtFirst = [] }: { lines: R
 
 /** How a review starts, for a host that has none yet. */
 function NoReviews() {
+  const pulls = pullScreen()
   return (
     <section aria-label="No review yet" className="flex flex-col items-start gap-3 rounded-3xl bg-background p-6">
       <p className="font-heading text-[18px] leading-snug font-semibold tracking-[-0.015em]">No review yet</p>
       <p className="max-w-[64ch] text-[14px] leading-relaxed text-muted-foreground">
-        A finished change gets one by itself, once work mode finishes it. A pull request gets one when you press Start review on its row on the GitHub page.
+        A finished change gets one by itself, once work mode finishes it.
+        {pulls ? ` A pull request gets one when you press Start review on its row on the ${pulls.label} page.` : ''}
       </p>
-      <Button variant="outline" data-stop="" onClick={() => useView.getState().openGitHub()}>
-        Open GitHub
-      </Button>
+      {pulls ? (
+        <Button variant="outline" data-stop="" onClick={() => useView.getState().openPartScreen(pulls.id)}>
+          Open {pulls.label}
+        </Button>
+      ) : null}
     </section>
   )
 }
@@ -546,7 +551,7 @@ function RowSaid({ kind, removal, flow, armed, doing }: {
   } else if (armed === 'remove') {
     said = (
       <p className="text-pretty">
-        Takes this review out of the list, and nothing else: {kind === 'pull' ? 'the pull request and its branch stay on GitHub.' : 'the change, its branch and its pull request stay.'} Click Remove again within ten seconds to confirm.
+        Takes this review out of the list, and nothing else: {kind === 'pull' ? 'the pull request and its branch stay where they are.' : 'the change, its branch and its pull request stay.'} Click Remove again within ten seconds to confirm.
       </p>
     )
   } else if (flow.preview && armed) {
