@@ -5,6 +5,7 @@ import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { reviewIdOf } from '#shared/review/ids.ts'
 import type { Review } from '#shared/review/types.ts'
+import type { Assessments } from '../src/review/assessment.ts'
 import { Reviews, type Watched } from '../src/review/reviews.ts'
 import { finishTimes } from '../src/review/seat.ts'
 import { reviewStore } from '../src/review/store.ts'
@@ -89,6 +90,19 @@ test('every change past two days is reviewed once in time, one at a time: the pl
   assert.equal(new Set(taken).size, 18, 'each of the other eighteen in turn')
   assert.equal(taken[0], 'change:shop:c20')
   assert.equal(taken[1], 'change:shop:c19')
+})
+
+test("the longest-wait place goes to a change the line would not take anyway, and is not given once today's half for it is spent", () => {
+  // c2 waited longest, but Work's first three take it anyway: the place goes to c6, the next longest waiting.
+  const changes = finished(6, (index) => ({ at: new Date(NOW - (index === 1 ? 100 : index === 5 ? 60 : 1) * HOUR).toISOString() }))
+
+  const line = lineOf(changes, { now: NOW })
+  const spent = lineOf(changes, { now: NOW, longest: false })
+
+  assert.deepEqual([...line.current], ['change:shop:c6', 'change:shop:c1', 'change:shop:c2'])
+  assert.deepEqual([...line.aged], ['change:shop:c6'])
+  assert.deepEqual([...spent.current], ['change:shop:c1', 'change:shop:c2', 'change:shop:c3'])
+  assert.equal(spent.aged.size, 0)
 })
 
 test('a change whose build failed gives its place up for a day and says when it is tried again; then it waits in its turn', () => {
@@ -354,4 +368,60 @@ test('a build that fails is tried again at most once a day in its turn, even aft
   reviews.watch(wanted)
   await settle()
   assert.deepEqual(started, ['change:shop:c1', 'change:shop:c1'])
+})
+
+test("an old change keeps the longest-wait place until its review finished, one at a time, and that place spends at most half the day's number", async (t) => {
+  const root = temporaryDirectory(t)
+  const store = reviewStore(root)
+  const states = new Map<string, string>()
+  const started: string[] = []
+  const assessments = {
+    status: (target: Parameters<typeof reviewIdOf>[0], head: string | null) => ({ state: states.get(reviewIdOf(target)) ?? 'idle', head }),
+    cutShort: () => false,
+    start: (job: { target: Parameters<typeof reviewIdOf>[0]; head: string }) => {
+      started.push(reviewIdOf(job.target))
+      states.set(reviewIdOf(job.target), 'running')
+      return { state: 'running', head: job.head }
+    },
+    stop: () => false,
+    pending: () => [],
+    present: () => null,
+    read: () => null,
+    busy: () => false,
+    forget: () => {},
+    close: () => {},
+  } as unknown as Assessments
+  // Twenty changes that finished days ago, c20 the longest ago, each with its graph drawn: what starts is its change review.
+  const wanted: Watched[] = Array.from({ length: 20 }, (_, index) => ({ id: `change:shop:c${index + 1}`, head: sha(index + 1), project: 'Shop', grade: null, conflict: false, at: new Date(NOW - (60 + index) * HOUR).toISOString() }))
+  for (const [index, entry] of wanted.entries()) store.write({ kind: 'change', slug: 'shop', item: `c${index + 1}` }, ({ change: { title: `c${index + 1}`, project: 'Shop', head: entry.head, base: 'b'.repeat(40) } }) as unknown as Review, [])
+  const reviews = new Reviews({
+    store,
+    sources: {
+      change: { head: async (target) => (target.kind === 'change' ? sha(Number(target.item.slice(1))) : null), read: async () => Promise.reject(new Error('not read here')) },
+      pull: { head: async () => null, read: async () => Promise.reject(new Error('no pull requests here')) },
+    },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    assessments,
+    reviewsADay: () => 6,
+    now: () => NOW,
+  })
+  t.after(() => reviews.close())
+  const look = async () => {
+    reviews.watch(wanted)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+
+  await look()
+  assert.deepEqual(started, ['change:shop:c1', 'change:shop:c2', 'change:shop:c20'])
+  // Its graph is drawn and its change review runs: the place is still c20's.
+  await look()
+  assert.equal(started.length, 3)
+  for (const finished of ['change:shop:c20', 'change:shop:c19', 'change:shop:c18']) {
+    states.set(finished, 'ready')
+    await look()
+  }
+
+  // Three of the day's six went to the longest waits: then the place goes back to Work's order.
+  assert.deepEqual(started, ['change:shop:c1', 'change:shop:c2', 'change:shop:c20', 'change:shop:c19', 'change:shop:c18', 'change:shop:c3'])
 })
