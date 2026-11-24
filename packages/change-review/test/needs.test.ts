@@ -85,3 +85,13 @@ test('a pull request is rated the same way, with monitoring unknown when none is
   // A review whose only rating was that guess is not rated.
   assert.equal(capNeeds({ kind: 'feature', scores: { visibility: score(9) } }, facts({ monitoring: false }), 'abc123', []), undefined)
 })
+
+test("a cap's words join the evidence as one clean line, whatever the names it gives look like", () => {
+  const capped = capNeeds(answered(), facts({ high: [''], undoNone: ['', 'DropColumn\n  #change', '  '] }), 'abc123')!
+  assert.equal(capped.scores.rollback!.capped!.why, 'nothing undoes DropColumn #change')
+  assert.equal(capped.scores.safety!.capped!.why, 'a part is rated high')
+  for (const kept of Object.values(capped.scores)) {
+    assert.doesNotMatch(kept!.evidence, /\s{2}|[\r\n]|\(\)|: and/, kept!.evidence)
+    assert.ok(kept!.evidence.length <= 400)
+  }
+})

@@ -37,11 +37,19 @@ export const LONGEST_EVIDENCE = 400
 const PROVEN = new Set(['lifecycle-observed', 'lifecycle', 'isolated'])
 const fileOf = (path: string) => path.split('/').filter(Boolean).at(-1) ?? path
 
-/** "a", "a and b", "a, b, c and 2 more". */
+/** Prose on one line: white space made single spaces, with none at the ends. */
+const oneLine = (text: string) => text.replace(/\s+/g, ' ').trim()
+
+/** Names as words, each on one line, and a name that is empty left out: "a", "a and b", "a, b, c and 2 more", or "a part". */
 function named(names: readonly string[]): string {
-  const shown = names.length > 3 ? [...names.slice(0, 3), `${names.length - 3} more`] : [...names]
-  return shown.length < 2 ? (shown[0] ?? '') : `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}`
+  const kept = names.map(oneLine).filter(Boolean)
+  const shown = kept.length > 3 ? [...kept.slice(0, 3), `${kept.length - 3} more`] : kept
+  if (!shown.length) return 'a part'
+  return shown.length < 2 ? shown[0]! : `${shown.slice(0, -1).join(', ')} and ${shown.at(-1)}`
 }
+
+/** Whether names that are said as `named` says them are more than one. */
+const several = (names: readonly string[]) => names.map(oneLine).filter(Boolean).length > 1
 
 /** What the caps read, from the review's parts as rated, the change's files, the model checks and the monitoring given. */
 export function needsFacts({ nodes, files, checks, monitoring }: { nodes: readonly ReviewNode[]; files: readonly ChangedFile[]; checks: readonly ModelCheck[]; monitoring: boolean }): NeedsFacts {
@@ -73,7 +81,7 @@ function capsOf(facts: NeedsFacts): Partial<Record<NeedCriterion, { most: number
   if (facts.brokenModels.length) caps.proof = { most: 3, why: `the model check of ${named(facts.brokenModels)} breaks a rule at this commit` }
   else if (facts.onlyModels && facts.uncheckedModels.length) caps.proof = { most: 4, why: `the model check of ${named(facts.uncheckedModels)} was not run at this commit` }
   else if (!facts.onlyModels && facts.testsChanged === 0) caps.proof = { most: 4, why: 'no test was added or changed with the change' }
-  if (facts.high.length) caps.safety = { most: 5, why: `${named(facts.high)} ${facts.high.length === 1 ? 'is' : 'are'} rated high` }
+  if (facts.high.length) caps.safety = { most: 5, why: `${named(facts.high)} ${several(facts.high) ? 'are' : 'is'} rated high` }
   if (facts.undoNone.length) caps.rollback = { most: 4, why: `nothing undoes ${named(facts.undoNone)}` }
   // With no monitoring known there is no visibility score at all (`capNeeds`). With monitoring given, whether it covers
   // a part that writes data or runs at load is the Reviewer's to judge: the prompt asks for 4 or less where it does not.
@@ -83,10 +91,13 @@ function capsOf(facts: NeedsFacts): Partial<Record<NeedCriterion, { most: number
 /** A score held to its cap, the cap said at the end of its evidence, within the length hobkin keeps. */
 function held(kept: NeedScore, cap: { most: number; why: string } | undefined): NeedScore {
   if (!cap || kept.score <= cap.most) return kept
-  const said = ` Capped at ${cap.most}: ${cap.why}.`
+  // The cap's words join the evidence as prose: one line, single spaces, within the length hobkin keeps.
+  const why = oneLine(cap.why)
+  const said = ` Capped at ${cap.most}: ${why}.`
   const room = LONGEST_EVIDENCE - said.length
-  const evidence = kept.evidence.length <= room ? kept.evidence : `${kept.evidence.slice(0, Math.max(0, room - 1)).trimEnd()}…`
-  return { ...kept, score: cap.most, evidence: `${evidence}${said}`, capped: { from: kept.score, why: cap.why } }
+  const own = oneLine(kept.evidence)
+  const evidence = own.length <= room ? own : `${own.slice(0, Math.max(0, room - 1)).trimEnd()}…`
+  return { ...kept, score: cap.most, evidence: `${evidence}${said}`.slice(0, LONGEST_EVIDENCE), capped: { from: kept.score, why } }
 }
 
 /**
