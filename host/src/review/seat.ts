@@ -302,7 +302,8 @@ export function hostReviews(seat: ReviewSeat): Reviews {
   if (seat.live) keepCleaning(seat, closed)
   const reviews: Reviews = new Reviews({
     ...(assessments ? { assessments } : {}),
-    ...(carry ? { carry } : {}),
+    // Off for now: a check found reviews carried when they should have been built again (spec 058, S2).
+    ...(CARRIES_REVIEWS && carry ? { carry } : {}),
     keepCurrent,
     backAtWork,
     reviewsADay,
@@ -406,6 +407,8 @@ function projectMonitoring(seat: { data: () => string; log?: (line: string) => v
 const CLEAN_FIRST_MS = 60_000
 /** While true, the scheduled cleaning only says in the log what it would remove. */
 const CLEAN_LOOKS_ONLY = true
+/** While false, a review whose change moved is never carried to the new commit: it is built again, or waits its turn. */
+const CARRIES_REVIEWS = false
 const CLEAN_EVERY_MS = 24 * 60 * 60 * 1000
 
 /** The one cleaning schedule of each home, kept on globalThis so a host that reloads its code keeps one, not two. */
