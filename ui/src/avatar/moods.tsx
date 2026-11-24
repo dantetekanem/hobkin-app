@@ -43,7 +43,7 @@ export interface Piece {
 export interface MoodLayers {
   /** Class that moves the eyes as a pair. */
   look?: string
-  /** Class that blinks the eyes. */
+  /** Class that marks eyes that blink now and then (blink.ts). `hob-b-slow` blinks slower. */
   blink?: string
   eyesOpacity?: number
   /** The middle of the eyes, which the look and the blink scale about. (100, 138) unless given. */

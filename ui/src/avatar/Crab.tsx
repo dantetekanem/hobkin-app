@@ -1,4 +1,6 @@
 import { useRef, type CSSProperties, type ReactNode } from 'react'
+import { useBlinks } from './blink.ts'
+import { SMALL_FACE_PX } from './face-motion.ts'
 import { Art, Layer } from './Layer.tsx'
 import { useMoodPlay } from './mood-play.ts'
 import type { CrabMood } from './pals.ts'
@@ -120,6 +122,7 @@ export function Crab({ mood = 'idle', size = 44, still = false, resting = false,
   const blinkClass = eyes.blink ? 'hob-crab-blink hob-cb-on' : 'hob-crab-blink'
   const crabRef = useRef<HTMLSpanElement | null>(null)
   useMoodPlay(crabRef, mood)
+  useBlinks(crabRef, Boolean(eyes.blink) && !still && !resting && size >= SMALL_FACE_PX)
 
   return (
     <span

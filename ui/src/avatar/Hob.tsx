@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
+import { useBlinks } from './blink.ts'
 import { faceMotion } from './face-motion.ts'
 import { Art, Layer } from './Layer.tsx'
 import { useMoodPlay } from './mood-play.ts'
@@ -48,6 +49,8 @@ export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = f
   const shown = pet ?? chosen
   const motion = faceMotion({ size, mood, still })
   const eyesAt = art.eyesAt ?? EYES_AT
+  // A face of 40 px or more, moving, blinks now and then while its mood blinks.
+  useBlinks(faceRef, drawing === 'pet' && motion.parts && Boolean(art.blink))
 
   if (drawing === 'nothing') return null
 
