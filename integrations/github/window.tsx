@@ -5,6 +5,7 @@ import manifest from './integration.ts'
 import { GitHubCard } from './window/GitHubCard.tsx'
 import { GitHubScreen } from './window/GitHubScreen.tsx'
 import { githubHome } from './window/home.ts'
+import { githubSpotlight } from './window/spotlight.ts'
 
 /** GitHub's part of the window (_specs/064-integration-drops): its page, its card on Integrations, its mark, and the pull requests Work reads. */
 const part: WindowPart<GitHubState> = {
@@ -16,6 +17,7 @@ const part: WindowPart<GitHubState> = {
   mark: { symbol: 'Gh', hue: 162 },
   pulls: (state) => [...state.reviews, ...state.pulls],
   home: githubHome,
+  spotlight: githubSpotlight,
 }
 
 export default part

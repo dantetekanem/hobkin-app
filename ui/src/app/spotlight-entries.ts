@@ -1,9 +1,8 @@
-import { CalendarClock, CircleDot, FileText, FolderGit2, GitPullRequest, Inbox, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import { CalendarClock, FileText, FolderGit2, Inbox, SlidersHorizontal, type LucideIcon } from 'lucide-react'
 import { useMemo } from 'react'
 import type { Mood } from '@/avatar/moods.tsx'
 import { useWaitingRows } from '@/features/actions/store.ts'
 import type { WaitingRow } from '@/features/actions/items.ts'
-import { openGitHubPage, openPullRequestReview } from '@/features/github/open.ts'
 import { newestFirst } from '@/features/reports/inbox.ts'
 import { sourceOf, type Report } from '@/features/reports/report.ts'
 import { useReports } from '@/features/reports/store.ts'
@@ -14,10 +13,13 @@ import { howOften } from '@/features/routines/words.ts'
 import { useNerdStats } from '@/features/settings/nerd-stats-store.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { useWorkView } from '@/features/work/store.ts'
-import { useGitHub, type GitHubState, type WorkProject } from '@/lib/host/index.ts'
+import { partScreens, isPartScreen } from '@/integration/screens.ts'
+import { windowParts } from '@/integration/registry.ts'
+import { useSlice } from '@/integration/use-slice.ts'
+import type { WorkProject } from '@/lib/host/index.ts'
 import { activeCanvasScreen, requestCanvasFocus } from './focus.ts'
 import { useRunningAgents, type RunningAgent } from './running-agents.ts'
-import { SCREENS, walkScreens, type ScreenId } from './screens.ts'
+import { screens, walkScreens, type ScreenId } from './screens.ts'
 import type { SpotlightEntry } from './spotlight-search.ts'
 import { isStill } from './still-rule.ts'
 import { useView } from './view-store.ts'
@@ -25,7 +27,7 @@ import { useView } from './view-store.ts'
 /**
  * What the spotlight searches, read from the same stores and hooks the screens use: the screens, the sections of
  * Settings, the agents working now, Work's projects, the reports, the routines, what waits on the user, and their
- * GitHub. Each entry says how its row is drawn and where Enter takes the user. See _specs/026-spotlight.
+ * integrations'. Each entry says how its row is drawn and where Enter takes the user. See _specs/026-spotlight.
  */
 
 /** What stands before a row's title: an icon, or the small hood of an agent. */
@@ -46,7 +48,6 @@ const SCREEN_WORDS: Partial<Record<ScreenId, string[]>> = {
   routines: ['schedules', 'jobs'],
   actions: ['decisions', 'questions', 'waiting'],
   work: ['projects', 'queue', 'changes'],
-  github: ['pull requests', 'issues', 'reviews', 'gh'],
   settings: ['preferences', 'options'],
   integrations: ['services', 'connections', 'mcp'],
   memory: ['memories', 'remember', 'forget', 'about me', 'right now'],
@@ -58,14 +59,15 @@ const SCREEN_LINE: Partial<Record<ScreenId, string>> = {
   routines: 'Every routine and when it runs next',
   actions: 'Everything waiting on you',
   work: 'Projects, the queue and finished changes',
-  github: 'Pull requests and issues, through gh',
   settings: 'How hobkin looks and works',
   integrations: 'The services hobkin can reach',
   memory: 'What hobkin remembers for every agent',
 }
 
 /** The screens the spotlight goes to. A review and an agent need something to show, so they are found as what they show. */
-const PLACES: readonly ScreenId[] = ['home', 'reports', 'routines', 'actions', 'work', 'github', 'settings', 'integrations', 'memory']
+const PLACES_BEFORE: readonly ScreenId[] = ['home', 'reports', 'routines', 'actions', 'work']
+/** After each integration's screens, which are found by what their manifests say. */
+const PLACES_AFTER: readonly ScreenId[] = ['settings', 'integrations', 'memory']
 
 /** The tiles of Settings, by the name each one shows, with the words that find them. */
 const SETTINGS: readonly { name: string; words: string[] }[] = [
@@ -149,8 +151,8 @@ function goToScreen(id: ScreenId): void {
     if (view.screen !== 'integrations') view.toggleIntegrations()
   } else if (id === 'memory') {
     if (view.screen !== 'memory') view.togglePage('memory')
-  } else if (id === 'github' && !useSettings.getState().showGitHubInMenu) view.openGitHub()
-  // A page of the menu starts a new trail, as the menu's own item does (053). A GitHub the menu leaves out is open for
+  } else if (isPartScreen(id) && useSettings.getState().screensOutOfMenu.includes(id)) view.openPartScreen(id)
+  // A page of the menu starts a new trail, as the menu's own item does (053). An integration's screen the menu leaves out is open for
   // now over what is showing, as Settings is.
   else view.openMenuScreen(id)
   enter()
@@ -167,18 +169,21 @@ function goToSetting(name: string): void {
   })
 }
 
-function screenTargets(githubInMenu: boolean): SpotlightTarget[] {
-  const menu = walkScreens({ screen: 'home', reviewOpen: false, githubInMenu })
+function screenTargets(outOfMenu: readonly string[]): SpotlightTarget[] {
+  const menu = walkScreens({ screen: 'home', reviewOpen: false, outOfMenu })
   const KEYS: Partial<Record<ScreenId, string>> = { settings: '⌘,', integrations: '⌘I' }
-  return PLACES.map((id) => {
-    const screen = SCREENS.find((entry) => entry.id === id)!
+  const own = (id: ScreenId) => ({ line: SCREEN_LINE[id], words: SCREEN_WORDS[id] })
+  const theirs = partScreens().map(({ id, line, keywords }) => ({ id, line, words: [...keywords] }))
+  const places = [...PLACES_BEFORE.map((id) => ({ id, ...own(id) })), ...theirs, ...PLACES_AFTER.map((id) => ({ id, ...own(id) }))]
+  return places.map(({ id, line, words }) => {
+    const screen = screens().find((entry) => entry.id === id)!
     const at = menu.indexOf(id)
     return {
       id: `screen:${id}`,
       kind: 'screen',
       title: screen.label,
-      detail: SCREEN_LINE[id],
-      keywords: SCREEN_WORDS[id],
+      detail: line,
+      keywords: words,
       mark: { icon: screen.icon },
       keys: at >= 0 && at < 9 ? `⌘${at + 1}` : KEYS[id],
       go: () => goToScreen(id),
@@ -289,46 +294,28 @@ function actionTarget(row: WaitingRow, now: number): SpotlightTarget {
   }
 }
 
-function githubTargets(github: GitHubState): SpotlightTarget[] {
-  if (!github.sample && github.connection !== 'connected') return []
-  const pull = (waits: boolean) => (pull: GitHubState['pulls'][number]): SpotlightTarget => ({
-    id: `${waits ? 'review' : 'pull'}:${pull.url}`,
-    kind: 'pull',
-    title: pull.title,
-    detail: `${pull.repo}#${pull.number} · ${waits ? 'waits for your review' : 'yours'}`,
-    keywords: [...pull.labels, ...(pull.author ? [pull.author] : [])],
-    mark: { icon: GitPullRequest },
-    go: () => openPullRequestReview(pull),
-  })
-  return [
-    ...github.reviews.map(pull(true)),
-    ...github.pulls.map(pull(false)),
-    ...github.issues.map((issue) => ({
-      id: `issue:${issue.url}`,
-      kind: 'issue' as const,
-      title: issue.title,
-      detail: `${issue.repo}#${issue.number}`,
-      keywords: issue.labels,
-      mark: { icon: CircleDot },
-      go: () => openGitHubPage(issue.url),
-    })),
-  ]
+/** What each integration's part says the spotlight can find of it, from its own state. The parts are fixed once the window has started. */
+function usePartTargets(): SpotlightTarget[] {
+  const parts = windowParts()
+  const states = parts.map((part) => useSlice<unknown>(part.manifest.id))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  return useMemo(() => parts.flatMap((part, at) => part.spotlight?.(states[at] as never) ?? []), states)
 }
 
 /** Everything the spotlight can find right now. It follows the stores, so a new report or agent is found at once. */
 export function useSpotlightTargets(): SpotlightTarget[] {
-  const githubInMenu = useSettings((settings) => settings.showGitHubInMenu)
+  const outOfMenu = useSettings((settings) => settings.screensOutOfMenu)
   const agents = useRunningAgents()
   const reports = useReports((state) => state.inbox.reports)
   const routines = useRoutines((state) => state.data.routines)
   const rows = useWaitingRows()
-  const github = useGitHub()
+  const fromParts = usePartTargets()
   const projects = useWorkView().work?.projects
 
   return useMemo(() => {
     const now = Date.now()
     return [
-      ...screenTargets(githubInMenu),
+      ...screenTargets(outOfMenu),
       ...SETTING_TARGETS,
       NERD_STATS_TARGET,
       ...agents.map(agentTarget),
@@ -336,7 +323,7 @@ export function useSpotlightTargets(): SpotlightTarget[] {
       ...newestFirst(reports).map((report) => reportTarget(report, now)),
       ...routines.map(routineTarget),
       ...rows.map((row) => actionTarget(row, now)),
-      ...githubTargets(github),
+      ...fromParts,
     ]
-  }, [githubInMenu, agents, projects, reports, routines, rows, github])
+  }, [outOfMenu, agents, projects, reports, routines, rows, fromParts])
 }
