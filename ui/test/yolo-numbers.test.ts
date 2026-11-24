@@ -81,11 +81,11 @@ test('the gates count the changes finished now: those rated at or above the user
     { key: 'free', label: 'Free to merge', count: 1 },
   ])
   assert.equal(counted.waiting, 6)
-  // hobkin's own words, most first; a rate under the user's is one reason whatever the rate; a project getting ready holds what it has.
+  // hobkin's own words, most first; a rate under the user's is one reason whatever the rate; a project still being set up holds what it has.
   assert.deepEqual(counted.holds, [
     { reason: 'it still has work left: The independent review still needs to cover the committed range.', count: 2 },
     { reason: 'its general rate is under 8.', count: 1 },
-    { reason: 'api is getting ready.', count: 1 },
+    { reason: 'api is still being set up.', count: 1 },
     { reason: 'it touches a migration.', count: 1 },
     { reason: 'it has no review yet.', count: 1 },
   ])

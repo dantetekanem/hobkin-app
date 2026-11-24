@@ -4,6 +4,7 @@ import { SERIES_COLOR, type DaySeries, type FunnelStep } from '../numbers/chart-
 import { countWords, lastDays, NO_DATA, shareWords, sumDays, TILE_DAYS } from '../numbers/format.ts'
 import { finishedReviewId } from '../review/entry.ts'
 import { reviewIdOf } from '#shared/review/ids.ts'
+import type { ChangeRating } from '#shared/review/status.ts'
 import { dateLabel, dayName, whenText } from '../routines/words.ts'
 
 /**
@@ -160,7 +161,7 @@ export function readinessRow(
 
   // Landed, closed, or a hobkin that does not say: the last check's result stands.
   if (project.ready) return { ...base, state: 'Ready', tone: 'ok', detail: stillSetUp(project.parts ?? []) }
-  return { ...base, state: 'Getting ready', tone: 'warn', detail: project.needs.join(' ') }
+  return { ...base, state: 'Being set up', tone: 'warn', detail: project.needs.join(' ') }
 }
 
 const plural = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`
@@ -269,6 +270,8 @@ export type VerdictPress =
   | { do: 'work'; key: string | null }
   | { do: 'review'; slug: string; item: string }
   | { do: 'rate'; rate: number }
+  /** Opens one setting of the block "What YOLO mode may do", on the project that holds the change. */
+  | { do: 'setting'; name: string; slug: string }
 
 export interface VerdictAction {
   label: string
@@ -295,6 +298,8 @@ export function partPress(project: YoloProject, part: YoloPart, readiness: Readi
 export interface ReviewRatings {
   head: string | null
   needs?: unknown
+  /** Where its five ratings stand, as the host says it (063-yolo-settings-and-grades). A host older than this does not send it. */
+  rating?: ChangeRating
 }
 
 /**
@@ -306,7 +311,7 @@ export function reviewsOf({ slug, changes = [] }: YoloProject, listed: readonly 
   const found = new Map<string, ReviewRatings>()
   for (const { item } of changes) {
     const review = byId.get(reviewIdOf({ kind: 'change', slug, item }))
-    if (review) found.set(item, { head: review.head, needs: review.needs })
+    if (review) found.set(item, { head: review.head, needs: review.needs, rating: review.rating })
   }
   return found
 }
@@ -444,7 +449,7 @@ function shownHolds(holds: GateHold[]): GateHold[] {
  * How the changes finished now pass YOLO mode's gates (053, "YOLO mode"). The window knows each waiting change's rate and
  * what holds it, not a history of each gate, so this counts now: the changes finished, those rated at or above the user's
  * rate, and those of them nothing holds. What holds the rest is counted in the words the state gives: what holds every
- * merge first (YOLO mode off, work mode waiting, the project paused on Work), then a project still getting ready, then the
+ * merge first (YOLO mode off, work mode waiting, the project paused on Work), then a project still being set up, then the
  * change's own reason. A rate under the user's is one reason, whatever the rate. A project YOLO mode is off for passes no
  * gate, so its changes are not counted here: its own line on the page says how many wait.
  */
@@ -456,7 +461,7 @@ export function gates(yolo: YoloState, { waits, paused }: { waits: string | null
   for (const project of yolo.projects.filter(isOn)) {
     // What holds every change of the project comes before a change's own reason.
     const projectHold =
-      mergesHeld(project, { on: yolo.on, waits, paused: paused.has(project.slug) }) ?? (project.ready ? null : `${project.name} is getting ready`)
+      mergesHeld(project, { on: yolo.on, waits, paused: paused.has(project.slug) }) ?? (project.ready ? null : `${project.name} is still being set up`)
     for (const change of project.changes ?? []) {
       finished += 1
       const passes = change.rate !== null && change.rate >= yolo.rate

@@ -59,6 +59,6 @@ export const SAMPLE_RATINGS: Record<string, ChangeRating> = {
   'change:storefront:s3': { state: 'waits', text: 'Waits its turn: 3 ahead in storefront.', ahead: 3 },
   'change:storefront:s4': { state: 'again', text: 'Rating again, try 2 of 3: the answer had no score for visibility.', tries: 2, of: 3 },
   'change:storefront:s5': { state: 'not-rated', text: 'Not rated after 3 tries: the answer had no score for rollback.', tries: 3 },
-  'change:search-api:q4': { state: 'rated', text: 'Rated at 4f2a9c1: 9.2.', head: head('4f2a9c1'), rate: 9.2 },
+  'change:search-api:q4': { state: 'rated', text: 'Rated at 3b9d21: 8.2.', head: head('3b9d21'), rate: 8.2 },
   'change:billing-api:b4': { state: 'nothing', text: 'It only edits Markdown, so there is nothing to rate.' },
 }

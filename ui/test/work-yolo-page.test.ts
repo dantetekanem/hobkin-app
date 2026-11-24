@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { FinishedChange, FinishedGroup, FinishedGroupName, YoloChange, YoloMerge, YoloPart, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import { projectCard, type CardRead } from '../src/features/work/yolo-card.ts'
 import { changeOpens, inPlace, reviewsOf, mergedDays, partGroups, projectOpens, stillToSetUp, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance, yoloReportId } from '../src/features/work/yolo-page.ts'
 
 const NOW = Date.parse('2026-11-20T15:00:00Z')
@@ -32,10 +33,10 @@ test('a project never checked offers Run readiness, and one checked offers Check
 
   // What holds YOLO mode back is hobkin's own words.
   const held = rowOf({ needs: ['Tests: its PR waits for your merge.', 'Rollback: waits on you: Keep two releases.'], work: 'landed', checkedAt: '2026-11-19T09:30:00Z' })
-  assert.deepEqual([held.state, held.tone, held.detail, held.action, held.canRun], ['Getting ready', 'warn', 'Tests: its PR waits for your merge. Rollback: waits on you: Keep two releases.', 'Check again', true])
+  assert.deepEqual([held.state, held.tone, held.detail, held.action, held.canRun], ['Being set up', 'warn', 'Tests: its PR waits for your merge. Rollback: waits on you: Keep two releases.', 'Check again', true])
 
   const closed = rowOf({ needs: ['Tests: You said no to its branch.'], work: 'closed', checkedAt: '2026-11-19T09:30:00Z' })
-  assert.deepEqual([closed.state, closed.action, closed.canRun], ['Getting ready', 'Check again', true])
+  assert.deepEqual([closed.state, closed.action, closed.canRun], ['Being set up', 'Check again', true])
 })
 
 const PULL = 'https://github.com/acme/api/pull/7'
@@ -188,4 +189,60 @@ test('a change finds its AI review in the review list by the id its row opens, a
 
   assert.deepEqual([...found.keys()], ['b4'])
   assert.equal(found.get('b4')?.head, HEAD)
+})
+
+// A card names the setting that holds its changes (063-yolo-settings-and-grades, A19).
+const RULES = { lowestRate: 8, mergePulls: false, leftNoteMayMerge: false, testsPass: true }
+const held = (item: string, rate: number | null, why: string | null, setting?: string | null): YoloChange => ({ item, title: `Change ${item}`, kind: null, rate, why, ...(setting === undefined ? {} : { setting }) })
+const cardWith = (more: Partial<YoloProject>, rules: CardRead['rules'] | null = RULES) => {
+  const shown: YoloProject = { slug: 'api', name: 'api', on: true, ready: true, needs: [], work: 'landed', checkedAt: '2026-11-21T14:09:00Z', ...more }
+  const readRow = readinessRow(shown, { workOn: true, now: NOW, zone: 'UTC' })
+  return projectCard(shown, { on: true, rate: 8, lowest: 1, waits: null, paused: false, readiness: readRow, ...(rules ? { rules } : {}) }, new Map())
+}
+
+test('a card says its verdict in a line, each holding setting once with its count, and a press opens that setting', () => {
+  const card = cardWith({
+    changes: [
+      held('a', 8.4, 'its pull request merges by itself once that is turned on', 'mergePulls'),
+      held('b', null, 'its pull request merges by itself once that is turned on', 'mergePulls'),
+      held('c', 7.2, 'its general rate is 7.2, under 8', 'lowestRate'),
+      held('d', 9, 'it still has work left: x', 'leftNoteMayMerge'),
+    ],
+  })
+  assert.equal(card.verdict.text, 'Holding 4: pull requests off, left a note')
+  assert.deepEqual(card.blockers.map(({ key, text, count }) => [key, text, count]), [
+    ['setting:mergePulls', "Merge hobkin's own pull requests: off", 2],
+    ['setting:leftNoteMayMerge', 'A change whose run left a note for me may merge: off', 1],
+    ['setting:lowestRate', 'Lowest general rate: 8', 1],
+  ].map(([key, text, count]) => [key, String(text).replace("'", '\u2019'), count]))
+  assert.deepEqual(card.blockers[0]!.press?.press, { do: 'setting', name: 'mergePulls', slug: 'api' })
+  assert.deepEqual(card.changes.map(({ state }) => state), ['Left a note', 'Pull requests off', 'Rate 7.2, under 8', 'Pull requests off'])
+})
+
+test('a switch that holds the whole project is one line by its setting, with the readiness part in its tooltip', () => {
+  const card = cardWith({
+    ready: false,
+    needs: ['Tests: its PR waits for your merge.'],
+    holds: ['testsPass'],
+    parts: [{ name: 'tests', label: 'Tests', state: 'pr', line: 'bin/test runs the suite.', needed: true, blocks: true }],
+    changes: [held('a', 9, null), held('b', 8.5, null)],
+  })
+  assert.equal(card.verdict.text, 'Holding 2: tests failing')
+  assert.deepEqual(card.blockers.map(({ key, text, count }) => [key, text, count]), [['setting:testsPass', 'Tests pass on the default branch', 2]])
+  assert.match(card.blockers[0]!.detail ?? '', /Tests: waiting for your merge/)
+  assert.deepEqual(card.changes.map(({ state }) => state), ['Tests failing', 'Tests failing'])
+})
+
+test('with no setting sent, a card matches the runtime\'s sentence as before, and with no rules says nothing of settings', () => {
+  const changes = [held('a', 7.2, 'its general rate is 7.2, under 8'), held('b', null, 'its pull request merges by itself once that is turned on')]
+  const sentence = cardWith({ changes })
+  assert.deepEqual(sentence.blockers.map(({ key }) => key), ['pulls', 'rate'])
+  assert.equal(sentence.verdict.text, 'Holding 2')
+  const old = cardWith({ changes: [held('a', 7.2, 'its general rate is 7.2, under 8', 'lowestRate')] }, null)
+  assert.deepEqual([old.blockers[0]!.key, old.verdict.text], ['rate', 'Merging nothing: 0 of 1 can merge'])
+})
+
+test('a card never says getting ready', () => {
+  const row = readinessRow({ slug: 'api', name: 'api', ready: false, needs: ['Tests: x.'], work: 'landed', checkedAt: '2026-11-20T09:30:00Z' }, { workOn: true, now: NOW, zone: 'UTC' })
+  assert.equal(row.state, 'Being set up')
 })

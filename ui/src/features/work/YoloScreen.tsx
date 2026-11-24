@@ -25,10 +25,13 @@ import type { FinishedGroup, WorkProject, YoloProject, YoloState } from '#shared
 import { NewProjectSheet } from './NewProjectSheet.tsx'
 import { opensNewProject } from './new-project.ts'
 import { SectionHeading, Segmented } from './parts.tsx'
+import { YoloRules, type OpenSetting } from './YoloRules.tsx'
 import { runWork, useWorkView } from './store.ts'
 import { useReviewList } from './use-review-list.ts'
 import { openOnWork } from './work-target.ts'
 import { projectCard, readinessLine, type Blocker, type CardChange } from './yolo-card.ts'
+import { SAMPLE_RATINGS } from './yolo-grades.ts'
+import { withSampleRules } from './yolo-rules.ts'
 import {
   byItselfBars,
   changeOpens,
@@ -68,6 +71,15 @@ import {
 type SetSample = Dispatch<SetStateAction<YoloState>>
 
 const NO_REVIEWS: readonly ({ id: string } & ReviewRatings)[] = []
+
+/** With no host, the sample reviews with where each change's ratings stand, and the changes that have only a rating. */
+const SAMPLE_REVIEWS: readonly ({ id: string } & ReviewRatings)[] = [
+  ...SAMPLE_YOLO_REVIEWS.map((review) => ({ ...review, rating: SAMPLE_RATINGS[review.id] })),
+  ...Object.entries(SAMPLE_RATINGS)
+    .filter(([id]) => !SAMPLE_YOLO_REVIEWS.some((review) => review.id === id))
+    // A rated change carries a review's five numbers, so its row shows them beside the rate.
+    .map(([id, rating]) => (rating.state === 'rated' ? { id, head: SAMPLE_YOLO_REVIEWS[0]!.needs[0]!.head ?? null, needs: SAMPLE_YOLO_REVIEWS[0]!.needs, rating } : { id, head: null, rating })),
+]
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -119,8 +131,11 @@ export function YoloScreen() {
   const { work, live } = useWorkView()
   // Each review the host knows, for the ratings of the changes waiting (spec 058). With no host, the YOLO sample's own.
   const { list: reviewList } = useReviewList(live)
-  const reviews = live ? (reviewList?.reviews ?? NO_REVIEWS) : SAMPLE_YOLO_REVIEWS
-  const [sample, setSample] = useState(SAMPLE_YOLO)
+  const reviews = live ? (reviewList?.reviews ?? NO_REVIEWS) : SAMPLE_REVIEWS
+  const [sample, setSample] = useState(() => withSampleRules(SAMPLE_YOLO))
+  // A card's press on a holding setting, which opens it in the block.
+  const [opened, setOpened] = useState<OpenSetting | null>(null)
+  const openSetting = (name: string, slug: string) => setOpened((was) => ({ name, slug, press: (was?.press ?? 0) + 1 }))
   // The New project popup, opened by the button in the Projects heading or by N (059). YOLO mode's switch starts on in it.
   const [adding, setAdding] = useState(false)
   const newProjectButton = useRef<HTMLButtonElement | null>(null)
@@ -161,10 +176,11 @@ export function YoloScreen() {
         {yolo ? (
           <>
             <Switchboard yolo={yolo} setting={setting} />
+            <YoloRules yolo={yolo} live={live} setSample={setSample} opened={opened} />
             <TrustRow tiles={trust} loading={reading} />
             {counted ? <GatesRow counted={counted} rate={yolo.rate} merged={merged} /> : null}
             <ByItselfChart bars={bars} reading={reading} note={READ_WORDS[state] ?? undefined} />
-            <Projects yolo={yolo} live={live} workOn={workOn} workProjects={work?.projects ?? []} finished={work?.finished ?? []} reviews={reviews} setting={setting} setSample={setSample} onNewProject={openNewProject} newProjectRef={newProjectButton} />
+            <Projects yolo={yolo} live={live} workOn={workOn} workProjects={work?.projects ?? []} finished={work?.finished ?? []} reviews={reviews} setting={setting} setSample={setSample} onSetting={openSetting} onNewProject={openNewProject} newProjectRef={newProjectButton} />
           </>
         ) : (
           <p className="text-[13.5px] text-muted-foreground">This hobkin has not said how YOLO mode stands yet.</p>
@@ -300,6 +316,8 @@ interface CardContext {
   finished: FinishedGroup[]
   setting: Setting
   setSample: SetSample
+  /** Opens a setting of the block "What YOLO mode may do", for the project that holds a change. */
+  onSetting: (name: string, slug: string) => void
   /** The reviews the host knows, each with its id, commit and ratings. */
   reviews: readonly ({ id: string } & ReviewRatings)[]
 }
@@ -368,7 +386,7 @@ interface Said {
  * each with its press, the changes waiting one line each, what merged by itself, then its readiness in one closed line.
  * The switch and the verdict keep their place whatever the data says.
  */
-function ProjectCard({ project, workProject, yolo, live, workOn, finished, reviews, setting, setSample, initiallyOpen = false }: CardContext & { project: YoloProject; workProject: WorkProject | undefined; initiallyOpen?: boolean }) {
+function ProjectCard({ project, workProject, yolo, live, workOn, finished, reviews, setting, setSample, onSetting, initiallyOpen = false }: CardContext & { project: YoloProject; workProject: WorkProject | undefined; initiallyOpen?: boolean }) {
   // The card says when readiness was last checked, so it follows the clock itself: the page around it does not.
   const now = useNow(true, 30_000)
   const readiness = readinessRow(project, { workOn, now, zone: ZONE, waiting: waitingChange(project, finished) })
@@ -379,6 +397,7 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, revie
     waits: yolo.waits ?? (workOn ? null : 'work mode is off'),
     paused: workProject?.paused ?? false,
     pullRequests: yolo.pullRequests ?? false,
+    rules: yolo.rules,
     readiness,
   }
   const card = projectCard(project, context, reviewsOf(project, reviews))
@@ -460,6 +479,8 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, revie
         return go(changeOpens(project.slug, press.item, live))
       case 'rate':
         return void setting.change({ rate: press.rate })
+      case 'setting':
+        return onSetting(press.name, press.slug)
     }
   }
 
@@ -654,12 +675,13 @@ function ChangeLine({ row, name, onReview }: { row: CardChange; name: string; on
       <div
         {...pressProps(onReview)}
         title={row.tip}
-        aria-label={`${row.title} on ${name}: ${row.state}, rate ${row.rate}, ${row.grades ? `grades ${row.grades}` : 'not graded'}. Opens its review.`}
-        className="pressable -mx-2 grid h-8 grid-cols-[minmax(0,1fr)_150px_156px_16px] items-center gap-x-3 rounded-lg px-2 outline-offset-[-2px]"
+        aria-label={`${row.title} on ${name}: ${row.state}, ${row.rating.text}${row.rating.older ? `, ${row.rating.older}` : ''}. Opens its review.`}
+        className="pressable -mx-2 grid h-8 grid-cols-[minmax(0,1fr)_230px_156px_16px] items-center gap-x-3 rounded-lg px-2 outline-offset-[-2px]"
       >
         <span className="truncate text-[13px] font-medium">{row.title}</span>
-        <span className="text-right text-[12px] text-muted-foreground tabular-nums">
-          <span className="font-semibold text-foreground">{row.rate}</span> · {row.grades ?? 'not graded'}
+        <span title={row.rating.tip} className={cn('flex min-w-0 items-center justify-end gap-1.5 text-[12px] whitespace-nowrap tabular-nums', row.rating.bad ? 'text-bad-fg' : 'text-muted-foreground')}>
+          <span className={cn('truncate', row.rating.rated && 'font-semibold text-foreground')}>{row.rating.text}</span>
+          {row.rating.older ? <span className="shrink-0 text-[11.5px]">{`(${row.rating.older})`}</span> : null}
         </span>
         <Mark tone={row.tone}>{row.state}</Mark>
         <OpenArrow className="justify-self-end" />

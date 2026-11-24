@@ -43,7 +43,7 @@ test('a project that is off says Off, whatever waits on it', () => {
 test('a ready project with a change that would merge says it merges by itself, with how many can', () => {
   const some = cardOf({ changes: [change('a', 9.2, null), change('b', 7.1, 'its general rate is 7.1, under 8')] })
   assert.deepEqual([some.verdict.kind, some.verdict.text], ['merges', 'Merges by itself: 1 of 2 can merge'])
-  assert.deepEqual(some.changes.map(({ state, rate }) => [state, rate]), [['Would merge', '9.2'], ['Rate 7.1, under 8', '7.1']])
+  assert.deepEqual(some.changes.map(({ state }) => state), ['Would merge', 'Rate 7.1, under 8'])
 
   const all = cardOf({ changes: [change('a', 9.2, null)] })
   assert.equal(all.verdict.text, 'Merges by itself')
@@ -94,8 +94,8 @@ test("a change's one word of state follows its reason, and its rate is a number 
       change('e', 9, 'its project is paused'),
     ],
   })
-  const by = Object.fromEntries(card.changes.map(({ item, state, rate }) => [item, [state, rate]]))
-  assert.deepEqual(by, { a: ['Pull requests off', '–'], b: ['Not reviewed', '–'], c: ['Rate 2.4, under 8', '2.4'], d: ['Left you a note', '7'], e: ['Paused', '9'] })
+  const by = Object.fromEntries(card.changes.map(({ item, state }) => [item, state]))
+  assert.deepEqual(by, { a: 'Pull requests off', b: 'Not rated', c: 'Rate 2.4, under 8', d: 'Left you a note', e: 'Paused' })
   assert.ok(card.changes.every(({ state }) => !/asks you/i.test(state)))
 })
 
@@ -137,14 +137,16 @@ test('a project not ready that names no part still says why, and holds from work
   assert.deepEqual([waits.blockers[0]!.key, waits.changes[0]!.state], ['waits', 'Waits for work mode'])
 })
 
-test("a change's line carries its review's five numbers, and none while it has none", () => {
+test("a change's row carries its review's five numbers when it is rated, and always says where its ratings stand", () => {
   const answer = (score: number) => ({ score, evidence: 'Seen.' })
   const head = 'a'.repeat(40)
   const needs = [{ kind: 'bug-fix', scores: { coverage: answer(9), proof: answer(9), safety: answer(9), rollback: answer(9) }, rate: 8.4, head, by: 'change-review' }]
   const shown = project({ changes: [change('a', 8.4, null), change('b', 7, null)] })
-  const card = projectCard(shown, read(shown), new Map([['a', { head, needs }]]))
-  const by = Object.fromEntries(card.changes.map(({ item, grades }) => [item, grades]))
-  assert.deepEqual(by, { a: '9 9 9 – 9', b: null })
+  const rated = { state: 'rated' as const, text: 'Rated at aaaaaaa: 8.4.', rate: 8.4, head }
+  const card = projectCard(shown, read(shown), new Map([['a', { head, needs, rating: rated }]]))
+  const by = Object.fromEntries(card.changes.map(({ item, rating }) => [item, rating.text]))
+  assert.equal(by.a?.endsWith('9 9 9 \u2013 9'), true)
+  assert.equal(by.b, 'Rating not reported')
   assert.match(card.changes[0]!.tip, /^It passes every rule.*Review: /)
 })
 
