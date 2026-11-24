@@ -57,6 +57,11 @@ export interface MemoryEntry {
   links?: readonly string[]
   /** Its `until` has passed. */
   past?: boolean
+  /**
+   * It came from another session through `hobkin remember` and nobody has kept it yet. The main chat and durable hobkins
+   * read it, and the page shows it with Keep. No run gets it until the user keeps or edits it, or the main chat does.
+   */
+  unconfirmed?: boolean
   /** A fingerprint of its file. A save or a forget sends it back, and is refused when the file has moved on. */
   version?: string
 }
@@ -234,6 +239,7 @@ export function readMemory(value: unknown): MemoryEntry | undefined {
     source: sourceOf(value.source),
     links: linksOf(value.links),
     past: flagOf(value.past),
+    unconfirmed: flagOf(value.unconfirmed),
     version: idOf(value.version),
   })
 }
