@@ -82,7 +82,8 @@ function codeHost({ number, branch, head }) {
     }
     if (group === 'pr' && verb === 'list') {
       const { headRefOid, isDraft, reviewDecision, statusCheckRollup, mergeable } = host.view;
-      return JSON.stringify([pull(number, { url, headRefName: branch, headRefOid, isDraft, reviewDecision, statusCheckRollup, mergeable })]);
+      const merged = host.merged ? { state: 'MERGED', mergedAt: new Date(NOW).toISOString(), mergeCommit: { oid: MERGE_COMMIT } } : {};
+      return JSON.stringify([pull(number, { url, headRefName: branch, headRefOid, isDraft, reviewDecision, statusCheckRollup, mergeable, ...merged })]);
     }
     if (group === 'pr' && verb === 'view') {
       // Any other address is a pull request of another repository on a branch of the same name, at the same head, and clean.
@@ -105,6 +106,8 @@ function codeHost({ number, branch, head }) {
         return '';
       }
       host.merged = true;
+      // gh killed by its timeout after the host merged.
+      if (host.killedAfterMerge) throw Object.assign(Error('Command failed: gh pr merge'), { killed: true, signal: 'SIGTERM', stderr: '' });
       return '';
     }
     return '[]';
@@ -492,4 +495,41 @@ test('nothing pushes a review\'s commits to a pull request, so a review that cha
   assert.equal(whyOf(h, change), `its review scored ${reviewed.slice(0, 7)}, and its pull request is at ${change.head.slice(0, 7)}`);
   assert.ok(host.calls.every(([group]) => group !== 'push'));
   assert.deepEqual(host.merges(), []);
+});
+
+test('a merge the host made while gh was killed is found by the next survey and recorded as YOLO mode\'s own, and nothing merges twice', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  host.killedAfterMerge = true;
+  await survey(h, host.gh);
+
+  assert.deepEqual(await yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} }), []);
+  assert.equal(itemOf(h, change).state, 'pr');
+
+  await survey(h, host.gh);
+  const [found] = await yoloPass(h.root, { now: NOW + 60000, gh: host.gh, handOff: () => {} });
+
+  assert.deepEqual([itemOf(h, change).state, itemOf(h, change).landed.route], ['merged', 'yolo']);
+  assert.deepEqual([found.item, found.target, found.pr], [change.id, MERGE_COMMIT, host.url]);
+  assert.deepEqual(ledger(h).map(({ item }) => item), [change.id]);
+  assert.ok(clientNoticesToPost(h.root).some(({ line }) => line.startsWith('YOLO mode merged "Fix login" on api by itself, through its pull request')));
+  assert.equal(host.merges().length, 1);
+  assert.deepEqual(await yoloPass(h.root, { now: NOW + 120000, gh: host.gh, handOff: () => {} }), [], 'and it is recorded once');
+});
+
+test('a host that refuses the merge is asked once at a commit, and again only once the pull request moves or a day has passed', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  host.mergeError = Object.assign(Error('Command failed'), { stderr: 'GraphQL: Merge commits are not allowed on this repository. (mergePullRequest)' });
+  await survey(h, host.gh);
+  const pass = at => yoloPass(h.root, { now: at, gh: host.gh, handOff: () => {} });
+
+  for (const at of [NOW, NOW + 60000, NOW + 3600000]) await pass(at);
+  assert.equal(host.merges().length, 1);
+  assert.match(whyOf(h, change), /Merge commits are not allowed on this repository/);
+
+  await pass(NOW + 25 * 3600000);
+  assert.equal(host.merges().length, 2, 'a day later, in case its settings changed');
 });

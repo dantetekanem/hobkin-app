@@ -10,7 +10,7 @@ import { nameOf } from './names.mjs';
 import { changeHolds } from './patterns.mjs';
 import { changeModels, scoresHoldAt, specName } from './proofs.mjs';
 import { landingList, weighedRows } from './reads.mjs';
-import { readMode, readProject, retryItem, updateItem } from './store.mjs';
+import { chosenProjects, readItems, readMode, readProject, retryItem, updateItem } from './store.mjs';
 import { holdProject, prepareProjects, readinessOf, readYolo, yoloOnProject } from './yolo.mjs';
 import { defaultPullGh, mergeOwnPull, pullCandidates, pullRequestsMerge, PULLS_OFF, pullSurveyed, signedInUser } from './yolo-pulls.mjs';
 
@@ -257,20 +257,46 @@ export function askedOf(root, { yolo, landing, row, item, unit }) {
 /** Every finished change that may merge by itself, as the pass and YOLO mode's report read them: local branches first, then pull requests. */
 export const waitingToMerge = (root, now) => [...weighedRows(root, now), ...pullCandidates(root)];
 
+// A merge its host made while gh was cut short lands within moments of the call that asked for it, pinned to that commit.
+const LOST_MERGE_MS = 15 * 60000;
+
+/**
+ * A pull request YOLO mode asked its host to merge, which merged while gh was cut short, is found by the next survey as a merge on the remote.
+ * It is YOLO mode's own: its route, its line in the ledger and in Chat. Its deploy is not handed on, so it is asked about like any other merge.
+ */
+function adoptLostMerges(root, now) {
+  const recorded = new Set(readLedger(root).filter(line => line.target).map(line => `${line.slug}:${line.item}`));
+  const adopted = [];
+  for (const project of chosenProjects(root)) {
+    for (const item of readItems(root, project.slug)) {
+      const asked = item.yoloMerging;
+      if (!asked || item.state !== 'merged' || item.landed?.route !== 'remote' || recorded.has(`${project.slug}:${item.id}`)) continue;
+      const lag = Date.parse(item.mergedAt) - Date.parse(asked.at);
+      if (!(lag >= 0 && lag <= LOST_MERGE_MS)) continue;
+      updateItem(root, project.slug, item.id, { landed: { ...item.landed, route: 'yolo' } }, now);
+      const readiness = readinessOf(root, project.slug);
+      adopted.push(report(root, { project, item, head: asked.head, target: item.landed.sha, pr: item.pr, readiness, handOff: undefined, now }));
+    }
+  }
+  return adopted;
+}
+
 /**
  * Merges what may merge by itself, at most one change a project, and answers a report of each. `handOff` gives a deploy to the main agent, and
  * `gh` reaches the code host. While YOLO mode is on it also files the readiness work of any project that has none yet. A pull request whose
  * merge commit the host did not say hands on no deploy, so that merge is asked about like any other.
  */
 export async function yoloPass(root, { now = Date.now(), handOff, gh = defaultPullGh } = {}) {
+  // Whatever the switches say now: these merged on an earlier pass.
+  const adopted = adoptLostMerges(root, now);
   const yolo = readYolo(root);
-  if (!yolo.on) return [];
+  if (!yolo.on) return adopted;
   prepareProjects(root, now);
-  if (whyWorkModeWaits(readMode(root), now)) return [];
+  if (whyWorkModeWaits(readMode(root), now)) return adopted;
 
   const landing = landingReasons(root);
-  const reports = [];
-  const mergedOn = new Set();
+  const reports = [...adopted];
+  const mergedOn = new Set(adopted.map(({ slug }) => slug));
   let signedIn = null;
   const user = () => (signedIn ??= signedInUser(gh));
   for (const { row, item, unit } of waitingToMerge(root, now)) {

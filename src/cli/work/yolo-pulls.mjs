@@ -205,13 +205,18 @@ export async function pullHolds({ gh, repo, item, unit, user }) {
 
 /**
  * The reason a pull request kept asking at the pass, kept on its item for its report, when it changed. `tried` says a merge was asked for at
- * that commit and did not happen, so the pass asks no more until the pull request moves.
+ * that commit and did not happen, so the pass asks no more until the pull request moves. `again` lets it ask once more a day later, for a host
+ * that refused, whose settings may have changed since; one that queued the pull request is not asked again at that commit.
  */
-function noteWhy(root, slug, item, head, why, now, { tried = false } = {}) {
+function noteWhy(root, slug, item, head, why, now, { tried = false, again = false } = {}) {
   const known = item.yoloPull;
-  if (known?.head === head && known?.why === why && Boolean(known.tried) === tried) return;
-  updateItem(root, slug, item.id, { yoloPull: { head, why, ...(tried ? { tried } : {}) } }, now);
+  if (known?.head === head && known?.why === why && Boolean(known.tried) === tried && !again) return;
+  const when = tried && again ? { triedAt: new Date(now).toISOString() } : {};
+  updateItem(root, slug, item.id, { yoloPull: { head, why, ...(tried ? { tried } : {}), ...when } }, now);
 }
+
+const DAY_MS = 24 * 3600000;
+const askedAlready = ({ yoloPull }, head, now) => yoloPull?.head === head && yoloPull.tried && (!yoloPull.triedAt || now - Date.parse(yoloPull.triedAt) < DAY_MS);
 
 const QUEUED = 'its host queued its pull request or set it to merge by itself instead of merging it';
 
@@ -239,8 +244,8 @@ export const pullNoted = (item, unit) => (item.yoloPull && item.yoloPull.head ==
  * on its item. `user` reads the signed-in user once a pass.
  */
 export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
-  // A merge asked for at this commit that did not happen is not asked for again until the pull request moves.
-  if (item.yoloPull?.head === unit.sha && item.yoloPull.tried) return null;
+  // A merge asked for at this commit that did not happen is not asked for again until the pull request moves, or a day after a refusal.
+  if (askedAlready(item, unit.sha, now)) return null;
   const project = readProject(root, row.slug);
   const repo = project.path ?? paths(root, row.slug).clone;
   const held = await pullHolds({ gh, repo, item, unit, user: await user() });
@@ -250,12 +255,14 @@ export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
   }
   const relied = held?.relied ?? null;
 
+  // Written before the call, so a merge its host made while gh was cut short is found by the next survey as YOLO mode's own (`yolo-pass.mjs`).
+  updateItem(root, row.slug, item.id, { yoloMerging: { head: unit.sha, at: new Date(now).toISOString() } }, now);
   try {
     await mergePullRequest(root, row.slug, item.id, { head: unit.sha, gh, now });
   } catch (error) {
     if (error.notMerged && error.pull?.state === 'OPEN') return turnBackQueued(root, { project, repo, row, item, unit, gh, now });
     const said = error.notMerged ? `its host has not said its pull request merged, so nothing is recorded: ${firstLine(error.message)}` : `its pull request did not merge: ${firstLine(error.message).replace(/^"[^"]*" did not merge: /, '')}`;
-    noteWhy(root, row.slug, item, unit.sha, said, now, { tried: Boolean(error.notMerged) });
+    noteWhy(root, row.slug, item, unit.sha, said, now, { tried: true, again: true });
     return null;
   }
   // The item closed only once its host said it merged, with its merge commit (`mergePullRequest`).
