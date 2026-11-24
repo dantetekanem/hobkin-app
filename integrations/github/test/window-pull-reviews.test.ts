@@ -45,6 +45,17 @@ test('a row says its AI review: none yet, running with its percent and what it d
   assert.deepEqual(aiOf(failed), { state: 'failed', line: 'gh is not signed in' })
 })
 
+test('a review that only waits its turn says so, with how many are ahead, and is never called running', () => {
+  const [waiting, queued] = rowsOf({
+    reviews: [
+      review('pr:acme/web/4', { state: 'preparing', phase: 'queued', turn: { ahead: 2, why: 'Waits its turn: 2 ahead in acme/web.' } }),
+      review('pr:acme/web/5', { assessment: { state: 'queued', head: HEAD } }),
+    ],
+  })
+  assert.deepEqual(aiOf(waiting), { state: 'waits', ahead: 2 })
+  assert.deepEqual(aiOf(queued), { state: 'waits', ahead: null })
+})
+
 test('review requested, your pull requests, and the others reviewed by AI, each pull request once', () => {
   const both = pull('acme/web', 7)
   const rows = rowsOf({

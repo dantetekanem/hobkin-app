@@ -46,6 +46,7 @@ import { addIssueToQueue } from './add-to-queue.ts'
 import { run } from './commands.ts'
 import { openPullRequestReview } from './review.ts'
 import { reviewStarted } from '@/features/work/review-started.ts'
+import { stateWords } from '@/features/work/review-list.ts'
 import { startAiReview, type PullAi, type PullEntry } from './pull-reviews.ts'
 
 /**
@@ -275,6 +276,11 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
             {ai.line}
           </span>
         </>
+      ) : null}
+      {ai.state === 'waits' ? (
+        <span role="status" className="font-heading text-[14px] font-semibold text-muted-foreground">
+          {stateWords({ kind: 'waits', ahead: ai.ahead })}
+        </span>
       ) : null}
       {ai.state === 'ready' ? (
         <>

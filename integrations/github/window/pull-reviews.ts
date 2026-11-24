@@ -4,8 +4,9 @@ import type { ReviewRow } from '../../../ui/src/features/work/ai-reviews.ts'
 
 /**
  * The GitHub page's pull requests with their AI reviews (spec 032): the ones that ask for the user's review, the user's
- * own, and the others the AI reviewed, each pull request once. A row's AI review is none yet, running, ready or
- * failed, from the host's list of reviews (`review.list`). Pure, so it is tested without a window.
+ * own, and the others the AI reviewed, each pull request once. A row's AI review is none yet, running, waiting its
+ * turn, ready or failed, from the state each review row says (`review.list`, read by `rowsOf`). Pure, so it is tested
+ * without a window.
  */
 
 /** How many of the others reviewed by AI the page lists. Work's AI Reviews tab lists every one. */
@@ -14,6 +15,8 @@ export const RECENT_MOST = 8
 export type PullAi =
   | { state: 'none' | 'unavailable' }
   | { state: 'running'; percent: number | null; line: string; startedAt: number | null }
+  /** It waits its turn, with how many are ahead when the host says: it is not running yet. */
+  | { state: 'waits'; ahead: number | null }
   | { state: 'ready'; row: ReviewRow }
   | { state: 'failed'; line: string }
 
@@ -48,9 +51,18 @@ export function pullReviewId(url: string): string | null {
 
 export function aiOf(row: ReviewRow | undefined): PullAi {
   if (!row) return { state: 'none' }
-  if (row.group === 'running') return { state: 'running', percent: row.percent, line: row.line, startedAt: row.startedAt }
-  if (row.group === 'failed') return { state: 'failed', line: row.line }
-  return { state: 'ready', row }
+  // A merge the user asked for comes after a finished review, whatever the row's review does now.
+  if (row.merge) return { state: 'ready', row }
+  switch (row.state.kind) {
+    case 'reviewing':
+      return { state: 'running', percent: row.percent, line: row.line, startedAt: row.startedAt }
+    case 'waits':
+      return { state: 'waits', ahead: row.state.ahead }
+    case 'failed':
+      return { state: 'failed', line: row.line }
+    case 'ready':
+      return { state: 'ready', row }
+  }
 }
 
 function sizeOf(row: ReviewRow | undefined): PullEntry['size'] {
