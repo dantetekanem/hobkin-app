@@ -92,7 +92,8 @@ export const SAMPLE_GITHUB_LOGIN = 'sample-user'
 /**
  * Made-up data, so the GitHub page can be seen without reaching GitHub: by the scripted host, and by a window
  * with no host. Times count back from `now`. Every second read (`round` odd) brings one more review request,
- * so a refresh shows a row arriving and leaving.
+ * so a refresh shows a row arriving and leaving. Each pull request is on main unless it is a layer of one of the two
+ * stacks: three of the user's own in the api, and two that ask for the user's review in the storefront.
  */
 export function sampleGitHub(now: number, round = 0): GitHubState {
   const ago = (minutes: number) => new Date(now - minutes * 60_000).toISOString()
@@ -108,8 +109,12 @@ export function sampleGitHub(now: number, round = 0): GitHubState {
     author: SAMPLE_GITHUB_LOGIN,
     review: 'none',
     checks: 'none',
+    baseBranch: 'main',
+    headBranch: `topic-${number}`,
     ...rest,
   })
+  /** A layer's branches: the one it sits on, and its own. */
+  const on = (baseBranch: string, headBranch: string) => ({ baseBranch, headBranch })
   const issue = (repo: string, number: number, title: string, minutes: number, rest: Partial<GitHubIssue>): GitHubIssue => ({
     repo: `hobkin-sample/${repo}`,
     number,
@@ -133,13 +138,18 @@ export function sampleGitHub(now: number, round = 0): GitHubState {
     login: SAMPLE_GITHUB_LOGIN,
     reviews: [
       ...arriving,
-      pull('storefront', 482, 'Keep the cart total between page loads', 25, { author: 'mira', labels: ['performance'], review: 'waiting', checks: 'passing', ...size(120, 14, 6) }),
+      // A stack of two: 484 sits on 482's branch.
+      pull('storefront', 484, 'Show the saved cart on the cart page', 12, { author: 'mira', review: 'waiting', checks: 'pending', ...size(64, 9, 3), ...on('mira/cart-total', 'mira/saved-cart') }),
+      pull('storefront', 482, 'Keep the cart total between page loads', 25, { author: 'mira', labels: ['performance'], review: 'waiting', checks: 'passing', ...size(120, 14, 6), ...on('main', 'mira/cart-total') }),
       pull('api', 1190, 'Retry webhook deliveries with a backoff', 190, { author: 'devon', review: 'waiting', checks: 'pending', ...size(86, 31, 4) }),
       pull('docs', 77, 'Explain the new sign-in steps', 1500, { author: 'sam', labels: ['docs'], review: 'waiting', checks: 'none', ...size(48, 6, 2) }),
     ],
     pulls: [
+      // A stack of three: 1185 at the bottom, 1186 on it and 1187 on 1186. Its newest layer puts it first.
+      pull('api', 1187, 'Show the requests left in the response headers', 45, { review: 'none', checks: 'pending', ...size(54, 8, 3), ...on('gateway-key-counts', 'gateway-limit-headers') }),
       pull('storefront', 479, 'Fix the login redirect after a password reset', 120, { labels: ['bug'], review: 'approved', checks: 'passing', ...size(18, 4, 2) }),
-      pull('api', 1185, 'Move rate limits into the gateway', 310, { review: 'changes-requested', checks: 'failing', ...size(310, 120, 9) }),
+      pull('api', 1186, 'Count the requests of each key in the gateway', 240, { review: 'waiting', checks: 'passing', ...size(96, 12, 4), ...on('gateway-rate-limits', 'gateway-key-counts') }),
+      pull('api', 1185, 'Move rate limits into the gateway', 310, { review: 'changes-requested', checks: 'failing', ...size(310, 120, 9), ...on('main', 'gateway-rate-limits') }),
       pull('storefront', 470, 'Try a lighter product grid', 2900, { labels: ['experiment'], draft: true, checks: 'pending', ...size(240, 198, 11) }),
       pull('docs', 71, 'Document the export command', 5800, { review: 'waiting', checks: 'passing', ...size(140, 0, 3) }),
     ],

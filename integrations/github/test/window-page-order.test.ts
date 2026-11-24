@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { GitHubIssue, GitHubPull } from '../protocol.ts'
+import { sampleGitHub, type GitHubIssue, type GitHubPull } from '../protocol.ts'
 import { pullStacks } from '#shared/review/pull-stacks.ts'
 import { arrangePulls, elsewhereWords, orderIssues, stackHeading, type PullUnit } from '../window/page-order.ts'
 import { pullSections, type PullEntry } from '../window/pull-reviews.ts'
@@ -104,4 +104,12 @@ test('the heading of a stack whose bottom GitHub did not say the base of names n
   assert.ok(unit?.kind === 'stack')
   assert.equal(stackHeading(unit), 'Stack of 2 on one', 'a bottom here that sits on a branch no listed pull request has says that branch')
   assert.equal(stackHeading({ ...unit, base: null }), 'Stack of 2')
+})
+
+test('the sample, which the page shows with no host, holds a stack of three of the user’s own and one of two among the review requests', () => {
+  const github = sampleGitHub(NOW)
+  const { requested, mine } = arrangePulls(pullSections(github, []), pullStacks([...github.reviews, ...github.pulls]), 'newest')
+  assert.deepEqual(numbers(requested), [[482, 484], 1190, 77])
+  assert.deepEqual(numbers(mine), [[1185, 1186, 1187], 479, 470, 71])
+  assert.deepEqual(numbers(arrangePulls(pullSections(github, []), pullStacks([...github.reviews, ...github.pulls]), 'oldest').mine), [71, 470, [1185, 1186, 1187], 479])
 })

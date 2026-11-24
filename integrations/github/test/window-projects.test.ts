@@ -52,11 +52,11 @@ function page(): GitHubPage {
 const summary = (tabs: ReturnType<typeof projectTabs>) => tabs.map(({ slug, label, count }) => [slug, label, count])
 
 test('the tabs are All, then each project hobkin works on, by its repository on GitHub, each with how many open pull requests and issues it holds', () => {
-  // The sample: storefront has 1 review asked, 2 of the user's own and 5 issues; the api and the docs 1, 1 and 2 each.
+  // The sample: storefront has 2 reviews asked, 2 of the user's own and 5 issues; the api 1, 3 and 2; the docs 1, 1 and 2.
   assert.deepEqual(summary(projectTabs(PROJECTS, page())), [
-    [null, 'All', 17],
-    ['storefront', 'storefront', 8],
-    ['billing-api', 'Billing API', 4],
+    [null, 'All', 20],
+    ['storefront', 'storefront', 9],
+    ['billing-api', 'Billing API', 6],
     ['docs-site', 'docs-site', 4],
     ['quiet', 'quiet', 0],
   ])
@@ -73,7 +73,7 @@ test("a project's tab narrows every list to its repository, whatever the case, a
   const api = pageIn(all, tabs.find(({ slug }) => slug === 'billing-api')!)
 
   assert.deepEqual(api.sections.requested.map(({ number }) => number), [1190])
-  assert.deepEqual(api.sections.mine.map(({ number }) => number), [1185])
+  assert.deepEqual(api.sections.mine.map(({ number }) => number), [1187, 1186, 1185])
   assert.deepEqual(api.sections.reviewed.map(({ number }) => number), [1100], 'one the AI reviewed is matched by its review, not by its name')
   assert.deepEqual(api.issues.map(({ number }) => number), [1168, 1172])
 

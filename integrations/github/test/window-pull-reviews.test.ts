@@ -132,8 +132,8 @@ test('a failed review-list refresh hides previous AI reviews until a successful 
 
 test('the sample shows every state the page has: running, none, ready, failed, and two that left the lists', () => {
   const sections = pullSections(sampleGitHub(NOW), rowsOf(SAMPLE_REVIEW_LIST))
-  assert.deepEqual(sections.requested.map(({ ai }) => ai.state), ['running', 'none', 'ready'])
-  assert.deepEqual(sections.mine.map(({ ai }) => ai.state), ['ready', 'ready', 'none', 'failed'])
+  assert.deepEqual(sections.requested.map(({ ai }) => ai.state), ['none', 'running', 'none', 'ready'])
+  assert.deepEqual(sections.mine.map(({ ai }) => ai.state), ['none', 'ready', 'none', 'ready', 'none', 'failed'])
   assert.deepEqual(sections.reviewed.map(({ number }) => number), [1160, 466])
 })
 
