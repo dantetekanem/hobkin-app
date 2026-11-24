@@ -31,6 +31,20 @@ export async function executeShell({ command, cwd, signal, env }, { spawnProcess
   let bytes = 0;
   let closed = false;
   let escalation;
+  // How the process exited, once it has, and whether SIGKILL went after it.
+  let exited = null;
+  let hardKilled = false;
+  // A killed command's own process has gone, but a child it left in a process group of its own may still hold the
+  // pipes, so close would never come. Once SIGKILL has gone too, the pipes are let go and the run settles.
+  const release = () => {
+    if (closed || !exited || !hardKilled) return;
+    closed = true;
+    result.code = exited.code;
+    result.signal = exited.signal;
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    done.resolve();
+  };
   const kill = action => {
     try {
       if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, action);
@@ -44,7 +58,11 @@ export async function executeShell({ command, cwd, signal, env }, { spawnProcess
     result.killed = true;
     result.error = reason;
     kill('SIGTERM');
-    escalation = setTimeout(() => kill('SIGKILL'), 500);
+    escalation = setTimeout(() => {
+      kill('SIGKILL');
+      hardKilled = true;
+      release();
+    }, 500);
   };
   for (const channel of ['stdout', 'stderr']) {
     child[channel].on('data', data => {
@@ -59,7 +77,12 @@ export async function executeShell({ command, cwd, signal, env }, { spawnProcess
     });
   }
   child.on('error', error => { result.error = String(error.message ?? error); });
+  child.on('exit', (code, exitSignal) => {
+    exited = { code, signal: exitSignal };
+    release();
+  });
   child.on('close', (code, exitSignal) => {
+    if (closed) return;
     closed = true;
     result.code = code;
     result.signal = exitSignal;

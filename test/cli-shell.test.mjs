@@ -115,3 +115,43 @@ test('a command starts with the environment it is given, and with hobkin\'s own 
   assert.equal(inherited.stdout, 'none');
   assert.equal(seen[1], undefined);
 });
+
+test('a cancelled ordinary command answers as it always did', async () => {
+  const cancel = new AbortController();
+  const pending = executeShell({ command: 'synthetic', cwd, signal: cancel.signal }, {
+    spawnProcess: (...args) => {
+      const child = childProgram("process.stdout.write('ready'); setInterval(()=>{},1000)")(...args);
+      child.stdout.once('data', () => cancel.abort());
+      return child;
+    },
+  });
+  const result = await pending;
+
+  const { command: _, cwd: __, ...seen } = result;
+  assert.deepEqual(seen, { stdout: 'ready', stderr: '', code: null, signal: 'SIGTERM', killed: true, truncated: false, interrupted: true, error: 'Scheduled shell cancelled.' });
+});
+
+test('a killed command whose child left its process group settles soon after the kill, without waiting for that child', async t => {
+  const holder = "const { spawn } = await import('node:child_process');"
+    + "const held = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 6000)'], { detached: true, stdio: ['ignore', 'inherit', 'inherit'] });"
+    + "process.stdout.write('ready ' + held.pid); setInterval(()=>{},1000);";
+  const cancel = new AbortController();
+  let escaped;
+  t.after(() => { try { process.kill(escaped); } catch { /* it ended by itself */ } });
+  const began = Date.now();
+  const result = await executeShell({ command: 'synthetic', cwd, signal: cancel.signal }, {
+    spawnProcess: (...args) => {
+      const child = childProgram(holder)(...args);
+      child.stdout.once('data', data => {
+        escaped = Number(String(data).split(' ')[1]);
+        cancel.abort();
+      });
+      return child;
+    },
+  });
+
+  assert.ok(Date.now() - began < 3000, `settled after ${Date.now() - began} ms`);
+  assert.equal(result.killed, true);
+  assert.equal(result.interrupted, true);
+  assert.match(result.stdout, /^ready \d+$/);
+});

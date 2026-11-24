@@ -21,6 +21,9 @@ export const STORE = join('runtime', 'agent-schedules.json');
 /** The environment a scheduled command never gets: hobkin's own tokens. */
 export const SCHEDULE_TOKEN = 'HOBKIN_SCHEDULE_TOKEN';
 const HIDDEN = [TURN_TOKEN, SCHEDULE_TOKEN];
+// Closing waits this long for running commands to stop. A child that escaped its process group can hold a pipe for
+// good, and hobkin's close must not wait on it.
+const CLOSE_WAIT_MS = 5000;
 const NO_SUCH = 'There is no schedule with that id.';
 const NOT_YOURS = 'There is no schedule of yours with that id. List yours with action list.';
 const ENDED = 'That schedule has already ended.';
@@ -389,11 +392,21 @@ export class AgentScheduleRunner {
     while (this.running.size) await Promise.all([...this.running.values()].map(entry => entry.done));
   }
 
-  /** hobkin closes: commands running now are stopped, and the next open counts them as interrupted. */
+  /**
+   * hobkin closes: commands running now are stopped, and the next open counts them as interrupted. It waits for them
+   * at most `CLOSE_WAIT_MS`.
+   */
   async close() {
     if (this.closed) return;
     this.closed = true;
     for (const entry of this.running.values()) entry.controller.abort();
-    await Promise.all([...this.running.values()].map(entry => entry.done));
+    const stopped = Promise.all([...this.running.values()].map(entry => entry.done));
+    let timer;
+    const limit = new Promise(resolve => {
+      timer = this.timers.setTimeout(resolve, CLOSE_WAIT_MS);
+      timer?.unref?.();
+    });
+    await Promise.race([stopped, limit]);
+    this.timers.clearTimeout(timer);
   }
 }

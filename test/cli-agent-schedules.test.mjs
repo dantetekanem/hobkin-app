@@ -322,3 +322,20 @@ test('a store that cannot be written costs only the write: the run settles, noth
   assert.equal(readAgentSchedules(h.root).schedules.find(item => item.id === watch.id).state, 'cancelled', 'the next write catches up');
   assert.equal(runner.lastError, null);
 });
+
+test('closing waits for a running command no longer than its limit, whatever the command does', async t => {
+  const h = harness(t);
+  const runner = h.open({ shell: () => new Promise(() => {}) });
+  runner.make(main, '/work', { command: 'a daemon that holds its pipe', every: '5m', note: 'Look.' });
+  runner.tick();
+  assert.equal(runner.running.size, 1);
+
+  let closed = false;
+  const closing = runner.close().then(() => { closed = true; });
+  await settle();
+  assert.equal(closed, false, 'it waits a moment for the command to stop');
+  h.clock.now += 5000;
+  h.fireTimers();
+  await closing;
+  assert.equal(closed, true);
+});
