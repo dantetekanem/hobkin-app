@@ -461,3 +461,33 @@ test('files a step names outside its folder or that are not paths are ignored, a
   assert.deepEqual(committed(folder, item(first.id).commit), ['chapter3.md']);
   await assert.rejects(runWorkCommand(h.root, ['item', 'novel'], piped({ id: first.id, state: 'done', files: 'chapter3.md' })), /files must be a list/);
 });
+
+test('the director starts a second step of a goal beside the first, and each commits what it named', async t => {
+  const h = director(t);
+  const folder = await addedGoal(h);
+  writeMode(h.root, { agents: 2 });
+  const gate = Promise.withResolvers();
+  t.after(() => gate.resolve());
+  h.agent = async request => {
+    const { project, item: filed } = h.work(request);
+    if (!filed) return;
+    const name = `${filed.id}.md`;
+    writeFileSync(join(request.cwd, name), `${filed.title}\n`);
+    updateItem(h.root, project.slug, filed.id, { state: 'done', summary: `Wrote ${name}.`, proof: 'It is there.', files: [name] });
+    await gate.promise;
+  };
+  const first = fileItem(h.root, 'novel', step);
+  const second = fileItem(h.root, 'novel', { ...step, key: 'draft:four', title: 'Draft chapter four' });
+
+  for (let tick = 0; tick < 8 && h.calls.filter(call => call.purpose === 'work-do').length < 2; tick++) {
+    await h.director.tick();
+    await new Promise(resolve => setTimeout(resolve, 50));
+  }
+  assert.equal(h.calls.filter(call => call.purpose === 'work-do').length, 2, 'both steps run at once');
+  gate.resolve();
+  await h.settled();
+
+  const done = readItems(h.root, 'novel');
+  assert.deepEqual(done.map(({ state }) => state), ['done', 'done']);
+  assert.deepEqual(done.map(({ id }) => committed(folder, done.find(entry => entry.id === id).commit)), [[`${first.id}.md`], [`${second.id}.md`]]);
+});

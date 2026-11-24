@@ -150,7 +150,6 @@ function itemEntry(project, item) {
     key: `item:${slug}:${item.id}`,
     kind: 'item',
     lane: 'do',
-    goal: isGoal(project),
     level,
     grade: itemGrade(project, item),
     title: item.title,
@@ -432,15 +431,14 @@ const sharesWork = (entry, run) => {
 };
 
 /**
- * What the runs already going on a project hold back. A code item runs in a tree of its own, so only a run on its branch or its description holds it
- * back, and the user's agents are the ceiling. A look keeps the one look tree, so one look at a time. A goal's step works in the user's own folder, so
- * it waits for another step there, and a run there is a reason for small work to wait while the rest takes the folder as it stands.
+ * What the runs already going on a project hold back. An item or a step takes no other run's place: a code item works in a tree of its own, so only a
+ * run on its branch or its description holds it, and the user's agents are the ceiling. A goal's steps share its folder and commit by the files each names
+ * (`commitStep`). A look keeps the one look tree, so one look at a time, and small work waits for it so a run's folder stays simple.
  */
 export function waitsOnItsProject(entry, here) {
-  if (entry.lane === 'do' && here.some(run => sharesWork(entry, run))) return 'another item is on this branch';
-  if (here.some(run => run.lane === entry.lane) && (entry.lane !== 'do' || entry.goal)) return entry.lane === 'do' ? 'one step at a time here' : 'a look is running here';
-  const smallWorkWaits = entry.lane !== 'do' || entry.goal;
-  return smallWorkWaits && here.length > 0 && entry.effort === 'small' && !entry.urgent && !entry.picked ? 'another run here' : null;
+  if (entry.lane === 'do') return here.some(run => sharesWork(entry, run)) ? 'another item is on this branch' : null;
+  if (here.some(run => run.lane === entry.lane)) return 'a look is running here';
+  return here.length > 0 && entry.effort === 'small' && !entry.urgent && !entry.picked ? 'another run here' : null;
 }
 
 /** Whether the user's cap on changes a day is reached: every new change begun today counts, the user's picks among them. */

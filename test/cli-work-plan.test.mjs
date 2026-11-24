@@ -914,7 +914,7 @@ test('max keeps its limits', t => {
   assert.equal(next, null);
 });
 
-test('a look on a code project holds no item back, and a goal\'s step waits for it', t => {
+test('a look on a project holds no item or step back', t => {
   const root = dataRoot(t);
   project(root, 'api', 'critical');
   fileItem(root, 'api', item('small', { impact: 'high', effort: 'small' }), now);
@@ -933,10 +933,10 @@ test('a look on a code project holds no item back, and a goal\'s step waits for 
   writeState(root, 'novel', { lastLensAt: new Date(now).toISOString(), lastIdeasAt: new Date(now).toISOString() });
   fileItem(root, 'novel', item('step', { impact: 'high', effort: 'small' }), now);
   const goal = plan(root, { running: [{ slug: 'novel', lane: 'look' }] }).entries.find(entry => entry.title === 'step');
-  assert.equal(goal.waiting, 'another run here');
+  assert.equal(goal.waiting, null);
 });
 
-test('a code project runs as many items at once as there are free workers, and a goal runs one step at a time', t => {
+test('a project runs as many items or steps at once as there are free workers', t => {
   const root = dataRoot(t);
   setAgents(root, 4);
   project(root, 'api', 'critical');
@@ -959,7 +959,7 @@ test('a code project runs as many items at once as there are free workers, and a
   writeState(root, 'novel', { lastLensAt: new Date(now).toISOString(), lastIdeasAt: new Date(now).toISOString() });
   fileItem(root, 'novel', item('step', { impact: 'high', effort: 'medium' }), now);
   const goal = plan(root, { running: [{ slug: 'novel', lane: 'do', item: 'zzzzz9' }] }).entries.find(entry => entry.title === 'step');
-  assert.equal(goal.waiting, 'one step at a time here');
+  assert.equal(goal.waiting, null, 'a goal\'s steps go as wide as its agents too');
 });
 
 test('a Start now pick on an item starts at once while another item of its project runs and a worker is free', t => {
