@@ -214,6 +214,12 @@ test('nothing merges while YOLO mode is off, work mode waits or the project is p
     tone: 'quiet',
     text: 'Nothing waits to merge. Each change goes up as a PR, and the next small one rated 8 or more merges there by itself once every check on it passed. A draft, or one with no checks, never does.',
   })
+  // In draft mode every change goes up as a draft, which never merges by itself.
+  assert.deepEqual(verdictOf({ changes: [] }, { prMode: 'draft', pullRequests: true }).merges, {
+    state: 'Stuck',
+    tone: 'warn',
+    text: 'PR mode makes each change a draft PR here, and YOLO mode never merges a draft, so each one waits for you.',
+  })
 })
 
 test('a project getting ready says what holds it, and the press is the part that holds it', () => {

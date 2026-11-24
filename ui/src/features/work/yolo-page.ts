@@ -345,6 +345,7 @@ function mergesOf(project: YoloProject, context: VerdictContext): StatusLine {
   if (next && !next.why) return { state: 'Merging', tone: 'live', text: `"${next.title}" merges by itself on the next pass: ${next.kind} rated ${next.rate}.` }
   if (next?.why) return stuck(`Nothing can merge by itself. "${next.title}" asks you: ${sentence(next.why)}`)
   if (context.prMode !== 'off' && !context.pullRequests) return stuck('PR mode is on here, so each change goes up as a PR for your merge, and YOLO mode merges no PR.')
+  if (context.prMode === 'draft') return stuck('PR mode makes each change a draft PR here, and YOLO mode never merges a draft, so each one waits for you.')
   if (context.prMode !== 'off') {
     const asPull = `Each change goes up as a PR, and the next small one rated ${context.rate} or more merges there by itself once every check on it passed.`
     return { state: 'Idle', tone: 'quiet', text: `Nothing waits to merge. ${asPull} A draft, or one with no checks, never does.` }
