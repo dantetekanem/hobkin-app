@@ -404,6 +404,8 @@ function projectMonitoring(seat: { data: () => string; log?: (line: string) => v
 
 /** How soon after the host starts the reviews are first cleaned up, and how often after that. */
 const CLEAN_FIRST_MS = 60_000
+/** While true, the scheduled cleaning only says in the log what it would remove. */
+const CLEAN_LOOKS_ONLY = true
 const CLEAN_EVERY_MS = 24 * 60 * 60 * 1000
 
 /** The one cleaning schedule of each home, kept on globalThis so a host that reloads its code keeps one, not two. */
@@ -416,8 +418,9 @@ const cleaning = ((globalThis as { __hobkinReviewCleaning?: Map<string, { first:
 function keepCleaning(seat: { root: string; log?: (line: string) => void }, closed: (target: Extract<ReviewTarget, { kind: 'change' }>) => boolean) {
   const run = () => {
     try {
-      const removed = cleanUp({ root: seat.root, now: Date.now(), closed: (target) => target.kind === 'change' && closed(target) })
-      if (removed.length) seat.log?.(`Reviews: cleaning up removed ${removed.length} files the home no longer needs: ${removed.join(', ')}`)
+      // Only a look for now: it removes nothing until the rules were checked against a real home (spec 058, S4).
+      const named = cleanUp({ root: seat.root, now: Date.now(), closed: (target) => target.kind === 'change' && closed(target), look: CLEAN_LOOKS_ONLY })
+      if (named.length) seat.log?.(`Reviews: cleaning up ${CLEAN_LOOKS_ONLY ? 'would remove' : 'removed'} ${named.length} files the home no longer needs: ${named.join(', ')}`)
     } catch (error) {
       seat.log?.(`Reviews: cleaning up failed, so nothing more was removed: ${error instanceof Error ? error.message : String(error)}`)
     }

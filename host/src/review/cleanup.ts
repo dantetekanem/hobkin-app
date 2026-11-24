@@ -72,11 +72,12 @@ function brokenAt(path: string, name: string): number {
 /**
  * Removes what the home no longer needs, and answers every path it removed. `closed` says whether hobkin closed or
  * merged a change, or no longer has it. Nothing is removed on a doubt: a folder that cannot be read is left as it is.
+ * With `look` it removes nothing and answers what a real run would remove.
  */
-export function cleanUp({ root, now, closed }: { root: string; now: number; closed: (target: ReviewTarget) => boolean }): string[] {
+export function cleanUp({ root, now, closed, look = false }: { root: string; now: number; closed: (target: ReviewTarget) => boolean; look?: boolean }): string[] {
   const removed: string[] = []
   const remove = (path: string, folder = false) => {
-    rmSync(path, { force: true, ...(folder ? { recursive: true } : {}) })
+    if (!look) rmSync(path, { force: true, ...(folder ? { recursive: true } : {}) })
     removed.push(path)
   }
   const reviews = join(root, 'client', 'reviews')

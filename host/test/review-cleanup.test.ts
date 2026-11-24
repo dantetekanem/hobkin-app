@@ -51,6 +51,19 @@ test('older heads keep their summary and progress and lose the rest', (t) => {
   assert.deepEqual(cleanUp({ root, now: NOW, closed: () => false }), [], 'a second run removes nothing more')
 })
 
+test('a look names what cleaning up would remove and removes nothing', (t) => {
+  const { root, reviews } = home(t, 4)
+
+  const named = cleanUp({ root, now: NOW, closed: () => false, look: true })
+
+  assert.equal(named.length, 2 * (3 + 5), 'the same files a real run removes')
+  for (const index of [1, 2, 3, 4]) {
+    assert.ok(existsSync(join(reviews, `review-${head(index)}.json`)), `head ${index} is still whole`)
+    assert.ok(existsSync(join(reviews, 'change-review', head(index), 'graph.json')))
+  }
+  assert.equal(cleanUp({ root, now: NOW, closed: () => false }).length, named.length, 'a real run after it removes them')
+})
+
 test('a change hobkin closed leaves the list and its heavy files go after thirty days, its notes kept', (t) => {
   const recent = home(t, 1, { ageDays: 10 })
   assert.deepEqual(cleanUp({ root: recent.root, now: NOW, closed: () => true }), [], 'closed ten days ago: nothing goes yet')
