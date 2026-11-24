@@ -4,6 +4,7 @@ import { IDLE_STATUS, type OpenedReview, type PreparePhase, type ReviewNotes, ty
 import type { NoteEntry } from '#shared/review/notes.ts'
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import type { ReviewCommands } from '../loader.ts'
+import { samplePullNeeds } from '../sample/needs.ts'
 
 /**
  * A made-up host for the sample pull requests (`isSamplePull`), so a window with no host shows a review being prepared
@@ -168,7 +169,14 @@ export function sampleRuns(clock: () => number = Date.now) {
       const asked = await requestOf()
       const summary = (await assessmentOf())?.summary ?? SUMMARY
       const rated = (at: number): AssessmentStatus => ({ state: 'ready', head: asked.head, request: asked, summary: { ...summary, at: iso(at) } })
-      const known: ReviewStatus = { ...IDLE_STATUS(id), state: 'ready', head: asked.head, preparedAt: sample.built == null ? null : iso(sample.built), ...(sample.rated == null ? {} : { assessment: rated(sample.rated) }) }
+      // Its ratings come with the change review's answer, with no monitoring known for a pull request's repository.
+      const known: ReviewStatus = {
+        ...IDLE_STATUS(id),
+        state: 'ready',
+        head: asked.head,
+        preparedAt: sample.built == null ? null : iso(sample.built),
+        ...(sample.rated == null ? {} : { assessment: rated(sample.rated), needs: [samplePullNeeds(asked.head)] }),
+      }
       if (sample.run == null) return known
       const seconds = (clock() - sample.run) / 1000
       // The graph is built first: a review open meanwhile stays open, and one that is not has none to open yet.

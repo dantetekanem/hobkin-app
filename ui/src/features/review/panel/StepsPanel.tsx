@@ -163,7 +163,7 @@ export function StepsPanel({ canvas, chrome }: { canvas: Size; chrome: PanelChro
         />
 
         <div className="rv-scroll min-h-0 flex-1 overflow-y-auto">
-          <WhatMatters matters={matters} ask={ask} scores={chrome.preparation?.scores} />
+          <WhatMatters matters={matters} ask={ask} status={chrome.preparation} />
 
           <section aria-label="Comments and questions" className="flex flex-col gap-2.5 px-4 pt-4 pb-3.5">
             <h3 className={HEADING}>Comments and questions</h3>

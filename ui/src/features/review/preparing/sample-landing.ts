@@ -3,6 +3,7 @@ import { IDLE_STATUS, type OpenedReview, type ReviewLanding, type ReviewNotes, t
 import type { Review, ReviewSource } from '#shared/review/types.ts'
 import type { Verdict } from '#shared/review/verdict.ts'
 import type { ReviewCommands } from '../loader.ts'
+import { SAMPLE_HOBKIN_SCORES, sampleChangeNeeds } from '../sample/needs.ts'
 import type { VerdictCommands } from '../verdict.ts'
 
 /**
@@ -65,6 +66,9 @@ export function sampleLandings(clock: () => number = Date.now) {
         // The made-up agent moves the branch as it brings it up to date, as a real one does.
         head: landing ? REFRESHED : change.head,
         preparedAt: PREPARED_AT,
+        // The review's own ratings at the commit it was built for, and hobkin's own scored run's.
+        needs: [sampleChangeNeeds(change.head)],
+        scores: SAMPLE_HOBKIN_SCORES,
         ...(landing ? { landing } : {}),
       }
     }
