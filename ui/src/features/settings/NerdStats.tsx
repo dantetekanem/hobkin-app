@@ -11,7 +11,7 @@ import { runCommand } from '@/lib/host/client.ts'
 import { useHasHost } from '@/lib/host/index.ts'
 import { formatBytes } from './backup.ts'
 import {
-  backupSummary, countOf, daysSince, engineOf, formatCount, formatDate, formatDuration, formatPercent, formatUsd, refreshRate, tokenTotals,
+  backupSummary, countOf, daysSince, routineCount, engineOf, formatCount, formatDate, formatDuration, formatPercent, formatUsd, refreshRate, tokenTotals,
 } from './nerd-stats-data.ts'
 import { useNerdStats } from './nerd-stats-store.ts'
 import { useSettings } from './store.ts'
@@ -160,7 +160,7 @@ function StatsContent() {
         ['Days since first login', count(daysSince(facts?.firstLoginAt ?? null, now))],
         ['Conversations started', count(facts?.conversations ?? null), 'all-time, including reset ones'],
         ['Reports', count(countOf(snapshot.reports))],
-        ['Routines', count(countOf(snapshot.schedules))],
+        ['Routines', count(routineCount(snapshot.schedules))],
         ['Work projects', count(work ? work.projects.length : null)],
         ['Work queue', count(work ? work.queued : null)],
         ['Integrations', count(integrations ? integrations.servers.length : null), 'MCP servers'],

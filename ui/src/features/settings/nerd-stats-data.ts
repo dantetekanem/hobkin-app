@@ -39,6 +39,11 @@ export function countOf(value: unknown): number | null {
   return Array.isArray(value) ? value.length : null
 }
 
+/** How many routines the user has: the snapshot's schedules, less the integrations' workflows, which ride with them. */
+export function routineCount(schedules: unknown): number | null {
+  return Array.isArray(schedules) ? schedules.filter((row) => typeof (row as { integration?: unknown } | null)?.integration !== 'string').length : null
+}
+
 /** "Chrome 131.0.6778.86" or "AppleWebKit/605.1.15" from a user agent, for the engine the window runs on. */
 export function engineOf(userAgent: string): string {
   return /(Chrome|Edg|Firefox)\/([\d.]+)/.exec(userAgent)?.slice(1, 3).join(' ') ?? /AppleWebKit\/([\d.]+)/.exec(userAgent)?.[0] ?? 'unknown'

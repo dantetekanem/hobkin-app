@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
-  backupSummary, countOf, daysSince, engineOf, formatCount, formatDate, formatDuration, formatPercent, formatUsd, refreshRate, tokenTotals,
+  backupSummary, countOf, daysSince, routineCount, engineOf, formatCount, formatDate, formatDuration, formatPercent, formatUsd, refreshRate, tokenTotals,
 } from '../src/features/settings/nerd-stats-data.ts'
 
 const scalar = (value: number | null) => (value === null ? { value, state: 'unavailable' as const } : { value, state: 'complete' as const })
@@ -29,6 +29,8 @@ test('durations, days, counts, engine and refresh rate read plainly', () => {
   assert.equal(daysSince(null, 0), null)
   assert.equal(countOf([1, 2]), 2)
   assert.equal(countOf(undefined), null)
+  assert.equal(routineCount([{ id: 'morning' }, { id: 'echo/digest', integration: 'echo' }, { id: 'weekly' }]), 2, "an integration's workflows are not the user's routines")
+  assert.equal(routineCount(undefined), null)
   assert.equal(engineOf('Mozilla/5.0 AppleWebKit/537.36 (KHTML) Chrome/131.0.6778.86 Safari/537.36'), 'Chrome 131.0.6778.86')
   assert.equal(engineOf('Mozilla/5.0 AppleWebKit/605.1.15 (KHTML, like Gecko)'), 'AppleWebKit/605.1.15')
   assert.equal(refreshRate(Array(20).fill(8.4)), 120)
