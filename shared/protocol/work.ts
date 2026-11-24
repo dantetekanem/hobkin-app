@@ -581,3 +581,10 @@ export interface GroupRow {
   how: Landing
   head?: string
 }
+
+/** Every row of hobkin's queue, in hobkin's order with the skipped rows last, where the status keeps only its first rows. */
+export interface WholeQueue {
+  rows: QueueRow[]
+  /** How many of them wait to start: all but the skipped ones, the paused projects' rows included. */
+  queued: number
+}

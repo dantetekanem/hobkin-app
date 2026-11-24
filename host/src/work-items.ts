@@ -54,10 +54,10 @@ function issueOf(item: Item | undefined): WorkIssue | null {
 }
 
 /** hobkin's item `id` on the project `slug`, or nothing when hobkin has no such item. */
-type ItemOf = (slug: string, id: string) => Item | undefined
+export type ItemOf = (slug: string, id: string) => Item | undefined
 
 /** One read of each project's items, only for the projects asked about. A home that cannot be read has none to give. */
-function itemsReader(root: () => string): ItemOf {
+export function itemsReader(root: () => string): ItemOf {
   const read = new Map<string, Item[]>()
   const itemsOf = (slug: string): Item[] => {
     const known = read.get(slug)
@@ -268,6 +268,14 @@ function mergingRows(closing: unknown, itemOf: ItemOf): MergingRow[] {
   })
 }
 
+/** A queue's rows with the issue each item was filed from and its pull request, which hobkin's plan rows do not carry. */
+export function queueWithItems(rows: readonly QueueRow[], itemOf: ItemOf): QueueRow[] {
+  return rows.map((row): QueueRow => {
+    const item = row.slug && row.item ? itemOf(row.slug, row.item) : undefined
+    return { ...row, issue: issueOf(item), pr: text(item?.pr) }
+  })
+}
+
 function withItems(snapshot: HobkinSnapshot, root: () => string, reposOf: ReturnType<typeof reposReader>): WorkState | null {
   const work = workFrom(snapshot)
   if (!work) return null
@@ -284,10 +292,7 @@ function withItems(snapshot: HobkinSnapshot, root: () => string, reposOf: Return
   const shown = new Set(finished.flatMap(({ changes }) => changes.map(({ key }) => key)))
   const left = leftGroup(waiting?.yours, shown, itemOf)
 
-  const queue = work.queue.map((row): QueueRow => {
-    const item = row.slug && row.item ? itemOf(row.slug, row.item) : undefined
-    return { ...row, issue: issueOf(item), pr: text(item?.pr) }
-  })
+  const queue = queueWithItems(work.queue, itemOf)
 
   return {
     ...work,

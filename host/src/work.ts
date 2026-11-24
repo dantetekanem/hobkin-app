@@ -113,7 +113,7 @@ interface ReadyRow {
 }
 
 /** A row of hobkin's queue (`planRow` in its `src/cli/work/commands.mjs`). */
-interface PlanRow {
+export interface PlanRow {
   key: string
   kind: string
   slug?: string | null
@@ -545,7 +545,7 @@ export function stacksTogether(groups: readonly FinishedGroup[]): FinishedGroup[
     .filter(({ changes }) => changes.length > 0)
 }
 
-const queueRowOf = (row: PlanRow): QueueRow => ({
+export const queueRowOf = (row: PlanRow): QueueRow => ({
   key: row.key,
   kind: row.kind,
   slug: row.slug ?? null,

@@ -77,6 +77,7 @@ import { ReminderReader, reminderHandlers } from './reminders.ts'
 import { proofHandlers, ProofsKeeper } from './proofs.ts'
 import { proofToolsHandlers } from './setup-proof.ts'
 import { workHandlers } from './work.ts'
+import { workQueueHandlers } from './work-queue.ts'
 import { newProjectHandlers } from './work-new-project.ts'
 import { metricsHandlers } from './metrics.ts'
 import { workReader } from './work-items.ts'
@@ -729,6 +730,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     // The Work screen's actions, each one of hobkin's own work actions. An integration hears how each ended (`afterCommand`).
     ...workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }),
+    ...workQueueHandlers({ app: hobkin, root: () => hobkin().runtime.directory }),
     // Work in numbers: hobkin's fold of its own records, with the AI reviews the host keeps, kept for a minute (053).
     ...metricsHandlers({ data: () => hobkin().runtime.directory, root, reviews }),
     // TLA+ proof runs: read, stopped and repeated through hobkin's own proof functions, when the runtime running has them.

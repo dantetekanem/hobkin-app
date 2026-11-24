@@ -35,7 +35,7 @@ import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import type { ProofRun } from '../protocol/proofs.ts'
 import { METRICS_DAYS_MAX, type WorkMetrics } from '../protocol/metrics.ts'
 import type { ActivityEntry } from '../protocol/activity.ts'
-import { GRADES, ISSUE_PICKUPS, PR_MODES, PROJECT_KINDS, REVIEW_PULLS, type FolderLook, type FolderPicked, type NewProjectDone, type Workload, type YoloRules } from '../protocol/work.ts'
+import { GRADES, ISSUE_PICKUPS, PR_MODES, PROJECT_KINDS, REVIEW_PULLS, type FolderLook, type FolderPicked, type NewProjectDone, type WholeQueue, type Workload, type YoloRules } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
 import { EFFORTS, TIER_IDS, type HostTiers } from '../tiers/tiers.ts'
@@ -986,6 +986,14 @@ export const COMMANDS = {
     args: Type.Object({ row: words(256), action: oneOf(['run', 'now', 'skip', 'back']) }, { additionalProperties: false }),
     hobkin: true,
   },
+  // The whole queue, for the sheet that lists every row: the status the window gets keeps only hobkin's first rows.
+  'work.queue.all': {
+    description:
+      "Read every row of hobkin's queue, in hobkin's order with the skipped rows last, from hobkin's own plan: the status keeps only its first fifty waiting rows. Answers with the rows and how many of them wait to start, the paused projects' rows included. It only reads.",
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
   'work.project': {
     description:
       'Change one setting of a project work mode works on: `priority`, P0 to P3, sets how often it runs and its place in the queue, `prs` sets where its finished work goes: `off` keeps it on a local branch, `draft` opens a draft PR, `published` opens a PR, `issues` sets which of its open GitHub issues hobkin files as work by itself, every 15 minutes: `off`, `labeled` (only those labeled hobkin) or `all`, and `paused` stops work mode on this project alone (`true`: its running agents finish and nothing new starts there) or starts it again (`false`).',
@@ -1553,6 +1561,7 @@ export interface CommandResults {
   'work.mode': { enabled: boolean }
   /** What hobkin said, when it says something: `now` says whether the row started or what still holds it. */
   'work.queue': { ok: true; message?: string }
+  'work.queue.all': WholeQueue
   'work.project': { ok: true }
   'work.project.look': FolderLook
   'work.project.new': NewProjectDone
