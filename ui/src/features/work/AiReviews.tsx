@@ -87,7 +87,7 @@ function startStory(queue: readonly ReviewRow[]) {
 }
 
 /** The offer to go through the reviews waiting on the user one by one: one quiet line at the top of the list. */
-function StoryOffer({ count, onStart }: { count: number; onStart: () => void }) {
+export function StoryOffer({ count, onStart }: { count: number; onStart: () => void }) {
   return (
     <div className="-mb-4 flex min-h-9 items-center gap-3 px-1">
       <p className="min-w-0 flex-1 text-[14px] leading-snug text-muted-foreground tabular-nums">

@@ -64,11 +64,11 @@ Decided once, when Start is pressed, and kept until the story ends. A review tha
 - A2. `ui/test/work-review-story.test.ts` › "highest priority first, then safest, then smallest, and ties keep the list order", › "a stack stays together, bottom layer first, at the place of its best layer" and › "reviews still being prepared or not reviewed yet come after the rated ones, even when they press more"
 - A3. `ui/test/work-review-story.test.ts` › "the story walks the queue, skips a review that is gone, and ends after the last"; `ui/test/review-landing.test.ts` › "approve and merge closes the review at once: with Merged! when it is known merged, with the host's words when it is not" (the verdict says it closed the review). The step into the next review in the window was not run.
 - A4. check: the end of a story is wired to `story-store.ts` `left` and `stop`; none of it was pressed in the window.
-- A5. check (still renders): the list's line and the panel's place at 1300 and 760 pixels, dark and light.
+- A5. check (2026-11-24, still renders): the list's line at 1300 and 760 pixels, dark and light, and the panel's top line with "3 of 14" and Stop, dark and light.
 
 ## Steps
 
 - [x] S1 (A1, A2, A3). The order, the offer's count and the story's state, with their tests. 9c8997d.
 - [x] S2 (A3). A verdict says whether it closed the review. 930a8bd.
-- [ ] S3 (A1, A3, A4, A5). The offer on the list, the story store, the place on the panel, and the next review after a verdict.
+- [x] S3 (A1, A3, A4, A5). The offer on the list, the story store, the place on the panel, and the next review after a verdict. f47f2b4. Seen in still renders only: no press, key or story run in the window.
 - [ ] S4. In the app's window, with the user's own list.
