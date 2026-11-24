@@ -4,11 +4,12 @@ import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'r
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button, buttonVariants } from '@/components/ui/button.tsx'
-import { openOnGitHub } from '@/features/github/open.ts'
 import { finishedReviewId } from '@/features/review/entry.ts'
 import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
 import { ProofCheckLine, ProofChips } from '@/features/proofs/ProofChips.tsx'
-import { useGitHub, type FinishedChange, type FinishedGroup } from '@/lib/host/index.ts'
+import { usePullRequests } from '@/integration/use-pulls.ts'
+import { type FinishedChange, type FinishedGroup } from '@/lib/host/index.ts'
+import { openLink } from '@/lib/open-link.ts'
 import { cn } from '@/lib/utils.ts'
 import type { HobkinChoice } from './actions.ts'
 import { actionOf, factsOf, placeBefore, rowKey, sentenceOf, type Fact, type Tone } from './change-row.ts'
@@ -79,12 +80,12 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
   const still = useStill()
   const busy = useWorkUi((state) => Boolean(state.busy[change.key] || state.busy[`group:${group.name}`]))
   const said = useWorkUi((state) => state.said[change.key])
-  const github = useGitHub()
+  const pulls = usePullRequests()
   const [chosen, setChosen] = useState<HobkinChoice | null>(null)
   const [noting, setNoting] = useState(false)
   const [opened, setOpened] = useState(initiallyOpen)
   const open = bare || opened
-  const pull = change.pr ? [...github.pulls, ...github.reviews].find(({ url }) => url === change.pr) : undefined
+  const pull = change.pr ? pulls.find(({ url }) => url === change.pr) : undefined
   const reviewId = finishedReviewId(change, live)
   // A sample row's change review is the sample's, so nothing is asked for it.
   const followed = useChangeReview(live ? reviewId : null, change.head)
@@ -219,7 +220,7 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
                 rel="noopener noreferrer"
                 tabIndex={-1}
                 data-row-control=""
-                onClick={(event) => openOnGitHub(event, change.pr!)}
+                onClick={(event) => openLink(event, change.pr!)}
                 className={buttonVariants({ variant: 'ghost', size: 'sm' })}
               >
                 Open PR #{prNumber(change.pr)}

@@ -6,7 +6,8 @@ import { labelFor } from '@/features/canvas-panel/rules.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { SAMPLE_PROOFS } from '@/features/proofs/sample.ts'
 import { useWorkUi } from '@/features/work/store.ts'
-import { useGitHub, useHasHost, useHost } from '@/lib/host/index.ts'
+import { usePullRequests } from '@/integration/use-pulls.ts'
+import { useHasHost, useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { requestCanvasFocus } from './focus.ts'
 import { useAgent } from './running-agents.ts'
@@ -151,8 +152,8 @@ function ReviewName({ stop }: { stop: Stop }) {
   const live = useHasHost()
   const hosted = useHost((state) => changeTitle(state.work, id))
   const sample = useWorkUi((state) => changeTitle(state.sample, id))
-  const github = useGitHub()
-  const pull = useMemo(() => reviewTitleOf(id, [], [...github.pulls, ...github.reviews]), [id, github])
+  const pulls = usePullRequests()
+  const pull = useMemo(() => reviewTitleOf(id, [], pulls), [id, pulls])
   return placeName(stop, (live ? hosted : sample) ?? pull)
 }
 
