@@ -8,6 +8,7 @@ import { assessmentFolder, Assessments } from '../src/review/assessment.ts'
 import { engineNeeds, monitoringLines, withHobkinRate } from '../src/review/ratings.ts'
 import { Reviews } from '../src/review/reviews.ts'
 import { reviewStore } from '../src/review/store.ts'
+import { recordUsage } from '../src/review/usage.ts'
 import { hobkinNeedsOf } from '../src/work.ts'
 import { temporaryDirectory } from './support.ts'
 
@@ -78,9 +79,10 @@ function reviewed(t: TestContext, graph: object, card: () => { hobkinNeeds?: Rev
     },
     head: () => HEAD,
     assessments,
+    now: () => Date.parse('2026-11-24T10:00:00.000Z'),
   })
   t.after(() => reviews.close())
-  return reviews
+  return Object.assign(reviews, { folder })
 }
 
 test("a review's status and row carry its ratings, the commit they were made at and hobkin's rate and floors", (t) => {
@@ -93,6 +95,13 @@ test("a review's status and row carry its ratings, the commit they were made at 
   const own = { ...engineNeeds({ needs: ENGINE_NEEDS })!, at: '2026-11-23T10:00:00.000Z' }
   assert.deepEqual(status.needs, [own, hobkins])
   assert.deepEqual(row?.needs, [own, hobkins])
+})
+
+test("the list's line for a repository counts about how many tokens its reviews took this week", (t) => {
+  const reviews = reviewed(t, { nodes: [] })
+  recordUsage(reviews.folder, { pass: 'review', tier: 'high', model: 'a', at: '2026-11-23T09:00:00.000Z', input: 900_000, output: 100_000, cacheRead: 0, cacheWrite: 100_000, tokens: 1_100_000 })
+
+  assert.deepEqual(reviews.list().repos, [{ project: 'shop', current: 0, waiting: 0, outdated: 0, builtThisWeek: 1, tokensThisWeek: 1_100_000 }])
 })
 
 test('a review whose change review gave no ratings is not rated, and says nothing made up', (t) => {

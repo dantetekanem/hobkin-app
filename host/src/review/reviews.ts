@@ -869,7 +869,12 @@ export class Reviews {
       if (row.outdated) line.outdated += 1
       else if (row.turn) line.waiting += 1
       else if (this.line.current.has(row.id)) line.current += 1
-      if (Date.parse(row.assessment?.summary?.at ?? '') >= weekAgo) line.builtThisWeek += 1
+      if (target && row.assessment?.head && Date.parse(row.assessment.summary?.at ?? '') >= weekAgo) {
+        line.builtThisWeek += 1
+        // About what its model calls took, where they gave a count.
+        const tokens = this.options.assessments?.tokensAt?.(target, row.assessment.head) ?? null
+        if (tokens != null) line.tokensThisWeek = (line.tokensThisWeek ?? 0) + tokens
+      }
       lines.set(repo, line)
     }
     return [...lines.values()]

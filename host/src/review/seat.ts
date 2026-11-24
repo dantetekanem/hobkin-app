@@ -29,6 +29,7 @@ import { mergePlan, movedSince } from './landing.ts'
 import { reviewModelChecks } from './model-checks.ts'
 import { monitoringLines } from './ratings.ts'
 import { carryReview } from './carry.ts'
+import { recordUsage } from './usage.ts'
 import { chatTeller } from './notify.ts'
 import type { WhoIsMe } from './owner.ts'
 import { peopleFinder, pullPeople } from './people.ts'
@@ -223,7 +224,8 @@ export function hostReviews(seat: ReviewSeat): Reviews {
         // A code host's own tree, for a repository too large to check out whole (entry 15).
         hostTree: hosts.treeOf,
         run: async (request) => {
-          const model = piModelRunner({ root: seat.root, data: seat.data, runtime: seat.runtime })
+          // Each model call's tokens are kept beside the review it is for (spec 058).
+          const model = piModelRunner({ root: seat.root, data: seat.data, runtime: seat.runtime, onUsage: (call) => recordUsage(request.out, call) })
           // hobkin's TLC runs at the head of the change's models, which the Reviewer weighs like tests that ran (050-tla-proofs).
           const modelChecks = await reviewModelChecks(request, { data: seat.data, log: seat.log })
           // What hobkin's readiness record says of the project's monitoring and its way back, for the visibility rating (spec 058).

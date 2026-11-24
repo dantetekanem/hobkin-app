@@ -8,6 +8,7 @@ import { checkArguments, COMMANDS } from '#shared/commands/registry.ts'
 import { runCommand } from '../src/commands.ts'
 import { dayOf, spanOf } from 'hobkin/src/cli/work/metrics.mjs'
 import { loadMetricsRuntime, metricsHandlers, metricsReader, METRICS_KEPT_MS, OLDER_RUNTIME, type MetricsRuntime } from '../src/metrics.ts'
+import { recordUsage } from '../src/review/usage.ts'
 import { temporaryDirectory } from './support.ts'
 
 // Every time is local, so the days come out the same in any time zone. Today is 21 November 2026, at 15:00.
@@ -184,4 +185,21 @@ test('a hobkin older than work numbers leaves the host working, and work.metrics
   const handlers = metricsHandlers({ data: () => '/hobkin-home', root, runtime: async () => ({}) })
 
   assert.deepEqual(await runCommand(handlers, 'work.metrics', { days: 7 }), { ok: false, error: { code: 'unavailable', message: OLDER_RUNTIME } })
+})
+
+test("each model call's tokens are kept beside its review and the numbers add them by day", async (t) => {
+  const root = temporaryDirectory(t)
+  writeReview(root, 'change+api+a1', { aaaaaaaaaaaa: { summary: { level: 'safe', deploy: 'safe', at: daysAgo(1, 13) }, progress: started(daysAgo(1, 12)) } })
+  const folder = join(root, 'client', 'reviews', 'change+api+a1', 'change-review', 'aaaaaaaaaaaa')
+  recordUsage(folder, { pass: 'review', tier: 'high', model: 'anthropic/a', at: daysAgo(1, 12), input: 20_000, output: 4_000, cacheRead: 0, cacheWrite: 1_000, tokens: 25_000 })
+  recordUsage(folder, { pass: 'checker', tier: 'fast', model: 'anthropic/b', at: daysAgo(0, 9), input: 3_000, output: 500, cacheRead: 0, cacheWrite: 0, tokens: 3_500 })
+  // A call whose model gave no count adds nothing.
+  recordUsage(folder, { pass: 'review', tier: 'high', model: 'anthropic/a', at: daysAgo(0, 10) })
+
+  const metrics = await metricsReader({ data: () => '/hobkin-home', root, runtime: runtimeWith(fakeFold()), now: () => NOW })(3)
+
+  const tokensOf = (series: MetricsSeries) => series.days.slice(-3).map((day) => (day as typeof day & { reviewTokens?: number }).reviewTokens ?? 0)
+  assert.deepEqual(tokensOf(metrics.all), [0, 25_000, 3_500])
+  assert.deepEqual(tokensOf(projectOf(metrics, 'api')), [0, 25_000, 3_500])
+  assert.deepEqual(tokensOf(projectOf(metrics, 'web')), [0, 0, 0])
 })

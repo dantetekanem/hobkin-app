@@ -14,6 +14,7 @@ import type { PiModelRuntime } from '../pi.ts'
 import { DEFAULT_REVIEW_TIERS, TIER_IDS, type ReviewRole, type TierId } from '#shared/tiers/tiers.ts'
 import { runProgram } from '../../../packages/change-review/src/git.ts'
 import { loadPiCodingAgent } from '../pi.ts'
+import { tokensOf, type CallTokens, type CallUsage } from './usage.ts'
 
 /** A model and how hard it thinks, as hobkin's tiers store them (`017-model-tiers`), with where it came from: the tier itself, or the setting that tier follows while it has no model of its own. */
 export interface TierChoice {
@@ -89,16 +90,32 @@ export function checkerTier(root: string): TierChoice | null {
  * thinking, and its blind check on the checker tier. Both run with no tools and an empty context: in a Pi session in
  * this process, or, when the home names a launcher, in one run of the launcher's Pi. A host with no models asks nothing.
  */
-export function piModelRunner({ root, data, runtime, program = runProgram }: PiAgentPlace & { program?: typeof runProgram }): (call: { pass: 'review' | 'checker'; system: string; prompt: string; signal: AbortSignal }) => Promise<string | null> {
+export function piModelRunner({
+  root,
+  data,
+  runtime,
+  program = runProgram,
+  onUsage,
+}: PiAgentPlace & {
+  program?: typeof runProgram
+  /** Hears each call that answered: its tier and model, and the model's own token count when it gave one (spec 058). */
+  onUsage?: (call: CallUsage) => void
+}): (call: { pass: 'review' | 'checker'; system: string; prompt: string; signal: AbortSignal }) => Promise<string | null> {
   return async ({ pass, system, prompt, signal }) => {
     const models = await runtime()
     const home = data()
     const choice = pass === 'checker' ? checkerTier(home) : reviewTier(home)
     if (!models || !choice) return null
+    let tokens: CallTokens | null = null
     // Read on every call, so a launcher the home names now is the one asked.
     const launcher = readConfig(home)?.launcher
-    if (launcher) return askLauncher({ launcher, choice, system, prompt, signal, program })
-    return askPi({ root, models, choice, system, prompt, signal })
+    const said = launcher ? await askLauncher({ launcher, choice, system, prompt, signal, program }) : await askPi({ root, models, choice, system, prompt, signal, onTokens: (counted) => (tokens = counted) })
+    try {
+      onUsage?.({ pass, tier: choice.tier, model: choice.model, at: new Date().toISOString(), ...(tokens ?? {}) })
+    } catch {
+      // What a call took is kept for the numbers; failing to keep it never fails the review.
+    }
+    return said
   }
 }
 
@@ -144,7 +161,7 @@ interface PiAgentPlace {
 }
 
 /** One question to a model in a session of its own, with no tools: its written answer, as text. */
-async function askPi({ root, models, choice, system, prompt, signal }: { root: string; models: PiModelRuntime; choice: TierChoice; system: string; prompt: string; signal: AbortSignal }): Promise<string> {
+async function askPi({ root, models, choice, system, prompt, signal, onTokens }: { root: string; models: PiModelRuntime; choice: TierChoice; system: string; prompt: string; signal: AbortSignal; onTokens?: (tokens: CallTokens) => void }): Promise<string> {
   const pi = (await loadPiCodingAgent()) as unknown as {
     createAgentSession(options: Record<string, unknown>): Promise<{ session: PiSession; modelFallbackMessage?: string }>
     resolveCliModel(options: { cliModel: string; modelRuntime: unknown }): { model?: unknown; error?: string; warning?: string }
@@ -188,7 +205,7 @@ async function askPi({ root, models, choice, system, prompt, signal }: { root: s
     session.dispose()
     throw new Error(modelFallbackMessage)
   }
-  return askSession(session, prompt, signal)
+  return askSession(session, prompt, signal, onTokens)
 }
 
 /** How long one model call may run. One still going by then is stopped, and fails saying so. */
@@ -199,7 +216,7 @@ export const MODEL_DEADLINE_MS = 10 * 60_000
  * was stopped before it started is never asked. One stopped on the way, by its run or by its deadline, stops the
  * session and fails: what it wrote by then is no answer.
  */
-export async function askSession(session: PiSession, prompt: string, signal: AbortSignal): Promise<string> {
+export async function askSession(session: PiSession, prompt: string, signal: AbortSignal, onTokens?: (tokens: CallTokens) => void): Promise<string> {
   const deadline = new AbortController()
   const timer = setTimeout(() => deadline.abort(), MODEL_DEADLINE_MS)
   const stop = AbortSignal.any([signal, deadline.signal])
@@ -221,6 +238,9 @@ export async function askSession(session: PiSession, prompt: string, signal: Abo
     if (stop.aborted) throw stopped()
     const reply = [...session.messages].reverse().find((message) => message.role === 'assistant')
     const parts = Array.isArray(reply?.content) ? reply.content : []
+    // What the call took, from the model's own count on each of its answers in this session of its own (spec 058).
+    const tokens = tokensOf(session.messages.filter((message) => message.role === 'assistant').map((message) => message.usage))
+    if (tokens) onTokens?.(tokens)
     return parts.filter((part) => part.type === 'text').map((part) => String(part.text ?? '')).join('\n')
   } finally {
     clearTimeout(timer)
@@ -233,5 +253,5 @@ export interface PiSession {
   prompt(text: string): Promise<void>
   abort(): Promise<void>
   dispose(): void
-  messages: { role?: string; content?: { type?: string; text?: unknown }[] }[]
+  messages: { role?: string; content?: { type?: string; text?: unknown }[]; usage?: unknown }[]
 }

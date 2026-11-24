@@ -5,12 +5,13 @@
  */
 import { readdirSync, readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { METRICS_DAYS_DEFAULT, METRICS_OLDER_RUNTIME, type MetricsSeries, type WorkMetrics } from '#shared/protocol/metrics.ts'
+import { METRICS_DAYS_DEFAULT, METRICS_OLDER_RUNTIME, type MetricsDay, type MetricsSeries, type WorkMetrics } from '#shared/protocol/metrics.ts'
 import { deployOf, type AssessmentSummary } from '#shared/review/assessment.ts'
 import { reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import type { ReviewList } from '#shared/review/status.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
 import { assessmentFolder } from './review/assessment.ts'
+import { readUsage } from './review/usage.ts'
 import { reviewStore, type ReviewStore } from './review/store.ts'
 
 /** How long one answer stands. The window asks again at most once a minute while a page with numbers shows. */
@@ -60,6 +61,12 @@ interface ReviewProgress {
 }
 
 type ReviewCount = 'reviewsSafe' | 'reviewsRisky' | 'reviewsFailed'
+
+/**
+ * A day with the fresh tokens the AI reviews' model calls took that day (spec 058, A7), beside hobkin's own `tokens`,
+ * which they are not counted in. Not in the protocol's day yet, so a window reads it as optional.
+ */
+export type ReviewTokensDay = MetricsDay & { reviewTokens?: number }
 
 const UNDER_WAY = new Set(['queued', 'running'])
 const UNREADABLE = Symbol('unreadable')
@@ -137,6 +144,15 @@ function addReviews(metrics: WorkMetrics, root: string, store: ReviewStore, unde
       continue
     }
     for (const head of heads) {
+      // Each model call's fresh tokens on the day it answered.
+      for (const call of readUsage(join(folder, head))) {
+        const index = typeof call.tokens === 'number' ? dayIndex.get(dayOf(call.at)) : undefined
+        if (index === undefined) continue
+        for (const series of seriesOf(target)) {
+          const day = series.days[index] as ReviewTokensDay
+          day.reviewTokens = (day.reviewTokens ?? 0) + call.tokens!
+        }
+      }
       const summary = readKept<AssessmentSummary>(join(folder, head, 'summary.json'))
       const progress = readKept<ReviewProgress>(join(folder, head, 'progress.json'))
       if (summary === UNREADABLE || progress === UNREADABLE) {

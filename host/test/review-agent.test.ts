@@ -135,3 +135,22 @@ test('a launcher that manages Pi’s extensions keeps them, and a call that fail
   const failed = piModelRunner({ root: home, data: () => home, runtime: async () => ({}) as never, program: failing.program })({ pass: 'review', ...asked })
   await assert.rejects(failed, (error: Error) => /acme\/big/.test(error.message) && /launcher/.test(error.message) && !/4f8a9b2c7d1e/.test(error.message) && /\[hidden\]/.test(error.message))
 })
+
+test("a model call says what it took, in tokens, from the model's own count, and nothing when the model gave none", async () => {
+  const answering = (usage?: unknown): PiSession => {
+    const fake: PiSession = {
+      messages: [],
+      prompt: async () => void fake.messages.push({ role: 'assistant', content: [{ type: 'text', text: 'Fine.' }], ...(usage ? { usage } : {}) }),
+      abort: async () => {},
+      dispose: () => {},
+    }
+    return fake
+  }
+  const took: unknown[] = []
+
+  await askSession(answering({ input: 1200, output: 300, cacheRead: 5000, cacheWrite: 100, cost: { total: 0.02 } }), 'Rate it.', new AbortController().signal, (usage) => took.push(usage))
+  await askSession(answering(), 'Rate it.', new AbortController().signal, (usage) => took.push(usage))
+
+  // Fresh tokens are what hobkin counts as tokens: input, what was written to the cache, and output.
+  assert.deepEqual(took, [{ input: 1200, output: 300, cacheRead: 5000, cacheWrite: 100, tokens: 1600, cost: 0.02 }])
+})

@@ -23,6 +23,7 @@ import { STEP_IDS, type Effect, type Exposure, type Proof, type Undo } from '../
 import type { HostTree } from './code-hosts.ts'
 import { readEngineFacts, withEngineFacts } from './engine-facts.ts'
 import { engineNeeds } from './ratings.ts'
+import { tokensIn } from './usage.ts'
 import { readyHostTree } from './host-tree.ts'
 import { testsNotRun, unitStory, unitWords, type UnitPlace, type UnitRun } from './unit-story.ts'
 
@@ -1039,6 +1040,11 @@ export class Assessments {
     const needs = rated ? { ...rated, at: finished! } : null
     this.ratings.set(key, { at, needs })
     return needs
+  }
+
+  /** The fresh tokens a change review's model calls at this commit took, or null when none gave a count (spec 058). */
+  tokensAt(target: ReviewTarget, head: string): number | null {
+    return tokensIn(assessmentFolder(this.options.root, target, head))
   }
 
   /** A file the review was shown with that its prepared files do not hold: one read at the commit for a test the change review found. */
