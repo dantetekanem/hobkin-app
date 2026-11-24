@@ -17,6 +17,7 @@ import {
   sampleRulesAfter,
   saved,
   saving,
+  scopeOpenedAt,
   shownValue,
   toggleKind,
   withSampleRules,
@@ -27,7 +28,7 @@ import {
 const sample = withSampleRules(SAMPLE_YOLO)
 const rule = (name: string) => ruleOf(name) as RuleDef & { kind: 'number' }
 
-test('the closed block says the rules in force in one sentence built from the values sent', () => {
+test('the sentence says the rules in force in one sentence built from the values sent', () => {
   const rules = sample.rules!
   assert.equal(
     rulesSentence(rules),
@@ -98,4 +99,14 @@ test('with no host a project\'s own setting differs, and clearing it returns the
   const back = sampleRulesAfter(sample, { slug: 'billing-api', clear: ['mostLines'] })
   assert.deepEqual(own(back).overrides, [])
   assert.equal(own(back).rules!.mostLines, 300)
+})
+
+test("a card's press opens the popup in that project's scope only when the project sets the setting itself", () => {
+  const withOverride = { ...sample, projects: sample.projects.map((project, at) => (at === 0 ? { ...project, overrides: ['lowestRate'] } : { ...project, overrides: [] })) }
+  const slug = withOverride.projects[0]!.slug
+  const other = withOverride.projects[1]!.slug
+  assert.equal(scopeOpenedAt(withOverride, { name: 'lowestRate', slug }), slug)
+  assert.equal(scopeOpenedAt(withOverride, { name: 'mostLines', slug }), null)
+  assert.equal(scopeOpenedAt(withOverride, { name: 'lowestRate', slug: other }), null)
+  assert.equal(scopeOpenedAt(withOverride, null), null)
 })

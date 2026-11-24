@@ -31,7 +31,7 @@ import { useReviewList } from './use-review-list.ts'
 import { openOnWork } from './work-target.ts'
 import { projectCard, readinessLine, type Blocker, type CardChange } from './yolo-card.ts'
 import { SAMPLE_RATINGS } from './yolo-grades.ts'
-import { withSampleRules } from './yolo-rules.ts'
+import { rulesSentence, withSampleRules } from './yolo-rules.ts'
 import {
   byItselfBars,
   changeOpens,
@@ -133,7 +133,7 @@ export function YoloScreen() {
   const { list: reviewList } = useReviewList(live)
   const reviews = live ? (reviewList?.reviews ?? NO_REVIEWS) : SAMPLE_REVIEWS
   const [sample, setSample] = useState(() => withSampleRules(SAMPLE_YOLO))
-  // A card's press on a holding setting, which opens it in the block.
+  // A card's press on a holding setting, which opens it in the Settings popup.
   const [opened, setOpened] = useState<OpenSetting | null>(null)
   const openSetting = (name: string, slug: string) => setOpened((was) => ({ name, slug, press: (was?.press ?? 0) + 1 }))
   // The New project popup, opened by the button in the Projects heading or by N (059). YOLO mode's switch starts on in it.
@@ -172,11 +172,12 @@ export function YoloScreen() {
         {/* Where the page is, and the way back, are the trail's (053). */}
         <header className="flex items-center justify-between gap-4">
           <h1 className="eyebrow">YOLO mode</h1>
+          {/* The Settings button and its popup. The rules in force are said under the switch. */}
+          {yolo ? <YoloRules yolo={yolo} live={live} setSample={setSample} opened={opened} /> : null}
         </header>
         {yolo ? (
           <>
             <Switchboard yolo={yolo} setting={setting} />
-            <YoloRules yolo={yolo} live={live} setSample={setSample} opened={opened} />
             <TrustRow tiles={trust} loading={reading} />
             {counted ? <GatesRow counted={counted} rate={yolo.rate} merged={merged} /> : null}
             <ByItselfChart bars={bars} reading={reading} note={READ_WORDS[state] ?? undefined} />
@@ -195,6 +196,7 @@ export function YoloScreen() {
 /** The switch and the lowest rate. What the switch means sits in one line whatever it says, so nothing under it moves. */
 function Switchboard({ yolo, setting: { saving, problem, change } }: { yolo: YoloState; setting: Setting }) {
   const hasRules = yolo.rules != null
+  const sentence = yolo.rules ? rulesSentence(yolo.rules) : ''
   return (
     <section aria-label="YOLO mode" className="flex flex-col gap-3 rounded-3xl bg-background px-5 py-4">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
@@ -202,7 +204,7 @@ function Switchboard({ yolo, setting: { saving, problem, change } }: { yolo: Yol
           <Switch checked={yolo.on} disabled={saving} onCheckedChange={(on) => void change({ on })} data-stop="" />
           <span className="font-heading text-[14px] font-medium">YOLO mode {yolo.on ? 'on' : 'off'}</span>
         </label>
-        {/* With the settings block under it, the lowest rate has its one home there. An older hobkin has no block, so it stays here. */}
+        {/* With the Settings popup, the lowest rate has its one home there. An older hobkin has no block, so it stays here. */}
         {hasRules ? null : (
           <div className="ml-auto flex items-center gap-2">
             <span className="eyebrow">Lowest rate</span>
@@ -217,9 +219,11 @@ function Switchboard({ yolo, setting: { saving, problem, change } }: { yolo: Yol
           </div>
         )}
       </div>
-      {/* What the rules allow is the block's own sentence. Here only a switch that did not save says so. */}
-      {hasRules ? (
-        problem ? <p role="alert" className="truncate text-[13px] leading-5 text-bad-fg">Not saved. {problem}</p> : null
+      {/* What the rules allow is one sentence of them, two lines tall whatever it says. A switch that did not save says so in its place. */}
+      {yolo.rules ? (
+        <p role={problem ? 'alert' : undefined} title={problem ? undefined : sentence} className={cn('line-clamp-2 h-10 text-[13px] leading-5', problem ? 'text-bad-fg' : 'text-muted-foreground')}>
+          {problem ? `Not saved. ${problem}` : sentence}
+        </p>
       ) : (
         <p role={problem ? 'alert' : undefined} title={problem ? undefined : yoloSays(yolo)} className={cn('h-5 truncate text-[13px] leading-5', problem ? 'text-bad-fg' : 'text-muted-foreground')}>
           {problem ? `Not saved. ${problem}` : yoloSays(yolo)}
@@ -325,7 +329,7 @@ interface CardContext {
   finished: FinishedGroup[]
   setting: Setting
   setSample: SetSample
-  /** Opens a setting of the block "What YOLO mode may do", for the project that holds a change. */
+  /** Opens a setting in the Settings popup, for the project that holds a change. */
   onSetting: (name: string, slug: string) => void
   /** The reviews the host knows, each with its id, commit and ratings. */
   reviews: readonly ({ id: string } & ReviewRatings)[]

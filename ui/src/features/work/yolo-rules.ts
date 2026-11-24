@@ -1,8 +1,8 @@
 import type { YoloProject, YoloRules, YoloRuleValue, YoloState } from '#shared/protocol/work.ts'
 
 /**
- * The block "What YOLO mode may do" (063-yolo-settings-and-grades): every rule the runtime holds as one row, what the closed
- * block says in a sentence, how a row's save goes (saving, saved, refused) and the command each change sends. The values are
+ * The Settings popup (063-yolo-settings-and-grades): every rule the runtime holds as one row, the sentence of
+ * the rules in force, how a row's save goes (saving, saved, refused) and the command each change sends. The values are
  * always the host's; the ranges here only say what a row offers, and the runtime checks every value again. Pure.
  */
 
@@ -58,7 +58,7 @@ const floor = (name: string, question: string, label: string, held: string): Rul
   none: false,
 })
 
-/** Every rule, in the order the block shows them. */
+/** Every rule, in the order the popup shows them. */
 export const RULES: readonly RuleDef[] = [
   { name: 'testsPass', group: 'project', label: 'Tests pass on the default branch', line: 'Nothing merges while the tests fail there.', held: 'Tests failing', kind: 'switch' },
   { name: 'wayBackKnown', group: 'project', label: 'A way back is known', line: 'Nothing merges until hobkin knows how to roll the project back.', held: 'No way back', kind: 'switch' },
@@ -133,7 +133,7 @@ const CONDITIONS: [string, string][] = [
   ['holdAfterRegression', 'the last deploy did not regress'],
 ]
 
-/** What the closed block says: the rules in force in one sentence, built only from the values sent. */
+/** The sentence of the rules in force in one sentence, built only from the values sent. */
 export function rulesSentence(rules: YoloRules): string {
   const rate = typeof rules.lowestRate === 'number' ? ` rated ${rules.lowestRate} or more` : ''
   const chosen = Array.isArray(rules.kinds) ? rules.kinds : null
@@ -159,6 +159,10 @@ export function rulesIn(yolo: YoloState, slug: string | null): YoloRules | undef
 }
 
 export const overridesIn = (yolo: YoloState, slug: string | null): string[] => (slug ? (yolo.projects.find((project) => project.slug === slug)?.overrides ?? []) : [])
+
+/** The scope a card's press opens the popup in: the project when it sets that setting for itself, otherwise all projects. */
+export const scopeOpenedAt = (yolo: YoloState, opened: { name: string; slug: string | null } | null): string | null =>
+  opened?.slug && overridesIn(yolo, opened.slug).includes(opened.name) ? opened.slug : null
 
 /** How one setting's save stands. A refusal keeps the host's value and says why. */
 export type Save = { phase: 'idle' } | { phase: 'saving'; value: YoloRuleValue } | { phase: 'saved'; value: YoloRuleValue } | { phase: 'refused'; text: string }
@@ -213,9 +217,6 @@ export const wordsText = (words: readonly string[]): string => words.join(', ')
 
 /** The kinds with one switched on or off. */
 export const toggleKind = (kinds: readonly string[], kind: string): string[] => (kinds.includes(kind) ? kinds.filter((one) => one !== kind) : KINDS.map(({ value }) => value).filter((value) => value === kind || kinds.includes(value)))
-
-/** The rules of an older runtime are not sent, and the block says so in one quiet line. */
-export const NO_RULES = 'This hobkin has no YOLO settings yet.'
 
 /** A project's own settings, said once. */
 export const overrideWords = (project: YoloProject): string => {
@@ -272,7 +273,7 @@ export function withSampleRules(yolo: YoloState): YoloState {
   }
 }
 
-/** The sample after a change, so the block answers with no host as the runtime would. */
+/** The sample after a change, so the popup answers with no host as the runtime would. */
 export function sampleRulesAfter(yolo: YoloState, args: { slug?: string; rules?: Record<string, YoloRuleValue>; clear?: string[] }): YoloState {
   const { slug, rules = {}, clear = [] } = args
   if (!slug) return { ...yolo, rules: { ...yolo.rules, ...rules }, projects: yolo.projects.map((project) => ({ ...project, rules: { ...project.rules, ...rules, ...Object.fromEntries((project.overrides ?? []).map((name) => [name, project.rules?.[name] ?? null])) } })) }

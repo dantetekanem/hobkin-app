@@ -132,7 +132,7 @@ function reasonFor(change: YoloChange, rules: YoloRules | undefined): Reason {
   return change.setting && rules ? settingReason(change, change.setting, rules) : reasonOf(change.why ?? '')
 }
 
-/** The press that opens a setting in the block, on the project that holds the change. */
+/** The press that opens a setting in the Settings popup, on the project that holds the change. */
 const openSetting = (project: YoloProject, name: string): VerdictAction => ({ label: 'Open setting', press: { do: 'setting', name, slug: project.slug }, title: `Open \u201c${settingLabel(name)}\u201d in the settings` })
 
 /** The changes waiting on a project, the ones that pass every rule first, then by rate. */
