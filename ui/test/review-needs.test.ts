@@ -146,7 +146,7 @@ test('a row and the YOLO mode page read the ratings in a few words', () => {
   assert.equal(needNumbers([rated({ by: 'hobkin' })]), null, "hobkin's own scores are not the review's")
   assert.equal(needNumbers(undefined), null)
 
-  assert.equal(rateWords([rated()]), 'Rate 7.4, rated by the AI review at abc1234')
-  assert.equal(rateWords([withoutMonitoring()]), 'No general rate: monitoring is not known. Rated by the AI review at abc1234')
+  assert.equal(rateWords([rated()]), 'Rate 7.4, rated by the review at abc1234')
+  assert.equal(rateWords([withoutMonitoring()]), 'No general rate: monitoring is not known. Rated by the review at abc1234')
   assert.equal(rateWords([]), null)
 })

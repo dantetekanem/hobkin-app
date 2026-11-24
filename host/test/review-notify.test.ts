@@ -23,11 +23,11 @@ test('the chat line says which review is ready, its one answer for the change an
     readyLine({ ...change, summary: { ...summary, level: 'safe', critical: false, needsYou: 0, worthALook: 0 } }),
     'The change review of "Round the total" in shop is ready: safe to deploy. Every part is shown to work, or cannot break anything. Open it from its card in Work, or from Work › AI Reviews.',
   )
-  assert.equal(readyLine(pull), 'The AI review of acme/web#12 "Tighten the login form" is ready. Open it from Work › AI Reviews.')
+  assert.equal(readyLine(pull), 'The review of acme/web#12 "Tighten the login form" is ready. Open it from Work › AI Reviews.')
   // A pull request's change review gives its answer too, with the review's own reason when it has one.
   assert.equal(
     readyLine({ ...pull, summary: { ...summary, critical: false, needsYou: 1, worthALook: 0, deploy: 'risky', why: 'A wrong password now signs the user in.' } }),
-    'The AI review of acme/web#12 "Tighten the login form" is ready: risky to deploy. A wrong password now signs the user in. Open it from Work › AI Reviews.',
+    'The review of acme/web#12 "Tighten the login form" is ready: risky to deploy. A wrong password now signs the user in. Open it from Work › AI Reviews.',
   )
 })
 

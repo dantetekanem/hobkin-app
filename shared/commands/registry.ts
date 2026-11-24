@@ -896,7 +896,7 @@ export const COMMANDS = {
   },
   'review.prepare': {
     description:
-      "Start the AI review of a finished hobkin change or a GitHub pull request, by its review id, or review it again. It runs in the background and answers at once with how it stands: follow it with review.status or review.list. A review already prepared for the change's commit is used as it is. To review again, pass `refresh: true`: the review is built once more at the change's commit, with its tests and its model pass. A pull request is only read, through gh.",
+      "Start the review of a finished hobkin change or a GitHub pull request, by its review id, or review it again. It runs in the background and answers at once with how it stands: follow it with review.status or review.list. A review already prepared for the change's commit is used as it is. To review again, pass `refresh: true`: the review is built once more at the change's commit, with its tests and its model pass. A pull request is only read, through gh.",
     runs: 'host',
     args: Type.Object({ id: reviewId, refresh: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
     hobkin: true,
@@ -944,7 +944,7 @@ export const COMMANDS = {
   },
   'review.remove': {
     description:
-      "Remove a review from the app, only ever on the user's word: every map built for it, its change review and the notes on it are deleted, and it leaves the list of AI reviews. This cannot be undone. It is refused while the review is being prepared. review.prepare builds it again from nothing.",
+      "Remove a review from the app, only ever on the user's word: every map built for it, its change review and the notes on it are deleted, and it leaves the list of reviews. This cannot be undone. It is refused while the review is being prepared. review.prepare builds it again from nothing.",
     runs: 'host',
     args: Type.Object({ id: reviewId }, { additionalProperties: false }),
     hobkin: true,
@@ -1082,7 +1082,7 @@ export const COMMANDS = {
   // The user's workload (053-work-control-room): how much automated work runs, kept by hobkin beside agents and tokens a day.
   'work.workload': {
     description:
-      "Change any of the workload's settings, as hobkin keeps them: `autoPick` (off: only what the user starts runs, and work on finished changes), `changesADay` (the most item runs that start in a local day, the user's picks among them, or null for no cap), `hours` (local times `from` and `to` as HH:MM, which may cross midnight, outside which nothing new starts by itself and running agents finish, or null for always), `shipFirst` and `shipFirstAt` (whether new work holds while that many finished changes wait for the user), `reviewOnFinish` (hobkin scores each finished change by itself) and `reviewPulls` (which pull requests get an AI review by themselves: `none`, `mine`, `waiting` for the user's review, or `both`). Agents at once and tokens a day keep `work.agents` and `work.tokens`. Answers with every setting as it stands. Running agents finish as they are.",
+      "Change any of the workload's settings, as hobkin keeps them: `autoPick` (off: only what the user starts runs, and work on finished changes), `changesADay` (the most item runs that start in a local day, the user's picks among them, or null for no cap), `hours` (local times `from` and `to` as HH:MM, which may cross midnight, outside which nothing new starts by itself and running agents finish, or null for always), `shipFirst` and `shipFirstAt` (whether new work holds while that many finished changes wait for the user), `reviewOnFinish` (hobkin scores each finished change by itself) and `reviewPulls` (which pull requests get a review by themselves: `none`, `mine`, `waiting` for the user's review, or `both`). Agents at once and tokens a day keep `work.agents` and `work.tokens`. Answers with every setting as it stands. Running agents finish as they are.",
     runs: 'host',
     args: Type.Object(
       {
@@ -1113,7 +1113,7 @@ export const COMMANDS = {
   // Work in numbers (053-work-control-room), folded from the records hobkin and the host already keep, so it has history from the first read.
   'work.metrics': {
     description:
-      "Read what work mode did on each local day of the last `days`, 30 unless asked and 180 at most, for all projects and for each: runs started, changes finished, merged by hobkin by itself or on the user's yes, declined, sent back and approved the first time, AI review answers, proofs, questions, stops, tokens and regressions after a deploy, with how long changes waited for the user, how long they took from their first run to their merge and how long AI reviews took. What could not be read is named, and the rest still counts. It only reads.",
+      "Read what work mode did on each local day of the last `days`, 30 unless asked and 180 at most, for all projects and for each: runs started, changes finished, merged by hobkin by itself or on the user's yes, declined, sent back and approved the first time, review answers, proofs, questions, stops, tokens and regressions after a deploy, with how long changes waited for the user, how long they took from their first run to their merge and how long reviews took. What could not be read is named, and the rest still counts. It only reads.",
     runs: 'host',
     args: Type.Object({ days: Type.Optional(Type.Integer({ minimum: 1, maximum: METRICS_DAYS_MAX })) }, { additionalProperties: false }),
     hobkin: true,

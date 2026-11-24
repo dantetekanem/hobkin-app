@@ -271,7 +271,7 @@ test("a pull request the background does not review says so on its row: it is bu
 
   const row = reviews.list().reviews.find((entry) => entry.id === reviewIdOf(pull))
 
-  assert.deepEqual([row?.outdated, row?.turn], [{ builtFor: sha(7) }, { ahead: 0, why: 'A pull request is reviewed again when you start its AI review.' }])
+  assert.deepEqual([row?.outdated, row?.turn], [{ builtFor: sha(7) }, { ahead: 0, why: 'A pull request is reviewed again when you start its review.' }])
 })
 
 test("pull requests the workload names wait in their repository's line like changes, and say so; the rest wait for Start AI review", async (t) => {

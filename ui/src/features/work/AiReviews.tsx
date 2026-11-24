@@ -80,7 +80,7 @@ function OrderSwitch() {
   return (
     <div className="ml-auto flex items-center gap-2">
       <span className="eyebrow">Order</span>
-      <Segmented label="Order of the AI reviews" name="review-order" value={order} options={REVIEW_ORDERS} onChoose={choose} />
+      <Segmented label="Order of the reviews" name="review-order" value={order} options={REVIEW_ORDERS} onChoose={choose} />
     </div>
   )
 }
@@ -134,10 +134,10 @@ export function RepoLines({ lines, live, onAgain, openAtFirst = [] }: { lines: R
 /** How a review starts, for a host that has none yet. */
 function NoReviews() {
   return (
-    <section aria-label="No AI review yet" className="flex flex-col items-start gap-3 rounded-3xl bg-background p-6">
-      <p className="font-heading text-[18px] leading-snug font-semibold tracking-[-0.015em]">No AI review yet</p>
+    <section aria-label="No review yet" className="flex flex-col items-start gap-3 rounded-3xl bg-background p-6">
+      <p className="font-heading text-[18px] leading-snug font-semibold tracking-[-0.015em]">No review yet</p>
       <p className="max-w-[64ch] text-[14px] leading-relaxed text-muted-foreground">
-        A finished change gets one by itself, once work mode finishes it. A pull request gets one when you press Start AI review on its row on the GitHub page.
+        A finished change gets one by itself, once work mode finishes it. A pull request gets one when you press Start review on its row on the GitHub page.
       </p>
       <Button variant="outline" data-stop="" onClick={() => useView.getState().openGitHub()}>
         Open GitHub

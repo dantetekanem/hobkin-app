@@ -397,7 +397,7 @@ function PullsRow({ value, live }: { value: ReviewPulls; live: boolean }) {
     void save(next, { reviewPulls: next })
   }
   return (
-    <Row setting="reviewPulls" label="AI review starts by itself for" line="Finished changes always get one. Pull requests get one too when you say so, which spends tokens on each." refused={refused} busy={busy} saved={saved}>
+    <Row setting="reviewPulls" label="Review starts by itself for" line="Finished changes always get one. Pull requests get one too when you say so, which spends tokens on each." refused={refused} busy={busy} saved={saved}>
       <Toggle on disabled label="Finished changes" />
       <Toggle on={shown.mine} label="My pull requests" onFlip={() => flip('mine')} />
       <Toggle on={shown.waiting} label="Waiting for my review" onFlip={() => flip('waiting')} />

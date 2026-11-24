@@ -42,7 +42,7 @@ test('the evidence above the verdict reads, in order, the tests, the AI review, 
   assert.deepEqual(said(facts), [
     // A helper is no test of its own. A failed test opens first.
     { label: 'Tests', text: '2 pass · 1 fails · 1 did not run', tone: 'bad', opens: { to: 'node', id: 't2' } },
-    { label: 'AI review', text: 'Risky · 2 parts need you', tone: 'bad', opens: { to: 'step', index: 3 } },
+    { label: 'Review', text: 'Risky · 2 parts need you', tone: 'bad', opens: { to: 'step', index: 3 } },
     { label: 'Models and proofs', text: '1 holds · 1 fails · 1 still checking · 1 not checked', tone: 'bad', opens: { to: 'proof' } },
     { label: 'Needs you', text: '1 of 2 seen', tone: 'warn', opens: { to: 'unseen' } },
   ])
@@ -57,7 +57,7 @@ test('a clean change reads as clean, and each line still opens what it counts', 
   })
   assert.deepEqual(clean, [
     { label: 'Tests', text: '2 pass', tone: 'ok', opens: { to: 'node', id: 't1' } },
-    { label: 'AI review', text: 'Safe · nothing needs you', tone: 'ok', opens: null },
+    { label: 'Review', text: 'Safe · nothing needs you', tone: 'ok', opens: null },
     { label: 'Models and proofs', text: '2 of 2 hold', tone: 'ok', opens: { to: 'proof' } },
     { label: 'Needs you', text: '1 of 1 seen', tone: 'ok', opens: null },
   ])
@@ -66,7 +66,7 @@ test('a clean change reads as clean, and each line still opens what it counts', 
 test('a review with no tests, no models and no AI answer yet says so plainly, and nothing that did not run reads as passed', () => {
   assert.deepEqual(said({}), [
     { label: 'Tests', text: 'None in this change', tone: 'quiet', opens: null },
-    { label: 'AI review', text: 'No answer yet', tone: 'quiet', opens: null },
+    { label: 'Review', text: 'No answer yet', tone: 'quiet', opens: null },
     { label: 'Models and proofs', text: 'None in this change', tone: 'quiet', opens: null },
     { label: 'Needs you', text: 'Not said in this review', tone: 'quiet', opens: null },
   ])
@@ -78,7 +78,7 @@ test('a review with no tests, no models and no AI answer yet says so plainly, an
   })
   assert.deepEqual(unran, [
     { label: 'Tests', text: '2 did not run', tone: 'quiet', opens: { to: 'node', id: 't1' } },
-    { label: 'AI review', text: 'Reviewing… 40%', tone: 'live', opens: null },
+    { label: 'Review', text: 'Reviewing… 40%', tone: 'live', opens: null },
     { label: 'Models and proofs', text: '1 not checked', tone: 'quiet', opens: null },
     { label: 'Needs you', text: 'Nothing', tone: 'quiet', opens: null },
   ])

@@ -84,7 +84,7 @@ test('a finished change that merges gets no more AI review: the one under way st
 
   assert.equal(runs[0]!.signal.aborted, true, 'the change review under way is stopped where it is')
   assert.equal(runs.length, 1, 'no other change review starts')
-  assert.match(reviews.status(first).assessment?.error ?? '', /merged, so its AI review is not needed/)
+  assert.match(reviews.status(first).assessment?.error ?? '', /merged, so its review is not needed/)
   assert.ok(!reviews.list().reviews.some((item) => item.id === first || item.id === second), 'neither is listed')
   assert.ok(reviewStore(root).has({ kind: 'change', slug: 'shop', item: '4c9e21' }, head), 'what the review wrote is kept')
 
@@ -148,7 +148,7 @@ test('a pull request closed or merged on its host gets no more AI review: the sw
   // Merged on GitHub by someone else: the sweep finds it is no longer open.
   open = false
   await reviews.sweepPulls({ force: true })
-  assert.deepEqual(calls, [`start ${id}`, `stop ${id}: Its pull request is closed, so its AI review is not needed.`])
+  assert.deepEqual(calls, [`start ${id}`, `stop ${id}: Its pull request is closed, so its review is not needed.`])
   assert.ok(!reviews.list().reviews.some((item) => item.id === id), 'it leaves the list')
 
   reviews.prepare(id, { refresh: true, asked: true })

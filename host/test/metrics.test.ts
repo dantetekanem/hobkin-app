@@ -139,7 +139,7 @@ test('an AI review whose files cannot be read is named in gaps, and the rest sti
   const metrics = await metricsReader({ data: () => '/hobkin-home', root, runtime: runtimeWith(fakeFold()), now: () => NOW })(3)
 
   assert.deepEqual(lastDays(metrics.all, 'reviewsSafe'), [0, 1, 0])
-  assert.deepEqual(metrics.gaps.slice(1), ['The AI review of change:api:a1 at aaaaaaa could not be read, so it is not counted.'])
+  assert.deepEqual(metrics.gaps.slice(1), ['The review of change:api:a1 at aaaaaaa could not be read, so it is not counted.'])
 })
 
 test('work.metrics is a host command that only reads, for 30 days unless asked and 1 to 180 when asked', async (t) => {

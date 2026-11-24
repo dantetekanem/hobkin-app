@@ -125,7 +125,7 @@ function ratedReasons(facts: RatedFacts): Reason[] {
   }
   if (facts.level === 'mid' && !untested(facts)) reasons.push(look(30, midWords(facts)))
   if (facts.unverified) reasons.push(look(25, 'Its place in the map could not be checked, so read it yourself.'))
-  if (facts.confidence === 'low') reasons.push(look(20, 'The AI review was unsure of its rating.'))
+  if (facts.confidence === 'low') reasons.push(look(20, 'The review was unsure of its rating.'))
   if ([...rules].some((rule) => UNLOOKED.has(rule))) reasons.push(look(20, 'Judged from the diff alone: what calls it and what tests it were not looked for.'))
   if (facts.sensitive?.length) reasons.push(note(8, `Its name touches ${listed(facts.sensitive)}.`))
   if ((facts.callers ?? 0) >= 5) reasons.push(note(6, `Called from ${facts.callers} places.`))
@@ -135,7 +135,7 @@ function ratedReasons(facts: RatedFacts): Reason[] {
 
 /** Why a high node needs the reviewer: what it does, then that nothing undoes it and how little its tests cover, when they say so. */
 function highWords(facts: RatedFacts): string {
-  const does = (facts.effect && DOES[facts.effect]) || 'The AI review rates it high risk'
+  const does = (facts.effect && DOES[facts.effect]) || 'The review rates it high risk'
   const clauses: string[] = []
   if (facts.undo === 'none') clauses.push('nothing undoes it')
   const covered = facts.proof && COVERED[facts.proof]
@@ -165,9 +165,9 @@ const UNRATED_BUCKETS: Record<NodeBucket, string> = {
   locale: '',
   moved: 'It looks moved, with no other change: check it arrived whole.',
   format: 'It looks like only formatting changed: check nothing else did.',
-  docs: 'Docs or media the AI review did not rate.',
-  test: 'A test file the AI review did not rate.',
-  code: 'The AI review did not rate it, so give it a look.',
+  docs: 'Docs or media the review did not rate.',
+  test: 'A test file the review did not rate.',
+  code: 'The review did not rate it, so give it a look.',
 }
 
 /** What is known of a node the change review did not rate: a test's run, an acceptance line's proof, a file's kind. */

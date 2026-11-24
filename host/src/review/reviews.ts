@@ -71,7 +71,7 @@ const COSTS_AGAIN = 'Nothing changed since this review: building it again costs 
 /** How long a first Review again with nothing changed waits for the second press that builds it. */
 const AGAIN_WITHIN_MS = 10 * 60_000
 /** Why a pull request the background does not watch is not reviewed again by itself: it waits for the user's ask. */
-const PULL_ASKED = 'A pull request is reviewed again when you start its AI review.'
+const PULL_ASKED = 'A pull request is reviewed again when you start its review.'
 
 /** What a finished change's card says a yes does, from the Work screen (`011-work`). */
 export interface ChangeCard {
@@ -449,7 +449,7 @@ function landingLines(plan: MergePlan, pr: string | null, carried?: { from: stri
 
 /** Why a review's change review stops, or never starts, once its change is done on its host. */
 const closedWords = (target: ReviewTarget) =>
-  target.kind === 'change' ? 'Its change merged, so its AI review is not needed.' : 'Its pull request is closed, so its AI review is not needed.'
+  target.kind === 'change' ? 'Its change merged, so its review is not needed.' : 'Its pull request is closed, so its review is not needed.'
 
 /** A merged change, in the words a verdict on it answers with. */
 const mergedWords = (landing: ReviewLanding) => `Already merged${landing.into ? ` into ${landing.into}` : ''}${landing.sha ? ` at ${landing.sha.slice(0, 7)}` : ''}.`

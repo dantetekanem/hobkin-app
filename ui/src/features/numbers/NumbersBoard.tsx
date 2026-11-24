@@ -109,8 +109,8 @@ export const NumbersBoard = memo(function NumbersBoard({ metrics, state, period,
           </div>
           <DayBars
             id={chartId('ai-reviews')}
-            title="AI reviews"
-            counts="AI reviews that ended each day: safe to deploy, risky, or stopped before an answer."
+            title="Reviews"
+            counts="Reviews that ended each day: safe to deploy, risky, or stopped before an answer."
             figure={board?.reviews.figure}
             days={days}
             series={board?.reviews.series ?? []}

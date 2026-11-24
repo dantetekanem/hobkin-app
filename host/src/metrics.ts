@@ -130,7 +130,7 @@ function addReviews(metrics: WorkMetrics, root: string, store: ReviewStore, unde
   try {
     targets = store.targets()
   } catch {
-    metrics.gaps.push('The AI reviews could not be read, so none of them is counted.')
+    metrics.gaps.push('The reviews could not be read, so none of them is counted.')
     return metrics
   }
   for (const target of targets) {
@@ -141,7 +141,7 @@ function addReviews(metrics: WorkMetrics, root: string, store: ReviewStore, unde
     try {
       heads = readdirSync(folder)
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') metrics.gaps.push(`The AI reviews of ${id} could not be read, so they are not counted.`)
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') metrics.gaps.push(`The reviews of ${id} could not be read, so they are not counted.`)
       continue
     }
     for (const head of heads) {
@@ -157,7 +157,7 @@ function addReviews(metrics: WorkMetrics, root: string, store: ReviewStore, unde
       const summary = readKept<AssessmentSummary>(join(folder, head, 'summary.json'))
       const progress = readKept<ReviewProgress>(join(folder, head, 'progress.json'))
       if (summary === UNREADABLE || progress === UNREADABLE) {
-        metrics.gaps.push(`The AI review of ${id} at ${head.slice(0, 7)} could not be read, so it is not counted.`)
+        metrics.gaps.push(`The review of ${id} at ${head.slice(0, 7)} could not be read, so it is not counted.`)
         continue
       }
       if (summary) {

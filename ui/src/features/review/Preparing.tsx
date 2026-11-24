@@ -123,14 +123,14 @@ function Facts({ subject }: { subject: Subject }) {
 /** A pull request is reviewed only when asked: this is the one thing to do here. */
 function Ask({ start, close }: { start: () => void; close: () => void }) {
   return (
-    <section aria-label="Start AI review" className="flex flex-col items-start gap-5 rounded-3xl bg-background p-6">
+    <section aria-label="Start review" className="flex flex-col items-start gap-5 rounded-3xl bg-background p-6">
       <p className="max-w-[62ch] text-[16px] leading-relaxed text-pretty">
         hobkin reads the change, runs its tests and rates the risk of each part, then walks you through it. It runs in the background: you can close this window, and hobkin tells you in the chat when the review is ready.
       </p>
       <div className="flex flex-wrap items-center gap-3">
         <Button data-stop="" className="h-11 gap-2 px-5 text-[15px] font-semibold" onClick={start}>
           <Sparkles className="size-[18px]" />
-          Start AI review
+          Start review
         </Button>
         <Button data-stop="" variant="ghost" className="h-11 px-4 text-[15px]" onClick={close}>
           Not now

@@ -248,20 +248,20 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
     <div data-ai-review className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col items-start gap-2">
       {ai.state === 'none' ? (
         <>
-          <span className="text-[13px] text-muted-foreground">Not reviewed by AI yet</span>
+          <span className="text-[13px] text-muted-foreground">Not reviewed yet</span>
           <Button variant="outline" data-stop="" disabled={starting} focusableWhenDisabled onClick={() => void start(false)}>
             <Sparkles aria-hidden="true" />
-            {starting ? 'Starting…' : 'Start AI review'}
+            {starting ? 'Starting…' : 'Start review'}
           </Button>
         </>
       ) : null}
       {ai.state === 'running' ? (
         <>
           <span className="flex w-full items-baseline justify-between gap-2 font-heading text-[14px] font-semibold">
-            AI review running
+            Review running
             {ai.percent !== null ? <span className="tabular-nums">{ai.percent}%</span> : null}
           </span>
-          <ReviewProgress percent={ai.percent} label={`AI review of ${title}`} />
+          <ReviewProgress percent={ai.percent} label={`Review of ${title}`} />
           <span role="status" className="line-clamp-2 text-[13.5px] leading-snug">
             {ai.line}
           </span>
@@ -282,7 +282,7 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
       ) : null}
       {ai.state === 'failed' ? (
         <>
-          <span className="font-heading text-[14px] font-semibold text-bad-fg">AI review failed</span>
+          <span className="font-heading text-[14px] font-semibold text-bad-fg">Review failed</span>
           <span title={ai.line} className="line-clamp-3 text-[13px] leading-snug text-muted-foreground">
             {ai.line}
           </span>

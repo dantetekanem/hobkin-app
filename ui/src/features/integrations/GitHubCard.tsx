@@ -81,7 +81,7 @@ export function GitHubCard({ github, still, onOpen }: { github: GitHubState; sti
               </li>
             ))}
           </ul>
-          <p className="text-[13px] text-muted-foreground">Pull requests open in Review, where an AI review is one click away. Issues open on github.com.</p>
+          <p className="text-[13px] text-muted-foreground">Pull requests open in Review, where a review is one click away. Issues open on github.com.</p>
         </div>
       ) : (
         <p className="max-w-[64ch] text-[13px] leading-relaxed text-muted-foreground">{SETUP[connection]}</p>

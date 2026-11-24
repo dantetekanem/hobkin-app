@@ -232,7 +232,7 @@ export function needNumbers(needs: unknown, head = ''): NeedNumbers | null {
 export function rateWords(needs: unknown, head = ''): string | null {
   const yours = pick(readNeedsList(needs).filter((entry) => entry.by === 'change-review'), head)
   if (!yours) return null
-  const by = `rated by the AI review at ${short(yours.head)}`
+  const by = `rated by the review at ${short(yours.head)}`
   if (yours.rate != null) return `Rate ${yours.rate}, ${by}`
   const why = yours.scores.visibility == null ? 'No general rate: monitoring is not known.' : 'No general rate.'
   return `${why} ${by.charAt(0).toUpperCase()}${by.slice(1)}`

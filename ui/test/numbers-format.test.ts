@@ -119,7 +119,7 @@ test('the six tiles say what the sketch says from the last 30 days', () => {
       ['merged', 'Merged today', '7', null, '4 by itself'],
       ['first-pass', 'First pass', '81%', null, 'of 36 decided'],
       ['by-itself', 'By itself', '11%', null, 'of 36 merged'],
-      ['ai-reviews', 'AI reviews', '2', 'running', '4 ready · 1 failed'],
+      ['ai-reviews', 'Reviews', '2', 'running', '4 ready · 1 failed'],
       ['tokens', 'Tokens today', '38M', 'of 100M', 'resets at midnight'],
     ],
   )

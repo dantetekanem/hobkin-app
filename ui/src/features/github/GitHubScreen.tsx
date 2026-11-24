@@ -194,7 +194,7 @@ export function GitHubScreen() {
           />
           {reviewListUnavailable && connected ? (
             <p role="alert" className="px-1 text-[13.5px] leading-snug text-bad-fg">
-              AI reviews are hidden because the list could not be refreshed. {reviews.error}
+              Reviews are hidden because the list could not be refreshed. {reviews.error}
             </p>
           ) : null}
           {(['pulls', 'issues'] as const).map((key) => (
@@ -383,11 +383,11 @@ function Lists({
     })
     addGroup({
       key: 'ai',
-      label: 'Recently reviewed by AI',
-      about: 'Other pull requests the AI reviewed: merged or closed since, or opened from a link. Work’s AI Reviews tab lists every review.',
+      label: 'Recently reviewed',
+      about: 'Other pull requests with a review: merged or closed since, or opened from a link. Work’s AI Reviews tab lists every review.',
       items: sections.reviewed,
       row: (entry, order) => <PullCard key={`ai:${entry.id}`} entry={entry} mine={false} live={live} now={now} variants={variants} order={order} />,
-      empty: reviewListUnavailable ? 'AI reviews are unavailable.' : `No other pull request${where} has an AI review yet.`,
+      empty: reviewListUnavailable ? 'Reviews are unavailable.' : `No other pull request${where} has a review yet.`,
       more: false,
     })
   } else {

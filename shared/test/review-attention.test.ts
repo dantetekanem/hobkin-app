@@ -40,9 +40,9 @@ test('mid and what is unverified are worth a look; the rest is safe, and says wh
     ['direct tests only', code([rated({ level: 'mid', proof: 'isolated' })]), 'Only tests that call it directly cover it.'],
     ['tests that could not run', code([rated({ level: 'mid', proof: 'unknown' })]), 'Its tests could not run here.'],
     ['a map entry that could not be checked', code([rated({ level: 'safe', unverified: true })]), 'Its place in the map could not be checked, so read it yourself.'],
-    ['an unsure rating', code([rated({ level: 'safe', confidence: 'low' })]), 'The AI review was unsure of its rating.'],
+    ['an unsure rating', code([rated({ level: 'safe', confidence: 'low' })]), 'The review was unsure of its rating.'],
     ['an acceptance line nothing proves', { kind: 'criterion', bucket: 'docs', change: 'unchanged', size: 0, status: 'unproven', rated: [] }, 'Nothing proves this acceptance line yet.'],
-    ['code the AI review did not rate', code([], { kind: 'file' }), 'The AI review did not rate it, so give it a look.'],
+    ['code the review did not rate', code([], { kind: 'file' }), 'The review did not rate it, so give it a look.'],
   ]
   for (const [why, input, reason] of look) {
     const { tier, reasons } = attentionOf(input)
@@ -63,8 +63,8 @@ test('mid and what is unverified are worth a look; the rest is safe, and says wh
   const unrated: [AttentionInput['bucket'], string][] = [
     ['moved', 'It looks moved, with no other change: check it arrived whole.'],
     ['format', 'It looks like only formatting changed: check nothing else did.'],
-    ['docs', 'Docs or media the AI review did not rate.'],
-    ['test', 'A test file the AI review did not rate.'],
+    ['docs', 'Docs or media the review did not rate.'],
+    ['test', 'A test file the review did not rate.'],
   ]
   for (const [bucket, reason] of unrated) {
     const { tier, reasons } = attentionOf(code([], { kind: 'file', bucket }))

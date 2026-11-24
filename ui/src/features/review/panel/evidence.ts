@@ -64,7 +64,7 @@ function testsTone(passed: number, failed: number, unran: number): Tone {
 }
 
 function answerLine({ assessment, status, parts }: EvidenceFacts): EvidenceLine {
-  const line = (text: string, tone: Tone, opens: EvidenceOpens | null = null): EvidenceLine => ({ key: 'answer', label: 'AI review', text, tone, opens })
+  const line = (text: string, tone: Tone, opens: EvidenceOpens | null = null): EvidenceLine => ({ key: 'answer', label: 'Review', text, tone, opens })
   const badge = headerBadge(assessment, status)
   if (badge.kind === 'reviewing') return line(badge.now === 'Waiting for its turn' ? badge.now : badge.label, 'live')
   if (badge.kind === 'failed') return line('Stopped before its answer', 'warn')

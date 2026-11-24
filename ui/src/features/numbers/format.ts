@@ -238,10 +238,10 @@ export function workTiles(input: TilesInput): Tile[] {
     },
     {
       key: 'ai-reviews',
-      label: 'AI reviews',
+      label: 'Reviews',
       ...(input.reviews ? { figure: countWords(input.reviews.running), after: 'running' } : { figure: NO_DATA }),
       context: input.reviews ? `${countWords(input.reviews.ready)} ready · ${countWords(input.reviews.failed)} failed` : '',
-      counts: 'AI reviews running now, and those ready or stopped. The bars are the reviews that answered each day, over 30 days.',
+      counts: 'Reviews running now, and those ready or stopped. The bars are the reviews that answered each day, over 30 days.',
       series: series((day) => day.reviewsSafe + day.reviewsRisky),
     },
     {

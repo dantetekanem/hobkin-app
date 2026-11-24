@@ -57,9 +57,9 @@ export function ReviewTile() {
 
   return (
     <Rise className="col-span-6 @max-[820px]:col-span-2">
-      <section aria-label="AI reviews" className="flex h-full flex-col gap-3 rounded-3xl bg-background p-5">
+      <section aria-label="Reviews" className="flex h-full flex-col gap-3 rounded-3xl bg-background p-5">
         <header>
-          <h2 className="eyebrow">AI reviews</h2>
+          <h2 className="eyebrow">Reviews</h2>
           <p className="mt-1 font-heading text-[20px] leading-tight font-semibold tracking-[-0.022em]">Which tier reviews a change</p>
           <p className="mt-1 max-w-[70ch] text-[13px] text-muted-foreground">A review uses two tiers and no other. The next review uses what is chosen here.</p>
         </header>
