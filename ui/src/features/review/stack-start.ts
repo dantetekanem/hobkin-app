@@ -58,11 +58,11 @@ const messageOf = (error: unknown) => (error instanceof Error ? error.message : 
  * that call is on its way a second press is ignored, and when it answers `opened` gets the hobkin so the window can show
  * its page. A refusal is kept as `error` until the next press.
  */
-export function createStackStart({ id, live, command, opened }: { id: string; live: boolean; command: StackCommand; opened: (hobkin: string) => void }) {
+export function createStackStart({ id, live, command, opened, sample = SAMPLE_STACK }: { id: string; live: boolean; command: StackCommand; opened: (hobkin: string) => void; sample?: string }) {
   const store = createStore<{ busy: boolean; error: string | null }>(() => ({ busy: false, error: null }))
   const press = async () => {
     if (store.getState().busy) return
-    if (!live) return store.setState({ error: SAMPLE_STACK })
+    if (!live) return store.setState({ error: sample })
     store.setState({ busy: true, error: null })
     try {
       const answer = await command(id)
