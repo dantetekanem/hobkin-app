@@ -106,7 +106,11 @@ test('an issue whose PR merged is closed naming the PR, with what its run left i
   const h = workspace(t);
   const item = fromIssue(h, 7, 'hobkin/7-fix', { state: 'pr', pr: PR, left: 'Announce it in the changelog.' });
   const merged = pull(7, { url: PR, state: 'MERGED', mergedAt: '2026-06-01T11:00:00Z', mergeCommit: { oid: 'abc1234' } });
-  const host = async args => (args[1] === 'view' ? JSON.stringify(merged) : '');
+  // The PR open on its branch is the one it names, and it merged.
+  const host = async args => {
+    if (args[1] === 'list') return JSON.stringify([{ url: PR }]);
+    return args[1] === 'view' ? JSON.stringify(merged) : '';
+  };
   const { gh, asked } = fakeGh();
 
   await mergePullRequest(h.root, 'api', item.id, { gh: host, now: NOW });
