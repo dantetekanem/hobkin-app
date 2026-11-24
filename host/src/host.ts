@@ -270,7 +270,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         : scriptedModelAccess())
 
   // hobkin reaches the app through one tool, which runs the same commands a click does (`013-hobkin-access`).
-  const client = createClientTool({ run: (name, args) => runCommand(handlers, name, args) })
+  // What hobkin's own agent asks of the reviews takes its turn in a repository's line and counts toward the day's
+  // number, as the background does: only the window's ask is the user's (`058-review-turns-and-ratings`).
+  const client = createClientTool({ run: (name, args) => runCommand({ ...handlers, ...reviewHandlers(reviews, 'hobkin') }, name, args) })
 
   // Load optional styling before any owner startup; canonical data comes from root admission.
   const appearance = await loadHostAppearance(root, publish, log)
