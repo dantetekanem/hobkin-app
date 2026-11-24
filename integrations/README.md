@@ -119,6 +119,7 @@ export default echo
 | `hobkin()` | hobkin's application (`workAction`, `refresh`). Throws `Unavailable` while hobkin is not open. |
 | `dataRoot()` | The folder hobkin's home data is in. Throws `Unavailable` while hobkin is not open. |
 | `snapshotWork()` | The `work` key of hobkin's snapshot now, or undefined. A new object each time it changes. |
+| `startWorkflow(name, input?)` | Starts one run of your `workflows/<name>.md` now (see "Workflows" below). Answers `{ run }`. Throws `Unavailable` when hobkin is not open or the workflow is unknown or turned off. |
 
 ### What the part may give
 
@@ -132,6 +133,8 @@ export default echo
 | `afterCommand(call)` | After every command, with `call.outcome` (`ok`, and `value` or `error`). |
 | `onToolCall(call)` | Every tool call of every agent, once when it starts and once when it ends: `agent` is `#main` for hobkin's main conversation or a run's id, plus the tool's `name`, its `args`, `state` and, once ended, `output`. It only watches. |
 | `onMerged(pull)` | A pull request left the open ones: merged through the app (Change Review's verdict), or merged or closed elsewhere as the host's watch of hobkin's own pull requests saw it. By `url`, or `repo` and `number`. |
+| `tools` | Tools hobkin's agents can call, run in the host. See "Tools for agents" below. |
+| `toolHooks` | Hooks that may refuse or change an agent's tool call before it runs, and change what the agent reads after. See "Hooks on tool calls" below. |
 | `pulls()` | Open pull requests you know, as `{ mine, waiting, sample }` (the shape is `PullRequest` in `shared/protocol/pulls.ts`). Change Review prepares reviews of them in the background when the user's settings ask for it. `sample: true` means made up, and those are never reviewed. |
 
 Except a refusal from `beforeCommand`, anything a hook throws is logged and changes nothing. Keep hooks fast: they run
@@ -195,6 +198,98 @@ What a screen or card uses from the core:
 - The app's own components (`@/components/ui/*`), its screen frame (`@/app/screen-layout.ts`) and its motion
   (`@/lib/motion.ts`). Tailwind sees classes used in this folder.
 
+## Giving agents more to work with
+
+Commands are what the window and hobkin's `client` tool run. An integration can also put intelligence into hobkin's
+agents themselves: tools they call by name, hooks on every tool call they make, and workflows written as directions.
+The test integration `host/test/fixtures/integrations/echo/` uses all three; read it next to this part.
+
+### Tools for agents
+
+```ts
+import { Type } from 'typebox'
+import { defineTool, type HostPartFactory } from '#host/integration-contract.ts'
+
+const echo: HostPartFactory = (context) => ({
+  tools: [
+    defineTool({
+      name: 'shout',
+      description: 'Say a line back in capitals. Use it when the user asks echo to shout something.',
+      parameters: Type.Object({ text: Type.String({ minLength: 1 }) }, { additionalProperties: false }),
+      agents: ['main', 'runs'],
+      execute: ({ text }, { agent }) => {
+        context.log(`${agent} shouted`)
+        return text.toUpperCase()
+      },
+    }),
+  ],
+})
+```
+
+- An agent knows the tool as your id with `_` for `-`, then `_`, then its name: `echo_shout`. The short name is
+  lowercase letters, digits and `_`, starting with a letter, at most 41 characters. A name that clashes with one of
+  Pi's or hobkin's own tools (`bash`, anything starting `hobkin_`) is dropped.
+- `description` is all the agent knows about it: say what it does and when to use it.
+- `agents`: `main` (hobkin's main conversation), `runs` (work, routines and workflows) and `durable` (durable hobkins
+  on Pi). All three when left out. Helpers and Claude Code agents do not get integration tools.
+- `execute` runs in the host, with arguments already checked against `parameters`. It answers text, or
+  `{ text, failed: true }`. What it throws reaches the agent as a failed call with the error's words. `run.agent` is
+  `#main` or the run's id; `run.signal` is set when the agent stops waiting.
+- The main conversation reads the tools when hobkin opens it: a new tool reaches it once hobkin opens again. Runs read
+  them as they start.
+- A folder whose tool names are bad or repeated is left out whole, and the host logs why.
+
+### Hooks on tool calls
+
+```ts
+toolHooks: {
+  tools: ['bash'],
+  before: (call) => {
+    if (typeof call.args.command === 'string' && /\brm -rf \/(\s|$)/.test(call.args.command)) return { block: 'Echo does not let an agent remove the whole disk.' }
+  },
+  after: (call, result) => (result.text.length > 20_000 ? { text: result.text.slice(-20_000) } : undefined),
+},
+```
+
+- `tools` names the tools as agents know them (`bash`, `read`, `echo_shout`), or is `'all'`. A call to a tool no hook
+  names never leaves the agent's process, so hooks cost nothing for the calls they skip. `'all'` sends every call of
+  every agent through the host: use it only when you must.
+- `before(call)` answers nothing (the call runs), `{ block: reason }` (the agent reads the reason instead of a result),
+  or `{ args }` (the call runs with these arguments). `call` is `{ agent, id, name, args }`.
+- `after(call, result)` answers nothing, or `{ text?, failed? }`: what the agent reads in place of the result.
+- Hooks of several integrations run in folder order. The first refusal wins, and changed arguments pass to the next.
+- A hook that throws, or has not answered in 10 seconds, lets the call through as it was, and the host logs why. Set
+  `failClosed: true` when a failing hook must refuse the call instead (and, after a call, withhold its result). If
+  the host itself does not answer within 15 seconds, the call goes through.
+- Hooks reach the main conversation, runs and durable hobkins on Pi. Helpers and Claude Code agents are not hooked.
+- To only watch, use `onToolCall`: it hears every call, hooked or not, and changes nothing.
+
+### Workflows
+
+A workflow is a file in your folder's `workflows/`: directions hobkin's agent follows, and what starts it.
+
+```md
+---
+{ "title": "Morning digest", "at": "09:00", "timezone": "America/Toronto", "on": ["press", "after:echo.say"] }
+---
+Read what echo said since yesterday and write a digest of three lines. Use echo_shout only for its first line.
+```
+
+- Its id is `<integration id>/<file name>`: `echo/morning-digest` for `workflows/morning-digest.md`.
+- The front matter is JSON between `---` lines, as a routine's is: `title`; a schedule if it has one (`at` as
+  `"HH:mm"` or a list of them, or a `window`, with `timezone`, and `weekday` 0 to 6 from Sunday, `day` of the month, or
+  a `date` for once); `model`, `effort` and `cwd`, which default to the home's background ones; and `on`, what else
+  starts it. It never says `enabled`: whether it is on is the user's, kept in their home.
+- What starts it: its schedule; `press` (Run now on its row in Routines, "Run <title>" in the spotlight, or a button
+  of your own); `after:<command>` (once that app command ended well, the run's input is `{ command, args, answer }`);
+  and `start` (your host part's `context.startWorkflow(name, input)`).
+- Each start is one run: the body is its directions, its input is in its context as `input`, it is offered your
+  integration's tools and no other integration's, and it reports in Reports like a routine. Several runs of one workflow may run at once.
+- A newly added workflow never runs a scheduled time that passed before it first appeared.
+- The window lists workflows in Routines, under your integration's name, where the user runs them and turns them off
+  and on. Your own card or screen can do the same with `useWorkflows(id)`, `runWorkflow(id)` and
+  `setWorkflowEnabled(id, on)` from `@/integration/use-workflows.ts`.
+
 ## Testing
 
 Host part: build a fake context and call the part directly. `integrations/github/test/host-support.ts` does it in 40
@@ -224,6 +319,8 @@ the user's own home (`~/.hobkin`) or Pi's folder (`~/.pi`). A made-up address en
 - [ ] Every command has a description an agent can act on, a closed schema, and refuses with `Unavailable` and a
       reason the user can read.
 - [ ] `state()` holds no secret: no token, key or password, and nothing a log line would hide.
+- [ ] Each agent tool's description says when to use it, and its `execute` refuses bad input with words the agent can act on.
+- [ ] Hooks name only the tools they need, and a hook that guards something says `failClosed: true`.
 - [ ] A scripted host (`live: false`) shows sample data and reaches nothing real.
 - [ ] Your tests pass, and `pnpm -s typecheck` is clean.
 - [ ] With your folder moved out of `integrations/`, the app still typechecks and starts.
