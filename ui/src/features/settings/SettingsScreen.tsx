@@ -523,7 +523,7 @@ function IntegrationsTile() {
     <Tile name="Integrations" value="What hobkin can reach" className="col-span-6 @max-[820px]:col-span-2">
       <div className="flex flex-1 items-center justify-between gap-4 @max-[820px]:flex-col @max-[820px]:items-start">
         <p className="max-w-[60ch] text-[13px] text-muted-foreground">
-          GitHub, plus Linear, Sentry, Home Assistant and more, and any MCP server of your own. Routines and agents use them through Pi.
+          GitHub and the MCP servers in Pi's configuration. Routines and agents use them through Pi.
         </p>
         <div className="flex shrink-0 flex-wrap gap-2">
           <Button variant="outline" className="shrink-0" data-stop="" data-opens="integrations" onClick={toggleIntegrations}>
