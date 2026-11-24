@@ -11,7 +11,7 @@ import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import './agent-activity.css'
 import { useBlock } from './blocks.ts'
-import { partsOf, type Part } from './change-parts.ts'
+import { diffsOf, placesOf, type Part, type Place } from './change-parts.ts'
 import { ChangeDiff } from './ChangeDiff.tsx'
 import { CodeText, MoreButton } from './CodeText.tsx'
 import { BOX } from './boxes.ts'
@@ -444,28 +444,25 @@ function CommandCard({ command, time }: { command: Command; time?: EntryTime }) 
  * and the words that changed marked. It arrives open, unless Settings says otherwise. Edits to one file in a row are
  * one change that updates in place, drawn in one box as Pi's code previews draw an edit: each place it changed after
  * the one before, with a quiet band where lines were left out between them. It is as tall as its lines, wrapped: a
- * long one shows its first lines across its parts and opens in place to all of them.
+ * long one shows its first lines across its parts and opens in place to all of them. Closed, it is its one row, and
+ * nothing of its diff is worked out or drawn.
  */
 function ChangeBlock({ change }: { change: Change }) {
   const block = useBlock('change')
-  const { open, presses, toggle, more, box } = useUnfold<HTMLDivElement>()
-  // Colored only once in or near view: a page's changes far above it wait until they are scrolled to.
-  const near = useNear(box)
-  // The change grows in place: a new edit diffs only the place it added or changed, and the rest are the parts drawn.
-  const drawn = useRef<readonly Part[]>([])
-  const parts = useMemo(() => partsOf(change, drawn.current), [change])
+  const unfold = useUnfold<HTMLDivElement>()
+  // The change grows in place: a new edit counts only the place it added or changed, and the rest are the places read.
+  const read = useRef<readonly Place[]>([])
+  const places = useMemo(() => placesOf(change, read.current), [change])
   useEffect(() => {
-    drawn.current = parts
-  }, [parts])
-  const additions = parts.reduce((sum, part) => sum + part.additions, 0)
-  const deletions = parts.reduce((sum, part) => sum + part.deletions, 0)
-  // A big change opens two hundred lines a press: its rows are drawn as they are asked for, never all at once.
-  const preview = previewOf(parts.map((part) => part.rows), presses)
+    read.current = places
+  }, [places])
+  const additions = places.reduce((sum, place) => sum + place.additions, 0)
+  const deletions = places.reduce((sum, place) => sum + place.deletions, 0)
   const verb = change.whole !== null ? 'Wrote' : 'Edited'
-  const shown = block.open && parts.length > 0
+  const shown = block.open && places.length > 0
   return (
-    <div ref={box} className="flex min-w-0 flex-col gap-1.5">
-      <FoldRow icon={FilePenLine} open={shown} onToggle={parts.length ? block.toggle : undefined} failed={change.state === 'failed'}>
+    <div ref={unfold.box} className="flex min-w-0 flex-col gap-1.5">
+      <FoldRow icon={FilePenLine} open={shown} onToggle={places.length ? block.toggle : undefined} failed={change.state === 'failed'}>
         <span className="shrink-0 font-medium">{change.state === 'running' ? (change.whole !== null ? 'Writing' : 'Editing') : change.state === 'failed' ? 'Could not change' : verb}</span>
         <FilePath path={change.path} className="font-mono text-[12px]" />
         {additions || deletions ? (
@@ -475,29 +472,7 @@ function ChangeBlock({ change }: { change: Change }) {
         ) : null}
         {change.calls > 1 ? <span className="shrink-0 text-[11px] text-muted-foreground">{change.calls} edits</span> : null}
       </FoldRow>
-      {shown ? (
-        <div className="aa-diff overflow-hidden rounded-2xl" data-numbers={parts[0]!.numbered ? undefined : 'none'}>
-          <div {...{ [BOX]: '' }} className="aa-box scroll-quiet bg-code-bg py-1">
-            {parts.map((part, index) =>
-              preview.shown[index] ? (
-                <Fragment key={part.key}>
-                  {index > 0 ? (
-                    <div className="aa-skip" role="separator" aria-label="Lines left out">
-                      <span aria-hidden="true">⋯</span>
-                    </div>
-                  ) : null}
-                  <ChangeDiff file={part.file} diff={part.diff} rows={preview.shown[index]!} near={near} />
-                </Fragment>
-              ) : null,
-            )}
-          </div>
-        </div>
-      ) : null}
-      {shown && preview.foldable ? (
-        <p>
-          <MoreButton open={open} count={parts.reduce((sum, part) => sum + part.lines, 0)} onToggle={toggle} onMore={more} left={preview.left} next={preview.next} />
-        </p>
-      ) : null}
+      {shown ? <ChangeDiffs places={places} unfold={unfold} /> : null}
       {change.failures.map((failure, index) => (
         <p key={index} className="flex items-start gap-1.5 pl-[22px] text-[12px] text-bad-fg">
           <TriangleAlert className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
@@ -505,6 +480,48 @@ function ChangeBlock({ change }: { change: Change }) {
         </p>
       ))}
     </div>
+  )
+}
+
+/**
+ * An open change's diff, in one box, and the press that shows more of a long one. Drawn only while the change is open,
+ * so a closed change works out no diff and no rows, asks for no colors and watches nothing for being near the view.
+ */
+function ChangeDiffs({ places, unfold: { open, presses, toggle, more, box } }: { places: readonly Place[]; unfold: ReturnType<typeof useUnfold<HTMLDivElement>> }) {
+  // Colored only once in or near view: a page's changes far above it wait until they are scrolled to.
+  const near = useNear(box)
+  // A new edit diffs only the place it added or changed, and the rest are the parts drawn.
+  const drawn = useRef<readonly Part[]>([])
+  const parts = useMemo(() => diffsOf(places, drawn.current), [places])
+  useEffect(() => {
+    drawn.current = parts
+  }, [parts])
+  // A big change opens two hundred lines a press: its rows are drawn as they are asked for, never all at once.
+  const preview = previewOf(parts.map((part) => part.rows), presses)
+  return (
+    <>
+      <div className="aa-diff overflow-hidden rounded-2xl" data-numbers={parts[0]!.numbered ? undefined : 'none'}>
+        <div {...{ [BOX]: '' }} className="aa-box scroll-quiet bg-code-bg py-1">
+          {parts.map((part, index) =>
+            preview.shown[index] ? (
+              <Fragment key={part.key}>
+                {index > 0 ? (
+                  <div className="aa-skip" role="separator" aria-label="Lines left out">
+                    <span aria-hidden="true">⋯</span>
+                  </div>
+                ) : null}
+                <ChangeDiff file={part.file} diff={part.diff} rows={preview.shown[index]!} near={near} />
+              </Fragment>
+            ) : null,
+          )}
+        </div>
+      </div>
+      {preview.foldable ? (
+        <p>
+          <MoreButton open={open} count={parts.reduce((sum, part) => sum + part.lines, 0)} onToggle={toggle} onMore={more} left={preview.left} next={preview.next} />
+        </p>
+      ) : null}
+    </>
   )
 }
 

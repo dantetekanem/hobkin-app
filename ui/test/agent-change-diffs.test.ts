@@ -33,13 +33,16 @@ registerHooks({
     return { format: 'module', source: transformSync(file, readFileSync(file, 'utf8'), { jsx: { runtime: 'automatic' } }).code, shortCircuit: true }
   },
 })
-const { calls } = (await import(COUNTED)) as { calls: { diffOf: number; unifiedRows: number } }
+const { calls, diffOf } = (await import(COUNTED)) as { calls: { diffOf: number; unifiedRows: number }; diffOf: typeof import('../src/features/review/code/diff-rows.ts').diffOf }
 const { stepsOf } = await import('../src/features/agent-activity/steps.ts')
-const { partsOf } = await import('../src/features/agent-activity/change-parts.ts')
+const { diffsOf, placesOf } = await import('../src/features/agent-activity/change-parts.ts')
 const { ChangeDiff } = await import('../src/features/agent-activity/ChangeDiff.tsx')
 
-type Parts = ReturnType<typeof partsOf>
+type Parts = ReturnType<typeof diffsOf>
 type Change = Extract<ReturnType<typeof stepsOf>[number], { kind: 'change' }>['change']
+
+/** An open change's parts, as its diff box draws them from what it drew before. */
+const partsOf = (change: Change, kept?: Parts) => diffsOf(placesOf(change), kept)
 
 const edit = (id: string, path: string, oldText: string, newText: string, state: ActivityEntry['state'] = 'completed'): ActivityEntry => ({
   id: `tool:${id}`,
@@ -99,6 +102,24 @@ test('the run ending and a change drawn again work out no diff', () => {
 
   const again = counting(() => before.map((change) => partsOf(change, drawn.get(change))))
   assert.equal(again.diffs, 0)
+})
+
+test("a change's row counts its lines without a diff, and says what the diff would", () => {
+  const write = (id: string, content: string): ActivityEntry => ({ id: `tool:${id}`, kind: 'tool', name: 'write', state: 'completed', input: JSON.stringify({ path: 'src/w.ts', content }) })
+  const changes = [
+    changeOf([write('w1', 'one\ntwo\n')]),
+    changeOf([write('w2', 'one\r\ntwo')]),
+    changeOf([write('w3', '\n\nlast')]),
+    changeOf([edit('e1', 'src/a.ts', 'const a = 1\nconst b = 2', 'const a = 3\nconst b = 2\nconst c = 4'), edit('e2', 'src/a.ts', 'x', 'y\nz')]),
+  ]
+  const read = counting(() => changes.map((change) => placesOf(change)))
+  assert.deepEqual([read.diffs, read.rows], [0, 0])
+  read.value.forEach((places) => {
+    for (const { file, additions, deletions } of places) {
+      const diff = diffOf(file.base, file.head)
+      assert.deepEqual({ additions, deletions }, { additions: diff.additions, deletions: diff.deletions }, `${JSON.stringify(file.base)} to ${JSON.stringify(file.head)}`)
+    }
+  })
 })
 
 test("a diff's rows are worked out once, for the change's counts and for drawing it", () => {
