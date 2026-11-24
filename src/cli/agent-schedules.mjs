@@ -13,6 +13,7 @@ import { createHash, randomBytes } from 'node:crypto';
 
 const MINUTE = 60000;
 const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
 
 export const MOST_NAME = 80;
 export const MOST_COMMAND = 4000;
@@ -67,11 +68,11 @@ export function parseDuration(text) {
   return ms > 0 ? ms : null;
 }
 
-/** A span in words: "2 hours", "30 minutes", "1 hour 30 minutes", "90 seconds". */
+/** A span in words: "3 days", "1 day 12 hours", "2 hours", "30 minutes", "1 hour 30 minutes", "90 seconds". */
 export function spanWords(ms) {
   if (ms < MINUTE || ms % MINUTE) return plural(Math.round(ms / 1000), 'second');
-  const hours = Math.floor(ms / HOUR), minutes = Math.round((ms % HOUR) / MINUTE);
-  return [hours && plural(hours, 'hour'), minutes && plural(minutes, 'minute')].filter(Boolean).join(' ');
+  const days = Math.floor(ms / DAY), hours = Math.floor((ms % DAY) / HOUR), minutes = Math.round((ms % HOUR) / MINUTE);
+  return [days && plural(days, 'day'), hours && plural(hours, 'hour'), minutes && plural(minutes, 'minute')].filter(Boolean).join(' ');
 }
 
 /** The next time the local clock reads `at` after `now`. */

@@ -24,13 +24,13 @@ const scheduleParameters = Type.Object({
   note: Type.String({ description: 'What to do when it wakes you, 1 to 1000 characters.' }),
   in: Type.Optional(Type.String({ description: 'When it first fires, as a duration such as 90s, 10m or 1h30m.' })),
   at: Type.Optional(Type.String({ description: "When it first fires, as a 24-hour clock time such as 19:30 in the user's time zone." })),
-  every: Type.Optional(Type.String({ description: 'Repeat this often, 1m to 1h. Without it, it fires once.' })),
+  every: Type.Optional(Type.String({ description: 'Repeat this often, 1m or longer, such as 6h or 1d. Without it, it fires once.' })),
   wakeOn: Type.Optional(oneOf(WAKE_ON)),
   stopOn: Type.Optional(oneOf(STOP_ON)),
   pendingExit: Type.Optional(Type.Array(Type.Integer(), { description: 'Up to 4 exit codes that mean "not yet".' })),
   maxRuns: Type.Optional(Type.Integer({ description: 'At most this many runs, up to 1440.' })),
   maxWakes: Type.Optional(Type.Union([Type.Integer(), Type.Literal('none')], { description: 'At most this many wakes, or none for no cap. Default 12.' })),
-  expiresIn: Type.Optional(Type.String({ description: 'Its lifetime, 2h unless you say, 24h at most.' })),
+  expiresIn: Type.Optional(Type.String({ description: 'Its lifetime, 2h unless you say: any duration, such as 3d, or none for no end.' })),
   timeoutMs: Type.Optional(Type.Integer({ description: 'How long one run may take, 5000 to 600000. Default 120000.' })),
 }, { additionalProperties: false });
 

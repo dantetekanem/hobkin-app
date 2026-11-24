@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterRun, askedSchedule, isExpired, scheduleForAgent, scheduledText, scheduleView } from '../src/cli/agent-schedules.mjs';
+import { afterRun, askedSchedule, isExpired, scheduleForAgent, scheduledText, scheduleView, spanWords } from '../src/cli/agent-schedules.mjs';
 import { AgentScheduleRunner } from '../src/cli/agent-schedule-runner.mjs';
 
 // How long, how often and how many wakes are the agent's to say (the client's _specs/056-agent-schedules, 2026-11-24).
@@ -142,4 +142,13 @@ test('a schedule wakes its agent as many times as the agent says, or with no cap
   assert.match(scheduledText(usual, main), /with your note, 12 times at most\./);
   assert.match(ask({ ...plain, maxWakes: 0 }).refused, /maxWakes is a number of wakes from 1, or none for no cap/);
   assert.match(ask({ ...plain, maxWakes: 'lots' }).refused, /maxWakes is a number of wakes from 1/);
+});
+
+test('a span of days reads in days, so a schedule of three days reads "3 days", not 72 hours', () => {
+  assert.equal(spanWords(3 * DAY), '3 days');
+  assert.equal(spanWords(DAY + 12 * HOUR), '1 day 12 hours');
+  assert.equal(spanWords(2 * HOUR + 30 * MINUTE), '2 hours 30 minutes', 'shorter spans read as before');
+  const week = afterRun(make({ every: '1d', note: 'Look.', expiresIn: '7d' }), { fired: NOW + 7 * DAY }, NOW + 7 * DAY + 1000).schedule;
+  assert.equal(week.endedWhy, 'its 7 days ran out');
+  assert.match(scheduledText(make({ every: '1d', note: 'Look.', expiresIn: '3d' }), main), /, then every 1 day, and it ends by/);
 });
