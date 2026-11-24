@@ -90,14 +90,17 @@ async function requiredChecks(gh, url, repo) {
  * not one. Any other check that failed, waits or is stale holds it too, and with no check marked required every check counts as one.
  */
 function notPassed(rollup, required) {
-  const said = required.length
-    ? [
-      ...required.filter(({ bucket }) => bucket !== 'pass').map(check => `${check.name} (${bucketWords[check.bucket] ?? check.bucket})`),
-      ...rollup.filter(check => !required.some(({ name }) => name === checkName(check)) && !['skipped', null].includes(checkWord(check)))
-        .map(check => `${checkName(check)} (${checkWord(check)})`),
-    ]
-    : rollup.filter(check => checkWord(check)).map(check => `${checkName(check)} (${checkWord(check)})`);
-  return [...new Set(said)];
+  const saidOf = check => `${checkName(check)} (${checkWord(check)})`;
+  if (!required.length) return [...new Set(rollup.filter(check => checkWord(check)).map(saidOf))];
+
+  const requiredNames = new Set(required.map(({ name }) => name));
+  const requiredNotPassed = required
+    .filter(({ bucket }) => bucket !== 'pass')
+    .map(({ name, bucket }) => `${name} (${bucketWords[bucket] ?? bucket})`);
+  const othersHolding = rollup
+    .filter(check => !requiredNames.has(checkName(check)) && !['skipped', null].includes(checkWord(check)))
+    .map(saidOf);
+  return [...new Set([...requiredNotPassed, ...othersHolding])];
 }
 
 /** The signed-in user on the code host, whose pull requests hobkin opens, or null when it cannot be read. */
