@@ -81,7 +81,8 @@ import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
 import { preparedByItself, workReader } from './work-items.ts'
 import type { GhCall } from './review/gh.ts'
 import { reviewBrief } from './review/guide.ts'
-import { hostReviews, reviewHandlers, toPrepare } from './review/seat.ts'
+import { hostReviews, reviewHandlers, stackFacts, toPrepare } from './review/seat.ts'
+import { stackHandlers } from './review/stack.ts'
 
 export interface HostOptions {
   /** The hobkin home to serve. */
@@ -744,6 +745,19 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...routineHandlers({ app: hobkin }),
     // Change Review: prepared reviews, the reviewer's notes, and verdicts (005, 009).
     ...reviewHandlers(reviews),
+    // Make it a stack: one max-tier agent splits the change, started the way hobkin.start starts one.
+    ...stackHandlers({
+      facts: (id) => stackFacts.get(reviews)!(id),
+      start: async ({ cwd, title, text }) => handlers['hobkin.start']!({ cwd, title, text, engine: { kind: 'tier', tier: 'max' } }),
+      exists: async (id) => {
+        try {
+          await handlers['hobkin.read']!({ id })
+          return true
+        } catch {
+          return false
+        }
+      },
+    }),
     'agent.session': ({ report }) => readJobSession({ data: () => hobkin().runtime.directory, snapshot: () => ({ reports: owner.snapshot?.reports, completedJobReports: owner.snapshot?.completedJobReports }), state: () => hobkin().runtime.state() }, report),
     // A run's steps its feed let go, and a tool's whole output, read back from its saved session (052 S18).
     ...olderStepsHandlers({ data: () => hobkin().runtime.directory, state: () => hobkin().runtime.state() }),

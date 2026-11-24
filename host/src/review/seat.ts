@@ -17,7 +17,8 @@ import { pullUrl, reviewIdOf, targetOfReviewId, type ReviewTarget } from '#share
 import { readNeeds } from '#shared/review/needs.ts'
 import type { ReviewLanding } from '#shared/review/status.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
-import type { HostHandlers } from '../commands.ts'
+import { Unavailable, type HostHandlers } from '../commands.ts'
+import type { StackFacts } from './stack.ts'
 import { findGh } from '../github-gh.ts'
 import type { PiModelRuntime } from '../pi.ts'
 import { reviewChange } from '../../../packages/change-review/src/pipeline.ts'
@@ -144,6 +145,9 @@ function codeHostsSeat(seat: ReviewSeat) {
   const peopleOf = (target: PullTarget, facts: { author: string | null; description: string }) => pullPeople({ target, ...facts, agents: known().agents, find })
   return { hostOf: quietHostOf, apiOf, checksOut, whoIsMe, named, treeOf, emails: () => known().emails, peopleOf }
 }
+
+/** What a review's change is, for Make it a stack: set once per review seat, read by `review.stack`. */
+export const stackFacts = new WeakMap<Reviews, (id: string) => Promise<StackFacts>>()
 
 export function hostReviews(seat: ReviewSeat): Reviews {
   const hosts = codeHostsSeat(seat)
@@ -388,6 +392,45 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       return { merge: host.merge, mergeBy: host.mergeBy ?? null, emails: hosts.emails(), deleteBranch: (branch: string, sha: string) => checkout.deleteBranch(target, branch, sha) }
     },
     log: seat.log,
+  })
+  stackFacts.set(reviews, async (id) => {
+    const target = targetOfReviewId(id)
+    if (!target) throw new Unavailable(`There is no review named ${id}.`)
+    const status = reviews.status(id)
+    const merged = status.landing?.state === 'merged' || store.landedAt(target) != null
+    const built = store.latest(target)?.review.change
+    if (target.kind === 'change') {
+      const change = find(target.slug, target.item)
+      const title = change?.title ?? built?.title
+      if (!title && !merged) throw new Unavailable(`hobkin has no finished change ${target.slug}/${target.item} to split.`)
+      const opened = change?.pr ? targetOfReviewId(change.pr) : null
+      return {
+        title: title ?? target.item,
+        repository: change?.project ?? target.slug,
+        folder: repoOf(target.slug),
+        merged,
+        start: status.startsAt ?? built?.base ?? null,
+        head: status.head ?? change?.head ?? built?.head ?? null,
+        branch: change?.branch ?? built?.branch ?? null,
+        kind: 'own',
+        project: target.slug,
+        ...(change?.pr && opened?.kind === 'pull' ? { pull: { number: opened.number, address: change.pr, author: null } } : {}),
+      }
+    }
+    const head = status.head ?? built?.head ?? null
+    if (!built && !merged) throw new Unavailable('This pull request has not been read yet, so hobkin does not know its change. Prepare its review first.')
+    const folder = head && checkout ? await checkout.repoFor(target, head).catch(() => null) : null
+    return {
+      title: built?.title ?? `#${target.number}`,
+      repository: `${target.owner}/${target.repo}`,
+      folder,
+      merged,
+      start: status.startsAt ?? built?.base ?? null,
+      head,
+      branch: built?.branch ?? null,
+      kind: status.owner?.mine ? 'mine' : 'other',
+      pull: { number: target.number, address: pullUrl(target) ?? `${target.owner}/${target.repo}#${target.number}`, author: status.owner?.author ?? null },
+    }
   })
   return reviews
 }

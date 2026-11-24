@@ -913,6 +913,12 @@ export const COMMANDS = {
     args: nothing,
     hobkin: true,
   },
+  'review.stack': {
+    description:
+      "Make a change into a stack, by its review id: start one agent on the max tier in the change's repository, told to split the change into a few small changes that land in order, each a branch on the one below, in a git worktree of its own. It plans nothing here and pushes nothing. Answers with the agent's id (`hobkin`) and its first run. While that agent is still there a second ask starts nothing and answers with it, `already: true`. Refused for a change that has merged, and for a repository with no folder on this Mac. It spends a max run, so only the window sends it.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId }, { additionalProperties: false }),
+  },
   'review.people': {
     description: 'Who a prepared review’s pull request is from: its author, and who it is for when an agent opened it because they asked, each with a link to their profile when one is known. A finished change answers for the pull request it opened, and with null when it opened none.',
     runs: 'host',
@@ -1531,6 +1537,7 @@ export interface CommandResults {
   'review.status': ReviewStatus
   'review.list': ReviewList
   'review.codeHosts': { hosts: { name: string; web: string }[] }
+  'review.stack': { hobkin: string; run: string | null; already: boolean }
   'review.people': { author: { name: string; url?: string } | null; for?: { name: string; url?: string } } | null
   'review.remove': { id: string; removed: true }
   'review.stop': ReviewStatus
