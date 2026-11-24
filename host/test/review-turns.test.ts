@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { NO_GITHUB_LISTS, type GitHubPull, type GitHubState } from '#shared/protocol/github.ts'
@@ -296,7 +296,10 @@ test("pull requests the workload names wait in their repository's line like chan
 
   assert.deepEqual(built, ['pr:acme/shop/1', 'pr:acme/shop/2', 'pr:acme/shop/3'])
   // An older list names no commit: the row says so.
-  assert.equal(reviews.status('pr:acme/shop/5').turn?.why, "Waits its turn: 4 ahead in acme/shop. Not reviewed yet, so nothing checks it by itself. GitHub's list did not say its commit, and hobkin has read none of it yet.")
+  assert.equal(
+    reviews.status('pr:acme/shop/5').turn?.why,
+    "Waits its turn: 4 ahead in acme/shop. Not reviewed yet, so nothing checks it by itself. GitHub's list did not say its commit, and hobkin has read none of it yet. Nor did it say when it was opened or pushed, so its wait counts from its last update there.",
+  )
 })
 
 test('the line\'s clock is when a change finished, not when hobkin last wrote it', async (t) => {
@@ -310,21 +313,64 @@ test('the line\'s clock is when a change finished, not when hobkin last wrote it
   assert.equal(reviews.status('change:shop:c3').turn?.ahead, 3)
 })
 
-test("the host reads when a change finished from its head commit, once, and says nothing until it knows", async (t) => {
+test("a change's clock is when hobkin finished it, as its items say; else when its head was committed, never later than now", async (t) => {
   const repo = temporaryDirectory(t)
-  const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_DATE: '2026-11-20T08:00:00Z', GIT_COMMITTER_DATE: '2026-11-23T08:00:00Z' } }).trim()
-  git('init', '--quiet', '--initial-branch=main')
-  writeFileSync(join(repo, 'a.txt'), 'a\n')
-  git('add', '.')
-  git('commit', '--quiet', '-m', 'Finish')
-  const head = git('rev-parse', 'HEAD')
-  const finished = finishTimes((slug) => (slug === 'shop' ? repo : null))
-  const target = { kind: 'change' as const, slug: 'shop', item: 'a1' }
+  const commit = (message: string, committed: string) => {
+    const env = { ...process.env, GIT_AUTHOR_DATE: '2026-11-02T08:00:00Z', GIT_COMMITTER_DATE: committed }
+    execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '--quiet', '--allow-empty', '-m', message], { env })
+    return execFileSync('git', ['-C', repo, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim()
+  }
+  execFileSync('git', ['-C', repo, 'init', '--quiet', '--initial-branch=main'])
+  // Written three weeks ago and amended this morning, and one dated next year.
+  const amended = commit('Amended', '2026-11-23T08:00:00Z')
+  const ahead = commit('From the future', '2027-01-01T00:00:00Z')
+  // hobkin's log of the shop's items: filed, finished, sent back, finished again, then a note written to it.
+  const data = temporaryDirectory(t)
+  mkdirSync(join(data, 'work', 'shop'), { recursive: true })
+  const lines = [
+    { id: 'a1', key: 'k1', title: 'A' },
+    { id: 'a1', state: 'doing', updatedAt: '2026-11-22T09:00:00Z' },
+    { id: 'a1', state: 'pr', updatedAt: '2026-11-22T10:00:00Z' },
+    { id: 'a1', state: 'doing', updatedAt: '2026-11-22T11:00:00Z' },
+    { id: 'a1', state: 'pr', updatedAt: '2026-11-22T11:30:00Z' },
+    { id: 'a1', note: 'Looked at it.', updatedAt: '2026-11-23T09:00:00Z' },
+  ]
+  writeFileSync(join(data, 'work', 'shop', 'items.jsonl'), lines.map((line) => `${JSON.stringify(line)}\n`).join(''))
+  const finished = finishTimes((slug) => (slug === 'shop' || slug === 'blog' ? repo : null), { data: () => data, now: () => NOW })
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 200))
 
-  assert.equal(finished(target, head), null)
-  await new Promise((resolve) => setTimeout(resolve, 200))
-  assert.equal(Date.parse(finished(target, head)!), Date.parse('2026-11-20T08:00:00Z'))
-  assert.equal(finished({ kind: 'change', slug: 'blog', item: 'b1' }, head), null)
+  assert.equal(finished({ kind: 'change', slug: 'shop', item: 'a1' }, amended), '2026-11-22T11:30:00Z', 'its last arrival, not the note after it')
+  // The blog's items say nothing of b1: its head's commit time, once git answered.
+  assert.equal(finished({ kind: 'change', slug: 'blog', item: 'b1' }, amended), null)
+  await settle()
+  assert.equal(Date.parse(finished({ kind: 'change', slug: 'blog', item: 'b1' }, amended)!), Date.parse('2026-11-23T08:00:00Z'))
+  finished({ kind: 'change', slug: 'blog', item: 'b1' }, ahead)
+  await settle()
+  assert.equal(finished({ kind: 'change', slug: 'blog', item: 'b1' }, ahead), null, 'a time after now is no clock')
+})
+
+test("a pull request's clock is when it was opened or its head was committed, whichever is later and not after now; a comment does not reset it", async (t) => {
+  const built: string[] = []
+  const reviews = new Reviews({
+    store: reviewStore(temporaryDirectory(t)),
+    sources: {
+      change: { head: async () => null, read: async () => Promise.reject(new Error('no')) },
+      pull: { head: async (target) => (target.kind === 'pull' ? sha(target.number) : null), read: async (target) => (built.push(reviewIdOf(target)), Promise.reject(new Error('not read here'))) },
+    },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    now: () => NOW,
+  })
+  t.after(() => reviews.close())
+  const ago = (hours: number) => new Date(NOW - hours * HOUR).toISOString()
+  // Every one was commented on just now. #4 was opened 100 hours ago and its head is dated next year; #5 was opened
+  // longer ago, but pushed an hour ago.
+  const pulls: Watched[] = [1, 2, 3, 4, 5].map((number) => ({ id: `pr:acme/shop/${number}`, head: sha(number), updatedAt: ago(0), openedAt: ago(number === 4 ? 100 : number === 5 ? 120 : 1), pushedAt: number === 4 ? '2027-01-01T00:00:00Z' : ago(1) }))
+
+  reviews.watch(pulls)
+  await new Promise((resolve) => setTimeout(resolve, 30))
+
+  assert.deepEqual(built, ['pr:acme/shop/1', 'pr:acme/shop/2', 'pr:acme/shop/4'])
 })
 
 test('a build that fails is tried again at most once a day in its turn, even after a restart, and its row says when', async (t) => {

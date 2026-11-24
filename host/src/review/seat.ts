@@ -3,7 +3,7 @@
  * review that tells each one, and the commands the window runs. Specs: 005-review-model (S6), 009-review-notes,
  * 024-github, 032-change-review.
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { paths, readItems, readProject, readProjects } from 'hobkin/src/cli/work/store.mjs'
 import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
@@ -307,7 +307,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     ...(CARRIES_REVIEWS && carry ? { carry } : {}),
     keepCurrent,
     backAtWork,
-    finishedAt: finishTimes(repoOf, seat.log),
+    finishedAt: finishTimes(repoOf, { data: seat.data, ...(seat.log ? { log: seat.log } : {}) }),
     reviewsADay,
     dayLedger,
     closed,
@@ -450,22 +450,70 @@ function keepCleaning(
   cleaning.set(seat.root, { first, every })
 }
 
+/** The states hobkin files a finished change under (`FINISHED` in hobkin's `src/cli/work/metrics.mjs`). */
+const FINISHED_STATES = ['branch', 'pr']
+
 /**
- * When each change finished, for its line's clock: when its head commit was written, as git says. Each commit is read
- * once, in the background, and kept; until it is known the line goes by hobkin's own time, as before.
+ * When hobkin finished each item of a project: the time of its last arrival among the finished changes, from the
+ * project's item log, as hobkin's own metrics count it. A write after that, such as a note or a score, does not move
+ * it. Read again only when the log changed.
  */
-export function finishTimes(repoOf: (slug: string) => string | null, log?: (line: string) => void) {
+function itemFinishes(data: () => string) {
+  const kept = new Map<string, { stamp: string; finishes: Map<string, string> }>()
+  return (slug: string, item: string): string | null => {
+    const file = paths(data(), slug).items
+    const stat = statSync(file, { throwIfNoEntry: false })
+    if (!stat) return null
+    const stamp = `${stat.mtimeMs}:${stat.size}`
+    let known = kept.get(slug)
+    if (known?.stamp !== stamp) {
+      const states = new Map<string, unknown>()
+      const finishes = new Map<string, string>()
+      for (const text of readFileSync(file, 'utf8').split('\n')) {
+        let line: Record<string, unknown>
+        try {
+          line = JSON.parse(text) as Record<string, unknown>
+        } catch {
+          continue
+        }
+        if (typeof line.id !== 'string' || !('state' in line)) continue
+        const time = typeof line.updatedAt === 'string' ? line.updatedAt : line.at
+        const arrived = FINISHED_STATES.includes(line.state as string) && !FINISHED_STATES.includes(states.get(line.id) as string)
+        if (arrived && typeof time === 'string' && Number.isFinite(Date.parse(time))) finishes.set(line.id, time)
+        states.set(line.id, line.state)
+      }
+      known = { stamp, finishes }
+      kept.set(slug, known)
+    }
+    return known.finishes.get(item) ?? null
+  }
+}
+
+/**
+ * When each change finished, for its line's clock: when hobkin finished it, as its items say. Without that, when its
+ * head commit was committed, as git says: an amended or rebased commit is new then, and a time after now is no clock.
+ * Each commit is read once, in the background, and kept; until a time is known the line goes by hobkin's own time.
+ */
+export function finishTimes(repoOf: (slug: string) => string | null, { data, now = Date.now, log }: { data?: () => string; now?: () => number; log?: (line: string) => void } = {}) {
   const known = new Map<string, string | null>()
+  const finishes = data ? itemFinishes(data) : () => null
+  const said = (error: unknown) => (error instanceof Error ? error.message : String(error))
   return (target: Extract<ReviewTarget, { kind: 'change' }>, head: string | null): string | null => {
+    try {
+      const finished = finishes(target.slug, target.item)
+      if (finished) return finished
+    } catch (error) {
+      log?.(`Reviews: when hobkin finished ${target.slug} ${target.item} could not be read from its items: ${said(error)}`)
+    }
     if (!head) return null
     const key = `${target.slug}\n${head}`
     if (known.has(key)) return known.get(key) ?? null
     known.set(key, null)
     const repo = repoOf(target.slug)
     if (repo) {
-      gitIn(repo, 'log', '-1', '--format=%aI', head).then(
-        (at) => known.set(key, Number.isFinite(Date.parse(at)) ? at : null),
-        (error: unknown) => log?.(`Reviews: when ${target.slug} ${head.slice(0, 7)} finished could not be read, so its line goes by hobkin's time: ${error instanceof Error ? error.message : String(error)}`),
+      gitIn(repo, 'log', '-1', '--format=%cI', head).then(
+        (at) => known.set(key, Number.isFinite(Date.parse(at)) && Date.parse(at) <= now() ? at : null),
+        (error: unknown) => log?.(`Reviews: when ${target.slug} ${head.slice(0, 7)} was committed could not be read, so its line goes by hobkin's time: ${said(error)}`),
       )
     }
     return null
@@ -524,7 +572,10 @@ export function toPrepare(work: WorkState | null, github?: GitHubState, { pulls 
     if (pull.draft || openedByChanges.has(pull.url) || target?.kind !== 'pull') continue
     const id = reviewIdOf(target)
     // At the commit GitHub says it is at, which its place in the line goes by; an older list does not say.
-    if (!watched.has(id)) watched.set(id, { id, updatedAt: pull.updatedAt, ...(pull.head ? { head: pull.head } : {}) })
+    if (!watched.has(id)) {
+      const { updatedAt, head, openedAt, pushedAt } = pull
+      watched.set(id, { id, updatedAt, ...(head ? { head } : {}), ...(openedAt ? { openedAt } : {}), ...(pushedAt ? { pushedAt } : {}) })
+    }
   }
   return [...changes, ...watched.values()]
 }

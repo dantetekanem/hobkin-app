@@ -47,6 +47,9 @@ export interface Watched {
   grade?: Grade | null
   conflict?: boolean | null
   at?: string
+  /** For a pull request, when it was opened and when its head commit was committed, as GitHub's list says them. */
+  openedAt?: string
+  pushedAt?: string
 }
 
 /** How many reviews the background built by itself on a local day, and how many of them in the place for the longest wait. */
@@ -501,6 +504,8 @@ export class Reviews {
   private readonly lookedHead = new Map<string, string>()
   /** The watched pull requests GitHub's list named no commit for, as an older list does: their rows say so. */
   private pullsWithoutHead = new Set<string>()
+  /** The watched pull requests GitHub's list gave no time for but their last update: their wait counts from that. */
+  private pullsWithoutTimes = new Set<string>()
   /** The last failed build of each target, as the home keeps it, read once. */
   private readonly failures = new Map<string, BuildFailed | null>()
   /** Where each change started when this host last looked, and the commit it was at then: a start holds for that commit alone. */
@@ -2041,6 +2046,7 @@ export class Reviews {
     this.finished = new Set(wanted.flatMap(({ id }) => (id.startsWith('change:') ? [id] : [])))
     this.watchedPulls = new Set(wanted.flatMap(({ id }) => (targetOfReviewId(id)?.kind === 'pull' ? [id] : [])))
     this.pullsWithoutHead = new Set(wanted.flatMap(({ id, head }) => (!head && this.watchedPulls.has(id) ? [id] : [])))
+    this.pullsWithoutTimes = new Set(wanted.flatMap(({ id, openedAt, pushedAt }) => (!openedAt && !pushedAt && this.watchedPulls.has(id) ? [id] : [])))
     this.line = this.lineFor(wanted)
     this.dropAtWork()
     this.followBranches(wanted, limit)
@@ -2086,7 +2092,10 @@ export class Reviews {
           const head = entry.head ?? this.statuses.get(entry.id)?.head ?? this.lookedHead.get(entry.id) ?? this.options.store.latest(target)?.review.change.head ?? null
           const reviewed = this.reviewFinished(target, head)
           const failedAt = this.failedBuild(target, head)?.at
-          return [{ id: entry.id, repo: `pull:${target.host ?? ''}:${name}`, name, reviewed, ...(entry.updatedAt ? { at: entry.updatedAt } : {}), ...(failedAt ? { failedAt } : {}) }]
+          // Its clock: when it was opened or its head committed, the later one not after now. A comment moves neither.
+          const times = [entry.openedAt, entry.pushedAt].map((time) => Date.parse(time ?? '')).filter((time) => Number.isFinite(time) && time <= this.now())
+          const at = times.length ? new Date(Math.max(...times)).toISOString() : entry.updatedAt
+          return [{ id: entry.id, repo: `pull:${target.host ?? ''}:${name}`, name, reviewed, ...(at ? { at } : {}), ...(failedAt ? { failedAt } : {}) }]
         }
         const refreshing = this.landingOf(target)?.state === 'refreshing'
         // Its clock is when it finished; hobkin's own time, which any write resets, only while that cannot be read.
@@ -2316,7 +2325,10 @@ export class Reviews {
       : read
         ? ` GitHub's list did not say its commit, so the line goes by ${read.slice(0, 7)}, the one hobkin last read.`
         : " GitHub's list did not say its commit, and hobkin has read none of it yet."
-    return { ahead: waits.ahead, why: `${waits.why}${unchecked}${unnamed}` }
+    const untimed = !this.pullsWithoutTimes.has(id)
+      ? ''
+      : `${unnamed ? ' Nor did it say' : " GitHub's list did not say"} when it was opened or pushed, so its wait counts from its last update there.`
+    return { ahead: waits.ahead, why: `${waits.why}${unchecked}${unnamed}${untimed}` }
   }
 
   /** The background's look at one thing to prepare, at the version it is at now. Never throws: the host publishes around it. */
