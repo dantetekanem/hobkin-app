@@ -54,7 +54,10 @@ export function Questions({ view, heading }: { view: QuestionsView; heading: str
         {view.floors}
       </p>
       <p className={cn('min-h-10 text-[14px] leading-5 text-pretty [overflow-wrap:anywhere]', !whole && 'line-clamp-2', unrated && 'text-muted-foreground')}>{view.note}</p>
-      <p className="min-h-5 truncate text-[12.5px] leading-5 text-muted-foreground">{view.by}</p>
+      {/* Two lines in every state: ratings made at another commit say which, in the host's words. */}
+      <p className={cn('line-clamp-2 min-h-10 text-[12.5px] leading-5', view.state === 'older' ? 'text-warn-fg' : 'text-muted-foreground')} title={view.by ?? undefined}>
+        {view.by}
+      </p>
     </section>
   )
 }

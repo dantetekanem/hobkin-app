@@ -13,7 +13,7 @@ import { openTarget } from '@/features/home/navigate.ts'
 import { cn } from '@/lib/utils.ts'
 import { usePullPeople } from '../use-people.ts'
 import { ByLineNames } from './ByLine.tsx'
-import { outdatedNotice } from './outdated.ts'
+import { carriedLine, outdatedNotice } from './outdated.ts'
 import { headerBadge, type HeaderBadge, type HeaderFix } from './sidebar.ts'
 
 /**
@@ -108,6 +108,8 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
           </button>
         ) : null}
       </div>
+      {/* Under the commits it shows, every review keeps a place for a carry, so nothing moves when one is said. */}
+      <Carried status={preparation} />
       {pull && described ? (
         <div className="rv-scroll mt-2.5 max-h-[42vh] overflow-y-auto rounded-xl bg-background px-3 py-2.5 text-[14px] leading-[1.5] [overflow-wrap:anywhere]" aria-label="The pull request's description">
           {description ? (
@@ -291,6 +293,20 @@ function QuietButton({ label, keys, onClick, children }: { label: string; keys: 
         {label} <Kbd>{keys}</Kbd>
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+/**
+ * A review carried to the commit it shows says so where the verdict is given (spec 058): from which commit, that its
+ * tests ran at this one, and that it was built from that one, with the host's reason in its tooltip. Its two lines are
+ * there for every review, empty when it was built where it is.
+ */
+function Carried({ status }: { status: ReviewStatus | null }) {
+  const carried = carriedLine(status?.carried)
+  return (
+    <p className="mt-1.5 line-clamp-2 min-h-10 text-[13px] leading-5 text-pretty text-sun-fg" title={carried?.why}>
+      {carried?.words}
+    </p>
   )
 }
 

@@ -16,7 +16,7 @@ import type { NeedNumbers } from '@/features/review/panel/needs.ts'
 import { canReviewAgain, canReviewNow, groupReviews, nothingChanged, repoLinesOf, reviewToOpen, REVIEW_ORDERS, type PriorityOf, type RepoLine, type ReviewGroup, type ReviewRow } from './ai-reviews.ts'
 import { DeployWhy, GradeChip, ReviewBadge, ReviewProgress, SectionHeading, Segmented } from './parts.tsx'
 import { useReviewOrder } from './review-order.ts'
-import { ACTION_LABEL, createReviewAgain, createRowActions, NOTHING_CHANGED, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
+import { ACTION_LABEL, createReviewAgain, createRowActions, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
 import type { ReviewListView } from './use-review-list.ts'
 
 /**
@@ -184,12 +184,13 @@ const sampleBuild = async () => {
  * "Review again" on a row, or "Review now" on one that waits its turn (spec 058): the host builds the review once more
  * at the change's commit, or builds a waiting one at once outside its repository's line, and the row moves to Running.
  * With nothing changed since the review, Review again first says so and what it costs, and builds it on a second press
- * within ten seconds; the button keeps its width while it asks, so nothing beside it moves. It says so while the host
- * is asked, and why when the host refuses.
+ * within ten seconds: a live host says it, in its own words, and the sample's row says it by itself. The button keeps
+ * its width while it asks, so nothing beside it moves. It says so while the host is asked, and why when it refuses.
  */
 function ReviewAgain({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: () => void }) {
   const now = canReviewNow(row)
-  const unchanged = !now && nothingChanged(row)
+  // A live host decides whether anything changed; only a row with no host to ask checks by itself.
+  const unchanged = !live && !now && nothingChanged(row)
   // Read when the host took it, so a list that reads itself again with a new function never starts this over.
   const started = useRef(onAgain)
   started.current = onAgain
@@ -206,7 +207,7 @@ function ReviewAgain({ row, live, onAgain }: { row: ReviewRow; live: boolean; on
   )
   useEffect(() => () => again.cancel(), [again])
   const { armed, busy, error } = useStore(again)
-  const said = error ?? (armed ? NOTHING_CHANGED : null)
+  const said = error ?? again.said()
   const label = now ? 'Review now' : 'Review again'
 
   return (
@@ -242,8 +243,8 @@ function ReviewAgain({ row, live, onAgain }: { row: ReviewRow; live: boolean; on
         {/* Each of its words holds the button's place; only the one that applies shows, and only it is read. */}
         <span className="grid justify-items-center">
           <span className={cn('col-start-1 row-start-1', (armed || busy) && 'invisible')}>{label}</span>
-          {/* Only a press that asks first holds the place of its second. */}
-          {unchanged ? <span className={cn('col-start-1 row-start-1', !armed && 'invisible')}>Click again to confirm</span> : null}
+          {/* Only a press that can ask first holds the place of its second. */}
+          {!now ? <span className={cn('col-start-1 row-start-1', !armed && 'invisible')}>Click again to confirm</span> : null}
           <span className={cn('col-start-1 row-start-1', !busy && 'invisible')}>Starting…</span>
         </span>
       </Button>
@@ -347,7 +348,10 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
                   <span className="shrink-0 font-heading text-[14px] font-semibold tabular-nums">{row.percent}%</span>
                 </span>
               ) : null}
-              <span className="text-[14px] leading-snug">{row.line}</span>
+              {/* A waiting row's whole reason, as the host says it: two lines at most, the rest in its tooltip. */}
+              <span className="line-clamp-2 text-[14px] leading-snug" title={row.line}>
+                {row.line}
+              </span>
             </span>
           ) : null}
         </button>
@@ -371,13 +375,20 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
  * its controls.
  */
 function RowNeeds({ needs }: { needs: NeedNumbers }) {
-  const said = [...needs.numbers.map(({ word, value }) => `${word} ${value}`), ...(needs.rate ? [`general rate ${needs.rate}`] : [])].join(', ')
+  const numbers = [...needs.numbers.map(({ word, value }) => `${word} ${value}`), ...(needs.rate ? [`general rate ${needs.rate}`] : [])].join(', ')
+  // Numbers made at another commit than the row's say so first, so they never read as current.
+  const said = needs.other ? `${needs.other} ${numbers}` : numbers
   return (
     <span className="flex shrink-0 items-baseline gap-1.5 tabular-nums" aria-label={`Rated: ${said}`} title={said}>
       <span aria-hidden="true">·</span>
+      {needs.other ? (
+        <span aria-hidden="true" className="text-warn-fg">
+          rated at {needs.at}, older:
+        </span>
+      ) : null}
       {needs.numbers.map(({ name, word, value }) => (
         <span key={name} aria-hidden="true">
-          {word} <span className="font-semibold text-foreground">{value}</span>
+          {word} <span className={value === 'not known' ? 'text-muted-foreground' : 'font-semibold text-foreground'}>{value}</span>
         </span>
       ))}
       {needs.rate ? (

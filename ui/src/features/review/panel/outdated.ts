@@ -3,7 +3,7 @@
  * from another start than the change has now, as one built before its start was measured from origin's default branch.
  * While a newer one is being built, it says that instead.
  */
-import type { ReviewStatus } from '#shared/review/status.ts'
+import { readCarried, type ReviewStatus } from '#shared/review/status.ts'
 import type { ReviewChange } from '#shared/review/types.ts'
 
 export interface OutdatedNotice {
@@ -13,6 +13,17 @@ export interface OutdatedNotice {
 }
 
 const short = (commit: string) => commit.slice(0, 7)
+
+/**
+ * What the header says of a review carried to the commit it shows (spec 058): from which commit, that its tests ran at
+ * this one, and that it was built from that one; with the host's reason it still holds. Null for one built where it is,
+ * and for what a host sent that does not read as a carry.
+ */
+export function carriedLine(carried: unknown): { words: string; why: string } | null {
+  const read = readCarried(carried)
+  if (!read) return null
+  return { words: `Carried from ${short(read.from)}: its tests ran at this commit, and it was built from that one.`, why: read.why }
+}
 
 export function outdatedNotice(built: Pick<ReviewChange, 'base' | 'head'>, now: Pick<ReviewStatus, 'phase' | 'head' | 'startsAt'>): OutdatedNotice | null {
   if (now.phase != null) {

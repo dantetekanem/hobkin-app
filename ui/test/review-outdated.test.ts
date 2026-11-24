@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { outdatedNotice } from '../src/features/review/panel/outdated.ts'
+import { carriedLine, outdatedNotice } from '../src/features/review/panel/outdated.ts'
 
 const BASE = 'a66f8c2'.padEnd(40, '0')
 const HEAD = 'c38b753'.padEnd(40, '0')
@@ -29,4 +29,12 @@ test('while a newer review is being built, the notice says that instead', () => 
   const rebuilding = outdatedNotice(built, { phase: 'reading', head: HEAD, startsAt: 'e61c0fb'.padEnd(40, '0') })
 
   assert.deepEqual(rebuilding, { rebuilding: true, words: 'Building the review again for c38b753. This one stays open until it is ready.' })
+})
+
+test('a carried review says from which commit it was carried and that its tests ran at this one', () => {
+  const carried = carriedLine({ from: 'd54725c'.padEnd(40, '0'), why: 'Only its start moved, and its tests passed at this commit.' })
+
+  assert.deepEqual(carried, { words: 'Carried from d54725c: its tests ran at this commit, and it was built from that one.', why: 'Only its start moved, and its tests passed at this commit.' })
+  assert.equal(carriedLine(undefined), null, 'a review built at its commit says nothing there')
+  assert.equal(carriedLine({ from: 'not a commit', why: 'x' }), null)
 })

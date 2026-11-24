@@ -5,7 +5,7 @@ import type { ReviewNeeds } from '#shared/review/needs.ts'
 import { hobkinView, needNumbers, questionsView, rateWords, ratingsOf, NO_MONITORING, QUESTIONS } from '../src/features/review/panel/needs.ts'
 
 const HEAD = 'abc1234'.padEnd(40, 'f')
-const OLDER = '0ld0ld0'.padEnd(40, 'e')
+const OLDER = 'b1d0b1d'.padEnd(40, 'e')
 
 /** A review's own ratings, as a host sends them on a status or a row. */
 const rated = (over: Partial<ReviewNeeds> = {}): ReviewNeeds => ({
@@ -76,7 +76,23 @@ test('ratings made at an older commit than the review shows say so', () => {
   const view = questionsView({ yours: rated({ head: OLDER }), head: HEAD, underWay: false })
   assert.equal(view.state, 'older')
   assert.deepEqual(view.rows.map((row) => row.number), ['8', '4', '7', '6', '9'])
-  assert.equal(view.by, 'Rated by this review at 0ld0ld0, an older commit')
+  assert.equal(view.by, 'Rated at b1d0b1d, an older commit than this review shows')
+  // The host's own words win when it says where they were made, as for a carried review.
+  const carried = questionsView({ yours: rated({ head: OLDER, atOtherCommit: 'Rated at b1d0b1d, where this review was built, before it was carried to abc1234.' }), head: OLDER, underWay: false })
+  assert.equal(carried.state, 'older', 'the host says they are of another commit, whatever the panel was given')
+  assert.equal(carried.by, 'Rated at b1d0b1d, where this review was built, before it was carried to abc1234.')
+})
+
+test('visibility with no monitoring known reads as not known, and one the review dropped with monitoring known as no answer', () => {
+  const unknown = { ...withoutMonitoring(), monitoring: 'unknown' as const }
+  assert.equal(questionsView({ yours: unknown, head: HEAD, underWay: false }).rows[3]!.evidence, NO_MONITORING)
+  assert.equal(needNumbers([unknown])!.numbers[3]!.value, 'not known')
+
+  const dropped = { ...withoutMonitoring(), monitoring: 'given' as const }
+  const view = questionsView({ yours: dropped, head: HEAD, underWay: false })
+  assert.equal(view.state, 'rated')
+  assert.deepEqual([view.rows[3]!.number, view.rows[3]!.evidence], ['–', ''])
+  assert.equal(needNumbers([dropped])!.numbers[3]!.value, '–')
 })
 
 test("a status's ratings are read without trust: the review's own at its commit, and hobkin's own, from its scores when it sends no ratings", () => {
@@ -132,9 +148,14 @@ test('a row and the YOLO mode page read the ratings in a few words', () => {
         { name: 'rollback', word: 'Undo', value: '9' },
       ],
       rate: '7.4',
+      at: 'abc1234',
+      other: null,
     },
   )
-  assert.equal(needNumbers([withoutMonitoring()])!.numbers[3]!.value, '–')
+  // Numbers made at another commit than the row's never read as current.
+  assert.equal(needNumbers([rated({ head: OLDER })], HEAD)!.other, 'Rated at b1d0b1d, an older commit than the change is at now')
+  assert.equal(needNumbers([rated({ atOtherCommit: 'Rated at abc1234; the change is at b1d0b1d now.' })], HEAD)!.other, 'Rated at abc1234; the change is at b1d0b1d now.')
+  assert.equal(needNumbers([withoutMonitoring()])!.numbers[3]!.value, 'not known')
   assert.equal(needNumbers([withoutMonitoring()])!.rate, null)
   assert.equal(needNumbers([rated({ by: 'hobkin' })]), null, "hobkin's own scores are not the review's")
   assert.equal(needNumbers(undefined), null)

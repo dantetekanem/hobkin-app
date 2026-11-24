@@ -282,7 +282,7 @@ test("a row carries the review's five ratings and its rate, a pull request's too
 
   assert.deepEqual(shown, {
     'change:storefront:a1': 'Cover 8 · Proof 4 · Deploy 7 · Watch 6 · Undo 9 · rate 7.4',
-    'pr:acme/web/12': 'Cover 8 · Proof 4 · Deploy 7 · Watch – · Undo 9 · rate –',
+    'pr:acme/web/12': 'Cover 8 · Proof 4 · Deploy 7 · Watch not known · Undo 9 · rate –',
     'change:storefront:a2': null,
   })
 })

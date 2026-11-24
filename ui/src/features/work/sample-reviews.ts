@@ -75,7 +75,7 @@ function sampleReviews(now: number): ReviewList {
     phase: null,
     error: null,
     waiting: true,
-    turn: { ahead, why: `Waits its turn: ${ahead} ahead in ${slug}.` },
+    turn: { ahead, why: `Waits its turn: ${ahead} ahead in ${slug}. Not reviewed yet, so nothing checks it by itself.` },
     updatedAt: ago(minutes),
   })
   const shopReady = summary('safe', { needsYou: 0, worthALook: 1, safe: 3 }, 70)

@@ -43,6 +43,32 @@ test('Review again on a change that moved, or a review that stopped, builds it o
   assert.equal(host.count(), 2)
 })
 
+test('a host that says nothing changed builds nothing on the first ask: its words are said, and the next press asks again and builds', async () => {
+  const asked: unknown[] = []
+  let started = 0
+  const why = 'Nothing changed since this review, so it was not built: it costs a whole review. Ask again to build it.'
+  const again = createReviewAgain({
+    id: 'change:shop:c33e10',
+    unchanged: false,
+    command: async (_name, args) => {
+      asked.push(args)
+      return asked.length === 1 ? { again: { why } } : {}
+    },
+    started: () => (started += 1),
+  })
+
+  await again.press()
+  assert.equal(again.getState().armed, true)
+  assert.equal(again.said(), why, "the host's own words")
+  assert.equal(started, 0, 'nothing was built')
+
+  await again.press()
+  assert.equal(asked.length, 2)
+  assert.equal(started, 1)
+  assert.equal(again.getState().armed, false)
+  assert.equal(again.said(), null)
+})
+
 test('a press the host refuses says why, and Escape takes back the one that waits', async () => {
   const refusing = createReviewAgain({
     id: 'change:shop:old',

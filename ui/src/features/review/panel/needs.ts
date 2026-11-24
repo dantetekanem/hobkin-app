@@ -148,19 +148,24 @@ export function questionsView({ yours, head, underWay }: { yours: ReviewNeeds | 
       : { state: 'unrated', rows: rowsOf(null, false), lead: 'Not rated. Review again rates it.', floors: null, note: 'This review is older than the ratings, or its answer gave none.', by: null }
   }
 
-  const unwatched = yours.scores.visibility == null
-  const older = yours.head !== head
+  const unwatched = notWatched(yours)
+  // The host says when they were made at another commit than the one shown, as for a carried review, in its own words.
+  const older = yours.atOtherCommit != null || yours.head !== head
   const kind = yours.kind ? KIND_WORDS[yours.kind] : null
   const rate = yours.rate != null ? `general rate ${yours.rate}` : unwatched ? 'no general rate without monitoring' : null
+  const by = older ? (yours.atOtherCommit ?? `Rated at ${short(yours.head)}, an older commit than this review shows`) : `Rated by this review at ${short(yours.head)}`
   return {
     state: older ? 'older' : unwatched ? 'unwatched' : 'rated',
     rows: rowsOf(yours, unwatched),
     lead: lineOf([kind, rate]),
     floors: floorsOf(yours),
     note: yours.missing ? `Still missing: ${yours.missing}` : null,
-    by: older ? `Rated by this review at ${short(yours.head)}, an older commit` : `Rated by this review at ${short(yours.head)}`,
+    by,
   }
 }
+
+/** No visibility, because nothing is known of the repository's monitoring: not a visibility the review left out. */
+const notWatched = (needs: ReviewNeeds) => needs.scores.visibility == null && needs.monitoring !== 'given'
 
 /** `none`: hobkin has not scored it. `agrees`: within a point of the review's on every question both answer, so it folds. */
 export type HobkinState = 'none' | 'agrees' | 'differs' | 'alone'
@@ -209,15 +214,31 @@ export function hobkinView(yours: ReviewNeeds | null, hobkins: ReviewNeeds | nul
 export interface NeedNumbers {
   numbers: { name: NeedName; word: string; value: string }[]
   rate: string | null
+  /** The commit they were made at, short. */
+  at: string
+  /** Set when they were made at another commit than the row's, so they never read as current: which, in words. */
+  other: string | null
 }
 
-/** The review's own ratings as a row of the list shows them, or null when the review is not rated. */
+/** What visibility says on a row with no monitoring known: never a number, never a dash that reads as nothing. */
+const NOT_KNOWN = 'not known'
+
+/** The review's own ratings as a row of the list shows them, or null when the review is not rated. `head` is the row's commit. */
 export function needNumbers(needs: unknown, head = ''): NeedNumbers | null {
   const yours = pick(readNeedsList(needs).filter((entry) => entry.by === 'change-review'), head)
   if (!yours) return null
+
+  const valueOf = (name: NeedName) => {
+    const answer = yours.scores[name]
+    if (answer) return String(answer.score)
+    return name === 'visibility' && notWatched(yours) ? NOT_KNOWN : NONE
+  }
+  const elsewhere = head !== '' && yours.head !== head ? `Rated at ${short(yours.head)}, an older commit than the change is at now` : null
   return {
-    numbers: NEED_NAMES.map((name) => ({ name, word: NEED_WORDS[name], value: yours.scores[name] ? String(yours.scores[name]!.score) : NONE })),
+    numbers: NEED_NAMES.map((name) => ({ name, word: NEED_WORDS[name], value: valueOf(name) })),
     rate: yours.rate != null ? String(yours.rate) : null,
+    at: short(yours.head),
+    other: yours.atOtherCommit ?? elsewhere,
   }
 }
 

@@ -71,41 +71,56 @@ export const NOTHING_CHANGED = 'Nothing changed since this review. It costs a wh
 
 type BuildCommand = (name: 'review.prepare', args: { id: string; refresh?: boolean }) => Promise<unknown>
 
+/** The host's words when it built nothing because nothing changed since the review (`ReviewStatus.again`), or null. */
+function againOf(answer: unknown): string | null {
+  const again = answer != null && typeof answer === 'object' ? (answer as { again?: unknown }).again : undefined
+  const why = again != null && typeof again === 'object' ? (again as { why?: unknown }).why : undefined
+  return typeof why === 'string' && why.trim() !== '' ? why : null
+}
+
 /**
  * Review again on a row, or Review now on a row that waits its turn (spec 058). Review now builds it at once, outside
- * its repository's line. Review again builds the review once more at the change's commit; when nothing changed since
- * the review it first says so and what it costs, and builds it only on a second press within ten seconds, as the row's
- * other confirms do. `started` hears that the host took it, so the list is read again.
+ * its repository's line. Review again builds the review once more at the change's commit. When nothing changed since
+ * the review, a host that knows says so on the first ask and builds nothing, and the row says its words and builds on
+ * the next press; `unchanged` makes the row ask first by itself, for one with no host to ask. Each waits ten seconds for
+ * its second press, as the row's other confirms do. `started` hears that the host took it, so the list is read again.
  */
 export function createReviewAgain({ id, unchanged, now = false, command, started }: { id: string; unchanged: boolean; now?: boolean; command: BuildCommand; started: () => void }) {
   const store = createStore<{ armed: boolean; busy: boolean; error: string | null }>(() => ({ armed: false, busy: false, error: null }))
   let waiting: ReturnType<typeof setTimeout> | undefined
+  /** What the host said when it built nothing, while the row waits for the second press. */
+  let heard: string | null = null
   const cancel = () => {
     clearTimeout(waiting)
+    heard = null
     if (store.getState().armed) store.setState({ armed: false })
+  }
+  const arm = (words: string | null) => {
+    heard = words
+    store.setState({ armed: true, error: null })
+    waiting = setTimeout(cancel, CONFIRM_MS)
   }
   const press = async () => {
     const { armed, busy } = store.getState()
     if (busy) return
     clearTimeout(waiting)
-    if (unchanged && !now && !armed) {
-      store.setState({ armed: true, error: null })
-      waiting = setTimeout(cancel, CONFIRM_MS)
-      return
-    }
+    if (unchanged && !now && !armed) return arm(null)
 
+    heard = null
     store.setState({ armed: false, busy: true, error: null })
     try {
-      await command('review.prepare', now ? { id } : { id, refresh: true })
-      started()
+      const answer = await command('review.prepare', now ? { id } : { id, refresh: true })
+      const nothingBuilt = armed ? null : againOf(answer)
+      if (nothingBuilt) arm(nothingBuilt)
+      else started()
     } catch (error) {
       store.setState({ error: messageOf(error) })
     } finally {
       store.setState({ busy: false })
     }
   }
-  /** What the row says while it waits for the second press. */
-  const said = () => (store.getState().armed ? NOTHING_CHANGED : null)
+  /** What the row says while it waits for the second press: the host's words, or the row's own. */
+  const said = () => (store.getState().armed ? (heard ?? NOTHING_CHANGED) : null)
   return Object.assign(store, { press, cancel, said })
 }
 
