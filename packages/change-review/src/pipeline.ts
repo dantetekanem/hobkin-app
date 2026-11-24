@@ -28,6 +28,7 @@ import { addedParts, carryWords, reshapeMap } from './reshape.ts'
 import { applyRiskEvents, type RejectedEvent } from './risk.ts'
 import { runScan, type ScanOutcome, type ScanRequest } from './scan.ts'
 import { renderStory } from './story.ts'
+import { changesOnlyModels, isModelFile } from './tla.ts'
 import { checkBuckets, triage as triageOf } from './triage.ts'
 import { zoneOf } from './zones.ts'
 import type {
@@ -240,7 +241,8 @@ const failedScan = (): Scan => ({
  * could not run. It is built from the file's diff, so the Reviewer reads its changed lines like any other part's.
  * Nothing mapped it, so no test was looked for: it starts at worth a look, and an argument alone never lowers that.
  */
-async function diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, head, config }: {
+async function diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, head, config, isModel }: {
+  isModel: (path: string) => boolean
   triage: Triage
   diffs: readonly FileDiff[]
   nodes: readonly ReviewNode[]
@@ -279,6 +281,8 @@ async function diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, h
       let id = `d${parts.length + 1}`
       while (taken.has(id)) id = `${id}x`
       taken.add(id)
+      // A TLA+ model or its config is a specification: TLC checks it, and nothing of it runs in production.
+      const model = isModel(path)
       parts.push({
         id,
         kind: 'general',
@@ -291,11 +295,11 @@ async function diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, h
         entries: [],
         facts: {
           effect: { value: 'behaviour', evidence: 'what the changed lines do is read from the diff' },
-          proof: { value: 'unknown', evidence: 'no definition was mapped, so no test was looked for' },
+          proof: model ? { value: 'not-applicable', evidence: 'a TLA+ model: TLC checks it, not a test' } : { value: 'unknown', evidence: 'no definition was mapped, so no test was looked for' },
           exposure: { value: 'everyone', evidence: 'no condition in front of it was looked for' },
           undo: { value: 'rollback', evidence: 'a rollback undoes it' },
         },
-        extras: isNotRequestPath(path, config) ? { runsInRequest: false } : {},
+        extras: model || isNotRequestPath(path, config) ? { runsInRequest: false } : {},
         conditions: [],
         hosts_condition: false,
         runs: [],
@@ -303,7 +307,15 @@ async function diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, h
         sensitive: [],
         level: null,
         critical: false,
-        findings: [{ rule: NOT_MAPPED, text: `${why}, so what calls it and what tests it were not looked for, and its change is judged from the diff alone.`, by: 'search' }],
+        findings: [
+          {
+            rule: NOT_MAPPED,
+            text: model
+              ? 'A TLA+ model: TLC checks it, not a test, and nothing of it runs in production, so what calls it was not looked for.'
+              : `${why}, so what calls it and what tests it were not looked for, and its change is judged from the diff alone.`,
+            by: 'search',
+          },
+        ],
         watch: null,
         questions: [],
       })
@@ -330,8 +342,9 @@ function changedExcerpt(diffs: readonly FileDiff[], node: Pick<ReviewNode, 'path
 const entryNames = (origins: readonly Origin[]) => [...new Set(origins.map((origin) => (origin.hops === 0 && origin.by === 'scan' ? `${origin.symbol} (${origin.kind})` : origin.symbol)))]
 
 /** Why no caller of a part was looked for, when none was: what it is says so. */
-function notLookedFor(node: ReviewNode): RunsFrom | null {
+function notLookedFor(node: ReviewNode, isModel: (path: string) => boolean): RunsFrom | null {
   const why = (text: string): RunsFrom => ({ found: 'not-looked', why: text })
+  if (isModel(node.path)) return why('A TLA+ model: nothing of it runs in production, so nothing calls it.')
   if (node.kind === 'test') return why('A test: the test runner runs it.')
   if (node.change === 'removed') return why('It is removed, so nothing is left to call.')
   if (node.findings.some((finding) => finding.rule === NOT_MAPPED)) return why('It was read from the diff with no map, so what calls it was not looked for.')
@@ -424,6 +437,10 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const meta = options.description ? { ...read, description: options.description } : read
   const diffs = await repo.diffs(base, head)
   let triage = triageOf(meta, { diffs })
+  // TLA+ models and their configs are specifications: never high or critical, and a change of only them is never risky.
+  const changedPaths = meta.files.map((file) => file.path)
+  const modelPaths = [...changedPaths, ...(options.modelChecks ?? []).map((check) => check.spec)]
+  const isModel = (path: string) => isModelFile(path, modelPaths)
   const files = progressFiles(out)
   const tracker = trackProgress({
     review: head.slice(0, 12),
@@ -560,9 +577,10 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     if (!referred && !scan.coverage.truncated) node.extras.unreferencedRemoval = true
   }
   // What the scan was given and holds nothing for is read from its diff, never left out or only counted.
-  const unmapped = await diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, head, config })
+  const unmapped = await diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, head, config, isModel })
   nodes.push(...unmapped)
-  if (unmapped.length) problems.push(`Read from the diff alone, with no map: ${unmapped.map((node) => `\`${node.path}\``).join(', ')}.`)
+  const readFromDiff = unmapped.filter((node) => !isModel(node.path))
+  if (readFromDiff.length) problems.push(`Read from the diff alone, with no map: ${readFromDiff.map((node) => `\`${node.path}\``).join(', ')}.`)
   const provable = nodes.filter((node) => node.kind === 'function' && node.change !== 'removed' && node.facts.effect.value !== 'text')
   tracker.start('map-proof', provable.length, provable.length ? 'map-proof: finding how this repository runs its tests' : 'map-proof: nothing that runs needs proof')
   const runbook = detectRunbooks(cwd, options.runbook)
@@ -632,7 +650,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     if (origins.length) node.entries = entryNames(origins)
     const stop = stops[node.id]
     const walked = walkedFrom.has(node.id) ? { walked: stop ? { stop } : {} } : {}
-    const skipped = origins.length ? null : notLookedFor(node)
+    const skipped = origins.length ? null : notLookedFor(node, isModel)
     const runsFrom =
       skipped ??
       runsFromOf({
@@ -846,7 +864,14 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
           })
         : { nodes: [], problems: [] }
       problems.push(...added.problems.map(said))
-      events = [...events, ...answer.events]
+      const pathOf = new Map([...nodes, ...added.nodes].map((node) => [node.id, node.path]))
+      const allowed = answer.events.filter((event, index) => {
+        const path = pathOf.get(event.node)
+        if (!path || !isModel(path) || (event.level !== 'high' && !event.critical)) return true
+        problems.push(said(`events[${index}] on ${event.node} was refused: ${path} is a TLA+ model, which nothing runs in production, so it is never high or critical.`))
+        return false
+      })
+      events = [...events, ...allowed]
       applied = applyRiskEvents([...before, ...added.nodes], events)
       const title = answer.words.title ?? words.title
       const told: StoryWords = { ...words, ...answer.words, ...(title ? { title } : {}) }
@@ -926,7 +951,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const graph = graphOf(applied.nodes)
   save('graph.json', graph)
   if (applied.rejected.length) save('rejected-events.json', applied.rejected)
-  return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy, answer: deployAnswer(units.units, words.answer, modelChecks) }
+  return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy, answer: deployAnswer(units.units, words.answer, modelChecks, changesOnlyModels(changedPaths) ? { models: changedPaths } : undefined) }
 }
 
 /** What the blind check leaves on the units: its questions, each on the unit it was asked of. It changes no level. */

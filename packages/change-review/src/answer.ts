@@ -5,6 +5,7 @@
  * Everything else is safe to deploy, and what no test showed is said beside the answer, not turned into a risk.
  */
 import { heldModels } from './model-checks.ts'
+import { modelCheckWords, modelsOf } from './tla.ts'
 import type { ModelCheck, Unit } from './types.ts'
 
 export type Deploy = 'risky' | 'safe'
@@ -32,11 +33,27 @@ function saidFor(deploy: Deploy, said: string | undefined): string | null {
 }
 
 /**
+ * A change of only TLA+ models and their configs: nothing of it runs in production, so it is safe to deploy whatever
+ * the levels say. What it says is whether each model's check holds, fails and must pass, or was not run.
+ */
+function modelsAnswer(models: readonly string[], checks: readonly ModelCheck[]): DeployAnswer {
+  const said = modelsOf(models).map((spec) => modelCheckWords(spec, checks.find((check) => check.spec === spec)))
+  return { deploy: 'safe', why: ['It changes only TLA+ models, and nothing of it runs in production.', ...said].join(' ') }
+}
+
+/**
  * The answer for a change, from its units. `said` is the Reviewer's own answer in words: it is used as the reason when
  * it opens with the same answer the levels give, and dropped when it does not, since a model's sentence never decides.
  * A risky answer names the TLA+ models (`checks`) that hold at this commit, and says that holding lowers no break.
+ * `only` is given for a change of only TLA+ models and their configs, which is never risky to deploy.
  */
-export function deployAnswer(units: readonly (Pick<Unit, 'level' | 'title' | 'critical'> & Partial<Pick<Unit, 'nodes'>>)[], said?: string, checks: readonly ModelCheck[] = []): DeployAnswer {
+export function deployAnswer(
+  units: readonly (Pick<Unit, 'level' | 'title' | 'critical'> & Partial<Pick<Unit, 'nodes'>>)[],
+  said?: string,
+  checks: readonly ModelCheck[] = [],
+  only?: { models: readonly string[] },
+): DeployAnswer {
+  if (only) return modelsAnswer(only.models, checks)
   const high = units.filter((unit) => unit.level === 'high')
   const deploy: Deploy = high.length ? 'risky' : 'safe'
   const held = high.length ? heldModels(checks) : null
