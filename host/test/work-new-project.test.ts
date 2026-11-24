@@ -116,11 +116,14 @@ test('an add refuses in plain words what cannot be added, and calls hobkin for n
   assert.deepEqual([added, refreshed], [[], []])
 })
 
-test('code in a folder with no repository is refused, and a goal there is not', async (t) => {
+test('a folder with no repository is handed to hobkin as code or as a goal, since hobkin starts one there', async (t) => {
   const { paths, add, added } = world(t)
-  assert.ok(refusedWith(await add({ folder: paths.plain, kind: 'code' }) as never, /not a git repository/))
-  assert.deepEqual(added, [])
-  assert.equal((await add({ folder: paths.plain, kind: 'goal', wants: 'Sort the notes.' })).ok, true)
+
+  const asCode = await add({ folder: paths.plain, kind: 'code' })
+  const asGoal = await add({ folder: paths.plain, kind: 'goal', wants: 'Sort the notes.' })
+
+  assert.deepEqual([asCode.ok, asGoal.ok], [true, true])
+  assert.deepEqual(added.map(({ kind }) => kind), ['code', 'goal'])
 })
 
 test('a goal needs words that are not blank, before any handler runs', async (t) => {

@@ -9,8 +9,8 @@ import { projectsAt, type SetupWorkRuntime } from './setup-work.ts'
 
 /**
  * New project (059-new-project): what hobkin sees at a folder the user typed, and the add. The add is hobkin's own
- * `newProject`, which writes the user's words to the project's directions and takes the project at the level for one
- * added by hand. Nothing here starts a study.
+ * `newProject`, which starts a git repository in a folder that has none, writes the user's words to the project's
+ * directions and takes the project at the level for one added by hand. Nothing here starts a study.
  */
 
 export interface NewProjectRequest {
@@ -103,13 +103,12 @@ export interface NewProjectSeat {
   home?: string
 }
 
-/** Why a look says the folder cannot be added as `kind`, in plain words, or null when it can. */
-function refusalFor(look: FolderLook, kind: ProjectKind): string | null {
+/** Why a look says the folder cannot be added, in plain words, or null when it can. Either kind goes in any folder: hobkin starts a repository where there is none. */
+function refusalFor(look: FolderLook): string | null {
   if (look.found === 'missing') return `There is no folder at ${look.typed}.`
   if (look.found === 'file') return `${look.typed} is a file, not a folder.`
   if (look.known) return `Work already has this folder as ${look.known.name}, ${STATE_WORDS[look.known.state]}.`
   if (look.namesake) return `Work already has a project named ${look.name}, at ${look.namesake}.`
-  if (kind === 'code' && !look.git) return `${look.typed} is not a git repository, so it can only be added as a goal.`
   return null
 }
 
@@ -119,7 +118,7 @@ export function newProjectHandlers({ root, refresh, runtime = HOBKIN_NEW_PROJECT
     'work.project.new': async ({ folder, kind, wants }): Promise<NewProjectDone> => {
       const base = root()
       const look = lookAt(base, folder, runtime, home)
-      const refusal = refusalFor(look, kind)
+      const refusal = refusalFor(look)
       if (refusal) throw Error(refusal)
       if (!runtime.newProject) throw new Unavailable('This hobkin cannot add a project from here yet. Update hobkin.')
       // hobkin's refusal is passed on as it said it.

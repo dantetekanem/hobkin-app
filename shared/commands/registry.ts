@@ -1043,7 +1043,7 @@ export const COMMANDS = {
   },
   'work.project.new': {
     description:
-      "Add a project to work mode as the user's own add, at hobkin's level for a project added by hand. `kind` is `code` (a folder with a git repository of its own) or `goal` (any folder, worked in place toward the user's words). `wants` is what the user wants from it, written to the project's directions; a goal needs it. A folder work mode already has, another project by its name, and code in a folder with no repository are refused in words. It starts nothing by itself.",
+      "Add a project to work mode as the user's own add, at hobkin's level for a project added by hand. `kind` is `code` (its work finishes on branches for the user's yes) or `goal` (worked in place toward the user's words, each step a commit). Every project has a git repository of its own: a folder with none gets one at the add, with one first commit and no remote. `wants` is what the user wants from it, written to the project's directions; a goal needs it. A folder work mode already has and another project by its name are refused in words. It starts nothing by itself.",
     runs: 'host',
     args: Type.Object({ folder: words(4096), kind: oneOf(PROJECT_KINDS), wants: Type.Optional(Type.String({ maxLength: 20000 })) }, { additionalProperties: false }),
     rule: ({ kind, wants }) => (kind === 'goal' && !(typeof wants === 'string' && wants.trim()) ? 'a goal needs "wants", the words it works toward' : null),

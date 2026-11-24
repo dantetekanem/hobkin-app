@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -12,6 +13,8 @@ import { temporaryDirectory } from './support.ts'
  * New project against hobkin's own functions, in a home of the test's own (059-new-project): the seam the fakes in
  * `work-new-project.test.ts` stand in for. Nothing runs here but the add and the reads.
  */
+
+const git = (folder: string, ...args: string[]) => execFileSync('git', ['-C', folder, ...args], { encoding: 'utf8' }).trim()
 
 type Record = { slug: string; kind?: string; state?: string; path?: string }
 
@@ -51,7 +54,13 @@ test('a folder that is no repository is added as a goal: hobkin takes it with it
   assert.deepEqual({ kind: record('thesis')?.kind, state: record('thesis')?.state }, { kind: 'goal', state: 'chosen' })
   assert.equal(readFileSync(directions('thesis'), 'utf8').trim(), wants)
   assert.deepEqual(after.known, { slug: 'thesis', name: 'thesis', state: 'chosen' })
-  assert.equal(existsSync(join(plain, '.git')), false, 'nothing of hobkin is written into the folder')
+
+  // Every project has a repository of its own: hobkin started one here, with what the folder held and no remote.
+  assert.match(added.message, /started a git repository/)
+  assert.equal(git(plain, 'ls-files'), 'plan.md')
+  assert.equal(git(plain, 'rev-list', '--count', 'HEAD'), '1')
+  assert.equal(git(plain, 'status', '--porcelain'), '')
+  assert.equal(git(plain, 'remote'), '')
 
   // What the window is sent: hobkin's status in a snapshot, folded as the Work screen reads it.
   const snapshot = { work: await runWorkCommand(root, []) } as Parameters<typeof workFrom>[0]
@@ -59,14 +68,20 @@ test('a folder that is no repository is added as a goal: hobkin takes it with it
   assert.deepEqual({ kind: shown?.kind, done: shown?.done, state: shown?.state }, { kind: 'goal', done: 0, state: 'chosen' })
 })
 
-test('a repository is added as code with the words as its directions, and a second add of either folder is refused', async (t) => {
+test('a repository is added as code as it is, a folder with none is added as code with one started, and a second add is refused', async (t) => {
   const { repository, plain, add, directions, record } = world(t)
 
   const added = await add({ folder: repository, kind: 'code', wants: 'Keep checkout fast.' })
+  const fromPlain = await add({ folder: plain, kind: 'code' })
 
   assert.equal(added.kind, 'code')
+  assert.doesNotMatch(added.message, /started a git repository/, 'a folder that holds a repository is left as it is')
   assert.equal(record('storefront')?.kind, undefined, 'a code project carries no kind')
   assert.equal(readFileSync(directions('storefront'), 'utf8').trim(), 'Keep checkout fast.')
+
+  assert.equal(fromPlain.kind, 'code')
+  assert.equal(existsSync(join(plain, '.git')), true)
+  assert.equal(git(plain, 'rev-list', '--count', 'HEAD'), '1')
+
   await assert.rejects(() => Promise.resolve(add({ folder: repository, kind: 'code' })), /Work already has this folder as storefront, taken\./)
-  await assert.rejects(() => Promise.resolve(add({ folder: plain, kind: 'code' })), /not a git repository, so it can only be added as a goal/)
 })
