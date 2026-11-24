@@ -54,7 +54,10 @@ The user, 2026-11-24: "I want to be able to add new projects to work mode and yo
 - A goal's runs work in the folder itself. There is no worktree and no branch, and nothing of hobkin's is written into the folder.
 - Its study reads the folder and the user's words and writes where the goal stands and what comes next, then files the first steps. After that one look, at the project's own pace, reads what changed and what comes next. The code looks never run on a goal: no lenses, no state machines, no signals, no watch.
 - A step ends `done` with a summary and what shows it, naming every file it wrote or changed. A step only the user can take, such as signing, sending or paying, is filed for the user and shows with what is left for them.
-- A goal's run never sends, submits, signs, pays or deletes. The folder has no way back of its own, so a run follows the folder's own rules for keeping versions when it has any.
+- A goal's run never sends, submits, signs, pays or deletes. The folder has no way back kept by hobkin, so a run follows the folder's own rules for keeping versions when it has any (a README, `AGENTS.md`, `CLAUDE.md` or a skill it names). When it has none, the run puts a copy beside a file before changing it, named `<name>.before-<date>`, and says so in its summary.
+- A goal's runs keep the purpose of the code runs (`work-look`, `work-do`), so their tools, skills and limits are the same, and carry `workPrompt` to read `work-goal-look.md` and `work-goal-do.md` in place of the code prompts.
+- A step's kind is one hobkin already has: `feature`, `improvement`, `fix`, `chore`, or `yours` for a step only the user can take.
+- A finished step tells the user as any finished run does: its `Useful:` report is a quiet line in Chat, its summary and proof are on the item, and what it left for the user reaches Attention. There is no card to land, since there is no branch.
 - Nothing about a goal is merged, reviewed, published or deployed. YOLO mode, pull requests and GitHub issues are refused on a goal in hobkin's own words, and a goal is not on the YOLO page.
 - In the Projects list a goal's row says Goal and counts its steps to do, done and left for the user. It has no pull request or issue settings.
 
@@ -89,18 +92,31 @@ The user, 2026-11-24: "I want to be able to add new projects to work mode and yo
 
 ## Proof
 
-Filled in from each lane's tests as they land.
+- A1. In hobkin, `test/cli-work-goal.test.mjs` › "newProject takes a goal in a plain folder, with its words as the directions", › "newProject takes code from a repository, keeps its words, and never reads a goal's parent as the project", › "newProject refuses in plain words and changes nothing" and › "the command line takes a goal with its words on stdin, and a proposal can never carry a kind"
+- A2. In hobkin, `test/cli-work-goal.test.mjs` › "the user's words are written as the directions, and blank words write nothing"; `host/test/work-new-project-runtime.test.ts` › "a folder that is no repository is added as a goal: hobkin takes it with its kind, and the words are its directions". That a run is given a project's directions is hobkin's own test from before, `test/cli-work-director.test.mjs` near line 2000.
+- A3. In hobkin, `test/cli-work-goal.test.mjs` › "a goal is studied and worked in its own folder, with no worktree, branch or code look" and › "the item command takes a finished step on a goal and refuses a branch, a pull request and an adopted branch there"
+- A4. In hobkin, `test/cli-work-goal.test.mjs` › "after its study a goal gets one look of its own and none of the code looks"; `test/cli-harnesses.test.mjs`, its test of the goal prompt.
+- A5. In hobkin, `test/cli-work-goal.test.mjs` › "YOLO mode files nothing on a goal, refuses its switch, leaves it out of the view, and still treats code as before", › "a goal takes no pull request or issue setting, and code still does" and › "the survey of unmerged branches skips a goal, even one inside a repository with unmerged work"
+- A6. In hobkin, `test/cli-work-goal.test.mjs` › "status carries a goal's kind and how many steps are done, and gives code no such count"; `host/test/work.test.ts` › "a goal's kind and how many of its steps are done reach the window, and a project with no kind sends neither"
+- A7. `host/test/work-new-project.test.ts` › "the look says what is at the folder, for each thing it can be", › "~ and ~/... mean the home folder", › "the look finds the project Work has for this very folder by any spelling, and another folder under its name" and › "the look reads only: it never calls hobkin to add and never refreshes"
+- A8. `host/test/work-new-project.test.ts` › "an add passes hobkin the real folder, the kind and the words, then reads hobkin again", › "an add refuses in plain words what cannot be added, and calls hobkin for none of it", › "code in a folder with no repository is refused, and a goal there is not", › "a goal needs words that are not blank, before any handler runs" and › "a hobkin without the function says it cannot add from here yet"; against hobkin's own add, `host/test/work-new-project-runtime.test.ts`, both tests.
+- A9. `host/test/folder-pick.test.ts`, its five tests: a picked folder, a closed chooser, another platform, a second press, and a host that shows no chooser unless its entry hands one in.
+- A10. `ui/test/new-project.test.ts` › "the folder line says one thing for each state of what is typed", › "an answer for older text is no answer: the line says it is looking", › "the kind follows the folder until the user picks, and Code never stands for a folder with no repository", › "picking Code for a plain folder changes nothing, and the line says why", › "the YOLO switch starts from the page, and a goal has none to switch", › "what stands in the way of Add, in the order the user can fix it", › "the add sends the folder, the kind and the words, and no words as none", › "an add turns YOLO mode on after it, and its refusal keeps the add" and › "the sample looks from its own projects and an add changes only the sample"
+- A11. `ui/test/new-project.test.ts` › "N opens the popup alone, once, outside fields; Command+Enter adds" and › "the keyboard goes to the project’s row on Work and its card on YOLO mode"; check (2026-11-24, still renders, no browser): the popup with nothing typed, a repository as Code, a folder as Goal with words, no folder there, and a refusal in the foot are one size, with every changing line in its place. Not yet seen in the app's window.
+- A12. `ui/test/work-goal-row.test.ts` › "a goal says Goal and counts its steps to do, done and left for the user, zeros included" and › "a project with no kind is code and says what it said before"; check (2026-11-24, a still render): the Projects list with one code project and one goal.
 
 ## Steps
 
-- [ ] S1 (A1, A2). Runtime: the kind on the record, the add for a goal, and the words written as directions.
-- [ ] S2 (A3, A4). Runtime: where a goal's run works, its plan, and the goal prompts.
-- [ ] S3 (A5, A6). Runtime: the refusals, the survey, and the status.
-- [ ] S4 (A7, A8, A9). Host: the three commands.
-- [ ] S5 (A10, A11, A12). Window: the popup, the two buttons, and a goal's row.
+- [x] S1 (A1, A2). Runtime: the kind on the record, the add for a goal, and the words written as directions. hobkin f8e645f (`isGoal`, `writeDirections`) and fb8929c (`newProject`, `add project --goal`, a proposal drops `kind`).
+- [x] S2 (A3, A4). Runtime: where a goal's run works, its plan, and the goal prompts. hobkin 264d461. Tested with the director's fake runs in temporary homes: no real agent has studied a goal or done a step.
+- [x] S3 (A5, A6). Runtime: the refusals, the survey, and the status. hobkin f8e645f and 09dce9c.
+- [x] S4 (A7, A8, A9). Host: the three commands. 01b5e47, 58f8afc, 9d16d65, c8d06c9, 254796a, and 2d96221 for the check against hobkin's own add. The Mac's chooser was never shown: every test hands in a fake.
+- [x] S5 (A10, A11, A12). Window: the popup, the two buttons, and a goal's row. 4ffa52a, 88f7bdf, 8bed998, ac902f6, 922d0a5. Seen in still renders only.
+- [ ] S6. In the app's own window: the two buttons, N, the chooser from Open, an add of a goal, and its row.
 
 ## Open questions
 
-- A goal's runs change the user's own files with no way back kept by hobkin. The default taken: they work in the folder and follow its own rules for versions. The other choice is a history hobkin keeps for each goal outside the folder, so any run can be undone from the window. It costs a copy of the folder's files in hobkin's home and a second piece of work.
+- A goal's runs change the user's own files with no way back kept by hobkin. The default taken: they work in the folder, follow its own rules for versions, and where it has none leave a dated copy beside a file before changing it. Those copies are files in the user's folder. The other choice is a history hobkin keeps for each goal outside the folder, so any run can be undone from the window and no copies are left. It costs a copy of the folder's files in hobkin's home and a second piece of work.
+- A goal has no page for its finished steps. Each is a line in Chat and a count on its row. A list of a goal's steps with their summaries would be the next thing to build.
 - Changing a project's words after the add has no place in the window yet. The same popup opened on an existing project would do it.
 - The folder chooser is the host's, shown by `osascript`. It has not been seen from the app, and it may open behind the window. The shell's own chooser would be certain, and needs a restart.
