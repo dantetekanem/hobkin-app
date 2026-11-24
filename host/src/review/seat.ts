@@ -30,6 +30,7 @@ import { reviewCode, reviewMap } from './guide.ts'
 import { mergePlan, movedSince } from './landing.ts'
 import { reviewModelChecks } from './model-checks.ts'
 import { monitoringLines } from './ratings.ts'
+import { capOf, triesOf } from './rules.ts'
 import { carryReview } from './carry.ts'
 import { recordUsage } from './usage.ts'
 import { cleanUp, READ_KEPT_MS, type CleanUp } from './cleanup.ts'
@@ -248,7 +249,8 @@ export function hostReviews(seat: ReviewSeat): Reviews {
           const modelChecks = await reviewModelChecks(request, { data: seat.data, log: seat.log })
           // What hobkin's readiness record says of the project's monitoring and its way back, for the visibility rating (spec 058).
           const monitoring = request.target.kind === 'change' ? projectMonitoring(seat, request.target.slug) : undefined
-          const result = await reviewChange({ ...request, model, modelChecks, ...(monitoring ? { monitoring } : {}) })
+          const tries = triesOf(seat.work()?.yolo?.rules)
+          const result = await reviewChange({ ...request, model, modelChecks, ...(monitoring ? { monitoring } : {}), ...(tries ? { ratingTries: tries } : {}) })
           for (const problem of result.problems) seat.log?.(`Change review at ${request.head.slice(0, 7)}: ${problem}`)
           return { units: result.units, storyBy: result.storyBy, answer: result.answer }
         },
@@ -266,6 +268,9 @@ export function hostReviews(seat: ReviewSeat): Reviews {
   const store = reviewStore(seat.root)
   /** How many reviews each repository keeps current, when the workload names a whole number (spec 058). */
   const keepCurrent = () => {
+    // The YOLO rules first (spec 063): null there is none, and lifts the number. A runtime with none leaves the workload's.
+    const ruled = capOf(seat.work()?.yolo?.rules, 'keptCurrent')
+    if (ruled !== undefined) return ruled
     const kept = (seat.work()?.workload as { reviewsPerProject?: unknown } | undefined)?.reviewsPerProject
     return Number.isInteger(kept) && (kept as number) >= 1 ? (kept as number) : undefined
   }
@@ -296,6 +301,8 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     : undefined
   /** How many reviews the background builds by itself in a day, when the workload names a whole number (spec 058). */
   const reviewsADay = () => {
+    const ruled = capOf(seat.work()?.yolo?.rules, 'backgroundADay')
+    if (ruled !== undefined) return ruled
     const set = (seat.work()?.workload as { reviewsADay?: unknown } | undefined)?.reviewsADay
     return Number.isInteger(set) && (set as number) >= 1 ? (set as number) : undefined
   }

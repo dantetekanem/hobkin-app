@@ -3,6 +3,7 @@ import { test, type TestContext } from 'node:test'
 import { reviewIdOf } from '#shared/review/ids.ts'
 import { Reviews, type Watched } from '../src/review/reviews.ts'
 import { reviewHandlers } from '../src/review/seat.ts'
+import { capOf, pullsOf, triesOf } from '../src/review/rules.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
 
@@ -122,4 +123,50 @@ test("an ask from hobkin's agent takes a place in the line and counts toward the
   await window({ id: 'change:shop:c3' })
   await settle()
   assert.deepEqual(started, ['change:shop:c1', 'pr:acme/api/1', 'change:shop:c3'])
+})
+
+test('none lifts the two caps: every change is current and the day never runs out', async (t) => {
+  const clock = { now: TODAY }
+  const started: string[] = []
+  const heads = new Map<string, string>()
+  const none = new Reviews({
+    store: reviewStore(temporaryDirectory(t)),
+    sources: {
+      change: { head: async (target) => heads.get(reviewIdOf(target)) ?? null, read: async (target) => (started.push(reviewIdOf(target)), Promise.reject(new Error('not read here'))) },
+      pull: { head: async () => null, read: async () => Promise.reject(new Error('no')) },
+    },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    keepCurrent: () => null,
+    reviewsADay: () => null,
+    dayLedger: { read: () => ({ day: new Date(TODAY).toLocaleDateString('en-CA'), built: 5000 }), write: () => {} },
+    now: () => clock.now,
+  })
+  t.after(() => none.close())
+  const wanted = changes(9)
+  for (const entry of wanted) heads.set(entry.id, entry.head!)
+  // The host looks again each time it publishes, three at a time at most, so the rest come as those finish.
+  for (let look = 0; look < 4; look += 1) {
+    none.watch(wanted)
+    await settle()
+  }
+  assert.equal(started.length, 9, 'all nine are built, though three are current by default and the day is at 5000')
+})
+
+test("the caps, the tries and the pull requests rated by themselves are read from the YOLO rules, and a runtime with none leaves the defaults", () => {
+  // A whole number holds, null lifts it, and anything else is no setting.
+  assert.equal(capOf({ keptCurrent: 4 }, 'keptCurrent'), 4)
+  assert.equal(capOf({ keptCurrent: null }, 'keptCurrent'), null)
+  for (const odd of [0, 2.5, 'three', true, [3]]) assert.equal(capOf({ keptCurrent: odd as never }, 'keptCurrent'), undefined, JSON.stringify(odd))
+  assert.equal(capOf(undefined, 'backgroundADay'), undefined)
+  assert.equal(capOf({}, 'backgroundADay'), undefined)
+
+  assert.equal(triesOf({ tries: 5 }), 5)
+  for (const odd of [0, null, 11, 'x', undefined]) assert.equal(triesOf({ tries: odd as never }), undefined, String(odd))
+  assert.equal(triesOf(undefined), undefined)
+
+  for (const which of ['none', 'mine', 'waiting', 'both'] as const) assert.equal(pullsOf({ reviewPulls: which }, 'none'), which)
+  assert.equal(pullsOf({ reviewPulls: 'sometimes' as never }, 'mine'), 'mine', 'a word the page does not know leaves the workload as it was')
+  assert.equal(pullsOf(undefined, 'waiting'), 'waiting')
+  assert.equal(pullsOf(undefined, undefined), 'none')
 })

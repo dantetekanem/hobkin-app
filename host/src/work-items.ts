@@ -211,14 +211,6 @@ function withItems(snapshot: HobkinSnapshot, root: () => string, reposOf: Return
 }
 
 /**
- * What Change Review prepares by itself: the finished work in hobkin's groups. A branch whose run left a note is
- * reviewed once the user asks, from its card, so no review is spent on work its own run called unfinished.
- */
-export function preparedByItself(work: WorkState | null): WorkState | null {
-  return work && { ...work, finished: work.finished.filter(({ name }) => name !== 'left') }
-}
-
-/**
  * The Work screen's work mode from a snapshot. hobkin's items are read once each time its work or its waiting rows
  * change (a refresh replaces both), and not again while neither does. A home that cannot be read gives the work as
  * hobkin's snapshot has it, with nothing it would have read from the items.

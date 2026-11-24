@@ -176,8 +176,8 @@ export interface ReviewsOptions {
    * starts nothing on its project now. A host given none sends no agent back by itself.
    */
   ownWork?: (target: ChangeTarget) => RiskWork | null
-  /** How many reviews each repository keeps current (spec 058), as the workload says. Three when it says nothing. */
-  keepCurrent?: () => number | undefined
+  /** How many reviews each repository keeps current (spec 058, 063), as the YOLO rules say, or null for none. Three when it says nothing. */
+  keepCurrent?: () => number | null | undefined
   /** Whether an agent works on a change again, as hobkin's items say: its waiting review is dropped, and its row says why. */
   backAtWork?: (target: ChangeTarget) => boolean
   /** When a change at a commit finished, as an ISO time, or null while that is not known: the line's clock for it. */
@@ -187,8 +187,8 @@ export interface ReviewsOptions {
    * instead of building it again. A host given none builds it again, as before.
    */
   carry?: (target: ChangeTarget, head: string) => Promise<Carried>
-  /** How many reviews the background builds by itself in a local day (spec 058), as the workload says. Twenty when it says nothing. */
-  reviewsADay?: () => number | undefined
+  /** How many reviews the background builds by itself in a local day (spec 058, 063), as the YOLO rules say, or null for none. Twenty when it says nothing. */
+  reviewsADay?: () => number | null | undefined
   /** Whether hobkin closed a change without a merge, or no longer has it (spec 058): its review leaves the list. */
   closed?: (target: ChangeTarget) => boolean
   /** Where the day's count of background builds is kept, so a host started again the same day keeps it. In memory without one. */
@@ -2144,7 +2144,7 @@ export class Reviews {
       })
       // The place for the longest wait spends at most half the day's number, so what finishes today is reviewed today.
       const longest = this.builtToday().aged < Math.floor(this.dayLimit() / 2)
-      return lineOf(weighed, { keep: this.options.keepCurrent?.() ?? KEPT_CURRENT, now: this.now(), longest })
+      return lineOf(weighed, { keep: this.options.keepCurrent?.() === null ? null : (this.options.keepCurrent?.() ?? KEPT_CURRENT), now: this.now(), longest })
     } catch (error) {
       this.options.log?.(`Reviews: the line of each repository could not be worked out, so everything handed in is reviewed as before: ${messageOf(error)}`)
       return { current: new Set(wanted.map((entry) => entry.id)), aged: new Set(), waits: new Map() }
@@ -2268,9 +2268,10 @@ export class Reviews {
     return new Date(time).toLocaleDateString('en-CA')
   }
 
-  /** How many reviews the background may build by itself today: the workload's whole number, else twenty. */
+  /** How many reviews the background may build by itself today: the rule's whole number, Infinity for none, else twenty. */
   private dayLimit(): number {
     const set = this.options.reviewsADay?.()
+    if (set === null) return Number.POSITIVE_INFINITY
     return Number.isInteger(set) && (set as number) >= 1 ? (set as number) : REVIEWS_A_DAY
   }
 

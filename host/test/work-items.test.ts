@@ -6,7 +6,7 @@ import { addIssue } from 'hobkin/src/cli/work/issues.mjs'
 import { chooseProject, fileItem, updateItem } from 'hobkin/src/cli/work/store.mjs'
 import { toPrepare } from '../src/review/seat.ts'
 import { workFrom } from '../src/work.ts'
-import { preparedByItself, workReader } from '../src/work-items.ts'
+import { workReader } from '../src/work-items.ts'
 import { temporaryDirectory } from './support.ts'
 
 /** A home of the test's with one project taken. Nothing in it is ever fetched or run. */
@@ -136,7 +136,7 @@ test('a finished branch whose run left a note is a Left for you card: the note w
   assert.equal(workReader(() => root)({ work: status(), waiting: { branches: [], yours: [yours[1]] } })!.finished.length, 0)
 })
 
-test('Change Review prepares by itself only what waits in hobkin groups, and a Left for you card only once the user asks', (t) => {
+test('Change Review prepares by itself every finished change, a Left for you card too, since its run leaving a note is no reason to go unrated', (t) => {
   const { root, slug } = homeWithProject(t)
   const { fromIssue, byHand } = fileBoth(root, slug)
   const work = workReader(() => root)({
@@ -147,11 +147,7 @@ test('Change Review prepares by itself only what waits in hobkin groups, and a L
   assert.deepEqual(
     toPrepare(work).map(({ id }) => id),
     [`change:${slug}:${byHand}`, `change:${slug}:${fromIssue}`],
-    'Review finds both cards',
-  )
-  assert.deepEqual(
-    toPrepare(preparedByItself(work)).map(({ id }) => id),
-    [`change:${slug}:${byHand}`],
+    'both cards are prepared by themselves',
   )
 })
 

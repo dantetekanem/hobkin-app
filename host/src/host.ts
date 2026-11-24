@@ -78,12 +78,13 @@ import { workHandlers } from './work.ts'
 import { newProjectHandlers } from './work-new-project.ts'
 import { metricsHandlers } from './metrics.ts'
 import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
-import { preparedByItself, workReader } from './work-items.ts'
+import { workReader } from './work-items.ts'
 import type { GhCall } from './review/gh.ts'
 import { reviewBrief } from './review/guide.ts'
 import { hostReviews, refreshFacts, reviewHandlers, stackFacts, toPrepare } from './review/seat.ts'
 import { refreshHandlers } from './review/refresh-code.ts'
 import { stackHandlers } from './review/stack.ts'
+import { pullsOf } from './review/rules.ts'
 
 export interface HostOptions {
   /** The hobkin home to serve. */
@@ -243,7 +244,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     windows.publish(now)
     // Finished changes and pull requests waiting for the user get their reviews ready in the background (005 S6).
     // What a run left for the user is reviewed only once the user asks.
-    reviews.watch(toPrepare(preparedByItself(now.work), now.github, { pulls: now.work?.workload?.reviewPulls ?? 'none' }))
+    reviews.watch(toPrepare(now.work, now.github, { pulls: pullsOf(now.work?.yolo?.rules, now.work?.workload?.reviewPulls) }))
   }
   const connected = () => [...(server?.sockets() ?? [])].some((socket) => socket.readyState === socket.OPEN)
 

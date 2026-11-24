@@ -76,11 +76,12 @@ function waitedTooLong(change: LineChange, now: number): boolean {
 }
 
 /**
- * The line of every repository the changes are in. `keep` is how many each keeps current, a whole number from 1, and
+ * The line of every repository the changes are in. `keep` is how many each keeps current, a whole number from 1 or null for none, and
  * `longest` whether the place for the longest wait is given at all.
  */
-export function lineOf(changes: readonly LineChange[], { keep = KEPT_CURRENT, now, longest: aging = true }: { keep?: number; now: number; longest?: boolean }): Line {
-  const kept = Number.isInteger(keep) && keep >= 1 ? keep : KEPT_CURRENT
+export function lineOf(changes: readonly LineChange[], { keep = KEPT_CURRENT, now, longest: aging = true }: { keep?: number | null; now: number; longest?: boolean }): Line {
+  // None, null, lifts the number: every change in the line is current.
+  const kept = keep === null ? Number.POSITIVE_INFINITY : Number.isInteger(keep) && keep >= 1 ? keep : KEPT_CURRENT
   const current = new Set<string>()
   const aged = new Set<string>()
   const waits = new Map<string, ReviewTurn>()
