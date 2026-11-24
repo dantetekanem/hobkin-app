@@ -4,7 +4,9 @@
  */
 import type { ChangeScores } from '../protocol/work.ts'
 import type { AssessmentStatus, ChangeAssessment } from './assessment.ts'
+import type { ReviewNeeds } from './needs.ts'
 import type { NoteEntry, NoteIntent } from './notes.ts'
+import { isCleanProse } from './prose.ts'
 import type { NodeIO, NodeKind, NodeStatus, Review, ReviewPath } from './types.ts'
 import type { PullReviewPost, Verdict } from './verdict.ts'
 
@@ -56,6 +58,15 @@ export interface ReviewStatus {
   pr?: string
   /** For a finished change hobkin's own scored review scored: its kind, general rate and five scores. A pull request has none. */
   scores?: ChangeScores
+  /**
+   * The user's five questions answered (spec 058): the change review's own ratings at the commit they were made at, and
+   * hobkin's scored run's when it has some, each saying who made it. Missing from an older host.
+   */
+  needs?: ReviewNeeds[]
+  /** Where the change stands in its repository's line of reviews, when the background is not building it now (spec 058). */
+  turn?: ReviewTurn
+  /** The review was carried to this commit from an older one, not built again (spec 058). */
+  carried?: ReviewCarried
   /**
    * For a finished change this host looked up: the commit the change starts from, at the commit it is at. A review
    * built from another start does not show the change as it is.
@@ -193,6 +204,14 @@ export interface ReviewListItem {
   pr?: string
   /** For a finished change hobkin's own scored review scored: its general rate. */
   rate?: number
+  /** The user's five questions answered, as on the review's status (spec 058). Missing from an older host. */
+  needs?: ReviewNeeds[]
+  /** Why the background does not build it now, and how many are ahead of it in its repository's line (spec 058). */
+  turn?: ReviewTurn
+  /** The review is of an older commit than the change is at, and waits its turn to be built again (spec 058). */
+  outdated?: { builtFor: string }
+  /** The review was carried to the change's commit from an older one, not built again (spec 058). */
+  carried?: ReviewCarried
   /**
    * A finished change the background prepares when its turn comes: nothing has started at its commit yet, or what started
    * was cut short and starts again. A host older than this does not send it.
@@ -202,9 +221,72 @@ export interface ReviewListItem {
   updatedAt: string
 }
 
+/** Where a change stands in its repository's line: how many are ahead of it, and why it waits, in plain words. */
+export interface ReviewTurn {
+  ahead: number
+  /** Such as "Waits its turn: 3 ahead in shop." or "It conflicts, so it is reviewed after its rebase." */
+  why: string
+}
+
+/** A review carried to a newer commit: the commit it was built for, and why it still holds, in plain words. */
+export interface ReviewCarried {
+  from: string
+  why: string
+}
+
+/** One repository's line above its rows (spec 058): its reviews current, waiting and outdated, and this week's cost. */
+export interface ReviewRepoLine {
+  /** The project, or `owner/repo` for pull requests. */
+  project: string
+  current: number
+  waiting: number
+  outdated: number
+  /** Reviews built in the last seven days. */
+  builtThisWeek: number
+  /** About how many model tokens they took, once they are recorded. */
+  tokensThisWeek?: number
+}
+
 export interface ReviewList {
   /** Newest first. */
   reviews: ReviewListItem[]
+  /** A line for each repository with rows (spec 058). Missing from an older host. */
+  repos?: ReviewRepoLine[]
+}
+
+const FULL_COMMIT = /^[0-9a-f]{40}$/
+const asRecord = (value: unknown): Record<string, unknown> | undefined => (value != null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined)
+const isCount = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0
+const isWords = (value: unknown): value is string => isCleanProse(value, 300) && value.trim() !== ''
+
+/** A row's place in its repository's line, as a host sent it, or undefined. */
+export function readTurn(value: unknown): ReviewTurn | undefined {
+  const turn = asRecord(value)
+  return turn && isCount(turn.ahead) && isWords(turn.why) ? { ahead: turn.ahead, why: turn.why } : undefined
+}
+
+/** A row's outdated mark, as a host sent it, or undefined. */
+export function readOutdated(value: unknown): ReviewListItem['outdated'] {
+  const outdated = asRecord(value)
+  return outdated && typeof outdated.builtFor === 'string' && FULL_COMMIT.test(outdated.builtFor) ? { builtFor: outdated.builtFor } : undefined
+}
+
+/** Where a carried review came from, as a host sent it, or undefined. */
+export function readCarried(value: unknown): ReviewCarried | undefined {
+  const carried = asRecord(value)
+  return carried && typeof carried.from === 'string' && FULL_COMMIT.test(carried.from) && isWords(carried.why) ? { from: carried.from, why: carried.why } : undefined
+}
+
+/** The list's line for each repository, each read without trust; none from a host that sends none. */
+export function readRepoLines(value: unknown): ReviewRepoLine[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry): ReviewRepoLine[] => {
+    const line = asRecord(entry)
+    if (!line || !isWords(line.project)) return []
+    const { current, waiting, outdated, builtThisWeek, tokensThisWeek } = line
+    if (![current, waiting, outdated, builtThisWeek].every(isCount)) return []
+    return [{ project: line.project, current: current as number, waiting: waiting as number, outdated: outdated as number, builtThisWeek: builtThisWeek as number, ...(isCount(tokensThisWeek) ? { tokensThisWeek } : {}) }]
+  })
 }
 
 /**
