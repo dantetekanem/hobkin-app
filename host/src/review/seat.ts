@@ -3,7 +3,7 @@
  * review that tells each one, and the commands the window runs. Specs: 005-review-model (S6), 009-review-notes,
  * 024-github, 032-change-review.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { paths, readItems, readProject, readProjects } from 'hobkin/src/cli/work/store.mjs'
 import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
@@ -276,11 +276,28 @@ export function hostReviews(seat: ReviewSeat): Reviews {
         })
       }
     : undefined
+  /** How many reviews the background builds by itself in a day, when the workload names a whole number (spec 058). */
+  const reviewsADay = () => {
+    const set = (seat.work()?.workload as { reviewsADay?: unknown } | undefined)?.reviewsADay
+    return Number.isInteger(set) && (set as number) >= 1 ? (set as number) : undefined
+  }
+  // The day's count of background builds, kept in the home's client folder so a host started again keeps it.
+  const dayFile = join(seat.root, 'client', 'review-day.json')
+  const dayLedger = {
+    read: () => (existsSync(dayFile) ? (JSON.parse(readFileSync(dayFile, 'utf8')) as { day: string; built: number }) : null),
+    write: (kept: { day: string; built: number }) => {
+      mkdirSync(join(seat.root, 'client'), { recursive: true, mode: 0o700 })
+      writeFileSync(`${dayFile}.next`, JSON.stringify(kept), { mode: 0o600 })
+      renameSync(`${dayFile}.next`, dayFile)
+    },
+  }
   const reviews: Reviews = new Reviews({
     ...(assessments ? { assessments } : {}),
     ...(carry ? { carry } : {}),
     keepCurrent,
     backAtWork,
+    reviewsADay,
+    dayLedger,
     describe,
     landing,
     ownPull,
