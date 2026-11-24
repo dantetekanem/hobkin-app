@@ -184,6 +184,14 @@ test('a stack is sent whole: a layer hobkin did not list, such as one an agent w
   assert.deepEqual(cards(whole).map(({ item }) => item), [bottom, above, top])
   assert.equal(cards(whole)[0]!.reason.startsWith('hobkin is'), false)
 
+  // A layer the user said merge to leaves at once, whether hobkin keeps the yes on the item or handed it to a session.
+  const handedOff = workReader(() => root)({ work: status({ closing: [{ ...closing[0]!, doing: 'refreshing it, then merging it' }] }), waiting: { branches: layersAbove, yours: [] } })
+  assert.deepEqual(cards(handedOff).map(({ item }) => item), [above, top])
+  updateItem(root, slug, bottom, { mergeWhenFresh: { at: '2026-11-24T23:00:00.000Z', read: 'none', readMs: 0 } })
+  const kept = workReader(() => root)({ work: status({ closing }), waiting: { branches: layersAbove, yours: [] } })
+  assert.deepEqual(cards(kept).map(({ item }) => item), [above, top])
+  updateItem(root, slug, bottom, { mergeWhenFresh: null })
+
   // With nothing said of what is being done to it, the card still says why it has no merge.
   const unsaid = workReader(() => root)({ work: status(), waiting: { branches: layersAbove, yours: [] } })
   assert.equal(cards(unsaid)[0]!.reason, 'hobkin is not offering it to merge right now.')

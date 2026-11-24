@@ -221,8 +221,12 @@ function withUnlistedLayers(groups: readonly FinishedGroup[], itemOf: ItemOf, do
     const item = itemOf(above.slug, under)
     if (!item || !FINISHED_ON_BRANCH.includes(String(item.state))) return null
 
+    // A layer the user said merge to has left the stack for them: the layer over it is the stack's card now.
+    const said = doing.get(key) ?? doing.get(`${above.slug}@${String(item.branch)}`) ?? null
+    if (item.mergeWhenFresh || said === REFRESH_HANDED_OFF) return null
+
     made.add(key)
-    return unlistedLayerCard(above, item, doing.get(key) ?? doing.get(`${above.slug}@${String(item.branch)}`) ?? null)
+    return unlistedLayerCard(above, item, said)
   }
 
   return groups.map((group) => ({
