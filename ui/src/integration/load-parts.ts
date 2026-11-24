@@ -1,3 +1,4 @@
+import { registerIntegration } from '#shared/commands/registry.ts'
 import type { WindowPart } from './contract.ts'
 import { setWindowParts } from './registry.ts'
 
@@ -21,6 +22,15 @@ export async function loadWindowParts(folders: Folders, log: (message: string, e
     }),
   )
   const parts = loaded.filter((part) => part !== null)
+  // Its commands and screens join the registry the window knows. A refusal is logged and the part stays: until the
+  // switch the app's own registry still holds GitHub's names, and a part must not lose its screen over them.
+  for (const { manifest } of parts) {
+    try {
+      registerIntegration(manifest)
+    } catch (error) {
+      log(`integration ${manifest.id} was not added to the command registry`, error)
+    }
+  }
   setWindowParts(parts)
   return parts
 }
