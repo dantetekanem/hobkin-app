@@ -1026,3 +1026,42 @@ test('a head-only TLC failure stays visible without claiming the diff caused it'
     ['mid', 'Sale.tla models this file, and TLC found StockInBounds broken in 4 steps at this commit: merge impact is unknown without a base comparison and the consuming path.'],
   )
 })
+
+test('a change of documents only: the Reviewer is told both files and what changed in them, and nothing runs differently', async (t) => {
+  const { repo, base, head, out } = repoOf(
+    t,
+    { 'package.json': PACKAGE, 'src/total.js': 'export const total = 1\n', 'PLAN.md': 'plan one\n', 'docs/client-api-v1.md': '# API\nold line\n' },
+    { 'PLAN.md': 'plan two\n', 'docs/client-api-v1.md': '# API\nnew line about the client contract\n' },
+  )
+  const prompts: string[] = []
+  const model: ModelRunner = async ({ prompt }) => {
+    prompts.push(prompt)
+    return JSON.stringify({ events: [], words: {}, claims: [] })
+  }
+  await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanWith([])), model })
+  const asked = JSON.parse(prompts[0]!.slice(prompts[0]!.indexOf('\n') + 1)) as { files: { path: string; status: string }[]; skipped_diffs: { path: string; diff: string }[]; change: { only_unread: boolean } }
+  assert.deepEqual(asked.files.map((file) => [file.path, file.status]), [['PLAN.md', 'modified'], ['docs/client-api-v1.md', 'modified']])
+  assert.deepEqual(asked.skipped_diffs.map((entry) => entry.path), ['PLAN.md', 'docs/client-api-v1.md'])
+  assert.match(asked.skipped_diffs[1]!.diff, /new line about the client contract/)
+  assert.equal(asked.change.only_unread, true)
+})
+
+test('a change of code and a document scans the code as before, names the document, and a document code reads is not unread', async (t) => {
+  const { repo, base, head, out } = repoOf(
+    t,
+    { 'package.json': PACKAGE, 'src/total.js': 'export function total(a, b) {\n  return a + b\n}\nexport const note = () => readFileSync("NOTES.md")\n', 'NOTES.md': 'one\n' },
+    { 'src/total.js': 'export function total(a, b) {\n  return Math.round(a + b)\n}\nexport const note = () => readFileSync("NOTES.md")\n', 'NOTES.md': 'two\n' },
+  )
+  const prompts: string[] = []
+  const model: ModelRunner = async ({ prompt }) => {
+    prompts.push(prompt)
+    return JSON.stringify({ events: [], words: {}, claims: [] })
+  }
+  const scan = scanWith([{ id: 'n1', symbol: 'total', kind: 'function', path: 'src/total.js', startLine: 1, endLine: 3, changedLines: [2], language: 'javascript', status: 'modified', tests: [] }])
+  await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scan), model })
+  const asked = JSON.parse(prompts[0]!.slice(prompts[0]!.indexOf('\n') + 1)) as { files: { path: string }[]; nodes: { id: string }[]; skipped_diffs?: unknown; change: { only_unread?: boolean } }
+  assert.deepEqual(asked.files.map((file) => file.path).sort(), ['NOTES.md', 'src/total.js'])
+  assert.deepEqual(asked.nodes.map((node) => node.id), ['n1'])
+  assert.equal(asked.skipped_diffs, undefined)
+  assert.ok(!asked.change.only_unread)
+})

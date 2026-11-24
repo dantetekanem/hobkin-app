@@ -6,7 +6,7 @@ import type { Answered, NeedScore } from '../src/types.ts'
 
 const score = (value: number): NeedScore => ({ score: value, evidence: `rests on test/a.test.js, score ${value}` })
 const five = { coverage: score(8), proof: score(9), safety: score(9), visibility: score(6), rollback: score(9) }
-const facts = (more: Partial<NeedsFacts> = {}): NeedsFacts => ({ unproven: [], proven: 1, testsChanged: 1, high: [], undoNone: [], dataOrLoad: [], monitoring: true, onlyModels: false, brokenModels: [], uncheckedModels: [], ...more })
+const facts = (more: Partial<NeedsFacts> = {}): NeedsFacts => ({ unproven: [], proven: 1, testsChanged: 1, high: [], undoNone: [], dataOrLoad: [], monitoring: true, onlyModels: false, onlyUnread: false, brokenModels: [], uncheckedModels: [], ...more })
 const answered = (scores: Answered['scores'] = five): Answered => ({ kind: 'bug-fix', scores })
 
 /** A fake Reviewer that answers each narrow call from a list, and keeps what it was asked. */

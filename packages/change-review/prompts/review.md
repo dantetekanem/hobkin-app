@@ -38,6 +38,7 @@ The message is one line saying the rest is data, then one JSON object:
 - `zones`: the parts of the code the nodes are in, each a layer and a subject with its `id` and `label`, such as "Controllers · Orders".
 - `units`: what the reviewer decides on, in the order the story walks them: each with its node ids, grouping, level, and the template `title`, `where` and `what` you may replace.
 - `context`: unchanged definitions the search found next to the change, each with its `symbol`, `path` and `lines` at head. You may add one to the map as context.
+- `files`: every changed file with its `status`, `added`, `deleted` and `treatment`, the skipped ones too. `skipped_diffs`: their diffs, sent only when every file is skipped, each cut at a size limit (see `cut`).
 - `model_checks`: TLC checks hobkin ran itself, at this commit, of the TLA+ models the change adds, edits or touches a file of: the `spec`, the `run`, the `result` (`holds`, `violated` or `error`), the distinct `states`, each rule and whether it `held`, the actions that never fired (`unfired`), and the changed files the spec names in `\* models:` (`models`).
 - `monitoring`: what the project's monitoring covers and its way back, as lines, or `unknown`.
 - `cut`: what was left out to keep the data short. Something missing from the data is not evidence that it is missing from the code.
@@ -79,11 +80,12 @@ In `needs`, answer the five questions the user asks of every change, each a whol
 
 - `coverage`, do tests cover the change? 10: every changed line runs in a test that fails without it. 1: no test runs the changed code.
 - `proof`, were tests added or changed to prove it works? 10: a test this diff added or changed shows it working, and nothing is missing. 1: nothing was added or changed. A removed or weakened test counts against it.
-- `safety`, does it risk the deploy or data? 10: it cannot break a deploy and touches no stored data. 1: it can lose or corrupt data, or stop a deploy.
+- `safety`, does it risk the deploy or data? 10: it cannot break a deploy and touches no stored data. 1: it can lose or corrupt data, or stop a deploy. Safety and `answer` say the same thing: a change you open with `Safe to deploy:` cannot break a deploy, so its safety is high (10 unless stored data is at risk), and a safety of 5 or less needs a break you can name, which makes the answer `Risky to deploy:`.
 - `visibility`, would a regression show in the project's `monitoring`, and how fast? 10: its errors are tracked, its queries timed, its endpoint or job has a metric, and an alert reaches the user in minutes. 1: nobody would know until someone complained. A part that writes data or runs at load that the monitoring does not cover scores 4 or less. When `monitoring` is `unknown`, leave it out: a score given then is not kept.
 - `rollback`, what is the risk and the time to roll back? 10: one step undoes it in minutes and leaves nothing behind. 1: nothing undoes it.
 - `kind`: `performance`, `bug-fix`, `state-machine`, `package-update`, `small-change`, `feature` (new behaviour a user can see), or `unclear`. `missing`: what proof is still wanted, in a line; leave it out when nothing is.
 - For a change of only TLA+ models, its model check is the proof: score coverage and proof by it.
+- For a change where no changed file is read by code that runs, by a build, a CI job or a generator, nothing runs differently, so there is nothing for a test to cover or prove. `files` names every changed file and `change.only_unread` is `true` when the search found nothing that names them. Score coverage, proof and safety 10, each with evidence that says what it rests on (for example "documentation only: no code, build or job reads PLAN.md or docs/client-api-v1.md"), and score rollback by how the change reverts (a revert of the commit is usually 10). A changed file that something does read is code, whatever its extension, and is rated as code. When `skipped_diffs` is present, read it and say in the story what the change does.
 
 ## TLA+ model checks
 

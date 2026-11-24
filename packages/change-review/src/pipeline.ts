@@ -20,6 +20,7 @@ import { deriveFacts, goneAtHead, guardsPutOn, type CallerSite } from './facts.t
 import { gitRepo } from './git.ts'
 import { type ContextEntry, readReviewAnswer, reviewRequest } from './model.ts'
 import { applyModelChecks } from './model-checks.ts'
+import { changesOnlyUnread } from './unread.ts'
 import { DEFAULT_RATING_TRIES, needsFacts, rateNeeds, type AskRatings } from './needs.ts'
 import { nodeTestsOf, removedTestsOf } from './node-tests.ts'
 import { packOrigins, runsFromOf, walkOrigin } from './origins.ts'
@@ -459,6 +460,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const changedPaths = meta.files.map((file) => file.path)
   const modelPaths = [...changedPaths, ...(options.modelChecks ?? []).map((check) => check.spec)]
   const isModel = (path: string) => isModelFile(path, modelPaths)
+  const onlyUnread = await changesOnlyUnread(meta.files, repo, head).catch(() => false)
   const files = progressFiles(out)
   const tracker = trackProgress({
     review: head.slice(0, 12),
@@ -860,7 +862,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       .sort((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine)
       .map((entry) => ({ symbol: entry.symbol, path: entry.path, lines: [entry.startLine, entry.endLine] }))
     const zones = graphOf(applied.nodes).zones
-    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code, context, modelChecks, ...(zones?.length ? { zones } : {}), ...(options.monitoring?.length ? { monitoring: options.monitoring } : {}) })
+    const request = reviewRequest({ triage, files: meta.files, diffs, onlyUnread, nodes: applied.nodes, units: units.units, code, context, modelChecks, ...(zones?.length ? { zones } : {}), ...(options.monitoring?.length ? { monitoring: options.monitoring } : {}) })
     problems.push(...request.cut.map((cut) => `Left out of what the Reviewer read: ${cut}`))
     const asked = await attempt(() => model({ pass: 'review', system: request.system, prompt: request.prompt, signal }))
     // A call the signal stopped is the review stopping, not the model failing.
@@ -987,7 +989,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     : undefined
   const rating = await rateNeeds({
     ...(answered ? { answered } : {}),
-    facts: needsFacts({ nodes: applied.nodes, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length) }),
+    facts: needsFacts({ nodes: applied.nodes, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length), onlyUnread }),
     head,
     review: story,
     ...(options.monitoring?.length ? { monitoring: options.monitoring } : {}),

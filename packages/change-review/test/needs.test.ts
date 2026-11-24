@@ -39,7 +39,7 @@ test("the Reviewer's answer carries the five ratings with their evidence, the ki
   assert.equal(readReviewAnswer(JSON.stringify({ events: [] }), known).needs, undefined, 'an answer without needs is not rated')
 })
 
-const facts = (more: Partial<NeedsFacts> = {}): NeedsFacts => ({ unproven: [], proven: 1, testsChanged: 1, high: [], undoNone: [], dataOrLoad: [], monitoring: true, onlyModels: false, brokenModels: [], uncheckedModels: [], ...more })
+const facts = (more: Partial<NeedsFacts> = {}): NeedsFacts => ({ unproven: [], proven: 1, testsChanged: 1, high: [], undoNone: [], dataOrLoad: [], monitoring: true, onlyModels: false, onlyUnread: false, brokenModels: [], uncheckedModels: [], ...more })
 const answered = (scores = five): Answered => ({ kind: 'bug-fix', scores })
 
 test('the ratings are capped by the facts', () => {
@@ -93,4 +93,11 @@ test("a cap's words join the evidence as one clean line, whatever the names it g
     assert.doesNotMatch(kept!.evidence, /\s{2}|[\r\n]|\(\)|: and/, kept!.evidence)
     assert.ok(kept!.evidence.length <= 400)
   }
+})
+
+test('a change nothing reads is not held for tests it has no code to run', () => {
+  const unread = capNeeds(answered(), facts({ onlyUnread: true, proven: 0, testsChanged: 0, unproven: [] }), 'abc123')!
+  assert.equal(unread.scores.proof!.score, answered().scores.proof!.score)
+  assert.equal(unread.scores.proof!.capped, undefined)
+  assert.equal(capNeeds(answered(), facts({ proven: 0, testsChanged: 0 }), 'abc123')!.scores.proof!.score, 4, 'a change of code with no test is still held')
 })

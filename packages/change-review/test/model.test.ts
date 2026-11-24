@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 import { readReviewAnswer, reviewRequest } from '../src/model.ts'
 import { applyRiskEvents } from '../src/risk.ts'
-import type { Effect, Exposure, Proof, ReviewNode, RiskEvent, TestRun, Triage, Undo, Units } from '../src/types.ts'
+import type { Bucket, ChangedFile, Effect, Exposure, FileDiff, Proof, ReviewNode, RiskEvent, TestRun, Triage, Undo, Units } from '../src/types.ts'
 
 const example = (name: string) => readFileSync(new URL(`../skills/change-review/examples/${name}`, import.meta.url), 'utf8')
 const units = (JSON.parse(example('units.json')) as Units).units
@@ -85,6 +85,9 @@ interface Sent {
   claims: unknown[]
   directives: string[]
   cut: string[]
+  change: unknown
+  files?: unknown
+  skipped_diffs?: unknown
 }
 
 /** The data part of a request: everything after its first line. */
@@ -295,5 +298,42 @@ describe('readReviewAnswer', () => {
     const applied = applyRiskEvents(nodes, read.events)
     assert.equal(applied.nodes.find((node) => node.id === 'n5')?.level?.current, 'mid')
     assert.match(applied.rejected[0]?.reason ?? '', /no test showing the change/)
+  })
+})
+
+describe('reviewRequest, every changed file', () => {
+  const docFiles: ChangedFile[] = [
+    { path: 'PLAN.md', status: 'modified', added: 1, deleted: 1, binary: false },
+    { path: 'docs/client-api-v1.md', status: 'modified', added: 77, deleted: 46, binary: false },
+  ]
+  const hunk = (text: string) => ({ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [`-old ${text}`, `+new ${text}`] })
+  const diffs: FileDiff[] = docFiles.map((entry) => ({ path: entry.path, hunks: [hunk(entry.path)] }))
+  const bucket = (kind: Bucket['kind'], treatment: Bucket['treatment'], paths: string[]): Bucket => ({ id: kind, folder: '.', kind, change: 'modified', paths, files: paths.length, added: 1, deleted: 1, treatment, why: '' })
+
+  it('names every file and sends the diffs of skipped files when the change has nothing to scan', () => {
+    const only = { ...triage, buckets: [bucket('docs', 'skip', docFiles.map((entry) => entry.path))] }
+    const { data } = sent(reviewRequest({ triage: only, nodes: [], units: [], code: {}, files: docFiles, diffs, onlyUnread: true }).prompt)
+    assert.deepEqual((data.files as { path: string; status: string; added: number; deleted: number }[]).map((entry) => [entry.path, entry.status, entry.added, entry.deleted]), [['PLAN.md', 'modified', 1, 1], ['docs/client-api-v1.md', 'modified', 77, 46]])
+    assert.deepEqual((data.skipped_diffs as { path: string; diff: string }[]).map((entry) => entry.path), ['PLAN.md', 'docs/client-api-v1.md'])
+    assert.match((data.skipped_diffs as { diff: string }[])[1]!.diff, /\+new docs\/client-api-v1\.md/)
+    assert.equal((data.change as { only_unread?: boolean }).only_unread, true)
+  })
+
+  it('caps the skipped diffs and says what it cut', () => {
+    const long = [{ path: 'PLAN.md', hunks: [{ ...hunk('x'), lines: Array.from({ length: 2000 }, (_, i) => `+line ${i} of a long document`) }] }]
+    const only = { ...triage, buckets: [bucket('docs', 'skip', ['PLAN.md'])] }
+    const request = reviewRequest({ triage: only, nodes: [], units: [], code: {}, files: docFiles.slice(0, 1), diffs: long })
+    const { data } = sent(request.prompt)
+    assert.ok((data.skipped_diffs as { diff: string }[])[0]!.diff.length <= 6000)
+    assert.ok(request.cut.some((line) => line.includes('PLAN.md')))
+  })
+
+  it('names the skipped files beside code but sends their diffs only when nothing is scanned', () => {
+    const mixed = { ...triage, buckets: [bucket('code', 'scan', ['app/services/checkout/totals_calculator.rb']), bucket('docs', 'skip', docFiles.map((entry) => entry.path))] }
+    const files = [{ path: 'app/services/checkout/totals_calculator.rb', status: 'modified' as const, added: 3, deleted: 1, binary: false }, ...docFiles]
+    const { data } = sent(reviewRequest({ triage: mixed, nodes, units, code, files, diffs }).prompt)
+    assert.deepEqual((data.files as { path: string }[]).map((entry) => entry.path), files.map((entry) => entry.path))
+    assert.equal(data.skipped_diffs, undefined)
+    assert.ok((data.nodes as unknown[]).length > 0)
   })
 })

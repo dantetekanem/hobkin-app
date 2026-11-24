@@ -28,6 +28,8 @@ export interface NeedsFacts {
   monitoring: boolean
   /** The change is TLA+ models and their configs, and nothing else. */
   onlyModels: boolean
+  /** Every changed file is documentation and nothing that runs, builds or generates names it: nothing runs differently. */
+  onlyUnread: boolean
   /** Models of the change whose check broke a rule at this commit. */
   brokenModels: string[]
   /** Models of the change with no check that held or broke at this commit. */
@@ -54,7 +56,7 @@ function named(names: readonly string[]): string {
 const several = (names: readonly string[]) => names.map(oneLine).filter(Boolean).length > 1
 
 /** What the caps read, from the review's parts as rated, the change's files, the model checks and the monitoring given. */
-export function needsFacts({ nodes, files, checks, monitoring }: { nodes: readonly ReviewNode[]; files: readonly ChangedFile[]; checks: readonly ModelCheck[]; monitoring: boolean }): NeedsFacts {
+export function needsFacts({ nodes, files, checks, monitoring, onlyUnread = false }: { nodes: readonly ReviewNode[]; files: readonly ChangedFile[]; checks: readonly ModelCheck[]; monitoring: boolean; onlyUnread?: boolean }): NeedsFacts {
   const paths = files.map((file) => file.path)
   const parts = nodes.filter((node) => !node.hidden && node.kind !== 'test' && node.change !== 'none')
   const definitions = parts.filter((node) => node.kind === 'function' && node.change !== 'removed' && node.facts.effect.value !== 'text')
@@ -70,6 +72,7 @@ export function needsFacts({ nodes, files, checks, monitoring }: { nodes: readon
     dataOrLoad: parts.filter((node) => ['data', 'load'].includes(node.facts.effect.value) || node.facts.exposure.value === 'at-load').map((node) => node.symbol),
     monitoring,
     onlyModels: changesOnlyModels(paths),
+    onlyUnread,
     brokenModels: specs.filter((spec) => checkOf(spec)?.result === 'violated').map(fileOf),
     uncheckedModels: specs.filter((spec) => !['holds', 'violated'].includes(checkOf(spec)?.result ?? '')).map(fileOf),
   }
@@ -82,7 +85,7 @@ function capsOf(facts: NeedsFacts): Partial<Record<NeedCriterion, { most: number
   if (!facts.onlyModels && facts.proven === 0 && facts.unproven.length) caps.coverage = { most: 3, why: `no test that ran proves a changed definition (${named(facts.unproven)})` }
   if (facts.brokenModels.length) caps.proof = { most: 3, why: `the model check of ${named(facts.brokenModels)} breaks a rule at this commit` }
   else if (facts.onlyModels && facts.uncheckedModels.length) caps.proof = { most: 4, why: `the model check of ${named(facts.uncheckedModels)} was not run at this commit` }
-  else if (!facts.onlyModels && facts.testsChanged === 0) caps.proof = { most: 4, why: 'no test was added or changed with the change' }
+  else if (!facts.onlyModels && !facts.onlyUnread && facts.testsChanged === 0) caps.proof = { most: 4, why: 'no test was added or changed with the change' }
   if (facts.high.length) caps.safety = { most: 5, why: `${named(facts.high)} ${several(facts.high) ? 'are' : 'is'} rated high` }
   if (facts.undoNone.length) caps.rollback = { most: 4, why: `nothing undoes ${named(facts.undoNone)}` }
   // With no monitoring known visibility is set by rule (`capNeeds`). With monitoring given, whether it covers

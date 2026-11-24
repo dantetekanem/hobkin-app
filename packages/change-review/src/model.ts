@@ -9,13 +9,13 @@ import { floor } from './floor.ts'
 import type { MapOp } from './reshape.ts'
 import { nodeLevelOf } from './risk.ts'
 import { EVIDENCE_KINDS, LEVELS, NEED_CRITERIA, NEED_KINDS } from './types.ts'
-import type { Answered, Claim, ClaimStatus, Level, ModelCheck, NeedCriterion, NeedKind, NeedScore, NodeTest, Question, ReviewNode, RiskEvent, RunsFrom, Signal, StoryWords, TestRun, Triage, Unit, Watch, Zone } from './types.ts'
+import type { Answered, ChangedFile, Claim, ClaimStatus, Level, FileDiff, ModelCheck, NeedCriterion, NeedKind, NeedScore, NodeTest, Question, ReviewNode, RiskEvent, RunsFrom, Signal, StoryWords, TestRun, Triage, Unit, Watch, Zone } from './types.ts'
 
 /** A unit as curate drafted it, before any model words. */
 export type DraftUnit = Pick<Unit, 'id' | 'nodes' | 'grouping' | 'level' | 'title' | 'where' | 'what'>
 
 export interface ReviewInput {
-  triage: Pick<Triage, 'range' | 'mode' | 'description_source' | 'totals' | 'claims' | 'directives'>
+  triage: Pick<Triage, 'range' | 'mode' | 'description_source' | 'totals' | 'claims' | 'directives'> & Partial<Pick<Triage, 'buckets'>>
   nodes: readonly ReviewNode[]
   units: readonly DraftUnit[]
   /** Each node's changed lines, by node id. */
@@ -31,6 +31,12 @@ export interface ReviewInput {
    * it the Reviewer is told monitoring is unknown and gives no visibility score.
    */
   monitoring?: readonly string[]
+  /** Every changed file, so the Reviewer is told the name, status and size of the ones triage skipped too. */
+  files?: readonly ChangedFile[]
+  /** The change's diffs: those of skipped files are sent when the change has nothing to scan. */
+  diffs?: readonly FileDiff[]
+  /** Every changed file is documentation that nothing which runs, builds or generates names (see unread.ts). */
+  onlyUnread?: boolean
   /** Most characters the prompt may hold. */
   limit?: number
 }
@@ -172,7 +178,50 @@ interface RequestData {
   model_checks?: ModelCheck[]
   /** What the project's monitoring covers, or `unknown`. */
   monitoring: string[] | 'unknown'
+  /** Every changed file, skipped ones included. */
+  files?: { path: string; oldPath?: string; status: string; added: number; deleted: number; treatment: string }[]
+  /** The diffs of skipped files, sent only when every file of the change is skipped. */
+  skipped_diffs?: { path: string; diff: string }[]
   cut: string[]
+}
+
+const MAX_FILES = 300
+/** The most of one skipped file's diff, and of all of them, sent when the change has nothing to scan. */
+const SKIPPED_DIFF_CHARS = 6000
+const SKIPPED_DIFFS_CHARS = 24_000
+
+/** A diff as unified-diff text: each hunk's header, then its lines. */
+const diffText = (diff: FileDiff) => diff.hunks.map((hunk) => [`@@ -${hunk.oldStart},${hunk.oldLines} +${hunk.newStart},${hunk.newLines} @@`, ...hunk.lines].join('\n')).join('\n')
+
+/**
+ * Every changed file by name, status, size and treatment, so a skipped file is still named. When every file of the
+ * change is skipped there is nothing to scan, and the Reviewer gets their diffs, each capped and all together capped.
+ */
+function filesSent(input: ReviewInput, cut: string[]): Pick<RequestData, 'files' | 'skipped_diffs'> {
+  const files = input.files ?? []
+  if (!files.length) return {}
+  const buckets = input.triage.buckets ?? []
+  const treatmentOf = (path: string) => buckets.find((bucket) => bucket.paths.includes(path))?.treatment ?? 'unknown'
+  if (files.length > MAX_FILES) cut.push(`${files.length - MAX_FILES} changed files not named: the first ${MAX_FILES} sent`)
+  const named = files.slice(0, MAX_FILES).map((file) => ({ path: file.path, ...(file.oldPath ? { oldPath: file.oldPath } : {}), status: file.status, added: file.added, deleted: file.deleted, treatment: treatmentOf(file.path) }))
+  const nothingToScan = buckets.length > 0 && buckets.every((bucket) => bucket.treatment === 'skip')
+  if (!nothingToScan || !input.diffs?.length) return { files: named }
+  let room = SKIPPED_DIFFS_CHARS
+  const skipped: { path: string; diff: string }[] = []
+  for (const file of named) {
+    const diff = input.diffs.find((entry) => entry.path === file.path)
+    if (!diff?.hunks.length) continue
+    const text = diffText(diff)
+    const limit = Math.min(SKIPPED_DIFF_CHARS, room)
+    if (limit <= 0) {
+      cut.push(`diff of ${file.path} left out: the diffs of skipped files are capped at ${SKIPPED_DIFFS_CHARS} characters in all`)
+      continue
+    }
+    if (text.length > limit) cut.push(`diff of ${file.path}: ${text.length} characters, the first ${limit} sent`)
+    skipped.push({ path: file.path, diff: text.slice(0, limit) })
+    room -= Math.min(text.length, limit)
+  }
+  return { files: named, ...(skipped.length ? { skipped_diffs: skipped } : {}) }
 }
 
 /** Where a node runs from, as the Reviewer reads it: at most three origins, each way named by its first six steps. */
@@ -290,6 +339,10 @@ function fit(data: RequestData, limit: number) {
     delete data.context
     data.cut.push('the unchanged definitions near the change left out to fit the size limit')
   }
+  if (data.skipped_diffs && !fits()) {
+    delete data.skipped_diffs
+    data.cut.push('the diffs of skipped files left out to fit the size limit')
+  }
   for (const node of data.nodes.toReversed()) {
     if (fits()) return
     if (node.runs_from === undefined && node.tests === undefined) continue
@@ -326,7 +379,7 @@ export function reviewRequest(input: ReviewInput): ReviewRequest {
   if (monitoring.length > MAX_MONITORING) cut.push(`${monitoring.length - MAX_MONITORING} lines of the project's monitoring left out: the first ${MAX_MONITORING} sent`)
   if (context.length > MAX_CONTEXT) cut.push(`${context.length - MAX_CONTEXT} unchanged definitions near the change left out: the first ${MAX_CONTEXT} sent`)
   const data: RequestData = {
-    change: { range: triage.range, mode: triage.mode, description_source: triage.description_source, totals: triage.totals },
+    change: { range: triage.range, mode: triage.mode, description_source: triage.description_source, totals: triage.totals, ...(input.onlyUnread ? { only_unread: true } : {}) },
     claims: triage.claims.slice(0, MAX_CLAIMS).map(({ text, source }) => ({ text, source })),
     directives: directives.slice(0, MAX_DIRECTIVES),
     nodes: input.nodes.map((node) => nodeData(node, excerpt(node.id, input.code[node.id], cut), cut)).sort(worstFirst),
@@ -337,6 +390,7 @@ export function reviewRequest(input: ReviewInput): ReviewRequest {
       ? { model_checks: input.modelChecks.map(({ spec, run, result, states, rules, unfired, models, broken, steps, message }) => ({ spec, run, result, states, rules, unfired, models, broken, steps, message })) }
       : {}),
     monitoring: monitoring.length ? monitoring.slice(0, MAX_MONITORING) : 'unknown',
+    ...filesSent(input, cut),
     cut,
   }
   fit(data, input.limit ?? PROMPT_LIMIT)
