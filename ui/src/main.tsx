@@ -1,3 +1,4 @@
+import './integration/loaded.ts'
 import { createRoot } from 'react-dom/client'
 import '@fontsource-variable/space-grotesk'
 import '@fontsource-variable/inter'

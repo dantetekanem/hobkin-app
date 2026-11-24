@@ -37,6 +37,8 @@ export interface HostState {
   models: ModelsState | null
   /** The user's GitHub as the host reads it through gh. Null until the host says, and always from a host that does not read it. */
   github: GitHubState | null
+  /** Each integration's state, by its id (_specs/064-integration-drops). An integration the host does not run has no entry. */
+  slices: Record<string, unknown>
   /** The MCP servers in Pi's configuration, as the host reads them through Pi, secrets hidden. Null until the host says, and always from a host that does not read them. */
   integrations: IntegrationsState | null
   /** Work mode as the Work screen draws it. Null until the host says, and while hobkin's snapshot has none, as in a view the terminal saved. */
@@ -77,6 +79,7 @@ export const initialHostState: HostState = {
   signIn: { status: 'unknown' },
   models: null,
   github: null,
+  slices: {},
   integrations: null,
   work: null,
   canvas: null,
@@ -93,6 +96,15 @@ export const initialHostState: HostState = {
   timings: false,
   watching: false,
 }
+
+/** The slices a state message carries, by id. A reset starts from none, as `github` does. */
+function slicesAfter(held: Record<string, unknown>, message: StateMessage): Record<string, unknown> {
+  const sent = (message as { slices?: Record<string, unknown> }).slices
+  if (!sent) return message.reset ? NO_SLICES : held
+  return { ...(message.reset ? NO_SLICES : held), ...sent }
+}
+
+const NO_SLICES: Record<string, unknown> = {}
 
 function applyState(state: HostState, message: StateMessage): HostState {
   // A reset replaces what was held in one step, so a reconnect never shows an empty conversation in between.
@@ -133,6 +145,8 @@ function applyState(state: HostState, message: StateMessage): HostState {
     models: message.models ?? state.models,
     // A host that reads GitHub sends the slice with every reset, so one without it does not read GitHub.
     github: message.github ?? (message.reset ? null : state.github),
+    // The same for each integration's slice: a reset without an id's slice means the host does not run it.
+    slices: slicesAfter(state.slices, message),
     // The same for Pi's MCP servers: a host that reads them sends the slice with every reset.
     integrations: message.integrations ?? (message.reset ? null : state.integrations),
     // Work mode comes whole with every reset that has it, and null once hobkin's snapshot has none. It comes whole each
