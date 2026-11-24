@@ -88,6 +88,8 @@ test('a run on Claude Code schedules with hobkin schedule and its own token, and
     /permissions are not "all"[\s\S]*plain wake/);
   const made = await schedule(app, asked, ['make'], json({ name: 'Look again', in: '10m', note: 'Read the deploy log.' }));
   assert.match(made.text, /^Scheduled "Look again"/);
+  assert.match(made.text, /cannot wait[\s\S]*end when this turn ends/, 'a run on Claude Code is told its schedules end with its turn');
+  assert.doesNotMatch(made.text, /End your turn now|starts you again/);
   assert.deepEqual(app.agentSchedules.view().map(item => [item.owner.kind, item.owner.id, item.does]), [['run', runId, 'wake']]);
   const { schedules } = await schedule(app, asked, ['list']);
   assert.deepEqual(schedules.map(item => item.name), ['Look again']);

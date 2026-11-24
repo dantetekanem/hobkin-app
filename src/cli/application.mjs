@@ -1103,9 +1103,10 @@ export class HobkinApplication {
   /**
    * What an agent's schedule tools reach (056-agent-schedules): `make` and `manage` for its own schedules alone, their
    * commands run in `cwd`, and `liveUntil`, when the last of them ends, so a run can wait on them. A run that has waited
-   * as often as one may cannot wait for a schedule, so it makes none.
+   * as often as one may cannot wait for a schedule, so it makes none. `canWait` is false for a run that cannot wait at
+   * all, as on Claude Code, which is told its schedules end with its turn.
    */
-  scheduleHandler(owner, cwd, { waits } = {}) {
+  scheduleHandler(owner, cwd, { waits, canWait = true } = {}) {
     const schedules = () => {
       if (!this.agentSchedules) throw Error('Schedules are not available here.');
       return this.agentSchedules;
@@ -1117,7 +1118,7 @@ export class HobkinApplication {
         }
         const schedule = schedules().make(owner, cwd, params);
         this.requestRefresh();
-        return { text: scheduledText(schedule, owner), schedule };
+        return { text: scheduledText(schedule, owner, { canWait }), schedule };
       },
       manage: params => {
         const answer = schedules().manage(owner, params);
@@ -1225,7 +1226,8 @@ export class HobkinApplication {
   fromScheduleCommand(request) {
     const entry = typeof request?.token === 'string' ? this.scheduleTokens.get(request.token) : undefined;
     if (!entry) throw Error(NOT_A_RUN);
-    const handler = this.scheduleHandler(entry.owner, entry.cwd, { waits: entry.waits });
+    // A session run on Claude Code has no waiting outcome, so its schedules end with its turn.
+    const handler = this.scheduleHandler(entry.owner, entry.cwd, { waits: entry.waits, canWait: false });
     if (request.action === 'make') {
       if (!entry.commands && request.params?.command !== undefined) throw Error(NO_COMMANDS);
       return handler.make(request.params);
