@@ -8,7 +8,6 @@ import { Button } from '@/components/ui/button.tsx'
 import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
-import { openGitHubPage, openOnGitHub } from '@/features/github/open.ts'
 import { openTarget } from '@/features/home/navigate.ts'
 import { ChartFrame, pressProps } from '@/features/numbers/ChartFrame.tsx'
 import { DayBars } from '@/features/numbers/DayBars.tsx'
@@ -67,6 +66,7 @@ import {
   type VerdictTone,
   type YoloOpen,
 } from './yolo-page.ts'
+import { openAddress, openLink } from '@/lib/open-link.ts'
 
 type SetSample = Dispatch<SetStateAction<YoloState>>
 
@@ -485,7 +485,7 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, revie
       case 'action':
         return openTarget({ to: 'action', id: press.id })
       case 'pr':
-        return openGitHubPage(press.url)
+        return openAddress(press.url)
       case 'work':
         return press.key ? openOnWork(`[data-change="${press.key}"]`) : backToWork()
       case 'review':
@@ -748,7 +748,7 @@ function PartButton({ open, label }: { open: PartOpen | null; label: string }) {
         rel="noopener noreferrer"
         data-stop=""
         aria-label={`${open.label} for ${label}`}
-        onClick={(event) => openOnGitHub(event, open.url)}
+        onClick={(event) => openLink(event, open.url)}
         className="justify-self-end text-[12px] font-medium text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
       >
         {open.label}

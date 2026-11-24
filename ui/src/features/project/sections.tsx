@@ -5,7 +5,6 @@ import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button, buttonVariants } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
-import { openOnGitHub } from '@/features/github/open.ts'
 import { openTarget } from '@/features/home/navigate.ts'
 import { DayBars } from '@/features/numbers/DayBars.tsx'
 import { TileRow } from '@/features/numbers/StatTile.tsx'
@@ -20,6 +19,7 @@ import { cn } from '@/lib/utils.ts'
 import { SECTION_ID, type AgentRow, type Flow, type Heading, type MergedLine, type MergedSection, type QueueLine, type QueueSection, type ReadinessSection, type Section, type TakenPage, type TilesView, type WaitingRow } from './model.ts'
 import { Block, Chip, Empty, Row } from './parts.tsx'
 import { useProjectAgents } from './use-project.ts'
+import { openLink } from '@/lib/open-link.ts'
 
 /**
  * The sections of a project's page, top to bottom: what it is and its controls, its tiles, the flow from queued to
@@ -67,7 +67,7 @@ export const ProjectHeading = memo(function ProjectHeading({ heading, live }: { 
           <span className="eyebrow ml-2">Priority</span>
           <Segmented label={`Priority of ${name}`} name={`project-priority-${slug}`} value={heading.priority} options={PRIORITIES} disabled={busy} onChoose={(priority) => void runWork({ do: 'priority', slug, priority }, place)} />
           {github ? (
-            <a href={github} target="_blank" rel="noopener noreferrer" data-stop="" onClick={(event) => openOnGitHub(event, github)} className={buttonVariants({ variant: 'ghost' })}>
+            <a href={github} target="_blank" rel="noopener noreferrer" data-stop="" onClick={(event) => openLink(event, github)} className={buttonVariants({ variant: 'ghost' })}>
               Open on GitHub
               <ExternalLink aria-hidden="true" />
             </a>
@@ -421,7 +421,7 @@ function PartButton({ open, label }: { open: PartOpen | null; label: string }) {
   if (!open) return <span aria-hidden="true" />
   if (open.to === 'pr') {
     return (
-      <a href={open.url} target="_blank" rel="noopener noreferrer" data-stop="" aria-label={`${open.label} for ${label}`} onClick={(event) => openOnGitHub(event, open.url)} className={cn(buttonVariants({ variant: 'ghost', size: 'xs' }), 'justify-self-end')}>
+      <a href={open.url} target="_blank" rel="noopener noreferrer" data-stop="" aria-label={`${open.label} for ${label}`} onClick={(event) => openLink(event, open.url)} className={cn(buttonVariants({ variant: 'ghost', size: 'xs' }), 'justify-self-end')}>
         {open.label}
       </a>
     )

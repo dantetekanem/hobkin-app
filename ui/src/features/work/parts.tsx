@@ -2,13 +2,13 @@ import { CircleDashed, CircleDot, CircleX, Clock, GitPullRequest, LoaderCircle, 
 import { motion } from 'motion/react'
 import type { KeyboardEvent, ReactNode } from 'react'
 import { useStill } from '@/app/still.ts'
-import { openOnGitHub } from '@/features/github/open.ts'
 import type { Grade } from '@/lib/host/index.ts'
 import type { WorkIssue } from '#shared/protocol/work.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { deployOf, deployWhy, sinceLastReview, type AssessmentStatus, type AssessmentSummary, type Deploy } from '#shared/review/assessment.ts'
 import { reviewBadge, type BadgeTone } from './review-badge.ts'
+import { openLink } from '@/lib/open-link.ts'
 
 /** The small pieces the Work screen's sections share. */
 
@@ -42,7 +42,7 @@ export function IssueLink({ issue }: { issue: WorkIssue | null | undefined }) {
       tabIndex={-1}
       data-row-control=""
       title={`${issue.repo}#${issue.number}, on GitHub`}
-      onClick={(event) => openOnGitHub(event, issue.url)}
+      onClick={(event) => openLink(event, issue.url)}
       className={LINK_CHIP}
     >
       <CircleDot aria-hidden="true" className="size-3" />
@@ -63,7 +63,7 @@ export function PullLink({ url }: { url: string | null | undefined }) {
       tabIndex={-1}
       data-row-control=""
       title={`${url}, on GitHub`}
-      onClick={(event) => openOnGitHub(event, url)}
+      onClick={(event) => openLink(event, url)}
       className={LINK_CHIP}
     >
       <GitPullRequest aria-hidden="true" className="size-3" />
