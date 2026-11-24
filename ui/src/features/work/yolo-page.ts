@@ -3,6 +3,8 @@ import type { ChangeChoice, FinishedChange, FinishedGroup, FinishedGroupName, La
 import { SERIES_COLOR, type DaySeries, type FunnelStep } from '../numbers/chart-kit.ts'
 import { countWords, lastDays, NO_DATA, shareWords, sumDays, TILE_DAYS } from '../numbers/format.ts'
 import { finishedReviewId } from '../review/entry.ts'
+import { needNumbers, rateWords, type NeedNumbers } from '../review/panel/needs.ts'
+import { reviewIdOf } from '#shared/review/ids.ts'
 import { dateLabel, dayName, whenText } from '../routines/words.ts'
 
 /**
@@ -393,6 +395,42 @@ export interface ChangeRow {
   against: string
   tone: ReadinessTone
   why: string
+  /** Whose rate the row leads with: hobkin's own scored run, which YOLO mode merges by, the AI review's, or nobody's. */
+  rateBy: 'hobkin' | 'review' | null
+  /** The AI review's own five numbers and rate, or null when its review has none. */
+  review: NeedNumbers | null
+  /** The AI review's ratings in words, said as the review's, with the commit they were made at. Null with none. */
+  reviewLine: string | null
+}
+
+/** A change's AI review as the host's review list carries it: the commit its row is at, and its ratings as sent. */
+export interface ReviewRatings {
+  head: string | null
+  needs?: unknown
+}
+
+const NO_REVIEWS: ReadonlyMap<string, ReviewRatings> = new Map()
+
+/**
+ * Each waiting change's AI review on a project, by its item, found in the review list by the id its row opens
+ * (`change:<project>:<item>`), so a review of another project or of a pull request of its own is never taken for it.
+ */
+export function reviewsOf({ slug, changes = [] }: YoloProject, listed: readonly ({ id: string } & ReviewRatings)[]): Map<string, ReviewRatings> {
+  const byId = new Map(listed.map((review) => [review.id, review]))
+  const found = new Map<string, ReviewRatings>()
+  for (const { item } of changes) {
+    const review = byId.get(reviewIdOf({ kind: 'change', slug, item }))
+    if (review) found.set(item, { head: review.head, needs: review.needs })
+  }
+  return found
+}
+
+/** The AI review's ratings of a change in a line: its five numbers, its rate and the commit, and what YOLO mode goes by when only it rated. */
+function reviewLineOf(review: NeedNumbers, { head, needs }: ReviewRatings, scored: boolean): string {
+  const numbers = review.numbers.map(({ word, value }) => `${word} ${value}`).join(', ')
+  const rated = sentence(rateWords(needs, head ?? undefined) ?? '')
+  const goesBy = scored ? '' : " YOLO mode goes by hobkin's own scored run, not this one."
+  return `AI review: ${review.other ? `${review.other}: ` : ''}${numbers}. ${rated}${goesBy}`
 }
 
 /** Where a change that passes every rule stands: it merges on the next pass, once its project is ready, or when what holds every merge lets go. */
@@ -406,21 +444,32 @@ function passes(project: YoloProject, holds: string | null): Pick<ChangeRow, 'ag
  * The changes waiting on a project, the ones that pass every rule first, then by rate. `holds` is why nothing merges by itself
  * anywhere or on this project, such as YOLO mode being off, and null when nothing does.
  */
-export function changeRows(project: YoloProject, { rate, holds }: { rate: number; holds: string | null }): ChangeRow[] {
+export function changeRows(
+  project: YoloProject,
+  { rate, holds, reviews = NO_REVIEWS }: { rate: number; holds: string | null; reviews?: ReadonlyMap<string, ReviewRatings> },
+): ChangeRow[] {
   const changes = project.changes ?? []
   const ordered = [...changes.filter(({ why }) => !why), ...changes.filter(({ why }) => why).toSorted((a, b) => (b.rate ?? -1) - (a.rate ?? -1))]
   return ordered.map((change) => {
     const scored = change.rate !== null
+    // The AI review's own ratings, by the change's item, as the review list carries them.
+    const sent = reviews.get(change.item)
+    const review = sent ? needNumbers(sent.needs, sent.head ?? undefined) : null
     const under = scored ? tenths(rate - change.rate!) : 0
-    const asks = { against: !scored ? 'no rate yet' : under > 0 ? `${under} under ${rate}` : `at or above ${rate}`, why: `It asks you: ${sentence(change.why ?? '')}` }
+    const against = scored ? (under > 0 ? `${under} under ${rate}` : `at or above ${rate}`) : review ? 'by the AI review' : 'no rate yet'
+    const asks = { against, why: `It asks you: ${sentence(change.why ?? '')}` }
     return {
       item: change.item,
       title: change.title,
-      kind: change.kind ?? 'no review yet',
-      rate: scored ? String(change.rate) : '–',
-      // The rate's own tone: at or above the user's, under it, or none yet.
+      kind: change.kind ?? (review ? 'not scored by hobkin' : 'no review yet'),
+      // hobkin's own rate leads, since YOLO mode merges by it; the review's leads only a change hobkin has not scored.
+      rate: scored ? String(change.rate) : (review?.rate ?? '–'),
+      rateBy: scored ? 'hobkin' : review ? 'review' : null,
+      // The rate's own tone against the user's: at or above, under, or none of hobkin's yet.
       tone: !scored ? 'quiet' : under > 0 ? 'warn' : 'ok',
       ...(change.why ? asks : passes(project, holds)),
+      review,
+      reviewLine: review && sent ? reviewLineOf(review, sent, scored) : null,
     }
   })
 }

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { FinishedChange, FinishedGroup, FinishedGroupName, YoloChange, YoloMerge, YoloPart, YoloProject, YoloState } from '#shared/protocol/work.ts'
-import { changeOpens, changeRows, inPlace, mergedDays, partGroups, projectOpens, stillToSetUp, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance, yoloReportId, yoloVerdict, type VerdictContext } from '../src/features/work/yolo-page.ts'
+import { changeOpens, changeRows, inPlace, reviewsOf, mergedDays, partGroups, projectOpens, stillToSetUp, readinessRow, sampleReadiness, waitingChange, yoloAtAGlance, yoloReportId, yoloVerdict, type VerdictContext } from '../src/features/work/yolo-page.ts'
 
 const NOW = Date.parse('2026-11-20T15:00:00Z')
 const project = (change: Partial<YoloProject> = {}): YoloProject => ({
@@ -264,4 +264,63 @@ test("a project card's name opens the project's page, and a change next to merge
   // With no host the sample has no review of its own to open, so the change's card on Work opens.
   assert.deepEqual(changeOpens('api', 'b4', false), { to: 'work', target: '[data-change="api:b4"]' })
   assert.deepEqual(changeOpens('bad:slug', 'b4', true), { to: 'work', target: '[data-change="bad:slug:b4"]' })
+})
+
+// The AI review's own answers to the user's five questions, as the host's review list carries them for a change (spec 058).
+const HEAD = 'a'.repeat(40)
+const OLDER = 'b'.repeat(40)
+const reviewed = (item: string, { rate = 8.2, head = HEAD, rowHead = HEAD, watched = true }: { rate?: number | null; head?: string; rowHead?: string; watched?: boolean } = {}) => {
+  const answer = (score: number) => ({ score, evidence: 'What the review saw.' })
+  const scores = { coverage: answer(8), proof: answer(7), safety: answer(9), ...(watched ? { visibility: answer(8) } : {}), rollback: answer(9) }
+  return [item, { head: rowHead, needs: [{ kind: 'bug-fix', scores, ...(rate == null ? {} : { rate }), head, by: 'change-review' }] }] as const
+}
+
+test("a waiting change's row leads with hobkin's own rate when it scored the change, and shows the AI review's numbers beside it as the review's", () => {
+  const changes = [
+    change('Only hobkin', 9.2, null, 'h1'),
+    change('Only the review', null, 'its pull request merges by itself once that is turned on', 'r1'),
+    change('Both', 7.6, 'its general rate is 7.6, under 8', 'b1'),
+    change('Neither', null, 'no review has scored it', 'n1'),
+  ]
+  const reviews = new Map([reviewed('r1', { watched: false, rate: null }), reviewed('b1', { rate: 8.6 })])
+  const rows = Object.fromEntries(changeRows(project({ ...READY, changes }), { rate: 8, holds: null, reviews }).map((row) => [row.item, row]))
+
+  // hobkin's own scored run alone: its rate, and the review's room left empty.
+  assert.deepEqual([rows.h1!.rate, rows.h1!.rateBy, rows.h1!.review, rows.h1!.reviewLine], ['9.2', 'hobkin', null, null])
+
+  // The review alone: its numbers, said as the review's, and that YOLO mode goes by hobkin's own scored run.
+  assert.deepEqual([rows.r1!.rate, rows.r1!.rateBy, rows.r1!.kind, rows.r1!.against], ['–', 'review', 'not scored by hobkin', 'by the AI review'])
+  assert.deepEqual(rows.r1!.review!.numbers.map(({ word, value }) => `${word} ${value}`), ['Cover 8', 'Proof 7', 'Deploy 9', 'Watch not known', 'Undo 9'])
+  assert.equal(rows.r1!.reviewLine, "AI review: Cover 8, Proof 7, Deploy 9, Watch not known, Undo 9. No general rate: monitoring is not known. Rated by the AI review at aaaaaaa. YOLO mode goes by hobkin's own scored run, not this one.")
+
+  // Both: hobkin's rate leads, since YOLO mode merges by it, and the review's numbers and rate show beside it.
+  assert.deepEqual([rows.b1!.rate, rows.b1!.rateBy, rows.b1!.against], ['7.6', 'hobkin', '0.4 under 8'])
+  assert.equal(rows.b1!.reviewLine, 'AI review: Cover 8, Proof 7, Deploy 9, Watch 8, Undo 9. Rate 8.6, rated by the AI review at aaaaaaa.')
+
+  // Neither: no rate, and the room left empty.
+  assert.deepEqual([rows.n1!.rate, rows.n1!.rateBy, rows.n1!.review, rows.n1!.reviewLine], ['–', null, null, null])
+})
+
+test('the review\'s own rate leads a row hobkin has not scored, and ratings made at an older commit say so first', () => {
+  const changes = [change('Only the review', null, 'no review has scored it', 'r2'), change('Older', 9, null, 'o1')]
+  const reviews = new Map([reviewed('r2', { rate: 8.4 }), reviewed('o1', { rate: 8.8, head: OLDER, rowHead: HEAD })])
+  const rows = Object.fromEntries(changeRows(project({ ...READY, changes }), { rate: 8, holds: null, reviews }).map((row) => [row.item, row]))
+
+  assert.deepEqual([rows.r2!.rate, rows.r2!.rateBy, rows.r2!.tone], ['8.4', 'review', 'quiet'])
+  assert.equal(rows.o1!.review!.other, 'Rated at bbbbbbb, an older commit than the change is at now')
+  assert.equal(rows.o1!.reviewLine, 'AI review: Rated at bbbbbbb, an older commit than the change is at now: Cover 8, Proof 7, Deploy 9, Watch 8, Undo 9. Rate 8.8, rated by the AI review at bbbbbbb.')
+})
+
+test('a change finds its AI review in the review list by the id its row opens, and only its own', () => {
+  const shown = project({ slug: 'api', changes: [change('Fix login', 9, null, 'b4'), change('Fix logout', null, null, 'c5')] })
+  const listed = [
+    { id: 'change:api:b4', head: HEAD, needs: [] },
+    { id: 'change:web:c5', head: HEAD, needs: [] },
+    { id: 'pr:acme/api/7', head: HEAD, needs: [] },
+  ]
+
+  const found = reviewsOf(shown, listed)
+
+  assert.deepEqual([...found.keys()], ['b4'])
+  assert.equal(found.get('b4')?.head, HEAD)
 })
