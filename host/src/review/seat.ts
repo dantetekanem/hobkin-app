@@ -30,7 +30,7 @@ import { reviewModelChecks } from './model-checks.ts'
 import { monitoringLines } from './ratings.ts'
 import { carryReview } from './carry.ts'
 import { recordUsage } from './usage.ts'
-import { cleanUp } from './cleanup.ts'
+import { cleanUp, READ_KEPT_MS, type CleanUp } from './cleanup.ts'
 import { chatTeller } from './notify.ts'
 import type { WhoIsMe } from './owner.ts'
 import { peopleFinder, pullPeople } from './people.ts'
@@ -299,7 +299,8 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     const item = readItems(seat.data(), target.slug).find((entry) => entry.id === target.item)
     return !item || CLOSED.includes(item.state)
   }
-  if (seat.live) keepCleaning(seat, closed)
+  // The review at each change's commit stays whole, and one in use is left; `reviews` is made below, before any run.
+  if (seat.live) keepCleaning(seat, closed, { headOf: (target) => (target.kind === 'change' ? (find(target.slug, target.item)?.head ?? null) : null), readRecently: (target) => reviews.inUse(target, READ_KEPT_MS) })
   const reviews: Reviews = new Reviews({
     ...(assessments ? { assessments } : {}),
     // Off for now: a check found reviews carried when they should have been built again (spec 058, S2).
@@ -418,11 +419,15 @@ const cleaning = ((globalThis as { __hobkinReviewCleaning?: Map<string, { first:
  * Cleans up the home's reviews a minute after the host starts and once a day after (spec 058, A9), saying in the log
  * what each run removed. A run that fails says why and removes nothing more: reviews go on as they are.
  */
-function keepCleaning(seat: { root: string; log?: (line: string) => void }, closed: (target: Extract<ReviewTarget, { kind: 'change' }>) => boolean) {
+function keepCleaning(
+  seat: { root: string; log?: (line: string) => void },
+  closed: (target: Extract<ReviewTarget, { kind: 'change' }>) => boolean,
+  { headOf, readRecently }: Pick<CleanUp, 'headOf' | 'readRecently'>,
+) {
   const run = () => {
     try {
       // Only a look for now: it removes nothing until the rules were checked against a real home (spec 058, S4).
-      const named = cleanUp({ root: seat.root, now: Date.now(), closed: (target) => target.kind === 'change' && closed(target), look: CLEAN_LOOKS_ONLY })
+      const named = cleanUp({ root: seat.root, now: Date.now(), closed: (target) => target.kind === 'change' && closed(target), ...(headOf ? { headOf } : {}), ...(readRecently ? { readRecently } : {}), look: CLEAN_LOOKS_ONLY })
       if (named.length) seat.log?.(`Reviews: cleaning up ${CLEAN_LOOKS_ONLY ? 'would remove' : 'removed'} ${named.length} files the home no longer needs: ${named.join(', ')}`)
     } catch (error) {
       seat.log?.(`Reviews: cleaning up failed, so nothing more was removed: ${error instanceof Error ? error.message : String(error)}`)

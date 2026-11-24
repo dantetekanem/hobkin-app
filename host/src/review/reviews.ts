@@ -480,6 +480,8 @@ export class Reviews {
   private readonly againAt = new Map<string, number>()
   /** How many reviews the background built by itself on the local day it names. */
   private dayCount: { day: string; built: number } | null = null
+  /** When each review was last opened or had a file read, by this host's clock. */
+  private readonly readAt = new Map<string, number>()
   private readonly controller = new AbortController()
   private working = false
   /** When each review last asked where its change is now. */
@@ -1157,8 +1159,19 @@ export class Reviews {
     return assessments.present(target, review, files) ?? { ...review, story: review.story.filter((step) => step.kind !== 'walk').map(({ travel: _travel, ...step }) => step) }
   }
 
+  /**
+   * Whether a review is in use: opened or read within `withinMs`, being prepared, or being carried now. Cleaning up
+   * leaves such a review whole.
+   */
+  inUse(target: ReviewTarget, withinMs: number): boolean {
+    const id = reviewIdOf(target)
+    const read = this.readAt.get(id)
+    return (read != null && this.now() - read < withinMs) || this.preparing(id) || this.carrying.has(id)
+  }
+
   /** The prepared review as the user reads it, with the reviewer's notes. */
   get(id: string): OpenedReview {
+    this.readAt.set(id, this.now())
     const prepared = this.loaded(id)
     const { review } = prepared
     // Opening a review is when its change is looked up: a pull request on its host, a finished change's branch in git.
@@ -1177,6 +1190,7 @@ export class Reviews {
 
   /** Both sides of one file of a prepared review. */
   file(id: string, fileId: string): ReviewFileContents {
+    this.readAt.set(id, this.now())
     const { files, review } = this.loaded(id)
     // A test file the change review found joins the review as it is shown, read at its commit.
     const file = files.find((entry) => entry.fileId === fileId) ?? this.options.assessments?.shownFile(this.target(id), review.change.head, fileId)

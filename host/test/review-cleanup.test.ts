@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { existsSync, mkdirSync, utimesSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
+import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { cleanUp } from '../src/review/cleanup.ts'
@@ -26,13 +27,15 @@ function home(t: TestContext, heads: number, { ageDays = 0, folder = 'change+sho
     // Older heads are older files: head 1 the oldest.
     const old = ageDays + (heads - index)
     for (const kind of ['review', 'files', 'meta']) write(join(reviews, `${kind}-${head(index)}.json`), '{}', old)
-    for (const name of ['summary.json', 'progress.json', 'graph.json', 'units.json', 'story.md', 'risk-events.jsonl', 'usage.json']) write(join(reviews, 'change-review', head(index), name), '{}', old)
+    // Built in that order: its summary says when it finished.
+    write(join(reviews, 'change-review', head(index), 'summary.json'), JSON.stringify({ at: new Date(NOW - old * DAY).toISOString() }), old)
+    for (const name of ['progress.json', 'graph.json', 'units.json', 'story.md', 'risk-events.jsonl', 'usage.json']) write(join(reviews, 'change-review', head(index), name), '{}', old)
   }
   for (const name of ['notes.json', 'landed.json', 'risk-fix.json', 'merge-asked.json']) write(join(reviews, name))
   return { root, reviews }
 }
 
-test('older heads keep their summary and progress and lose the rest', (t) => {
+test('older heads keep their summary, their progress and their usage, and lose the rest', (t) => {
   const { root, reviews } = home(t, 4)
 
   const removed = cleanUp({ root, now: NOW, closed: () => false })
@@ -44,10 +47,10 @@ test('older heads keep their summary and progress and lose the rest', (t) => {
   for (const index of [1, 2]) {
     assert.ok(!existsSync(join(reviews, `review-${head(index)}.json`)) && !existsSync(join(reviews, `files-${head(index)}.json`)), `head ${index} loses its review`)
     assert.ok(!existsSync(join(reviews, 'change-review', head(index), 'graph.json')))
-    assert.ok(existsSync(join(reviews, 'change-review', head(index), 'summary.json')) && existsSync(join(reviews, 'change-review', head(index), 'progress.json')))
+    for (const name of ['summary.json', 'progress.json', 'usage.json']) assert.ok(existsSync(join(reviews, 'change-review', head(index), name)), `head ${index} keeps ${name}`)
   }
   assert.ok(existsSync(join(reviews, 'notes.json')))
-  assert.equal(removed.length, 2 * (3 + 5))
+  assert.equal(removed.length, 2 * (3 + 4))
   assert.deepEqual(cleanUp({ root, now: NOW, closed: () => false }), [], 'a second run removes nothing more')
 })
 
@@ -56,7 +59,7 @@ test('a look names what cleaning up would remove and removes nothing', (t) => {
 
   const named = cleanUp({ root, now: NOW, closed: () => false, look: true })
 
-  assert.equal(named.length, 2 * (3 + 5), 'the same files a real run removes')
+  assert.equal(named.length, 2 * (3 + 4), 'the same files a real run removes')
   for (const index of [1, 2, 3, 4]) {
     assert.ok(existsSync(join(reviews, `review-${head(index)}.json`)), `head ${index} is still whole`)
     assert.ok(existsSync(join(reviews, 'change-review', head(index), 'graph.json')))
@@ -111,4 +114,65 @@ test('a change hobkin closed without a merge is no row of the list', (t) => {
   t.after(() => reviews.close())
 
   assert.deepEqual(reviews.list().reviews, [])
+})
+
+test('cleaning never follows a link, never leaves the home, and leaves what it does not know', (t) => {
+  const { root, reviews } = home(t, 3)
+  const outside = temporaryDirectory(t)
+  writeFileSync(join(outside, 'review-111111111111.json'), 'precious')
+  writeFileSync(join(outside, 'graph.json'), 'precious')
+  // A target folder that is a link, and a link inside a change review, both to a folder outside the home.
+  symlinkSync(outside, join(root, 'client', 'reviews', 'change+shop+a7'))
+  rmSync(join(reviews, 'change-review', head(1), 'graph.json'))
+  symlinkSync(join(outside, 'graph.json'), join(reviews, 'change-review', head(1), 'graph.json'))
+  writeFileSync(join(reviews, 'change-review', head(1), 'notes-of-mine.txt'), 'kept')
+
+  cleanUp({ root, now: NOW, closed: () => false })
+
+  assert.deepEqual([readFileSync(join(outside, 'review-111111111111.json'), 'utf8'), readFileSync(join(outside, 'graph.json'), 'utf8')], ['precious', 'precious'])
+  assert.ok(lstatSync(join(reviews, 'change-review', head(1), 'graph.json')).isSymbolicLink(), 'the link itself is left too')
+  assert.ok(existsSync(join(reviews, 'change-review', head(1), 'notes-of-mine.txt')))
+})
+
+test('a broken tree is only one the host renamed, and one git still has goes through git', (t) => {
+  const root = temporaryDirectory(t)
+  const trees = join(root, 'client', 'review-trees')
+  mkdirSync(trees, { recursive: true })
+  const repo = join(temporaryDirectory(t), 'repo')
+  mkdirSync(repo)
+  const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
+  git('init', '--quiet', '--initial-branch=main')
+  writeFileSync(join(repo, 'a.txt'), 'a\n')
+  git('add', '.')
+  git('commit', '--quiet', '-m', 'Start')
+  const broken = join(trees, 'shop-broken-2026-11-10T10-00-00-000Z')
+  git('worktree', 'add', '--quiet', '--detach', broken, 'HEAD')
+  // Live trees whose names only hold the words, and a broken one of no git.
+  for (const name of ['fix-broken-links', 'pr+acme+my-broken-app']) git('worktree', 'add', '--quiet', '--detach', join(trees, name), 'HEAD')
+  mkdirSync(join(trees, 'blog-broken-2026-11-01T10-00-00-000Z'))
+
+  const removed = cleanUp({ root, now: NOW, closed: () => false })
+
+  assert.deepEqual(removed.sort(), [join(trees, 'blog-broken-2026-11-01T10-00-00-000Z'), broken].sort())
+  const listed = git('worktree', 'list', '--porcelain')
+  assert.ok(!listed.includes('shop-broken-'), 'git no longer has it')
+  for (const name of ['fix-broken-links', 'pr+acme+my-broken-app']) assert.ok(existsSync(join(trees, name)) && listed.includes(name), name)
+})
+
+test("the review at the change's commit is kept whole whatever the times, then the newest built; one being built or read in the last day is left", (t) => {
+  const { root, reviews } = home(t, 4)
+  // Head 1, the oldest built, is where the change is now; head 2 is under way, with progress and no summary yet.
+  rmSync(join(reviews, 'change-review', head(2), 'summary.json'))
+  // An older folder holds a newer file: times on disk say nothing of when each was built.
+  utimesSync(join(reviews, 'change-review', head(1), 'units.json'), NOW / 1000, NOW / 1000)
+
+  cleanUp({ root, now: NOW, closed: () => false, headOf: () => `${head(1)}${'0'.repeat(28)}` })
+
+  assert.ok(existsSync(join(reviews, `review-${head(1)}.json`)), 'at the change\'s commit')
+  assert.ok(existsSync(join(reviews, `review-${head(2)}.json`)), 'being built')
+  assert.ok(existsSync(join(reviews, `review-${head(4)}.json`)), 'the newest built')
+  assert.ok(!existsSync(join(reviews, `review-${head(3)}.json`)))
+
+  const read = home(t, 4)
+  assert.deepEqual(cleanUp({ root: read.root, now: NOW, closed: () => false, readRecently: () => true }), [], 'read in the last day: left whole')
 })
