@@ -38,7 +38,7 @@ const allReady = () => ({
  * checks, the signed-in user, and a merge that records how it was asked for. Nothing reaches a real host.
  */
 function codeHost({ number, branch, head }) {
-  const url = `https://example.com/pull/${number}`;
+  const url = `https://github.invalid/the-user/api/pull/${number}`;
   const host = {
     url,
     calls: [],
@@ -64,11 +64,22 @@ function codeHost({ number, branch, head }) {
     // A merge call that ends well and leaves the pull request open with auto-merge on, as gh does on a branch that asks for a merge queue.
     queues: false,
     undoError: null,
+    // The checks the default branch requires, by its protection and by its rulesets, or null when the host will not say.
+    protection: ['test'],
+    rules: [],
   };
   host.gh = async args => {
     host.calls.push(args);
     const [group, verb] = args;
     if (group === 'api' && verb === 'user') return `${host.login}\n`;
+    if (group === 'api' && args.at(-1) === 'repos/the-user/api/branches/main') {
+      if (!host.protection) throw Object.assign(Error('failed'), { stderr: 'HTTP 403: Resource not accessible' });
+      return JSON.stringify({ name: 'main', protected: true, protection: { required_status_checks: { contexts: host.protection, checks: [] } } });
+    }
+    if (group === 'api' && args.at(-1) === 'repos/the-user/api/rules/branches/main') {
+      if (!host.rules) throw Object.assign(Error('failed'), { stderr: 'HTTP 403: Resource not accessible' });
+      return JSON.stringify(host.rules.length ? [{ type: 'required_status_checks', parameters: { required_status_checks: host.rules.map(context => ({ context })) } }] : []);
+    }
     if (group === 'pr' && verb === 'list') {
       const { headRefOid, isDraft, reviewDecision, statusCheckRollup, mergeable } = host.view;
       return JSON.stringify([pull(number, { url, headRefName: branch, headRefOid, isDraft, reviewDecision, statusCheckRollup, mergeable })]);
@@ -163,7 +174,7 @@ test('a pull request of hobkin\'s own that meets every rule merges by itself on 
   assert.ok(lines.includes(`YOLO mode merged "Fix login" on api by itself, through its pull request ${change.host.url} on the code host: a bug fix rated 10, at ${change.head.slice(0, 7)}. Its deploy is with the main agent.`), lines.join('\n'));
   assert.equal(handed.length, 1);
   assert.equal(handed[0].commit, MERGE_COMMIT);
-  assert.match(handed[0].asked, /^YOLO mode merged its pull request https:\/\/example\.com\/pull\/7 by itself on the code host, so the default branch there is at f{40}\. Fetch it first\./);
+  assert.match(handed[0].asked, /^YOLO mode merged its pull request https:\/\/github\.invalid\/the-user\/api\/pull\/7 by itself on the code host, so the default branch there is at f{40}\. Fetch it first\./);
   assert.match(handed[0].asked, /Deploy exactly that commit by the project's recorded path: bin\/deploy from main/);
 });
 
@@ -174,6 +185,7 @@ test('a pull request whose checks have not all passed at its commit keeps asking
   await survey(h, host.gh);
   const pass = () => yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
 
+  host.view.statusCheckRollup = [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }, { name: 'lint', status: 'COMPLETED', conclusion: 'SUCCESS' }];
   for (const [bucket, word] of [['pending', 'pending'], ['fail', 'failed'], ['skipping', 'skipped'], ['cancel', 'cancelled']]) {
     host.required = [{ name: 'test', bucket }, { name: 'lint', bucket: 'pass' }];
     assert.deepEqual(await pass(), [], bucket);
@@ -182,6 +194,7 @@ test('a pull request whose checks have not all passed at its commit keeps asking
 
   // With no check marked required, every check counts, and a skipped one is no pass.
   host.required = [];
+  host.protection = [];
   host.checksError = Object.assign(Error('Command failed'), { stderr: "no required checks reported on the 'hobkin/fix-login' branch" });
   host.view.statusCheckRollup = [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }, { name: 'deploy', status: 'COMPLETED', conclusion: 'SKIPPED' }];
   assert.deepEqual(await pass(), []);
@@ -422,4 +435,42 @@ test('the change rules read the commit the pull request holds, not a local branc
   assert.deepEqual(await pass(), []);
   assert.equal(whyOf(h, change), 'its pull request\'s head aaaaaaa is not in this repository, so its files cannot be read, and hobkin fetches nothing');
   assert.deepEqual(host.merges(), []);
+});
+
+test('a required check that never reported, or that ended neutral, is no pass, even when the host calls the pull request clean to merge', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  await survey(h, host.gh);
+  const pass = () => yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
+
+  // Required by a ruleset gh pr checks --required does not see, and never reported at this head.
+  host.rules = ['deploy-preview'];
+  assert.deepEqual(await pass(), []);
+  assert.equal(whyOf(h, change), 'its pull request\'s checks have not all passed at this commit: deploy-preview (missing)');
+
+  host.rules = [];
+  host.view.statusCheckRollup = [{ name: 'test', status: 'COMPLETED', conclusion: 'NEUTRAL' }];
+  assert.deepEqual(await pass(), []);
+  assert.equal(whyOf(h, change), 'its pull request\'s checks have not all passed at this commit: test (neutral)');
+  assert.deepEqual(host.merges(), []);
+});
+
+test('when the host will not list the required checks, YOLO mode merges only on its own clean state and says it relied on it', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  host.protection = null;
+  await survey(h, host.gh);
+  const pass = () => yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
+
+  host.view.mergeStateStatus = 'BLOCKED';
+  assert.deepEqual(await pass(), []);
+  assert.equal(whyOf(h, change), 'branch protection blocks its pull request. hobkin could not list the checks its branch requires, so it relied on the host\'s own state');
+
+  host.view.mergeStateStatus = 'CLEAN';
+  const [merged] = await pass();
+  assert.equal(merged.checks, 'not listed');
+  const line = clientNoticesToPost(h.root).map(({ line: said }) => said).find(said => said.startsWith('YOLO mode merged'));
+  assert.match(line, /hobkin could not list the checks its branch requires, so it relied on the host's own state\./);
 });

@@ -80,10 +80,12 @@ const parsed = text => {
   }
 };
 
-// A check run says its conclusion once it completed, and a status its state. Only a success or a neutral end is a pass.
+// A check run says its conclusion once it completed, and a status its state. Only a success is a pass: a neutral end is not one until the user
+// says otherwise.
 function checkWord({ conclusion, state, status }) {
   const result = String(conclusion || state || status || '').toUpperCase();
-  if (['SUCCESS', 'NEUTRAL'].includes(result)) return null;
+  if (result === 'SUCCESS') return null;
+  if (result === 'NEUTRAL') return 'neutral';
   if (result === 'SKIPPED') return 'skipped';
   if (result === 'STALE') return 'stale';
   return /FAIL|ERROR|CANCEL|TIMED_OUT|ACTION_REQUIRED/.test(result) ? 'failed' : 'pending';
@@ -105,23 +107,57 @@ async function requiredChecks(gh, url, repo) {
   }
 }
 
-/**
- * Every check at the pull request's head that has not passed. A required check passes only as a pass: pending, failed, skipped or cancelled is
- * not one. Any other check that failed, waits or is stale holds it too, and with no check marked required every check counts as one.
- */
-function notPassed(rollup, required) {
-  const saidOf = check => `${checkName(check)} (${checkWord(check)})`;
-  if (!required.length) return [...new Set(rollup.filter(check => checkWord(check)).map(saidOf))];
+/** Where a pull request lives, from its address: its host, owner and repository, or null for an address of another shape. */
+function repositoryOf(url) {
+  const found = /^https:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/\d+$/.exec(String(url));
+  return found ? { host: found[1], owner: found[2], name: found[3] } : null;
+}
 
-  const requiredNames = new Set(required.map(({ name }) => name));
-  const requiredNotPassed = required
+/**
+ * The names of the checks the default branch requires, by its branch protection and by its rulesets, read with the user's own access, or null
+ * when either cannot be read. gh pr checks --required leaves out a required check that never reported, so these are read apart.
+ */
+async function requiredContexts(gh, url, base, repo) {
+  const where = repositoryOf(url);
+  if (!where) return null;
+  const api = path => gh(['api', '--hostname', where.host, path], repo).then(parsed, () => null);
+  const [branch, rules] = await Promise.all([
+    api(`repos/${where.owner}/${where.name}/branches/${base}`),
+    api(`repos/${where.owner}/${where.name}/rules/branches/${base}`),
+  ]);
+  if (!branch?.name || !Array.isArray(rules)) return null;
+  const protection = branch.protection?.required_status_checks ?? {};
+  const protectedNames = [...(protection.contexts ?? []), ...(protection.checks ?? []).map(({ context }) => context)];
+  const ruleNames = rules
+    .filter(({ type }) => type === 'required_status_checks')
+    .flatMap(({ parameters }) => (parameters?.required_status_checks ?? []).map(({ context }) => context));
+  return [...new Set([...protectedNames, ...ruleNames].filter(Boolean))];
+}
+
+/**
+ * Every check at the pull request's head that has not passed. A required check, by gh or by the branch's protection and rulesets, passes only
+ * when each run of it reported a success: missing, pending, failed, skipped, cancelled or neutral is not one. Any other check that did not
+ * succeed holds it too, but for a skipped one, and with no check required every check counts as one.
+ */
+function notPassed(rollup, required, listed) {
+  const saidOf = check => `${checkName(check)} (${checkWord(check)})`;
+  const requiredNames = new Set([...required.map(({ name }) => name), ...listed]);
+  if (!requiredNames.size) return [...new Set(rollup.filter(check => checkWord(check)).map(saidOf))];
+
+  const bucketsNotPassed = required
     .filter(({ bucket }) => bucket !== 'pass')
     .map(({ name, bucket }) => `${name} (${bucketWords[bucket] ?? bucket})`);
+  const requiredNotPassed = [...requiredNames].flatMap(name => {
+    const runs = rollup.filter(check => checkName(check) === name);
+    return runs.length ? runs.filter(check => checkWord(check)).map(saidOf) : [`${name} (missing)`];
+  });
   const othersHolding = rollup
     .filter(check => !requiredNames.has(checkName(check)) && !['skipped', null].includes(checkWord(check)))
     .map(saidOf);
-  return [...new Set([...requiredNotPassed, ...othersHolding])];
+  return [...new Set([...bucketsNotPassed, ...requiredNotPassed, ...othersHolding])];
 }
+
+const UNLISTED = 'hobkin could not list the checks its branch requires, so it relied on the host\'s own state';
 
 /** The signed-in user on the code host, whose pull requests hobkin opens, or null when it cannot be read. */
 export async function signedInUser(gh, repo) {
@@ -132,7 +168,10 @@ export async function signedInUser(gh, repo) {
   }
 }
 
-/** Why the pull request, read again from the code host now, keeps the change asking, or null when it may merge. Checked in this order. */
+/**
+ * Why the pull request, read again from the code host now, keeps the change asking, as a sentence, or null when it may merge, or `{ relied }`
+ * when it may merge on the host's own clean state alone, since the checks its branch requires could not be listed. Checked in this order.
+ */
 export async function pullHolds({ gh, repo, item, unit, user }) {
   const view = await gh(['pr', 'view', unit.url, '--json', VIEW_FIELDS], repo).then(parsed, () => null);
   if (!view?.state) return 'its pull request could not be read, so nothing merges';
@@ -152,11 +191,15 @@ export async function pullHolds({ gh, repo, item, unit, user }) {
 
   const rollup = Array.isArray(view.statusCheckRollup) ? view.statusCheckRollup : [];
   if (!rollup.length) return 'its pull request has no checks at this commit';
-  const required = await requiredChecks(gh, item.pr, repo);
+  const required = await requiredChecks(gh, unit.url, repo);
   if (!required) return 'its pull request\'s checks could not be read, so nothing merges';
-  const failing = notPassed(rollup, required);
-  if (failing.length) return `its pull request's checks have not all passed at this commit: ${failing.join(', ')}`;
-  if (view.mergeStateStatus !== 'CLEAN') return mergeStateWords[view.mergeStateStatus] ?? `the code host says its pull request is ${String(view.mergeStateStatus).toLowerCase()}, not clean to merge`;
+  const listed = await requiredContexts(gh, unit.url, base, repo);
+  // Where the branch's own list cannot be read, the host's clean state is all that says a required check reported.
+  const relied = said => (listed ? said : `${said}. ${UNLISTED}`);
+  const failing = notPassed(rollup, required, listed ?? []);
+  if (failing.length) return relied(`its pull request's checks have not all passed at this commit: ${failing.join(', ')}`);
+  if (view.mergeStateStatus !== 'CLEAN') return relied(mergeStateWords[view.mergeStateStatus] ?? `the code host says its pull request is ${String(view.mergeStateStatus).toLowerCase()}, not clean to merge`);
+  if (!listed) return { relied: UNLISTED };
   return null;
 }
 
@@ -200,11 +243,12 @@ export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
   if (item.yoloPull?.head === unit.sha && item.yoloPull.tried) return null;
   const project = readProject(root, row.slug);
   const repo = project.path ?? paths(root, row.slug).clone;
-  const why = await pullHolds({ gh, repo, item, unit, user: await user() });
-  if (why) {
-    noteWhy(root, row.slug, item, unit.sha, why, now);
+  const held = await pullHolds({ gh, repo, item, unit, user: await user() });
+  if (typeof held === 'string') {
+    noteWhy(root, row.slug, item, unit.sha, held, now);
     return null;
   }
+  const relied = held?.relied ?? null;
 
   try {
     await mergePullRequest(root, row.slug, item.id, { head: unit.sha, gh, now });
@@ -219,5 +263,5 @@ export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
   if (merged?.state !== 'merged' || !merged.landed?.sha) return null;
   // It merged on YOLO mode's word, not the user's.
   updateItem(root, row.slug, item.id, { landed: { ...merged.landed, route: 'yolo' } }, now);
-  return { target: merged.landed.sha, pr: item.pr };
+  return { target: merged.landed.sha, pr: item.pr, ...(relied ? { relied } : {}) };
 }

@@ -163,8 +163,11 @@ export function deployOf({ parts: { deploy } }, handOff) {
   return handOff ? 'handed on' : 'not handed on';
 }
 
-/** `pr` is the pull request it merged through on the code host, and null for a local merge. */
-function report(root, { project, item, head, target, pr = null, readiness, handOff, now }) {
+/**
+ * `pr` is the pull request it merged through on the code host, and null for a local merge. `relied` says the checks its branch requires could
+ * not be listed, so the merge stood on the host's own clean state alone.
+ */
+function report(root, { project, item, head, target, pr = null, relied = null, readiness, handOff, now }) {
   const { kind, rate, scores } = scoresOf(item.review);
   const deploy = deployOf(readiness, handOff);
   const merged = {
@@ -175,6 +178,7 @@ function report(root, { project, item, head, target, pr = null, readiness, handO
     head,
     target,
     ...(pr ? { pr } : {}),
+    ...(relied ? { checks: 'not listed' } : {}),
     kind,
     rate,
     scores: Object.fromEntries(CRITERIA.map(criterion => [criterion, scores[criterion].score])),
@@ -184,7 +188,8 @@ function report(root, { project, item, head, target, pr = null, readiness, handO
   appendFileSync(ledgerPath(root), `${JSON.stringify(merged)}\n`, { mode: 0o600 });
 
   const how = pr ? `by itself, through its pull request ${pr} on the code host` : 'by itself';
-  const line = `YOLO mode merged "${item.title}" on ${nameOf(project)} ${how}: ${kindWords[kind]} rated ${rate}, at ${head.slice(0, SHORT_SHA)}. ${deployWords[deploy]}`;
+  const checks = relied ? ` ${relied}.` : '';
+  const line = `YOLO mode merged "${item.title}" on ${nameOf(project)} ${how}: ${kindWords[kind]} rated ${rate}, at ${head.slice(0, SHORT_SHA)}. ${deployWords[deploy]}${checks}`;
   postClientNotice(root, { key: `yolo:${project.slug}:${item.id}`, line, tone: 'useful' }, now);
   if (deploy === 'handed on') {
     // Its deploy is this mode's own, so the pass after merges asks nothing about it, and its issue waits for that deploy's reading.
@@ -277,7 +282,8 @@ export async function yoloPass(root, { now = Date.now(), handOff, gh = defaultPu
     mergedOn.add(row.slug);
     const { project, readiness } = asked;
     const known = Boolean(landed.target);
-    reports.push(report(root, { project, item, head: unit.sha, target: landed.target ?? unit.sha, pr: landed.pr, readiness, handOff: known ? handOff : undefined, now }));
+    const { pr = null, relied = null } = landed;
+    reports.push(report(root, { project, item, head: unit.sha, target: landed.target ?? unit.sha, pr, relied, readiness, handOff: known ? handOff : undefined, now }));
   }
   return reports;
 }
