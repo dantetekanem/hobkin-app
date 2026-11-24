@@ -24,20 +24,12 @@ export interface MemoryOperations {
 }
 
 /**
- * hobkin's functions for the window's Memory page. A hobkin from before has no such file, so it is looked up when a
- * command asks for it rather than resolved ahead.
+ * hobkin's functions for the window's Memory page (its `memory-window.mjs`), on the home's data in `root`. They are
+ * imported when a command asks: in a hobkin from before, which has no such file, the import throws, and the handlers
+ * answer that this hobkin has no memory yet.
  */
-const WINDOW_SURFACE = 'hobkin/src/cli/memory-window.mjs'
-
-type Method = (...args: unknown[]) => unknown
-
-const isMethod = (value: unknown): value is Method => typeof value === 'function'
-
-/** hobkin's memory functions for the home's data in `root`, or nothing from a hobkin that has none or lacks one of them. */
-export async function memoryOperationsAt(root: string): Promise<MemoryOperations | null> {
-  const surface = (await import(WINDOW_SURFACE)) as Record<string, unknown>
-  const { memoryList, memorySave, memoryForget, memoryUndo, memoryNowChange } = surface
-  if (!isMethod(memoryList) || !isMethod(memorySave) || !isMethod(memoryForget) || !isMethod(memoryUndo) || !isMethod(memoryNowChange)) return null
+export async function memoryOperationsAt(root: string): Promise<MemoryOperations> {
+  const { memoryList, memorySave, memoryForget, memoryUndo, memoryNowChange } = await import('hobkin/src/cli/memory-window.mjs')
   return {
     list: () => memoryList(root),
     save: (memory) => memorySave(root, memory),
