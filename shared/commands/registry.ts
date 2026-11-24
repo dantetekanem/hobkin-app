@@ -35,7 +35,7 @@ import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import type { ProofRun } from '../protocol/proofs.ts'
 import { METRICS_DAYS_MAX, type WorkMetrics } from '../protocol/metrics.ts'
 import type { ActivityEntry } from '../protocol/activity.ts'
-import { GRADES, ISSUE_PICKUPS, PR_MODES, REVIEW_PULLS, type Workload } from '../protocol/work.ts'
+import { GRADES, ISSUE_PICKUPS, PR_MODES, PROJECT_KINDS, REVIEW_PULLS, type FolderLook, type FolderPicked, type NewProjectDone, type Workload } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
 import { EFFORTS, TIER_IDS, type HostTiers } from '../tiers/tiers.ts'
@@ -1028,6 +1028,26 @@ export const COMMANDS = {
       [priority, prs, issues, paused].filter((setting) => setting !== undefined).length === 1 ? null : 'need "priority", "prs", "issues" or "paused", and only one of them',
     hobkin: true,
   },
+  'work.project.look': {
+    description:
+      "Read what is at a folder the user may add as a project, as New project does while they type: whether it is a folder, a file or nothing, whether it holds a git repository of its own, the name the project would get, the project work mode already has for that very folder and any other project under its name. `folder` is a typed path, with `~` for home. It only reads.",
+    runs: 'host',
+    args: Type.Object({ folder: words(4096) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'work.project.new': {
+    description:
+      "Add a project to work mode as the user's own add, at hobkin's level for a project added by hand. `kind` is `code` (a folder with a git repository of its own) or `goal` (any folder, worked in place toward the user's words). `wants` is what the user wants from it, written to the project's directions; a goal needs it. A folder work mode already has, another project by its name, and code in a folder with no repository are refused in words. It starts nothing by itself.",
+    runs: 'host',
+    args: Type.Object({ folder: words(4096), kind: oneOf(PROJECT_KINDS), wants: Type.Optional(Type.String({ maxLength: 20000 })) }, { additionalProperties: false }),
+    rule: ({ kind, wants }) => (kind === 'goal' && !(typeof wants === 'string' && wants.trim()) ? 'a goal needs "wants", the words it works toward' : null),
+    hobkin: true,
+  },
+  'work.folder.pick': {
+    description: "Show the Mac's own folder chooser and answer with the folder picked, or with none when it was closed. It shows a window on the user's screen, so only the window sends it.",
+    runs: 'host',
+    args: nothing,
+  },
   'work.proposal': {
     description:
       "Answer a project hobkin proposed, as y and n do in the terminal: `take` chooses it at the level hobkin proposed, so its work joins the queue, and `skip` leaves it alone. A project left alone is taken again with `take`.",
@@ -1544,6 +1564,10 @@ export interface CommandResults {
   /** What hobkin said, when it says something: `now` says whether the row started or what still holds it. */
   'work.queue': { ok: true; message?: string }
   'work.project': { ok: true }
+  'work.project.look': FolderLook
+  'work.project.new': NewProjectDone
+  /** The folder picked, or null when the chooser was closed. */
+  'work.folder.pick': FolderPicked
   'work.proposal': { ok: true }
   /** How many work agents may run at once now. */
   'work.agents': { agents: number }
