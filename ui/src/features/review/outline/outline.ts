@@ -6,7 +6,6 @@
  * the way in too. Pure, so what it lists and how it filters can be tested without drawing it.
  */
 import type { NodeKind, Review, ReviewNode } from '#shared/review/types.ts'
-import { zoneWords } from '../graph/zones.ts'
 import type { ReviewView } from '../state/memory.ts'
 
 /** What the outline lists by: what needs the reviewer, or the zones of the graph. */
