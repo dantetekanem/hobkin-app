@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { IssueWork } from '#shared/protocol/github.ts'
-import { CLOSE_CONFIRM_MS, closeIssueAs, closeWarning, createIssueClose, SAMPLE_CLOSE, type CloseCommand, type CloseReason } from '../../../ui/src/features/github/issue-close.ts'
+import { CLOSE_CONFIRM_MS, closeIssueAs, closeWarning, createIssueClose, SAMPLE_CLOSE, type CloseCommand, type CloseReason } from '../window/issue-close.ts'
 
 // Close issue on the GitHub page: the same two clicks as a verdict in Review, the first arming it for ten seconds and the second closing it,
 // with Completed or Not planned as the reason. A stand-in plays the host here, so nothing reaches GitHub.
@@ -29,7 +29,7 @@ test('one click only arms Close issue; a second within ten seconds closes it, as
 
   assert.equal(CLOSE_CONFIRM_MS, 10_000)
   assert.deepEqual(asked, ['completed'])
-  assert.deepEqual(flow.getState(), { armed: false, reason: 'completed', busy: false, said: { tone: 'done', text: 'Closed as completed.' } })
+  assert.deepEqual(flow.getState(), { armed: false, choice: 'completed', busy: false, said: { tone: 'done', text: 'Closed as completed.' } })
 })
 
 test('left alone it goes back after ten seconds, and the next click only arms it again', async (t) => {
@@ -97,7 +97,7 @@ test('a refusal says why, and the button is ready to arm again', async (t) => {
   await flow.press()
   await flow.press()
 
-  assert.deepEqual(flow.getState(), { armed: false, reason: 'completed', busy: false, said: { tone: 'refused', text: why } })
+  assert.deepEqual(flow.getState(), { armed: false, choice: 'completed', busy: false, said: { tone: 'refused', text: why } })
 })
 
 test('with no host it answers that it is sample data and asks nothing; with one it asks the host to close that issue', async () => {

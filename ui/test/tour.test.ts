@@ -6,6 +6,9 @@ import { startTour, stepTour, type Tour, type TourEvent } from '../src/features/
 import { resolveTourKey } from '../src/features/tour/keys.ts'
 import { holeOf, holePolygon, placeCard, type Box, type Size } from '../src/features/tour/place.ts'
 import { TOUR_STEPS } from '../src/features/tour/steps.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 const run = (events: TourEvent[], from: Tour = startTour()) => events.reduce(stepTour, from)
 const LAST = TOUR_STEPS.length - 1
@@ -165,7 +168,7 @@ test('every key a stop shows is a key the app binds', () => {
     inOverlay: false,
     veilOpen: false,
     asking: false,
-    githubInMenu: true,
+    outOfMenu: [],
   }
   const press = { j: { key: 'j', code: 'KeyJ' }, ',': { key: ',', code: 'Comma' }, k: { key: 'k', code: 'KeyK' } } as const
 

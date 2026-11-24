@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { mock, test } from 'node:test'
 import { inOverlay, installFrameKeys } from '../src/app/key-page.ts'
 import { resolveKey, type KeyContext } from '../src/app/key-map.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 /** A window that counts its listeners and sends a key to each, in the order they were added. */
 function page() {
@@ -51,7 +54,7 @@ test('a marker an overlay left behind never keeps command and a number from chan
   const body = {}
   const inert = (dialogs: unknown[]) => ({ body, getElementById: () => element(['data-base-ui-inert']), querySelectorAll: () => dialogs }) as unknown as Document
   const context = (overlay: boolean): KeyContext => ({
-    zone: 'other', messageEmpty: true, screens: ['reports', 'routines'], screen: 'reports', inOverlay: overlay, veilOpen: false, asking: false, githubInMenu: true,
+    zone: 'other', messageEmpty: true, screens: ['reports', 'routines'], screen: 'reports', inOverlay: overlay, veilOpen: false, asking: false, outOfMenu: [],
   })
   const press = { key: '2', meta: true }
 

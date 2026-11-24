@@ -3,6 +3,9 @@ import { beforeEach, test } from 'node:test'
 import { resolveEscape, type KeyContext } from '../src/app/key-map.ts'
 import { MOST_PLACES, shownTrail } from '../src/app/trail.ts'
 import { useView } from '../src/app/view-store.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 const view = () => useView.getState()
 const shown = () => shownTrail(view()).map(({ screen, about }) => (about ? `${screen}:${about}` : screen))
@@ -16,7 +19,7 @@ beforeEach(() => {
     openProof: null,
     project: null,
     settingsReturn: null,
-    githubReturn: null,
+    screenReturn: null,
     previewReturn: null,
     previewFrom: null,
     mindReturn: null,
@@ -117,7 +120,7 @@ test('Settings and the pages under it are places on the trail, Settings before a
 test("hobkin's mind shows the place it was opened over, and going on from it keeps the mind on the trail", () => {
   view().openMenuScreen('work')
   view().openScreen('yolo')
-  useView.setState({ screen: 'mind', mindReturn: { screen: 'yolo', settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null } })
+  useView.setState({ screen: 'mind', mindReturn: { screen: 'yolo', settingsReturn: null, screenReturn: null, openAgent: null, previewReturn: null } })
   assert.deepEqual(shown(), ['work', 'yolo', 'mind'])
   view().openAgentCanvas('a1')
   assert.deepEqual(shown(), ['work', 'mind', 'agent:a1'])
@@ -134,7 +137,7 @@ test('Escape on a page open only for now goes back one place', () => {
     inOverlay: false,
     veilOpen: false,
     asking: false,
-    githubInMenu: true,
+    outOfMenu: [],
   })
   for (const screen of ['project', 'world', 'yolo', 'proof', 'review', 'agent'] as const) {
     assert.deepEqual(resolveEscape(context(screen), false), { do: 'leave-screen' }, screen)
@@ -162,7 +165,7 @@ test('Escape with nothing on the trail goes where each page went before: Work, o
     view().leave()
     assert.equal(view().screen, 'work', screen)
   }
-  useView.setState({ screen: 'github', trail: [], githubReturn: 'routines' })
+  useView.setState({ screen: 'github', trail: [], screenReturn: 'routines' })
   view().leave()
   assert.equal(view().screen, 'routines')
 })

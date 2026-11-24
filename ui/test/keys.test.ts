@@ -4,22 +4,25 @@ import { resolveEscape, resolveKey, type KeyContext } from '../src/app/key-map.t
 import { walkScreens } from '../src/app/screens.ts'
 import { pressEnd } from '../src/features/hobkins/conversation.ts'
 import { forceStopStep } from '../src/features/work/actions.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 const MENU = ['home', 'reports', 'routines', 'actions', 'work', 'github'] as const
 
 function context(overrides: Partial<KeyContext> = {}): KeyContext {
-  return { zone: 'input', messageEmpty: true, screens: MENU, screen: 'work', inOverlay: false, veilOpen: false, asking: false, githubInMenu: true, ...overrides }
+  return { zone: 'input', messageEmpty: true, screens: MENU, screen: 'work', inOverlay: false, veilOpen: false, asking: false, outOfMenu: [], ...overrides }
 }
 
 test('numbered screens follow the menu rows currently visible', () => {
   const MAIN = ['home', 'reports', 'routines', 'actions', 'work'] as const
-  assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: false, githubInMenu: true }), [...MAIN, 'github'])
-  assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: false, githubInMenu: false }), MAIN, 'GitHub is hidden')
-  assert.deepEqual(walkScreens({ screen: 'github', reviewOpen: false, githubInMenu: false }), [...MAIN, 'github'], 'opened anyway')
-  assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: true, githubInMenu: true }), [...MAIN, 'github'], 'a retained review is not visible')
-  assert.deepEqual(walkScreens({ screen: 'settings', reviewOpen: true, githubInMenu: true }), [...MAIN, 'github', 'settings'], 'Settings is the only visible contextual row')
-  assert.deepEqual(walkScreens({ screen: 'review', reviewOpen: true, githubInMenu: true }), [...MAIN, 'github', 'review'], 'the active review is visible')
-  assert.deepEqual(walkScreens({ screen: 'integrations', reviewOpen: true, githubInMenu: true }), [...MAIN, 'github', 'settings', 'integrations'], 'Integrations shows the Settings breadcrumb first')
+  assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: false, outOfMenu: [] }), [...MAIN, 'github'])
+  assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: false, outOfMenu: ['github'] }), MAIN, 'GitHub is hidden')
+  assert.deepEqual(walkScreens({ screen: 'github', reviewOpen: false, outOfMenu: ['github'] }), [...MAIN, 'github'], 'opened anyway')
+  assert.deepEqual(walkScreens({ screen: 'work', reviewOpen: true, outOfMenu: [] }), [...MAIN, 'github'], 'a retained review is not visible')
+  assert.deepEqual(walkScreens({ screen: 'settings', reviewOpen: true, outOfMenu: [] }), [...MAIN, 'github', 'settings'], 'Settings is the only visible contextual row')
+  assert.deepEqual(walkScreens({ screen: 'review', reviewOpen: true, outOfMenu: [] }), [...MAIN, 'github', 'review'], 'the active review is visible')
+  assert.deepEqual(walkScreens({ screen: 'integrations', reviewOpen: true, outOfMenu: [] }), [...MAIN, 'github', 'settings', 'integrations'], 'Integrations shows the Settings breadcrumb first')
 })
 
 test('control option p opens the full prompt from every screen, known by the key where P sits', () => {
@@ -198,9 +201,9 @@ test('command-number opens the screen at its visible menu position', () => {
   assert.deepEqual(resolveKey({ key: '6', meta: true }, context()), { do: 'open-screen', screen: 'github', focusCanvas: true })
   assert.equal(resolveKey({ key: '7', meta: true }, context()), null, 'there is no seventh visible item')
 
-  const settings = walkScreens({ screen: 'settings', reviewOpen: true, githubInMenu: true })
+  const settings = walkScreens({ screen: 'settings', reviewOpen: true, outOfMenu: [] })
   assert.deepEqual(resolveKey({ key: '7', meta: true }, context({ screens: settings })), { do: 'open-screen', screen: 'settings', focusCanvas: true })
-  const integrations = walkScreens({ screen: 'integrations', reviewOpen: true, githubInMenu: true })
+  const integrations = walkScreens({ screen: 'integrations', reviewOpen: true, outOfMenu: [] })
   assert.deepEqual(resolveKey({ key: '7', meta: true }, context({ screens: integrations })), { do: 'open-screen', screen: 'settings', focusCanvas: true })
   assert.deepEqual(resolveKey({ key: '8', meta: true }, context({ screens: integrations })), { do: 'open-screen', screen: 'integrations', focusCanvas: true })
 
@@ -336,7 +339,7 @@ test('escape that nothing used leaves a screen that is open only for now', () =>
 
   assert.deepEqual(resolveEscape(context({ zone: 'canvas', screen: 'work' }), false), { do: 'focus-input' }, 'a menu screen stays open')
   assert.deepEqual(resolveEscape(context({ zone: 'canvas', screen: 'github' }), false), { do: 'focus-input' }, 'github in the menu is a menu screen')
-  assert.deepEqual(resolveEscape(context({ zone: 'canvas', screen: 'github', githubInMenu: false }), false), { do: 'leave-screen' }, 'github opened while the menu leaves it out')
+  assert.deepEqual(resolveEscape(context({ zone: 'canvas', screen: 'github', outOfMenu: ['github'] }), false), { do: 'leave-screen' }, 'github opened while the menu leaves it out')
 })
 
 const MAIN_BOARD = { owner: 'main', kind: 'drawing' } as const

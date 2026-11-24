@@ -2,17 +2,20 @@ import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
 import type { Place } from '../src/features/main-agent/mind.ts'
 import type { ScreenId } from '../src/app/screens.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 // The routines store keeps its clock running; the stores load after it is held still.
 mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
 after(() => mock.timers.reset())
 
 const KEY = 'hobkin-client-location-1'
-const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, ...more })
+const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, screenReturn: null, openAgent: null, previewReturn: null, ...more })
 // What a window saved before the trail: a proof opened from a review, opened from an agent, opened from YOLO mode, each
 // with its single way back.
 sessionStorage.setItem(KEY, JSON.stringify({
-  screen: 'proof', settingsReturn: null, githubReturn: null, openAgent: 'a1', agentReturn: 'yolo', openReview: 'change:hobkin-api:7',
+  screen: 'proof', settingsReturn: null, screenReturn: null, openAgent: 'a1', agentReturn: 'yolo', openReview: 'change:hobkin-api:7',
   reviewReturn: place('agent', { openAgent: 'a1' }), openProof: 'run-1', proofReturn: place('review'), mindReturn: null, canvasReturn: null,
 }))
 

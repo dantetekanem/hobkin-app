@@ -2,7 +2,7 @@ import type { GitHubConnection, GitHubPull, GitHubState } from '#shared/protocol
 import type { HomeAction, HomeCardFields, HomeContribution, HomeRow, HomeTarget, HomeTone } from '@/features/home/types.ts'
 
 /**
- * What GitHub adds to Home (_specs/064-integration-drops): the pull requests waiting for the user's review among what
+ * What GitHub adds to Home (_specs/065-integration-drops): the pull requests waiting for the user's review among what
  * needs them, the user's own pull requests whose checks fail as cards, its tile first among the connections, and a
  * count of the failing ones that lifts the Connections widget.
  */

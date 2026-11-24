@@ -5,11 +5,14 @@ import type { Place } from '../src/features/main-agent/mind.ts'
 import { walkScreens, type ScreenId } from '../src/app/screens.ts'
 import { canvasGrowth, launchView, pageInsetMove, splitSizes, useView } from '../src/app/view-store.ts'
 import { canvasDot, canvasKey, mainPill, placeMove, showingCanvas, splitOwner, windowCanvas } from '../src/features/canvas-panel/rules.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 const view = () => useView.getState()
-const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, ...more })
+const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, screenReturn: null, openAgent: null, previewReturn: null, ...more })
 const start = (screen: ScreenId) =>
-  useView.setState({ screen, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, trail: [], canvasReturn: null })
+  useView.setState({ screen, settingsReturn: null, screenReturn: null, openAgent: null, previewReturn: null, trail: [], canvasReturn: null })
 
 const DRAWING: CanvasState = { open: true, url: 'http://127.0.0.1:9/canvas/k?r=1', title: 'Plan', kind: 'drawing', revision: 1 }
 const CLOSED: CanvasState = { open: false, url: null, title: null }
@@ -83,11 +86,11 @@ test('another screen leaves the canvas open with its pill, dotted after a redraw
   assert.equal(mainPill({ screen: 'home', split: false, main: CLOSED, seen: 1 }), null, 'a closed canvas has none')
   assert.equal(mainPill({ screen: 'home', split: false, main: null, seen: 1 }), null, 'nor one the host has not told')
 
-  assert.deepEqual(walkScreens({ screen: 'home', reviewOpen: false, githubInMenu: true, canvasOpen: true }), [...MAIN, 'canvas'])
-  assert.deepEqual(walkScreens({ screen: 'settings', reviewOpen: false, githubInMenu: true, canvasOpen: true }), [...MAIN, 'settings', 'canvas'], 'after the other places open now')
-  assert.deepEqual(walkScreens({ screen: 'canvas', reviewOpen: false, githubInMenu: true, canvasOpen: true }), [...MAIN, 'canvas'], 'on the canvas itself')
-  assert.deepEqual(walkScreens({ screen: 'home', reviewOpen: false, githubInMenu: true, canvasOpen: false }), MAIN, 'closed')
-  assert.deepEqual(walkScreens({ screen: 'home', reviewOpen: false, githubInMenu: true }), MAIN)
+  assert.deepEqual(walkScreens({ screen: 'home', reviewOpen: false, outOfMenu: [], canvasOpen: true }), [...MAIN, 'canvas'])
+  assert.deepEqual(walkScreens({ screen: 'settings', reviewOpen: false, outOfMenu: [], canvasOpen: true }), [...MAIN, 'settings', 'canvas'], 'after the other places open now')
+  assert.deepEqual(walkScreens({ screen: 'canvas', reviewOpen: false, outOfMenu: [], canvasOpen: true }), [...MAIN, 'canvas'], 'on the canvas itself')
+  assert.deepEqual(walkScreens({ screen: 'home', reviewOpen: false, outOfMenu: [], canvasOpen: false }), MAIN, 'closed')
+  assert.deepEqual(walkScreens({ screen: 'home', reviewOpen: false, outOfMenu: [] }), MAIN)
 
   view().openCanvasPlace()
   assert.deepEqual([view().screen, view().canvasReturn], ['canvas', place('home')], 'the pill goes back, with a way back of its own')

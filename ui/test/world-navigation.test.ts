@@ -4,6 +4,9 @@ import { useView } from '../src/app/view-store.ts'
 import { inMenu, walkScreens } from '../src/app/screens.ts'
 import { hostStore } from '../src/lib/host/client.ts'
 import { sampleWork } from '../src/features/work/sample.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
 after(() => mock.timers.reset())
@@ -17,8 +20,8 @@ function fixture() {
 }
 
 test('World is contextual; visible positional shortcuts still start at Home', () => {
-  assert.equal(inMenu('world', true), false)
-  assert.deepEqual(walkScreens({ screen: 'world', githubInMenu: true, reviewOpen: false }), ['home', 'reports', 'routines', 'actions', 'work', 'github'])
+  assert.equal(inMenu('world'), false)
+  assert.deepEqual(walkScreens({ screen: 'world', outOfMenu: [], reviewOpen: false }), ['home', 'reports', 'routines', 'actions', 'work', 'github'])
   assert.equal(readSpot(JSON.stringify({ screen: 'world' }))?.screen, 'world')
 })
 

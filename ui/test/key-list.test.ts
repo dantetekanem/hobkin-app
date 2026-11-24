@@ -2,10 +2,13 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { HINT_KEYS, KEY_LIST, navigationGuide } from '../src/app/key-list.ts'
 import { resolveEscape, resolveKey, type KeyContext } from '../src/app/key-map.ts'
-import { SCREENS, inMenu } from '../src/app/screens.ts'
+import { screens, inMenu } from '../src/app/screens.ts'
+import { withFixturePart } from './integration-fixture.ts'
 
-const MENU = SCREENS.filter(({ id }) => inMenu(id, true)).map(({ id }) => id)
-const context: KeyContext = { zone: 'input', messageEmpty: true, screens: MENU, screen: 'work', inOverlay: false, veilOpen: false, asking: true, githubInMenu: true }
+withFixturePart()
+
+const MENU = screens().filter(({ id }) => inMenu(id)).map(({ id }) => id)
+const context: KeyContext = { zone: 'input', messageEmpty: true, screens: MENU, screen: 'work', inOverlay: false, veilOpen: false, asking: true, outOfMenu: [] }
 
 test('numbered commands resolve only within the current menu', () => {
   assert.equal(resolveKey({ key: String(MENU.length), meta: true }, context)?.do, 'open-screen')

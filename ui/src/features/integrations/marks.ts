@@ -10,9 +10,6 @@ export interface MarkLook {
   hue: number
 }
 
-/** The mark GitHub had before its window part set one (064-integration-drops). Goes once the part's `mark` is set. */
-const GITHUB: MarkLook = { symbol: 'Gh', hue: 162 }
-
 function symbolOf(name: string): string {
   const letters = name.replace(/[^A-Za-z0-9]/g, '')
   return letters ? letters.charAt(0).toUpperCase() + letters.charAt(1).toLowerCase() : '?'
@@ -29,5 +26,5 @@ export function ownMark(name: string): MarkLook {
 export function serviceMark(id: string): MarkLook {
   const own = windowPart(id)?.mark
   if (own) return own
-  return id === 'github' ? GITHUB : ownMark(id)
+  return ownMark(id)
 }

@@ -7,7 +7,7 @@ const view = () => useView.getState()
 beforeEach(() => {
   useView.setState({
     screen: 'work', trail: [], openAgent: null, openReview: null, openProof: null, project: null,
-    settingsReturn: null, githubReturn: null, previewReturn: null, previewFrom: null, mindReturn: null, canvasReturn: null,
+    settingsReturn: null, screenReturn: null, previewReturn: null, previewFrom: null, mindReturn: null, canvasReturn: null,
   })
 })
 

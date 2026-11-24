@@ -2,6 +2,9 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { canvasGrowth, useView } from '../src/app/view-store.ts'
 import { resolveEscape, type KeyContext } from '../src/app/key-map.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 const view = () => useView.getState()
 
@@ -87,7 +90,7 @@ test('rapid entry, opening and a second agent keep the original opener without w
 })
 
 test('Escape leaves an agent canvas for its opener, while a local handler still gets first refusal', () => {
-  const context: KeyContext = { zone: 'canvas', screen: 'agent', screens: [], messageEmpty: true, inOverlay: false, veilOpen: false, asking: false, githubInMenu: true }
+  const context: KeyContext = { zone: 'canvas', screen: 'agent', screens: [], messageEmpty: true, inOverlay: false, veilOpen: false, asking: false, outOfMenu: [] }
   assert.deepEqual(resolveEscape(context, false), { do: 'leave-screen' })
   assert.equal(resolveEscape(context, true), null)
 })

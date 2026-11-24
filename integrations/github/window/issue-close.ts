@@ -1,8 +1,8 @@
-import { createStore } from 'zustand/vanilla'
+import { CONFIRM_MS, createTwoClicks } from '../../../ui/src/lib/two-clicks.ts'
 import type { IssueWork } from '#shared/protocol/github.ts'
 
 /**
- * Close issue on the GitHub page, confirmed in place as a verdict in Review is: the first click arms the button, which waits ten seconds for
+ * Close issue on the GitHub page, confirmed in place by the core's two clicks: the first click arms the button, which waits ten seconds for
  * a second, and the second closes the issue through the host's gh, as the user. Completed is the reason unless the user picks Not planned.
  * Pure, so the timing is tested without a window; `rows.tsx` draws it. Spec: 024-github.
  */
@@ -15,8 +15,8 @@ export const CLOSE_REASONS: readonly { value: CloseReason; label: string }[] = [
   { value: 'not-planned', label: 'Not planned' },
 ]
 
-/** How long the button waits for its second click, as a verdict in Review waits (`CONFIRM_MS` in `features/review/verdict.ts`). */
-export const CLOSE_CONFIRM_MS = 10_000
+/** How long the button waits for its second click, as every button that asks twice does (`CONFIRM_MS` in `lib/two-clicks.ts`). */
+export const CLOSE_CONFIRM_MS = CONFIRM_MS
 
 /** What the action answers with no host, which has nothing to close. */
 export const SAMPLE_CLOSE = 'This is sample data, so nothing was closed. With a host, gh closes the issue on GitHub as you.'
@@ -41,53 +41,9 @@ export function closeWarning(work: IssueWork | null | undefined): string | null 
   }
 }
 
-interface CloseState {
-  /** The first click came, and the button waits for the second. */
-  armed: boolean
-  reason: CloseReason
-  /** The issue is being closed. */
-  busy: boolean
-  /** What came of the last close: the host's words, or why it was refused. */
-  said: { tone: 'done' | 'refused'; text: string } | null
-}
-
-/** One issue's Close issue button. `close` closes it with the reason chosen and answers what was done, or throws why not. */
+/** One issue's Close issue button: the core's two clicks, closing with the reason chosen. `close` answers what was done, or throws why not. */
 export function createIssueClose({ close, confirmMs = CLOSE_CONFIRM_MS }: { close: (reason: CloseReason) => Promise<string>; confirmMs?: number }) {
-  const store = createStore<CloseState>(() => ({ armed: false, reason: 'completed', busy: false, said: null }))
-  let waiting: ReturnType<typeof setTimeout> | undefined
-  const wait = () => {
-    clearTimeout(waiting)
-    waiting = setTimeout(() => store.setState({ armed: false }), confirmMs)
-  }
-  /** Takes the first click back, as Escape or leaving the button does. */
-  const cancel = () => {
-    clearTimeout(waiting)
-    store.setState({ armed: false })
-  }
-  /** A click: the first arms it, and a second while it waits closes the issue. A click while it closes does nothing. */
-  const press = async (): Promise<void> => {
-    const { armed, busy, reason } = store.getState()
-    if (busy) return
-    if (!armed) {
-      store.setState({ armed: true, said: null })
-      return wait()
-    }
-    clearTimeout(waiting)
-    store.setState({ armed: false, busy: true })
-    try {
-      store.setState({ busy: false, said: { tone: 'done', text: await close(reason) } })
-    } catch (error) {
-      store.setState({ busy: false, said: { tone: 'refused', text: error instanceof Error ? error.message : String(error) } })
-    }
-  }
-  /** The reason the second click closes it with. Choosing another while it waits gives it its ten seconds again. */
-  const choose = (reason: CloseReason) => {
-    if (reason === store.getState().reason) return
-    store.setState({ reason })
-    if (store.getState().armed) wait()
-  }
-  const dispose = () => clearTimeout(waiting)
-  return Object.assign(store, { press, choose, cancel, dispose })
+  return createTwoClicks<CloseReason>({ initial: 'completed', run: close, confirmMs })
 }
 
 export type IssueClose = ReturnType<typeof createIssueClose>

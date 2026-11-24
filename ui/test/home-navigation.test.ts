@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
-import { SCREENS, inMenu, walkScreens } from '../src/app/screens.ts'
+import { screens, inMenu, walkScreens } from '../src/app/screens.ts'
 import { resolveKey, type KeyContext } from '../src/app/key-map.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 const values = new Map<string, string>()
 Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: {
   getItem: (key: string) => values.get(key) ?? null,
@@ -13,20 +16,20 @@ const { useView } = await import('../src/app/view-store.ts')
 mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
 after(() => { mock.timers.reset(); Reflect.deleteProperty(globalThis, 'window') })
 
-const context = (githubInMenu = true): KeyContext => ({
+const context = (outOfMenu: readonly string[] = []): KeyContext => ({
   zone: 'canvas',
   messageEmpty: true,
-  screens: walkScreens({ screen: 'home', reviewOpen: false, githubInMenu }),
+  screens: walkScreens({ screen: 'home', reviewOpen: false, outOfMenu }),
   screen: 'home',
   inOverlay: false,
   veilOpen: false,
   asking: false,
-  githubInMenu,
+  outOfMenu,
 })
 
 test('a new unsaved view opens Home first, without replacing a persisted screen', async () => {
   assert.equal(useView.getInitialState().screen, 'home')
-  assert.equal(SCREENS.filter(({ id }) => inMenu(id, true))[0]?.id, 'home')
+  assert.equal(screens().filter(({ id }) => inMenu(id))[0]?.id, 'home')
   useView.persist.setOptions({ storage: { getItem: () => ({ state: { screen: 'routines' }, version: 5 }), setItem() {}, removeItem() {} } })
   await useView.persist.rehydrate()
   assert.equal(useView.getState().screen, 'routines')
@@ -41,9 +44,9 @@ test('numbered shortcuts follow top-menu positions and leave native focus shortc
   }
   const withoutGitHub = ['home', 'reports', 'routines', 'actions', 'work']
   for (const [index, screen] of withoutGitHub.entries()) {
-    assert.deepEqual(resolveKey({ key: String(index + 1), meta: true }, context(false)), { do: 'open-screen', screen, focusCanvas: true })
+    assert.deepEqual(resolveKey({ key: String(index + 1), meta: true }, context(['github'])), { do: 'open-screen', screen, focusCanvas: true })
   }
-  assert.equal(resolveKey({ key: '6', meta: true }, context(false)), null, 'hidden GitHub is not taught as a sixth position')
+  assert.equal(resolveKey({ key: '6', meta: true }, context(['github'])), null, 'hidden GitHub is not taught as a sixth position')
   for (const shift of [false, true]) assert.equal(resolveKey({ key: 'Tab', shift }, context()), null)
   assert.deepEqual(resolveKey({ key: 'j', code: 'KeyJ', meta: true }, context()), { do: 'toggle-mind' })
   for (const key of ['Enter', 'l']) assert.deepEqual(resolveKey({ key, meta: true }, context()), { do: 'focus-input' })

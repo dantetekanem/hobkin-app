@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { walkScreens } from '../src/app/screens.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 const MAIN = ['home', 'reports', 'routines', 'actions', 'work'] as const
 
@@ -24,20 +27,19 @@ test('the saved GitHub menu preference controls screen traversal', async () => {
   })
 
   const { useSettings } = await import('../src/features/settings/store.ts')
-  const original = useSettings.getState().showGitHubInMenu
-  const screens = () =>
-    walkScreens({ screen: 'work', reviewOpen: false, githubInMenu: useSettings.getState().showGitHubInMenu })
+  const original = !useSettings.getState().screensOutOfMenu.includes('github')
+  const screens = () => walkScreens({ screen: 'work', reviewOpen: false, outOfMenu: useSettings.getState().screensOutOfMenu })
 
   try {
-    useSettings.getState().setShowGitHubInMenu(false)
-    const saved = JSON.parse(values.get('hobkin-client-settings') ?? '{}') as { state?: { showGitHubInMenu?: boolean } }
-    assert.equal(saved.state?.showGitHubInMenu, false, 'the existing settings store persists the choice')
+    useSettings.getState().setScreenInMenu('github', false)
+    const saved = JSON.parse(values.get('hobkin-client-settings') ?? '{}') as { state?: { screensOutOfMenu?: string[] } }
+    assert.deepEqual(saved.state?.screensOutOfMenu, ['github'], 'the existing settings store persists the choice')
     assert.deepEqual(screens(), MAIN, 'GitHub is left out of the menu walk')
 
-    useSettings.getState().setShowGitHubInMenu(true)
+    useSettings.getState().setScreenInMenu('github', true)
     assert.deepEqual(screens(), [...MAIN, 'github'], 'GitHub returns to the menu walk')
   } finally {
-    useSettings.getState().setShowGitHubInMenu(original)
+    useSettings.getState().setScreenInMenu('github', original)
     if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
     else Reflect.deleteProperty(globalThis, 'window')
   }

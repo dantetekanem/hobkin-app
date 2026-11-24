@@ -3,9 +3,12 @@ import { test } from 'node:test'
 import type { Place } from '../src/features/main-agent/mind.ts'
 import type { ScreenId } from '../src/app/screens.ts'
 import { launchView, useView } from '../src/app/view-store.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 const view = () => useView.getState()
-const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, ...more })
+const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, screenReturn: null, openAgent: null, previewReturn: null, ...more })
 const start = (screen: ScreenId, more: Partial<Place> = {}) => useView.setState({ ...place(screen), openProof: null, trail: [], ...more })
 
 test("a proof run's page comes in from the right and goes back to where it was opened, an agent's page as it was", () => {

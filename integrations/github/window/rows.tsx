@@ -40,7 +40,7 @@ import { runCommand } from '@/lib/host/index.ts'
 import { openAddress, openLink } from '@/lib/open-link.ts'
 import type { ChecksState, GitHubIssue, ReviewState } from '#shared/protocol/github.ts'
 import { cn } from '@/lib/utils.ts'
-import { CLOSE_CONFIRM_MS, CLOSE_REASONS, closeIssueAs, closeWarning, createIssueClose, type CloseCommand } from '@/features/github/issue-close.ts'
+import { CLOSE_CONFIRM_MS, CLOSE_REASONS, closeIssueAs, closeWarning, createIssueClose, type CloseCommand } from './issue-close.ts'
 import { issueChip, JUST_ADDED, placeOnWork, type ChipTone } from './issue-work.ts'
 import { addIssueToQueue } from './add-to-queue.ts'
 import { run } from './commands.ts'
@@ -477,7 +477,7 @@ function CloseIssue({ issue, live }: { issue: GitHubIssue; live: boolean }) {
   const [flow] = useState(() => createIssueClose({ close: (reason) => closeIssueAs(reason, { ...latest.current, command: closeOnHost }) }))
   useEffect(() => () => flow.dispose(), [flow])
 
-  const { armed, reason, busy, said } = useStore(flow)
+  const { armed, choice: reason, busy, said } = useStore(flow)
   const label = busy ? 'Closing…' : armed ? 'Click again to close' : 'Close issue'
   const warning = armed ? closeWarning(issue.work) : null
   const Icon = reason === 'not-planned' ? Ban : CircleCheck

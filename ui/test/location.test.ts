@@ -2,16 +2,19 @@ import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
 import type { Place } from '../src/features/main-agent/mind.ts'
 import type { ScreenId } from '../src/app/screens.ts'
+import { withFixturePart } from './integration-fixture.ts'
+
+withFixturePart()
 
 // The routines store keeps its clock running; the stores load after it is held still.
 mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
 after(() => mock.timers.reset())
 
 const KEY = 'hobkin-client-location-1'
-const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null, ...more })
+const place = (screen: ScreenId, more: Partial<Place> = {}): Place => ({ screen, settingsReturn: null, screenReturn: null, openAgent: null, previewReturn: null, ...more })
 // What the window showed before Command+R, with a real home: a report and a routine of that home were open.
 sessionStorage.setItem(KEY, JSON.stringify({
-  screen: 'mind', settingsReturn: null, githubReturn: null, openAgent: 'a1', openReview: 'pr:o/r#1', reviewReturn: place('github'),
+  screen: 'mind', settingsReturn: null, screenReturn: null, openAgent: 'a1', openReview: 'pr:o/r#1', reviewReturn: place('github'),
   agentReturn: 'routines', mindReturn: place('agent', { openAgent: 'a1' }), report: 'local:recap:1', routine: 'disk-space', action: 'decision:7', githubTab: 'issues', githubProject: 'storefront', home: '/hobkin',
 }))
 
@@ -30,7 +33,7 @@ test('a reload comes back to the same screen and its way back, and to the detail
   assert.deepEqual([view.screen, view.openAgent, view.openReview], ['mind', 'a1', 'pr:o/r#1'])
   assert.deepEqual(view.mindReturn, place('agent', { openAgent: 'a1' }), "the mind's way back")
   assert.deepEqual(view.trail, [{ screen: 'routines' }], "the agent's way back under the mind, as a trail; the review's leads nowhere from here")
-  assert.deepEqual(remembered.getState(), { action: 'decision:7', githubTab: 'issues', githubProject: 'storefront' })
+  assert.deepEqual(remembered.getState(), { action: 'decision:7', pages: { github: { tab: 'issues', project: 'storefront' } } })
   assert.equal(useRoutines.getState().openId, null, 'a sample routine of the same name is not the one that was open')
 
   hostStore.setState({ home: '/hobkin', link: 'open' })
@@ -49,21 +52,20 @@ test('command left and right walk back and forward through the moves, with the s
   view().openScreen('work')
   await settled()
   view().openScreen('github')
-  assert.equal(remembered.getState().githubTab, 'pulls', 'a visit starts on the first tab, as before')
-  assert.equal(remembered.getState().githubProject, null, 'and on All')
+  assert.deepEqual(remembered.getState().pages, {}, 'a visit starts on the first tab and on All, as before')
   await settled()
   // Walking the agents list only looks at each agent: it is not a move.
   view().previewAgent('a3', 1)
   await settled()
   view().endAgentPreview()
   await settled()
-  remembered.setState({ githubTab: 'issues', githubProject: 'docs-site' })
+  remembered.setState({ pages: { github: { tab: 'issues', project: 'docs-site' } } })
   await settled()
   view().openAgentCanvas('a2')
   await settled()
 
   assert.equal(travel(-1), true)
-  assert.deepEqual([view().screen, remembered.getState().githubTab, remembered.getState().githubProject, view().screenMotion], ['github', 'issues', 'docs-site', { axis: 'y', direction: -1 }])
+  assert.deepEqual([view().screen, remembered.getState().pages.github?.tab, remembered.getState().pages.github?.project, view().screenMotion], ['github', 'issues', 'docs-site', { axis: 'y', direction: -1 }])
   travel(-1)
   assert.deepEqual([view().screen, view().screenMotion], ['work', { axis: 'x', direction: -1 }])
   travel(-1)
@@ -98,7 +100,7 @@ test('a detail is a move of its own, and a screen entered anew starts on its lis
 
 test('an agent keeps its return across saved locations and back/forward, without resetting the screen below', async () => {
   useView.getState().openScreen('github')
-  remembered.setState({ githubTab: 'issues' })
+  remembered.setState({ pages: { github: { tab: 'issues' } } })
   await settled()
   useView.getState().previewAgent('a1', 1)
   useView.getState().openAgentCanvas('a1')
@@ -106,7 +108,7 @@ test('an agent keeps its return across saved locations and back/forward, without
   assert.equal(readSpot(sessionStorage.getItem(KEY))?.trail.at(-1)?.screen, 'github', 'Command+R saves the way back')
   useView.getState().closeAgentCanvas()
   await settled()
-  assert.equal(remembered.getState().githubTab, 'issues', 'returning is not a new GitHub visit')
+  assert.equal(remembered.getState().pages.github?.tab, 'issues', 'returning is not a new GitHub visit')
   travel(-1)
   assert.equal(useView.getState().screen, 'agent')
   assert.equal(useView.getState().trail.at(-1)?.screen, 'github', 'back restores the same way back')
