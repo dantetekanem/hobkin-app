@@ -19,6 +19,9 @@ import { askedWait, MOST_WAITS, PI_WAIT_TOOLS, piWaitNote, stoppedMidStep, WAITI
 import { waitExtension } from './wait-extension.mjs';
 import { scheduleExtension } from './schedule-extension.mjs';
 import { agentScheduleTools, SCHEDULE_TOOLS } from './schedule-tools.mjs';
+import { memoryExtension } from './memory-extension.mjs';
+import { memoryKeeperExtension } from './memory-keeper-extension.mjs';
+import { MEMORY_TOOLS, memoryTools } from './memory-tools.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
@@ -64,6 +67,18 @@ const isScheduleCall = placeholder => {
     return false;
   }
 };
+/** A call of one of hobkin's memory tools that reached the host over the run's bridge (`memory-extension.mjs`, 057-shared-memory). */
+const isMemoryCall = placeholder => {
+  try {
+    const asked = JSON.parse(placeholder);
+    return asked?.op === 'tool' && MEMORY_TOOLS.includes(asked.name);
+  } catch {
+    return false;
+  }
+};
+// The extension a run loads for hobkin's memories, by what its request asks: a run reads and suggests, a durable
+// hobkin's turn reads and remembers (057-shared-memory).
+const MEMORY_EXTENSIONS = { run: memoryExtension, keeper: memoryKeeperExtension };
 // A run that waits on its schedules is started again once more this long after the last of them ends, should nothing
 // have woken it by then (056-agent-schedules).
 const SCHEDULES_GRACE_MS = 5 * 60000;
@@ -122,14 +137,16 @@ export function buildInvocation(request) {
  * loads hobkin's guard against the code tool crash (`code-tool-crash.mjs`), a run that can wait (`waits` on its
  * request) gets `hobkin_wait` (`wait-extension.mjs`), and one that keeps schedules (`schedules` on its request) gets
  * `hobkin_schedule` and `hobkin_schedules` (`schedule-extension.mjs`) in place of the Pi scheduler, whose timers would
- * live only in this process (056-agent-schedules).
+ * live only in this process (056-agent-schedules). One that reads hobkin's memories (`memories` on its request: `run`
+ * or `keeper`) gets their tools (057-shared-memory).
  */
 export const namingExtensions = run => async (request, options) => {
   if (!usesTools(request.purpose)) return run(request, options);
   const asked = Date.now();
   const schedules = request.schedules === true;
+  const memories = Object.hasOwn(MEMORY_EXTENSIONS, request.memories ?? '') ? MEMORY_EXTENSIONS[request.memories] : null;
   const extensions = [...await extensionPaths(request.cwd, { leaveOut: schedules ? ['pi-scheduler'] : [] }), codeToolGuardExtension,
-    ...(Number.isInteger(request.waits) ? [waitExtension] : []), ...(schedules ? [scheduleExtension] : [])];
+    ...(Number.isInteger(request.waits) ? [waitExtension] : []), ...(schedules ? [scheduleExtension] : []), ...(memories ? [memories] : [])];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
   const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };
   return run({ ...request, extensions }, { ...options, turn });
@@ -382,7 +399,7 @@ async function startAndKeep(request, { invocation, env, key, result, startProces
 }
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, schedules, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS, now = Date.now } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, schedules, memories, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS, now = Date.now } = {}) {
   // Before anything else, so a turn nobody timed still counts its process start.
   const entered = Date.now();
   const invocation = buildInvocation(request);
@@ -511,6 +528,9 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       if (wait) child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(answerWait(wait)) });
       else if (bridged && isScheduleCall(record.placeholder)) {
         void serveBridge(record.placeholder, { tools: scheduleTools }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
+      } else if (bridged && isMemoryCall(record.placeholder)) {
+        // As the agent hobkin handed this run's memories for, `{ recall, remember | suggest }`; without them a call is refused in plain words.
+        void serveBridge(record.placeholder, { tools: memoryTools(memories) }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
       } else if (bridged && ownedScope) {
         void serveBridge(record.placeholder, { tools }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
       } else child.send({ type: 'extension_ui_response', id: record.id, cancelled: true });

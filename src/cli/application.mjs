@@ -469,11 +469,15 @@ export class HobkinApplication {
       // A session run and a durable hobkin's turn keep schedules for themselves (056-agent-schedules).
       const owner = admission && request.schedules === true ? scheduleOwnerOf(admission.id) : null;
       const schedules = owner ? app.scheduleHandler(owner, request.cwd, { waits: request.waits }) : undefined;
+      // A run that reads hobkin's memories reaches them as hobkin knows it by its run, never by what its request says
+      // (057-shared-memory): a durable hobkin's turn as that hobkin, any other run as itself.
+      const titled = admission && request.memories ? { ...admission, title: (await app.runtime.document?.())?.runs?.[admission.id]?.title } : null;
+      const memories = titled ? app.memoryKeeper(app.memoryOwnerOf(titled)) : undefined;
       const cancel = () => { void ownedScope?.cancel(); };
       request.signal?.addEventListener('abort', cancel, { once: true });
       try {
         request.signal?.throwIfAborted();
-        return await run(request, { ...options, metricsRoot, ownedScope, ...(schedules ? { schedules } : {}),
+        return await run(request, { ...options, metricsRoot, ownedScope, ...(schedules ? { schedules } : {}), ...(memories ? { memories } : {}),
           onControl: child => { if (admission) app.runtime.bindHarness(admission.id, request.id, child); },
         });
       } finally {
@@ -1116,6 +1120,16 @@ export class HobkinApplication {
    */
   memoryKeeper(owner, root = this.runtime.directory) {
     return memoryHandler(root, owner, { now: () => this.now(), onChange: change => this.memoryChanged(owner, change) });
+  }
+
+  /** Who a run is to its memory tools: a durable hobkin's turn is that hobkin, any other run is itself, by its title. */
+  memoryOwnerOf(run) {
+    if (isTurnRunId(run.id)) {
+      const id = run.id.split(':')[1];
+      const title = this.hobkins?.records?.[id]?.title;
+      return { kind: 'hobkin', id, ...(title ? { title } : {}) };
+    }
+    return { kind: 'run', id: run.id, title: run.title ?? run.id };
   }
 
   /** An agent changed a memory: the window reads the list again. */

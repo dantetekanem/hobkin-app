@@ -7,6 +7,7 @@ import { runHarness as defaultRunHarness } from './harnesses.mjs';
 import { isTurnRunId } from './hobkin-ids.mjs';
 import { buildContext } from './context.mjs';
 import { readMemory } from './memory.mjs';
+import { keepsMemories, runIndex } from './memories.mjs';
 import { imagesProblem } from './paste-image.mjs';
 import { checkHold, keepOnceFile, openCheck, scheduleDefinition } from './checks.mjs';
 import { MOST_CONCURRENCY } from './config.mjs';
@@ -358,7 +359,10 @@ export class HobkinRunner {
       .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
     const decide = hobkinCommand(this.root, `decide routine ${schedule.id}`);
     const action = hobkinCommand(this.root, `action routine ${schedule.id}`);
-    const prompt = await buildContext(schedule, previous, readMemory(this.root), { ...openCheck(this.root, schedule.id), decide, action, reportId: occurrence.id });
+    // hobkin's shared memories, as an index in the request and with tools to read one whole and suggest one (057-shared-memory).
+    const memories = keepsMemories(this.root);
+    const prompt = await buildContext(schedule, previous, readMemory(this.root), { ...openCheck(this.root, schedule.id), decide, action, reportId: occurrence.id,
+      ...(memories ? { memories: runIndex(this.root, 'hobkin_recall') } : {}) });
     const id = randomUUID();
     const directory = join(this.root, 'jobs');
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -404,6 +408,7 @@ export class HobkinRunner {
         effort: schedule.effort,
         prompt,
         sessionFile: join(directory, `${id}.jsonl`),
+        ...(memories ? { memories: 'run' } : {}),
         signal,
       }, {
         onEvent: event => this.onActivity(occurrence.id, event),

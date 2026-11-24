@@ -555,6 +555,21 @@ export function memoryIndex(root, options = {}) {
   return memorySnapshot(root, options).index;
 }
 
+/** Whether the home keeps memories at all: its folder is there. Until then every agent's prompt and tools are as they were. */
+export function keepsMemories(root) {
+  try {
+    return Boolean(lstatSync(folderOf(root), { throwIfNoEntry: false })?.isDirectory());
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * The index an agent the user does not talk to reads: a routine, a Work run, a session run, a helper or a teams agent.
+ * Never a private memory, within the smaller cap. `recall` names how it reads one whole, as `memoryIndex` takes it.
+ */
+export const runIndex = (root, recall) => memoryIndex(root, { private: false, maxBytes: RUN_INDEX_BYTES, recall });
+
 /**
  * The index (`memoryIndex`) and what it was built from, one entry a memory not past, `{ name, description, version }`,
  * read in one pass, so a reader that keeps the index as written can tell later what changed since.

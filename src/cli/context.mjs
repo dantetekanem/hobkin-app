@@ -59,10 +59,17 @@ export async function buildContext(schedule, latestOutcome = null, memory = [], 
     } : null,
     ...(work ? { work } : { decide: check.decide, action: check.action, reportId: check.reportId }),
   };
-  const prompt = JSON.stringify(envelope);
+  let prompt = JSON.stringify(envelope);
   assertPromptBytes(prompt, maxPromptBytes, 'context envelope');
-  if (!check.learning?.length) return prompt;
-  // Lessons go in the request, never the system prompt, so a new lesson leaves what every run shares cached. A run with no room for advice still runs.
-  const advised = JSON.stringify({ ...envelope, learning: check.learning });
-  return Buffer.byteLength(advised) > maxPromptBytes ? prompt : advised;
+  // Lessons, then the index of hobkin's memories (057-shared-memory), go in the request, never the system prompt, so a
+  // new lesson or memory leaves what every run shares cached. A run with no room for either still runs without it.
+  let fuller = envelope;
+  for (const [key, value] of [['learning', check.learning?.length ? check.learning : null], ['memories', check.memories || null]]) {
+    if (!value) continue;
+    const tried = JSON.stringify({ ...fuller, [key]: value });
+    if (Buffer.byteLength(tried) > maxPromptBytes) continue;
+    fuller = { ...fuller, [key]: value };
+    prompt = tried;
+  }
+  return prompt;
 }

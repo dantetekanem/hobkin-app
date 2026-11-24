@@ -88,6 +88,28 @@ test('helpers get the user\'s whole directions, past the first 16 KB', { timeout
   await f.runtime.close();
 });
 
+test('helpers get the index of shared memories and never a private one, and none when there are no memories', { timeout: 2000 }, async t => {
+  const { addMemory } = await import('../src/cli/memories.mjs');
+  const calls = [];
+  const scope = { request: () => [], async join() { return undefined; }, async cancel() { return { confirmed: true }; }, finish() {} };
+  const f = runtimeFixture({ register: binding => { calls.push(binding); return scope; }, async close() {} });
+  t.after(() => rmSync(join(fixtureHome, 'memories'), { recursive: true, force: true }));
+  await f.runtime.connect();
+  await f.runtime.send('look it up', 'no-memories');
+  await f.runtime.idle();
+  assert.equal(Object.hasOwn(JSON.parse(calls[0].binding.prompt), 'memories'), false);
+  const as = { by: { kind: 'user' }, source: { kind: 'window' } };
+  addMemory(fixtureHome, { name: 'lives-in-lisbon', kind: 'user', description: 'Lives in Lisbon' }, as);
+  addMemory(fixtureHome, { name: 'partner-name', kind: 'user', description: 'Partner is called Ana', private: true }, as);
+  await f.runtime.send('look it up again', 'with-memories');
+  await f.runtime.idle();
+  const { memories } = JSON.parse(calls[1].binding.prompt);
+  assert.match(memories, /- lives-in-lisbon: Lives in Lisbon/);
+  assert.doesNotMatch(calls[1].binding.prompt, /partner|Ana/);
+  assert.doesNotMatch(memories, /hobkin_recall|hobkin memory/, 'a helper has no tool to read one whole');
+  await f.runtime.close();
+});
+
 test('owned helper admission follows model-turn response dispositions', { timeout: 1000 }, async t => {
   for (const disposition of ['started', 'queued', 'handled']) {
     const requests = [];

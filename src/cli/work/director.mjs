@@ -11,6 +11,7 @@ import { recordEvent } from '../events.mjs';
 import { runHarness as defaultRunHarness } from '../harnesses.mjs';
 import { isTurnRunId } from '../hobkin-ids.mjs';
 import { readMemory } from '../memory.mjs';
+import { keepsMemories, runIndex } from '../memories.mjs';
 import { reportTriage } from '../reports.mjs';
 import { tierBinding } from '../tiers.mjs';
 import { afterMerges } from './after-merge.mjs';
@@ -991,7 +992,10 @@ export class WorkDirector {
         .filter(run => run.scheduleId === scheduleId && run.status !== 'running')
         .sort((a, b) => (b.finishedAt ?? '').localeCompare(a.finishedAt ?? ''))[0];
       const previous = latest && copyJson(latest);
-      const prompt = await buildContext(schedule, previous, readMemory(this.root), openCheck(this.root, scheduleId), work(place.folder ? 'folder' : 'tree'));
+      // hobkin's shared memories, as an index in the request and with tools to read one whole and suggest one (057-shared-memory).
+      const memories = keepsMemories(this.root);
+      const check = { ...openCheck(this.root, scheduleId), ...(memories ? { memories: runIndex(this.root, 'hobkin_recall') } : {}) };
+      const prompt = await buildContext(schedule, previous, readMemory(this.root), check, work(place.folder ? 'folder' : 'tree'));
       mkdirSync(join(this.root, 'jobs'), { recursive: true, mode: 0o700 });
       return this.runHarness({
         id: harnessId,
@@ -1003,6 +1007,7 @@ export class WorkDirector {
         ...(tier ? { tier } : {}),
         prompt,
         sessionFile,
+        ...(memories ? { memories: 'run' } : {}),
         signal,
       }, {
         beforeSpawn: identity => !signal.aborted && this.admitHelper(entry, identity),

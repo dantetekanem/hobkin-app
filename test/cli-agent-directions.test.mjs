@@ -95,3 +95,15 @@ test("a hobkin run's Pi starts with the extension named for every agent it spawn
   assert.equal(env.PI_EXTENDED_TEAMS_AGENT_EXTENSIONS, directionsExtension);
   assert.equal(env.HOBKIN_HOME, '/hobkin/home', "the run's own variables still reach it");
 });
+
+test('a teams agent also starts with the index of shared memories, never a private one, and with none when there are no memories', async t => {
+  const { addMemory } = await import('../src/cli/memories.mjs');
+  const root = home(t, 'Write plainly.');
+  assert.equal(startAgent({ root }).systemPrompt(), `Base prompt.\n\n${directionsSection(readDirections(root))}`);
+  const as = { by: { kind: 'user' }, source: { kind: 'window' } };
+  addMemory(root, { name: 'lives-in-lisbon', kind: 'user', description: 'Lives in Lisbon' }, as);
+  addMemory(root, { name: 'partner-name', kind: 'user', description: 'Partner is called Ana', private: true }, as);
+  const prompt = startAgent({ root }).systemPrompt();
+  assert.match(prompt, /## Directions[\s\S]*Write plainly\.\n\n## What hobkin remembers\n[\s\S]*- lives-in-lisbon: Lives in Lisbon$/);
+  assert.doesNotMatch(prompt, /partner|Ana|hobkin_recall/);
+});

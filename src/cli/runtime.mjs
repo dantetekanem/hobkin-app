@@ -17,6 +17,7 @@ import { MAX_SESSION_BYTES } from './migration/ownership.mjs';
 import { isQuietRun, runReport, saveReport } from './reports.mjs';
 import { logRun } from './checks.mjs';
 import { readDirections } from './directions.mjs';
+import { runIndex } from './memories.mjs';
 import { recordEvent, recordRunFinished, recordRunStarted } from './events.mjs';
 import { createTurnMetrics } from './turn-metrics.mjs';
 import { clockTime, WAITING } from './run-waits.mjs';
@@ -1141,9 +1142,11 @@ export class HobkinRuntime {
       const cancelChildren = () => { void turn.owned?.cancel(); };
       try {
         signal.throwIfAborted();
-        // Helpers follow the same directions main does, whole, so a rule far down the file still reaches them.
+        // Helpers follow the same directions main does, whole, so a rule far down the file still reaches them. They also
+        // read the index of hobkin's shared memories, never a private one, and have no tool for more (057-shared-memory).
+        const memories = runIndex(this.directory);
         turn.owned = this.ownedLifecycle?.register({ id, allowHelpers: true, binding: {
-          cwd: this.config.main.cwd, prompt: JSON.stringify({ task: text, directions: readDirections(this.directory) }),
+          cwd: this.config.main.cwd, prompt: JSON.stringify({ task: text, directions: readDirections(this.directory), ...(memories ? { memories } : {}) }),
           model: `${session.model?.provider}/${session.model?.id}`, effort: session.thinkingLevel,
           role: 'read', parentRole: 'read', launcher: this.config.launcher,
         } });

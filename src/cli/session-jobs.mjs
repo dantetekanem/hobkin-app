@@ -8,6 +8,8 @@ import { markPosted, recordSessionEnd } from './session-log.mjs';
 import { tierNames } from './tiers.mjs';
 import { resumeNote, WAITING } from './run-waits.mjs';
 import { SCHEDULES_GONE } from './agent-schedules.mjs';
+import { readMemory } from './memory.mjs';
+import { keepsMemories, runIndex } from './memories.mjs';
 
 const NAME = /^hobkin-[a-z0-9-]{1,20}-[0-9a-f]{4}$/;
 
@@ -94,6 +96,8 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
       waits,
       // Its agent keeps schedules for itself, and waits on them as on a wait (056-agent-schedules).
       schedules: true,
+      // It reads hobkin's shared memories and suggests one (057-shared-memory).
+      ...(keepsMemories(root) ? { memories: 'run' } : {}),
       signal,
     }, { onEvent: event => runner.onActivity(request.id, event), onReady: send => inbox.resolve(send) });
   }, () => { admitted = true; }, { resume });
@@ -127,7 +131,18 @@ export function startSessionJob({ root, runner, model, effort, tier }, session) 
     harnessId: randomUUID(),
     session: { name, title, cwd, brief, report, wake },
   };
-  const prompt = () => JSON.stringify({ task: `Read ${brief} and follow it.`, directions: readDirections(root) });
+  // The right-now list and the index of shared memories, as a routine's request carries them, when there are any (057-shared-memory).
+  const prompt = () => {
+    let memory = [];
+    try {
+      memory = readMemory(root);
+    } catch {
+      // A list that cannot be read costs the run that list, never its start.
+    }
+    const memories = runIndex(root, 'hobkin_recall');
+    return JSON.stringify({ task: `Read ${brief} and follow it.`, directions: readDirections(root),
+      ...(memory.length ? { memory } : {}), ...(memories ? { memories } : {}) });
+  };
   return runSessionJob({ root, runner }, request, session, { prompt, waits: 0 });
 }
 
