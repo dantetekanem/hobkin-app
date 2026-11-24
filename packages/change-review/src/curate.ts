@@ -289,8 +289,12 @@ const calls = (count: number) => `${count} call${count === 1 ? '' : 's'}`
  * and "likely" when the scan is not sure of it or only a path rule says so, as the host says it: it never reads as a fact.
  */
 function originSaid(origin: Origin): string {
-  const notes = [...(origin.label === origin.symbol ? [] : [origin.symbol]), ...(origin.exact ? [] : ['likely'])]
-  return notes.length ? `${origin.label} (${notes.join(', ')})` : origin.label
+  // A listener goes by its event, as the host says it. A symbol that is a call expression, such as the `bus.on(...)`
+  // a listener is registered in, is no name a reader can use.
+  const label = origin.kind === 'listener' ? `the ${origin.label} event` : origin.label
+  const named = origin.label !== origin.symbol && !origin.symbol.includes('(')
+  const notes = [...(named ? [origin.symbol] : []), ...(origin.exact ? [] : ['likely'])]
+  return notes.length ? `${label} (${notes.join(', ')})` : label
 }
 
 /**

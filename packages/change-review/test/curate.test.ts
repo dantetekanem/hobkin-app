@@ -457,6 +457,9 @@ test('where a unit is reached from says what was looked at: the origin and its w
     // A way in the scan is not sure of says so, never reads as a fact.
     [{ found: 'origins', origins: [{ ...origin, kind: 'handler', label: 'review.prepare', symbol: 'reviewHandlers', exact: false, by: 'scan', hops: 1, chain: [step('reviewHandlers')] }] }, 'Reached from review.prepare (reviewHandlers, likely).'],
     [{ found: 'origins', origins: [origin, { ...origin, label: 'showTopic', symbol: 'showTopic', exact: false, by: 'path' }] }, 'Reached from GET /topics/:id (TopicsController#show) and showTopic (likely), through render_post and escape.'],
+    // A listener is said by its event, and a call expression is no name to give beside a label.
+    [{ found: 'origins', origins: [{ ...origin, kind: 'listener', label: 'sync', symbol: "bus.on('sync', (id) => syncReviews(id))", exact: false, hops: 1, chain: [step('bus.on')] }] }, 'Reached from the sync event (likely).'],
+    [{ found: 'origins', origins: [{ ...origin, kind: 'route', label: 'GET /reviews/:id/sync', symbol: "app.get('/reviews/:id/sync', (req, res) => res.json(sync(req.params.id)))", hops: 1, chain: [step('app.get')] }] }, 'Reached from GET /reviews/:id/sync.'],
     [{ found: 'only-tests', tests: 3 }, 'Only tests call it.'],
     [{ found: 'none', hops: 0, why: 'The scan found nothing that calls it.' }, 'The scan found nothing that calls it.'],
     [{ found: 'none', hops: 4, top: 'Helper#x', why: '' }, 'The scan found no route, job or command within 4 calls of it: the way out stops at Helper#x.'],
