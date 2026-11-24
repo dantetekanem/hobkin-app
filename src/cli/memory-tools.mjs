@@ -101,7 +101,60 @@ function suggested(params) {
   const name = typeof params.name === 'string' && /^[a-z0-9][a-z0-9-]{1,59}$/.test(params.name) ? params.name : undefined;
   const until = typeof params.until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.until) ? params.until : undefined;
   const said = typeof params.said === 'string' && params.said.trim() ? params.said.trim().slice(0, 300) : undefined;
-  return { ...(name ? { name } : {}), kind: params.kind, description, ...(text ? { text } : {}), ...(until ? { until } : {}), ...(said ? { said } : {}) };
+  return {
+    ...(name ? { name } : {}),
+    kind: params.kind,
+    description,
+    ...(text ? { text } : {}),
+    ...(until ? { until } : {}),
+    ...(said ? { said } : {}),
+  };
+}
+
+/** Who a keeper saves as: a durable hobkin by its id and title, or the main hobkin. */
+function authorOf(owner) {
+  if (owner?.kind !== 'hobkin') return { kind: 'main' };
+  return { kind: 'hobkin', id: owner.id, ...(owner.title ? { title: owner.title } : {}) };
+}
+
+/**
+ * Who an add is by and where it came from: the run whose suggestion it files, when `suggestion` names one, or else the
+ * keeper itself from its chat with the user.
+ */
+function addedBy(root, params, by) {
+  const filed = suggestionOf(root, params.suggestion);
+  if (!filed) return { by, source: { kind: 'chat', said: params.said } };
+  return {
+    by: { kind: 'suggested', ...(filed.runId ? { id: filed.runId } : {}), title: filed.from },
+    source: { kind: 'suggested', said: params.said ?? filed.memory?.said, from: filed.from },
+  };
+}
+
+const CHANGEABLE = ['kind', 'description', 'text', 'until', 'private'];
+
+/** One `hobkin_remember` call done in the store: `{ change, did, by, memory? }`, or its refusal thrown. */
+function saved(root, params, { by, now }) {
+  const { action, name } = params;
+  if (action === 'add') {
+    const asked = addedBy(root, params, by);
+    const fields = {
+      name,
+      kind: params.kind,
+      description: params.description,
+      text: params.text,
+      until: params.until,
+      private: params.private === true,
+    };
+    return { ...addMemory(root, fields, { ...asked, now }), did: 'added', by: asked.by };
+  }
+  if (action === 'change') {
+    const given = CHANGEABLE.filter(key => params[key] !== undefined);
+    const fields = Object.fromEntries(given.map(key => [key, params[key]]));
+    return { ...changeMemory(root, name, fields, { by, now }), did: 'changed', by };
+  }
+  if (action === 'forget') return { ...forgetMemory(root, name, { by, now }), did: 'forgot', by };
+  if (action === 'restore') return { ...restoreMemory(root, name, { by, now }), did: 'restored', by };
+  throw Error('Say what to do: add, change, forget or restore.');
 }
 
 /**
@@ -112,7 +165,6 @@ function suggested(params) {
  */
 export function memoryHandler(root, owner, { now = Date.now, onChange = () => {} } = {}) {
   const keeps = owner?.kind === 'main' || owner?.kind === 'hobkin';
-  const by = owner?.kind === 'hobkin' ? { kind: 'hobkin', id: owner.id, ...(owner.title ? { title: owner.title } : {}) } : { kind: 'main' };
   const handler = {
     recall: params => {
       if (!params?.name && !params?.kind && !params?.words) throw Error('Say what to recall: a name, a kind or words.');
@@ -121,37 +173,31 @@ export function memoryHandler(root, owner, { now = Date.now, onChange = () => {}
       return { text, memories };
     },
   };
+
   if (owner?.kind === 'run') {
     handler.suggest = params => {
-      const result = suggestMemory(root, { memory: suggested(params ?? {}), from: owner.title ?? owner.id, runId: owner.id }, now());
+      const memory = suggested(params ?? {});
+      const result = suggestMemory(root, { memory, from: owner.title ?? owner.id, runId: owner.id }, now());
       return { text: result.message, id: result.id };
     };
   }
   if (!keeps) return handler;
+
+  const by = authorOf(owner);
   handler.remember = params => {
-    const at = now();
-    const { action, name } = params ?? {};
-    let done;
-    if (action === 'add') {
-      const filed = suggestionOf(root, params.suggestion);
-      const asked = filed ? { kind: 'suggested', ...(filed.runId ? { id: filed.runId } : {}), title: filed.from } : by;
-      const source = filed ? { kind: 'suggested', said: params.said ?? filed.memory?.said, from: filed.from } : { kind: 'chat', said: params.said };
-      const fields = { name, kind: params.kind, description: params.description, text: params.text, until: params.until, private: params.private === true };
-      done = { ...addMemory(root, fields, { by: asked, source, now: at }), did: 'added', by: asked };
-    } else if (action === 'change') {
-      const fields = Object.fromEntries(['kind', 'description', 'text', 'until', 'private'].filter(key => params[key] !== undefined).map(key => [key, params[key]]));
-      done = { ...changeMemory(root, name, fields, { by, now: at }), did: 'changed', by };
-    } else if (action === 'forget') {
-      done = { ...forgetMemory(root, name, { by, now: at }), did: 'forgot', by };
-    } else if (action === 'restore') {
-      done = { ...restoreMemory(root, name, { by, now: at }), did: 'restored', by };
-    } else throw Error('Say what to do: add, change, forget or restore.');
+    const { name } = params ?? {};
+    const done = saved(root, params ?? {}, { by, now: now() });
     try {
       onChange({ change: done.change, name, did: done.did, description: done.memory?.description, by: done.by });
     } catch {
       // A line in Chat that could not be posted costs the line, never the memory.
     }
-    return { text: doneText[done.did](name), change: done.change, did: done.did, ...(done.memory ? { memory: done.memory } : {}) };
+    return {
+      text: doneText[done.did](name),
+      change: done.change,
+      did: done.did,
+      ...(done.memory ? { memory: done.memory } : {}),
+    };
   };
   return handler;
 }

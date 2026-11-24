@@ -475,22 +475,38 @@ function putBack(root, name, keptFile, by, now) {
   return { memory, change };
 }
 
+/** The file forget left last for this name within 30 days, or null. */
+function newestForgotten(root, name, now) {
+  let files;
+  try {
+    files = readdirSync(forgottenFolder(root));
+  } catch {
+    return null;
+  }
+  let newest = null;
+  for (const file of files) {
+    const match = KEPT.exec(file);
+    if (match?.[1] !== name) continue;
+    const at = Number(match[2]);
+    if (at >= now - FORGOTTEN_MS && (!newest || at > newest.at)) newest = { file: join(forgottenFolder(root), file), at };
+  }
+  return newest?.file ?? null;
+}
+
 /** Brings back the memory of this name that forget took last, within 30 days. */
 export function restoreMemory(root, name, actor = {}) {
   const now = actor.now ?? Date.now();
   const by = checkedAuthor(actor.by);
   checkedName(name);
-  let kept;
-  try {
-    kept = readdirSync(forgottenFolder(root));
-  } catch {
-    kept = [];
-  }
-  const newest = kept.map(file => ({ file, match: KEPT.exec(file) }))
-    .filter(({ match }) => match?.[1] === name && Number(match[2]) >= now - FORGOTTEN_MS)
-    .sort((a, b) => Number(b.match[2]) - Number(a.match[2]))[0];
-  if (!newest) refuse(`Nothing forgotten in the last 30 days is called "${name}".`);
-  return putBack(root, name, join(forgottenFolder(root), newest.file), by, now);
+  const kept = newestForgotten(root, name, now);
+  if (!kept) refuse(`Nothing forgotten in the last 30 days is called "${name}".`);
+  return putBack(root, name, kept, by, now);
+}
+
+/** The file a forget's record says it left in `forgotten/`, or null for a record that names no such place. */
+function keptFileOf(root, record) {
+  if (typeof record.kept !== 'string' || !KEPT.test(record.kept.replace(/^forgotten\//, ''))) return null;
+  return join(folderOf(root), record.kept);
 }
 
 /**
@@ -521,7 +537,7 @@ export function undoMemoryChange(root, id, actor = {}) {
   }
   if (record.did === 'forgot') {
     if (found) refuse(takenMessage(name));
-    const keptFile = typeof record.kept === 'string' && KEPT.test(record.kept.replace(/^forgotten\//, '')) ? join(folderOf(root), record.kept) : null;
+    const keptFile = keptFileOf(root, record);
     if (!keptFile || !lstatSync(keptFile, { throwIfNoEntry: false })) refuse(`"${name}" was forgotten more than 30 days ago, and is gone.`);
     return { ...putBack(root, name, keptFile, by, now), name, did: 'restored' };
   }
