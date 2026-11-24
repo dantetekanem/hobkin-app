@@ -1,6 +1,7 @@
 import type { ActivityEntry } from './activity.ts'
 import type { ExecutionTarget } from '../commands/registry.ts'
 import type { HobkinSummary } from './hobkins.ts'
+import type { MemoryNote } from './memory.ts'
 import type { RunPulse } from './pulse.ts'
 import type { AgentSchedule } from './schedules.ts'
 import type { TeamsAgents } from './teams.ts'
@@ -54,6 +55,8 @@ export interface ChatMessage extends Partial<ShellFields> {
   /** How many images the message carries. */
   images?: number
   tone?: NoticeTone
+  /** On a line hobkin posts when an agent changes a memory (`057-shared-memory`): which, so the line offers Undo and See. */
+  memory?: MemoryNote
 }
 
 export interface RunSummary {
@@ -223,6 +226,11 @@ export interface WireSnapshot {
    * owner's together. Not the routines, which are `schedules`. A host from before sends none.
    */
   agentSchedules?: readonly AgentSchedule[]
+  /**
+   * Changes whenever a memory or the "right now" list does (`057-shared-memory`), so an open Memory page reads the list
+   * again. A host from before sends none, and the page then reads only when it opens.
+   */
+  memoriesStamp?: string
   /** Each run's spawned agents, by run id, only for runs that spawned any. It travels whole, and the host keeps ended runs. */
   jobChildren?: Record<string, readonly RunChild[]>
   /** Main chat's bounded descendants. Owned lifecycle states are independent of legacy teams reports. */
