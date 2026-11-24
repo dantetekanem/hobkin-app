@@ -40,7 +40,7 @@ import { Hobkins, hobkinSummaries } from './hobkins.mjs';
 import { answerRequest, takeRequests, tellRequests, turnToken } from './hobkin-tell.mjs';
 import { SCHEDULE_ENVIRONMENT, SCHEDULE_REQUESTS, scheduleAskedHere } from './agent-schedule-command.mjs';
 import { memoryHandler } from './memory-tools.mjs';
-import { RUN_MARKER } from './memories.mjs';
+import { memoriesStamp, RUN_MARKER } from './memories.mjs';
 import { fileTemplateNews } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
@@ -137,6 +137,15 @@ const messageTime = message => {
 };
 const DISCOVERY_POST = 'notice:work-discovery:';
 const isOwnPost = message => message.role === 'notice' || message.id?.startsWith('notice:');
+
+// What Chat says when an agent changed a memory (057-shared-memory), by what it did, with the change so the line offers Undo.
+const MEMORY_DID = { added: 'remembered', changed: 'changed', forgot: 'forgot', restored: 'restored' };
+function memoryLine(owner, { change, name, did, description, by }, at) {
+  const who = owner.kind === 'hobkin' ? owner.title ?? `hobkin ${owner.id}` : 'hobkin';
+  const what = description ?? name;
+  const content = by?.kind === 'suggested' ? `${who} remembered what ${by.title ?? 'a run'} suggested: ${what}` : `${who} ${MEMORY_DID[did] ?? did}: ${what}`;
+  return { id: `notice:memory:${change}`, role: 'notice', tone: 'quiet', content, memory: { change, name, did }, at: new Date(at).toISOString() };
+}
 // Work's status less the token counts a running agent's meter raises as its session grows: the day's and the hour's, and each run's own.
 const withoutLiveCounts = ({ tokensToday, tokensCached, tokensThisHour, running, ...status }) => ({
   ...status,
@@ -679,6 +688,11 @@ export class HobkinApplication {
     if (yesterday && !noticeIds.has(yesterday.id)) notices.push(yesterday);
     if (this.answerTrouble) notices.push(this.answerTrouble);
     this.answerTrouble = null;
+    for (const line of this.memoryLines?.splice(0) ?? []) {
+      if (noticeIds.has(line.id)) continue;
+      notices.push(line);
+      noticeIds.add(line.id);
+    }
     const handedLines = handedOver.map(entry => inboxNotice(entry, this.now()));
     for (const notice of [...sessionsEnded.map(sessionNotice), ...cardActions.map(cardActionNotice), ...handedLines, ...clientLines.map(clientNotice)]) {
       if (noticeIds.has(notice.id)) continue;
@@ -846,6 +860,8 @@ export class HobkinApplication {
       schedules: loaded.schedules,
       // The schedules agents keep for themselves, live and ended in the last hour (056-agent-schedules), not the routines above.
       agentSchedules: this.agentScheduleView(state),
+      // Moves when any memory or the right-now list changes, so an open Memory page reads the list again (057-shared-memory).
+      memoriesStamp: this.memoriesStamp(),
       usage: this.usageOf(state, version),
       memoryBytes: memoryBytes(this.runtime.directory),
       reportAttention: this.telemetry.attention(runs.filter(run => !run.hobkin), this.now()),
@@ -1129,6 +1145,15 @@ export class HobkinApplication {
     return memoryHandler(root, owner, { now: () => this.now(), onChange: change => this.memoryChanged(owner, change) });
   }
 
+  /** The memories' fingerprint for the snapshot, or none when the folder cannot be looked at. */
+  memoriesStamp() {
+    try {
+      return memoriesStamp(this.runtime.directory);
+    } catch {
+      return undefined;
+    }
+  }
+
   /** A run's title as the store holds it, or none when it cannot be read: that costs the name, never the run. */
   async runTitle(id) {
     try {
@@ -1148,8 +1173,9 @@ export class HobkinApplication {
     return { kind: 'run', id: run.id, title: run.title ?? run.id };
   }
 
-  /** An agent changed a memory: the window reads the list again. */
-  memoryChanged() {
+  /** An agent changed a memory: Chat says so with the next refresh, quietly and with Undo, and the window reads the list again. */
+  memoryChanged(owner, change) {
+    if (typeof change?.change === 'string') (this.memoryLines ??= []).push(memoryLine(owner, change, this.now()));
     this.requestRefresh();
   }
 
