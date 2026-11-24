@@ -452,11 +452,23 @@ test('where a unit is reached from says what was looked at: the origin and its w
   const step = (symbol: string) => ({ symbol, path: `app/${symbol}.rb`, line: 1 })
   const origin = { kind: 'controller', label: 'GET /topics/:id', exact: true, by: 'scan' as const, symbol: 'TopicsController#show', hops: 3, chain: [step('TopicsController#show'), step('render_post'), step('escape')] }
   const cases: [ReviewNode['runs_from'], string][] = [
-    [{ found: 'origins', origins: [origin], more: 2 }, 'Reached from GET /topics/:id (TopicsController#show) and 2 more, through render_post and escape.'],
+    [{ found: 'origins', origins: [origin], more: 2 }, 'Reached from GET /topics/:id (TopicsController#show), through render_post and escape, and 2 more ways in.'],
     [{ found: 'origins', origins: [{ ...origin, label: 'showTopic', symbol: 'showTopic', hops: 2, chain: [step('showTopic'), step('renderPost')] }] }, 'Reached from showTopic, through renderPost.'],
     // A way in the scan is not sure of says so, never reads as a fact.
     [{ found: 'origins', origins: [{ ...origin, kind: 'handler', label: 'review.prepare', symbol: 'reviewHandlers', exact: false, by: 'scan', hops: 1, chain: [step('reviewHandlers')] }] }, 'Reached from review.prepare (reviewHandlers, likely).'],
-    [{ found: 'origins', origins: [origin, { ...origin, label: 'showTopic', symbol: 'showTopic', exact: false, by: 'path' }] }, 'Reached from GET /topics/:id (TopicsController#show) and showTopic (likely), through render_post and escape.'],
+    [{ found: 'origins', origins: [origin, { ...origin, label: 'showTopic', symbol: 'showTopic', exact: false, by: 'path' }] }, 'Reached from GET /topics/:id (TopicsController#show), through render_post and escape, and from showTopic (likely), through render_post and escape.'],
+    // Each way in has its own way through, the nearest first.
+    [
+      {
+        found: 'origins',
+        origins: [
+          { ...origin, kind: 'handler', label: 'review.prepare', symbol: 'handlers', hops: 2, chain: [step('handlers'), step('prepareReview')] },
+          { ...origin, label: 'GET /reviews/:id', symbol: 'showReview', hops: 2, chain: [step('showReview'), step('findReview')] },
+          { ...origin, kind: 'mailer', label: 'ReviewMailer#scored', symbol: 'ReviewMailer#scored', hops: 1, chain: [step('ReviewMailer#scored')] },
+        ],
+      },
+      'Reached from review.prepare (handlers), through prepareReview, from GET /reviews/:id (showReview), through findReview, and from ReviewMailer#scored.',
+    ],
     // A listener is said by its event, and a call expression is no name to give beside a label.
     [{ found: 'origins', origins: [{ ...origin, kind: 'listener', label: 'sync', symbol: "bus.on('sync', (id) => syncReviews(id))", exact: false, hops: 1, chain: [step('bus.on')] }] }, 'Reached from the sync event (likely).'],
     [{ found: 'origins', origins: [{ ...origin, kind: 'route', label: 'GET /reviews/:id/sync', symbol: "app.get('/reviews/:id/sync', (req, res) => res.json(sync(req.params.id)))", hops: 1, chain: [step('app.get')] }] }, 'Reached from GET /reviews/:id/sync.'],

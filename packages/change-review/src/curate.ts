@@ -297,6 +297,13 @@ function originSaid(origin: Origin): string {
   return notes.length ? `${label} (${notes.join(', ')})` : label
 }
 
+/** The definitions a way in passes between its origin and the part, as words: ", through a and b". Empty when it passes none. */
+function throughOf(origin: Origin): string {
+  const between = origin.chain.slice(1).map((step) => step.symbol)
+  if (!between.length) return ''
+  return `, through ${listed(between.length > 3 ? [...between.slice(0, 2), `${between.length - 2} more`] : between)}`
+}
+
 /**
  * Where a part runs from, in one sentence, saying only what was looked at: the nearest origin and the way from it,
  * that only tests call it, that the scan found none within so many calls (never that none exists: the scan's
@@ -306,11 +313,11 @@ function whereFrom(runsFrom: RunsFrom, node: ReviewNode, onPath: boolean): strin
   const others = onPath ? 'Other changed code calls it. ' : ''
   switch (runsFrom.found) {
     case 'origins': {
-      const names = [...new Set(runsFrom.origins.map(originSaid))]
-      const more = runsFrom.more ? ` and ${runsFrom.more} more` : ''
-      const between = runsFrom.origins[0]!.chain.slice(1).map((step) => step.symbol)
-      const through = between.length ? `, through ${listed(between.length > 3 ? [...between.slice(0, 2), `${between.length - 2} more`] : between)}` : ''
-      return `Reached from ${listed(names)}${more}${through}.`
+      // Each way in with its own way through, the nearest first, so two ways never read as one.
+      const ways = [...new Set(runsFrom.origins.map((origin) => `${originSaid(origin)}${throughOf(origin)}`))]
+      const joined = ways.length < 2 ? ways[0] : `${ways.slice(0, -1).join(', from ')}, and from ${ways.at(-1)}`
+      const more = runsFrom.more ? `, and ${runsFrom.more} more way${runsFrom.more === 1 ? '' : 's'} in` : ''
+      return `Reached from ${joined}${more}.`
     }
     case 'only-tests':
       return 'Only tests call it.'
