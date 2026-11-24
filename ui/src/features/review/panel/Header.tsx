@@ -82,7 +82,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
           <X />
         </QuietButton>
       </div>
-      <StackStrip reviewId={review.id} live={live} />
+      <StackStrip reviewId={review.id} head={review.change.head} live={live} />
       <h2 className="mt-1 font-heading text-[17px] leading-[1.28] font-semibold tracking-[-0.02em] text-pretty [overflow-wrap:anywhere]">{title}</h2>
       {pullRequest && live ? <ByLine id={review.id} /> : null}
       {/* A change that lands is never reviewed again, so its review offers no "Try again". */}

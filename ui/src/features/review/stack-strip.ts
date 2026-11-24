@@ -1,5 +1,5 @@
 import type { FinishedChange } from '#shared/protocol/work.ts'
-import { reviewIdOf } from '#shared/review/ids.ts'
+import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 
 /**
  * The stack a review is a layer of (_specs/060-make-it-a-stack, "A stack once it exists"), read from the finished
@@ -43,9 +43,21 @@ export function stripLine(at: number): string {
   return at <= 1 ? 'The bottom layer, on top of the default branch.' : `This layer alone, on top of layer ${at - 1}.`
 }
 
+/**
+ * The finished change a review shows: by the review's own id; for a review of a pull request, the change that opened
+ * it, or else the one at the pull request's commit (`head`), since a layer can be read as a pull request too.
+ */
+function changeOfReview(changes: readonly FinishedChange[], reviewId: string, head?: string | null): FinishedChange | undefined {
+  const own = changes.find((change) => layerReviewId(change) === reviewId)
+  if (own || targetOfReviewId(reviewId)?.kind !== 'pull') return own
+
+  const opened = changes.find((change) => change.pr != null && targetOfReviewId(change.pr) != null && reviewIdOf(targetOfReviewId(change.pr)!) === reviewId)
+  return opened ?? (head ? changes.find((change) => change.head === head) : undefined)
+}
+
 /** The key of the finished change a review shows, or null when it is not one of them. */
-export function openKeyOf(changes: readonly FinishedChange[], reviewId: string): string | null {
-  return changes.find((change) => layerReviewId(change) === reviewId)?.key ?? null
+export function openKeyOf(changes: readonly FinishedChange[], reviewId: string, head?: string | null): string | null {
+  return changeOfReview(changes, reviewId, head)?.key ?? null
 }
 
 /** The stack the change with `openKey` is a layer of, or null when it is in none or is not among `changes`. */
@@ -74,7 +86,7 @@ export function stackStrip(changes: readonly FinishedChange[], openKey: string |
 }
 
 /** "2 of 5": which layer the review with this id is, for a row that lists it. Null when it is no layer. */
-export function layerPlaceOf(changes: readonly FinishedChange[], reviewId: string): string | null {
-  const place = changes.find((change) => layerReviewId(change) === reviewId)?.stack
+export function layerPlaceOf(changes: readonly FinishedChange[], reviewId: string, head?: string | null): string | null {
+  const place = changeOfReview(changes, reviewId, head)?.stack
   return place ? `${place.layer} of ${Math.max(place.of, place.layer)}` : null
 }

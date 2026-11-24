@@ -54,14 +54,25 @@ test('a stack whose other layers are not here keeps every place and moves to the
   assert.deepEqual([alone.under, alone.over], [null, null])
 })
 
-test('a review id finds its change', () => {
+const HEAD = 'c'.repeat(40)
+/** Layer 1 opened a pull request, and layer 2 is at the commit another pull request is at. */
+const pulled = [{ ...five[0]!, pr: 'https://github.com/acme/shop/pull/12' }, { ...five[1]!, head: HEAD }, ...five.slice(2)]
+
+test('a review finds its change: by its own id, as the review of the pull request the change opened, or as a pull request at its commit', () => {
   assert.equal(openKeyOf(five, 'change:rpg:l4'), 'rpg:l4')
   assert.equal(openKeyOf(five, 'change:rpg:zz'), null)
   assert.equal(openKeyOf(five, 'sample'), null)
+
+  assert.equal(openKeyOf(pulled, 'pr:acme/shop/12'), 'rpg:l1')
+  assert.equal(openKeyOf(pulled, 'pr:acme/shop/13', HEAD), 'rpg:l2')
+  assert.equal(openKeyOf(pulled, 'pr:acme/shop/14', 'd'.repeat(40)), null)
+  assert.equal(openKeyOf(pulled, 'change:rpg:zz', HEAD), null, 'a change is found by its own id, never by a commit it shares')
 })
 
 test('a row in the AI Reviews list is told its layer as "2 of 5", and a change in no stack as nothing', () => {
   assert.equal(layerPlaceOf([...five, change('solo', null)], 'change:rpg:l2'), '2 of 5')
   assert.equal(layerPlaceOf([...five, change('solo', null)], 'change:rpg:solo'), null)
   assert.equal(layerPlaceOf(five, 'pr:acme/shop/12'), null)
+  assert.equal(layerPlaceOf(pulled, 'pr:acme/shop/12'), '1 of 5', 'a layer that became a pull request is still a layer')
+  assert.equal(layerPlaceOf(pulled, 'pr:acme/shop/13', HEAD), '2 of 5')
 })

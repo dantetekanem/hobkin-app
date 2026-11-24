@@ -37,11 +37,11 @@ const sampleKey = (changes: readonly FinishedChange[]) => (changes.find((change)
  * each layer with its review's state, and the layer under and over. Nothing is drawn, and no room kept, for a review
  * that is no layer of a stack.
  */
-export function StackStrip({ reviewId, live }: { reviewId: string; live: boolean }) {
+export function StackStrip({ reviewId, head, live }: { reviewId: string; head?: string | null; live: boolean }) {
   const { work } = useWorkView()
   const changes = useMemo(() => (work?.finished ?? []).flatMap((group) => group.changes), [work])
   const [picked, setPicked] = useState<string | null>(null)
-  const strip = stackStrip(changes, live ? openKeyOf(changes, reviewId) : (picked ?? sampleKey(changes)))
+  const strip = stackStrip(changes, live ? openKeyOf(changes, reviewId, head) : (picked ?? sampleKey(changes)))
   if (!strip) return null
   return <StripRow strip={strip} live={live} onSample={setPicked} />
 }
@@ -165,9 +165,9 @@ function Arrow({ label, keys, layer, onGo, children }: { label: string; keys: st
 }
 
 /** "2 of 5", before the title of a row that lists a layer's review. Nothing for a review that is no layer. */
-export function LayerPlace({ reviewId }: { reviewId: string }) {
+export function LayerPlace({ reviewId, head }: { reviewId: string; head?: string | null }) {
   const { work } = useWorkView()
-  const place = useMemo(() => layerPlaceOf((work?.finished ?? []).flatMap((group) => group.changes), reviewId), [work, reviewId])
+  const place = useMemo(() => layerPlaceOf((work?.finished ?? []).flatMap((group) => group.changes), reviewId, head), [work, reviewId, head])
   if (!place) return null
   return (
     <span title="A layer of a stack, which lands after the layers under it" className="mr-2 inline-flex h-5 items-center gap-1 rounded-full bg-surface-2 px-2 align-[1px] font-heading text-[11px] font-medium whitespace-nowrap text-muted-foreground tabular-nums [&_svg]:size-3">

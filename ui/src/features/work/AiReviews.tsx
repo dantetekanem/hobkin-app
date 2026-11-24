@@ -334,7 +334,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
         >
           <span className="flex items-start gap-3">
             <span className="min-w-0 flex-1 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">
-              <LayerPlace reviewId={item.id} />
+              <LayerPlace reviewId={item.id} head={item.head} />
               {item.title}
             </span>
             {row.group === 'ready' && !row.summary ? (
