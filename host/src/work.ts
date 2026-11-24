@@ -133,6 +133,10 @@ interface ProjectStatus {
   issues?: string
   level?: string
   paused?: boolean
+  /** `goal` for a project worked toward the user's words in its own folder. A record with no kind is code. */
+  kind?: string
+  /** How many of a goal's steps are done. */
+  done?: number
   open?: number
   prs?: number
   branches?: number
@@ -480,6 +484,7 @@ const projectOf = (project: ProjectStatus): WorkProject => ({
   issues: ISSUE_PICKUPS.includes(project.issues as IssuePickup) ? (project.issues as IssuePickup) : 'off',
   level: project.level ?? 'important',
   paused: Boolean(project.paused),
+  ...(project.kind === 'goal' ? { kind: 'goal' as const, ...(Number.isInteger(project.done) ? { done: project.done } : {}) } : {}),
   open: project.open ?? 0,
   prs: project.prs ?? 0,
   branches: project.branches ?? 0,

@@ -523,3 +523,21 @@ test('the work slice travels whole, only when some of it changed', () => {
   assert.deepEqual(sync.update({ owner, signIn, models: null, snapshot: null, work: off })?.work, off)
   assert.deepEqual(sync.full().work, off, 'a UI that connects later gets it at once')
 })
+
+test("a goal's kind and how many of its steps are done reach the window, and a project with no kind sends neither", () => {
+  const work = workFrom({
+    work: status({
+      projects: [
+        { slug: 'move', state: 'chosen', kind: 'goal', done: 3 },
+        { slug: 'storefront', state: 'chosen', kind: 'code', done: 9 },
+        { slug: 'blog', state: 'chosen' },
+        { slug: 'odd', state: 'chosen', kind: 'goal', done: 'many' },
+      ],
+    }),
+  })!
+  const by = (slug: string) => work.projects.find((project) => project.slug === slug)!
+  assert.deepEqual([by('move').kind, by('move').done], ['goal', 3])
+  assert.equal('kind' in by('storefront') || 'done' in by('storefront'), false)
+  assert.equal('kind' in by('blog') || 'done' in by('blog'), false)
+  assert.deepEqual([by('odd').kind, 'done' in by('odd')], ['goal', false])
+})
