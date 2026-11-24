@@ -13,6 +13,21 @@ import { ghWithin, pullNow, readUnmerged } from './unmerged.mjs';
  * bypasses a protection.
  */
 
+/**
+ * Whether YOLO mode takes a change waiting on its own pull request at all: merging it, and starting its scored review by itself. Off until
+ * a verifier has run its scenarios against this code again and the user says so. While it is off, a pull request item is as it was before
+ * YOLO mode knew of them: no review starts for it by itself, and it keeps asking. A test turns it on with `pullRequestsMergeForTests`.
+ */
+const PULL_REQUESTS_MERGE = false;
+let forTests = null;
+export const pullRequestsMerge = () => forTests ?? PULL_REQUESTS_MERGE;
+/** For a test file alone, which runs in a process of its own: true or false, or null to go back to the constant. */
+export const pullRequestsMergeForTests = on => {
+  forTests = on;
+};
+/** What a change waiting on its pull request says while YOLO mode does not take pull requests. */
+export const PULLS_OFF = 'its pull request merges by itself once that is turned on';
+
 const GH_TIMEOUT_MS = 2 * 60000;
 const SHORT_SHA = 7;
 const VIEW_FIELDS = 'url,state,isDraft,author,headRefName,headRefOid,baseRefName,isCrossRepository,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup';

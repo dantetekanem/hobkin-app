@@ -12,7 +12,7 @@ import { changeModels, scoresHoldAt, specName } from './proofs.mjs';
 import { landingList, weighedRows } from './reads.mjs';
 import { readMode, readProject, retryItem, updateItem } from './store.mjs';
 import { holdProject, prepareProjects, readinessOf, readYolo, yoloOnProject } from './yolo.mjs';
-import { defaultPullGh, mergeOwnPull, pullCandidates, pullSurveyed, signedInUser } from './yolo-pulls.mjs';
+import { defaultPullGh, mergeOwnPull, pullCandidates, pullRequestsMerge, PULLS_OFF, pullSurveyed, signedInUser } from './yolo-pulls.mjs';
 
 /**
  * The one place a change merges with no yes from the user. It runs after the director's own survey and returns at once while YOLO mode is off.
@@ -77,6 +77,7 @@ export function whyItAsks({ yolo, on, project, readiness, landable, leftOut = nu
   if (!readiness.ready) return 'its project is not ready for YOLO mode';
   if (!landable) return leftOut ?? 'the last survey did not list it to land, and hobkin work sync reads it again';
   if (!WAITS_TO_MERGE.includes(item.state)) return `its item is ${item.state}, not finished work waiting to merge`;
+  if (item.state === 'pr' && !pullRequestsMerge()) return PULLS_OFF;
   if (row.holds) return 'it brings earlier branches with it';
   if (!item.review) return 'no review has scored it';
 

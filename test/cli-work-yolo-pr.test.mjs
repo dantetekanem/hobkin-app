@@ -12,8 +12,12 @@ import { recordMachines } from '../src/cli/work/machines.mjs';
 import { chooseProject, fileItem, prFile, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { whyItAsks, yoloPass } from '../src/cli/work/yolo-pass.mjs';
+import { pullRequestsMergeForTests } from '../src/cli/work/yolo-pulls.mjs';
 import { recordReadiness, setYolo, setYoloProject } from '../src/cli/work/yolo.mjs';
 import { branched, git, pull, repository } from './helpers/work-fixture.mjs';
+
+// These tests are of YOLO mode taking pull requests, which is off in the code until the user says so (cli-work-yolo-pr-off.test.mjs).
+pullRequestsMergeForTests(true);
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 const READY_KEY = 'yolo:ready';

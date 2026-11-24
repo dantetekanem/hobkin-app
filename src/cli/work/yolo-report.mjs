@@ -7,7 +7,7 @@ import { whyWorkModeWaits } from './controls.mjs';
 import { readJson, readMode } from './store.mjs';
 import { needOf } from './yolo-parts.mjs';
 import { AFTER_DEPLOY_MINUTES, askedOf, deployOf, deployWords, kindWords, landingReasons, READINGS, readLedger, waitingToMerge, whyItAsks } from './yolo-pass.mjs';
-import { pullNoted } from './yolo-pulls.mjs';
+import { pullNoted, pullRequestsMerge } from './yolo-pulls.mjs';
 import { readYolo, yoloView } from './yolo.mjs';
 
 /**
@@ -73,8 +73,12 @@ function planBlock({ name, ready, parts }, yolo) {
     `At most one change merges on ${name} a pass, at the commit its review scored.`,
     deploys[deployOf({ parts: { deploy } }, true)],
     `A regression after a deploy stops merges on ${name} until its readiness is checked again.`,
-    `A change waiting on its own pull request merges there the same way, once every check on its commit passed and nothing on the code host holds it.`,
-    `Still asks you: a feature, a change its review could not place, one under ${yolo.rate} or under a floor, and a pull request someone else opened.`,
+    ...(pullRequestsMerge()
+      ? [
+        'A change waiting on its own pull request merges there the same way, once every check on its commit passed and nothing on the code host holds it.',
+        `Still asks you: a feature, a change its review could not place, one under ${yolo.rate} or under a floor, and a pull request someone else opened.`,
+      ]
+      : [`Still asks you: a feature, a change its review could not place, one under ${yolo.rate} or under a floor, and every PR.`]),
   ];
   return `## ${ready ? 'The plan' : 'The plan once it is ready'}\n\n${listed(plan)}`;
 }

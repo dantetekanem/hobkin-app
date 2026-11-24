@@ -5,7 +5,7 @@ import { readyItems, saysDoneButWaits, weighedRows } from './reads.mjs';
 import { chosenProjects, fileItem, itemTree, ownerView, paths, readItems, readMode, retryItem, runnableStates, updateItem } from './store.mjs';
 import { realPlace, retireTree } from './tree.mjs';
 import { readUnmerged, surveyUnmerged } from './unmerged.mjs';
-import { pullCandidates } from './yolo-pulls.mjs';
+import { pullCandidates, pullRequestsMerge } from './yolo-pulls.mjs';
 import { reviewsByItself, scoresByItself } from './yolo.mjs';
 
 // The rows the user sees next. Filling in any more would pay for work they may never ship.
@@ -73,7 +73,9 @@ function askReviews(root, now = Date.now()) {
 
   const { running } = ownerView(root);
   const asked = [];
-  for (const { row } of [...weighedRows(root, now), ...pullCandidates(root)].filter(entry => wantsAReview(root, entry))) {
+  // A change waiting on its pull request is one only while YOLO mode takes pull requests (`yolo-pulls.mjs`).
+  const pulls = pullRequestsMerge() ? pullCandidates(root) : [];
+  for (const { row } of [...weighedRows(root, now), ...pulls].filter(entry => wantsAReview(root, entry))) {
     if (asked.length === REVIEWS_A_PASS) break;
     if (!reviewsByItself(root, row.slug) || beingWorkedOn(root, row, running)) continue;
     updateItem(root, row.slug, row.item, { reviewAsked: true, reviewAskedFor: row.head }, now);
