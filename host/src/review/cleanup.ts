@@ -3,8 +3,9 @@
  * whole, and so does the next newest by when it was built; an older one keeps its change review's summary, progress and
  * usage, which the numbers read, and loses its review, its files, its meta and the change review's other known files. A
  * change hobkin closed or merged loses all of that once nothing of it was written for thirty days. A review tree the host
- * moved aside as broken goes after seven days, through git when git still has it. Nothing being built, or read in the
- * last day, is touched. It never follows a link, never leaves the home's reviews and review-trees folders, and leaves
+ * moved aside as broken goes after seven days, through git when git still has it, and only when git removes it without
+ * losing anything: one with changes or untracked files, or locked, is left and the log says git's reason. Nothing being
+ * built, or read in the last day, is touched. It never follows a link, never leaves the home's reviews and review-trees folders, and leaves
  * anything it does not know. Notes, the record of what landed, a merge asked for, the record of agents sent back and
  * every summary always stay. Remove on a row stays the user's own delete. Each run says what it removed, so the host's
  * log keeps the list; a look removes nothing and says what a run would.
@@ -93,17 +94,38 @@ function lastWritten(folder: string): number {
   return newest
 }
 
-/** The repository a linked worktree belongs to, from its `.git` file, and whether git still lists it there. */
-function registeredIn(tree: string): string | null {
+const GIT_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: '0' }
+
+/** The repository a linked worktree belongs to, from its `.git` file, when git still lists it there, and whether it is locked. */
+function registeredIn(tree: string): { repo: string; locked: boolean } | null {
   const dotGit = join(tree, '.git')
   if (kindAt(dotGit) !== 'file') return null
   const gitdir = /^gitdir:\s*(.+)$/m.exec(readFileSync(dotGit, 'utf8'))?.[1]?.trim()
   const at = gitdir?.lastIndexOf(`${sep}.git${sep}worktrees${sep}`) ?? -1
   if (!gitdir || at < 0) return null
   const repo = gitdir.slice(0, at)
-  const listed = execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8', timeout: 30_000, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' } })
+  const listed = execFileSync('git', ['-C', repo, 'worktree', 'list', '--porcelain'], { encoding: 'utf8', timeout: 30_000, env: GIT_ENV })
   const real = realpathSync(tree)
-  return listed.split('\n').some((line) => line.startsWith('worktree ') && (line.slice('worktree '.length) === tree || line.slice('worktree '.length) === real)) ? repo : null
+  // Each tree is a block of lines: its path first, and `locked` among them when it is.
+  const block = listed.split('\n\n').find((lines) => [tree, real].includes(lines.split('\n')[0]?.slice('worktree '.length) ?? ''))
+  return block ? { repo, locked: block.split('\n').some((line) => line === 'locked' || line.startsWith('locked ')) } : null
+}
+
+/** What git says when a command fails, in a line. */
+function gitSaid(error: unknown): string {
+  const stderr = (error as { stderr?: unknown }).stderr
+  const said = (typeof stderr === 'string' ? stderr : Buffer.isBuffer(stderr) ? stderr.toString('utf8') : '').trim().replace(/\s+/g, ' ')
+  return said || (error instanceof Error ? error.message : String(error))
+}
+
+/**
+ * Why git would not remove a tree without its force: it is locked, or holds changes or files git does not track. Null
+ * when it would. Asked of git, and nothing is changed, so a look can say it too.
+ */
+function refusalOf(tree: string, locked: boolean): string | null {
+  if (locked) return 'it is locked'
+  const changes = execFileSync('git', ['-C', tree, 'status', '--porcelain'], { encoding: 'utf8', timeout: 30_000, env: GIT_ENV }).trim()
+  return changes ? `it holds changes or untracked files (${changes.split('\n').length})` : null
 }
 
 export interface CleanUp {
@@ -117,13 +139,15 @@ export interface CleanUp {
   readRecently?: (target: ReviewTarget) => boolean
   /** Remove nothing, and answer what a run would remove. */
   look?: boolean
+  /** Where it says what it left, and why: a tree git would not remove. */
+  say?: (line: string) => void
 }
 
 /**
  * Removes what the home no longer needs, and answers every path it removed. Nothing is removed on a doubt: what cannot
  * be read, is a link, or lies outside the home's reviews and review-trees folders is left as it is.
  */
-export function cleanUp({ root, now, closed, headOf = () => null, readRecently = () => false, look = false }: CleanUp): string[] {
+export function cleanUp({ root, now, closed, headOf = () => null, readRecently = () => false, look = false, say }: CleanUp): string[] {
   const removed: string[] = []
   const reviews = join(root, 'client', 'reviews')
   const trees = join(root, 'client', 'review-trees')
@@ -163,13 +187,28 @@ export function cleanUp({ root, now, closed, headOf = () => null, readRecently =
     const brokeAt = Date.parse(`${said[1]}T${said[2]}:${said[3]}:${said[4]}.${said[5]}Z`)
     if (!Number.isFinite(brokeAt) || now - brokeAt < BROKEN_KEPT_MS) continue
     try {
-      // One git still has goes through git, so its repository forgets it; one it has none of is a folder.
-      const repo = registeredIn(path)
-      if (repo && !look) execFileSync('git', ['-C', repo, 'worktree', 'remove', '--force', path], { timeout: 60_000, stdio: 'ignore' })
-      if (repo) removed.push(path)
-      else remove(path, trees)
-    } catch {
-      // Git could not tell or could not remove it: left as it is.
+      // One git still has goes through git, so its repository forgets it, and never with force: what git would not
+      // throw away stays. One git has none of is a folder.
+      const registered = registeredIn(path)
+      if (!registered) {
+        remove(path, trees)
+        continue
+      }
+      if (look) {
+        const refused = refusalOf(path, registered.locked)
+        if (refused) say?.(`Reviews: cleaning up left ${path}: git would not remove it: ${refused}.`)
+        else removed.push(path)
+        continue
+      }
+      try {
+        execFileSync('git', ['-C', registered.repo, 'worktree', 'remove', path], { timeout: 60_000, stdio: ['ignore', 'ignore', 'pipe'], env: GIT_ENV })
+        removed.push(path)
+      } catch (error) {
+        say?.(`Reviews: cleaning up left ${path}: git would not remove it: ${gitSaid(error)}`)
+      }
+    } catch (error) {
+      // Git could not tell: left as it is.
+      say?.(`Reviews: cleaning up left ${path}: git could not say whether it still has it: ${gitSaid(error)}`)
     }
   }
   return removed

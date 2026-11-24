@@ -84,6 +84,11 @@ export interface ReviewStore {
   /** The last build of a target that failed, or null. */
   buildFailed(target: ReviewTarget): BuildFailed | null
   saveBuildFailed(target: ReviewTarget, failed: BuildFailed | null): void
+  /** When the user last opened or read a target's review, as an ISO time, kept so cleaning up knows it after a restart. */
+  readAt(target: ReviewTarget): string | null
+  saveReadAt(target: ReviewTarget, at: string): void
+  /** Cleaning up took its reviews: a change review's summary is kept, and no review is left to open. */
+  cleanedUp(target: ReviewTarget): boolean
 }
 
 const short = (head: string) => head.slice(0, 12)
@@ -208,6 +213,21 @@ export function reviewStore(root: string): ReviewStore {
       if (!failed) return rmSync(join(folder, 'build-failed.json'), { force: true })
       mkdirSync(folder, { recursive: true, mode: 0o700 })
       writeWhole(join(folder, 'build-failed.json'), JSON.stringify(failed))
+    },
+    readAt(target) {
+      const at = readJson<{ at?: unknown }>(join(folderOf(target), 'read.json'))?.at
+      return typeof at === 'string' && Number.isFinite(Date.parse(at)) ? at : null
+    },
+    saveReadAt(target, at) {
+      const folder = folderOf(target)
+      mkdirSync(folder, { recursive: true, mode: 0o700 })
+      writeWhole(join(folder, 'read.json'), JSON.stringify({ at }))
+    },
+    cleanedUp(target) {
+      const folder = folderOf(target)
+      if (newestIn(folder)) return false
+      const heads = join(folder, 'change-review')
+      return existsSync(heads) && readdirSync(heads).some((head) => existsSync(join(heads, head, 'summary.json')))
     },
     landedAt(target) {
       return readJson<{ at?: string }>(join(folderOf(target), 'landed.json'))?.at ?? null

@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, lstatSync, mkdirSync, readFileSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
-import { cleanUp } from '../src/review/cleanup.ts'
+import { cleanUp, READ_KEPT_MS } from '../src/review/cleanup.ts'
 import { Reviews } from '../src/review/reviews.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
@@ -175,4 +175,74 @@ test("the review at the change's commit is kept whole whatever the times, then t
 
   const read = home(t, 4)
   assert.deepEqual(cleanUp({ root: read.root, now: NOW, closed: () => false, readRecently: () => true }), [], 'read in the last day: left whole')
+})
+
+test('git removes a broken tree only when it would lose nothing: one with changes, or locked, is left and the log says why', (t) => {
+  const root = temporaryDirectory(t)
+  const trees = join(root, 'client', 'review-trees')
+  mkdirSync(trees, { recursive: true })
+  const repo = join(temporaryDirectory(t), 'repo')
+  mkdirSync(repo)
+  const git = (...args: string[]) => execFileSync('git', ['-C', repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', ...args], { encoding: 'utf8' }).trim()
+  git('init', '--quiet', '--initial-branch=main')
+  writeFileSync(join(repo, 'a.txt'), 'a\n')
+  git('add', '.')
+  git('commit', '--quiet', '-m', 'Start')
+  const tree = (name: string) => {
+    const path = join(trees, `${name}-broken-2026-11-10T10-00-00-000Z`)
+    git('worktree', 'add', '--quiet', '--detach', path, 'HEAD')
+    return path
+  }
+  const [clean, dirty, untracked, locked] = [tree('clean'), tree('dirty'), tree('untracked'), tree('locked')]
+  writeFileSync(join(dirty, 'a.txt'), 'changed\n')
+  writeFileSync(join(untracked, 'notes-left.txt'), 'mine\n')
+  git('worktree', 'lock', locked)
+  const said: string[] = []
+
+  const looked = cleanUp({ root, now: NOW, closed: () => false, look: true, say: (line) => said.push(line) })
+  assert.deepEqual(looked, [clean], 'a look says what git would refuse, too')
+  assert.equal(said.length, 3)
+  said.length = 0
+
+  const removed = cleanUp({ root, now: NOW, closed: () => false, say: (line) => said.push(line) })
+
+  assert.deepEqual(removed, [clean])
+  assert.equal(readFileSync(join(dirty, 'a.txt'), 'utf8'), 'changed\n')
+  assert.equal(readFileSync(join(untracked, 'notes-left.txt'), 'utf8'), 'mine\n')
+  assert.ok(existsSync(locked))
+  assert.equal(said.length, 3)
+  for (const path of [dirty, untracked, locked]) {
+    const said_ = said.find((line) => line.startsWith(`Reviews: cleaning up left ${path}: git would not remove it: `))
+    assert.ok(said_ && said_.length > `Reviews: cleaning up left ${path}: git would not remove it: `.length, `${path} is named with git's reason`)
+  }
+})
+
+test('what was read in the last day outlives a restart, and a merged change whose review was cleaned up says so when opened', (t) => {
+  const { root, reviews: folder } = home(t, 1)
+  const make = (finished = false) => {
+    const reviews = new Reviews({
+      store: reviewStore(root),
+      sources: { change: { head: async () => null, read: async () => Promise.reject(new Error('no')) }, pull: { head: async () => null, read: async () => Promise.reject(new Error('no')) } },
+      work: () => ({ workAction: async () => ({}) }),
+      card: () => null,
+      now: () => NOW,
+    })
+    t.after(() => reviews.close())
+    if (finished) reviews.watch([{ id: 'change:shop:a1', head: `${head(1)}${'0'.repeat(28)}` }], 0)
+    return reviews
+  }
+  const target = { kind: 'change' as const, slug: 'shop', item: 'a1' }
+  const before = make()
+  assert.throws(() => before.get('change:shop:a1'))
+
+  // The host starts again: what was read before is still in use.
+  const after = make()
+  assert.equal(after.inUse(target, READ_KEPT_MS), true)
+  assert.deepEqual(cleanUp({ root, now: NOW, closed: () => true, readRecently: (kept) => after.inUse(kept, READ_KEPT_MS) }), [])
+
+  // Merged long ago and cleaned up: only the summary stays, and opening it says so.
+  cleanUp({ root, now: NOW + 40 * DAY, closed: () => true })
+  assert.ok(existsSync(join(folder, 'change-review', head(1), 'summary.json')))
+  assert.throws(() => make().get('change:shop:a1'), { message: 'Its review was cleaned up after the change was merged or closed; its summary is kept.' })
+  assert.throws(() => make(true).get('change:shop:a1'), { message: 'Its review was cleaned up after the change was merged or closed; its summary is kept. Rebuild it to see it again.' })
 })

@@ -61,6 +61,8 @@ export interface DayCount {
 
 /** Why a change an agent works on again is not reviewed now. */
 const AT_WORK = 'An agent is working on it again, so its review waits until it finishes.'
+/** How often a read of a review is kept in the home, at most: cleaning up allows for that much. */
+const READ_KEPT_EVERY_MS = 60 * 60_000
 /** How many reviews the background builds by itself in a local day, across all repositories, unless the workload says otherwise. */
 export const REVIEWS_A_DAY = 20
 
@@ -492,8 +494,9 @@ export class Reviews {
   private readonly againAt = new Map<string, number>()
   /** How many reviews the background built by itself on the local day it names. */
   private dayCount: DayCount | null = null
-  /** When each review was last opened or had a file read, by this host's clock. */
+  /** When each review was last opened or had a file read, by this host's clock, and when that was last kept in the home. */
   private readonly readAt = new Map<string, number>()
+  private readonly readKept = new Map<string, number>()
   private readonly controller = new AbortController()
   private working = false
   /** When each review last asked where its change is now. */
@@ -1169,6 +1172,11 @@ export class Reviews {
     const cached = (status.head && this.options.store.read(target, status.head)) || this.options.store.latest(target)
     if (!cached) {
       if (status.state === 'failed') throw new Unavailable(`This review could not be prepared: ${status.error}`)
+      if (!this.preparing(id) && this.options.store.cleanedUp(target)) {
+        // Cleaned up after it closed: what is kept, and Rebuild while the change is still there to build.
+        const there = target.kind === 'change' ? this.finished.has(id) : this.watchedPulls.has(id) && !this.closedOn(target)
+        throw new Unavailable(`Its review was cleaned up after the change was merged or closed; its summary is kept.${there ? ' Rebuild it to see it again.' : ''}`)
+      }
       throw new Unavailable('This review is still being prepared.')
     }
     // The same check the window would run: a review whose anchors no longer match its files is refused.
@@ -1195,13 +1203,37 @@ export class Reviews {
    */
   inUse(target: ReviewTarget, withinMs: number): boolean {
     const id = reviewIdOf(target)
+    if (this.preparing(id) || this.carrying.has(id)) return true
     const read = this.readAt.get(id)
-    return (read != null && this.now() - read < withinMs) || this.preparing(id) || this.carrying.has(id)
+    if (read != null && this.now() - read < withinMs) return true
+    // Read before this host started: the home keeps it, at most an hour behind the last read.
+    let kept: number | null = null
+    try {
+      kept = Date.parse(this.options.store.readAt(target) ?? '')
+    } catch (error) {
+      this.options.log?.(`Review ${id}: when it was last read could not be read, so it is kept as in use: ${messageOf(error)}`)
+      return true
+    }
+    return Number.isFinite(kept) && this.now() - kept! < withinMs + READ_KEPT_EVERY_MS
+  }
+
+  /** Notes a read of a review, and keeps it in the home at most once an hour, so a restart knows it too. */
+  private noteRead(id: string) {
+    const now = this.now()
+    this.readAt.set(id, now)
+    const kept = this.readKept.get(id)
+    if (kept != null && now - kept < READ_KEPT_EVERY_MS) return
+    this.readKept.set(id, now)
+    try {
+      this.options.store.saveReadAt(this.target(id), new Date(now).toISOString())
+    } catch (error) {
+      this.options.log?.(`Review ${id}: when it was read could not be kept, so a restart may not know it: ${messageOf(error)}`)
+    }
   }
 
   /** The prepared review as the user reads it, with the reviewer's notes. */
   get(id: string): OpenedReview {
-    this.readAt.set(id, this.now())
+    this.noteRead(id)
     const prepared = this.loaded(id)
     const { review } = prepared
     // Opening a review is when its change is looked up: a pull request on its host, a finished change's branch in git.
@@ -1220,7 +1252,7 @@ export class Reviews {
 
   /** Both sides of one file of a prepared review. */
   file(id: string, fileId: string): ReviewFileContents {
-    this.readAt.set(id, this.now())
+    this.noteRead(id)
     const { files, review } = this.loaded(id)
     // A test file the change review found joins the review as it is shown, read at its commit.
     const file = files.find((entry) => entry.fileId === fileId) ?? this.options.assessments?.shownFile(this.target(id), review.change.head, fileId)

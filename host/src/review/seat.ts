@@ -432,7 +432,15 @@ function keepCleaning(
   const run = () => {
     try {
       // Only a look for now: it removes nothing until the rules were checked against a real home (spec 058, S4).
-      const named = cleanUp({ root: seat.root, now: Date.now(), closed: (target) => target.kind === 'change' && closed(target), ...(headOf ? { headOf } : {}), ...(readRecently ? { readRecently } : {}), look: CLEAN_LOOKS_ONLY })
+      const named = cleanUp({
+        root: seat.root,
+        now: Date.now(),
+        closed: (target) => target.kind === 'change' && closed(target),
+        ...(headOf ? { headOf } : {}),
+        ...(readRecently ? { readRecently } : {}),
+        ...(seat.log ? { say: seat.log } : {}),
+        look: CLEAN_LOOKS_ONLY,
+      })
       if (named.length) seat.log?.(`Reviews: cleaning up ${CLEAN_LOOKS_ONLY ? 'would remove' : 'removed'} ${named.length} files the home no longer needs: ${named.join(', ')}`)
     } catch (error) {
       seat.log?.(`Reviews: cleaning up failed, so nothing more was removed: ${error instanceof Error ? error.message : String(error)}`)
