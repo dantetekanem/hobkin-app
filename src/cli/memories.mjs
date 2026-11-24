@@ -14,6 +14,8 @@ import { SECRET_SHAPES } from './feedback/draft.mjs';
  */
 
 export const MEMORY_KINDS = Object.freeze(['user', 'preference', 'date', 'decision', 'project', 'pointer']);
+/** The environment every run hobkin starts carries, holding its title: what it types is known as that run's, and only suggests. */
+export const RUN_MARKER = 'HOBKIN_RUN';
 export const MEMORY_AUTHORS = Object.freeze(['user', 'main', 'hobkin', 'outside', 'suggested']);
 export const MEMORY_SOURCES = Object.freeze(['chat', 'window', 'remember', 'suggested', 'moved']);
 export const MOST_MEMORIES = 300;

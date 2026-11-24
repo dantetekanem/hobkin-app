@@ -3,6 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileDecision } from './decisions.mjs';
 import { scheduleDate } from './schedules.mjs';
+import { addMemory, looksSecret, MOST_DESCRIPTION, memoryNameFrom, RUN_MARKER } from './memories.mjs';
 
 const LOG = 'inbox.jsonl';
 const LONGEST_TEXT = 1000;
@@ -21,7 +22,8 @@ const SAID_IN_CHAT = ['reminder', 'memory'];
 // The list each kind takes in the main agent's note, and what it hears of one.
 const NOTE_LISTS = {
   reminder: { name: 'reminders', heard: ({ text, on, from }) => ({ text, on, from }) },
-  memory: { name: 'remember', heard: ({ text, from, at }) => ({ text, from, at }) },
+  // `saved` names the memory hobkin already made of it (057-shared-memory); one without was not saved and waits to be filed.
+  memory: { name: 'remember', heard: ({ text, from, at, memory }) => ({ text, from, at, ...(memory ? { saved: memory } : {}) }) },
   answer: { name: 'answered', heard: ({ question, answer, from, at }) => ({ question, answer, from, at }) },
   // A memory a run suggested (057-shared-memory), which the main agent files with hobkin_remember, passing its id, or not.
   suggestion: { name: 'suggested', heard: ({ id, memory, from, at }) => ({ id, ...memory, from, at }) },
@@ -117,24 +119,64 @@ export function remind(root, { words, on, from }, now = Date.now()) {
   };
 }
 
-/** `hobkin remember`, from another session. hobkin's main agent hears it with the user's next message and files it. */
-export function remember(root, { words, from }, now = Date.now()) {
+/** A memory's one-line description from the words someone handed over: the first line, cut at a word within the bound. */
+function describedBy(text) {
+  const line = text.split('\n')[0].replace(/\s+/g, ' ').trim();
+  if (line.length <= MOST_DESCRIPTION) return line;
+  const cut = line.slice(0, MOST_DESCRIPTION);
+  return cut.slice(0, cut.lastIndexOf(' ') > 40 ? cut.lastIndexOf(' ') : MOST_DESCRIPTION).replace(/[\s,;:.-]+$/, '');
+}
+
+const SECRET_HANDED = 'Nothing was saved: it looks like a secret (a password, a key, a token, a card or an account number), and hobkin keeps none.';
+
+/**
+ * `hobkin remember`, from another of the user's sessions: hobkin saves it at once as a memory every agent reads, from
+ * that session, and its main agent hears of it once with the user's next message (057-shared-memory). One another
+ * memory already says nearly the same, or that cannot be saved, waits for the main agent to file, as before. Typed
+ * inside a run hobkin started (`HOBKIN_RUN` in `env`), it is only a suggestion from that run.
+ */
+export function remember(root, { words, from }, now = Date.now(), { env = process.env } = {}) {
   const text = plainText(words, REMEMBER_USAGE);
+  if (looksSecret(text)) throw Error(SECRET_HANDED);
+  const run = typeof env?.[RUN_MARKER] === 'string' ? env[RUN_MARKER].replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0, LONGEST_NAME) : '';
+  if (run) {
+    const suggested = suggestMemory(root, { memory: { kind: 'user', description: describedBy(text), text, said: text }, from: run }, now);
+    return { ok: true, id: suggested.id, message: suggested.message };
+  }
   const known = stillWaiting(root, 'memory', text, entry => !entry.heard);
   if (known) return { ok: true, id: known.id, message: 'Already saved, and hobkin\'s main agent has not heard it yet.' };
 
+  const sender = nameOf(from);
+  let saved = null;
+  try {
+    const name = memoryNameFrom(root, text);
+    const { change } = addMemory(root, { name, kind: 'user', description: describedBy(text), text },
+      { by: { kind: 'outside', title: sender }, source: { kind: 'remember', said: text, from: sender }, now, seesPrivate: false });
+    saved = { memory: name, change };
+  } catch {
+    // Refused as a near double or past the most, or not written: the main agent files it instead.
+  }
   const id = randomUUID();
   append(root, {
     id,
     kind: 'memory',
     text,
-    from: nameOf(from),
+    from: sender,
     at: iso(now),
+    ...(saved ?? {}),
   });
+  if (saved) {
+    return {
+      ok: true,
+      id,
+      memory: saved.memory,
+      message: `Saved as the memory "${saved.memory}". Every agent hobkin runs reads it from now on, and hobkin's main agent hears of it with the user's next message there.`,
+    };
+  }
   return {
     ok: true,
     id,
-    message: 'Saved. hobkin\'s main agent hears it with the user\'s next message there, and files it in its memory or its directions.',
+    message: 'Saved. hobkin\'s main agent hears it with the user\'s next message there, and files it in its memories, its list or its directions.',
   };
 }
 
@@ -160,11 +202,13 @@ export function inboxToPost(root, now) {
 /** A reminder stands out as a system line. A fact gets a quiet one, because the main agent says what it did with it. */
 export function inboxNotice(entry, now) {
   if (entry.kind === 'memory') {
+    // One saved as a memory at once offers Undo and See (057-shared-memory).
     return {
       id: `notice:remember:${entry.id}`,
       role: 'notice',
       tone: 'quiet',
-      content: `Noted from ${entry.from}: ${entry.text}`,
+      content: `${entry.memory ? 'Remembered' : 'Noted'} from ${entry.from}: ${entry.text}`,
+      ...(entry.memory && entry.change ? { memory: { change: entry.change, name: entry.memory, did: 'added' } } : {}),
       at: iso(now),
     };
   }

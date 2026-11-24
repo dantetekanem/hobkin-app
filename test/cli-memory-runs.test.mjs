@@ -220,6 +220,7 @@ test('a hobkin session run gets the right-now list and the shared index, recalls
   assert.match(prompt.memories, /- lives-in-lisbon: Lives in Lisbon/);
   assert.doesNotMatch(request.prompt, /partner|Ana/);
   assert.equal(request.memories, 'run');
+  assert.equal(request.env.HOBKIN_RUN, 'Ship 412', 'what the run types in its shell is known as its own');
   assert.match((await options.memories.recall({ words: 'ana' })).text, /^No memory matches/);
   assert.equal(options.memories.remember, undefined, 'a session run only suggests');
   await options.memories.suggest({ kind: 'preference', description: 'Wants CI green before a merge' });

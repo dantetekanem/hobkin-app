@@ -40,6 +40,7 @@ import { Hobkins, hobkinSummaries } from './hobkins.mjs';
 import { answerRequest, takeRequests, tellRequests, turnToken } from './hobkin-tell.mjs';
 import { SCHEDULE_ENVIRONMENT, SCHEDULE_REQUESTS, scheduleAskedHere } from './agent-schedule-command.mjs';
 import { memoryHandler } from './memory-tools.mjs';
+import { RUN_MARKER } from './memories.mjs';
 import { fileTemplateNews } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
@@ -473,13 +474,17 @@ export class HobkinApplication {
       const schedules = owner ? app.scheduleHandler(owner, request.cwd, { waits: request.waits }) : undefined;
       // A run that reads hobkin's memories reaches them as hobkin knows it by its run, never by what its request says
       // (057-shared-memory): a durable hobkin's turn as that hobkin, any other run as itself.
-      const titled = admission && request.memories ? { ...admission, title: (await app.runtime.document?.())?.runs?.[admission.id]?.title } : null;
-      const memories = titled ? app.memoryKeeper(app.memoryOwnerOf(titled)) : undefined;
+      const turnRun = Boolean(admission) && isTurnRunId(admission.id);
+      const title = admission && (request.memories || !turnRun) ? await app.runTitle(admission.id) : undefined;
+      const memories = admission && request.memories ? app.memoryKeeper(app.memoryOwnerOf({ ...admission, title })) : undefined;
+      // Every run but a durable hobkin's turn carries its title in its environment, so `hobkin remember` typed in its
+      // shell is only that run's suggestion.
+      const started = admission && !turnRun ? { ...request, env: { ...request.env, [RUN_MARKER]: (title ?? admission.id).replace(/[\x00-\x1f\x7f]+/g, ' ').slice(0, 80) } } : request;
       const cancel = () => { void ownedScope?.cancel(); };
       request.signal?.addEventListener('abort', cancel, { once: true });
       try {
         request.signal?.throwIfAborted();
-        return await run(request, { ...options, metricsRoot, ownedScope, ...(schedules ? { schedules } : {}), ...(memories ? { memories } : {}),
+        return await run(started, { ...options, metricsRoot, ownedScope, ...(schedules ? { schedules } : {}), ...(memories ? { memories } : {}),
           onControl: child => { if (admission) app.runtime.bindHarness(admission.id, request.id, child); },
         });
       } finally {
@@ -1122,6 +1127,15 @@ export class HobkinApplication {
    */
   memoryKeeper(owner, root = this.runtime.directory) {
     return memoryHandler(root, owner, { now: () => this.now(), onChange: change => this.memoryChanged(owner, change) });
+  }
+
+  /** A run's title as the store holds it, or none when it cannot be read: that costs the name, never the run. */
+  async runTitle(id) {
+    try {
+      return (await this.runtime.document?.())?.runs?.[id]?.title;
+    } catch {
+      return undefined;
+    }
   }
 
   /** Who a run is to its memory tools: a durable hobkin's turn is that hobkin, any other run is itself, by its title. */

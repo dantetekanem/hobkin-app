@@ -314,3 +314,53 @@ test('the main agent hears ten handed-over things at a time, and the rest with t
     await app.close();
   }
 });
+
+test('hobkin remember saves a memory at once, with where it came from, and the main agent still hears it once', async t => {
+  const { readMemories } = await import('../src/cli/memories.mjs');
+  const h = fixture(t);
+  const saved = await hobkin(h.root, ['remember', 'The user prefers morning appointments', '--from', 'Claude Code']);
+  assert.match(saved.message, /^Saved as the memory "the-user-prefers-morning-appointments"/);
+  const [memory] = readMemories(h.root).memories;
+  assert.deepEqual([memory.name, memory.kind, memory.description], ['the-user-prefers-morning-appointments', 'user', 'The user prefers morning appointments']);
+  assert.deepEqual(memory.added.by, { kind: 'outside', title: 'Claude Code' });
+  assert.deepEqual(memory.source, { kind: 'remember', said: 'The user prefers morning appointments', from: 'Claude Code' });
+  assert.match((await hobkin(h.root, ['remember', 'The user prefers morning appointments', '--from', 'Claude Code'])).message, /^Already saved/);
+  assert.equal(readMemories(h.root).memories.length, 1);
+  await assert.rejects(hobkin(h.root, ['remember', 'The wifi password: hunter22']), /looks like a secret/);
+
+  const app = await h.openApp();
+  try {
+    app.tickInbox();
+    const lines = hobkinLines(await app.refresh()).filter(({ content }) => /morning appointments/.test(content));
+    assert.equal(lines.length, 1);
+    assert.match(lines[0].content, /^Remembered from Claude Code: /);
+    assert.deepEqual([lines[0].memory.name, lines[0].memory.did], ['the-user-prefers-morning-appointments', 'added']);
+    const [heard, heardAgain] = await heardWith(t, app, 'hi', 'and?');
+    assert.deepEqual(heard.remember.map(({ text, from, saved: name }) => [text, from, name]),
+      [['The user prefers morning appointments', 'Claude Code', 'the-user-prefers-morning-appointments']]);
+    assert.equal(heardAgain.remember, undefined);
+  } finally {
+    await app.close();
+  }
+});
+
+test('hobkin remember of what another memory already says is handed to the main agent to file, as before', async t => {
+  const { addMemory, readMemories } = await import('../src/cli/memories.mjs');
+  const h = fixture(t);
+  addMemory(h.root, { name: 'mornings', kind: 'preference', description: 'Prefers morning appointments' }, { by: { kind: 'user' } });
+  const handed = await hobkin(h.root, ['remember', 'Prefers morning appointments, before ten', '--from', 'Claude Code']);
+  assert.match(handed.message, /main agent hears it with the user's next message/);
+  assert.equal(readMemories(h.root).memories.length, 1);
+});
+
+test('hobkin remember typed inside a run hobkin started becomes a suggestion from that run', async t => {
+  const { readMemories } = await import('../src/cli/memories.mjs');
+  const { inboxToTell } = await import('../src/cli/inbox.mjs');
+  const h = fixture(t);
+  const output = { text: '', write(chunk) { this.text += chunk; } };
+  await main(['remember', 'Wants CI green before a merge', '--home', h.root], output, { input: Readable.from(['']), env: { HOBKIN_RUN: 'Ship 412' } });
+  assert.match(JSON.parse(output.text).message, /^Suggested\./);
+  assert.deepEqual(readMemories(h.root).memories, []);
+  const [entry] = inboxToTell(h.root, Date.now());
+  assert.deepEqual([entry.kind, entry.from, entry.memory.description], ['suggestion', 'Ship 412', 'Wants CI green before a merge']);
+});

@@ -204,7 +204,8 @@ export async function main(args = process.argv.slice(2), output = process.stdout
     const { remember, remind } = await import('./inbox.mjs');
     const handOver = options.command === 'remind' ? remind : remember;
     const root = workspaceRoot(options.root);
-    const saved = handOver(root, { words: options.args, on: options.on, from: options.from });
+    // A run hobkin started says so in its environment, and its `remember` is a suggestion (057-shared-memory).
+    const saved = handOver(root, { words: options.args, on: options.on, from: options.from }, undefined, { env: dependencies.env ?? process.env });
     output.write(`${JSON.stringify(saved, null, 2)}\n`);
     return 0;
   }

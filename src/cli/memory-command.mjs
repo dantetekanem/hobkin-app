@@ -1,6 +1,8 @@
 import { askRunning, TURN_TOKEN } from './hobkin-tell.mjs';
 import { memoryHandler } from './memory-tools.mjs';
-import { MEMORY_KINDS, memoryIndex } from './memories.mjs';
+import { MEMORY_KINDS, memoryIndex, RUN_MARKER } from './memories.mjs';
+
+export { RUN_MARKER };
 
 /**
  * `hobkin memory`: how an agent with a shell and no hobkin tools reads and keeps hobkin's memories (057-shared-memory),
@@ -11,8 +13,6 @@ import { MEMORY_KINDS, memoryIndex } from './memories.mjs';
  */
 
 export const MEMORY_REQUESTS = 'memory-requests';
-/** The environment a run hobkin started carries: its title, so what it types is known as that run's. */
-export const RUN_MARKER = 'HOBKIN_RUN';
 export const MEMORY_USAGE = 'Usage: hobkin memory [list [kind] | get <name> | search <words> [--kind kind] [--limit n] | add | change | forget <name> | restore <name> | suggest]. add, change and suggest read the memory as JSON on standard input, with the fields hobkin_remember takes.';
 const LIST_BYTES = 65536;
 const MOST_INPUT = 16384;
