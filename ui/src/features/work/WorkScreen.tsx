@@ -306,7 +306,7 @@ export function WorkScreen() {
   )
 }
 
-/** Work's pages as tabs, the reviews' counts beside AI Reviews. They draw again when the page or a count changes. */
+/** Work's pages as tabs, the reviews' counts beside Ready for Review. They draw again when the page or a count changes. */
 const WorkTabs = memo(function WorkTabs({ tab, counts, onChoose }: { tab: WorkTab; counts: Record<ReviewGroup, number>; onChoose: (tab: WorkTab) => void }) {
   return (
     <PageTabs
@@ -316,7 +316,7 @@ const WorkTabs = memo(function WorkTabs({ tab, counts, onChoose }: { tab: WorkTa
       onChoose={onChoose}
       tabs={[
         { value: 'work', label: 'Work' },
-        { value: 'reviews', label: 'AI Reviews', extra: <ReviewCounts counts={counts} /> },
+        { value: 'reviews', label: 'Ready for Review', extra: <ReviewCounts counts={counts} /> },
         { value: 'numbers', label: 'Numbers' },
       ]}
     />

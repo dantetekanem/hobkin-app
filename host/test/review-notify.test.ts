@@ -13,21 +13,21 @@ const pull: ReadyReview = { id: 'pr:acme/web/12', kind: 'pull', title: 'Tighten 
 test('the chat line says which review is ready, its one answer for the change and why, and how to open it', () => {
   assert.equal(
     readyLine(change),
-    'The change review of "Round the total" in shop is ready: risky to deploy. 2 parts can break. It needs a fix, not only a look. Open it from its card in Work, or from Work › AI Reviews.',
+    'The change review of "Round the total" in shop is ready: risky to deploy. 2 parts can break. It needs a fix, not only a look. Open it from its card in Work, or from Work › Ready for Review.',
   )
   assert.equal(
     readyLine({ ...change, summary: { ...summary, level: 'mid', critical: false, needsYou: 0, worthALook: 1 } }),
-    'The change review of "Round the total" in shop is ready: safe to deploy. Nothing found that breaks. 1 part was not shown working by a test that ran. Open it from its card in Work, or from Work › AI Reviews.',
+    'The change review of "Round the total" in shop is ready: safe to deploy. Nothing found that breaks. 1 part was not shown working by a test that ran. Open it from its card in Work, or from Work › Ready for Review.',
   )
   assert.equal(
     readyLine({ ...change, summary: { ...summary, level: 'safe', critical: false, needsYou: 0, worthALook: 0 } }),
-    'The change review of "Round the total" in shop is ready: safe to deploy. Every part is shown to work, or cannot break anything. Open it from its card in Work, or from Work › AI Reviews.',
+    'The change review of "Round the total" in shop is ready: safe to deploy. Every part is shown to work, or cannot break anything. Open it from its card in Work, or from Work › Ready for Review.',
   )
-  assert.equal(readyLine(pull), 'The review of acme/web#12 "Tighten the login form" is ready. Open it from Work › AI Reviews.')
+  assert.equal(readyLine(pull), 'The review of acme/web#12 "Tighten the login form" is ready. Open it from Work › Ready for Review.')
   // A pull request's change review gives its answer too, with the review's own reason when it has one.
   assert.equal(
     readyLine({ ...pull, summary: { ...summary, critical: false, needsYou: 1, worthALook: 0, deploy: 'risky', why: 'A wrong password now signs the user in.' } }),
-    'The review of acme/web#12 "Tighten the login form" is ready: risky to deploy. A wrong password now signs the user in. Open it from Work › AI Reviews.',
+    'The review of acme/web#12 "Tighten the login form" is ready: risky to deploy. A wrong password now signs the user in. Open it from Work › Ready for Review.',
   )
 })
 

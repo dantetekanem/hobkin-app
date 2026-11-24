@@ -25,9 +25,9 @@ export function readyLine({ id, kind, title, project, summary }: ReadyReview): s
   if (kind === 'pull') {
     const target = targetOfReviewId(id)
     const name = target?.kind === 'pull' ? `${target.owner}/${target.repo}#${target.number}` : project
-    return `The review of ${name} "${title}" is ready${said} Open it from Work › AI Reviews.`
+    return `The review of ${name} "${title}" is ready${said} Open it from Work › Ready for Review.`
   }
-  return `The change review of "${title}" in ${project} is ready${said} Open it from its card in Work, or from Work › AI Reviews.`
+  return `The change review of "${title}" in ${project} is ready${said} Open it from its card in Work, or from Work › Ready for Review.`
 }
 
 type ClientNotices = typeof import('hobkin/src/cli/client-notices.mjs')

@@ -384,7 +384,7 @@ function Lists({
     addGroup({
       key: 'ai',
       label: 'Recently reviewed',
-      about: 'Other pull requests with a review: merged or closed since, or opened from a link. Work’s AI Reviews tab lists every review.',
+      about: 'Other pull requests with a review: merged or closed since, or opened from a link. Work’s Ready for Review tab lists every review.',
       items: sections.reviewed,
       row: (entry, order) => <PullCard key={`ai:${entry.id}`} entry={entry} mine={false} live={live} now={now} variants={variants} order={order} />,
       empty: reviewListUnavailable ? 'Reviews are unavailable.' : `No other pull request${where} has a review yet.`,
