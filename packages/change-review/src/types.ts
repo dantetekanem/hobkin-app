@@ -594,6 +594,49 @@ export interface RemovedTest {
   names: string[]
 }
 
+// ───────────────────────── The user's questions (spec 058 A11) ─────────────────────────
+
+/** What a change is, in hobkin's words: the kind its scores are read with. */
+export const NEED_KINDS = ['performance', 'bug-fix', 'state-machine', 'package-update', 'small-change', 'feature', 'unclear'] as const
+export type NeedKind = (typeof NEED_KINDS)[number]
+
+/**
+ * The user's five questions (spec 049): do tests cover the change; were tests added or changed to prove it; does it
+ * risk the deploy or data; would a regression show in the monitoring; what is the risk and the time to roll back.
+ */
+export const NEED_CRITERIA = ['coverage', 'proof', 'safety', 'visibility', 'rollback'] as const
+export type NeedCriterion = (typeof NEED_CRITERIA)[number]
+
+/** One answer to one question: a whole number from 1 to 10, and one line of evidence that names what it rests on. */
+export interface NeedScore {
+  score: number
+  evidence: string
+  /** What it rests on, as the Reviewer names it: node ids, test files, runs. */
+  facts?: string[]
+  /** The Reviewer's own number, and why the facts the review measured hold it lower, when a cap bit. */
+  capped?: { from: number; why: string }
+}
+
+/** The Reviewer's answer to the user's questions, read and checked: only the scores that hold. */
+export interface Answered {
+  kind: NeedKind
+  /** What proof is still wanted, in a line. Absent when nothing is. */
+  missing?: string
+  scores: Partial<Record<NeedCriterion, NeedScore>>
+}
+
+/**
+ * The user's questions answered for one review, capped by the facts it measured (spec 058 A11). A score that did not
+ * hold is left out, never guessed. The general rate and the floors are hobkin's formula, worked out by the host.
+ */
+export interface ReviewNeeds extends Answered {
+  /** The commit they were made at: the review's head. */
+  head: string
+  by: 'change-review'
+  /** Whether the project's monitoring was handed in. Unknown: no visibility score is asked for. */
+  monitoring: 'given' | 'unknown'
+}
+
 export interface ReviewNode {
   id: string
   /** `general`: constant, class-body statement, migration, config, dependency, removed definition. */
@@ -681,6 +724,8 @@ export interface Graph {
   zones?: Zone[]
   /** The tests the change removes (spec 055). */
   removed_tests?: RemovedTest[]
+  /** The user's five questions answered (spec 058). Absent when the Reviewer gave none that held: not rated. */
+  needs?: ReviewNeeds
 }
 
 // ───────────────────────── 3. Risk events ─────────────────────────

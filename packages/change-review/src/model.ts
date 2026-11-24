@@ -8,8 +8,8 @@ import { readFileSync } from 'node:fs'
 import { floor } from './floor.ts'
 import type { MapOp } from './reshape.ts'
 import { nodeLevelOf } from './risk.ts'
-import { EVIDENCE_KINDS, LEVELS } from './types.ts'
-import type { Claim, ClaimStatus, Level, ModelCheck, NodeTest, Question, ReviewNode, RiskEvent, RunsFrom, Signal, StoryWords, TestRun, Triage, Unit, Watch, Zone } from './types.ts'
+import { EVIDENCE_KINDS, LEVELS, NEED_CRITERIA, NEED_KINDS } from './types.ts'
+import type { Answered, Claim, ClaimStatus, Level, ModelCheck, NeedScore, NodeTest, Question, ReviewNode, RiskEvent, RunsFrom, Signal, StoryWords, TestRun, Triage, Unit, Watch, Zone } from './types.ts'
 
 /** A unit as curate drafted it, before any model words. */
 export type DraftUnit = Pick<Unit, 'id' | 'nodes' | 'grouping' | 'level' | 'title' | 'where' | 'what'>
@@ -26,6 +26,11 @@ export interface ReviewInput {
   modelChecks?: readonly ModelCheck[]
   /** The zones the nodes name (spec 055), which the Reviewer may rename. */
   zones?: readonly Zone[]
+  /**
+   * What the project's monitoring covers and its way back, as lines hobkin's readiness record holds (spec 058). Without
+   * it the Reviewer is told monitoring is unknown and gives no visibility score.
+   */
+  monitoring?: readonly string[]
   /** Most characters the prompt may hold. */
   limit?: number
 }
@@ -53,6 +58,8 @@ export interface ReviewAnswer {
   words: StoryWords
   /** Triage's claims that the answer settled, with its status and evidence. */
   claims: Claim[]
+  /** The user's five questions answered, with only the scores that held. Absent: not rated. */
+  needs?: Answered
   /** What was dropped or cut from the answer, and why. */
   problems: string[]
 }
@@ -66,6 +73,8 @@ const CODE_LINE_CHARS = 240
 const MAX_CLAIMS = 40
 const MAX_DIRECTIVES = 20
 const MAX_CONTEXT = 40
+const MAX_MONITORING = 12
+const MONITORING_CHARS = 200
 /** Where a node runs from and what tests it (spec 055): the nearest origins, the first steps of each way, the older tests. */
 const MAX_ORIGINS = 3
 const MAX_STEPS = 6
@@ -161,6 +170,8 @@ interface RequestData {
   zones?: { id: string; label: string }[]
   context?: ContextEntry[]
   model_checks?: ModelCheck[]
+  /** What the project's monitoring covers, or `unknown`. */
+  monitoring: string[] | 'unknown'
   cut: string[]
 }
 
@@ -311,6 +322,8 @@ export function reviewRequest(input: ReviewInput): ReviewRequest {
   const directives = triage.directives ?? []
   if (directives.length > MAX_DIRECTIVES) cut.push(`${directives.length - MAX_DIRECTIVES} directives left out: the first ${MAX_DIRECTIVES} sent`)
   const context = input.context ?? []
+  const monitoring = (input.monitoring ?? []).map((line) => plainText(line, MONITORING_CHARS)).filter(Boolean)
+  if (monitoring.length > MAX_MONITORING) cut.push(`${monitoring.length - MAX_MONITORING} lines of the project's monitoring left out: the first ${MAX_MONITORING} sent`)
   if (context.length > MAX_CONTEXT) cut.push(`${context.length - MAX_CONTEXT} unchanged definitions near the change left out: the first ${MAX_CONTEXT} sent`)
   const data: RequestData = {
     change: { range: triage.range, mode: triage.mode, description_source: triage.description_source, totals: triage.totals },
@@ -323,6 +336,7 @@ export function reviewRequest(input: ReviewInput): ReviewRequest {
     ...(input.modelChecks?.length
       ? { model_checks: input.modelChecks.map(({ spec, run, result, states, rules, unfired, models, broken, steps, message }) => ({ spec, run, result, states, rules, unfired, models, broken, steps, message })) }
       : {}),
+    monitoring: monitoring.length ? monitoring.slice(0, MAX_MONITORING) : 'unknown',
     cut,
   }
   fit(data, input.limit ?? PROMPT_LIMIT)
@@ -367,7 +381,10 @@ const LIMITS = {
   why: 300,
   path: 300,
   zoneName: 60,
+  needEvidence: 400,
+  needFact: 160,
 }
+const MAX_NEED_FACTS = 10
 const MAX_MAP_OPS = 60
 const MAX_IN_OP = 50
 const MAP_ID = /^[A-Za-z][\w-]{0,23}$/
@@ -700,6 +717,54 @@ function mapOf(value: unknown, problems: Problems): MapOp[] {
   return value.slice(0, MAX_MAP_OPS).flatMap((raw, index) => mapOpOf(raw, `map[${index}]`, problems) ?? [])
 }
 
+/** A line of text from the answer: one line, at most `max` characters, or undefined. */
+const oneLine = (value: unknown, max: number): string | undefined => {
+  if (typeof value !== 'string' || /[\r\n]/.test(value.trim())) return undefined
+  const text = clean(value)
+  return text && text.length <= max ? text : undefined
+}
+
+/** One answer to one of the user's questions, or null when it does not hold: a whole number from 1 to 10 and one line of evidence. */
+function needScoreOf(raw: unknown, at: string, problems: Problems): NeedScore | null {
+  if (!isRecord(raw)) return problems.drop(at, 'not an object')
+  if (!Number.isInteger(raw.score) || (raw.score as number) < 1 || (raw.score as number) > 10) return problems.drop(at, 'not a whole number from 1 to 10')
+  const evidence = oneLine(raw.evidence, LIMITS.needEvidence)
+  if (!evidence) return problems.drop(at, `its evidence is not one line of at most ${LIMITS.needEvidence} characters`)
+  const facts = Array.isArray(raw.facts) ? raw.facts.slice(0, MAX_NEED_FACTS).map((fact) => oneLine(fact, LIMITS.needFact)).filter((fact): fact is string => Boolean(fact)) : []
+  return { score: raw.score as number, evidence, ...(facts.length ? { facts } : {}) }
+}
+
+/**
+ * The user's five questions as the Reviewer answered them, read without trust (spec 058 A11): a known kind, and each
+ * score a whole number from 1 to 10 with one line of evidence. A score that does not hold is dropped; with none left,
+ * or no known kind, nothing is rated. Never a guessed number.
+ */
+function needsOf(value: unknown, problems: Problems): Answered | undefined {
+  if (value === undefined) return undefined
+  if (!isRecord(value)) {
+    problems.drop('needs', 'not an object')
+    return undefined
+  }
+  if (!oneOf(NEED_KINDS, value.kind)) {
+    problems.drop('needs.kind', `not one of ${NEED_KINDS.join(', ')}`)
+    return undefined
+  }
+  const raw = isRecord(value.scores) ? value.scores : {}
+  const scores: Answered['scores'] = {}
+  for (const criterion of NEED_CRITERIA) {
+    if (raw[criterion] === undefined) continue
+    const kept = needScoreOf(raw[criterion], `needs.scores.${criterion}`, problems)
+    if (kept) scores[criterion] = kept
+  }
+  if (!Object.keys(scores).length) {
+    problems.drop('needs', 'no score holds')
+    return undefined
+  }
+  const missing = value.missing === undefined || value.missing === null ? undefined : oneLine(value.missing, LIMITS.needEvidence)
+  if (value.missing != null && !missing) problems.drop('needs.missing', `not one line of at most ${LIMITS.needEvidence} characters`)
+  return { kind: value.kind, ...(missing ? { missing } : {}), scores }
+}
+
 /** A claim's text as two spellings of it compare: case, spacing, quotes and the closing stop ignored. */
 const claimKey = (text: string) => clean(text).toLowerCase().replace(/^["'`]+|["'`.!?;:,]+$/g, '').trim()
 
@@ -724,6 +789,8 @@ function claimsOf(value: unknown, known: readonly Claim[], problems: Problems): 
   return settled
 }
 
+const withNeeds = (needs: Answered | undefined) => (needs ? { needs } : {})
+
 /**
  * Reads the Reviewer's answer without trust: finds its JSON object, keeps events that follow the risk-event schema
  * for known nodes, words for known units, answers to known claims and map operations of a known shape, removes hidden
@@ -734,7 +801,7 @@ export function readReviewAnswer(
   text: string,
   known: { nodes: readonly { id: string }[]; units: readonly { id: string }[]; claims: readonly Claim[] },
 ): ReviewAnswer {
-  const found = jsonObjectIn(text, ['events', 'words', 'claims', 'map'])
+  const found = jsonObjectIn(text, ['events', 'words', 'claims', 'map', 'needs'])
   if (!found) {
     return { events: [], map: [], words: {}, claims: [], problems: ['no JSON object with events, words, claims or map in the answer'] }
   }
@@ -747,6 +814,7 @@ export function readReviewAnswer(
     map,
     words: wordsOf(found.words, new Set([...known.units.map((unit) => unit.id), ...madeUnits]), problems),
     claims: claimsOf(found.claims, known.claims, problems),
+    ...withNeeds(needsOf(found.needs, problems)),
     problems: problems.list,
   }
 }

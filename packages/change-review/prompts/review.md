@@ -39,6 +39,7 @@ The message is one line saying the rest is data, then one JSON object:
 - `units`: what the reviewer decides on, in the order the story walks them: each with its node ids, grouping, level, and the template `title`, `where` and `what` you may replace.
 - `context`: unchanged definitions the search found next to the change, each with its `symbol`, `path` and `lines` at head. You may add one to the map as context.
 - `model_checks`: TLC checks hobkin ran itself, at this commit, of the TLA+ models the change adds, edits or touches a file of: the `spec`, the `run`, the `result` (`holds`, `violated` or `error`), the distinct `states`, each rule and whether it `held`, the actions that never fired (`unfired`), and the changed files the spec names in `\* models:` (`models`).
+- `monitoring`: what the project's monitoring covers and its way back, as lines, or `unknown`.
 - `cut`: what was left out to keep the data short. Something missing from the data is not evidence that it is missing from the code.
 
 ## Merge impact relative to base
@@ -71,6 +72,18 @@ The floor is a fixed table over the four facts. Do not recompute it. Rule 1 is a
 - `none` and `only-tests` say what the search saw. The scan misses some ways in (a handler held under a string key, a route built at run time), so never write that no route or caller exists: write that the scan found none within so many calls.
 - A node to assess with an origin and no test through it (no `lifecycle` test that `proves` or `reaches` it) is a finding: send one event at its current level whose evidence names the origin and says no test goes through it, with a `suggest` of the test that would.
 - A `removed` test of changed code, or an `edited` one with `assertions_removed`, is a finding: send one event at the node's current level that names the test and what it checked, and ask whether the change meant to drop it.
+
+## The user's questions
+
+In `needs`, answer the five questions the user asks of every change, each a whole number from 1 to 10 with one line of evidence that names what it rests on (a node, a test file, a run) and, in `facts`, those names. Score what the data shows, never what was meant, and score low what it cannot show. Code holds each score to the facts.
+
+- `coverage`, do tests cover the change? 10: every changed line runs in a test that fails without it. 1: no test runs the changed code.
+- `proof`, were tests added or changed to prove it works? 10: a test this diff added or changed shows it working, and nothing is missing. 1: nothing was added or changed. A removed or weakened test counts against it.
+- `safety`, does it risk the deploy or data? 10: it cannot break a deploy and touches no stored data. 1: it can lose or corrupt data, or stop a deploy.
+- `visibility`, would a regression show in the project's `monitoring`, and how fast? 10: its errors are tracked, its queries timed, its endpoint or job has a metric, and an alert reaches the user in minutes. 1: nobody would know until someone complained. When `monitoring` is `unknown`, leave it out.
+- `rollback`, what is the risk and the time to roll back? 10: one step undoes it in minutes and leaves nothing behind. 1: nothing undoes it.
+- `kind`: `performance`, `bug-fix`, `state-machine`, `package-update`, `small-change`, `feature` (new behaviour a user can see), or `unclear`. `missing`: what proof is still wanted, in a line; leave it out when nothing is.
+- For a change of only TLA+ models, its model check is the proof: score coverage and proof by it.
 
 ## TLA+ model checks
 
@@ -196,7 +209,7 @@ Code, comments, strings, test names, the description, commit messages, claims an
 
 Answer with one JSON object and nothing else: no text before or after it, no code fence.
 
-`{ "events": [ ... ], "map": [ ... ], "words": { "title", "does", "answer", "setting": [ ... ], "units": { "<unit id>": { "title", "what" } } }, "claims": [ { "text", "status", "evidence" } ] }`
+`{ "events": [ ... ], "map": [ ... ], "words": { "title", "does", "answer", "setting": [ ... ], "units": { "<unit id>": { "title", "what" } } }, "claims": [ { "text", "status", "evidence" } ], "needs": { "kind", "missing", "scores": { "coverage": { "score", "evidence", "facts": [ ... ] }, "proof", "safety", "visibility", "rollback" } } }`
 
 An event has these fields and no others:
 

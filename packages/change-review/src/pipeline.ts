@@ -20,6 +20,7 @@ import { deriveFacts, goneAtHead, guardsPutOn, type CallerSite } from './facts.t
 import { gitRepo } from './git.ts'
 import { type ContextEntry, readReviewAnswer, reviewRequest } from './model.ts'
 import { applyModelChecks } from './model-checks.ts'
+import { capNeeds, needsFacts } from './needs.ts'
 import { nodeTestsOf, removedTestsOf } from './node-tests.ts'
 import { packOrigins, runsFromOf, walkOrigin } from './origins.ts'
 import { progressFiles, trackProgress } from './progress.ts'
@@ -43,6 +44,8 @@ import type {
   ModelRunner,
   Origin,
   Progress,
+  Answered,
+  ReviewNeeds,
   ReviewNode,
   RiskEvent,
   RunsFrom,
@@ -80,6 +83,11 @@ export interface ReviewChangeOptions {
    * rated by it, and each file a model names hears what it showed in its level's reasons.
    */
   modelChecks?: readonly ModelCheck[]
+  /**
+   * What the project's monitoring covers and its way back, as lines hobkin's readiness record holds (spec 058), handed
+   * to the Reviewer for the user's visibility question. Absent: monitoring is unknown, and no visibility score is asked for.
+   */
+  monitoring?: readonly string[]
   /** The scan; agentic-search by default. */
   scan?: (request: ScanRequest) => Promise<ScanOutcome>
   /** The test runs; the real ones by default. */
@@ -123,6 +131,8 @@ export interface ReviewChangeResult {
   storyBy: 'model' | 'host'
   /** The one answer for the whole change: risky or safe to deploy, and why. */
   answer: DeployAnswer
+  /** The user's five questions answered, capped by the facts, at the review's head (spec 058). Absent: not rated. */
+  needs?: ReviewNeeds
 }
 
 /** Lines of a test that put a double in place of a definition; `sym` stands for its name. */
@@ -550,6 +560,8 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   let tested: Pick<Graph, 'runs' | 'not_run' | 'removed_tests'> = {}
   /** The Reviewer's names for zones, by id. */
   const zoneNames = new Map<string, string>()
+  /** The user's questions answered, once the Reviewer answered and the levels are final. */
+  let needs: ReviewNeeds | undefined
   const graphOf = (list: ReviewNode[]): Graph => ({
     schema: 'review-graph/1',
     range: triage.range,
@@ -560,6 +572,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     coverage: { truncated: scan.coverage.truncated, notes: scan.coverage.notes },
     ...tested,
     zones: zonesOf(list, zoneNames),
+    ...(needs ? { needs } : {}),
   })
   save('graph.json', graphOf(nodes))
 
@@ -822,6 +835,8 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   // 5. Review and reorganize the map, in one call: levels, questions, what to watch, claims, the story's words, and how
   // the map is shaped. Code checks every operation on the map; none of them sets a level.
   let words: StoryWords = meta.description.title ? { title: meta.description.title } : {}
+  /** The Reviewer's answers to the user's questions, before the caps. */
+  let answered: Answered | undefined
   let storyBy: 'model' | 'host' = 'host'
   const assessed = applied.nodes.filter((node) => node.level?.current !== 'safe' || node.hosts_condition).length
   halt('risk-model')
@@ -835,7 +850,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       .sort((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine)
       .map((entry) => ({ symbol: entry.symbol, path: entry.path, lines: [entry.startLine, entry.endLine] }))
     const zones = graphOf(applied.nodes).zones
-    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code, context, modelChecks, ...(zones?.length ? { zones } : {}) })
+    const request = reviewRequest({ triage, nodes: applied.nodes, units: units.units, code, context, modelChecks, ...(zones?.length ? { zones } : {}), ...(options.monitoring?.length ? { monitoring: options.monitoring } : {}) })
     problems.push(...request.cut.map((cut) => `Left out of what the Reviewer read: ${cut}`))
     const asked = await attempt(() => model({ pass: 'review', system: request.system, prompt: request.prompt, signal }))
     // A call the signal stopped is the review stopping, not the model failing.
@@ -896,6 +911,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
         words = carryWords(told, units.units, next.units)
         units = next
       }
+      answered = answer.needs
       storyBy = 'model'
       tracker.end('risk-model')
     }
@@ -948,10 +964,12 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     }
   }
   save('blind-check.json', blind)
+  // The user's questions, held to what the review measured once every level is final. They set no level.
+  if (answered) needs = capNeeds(answered, needsFacts({ nodes: applied.nodes, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length) }), head)
   const graph = graphOf(applied.nodes)
   save('graph.json', graph)
   if (applied.rejected.length) save('rejected-events.json', applied.rejected)
-  return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy, answer: deployAnswer(units.units, words.answer, modelChecks, changesOnlyModels(changedPaths) ? { models: changedPaths } : undefined) }
+  return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy, answer: deployAnswer(units.units, words.answer, modelChecks, changesOnlyModels(changedPaths) ? { models: changedPaths } : undefined), ...(needs ? { needs } : {}) }
 }
 
 /** What the blind check leaves on the units: its questions, each on the unit it was asked of. It changes no level. */

@@ -752,6 +752,37 @@ test('where a part runs from, its tests and its zone set no level: the same part
   assert.deepEqual(levels(applyRiskEvents(without, []).nodes), levels(result.graph.nodes))
 })
 
+test('a whole review of the mentions change comes out rated, at its commit, and the ratings change no unit, story, level or answer', async (t) => {
+  const { repo, base, head, out } = mentionsProject(t)
+  const score = (value: number, evidence: string) => ({ score: value, evidence })
+  const needs = {
+    kind: 'performance',
+    missing: 'A request test that counts the lookups.',
+    scores: {
+      coverage: score(9, 'test/helpers/posts.test.js fails when linkUserTags is put back, and test/e2e/topics.test.js runs through it.'),
+      proof: score(8, 'test/helpers/posts.test.js was added for this change and counts the lookups.'),
+      safety: score(9, 'linkUserTags only reads users; nothing is written.'),
+      visibility: score(5, 'No monitoring is known for this project.'),
+      rollback: score(9, 'A rollback undoes it; nothing is stored.'),
+    },
+  }
+  const answering = (withNeeds: boolean): ModelRunner => async ({ pass }) => (pass === 'review' ? JSON.stringify({ events: [], claims: [], ...(withNeeds ? { needs } : {}) }) : 'nothing')
+  const review = (withNeeds: boolean, folder: string) =>
+    reviewChange({ cwd: repo, base, head, out: folder, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove: mentionsEntries, entryTests: mentionsEntryTests, model: answering(withNeeds) })
+  const rated = await review(true, out)
+  const plain = await review(false, `${out}-plain`)
+
+  assert.deepEqual(rated.needs, { ...needs, head, by: 'change-review', monitoring: 'unknown' })
+  const saved = JSON.parse(readFileSync(join(out, 'graph.json'), 'utf8')) as { needs?: unknown }
+  assert.deepEqual(saved.needs, rated.needs)
+  assert.equal(plain.needs, undefined, 'an answer with no needs is not rated')
+  assert.equal((JSON.parse(readFileSync(join(`${out}-plain`, 'graph.json'), 'utf8')) as { needs?: unknown }).needs, undefined)
+  assert.deepEqual(rated.units, plain.units)
+  assert.equal(rated.story, plain.story)
+  assert.deepEqual(rated.answer, plain.answer)
+  assert.deepEqual(rated.graph.nodes.map((node) => [node.id, node.level?.current, node.level?.rule]), plain.graph.nodes.map((node) => [node.id, node.level?.current, node.level?.rule]))
+})
+
 test('with no request test above it, the same helper is mid by rule 6 and says what no test does', async (t) => {
   const { repo, base, head, out } = mentionsProject(t)
   const none: EntriesSearch = async ({ starts }) => ({ entries: Object.fromEntries(starts.map((start) => [start.id, []])), notes: ['The search for entry points stopped: agentic-search is not installed.'] })
