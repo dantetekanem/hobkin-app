@@ -380,10 +380,11 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
           {agent.project} · <Pulse run={run} fallback={update ?? agent.doing} noticeFirst phaseOnly after={<> · {update ?? agent.doing}</>} />
         </TooltipTrigger>
         <TooltipContent side="right" align="center" sideOffset={10} className="max-w-xs text-left leading-snug whitespace-normal">
-          <span className="block">
-            <Pulse run={run} fallback={null} />
+          {/* One column: the time and the count on a quiet line of their own, then the agent's words. */}
+          <span className="flex flex-col gap-1">
+            <Pulse run={run} fallback={null} className="whitespace-nowrap text-[11px] opacity-70" />
+            <span>{update ?? agent.doing}</span>
           </span>
-          {update ?? agent.doing}
         </TooltipContent>
       </Tooltip>
     )
