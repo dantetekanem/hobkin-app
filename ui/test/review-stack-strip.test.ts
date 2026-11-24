@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { FinishedChange, StackPlace } from '#shared/protocol/work.ts'
-import { openKeyOf, stackStrip } from '../src/features/review/stack-strip.ts'
+import { layerPlaceOf, openKeyOf, stackStrip } from '../src/features/review/stack-strip.ts'
 
 function change(item: string, layer: number | null, over: Partial<StackPlace> = {}): FinishedChange {
   const stack = layer === null ? {} : { stack: { id: 'aaa111', of: 5, name: null, below: null, base: null, layer, ...over } }
@@ -58,4 +58,10 @@ test('a review id finds its change', () => {
   assert.equal(openKeyOf(five, 'change:rpg:l4'), 'rpg:l4')
   assert.equal(openKeyOf(five, 'change:rpg:zz'), null)
   assert.equal(openKeyOf(five, 'sample'), null)
+})
+
+test('a row in the AI Reviews list is told its layer as "2 of 5", and a change in no stack as nothing', () => {
+  assert.equal(layerPlaceOf([...five, change('solo', null)], 'change:rpg:l2'), '2 of 5')
+  assert.equal(layerPlaceOf([...five, change('solo', null)], 'change:rpg:solo'), null)
+  assert.equal(layerPlaceOf(five, 'pr:acme/shop/12'), null)
 })

@@ -72,3 +72,9 @@ export function stackStrip(changes: readonly FinishedChange[], openKey: string |
     line: stripLine(place.layer),
   }
 }
+
+/** "2 of 5": which layer the review with this id is, for a row that lists it. Null when it is no layer. */
+export function layerPlaceOf(changes: readonly FinishedChange[], reviewId: string): string | null {
+  const place = changes.find((change) => layerReviewId(change) === reviewId)?.stack
+  return place ? `${place.layer} of ${Math.max(place.of, place.layer)}` : null
+}

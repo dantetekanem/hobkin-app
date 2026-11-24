@@ -9,7 +9,7 @@ import { reviewBadge, type BadgeTone } from '@/features/work/review-badge.ts'
 import { useWorkView } from '@/features/work/store.ts'
 import { useReviewList } from '@/features/work/use-review-list.ts'
 import { cn } from '@/lib/utils.ts'
-import { openKeyOf, stackStrip, type StackStrip as Strip, type StripLayer } from '../stack-strip.ts'
+import { layerPlaceOf, openKeyOf, stackStrip, type StackStrip as Strip, type StripLayer } from '../stack-strip.ts'
 
 /** The event the review's key listener sends the strip for `{` and `}`: -1 goes to the layer under, 1 to the layer over. */
 export const LAYER_EVENT = 'rv-layer'
@@ -72,7 +72,7 @@ function StripRow({ strip, live, onSample }: { strip: Strip; live: boolean; onSa
   const itemOf = (layer: StripLayer) => list?.reviews.find(({ id }) => id === layer.reviewId)
 
   return (
-    <div ref={root} data-rv-layers className="mt-2">
+    <div ref={root} data-rv-layers className="mt-2 mb-1.5">
       <div className="flex h-7 items-center gap-1">
         <span className="mr-0.5 inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-background px-2 font-heading text-[12px] font-medium whitespace-nowrap text-muted-foreground tabular-nums [&_svg]:size-3.5">
           <Layers aria-hidden="true" />
@@ -81,7 +81,7 @@ function StripRow({ strip, live, onSample }: { strip: Strip; live: boolean; onSa
         <Arrow label="The layer under" keys="{" layer={strip.under} onGo={go}>
           <ChevronLeft />
         </Arrow>
-        <ol aria-label="The layers of this stack, bottom first" className="rv-scroll flex min-w-0 flex-1 items-center gap-1 overflow-x-auto py-0.5">
+        <ol aria-label="The layers of this stack, bottom first" className="rv-scroll flex min-w-0 items-center gap-1 overflow-x-auto -my-[3px] px-[3px] py-[3px]">
           {strip.slots.map((layer, index) =>
             layer ? <Step key={layer.key} layer={layer} state={stateOf(itemOf(layer))} onGo={go} /> : <Gap key={index} number={index + 1} />,
           )}
@@ -161,5 +161,18 @@ function Arrow({ label, keys, layer, onGo, children }: { label: string; keys: st
         {label} <Kbd>{keys}</Kbd>
       </TooltipContent>
     </Tooltip>
+  )
+}
+
+/** "2 of 5", before the title of a row that lists a layer's review. Nothing for a review that is no layer. */
+export function LayerPlace({ reviewId }: { reviewId: string }) {
+  const { work } = useWorkView()
+  const place = useMemo(() => layerPlaceOf((work?.finished ?? []).flatMap((group) => group.changes), reviewId), [work, reviewId])
+  if (!place) return null
+  return (
+    <span title="A layer of a stack, which lands after the layers under it" className="mr-2 inline-flex h-5 items-center gap-1 rounded-full bg-surface-2 px-2 align-[1px] font-heading text-[11px] font-medium whitespace-nowrap text-muted-foreground tabular-nums [&_svg]:size-3">
+      <Layers aria-hidden="true" />
+      {place}
+    </span>
   )
 }

@@ -8,6 +8,7 @@ import { waited } from '@/features/reports/time.ts'
 import { peopleOfOwner } from '@/features/review/panel/by-line.ts'
 import { ByLineNames } from '@/features/review/panel/ByLine.tsx'
 import { usePullPeople } from '@/features/review/use-people.ts'
+import { LayerPlace } from '@/features/review/panel/StackStrip.tsx'
 import { useStackStart } from '@/features/review/use-stack-start.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
@@ -331,7 +332,10 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
           className="stretched flex w-full scroll-mt-[164px] scroll-mb-6 flex-col gap-2.5 rounded-3xl px-5 pt-2.5 pb-2.5 text-left"
         >
           <span className="flex items-start gap-3">
-            <span className="min-w-0 flex-1 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">{item.title}</span>
+            <span className="min-w-0 flex-1 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">
+              <LayerPlace reviewId={item.id} />
+              {item.title}
+            </span>
             {row.group === 'ready' && !row.summary ? (
               <span className="inline-flex h-7 shrink-0 items-center rounded-full bg-surface-2 px-3 font-heading text-[13px] font-medium text-muted-foreground">Review ready</span>
             ) : row.group === 'ready' ? (
