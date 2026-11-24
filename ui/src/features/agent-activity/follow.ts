@@ -6,23 +6,20 @@ import { scrollsInside } from './boxes.ts'
  * focus and scroll anchoring also move the scroll, and they never do. A box the user opens or closes is read where it
  * is: the view holds still while it changes height, and follows again only if the end is still in view.
  *
+ * It goes to the end at once, never by a smooth scroll, and only once the page has laid out what changed: the page tells
+ * what changed size once a frame (its ResizeObserver), so however many steps arrive in a frame, the view is written at
+ * most once, and nothing is read of the page while it draws. A page that is hidden, or covered so it is not drawn, lays
+ * nothing out and writes nothing.
+ *
  * Without React or a window, so its rules are tested with stand-ins. `use-follow.ts` gives it to the screens.
  */
 
 /** How close to the end still counts as being at the end, in pixels. */
 const SLACK = 48
-/**
- * While the transcript opens, and after the user asks for the newest step, it goes to its end at once: no scrolling to
- * watch. A glide over a long transcript does not reach its end: the steps on the way are drawn only as they come into
- * view, each takes its real height then, and every such change starts the glide again from a standstill.
- */
-const OPENING_MS = 600
-/** A glide to the end is over well before this. One still short of the end by then stopped on the way, and lands at once. */
-const GLIDE_MS = 800
 /** Sent from a box the user opens or closes, so the transcript around it holds still. */
 export const UNFOLD = 'hb-unfold'
-/** How long a box takes to reach its new height. */
-export const UNFOLD_MS = 300
+/** How long the view holds still once a box opened or closed, before it follows again if the end is still in view. */
+const HOLD_MS = 350
 /** Where a pointer or touch is let go, ending a drag. */
 const RELEASES = ['pointerup', 'pointercancel', 'touchend', 'touchcancel']
 
@@ -36,9 +33,6 @@ export interface FollowOptions {
   page: EventTarget
   /** Watches boxes change size: the page's ResizeObserver. */
   Observer: new (callback: () => void) => Sizes
-  /** True while movement holds still. */
-  still: () => boolean
-  now: () => number
   /** Told whenever the view starts or stops following, so the way back down can be offered. */
   onPinned: (pinned: boolean) => void
 }
@@ -46,10 +40,8 @@ export interface FollowOptions {
 export interface FollowControl {
   /** True while the view follows the newest step. */
   readonly following: boolean
-  /** True when what moves may glide: not under Still, and not while the transcript opens. */
-  readonly gliding: boolean
-  /** Goes to the end, by a smooth scroll when asked for and gliding. */
-  toEnd(smooth: boolean): void
+  /** Goes to the end, at once. */
+  toEnd(): void
   onScroll(): void
   /** Goes to the newest step and follows it again. */
   jumpToLatest(): void
@@ -57,37 +49,25 @@ export interface FollowControl {
 }
 
 /** Starts following the end of `element`, the box that scrolls, as `list`, the steps inside it, grows. */
-export function followEnd(element: HTMLElement, list: HTMLElement, { page, Observer, still, now, onPinned }: FollowOptions): FollowControl {
-  let landing = now() + OPENING_MS
+export function followEnd(element: HTMLElement, list: HTMLElement, { page, Observer, onPinned }: FollowOptions): FollowControl {
   let following = true
   let lastTop = 0
   let dragging = false
   let held: ReturnType<typeof setTimeout> | undefined
-  let arriving: ReturnType<typeof setTimeout> | undefined
 
-  const gliding = () => !still() && now() > landing
   const atEnd = () => element.scrollHeight - element.scrollTop - element.clientHeight <= SLACK
   const pin = (value: boolean) => {
     following = value
     onPinned(value)
   }
-  // Only when something moved it sideways: in the Mac's window any scroll the page asks for, this one included, stops
-  // a glide that is under way, and the newest block would be left below the bottom.
+  // A transcript never scrolls sideways. Whatever moved it so is undone, and only then: each write is a scroll.
   const unscrollSideways = () => {
     if (element.scrollLeft !== 0) element.scrollLeft = 0
   }
-  const toEnd = (smooth: boolean) => {
+  const toEnd = () => {
     const end = element.scrollHeight - element.clientHeight
     unscrollSideways()
-    if (Math.abs(element.scrollTop - end) >= 1) {
-      const glide = smooth && gliding()
-      element.scrollTo({ top: end, behavior: glide ? 'smooth' : 'auto' })
-      if (glide) {
-        // Whatever stops a glide on the way, the view still ends on the newest block while it follows.
-        clearTimeout(arriving)
-        arriving = setTimeout(() => following && toEnd(false), GLIDE_MS)
-      }
-    }
+    if (Math.abs(element.scrollTop - end) >= 1) element.scrollTo({ top: end, behavior: 'auto' })
     lastTop = element.scrollTop
   }
 
@@ -110,18 +90,18 @@ export function followEnd(element: HTMLElement, list: HTMLElement, { page, Obser
   const unfold = (event: Event) => {
     following = false
     clearTimeout(held)
-    held = setTimeout(() => pin(atEnd()), UNFOLD_MS + 50)
+    held = setTimeout(() => pin(atEnd()), HOLD_MS)
 
     // A box closing from above the view is brought back into it.
     const closing = (event as CustomEvent<{ closing: boolean }>).detail?.closing
     const above = (event.target as Element).getBoundingClientRect().top - element.getBoundingClientRect().top
-    if (closing && above < 0) element.scrollBy({ top: above, behavior: still() ? 'auto' : 'smooth' })
+    if (closing && above < 0) element.scrollBy({ top: above, behavior: 'auto' })
   }
 
-  // Growth from inside a step, such as a diff whose rows were measured or output that arrived, when no new step was
-  // drawn. And the transcript's own box changing height, as when the input under it grows or the window is resized.
+  // New steps, growth from inside a step such as output that arrived, and the transcript's own box changing height, as
+  // when the input under it grows or the window is resized: the page tells of them once a frame, laid out.
   const sizes = new Observer(() => {
-    if (following) toEnd(true)
+    if (following) toEnd()
   })
   sizes.observe(list)
   sizes.observe(element)
@@ -132,14 +112,12 @@ export function followEnd(element: HTMLElement, list: HTMLElement, { page, Obser
   // Heard on the way down, before anything on the page can keep the release to itself.
   for (const name of RELEASES) page.addEventListener(name, release, true)
   list.addEventListener(UNFOLD, unfold)
-  toEnd(false)
+  // It opens at the newest step: no scrolling to watch.
+  toEnd()
 
   return {
     get following() {
       return following
-    },
-    get gliding() {
-      return gliding()
     },
     toEnd,
     onScroll() {
@@ -154,9 +132,8 @@ export function followEnd(element: HTMLElement, list: HTMLElement, { page, Obser
     jumpToLatest() {
       // The click that asked for this is over, whether or not its release was heard: no drag is under way.
       dragging = false
-      landing = now() + OPENING_MS
       pin(true)
-      toEnd(false)
+      toEnd()
     },
     dispose() {
       sizes.disconnect()
@@ -167,7 +144,6 @@ export function followEnd(element: HTMLElement, list: HTMLElement, { page, Obser
       for (const name of RELEASES) page.removeEventListener(name, release, true)
       list.removeEventListener(UNFOLD, unfold)
       clearTimeout(held)
-      clearTimeout(arriving)
     },
   }
 }

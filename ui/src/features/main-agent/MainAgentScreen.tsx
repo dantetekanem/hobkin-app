@@ -1,6 +1,6 @@
 import { ArrowDown } from 'lucide-react'
 import { AnimatePresence, motion } from 'motion/react'
-import { useEffect, useLayoutEffect, useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
 import type { RunChild } from '#shared/protocol/snapshot.ts'
 import { handOffCanvasFocus } from '@/app/focus.ts'
@@ -149,12 +149,10 @@ const NO_ENTRIES: readonly ActivityEntry[] = []
  */
 function Exchange({ timeOf, turnStart, ended, cwd, word, sample }: { timeOf: (id: string) => EntryTime | undefined; turnStart: number | null; ended: boolean; cwd?: string; word: string | null; sample: boolean }) {
   const still = useStill()
-  const scroll = useFollow(still)
+  const scroll = useFollow()
   const entries = useMainSteps() ?? NO_ENTRIES
   // The tasks line above the steps is where task calls show.
   const steps = useMemo(() => stepsOf(entries, { ended, cwd, tasksOnLine: true }), [entries, ended, cwd])
-  scroll.note()
-  useLayoutEffect(scroll.settle, [steps, word, scroll.settle])
   useEffect(() => (scroll.scroller.current ? handOffCanvasFocus(scroll.scroller.current) : undefined), [scroll.scroller])
 
   return (
@@ -166,7 +164,7 @@ function Exchange({ timeOf, turnStart, ended, cwd, word, sample }: { timeOf: (id
       initial={holdStill({ opacity: 0, transform: 'translateY(24px)' }, still)}
       animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: { duration: 0.24, delay: 0.06 } } }, still)}
     >
-      <motion.ol ref={scroll.content} style={{ y: scroll.y }} aria-label="What hobkin has done" className="mt-auto flex flex-col gap-3 pt-2 pb-10">
+      <ol ref={scroll.content} aria-label="What hobkin has done" className="mt-auto flex flex-col gap-3 pt-2 pb-10">
         <ShowStamps>
           {/* The steps drawn with the mind are simply there. Later ones arrive, and nothing leaves with a motion. */}
           <Arrivals>
@@ -177,7 +175,7 @@ function Exchange({ timeOf, turnStart, ended, cwd, word, sample }: { timeOf: (id
           {word ? <Quiet word={word} entries={entries} timeOf={timeOf} turnStart={turnStart} /> : null}
         </ShowStamps>
         {sample ? <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is hobkin's own main agent, as it works.</li> : null}
-      </motion.ol>
+      </ol>
       <div className="pointer-events-none sticky bottom-4 z-10 flex h-0 justify-center">
         <AnimatePresence>
           {scroll.pinned ? null : (

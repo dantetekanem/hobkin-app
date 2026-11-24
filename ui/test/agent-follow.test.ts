@@ -66,9 +66,8 @@ test('agent follow distinguishes reading from layout changes and opens at newest
       const root = createRoot(host); const checks = [];
       const check = (ok, name) => { if (!ok) throw Error(name); checks.push(name) };
       const frames = async () => { for (let i = 0; i < 4; i++) await new Promise(requestAnimationFrame) };
-      function Probe({ identity, still }) {
-        const follow = useFollow(still); window.follow = follow;
-        follow.note(); React.useLayoutEffect(follow.settle, [follow.settle]);
+      function Probe({ identity }) {
+        const follow = useFollow(); window.follow = follow;
         return React.createElement('div', { ref: follow.scroller, onScroll: follow.onScroll, tabIndex: 0, style: { height: 240, width: 400, overflowY: 'auto' } },
           React.createElement('ol', { ref: follow.content }, Array.from({ length: 30 }, (_, i) => React.createElement('li', { key: i, style: { height: 70 } }, identity + ' step ' + i))));
       }

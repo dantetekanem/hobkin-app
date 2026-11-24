@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
-import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
+import { memo, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { agentControls, answerAgent, questionOf, runningAgents, useAgent, useAgentControl, type RunningAgent } from '@/app/running-agents.ts'
 import { holdStill, stillVariants, useStill } from '@/app/still.ts'
@@ -584,7 +584,7 @@ function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; h
   const still = useStill()
   const live = useHasHost()
   const notes = useAgentThreads((threads) => threads.notes[agentId])
-  const scroll = useFollow(still)
+  const scroll = useFollow()
   // The run's feed keeps its newest steps. The ones it let go are read from the run's saved session, a page at a time,
   // and come before them.
   const job = live && activity && !activity.sample ? agentId : null
@@ -610,9 +610,6 @@ function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; h
     older.loadMore()
   }
   const thinking = activity !== null && !waiting && pauseOf(activity.entries, { ended: activity.ended }) === 'thinking'
-  // Where the list is on screen before the new steps are in place, so it can glide from there rather than jump.
-  scroll.note()
-  useLayoutEffect(scroll.settle, [newest.shown, thinking, scroll.settle])
 
   return (
     <motion.div
@@ -624,7 +621,7 @@ function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; h
       animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: agentEntry(still) }, still)}
       exit={holdStill({ opacity: 0, transform: 'translateY(16px)', transition: { duration: 0.16, ease: 'linear' } } as const, still)}
     >
-      <motion.ol ref={scroll.content} style={{ y: scroll.y }} data-agent-exchange onKeyDown={walkSteps} aria-label="What the agent has done" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
+      <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="What the agent has done" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
         {question ? (
           <li data-step="question" tabIndex={-1} className="flex flex-col gap-2 rounded-[18px] outline-none [contain-intrinsic-size:auto_64px] [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
             <QuestionBubble hue={hue} question={question} waiting={waiting} />
@@ -647,7 +644,7 @@ function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; h
         ) : !live && notes?.length ? (
           <li className="self-end text-[12px] text-muted-foreground">Sample data. The host will deliver these to the agent as it works.</li>
         ) : null}
-      </motion.ol>
+      </ol>
       {/* Stays just above the input while the user reads further up, and takes them back to the newest step. */}
       <div className="pointer-events-none sticky bottom-3 z-10 flex h-0 justify-center">
         <AnimatePresence>

@@ -1,6 +1,6 @@
 import { ArrowDown, ArrowUp } from 'lucide-react'
 import { AnimatePresence, motion, useIsPresent } from 'motion/react'
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { HOBKIN_MESSAGE_MAX, HOBKIN_TITLE_MAX, hobkinAgentId, hobkinOfAgent, type HobkinConversation, type HobkinSummary } from '#shared/protocol/hobkins.ts'
 import { focusAgentsDock } from '@/app/AgentsDock.tsx'
 import { holdStill, useStill } from '@/app/still.ts'
@@ -400,7 +400,7 @@ const Conversation = memo(ConversationRows)
 function ConversationRows({ id, turns, cwd, sending, problem, loading }: ConversationProps) {
   const still = useStill()
   const live = useHasHost()
-  const scroll = useFollow(still)
+  const scroll = useFollow()
   // The live turn's feed keeps its newest steps. The ones it let go are read from its run's saved session, a page at a
   // time, and come after the turn's message, where the row that reads them stands.
   const run = turns.find((turn) => turn.live)?.run ?? null
@@ -423,8 +423,6 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
     newest.toCome()
     older.loadMore()
   }
-  scroll.note()
-  useLayoutEffect(scroll.settle, [newest.shown, scroll.settle])
 
   return (
     <div
@@ -432,14 +430,7 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
       onScroll={scroll.onScroll}
       className="scroll-quiet relative flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto px-[10%] [mask-image:linear-gradient(to_bottom,transparent,black_20px)]"
     >
-      <motion.ol
-        ref={scroll.content}
-        style={{ y: scroll.y }}
-        data-agent-exchange
-        onKeyDown={walkSteps}
-        aria-label="The conversation"
-        className="mt-auto flex flex-col gap-3 pt-2 pb-3"
-      >
+      <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="The conversation" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
         {newest.earlier ? <EarlierSteps row={{ kind: 'held', count: newest.earlier }} onMore={newest.more} /> : null}
         <ShowStamps>
           <StepJob.Provider value={job}>
@@ -467,7 +458,7 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
             The conversation could not be read: {problem}
           </li>
         ) : null}
-      </motion.ol>
+      </ol>
       {/* Stays just above the talk box while the user reads further up, and takes them back to the newest. */}
       <div className="pointer-events-none sticky bottom-3 z-10 flex h-0 justify-center">
         <AnimatePresence>
