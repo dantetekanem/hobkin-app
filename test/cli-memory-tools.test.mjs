@@ -143,3 +143,18 @@ test('a reader never sees a link to, or the name of, a memory it may not read', 
   const main = memoryTools(memoryHandler(root, { kind: 'main' }, { now: () => NOW }));
   assert.match(text(await call(main, RECALL_TOOL, { name: 'car-insurance' })), /Links: partner-name, tax-papers\./);
 });
+
+test('a durable hobkin recalls a memory nobody has kept yet marked so, and keeping one tells hobkin it was a keep', async t => {
+  const root = home(t);
+  addMemory(root, { name: 'trains', kind: 'preference', description: 'Prefers trains under 600 km' }, { by: { kind: 'outside', title: 'Claude Code' }, unconfirmed: true, now: NOW });
+  const durable = memoryTools(memoryHandler(root, { kind: 'hobkin', id: 'a1b2c3d4', title: 'Planner' }, { now: () => NOW }));
+  assert.match(text(await call(durable, RECALL_TOOL, { name: 'trains' })), /^trains \(how they like things, not yet kept\): /);
+  const { appendFileSync, mkdirSync: makeFolder } = await import('node:fs');
+  makeFolder(join(root, 'runtime'), { recursive: true });
+  appendFileSync(join(root, 'runtime', 'inbox.jsonl'), `${JSON.stringify({ id: 'r1', kind: 'memory', text: 'Prefers trains under 600 km', from: 'Claude Code', memory: 'trains', heard: true })}\n`);
+  const changes = [];
+  const main = memoryTools(memoryHandler(root, { kind: 'main' }, { now: () => NOW, onChange: change => changes.push(change) }));
+  await call(main, REMEMBER_TOOL, { action: 'keep', name: 'trains' });
+  assert.deepEqual(changes.map(({ name, did, kept }) => [name, did, kept]), [['trains', 'changed', true]]);
+  assert.match(text(await call(main, RECALL_TOOL, { name: 'trains' })), /^trains \(how they like things\): /);
+});

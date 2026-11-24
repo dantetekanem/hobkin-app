@@ -414,3 +414,18 @@ test('hobkin remember refuses a --from that reads as the user or as hobkin, and 
     await app.close();
   }
 });
+
+test("hobkin remember's reply says who reads what it saved now and who once it is kept", async t => {
+  const h = fixture(t);
+  const saved = await hobkin(h.root, ['remember', 'Prefers trains under 600 km', '--from', 'Claude Code']);
+  assert.match(saved.message, /The main chat and durable hobkins read it now, and every other agent once the user or the main chat keeps it\./);
+  assert.doesNotMatch(saved.message, /Every agent hobkin runs reads it from now on/);
+});
+
+test('a --from that starts with or is you, me, the user or hobkin, in any case and with or without a comma, is refused', async t => {
+  const h = fixture(t);
+  for (const from of ['You, on your phone', 'you on the laptop', 'YOU', 'Your phone', 'me, at work', 'The user', "the user's Mac", 'Hobkin, main', 'hobkin main']) {
+    await assert.rejects(hobkin(h.root, ['remember', 'Prefers trains', '--from', from]), /reads as the user or as hobkin/, from);
+  }
+  assert.match((await hobkin(h.root, ['remember', 'Prefers trains', '--from', 'Claude Code on the laptop'])).message, /^Saved/);
+});

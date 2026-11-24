@@ -72,7 +72,8 @@ function who(by) {
 
 /** One memory whole, as an agent reads it. */
 function memoryText(memory) {
-  const heading = `${memory.name} (${KIND_WORDS[memory.kind]}${memory.private ? ', private' : ''}): ${memory.description}`;
+  const marks = `${memory.private ? ', private' : ''}${memory.unconfirmed ? ', not yet kept' : ''}`;
+  const heading = `${memory.name} (${KIND_WORDS[memory.kind]}${marks}): ${memory.description}`;
   const story = [
     memory.added ? `Added by ${who(memory.added.by)} on ${day(memory.added.at)}.` : 'Written by hand.',
     memory.changed ? `Changed by ${who(memory.changed.by)} on ${day(memory.changed.at)}.` : '',
@@ -153,12 +154,13 @@ function saved(root, params, { by, now }) {
   if (action === 'change') {
     const given = CHANGEABLE.filter(key => params[key] !== undefined);
     const fields = Object.fromEntries(given.map(key => [key, params[key]]));
-    return { ...changeMemory(root, name, fields, { by, now, keep: mayKeep }), did: 'changed', by };
+    const keeping = mayKeep && recallMemories(root, { name }, { private: true, now })[0]?.unconfirmed === true;
+    return { ...changeMemory(root, name, fields, { by, now, keep: mayKeep }), did: 'changed', by, ...(keeping ? { kept: true } : {}) };
   }
   if (action === 'keep') {
     if (by.kind !== 'main') throw Error('Only the user or the main hobkin keeps a memory another session handed over.');
     if (!mayKeep) throw Error(`"${name}" can be kept once the main hobkin hears of it with the user's next message, or by the user on the Memory page.`);
-    return { ...keepMemory(root, name, { by, now }), did: 'changed', by, words: `Kept "${name}". Every agent hobkin runs reads it from now on.` };
+    return { ...keepMemory(root, name, { by, now }), did: 'changed', by, kept: true, words: `Kept "${name}". Every agent hobkin runs reads it from now on.` };
   }
   if (action === 'forget') return { ...forgetMemory(root, name, { by, now }), did: 'forgot', by };
   if (action === 'restore') return { ...restoreMemory(root, name, { by, now }), did: 'restored', by };
@@ -196,7 +198,7 @@ export function memoryHandler(root, owner, { now = Date.now, onChange = () => {}
     const { name } = params ?? {};
     const done = saved(root, params ?? {}, { by, now: now() });
     try {
-      onChange({ change: done.change, name, did: done.did, description: done.memory?.description, by: done.by });
+      onChange({ change: done.change, name, did: done.did, description: done.memory?.description, by: done.by, ...(done.kept ? { kept: true } : {}) });
     } catch {
       // A line in Chat that could not be posted costs the line, never the memory.
     }

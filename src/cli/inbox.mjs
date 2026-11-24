@@ -131,6 +131,14 @@ function describedBy(text) {
 const READS_AS_SOMEONE = new Set(['you', 'your', 'yourself', 'user', 'theuser', 'me', 'myself', 'i', 'mine', 'owner', 'hobkin', 'mainhobkin',
   'themainhobkin', 'hobkinmain', 'main', 'mainchat', 'themainchat', 'assistant', 'theassistant', 'system']);
 
+/** A name that is, or starts with, you, me, the user or hobkin, in any case and with or without a comma after. */
+function readsAsSomeone(name) {
+  const lower = name.toLowerCase().replace(/[’]/g, "'").trim();
+  if (READS_AS_SOMEONE.has(lower.replace(/[^a-z]/g, ''))) return true;
+  if (/^(?:the\s+)?(?:user|main\s+hobkin|main\s+chat)\b/.test(lower)) return true;
+  return ['you', 'your', 'yours', 'yourself', 'me', 'my', 'myself', 'i', 'hobkin'].includes(lower.split(/[\s,;:.'!?()-]+/)[0]);
+}
+
 /**
  * `hobkin remember`, from another of the user's sessions: hobkin saves it at once as a memory every agent reads, from
  * that session, and its main agent hears of it once with the user's next message (057-shared-memory). One another
@@ -150,7 +158,7 @@ export function remember(root, { words, from }, now = Date.now(), { env = proces
   if (known) return { ok: true, id: known.id, message: 'Already saved, and hobkin\'s main agent has not heard it yet.' };
 
   const sender = nameOf(from);
-  if (READS_AS_SOMEONE.has(sender.toLowerCase().replace(/[^a-z]/g, ''))) {
+  if (readsAsSomeone(sender)) {
     throw Error(`Nothing was saved: --from names the session that hands this over, such as Claude Code, and "${sender}" reads as the user or as hobkin.`);
   }
   let saved = null;
@@ -176,7 +184,7 @@ export function remember(root, { words, from }, now = Date.now(), { env = proces
       ok: true,
       id,
       memory: saved.memory,
-      message: `Saved as the memory "${saved.memory}". Every agent hobkin runs reads it from now on, and hobkin's main agent hears of it with the user's next message there.`,
+      message: `Saved as the memory "${saved.memory}", not yet kept. The main chat and durable hobkins read it now, and every other agent once the user or the main chat keeps it. hobkin's main agent hears of it with the user's next message there.`,
     };
   }
   return {
