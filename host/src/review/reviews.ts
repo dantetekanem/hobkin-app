@@ -30,8 +30,8 @@ import type { MergePlan, Moved } from './landing.ts'
 import { fixBrief } from '../../../packages/change-review/src/fix.ts'
 import { riskShown, riskStep, type RiskWork } from './risk-fix.ts'
 import type { ReviewSource } from './sources.ts'
-import type { Prepared, ReviewStore } from './store.ts'
-import { KEPT_CURRENT, lineOf, type Line, type LineChange } from './turns.ts'
+import type { BuildFailed, Prepared, ReviewStore } from './store.ts'
+import { FAILED_WAITS_MS, KEPT_CURRENT, lineOf, type Line, type LineChange } from './turns.ts'
 import type { Carried } from './carry.ts'
 
 /** How often reviewed pull requests are asked of GitHub, to see which are no longer open. */
@@ -492,6 +492,8 @@ export class Reviews {
   private readonly cardAtLook = new Map<string, string | null>()
   /** The commit each review's change was last looked up at, for one this host has no status of: a look makes no status. */
   private readonly lookedHead = new Map<string, string>()
+  /** The last failed build of each target, as the home keeps it, read once. */
+  private readonly failures = new Map<string, BuildFailed | null>()
   /** Where each change started when this host last looked, and the commit it was at then: a start holds for that commit alone. */
   private readonly lookedStart = new Map<string, { head: string; start: string }>()
   /** Who wrote each pull request a finished change opened, by the pull request's review name, once its host has been asked. */
@@ -762,6 +764,7 @@ export class Reviews {
     if (target.kind === 'change' ? !this.finished.has(id) : !this.watchedPulls.has(id)) return false
     if (this.preparing(id) || status.phase || status.landing) return false
     const { head } = status
+    if (this.failedBuild(target, head)) return true
     if (this.watched.get(id) === versionOf(head)) return false
     if (!head || !this.options.store.has(target, head)) return true
     return this.reviewsChange(target) && this.assessmentDue(target, head)
@@ -1032,6 +1035,8 @@ export class Reviews {
           const log = this.runs.get(id)
           if (log) log.error = message
           this.say(id, `Stopped: ${message}`)
+          // Kept in the home: the background tries it again in its turn a day later, not on every look (spec 058).
+          if (!this.controller.signal.aborted) this.keepFailure(job.target, { head: this.statuses.get(id)?.head ?? null, at: new Date(this.now()).toISOString(), error: message })
           // An older review still opens, and says the newer one could not be prepared.
           this.set(id, { state: this.options.store.newest(job.target) ? 'ready' : 'failed', phase: null, error: message })
         })
@@ -1090,6 +1095,7 @@ export class Reviews {
     const files = filesOf(draft.input.capture.files, draft.headFiles, review)
     const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const, graph: GRAPH_RULES, producerVersion: CLIENT_PRODUCER_VERSION, ...(input.owner ? { owner: input.owner } : {}) }
     store.write(target, review, files, meta)
+    this.keepFailure(target, null)
     say(`Drew the graph: ${count(review.nodes.length, 'node')} and ${count(review.edges.length, 'wire')}.`)
     this.opened.set(id, { review, files, meta })
     this.set(id, { state: 'ready', phase: null, stale: false, ...meta })
@@ -2067,13 +2073,15 @@ export class Reviews {
           if (this.options.ownPull && this.options.ownPull(target) !== false) return []
           const name = `${target.owner}/${target.repo}`
           const reviewed = entry.head != null && this.options.store.has(target, entry.head)
-          return [{ id: entry.id, repo: `pull:${target.host ?? ''}:${name}`, name, reviewed, ...(entry.updatedAt ? { at: entry.updatedAt } : {}) }]
+          const failedAt = this.failedBuild(target, entry.head ?? null)?.at
+          return [{ id: entry.id, repo: `pull:${target.host ?? ''}:${name}`, name, reviewed, ...(entry.updatedAt ? { at: entry.updatedAt } : {}), ...(failedAt ? { failedAt } : {}) }]
         }
         const refreshing = this.landingOf(target)?.state === 'refreshing'
         // Its clock is when it finished; hobkin's own time, which any write resets, only while that cannot be read.
         const at = this.options.finishedAt?.(target, entry.head ?? null) ?? entry.at
         const reviewed = entry.head != null && this.options.store.has(target, entry.head)
-        return [{ id: entry.id, repo: target.slug, name: entry.project ?? target.slug, grade: entry.grade ?? null, conflict: entry.conflict ?? null, refreshing, reviewed, ...(at ? { at } : {}) }]
+        const failedAt = this.failedBuild(target, entry.head ?? null)?.at
+        return [{ id: entry.id, repo: target.slug, name: entry.project ?? target.slug, grade: entry.grade ?? null, conflict: entry.conflict ?? null, refreshing, reviewed, ...(at ? { at } : {}), ...(failedAt ? { failedAt } : {}) }]
       })
       return lineOf(weighed, { keep: this.options.keepCurrent?.() ?? KEPT_CURRENT, now: this.now() })
     } catch (error) {
@@ -2235,6 +2243,34 @@ export class Reviews {
     }
   }
 
+  /** The last failed build of a target that still holds at this commit: none once a review was built there. */
+  private failedBuild(target: ReviewTarget, head: string | null): BuildFailed | null {
+    const id = reviewIdOf(target)
+    if (!this.failures.has(id)) {
+      try {
+        this.failures.set(id, this.options.store.buildFailed(target))
+      } catch (error) {
+        this.options.log?.(`Review ${id}: its last failed build could not be read, so it is tried as before: ${messageOf(error)}`)
+        this.failures.set(id, null)
+      }
+    }
+    const failed = this.failures.get(id) ?? null
+    if (!failed || (failed.head != null && failed.head !== head)) return null
+    return head != null && this.options.store.has(target, head) ? null : failed
+  }
+
+  /** Keeps a failed build, or forgets one once a review is built. A record that cannot be kept is said in the log. */
+  private keepFailure(target: ReviewTarget, failed: BuildFailed | null) {
+    const id = reviewIdOf(target)
+    if (!failed && !this.failures.get(id)) return
+    this.failures.set(id, failed)
+    try {
+      this.options.store.saveBuildFailed(target, failed)
+    } catch (error) {
+      this.options.log?.(`Review ${id}: its failed build could not be kept, so a restart tries it again: ${messageOf(error)}`)
+    }
+  }
+
   /** Why a change waits instead of being built by itself, and how many are ahead of it in its repository's line. */
   private turnOf(id: string, target: ReviewTarget, head: string | null): ReviewTurn | undefined {
     if (this.preparing(id)) return undefined
@@ -2260,7 +2296,10 @@ export class Reviews {
       if (!this.dayHasRoom()) return
       const head = target.kind === 'change' ? this.headOf(id, card) : card
       const version = versionOf(head, updatedAt)
-      if (this.watched.get(id) === version || this.statuses.get(id)?.phase) return
+      // A build that failed here is tried again once a day has passed, in its turn, and not before.
+      const failed = this.failedBuild(target, head)
+      if (failed && this.now() - Date.parse(failed.at) < FAILED_WAITS_MS) return
+      if ((this.watched.get(id) === version && !failed) || this.statuses.get(id)?.phase) return
       // A change being brought up to date or merged on the user's word is not reviewed again for its new commit, and a
       // pull request closed on its host is not reviewed at all.
       if (this.landingOf(target) || this.closedOn(target)) return

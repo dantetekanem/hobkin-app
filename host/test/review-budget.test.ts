@@ -65,11 +65,12 @@ test("at the day's number of background reviews the rest wait for midnight and s
   await settle()
   assert.deepEqual(again.started, [])
 
-  // After midnight the next ones are built, in their order: c4's own ask did not end in a review, so it is one of them.
+  // After midnight the next ones are built, in their order. c4's own ask failed at 15:00, so it is tried again only a day
+  // after that, and c5 takes its turn.
   clock.now = TOMORROW
   watch(changes(5))
   await settle()
-  assert.deepEqual(started.slice(3), ['change:shop:c3', 'change:shop:c4'])
+  assert.deepEqual(started.slice(3), ['change:shop:c3', 'change:shop:c5'])
 })
 
 test('the number of background reviews a day is twenty unless the workload says another whole number', async (t) => {

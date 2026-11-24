@@ -8,7 +8,7 @@ import type { Review } from '#shared/review/types.ts'
 import { Reviews, type Watched } from '../src/review/reviews.ts'
 import { finishTimes } from '../src/review/seat.ts'
 import { reviewStore } from '../src/review/store.ts'
-import { lineOf, type LineChange } from '../src/review/turns.ts'
+import { clockOf, lineOf, type LineChange } from '../src/review/turns.ts'
 import { temporaryDirectory } from './support.ts'
 
 const NOW = Date.parse('2026-11-23T12:00:00.000Z')
@@ -91,6 +91,20 @@ test('every change past two days is reviewed once in time, one at a time: the pl
   assert.equal(taken[1], 'change:shop:c19')
 })
 
+test('a change whose build failed gives its place up for a day and says when it is tried again; then it waits in its turn', () => {
+  const failedAt = new Date(NOW - 2 * HOUR).toISOString()
+  // c20 waited longest and its build failed: the place for the longest wait passes to c19.
+  const changes = finished(20, (index) => ({ at: new Date(NOW - (60 + index) * HOUR).toISOString(), ...(index === 0 || index === 19 ? { failedAt } : {}) }))
+
+  const line = lineOf(changes, { now: NOW })
+
+  assert.deepEqual([...line.current], ['change:shop:c19', 'change:shop:c2', 'change:shop:c3'])
+  const why = `Its last build failed at ${clockOf(NOW - 2 * HOUR)}; it is tried again in its turn after ${clockOf(NOW + 22 * HOUR)}.`
+  assert.deepEqual([line.waits.get('change:shop:c1'), line.waits.get('change:shop:c20')], [{ ahead: 0, why }, { ahead: 0, why }])
+  // A day after it failed it is back: first in Work's order, and the longest waiting.
+  assert.deepEqual([...lineOf(changes, { now: NOW + 22 * HOUR }).current], ['change:shop:c20', 'change:shop:c1', 'change:shop:c2'])
+})
+
 test('the number kept current is the workload’s when it is a whole number, else three', () => {
   assert.equal(lineOf(finished(6), { now: NOW, keep: 5 }).current.size, 5)
   for (const keep of [0, -1, 2.5, Number.NaN]) assert.equal(lineOf(finished(6), { now: NOW, keep }).current.size, 3, String(keep))
@@ -132,9 +146,9 @@ function background(t: TestContext, { held = false, backAtWork = () => false, fi
   t.after(() => reviews.close())
   const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
   /** The background is handed the finished changes, each at its commit. */
-  const watch = (wanted: Watched[]) => {
+  const watch = (wanted: Watched[], limit?: number) => {
     for (const entry of wanted) heads.set(entry.id, entry.head!)
-    reviews.watch(wanted)
+    reviews.watch(wanted, limit)
   }
   return { reviews, watch, started, root, settle, release: () => waiting.splice(0).forEach((go) => go()) }
 }
@@ -164,13 +178,18 @@ test('Review now builds one outside the line and stops none of those current', a
 })
 
 test('after a merge only the next change in line is built', async (t) => {
-  const { watch, started, settle } = background(t)
-  watch(watchedChanges(5))
+  // Each build is held while the line moves, as one that failed would give its place up.
+  const { watch, started, settle, release } = background(t, { held: true })
+  watch(watchedChanges(5), 10)
   await settle()
 
   // c1 merged: hobkin no longer lists it, and the rest move up.
-  watch(watchedChanges(5).slice(1))
+  watch(watchedChanges(5).slice(1), 10)
   await settle()
+  for (let round = 0; round < 5; round += 1) {
+    release()
+    await settle()
+  }
 
   assert.deepEqual(started, ['change:shop:c1', 'change:shop:c2', 'change:shop:c3', 'change:shop:c4'])
 })
@@ -289,4 +308,50 @@ test("the host reads when a change finished from its head commit, once, and says
   await new Promise((resolve) => setTimeout(resolve, 200))
   assert.equal(Date.parse(finished(target, head)!), Date.parse('2026-11-20T08:00:00Z'))
   assert.equal(finished({ kind: 'change', slug: 'blog', item: 'b1' }, head), null)
+})
+
+test('a build that fails is tried again at most once a day in its turn, even after a restart, and its row says when', async (t) => {
+  const root = temporaryDirectory(t)
+  let now = NOW
+  const started: string[] = []
+  const host = () => {
+    const reviews = new Reviews({
+      store: reviewStore(root),
+      sources: {
+        change: { head: async () => sha(1), read: async (target) => (started.push(reviewIdOf(target)), Promise.reject(new Error('git could not read it'))) },
+        pull: { head: async () => null, read: async () => Promise.reject(new Error('no pull requests here')) },
+      },
+      work: () => ({ workAction: async () => ({}) }),
+      card: () => null,
+      now: () => now,
+    })
+    t.after(() => reviews.close())
+    return reviews
+  }
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20))
+  const wanted: Watched[] = [{ id: 'change:shop:c1', head: sha(1), project: 'Shop', grade: null, conflict: false }]
+  let reviews = host()
+
+  reviews.watch(wanted)
+  await settle()
+  reviews.watch(wanted)
+  await settle()
+
+  assert.deepEqual(started, ['change:shop:c1'])
+  const why = `Its last build failed at ${clockOf(NOW)}; it is tried again in its turn after ${clockOf(NOW + 24 * HOUR)}. Not reviewed yet, so nothing checks it by itself.`
+  assert.equal(reviews.status('change:shop:c1').turn?.why, why)
+  // A restart the same day tries nothing, and its row still says why.
+  reviews.close()
+  reviews = host()
+  reviews.watch(wanted)
+  await settle()
+  assert.deepEqual(started, ['change:shop:c1'])
+  assert.equal(reviews.list().reviews.find((row) => row.id === 'change:shop:c1')?.turn?.why, why)
+  // A day later it is tried once more.
+  now = NOW + 24 * HOUR
+  reviews.watch(wanted)
+  await settle()
+  reviews.watch(wanted)
+  await settle()
+  assert.deepEqual(started, ['change:shop:c1', 'change:shop:c1'])
 })

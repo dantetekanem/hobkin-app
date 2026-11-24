@@ -130,7 +130,8 @@ test('a failed preparation says why, and a review is opened only once it is read
 })
 
 test('the background prepares what has no review yet, a few at a time, and again when the commit moves', async (t) => {
-  const { reviews, git, write, move, pullTries, reads } = reviewsFor(t)
+  const clock = { now: Date.parse('2026-11-10T10:00:00Z') }
+  const { reviews, git, write, move, pullTries, reads } = reviewsFor(t, { now: () => clock.now })
   reviews.watch([{ id: ID }, { id: 'pr:acme/shop/1' }, { id: 'pr:acme/shop/2' }], 1)
   await reviews.settled()
   assert.equal(reads.length, 1, 'only one, the limit, was queued')
@@ -149,7 +150,8 @@ test('the background prepares what has no review yet, a few at a time, and again
   assert.equal(reads.length, 2)
   assert.equal(reviews.get(ID).review.change.head, head)
 
-  // A pull request that could not be read is not tried again until it changes on GitHub.
+  // A pull request that could not be read is tried again a day later, in its turn: not on each look, and not each time
+  // GitHub says it changed.
   const pull = { id: 'pr:acme/shop/1', updatedAt: '2026-11-10T09:00:00Z' }
   reviews.watch([pull], 5)
   await reviews.settled()
@@ -158,6 +160,10 @@ test('the background prepares what has no review yet, a few at a time, and again
   reviews.watch([pull], 5)
   await reviews.settled()
   assert.equal(pullTries.length, tries)
+  reviews.watch([{ ...pull, updatedAt: '2026-11-10T09:30:00Z' }], 5)
+  await reviews.settled()
+  assert.equal(pullTries.length, tries)
+  clock.now += 24 * 60 * 60 * 1000
   reviews.watch([{ ...pull, updatedAt: '2026-11-10T09:30:00Z' }], 5)
   await reviews.settled()
   assert.ok(pullTries.length > tries)

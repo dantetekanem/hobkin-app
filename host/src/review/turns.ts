@@ -4,8 +4,9 @@
  * three unless the workload says otherwise, and never more. The line is Work's order with P0 work first; of its places,
  * at most one goes to the change that has waited longest past two days since it finished and has no review at its
  * commit; once that review is built the place passes to the next, so each is reviewed once in time, one at a time, and
- * a home full of old changes still builds only its few. A change that conflicts, is being brought up to date to merge, or
- * that an agent works on again is not in the line, and says why. What the user asks for is not in here at all: it is
+ * a home full of old changes still builds only its few. A change that conflicts, is being brought up to date to merge,
+ * that an agent works on again, or whose build failed in the last day is not in the line, and says why; a failed one
+ * comes back to its turn a day after it failed, so it is tried at most once a day. What the user asks for is not in here at all: it is
  * always built, and pushes nothing out. Pure, and worked out again from what is there on every look, so a host that
  * reloads its code loses nothing.
  */
@@ -30,6 +31,8 @@ export interface LineChange {
   at?: string
   /** It has a review at the commit it is at, so the place for the longest wait passes on. */
   reviewed?: boolean
+  /** When its last build at this commit failed, as an ISO time. */
+  failedAt?: string
 }
 
 export interface Line {
@@ -43,12 +46,23 @@ export interface Line {
 export const KEPT_CURRENT = 3
 /** How long a change waits before it is taken next. */
 export const LONGEST_WAIT_MS = 48 * 60 * 60 * 1000
+/** How long a change whose build failed stays out of the line before it is tried again in its turn. */
+export const FAILED_WAITS_MS = 24 * 60 * 60 * 1000
+
+/** A time as the words say it, on this computer's clock: `14:05 on 2026-11-23`. */
+export function clockOf(time: number): string {
+  const at = new Date(time)
+  const two = (value: number) => String(value).padStart(2, '0')
+  return `${two(at.getHours())}:${two(at.getMinutes())} on ${at.toLocaleDateString('en-CA')}`
+}
 
 /** Why a change is not in the line at all, or null when it is. */
-function outOfLine(change: LineChange): string | null {
+function outOfLine(change: LineChange, now: number): string | null {
   if (change.atWork) return 'An agent is working on it again, so its review waits until it finishes.'
   if (change.conflict) return 'It conflicts with its base, so its review waits for the rebase.'
   if (change.refreshing) return 'It is being brought up to date to merge, so it is not reviewed again now.'
+  const failed = Date.parse(change.failedAt ?? '')
+  if (Number.isFinite(failed) && now - failed < FAILED_WAITS_MS) return `Its last build failed at ${clockOf(failed)}; it is tried again in its turn after ${clockOf(failed + FAILED_WAITS_MS)}.`
   return null
 }
 
@@ -69,7 +83,7 @@ export function lineOf(changes: readonly LineChange[], { keep = KEPT_CURRENT, no
   for (const inRepo of repos.values()) {
     const inLine: LineChange[] = []
     for (const change of inRepo) {
-      const why = outOfLine(change)
+      const why = outOfLine(change, now)
       if (why) waits.set(change.id, { ahead: 0, why })
       else inLine.push(change)
     }

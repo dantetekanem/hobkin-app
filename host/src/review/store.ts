@@ -47,6 +47,13 @@ export interface StoredReview {
   change: { title: string; project: string; head: string } | null
 }
 
+/** A build that failed: the commit it was for, when, and why. Kept in the home, so a restart does not try it again at once. */
+export interface BuildFailed {
+  head: string | null
+  at: string
+  error: string
+}
+
 export interface ReviewStore {
   /** The review built from this commit, with its files, or null when there is none. */
   read(target: ReviewTarget, head: string): Prepared | null
@@ -74,6 +81,9 @@ export interface ReviewStore {
   /** What hobkin did about the change's risky answers: the agents it sent back, the commits the user answered, and whether it waits on them. */
   riskFix(target: ReviewTarget): RiskRecord
   saveRiskFix(target: ReviewTarget, record: RiskRecord): void
+  /** The last build of a target that failed, or null. */
+  buildFailed(target: ReviewTarget): BuildFailed | null
+  saveBuildFailed(target: ReviewTarget, failed: BuildFailed | null): void
 }
 
 const short = (head: string) => head.slice(0, 12)
@@ -186,6 +196,18 @@ export function reviewStore(root: string): ReviewStore {
       if (!asked) return rmSync(join(folder, 'merge-asked.json'), { force: true })
       mkdirSync(folder, { recursive: true, mode: 0o700 })
       writeWhole(join(folder, 'merge-asked.json'), JSON.stringify(asked))
+    },
+    buildFailed(target) {
+      const saved = readJson<Partial<BuildFailed>>(join(folderOf(target), 'build-failed.json'))
+      const head = typeof saved?.head === 'string' && /^[0-9a-f]{40}$/.test(saved.head) ? saved.head : null
+      if (typeof saved?.at !== 'string' || !Number.isFinite(Date.parse(saved.at))) return null
+      return { head, at: saved.at, error: typeof saved.error === 'string' ? saved.error : '' }
+    },
+    saveBuildFailed(target, failed) {
+      const folder = folderOf(target)
+      if (!failed) return rmSync(join(folder, 'build-failed.json'), { force: true })
+      mkdirSync(folder, { recursive: true, mode: 0o700 })
+      writeWhole(join(folder, 'build-failed.json'), JSON.stringify(failed))
     },
     landedAt(target) {
       return readJson<{ at?: string }>(join(folderOf(target), 'landed.json'))?.at ?? null
