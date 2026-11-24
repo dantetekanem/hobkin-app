@@ -4,6 +4,7 @@ import type { AgentSchedule } from '#shared/protocol/schedules.ts'
 import {
   countdown,
   doesWords,
+  endedWords,
   everyWords,
   lastRunWords,
   leftWords,
@@ -144,13 +145,25 @@ test('what the last run found: how it ended, its exit code, how long ago and whe
     detail: 'exit 0 · just now · woke it',
   })
   assert.deepEqual(lastRunWords({ ...watch, last: { at: at(-3 * HOUR), outcome: 'timed-out' } }, NOW), { outcome: 'timed out', tone: 'bad', detail: '3 h ago · no wake' })
-  assert.deepEqual(lastRunWords({ ...watch, last: { at: at(-MINUTE), outcome: 'error' } }, NOW), { outcome: 'could not start', tone: 'bad', detail: '1 min ago · no wake' })
+  assert.deepEqual(lastRunWords({ ...watch, last: { at: at(-MINUTE), outcome: 'error' } }, NOW), { outcome: 'could not start', tone: 'bad', detail: '1 min ago' })
   assert.deepEqual(lastRunWords({ ...watch, last: undefined }, NOW), { outcome: 'not run yet', tone: 'quiet', detail: '' })
   assert.deepEqual(lastRunWords({ id: 'w', does: 'wake', note: 'Look again', last: { at: at(-5 * MINUTE), outcome: 'passed', woke: true } }, NOW), {
     outcome: 'woke it',
     tone: 'quiet',
     detail: '5 min ago',
   })
+})
+
+test('a run that did not end by itself says what the runtime said of it, and "could not start" only when it said nothing', () => {
+  const cutOff = lastRunWords({ ...watch, last: { at: at(-2 * MINUTE), outcome: 'error', line: 'It was cut off before it finished.' } }, NOW)
+
+  assert.deepEqual(cutOff, { outcome: 'it was cut off before it finished', tone: 'bad', detail: '2 min ago' })
+})
+
+test('an ended schedule gives the runtime’s reason as it is', () => {
+  const ended: AgentSchedule = { ...watch, state: 'done', endedWhy: 'it woke its agent 12 times, the most one schedule may' }
+
+  assert.equal(endedWords(ended), 'it woke its agent 12 times, the most one schedule may')
 })
 
 test('what a schedule has left: its runs and the time to its end', () => {

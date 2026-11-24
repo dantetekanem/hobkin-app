@@ -181,7 +181,6 @@ const OUTCOME: Record<string, Omit<LastRunWords, 'detail'>> = {
   failed: { outcome: 'failed', tone: 'bad' },
   pending: { outcome: 'pending', tone: 'quiet' },
   'timed-out': { outcome: 'timed out', tone: 'bad' },
-  error: { outcome: 'could not start', tone: 'bad' },
 }
 
 /** What its last run found: how it ended, its exit code, how long ago, and whether it woke the agent. */
@@ -194,9 +193,21 @@ export function lastRunWords(schedule: AgentSchedule, now: number): LastRunWords
   if (schedule.does === 'wake' || (!schedule.command && schedule.does !== 'shell')) {
     return { outcome: last.woke === false ? 'did not wake it' : 'woke it', tone: 'quiet', detail: ago ?? '' }
   }
+  // A run that did not end by itself, such as one cut off by a restart, says what happened in the runtime's words.
+  if (last.outcome === 'error') {
+    const said = sentenceOf(last.line ?? '')
+    const detail = [ago, last.woke ? 'woke it' : null].filter(Boolean).join(' · ')
+    return { outcome: said || 'could not start', tone: 'bad', detail }
+  }
   const { outcome, tone } = OUTCOME[last.outcome] ?? { outcome: last.outcome, tone: 'quiet' }
   const detail = [last.exitCode === undefined ? null : `exit ${last.exitCode}`, ago, last.woke ? 'woke it' : 'no wake'].filter(Boolean).join(' · ')
   return { outcome, tone, detail }
+}
+
+/** A sentence as part of a line: its first letter small and its last stop gone, "It was cut off." as "it was cut off". */
+const sentenceOf = (text: string) => {
+  const words = text.trim().replace(/\.$/, '')
+  return words.charAt(0).toLowerCase() + words.slice(1)
 }
 
 /** What a live schedule has left: its runs and the time to its end. Null for an ended one, or one that says neither. */
