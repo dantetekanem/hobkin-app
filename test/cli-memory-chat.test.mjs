@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { HobkinApplication } from '../src/cli/application.mjs';
+import { addMemory } from '../src/cli/memories.mjs';
 import { memoryList, memorySave, memoryUndo } from '../src/cli/memory-window.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
 
@@ -54,4 +55,22 @@ test("the snapshot's memoriesStamp moves when a memory or the right-now list cha
   memorySave(root, { description: 'Prefers trains', kind: 'preference' });
   const after = (await app.refresh()).memoriesStamp;
   assert.notEqual(after, before);
+});
+
+test('the main chat keeping a memory another session handed over says it was kept and that every agent reads it now, and a change still says changed', async t => {
+  const { root, app } = await open(t);
+  // Saved by hobkin remember from another session, not kept yet, and heard by the main chat with the user's message.
+  addMemory(root, { name: 'trains', kind: 'preference', description: 'Prefers trains under 600 km' }, { by: { kind: 'outside', title: 'Claude Code' }, unconfirmed: true });
+  mkdirSync(join(root, 'runtime'), { recursive: true });
+  appendFileSync(join(root, 'runtime', 'inbox.jsonl'), `${JSON.stringify({ id: 'r1', kind: 'memory', text: 'Prefers trains under 600 km', from: 'Claude Code', memory: 'trains', heard: true })}\n`);
+  const main = app.memoryKeeper({ kind: 'main' });
+
+  await main.remember({ action: 'keep', name: 'trains' });
+  await main.remember({ action: 'change', name: 'trains', text: 'Unless it is overnight.' });
+
+  const lines = memoryLines(await app.refresh());
+  assert.deepEqual(lines.map(({ content, memory }) => [content, memory.did]), [
+    ['hobkin kept: Prefers trains under 600 km. Every agent hobkin runs reads it now.', 'changed'],
+    ['hobkin changed: Prefers trains under 600 km', 'changed'],
+  ]);
 });

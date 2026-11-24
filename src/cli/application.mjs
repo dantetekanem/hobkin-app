@@ -140,10 +140,13 @@ const isOwnPost = message => message.role === 'notice' || message.id?.startsWith
 
 // What Chat says when an agent changed a memory (057-shared-memory), by what it did, with the change so the line offers Undo.
 const MEMORY_DID = { added: 'remembered', changed: 'changed', forgot: 'forgot', restored: 'restored' };
-function memoryLine(owner, { change, name, did, description, by }, at) {
+// A memory another session handed over, kept by the main chat: a change by its record, and a keep in what Chat says (`kept`).
+const keptWords = (who, what) => `${who} kept: ${what}${/[.!?]$/.test(what) ? '' : '.'} Every agent hobkin runs reads it now.`;
+function memoryLine(owner, { change, name, did, description, by, kept }, at) {
   const who = owner.kind === 'hobkin' ? owner.title ?? `hobkin ${owner.id}` : 'hobkin';
   const what = description ?? name;
-  const content = by?.kind === 'suggested' ? `${who} remembered what ${by.title ?? 'a run'} suggested: ${what}` : `${who} ${MEMORY_DID[did] ?? did}: ${what}`;
+  const said = kept ? keptWords(who, what) : `${who} ${MEMORY_DID[did] ?? did}: ${what}`;
+  const content = by?.kind === 'suggested' ? `${who} remembered what ${by.title ?? 'a run'} suggested: ${what}` : said;
   return { id: `notice:memory:${change}`, role: 'notice', tone: 'quiet', content, memory: { change, name, did }, at: new Date(at).toISOString() };
 }
 // Work's status less the token counts a running agent's meter raises as its session grows: the day's and the hour's, and each run's own.
