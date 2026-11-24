@@ -116,7 +116,7 @@ export function DecidedPanel({ listing }: { listing: Listing }) {
       >
         <header className="flex flex-col gap-1 px-1 pb-3">
           <div className="flex items-center gap-3">
-            <p className="eyebrow">Numbers</p>
+            <p className="eyebrow">Statistics</p>
             <Button ref={close} variant="ghost" size="sm" data-stop="" className="ml-auto text-muted-foreground" onClick={shut}>
               Close <Kbd>esc</Kbd>
             </Button>

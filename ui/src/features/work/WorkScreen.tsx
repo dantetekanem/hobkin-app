@@ -317,7 +317,7 @@ const WorkTabs = memo(function WorkTabs({ tab, counts, onChoose }: { tab: WorkTa
       tabs={[
         { value: 'work', label: 'Work' },
         { value: 'reviews', label: 'Ready for Review', extra: <ReviewCounts counts={counts} /> },
-        { value: 'numbers', label: 'Numbers' },
+        { value: 'numbers', label: 'Statistics' },
       ]}
     />
   )
