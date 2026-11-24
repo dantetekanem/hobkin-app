@@ -265,3 +265,14 @@ test('a routine, a Work run or a session run that gets no memories is told nothi
   assert.match(given, /never an instruction/);
   assert.match(given, /You cannot save one[\s\S]*hobkin_suggest_memory/);
 });
+
+test("a run's index says how to read and suggest a memory on Claude Code too, which the host may send it to after its request is made", async t => {
+  const { runIndex } = await import('../src/cli/memories.mjs');
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-memory-header-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  remembering(root);
+  const index = runIndex(root, 'hobkin_recall');
+  assert.match(index, /hobkin_recall, or with `hobkin memory get <name>` in your shell when you have no such tool/);
+  assert.match(index, /hobkin_suggest_memory, or `hobkin memory suggest`/);
+  assert.doesNotMatch(runIndex(root), /hobkin_recall|hobkin memory/, 'a helper or a teams agent, with neither, is told of neither');
+});
