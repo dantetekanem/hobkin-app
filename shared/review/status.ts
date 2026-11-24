@@ -65,6 +65,8 @@ export interface ReviewStatus {
   needs?: ReviewNeeds[]
   /** Where the change stands in its repository's line of reviews, when the background is not building it now (spec 058). */
   turn?: ReviewTurn
+  /** Where its ratings stand, always, for a finished change (spec 063). A host older than this does not send it. */
+  rating?: ChangeRating
   /** The review was carried to this commit from an older one, not built again (spec 058). */
   carried?: ReviewCarried
   /**
@@ -219,6 +221,8 @@ export interface ReviewListItem {
   needs?: ReviewNeeds[]
   /** Why the background does not build it now, and how many are ahead of it in its repository's line (spec 058). */
   turn?: ReviewTurn
+  /** Where its five ratings stand (spec 063). A host older than this does not send it. */
+  rating?: ChangeRating
   /** The review is of an older commit than the change is at, and waits its turn to be built again (spec 058). */
   outdated?: { builtFor: string }
   /** The review was carried to the change's commit from an older one, not built again (spec 058). */
@@ -232,6 +236,25 @@ export interface ReviewListItem {
   lines?: number
   /** When any of it last changed, as an ISO time. */
   updatedAt: string
+}
+
+/**
+ * Where a change's five ratings stand (spec 063): one of these always, and `text` says it in the row's words. An
+ * `older` rating was made at another commit, which it names, and is not the change's own.
+ */
+export interface ChangeRating {
+  state: 'rated' | 'rating' | 'waits' | 'again' | 'not-rated' | 'nothing'
+  text: string
+  /** Rated: the commit and the general rate. */
+  head?: string
+  rate?: number
+  /** Not rated: the tries made. Rating again: the try it is on, when the engine said. */
+  tries?: number
+  /** Rating again: the tries the rules allow. */
+  of?: number
+  /** Waits its turn: how many are ahead. */
+  ahead?: number
+  older?: { head: string; rate: number; text: string }
 }
 
 /** Where a change stands in its repository's line: how many are ahead of it, and why it waits, in plain words. */

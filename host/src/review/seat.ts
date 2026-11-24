@@ -31,6 +31,7 @@ import { mergePlan, movedSince } from './landing.ts'
 import { reviewModelChecks } from './model-checks.ts'
 import { monitoringLines } from './ratings.ts'
 import { capOf, triesOf } from './rules.ts'
+import { GradesBridge } from './grades.ts'
 import { carryReview } from './carry.ts'
 import { recordUsage } from './usage.ts'
 import { cleanUp, READ_KEPT_MS, type CleanUp } from './cleanup.ts'
@@ -266,6 +267,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       })
     : undefined
   const store = reviewStore(seat.root)
+  const grades = new GradesBridge({ root: seat.data, ...(seat.log ? { log: seat.log } : {}) })
   /** How many reviews each repository keeps current, when the workload names a whole number (spec 058). */
   const keepCurrent = () => {
     // The YOLO rules first (spec 063): null there is none, and lifts the number. A runtime with none leaves the workload's.
@@ -328,6 +330,9 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     // Off for now: a check found reviews carried when they should have been built again (spec 058, S2).
     ...(CARRIES_REVIEWS && carry ? { carry } : {}),
     keepCurrent,
+    ratingTries: () => triesOf(seat.work()?.yolo?.rules),
+    // A finished review's ratings go to hobkin through its one door, so YOLO mode reads the numbers the user sees (spec 063).
+    graded: (target, head, needs) => void grades.send(target, needs, head).catch((error: unknown) => seat.log?.(`Grades of ${reviewIdOf(target)} could not be sent: ${error instanceof Error ? error.message : String(error)}`)),
     backAtWork,
     finishedAt: finishTimes(repoOf, { data: seat.data, ...(seat.log ? { log: seat.log } : {}) }),
     reviewsADay,

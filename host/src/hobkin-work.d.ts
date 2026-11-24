@@ -136,3 +136,11 @@ declare module 'hobkin/src/cli/work/yolo.mjs' {
    */
   export function setYoloProject(root: string, slug: string, on: boolean): { slug: string; on: boolean; filed: { slug: string; id: string; title: string }[] }
 }
+
+declare module 'hobkin/src/cli/work/review-grades.mjs' {
+  /**
+   * The only door grades take into hobkin (spec 063): a finished change's five ratings, which hobkin checks with `assertReview`
+   * and keeps as `by: 'change-review'`. Newer than some hobkin, so the host looks it up on the module.
+   */
+  export function recordGrades(root: string, slug: string, item: string, grades: unknown): unknown
+}

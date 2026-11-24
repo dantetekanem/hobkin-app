@@ -16,6 +16,7 @@ import { reviewIdOf, targetOfReviewId, type NamedCodeHost, type ReviewTarget } f
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
 import { deployOf, deployWhy, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus } from '#shared/review/assessment.ts'
 import type { ReviewNeeds } from '#shared/review/needs.ts'
+import { ratingOf } from './ratings.ts'
 import { count } from '#shared/review/prose.ts'
 import { IDLE_STATUS, shownAsRow, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewPeople, type ReviewRepoLine, type ReviewStatus, type ReviewTurn, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
@@ -65,6 +66,8 @@ const AT_WORK = 'An agent is working on it again, so its review waits until it f
 const READ_KEPT_EVERY_MS = 60 * 60_000
 /** How many reviews the background builds by itself in a local day, across all repositories, unless the workload says otherwise. */
 export const REVIEWS_A_DAY = 20
+/** A file that is only prose to read: a change made of nothing else has nothing to rate. */
+const MARKDOWN = /\.(md|mdx|markdown)$/i
 
 /** What Review again with nothing changed says, before a second press builds it. */
 const COSTS_AGAIN = 'Nothing changed since this review: building it again costs a whole review, with its tests and its model calls. Ask again to build it.'
@@ -178,6 +181,10 @@ export interface ReviewsOptions {
   ownWork?: (target: ChangeTarget) => RiskWork | null
   /** How many reviews each repository keeps current (spec 058, 063), as the YOLO rules say, or null for none. Three when it says nothing. */
   keepCurrent?: () => number | null | undefined
+  /** The tries to get all five ratings, as the YOLO rules say (spec 063): what a row says it is "of" when a review rates again. Three when it says nothing. */
+  ratingTries?: () => number | undefined
+  /** Hears a finished change's ratings made at the commit the change is at, once each time they are read: the bridge to hobkin decides what goes (spec 063). */
+  graded?: (target: ChangeTarget, head: string, needs: ReviewNeeds) => void
   /** Whether an agent works on a change again, as hobkin's items say: its waiting review is dropped, and its row says why. */
   backAtWork?: (target: ChangeTarget) => boolean
   /** When a change at a commit finished, as an ISO time, or null while that is not known: the line's clock for it. */
@@ -744,11 +751,13 @@ export class Reviews {
     const carriedFrom = assessment?.state === 'ready' ? assessment.summary?.carried : undefined
     // The ratings of the review that opens: of the commit it was built for, which they name, when the change moved on.
     const needs = this.needsOf(target, stale ? (this.opened.get(id)?.review.change.head ?? at) : at, head, carriedFrom)
+    const rating = this.ratingFor(target, head, assessment, turn, needs)
     return {
       ...known,
       head,
       stale,
       ...(turn ? { turn } : {}),
+      rating,
       ...(needs.length ? { needs } : {}),
       ...(carriedFrom ? { carried: { from: carriedFrom.from, why: carriedFrom.why } } : {}),
       ...(assessment ? { assessment } : {}),
@@ -875,6 +884,7 @@ export class Reviews {
       const outdated = !status.phase && outOfLine && head != null && builtFor != null && builtFor !== head && /^[0-9a-f]{40}$/.test(builtFor)
       const turn = waiting || outdated ? this.turnOf(id, target, head) : undefined
       const needs = this.needsOf(target, builtFor ?? head, head, known?.state === 'ready' ? known.summary?.carried : undefined)
+      const rating = this.ratingFor(target, head, known, turn, needs)
       const item: ReviewListItem = {
         id,
         kind: target.kind,
@@ -894,6 +904,7 @@ export class Reviews {
         ...(turn ? { turn } : {}),
         ...(outdated ? { outdated: { builtFor: builtFor! } } : {}),
         ...(needs.length ? { needs } : {}),
+        rating,
         ...(known?.state === 'ready' && known.summary?.carried ? { carried: { from: known.summary.carried.from, why: known.summary.carried.why } } : {}),
         ...(kept?.change?.lines != null ? { lines: kept.change.lines } : {}),
         updatedAt: new Date(at).toISOString(),
@@ -2086,6 +2097,7 @@ export class Reviews {
     this.pullsWithoutHead = new Set(wanted.flatMap(({ id, head }) => (!head && this.watchedPulls.has(id) ? [id] : [])))
     this.pullsWithoutTimes = new Set(wanted.flatMap(({ id, openedAt, pushedAt }) => (!openedAt && !pushedAt && this.watchedPulls.has(id) ? [id] : [])))
     this.line = this.lineFor(wanted)
+    this.grade(wanted)
     this.dropAtWork()
     this.followBranches(wanted, limit)
     for (const entry of wanted) {
@@ -2144,7 +2156,8 @@ export class Reviews {
       })
       // The place for the longest wait spends at most half the day's number, so what finishes today is reviewed today.
       const longest = this.builtToday().aged < Math.floor(this.dayLimit() / 2)
-      return lineOf(weighed, { keep: this.options.keepCurrent?.() === null ? null : (this.options.keepCurrent?.() ?? KEPT_CURRENT), now: this.now(), longest })
+      const kept = this.options.keepCurrent?.()
+      return lineOf(weighed, { keep: kept === undefined ? KEPT_CURRENT : kept, now: this.now(), longest })
     } catch (error) {
       this.options.log?.(`Reviews: the line of each repository could not be worked out, so everything handed in is reviewed as before: ${messageOf(error)}`)
       return { current: new Set(wanted.map((entry) => entry.id)), aged: new Set(), waits: new Map() }
@@ -2206,6 +2219,32 @@ export class Reviews {
         needs.by === 'change-review' && carried?.from === needs.head ? `Rated at ${rated}, where this review was built, before it was carried to ${now}.` : `Rated at ${rated}; the change is at ${now} now.`
       return { ...needs, atOtherCommit }
     })
+  }
+
+  /**
+   * Where a review's five ratings stand at the commit the change is at (spec 063): always one of rated, rating now, waiting its
+   * turn, rating again, not rated after the tries, or nothing to rate. The change review's own ratings only; hobkin's scored
+   * run's are no rating of this review and are left out.
+   */
+  private ratingFor(target: ReviewTarget, head: string | null, assessment: AssessmentStatus | undefined, turn: ReviewTurn | undefined, needs: readonly ReviewNeeds[]) {
+    const notRated = head ? (this.options.assessments?.notRatedOf?.(target, head) ?? undefined) : undefined
+    const running = assessment?.state === 'queued' || assessment?.state === 'running'
+    const files = head ? this.options.store.read(target, head)?.review.files : undefined
+    const nothingToRate = files != null && files.length > 0 && files.every((file) => MARKDOWN.test(file.path))
+    return ratingOf({ head, needs, running, ...(turn ? { turn } : {}), ...(notRated ? { notRated } : {}), tries: this.options.ratingTries?.() ?? 3, nothingToRate })
+  }
+
+  /** Tells the bridge each finished change's ratings that were made at the commit it is at, so YOLO mode reads the numbers the user sees. */
+  private grade(wanted: readonly Watched[]) {
+    const { graded, assessments } = this.options
+    if (!graded || !assessments?.needsOf) return
+    for (const entry of wanted) {
+      const target = targetOfReviewId(entry.id)
+      if (target?.kind !== 'change') continue
+      const head = this.headOf(entry.id, entry.head ?? null)
+      const needs = head ? assessments.needsOf(target, head) : null
+      if (head && needs && needs.head === head) graded(target, head, needs)
+    }
   }
 
   /**

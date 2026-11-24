@@ -629,7 +629,7 @@ export class Assessments {
   /** Files read at a reviewed commit for the tests the change review found, each once, null when git had none. */
   private readonly heads = new Map<string, string | null>()
   /** Each finished review's ratings, read once for each time its graph was written. */
-  private readonly ratings = new Map<string, { at: number; needs: ReviewNeeds | null }>()
+  private readonly ratings = new Map<string, { at: number; needs: ReviewNeeds | null; notRated: { tries: number; why: string } | null }>()
   /** The last one waiting for each review tree, so a tree has one user at a time. */
   private readonly turns = new Map<string, Promise<void>>()
   private readonly controller = new AbortController()
@@ -1028,18 +1028,31 @@ export class Assessments {
    * and floors and when it finished, or null when it is not finished or not rated. Read again only when its graph is.
    */
   needsOf(target: ReviewTarget, head: string): ReviewNeeds | null {
+    return this.ratingsOf(target, head)?.needs ?? null
+  }
+
+  /** Why a finished review at this commit could not give all five ratings, with the tries made, or null when it did or is not finished (spec 063). */
+  notRatedOf(target: ReviewTarget, head: string): { tries: number; why: string } | null {
+    return this.ratingsOf(target, head)?.notRated ?? null
+  }
+
+  private ratingsOf(target: ReviewTarget, head: string): { needs: ReviewNeeds | null; notRated: { tries: number; why: string } | null } | null {
     const folder = assessmentFolder(this.options.root, target, head)
     const file = join(folder, 'graph.json')
     const at = statSync(file, { throwIfNoEntry: false })?.mtimeMs
     if (at == null) return null
     const key = this.key(target, head)
     const kept = this.ratings.get(key)
-    if (kept?.at === at) return kept.needs
+    if (kept?.at === at) return kept
     const finished = readJson<AssessmentSummary>(join(folder, 'summary.json'))?.at
-    const rated = finished ? engineNeeds(readJson<unknown>(file)) : undefined
+    const graph = finished ? readJson<unknown>(file) : undefined
+    const rated = finished ? engineNeeds(graph) : undefined
     const needs = rated ? { ...rated, at: finished! } : null
-    this.ratings.set(key, { at, needs })
-    return needs
+    const sent = (graph as { notRated?: { tries?: unknown; why?: unknown } } | null | undefined)?.notRated
+    const notRated = finished && typeof sent?.why === 'string' && Number.isInteger(sent.tries) ? { tries: sent.tries as number, why: sent.why.slice(0, 300) } : null
+    const read = { at, needs, notRated }
+    this.ratings.set(key, read)
+    return read
   }
 
   /** The fresh tokens a change review's model calls at this commit took, or null when none gave a count (spec 058). */
