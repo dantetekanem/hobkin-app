@@ -69,6 +69,13 @@ export interface GitHubPull {
   additions?: number
   deletions?: number
   changedFiles?: number
+  /**
+   * The full commit its branch is at, when it was opened, and when that head commit was committed (about when it was
+   * last pushed), as ISO times. A host or a cached list from before these does not send them.
+   */
+  head?: string
+  openedAt?: string
+  pushedAt?: string
 }
 
 /** What one read brings back, each list the most recently updated first. */

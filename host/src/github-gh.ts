@@ -23,13 +23,13 @@ export const GH_QUERY = [
   search('authored', 'is:issue is:open author:@me', 'issue'),
   '}',
   'fragment pull on PullRequest {',
-  '  number title url updatedAt state isDraft reviewDecision additions deletions changedFiles',
+  '  number title url updatedAt state createdAt headRefOid isDraft reviewDecision additions deletions changedFiles',
   '  repository { nameWithOwner }',
   '  author { login }',
   '  labels(first: 10) { nodes { name } }',
   '  latestReviews(first: 20) { nodes { state } }',
   '  reviewRequests(first: 1) { totalCount }',
-  '  commits(last: 1) { nodes { commit { statusCheckRollup { state } } } }',
+  '  commits(last: 1) { nodes { commit { committedDate statusCheckRollup { state } } } }',
   '}',
   'fragment issue on Issue {',
   '  number title url updatedAt state',
@@ -159,10 +159,22 @@ function sizeOf(node: unknown): Pick<GitHubPull, 'additions' | 'deletions' | 'ch
   return counted ? { additions: additions as number, deletions: deletions as number, changedFiles: changedFiles as number } : {}
 }
 
+/** Its head commit, when it was opened and when that commit was committed, each only when GitHub sent it whole. */
+function headOf(node: unknown): Pick<GitHubPull, 'head' | 'openedAt' | 'pushedAt'> {
+  const head = text(at(node, 'headRefOid'))
+  const time = (value: unknown) => {
+    const said = text(value)
+    return said && Number.isFinite(Date.parse(said)) ? said : null
+  }
+  const openedAt = time(at(node, 'createdAt'))
+  const pushedAt = time(at(nodesOf(at(node, 'commits'))[0], 'commit', 'committedDate'))
+  return { ...(head && /^[0-9a-f]{40}$/.test(head) ? { head } : {}), ...(openedAt ? { openedAt } : {}), ...(pushedAt ? { pushedAt } : {}) }
+}
+
 function pullOf(node: unknown): GitHubPull | null {
   const row = rowOf(node)
   if (!row) return null
-  return { ...row, draft: at(node, 'isDraft') === true, author: text(at(node, 'author', 'login')), review: reviewOf(node), checks: checksOf(node), ...sizeOf(node) }
+  return { ...row, draft: at(node, 'isDraft') === true, author: text(at(node, 'author', 'login')), review: reviewOf(node), checks: checksOf(node), ...sizeOf(node), ...headOf(node) }
 }
 
 const newestFirst = <Row extends { updatedAt: string }>(rows: Row[]): Row[] => [...rows].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))

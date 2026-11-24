@@ -117,6 +117,36 @@ test('reads the three lists from one gh answer', () => {
   assert.equal(read.note, null)
 })
 
+test("a pull request's head commit, when it was opened and when its head was committed come from the same read, each only when GitHub sent it whole", () => {
+  const head = 'a'.repeat(40)
+  const commits = (committedDate: unknown) => ({ nodes: [{ commit: { committedDate, statusCheckRollup: { state: 'SUCCESS' } } }] })
+  const stdout = answer({
+    pulls: [
+      pullNode(3, { headRefOid: head, createdAt: '2026-11-01T09:00:00Z', commits: commits('2026-11-08T10:00:00Z') }),
+      // Not a commit, not a time: left out, and the rest of the row is read as before.
+      pullNode(4, { headRefOid: 'main', createdAt: 'yesterday', commits: commits(7) }),
+      // A cached answer from before these were asked for.
+      pullNode(5),
+    ],
+  })
+
+  const pulls = connected(readAnswer(stdout)).lists.pulls
+
+  assert.deepEqual(
+    pulls.map(({ number, head, openedAt, pushedAt, checks }) => ({ number, head, openedAt, pushedAt, checks })),
+    [
+      { number: 3, head, openedAt: '2026-11-01T09:00:00Z', pushedAt: '2026-11-08T10:00:00Z', checks: 'passing' },
+      { number: 4, head: undefined, openedAt: undefined, pushedAt: undefined, checks: 'passing' },
+      { number: 5, head: undefined, openedAt: undefined, pushedAt: undefined, checks: 'none' },
+    ],
+  )
+  assert.deepEqual(Object.keys(pulls[2]!).filter((key) => ['head', 'openedAt', 'pushedAt'].includes(key)), [], 'none sent, none kept')
+  // Still the one fixed read: the same searches, each asking for these as well.
+  assert.match(GH_QUERY, /fragment pull on PullRequest \{\n  number title url updatedAt state createdAt headRefOid /)
+  assert.match(GH_QUERY, /commits\(last: 1\) \{ nodes \{ commit \{ committedDate statusCheckRollup \{ state \} \} \} \}/)
+  assert.equal(GH_QUERY.match(/search\(/g)?.length, 4)
+})
+
 test('a review and its checks read as one of a few plain states', () => {
   const cases: [Record<string, unknown>, GitHubPull['review'], GitHubPull['checks']][] = [
     [{ reviewDecision: 'APPROVED', commits: rollup('SUCCESS') }, 'approved', 'passing'],
