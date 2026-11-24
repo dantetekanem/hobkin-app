@@ -16,6 +16,8 @@
 
 The user, 2026-11-24, with a picture of Change Review on `rpsleague #183` (another author's pull request, 32 files, +1273 −313): "this PR looks good, but is too big, we need to have stacking in mind. this can be easily several PRs which a much easier progression. and hobkin needs to understand and support stacking as well. design this, and I want a button in there 'Make it a stack'". Then, the same day, on the first build, which drew a plan of layers worked out in code: "having an AI to spawn is always the solution, we dont need to hardcode the fucking stack, just pass a prompt to a max agent", "i dont want the stack option to be only in the ai review window", and of the Outdated notice, "this rebuild is also stupid to have to be inside the review window only".
 
+The user again, with a picture of Work listing the five layers an agent had made of #183 as five unrelated cards, each with its own Merge it: "we should know how to render a stack. or this must be pushed first?"
+
 ## Decisions
 
 - hobkin's code plans nothing. The first build's plan in code (`stackPlan`, its box and its rules) is removed. The agent decides how many layers there are, where the seams are and how big each is.
@@ -31,6 +33,16 @@ The user, 2026-11-24, with a picture of Change Review on `rpsleague #183` (anoth
 - A row whose review is of an older commit offers Rebuild on the row, in the words the review's own notice uses, and it does what that notice's button does.
 - `review.stack` takes a review and answers with the agent it started, or the one already there. Only the window sends it.
 
+### A stack once it exists
+
+- hobkin reads a stack from the branches themselves: finished branches built one on the other. Nothing has to be pushed and no pull request has to exist. The survey already finds which finished branch holds which.
+- A stack lands bottom first. Before this, a branch under another said "it lands with the branch above it", and a yes on the top brought everything under it at once, which is the big change again. Now the bottom layer is the one that can merge, and a merge of it brings that layer alone. A layer with one under it that has not landed waits, says which layer lands first, and is refused a merge, a publish and an offer in those words. YOLO mode still merges no layer that has one under it.
+- A merge is a merge commit or a fast forward, never a squash, so the layers above need no moving after the one under them lands: what they hold beyond the default branch is then their own change.
+- Each finished change in a stack carries its place: the stack, its layer counted from the bottom, how many have not landed, the layer under it and the commit that layer is at, and what the stack is of when its maker said. The stack agent says it when it registers a layer (`stack` beside `branch` on `hobkin work item`).
+- A layer's review shows that layer alone: it starts at the commit the layer under it is at, not at the default branch.
+- On the Work page a stack is one group. Its heading is one quiet line, "Stack of 5", with what it is of when known. Its layers are in order, bottom first, each "1 of 5". The bottom layer is a whole card with its yes. The layers above are one line each, with their title and their review's state, and open to the whole card on a press. None of them offers Merge until the one under it has landed.
+- A change that is in no stack is drawn as before.
+
 ## Out of scope
 
 - A plan made or checked by hobkin's code.
@@ -45,6 +57,10 @@ The user, 2026-11-24, with a picture of Change Review on `rpsleague #183` (anoth
 - A3. The button is at the end of the panel's size row on every review of a change that has not merged, plain under 300 changed lines and in the attention color past that, the same width either way. A press starts the agent and opens its page. Shift+S puts the keyboard on it.
 - A4. Every row of the AI Reviews list whose change has not merged offers Make it a stack, and a row whose review is of an older commit offers Rebuild. No control of a row moves when either is pressed.
 - A5. Nothing in the window or the host works out layers: no plan is drawn.
+- A6. Finished branches built one on the other are a stack in work status: each carries its stack, its layer from the bottom, how many have not landed, the layer under it with its commit, and the stack's name when one was given. A branch with nothing under or over it carries none.
+- A7. The bottom layer merges alone. A layer over one that has not landed is refused a merge, a publish and an offer, naming the layer that lands first. Once the bottom lands, the next is the bottom and what it brings is its own change.
+- A8. A layer's review starts at the commit the layer under it is at, so it shows that layer alone. The bottom's starts where it did.
+- A9. Work draws a stack as one group under one quiet line, its layers bottom first with "1 of N", the bottom a whole card and the others one line each that open on a press, with no Merge above the bottom. A stack of two reads the same. A change in no stack is drawn as before.
 
 ## Proof
 
@@ -59,7 +75,10 @@ The user, 2026-11-24, with a picture of Change Review on `rpsleague #183` (anoth
 - [x] S1 (A1, A2). Host: `review.stack` and the prompt. d8666ce, 62475d3. Tested with fakes: no real agent was started, and the reader of a review's facts was never run on a live review.
 - [x] S2 (A3, A5). Window: the button starts the agent, and the plan in code is removed. 4cb85cb, 149c749. The review's key listener is registered once, so the app's window needs one Command+R before Shift+S works.
 - [x] S3 (A4). Window: Make it a stack and Rebuild on the rows of the AI Reviews list. 19e0e4d. Rebuild takes the place of Review again on a row of an older commit and calls what the review's own notice calls.
-- [ ] S4. In the app's window, on a real pull request: one press, the agent's page, and what the agent built.
+- [x] S4. In the app's window, on a real pull request: one press, the agent's page, and what the agent built. The user, 2026-11-24, on rpsleague #183: the agent made five layers and registered them, and Work listed them as five unrelated cards.
+- [ ] S5 (A6, A7). Runtime: a stack read from the branches, its place on each finished row, bottom first, and the stack's name on `hobkin work item`.
+- [ ] S6 (A8). Host: the place passed to the window, and a layer's review started at the layer under it.
+- [ ] S7 (A9). Window: the stack as one group on Work.
 
 ## Open questions
 

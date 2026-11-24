@@ -187,6 +187,25 @@ export type Landing = 'merge' | 'mergePr' | 'refreshMerge'
  */
 export type ChangeChoice = Landing | 'rebase' | 'diff' | 'open' | 'review' | 'decline' | 'done'
 
+/**
+ * A finished change's place in a stack: finished branches built one on the other, which land bottom first
+ * (060-make-it-a-stack). hobkin reads it from the branches themselves, so it needs no push and no pull request.
+ */
+export interface StackPlace {
+  /** The stack, named by its bottom layer's item. */
+  id: string
+  /** This layer counted from the bottom, which is 1 and lands next. */
+  layer: number
+  /** How many layers of the stack have not landed. */
+  of: number
+  /** What it is a stack of, in the words its maker gave. Null when it gave none. */
+  name: string | null
+  /** The item of the layer under this one, which lands first. Null for the bottom. */
+  below: string | null
+  /** The commit the layer under this one is at, where this layer's own change starts. Null for the bottom. */
+  base: string | null
+}
+
 export interface FinishedChange {
   /** `slug:item` */
   key: string
@@ -222,6 +241,8 @@ export interface FinishedChange {
   choices: { value: ChangeChoice; label: string }[]
   /** The GitHub issue its item was filed from. A host older than this does not send it. */
   issue?: WorkIssue | null
+  /** Its place in a stack, when its branch is built on another finished branch or one is built on it. A hobkin older than stacks does not send it. */
+  stack?: StackPlace
   /** On a "Left for you" card, the note its run left for the user, whole. */
   left?: string | null
   /**
