@@ -83,6 +83,7 @@ The user again, with a picture of Work listing the five layers an agent had made
 - [x] S5 (A6, A7). Runtime: a stack read from the branches, its place on each finished row, bottom first, and the stack's name on `hobkin work item`. hobkin adbdbaa and 831087e. A fork reads as layers 1, 2 and 2 of 3. A bottom merged by hand outside hobkin keeps the layer above waiting until the next survey.
 - [x] S6 (A8). Host: the place passed to the window, and a layer's review started at the layer under it. a6e1206, d7a849e, b9f8b5b. A review built before its change was in a stack reads as outdated and wants one Rebuild.
 - [x] S7 (A9). Window: the stack as one group on Work. 887d513, 0c3ef31. Seen in still renders only.
+- [x] S9 (A6, A9). Every layer reaches the window. The user could not see the stack: the waiting rows the app's snapshot carries left out a layer that waits for the one under it, and the host still gave it a Merge choice. hobkin ff0d7b8 (`test/cli-work-stack.test.mjs` › "every layer of a stack is among the finished branches the window is sent, each with its place") and 442aeb1 (`host/test/work.test.ts` › "a layer that waits for the one under it has no merge among its choices, and says which layer lands first").
 - [ ] S8. In the app's window: the user's own stack of five as one group, and the bottom layer merged alone.
 
 ## Open questions
