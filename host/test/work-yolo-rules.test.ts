@@ -83,7 +83,7 @@ test('with a hobkin that has no rules, setting one says so, and the window gets 
   assert.equal('rules' in yolo, false)
   assert.equal('rules' in yolo.projects[0]!, false)
   assert.equal('overrides' in yolo.projects[0]!, false)
-  assert.equal('holdBy' in yolo.projects[0]!.changes![0]!, false)
+  assert.equal('setting' in yolo.projects[0]!.changes![0]!, false)
 })
 
 test('rules, the ones a project sets for itself and the setting that holds a change reach the window as the runtime sent them, and only well-formed', () => {
@@ -102,9 +102,10 @@ test('rules, the ones a project sets for itself and the setting that holds a cha
         needs: [],
         rules: { lowestRate: 7 },
         overrides: ['lowestRate'],
+        holds: ['testsPass'],
         changes: [
-          { item: 'a', title: 'A', kind: null, rate: null, why: 'Its rate is under 8.', holdBy: 'lowestRate' },
-          { item: 'b', title: 'B', kind: null, rate: null, why: null, holdBy: 4 },
+          { item: 'a', title: 'A', kind: null, rate: null, why: 'Its rate is under 8.', setting: 'lowestRate' },
+          { item: 'b', title: 'B', kind: null, rate: null, why: null, setting: 4 },
         ],
       },
       { slug: 'web', name: 'web', ready: true, needs: [], rules: 'on', overrides: [1] },
@@ -114,7 +115,8 @@ test('rules, the ones a project sets for itself and the setting that holds a cha
   assert.deepEqual(yolo.rules, { lowestRate: 8, mostLines: null, kinds: ['bug-fix'] })
   assert.deepEqual(yolo.projects[0]!.rules, { lowestRate: 7 })
   assert.deepEqual(yolo.projects[0]!.overrides, ['lowestRate'])
-  assert.deepEqual(yolo.projects[0]!.changes!.map((change) => change.holdBy), ['lowestRate', undefined])
+  assert.deepEqual(yolo.projects[0]!.holds, ['testsPass'])
+  assert.deepEqual(yolo.projects[0]!.changes!.map((change) => change.setting), ['lowestRate', undefined])
   assert.equal('rules' in yolo.projects[1]!, false)
   assert.equal('overrides' in yolo.projects[1]!, false)
 })

@@ -341,7 +341,7 @@ export interface YoloChange {
   /** Why it keeps asking the user, in hobkin's words, or null when it merges by itself on the next pass. On a project still getting ready, what it would meet once ready. */
   why: string | null
   /** The name of the YOLO rule that holds it, so the page can open that setting. A hobkin older than rules does not send it. */
-  holdBy?: string | null
+  setting?: string | null
 }
 
 /** A change YOLO mode merged by itself, from its ledger. */
@@ -389,6 +389,8 @@ export interface YoloProject {
   rules?: YoloRules
   /** The names of the rules this project sets for itself, which differ from the rest. */
   overrides?: string[]
+  /** The names of the switches that hold the whole project, none when nothing does. */
+  holds?: string[]
 }
 
 /**

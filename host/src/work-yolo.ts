@@ -17,18 +17,20 @@ export function rulesAnswered(answer: unknown): YoloRules {
 }
 
 const changeOf = (change: YoloChange): YoloChange => {
-  const { holdBy, ...rest } = change
-  return typeof holdBy === 'string' || holdBy === null ? { ...rest, holdBy } : rest
+  const { setting, ...rest } = change
+  return typeof setting === 'string' || setting === null ? { ...rest, setting } : rest
 }
 
 const projectOf = (project: YoloProject): YoloProject => {
-  const { rules, overrides, changes, ...rest } = project
+  const { rules, overrides, holds, changes, ...rest } = project
   const own = readYoloRules(rules)
   const names = readYoloNames(overrides)
+  const holding = readYoloNames(holds)
   return {
     ...rest,
     ...(own ? { rules: own } : {}),
     ...(names ? { overrides: names } : {}),
+    ...(holding ? { holds: holding } : {}),
     ...(Array.isArray(changes) ? { changes: changes.map(changeOf) } : {}),
   }
 }
