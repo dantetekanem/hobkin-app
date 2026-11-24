@@ -63,26 +63,66 @@ const OTHER: ReviewZone = { id: '-/other/other', layer: 'other', subject: 'other
 const LINES: ReviewZone = { id: '-/_specs/acceptance', layer: '_specs', subject: 'acceptance', label: 'Acceptance lines' }
 const isTestLayer = (layer: string) => layer.startsWith('test:')
 
-/** Each node of the review to its zone, and the zones in order: the host's first, then those named from paths. */
+/** A zone as the path rule writes its id: one the rule made, as against an id the host or the Reviewer gave. */
+const isRuled = (zone: ReviewZone) => zone.id === `${zone.component ?? '-'}/${zone.layer}/${zone.subject}`
+
+/**
+ * True when the rule now names this part of the code otherwise than the review kept it: the same layer of the same
+ * component under another subject. A review built before the rule changed keeps zones the rule no longer makes, such as
+ * one for each file at the repository's top.
+ */
+function renamedByRule(kept: ReviewZone, ruled: ReviewZone | undefined): ruled is ReviewZone {
+  if (!ruled || !isRuled(kept) || kept.id === ruled.id) return false
+  return kept.layer === ruled.layer && (kept.component ?? '') === (ruled.component ?? '')
+}
+
+/**
+ * Each node of the review to its zone, and the zones in order: the host's first, then those named from paths. A zone
+ * the rule no longer makes gives its nodes to the zone their path names now, which stands in its place.
+ */
 function baseZones(review: Pick<Review, 'nodes' | 'edges' | 'zones'>): { zones: ReviewZone[]; zoneOf: Map<string, string> } {
   const given = new Map((review.zones ?? []).map((zone) => [zone.id, zone]))
-  const zones = [...given.values()]
+  const named = withZones(review.nodes, review.edges)
+  const namedOf = new Map(named.nodes.map((node) => [node.id, node.zone]))
+  const ruled = new Map(named.zones.map((zone) => [zone.id, zone]))
+
   const zoneOf = new Map<string, string>()
   const missing: ReviewNode[] = []
+  /** The zones that take a kept zone's place, by its id, in the order their nodes come. */
+  const inPlaceOf = new Map<string, ReviewZone[]>()
   for (const node of review.nodes) {
-    if (node.zone != null && given.has(node.zone)) zoneOf.set(node.id, node.zone)
-    else missing.push(node)
+    const kept = node.zone != null ? given.get(node.zone) : undefined
+    if (!kept) {
+      missing.push(node)
+      continue
+    }
+    const now = ruled.get(namedOf.get(node.id) ?? '')
+    if (!renamedByRule(kept, now)) {
+      zoneOf.set(node.id, kept.id)
+      continue
+    }
+    zoneOf.set(node.id, now.id)
+    const takers = inPlaceOf.get(kept.id) ?? []
+    if (!given.has(now.id) && !takers.includes(now)) inPlaceOf.set(kept.id, [...takers, now])
+  }
+
+  const zones: ReviewZone[] = []
+  const placed = new Set<string>()
+  for (const kept of given.values()) {
+    for (const zone of [kept, ...(inPlaceOf.get(kept.id) ?? [])]) {
+      if (placed.has(zone.id)) continue
+      placed.add(zone.id)
+      zones.push(zone)
+    }
   }
   if (missing.length === 0) return { zones, zoneOf }
 
   // The rest are named from their paths by the host's rule; a node with no path is an acceptance line or another part.
-  const named = withZones(review.nodes, review.edges)
-  const namedOf = new Map(named.nodes.map((node) => [node.id, node.zone]))
   const unnamed = (node: ReviewNode) => (node.kind === 'criterion' ? LINES : OTHER)
   const wanted = new Set(missing.map((node) => namedOf.get(node.id) ?? unnamed(node).id))
   for (const node of missing) zoneOf.set(node.id, namedOf.get(node.id) ?? unnamed(node).id)
   for (const zone of [...named.zones, LINES, OTHER]) {
-    if (wanted.has(zone.id) && !given.has(zone.id)) zones.push(zone)
+    if (wanted.has(zone.id) && !placed.has(zone.id)) zones.push(zone)
   }
   return { zones, zoneOf }
 }

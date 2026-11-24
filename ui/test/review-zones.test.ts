@@ -222,3 +222,26 @@ test('from far away a heading is the same one line in larger type and without it
   assert.equal(headingWords(title, farRoom(344, 'farther'), farther.size), 'Admin orders', 'and from farther still, for its end to be cut')
   assert.equal(farRoom(40, 'far'), 0, 'never less than nothing')
 })
+
+test("a zone the rule no longer makes gives its nodes to the zone their path names now, in its place; a zone the host named itself stays", () => {
+  // A review kept from before: the rule had named a zone after one file, and the Reviewer had given another its own name.
+  const old: ReviewZone = { id: '-/docs/intro', layer: 'docs', subject: 'intro', label: 'Docs · Intro' }
+  const named: ReviewZone = { id: 'people', layer: 'model', subject: 'person', label: 'People and accounts' }
+  const kept: ReviewZone = { id: '-/model/order', layer: 'model', subject: 'order', label: 'Models · Order' }
+  const review: Pick<Review, 'nodes' | 'edges' | 'zones'> = {
+    nodes: [
+      { ...codeAt('intro', 'docs/guide/intro.md'), zone: old.id },
+      { ...codeAt('setup', 'docs/guide/setup.md'), zone: old.id },
+      { ...codeAt('user', 'app/models/user.rb'), zone: named.id },
+      { ...codeAt('order', 'app/models/order.rb'), zone: kept.id },
+    ],
+    edges: [],
+    zones: [old, named, kept],
+  }
+  const { zones, zoneOf } = zonesOf(review, alone(review))
+  assert.equal(zoneOf.intro, '-/docs/guide', 'the same layer under another subject: the path wins')
+  assert.equal(zoneOf.setup, '-/docs/guide')
+  assert.equal(zoneOf.user, 'people', "an id the rule never makes is the host's own zone")
+  assert.equal(zoneOf.order, kept.id, 'a zone the rule still makes is kept as it is')
+  assert.deepEqual(zones.map((zone) => zone.label), ['Docs · Guide', 'People and accounts', 'Models · Order'], 'the new zone stands where the old one stood, and the old one is gone')
+})
