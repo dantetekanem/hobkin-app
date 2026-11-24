@@ -120,9 +120,10 @@ export function Crab({ mood = 'idle', size = 44, still = false, resting = false,
   const greetClass = greet === null ? 'hob-crab-stand' : 'hob-crab-greet'
   const lookClass = eyes.look ? `hob-crab-look hob-part ${eyes.look}` : 'hob-crab-look hob-part'
   const blinkClass = eyes.blink ? 'hob-crab-blink hob-cb-on' : 'hob-crab-blink'
+  const mayBlink = Boolean(eyes.blink) && !still && !resting && size >= SMALL_FACE_PX
   const crabRef = useRef<HTMLSpanElement | null>(null)
   useMoodPlay(crabRef, mood)
-  useBlinks(crabRef, Boolean(eyes.blink) && !still && !resting && size >= SMALL_FACE_PX)
+  useBlinks(crabRef, mayBlink)
 
   return (
     <span

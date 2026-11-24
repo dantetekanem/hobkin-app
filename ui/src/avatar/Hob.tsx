@@ -49,8 +49,9 @@ export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = f
   const shown = pet ?? chosen
   const motion = faceMotion({ size, mood, still })
   const eyesAt = art.eyesAt ?? EYES_AT
-  // A face of 40 px or more, moving, blinks now and then while its mood blinks.
-  useBlinks(faceRef, drawing === 'pet' && motion.parts && Boolean(art.blink))
+  // Only a face that moves its parts (40 px or more, not still) blinks, and only in a mood that blinks.
+  const mayBlink = drawing === 'pet' && motion.parts && Boolean(art.blink)
+  useBlinks(faceRef, mayBlink)
 
   if (drawing === 'nothing') return null
 

@@ -59,42 +59,67 @@ function quiet(): boolean {
   return motion === 'still' || (motion !== 'lively' && Boolean(reduce?.matches))
 }
 
-function nextWait(): number {
-  return Math.round(BLINK_EVERY_MS.least + Math.random() * (BLINK_EVERY_MS.most - BLINK_EVERY_MS.least))
+function waitBetweenBlinks(): number {
+  const spread = BLINK_EVERY_MS.most - BLINK_EVERY_MS.least
+  return Math.round(BLINK_EVERY_MS.least + Math.random() * spread)
 }
 
-/** Sets the one timer for the next face due on screen, or clears it when no face is or the page is quiet. */
-function arm(): void {
+/** When the next face on screen is due to blink, or never while the page is quiet or no face is on screen. */
+function nextDue(): number {
+  if (quiet()) return Infinity
+
   let next = Infinity
-  if (!quiet()) {
-    for (const face of blinks.faces.values()) if (face.onScreen) next = Math.min(next, face.dueAt)
+  for (const face of blinks.faces.values()) {
+    if (face.onScreen) next = Math.min(next, face.dueAt)
   }
+  return next
+}
+
+/** Sets the one timer for the next face due, or clears it when none is. */
+function arm(): void {
+  const next = nextDue()
   if (blinks.timer !== null && next === blinks.at) return
+
   if (blinks.timer !== null) clearTimeout(blinks.timer)
   blinks.timer = null
   blinks.at = next
-  if (next !== Infinity) blinks.timer = setTimeout(fire, Math.max(0, next - Date.now()))
+  if (next === Infinity) return
+
+  blinks.timer = setTimeout(fire, Math.max(0, next - Date.now()))
 }
 
+/** Blinks every face on screen that is due now, sets when each blinks next, and sets the timer again. */
 function fire(): void {
   blinks.timer = null
   blinks.at = Infinity
   const now = Date.now()
   const awake = !quiet()
+
   for (const [element, face] of blinks.faces) {
-    if (!face.onScreen || face.dueAt - now > TOGETHER_MS) continue
-    if (awake && now - face.dueAt <= LATE_MS) blink(element)
-    face.dueAt = now + nextWait()
+    const due = face.onScreen && face.dueAt - now <= TOGETHER_MS
+    if (!due) continue
+
+    const onTime = now - face.dueAt <= LATE_MS
+    if (awake && onTime) blink(element)
+    face.dueAt = now + waitBetweenBlinks()
   }
   arm()
+}
+
+/** How long these eyes' blink takes, by the class that marks them. */
+function blinkLength(eyes: Element): number | undefined {
+  for (const [name, ms] of Object.entries(BLINK_MS)) {
+    if (eyes.classList.contains(name)) return ms
+  }
+  return undefined
 }
 
 /** One blink of the face's eyes, unless something around it holds it still. */
 function blink(face: Element): void {
   const eyes = face.querySelector<HTMLElement>(EYES)
   if (!eyes || eyes.closest('[data-still], [data-held]')) return
-  const duration = Object.entries(BLINK_MS).find(([name]) => eyes.classList.contains(name))?.[1]
-  eyes.animate?.(BLINK, { duration })
+
+  eyes.animate?.(BLINK, { duration: blinkLength(eyes) })
 }
 
 /** One watcher for every face's place on screen, made with the first face. Null where the page has none. */
@@ -113,7 +138,7 @@ function screen(): IntersectionObserver | null {
 /** Lets the face drawn in `face` blink now and then, from now until the returned function is called. */
 export function watchBlinks(face: Element): () => void {
   const observer = screen()
-  blinks.faces.set(face, { dueAt: Date.now() + nextWait(), onScreen: observer === null })
+  blinks.faces.set(face, { dueAt: Date.now() + waitBetweenBlinks(), onScreen: observer === null })
   observer?.observe(face)
   arm()
   return () => {

@@ -2,8 +2,15 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { settlePlays, type Play } from '../src/avatar/mood-play.ts'
 
-/** A stand-in for one of the page's animations, which writes down what the face does with it. */
-function animation(said: string[], name: string | undefined, playState: string, currentTime = 0.4): Play {
+interface StandIn {
+  /** The keyframes' name of a CSS animation. A transition, or a blink played from script, has none. */
+  name?: string
+  playState: 'running' | 'finished'
+  currentTime: number
+}
+
+/** A stand-in for one of the page's animations, which writes down in `said` what the face does with it. */
+function animation(said: string[], { name, playState, currentTime }: StandIn): Play {
   let time: CSSNumberish | null = currentTime
   return {
     animationName: name,
@@ -23,19 +30,21 @@ function animation(said: string[], name: string | undefined, playState: string, 
 
 test('a face that mounts in a mood rests: each play of the mood is over at once, and the greeting still plays', () => {
   const said: string[] = []
+  const justStarted = (name?: string) => animation(said, { name, playState: 'running', currentTime: 0 })
   const cannotEnd: Play = {
-    ...animation(said, 'hob-forever', 'running'),
+    ...justStarted('hob-forever'),
     finish() {
       throw new DOMException('An animation with no end cannot finish.', 'InvalidStateError')
     },
   }
   const onMount = [
-    animation(said, 'hob-bob', 'running', 0),
-    animation(said, 'hob-typelook', 'running', 0),
-    animation(said, 'hob-part-in', 'running', 0),
+    justStarted('hob-bob'),
+    justStarted('hob-typelook'),
+    justStarted('hob-part-in'),
     cannotEnd,
-    animation(said, 'hob-crab-greet', 'running', 0),
-    animation(said, undefined, 'running', 0),
+    justStarted('hob-crab-greet'),
+    // A transition has no keyframes' name.
+    justStarted(),
   ]
 
   settlePlays(onMount, false)
@@ -47,12 +56,12 @@ test('a face whose mood changes plays its motion from the start, also a play it 
   const said: string[] = []
   const afterChange = [
     // The sprout sways in both moods: the same keyframes on the same box are kept, so the play it ran starts again.
-    animation(said, 'hob-part-sway', 'finished', 3200),
-    animation(said, 'hob-ear-flick', 'running', 1200),
+    animation(said, { name: 'hob-part-sway', playState: 'finished', currentTime: 3200 }),
+    animation(said, { name: 'hob-ear-flick', playState: 'running', currentTime: 1200 }),
     // New keyframes start at their beginning on their own.
-    animation(said, 'hob-bob', 'running', 0),
-    animation(said, 'hob-crab-bump', 'finished', 1450),
-    animation(said, undefined, 'running', 120),
+    animation(said, { name: 'hob-bob', playState: 'running', currentTime: 0 }),
+    animation(said, { name: 'hob-crab-bump', playState: 'finished', currentTime: 1450 }),
+    animation(said, { playState: 'running', currentTime: 120 }),
   ]
 
   settlePlays(afterChange, true)
