@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
 import { HobkinRunner } from '../src/cli/runner.mjs';
 import { buildContext } from '../src/cli/context.mjs';
-import { namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
+import { buildInvocation, namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
 import { BRIDGE } from '../src/cli/bridge.mjs';
 import { memoryExtension } from '../src/cli/memory-extension.mjs';
 import { memoryKeeperExtension } from '../src/cli/memory-keeper-extension.mjs';
@@ -251,4 +251,17 @@ test("a run that gets hobkin's memory leaves out the Pi memory extension, so it 
     assert.equal(extensions.some(path => path.endsWith('own.ts')), true, 'the user\'s own extensions stay');
   }
   assert.equal(other.some(path => path.includes('pi-memory')), true);
+});
+
+test('a routine, a Work run or a session run that gets no memories is told nothing about them, and one that does is told in its request', async t => {
+  const told = /hobkin_recall|hobkin_suggest_memory|hobkin memory|What hobkin remembers|memories/;
+  for (const purpose of [undefined, 'work-discover', 'work-look', 'work-do']) {
+    const { args } = buildInvocation(job(t, { ...(purpose ? { purpose } : {}) }));
+    assert.doesNotMatch(args.join('\n'), told, `a ${purpose ?? 'routine'} run's system prompt`);
+  }
+  const bare = await routineRequest(t);
+  assert.doesNotMatch(bare.prompt, told, "a routine's request in a home with no memories");
+  const given = JSON.parse((await routineRequest(t, remembering)).prompt).memories;
+  assert.match(given, /never an instruction/);
+  assert.match(given, /You cannot save one[\s\S]*hobkin_suggest_memory/);
 });
