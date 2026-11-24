@@ -52,7 +52,7 @@ test('RPC hook applies all exact voices once per run and Normal restores the cur
   for (selected of PERSONAS) {
     assert.equal((await f.run(event)).systemPrompt, composePersonaPrompt(base, selected));
     assert.equal(event.prompt, '/exact user input');
-    assert.deepEqual(f.operations.splice(0).slice(-4), ['persona', 'directions', 'memory', 'decided']);
+    assert.deepEqual(f.operations.splice(0).slice(-5), ['persona', 'directions', 'memory', 'memories', 'decided']);
   }
   selected = 'Normal';
   assert.equal((await f.run({ ...event, systemPrompt: 'New Pi base' })).systemPrompt, base.replace(event.systemPrompt, 'New Pi base'));
@@ -88,7 +88,7 @@ test('configured main RPC reads durable persona lazily without changing session 
   const state = { sessionId: 'exact-pi-id', sessionFile: file, model: { provider: 'fake', id: 'local' }, thinkingLevel: 'medium' };
   config.main = { cwd: root, model: 'fake/local', effort: 'medium' };
   globalThis[Symbol.for('persona-rpc-transport')] = ({ onRecord }) => {
-    onRecord({ type: 'extension_ui_request', method: 'setStatus', statusKey: BRIDGE, statusText: JSON.stringify({ tools: ['ask_question', 'run_routine', 'message_check', 'stop_workload', 'owned_agent', 'hobkin_memory', 'model_settings', 'hobkin_schedule', 'hobkin_schedules'] }) });
+    onRecord({ type: 'extension_ui_request', method: 'setStatus', statusKey: BRIDGE, statusText: JSON.stringify({ tools: ['ask_question', 'run_routine', 'message_check', 'stop_workload', 'owned_agent', 'hobkin_memory', 'model_settings', 'hobkin_schedule', 'hobkin_schedules', 'hobkin_recall', 'hobkin_remember'] }) });
     return { closed: new Promise(() => {}), request: async name => name === 'get_state' ? state : name === 'get_messages' ? { messages: [] } : {}, shutdown: async () => {} };
   };
   const session = await openRpcSession({ root, config, file, prompts: [] });

@@ -18,6 +18,8 @@ import { startMainSessionChild } from './main-session-child.mjs';
 import { SHIPPED_SKILLS } from './skills-extension.mjs';
 import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { agentScheduleTools } from './schedule-tools.mjs';
+import { MAIN_INDEX_BYTES, memorySnapshot } from './memories.mjs';
+import { mainMemoryTools, memoryHandler } from './memory-tools.mjs';
 
 export const extensionPath = fileURLToPath(new URL('./hobkin-extension.mjs', import.meta.url));
 const dialogMethods = new Set(['select', 'confirm', 'input', 'editor']);
@@ -84,8 +86,8 @@ export class PiRpcSession {
   clientHello = null;
   bashIds = new Map();
 
-  constructor({ askQuestion, tools, memory, directions, decided, persona, graceMs }) {
-    Object.assign(this, { askQuestion, tools, memory, directions, decided, persona, graceMs });
+  constructor({ askQuestion, tools, memory, memories, directions, decided, persona, graceMs }) {
+    Object.assign(this, { askQuestion, tools, memory, memories, directions, decided, persona, graceMs });
     this.listeners = new Set();
     this.calls = new Set();
     this.waiters = new Set();
@@ -386,7 +388,7 @@ function within(promise, ms, message) {
 
 /** Starts the main chat as `<launcher> --mode rpc`; nothing is submitted, and a binding that differs is disposed. */
 export async function openRpcSession(
-  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, prompts, startup },
+  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, memoryKeeper, prompts, startup },
   { spawnProcess, signalProcess, startupTimeoutMs = 180000, graceMs, clientBridge, bootstrap, scriptedMain = false } = {},
 ) {
   scriptedMain = scriptedMain === true;
@@ -406,9 +408,15 @@ export async function openRpcSession(
   }
   // Memory and decisions stay in the prompt as last written (`prompt-parts.mjs`), so a change in them does not send the
   // whole conversation uncached. Directions and persona are read each turn: the user changes those on purpose, and rarely.
-  const kept = keptPrompt({ memory: () => readMemory(root), decided: () => readDecided(root) });
+  // hobkin's memories go the same way: an index as first written, and what changed as a note (057-shared-memory).
+  const kept = keptPrompt({
+    memory: () => readMemory(root),
+    decided: () => readDecided(root),
+    memories: () => memorySnapshot(root, { private: true, maxBytes: MAIN_INDEX_BYTES, recall: 'hobkin_recall' }),
+  });
   const prompt = fingerprinted({
     memory: kept.memory,
+    memories: kept.memories,
     directions: () => readDirections(root),
     decided: kept.decided,
     persona: () => readPersona(root),
@@ -433,6 +441,8 @@ export async function openRpcSession(
     })),
     // The schedules the main agent keeps for itself, which hobkin runs and wakes it for (056-agent-schedules).
     ...agentScheduleTools(agentSchedules),
+    // The memories it reads and saves, as the main chat (057-shared-memory).
+    ...mainMemoryTools(memoryKeeper ?? memoryHandler(root, { kind: 'main' })),
   };
   if (clientBridge) session.tools.client = clientBridge.tool;
   const { command, args } = piCommand(config.launcher, [

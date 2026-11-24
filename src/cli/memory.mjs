@@ -9,6 +9,7 @@ import { directionsSection, readDirections } from './directions.mjs';
 import { writePrivate } from './reports.mjs';
 import { readPersona } from './config.mjs';
 import { composePersonaPrompt } from './persona.mjs';
+import { MAIN_INDEX_BYTES, memoryIndex } from './memories.mjs';
 
 const MAX_ITEMS = 20;
 const MAX_ITEM_LENGTH = 200;
@@ -107,8 +108,10 @@ export const createMemoryExtension = root => pi => {
     const sections = [
       directionsSection(readDirections(root)),
       memorySection(readMemory(root)),
+      // hobkin's memories, private ones too, when there are any (057-shared-memory).
+      memoryIndex(root, { private: true, maxBytes: MAIN_INDEX_BYTES, recall: 'hobkin_recall' }),
       decidedSection(readDecided(root)),
-    ];
+    ].filter(Boolean);
     return { systemPrompt: composePersonaPrompt([event.systemPrompt, ...sections].join('\n\n'), persona) };
   });
 };

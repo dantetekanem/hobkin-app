@@ -39,6 +39,7 @@ import { agentSchedulesBrief, failureKey, handOffBrief, hobkinsBrief, isQuietSch
 import { Hobkins, hobkinSummaries } from './hobkins.mjs';
 import { answerRequest, takeRequests, tellRequests, turnToken } from './hobkin-tell.mjs';
 import { SCHEDULE_ENVIRONMENT, SCHEDULE_REQUESTS, scheduleAskedHere } from './agent-schedule-command.mjs';
+import { memoryHandler } from './memory-tools.mjs';
 import { fileTemplateNews } from './routine-care.mjs';
 import { templateNews, templateNotice } from './routine-templates.mjs';
 import { cardActionNotice, cardActionsToPost, cardActionsToTell, markCardActionsHeard, markCardActionsPosted, recordCardAction } from './work/card-actions.mjs';
@@ -341,6 +342,8 @@ export class HobkinApplication {
       stopWorkload: request => app.stopWorkload(request),
       // The main agent's own schedules, run in its folder (056-agent-schedules).
       agentSchedules: app.scheduleHandler({ kind: 'main' }, app.config.main.cwd),
+      // The memories it reads and saves as the main chat (057-shared-memory).
+      memoryKeeper: app.memoryKeeper({ kind: 'main' }, root),
       editReport: (result, job) => editReport(result, { ...job, binding: app.config.background, runHarness }),
       pulses: app.pulses,
       onChange: activityOnly => app.requestRefresh(activityOnly),
@@ -1107,6 +1110,19 @@ export class HobkinApplication {
    * as often as one may cannot wait for a schedule, so it makes none. `canWait` is false for a run that cannot wait at
    * all, as on Claude Code, which is told its schedules end with its turn.
    */
+  /**
+   * What an agent's memory tools reach (057-shared-memory), by who it is: the main chat and a durable hobkin read
+   * private memories and save at once, a run reads shared ones and suggests. A change one makes is posted in Chat.
+   */
+  memoryKeeper(owner, root = this.runtime.directory) {
+    return memoryHandler(root, owner, { now: () => this.now(), onChange: change => this.memoryChanged(owner, change) });
+  }
+
+  /** An agent changed a memory: the window reads the list again. */
+  memoryChanged() {
+    this.requestRefresh();
+  }
+
   scheduleHandler(owner, cwd, { waits, canWait = true } = {}) {
     const schedules = () => {
       if (!this.agentSchedules) throw Error('Schedules are not available here.');

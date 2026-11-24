@@ -3,7 +3,7 @@ import { PassThrough } from 'node:stream';
 import { randomUUID } from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 
-export const hobkinTools = ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'hobkin_schedule', 'hobkin_schedules', 'owned_agent'];
+export const hobkinTools = ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'hobkin_schedule', 'hobkin_schedules', 'hobkin_recall', 'hobkin_remember', 'owned_agent'];
 const argument = (args, flag) => args[args.indexOf(flag) + 1];
 
 /**

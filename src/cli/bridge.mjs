@@ -14,12 +14,14 @@ export async function callBridge(ctx, request, signal) {
 }
 
 /** Host side. A request can only run a tool the host registered, under that tool's own validation. */
-export async function serveBridge(placeholder, { tools, memory, directions, decided, persona = () => 'Normal' }, signal) {
+export async function serveBridge(placeholder, { tools, memory, memories = () => '', directions, decided, persona = () => 'Normal' }, signal) {
   try {
     if (typeof placeholder !== 'string' || Buffer.byteLength(placeholder) > MAX_REQUEST_BYTES) throw Error('Invalid bridge request.');
     const request = JSON.parse(placeholder);
     if (request?.op === 'persona') return { ok: true, result: persona() };
     if (request?.op === 'memory') return { ok: true, result: memory() };
+    // hobkin's memories as an index for the prompt (057-shared-memory), empty when there are none.
+    if (request?.op === 'memories') return { ok: true, result: memories() };
     if (request?.op === 'directions') return { ok: true, result: directions() };
     if (request?.op === 'decided') return { ok: true, result: decided() };
     if (request?.op !== 'tool' || !Object.hasOwn(tools, request.name)

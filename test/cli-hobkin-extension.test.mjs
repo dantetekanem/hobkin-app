@@ -15,6 +15,7 @@ import { createMemoryTool, readMemory } from '../src/cli/memory.mjs';
 import { createQuestionTool } from '../src/cli/questions.mjs';
 import { createOwnedAgentSessionTool } from '../src/cli/owned-agent-tool.mjs';
 import { createAgentScheduleTool, createAgentSchedulesTool } from '../src/cli/schedule-tools.mjs';
+import { createRecallTool, createRememberTool } from '../src/cli/memory-tools.mjs';
 import { recordCardAction } from '../src/cli/work/card-actions.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
 
@@ -127,7 +128,7 @@ const toolResults = session => session.messages.filter(message => message.role =
 
 test('Pi registers the Hobkin tools with their ordinary definitions and reports them on start', async t => {
   const { session, statuses } = await fixture(t);
-  const originals = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool(), createAgentScheduleTool(), createAgentSchedulesTool(), createOwnedAgentSessionTool()];
+  const originals = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool(), createAgentScheduleTool(), createAgentSchedulesTool(), createRecallTool(), createRememberTool(), createOwnedAgentSessionTool()];
   const registered = session.agent.state.tools;
   for (const tool of originals) {
     const found = registered.find(item => item.name === tool.name);

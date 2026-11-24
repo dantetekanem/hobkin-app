@@ -18,6 +18,7 @@ import { hobkinCommand } from './work/chat.mjs';
 import { HOBKIN_VERSION } from './version.mjs';
 import hobkinBridge, { HOBKIN_BRIDGE_TOOLS } from './hobkin-extension.mjs';
 import { agentScheduleTools } from './schedule-tools.mjs';
+import { mainMemoryTools, memoryHandler } from './memory-tools.mjs';
 
 /** Caller holds the conversation reservation until the SDK and its compaction/retries settle. */
 export async function withPiCancellation(session, signal, operation) {
@@ -58,7 +59,7 @@ export async function closePiSession(session) {
 
 /** Pi owns the transcript format. Durable stores only its identity and dispatch receipts. */
 export async function openPiSession(
-  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, startup },
+  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, memoryKeeper, startup },
   dependencies = {},
 ) {
   startup?.signal.throwIfAborted();
@@ -89,6 +90,7 @@ export async function openPiSession(
       stopWorkload,
       ownedAgent,
       agentSchedules,
+      memoryKeeper,
       prompts: mainPrompts(root, config),
     }, { ...dependencies, bootstrap });
   }
@@ -99,7 +101,7 @@ export async function openPiSession(
     file,
     fresh,
     customTools: [createQuestionTool(askQuestion, root), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root), createStopWorkloadTool(stopWorkload), createOwnedAgentSessionTool(ownedAgent),
-      ...Object.values(agentScheduleTools(agentSchedules))],
+      ...Object.values(agentScheduleTools(agentSchedules)), ...Object.values(mainMemoryTools(memoryKeeper ?? memoryHandler(root, { kind: 'main' })))],
     modelSettings: { root, config },
   }, { ...dependencies, recoverScriptedHistory: false });
 }

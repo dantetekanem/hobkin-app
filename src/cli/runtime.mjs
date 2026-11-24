@@ -102,7 +102,9 @@ function recordMainStop(root, run, actions) {
 
 export class HobkinRuntime {
   /** `pulses` (`pulse.mjs`), when given, is where the main turn's pulse is kept for whoever publishes it. */
-  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, agentSchedules, editReport, metricsNow, pulses = null, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {} } = {}) {
+  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, agentSchedules, memoryKeeper, editReport, metricsNow, pulses = null, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {} } = {}) {
+    // What the main agent's memory tools reach, `{ recall, remember }` (057-shared-memory).
+    this.memoryKeeper = memoryKeeper;
     this.directory = root;
     this.config = config;
     this.createMain = createMain;
@@ -356,6 +358,7 @@ export class HobkinRuntime {
       messageCheck: this.messageCheck,
       stopWorkload: this.stopWorkload,
       agentSchedules: this.agentSchedules,
+      memoryKeeper: this.memoryKeeper,
       ownedAgent: this.ownedLifecycle ? (request, signal) => {
         const turn = this.mainTurn;
         if (!main || turn?.session !== main || !turn.owned || turn.preflight !== true || turn.stopping || this.resetting || this.closing) throw Error('No active admitted owned turn');

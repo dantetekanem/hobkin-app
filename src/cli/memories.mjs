@@ -551,13 +551,26 @@ const inIndexOrder = (a, b) => INDEX_ORDER.indexOf(a.kind) - INDEX_ORDER.indexOf
  * the reader reads one whole: `hobkin_recall`, `hobkin memory`, or nothing for an agent with neither. With no
  * memory, or a folder it cannot read, it is empty, so a prompt is as it was.
  */
-export function memoryIndex(root, { private: includePrivate = false, maxBytes = RUN_INDEX_BYTES, now = Date.now(), recall } = {}) {
+export function memoryIndex(root, options = {}) {
+  return memorySnapshot(root, options).index;
+}
+
+/**
+ * The index (`memoryIndex`) and what it was built from, one entry a memory not past, `{ name, description, version }`,
+ * read in one pass, so a reader that keeps the index as written can tell later what changed since.
+ */
+export function memorySnapshot(root, { private: includePrivate = false, maxBytes = RUN_INDEX_BYTES, now = Date.now(), recall } = {}) {
   let shown;
   try {
     shown = scan(root, { includePrivate, now }).memories.filter(memory => !memory.past).sort(inIndexOrder);
   } catch {
-    return '';
+    return { index: '', entries: [] };
   }
+  const entries = shown.map(({ name, description, version }) => ({ name, description, version }));
+  return { index: indexOf(shown, { maxBytes, recall }), entries };
+}
+
+function indexOf(shown, { maxBytes, recall }) {
   if (!shown.length) return '';
   let text = `## What hobkin remembers\n\n${HEAD(recall)}`;
   let size = bytes(text);

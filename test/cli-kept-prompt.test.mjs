@@ -60,6 +60,32 @@ test("the main agent's prompt keeps its memory as first written, and what is new
   assert.equal(h.runtime.main.promptNews(), null);
 });
 
+test('a memory added mid-conversation reaches the main agent as a note and the prompt stays as written', { timeout: 10000 }, async t => {
+  const { addMemory, changeMemory, forgetMemory } = await import('../src/cli/memories.mjs');
+  const h = await fixture(t);
+  assert.equal(await h.asked('memories'), '', 'with no memories the prompt has no index');
+  const as = { by: { kind: 'user' }, source: { kind: 'window' } };
+  addMemory(h.root, { name: 'lives-in-lisbon', kind: 'user', description: 'Lives in Lisbon' }, as);
+  addMemory(h.root, { name: 'partner-name', kind: 'user', description: 'Partner is called Ana', private: true }, as);
+  h.runtime.main.keptPrompt.renew();
+  const written = await h.asked('memories');
+  assert.match(written, /^## What hobkin remembers\n[\s\S]*- lives-in-lisbon: Lives in Lisbon/);
+  assert.match(written, /- partner-name: Partner is called Ana \(private\)/, 'the main chat reads private memories');
+  assert.match(written, /hobkin_recall/);
+  assert.equal(h.runtime.main.promptNews(), null);
+  const before = h.runtime.main.promptParts.memories;
+
+  addMemory(h.root, { name: 'reply-short', kind: 'preference', description: 'Replies under 100 words' }, as);
+  changeMemory(h.root, 'lives-in-lisbon', { description: 'Lives in Lisbon since 2025' }, as);
+  forgetMemory(h.root, 'partner-name', as);
+  assert.equal(await h.asked('memories'), written, 'the prompt does not change between turns');
+  assert.equal(h.runtime.main.promptParts.memories, before);
+  const news = h.runtime.main.promptNews();
+  assert.match(news.text, /^<hobkin-since>\nMemories added or changed since:\n- lives-in-lisbon: Lives in Lisbon since 2025\n- reply-short: Replies under 100 words\nMemories gone from your index:\n- partner-name\n<\/hobkin-since>\n\n$/);
+  news.told();
+  assert.equal(h.runtime.main.promptNews(), null);
+});
+
 test('a compaction writes the prompt again, with everything in it', { timeout: 10000 }, async t => {
   const h = await fixture(t);
   h.remember(['Likes short answers']);

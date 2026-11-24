@@ -236,7 +236,7 @@ for (const [isolatedMain, scriptedMain, failure] of [[undefined, false], [true, 
   assert.ok(captured?.ready, 'public entry captures the child before any SDK or readiness wait');
   assert.deepEqual(h.sent[0], { ...h.payload, type: 'hobkin/main/bootstrap', version: 1, id: h.sent[0].id, agentDir: h.data.root, recoverScriptedHistory: true });
   assert.equal(received.length, 0, 'no native command precedes trusted readiness');
-  const tools = ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'hobkin_schedule', 'hobkin_schedules', 'owned_agent'];
+  const tools = ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'hobkin_schedule', 'hobkin_schedules', 'hobkin_recall', 'hobkin_remember', 'owned_agent'];
   for (const [statusKey, names] of [['hobkin/bridge', tools], ['hobkin/bridge/client', ['client']]]) {
     if ((statusKey === 'hobkin/bridge' && (scriptedMain || failure === 'base')) || (statusKey.endsWith('/client') && failure === 'hello')) continue;
     emit({ type: 'extension_ui_request', method: 'setStatus', statusKey, statusText: JSON.stringify({ version: 1, tools: names }) });
@@ -302,7 +302,7 @@ test('a fresh native identity must match the captured bootstrap attestation', as
   const opening = openRpcSession({ ...h.payload, prompts: [] }, { ...h.dependencies, bootstrap: h.payload });
   const rejected = assert.rejects(opening, /identity changed/);
   h.child.stdout.write(`${JSON.stringify({ type: 'extension_ui_request', method: 'setStatus', statusKey: 'hobkin/bridge',
-    statusText: JSON.stringify({ version: 1, tools: ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'hobkin_schedule', 'hobkin_schedules', 'owned_agent'] }) })}\n`);
+    statusText: JSON.stringify({ version: 1, tools: ['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload', 'hobkin_schedule', 'hobkin_schedules', 'hobkin_recall', 'hobkin_remember', 'owned_agent'] }) })}\n`);
   h.child.emit('message', { type: 'hobkin/main/ready', version: 1, id: h.sent[0].id, success: true,
     sessionId: 'saved', sessionFile: h.data.file, cwd: h.data.root });
   await rejected;

@@ -175,6 +175,13 @@ export const createRecallTool = recall => tool(RECALL_TOOL, 'Recall a memory', '
 export const createRememberTool = (remember, { suggests = false } = {}) => tool(REMEMBER_TOOL, 'Remember', 'remember-tool', rememberParameters, remember, suggests ? RUNS_SUGGEST : NOT_HERE);
 export const createSuggestMemoryTool = suggest => tool(SUGGEST_TOOL, 'Suggest a memory', 'suggest-memory-tool', suggestParameters, suggest);
 
+/** The main chat's two, which it reads and saves with: it suggests to no one. */
+export const MAIN_MEMORY_TOOLS = Object.freeze([RECALL_TOOL, REMEMBER_TOOL]);
+export const mainMemoryTools = handler => ({
+  [RECALL_TOOL]: createRecallTool(handler?.recall),
+  [REMEMBER_TOOL]: createRememberTool(handler?.remember),
+});
+
 /** The three tools on one handler, by name, as a bridge serves them. */
 export const memoryTools = handler => ({
   [RECALL_TOOL]: createRecallTool(handler?.recall),
