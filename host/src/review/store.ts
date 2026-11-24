@@ -44,7 +44,7 @@ export interface StoredReview {
   at: number
   meta: ReviewMeta | null
   /** What it is about, from the review file; null when the file cannot be read. */
-  change: { title: string; project: string; head: string } | null
+  change: { title: string; project: string; head: string; lines?: number } | null
 }
 
 /** A build that failed: the commit it was for, when, and why. Kept in the home, so a restart does not try it again at once. */
@@ -113,7 +113,8 @@ function readJson<Value>(file: string): Value | null {
 function aboutChange(change: Review['change'] | undefined): StoredReview['change'] {
   if (!change) return null
   if (typeof change.title !== 'string' || typeof change.project !== 'string' || typeof change.head !== 'string') return null
-  return { title: change.title, project: change.project, head: change.head }
+  const lines = Number.isFinite(change.additions) && Number.isFinite(change.deletions) ? { lines: change.additions + change.deletions } : {}
+  return { title: change.title, project: change.project, head: change.head, ...lines }
 }
 
 export function reviewStore(root: string): ReviewStore {

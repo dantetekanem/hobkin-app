@@ -890,6 +890,7 @@ export class Reviews {
         ...(outdated ? { outdated: { builtFor: builtFor! } } : {}),
         ...(needs.length ? { needs } : {}),
         ...(known?.state === 'ready' && known.summary?.carried ? { carried: { from: known.summary.carried.from, why: known.summary.carried.why } } : {}),
+        ...(kept?.change?.lines != null ? { lines: kept.change.lines } : {}),
         updatedAt: new Date(at).toISOString(),
       }
       return [{ item, at }]

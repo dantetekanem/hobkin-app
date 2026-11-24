@@ -222,6 +222,8 @@ export interface ReviewListItem {
    * was cut short and starts again. A host older than this does not send it.
    */
   waiting?: true
+  /** The changed lines (additions plus deletions) of the change its review was built from. Missing for a review never built. */
+  lines?: number
   /** When any of it last changed, as an ISO time. */
   updatedAt: string
 }

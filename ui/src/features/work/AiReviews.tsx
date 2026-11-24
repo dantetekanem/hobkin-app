@@ -9,6 +9,7 @@ import { peopleOfOwner } from '@/features/review/panel/by-line.ts'
 import { ByLineNames } from '@/features/review/panel/ByLine.tsx'
 import { usePullPeople } from '@/features/review/use-people.ts'
 import { LayerPlace } from '@/features/review/panel/StackStrip.tsx'
+import { rowOffersStack } from '@/features/review/stack-start.ts'
 import { useStackStart } from '@/features/review/use-stack-start.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
@@ -28,7 +29,7 @@ import type { ReviewListView } from './use-review-list.ts'
  * ready one its answer for the whole change (risky or safe to deploy), why, and when it finished. A click opens it.
  * One that is ready or stopped can be run again from its row: the review is built once more at the change's commit.
  * One that is waiting or running can be stopped from its row, alone: several run at a time.
- * Under it, on every row: Make it a stack (spec 060), and where the row has them, Remove, and Remove and delete branch. A review of an older commit says Rebuild where the others say Review again.
+ * Under it: Make it a stack (spec 060) on a change above 300 lines, and where the row has them, Remove, and Remove and delete branch. A review of an older commit says Rebuild where the others say Review again.
  */
 const GROUPS: readonly { group: ReviewGroup; label: string }[] = [
   // What the user said yes to and has not merged: first, so a yes that did not land is never out of sight.
@@ -298,7 +299,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
   const recorded = item.kind === 'pull' ? peopleOfOwner(item.owner) : null
   const people = answered ?? recorded
   const again = canReviewAgain(row)
-  // Every row has Make it a stack; the others are Remove and its kin, which a row offers by its state.
+  // A row for a change above 300 lines also has Make it a stack; the others are Remove and its kin, which a row offers by its state.
   const actions = rowActions(row)
   return (
     // The row is the card: opening it and running it again are two buttons, side by side, never one inside the other.
@@ -369,7 +370,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
         {/* A row that waits its turn has nothing running to stop. */}
         {!again && !item.waiting ? <StopReview id={item.id} live={live} onStopped={onAgain} /> : null}
       </div>
-      <RowActions row={row} actions={actions} live={live} onChanged={onAgain} />
+      {actions.length > 0 || rowOffersStack(item) ? <RowActions row={row} actions={actions} live={live} onChanged={onAgain} /> : null}
     </li>
   )
 }
@@ -455,13 +456,15 @@ function RowActions({ row, actions: offered, live, onChanged }: { row: ReviewRow
       }}
     >
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" data-stop="" aria-disabled={stack.busy} title="An agent splits this change into layers a reviewer reads one at a time." onClick={() => void stack.press()} className={cn('shrink-0', stack.busy && 'opacity-60')}>
-          {/* Both words hold the button's place; only the one that applies shows, and only it is read. */}
-          <span className="grid justify-items-center">
-            <span className={cn('col-start-1 row-start-1', stack.busy && 'invisible')}>Make it a stack</span>
-            <span className={cn('col-start-1 row-start-1', !stack.busy && 'invisible')}>Starting…</span>
-          </span>
-        </Button>
+        {rowOffersStack(item) ? (
+          <Button variant="outline" size="sm" data-stop="" aria-disabled={stack.busy} title="An agent splits this change into layers a reviewer reads one at a time." onClick={() => void stack.press()} className={cn('shrink-0', stack.busy && 'opacity-60')}>
+            {/* Both words hold the button's place; only the one that applies shows, and only it is read. */}
+            <span className="grid justify-items-center">
+              <span className={cn('col-start-1 row-start-1', stack.busy && 'invisible')}>Make it a stack</span>
+              <span className={cn('col-start-1 row-start-1', !stack.busy && 'invisible')}>Starting…</span>
+            </span>
+          </Button>
+        ) : null}
         {offered.map((action) => (
           <Button
             key={action}

@@ -44,3 +44,19 @@ test('a finished change with no pull request, or with an address that is no pull
     assert.equal('pr' in reviews.list().reviews[0]!, false, `with the card saying ${pr}`)
   }
 })
+
+test('a listed review says how many lines its change has, from the stored review, and says nothing for one never built', (t) => {
+  const reviews = reviewsOf(t, null)
+  const { additions, deletions } = sample.change
+  assert.equal(reviews.list().reviews[0]!.lines, additions + deletions)
+
+  const store = reviewStore(temporaryDirectory(t))
+  const source: ReviewSource = { head: async () => 'a'.repeat(40), read: () => new Promise(() => {}) }
+  const card = (): ChangeCard => ({ landing: 'mergePr', yes: 'Merge it', branch: 'hobkin/x', pr: null })
+  const waiting = new Reviews({ store, sources: { change: source, pull: source }, work: () => ({ workAction: async () => null }), card })
+  t.after(() => waiting.close())
+  waiting.prepare(CHANGE)
+  const listed = waiting.list().reviews
+  assert.equal(listed.length, 1)
+  assert.equal('lines' in listed[0]!, false)
+})
