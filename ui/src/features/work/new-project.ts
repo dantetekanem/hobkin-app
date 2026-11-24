@@ -110,12 +110,12 @@ export function blocker(form: NewProjectForm): string | null {
   if (look.found === 'file') return 'That is a file. Name a folder.'
   if (look.known) return `Work already has this folder as ${look.known.name}.`
   if (look.namesake) return `A project called ${look.name ?? 'this'} is already in Work.`
-  if (kindOf(form) === 'goal' && !form.wants.trim()) return 'A goal needs your words: say what you want from it.'
+  if (kindOf(form) === 'goal' && !form.wants.trim()) return 'A goal needs your words first.'
   return null
 }
 
 /** The line in the foot when nothing is missing and nothing was refused. */
-export const READY_LINE = 'Ready. Adding takes the project into Work. Nothing starts by itself.'
+export const READY_LINE = 'Adds it to Work. Nothing starts by itself.'
 
 /** The arguments of `work.project.new`, or null while something stands in the way. */
 export function newProjectArgs(form: NewProjectForm): { folder: string; kind: ProjectKind; wants?: string } | null {

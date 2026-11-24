@@ -81,7 +81,7 @@ test('what stands in the way of Add, in the order the user can fix it', () => {
   assert.equal(blocker(formFor({ found: { found: 'file' } })), 'That is a file. Name a folder.')
   assert.equal(blocker(formFor({ found: { known: { slug: 'app', name: 'app', state: 'chosen' } } })), 'Work already has this folder as app.')
   assert.equal(blocker(formFor({ found: { namesake: '~/Work/app' } })), 'A project called app is already in Work.')
-  assert.equal(blocker(formFor({ found: { git: false }, wants: '  ' })), 'A goal needs your words: say what you want from it.')
+  assert.equal(blocker(formFor({ found: { git: false }, wants: '  ' })), 'A goal needs your words first.')
   assert.equal(blocker(formFor({ found: { git: true } })), null, 'code needs no words')
   assert.equal(blocker(formFor({ found: { git: false }, wants: 'Run the long route' })), null)
 })
