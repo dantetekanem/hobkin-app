@@ -9,14 +9,15 @@
     "node": ">=22.19.0"
   },
   "imports": {
-    "#shared/*": "./shared/*"
+    "#shared/*": "./shared/*",
+    "#host/*": "./host/src/*"
   },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node --test \"shared/test/**/*.test.ts\" \"host/test/**/*.test.ts\" \"ui/test/**/*.test.ts\"",
+    "test": "node --test \"shared/test/**/*.test.ts\" \"host/test/**/*.test.ts\" \"ui/test/**/*.test.ts\" \"integrations/*/test/**/*.test.ts\"",
     "check:contrast": "node scripts/contrast.ts",
     "tauri": "tauri",
     "host": "node host/src/main.ts",
