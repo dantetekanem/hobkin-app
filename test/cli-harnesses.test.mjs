@@ -588,6 +588,17 @@ test('a check trusts its own folder, so it has everything the user has', t => {
   assert.equal(buildInvocation(request(t)).args.includes('--approve'), true);
 });
 
+test('a goal\'s work run reads its own prompt in place of the code prompt, and no other', t => {
+  for (const [purpose, workPrompt, heading] of [['work-look', 'work-goal-look', /look at a goal/], ['work-do', 'work-goal-do', /finish one step of a goal/]]) {
+    const { args } = buildInvocation({ ...request(t), purpose, workPrompt });
+    const prompts = args.flatMap((arg, index) => arg === '--append-system-prompt' ? [args[index + 1]] : []);
+    assert.equal(prompts.length, 2);
+    assert.match(prompts[1], heading);
+  }
+  assert.throws(() => buildInvocation({ ...request(t), purpose: 'work-do', workPrompt: 'work-goal-look' }), /Unsupported work prompt/);
+  assert.throws(() => buildInvocation({ ...request(t), purpose: 'work-do', workPrompt: '../durable' }), /Unsupported work prompt/);
+});
+
 test('a work run keeps normal Pi permissions, tools and both sets of directions', async t => {
   for (const [purpose, heading] of [['work-discover', /find the user's projects/], ['work-look', /look at a project/], ['work-do', /finish one item/]]) {
     const input = { ...request(t), purpose };

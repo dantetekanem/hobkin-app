@@ -10,7 +10,7 @@ import { readyItems } from './reads.mjs';
 import { shipFirst } from './ship.mjs';
 import { aheadOfPace, readSubscription, usageWindows } from './usage.mjs';
 import {
-  chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, lenses, levels, lookEveryHours, movesFinishedWork, paths, priorityOf, roomToFill,
+  chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, isGoal, lenses, levels, lookEveryHours, movesFinishedWork, paths, priorityOf, roomToFill,
   readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents, tokenLabel, workHoursAt, workloadOf,
 } from './store.mjs';
 import { pendingMerges } from './unmerged.mjs';
@@ -49,7 +49,7 @@ const REPEAT_DISCOVERY_WORTH = 1;
 // Older items have no impact or effort, so their kind stands in.
 const impactOfKind = { attention: 'high', 'pr-fix': 'high', security: 'high', fix: 'high', update: 'medium', improvement: 'medium', feature: 'medium', chore: 'low' };
 const effortOfKind = { attention: 'small', 'pr-fix': 'small', security: 'medium', fix: 'medium', update: 'small', improvement: 'medium', feature: 'large', chore: 'small' };
-const lensWorth = { security: 3, bugs: 3, updates: 2, improvements: 2, features: 2, chores: 1, trends: 1 };
+const lensWorth = { goal: 2, security: 3, bugs: 3, updates: 2, improvements: 2, features: 2, chores: 1, trends: 1 };
 // How many grades below its project a row sits.
 const impactSteps = { high: 0, medium: 1, low: 2 };
 const IDEAS_STEPS = 2;
@@ -190,13 +190,13 @@ function studyEntry(project, unlocked) {
 }
 
 /** The lens that is due next on a project. New commits bring it forward and move it up, and start nothing by themselves. */
-export function lensEntry(project, state, now, triggered) {
+export function lensEntry(project, state, now, triggered, own = null) {
   const { slug, level } = project;
   const every = lookEveryHours(project) * HOUR_MS / (state.newCommits ? 2 : 1);
   const elapsed = elapsedSince(state.lastLensAt, now);
   if (elapsed < every && !triggered) return null;
 
-  const focus = lenses[(state.lensIndex ?? 0) % lenses.length];
+  const focus = own ?? lenses[(state.lensIndex ?? 0) % lenses.length];
   const overdue = 1 + Math.min(1, (elapsed - every) / every);
   const moved = state.newCommits ? NEW_COMMITS_FACTOR : 1;
   return {
@@ -213,6 +213,9 @@ export function lensEntry(project, state, now, triggered) {
     why: plainList([levelWord(level), state.newCommits ? 'new commits' : 'due']),
   };
 }
+
+/** A goal's one look after its study, at the project's own pace: what changed in the folder and what comes next. It is a lens that no code look shares. */
+export const goalLookEntry = (project, state, now, triggered) => lensEntry(project, state, now, triggered, 'goal');
 
 /**
  * The weekly look for implicit state machines: every place the project keeps a state in flags, strings or columns
@@ -308,6 +311,8 @@ export function signalsEntry(project, state, { root, now }, triggered) {
 function lookEntry(context, project, state, studied, items) {
   const triggered = kind => context.mode.queueNext.includes(`${kind}:${project.slug}`);
   if (triggered('study')) return studyEntry(project, items);
+  // A goal has no code to look at: its study, then one look of its own.
+  if (isGoal(project) && studied) return goalLookEntry(project, state, context.now, triggered('look'));
   const tools = toolsHere(context.root);
   const machines = context.mode.machinesLook === false ? null : machinesEntry(project, state, context.now, triggered('machines'), { tools });
   if (studied) return machines ?? lensEntry(project, state, context.now, triggered('look')) ?? ideasEntry(project, state, context);
@@ -333,8 +338,9 @@ function projectEntries(context, project) {
     .map(item => itemEntry(project, item));
   const triggered = kind => context.mode.queueNext.includes(`${kind}:${slug}`);
   const look = lookEntry(context, project, state, studied, items);
-  const watch = watchEntry(project, state, context, triggered('watch'));
-  const signals = studied ? signalsEntry(project, state, context, triggered('signals')) : null;
+  const code = !isGoal(project);
+  const watch = code ? watchEntry(project, state, context, triggered('watch')) : null;
+  const signals = studied && code ? signalsEntry(project, state, context, triggered('signals')) : null;
   const entries = [...items, ...[look, watch, signals].filter(Boolean)];
   // A study that keeps failing must never hold a project's items, so they wait for its first try and no longer.
   const unstudied = !studied && !state.lastLookAt;

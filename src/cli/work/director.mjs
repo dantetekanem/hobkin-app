@@ -30,7 +30,7 @@ import { sameCodeAs } from './proofs.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
 import {
-  answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, issueMode, itemTree, landing, levels, nextDiscoveryAt, paths, pendingCancels,
+  answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, isGoal, issueMode, itemTree, landing, levels, nextDiscoveryAt, paths, pendingCancels,
   prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, roomToFill, runnableStates, takeHanded,
   sessionError, sessionUsage, skipInQueue, tokenLabel, updateItem, workName, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
@@ -601,6 +601,8 @@ export class WorkDirector {
    * Only the worktree path resets anything, so the folder the user works in can be switched and never cleaned.
    */
   async place(entry, { project, tree, branch, resume, writes = false }) {
+    // A goal's folder is the user's own and has no way back, so a run works in it as it stands: no worktree, no branch, nothing to leave.
+    if (isGoal(project)) return { cwd: project.path };
     const repo = await this.repositoryFor(project);
     // An item cut short in the one tree every item shared before still has its work there, on its branch, and git lets no other tree take that branch.
     const { oldDoTree } = paths(this.root, project.slug);
@@ -795,7 +797,8 @@ export class WorkDirector {
       slug,
       title: `${project.name}: ${focus}`,
       purpose: 'work-look',
-      cwd: tree,
+      ...(isGoal(project) ? { workPrompt: 'work-goal-look' } : {}),
+      cwd: isGoal(project) ? project.path : tree,
       level,
       ...cost,
       // The weekly state-machines look is a deep read of the whole project: it runs on the max tier, whatever the project's level.
@@ -831,6 +834,7 @@ export class WorkDirector {
   startDo(project, item, cost = {}) {
     const { slug } = project;
     const level = item.max ? 'max' : project.level;
+    if (isGoal(project)) return this.startGoalDo(project, item, level, cost);
     const branch = item.branch ?? `${BRANCH_PREFIX}${workName(item)}`;
     const resume = Boolean(item.branch);
     updateItem(this.root, slug, item.id, { state: 'doing', branch }, this.now());
@@ -859,6 +863,29 @@ export class WorkDirector {
         landing: landing(project),
         ...this.describeFor(project, item),
       }),
+      settle: (run, entry) => this.settleItem(slug, item.id, run, entry),
+    });
+  }
+
+  /** A step on a goal ends `done` in the project's own folder, so it has no branch, no tree and no description of a pull request. */
+  startGoalDo(project, item, level, cost) {
+    const { slug } = project;
+    updateItem(this.root, slug, item.id, { state: 'doing' }, this.now());
+    this.start({
+      key: laneKey(slug, 'do'),
+      lane: 'do',
+      slug,
+      item: item.id,
+      title: `${project.name}: ${item.title}`,
+      purpose: 'work-do',
+      workPrompt: 'work-goal-do',
+      cwd: project.path,
+      level,
+      ...cost,
+      ...this.bindingFor(level, 'do'),
+      instructions: `Finish this step on ${project.name}: ${item.title}`,
+      prepare: entry => this.place(entry, { project }),
+      work: place => ({ lane: 'do', place, item, landing: 'off', ...this.describeFor(project, item) }),
       settle: (run, entry) => this.settleItem(slug, item.id, run, entry),
     });
   }
@@ -961,7 +988,7 @@ export class WorkDirector {
    * `tier` is the tier the run's model came from, which its record and its harness request carry (`bindingFor`). Finding
    * projects runs on the chat's own model and carries none.
    */
-  start({ key, planKey, grade, lane, slug, item, title, purpose, cwd, level, kind = lane, estimate = {}, model, effort, tier, instructions, prepare, work, settle, handed = null }) {
+  start({ key, planKey, grade, lane, slug, item, title, purpose, workPrompt, cwd, level, kind = lane, estimate = {}, model, effort, tier, instructions, prepare, work, settle, handed = null }) {
     const harnessId = handed?.harnessId ?? randomUUID();
     // Its first run already ended in the record as left running, and an id is only ever used once.
     const id = `work:${slug ?? 'discover'}:${lane}:${handed ? randomUUID() : harnessId}`;
@@ -1004,6 +1031,7 @@ export class WorkDirector {
         id: harnessId,
         harness: 'pi',
         purpose,
+        ...(workPrompt ? { workPrompt } : {}),
         cwd: here,
         model,
         effort,

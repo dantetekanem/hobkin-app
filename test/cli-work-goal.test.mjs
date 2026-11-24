@@ -5,10 +5,10 @@ import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { runWorkCommand, workStatus } from '../src/cli/work/commands.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
-import { chooseProject, isGoal, paths, fileItem, proposeProject, readItems, updateItem, readProject, setProjectIssues, setProjectPrMode, writeDirections } from '../src/cli/work/store.mjs';
+import { chooseProject, isGoal, paths, fileItem, proposeProject, readItems, updateItem, readProject, setProjectIssues, setProjectPrMode, writeDirections, writeMode } from '../src/cli/work/store.mjs';
 import { prepareProjects, runReadiness, setYolo, setYoloProject, yoloView } from '../src/cli/work/yolo.mjs';
 import { director } from './helpers/work-director.mjs';
-import { branched, repository } from './helpers/work-fixture.mjs';
+import { branched, git, repository } from './helpers/work-fixture.mjs';
 
 /** A goal's folder is a plain folder: no repository, nothing hobkin wrote. */
 function goalFolder(h, name = 'novel') {
@@ -112,3 +112,56 @@ test('status carries a goal\'s kind and how many steps are done, and gives code 
   assert.deepEqual([novel.kind, novel.done, novel.open], ['goal', 1, 1]);
   assert.equal('done' in projects.find(({ slug }) => slug === 'api'), false);
 });
+
+/** Writes what a study writes, and finishes the step a do run was given, the way the prompts ask. */
+const works = h => request => {
+  const { project, item: filed, focus } = h.work(request);
+  if (focus === 'study' && !existsSync(paths(h.root, project.slug).project)) writeFileSync(paths(h.root, project.slug).project, '# Where it stands\n');
+  if (filed) updateItem(h.root, project.slug, filed.id, { state: 'done', summary: 'Wrote chapter3.md.', proof: 'The file is there.' });
+};
+
+test('a goal is studied and worked in its own folder, with no worktree, branch or code look', async t => {
+  const h = director(t);
+  h.agent = works(h);
+  const outer = repository(h.base, 'outer');
+  const folder = join(outer, 'novel');
+  mkdirSync(folder);
+  writeMode(h.root, { enabled: true, machinesLook: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  proposeProject(h.root, { name: 'novel', path: folder, level: 'important', kind: 'goal' });
+  chooseProject(h.root, 'novel');
+  writeDirections(h.root, 'novel', 'Finish chapter three by Friday.');
+  fileItem(h.root, 'novel', step);
+
+  await h.ticks(4);
+
+  const looks = h.calls.filter(call => call.purpose === 'work-look');
+  assert.equal(h.work(looks[0]).focus, 'study');
+  assert.deepEqual(looks.map(call => call.workPrompt), looks.map(() => 'work-goal-look'));
+  const runs = h.calls.filter(call => call.purpose === 'work-do');
+  assert.equal(runs.length, 1);
+  assert.equal(runs[0].workPrompt, 'work-goal-do');
+  assert.deepEqual(h.calls.map(call => call.cwd), h.calls.map(() => folder));
+  assert.match(h.work(runs[0]).directions, /chapter three/);
+  assert.equal(h.work(runs[0]).item.branch, undefined);
+  assert.deepEqual(readItems(h.root, 'novel').map(({ state, branch }) => [state, branch]), [['done', undefined]]);
+  assert.equal(git(outer, 'branch', '--list').includes('hobkin/'), false);
+  assert.equal(existsSync(paths(h.root, 'novel').trees), false);
+});
+
+test('after its study a goal gets one look of its own and none of the code looks', async t => {
+  const h = director(t);
+  h.agent = works(h);
+  const folder = goalFolder(h);
+  writeMode(h.root, { enabled: true, machinesLook: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  proposeProject(h.root, { name: 'novel', path: folder, level: 'important', kind: 'goal' });
+  chooseProject(h.root, 'novel');
+
+  await h.ticks(2);
+  h.clock += 8 * 24 * 3600000;
+  await h.ticks(4);
+
+  const focuses = h.calls.map(call => h.work(call).focus);
+  assert.deepEqual([...new Set(focuses)].sort(), ['goal', 'study']);
+  assert.equal(focuses.filter(focus => focus === 'study').length, 1);
+});
+

@@ -25,6 +25,9 @@ import { MEMORY_TOOLS, memoryTools } from './memory-tools.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
+// A goal's runs keep the purpose of the code runs, so tools, skills and limits are the same, and read their own prompt in its place.
+const goalPrompts = { 'work-look': 'work-goal-look', 'work-do': 'work-goal-do' };
+const workPromptOf = request => (request.workPrompt === undefined ? request.purpose : goalPrompts[request.purpose] === request.workPrompt ? request.workPrompt : null);
 const usesTools = purpose => purpose === undefined || purpose === 'compatibility-check' || purpose === 'durable' || workPurposes.includes(purpose);
 const prompt = name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8');
 /** What a work run is told, for a harness that cannot take it as a system prompt. */
@@ -100,6 +103,7 @@ export function buildInvocation(request) {
   if (request.purpose !== undefined && !['migration-repair', 'reflection', 'session-patterns', 'compatibility-check', 'humanizer', 'short-report', 'durable', ...workPurposes].includes(request.purpose)) {
     throw Error('Unsupported harness purpose.');
   }
+  if (workPromptOf(request) === null) throw Error('Unsupported work prompt.');
   const durable = request.purpose === 'durable';
   if (warm && !durable) throw Error('Only a durable conversation starts its process ahead of a turn.');
   if (durable && request.directions !== undefined && (typeof request.directions !== 'string' || !request.directions.trim())) {
@@ -126,7 +130,7 @@ export function buildInvocation(request) {
       // Work keeps the launcher's normal project-trust decision.
       ...(isWork ? [] : ['--approve']),
     ]),
-    ...(isWork ? ['--append-system-prompt', prompt(request.purpose)] : []),
+    ...(isWork ? ['--append-system-prompt', prompt(workPromptOf(request))] : []),
   ];
   if (request.model) args.push('--model', request.model);
   return piCommand(request.launcher, args);

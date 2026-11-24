@@ -2,10 +2,10 @@ import { existsSync } from 'node:fs';
 import { costHistory, estimateRun, fitsDay, fitsHour, hourShareOf, outOfStarts, withStart } from './budget.mjs';
 import { lookTime } from './chat.mjs';
 import {
-  beginsAChange, canStart, countsAgainst, discoveryEntry, ideasEntry, lensEntry, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, newWorkByItself, retryAt, signalsEntry, skipsTheHour,
+  beginsAChange, canStart, countsAgainst, discoveryEntry, goalLookEntry, ideasEntry, lensEntry, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, newWorkByItself, retryAt, signalsEntry, skipsTheHour,
   startBudgetWait, startGap, startsNewWork, waitsOnItsProject, watchEntry,
 } from './plan.mjs';
-import { chosenProjects, dailyLimit, grades, lookEveryHours, paths, readState, tokenEvents, workHoursAt } from './store.mjs';
+import { chosenProjects, dailyLimit, grades, isGoal, lookEveryHours, paths, readState, tokenEvents, workHoursAt } from './store.mjs';
 
 export const FORECAST_HOURS = 8;
 const MINUTE_MS = 60000;
@@ -58,6 +58,11 @@ function laterLooks(root, { mode, budget, entries }, projects, { start, end, run
   const rules = [now => discoveryEntry({ root, mode, now, running })[0]];
   for (const project of projects) {
     const state = readState(root, project.slug);
+    // A goal has the one look of its own, once its study is done.
+    if (isGoal(project)) {
+      if (existsSync(paths(root, project.slug).project)) rules.push(now => goalLookEntry(project, state, now, false));
+      continue;
+    }
     rules.push(now => watchEntry(project, state, { root, now }, false));
     if (!existsSync(paths(root, project.slug).project)) continue;
 
