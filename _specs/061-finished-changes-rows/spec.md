@@ -80,13 +80,19 @@ The user, 2026-11-24, with a picture of two "Left for you" cards filling a scree
 
 ## Proof
 
-Filled in from the lane's tests and pictures.
+- A1. `ui/test/work-change-row.test.ts` › "the facts come in order: project, issue, size, behind, the pull request, its checks, then the model checks as one count" and › "a part a change does not have leaves the others in place"; check (2026-11-24, still renders at 1300 and 760 pixels, dark and light): six closed rows of "Left for you".
+- A2. `ui/test/work-change-row.test.ts` › "the sentence is the run's note in Left for you, the reason in Needs you, and what the change did elsewhere", › "a change with nothing of its own to say falls back to its reason, and with no reason has no sentence" and › "the action is Answer in Left for you, the change's own yes in its own words where it has one, and Review otherwise"
+- A3. check (still renders): the second row open in two columns at 1300 pixels and in one at 760, and a row of the group that can merge open.
+- A4. check (a still render): Answer pressed, with the reply box under the note. The press itself and the keyboard landing in the box were not run.
+- A5. `ui/test/work-change-row.test.ts` › "Space opens and closes the row, Enter opens it in Review, and a key meant for a control inside it, such as the reply box, is not the row's". The walk with Up, Down, Left and Right was not run: the rows carry the marks the cards had.
+- A6. Measured in the still renders at 1300 pixels: a closed row is about 105 pixels, so fourteen are about 1,500, against about 2,100 for three of the user's cards of 700.
+- A7. `ui/test/work-change-row.test.ts` › "a layer's place goes before its title, and a change in no stack has none"; `ui/test/work-stacks.test.ts`; check (a still render): the stack of five with its bottom layer as a row and layer 3 open.
 
 ## Steps
 
-- [ ] S1 (A1, A2). The row's model: its facts, its sentence and its action by group.
-- [ ] S2 (A1, A3, A4, A5, A6). The row and the open row in place of the card.
-- [ ] S3 (A7). Stacks and groups with rows.
+- [x] S1 (A1, A2). The row's model: its facts, its sentence and its action by group. 484e089.
+- [x] S2 (A1, A3, A4, A5, A6). The row and the open row in place of the card. 9935994, and a line height of whole pixels for the sentence after it. Seen in still renders only: no press, key or motion was run.
+- [x] S3 (A7). Stacks and groups with rows. 9935994. A layer's line opens to the open row without its closed lines repeated.
 - [ ] S4. In the app's window, with the user's own fourteen.
 
 ## Open questions
