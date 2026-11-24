@@ -52,7 +52,7 @@ If a step needs one of these, stop and ask the user here.
 Tell the user, bottom layer first, for each layer: its branch, what it holds, its size in changed lines, and its test result. Then give the output of the proof. Then say what waits for the user's word.
 
 <!-- pull -->
-It is pull request #{{number}} at {{address}}, written by {{author}}.
+It is pull request #{{number}} at {{address}}, written by {{author}}. If its head is not in the repository yet, fetch it with `git fetch origin pull/{{number}}/head`, which changes no branch and no file.
 <!-- no pull -->
 It is not a pull request.
 <!-- own -->
