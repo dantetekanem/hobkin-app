@@ -77,9 +77,9 @@ test('an add is refused for a name in use, for a near double naming the other, f
   assert.throws(() => addMemory(root, { ...lisbon, name: 'home-town', description: 'Lives in Lisbon since 2025; use Portuguese sites first' }, MAIN),
     /"lives-in-lisbon" already says nearly the same/);
   for (const secret of ['The wifi password: hunter22', 'Key sk-abcdefghijklmnopqrstuvwx', 'Card 4111 1111 1111 1111', 'IBAN PT50 0002 0123 1234 5678 9015 4']) {
-    assert.throws(() => addMemory(root, { ...insurance, text: secret }, MAIN), /looks like a secret/, secret);
+    assert.throws(() => addMemory(root, { ...insurance, text: secret }, MAIN), /a secret hobkin never keeps/, secret);
   }
-  assert.throws(() => addMemory(root, { ...insurance, description: 'token = abcdef123456' }, MAIN), /looks like a secret/);
+  assert.throws(() => addMemory(root, { ...insurance, description: 'token = abcdef123456' }, MAIN), /a secret hobkin never keeps/);
   assert.throws(() => addMemory(root, { ...insurance, name: 'Bad Name' }, MAIN), /name/);
   assert.throws(() => addMemory(root, { ...insurance, kind: 'rule' }, MAIN), /kind/);
   assert.throws(() => addMemory(root, { ...insurance, description: '' }, MAIN), /description/);
@@ -293,4 +293,71 @@ test('the stamp moves when a memory or the right-now list changes, and stays whi
   assert.notEqual(two, one);
   writeFileSync(join(root, 'memory.md'), '- Reply to the landlord by Nov 28\n');
   assert.notEqual(memoriesStamp(root), two);
+});
+
+test('what names a secret and gives it is refused, saying what kind it looked like and that a memory may say where it is kept', t => {
+  const root = home(t);
+  const refused = {
+    'My password is hunter22': 'a password',
+    'The wifi password is blue-otter-42': 'a password',
+    'The router passphrase = correct horse': 'a password',
+    'Bank PIN is 4821': 'a PIN',
+    'The card security code: 737': 'a security code',
+    'The building door code is 1234#': 'a door code',
+    'Gate code is 4455': 'a door code',
+    'Recovery codes: 3f9a-7c2e 81bd-44ac': 'recovery codes',
+    'Seed phrase: apple river stone cloud lamp': 'a seed phrase',
+    'SIN 046 454 286': 'a social insurance number',
+    'Her number is 046 454 286': 'a social insurance number',
+    'SSN 123-45-6789': 'a social security number',
+    'Passport is X1234567, expires 2030': 'a passport, licence or health card number',
+    "Driver's licence D1234-56789-01234": 'a passport, licence or health card number',
+    'Health card 1234-567-890': 'a passport, licence or health card number',
+    'Chequing account 12345678': 'an account number',
+    'Card 4111 1111 1111 1111': 'a card number',
+  };
+  for (const [words, kind] of Object.entries(refused)) {
+    assert.throws(() => addMemory(root, { ...insurance, text: words }, MAIN), error => {
+      assert.match(error.message, new RegExp(`it looks like ${kind}, a secret hobkin never keeps`), words);
+      assert.match(error.message, /can say that it exists and where it is kept/);
+      return true;
+    }, words);
+  }
+  const kept = [
+    'The wifi password is in the password manager',
+    'The recovery codes are in the safe, in the blue folder',
+    'The PIN is on the back of the bank letter',
+    'Passport expires 2030-03-10',
+    'Order 4111111111111111 shipped on Monday',
+    'Flight confirmation 4532015112830366',
+    'Call the landlord at 416-555-0199',
+    'The password is 12 characters long',
+  ];
+  kept.forEach((words, index) => {
+    addMemory(root, { name: `kept-${index}`, kind: 'pointer', description: `Fact ${index} zq${index} wv${index}`, text: words }, MAIN);
+  });
+  assert.equal(readMemories(root).memories.length, kept.length, 'a fact about a secret, a date, an order or a phone number is kept');
+});
+
+test('a secret saved before it was refused leaves changes.jsonl and the inbox at the first refusal, and forget keeps no copy of it', t => {
+  const root = home(t);
+  addMemory(root, lisbon, MAIN);
+  // As a memory let through before: by hand, with a line in the log and one in the inbox.
+  const leaked = '---\n{ "kind": "pointer", "description": "Home wifi" }\n---\nThe wifi password is blue-otter-42\n';
+  writeFileSync(join(root, 'memories', 'home-wifi.md'), leaked);
+  writeFileSync(join(root, 'memories', 'changes.jsonl'), `${readFileSync(join(root, 'memories', 'changes.jsonl'), 'utf8')}${JSON.stringify({ id: 'c0ffee00-0000-4000-8000-000000000000', at: new Date(NOW).toISOString(), by: { kind: 'main' }, name: 'home-wifi', did: 'added', before: null, after: leaked })}\n`);
+  mkdirSync(join(root, 'runtime'), { recursive: true });
+  writeFileSync(join(root, 'runtime', 'inbox.jsonl'), `${JSON.stringify({ id: 'e1', kind: 'memory', text: 'The wifi password is blue-otter-42', from: 'Claude Code', at: new Date(NOW).toISOString() })}\n`);
+
+  assert.throws(() => changeMemory(root, 'home-wifi', { description: 'Home wifi network' }, { by: { kind: 'main' }, now: NOW }), /a secret hobkin never keeps/);
+  assert.doesNotMatch(readFileSync(join(root, 'memories', 'changes.jsonl'), 'utf8'), /blue-otter-42/);
+  assert.doesNotMatch(readFileSync(join(root, 'runtime', 'inbox.jsonl'), 'utf8'), /blue-otter-42/);
+  assert.match(readFileSync(join(root, 'memories', 'changes.jsonl'), 'utf8'), /lives-in-lisbon/, 'the rest of the log stays');
+
+  const { change } = forgetMemory(root, 'home-wifi', { by: { kind: 'user' }, now: NOW });
+  assert.equal(existsSync(join(root, 'memories', 'home-wifi.md')), false);
+  const forgotten = join(root, 'memories', 'forgotten');
+  assert.equal(existsSync(forgotten) ? readdirSync(forgotten).length : 0, 0, 'no copy waits in forgotten/');
+  assert.doesNotMatch(readFileSync(join(root, 'memories', 'changes.jsonl'), 'utf8'), /blue-otter-42/);
+  assert.throws(() => undoMemoryChange(root, change, { by: { kind: 'user' }, now: NOW }), /looked like a secret, so hobkin kept no copy/);
 });

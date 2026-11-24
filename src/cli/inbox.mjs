@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileDecision } from './decisions.mjs';
 import { scheduleDate } from './schedules.mjs';
-import { addMemory, looksSecret, MOST_DESCRIPTION, memoryNameFrom, RUN_MARKER } from './memories.mjs';
+import { addMemory, MOST_DESCRIPTION, memoryNameFrom, RUN_MARKER, secretKind, secretRefusal } from './memories.mjs';
 
 const LOG = 'inbox.jsonl';
 const LONGEST_TEXT = 1000;
@@ -127,8 +127,6 @@ function describedBy(text) {
   return cut.slice(0, cut.lastIndexOf(' ') > 40 ? cut.lastIndexOf(' ') : MOST_DESCRIPTION).replace(/[\s,;:.-]+$/, '');
 }
 
-const SECRET_HANDED = 'Nothing was saved: it looks like a secret (a password, a key, a token, a card or an account number), and hobkin keeps none.';
-
 /**
  * `hobkin remember`, from another of the user's sessions: hobkin saves it at once as a memory every agent reads, from
  * that session, and its main agent hears of it once with the user's next message (057-shared-memory). One another
@@ -137,7 +135,8 @@ const SECRET_HANDED = 'Nothing was saved: it looks like a secret (a password, a 
  */
 export function remember(root, { words, from }, now = Date.now(), { env = process.env } = {}) {
   const text = plainText(words, REMEMBER_USAGE);
-  if (looksSecret(text)) throw Error(SECRET_HANDED);
+  const secret = secretKind(text);
+  if (secret) throw Error(secretRefusal(secret));
   const run = typeof env?.[RUN_MARKER] === 'string' ? env[RUN_MARKER].replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0, LONGEST_NAME) : '';
   if (run) {
     const suggested = suggestMemory(root, { memory: { kind: 'user', description: describedBy(text), text, said: text }, from: run }, now);

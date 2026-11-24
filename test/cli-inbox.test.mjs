@@ -326,7 +326,7 @@ test('hobkin remember saves a memory at once, with where it came from, and the m
   assert.deepEqual(memory.source, { kind: 'remember', said: 'The user prefers morning appointments', from: 'Claude Code' });
   assert.match((await hobkin(h.root, ['remember', 'The user prefers morning appointments', '--from', 'Claude Code'])).message, /^Already saved/);
   assert.equal(readMemories(h.root).memories.length, 1);
-  await assert.rejects(hobkin(h.root, ['remember', 'The wifi password: hunter22']), /looks like a secret/);
+  await assert.rejects(hobkin(h.root, ['remember', 'The wifi password: hunter22']), /a secret hobkin never keeps/);
 
   const app = await h.openApp();
   try {

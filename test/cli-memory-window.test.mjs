@@ -44,7 +44,7 @@ test('a save with no version adds one by the user from the window, naming it fro
   assert.equal(memorySave(root, { description: 'Prefers the train under 600 km again', kind: 'preference' }).saved, false);
   const refused = memorySave(root, { description: 'Wifi password: hunter22', kind: 'pointer' });
   assert.deepEqual(refused.saved, false);
-  assert.match(refused.message, /looks like a secret/);
+  assert.match(refused.message, /a secret hobkin never keeps/);
   assert.match(memorySave(root, { description: 'x', kind: 'rule' }).message, /kind/);
 });
 

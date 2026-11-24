@@ -53,7 +53,6 @@ const KIND_TITLES = {
 const COMMON = new Set(['the', 'and', 'for', 'with', 'that', 'this', 'from', 'are', 'was', 'has', 'have', 'its', 'but', 'not', 'all',
   'any', 'can', 'our', 'out', 'who', 'you', 'your', 'they', 'them', 'their', 'there', 'what', 'when', 'which', 'will', 'would',
   'about', 'into', 'also', 'than', 'then', 'user', 'users']);
-const SECRET = 'Nothing was saved: it looks like a secret (a password, a key, a token, a card or an account number), and hobkin keeps none. Leave it out, or say where it is kept instead.';
 
 /** A refusal in plain words, which a door hands on as it is. Anything else thrown is a failure. */
 export class MemoryRefused extends Error {
@@ -231,19 +230,88 @@ function iban(value) {
 }
 
 const SHAPES = SECRET_SHAPES.map(pattern => new RegExp(pattern.source, pattern.flags.replace('g', '')));
-const NUMBERED = /\b(?:account|acct|routing|iban|sort code|ssn|sin|social security|passport|licen[cs]e|card)\s*(?:number|no\.?|#)\s*[:=]?\s*[A-Z0-9][A-Z0-9 -]{4,}/i;
 
-/** A password, a key, a token, a card or an account number, by its shape. Best effort, and a refusal when it matches. */
-export function looksSecret(text) {
-  const value = String(text ?? '');
-  if (!value) return false;
-  if (SHAPES.some(pattern => pattern.test(value)) || NUMBERED.test(value)) return true;
-  for (const match of value.matchAll(/(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)/g)) {
-    const digits = match[0].replace(/\D/g, '');
-    if (digits.length >= 13 && digits.length <= 19 && luhn(digits)) return true;
+// What names a secret, then gives it after "is", ":" or "=": "The wifi password is blue-otter-42", "Bank PIN: 4821".
+const NAMED_SECRETS = [
+  ['a password', 'pass(?:word|code|phrase)s?'],
+  ['a PIN', 'pins?(?: (?:code|number))?'],
+  ['a security code', 'security codes?|cvv|cvc'],
+  ['a door code', '(?:door|gate|alarm|entry|lock|garage) codes?'],
+  ['recovery codes', '(?:recovery|backup) codes?'],
+  ['a seed phrase', '(?:seed|recovery) (?:phrase|words)'],
+].map(([kind, names]) => [kind, new RegExp(`\\b(?:${names})\\b[^\\n.:=]{0,30}?(?:\\s(?:is|are|was|were)\\s|\\s*[:=])\\s*["']?([^\\s"',;]+)(?:\\s+(\\S+))?`, 'gi')]);
+// What follows "is" when a sentence says where a secret is, or what it is like, rather than what it is.
+const NOT_A_VALUE = new Set(['in', 'on', 'at', 'inside', 'under', 'behind', 'with', 'kept', 'stored', 'saved', 'written', 'noted', 'listed',
+  'printed', 'taped', 'managed', 'handled', 'shared', 'changed', 'set', 'reset', 'rotated', 'the', 'a', 'an', 'my', 'our', 'their', 'his',
+  'her', 'its', 'this', 'that', 'same', 'different', 'unknown', 'not', 'never', 'usually', 'always', 'still', 'now', 'also', 'somewhere',
+  'there', 'here', 'available', 'required', 'needed', 'expired', 'due', 'being', 'too', 'very', 'long', 'short', 'strong', 'weak', 'new', 'old']);
+const LENGTH_WORDS = /^(?:characters?|chars?|digits?|letters?|words?|long)$/i;
+const SAID_WITH_NUMBER = [
+  ['a social insurance number', /\b(?:sin|social insurance(?: number)?)\b\s*(?:number|no\.?|#)?\s*(?:is|:|=)?\s*(\d(?:[ -]?\d){8})\b/i],
+  ['a social security number', /\b(?:ssn|social security(?: number)?)\b\s*(?:number|no\.?|#)?\s*(?:is|:|=)?\s*(\d(?:[ -]?\d){8})\b/i],
+  ['a passport, licence or health card number',
+    /\b(?:passport|(?:driver'?s\s+)?licen[cs]e|health (?:card|number|insurance number)|care card|ohip|ramq|medicare|id card)\b(?:\s+(?:number|no\.?|#))?\s*(?:is|:|=|#)?\s*([A-Z]{0,3}\d[A-Z0-9-]{3,}(?:[ -][A-Z0-9]{2,})*)/i],
+  ['an account number', /\b(?:account|acct|chequing|checking|savings|routing|transit|sort code|iban)\b(?:\s+(?:number|no\.?|#))?\s*(?:is|:|=|#)?\s*(\d[\d -]{4,}\d)/i],
+  ['a card number', /\b(?:card|visa|mastercard|amex|credit|debit)\b(?:\s+(?:number|no\.?|#))?[^\n\d]{0,24}((?:\d[ -]?){12,18}\d)(?!\d)/i],
+];
+const digitsIn = value => value.replace(/\D/g, '');
+
+/** A sentence that names a secret and gives it: the kind it looked like, or null. */
+function namedSecret(text) {
+  for (const [kind, pattern] of NAMED_SECRETS) {
+    for (const [, value, next] of text.matchAll(pattern)) {
+      const word = value.replace(/[.!?)]+$/, '').toLowerCase();
+      if (!word || NOT_A_VALUE.has(word)) continue;
+      if (/^\d+$/.test(word) && next && LENGTH_WORDS.test(next)) continue;
+      return kind;
+    }
   }
-  return [...value.matchAll(/\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b/g)].some(match => iban(match[0]));
+  return null;
 }
+
+/** A number said with what it is, such as "SSN 123-45-6789" or "Passport is X1234567": the kind, or null. */
+function numberSaid(text) {
+  for (const [kind, pattern] of SAID_WITH_NUMBER) {
+    const match = pattern.exec(text);
+    if (!match) continue;
+    const digits = digitsIn(match[1]);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(match[1]) || digits.length < 5) continue;
+    if (kind === 'a card number' && !(digits.length >= 13 && luhn(digits))) continue;
+    return kind;
+  }
+  return null;
+}
+
+/** A number in the shape of a Canadian social insurance number or a US social security number, with nothing said. */
+function numberShaped(text) {
+  for (const match of text.matchAll(/(?<![\d-])\d{3}[ -]\d{3}[ -]\d{3}(?![\d-])/g)) {
+    if (luhn(digitsIn(match[0]))) return 'a social insurance number';
+  }
+  if (/(?<![\d-])(?!000|666|9\d\d)\d{3}-(?!00)\d{2}-(?!0000)\d{4}(?![\d-])/.test(text)) return 'a social security number';
+  return null;
+}
+
+/**
+ * What a secret looks like in these words, by its shape, or null: a password, a PIN or a code named and given, keys
+ * and tokens, a card, account, social insurance or social security number, a passport, licence or health card said
+ * with its number. Best effort, and a refusal when it matches. A plain number that only passes a card's checksum, such
+ * as an order number, is not one.
+ */
+export function secretKind(text) {
+  const value = String(text ?? '');
+  if (!value) return null;
+  const named = namedSecret(value) ?? numberSaid(value);
+  if (named) return named;
+  if (SHAPES.some(pattern => pattern.test(value))) return 'a password, a key or a token';
+  const hasIban = [...value.matchAll(/\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b/g)].some(match => iban(match[0]));
+  return hasIban ? 'an account number' : numberShaped(value);
+}
+
+export const looksSecret = text => secretKind(text) !== null;
+
+/** The refusal for a secret of `kind`, which says what a memory may say instead. */
+export const secretRefusal = (kind, done = 'saved') => `Nothing was ${done}: it looks like ${kind}, a secret hobkin never keeps. `
+  + 'A memory can say that it exists and where it is kept, such as "The wifi password is in the password manager", never the thing itself.';
 
 function checkedName(name) {
   if (typeof name !== 'string' || !NAME.test(name)) {
@@ -296,7 +364,6 @@ function serialize(name, { kind, description, until, added, changed, source, isP
   };
   const body = `---\n${JSON.stringify(meta, null, 2)}\n---\n${text ? `${text}\n` : ''}`;
   if (bytes(body) > MOST_MEMORY_BYTES) refuse(`A memory is at most ${MOST_MEMORY_BYTES / 1024} KB as a file. Make its text shorter, or split it into two facts.`);
-  if (looksSecret(name) || looksSecret(description) || looksSecret(text) || looksSecret(source?.said)) refuse(SECRET);
   return body;
 }
 
@@ -324,9 +391,87 @@ function readChanges(root) {
   return changes;
 }
 
-/** One line a change, the newest megabyte kept, so an undo can put back exactly what was there. */
-function logChange(root, change) {
+const SCRUBBED = '[removed: it looked like a secret]';
+const KEPT_NO_COPY = 'It looked like a secret, so hobkin kept no copy of it to put back. Forget or change the memory from the page instead.';
+
+/** Whether a memory's file, or any words, hold what looks like a secret: its description, text and the user's words. */
+function holdsSecret(source) {
+  if (typeof source !== 'string') return false;
+  const front = frontOf(source);
+  if (!front) return looksSecret(source);
+  return [front.meta.description, front.body, front.meta.source?.said].some(looksSecret);
+}
+
+/** Rewrites a JSONL file through `map`, line by line, only when a line changed. A line that is not JSON stays as it is. */
+function rewriteLines(file, map) {
+  let source;
+  try {
+    source = readFileSync(file, 'utf8');
+  } catch {
+    return;
+  }
+  let changed = false;
+  const lines = source.split('\n').filter(Boolean).map(line => {
+    let value;
+    try {
+      value = JSON.parse(line);
+    } catch {
+      return line;
+    }
+    const mapped = map(value);
+    if (mapped === value) return line;
+    changed = true;
+    return JSON.stringify(mapped);
+  });
+  if (changed) writePrivate(file, `${lines.join('\n')}\n`);
+}
+
+/**
+ * Takes what looks like a secret out of the two places hobkin keeps words beside the memories: the before and after of
+ * each line of `changes.jsonl`, whose undo then says it kept no copy, and the words of each entry of
+ * `runtime/inbox.jsonl`. The memory file that still holds it stays until it is changed or forgotten.
+ */
+export function scrubSecrets(root) {
+  rewriteLines(changesFile(root), change => {
+    const before = holdsSecret(change.before);
+    const after = holdsSecret(change.after);
+    if (!before && !after) return change;
+    return { ...change, ...(before ? { before: null } : {}), ...(after ? { after: null } : {}), scrubbed: true };
+  });
+  rewriteLines(join(root, 'runtime', 'inbox.jsonl'), entry => {
+    const words = typeof entry.text === 'string' && looksSecret(entry.text);
+    const memory = entry.memory && typeof entry.memory === 'object' ? entry.memory : null;
+    const fields = memory ? ['description', 'text', 'said'].filter(key => looksSecret(memory[key])) : [];
+    if (!words && !fields.length) return entry;
+    return {
+      ...entry,
+      ...(words ? { text: SCRUBBED } : {}),
+      ...(fields.length ? { memory: { ...memory, ...Object.fromEntries(fields.map(key => [key, SCRUBBED])) } } : {}),
+    };
+  });
+}
+
+/** Refuses a memory whose words look like a secret, after taking any such words out of what hobkin kept before. */
+function refuseSecret(root, values, done) {
+  const kind = values.map(secretKind).find(Boolean);
+  if (!kind) return;
+  try {
+    scrubSecrets(root);
+  } catch {
+    // The refusal stands even when the old words could not be cleared.
+  }
+  refuse(secretRefusal(kind, done));
+}
+
+/**
+ * One line a change, the newest megabyte kept, so an undo can put back exactly what was there: never words that look
+ * like a secret, which an undo of that change then says it has no copy of.
+ */
+function logChange(root, given) {
   const id = randomUUID();
+  const before = holdsSecret(given.before);
+  const after = holdsSecret(given.after);
+  const change = before || after ? { ...given, ...(before ? { before: null } : {}), ...(after ? { after: null } : {}), scrubbed: true } : given;
   const line = `${JSON.stringify({ id, ...change })}\n`;
   appendFileSync(changesFile(root), line, { mode: 0o600 });
   const size = lstatSync(changesFile(root), { throwIfNoEntry: false })?.size ?? 0;
@@ -397,6 +542,7 @@ export function addMemory(root, fields = {}, actor = {}) {
   const until = checkedUntil(fields.until);
   const isPrivate = fields.private === true;
   const source = sourceOf(actor.source) ?? undefined;
+  refuseSecret(root, [name, description, text, source?.said]);
   const body = serialize(name, { kind, description, until, added: { at: iso(now), by }, source, isPrivate }, text);
   if (taken(root, name)) refuse(takenMessage(name));
   const { memories } = scan(root, { includePrivate: true, now });
@@ -426,15 +572,18 @@ export function changeMemory(root, name, fields = {}, actor = {}) {
   const has = key => Object.hasOwn(fields, key) && fields[key] !== undefined;
   if (!['description', 'text', 'kind', 'until', 'private'].some(has)) refuse('Say what to change: its description, text, kind, until or private.');
   const isPrivate = has('private') ? fields.private === true : found.isPrivate;
+  const description = has('description') ? checkedDescription(fields.description) : current.description;
+  const text = has('text') ? checkedText(fields.text) : (current.text ?? '');
+  refuseSecret(root, [description, text, current.source?.said]);
   const body = serialize(name, {
     kind: has('kind') ? checkedKind(fields.kind) : current.kind,
-    description: has('description') ? checkedDescription(fields.description) : current.description,
+    description,
     until: has('until') ? checkedUntil(fields.until) : current.until,
     added: current.added,
     changed: { at: iso(now), by },
     source: current.source,
     isPrivate,
-  }, has('text') ? checkedText(fields.text) : (current.text ?? ''));
+  }, text);
   if (isPrivate !== found.isPrivate && lstatSync(fileOf(root, name, isPrivate), { throwIfNoEntry: false })) refuse(takenMessage(name));
   const memory = written(root, name, body, isPrivate, now);
   if (isPrivate !== found.isPrivate) rmSync(found.file, { force: true });
@@ -456,6 +605,13 @@ export function forgetMemory(root, name, actor = {}) {
   const found = locate(root, checkedName(name), now);
   if (!found) notFound(name);
   if (actor.version !== undefined && actor.version !== found.memory?.version) stale();
+  // One that holds what looks like a secret is gone at once, with no copy kept to restore, and the old words go too.
+  if (holdsSecret(found.source)) {
+    rmSync(found.file, { force: true });
+    const change = logChange(root, { at: iso(now), by, name, did: 'forgot', before: null, after: null, kept: null, scrubbed: true });
+    scrubSecrets(root);
+    return { change };
+  }
   mkdirSync(forgottenFolder(root), { recursive: true, mode: 0o700 });
   const kept = keptPath(root, name, now);
   renameSync(found.file, kept);
@@ -519,6 +675,7 @@ export function undoMemoryChange(root, id, actor = {}) {
   const by = checkedAuthor(actor.by);
   const record = typeof id === 'string' ? readChanges(root).find(change => change.id === id) : null;
   if (!record || typeof record.name !== 'string' || !NAME.test(record.name)) refuse('hobkin has no such change, or it is too old to undo.');
+  if (record.scrubbed) refuse(KEPT_NO_COPY);
   const { name } = record;
   const found = locate(root, name, now);
   const changedSince = () => refuse(`"${name}" changed since; edit it instead.`);

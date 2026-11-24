@@ -46,7 +46,7 @@ test('the main chat remembers at once, stamped as the main chat with the user\'s
   assert.equal(changes[0].description, lisbon.description);
 
   await assert.rejects(call(tools, REMEMBER_TOOL, { ...lisbon, name: 'home-city' }), /"lives-in-lisbon" already says nearly the same/);
-  await assert.rejects(call(tools, REMEMBER_TOOL, { action: 'add', name: 'wifi', kind: 'pointer', description: 'Home wifi', text: 'password: hunter22' }), /looks like a secret/);
+  await assert.rejects(call(tools, REMEMBER_TOOL, { action: 'add', name: 'wifi', kind: 'pointer', description: 'Home wifi', text: 'password: hunter22' }), /a secret hobkin never keeps/);
   await assert.rejects(call(tools, REMEMBER_TOOL, { action: 'add', name: 'wifi' }), /kind/);
   assert.equal(changes.length, 4, 'nothing refused is posted');
 });
@@ -101,7 +101,7 @@ test('a run recalls no private memory, cannot save or change one, and its sugges
   const { suggested: heard } = inboxNews([entry]);
   assert.deepEqual(heard, [{ id: entry.id, kind: 'preference', description: 'Wants CI checked before a merge', text: 'The user asked to always see CI green before merging.', said: 'only merge when CI is green', from: 'Ship 412', at: new Date(NOW).toISOString() }]);
   assert.match(text(await call(run, SUGGEST_TOOL, { kind: 'preference', description: 'Wants CI checked before a merge' })), /Already suggested/);
-  await assert.rejects(call(run, SUGGEST_TOOL, { kind: 'pointer', description: 'Server key', text: 'sk-abcdefghijklmnopqrstuvwx' }), /looks like a secret/);
+  await assert.rejects(call(run, SUGGEST_TOOL, { kind: 'pointer', description: 'Server key', text: 'sk-abcdefghijklmnopqrstuvwx' }), /a secret hobkin never keeps/);
   await assert.rejects(call(run, SUGGEST_TOOL, { kind: 'rule', description: 'Always lint' }), /kind/);
   assert.doesNotMatch(readFileSync(join(root, 'runtime', 'inbox.jsonl'), 'utf8'), /sk-abc/);
 
