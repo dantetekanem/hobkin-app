@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { AppStateRead } from '#shared/commands/registry.ts'
 import type { OwnerState } from '#shared/protocol/messages.ts'
+import { withoutNothingNew } from '#shared/reports/nothing-new.ts'
 import type { HobkinSnapshot } from 'hobkin/src/cli/application.mjs'
 import { Unavailable, type HostHandlers } from './commands.ts'
 
@@ -42,7 +43,7 @@ export function appStateHandlers({ root, owner, revision }: AppReadOptions): Hos
       home: root, owner: { state: 'live', id }, sessionId: session,
       loadedRevision: null, stateRevision: revision(),
       counts: {
-        messages: count(snapshot.messages), reports: count(snapshot.reports), runs: count(snapshot.runs),
+        messages: count(snapshot.messages), reports: count(Array.isArray(snapshot.reports) ? withoutNothingNew(snapshot.reports) : snapshot.reports), runs: count(snapshot.runs),
         activeRuns: Array.isArray(snapshot.runs) ? snapshot.runs.filter((run) => run?.state === 'running').length : null,
       },
       activity: {

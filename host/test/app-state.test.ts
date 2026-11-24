@@ -8,7 +8,7 @@ import { runCommand, Unavailable } from '../src/commands.ts'
 
 function fixture() {
   let refreshed = 0
-  const snapshot = { messages: [{}], reports: [{ body: 'private' }], runs: [{ state: 'running' }], busy: true, doing: 'Reading', tooling: true }
+  const snapshot = { messages: [{}], reports: [{ body: 'private' }, { body: 'Nothing new.' }], runs: [{ state: 'running' }], busy: true, doing: 'Reading', tooling: true }
   const app = { runtime: { main: { sessionId: 'session-a' } }, refresh: async (): Promise<HobkinSnapshot> => { refreshed++; return snapshot } }
   const owner = { state: { state: 'live' as const, limits: { images: 1, imageBytes: 100 } }, app: app as typeof app | null, snapshot }
   const handlers = appStateHandlers({ root: '/isolated/home', owner, revision: () => 7 })

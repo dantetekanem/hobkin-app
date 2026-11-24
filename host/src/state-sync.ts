@@ -8,6 +8,7 @@ import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import { diffMessages } from '#shared/protocol/message-ops.ts'
+import { withoutNothingNew } from '#shared/reports/nothing-new.ts'
 import type { OwnerState, StateMessage } from '#shared/protocol/messages.ts'
 import type { ModelsState } from '#shared/protocol/models.ts'
 import type { Nudge } from '#shared/protocol/nudge.ts'
@@ -90,6 +91,8 @@ export function toWire(
   const hidden = new Set([...(snapshot.presentation?.hiddenMessageIds ?? []), ...cleared])
   const values = Object.fromEntries(Object.entries(snapshot).filter(([key, value]) => !HOST_ONLY.has(key) && value !== undefined))
   if (Array.isArray(values.schedules)) values.schedules = schedules(values.schedules)
+  // A run that found nothing new is no report: it is not listed or counted, and a routine's last run still comes from its schedule.
+  if (Array.isArray(values.reports)) values.reports = withoutNothingNew(values.reports)
   if ('work' in values) values.work = work(values.work)
   if ('memoriesStamp' in values) {
     const stamp = readMemoriesStamp(values.memoriesStamp)
