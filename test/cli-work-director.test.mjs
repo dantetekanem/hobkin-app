@@ -17,7 +17,7 @@ import { planWork } from '../src/cli/work/plan.mjs';
 import { recordSignals } from '../src/cli/work/signals.mjs';
 import {
   answerAllowance, chooseProject, fileItem, itemTree, noteDiscovery, paths, pickNext, prFile, proposeProject, requestCancel, pendingCancels, readDiscovery, readItems, readMode, readState, recordDiscovery,
-  recordTokens, setProjectPrMode, setProjectPriority, skipProject, startWork, tokenEvents, tokensToday, updateItem, writeMode, writeState,
+  readProject, recordTokens, setProjectPrMode, setProjectPriority, skipProject, startWork, tokenEvents, tokensToday, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 import { readUnmerged } from '../src/cli/work/unmerged.mjs';
 import { withOrigin, writeJson } from './helpers/work-fixture.mjs';
@@ -2137,4 +2137,47 @@ test('Work descendant empty max settlement does not use the daily max budget', {
   assert.equal(tokenEvents(h.root)[1].tokens, 10);
   assert.equal(tokenEvents(h.root)[1].level, 'max');
   assert.equal(planWork(h.root, { now: h.clock }).budget.maxRuns, 1);
+});
+
+test('two items of one project run at once, each kept and settled on its own', { timeout: 20000 }, async t => {
+  const h = fixture(t);
+  const checkout = repository(h.base, 'api');
+  const gates = new Map();
+  h.agent = request => {
+    if (request.purpose !== 'work-do') return undefined;
+    const gate = Promise.withResolvers();
+    gates.set(h.work(request).item.id, gate);
+    return gate.promise;
+  };
+  writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  chooseProject(h.root, checkout);
+  fileItem(h.root, 'api', item);
+  fileItem(h.root, 'api', { ...item, key: 'update:other', title: 'Update other' });
+  const project = readProject(h.root, 'api');
+  const [first, second] = readItems(h.root, 'api');
+
+  h.director.startDo(project, first);
+  h.director.startDo(project, second);
+
+  assert.equal(h.director.running().filter(run => run.slug === 'api' && run.lane === 'do').length, 2, 'neither run replaced the other');
+  assert.deepEqual(h.director.running().map(run => run.item).sort(), [first.id, second.id].sort());
+  await new Promise(resolve => setTimeout(resolve, 200));
+  gates.get(first.id)?.resolve();
+  await new Promise(resolve => setTimeout(resolve, 200));
+  assert.deepEqual(h.director.running().map(run => run.item), [second.id], 'the first run settled and left the second');
+  assert.notEqual(readItems(h.root, 'api').find(entry => entry.id === first.id).state, 'doing');
+  gates.get(second.id)?.resolve();
+  await h.settled();
+  assert.deepEqual(h.director.running(), []);
+  assert.notEqual(readItems(h.root, 'api').find(entry => entry.id === second.id).state, 'doing');
+});
+
+test('a durable hobkin turn takes no worker, and a work run or a routine does', t => {
+  const h = fixture(t);
+  h.runner.jobs.set('hobkin:deadbeef:1', Promise.resolve());
+  assert.equal(h.director.outlook().checks, 0);
+  h.runner.jobs.set('work:api:do', Promise.resolve());
+  assert.equal(h.director.outlook().checks, 0, 'a work run is counted as a run, not a check');
+  h.runner.jobs.set('routine-1', Promise.resolve());
+  assert.equal(h.director.outlook().checks, 1);
 });

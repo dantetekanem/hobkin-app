@@ -79,7 +79,8 @@ const readBounded = file => {
 const elapsedSince = (at, now) => (at ? now - Date.parse(at) : Infinity);
 const firstLine = text => String(text ?? '').trim().split('\n', 1)[0].trim().slice(0, MAX_REASON_LENGTH);
 const runError = run => firstLine(run?.result?.error ?? run?.error);
-const laneKey = (slug, lane) => `${slug}:${lane}`;
+// Several items of one project can run at once, so a do run's key names its item. A look stays one to a project.
+const laneKey = (slug, lane, item) => (lane === 'do' ? `${slug}:${lane}:${item ?? ''}` : `${slug}:${lane}`);
 // An older hobkin ran work in terminal panes and could leave an agent at work there as it closed. Without its report there is no telling whether it still works.
 const LEFT_WITHOUT_REPORT = 'An older hobkin left this agent at work in a terminal pane as it closed, and it wrote no report. hobkin now runs work only as its own jobs, so the item waits at the end of the queue with its branch as it is.';
 // A usage limit says nothing about the project, so it counts against nothing.
@@ -841,7 +842,7 @@ export class WorkDirector {
     const description = prFile(this.root, slug, item.ships ?? item.id);
     mkdirSync(dirname(description), { recursive: true, mode: 0o700 });
     this.start({
-      key: laneKey(slug, 'do'),
+      key: laneKey(slug, 'do', item.id),
       lane: 'do',
       slug,
       item: item.id,
@@ -869,7 +870,7 @@ export class WorkDirector {
     const { slug } = project;
     updateItem(this.root, slug, item.id, { state: 'doing' }, this.now());
     this.start({
-      key: laneKey(slug, 'do'),
+      key: laneKey(slug, 'do', item.id),
       lane: 'do',
       slug,
       item: item.id,
@@ -983,7 +984,7 @@ export class WorkDirector {
       const { slug, lane, item, title, level, kind, estimate, model, effort, place } = record;
       const settle = lane === 'do' ? (run, entry) => this.settleItem(slug, item, run, entry) : run => this.settleLook(slug, run, {});
       const tier = levels[level]?.[`${lane}Tier`];
-      this.start({ key: laneKey(slug, lane), lane, slug, item, title, purpose: `work-${lane}`, cwd: place.cwd, level, kind, estimate, model, effort, tier, instructions: title, settle, handed: record });
+      this.start({ key: laneKey(slug, lane, item), lane, slug, item, title, purpose: `work-${lane}`, cwd: place.cwd, level, kind, estimate, model, effort, tier, instructions: title, settle, handed: record });
     }
   }
 
