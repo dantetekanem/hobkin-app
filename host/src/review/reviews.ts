@@ -22,6 +22,7 @@ import { IDLE_STATUS, shownAsRow, type MergeAsked, type OpenedReview, type Revie
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
 import { githubApi, type HostApi } from './code-hosts.ts'
+import { layerNames, pullLayers } from './pull-layers.ts'
 import { checkGrammar, grammarLines, type GrammarAsk, type GrammarResult, type GrammarTexts } from '#shared/review/grammar.ts'
 import { askForChanges, closingComment, pullReviewPost, saysNothing, type PullReviewPost, type Verdict } from '#shared/review/verdict.ts'
 import { Unavailable } from '../commands.ts'
@@ -146,6 +147,8 @@ export interface ReviewsOptions {
   onChange?: () => void
   log?: (line: string) => void
   now?: () => number
+  /** How long to wait between asks of GitHub for the result of an asynchronous merge. */
+  mergePollMs?: number
   /**
    * The change review (spec 032) of finished changes and pull requests: started once a review's graph is ready, one
    * commit once, and read back when the review opens. A host given none reviews nothing that way, and its reviews keep
@@ -1579,7 +1582,8 @@ export class Reviews {
       const pinned = `At commit ${at.slice(0, 7)}, the one this review was built from. GitHub refuses if the pull request has moved since.`
       if (verdict === 'approve-merge' && target.host) return this.hostMergePlan({ target, name, review, notes, summary, loose, at, token })
       if (verdict === 'approve-merge') {
-        const { mine, method, base, head: now } = await this.pullFacts(target)
+        const { mine, method, base, head: now, ref, defaultBranch } = await this.pullFacts(target)
+        await this.layersUnder(target, { base, head: ref, defaultBranch })
         // It merges where the pull request is now, which the preview says: a head that moved since the review is no refusal.
         const reviewed = head != null && !at.startsWith(head) ? head : at
         const current = now ?? reviewed
@@ -1785,12 +1789,12 @@ export class Reviews {
    * What GitHub says of a pull request before it is approved or merged: whether the user opened it, the branch it merges
    * into, and how its repository lets it be merged, squashed first, then with a merge commit, then rebased.
    */
-  private async pullFacts(target: PullTarget): Promise<{ mine: boolean; method: MergeMethod; base: string; head: string | null }> {
+  private async pullFacts(target: PullTarget): Promise<{ mine: boolean; method: MergeMethod; base: string; head: string | null; ref: string | null; defaultBranch: string | null }> {
     const host = this.apiFor(target)
     if (!host) throw new Unavailable(`This host merges nothing on ${target.host ?? 'GitHub'}.`)
     const api = async <Value>(path: string) => JSON.parse(await host({ path })) as Value
     const repo = `repos/${target.owner}/${target.repo}`
-    type Facts = [{ login?: string }, { user?: { login?: string }; base?: { ref?: string }; head?: { sha?: string } }, { allow_squash_merge?: boolean; allow_merge_commit?: boolean; allow_rebase_merge?: boolean }]
+    type Facts = [{ login?: string }, { user?: { login?: string }; base?: { ref?: string }; head?: { sha?: string; ref?: string } }, { default_branch?: string; allow_squash_merge?: boolean; allow_merge_commit?: boolean; allow_rebase_merge?: boolean }]
     let facts: Facts
     try {
       // A named host places the author by the user's addresses, and merges its own way: neither its login nor its settings are read.
@@ -1807,7 +1811,25 @@ export class Reviews {
     const mine = target.host
       ? Boolean(author && (this.options.hostWays?.(target)?.emails ?? []).includes(author))
       : Boolean(viewer.login && author && viewer.login.toLowerCase() === author)
-    return { mine, method: method ?? 'merge', base: pull.base?.ref ?? 'its base branch', head: pull.head?.sha ?? null }
+    return { mine, method: method ?? 'merge', base: pull.base?.ref ?? 'its base branch', head: pull.head?.sha ?? null, ref: pull.head?.ref ?? null, defaultBranch: settings.default_branch ?? null }
+  }
+
+  /**
+   * A layer of a stack merges after the ones under it: GitHub merges them together or refuses, so a pull request whose
+   * base is another open pull request's branch is refused here, naming the layers under it, before anything is sent.
+   * A read that fails says nothing, and GitHub has its own say.
+   */
+  private async layersUnder(target: PullTarget, { base, head, defaultBranch }: { base: string; head: string | null; defaultBranch: string | null }): Promise<void> {
+    const api = this.apiFor(target)
+    if (!api || target.host || !head || !defaultBranch || base === defaultBranch) return
+    let layers
+    try {
+      layers = await pullLayers(api, { owner: target.owner, repo: target.repo, base, head, defaultBranch })
+    } catch (error) {
+      this.options.log?.(`Review ${reviewIdOf(target)} could not read the pull requests under it: ${messageOf(error)}`)
+      return
+    }
+    if (layers.below.length) throw new Unavailable(`#${target.number} is layer ${layers.below.length + 1} of ${layers.of}: merge ${layerNames(layers.below)} first.`)
   }
 
   /** What moved on a pull request since its review, in a line: from a checkout of it when the host has one. */
@@ -1931,7 +1953,15 @@ export class Reviews {
         const posted = merge.post && !this.posted.has(confirm) ? await post(merge.post) : null
         try {
           // `sha` is the commit the preview showed: GitHub refuses the merge if the pull request has moved since.
-          await api({ method: 'PUT', path: `repos/${target.owner}/${target.repo}/pulls/${target.number}/merge`, body: { sha: merge.head, merge_method: merge.method } })
+          const body = { sha: merge.head, merge_method: merge.method }
+          try {
+            await api({ method: 'PUT', path: `repos/${target.owner}/${target.repo}/pulls/${target.number}/merge`, body })
+          } catch (error) {
+            // The bottom of a stack GitHub keeps for its own endpoint, which merges it and says when it is done.
+            if (!/asynchronous merge endpoint/i.test(messageOf(error))) throw error
+            const queued = await this.mergedAsync(api, target, body)
+            if (queued) return { message: `${queued} ${name} waits there.`, waiting: queued }
+          }
         } catch (error) {
           if (merge.post) throw new Error(`${merge.mine ? 'Your comments went' : 'It was approved'} on GitHub, but it was not merged: ${messageOf(error)}`)
           throw error
@@ -1956,6 +1986,26 @@ export class Reviews {
     this.markSent(target, verdict)
     if (verdict === 'approve-merge') this.merged(id)
     return { message: String((said as { message?: unknown } | null)?.message ?? 'Done.') }
+  }
+
+  /**
+   * Merges a pull request through GitHub's asynchronous merge, pinned to `sha`, and follows its result until GitHub says
+   * merged or refused, asking again after a wait that leaves the host free. Null once merged; the words of a merge that
+   * was put in a queue, which is as far as GitHub says.
+   */
+  private async mergedAsync(api: HostApi, target: PullTarget, body: { sha: string; merge_method: MergeMethod }): Promise<string | null> {
+    const path = `repos/${target.owner}/${target.repo}/pulls/${target.number}/merge-async`
+    type Result = { status?: string; details?: { uuid?: string; message?: string } }
+    let result = JSON.parse((await api({ method: 'PUT', path, body })) || '{}') as Result
+    const uuid = result.details?.uuid
+    while (result.status === 'pending') {
+      if (!uuid) throw new Error('GitHub took the merge but gave no way to follow it. Look at the pull request on GitHub.')
+      await new Promise((resolve) => setTimeout(resolve, this.options.mergePollMs ?? 2000))
+      result = JSON.parse(await api({ path: `${path}/${uuid}` })) as Result
+    }
+    if (result.status === 'merged') return null
+    if (result.status === 'enqueued') return result.details?.message ?? 'GitHub put it in its merge queue.'
+    throw new Error(result.details?.message ?? `GitHub did not merge it (${result.status ?? 'no answer'}).`)
   }
 
   /**
