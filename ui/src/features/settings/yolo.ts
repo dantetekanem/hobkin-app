@@ -1,4 +1,5 @@
 import type { YoloPart, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import type { ReviewNeeds } from '#shared/review/needs.ts'
 
 /**
  * What the YOLO mode tile says (049-yolo-mode). The switch, the rate and each project's readiness are hobkin's, read
@@ -53,9 +54,12 @@ export const SAMPLE_YOLO: YoloState = {
         alerts: { state: 'doing', line: STEP_TAKEN, action: 'sample-action' },
         deploy: { state: 'user', line: 'Make space for the release build', action: 'sample-action' },
       }),
+      // hobkin's own rate and its AI review's (s2), hobkin's alone (s3), the review's alone on a pull request (s4), and neither (s5).
       changes: [
         { item: 's2', title: 'Selling more than owned returns an error', kind: 'a bug fix', rate: 7.6, why: WORK_LEFT },
         { item: 's3', title: 'Difficulty multipliers apply to rewards', kind: 'a state machine fix', rate: 7.4, why: WORK_LEFT },
+        { item: 's4', title: 'Cache the shipping quote per cart', kind: null, rate: null, why: 'its pull request merges by itself once that is turned on' },
+        { item: 's5', title: 'Trim the cart page query', kind: null, rate: null, why: 'no review has scored it' },
       ],
       merged: [],
     },
@@ -112,6 +116,53 @@ export const SAMPLE_YOLO: YoloState = {
     },
   ],
 }
+
+const sampleHead = (start: string) => start.padEnd(40, '0')
+const answer = (score: number, evidence: string) => ({ score, evidence })
+
+/**
+ * The AI reviews of the sample's waiting changes, as the host's review list carries them (spec 058): s2's made at an older
+ * commit than its change is at now, and s4's, on a pull request, with nothing known of the monitoring.
+ */
+export const SAMPLE_YOLO_REVIEWS: { id: string; head: string; needs: ReviewNeeds[] }[] = [
+  {
+    id: 'change:storefront:s2',
+    head: sampleHead('5e1c0a'),
+    needs: [
+      {
+        kind: 'bug-fix',
+        scores: {
+          coverage: answer(8, 'The spec covers selling more than the stock.'),
+          proof: answer(8, 'A test was added that failed before the change.'),
+          safety: answer(9, 'Only a check is added; nothing is written.'),
+          visibility: answer(7, 'The error reaches the tracker.'),
+          rollback: answer(9, 'One revert takes it back.'),
+        },
+        rate: 8.2,
+        head: sampleHead('3b9d21'),
+        by: 'change-review',
+      },
+    ],
+  },
+  {
+    id: 'change:storefront:s4',
+    head: sampleHead('a7f310'),
+    needs: [
+      {
+        kind: 'performance',
+        scores: {
+          coverage: answer(7, 'The quote is tested with and without the cache.'),
+          proof: answer(8, 'A timing test shows one quote per cart.'),
+          safety: answer(9, 'The cache lives in memory and expires.'),
+          rollback: answer(9, 'One revert takes it back.'),
+        },
+        head: sampleHead('a7f310'),
+        by: 'change-review',
+        monitoring: 'unknown',
+      },
+    ],
+  },
+]
 
 /** "3 of 5 projects ready". */
 export function readyCount({ ready, projects }: YoloState): string {

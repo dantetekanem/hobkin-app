@@ -17,17 +17,19 @@ import { StatTile } from '@/features/numbers/StatTile.tsx'
 import { READ_WORDS, useWorkMetrics } from '@/features/numbers/use-work-metrics.ts'
 import { ProjectModels, ProofSetup } from '@/features/proofs/ProjectModels.tsx'
 import { useReports } from '@/features/reports/store.ts'
-import { rateChoices, readyCount, SAMPLE_YOLO, sampleAfter, yoloSays } from '@/features/settings/yolo.ts'
+import { rateChoices, readyCount, SAMPLE_YOLO, SAMPLE_YOLO_REVIEWS, sampleAfter, yoloSays } from '@/features/settings/yolo.ts'
 import { runCommand } from '@/lib/host/client.ts'
 import { cn } from '@/lib/utils.ts'
 import type { FinishedGroup, WorkProject, YoloProject, YoloState } from '#shared/protocol/work.ts'
 import { SectionHeading, Segmented } from './parts.tsx'
 import { runWork, useWorkView } from './store.ts'
+import { useReviewList } from './use-review-list.ts'
 import { openOnWork } from './work-target.ts'
 import {
   byItselfBars,
   changeOpens,
   changeRows,
+  reviewsOf,
   gates,
   GATES_COUNTS,
   hasSwitch,
@@ -51,6 +53,7 @@ import {
   yoloVerdict,
   type ByItselfBars,
   type ChangeRow,
+  type ReviewRatings,
   type Gates,
   type MergedRow,
   type PartOpen,
@@ -64,6 +67,8 @@ import {
 } from './yolo-page.ts'
 
 type SetSample = Dispatch<SetStateAction<YoloState>>
+
+const NO_REVIEWS: readonly ({ id: string } & ReviewRatings)[] = []
 
 const ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
@@ -113,6 +118,9 @@ export function YoloScreen() {
   const root = useRef<HTMLDivElement | null>(null)
   useStops(root)
   const { work, live } = useWorkView()
+  // Each AI review the host knows, for the ratings of the changes waiting (spec 058). With no host, the YOLO sample's own.
+  const { list: reviewList } = useReviewList(live)
+  const reviews = live ? (reviewList?.reviews ?? NO_REVIEWS) : SAMPLE_YOLO_REVIEWS
   const [sample, setSample] = useState(SAMPLE_YOLO)
   const yolo = live ? (work?.yolo ?? null) : sample
   const setting = useSetting(live, setSample)
@@ -146,7 +154,7 @@ export function YoloScreen() {
             <TrustRow tiles={trust} loading={reading} />
             {counted ? <GatesRow counted={counted} rate={yolo.rate} merged={merged} /> : null}
             <ByItselfChart bars={bars} reading={reading} note={READ_WORDS[state] ?? undefined} />
-            <Projects yolo={yolo} live={live} workOn={workOn} workProjects={work?.projects ?? []} finished={work?.finished ?? []} setting={setting} setSample={setSample} />
+            <Projects yolo={yolo} live={live} workOn={workOn} workProjects={work?.projects ?? []} finished={work?.finished ?? []} reviews={reviews} setting={setting} setSample={setSample} />
           </>
         ) : (
           <p className="text-[13.5px] text-muted-foreground">This hobkin has not said how YOLO mode stands yet.</p>
@@ -281,6 +289,8 @@ interface CardContext {
   finished: FinishedGroup[]
   setting: Setting
   setSample: SetSample
+  /** The AI reviews the host knows, each with its id, commit and ratings. */
+  reviews: readonly ({ id: string } & ReviewRatings)[]
 }
 
 function Projects({ workProjects, ...context }: CardContext & { workProjects: WorkProject[] }) {
@@ -342,7 +352,7 @@ interface Said {
  * merge, what merged by itself, then its readiness. The header and the two status lines keep their height whatever they
  * say, so the press never moves while the status changes live.
  */
-function ProjectCard({ project, workProject, yolo, live, workOn, finished, setting, setSample }: CardContext & { project: YoloProject; workProject: WorkProject | undefined }) {
+function ProjectCard({ project, workProject, yolo, live, workOn, finished, reviews, setting, setSample }: CardContext & { project: YoloProject; workProject: WorkProject | undefined }) {
   // The card says when readiness was last checked, so it follows the clock itself: the page around it does not.
   const now = useNow(true, 30_000)
   const readiness = readinessRow(project, { workOn, now, zone: ZONE, waiting: waitingChange(project, finished) })
@@ -476,7 +486,7 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, setti
     )
   }
 
-  const changes = changeRows(project, { rate: yolo.rate, holds: mergesHeld(project, context) })
+  const changes = changeRows(project, { rate: yolo.rate, holds: mergesHeld(project, context), reviews: reviewsOf(project, reviews) })
   const days = mergedDays(project, { zone: ZONE, now })
   const setUp = stillToSetUp(project)
   const placed = inPlace(project)
@@ -615,12 +625,13 @@ function Part({ heading, count, children }: { heading: string; count: number; ch
  * Every row has the same columns. The row opens the change's review, and its arrow shows that it does.
  */
 function ChangeLine({ row, name, onReview }: { row: ChangeRow; name: string; onReview: () => void }) {
+  const rated = row.reviewLine ? ` ${row.reviewLine}` : ''
   return (
     <li className="border-t border-border/60 first:border-t-0">
       <div
         {...pressProps(onReview)}
-        aria-label={`${row.title} on ${name}: ${row.kind}, rated ${row.rate}, ${row.against}. Opens its review.`}
-        className="pressable -mx-2 grid h-12 grid-cols-[minmax(0,1fr)_136px_44px_112px_16px] grid-rows-2 items-center gap-x-3 rounded-lg px-2 outline-offset-[-2px]"
+        aria-label={`${row.title} on ${name}: ${row.kind}, rated ${row.rate}, ${row.against}.${rated} Opens its review.`}
+        className="pressable -mx-2 grid h-[68px] grid-cols-[minmax(0,1fr)_136px_44px_112px_16px] grid-rows-3 items-center gap-x-3 rounded-lg px-2 outline-offset-[-2px]"
       >
         <span title={row.title} className="truncate text-[13px] font-medium">
           {row.title}
@@ -632,12 +643,34 @@ function ChangeLine({ row, name, onReview }: { row: ChangeRow; name: string; onR
           {row.rate}
         </Mark>
         <span className="truncate text-[12px] text-muted-foreground tabular-nums">{row.against}</span>
-        <OpenArrow className="row-span-2 justify-self-end" />
+        <OpenArrow className="row-span-3 justify-self-end" />
+        {/* The AI review's own numbers keep their line whether or not there are any, so no row changes height. */}
+        <ReviewNumbers row={row} />
         <span title={row.why} className="col-span-4 truncate text-[12.5px] text-muted-foreground">
           {row.why}
         </span>
       </div>
     </li>
+  )
+}
+
+/** The AI review's five numbers and rate on a waiting change's row, named as the review's, with the commit; an empty line with none. */
+function ReviewNumbers({ row: { review, reviewLine, rateBy } }: { row: ChangeRow }) {
+  if (!review || !reviewLine) return <span aria-hidden="true" className="col-span-4 h-5" />
+  return (
+    <span aria-hidden="true" title={reviewLine} className="col-span-4 flex h-5 min-w-0 items-baseline gap-1.5 truncate text-[12px] text-muted-foreground tabular-nums">
+      <span className="shrink-0 font-medium">AI review</span>
+      {review.other ? <span className="shrink-0 text-warn-fg">rated at {review.at}, older:</span> : null}
+      {review.numbers.map(({ name, word, value }) => (
+        <span key={name} className="shrink-0">
+          {word} <span className={value === 'not known' ? '' : 'font-semibold text-foreground'}>{value}</span>
+        </span>
+      ))}
+      <span className="shrink-0">
+        · {review.rate ? <>rate <span className="font-semibold text-foreground">{review.rate}</span></> : 'no general rate'}, at {review.at}
+      </span>
+      {rateBy === 'review' ? <span className="truncate">· YOLO mode goes by hobkin&apos;s own scored run</span> : null}
+    </span>
   )
 }
 
