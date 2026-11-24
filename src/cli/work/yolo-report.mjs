@@ -4,10 +4,10 @@ import { atomicJson } from '../config.mjs';
 import { dropReport, readReport, saveReport } from '../reports.mjs';
 import { scoresOf, SMALL_KINDS } from './classified.mjs';
 import { whyWorkModeWaits } from './controls.mjs';
-import { weighedRows } from './reads.mjs';
 import { readJson, readMode } from './store.mjs';
 import { needOf } from './yolo-parts.mjs';
-import { AFTER_DEPLOY_MINUTES, askedOf, deployOf, deployWords, kindWords, landingReasons, READINGS, readLedger, whyItAsks } from './yolo-pass.mjs';
+import { AFTER_DEPLOY_MINUTES, askedOf, deployOf, deployWords, kindWords, landingReasons, READINGS, readLedger, waitingToMerge, whyItAsks } from './yolo-pass.mjs';
+import { pullNoted } from './yolo-pulls.mjs';
 import { readYolo, yoloView } from './yolo.mjs';
 
 /**
@@ -73,7 +73,8 @@ function planBlock({ name, ready, parts }, yolo) {
     `At most one change merges on ${name} a pass, at the commit its review scored.`,
     deploys[deployOf({ parts: { deploy } }, true)],
     `A regression after a deploy stops merges on ${name} until its readiness is checked again.`,
-    `Still asks you: a feature, a change its review could not place, one under ${yolo.rate} or under a floor, and every PR.`,
+    `A change waiting on its own pull request merges there the same way, once every check on its commit passed and nothing on the code host holds it.`,
+    `Still asks you: a feature, a change its review could not place, one under ${yolo.rate} or under a floor, and a pull request someone else opened.`,
   ];
   return `## ${ready ? 'The plan' : 'The plan once it is ready'}\n\n${listed(plan)}`;
 }
@@ -139,12 +140,13 @@ function reportText(project, facts) {
  */
 function waitingChanges(root, yolo, now) {
   const landing = landingReasons(root);
-  return weighedRows(root, now)
-    .filter(({ item }) => item.state === 'branch' && !String(item.key ?? '').startsWith(READINESS_KEYS))
+  return waitingToMerge(root, now)
+    .filter(({ item }) => ['branch', 'pr'].includes(item.state) && !String(item.key ?? '').startsWith(READINESS_KEYS))
     .map(({ row, item, unit }) => {
       const { asked, models } = askedOf(root, { yolo, landing, row, item, unit });
       const readiness = { ...asked.readiness, ready: true };
-      return { slug: row.slug, item, models, why: whyItAsks({ ...asked, models, readiness }) };
+      // A pull request the code host held back at the last pass says why, while the survey reads the same commit.
+      return { slug: row.slug, item, models, why: whyItAsks({ ...asked, models, readiness }) ?? pullNoted(item, unit) };
     });
 }
 

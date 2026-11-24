@@ -12,16 +12,20 @@ import { changeModels, scoresHoldAt, specName } from './proofs.mjs';
 import { landingList, weighedRows } from './reads.mjs';
 import { readMode, readProject, retryItem, updateItem } from './store.mjs';
 import { holdProject, prepareProjects, readinessOf, readYolo, yoloOnProject } from './yolo.mjs';
+import { defaultPullGh, mergeOwnPull, pullCandidates, pullSurveyed, signedInUser } from './yolo-pulls.mjs';
 
 /**
  * The one place a change merges with no yes from the user. It runs after the director's own survey and returns at once while YOLO mode is off.
- * A change goes only on a project that is ready, as a finished local branch the landing list would let go, scored by its review at the exact
- * commit the survey read, or at one whose code that commit still has because only models changed since, of a small kind, with no floor broken
- * and at or above the user's rate. The merge is hobkin's own, pinned to the commit the survey read, and every one is written down and said in
- * Chat. Code never deploys: a deploy is handed to the main agent.
+ * A change goes only on a project that is ready and that YOLO mode is on for, as a finished local branch or its own open pull request the
+ * landing list would let go, scored by its review at the exact commit the survey read, or at one whose code that commit still has because only
+ * models changed since, of a small kind, with no floor broken and at or above the user's rate. A local branch merges by hobkin's own merge,
+ * pinned to the commit the survey read, and a pull request on the code host, pinned the same way, once the host says it may (`yolo-pulls.mjs`).
+ * Every merge is written down and said in Chat. Code never deploys: a deploy is handed to the main agent.
  */
 
 const SHORT_SHA = 7;
+// A finished change waits to merge as a local branch or as its own open pull request.
+const WAITS_TO_MERGE = ['branch', 'pr'];
 export { AFTER_DEPLOY_MINUTES, READINGS };
 export const kindWords = {
   performance: 'performance work',
@@ -72,7 +76,7 @@ export function whyItAsks({ yolo, on, project, readiness, landable, leftOut = nu
   if (project?.paused) return 'its project is paused';
   if (!readiness.ready) return 'its project is not ready for YOLO mode';
   if (!landable) return leftOut ?? 'the last survey did not list it to land, and hobkin work sync reads it again';
-  if (item.state !== 'branch') return 'it is not a finished local branch';
+  if (!WAITS_TO_MERGE.includes(item.state)) return `its item is ${item.state}, not finished work waiting to merge`;
   if (row.holds) return 'it brings earlier branches with it';
   if (!item.review) return 'no review has scored it';
 
@@ -86,17 +90,22 @@ export function whyItAsks({ yolo, on, project, readiness, landable, leftOut = nu
   if (unmodeled.length) return `it changes ${unmodeled[0].name}, a state machine no model covers yet`;
   if (floors.length) return `${floors[0].criterion} scored ${floors[0].score}, under ${floors[0].needs}`;
   if (rate < yolo.rate) return `its general rate is ${rate}, under ${yolo.rate}`;
-  return changeHolds(item, unit)[0] ?? null;
+  return changeHolds(item, unit)[0] ?? (item.state === 'pr' ? pullSurveyed(item, unit) : null);
 }
 
+// Where a merge by itself left the default branch, for the deploy job: here, or on the code host for a pull request.
+const mergedWords = (target, pr) => (pr
+  ? `YOLO mode merged its pull request ${pr} by itself on the code host, so the default branch there is at ${target}. Fetch it first.`
+  : `YOLO mode merged this change into the default branch at ${target} by itself, and nothing was pushed.`);
+
 /** The deploy of one merge, for the main agent to hand to one session, as it hands on work a card could not start. */
-const deployJob = ({ project, item, target, path, back }) => ({
+const deployJob = ({ project, item, target, pr, path, back }) => ({
   project: nameOf(project),
   item: item.id,
   title: item.title,
   branch: item.branch,
   commit: target,
-  asked: `YOLO mode merged this change into the default branch at ${target} by itself, and nothing was pushed. `
+  asked: `${mergedWords(target, pr)} `
     + `Deploy exactly that commit by the project's recorded path: ${path} Its way back: ${back} `
     + 'Prove it with the live revision and a real health check, report what deployed, and deploy nothing else. '
     + `Then watch its monitoring for ${AFTER_DEPLOY_MINUTES} minutes and record what it showed: pipe `
@@ -152,7 +161,8 @@ export function deployOf({ parts: { deploy } }, handOff) {
   return handOff ? 'handed on' : 'not handed on';
 }
 
-function report(root, { project, item, head, target, readiness, handOff, now }) {
+/** `pr` is the pull request it merged through on the code host, and null for a local merge. */
+function report(root, { project, item, head, target, pr = null, readiness, handOff, now }) {
   const { kind, rate, scores } = scoresOf(item.review);
   const deploy = deployOf(readiness, handOff);
   const merged = {
@@ -162,6 +172,7 @@ function report(root, { project, item, head, target, readiness, handOff, now }) 
     title: item.title,
     head,
     target,
+    ...(pr ? { pr } : {}),
     kind,
     rate,
     scores: Object.fromEntries(CRITERIA.map(criterion => [criterion, scores[criterion].score])),
@@ -170,12 +181,13 @@ function report(root, { project, item, head, target, readiness, handOff, now }) 
   mkdirSync(join(root, 'work'), { recursive: true, mode: 0o700 });
   appendFileSync(ledgerPath(root), `${JSON.stringify(merged)}\n`, { mode: 0o600 });
 
-  const line = `YOLO mode merged "${item.title}" on ${nameOf(project)} by itself: ${kindWords[kind]} rated ${rate}, at ${head.slice(0, SHORT_SHA)}. ${deployWords[deploy]}`;
+  const how = pr ? `by itself, through its pull request ${pr} on the code host` : 'by itself';
+  const line = `YOLO mode merged "${item.title}" on ${nameOf(project)} ${how}: ${kindWords[kind]} rated ${rate}, at ${head.slice(0, SHORT_SHA)}. ${deployWords[deploy]}`;
   postClientNotice(root, { key: `yolo:${project.slug}:${item.id}`, line, tone: 'useful' }, now);
   if (deploy === 'handed on') {
     // Its deploy is this mode's own, so the pass after merges asks nothing about it, and its issue waits for that deploy's reading.
     updateItem(root, project.slug, item.id, { deploy: { state: 'deploying', by: 'yolo', commit: target, at: merged.at, handedAt: merged.at } }, now);
-    handOff(deployJob({ project, item, target, path: readiness.parts.deploy.line, back: readiness.parts.rollback.line }));
+    handOff(deployJob({ project, item, target, pr, path: readiness.parts.deploy.line, back: readiness.parts.rollback.line }));
   }
   return merged;
 }
@@ -231,11 +243,15 @@ export function askedOf(root, { yolo, landing, row, item, unit }) {
   return { asked, models: changeModels(root, row.slug, unit) };
 }
 
+/** Every finished change that may merge by itself, as the pass and YOLO mode's report read them: local branches first, then pull requests. */
+export const waitingToMerge = (root, now) => [...weighedRows(root, now), ...pullCandidates(root)];
+
 /**
- * Merges what may merge by itself, at most one change a project, and answers a report of each. `handOff` gives a deploy to the main agent.
- * While YOLO mode is on it also files the readiness work of any project that has none yet.
+ * Merges what may merge by itself, at most one change a project, and answers a report of each. `handOff` gives a deploy to the main agent, and
+ * `gh` reaches the code host. While YOLO mode is on it also files the readiness work of any project that has none yet. A pull request whose
+ * merge commit the host did not say hands on no deploy, so that merge is asked about like any other.
  */
-export async function yoloPass(root, { now = Date.now(), handOff } = {}) {
+export async function yoloPass(root, { now = Date.now(), handOff, gh = defaultPullGh } = {}) {
   const yolo = readYolo(root);
   if (!yolo.on) return [];
   prepareProjects(root, now);
@@ -244,7 +260,9 @@ export async function yoloPass(root, { now = Date.now(), handOff } = {}) {
   const landing = landingReasons(root);
   const reports = [];
   const mergedOn = new Set();
-  for (const { row, item, unit } of weighedRows(root, now)) {
+  let signedIn = null;
+  const user = () => (signedIn ??= signedInUser(gh));
+  for (const { row, item, unit } of waitingToMerge(root, now)) {
     if (mergedOn.has(row.slug)) continue;
     const { asked, models } = askedOf(root, { yolo, landing, row, item, unit });
     if (whyItAsks({ ...asked, models })) {
@@ -252,11 +270,12 @@ export async function yoloPass(root, { now = Date.now(), handOff } = {}) {
       continue;
     }
 
-    const landed = await mergeAlone(root, { row, unit, now });
+    const landed = item.state === 'pr' ? await mergeOwnPull(root, { row, item, unit, gh, user, now }) : await mergeAlone(root, { row, unit, now });
     if (!landed) continue;
     mergedOn.add(row.slug);
     const { project, readiness } = asked;
-    reports.push(report(root, { project, item, head: unit.sha, target: landed.target, readiness, handOff, now }));
+    const known = Boolean(landed.target);
+    reports.push(report(root, { project, item, head: unit.sha, target: landed.target ?? unit.sha, pr: landed.pr, readiness, handOff: known ? handOff : undefined, now }));
   }
   return reports;
 }

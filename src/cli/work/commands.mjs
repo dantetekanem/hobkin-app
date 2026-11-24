@@ -30,7 +30,7 @@ import { readWatch } from './watcher.mjs';
 import { recordAfterDeploy } from './yolo-pass.mjs';
 import { writeYoloReports, yoloStatus } from './yolo-report.mjs';
 import { openReadinessPulls, partSaid, partWords, RECORDED } from './yolo-parts.mjs';
-import { mainModels, readinessOf, recordReadiness, yoloOnProject, yoloView } from './yolo.mjs';
+import { mainModels, readinessOf, recordReadiness, yoloOnProject } from './yolo.mjs';
 
 const HELP = `Usage: hobkin work [command] [--home folder]. With no command, the full status.
 Read, as JSON, with nothing running:
@@ -126,7 +126,8 @@ async function signalsCommand(root, reference, input) {
  * hears every part back. Nothing here turns YOLO mode on or off or sets its rate: that is the user's alone, in the window.
  */
 async function yoloCommand(root, [reference, change], input) {
-  if (!reference) return yoloView(root);
+  // With each project's waiting changes and why each still asks, and what merged by itself, as Work status carries it.
+  if (!reference) return yoloStatus(root);
   const project = findProject(root, reference);
   const report = input && !input.isTTY ? await readText(input) : '';
   if (change) {

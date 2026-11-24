@@ -438,7 +438,7 @@ export class WorkDirector {
     if (!chosenProjects(this.root).length) return;
     this.surveying = surveyAndClose(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}), ...(this.fetch ? { fetch: this.fetch } : {}) })
       // Only this survey, the owner's own, lets a change merge by itself, and only while the user has YOLO mode on (`yolo-pass.mjs`).
-      .then(() => yoloPass(this.root, { now: this.now(), ...(this.onHandOff ? { handOff: this.onHandOff } : {}) }))
+      .then(() => yoloPass(this.root, { now: this.now(), ...(this.gh ? { gh: this.gh } : {}), ...(this.onHandOff ? { handOff: this.onHandOff } : {}) }))
       // Each project's YOLO report says what the pass found and did, written only where its words changed (`yolo-report.mjs`).
       .then(merged => {
         const reported = writeYoloReports(this.root, { now: this.now() });
@@ -875,7 +875,8 @@ export class WorkDirector {
     if (!['branch', 'pr'].includes(state) || kind === 'pr-fix') return;
 
     const project = readProject(this.root, slug);
-    if (!reviewAsked && state === 'branch' && await this.earnsAReview(project, branch, item.review)) {
+    // A change waiting on its own PR earns one as a branch does, since YOLO mode merges it there too.
+    if (!reviewAsked && await this.earnsAReview(project, branch, item.review)) {
       updateItem(this.root, slug, id, { reviewAsked: true }, this.now());
       retryItem(this.root, slug, id, this.now());
       return;

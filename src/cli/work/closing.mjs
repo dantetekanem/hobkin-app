@@ -5,7 +5,8 @@ import { readyItems, saysDoneButWaits, weighedRows } from './reads.mjs';
 import { chosenProjects, fileItem, itemTree, ownerView, paths, readItems, readMode, retryItem, runnableStates, updateItem } from './store.mjs';
 import { realPlace, retireTree } from './tree.mjs';
 import { readUnmerged, surveyUnmerged } from './unmerged.mjs';
-import { reviewsByItself } from './yolo.mjs';
+import { pullCandidates } from './yolo-pulls.mjs';
+import { reviewsByItself, scoresByItself } from './yolo.mjs';
 
 // The rows the user sees next. Filling in any more would pay for work they may never ship.
 const NEXT_ROWS = 5;
@@ -47,9 +48,12 @@ export function fillGaps(root, now = Date.now()) {
  * quality, it is not asked for again: no grade came of it, and another would cost a whole run. Markdown alone has nothing for a review to grade,
  * and a review of a commit whose code the head still has, since only models changed after it, still speaks for the head.
  */
-const lacksAGrade = row => LANDS.includes(row.gap) && Boolean(row.head) && !row.onlyDocs && (!row.safety || row.safety.stale);
+const couldLand = row => LANDS.includes(row.gap) && Boolean(row.head) && !row.onlyDocs;
+const lacksAGrade = row => couldLand(row) && (!row.safety || row.safety.stale);
+// YOLO mode merges nothing a review has not scored, whatever grade Change Review gave it.
+const lacksScores = (root, row) => couldLand(row) && scoresByItself(root, row.slug);
 const askedOrReviewedAt = (item, head) => item.reviewAsked || item.reviewAskedFor === head || item.quality?.head === head || item.review?.head === head;
-const wantsAReview = ({ row, item, unit }) => lacksAGrade(row) && !askedOrReviewedAt(item, row.head) && !scoresHoldAt(item.review?.head, unit);
+const wantsAReview = (root, { row, item, unit }) => (lacksAGrade(row) || lacksScores(root, row)) && !askedOrReviewedAt(item, row.head) && !scoresHoldAt(item.review?.head, unit);
 
 // A run that has recorded its outcome is still going, and decides on its own review as it ends.
 // A review asked earlier in this pass puts its item back in the queue, so its branch is taken.
@@ -58,8 +62,9 @@ const beingWorkedOn = (root, { slug, item, branch }, running) => running.some(ru
 
 /**
  * With reviews on, a branch earns its review as its run ends, so one that missed that moment gets it here: one finished before reviews existed, one the
- * survey adopted, one a closed PR left, or one whose run a restart cut short. The item keeps the commit it was asked for, so a review that ends with no
- * grade is not asked again until the branch moves. These are the writes `hobkin work review` makes, so each review goes to the front of the queue.
+ * survey adopted, one a closed PR left, or one whose run a restart cut short. A change waiting on its own open PR gets one the same way. The item keeps
+ * the commit it was asked for, so a review that ends with no grade is not asked again until the branch moves. These are the writes `hobkin work
+ * review` makes, so each review goes to the front of the queue.
  */
 function askReviews(root, now = Date.now()) {
   // With the mode off nothing new starts, and a review runs by itself only once the user turns reviews on, or on a project ready for YOLO mode.
@@ -68,7 +73,7 @@ function askReviews(root, now = Date.now()) {
 
   const { running } = ownerView(root);
   const asked = [];
-  for (const { row } of weighedRows(root, now).filter(wantsAReview)) {
+  for (const { row } of [...weighedRows(root, now), ...pullCandidates(root)].filter(entry => wantsAReview(root, entry))) {
     if (asked.length === REVIEWS_A_PASS) break;
     if (!reviewsByItself(root, row.slug) || beingWorkedOn(root, row, running)) continue;
     updateItem(root, row.slug, row.item, { reviewAsked: true, reviewAskedFor: row.head }, now);

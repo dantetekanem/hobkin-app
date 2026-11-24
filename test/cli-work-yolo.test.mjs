@@ -611,7 +611,8 @@ test('YOLO mode keeps a report on each project: whether it is ready, the plan, w
 - At most one change merges on api a pass, at the commit its review scored.
 - The main agent deploys each one by its deploy path and watches the monitoring for 30 minutes: bin/deploy from main, undone by bin/deploy rollback.
 - A regression after a deploy stops merges on api until its readiness is checked again.
-- Still asks you: a feature, a change its review could not place, one under 8 or under a floor, and every PR.
+- A change waiting on its own pull request merges there the same way, once every check on its commit passed and nothing on the code host holds it.
+- Still asks you: a feature, a change its review could not place, one under 8 or under a floor, and a pull request someone else opened.
 
 ## What will merge
 
