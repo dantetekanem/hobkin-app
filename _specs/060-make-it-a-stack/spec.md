@@ -48,16 +48,22 @@ The user, 2026-11-24, with a picture of Change Review on `rpsleague #183` (anoth
 
 ## Proof
 
-Filled in from the lanes' tests as they land.
+- A1. `host/test/review-stack.test.ts` › "it starts one agent in the repository folder with the change title and the prompt", › "a long title is cut to the title limit", › "a second ask while the agent is there starts nothing, and a new one starts after it ends", › "two asks at once start one agent", › "a merged change and a repository with no folder are refused in plain words" and › "only the window sends it: hobkin's own client tool neither lists nor runs it"
+- A2. `host/test/review-stack.test.ts` › "the prompt carries the change facts, with no place left unfilled, for each kind of change"; check: the prompt read whole, `host/src/review/stack.md`.
+- A3. `ui/test/review-stack-button.test.ts` › "the button is there on every change that has not merged, plain up to 300 changed lines and emphasized past them, and never about risk", › "a press asks the host once with the review, a second press while it is on its way does nothing, and the answer opens the hobkin page", › "an agent that was already there is opened the same, and a refusal stays as one line until the next press", › "with no host a press says a sample review starts nothing, and asks nobody" and › "Shift+S in the review puts the keyboard on the button, and S alone still hides the panel"; check (2026-11-24, still renders): the header with the plain button, the emphasized one in the dark theme, and a refusal in one line under the size row.
+- A4. `ui/test/work-ai-reviews-again.test.ts` › "a row names its build button by its state: Rebuild for a review of an older commit, Review now for one waiting its turn, Review again for the rest"; check (2026-11-24, still renders): a row of a current review and a row of an older commit in the dark theme, each with Make it a stack beside Remove, and the smallest list of one row.
+- A5. check: nothing in `ui/`, `shared/` or `host/` names `stackPlan` or the plan's box (`rg "stack-plan|StackBox|stackPlan"` finds none).
 
 ## Steps
 
-- [ ] S1 (A1, A2). Host: `review.stack` and the prompt.
-- [ ] S2 (A3, A5). Window: the button starts the agent, and the plan in code is removed.
-- [ ] S3 (A4). Window: Make it a stack and Rebuild on the rows of the AI Reviews list.
+- [x] S1 (A1, A2). Host: `review.stack` and the prompt. d8666ce, 62475d3. Tested with fakes: no real agent was started, and the reader of a review's facts was never run on a live review.
+- [x] S2 (A3, A5). Window: the button starts the agent, and the plan in code is removed. 4cb85cb, 149c749. The review's key listener is registered once, so the app's window needs one Command+R before Shift+S works.
+- [x] S3 (A4). Window: Make it a stack and Rebuild on the rows of the AI Reviews list. 19e0e4d. Rebuild takes the place of Review again on a row of an older commit and calls what the review's own notice calls.
 - [ ] S4. In the app's window, on a real pull request: one press, the agent's page, and what the agent built.
 
 ## Open questions
 
 - Other places that list a change, such as Work's finished cards and the GitHub screen's rows, do not have the button yet.
+- A row of the AI Reviews list does not know whether its change has merged, so it always offers the button, and the host refuses a merged change in a line.
+- The host keeps which agent it started for which review in its memory. After a restart of the host, a second press starts a second agent even if the first is still there.
 - hobkin still reads a stack only after it exists, from branches built on each other. Landing bottom first and moving the layers above after a fix are `042-stacked-work`.
