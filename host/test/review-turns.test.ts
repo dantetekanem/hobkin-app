@@ -195,3 +195,22 @@ test("the list has a line for each repository: its reviews current, waiting and 
 
   assert.deepEqual(reviews.list().repos, [{ project: 'Shop', current: 3, waiting: 2, outdated: 1, builtThisWeek: 0 }])
 })
+
+test("a pull request the background does not review says so on its row: it is built when the user starts its AI review", (t) => {
+  const root = temporaryDirectory(t)
+  const pull = { kind: 'pull' as const, owner: 'acme', repo: 'api', number: 7 }
+  reviewStore(root).write(pull, ({ change: { title: '#7', project: 'acme/api', head: sha(7) } }) as unknown as Review, [])
+  const reviews = new Reviews({
+    store: reviewStore(root),
+    sources: { change: { head: async () => null, read: async () => Promise.reject(new Error('no')) }, pull: { head: async () => null, read: async () => Promise.reject(new Error('no')) } },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    // GitHub says it moved on since its review.
+    head: (target) => (target.kind === 'pull' ? sha(7, 1) : null),
+  })
+  t.after(() => reviews.close())
+
+  const row = reviews.list().reviews.find((entry) => entry.id === reviewIdOf(pull))
+
+  assert.deepEqual([row?.outdated, row?.turn], [{ builtFor: sha(7) }, { ahead: 0, why: 'A pull request is reviewed again when you start its AI review.' }])
+})

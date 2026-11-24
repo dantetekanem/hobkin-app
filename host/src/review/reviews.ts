@@ -49,6 +49,8 @@ export interface Watched {
 
 /** Why a change an agent works on again is not reviewed now. */
 const AT_WORK = 'An agent is working on it again, so its review waits until it finishes.'
+/** Why a pull request the background does not watch is not reviewed again by itself: it waits for the user's ask. */
+const PULL_ASKED = 'A pull request is reviewed again when you start its AI review.'
 
 /** What a finished change's card says a yes does, from the Work screen (`011-work`). */
 export interface ChangeCard {
@@ -437,6 +439,8 @@ export class Reviews {
   private line: Line = { current: new Set(), waits: new Map() }
   /** The reviews the user asked for since this host started: the line never drops what waits for one. */
   private readonly userAsked = new Set<string>()
+  /** The pull requests the background was last handed to review by themselves, as the user's setting names them. */
+  private watchedPulls = new Set<string>()
   private readonly controller = new AbortController()
   private working = false
   /** When each review last asked where its change is now. */
@@ -791,7 +795,8 @@ export class Reviews {
       if (!kept && !this.statuses.has(id) && !waiting) return []
       // Built for an older commit, and not in its repository's line: it waits its turn to be built again (spec 058).
       const builtFor = kept?.change?.head
-      const outdated = target.kind === 'change' && !status.phase && !this.line.current.has(id) && head != null && builtFor != null && builtFor !== head && /^[0-9a-f]{40}$/.test(builtFor)
+      const outOfLine = target.kind === 'change' ? !this.line.current.has(id) : !this.watchedPulls.has(id)
+      const outdated = !status.phase && outOfLine && head != null && builtFor != null && builtFor !== head && /^[0-9a-f]{40}$/.test(builtFor)
       const turn = waiting || outdated ? this.turnOf(id, target) : undefined
       const item: ReviewListItem = {
         id,
@@ -1932,6 +1937,7 @@ export class Reviews {
     }
     this.watchRisk(wanted)
     this.finished = new Set(wanted.flatMap(({ id }) => (id.startsWith('change:') ? [id] : [])))
+    this.watchedPulls = new Set(wanted.flatMap(({ id }) => (id.startsWith('pull:') ? [id] : [])))
     this.line = this.lineFor(wanted)
     this.dropAtWork()
     this.followBranches(wanted, limit)
@@ -2014,7 +2020,9 @@ export class Reviews {
 
   /** Why a change waits instead of being built by itself, and how many are ahead of it in its repository's line. */
   private turnOf(id: string, target: ReviewTarget): ReviewTurn | undefined {
-    if (target.kind !== 'change' || this.preparing(id)) return undefined
+    if (this.preparing(id)) return undefined
+    // Pull requests are not in a line: the background reviews those the user's setting names, and the rest wait for their ask.
+    if (target.kind === 'pull') return this.watchedPulls.has(id) ? undefined : { ahead: 0, why: PULL_ASKED }
     return this.line.waits.get(id) ?? (!this.finished.has(id) && this.isBackAtWork(target) ? { ahead: 0, why: AT_WORK } : undefined)
   }
 
