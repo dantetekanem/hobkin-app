@@ -149,6 +149,85 @@ function leftGroup(yours: unknown, shown: ReadonlySet<string>, itemOf: ItemOf): 
   return { name: 'left', heading: LEFT_HEADING, why: leftWhy(changes.length), action: null, changes }
 }
 
+/** The states of an item whose work is finished and still on its branch (`finishedOnBranch` in hobkin's `src/cli/work/unmerged.mjs`). */
+const FINISHED_ON_BRANCH = ['branch', 'pr']
+const NOT_OFFERED = 'hobkin is not offering it to merge right now.'
+
+/** What hobkin says is being done to each piece of finished work an agent went back to, by the change's key. */
+function doingByKey(closing: unknown): Map<string, string> {
+  const rows = Array.isArray(closing) ? (closing as ClosingRow[]) : []
+  const doing = new Map<string, string>()
+  for (const row of rows) {
+    const slug = text(row.slug)
+    const id = text(row.item)
+    const words = text(row.doing)
+    if (slug && id && words) doing.set(`${slug}:${id}`, words)
+  }
+  return doing
+}
+
+/**
+ * The card of a layer hobkin counts in a stack and did not list, made from its item: what it is, its branch and its
+ * pull request, with no yes, since hobkin offers none for it now. Its place is one under the layer that names it.
+ */
+function unlistedLayerCard(above: FinishedChange, item: Item, doing: string | null): FinishedChange {
+  const proof = text(item.proof)
+  const row = {
+    slug: above.slug,
+    project: above.project,
+    item: item.id,
+    title: text(item.title) ?? item.id,
+    branch: text(item.branch),
+    pr: text(item.pr),
+    summary: text(item.summary),
+    proof,
+    proved: Boolean(proof),
+    at: text(item.updatedAt),
+    gap: 'closing',
+    stack: { ...above.stack!, layer: above.stack!.layer - 1, below: null, base: null },
+  } as ReadyRow
+  const opensPr: FinishedChange['choices'] = row.pr ? [{ value: 'open', label: 'Open the PR in the browser' }] : []
+  return {
+    ...changeOf(row, 'needs'),
+    reason: doing ? `An agent is working on it: ${doing}.` : NOT_OFFERED,
+    yes: 'It has no merge here until hobkin offers it again.',
+    choices: [{ value: 'diff', label: 'Show the diff' }, ...opensPr],
+    issue: issueOf(item),
+  }
+}
+
+/**
+ * A stack is sent whole (060-make-it-a-stack). hobkin counts a layer whose work is still on its branch, and lists only
+ * the layers that wait for the user, so one an agent went back to, the bottom one most of all, was missing from the
+ * stack the window draws. The layer over it names it (`below`), and its card goes right before that layer.
+ */
+function withUnlistedLayers(groups: readonly FinishedGroup[], itemOf: ItemOf, doing: ReadonlyMap<string, string>): FinishedGroup[] {
+  const listed = new Set(groups.flatMap(({ changes }) => changes.map(({ key }) => key)))
+  const made = new Set<string>()
+
+  const layerUnder = (above: FinishedChange): FinishedChange | null => {
+    const under = above.stack?.below
+    if (!under) return null
+
+    const key = `${above.slug}:${under}`
+    if (listed.has(key) || made.has(key)) return null
+
+    const item = itemOf(above.slug, under)
+    if (!item || !FINISHED_ON_BRANCH.includes(String(item.state))) return null
+
+    made.add(key)
+    return unlistedLayerCard(above, item, doing.get(key) ?? null)
+  }
+
+  return groups.map((group) => ({
+    ...group,
+    changes: group.changes.flatMap((change) => {
+      const under = layerUnder(change)
+      return under ? [under, change] : [change]
+    }),
+  }))
+}
+
 /** What the user said yes to: a refresh and merge hobkin keeps on the item (`mergeWhenFresh`), or one handed to the main agent's session. */
 function mergingRows(closing: unknown, itemOf: ItemOf): MergingRow[] {
   const rows = Array.isArray(closing) ? (closing as ClosingRow[]) : []
@@ -205,7 +284,7 @@ function withItems(snapshot: HobkinSnapshot, root: () => string, reposOf: Return
     queue,
     projects,
     // Once more with Left for you beside the other groups: a stack whose bottom layer left a note stands there, whole.
-    finished: stacksTogether(left ? [...finished, left] : finished),
+    finished: withUnlistedLayers(stacksTogether(left ? [...finished, left] : finished), itemOf, doingByKey(closing)),
     merging: mergingRows(closing, itemOf),
   }
 }
