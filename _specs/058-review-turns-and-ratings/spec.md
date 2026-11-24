@@ -87,19 +87,36 @@ The user, 2026-11-23: "outdate reviews are becoming a problem. we should not acc
 
 ## Proof
 
+- A1. `host/test/review-turns.test.ts` › "of twenty finished changes of one project the background builds only the first three in Work's order, and every other row says how many are ahead", › "on a first look at twenty old changes three are built: the one that waited longest and the first two in Work's order", › "four P0 changes: three are built and the fourth waits its turn first in line" and › "after a merge only the next change in line is built"
+- A2. `host/test/review-turns.test.ts` › "a change that conflicts, is being brought up to date or is back at work is not built, and says why", › "a queued review of a change sent back to work is dropped, and its row says why" and › "a change that waited two days is taken next"
+- A3. `host/test/review-turns.test.ts` › "Review now builds one outside the line and stops none of those current"; `host/test/review-budget.test.ts`, the test of an ask from hobkin's own agent taking its turn
+- A4. `host/test/review-turns.test.ts` › "a review whose change moved is built again by itself only in the line; out of it, its row is outdated, with the commit it was built for"
+- A5. `host/test/review-carry.test.ts`, every test in it. The carry is built and turned off: see S2.
+- A6. `host/test/review-carry.test.ts` › "Review again with nothing changed says so, and that it costs a whole review, and builds only on a second press"; `ui/test/work-ai-reviews-again.test.ts` › "Review again with nothing changed since the review says what it costs first, and builds it on the second press"
+- A7. `host/test/metrics.test.ts` › "each model call's tokens are kept beside its review and the numbers add them by day"
+- A8. `host/test/review-budget.test.ts` › "at the day's number of background reviews the rest wait for midnight and say so, and the user's own ask still runs". The workload's two settings are not carried yet: see S3.
+- A9. `host/test/review-cleanup.test.ts`, every test in it. The scheduled cleaning only looks: see S4.
+- A10. `ui/test/work-ai-reviews.test.ts` › "each repository's line counts its current, waiting and outdated reviews and what they cost this week", › "a row that waits says why and how many are ahead, and folds under Waiting for its repository, the nearest first" and › "an outdated row says for which commit it was built, and a carried one from which commit it was carried and why it holds"; check: still renders of the list with its fold closed and open, light and dark (2026-11-23), then the live window.
+- A11. `packages/change-review/test/needs.test.ts` › "the Reviewer's answer carries the five ratings with their evidence, the kind and what is missing; one that is malformed is dropped with why and the review still finishes", › "the ratings are capped by the facts" and › "a pull request is rated the same way, with monitoring unknown when none is given"
+- A12. `host/test/review-needs.test.ts` › "a review's status and row carry its ratings, the commit they were made at and hobkin's rate and floors"; `shared/test/review-needs.test.ts`, both tests
+- A13. `ui/test/review-needs.test.ts` › "every review opens with the five ratings in the user's order, their evidence, the kind, the rate and what is missing" and › "a pull request with no monitoring known shows four numbers, says monitoring is not known, and has no general rate"; `ui/test/work-ai-reviews.test.ts` › "a row carries the review's five ratings and its rate, a pull request's too, and nothing when it is not rated"; check: still renders of the panel in each state and of a row, light and dark (2026-11-23), then the live window. The YOLO mode page does not show who rated a change yet.
+
 ## Steps
 
-- [ ] S1 (A1, A2, A3, A4). Host: the line for a repository.
-- [ ] S2 (A5, A6). Host: carried reviews, and Review again with nothing changed.
-- [ ] S3 (A7, A8). Host and runtime: what a review cost, the day's number, the workload's two settings.
-- [ ] S4 (A9). Host: cleaning up.
-- [ ] S5 (A10). Window: the list's line for a repository, waiting rows, carried reviews.
-- [ ] S6 (A11). Engine: the ratings in the Reviewer's answer.
-- [ ] S7 (A12). Host: the ratings on a review, and the project's monitoring to the Reviewer.
-- [ ] S8 (A13). Window: "Your questions" in the review, the row and the YOLO mode page.
+- [x] S1 (A1, A2, A3, A4). Host: the line for a repository. 52b10ca, c262825, 206470c, f02e6c6, 9684dea, 221ad92, f4549e5, 56b3356, 53731ce, 712b4ae, and 1e8e6cc for what hobkin's own agent asks. An independent check ran it on temporary homes twice: never more than three for a repository by itself, P0 included, and the day's number held across a restart. The longest wait gets one place, which passes on when its review finishes and spends half the day's number at most. Pull requests are in the line of their own repository, apart from its finished changes, so the two can hold three each.
+- [ ] S2 (A5, A6). Host: carried reviews, and Review again with nothing changed. Review again is done (4d67994). The carry is built (e0fb4a6, 65256c2, 0dd17ff, c5daa98, 9a9e83e) and turned off (5252c1e): the check twice got a review carried that should have been built again, the second time because the change reached a file by a path no import can be followed along (a `require` with a built path, a config read by a built path, a generated file behind an alias, a renamed file). It is not worked on further: with the line, three reviews of a repository at most are built again after a rebase.
+- [ ] S3 (A7, A8). Host and runtime: what a review cost, the day's number, the workload's two settings. The tokens and the day's number are done (5315f60, 72889e0); a call made through a launcher gives no usage. The two settings are not carried from the workload yet, so three and twenty hold.
+- [ ] S4 (A9). Host: cleaning up. Built (aee3f7f), rewritten after the check found it removing token history, following a link out of the home and removing live trees whose names only contain "-broken-" (aee591e, 246bab4). The check's second run found none of that again. The scheduled run only looks and writes to the log what it would remove (65fa2c5), until the user says to turn it on.
+- [x] S5 (A10). Window: the list's line for a repository, waiting rows, carried reviews. 3248eff, 629e3fa, a333432. Seen only as still renders with sample data.
+- [x] S6 (A11). Engine: the ratings in the Reviewer's answer. 236d130, 3de543a, 3dcc150. Fixtures only: no model has answered them yet. With monitoring given, a path it does not cover is the Reviewer's to rate low: the engine cannot tell what monitoring covers.
+- [x] S7 (A12). Host: the ratings on a review, and the project's monitoring to the Reviewer. fd64277, df748ca, cba1dd6, bb9ec9b, 81b0172.
+- [ ] S8 (A13). Window: "Your questions" in the review, the row and the YOLO mode page. The review and the row are done (bb808ea, c93d6e0, a333432). The YOLO mode page is not: `rateWords` in `ui/src/features/review/panel/needs.ts` is ready for it.
 
 ## Open questions
 
+- Turning the cleaning on. It deletes files in the home: the heavy files of every review past a change's newest two on its first run.
+- Carried reviews. They would need a way to know every file a change can reach, which a `require` with a built path or a config read by path defeats. One way that stays sound: a carried review can be read but not approved, and a yes on it builds it first.
+- A change out of the line has no review, so nothing checks it by itself. Its row says so.
 - Whether the review's ratings replace hobkin's scored run, so that YOLO mode reads them and one review is paid for. The audit's default is to run both for two weeks on ready projects, with YOLO mode merging only when both pass, then to replace.
 - Three reviews current for a repository, twenty background reviews a day, 48 hours before a waiting change is taken, two reviews kept whole, thirty and fourteen days: defaults the user has not confirmed.
 - A change that is not in the line gets no review, and so no agent is sent back to it when it would have been risky. It waits its turn instead.
