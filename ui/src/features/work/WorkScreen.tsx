@@ -17,7 +17,7 @@ import { keepSame } from '@/lib/host/keep-same.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { Discovery } from './Discovery.tsx'
-import { groupReviews, reviewCounts, type ReviewGroup } from './ai-reviews.ts'
+import { reviewCounts, rowsOf, type ReviewCounts as Counts } from './ai-reviews.ts'
 import { AiReviews } from './AiReviews.tsx'
 import { DecidedPanel } from './DecidedPanel.tsx'
 import { DelegationMap } from './DelegationMap.tsx'
@@ -149,7 +149,7 @@ export function WorkScreen() {
   // new view each time it draws: the list, its error and its refresh say whether anything in it changed.
   const { list: reviewList, error: reviewError, refresh: refreshReviews } = useReviewList(live)
   const reviews = useMemo(() => ({ list: reviewList, error: reviewError, refresh: refreshReviews }), [reviewList, reviewError, refreshReviews])
-  const counts = useSame(useMemo(() => reviewCounts(groupReviews(reviewList)), [reviewList]))
+  const counts = useSame(useMemo(() => reviewCounts(rowsOf(reviewList)), [reviewList]))
   const priorities = parts?.priorities ?? null
   const reviewPriority = useMemo(() => prioritiesOfWork(priorities), [priorities])
   const tally = useSame(useMemo(() => reviewTallyOf(reviewList), [reviewList]))
@@ -350,7 +350,7 @@ export function WorkScreen() {
 }
 
 /** Work's pages as tabs, the reviews' counts beside Ready for Review. They draw again when the page or a count changes. */
-const WorkTabs = memo(function WorkTabs({ tab, counts, onChoose }: { tab: WorkTab; counts: Record<ReviewGroup, number>; onChoose: (tab: WorkTab) => void }) {
+const WorkTabs = memo(function WorkTabs({ tab, counts, onChoose }: { tab: WorkTab; counts: Counts; onChoose: (tab: WorkTab) => void }) {
   return (
     <PageTabs
       id="work"
@@ -428,7 +428,7 @@ const AgentsAtOnce = memo(function AgentsAtOnce({ allowed, most, live }: { allow
 })
 
 /** Beside "AI Reviews": how many run and how many are ready to read. Nothing while there are none. */
-function ReviewCounts({ counts }: { counts: Record<ReviewGroup, number> }) {
+function ReviewCounts({ counts }: { counts: Counts }) {
   return (
     <>
       {counts.unmerged ? <TabCount tone="live">{counts.unmerged} not merged</TabCount> : null}

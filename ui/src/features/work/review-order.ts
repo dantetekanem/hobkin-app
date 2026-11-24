@@ -4,12 +4,12 @@ import { targetOfReviewId } from '#shared/review/ids.ts'
 import { REVIEW_ORDERS, type PriorityOf, type ReviewOrder } from './ai-reviews.ts'
 
 /**
- * The order the user picked for the AI Reviews list (spec 032), and where a review's priority comes from. The order is
+ * The order the user picked for the Review list (spec 032, 067), and where a review's priority comes from. The order is
  * kept in the app's own storage on this machine, so it is still there after a reload and the next time the app opens.
  */
 
-const KEY = 'hobkin-client-review-order-1'
-const FIRST_ORDER: ReviewOrder = 'newest'
+const KEY = 'hobkin-client-review-order-2'
+const FIRST_ORDER: ReviewOrder = 'easiest'
 
 /** The order a kept value names. Anything that is no order reads as the one the list starts in. */
 export function readReviewOrder(kept: string | null): ReviewOrder {

@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { groupReviews, repoLinesOf } from './ai-reviews.ts'
+import { rowsOf } from './ai-reviews.ts'
 import { waitingRows } from './review-story.ts'
 import { useStory } from './story-store.ts'
 import { useReviewList } from './use-review-list.ts'
@@ -12,6 +12,6 @@ export function useStoryGone(live: boolean): (id: string) => boolean {
   const running = useStory((state) => state.story !== null)
   const { list } = useReviewList(live && running)
   const waiting = useRef<ReadonlySet<string> | null>(null)
-  waiting.current = running && live && list ? new Set(waitingRows(groupReviews(list), repoLinesOf(list)).map((row) => row.item.id)) : null
+  waiting.current = running && live && list ? new Set(waitingRows(rowsOf(list)).map((row) => row.item.id)) : null
   return (id) => waiting.current != null && !waiting.current.has(id)
 }

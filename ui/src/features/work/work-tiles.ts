@@ -3,7 +3,7 @@ import type { WorkState } from '#shared/protocol/work.ts'
 import { TILE_CHART, type NumbersChart } from '../numbers/board-model.ts'
 import { NO_DATA, workTiles, type Tile, type TileKey, type TilesInput } from '../numbers/format.ts'
 import type { MetricsReadState } from '../numbers/metrics-store.ts'
-import { groupReviews, reviewCounts, type ReviewList } from './ai-reviews.ts'
+import { reviewCounts, rowsOf, type ReviewList } from './ai-reviews.ts'
 
 /**
  * Work's six tiles (_specs/053-work-control-room, "Work"): what they read from the work state, the AI reviews' list
@@ -20,7 +20,7 @@ export interface ReviewTally {
 /** The AI reviews running, ready and stopped, or null before the list first answers, so the tile does not say none run. */
 export function reviewTallyOf(list: ReviewList | null): ReviewTally | null {
   if (!list) return null
-  const { running, ready, failed } = reviewCounts(groupReviews(list))
+  const { running, ready, failed } = reviewCounts(rowsOf(list))
   return { running, ready, failed }
 }
 

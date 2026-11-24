@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { Grade } from '#shared/protocol/work.ts'
 import type { AssessmentSummary } from '#shared/review/assessment.ts'
 import type { ReviewListItem } from '#shared/review/status.ts'
-import { groupReviews, rowsOf, type ReviewRow } from '../src/features/work/ai-reviews.ts'
+import { rowsOf, type ReviewRow } from '../src/features/work/ai-reviews.ts'
 import { advanceStory, offersStory, sortStory, startStory, storyPlace, waitingRows } from '../src/features/work/review-story.ts'
 
 const HEAD = 'f3a9c1e7'.padEnd(40, '0')
@@ -62,8 +62,7 @@ test('reviews still being prepared or not reviewed yet come after the rated ones
 
 test('the offer counts every review waiting on the user: ready, running and waiting its turn', () => {
   const items = [...Array.from({ length: 7 }, (_, n) => ready(`r${n}`)), ...Array.from({ length: 3 }, (_, n) => ready(`p${n}`, { state: 'preparing', phase: 'reading', assessment: undefined }))]
-  const groups = groupReviews({ reviews: items })
-  const waiting = waitingRows(groups, [])
+  const waiting = waitingRows(rowsOf({ reviews: items }))
   assert.equal(waiting.length, 10)
   assert.equal(offersStory(waiting), true)
   assert.equal(offersStory(waiting.slice(1)), false)

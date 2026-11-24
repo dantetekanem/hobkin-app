@@ -28,10 +28,11 @@ test('before the work is known, no review has a priority', () => {
   assert.equal(priorityOf(review('change:storefront:graded')), null)
 })
 
-test('the order the user picked reads back as it was kept, and anything else reads as newest', () => {
+test('the order the user picked reads back as it was kept, and anything else reads as easiest first', () => {
   assert.equal(readReviewOrder('priority'), 'priority')
   assert.equal(readReviewOrder('oldest'), 'oldest')
+  assert.equal(readReviewOrder('smallest'), 'smallest')
   assert.equal(readReviewOrder('newest'), 'newest')
-  assert.equal(readReviewOrder(null), 'newest')
-  assert.equal(readReviewOrder('by size'), 'newest')
+  assert.equal(readReviewOrder(null), 'easiest')
+  assert.equal(readReviewOrder('by size'), 'easiest')
 })

@@ -1,12 +1,12 @@
 import type { DecidedChange, WorkMetrics } from '#shared/protocol/metrics.ts'
 import type { FinishedChange, Grade, ModelFact, PrMode, ProjectState, WorkProject, WorkState, YoloProject, YoloState } from '#shared/protocol/work.ts'
 import type { AssessmentStatus } from '#shared/review/assessment.ts'
-import type { ReviewList } from '#shared/review/status.ts'
+import { shownAsRow, type ReviewList } from '#shared/review/status.ts'
 import { SERIES_COLOR, type DaySeries } from '../numbers/chart-kit.ts'
 import { dayWords, lastDays, localDay, TILE_DAYS, workTiles, type Tile } from '../numbers/format.ts'
 import { READ_WORDS, type MetricsReadState } from '../numbers/metrics-store.ts'
 import { finishedReviewId } from '../review/entry.ts'
-import { groupOf } from '../work/ai-reviews.ts'
+import { stateOf } from '../work/ai-reviews.ts'
 import { needsFirst } from '../work/finished-cards.ts'
 import { oldestAtOf } from '../work/work-tiles.ts'
 import { inPlace, readinessRow, stillToSetUp, waitingChange, type PartRow, type ReadinessTone } from '../work/yolo-page.ts'
@@ -220,10 +220,12 @@ export function reviewsOf(list: ReviewList, slug: string): ProjectReviews {
   const counts = { running: 0, ready: 0, failed: 0 }
   for (const review of list.reviews) {
     if (review.kind !== 'change' || review.project !== slug) continue
-    const group = groupOf(review)
+    const state = shownAsRow(review) ? stateOf(review) : null
     // One that never ran and waits for nothing is no review the window can open.
-    if (!group) continue
-    if (group !== 'unmerged') counts[group] += 1
+    if (!state) continue
+    // A merge that failed is counted by what its review does, as the list does.
+    if (state.kind === 'reviewing') counts.running += 1
+    else if (state.kind !== 'waits') counts[state.kind] += 1
     const item = review.id.split(':').at(-1)!
     items[item] = { answer: review.assessment ?? null, head: review.assessment?.head ?? review.head ?? null }
   }

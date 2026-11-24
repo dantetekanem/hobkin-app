@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { AssessmentSummary } from '#shared/review/assessment.ts'
 import type { ReviewListItem } from '#shared/review/status.ts'
-import { canReviewAgain, canReviewNow, groupReviews, nothingChanged, repoLinesOf, reviewCounts, reviewToOpen, rowsOf } from '../src/features/work/ai-reviews.ts'
+import { canReviewAgain, canReviewNow, nothingChanged, repoWordsOf, reviewCounts, reviewToOpen, rowsOf, stateOf } from '../src/features/work/ai-reviews.ts'
 
 const HEAD = 'f3a9c1e7'.padEnd(40, '0')
 const at = (minutesAgo: number) => new Date(Date.parse('2026-11-12T12:00:00Z') - minutesAgo * 60_000).toISOString()
@@ -21,85 +21,67 @@ const item = (id: string, over: Partial<ReviewListItem>): ReviewListItem => ({
   ...over,
 })
 
-test('reviews fall into running, ready and failed, and one that never ran is left out', () => {
-  const groups = groupReviews({
-    reviews: [
-      item('change:storefront:a1', { state: 'preparing', phase: 'reading', startedAt: at(1) }),
-      item('change:storefront:a2', { assessment: { state: 'running', head: HEAD, percent: 33.3, now: 'Mapping the changed definitions', startedAt: at(2) } }),
-      item('change:storefront:a3', { assessment: { state: 'queued', head: HEAD } }),
-      item('change:storefront:b1', { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(5) }) } }),
-      item('pr:acme/web/12', { kind: 'pull', project: 'acme/web', updatedAt: at(6) }),
-      item('change:storefront:c1', { state: 'failed', error: 'gh is not signed in', updatedAt: at(7) }),
-      item('change:storefront:c2', { assessment: { state: 'failed', head: HEAD, error: 'The tests would not start.' }, updatedAt: at(8) }),
-      item('pr:acme/web/13', { kind: 'pull', project: 'acme/web', state: 'idle' }),
-      item('change:storefront:d1', { state: 'idle', assessment: { state: 'idle', head: HEAD } }),
-    ],
-  })
+const kinds = (reviews: ReviewListItem[]) => Object.fromEntries(rowsOf({ reviews }).map((row) => [row.item.id, row.state.kind]))
 
-  assert.deepEqual(groups.running.map((row) => row.item.id), ['change:storefront:a1', 'change:storefront:a2', 'change:storefront:a3'])
-  assert.deepEqual(groups.ready.map((row) => row.item.id), ['change:storefront:b1', 'pr:acme/web/12'])
-  assert.deepEqual(
-    groups.failed.map((row) => [row.item.id, row.line]),
-    [
-      ['change:storefront:c1', 'gh is not signed in'],
-      ['change:storefront:c2', 'The tests would not start.'],
-    ],
-  )
-  assert.deepEqual(reviewCounts(groups), { unmerged: 0, running: 3, ready: 2, failed: 2 })
+test('a review is reviewing only while its review runs or is being prepared; waiting its turn is its own state, and one that never ran is left out', () => {
+  const reviews = [
+    item('change:storefront:a1', { state: 'preparing', phase: 'reading', startedAt: at(1) }),
+    item('change:storefront:a2', { assessment: { state: 'running', head: HEAD, percent: 33.3, now: 'Mapping the changed definitions', startedAt: at(2) } }),
+    item('change:storefront:a3', { assessment: { state: 'queued', head: HEAD } }),
+    item('change:storefront:a4', { state: 'preparing', phase: 'queued', startedAt: at(1) }),
+    item('change:storefront:w1', { state: 'idle', waiting: true }),
+    item('change:storefront:b1', { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(5) }) } }),
+    item('pr:acme/web/12', { kind: 'pull', project: 'acme/web', updatedAt: at(6) }),
+    item('change:storefront:c1', { state: 'failed', error: 'gh is not signed in', updatedAt: at(7) }),
+    item('change:storefront:c2', { assessment: { state: 'failed', head: HEAD, error: 'The tests would not start.' }, updatedAt: at(8) }),
+    item('pr:acme/web/13', { kind: 'pull', project: 'acme/web', state: 'idle' }),
+    item('change:storefront:d1', { state: 'idle', assessment: { state: 'idle', head: HEAD } }),
+  ]
+
+  assert.deepEqual(kinds(reviews), {
+    'change:storefront:a1': 'reviewing',
+    'change:storefront:a2': 'reviewing',
+    'change:storefront:a3': 'waits',
+    'change:storefront:a4': 'waits',
+    'change:storefront:w1': 'waits',
+    'change:storefront:b1': 'ready',
+    'pr:acme/web/12': 'ready',
+    'change:storefront:c1': 'failed',
+    'change:storefront:c2': 'failed',
+  })
+  assert.deepEqual(reviewCounts(rowsOf({ reviews })), { unmerged: 0, running: 2, waiting: 3, ready: 2, failed: 2 })
 })
 
-test('a finished change whose review has not started shows as waiting its turn, after those under way; a stopped one that waits for nothing stays out', () => {
-  const groups = groupReviews({
+test('one cut short that starts again waits its turn, and says how many are ahead; a stopped one that waits for nothing stays out', () => {
+  const rows = rowsOf({
     reviews: [
-      item('change:storefront:w1', { state: 'idle', waiting: true, updatedAt: at(1) }),
+      item('change:storefront:w1', { state: 'idle', waiting: true, turn: { ahead: 3, why: 'Waits its turn: 3 ahead in storefront.' } }),
       item('change:storefront:w2', { state: 'idle', waiting: true, assessment: { state: 'failed', head: HEAD, error: 'An earlier review of this commit stopped before it finished.' } }),
-      item('change:storefront:a2', { assessment: { state: 'running', head: HEAD, percent: 10, startedAt: at(2) } }),
       item('change:storefront:s1', { state: 'idle', assessment: { state: 'idle', head: HEAD } }),
     ],
   })
 
-  assert.deepEqual(groups.running.map((row) => [row.item.id, row.line, row.startedAt]), [
-    ['change:storefront:a2', 'Starting', Date.parse(at(2))],
-    ['change:storefront:w2', 'Waiting its turn', null],
-    ['change:storefront:w1', 'Waiting its turn', null],
-  ])
-  assert.deepEqual(groups.failed, [], 'one cut short that starts again is waiting, not failed')
-  assert.ok(![...groups.running, ...groups.ready].some((row) => row.item.id === 'change:storefront:s1'))
-})
-
-test('a running review says how far along it is, what it is doing now, and when it started; one still waiting comes after those under way', () => {
-  const [graph, change, queued] = groupReviews({
-    reviews: [
-      item('change:storefront:a1', { state: 'preparing', phase: 'reading', startedAt: at(1) }),
-      item('change:storefront:a2', { state: 'preparing', phase: 'checking', startedAt: at(9), assessment: { state: 'running', head: HEAD, percent: 104.6, now: 'Running the checkout tests', startedAt: at(2) } }),
-      item('change:storefront:a3', { assessment: { state: 'queued', head: HEAD }, updatedAt: at(3) }),
-    ],
-  }).running
-
-  assert.deepEqual([graph!.line, graph!.percent, graph!.startedAt], ['Reading the change', null, Date.parse(at(1))])
-  assert.deepEqual([change!.line, change!.percent, change!.startedAt], ['Running the checkout tests', 100, Date.parse(at(2))], 'the change review is what it is doing, and its percent never passes 100')
-  assert.deepEqual([queued!.line, queued!.percent, queued!.startedAt], ['Waiting its turn', null, null])
-})
-
-test('each group is newest first by its own time: running by when it started, ready by when it finished, whatever order the host sent', () => {
-  const groups = groupReviews({
-    reviews: [
-      item('change:storefront:old-finish', { updatedAt: at(1), assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(60) }) } }),
-      item('pr:acme/web/7', { kind: 'pull', project: 'acme/web', updatedAt: at(30), assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(30) }) } }),
-      item('change:storefront:new-finish', { updatedAt: at(40), assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(2) }) } }),
-      item('change:storefront:early-start', { assessment: { state: 'running', head: HEAD, percent: 80, startedAt: at(20) } }),
-      item('pr:acme/web/8', { kind: 'pull', project: 'acme/web', assessment: { state: 'running', head: HEAD, percent: 5, startedAt: at(1) } }),
-    ],
+  assert.deepEqual(Object.fromEntries(rows.map((row) => [row.item.id, [row.state, row.line, row.startedAt]])), {
+    'change:storefront:w1': [{ kind: 'waits', ahead: 3 }, 'Waits its turn: 3 ahead in storefront.', null],
+    'change:storefront:w2': [{ kind: 'waits', ahead: null }, 'Waits its turn', null],
   })
+  assert.equal(stateOf(item('change:storefront:s1', { state: 'idle' })), null)
+})
 
-  assert.deepEqual(groups.ready.map((row) => row.item.id), ['change:storefront:new-finish', 'pr:acme/web/7', 'change:storefront:old-finish'])
-  assert.deepEqual(groups.ready.map((row) => row.at), [Date.parse(at(2)), Date.parse(at(30)), Date.parse(at(60))])
-  assert.deepEqual(groups.running.map((row) => row.item.id), ['pr:acme/web/8', 'change:storefront:early-start'])
-  assert.deepEqual(
-    rowsOf({ reviews: [item('change:storefront:x', { updatedAt: at(10), assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(10) }) } }), item('pr:acme/web/9', { kind: 'pull', project: 'acme/web', assessment: { state: 'running', head: HEAD, startedAt: at(4) } })] }).map((row) => row.item.id),
-    ['pr:acme/web/9', 'change:storefront:x'],
-    'all rows together are newest first too',
+test('a reviewing row says how far along it is, what it is doing now, and when it started', () => {
+  const rows = Object.fromEntries(
+    rowsOf({
+      reviews: [
+        item('change:storefront:a1', { state: 'preparing', phase: 'reading', startedAt: at(1) }),
+        item('change:storefront:a2', { state: 'preparing', phase: 'checking', startedAt: at(9), assessment: { state: 'running', head: HEAD, percent: 104.6, now: 'Running the checkout tests', startedAt: at(2) } }),
+        item('change:storefront:a3', { state: 'preparing', startedAt: at(3) }),
+      ],
+    }).map((row) => [row.item.id, row]),
   )
+
+  assert.deepEqual([rows['change:storefront:a1']!.line, rows['change:storefront:a1']!.percent, rows['change:storefront:a1']!.startedAt], ['Reading the change', null, Date.parse(at(1))])
+  assert.deepEqual([rows['change:storefront:a2']!.line, rows['change:storefront:a2']!.percent, rows['change:storefront:a2']!.startedAt], ['Running the checkout tests', 100, Date.parse(at(2))], 'the change review is what it is doing, and its percent never passes 100')
+  assert.equal(rows['change:storefront:a3']!.line, 'Starting')
 })
 
 test('a pull request is named by its repository and number, and a finished change by its project', () => {
@@ -117,22 +99,28 @@ test('a row opens its own review; without a host a finished change opens the sam
   assert.equal(reviewToOpen(pull, true), 'pr:hobkin-sample/storefront/482')
   assert.equal(reviewToOpen(change, false), 'sample')
   assert.equal(reviewToOpen(pull, false), 'pr:hobkin-sample/storefront/482')
-  assert.deepEqual(groupReviews(null), { unmerged: [], running: [], ready: [], failed: [] })
+  assert.deepEqual(rowsOf(null), [])
 })
 
-test('a review that is ready or stopped can be run again, and one under way cannot be started twice', () => {
+test('a review that is ready or stopped can be run again, and one under way or waiting cannot be started twice', () => {
   const rows = rowsOf({
     reviews: [
       item('change:storefront:a2', { assessment: { state: 'running', head: HEAD, percent: 10, startedAt: at(1) } }),
+      item('change:storefront:a3', { assessment: { state: 'queued', head: HEAD } }),
       item('change:storefront:b1', { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(5) }) } }),
       item('change:storefront:c1', { state: 'failed', error: 'gh is not signed in', updatedAt: at(7) }),
     ],
   })
-  assert.deepEqual(rows.map((row) => [row.group, canReviewAgain(row)]), [['running', false], ['ready', true], ['failed', true]])
+  assert.deepEqual(Object.fromEntries(rows.map((row) => [row.item.id, canReviewAgain(row)])), {
+    'change:storefront:a2': false,
+    'change:storefront:a3': false,
+    'change:storefront:b1': true,
+    'change:storefront:c1': true,
+  })
 })
 
-test('a merge that failed keeps its row first in the list, with why; one that waits has no row, and is counted nowhere', () => {
-  const groups = groupReviews({
+test('a merge that failed has a row with why, and is counted as not merged; one that waits has no row', () => {
+  const rows = rowsOf({
     reviews: [
       item('change:storefront:b1', { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(5) }) } }),
       item('change:storefront:m1', { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(9) }) }, mergeAsked: { at: at(2), state: 'failed', why: 'It moved since it was offered, so nothing merged.' } }),
@@ -140,10 +128,8 @@ test('a merge that failed keeps its row first in the list, with why; one that wa
       item('pr:corp:acme/shop/7', { kind: 'pull', mergeAsked: { at: at(1), state: 'waiting', message: 'The merge queue lands it once its checks pass.' } }),
     ],
   })
-  assert.deepEqual(groups.unmerged.map((row) => [row.item.id, row.line]), [['change:storefront:m1', 'You said merge, and it did not merge: It moved since it was offered, so nothing merged.']])
-  assert.deepEqual(groups.ready.map((row) => row.item.id), ['change:storefront:b1'], 'a waiting merge is in no group')
-  assert.deepEqual(groups.running, [])
-  assert.equal(reviewCounts(groups).unmerged, 1)
+  assert.deepEqual(rows.map((row) => [row.item.id, row.merge?.why ?? null]).sort(), [['change:storefront:b1', null], ['change:storefront:m1', 'It moved since it was offered, so nothing merged.']])
+  assert.deepEqual(reviewCounts(rows), { unmerged: 1, running: 0, waiting: 0, ready: 1, failed: 0 })
 })
 
 test('a row names its pull request by number and links to its page: its own, or the one a finished change opened', () => {
@@ -165,51 +151,6 @@ test('a row names its pull request by number and links to its page: its own, or 
   })
 })
 
-test('each group follows the order the user picked: by priority with the longest wait first among equals, newest first, or oldest first', () => {
-  const ready = (id: string, minutesAgo: number, over: Partial<ReviewListItem> = {}) =>
-    item(id, { assessment: { state: 'ready', head: HEAD, summary: summary({ at: at(minutesAgo) }) }, updatedAt: at(minutesAgo), ...over })
-  const list = {
-    reviews: [
-      ready('change:storefront:casual', 1),
-      ready('change:storefront:urgent-new', 2),
-      ready('pr:acme/web/12', 3, { kind: 'pull', project: 'acme/web' }),
-      ready('change:storefront:urgent-old', 9),
-    ],
-  }
-  const priorities: Record<string, 'P0' | 'P2'> = {
-    'change:storefront:casual': 'P2',
-    'change:storefront:urgent-new': 'P0',
-    'change:storefront:urgent-old': 'P0',
-  }
-  const priorityOf = (review: ReviewListItem) => priorities[review.id] ?? null
-  const readyIn = (order: 'priority' | 'newest' | 'oldest') => groupReviews(list, { order, priorityOf }).ready.map((row) => row.item.id)
-
-  assert.deepEqual(readyIn('priority'), ['change:storefront:urgent-old', 'change:storefront:urgent-new', 'change:storefront:casual', 'pr:acme/web/12'])
-  assert.deepEqual(readyIn('newest'), ['change:storefront:casual', 'change:storefront:urgent-new', 'pr:acme/web/12', 'change:storefront:urgent-old'])
-  assert.deepEqual(readyIn('oldest'), ['change:storefront:urgent-old', 'pr:acme/web/12', 'change:storefront:urgent-new', 'change:storefront:casual'])
-
-  const unordered = groupReviews(list, { priorityOf }).ready
-
-  assert.deepEqual(unordered.map((row) => row.item.id), readyIn('newest'), 'with no order picked, newest first')
-  assert.deepEqual(unordered.map((row) => row.priority), ['P2', 'P0', null, 'P0'], 'a row says the priority of its work')
-})
-
-test('in any order, reviews under way come before those that wait their turn', () => {
-  const list = {
-    reviews: [
-      item('change:storefront:waits', { assessment: { state: 'queued', head: HEAD } }),
-      item('change:storefront:runs', { assessment: { state: 'running', head: HEAD, percent: 10, startedAt: at(4) } }),
-    ],
-  }
-  const priorityOf = (review: ReviewListItem) => (review.id === 'change:storefront:waits' ? 'P0' : 'P3')
-
-  for (const order of ['priority', 'newest', 'oldest'] as const) {
-    const running = groupReviews(list, { order, priorityOf }).running.map((row) => row.item.id)
-
-    assert.deepEqual(running, ['change:storefront:runs', 'change:storefront:waits'], `in the order ${order}`)
-  }
-})
-
 const OLDER = 'e1d2c3b'.padEnd(40, '0')
 /** A repository's rows as a host that keeps a line of reviews sends them, with the line above them. */
 const lineList = () => ({
@@ -227,29 +168,23 @@ const lineList = () => ({
 })
 
 test("each repository's line counts its current, waiting and outdated reviews and what they cost this week", () => {
-  assert.deepEqual(
-    repoLinesOf(lineList()).map((line) => line.words),
-    ['shop: 3 current · 12 waiting · 2 outdated · 9 built this week, about 1.1M tokens', 'storefront: 1 current · 0 waiting · 0 outdated · 2 built this week'],
-  )
+  assert.deepEqual([...repoWordsOf(lineList())], [
+    ['shop', '3 current · 12 waiting · 2 outdated · 9 built this week, about 1.1M tokens'],
+    ['storefront', '1 current · 0 waiting · 0 outdated · 2 built this week'],
+  ])
   // A host from before the line sends none, and the list has no line.
-  assert.deepEqual(repoLinesOf({ reviews: lineList().reviews }), [])
-  assert.deepEqual(repoLinesOf(null), [])
+  assert.deepEqual([...repoWordsOf({ reviews: lineList().reviews })], [])
+  assert.deepEqual([...repoWordsOf(null)], [])
 })
 
-test('a row that waits says why and how many are ahead, and folds under Waiting for its repository, the nearest first', () => {
-  const list = lineList()
-  const [shop, storefront] = repoLinesOf(list)
+test('a row that waits says why and how many are ahead, and stays in the list, not folded under its repository', () => {
+  const rows = Object.fromEntries(rowsOf(lineList()).map((row) => [row.item.id, row]))
 
-  assert.deepEqual(shop!.waiting.map((row) => [row.item.id, row.turn?.why]), [
-    ['change:shop:w1', 'Waits its turn: 1 ahead in shop.'],
-    ['change:shop:w3', 'Waits its turn: 3 ahead in shop.'],
-  ])
-  assert.ok(shop!.waiting.every(canReviewNow), 'each offers Review now')
-  assert.deepEqual(storefront!.waiting, [])
-  // Folded under their repository, they are not in Running too.
-  assert.deepEqual(groupReviews(list).running.map((row) => row.item.id), ['change:storefront:now'])
-  // With no line from the host, a row that waits stays in Running, as it was.
-  assert.deepEqual(groupReviews({ reviews: list.reviews }).running.map((row) => row.item.id).sort(), ['change:shop:w1', 'change:shop:w3', 'change:storefront:now'])
+  assert.deepEqual([rows['change:shop:w1']!.state, rows['change:shop:w1']!.turn?.why], [{ kind: 'waits', ahead: 1 }, 'Waits its turn: 1 ahead in shop.'])
+  assert.deepEqual(rows['change:shop:w3']!.state, { kind: 'waits', ahead: 3 })
+  assert.ok(canReviewNow(rows['change:shop:w1']!), 'it offers Review now')
+  assert.equal(rows['change:storefront:now']!.state.kind, 'reviewing')
+  assert.equal(rows['change:shop:old']!.state.kind, 'ready', 'an outdated review opens, and says it is outdated')
 })
 
 test('an outdated row says for which commit it was built, and a carried one from which commit it was carried and why it holds', () => {

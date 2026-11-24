@@ -2,7 +2,7 @@ import type { FinishedChange } from '#shared/protocol/work.ts'
 import { deployOf } from '#shared/review/assessment.ts'
 import { layerReviewId } from '../review/stack-strip.ts'
 import { GRADE_ORDER } from './projects.ts'
-import type { RepoLine, ReviewGroups, ReviewRow } from './ai-reviews.ts'
+import type { ReviewRow } from './ai-reviews.ts'
 
 /**
  * The story (_specs/064-review-story): the reviews waiting on the user, put in one order when it starts and opened one
@@ -15,8 +15,14 @@ export const STORY_FROM = 10
 /** A stack and the place of a review in it, counted from the bottom, which is 1 and lands first. */
 export type StackOf = (row: ReviewRow) => { id: string; layer: number } | null
 
-/** Every review waiting on the user, in the list's order: ready, then running, then those waiting their turn under a repository's line. */
-export const waitingRows = (groups: ReviewGroups, lines: readonly RepoLine[]): ReviewRow[] => [...groups.ready, ...groups.running, ...lines.flatMap(({ waiting }) => waiting)]
+/**
+ * Every review waiting on the user: a merge that failed is not one, and neither is a review that stopped. Ready ones
+ * first, then those being reviewed, then those waiting their turn, each as the rows came.
+ */
+export function waitingRows(rows: readonly ReviewRow[]): ReviewRow[] {
+  const of = (kind: ReviewRow['state']['kind']) => rows.filter((row) => !row.merge && row.state.kind === kind)
+  return [...of('ready'), ...of('reviewing'), ...of('waits')]
+}
 
 /** Where a review stands in its stack, read from the finished changes: by the review a layer opens. */
 export function stackLookup(changes: readonly FinishedChange[]): StackOf {

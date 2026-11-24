@@ -1,5 +1,5 @@
 import type { ReviewList } from '#shared/review/status.ts'
-import { groupOf } from './ai-reviews.ts'
+import { isActive } from './ai-reviews.ts'
 
 /**
  * Following the host's list of AI reviews (`review.list`) while a screen shows it: asked at once, again every second
@@ -29,7 +29,7 @@ export function followReviewList({ run, onList, onError }: { run: () => Promise<
     try {
       const list = await run()
       if (stopped || asked !== turn) return
-      running = list.reviews.some((item) => groupOf(item) === 'running')
+      running = list.reviews.some(isActive)
       onList(list)
     } catch (error) {
       if (stopped || asked !== turn) return
