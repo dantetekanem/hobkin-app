@@ -38,6 +38,7 @@ import { canvasGrowth, pageInsetMove, useView, type ScreenMotion } from './view-
 const IntegrationsScreen = lazy(() => import('@/features/integrations/IntegrationsScreen.tsx').then((module) => ({ default: module.IntegrationsScreen })))
 const SkillsScreen = lazy(() => import('@/features/skills/SkillsScreen.tsx').then((module) => ({ default: module.SkillsScreen })))
 const ExtensionsScreen = lazy(() => import('@/features/extensions/ExtensionsScreen.tsx').then((module) => ({ default: module.ExtensionsScreen })))
+const MemoryScreen = lazy(() => import('@/features/memory/MemoryScreen.tsx').then((module) => ({ default: module.MemoryScreen })))
 const ReviewScreen = lazy(() => import('@/features/review/ReviewScreen.tsx').then((module) => ({ default: module.ReviewScreen })))
 
 /**
@@ -66,6 +67,7 @@ const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
   integrations: IntegrationsScreen,
   skills: SkillsScreen,
   extensions: ExtensionsScreen,
+  memory: MemoryScreen,
   github: GitHubScreen,
   agent: AgentScreen,
   mind: MainAgentScreen,

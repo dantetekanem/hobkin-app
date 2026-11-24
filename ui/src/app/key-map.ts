@@ -199,7 +199,7 @@ function veilKey(key: string): KeyAction | null {
   return null
 }
 
-const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations', 'skills', 'extensions', 'world', 'yolo', 'project', 'proof']
+const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integrations', 'skills', 'extensions', 'memory', 'world', 'yolo', 'project', 'proof']
 
 /**
  * A review, Settings, Integrations, Work's World, YOLO mode, a project's page and a proof run are open only for now,

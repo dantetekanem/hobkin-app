@@ -12,8 +12,8 @@ export interface Over {
   settingsReturn: ScreenId | null
 }
 
-/** The pages that sit under Settings (023-integrations, 039-skills-and-extensions). */
-export const UNDER_SETTINGS = ['integrations', 'skills', 'extensions'] as const satisfies readonly ScreenId[]
+/** The pages that sit under Settings (023-integrations, 039-skills-and-extensions, 057-shared-memory). */
+export const UNDER_SETTINGS = ['integrations', 'skills', 'extensions', 'memory'] as const satisfies readonly ScreenId[]
 export type PageUnderSettings = (typeof UNDER_SETTINGS)[number]
 
 export const isUnderSettings = (screen: ScreenId): screen is PageUnderSettings => (UNDER_SETTINGS as readonly ScreenId[]).includes(screen)

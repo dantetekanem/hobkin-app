@@ -49,6 +49,7 @@ const SCREEN_WORDS: Partial<Record<ScreenId, string[]>> = {
   github: ['pull requests', 'issues', 'reviews', 'gh'],
   settings: ['preferences', 'options'],
   integrations: ['services', 'connections', 'mcp'],
+  memory: ['memories', 'remember', 'forget', 'about me', 'right now'],
 }
 
 const SCREEN_LINE: Partial<Record<ScreenId, string>> = {
@@ -60,10 +61,11 @@ const SCREEN_LINE: Partial<Record<ScreenId, string>> = {
   github: 'Pull requests and issues, through gh',
   settings: 'How hobkin looks and works',
   integrations: 'The services hobkin can reach',
+  memory: 'What hobkin remembers for every agent',
 }
 
 /** The screens the spotlight goes to. A review and an agent need something to show, so they are found as what they show. */
-const PLACES: readonly ScreenId[] = ['home', 'reports', 'routines', 'actions', 'work', 'github', 'settings', 'integrations']
+const PLACES: readonly ScreenId[] = ['home', 'reports', 'routines', 'actions', 'work', 'github', 'settings', 'integrations', 'memory']
 
 /** The tiles of Settings, by the name each one shows, with the words that find them. */
 const SETTINGS: readonly { name: string; words: string[] }[] = [
@@ -145,6 +147,8 @@ function goToScreen(id: ScreenId): void {
     if (view.screen !== 'settings') view.toggleSettings()
   } else if (id === 'integrations') {
     if (view.screen !== 'integrations') view.toggleIntegrations()
+  } else if (id === 'memory') {
+    if (view.screen !== 'memory') view.togglePage('memory')
   } else if (id === 'github' && !useSettings.getState().showGitHubInMenu) view.openGitHub()
   // A page of the menu starts a new trail, as the menu's own item does (053). A GitHub the menu leaves out is open for
   // now over what is showing, as Settings is.

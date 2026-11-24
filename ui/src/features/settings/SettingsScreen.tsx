@@ -19,6 +19,7 @@ import { useTiers } from '@/features/tiers/store.ts'
 import { BackupTile } from './BackupTile.tsx'
 import { DirectionsTile } from './DirectionsTile.tsx'
 import { KeptThemesList } from './KeptThemesList.tsx'
+import { MemoryTile } from './MemoryTile.tsx'
 import { PetTile } from './PetTile.tsx'
 import { ReviewTile } from './ReviewTile.tsx'
 import { ShortReportsTile } from './ShortReportsTile.tsx'
@@ -62,6 +63,7 @@ export function SettingsScreen() {
         <ReviewTile />
         <IntegrationsTile />
         <DirectionsTile />
+        <MemoryTile />
         <ShortReportsTile />
         <SubscriptionsTile />
         <ClaudeCodeTile />

@@ -1,4 +1,4 @@
-import { BookOpen, Bot, Brain, CalendarClock, FileText, FolderGit2, GitPullRequest, House, Inbox, Plug, Presentation, Puzzle, Settings2, Sigma, Waypoints, Workflow, Zap, type LucideIcon } from 'lucide-react'
+import { BookOpen, Bot, Brain, CalendarClock, FileText, FolderGit2, GitPullRequest, House, Inbox, NotebookPen, Plug, Presentation, Puzzle, Settings2, Sigma, Waypoints, Workflow, Zap, type LucideIcon } from 'lucide-react'
 
 /** The screens in menu order. The order sets the direction a screen comes in from. */
 export const SCREENS = [
@@ -25,6 +25,8 @@ export const SCREENS = [
   // Pi's skills and extensions, under Settings beside Integrations (039-skills-and-extensions).
   { id: 'skills', label: 'Skills', icon: BookOpen, contextual: true },
   { id: 'extensions', label: 'Pi extensions', icon: Puzzle, contextual: true },
+  // What hobkin remembers for every agent it runs, under Settings beside them (057-shared-memory).
+  { id: 'memory', label: 'Memory', icon: NotebookPen, contextual: true },
   // The main hobkin's canvas, a place on the right side while it is open (040-canvas-board). Last, so it comes in from
   // the right and every other screen comes back from the left.
   { id: 'canvas', label: 'Canvas', icon: Presentation, contextual: true },
@@ -62,10 +64,11 @@ export interface WalkView {
 export function walkScreens({ screen, githubInMenu, canvasOpen = false }: WalkView): ScreenId[] {
   const openNow: Partial<Record<ScreenId, boolean>> = {
     review: screen === 'review',
-    settings: screen === 'settings' || screen === 'integrations' || screen === 'skills' || screen === 'extensions',
+    settings: screen === 'settings' || screen === 'integrations' || screen === 'skills' || screen === 'extensions' || screen === 'memory',
     integrations: screen === 'integrations',
     skills: screen === 'skills',
     extensions: screen === 'extensions',
+    memory: screen === 'memory',
     github: screen === 'github',
     canvas: canvasOpen,
   }

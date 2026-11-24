@@ -342,7 +342,7 @@ export const useView = create<ViewState>()(
       leave: () => {
         const view = get()
         if (view.screen === 'integrations') view.toggleIntegrations()
-        else if (view.screen === 'skills' || view.screen === 'extensions') view.togglePage(view.screen)
+        else if (view.screen === 'skills' || view.screen === 'extensions' || view.screen === 'memory') view.togglePage(view.screen)
         else if (view.screen === 'settings') view.closeSettings()
         else if (view.screen === 'review') view.closeReview()
         else view.back()
