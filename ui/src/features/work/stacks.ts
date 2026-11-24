@@ -53,8 +53,11 @@ export function arrange(groups: readonly FinishedGroup[]): Arranged[] {
   })
 }
 
-/** Whether a layer is the whole card: the one that lands next. Every other layer is a line until it is opened. */
-export const isWholeCard = (change: FinishedChange): boolean => change.stack?.layer === 1
+/**
+ * The layer drawn as the whole card: the lowest one here, which lands next once the layers under it have gone, as one
+ * the user said merge to has. Every other layer is a line until it is opened.
+ */
+export const wholeLayerOf = (entry: Extract<Entry, { kind: 'stack' }>): Placed | undefined => entry.layers[0]
 
 /** "2 of 5", beside a layer's title. */
 export const placeOf = (stack: StackPlace): string => `${stack.layer} of ${stack.of}`
@@ -64,16 +67,7 @@ export function layerLine({ stack, title }: { stack: StackPlace; title: string }
   return { place: placeOf(stack), title, lands: `lands after ${stack.layer - 1}` }
 }
 
-/**
- * The stack's one quiet heading: how many layers and what they are of. The project is said only when no whole card
- * under it says it, since the bottom layer's card names its project.
- */
+/** The stack's one quiet heading: how many layers and what they are of. Its whole card names the project. */
 export function headingOf(entry: Extract<Entry, { kind: 'stack' }>): string {
-  const bottom = entry.layers.find(({ change }) => isWholeCard(change))
-  const parts = [`Stack of ${entry.size}`]
-  if (entry.name) parts.push(entry.name)
-  const project = entry.layers[0]?.change.project
-  const said = entry.name?.toLowerCase().includes(project?.toLowerCase() ?? '') ?? false
-  if (!bottom && project && !said) parts.push(project)
-  return parts.join(' · ')
+  return entry.name ? `Stack of ${entry.size} · ${entry.name}` : `Stack of ${entry.size}`
 }

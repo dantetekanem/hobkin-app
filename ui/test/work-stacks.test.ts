@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { FinishedChange, FinishedGroup, StackPlace } from '#shared/protocol/work.ts'
-import { arrange, headingOf, isWholeCard, layerLine, type Entry } from '../src/features/work/stacks.ts'
+import { arrange, headingOf, layerLine, wholeLayerOf, type Entry } from '../src/features/work/stacks.ts'
 
 function change(item: string, stack?: Partial<StackPlace> & { layer: number }, over: Partial<FinishedChange> = {}): FinishedChange {
   const place = stack && { id: 'aaa111', of: 5, name: null, below: null, base: null, ...stack }
@@ -43,15 +43,18 @@ test('a stack of two is a stack too, and two stacks stay two', () => {
   assert.deepEqual(keys(merge!.entries), ['stack:A[a1,a2]', 'stack:B[b1,b2]'])
 })
 
-test('only the bottom layer is a whole card; the others are lines that say their place, their title and what they land after', () => {
-  const l1 = change('l1', { layer: 1 }), l3 = change('l3', { layer: 3 }, { title: 'Cover the turn limits' })
-  assert.equal(isWholeCard(l1), true)
-  assert.equal(isWholeCard(l3), false)
-  assert.equal(isWholeCard(change('x')), false)
+test('the lowest layer here is the whole card, so a stack whose bottom left keeps one; the others are lines that say their place, their title and what they land after', () => {
+  const l1 = change('l1', { layer: 1 }), l2 = change('l2', { layer: 2 }), l3 = change('l3', { layer: 3 }, { title: 'Cover the turn limits' })
+  const whole = arrange([group('merge', [l3, l1, l2])])[0]!.entries[0]!
+  assert.ok(whole.kind === 'stack')
+  assert.equal(wholeLayerOf(whole)?.change.key, l1.key)
+  const bottomGone = arrange([group('merge', [l3, l2])])[0]!.entries[0]!
+  assert.ok(bottomGone.kind === 'stack')
+  assert.equal(wholeLayerOf(bottomGone)?.change.key, l2.key)
   assert.deepEqual(layerLine({ stack: l3.stack!, title: l3.title }), { place: '3 of 5', title: 'Cover the turn limits', lands: 'lands after 2' })
 })
 
-test('the heading says how many layers and what they are of, and the project only when no whole card says it', () => {
+test('the heading says how many layers and what they are of; the whole card under it names the project', () => {
   const whole = arrange([group('merge', [change('l1', { layer: 1, name: 'Enemy AI' }), change('l2', { layer: 2, name: 'Enemy AI' })])])[0]!.entries[0]!
   assert.ok(whole.kind === 'stack')
   assert.equal(headingOf(whole), 'Stack of 5 · Enemy AI')
@@ -60,5 +63,5 @@ test('the heading says how many layers and what they are of, and the project onl
   assert.equal(headingOf(unnamed), 'Stack of 5')
   const noBottom = arrange([group('merge', [change('l2', { layer: 2 }), change('l3', { layer: 3 })])])[0]!.entries[0]!
   assert.ok(noBottom.kind === 'stack')
-  assert.equal(headingOf(noBottom), 'Stack of 5 · rpsleague')
+  assert.equal(headingOf(noBottom), 'Stack of 5')
 })

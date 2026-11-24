@@ -8,12 +8,12 @@ import { cn } from '@/lib/utils.ts'
 import { ReviewBadge } from './parts.tsx'
 import { clickPressesRow } from './row-press.ts'
 import { sampleAssessmentOf } from './sample-reviews.ts'
-import { headingOf, isWholeCard, layerLine, placeOf, type Entry, type Placed } from './stacks.ts'
+import { headingOf, layerLine, placeOf, wholeLayerOf, type Entry, type Placed } from './stacks.ts'
 import { useChangeReview } from './use-change-review.ts'
 
 /**
- * A stack on Work (_specs/060-make-it-a-stack): one group under one quiet line, its layers bottom first. The bottom
- * layer is the whole card. Each layer above is one line that a press opens to its whole card, under the line, and
+ * A stack on Work (_specs/060-make-it-a-stack): one group under one quiet line, its layers bottom first. The lowest
+ * layer here is the whole card. Each layer above is one line that a press opens to its whole card, under the line, and
  * presses closed again. The card is drawn by the caller, so it keeps every choice the runtime gave that layer.
  */
 
@@ -55,7 +55,7 @@ export function StackGroup({ entry, live, variants, order, leaving, onRowsLeft, 
           <AnimatePresence mode="popLayout" custom={leaving} onExitComplete={onRowsLeft}>
             {entry.layers.flatMap((layer, index) => {
               const place = placeOf(layer.change.stack!)
-              const drawn = isWholeCard(layer.change) ? (
+              const drawn = layer === wholeLayerOf(entry) ? (
                 drawCard(layer, place, true)
               ) : (
                 <LayerRow key={layer.change.key} layer={layer} live={live} opened={open.has(layer.change.key)} onToggle={() => toggle(layer.change.key)} variants={variants} drawCard={() => drawCard(layer, place, false)} />
