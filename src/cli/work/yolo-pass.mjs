@@ -15,7 +15,7 @@ import { readMode, readProject, retryItem, updateItem } from './store.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { holdProject, prepareProjects, readinessOf, readYolo, settleSwitches, yoloOnProject } from './yolo.mjs';
 import { FLOOR_RULES, floorsOf, RULE_DEFAULTS, rulesOf } from './yolo-rules.mjs';
-import { defaultPullGh, mergeOwnPull, pullCandidates, pullRequestsMerge, PULLS_OFF, pullSurveyed, signedInUser } from './yolo-pulls.mjs';
+import { defaultPullGh, mergeOwnPull, pullCandidates, PULLS_OFF, pullSurveyed, signedInUser } from './yolo-pulls.mjs';
 
 /**
  * The one place a change merges with no yes from the user. It runs after the director's own survey and returns at once while YOLO mode is off.
@@ -121,7 +121,7 @@ export function holdOf({ yolo, on, project, readiness, landable, leftOut = null,
   const left = landingHold({ landable, leftOut, row, rules });
   if (left) return left;
   if (!WAITS_TO_MERGE.includes(item.state)) return asks(`its item is ${item.state}, not finished work waiting to merge`);
-  if (item.state === 'pr' && !pullRequestsMerge()) return asks(PULLS_OFF);
+  if (item.state === 'pr' && !rules.mergePulls) return asks(PULLS_OFF, 'mergePulls');
   if (row.holds && !rules.earlierBranchesMayMerge) return asks('it brings earlier branches with it', 'earlierBranchesMayMerge');
   if (!item.review) return asks('no review has scored it');
 

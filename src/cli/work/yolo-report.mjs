@@ -7,7 +7,7 @@ import { whyWorkModeWaits } from './controls.mjs';
 import { readJson, readMode } from './store.mjs';
 import { needOf } from './yolo-parts.mjs';
 import { AFTER_DEPLOY_MINUTES, askedOf, deployOf, deployWords, holdOf, kindWords, landingReasons, READINGS, readLedger, waitingToMerge } from './yolo-pass.mjs';
-import { pullNoted, pullRequestsMerge } from './yolo-pulls.mjs';
+import { pullNoted } from './yolo-pulls.mjs';
 import { readYolo, yoloView } from './yolo.mjs';
 
 /**
@@ -75,7 +75,7 @@ function planBlock({ name, ready, parts, rules }) {
     `At most ${rules.mergesAPass === 1 ? 'one change merges' : `${rules.mergesAPass} changes merge`} on ${name} a pass, at the commit its review scored.`,
     deploys[deployOf({ parts: { deploy } }, true)],
     `A regression after a deploy stops merges on ${name} until its readiness is checked again.`,
-    ...(pullRequestsMerge()
+    ...(rules.mergePulls
       ? [
         'A change waiting on its own pull request merges there the same way, once every check on its commit passed and nothing on the code host holds it.',
         `Still asks you: a feature, a change its review could not place, one under ${rules.lowestRate} or under a floor, and a pull request someone else opened.`,
@@ -186,7 +186,7 @@ export function yoloStatus(root, now = Date.now()) {
     merged: ledger.filter(line => line.slug === project.slug && line.target).toReversed().map(merge => mergeFact(merge, readings)),
   }));
   // Whether YOLO mode takes a change waiting on its pull request at all (`yolo-pulls.mjs`), so the window says what it does.
-  return { ...view, waits: whyWorkModeWaits(readMode(root), now), pullRequests: pullRequestsMerge(), projects };
+  return { ...view, waits: whyWorkModeWaits(readMode(root), now), pullRequests: projects.some(({ rules }) => rules.mergePulls), projects };
 }
 
 /**

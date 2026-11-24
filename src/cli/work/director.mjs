@@ -934,7 +934,7 @@ export class WorkDirector {
 
     const project = readProject(this.root, slug);
     // A change waiting on its own PR earns one only while YOLO mode takes pull requests (`yolo-pulls.mjs`) and may merge it there once scored.
-    const earns = state === 'branch' || (pullRequestsMerge() && scoresByItself(this.root, slug));
+    const earns = state === 'branch' || (pullRequestsMerge(this.root, slug) && scoresByItself(this.root, slug));
     if (!reviewAsked && earns && await this.earnsAReview(project, branch, item.review)) {
       updateItem(this.root, slug, id, { reviewAsked: true }, this.now());
       retryItem(this.root, slug, id, this.now());

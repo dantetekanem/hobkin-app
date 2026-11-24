@@ -5,6 +5,7 @@ import { pullRequestRows } from './reads.mjs';
 import { paths, readItems, readProject, updateItem } from './store.mjs';
 import { BRANCH_PREFIX, defaultBranch } from './tree.mjs';
 import { closeMergedPull, ghWithin, pullNow, readUnmerged } from './unmerged.mjs';
+import { rulesOf } from './yolo-rules.mjs';
 
 /**
  * A change of hobkin's own that waits on its open pull request merges by itself on the code host, under every rule a local branch is under
@@ -16,17 +17,10 @@ import { closeMergedPull, ghWithin, pullNow, readUnmerged } from './unmerged.mjs
  */
 
 /**
- * Whether YOLO mode takes a change waiting on its own pull request at all: merging it, and starting its scored review by itself. Off until
- * a verifier has run its scenarios against this code again and the user says so. While it is off, a pull request item is as it was before
- * YOLO mode knew of them: no review starts for it by itself, and it keeps asking. A test turns it on with `pullRequestsMergeForTests`.
+ * Whether YOLO mode takes a change waiting on its own pull request on this project: the project's setting "Merge hobkin's own pull requests",
+ * which is off until the user turns it on in the window (`yolo-rules.mjs`). While it is off, a pull request item keeps asking.
  */
-const PULL_REQUESTS_MERGE = false;
-let forTests = null;
-export const pullRequestsMerge = () => forTests ?? PULL_REQUESTS_MERGE;
-/** For a test file alone, which runs in a process of its own: true or false, or null to go back to the constant. */
-export const pullRequestsMergeForTests = on => {
-  forTests = on;
-};
+export const pullRequestsMerge = (root, slug) => Boolean(root && slug) && rulesOf(root, slug).mergePulls === true;
 /** What a change waiting on its pull request says while YOLO mode does not take pull requests. */
 export const PULLS_OFF = 'its pull request merges by itself once that is turned on';
 
@@ -143,6 +137,7 @@ async function branchRules(gh, url, base, repo) {
     names: [...new Set([...protectedNames, ...ruleNames].filter(Boolean))],
     pinned,
     queue: rules.some(({ type }) => type === 'merge_queue'),
+    approvals: rules.some(({ type, parameters }) => type === 'pull_request' && parameters?.required_approving_review_count > 0),
   };
 }
 
@@ -210,6 +205,8 @@ function notPassed(rollup, required, listed) {
 const UNLISTED = 'hobkin could not list the checks its branch requires, so it relied on the host\'s own state';
 // Said while the change waits, a pass before it merges on the host's state alone, so the page shows it.
 const UNLISTED_WAIT = 'hobkin cannot list this branch\'s required checks, so it goes by GitHub\'s own state';
+// Said for good while the user's setting does not let a merge stand on the host's state alone.
+const UNLISTED_OFF = 'hobkin cannot list this branch\'s required checks, and merging on GitHub\'s own state alone is turned off';
 
 /** The signed-in user on the code host, whose pull requests hobkin opens, or null when it cannot be read. */
 export async function signedInUser(gh, repo) {
@@ -335,6 +332,10 @@ export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
     return null;
   }
   const relied = held?.relied ?? null;
+  if (relied && !rulesOf(root, row.slug).mergeWhenChecksUnlisted) {
+    noteWhy(root, row.slug, item, unit.sha, UNLISTED_OFF, now);
+    return null;
+  }
   if (relied && !(item.yoloPull?.head === unit.sha && item.yoloPull.why === UNLISTED_WAIT)) {
     noteWhy(root, row.slug, item, unit.sha, UNLISTED_WAIT, now);
     return null;
@@ -356,4 +357,31 @@ export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
   // It merged on YOLO mode's word, not the user's.
   updateItem(root, row.slug, item.id, { landed: { ...merged.landed, route: 'yolo' } }, now);
   return { target: merged.landed.sha, pr: unit.url, ...(relied ? { relied } : {}) };
+}
+
+const REQUIREMENT_FIELDS = 'baseRefName,reviewDecision,statusCheckRollup';
+
+/**
+ * What GitHub must have for a pull request of this project to merge by itself safely, each as met, not met, or null when it could not be read:
+ * the default branch requires status checks to pass, no merge queue is on, no approval is required, and checks exist at the commit. It reads
+ * them from the project's first pull request of hobkin's own, with the user's own gh, and writes nothing to GitHub. `pull` is null when none waits.
+ */
+export async function pullRequirements(root, slug, { gh = defaultPullGh } = {}) {
+  const found = pullCandidates(root).find(({ row, item, unit }) => row.slug === slug && item.pr && unit.url);
+  if (!found) return { pull: null, requirements: [] };
+
+  const { unit } = found;
+  const project = readProject(root, slug);
+  const repo = project.path ?? paths(root, slug).clone;
+  const view = await gh(['pr', 'view', unit.url, '--json', REQUIREMENT_FIELDS], repo).then(parsed, () => null);
+  const base = view?.baseRefName || (await defaultBranch(repo));
+  const [rules, queue] = base ? await Promise.all([branchRules(gh, unit.url, base, repo), mergeQueueOf(gh, unit.url, repo)]) : [null, null];
+  const known = value => (value === null || value === undefined ? null : value);
+  const requirements = [
+    { key: 'requiredChecks', words: 'The default branch requires status checks to pass', met: known(rules && rules.names.length > 0) },
+    { key: 'noMergeQueue', words: 'No merge queue is on', met: queue === null ? null : !(queue || rules?.queue) },
+    { key: 'noApproval', words: 'No approval is required', met: rules && view ? !rules.approvals && view.reviewDecision !== 'REVIEW_REQUIRED' : null },
+    { key: 'checksAtCommit', words: 'Checks exist at the commit', met: Array.isArray(view?.statusCheckRollup) ? view.statusCheckRollup.length > 0 : null },
+  ];
+  return { pull: unit.url, requirements };
 }

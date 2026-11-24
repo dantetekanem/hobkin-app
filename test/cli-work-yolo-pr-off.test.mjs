@@ -60,8 +60,9 @@ const stateOf = (h, { id }) => {
   return { state, reviewAsked };
 };
 
-test('the code ships with YOLO mode taking no pull request', () => {
-  assert.equal(pullRequestsMerge(), false);
+test('a home that set nothing has YOLO mode taking no pull request on any project', t => {
+  const h = home(t);
+  assert.equal(pullRequestsMerge(h.root, 'api'), false);
 });
 
 test('with YOLO mode off and reviews on, a change waiting on its pull request gets no review by itself, from the survey or as its run ends, as before', async t => {

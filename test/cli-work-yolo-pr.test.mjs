@@ -13,17 +13,15 @@ import { mergePullRequest } from '../src/cli/work/controls.mjs';
 import { chooseProject, fileItem, prFile, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { whyItAsks, yoloPass } from '../src/cli/work/yolo-pass.mjs';
-import { pullRequestsMergeForTests } from '../src/cli/work/yolo-pulls.mjs';
+import { rulesOf, setYoloRules } from '../src/cli/work/yolo-rules.mjs';
+import { codeHost, MERGE_COMMIT, USER } from './helpers/code-host.mjs';
 import { recordReadiness, setYolo, setYoloProject } from '../src/cli/work/yolo.mjs';
 import { branched, git, pull, repository } from './helpers/work-fixture.mjs';
 
-// These tests are of YOLO mode taking pull requests, which is off in the code until the user says so (cli-work-yolo-pr-off.test.mjs).
-pullRequestsMergeForTests(true);
+// These tests are of YOLO mode taking pull requests, which is off until the user says so (cli-work-yolo-pr-off.test.mjs), so each home turns it on.
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
 const READY_KEY = 'yolo:ready';
-const MERGE_COMMIT = 'f'.repeat(40);
-const USER = 'the-user';
 
 const scored = () => Object.fromEntries(['coverage', 'proof', 'safety', 'visibility', 'rollback']
   .map(name => [name, { score: 10, evidence: `What the review saw of ${name}.` }]));
@@ -33,108 +31,6 @@ const allReady = () => ({
   rollback: { ready: true, how: 'bin/deploy rollback takes the last release back.' },
   deploy: { ready: true, how: 'bin/deploy from main, undone by bin/deploy rollback.' },
 });
-
-/**
- * The code host as a test plays it, for one pull request of hobkin's own: what the survey lists, what a fresh read of it says, its required
- * checks, the signed-in user, and a merge that records how it was asked for. Nothing reaches a real host.
- */
-function codeHost({ number, branch, head }) {
-  const url = `https://github.invalid/the-user/api/pull/${number}`;
-  const host = {
-    url,
-    calls: [],
-    merged: false,
-    login: USER,
-    view: {
-      url,
-      state: 'OPEN',
-      isDraft: false,
-      author: { login: USER },
-      headRefName: branch,
-      headRefOid: head,
-      baseRefName: 'main',
-      isCrossRepository: false,
-      mergeable: 'MERGEABLE',
-      mergeStateStatus: 'CLEAN',
-      reviewDecision: '',
-      statusCheckRollup: [{ name: 'test', status: 'COMPLETED', conclusion: 'SUCCESS' }],
-    },
-    required: [{ name: 'test', bucket: 'pass' }],
-    checksError: null,
-    mergeError: null,
-    // A merge call that ends well and leaves the pull request open with auto-merge on, as gh does on a branch that asks for a merge queue.
-    queues: false,
-    undoError: null,
-    // The checks the default branch requires, by its protection and by its rulesets, or null when the host will not say.
-    protection: ['test'],
-    rules: [],
-    // Whether the default branch merges through a queue, by a ruleset or as the pull request itself says, and whether that can be read.
-    queueRule: false,
-    mergeQueue: false,
-    graphqlError: false,
-    // Required checks pinned to an app, as `{ context, app_id }`, and the check runs at the head each app reported, by name.
-    pinned: [],
-    checkRuns: {},
-  };
-  host.gh = async args => {
-    host.calls.push(args);
-    const [group, verb] = args;
-    if (group === 'api' && verb === 'user') return `${host.login}\n`;
-    if (group === 'api' && args.includes('graphql')) {
-      if (host.graphqlError) throw Object.assign(Error('failed'), { stderr: 'GraphQL: Field isMergeQueueEnabled does not exist' });
-      return JSON.stringify({ data: { repository: { pullRequest: { isMergeQueueEnabled: host.mergeQueue, isInMergeQueue: false } } } });
-    }
-    if (group === 'api' && args.at(-1) === 'repos/the-user/api/branches/main') {
-      if (!host.protection) throw Object.assign(Error('failed'), { stderr: 'HTTP 403: Resource not accessible' });
-      return JSON.stringify({ name: 'main', protected: true, protection: { required_status_checks: { contexts: host.protection, checks: host.pinned } } });
-    }
-    if (group === 'api' && args.at(-1) === 'repos/the-user/api/rules/branches/main') {
-      if (!host.rules) throw Object.assign(Error('failed'), { stderr: 'HTTP 403: Resource not accessible' });
-      const required = host.rules.length ? [{ type: 'required_status_checks', parameters: { required_status_checks: host.rules.map(context => ({ context })) } }] : [];
-      const rules = [...required, ...(host.queueRule ? [{ type: 'merge_queue', parameters: {} }] : [])];
-      // Read with --paginate --slurp, each page an array of its own.
-      return JSON.stringify(args.includes('--slurp') ? [rules] : rules);
-    }
-    if (group === 'api' && /\/check-runs\?check_name=/.test(args.at(-1))) {
-      const name = decodeURIComponent(args.at(-1).split('check_name=')[1].split('&')[0]);
-      return JSON.stringify([{ total_count: 0, check_runs: host.checkRuns[name] ?? [] }]);
-    }
-    if (group === 'pr' && verb === 'list') {
-      const { headRefOid, isDraft, reviewDecision, statusCheckRollup, mergeable } = host.view;
-      const merged = host.merged ? { state: 'MERGED', mergedAt: new Date(NOW).toISOString(), mergeCommit: { oid: MERGE_COMMIT } } : {};
-      return JSON.stringify([pull(number, { url, headRefName: branch, headRefOid, isDraft, reviewDecision, statusCheckRollup, mergeable, ...merged })]);
-    }
-    if (group === 'pr' && verb === 'view') {
-      // Any other address is a pull request of another repository on a branch of the same name, at the same head, and clean.
-      if (args[2] !== url) return JSON.stringify({ ...host.view, url: args[2] });
-      return JSON.stringify(host.merged ? { ...host.view, state: 'MERGED', mergedAt: new Date(NOW).toISOString(), mergeCommit: { oid: MERGE_COMMIT } } : host.view);
-    }
-    if (group === 'pr' && verb === 'checks') {
-      if (host.checksError) throw host.checksError;
-      return JSON.stringify(host.required);
-    }
-    if (group === 'pr' && verb === 'merge' && args.includes('--disable-auto')) {
-      if (host.undoError) throw host.undoError;
-      host.view.autoMergeRequest = null;
-      return '';
-    }
-    if (group === 'pr' && verb === 'merge') {
-      if (host.mergeError) throw host.mergeError;
-      if (host.queues) {
-        host.view.autoMergeRequest = { enabledAt: new Date(NOW).toISOString() };
-        return '';
-      }
-      host.merged = true;
-      // gh killed by its timeout after the host merged.
-      if (host.killedAfterMerge) throw Object.assign(Error('Command failed: gh pr merge'), { killed: true, signal: 'SIGTERM', stderr: '' });
-      return '';
-    }
-    return '[]';
-  };
-  host.merges = () => host.calls.filter(args => args[0] === 'pr' && args[1] === 'merge' && !args.includes('--disable-auto'));
-  host.undos = () => host.calls.filter(args => args[0] === 'pr' && args[1] === 'merge' && args.includes('--disable-auto'));
-  return host;
-}
 
 function workspace(t, projects = ['api']) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-yolo-pr-')));
@@ -148,7 +44,7 @@ function workspace(t, projects = ['api']) {
     recordMachines(root, name, { machines: [] }, { tlc: true, now: NOW });
   }
   writeMode(root, { enabled: true });
-  setYolo(root, { on: true }, NOW);
+  setYolo(root, { on: true, rules: { mergePulls: true } }, NOW);
   for (const name of projects) {
     const { id } = readItems(root, name).find(({ key }) => key === READY_KEY);
     updateItem(root, name, id, { state: 'doing' }, NOW);
@@ -334,7 +230,7 @@ test('a finished change waiting on its pull request gets its scored review by it
   const change = openedAsPull(h, 'Fix login', { review: null });
   mkdirSync(dirname(prFile(h.root, 'api', change.id)), { recursive: true });
   writeFileSync(prFile(h.root, 'api', change.id), 'What changed and why.\n');
-  assert.equal(whyItAsks({ yolo: { on: true, rate: 8 }, on: true, project: {}, readiness: { ready: true }, landable: true, row: { holds: 0 }, item: itemOf(h, change) }), 'no review has scored it');
+  assert.equal(whyItAsks({ yolo: { on: true, rate: 8 }, on: true, project: {}, readiness: { ready: true }, landable: true, row: { holds: 0 }, item: itemOf(h, change), rules: rulesOf(h.root, 'api') }), 'no review has scored it');
 
   await surveyAndClose(h.root, { now: NOW, gh: change.host.gh, reviews: join(h.base, 'no-reviews') });
 
@@ -482,6 +378,7 @@ test('when the host will not list the required checks, YOLO mode merges only on 
   const h = workspace(t);
   const change = openedAsPull(h, 'Fix login');
   const { host } = change;
+  setYoloRules(h.root, null, { mergeWhenChecksUnlisted: true });
   host.protection = null;
   await survey(h, host.gh);
   const pass = () => yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
