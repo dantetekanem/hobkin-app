@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type Key
 import { useStore } from 'zustand'
 import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
-import { CLOSE_CONFIRM_MS, createIssueClose } from '@/features/github/issue-close.ts'
+import { CONFIRM_MS, createTwoClicks } from '@/lib/two-clicks.ts'
 import { cn } from '@/lib/utils.ts'
 import type { HobkinChoice } from './actions.ts'
 
@@ -68,8 +68,8 @@ export function ClampedLine({ text, label, lines = 2, className }: { text: strin
 }
 
 /**
- * Close without merging, hobkin's own done, confirmed in place with the same two clicks as Close issue on the GitHub
- * page (`issue-close.ts`): the first turns it into "Click again to close" for ten seconds, a line along its foot running
+ * Close without merging, hobkin's own done, confirmed in place with the same two clicks as an integration's close
+ * buttons (`lib/two-clicks.ts`): the first turns it into "Click again to close" for ten seconds, a line along its foot running
  * out over them, and the second closes it. Escape, moving away from it or the ten seconds take the first click back.
  */
 export function CloseWithoutMerging({ label, busy, onClose }: { label: string; busy: boolean; onClose: () => Promise<void> }) {
@@ -79,8 +79,9 @@ export function CloseWithoutMerging({ label, busy, onClose }: { label: string; b
     latest.current = onClose
   })
   const [flow] = useState(() =>
-    createIssueClose({
-      close: async () => {
+    createTwoClicks({
+      initial: '',
+      run: async () => {
         await latest.current()
         return ''
       },
@@ -120,7 +121,7 @@ export function CloseWithoutMerging({ label, busy, onClose }: { label: string; b
           className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-current opacity-55"
           initial={{ scaleX: 1 }}
           animate={{ scaleX: 0 }}
-          transition={{ duration: CLOSE_CONFIRM_MS / 1000, ease: 'linear' }}
+          transition={{ duration: CONFIRM_MS / 1000, ease: 'linear' }}
         />
       ) : null}
     </Button>
