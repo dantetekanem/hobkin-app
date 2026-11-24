@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight } from 'lucide-react'
+import { ArrowDown, ChevronDown, ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useStill } from '@/app/still.ts'
@@ -48,21 +48,34 @@ export function StackGroup({ entry, live, variants, order, leaving, onRowsLeft, 
 
   return (
     <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
-      <div role="group" aria-label={headingOf(entry)} className="flex flex-col gap-1.5 pt-3">
+      {/* One stack, one frame, quieter than the layers in it: the layer that lands first, then each one over it, an arrow between each and the next. */}
+      <div role="group" aria-label={headingOf(entry)} className="flex flex-col gap-1.5 rounded-[28px] bg-foreground/[0.025] p-1.5 pt-3">
         <p className="px-5 text-[12.5px] leading-snug font-medium text-muted-foreground">{headingOf(entry)}</p>
-        <ul className="relative flex flex-col gap-2">
+        <ul className="relative flex flex-col">
           <AnimatePresence mode="popLayout" custom={leaving} onExitComplete={onRowsLeft}>
-            {entry.layers.map((layer) => {
+            {entry.layers.flatMap((layer, index) => {
               const place = placeOf(layer.change.stack!)
-              if (isWholeCard(layer.change)) return drawCard(layer, place, true)
-              return (
+              const drawn = isWholeCard(layer.change) ? (
+                drawCard(layer, place, true)
+              ) : (
                 <LayerRow key={layer.change.key} layer={layer} live={live} opened={open.has(layer.change.key)} onToggle={() => toggle(layer.change.key)} variants={variants} drawCard={() => drawCard(layer, place, false)} />
               )
+              if (index === 0) return [drawn]
+              return [<LandsThen key={`then:${layer.change.key}`} />, drawn]
             })}
           </AnimatePresence>
         </ul>
       </div>
     </motion.li>
+  )
+}
+
+/** The arrow from one layer to the one that lands after it. */
+function LandsThen() {
+  return (
+    <li aria-hidden="true" className="flex h-5 items-center pl-[30px] text-muted-foreground/70">
+      <ArrowDown className="size-3.5" />
+    </li>
   )
 }
 
