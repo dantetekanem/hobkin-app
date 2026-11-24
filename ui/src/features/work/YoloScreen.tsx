@@ -29,14 +29,21 @@ import {
   changeOpens,
   changeRows,
   gates,
+  GATES_COUNTS,
+  hasSwitch,
   inPlace,
+  isOn,
   mergedDays,
   mergedLine,
   mergesHeld,
+  offLine,
   projectOpens,
+  projectOrder,
   readinessRow,
   sampleReadiness,
+  sampleSwitch,
   stillToSetUp,
+  switchesSay,
   trustTiles,
   waitingChange,
   yoloReportId,
@@ -207,7 +214,7 @@ const GatesRow = memo(function GatesRow({ counted, rate, merged }: { counted: Ga
       <div className="grid grid-cols-1 gap-3 @3xl:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
         <Funnel
           title="Gates now"
-          counts={`Of the finished changes waiting now, how many are rated ${rate} or more, and how many of those nothing holds. hobkin keeps no history of each gate, so this counts now.`}
+          counts={GATES_COUNTS(rate)}
           steps={steps}
           aside={{ label: 'wait for you', count: waiting }}
           status={finished ? 'ready' : 'no-data'}
@@ -277,16 +284,22 @@ interface CardContext {
 
 function Projects({ workProjects, ...context }: CardContext & { workProjects: WorkProject[] }) {
   const { yolo, live } = context
+  // The order the page opened with holds while it is open, so a card whose switch was just pressed stays under the pointer.
+  const kept = useRef<string[] | null>(null)
+  const ordered = projectOrder(yolo.projects, kept.current)
+  if (!kept.current && ordered.length) kept.current = ordered.map(({ slug }) => slug)
+  const switches = switchesSay(yolo)
   return (
     <section aria-label="Projects" className="flex flex-col gap-3">
       <SectionHeading label="Projects" count={readyCount(yolo)} />
       <p className="px-1 text-[13px] leading-snug text-muted-foreground">
         Each project says what YOLO mode does there and, when it does nothing, why and the one thing that moves it. Readiness sets up the rest as PRs for your merge and asks you only for what you alone can give, with YOLO mode on or off.
+        {switches ? ` ${switches}` : null}
       </p>
       <ProofSetup live={live} />
-      {yolo.projects.length ? (
+      {ordered.length ? (
         <ul aria-label="Projects" className="flex flex-col gap-3">
-          {yolo.projects.map((project) => (
+          {ordered.map((project) => (
             <ProjectCard key={project.slug} project={project} workProject={workProjects.find(({ slug }) => slug === project.slug)} {...context} />
           ))}
         </ul>
@@ -343,11 +356,36 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, setti
   const reportId = useReports((state) => yoloReportId(project, state.inbox.reports))
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<Said | null>(null)
+  // The project's own switch shows the press at once, until hobkin's state says the same or the host refuses it.
+  const [pending, setPending] = useState<boolean | null>(null)
+  const [switching, setSwitching] = useState(false)
+  const on = pending ?? isOn(project)
 
   // hobkin's answer goes once the work moves on, except that a start which waits keeps saying why until it runs.
   useEffect(() => {
     setSaid((current) => (current?.tone === 'done' && project.work === 'queued' ? current : null))
   }, [project.work])
+  useEffect(() => setPending(null), [project.on])
+
+  const toggle = async (next: boolean) => {
+    if (switching) return
+    setSaid(null)
+    setPending(next)
+    if (!live) {
+      setSample((before) => sampleSwitch(before, project.slug, next))
+      return
+    }
+    setSwitching(true)
+    try {
+      // The host answers by publishing work mode's status again, with this project's switch as hobkin now keeps it.
+      await runCommand('work.yolo.project', { slug: project.slug, on: next })
+    } catch (error) {
+      setPending(null)
+      setSaid({ text: error instanceof Error ? error.message : String(error), tone: 'refused' })
+    } finally {
+      setSwitching(false)
+    }
+  }
 
   const runReadiness = async (press: ReadinessPress) => {
     if (busy || !readiness.canRun) return
@@ -394,6 +432,46 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, setti
     }
   }
 
+  // The switch leads the heading, so it sits in the same place on every card, open or folded.
+  const heading = (
+    <div className="grid h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4">
+      <div className="flex min-w-0 items-center gap-2">
+        {hasSwitch(project) ? (
+          <Switch checked={on} disabled={switching} onCheckedChange={(next) => void toggle(next)} aria-label={`YOLO mode on ${project.name}`} data-stop="" className="mr-1" />
+        ) : null}
+        <h3 className="min-w-0 font-heading text-[15px] font-semibold">
+          {/* A box rather than a button: WebKit lays a button's content out in a box of its own, which cut the name short. */}
+          <span {...pressProps(() => go(projectOpens(project.slug)))} aria-label={`${project.name}: opens its page`} className="pressable -mx-1.5 flex h-7 min-w-0 items-center gap-1 rounded-lg px-1.5">
+            <span className="truncate">{project.name}</span>
+            <OpenArrow className="size-3.5" />
+          </span>
+        </h3>
+        {on ? <Mark tone={readiness.tone}>{readiness.state}</Mark> : null}
+        {/* Last on the line, so nothing before it moves when hobkin writes the first one. */}
+        {on && reportId ? (
+          <Button variant="ghost" size="xs" data-stop="" aria-label={`YOLO report on ${project.name}`} onClick={() => openTarget({ to: 'report', id: reportId })} className="shrink-0">
+            Report
+          </Button>
+        ) : null}
+      </div>
+      {on ? <PrimaryPress action={verdict.action} busy={busy || setting.saving} name={project.name} onPress={act} /> : null}
+    </div>
+  )
+
+  // Off, the card folds to its heading and one quiet line of what is not happening.
+  if (!on) {
+    const refused = said?.tone === 'refused'
+    const line = refused ? `Not saved. ${said.text}` : offLine(project)
+    return (
+      <li aria-label={project.name} className="flex flex-col gap-1 rounded-2xl bg-background px-4 py-3">
+        {heading}
+        <p role={refused ? 'alert' : undefined} title={line} className={cn('h-5 truncate pl-11 text-[13px] leading-5', refused ? 'text-bad-fg' : 'text-muted-foreground')}>
+          {line}
+        </p>
+      </li>
+    )
+  }
+
   const changes = changeRows(project, { rate: yolo.rate, holds: mergesHeld(project, context) })
   const days = mergedDays(project, { zone: ZONE, now })
   const setUp = stillToSetUp(project)
@@ -401,25 +479,7 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, setti
 
   return (
     <li aria-label={project.name} className="flex flex-col gap-3 rounded-2xl bg-background px-4 py-3">
-      <div className="grid h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4">
-        <div className="flex min-w-0 items-center gap-2">
-          <h3 className="min-w-0 font-heading text-[15px] font-semibold">
-            {/* A box rather than a button: WebKit lays a button's content out in a box of its own, which cut the name short. */}
-            <span {...pressProps(() => go(projectOpens(project.slug)))} aria-label={`${project.name}: opens its page`} className="pressable -mx-1.5 flex h-7 min-w-0 items-center gap-1 rounded-lg px-1.5">
-              <span className="truncate">{project.name}</span>
-              <OpenArrow className="size-3.5" />
-            </span>
-          </h3>
-          <Mark tone={readiness.tone}>{readiness.state}</Mark>
-          {/* Last on the line, so nothing before it moves when hobkin writes the first one. */}
-          {reportId ? (
-            <Button variant="ghost" size="xs" data-stop="" aria-label={`YOLO report on ${project.name}`} onClick={() => openTarget({ to: 'report', id: reportId })} className="shrink-0">
-              Report
-            </Button>
-          ) : null}
-        </div>
-        <PrimaryPress action={verdict.action} busy={busy || setting.saving} name={project.name} onPress={act} />
-      </div>
+      {heading}
       <dl className="grid grid-cols-[64px_88px_minmax(0,1fr)] items-start gap-x-3 gap-y-2">
         <Status label="Merges" line={verdict.merges} said={said} />
         <Status label="Deploys" line={verdict.deploys} said={null} />
