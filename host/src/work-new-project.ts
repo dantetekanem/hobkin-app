@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { isAbsolute, join, resolve } from 'node:path'
+import { basename, isAbsolute, join, resolve } from 'node:path'
 import * as hobkinControls from 'hobkin/src/cli/work/controls.mjs'
 import { readProjects } from 'hobkin/src/cli/work/store.mjs'
 import type { FolderLook, NewProjectDone, ProjectKind, ProjectState } from '#shared/protocol/work.ts'
@@ -20,11 +20,20 @@ export interface NewProjectRequest {
   level: string
 }
 
+/** hobkin's answer to an add: the project as it took it, and its own line about what happens next. */
+export interface ProjectAdded {
+  ok: true
+  message: string
+  slug: string
+  name: string
+  kind: ProjectKind
+}
+
 /** hobkin's functions the New project popup uses. Tests hand in others. */
 export interface NewProjectRuntime {
   readProjects: SetupWorkRuntime['readProjects']
   /** Only a hobkin that has the add has it. Looked up on the module, never imported by name, so an older hobkin still loads. */
-  newProject?: (root: string, request: NewProjectRequest) => Promise<{ ok: true; message: string; slug: string; name: string; kind: ProjectKind }> | { ok: true; message: string; slug: string; name: string; kind: ProjectKind }
+  newProject?: (root: string, request: NewProjectRequest) => Promise<ProjectAdded> | ProjectAdded
 }
 
 export const HOBKIN_NEW_PROJECT: NewProjectRuntime = {
@@ -32,7 +41,31 @@ export const HOBKIN_NEW_PROJECT: NewProjectRuntime = {
   newProject: (hobkinControls as { newProject?: NewProjectRuntime['newProject'] }).newProject,
 }
 
-const PROJECT_STATES: readonly string[] = ['chosen', 'proposed', 'skipped', 'dropped']
+const PROJECT_STATES: readonly ProjectState[] = ['chosen', 'proposed', 'skipped', 'dropped']
+
+/** A project's state in the words the window uses for it. */
+const STATE_WORDS: Record<ProjectState, string> = {
+  chosen: 'taken',
+  proposed: 'proposed',
+  skipped: 'skipped',
+  dropped: 'dropped',
+}
+
+type KnownRecord = ReturnType<SetupWorkRuntime['readProjects']>[number]
+
+/** The project work mode has for the folder, as the window reads it. A record with no state hobkin knows reads as proposed. */
+function knownProject(record: KnownRecord): NonNullable<FolderLook['known']> {
+  const state = PROJECT_STATES.find((known) => known === record.state) ?? 'proposed'
+  return { slug: record.slug, name: record.name ?? record.slug, state }
+}
+
+function isFile(path: string): boolean {
+  try {
+    return statSync(path).isFile()
+  } catch {
+    return false
+  }
+}
 
 /** The path as typed, with `~` for the home folder. A path that is not absolute after that is nothing. */
 function absolute(typed: string, home: string): string | null {
@@ -46,21 +79,17 @@ export function lookAt(root: string, typed: string, runtime: Pick<NewProjectRunt
   const path = absolute(typed, home)
   if (!path) return { ...nothing, found: 'missing' }
   const { disk, known, named } = projectsAt(root, path, runtime)
-  if (!disk.folder) {
-    let isFile = false
-    try {
-      isFile = statSync(path).isFile()
-    } catch {}
-    return { ...nothing, found: isFile ? 'file' : 'missing' }
-  }
-  const folder = disk.spellings[disk.spellings.length - 1] as string
+  if (!disk.folder) return { ...nothing, found: isFile(path) ? 'file' : 'missing' }
+
+  // The folder's spellings end with the one it has on disk, with links resolved.
+  const folder = disk.spellings.at(-1) ?? path
   return {
     typed,
     folder,
     found: 'folder',
     git: disk.git,
-    name: folder.split('/').filter(Boolean).pop() ?? folder,
-    known: known ? { slug: known.slug, name: known.name ?? known.slug, state: (PROJECT_STATES.includes(known.state ?? '') ? known.state : 'proposed') as ProjectState } : null,
+    name: basename(folder),
+    known: known ? knownProject(known) : null,
     namesake: named ? (named.path ?? named.remote ?? named.slug) : null,
   }
 }
@@ -78,7 +107,7 @@ export interface NewProjectSeat {
 function refusalFor(look: FolderLook, kind: ProjectKind): string | null {
   if (look.found === 'missing') return `There is no folder at ${look.typed}.`
   if (look.found === 'file') return `${look.typed} is a file, not a folder.`
-  if (look.known) return `Work already has this folder as ${look.known.name} (${look.known.state}).`
+  if (look.known) return `Work already has this folder as ${look.known.name}, ${STATE_WORDS[look.known.state]}.`
   if (look.namesake) return `Work already has a project named ${look.name}, at ${look.namesake}.`
   if (kind === 'code' && !look.git) return `${look.typed} is not a git repository, so it can only be added as a goal.`
   return null
@@ -94,7 +123,12 @@ export function newProjectHandlers({ root, refresh, runtime = HOBKIN_NEW_PROJECT
       if (refusal) throw Error(refusal)
       if (!runtime.newProject) throw new Unavailable('This hobkin cannot add a project from here yet. Update hobkin.')
       // hobkin's refusal is passed on as it said it.
-      const added = await runtime.newProject(base, { path: look.folder as string, kind, ...(wants === undefined ? {} : { wants }), level: 'important' })
+      // A look that is not refused found a folder.
+      const path = look.folder ?? folder
+      const request: NewProjectRequest = { path, kind, level: 'important', ...(wants === undefined ? {} : { wants }) }
+      const added = await runtime.newProject(base, request)
+
+      // The project is in hobkin's files either way. Without the read the window catches up at hobkin's next change.
       await refresh().catch(() => {})
       return { slug: added.slug, name: added.name, kind: added.kind, message: added.message }
     },

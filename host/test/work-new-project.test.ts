@@ -111,7 +111,7 @@ test('an add refuses in plain words what cannot be added, and calls hobkin for n
   const { paths, add, added, refreshed } = world(t, ({ repo }) => [{ slug: 'storefront', path: repo, state: 'chosen' }, { slug: 'notes', path: '/elsewhere/notes', state: 'chosen' }])
   assert.ok(refusedWith(await add({ folder: join(paths.home, 'nothing'), kind: 'goal', wants: 'x' }) as never, /There is no folder at/))
   assert.ok(refusedWith(await add({ folder: paths.file, kind: 'goal', wants: 'x' }) as never, /is a file, not a folder/))
-  assert.ok(refusedWith(await add({ folder: paths.link, kind: 'code' }) as never, /Work already has this folder as storefront \(chosen\)/))
+  assert.ok(refusedWith(await add({ folder: paths.link, kind: 'code' }) as never, /Work already has this folder as storefront, taken\./))
   assert.ok(refusedWith(await add({ folder: paths.plain, kind: 'goal', wants: 'x' }) as never, /already has a project named notes, at \/elsewhere\/notes/))
   assert.deepEqual([added, refreshed], [[], []])
 })
