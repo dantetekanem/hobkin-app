@@ -47,8 +47,8 @@ export function escapeReview(session: EscapableSession, close: () => void): void
 
 /**
  * Whether an Escape is the review's to take. One pressed in a field is the field's: it leaves the field and keeps its
- * words, and never closes the review. One in a dialog, a menu, a list or the stack's box is theirs too.
+ * words, and never closes the review. One in a dialog, a menu or a list is theirs too.
  */
 export function reviewTakesEscape(target: { closest(selector: string): unknown }): boolean {
-  return target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [data-rv-stack-box], [role="menu"], [role="listbox"]') == null
+  return target.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="menu"], [role="listbox"]') == null
 }

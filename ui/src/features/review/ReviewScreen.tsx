@@ -391,8 +391,8 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
         panelKey,
         // S hides the panel, or brings it back. The panel does it, and keeps the keyboard where it belongs.
         toggleSteps: () => steps?.dispatchEvent(new Event('rv-toggle')),
-        // Shift+S opens the plan for a stack under the panel's size row, or closes it. The header does it. A key held down only repeats.
-        toggleStack: () => {
+        // Shift+S puts the keyboard on "Make it a stack" in the panel's size row. The header does it. A key held down only repeats.
+        focusStack: () => {
           if (!event.repeat) steps?.querySelector('[data-rv-stack]')?.dispatchEvent(new Event('rv-stack'))
         },
         verdict: (kind: Verdict) => {

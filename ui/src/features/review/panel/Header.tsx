@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils.ts'
 import { usePullPeople } from '../use-people.ts'
 import { ByLineNames } from './ByLine.tsx'
 import { carriedLine, outdatedNotice } from './outdated.ts'
-import { StackBox, StackButton, useStack } from './StackBox.tsx'
+import { StackButton, StackLine, useStack } from './StackButton.tsx'
 import { headerBadge, type HeaderBadge, type HeaderFix } from './sidebar.ts'
 
 /**
@@ -47,7 +47,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
   rebuild: () => void
 }) {
   const [described, setDescribed] = useState(false)
-  const stack = useStack(review, { live, preparation, ready: assessment != null })
+  const stack = useStack({ id: review.id, live, merged: preparation?.landing?.state === 'merged', lines: review.change.additions + review.change.deletions })
   const pull = targetOfReviewId(review.id)?.kind === 'pull'
   // The pull request this review has: its own, or the one its finished change opened.
   const pullRequest = pullOfReview(review.id, preparation?.pr)
@@ -124,7 +124,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
           )}
         </div>
       ) : null}
-      <StackBox stack={stack} />
+      <StackLine stack={stack} />
       <Outdated review={review} preparation={preparation} live={live} rebuild={rebuild} />
     </header>
   )

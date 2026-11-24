@@ -53,7 +53,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
       [['↵'], 'In the input: keep the comment, or send the question. ⇧↵ starts a new line'],
       [['esc'], 'In the input: back to the review, the words kept. It never stops Hobkin'],
       [['S'], 'Hide the panel, or bring it back'],
-      [['⇧S'], 'Make it a stack: the plan of layers for this change, under its size. Again, or esc, to close it'],
+      [['⇧S'], 'Put the keyboard on Make it a stack, under the change\'s size. Enter starts the agent'],
     ],
   },
   {
