@@ -27,6 +27,11 @@ export interface AssessmentSummary {
   why?: string
   /** The review of this change before this one, when there was one: its commit, its answer and when it finished. */
   before?: { head: string; deploy: Deploy; at: string }
+  /**
+   * The review was carried to this commit from the one it was built for, not built again (spec 058): only the start
+   * moved, or only specs or Markdown, and the change's tests passed here. `tests` is how many test files ran here.
+   */
+  carried?: { from: string; why: string; tests: number }
 }
 
 /** The one question a review answers, for the whole change and never for a part of it: is it risky or safe to deploy? */
