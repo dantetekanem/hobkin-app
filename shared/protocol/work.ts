@@ -267,6 +267,11 @@ export interface YoloMerge {
 export interface YoloProject {
   slug: string
   name: string
+  /**
+   * Whether YOLO mode works on this project, by its own switch, which only the window sets (`work.yolo.project`). YOLO mode's
+   * main switch still decides first. A hobkin older than this does not send it, and then the project has no switch of its own.
+   */
+  on?: boolean
   ready: boolean
   needs: string[]
   /** Every part as it stands. A hobkin older than them does not send it. */

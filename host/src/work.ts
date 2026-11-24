@@ -4,6 +4,7 @@ import { heldByItsGrade } from 'hobkin/src/cli/work/reads.mjs'
 import { byPriority, byRank, currentRequest, dailyLimit, grades, MAX_AGENTS, readMode, setAgents, setDailyTokens } from 'hobkin/src/cli/work/store.mjs'
 import * as hobkinStore from 'hobkin/src/cli/work/store.mjs'
 import { setYolo } from 'hobkin/src/cli/work/yolo.mjs'
+import * as hobkinYolo from 'hobkin/src/cli/work/yolo.mjs'
 import {
   GRADES,
   HOLDING_KINDS,
@@ -181,6 +182,12 @@ export interface WorkloadRuntime {
 }
 const newerStore = hobkinStore as Partial<typeof hobkinStore>
 const HOBKIN_WORKLOAD: WorkloadRuntime = { setWorkload: newerStore.setWorkload, workloadOf: newerStore.workloadOf }
+
+/** Each project's own YOLO mode switch, which only a hobkin that has it can set. Looked up on the module, as the workload is. */
+export interface YoloRuntime {
+  setYoloProject?: typeof hobkinYolo.setYoloProject
+}
+const HOBKIN_YOLO: YoloRuntime = { setYoloProject: (hobkinYolo as Partial<typeof hobkinYolo>).setYoloProject }
 
 const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1
 
@@ -535,6 +542,8 @@ export interface WorkSeat {
   root: () => string
   /** hobkin's workload functions, when it has them. The ones hobkin's store exports unless a test says otherwise. */
   workload?: WorkloadRuntime
+  /** hobkin's setter of one project's YOLO mode switch, when it has one. hobkin's own unless a test says otherwise. */
+  yolo?: YoloRuntime
 }
 
 type WorkCommand =
@@ -548,6 +557,7 @@ type WorkCommand =
   | 'work.allowance'
   | 'work.yolo'
   | 'work.yolo.ready'
+  | 'work.yolo.project'
   | 'work.change'
   | 'work.group'
 
@@ -566,7 +576,7 @@ interface Reply {
 const messageOf = (result: unknown) => String((result as Reply | null)?.message ?? '')
 
 /** The Work screen's commands. Each is one of hobkin's own work actions, and a refusal comes back in hobkin's words. */
-export function workHandlers({ app, root, workload = HOBKIN_WORKLOAD }: WorkSeat): Pick<HostHandlers, WorkCommand> {
+export function workHandlers({ app, root, workload = HOBKIN_WORKLOAD, yolo = HOBKIN_YOLO }: WorkSeat): Pick<HostHandlers, WorkCommand> {
   const done = { ok: true } as const
   return {
     'work.mode': async ({ on, folder }) => {
@@ -635,6 +645,14 @@ export function workHandlers({ app, root, workload = HOBKIN_WORKLOAD }: WorkSeat
     'work.yolo.ready': async ({ slug }) => {
       const said = await app().workAction('ready', slug)
       return { message: messageOf(said) }
+    },
+    'work.yolo.project': async ({ slug, on }) => {
+      // The user's click alone, as with the main switch, so the host calls the runtime's own setter.
+      const { setYoloProject } = yolo
+      if (!setYoloProject) throw new Unavailable('This hobkin has no YOLO mode switch for each project yet. Update hobkin to set one from here.')
+      const set = setYoloProject(root(), slug, on)
+      await app().refresh()
+      return { slug: set.slug, on: set.on }
     },
     'work.change': async ({ slug, item, action, head, note }) => {
       const named = CHANGE_ACTIONS[action]

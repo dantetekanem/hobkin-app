@@ -1089,7 +1089,7 @@ export const COMMANDS = {
   // YOLO mode lets small, well-reviewed changes merge and deploy with no yes, so only the user's click in the window changes it (049-yolo-mode).
   'work.yolo': {
     description:
-      "Turn YOLO mode on or off, or set the lowest general rate it accepts, from 6 to 10. Turning it on merges nothing: hobkin first files one feature on each project to get it ready, and only on a ready project does a small change its review rated at or above that rate merge and deploy by itself.",
+      "Turn YOLO mode on or off, or set the lowest general rate it accepts, from 6 to 10. Turning it on merges nothing: hobkin first files one feature on each project it is on for to get it ready, and only on a ready project does a small change its review rated at or above that rate merge and deploy by itself.",
     runs: 'host',
     args: Type.Object({ on: Type.Optional(Type.Boolean()), rate: Type.Optional(Type.Integer({ minimum: 6, maximum: 10 })) }, { additionalProperties: false }),
     rule: ({ on, rate }) => (on === undefined && rate === undefined ? 'need on or rate' : null),
@@ -1098,9 +1098,17 @@ export const COMMANDS = {
   // It spends an agent's run, so only the user's click in the window starts it.
   'work.yolo.ready': {
     description:
-      "Run one project's readiness for YOLO mode now, whether YOLO mode is on or off: hobkin files its readiness work when it has none, opens it again for a fresh check once it landed or closed, and starts it at once, as Start now starts a queue row. Work that waits for the user's yes on its branch is refused. It merges and deploys nothing.",
+      "Run one project's readiness for YOLO mode now, whether YOLO mode is on or off: hobkin files its readiness work when it has none, opens it again for a fresh check once it landed or closed, and starts it at once, as Start now starts a queue row. Work that waits for the user's yes on its branch is refused, and so is a project YOLO mode is off on. It merges and deploys nothing.",
     runs: 'host',
     args: Type.Object({ slug: projectSlug }, { additionalProperties: false }),
+  },
+  // As with the main switch, only the user's click in the window turns YOLO mode on or off on one project.
+  'work.yolo.project': {
+    description:
+      "Turn YOLO mode on or off on one project. Off, nothing there is made ready, merged or deployed by YOLO mode, and its finished changes wait for the user as with YOLO mode off; its readiness work that has not started is set aside. On, YOLO mode works there whenever its main switch is on, and files its readiness work then. Every other project keeps its own switch.",
+    runs: 'host',
+    args: Type.Object({ slug: projectSlug, on: Type.Boolean() }, { additionalProperties: false }),
+    outside: true,
   },
   // Proof runs of TLA+ models (050-tla-proofs). hobkin's own `hobkin proof` writes them, and these read, stop and repeat them.
   'proof.get': {
@@ -1550,6 +1558,8 @@ export interface CommandResults {
   'work.yolo': { on: boolean; rate: number }
   /** What hobkin said: the readiness work starts now, or what still holds it. */
   'work.yolo.ready': { message: string }
+  /** The project's own YOLO mode switch as it stands now. */
+  'work.yolo.project': { slug: string; on: boolean }
   /** The whole run. */
   'proof.get': ProofRun
   /** What happened to the run, in a line. */

@@ -129,4 +129,10 @@ declare module 'hobkin/src/cli/work/yolo.mjs' {
    * it on merges nothing and files each project's readiness work, named in `filed`. Throws for a rate outside 6 to 10.
    */
   export function setYolo(root: string, change: { on?: boolean; rate?: number }): { on: boolean; rate: number; filed: { slug: string; id: string; title: string }[] }
+  /**
+   * The user's word on YOLO mode for one chosen project, from the window alone. Every other project keeps its switch. Turning one on
+   * while YOLO mode is on files its readiness work, named in `filed`. Throws for a project work mode does not work on. A hobkin older
+   * than the switch does not have it, so the host looks it up on the module.
+   */
+  export function setYoloProject(root: string, slug: string, on: boolean): { slug: string; on: boolean; filed: { slug: string; id: string; title: string }[] }
 }
