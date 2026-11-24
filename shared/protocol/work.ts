@@ -73,6 +73,48 @@ export interface QueueRow {
  */
 export type ProjectState = 'chosen' | 'proposed' | 'skipped' | 'dropped'
 
+/**
+ * What a project is to work mode (059-new-project). `code` is a git repository: its work finishes on a branch for the
+ * user's yes. `goal` is something to reach, kept in a folder that need not be a repository: work mode works toward the
+ * user's own words there, in the folder itself, with no branch, pull request, review or merge.
+ */
+export type ProjectKind = 'code' | 'goal'
+
+export const PROJECT_KINDS: readonly ProjectKind[] = ['code', 'goal']
+
+/** What is at a path the user named for a new project. */
+export type FolderFound = 'folder' | 'file' | 'missing'
+
+/** What hobkin sees at the folder the user named for a new project (`work.project.look`). It only reads. */
+export interface FolderLook {
+  /** The folder as it was typed. */
+  typed: string
+  /** The folder as it is on disk, with `~` and links resolved. Null when there is no folder there. */
+  folder: string | null
+  found: FolderFound
+  /** It holds a git repository of its own, so it can be a code project. */
+  git: boolean
+  /** The name the project would get: the folder's own. Null when there is no folder there. */
+  name: string | null
+  /** The project work mode already has for this very folder. */
+  known: { slug: string; name: string; state: ProjectState } | null
+  /** Where the project work mode already has under this folder's name lives, when that is another folder. */
+  namesake: string | null
+}
+
+/** A project the user added with New project (`work.project.new`), with hobkin's own line about what happens next. */
+export interface NewProjectDone {
+  slug: string
+  name: string
+  kind: ProjectKind
+  message: string
+}
+
+/** The folder the user picked in the Mac's own chooser (`work.folder.pick`), or null when they closed it. */
+export interface FolderPicked {
+  folder: string | null
+}
+
 /** A project work mode knows. */
 /**
  * What hobkin's own runs say of one TLA+ model (050-tla-proofs, `factOf` in its `src/cli/work/proofs.mjs`): it holds,
@@ -112,6 +154,10 @@ export interface WorkProject {
   unmerged: number
   /** How many of its changes have merged, in all (hobkin's count of its `merged` items). A host older than this count does not send it. */
   merged?: number
+  /** Code or a goal (059-new-project). A hobkin older than goals does not send it, and then it is code. */
+  kind?: ProjectKind
+  /** How many of its steps are done, in all (hobkin's count of its `done` items). Sent for a goal only. */
+  done?: number
   /** When hobkin looks at it again, as an ISO time. */
   nextLookAt: string | null
   /** Why its last look failed, in hobkin's words. */
