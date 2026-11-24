@@ -62,6 +62,7 @@ export function pullSurveyed(item, unit) {
   if (unit.kind !== 'pr') return 'the last survey saw no open pull request for it';
   // The survey lists the pull requests of the project's own repository, by branch. A run's outcome can name any address, so only that one counts.
   if (item.pr !== unit.url) return `its item names ${item.pr}, not the pull request the survey found on its branch in this repository`;
+  if (unit.headHere === false) return `its pull request's head ${String(unit.sha).slice(0, SHORT_SHA)} is not in this repository, so its files cannot be read, and hobkin fetches nothing`;
   if (unit.draft) return 'its pull request is a draft';
   if (unit.conflict) return 'its pull request conflicts with its base branch';
   if (unit.review === 'CHANGES_REQUESTED') return 'changes were requested on its pull request';

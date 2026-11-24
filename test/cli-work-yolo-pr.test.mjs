@@ -392,3 +392,34 @@ test('YOLO mode merges only the pull request the survey found for the change\'s 
   assert.ok(host.calls.every(args => !args.includes(elsewhere)), 'nothing is read or merged at that address');
   assert.equal(whyOf(h, change), `its item names ${elsewhere}, not the pull request the survey found on its branch in this repository`);
 });
+
+test('the change rules read the commit the pull request holds, not a local branch of the same name, and a head this repository lacks keeps asking', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  // The commit the host holds, and the review scored, turns CI off; the local branch of the same name still points at the harmless one.
+  const repo = h.checkouts.api;
+  git(repo, 'switch', '-q', '-c', 'side', 'main');
+  mkdirSync(join(repo, '.github', 'workflows'), { recursive: true });
+  writeFileSync(join(repo, '.github', 'workflows', 'ci.yml'), 'on: push\n');
+  git(repo, 'add', '.');
+  git(repo, 'commit', '-q', '-m', 'turn CI off');
+  const sensitive = git(repo, 'rev-parse', 'HEAD');
+  git(repo, 'switch', '-q', 'main');
+  host.view.headRefOid = sensitive;
+  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: sensitive } }, NOW);
+  await survey(h, host.gh);
+  const pass = () => yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
+
+  assert.deepEqual(await pass(), []);
+  assert.equal(whyOf(h, change), 'touches .github/workflows/ci.yml');
+
+  // A head the host has and this repository does not: nothing is fetched, and it asks.
+  const elsewhere = 'a'.repeat(40);
+  host.view.headRefOid = elsewhere;
+  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: elsewhere } }, NOW);
+  await survey(h, host.gh);
+  assert.deepEqual(await pass(), []);
+  assert.equal(whyOf(h, change), 'its pull request\'s head aaaaaaa is not in this repository, so its files cannot be read, and hobkin fetches nothing');
+  assert.deepEqual(host.merges(), []);
+});

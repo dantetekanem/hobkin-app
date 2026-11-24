@@ -411,12 +411,18 @@ async function surveyProject({ repo, trees, previous = {}, now, gh, grades, fini
   const landed = await mergedHere({ repo, base, units, previous });
   // Git keeps no date for a local merge, so one seen now is dated now.
   const merges = [previous.lastMergeAt, landed.length ? new Date(now).toISOString() : null, ...ownPulls.map(pr => pr.mergedAt)];
-  // A PR's head is known locally when a run made it, and a merge from elsewhere leaves nothing else to tell what it touched.
+  // A PR's head is known locally when a run made it, and a merge from elsewhere leaves nothing else to tell what it touched. What it touches is
+  // read at the head its host merges, never at a local branch of the same name, which can point elsewhere. A head not here is fetched by nobody,
+  // and the unit says so (`headHere`). With no head from its host, the branch is all there is to record, and nothing lands on it unread.
   const surveyPull = async pr => {
-    const start = await startOfChange(repo, copies, pr.headRefOid);
+    const head = pr.headRefOid ?? null;
+    const headHere = Boolean(head) && Boolean(await gitOrNothing(repo, 'rev-parse', '--verify', '--quiet', `${head}^{commit}`));
+    const start = await startOfChange(repo, copies, head);
+    const read = head ? (headHere ? await pathsOf(repo, start, head) : {}) : await pathsOf(repo, start, pr.headRefName);
     return {
       ...pullUnit(pr),
-      ...await pathsOf(repo, start, pr.headRefName),
+      ...read,
+      headHere,
       ...await pullHead({ repo, start, pr, grades, finished, previous }),
     };
   };

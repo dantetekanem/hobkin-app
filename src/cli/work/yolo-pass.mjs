@@ -91,7 +91,8 @@ export function whyItAsks({ yolo, on, project, readiness, landable, leftOut = nu
   if (unmodeled.length) return `it changes ${unmodeled[0].name}, a state machine no model covers yet`;
   if (floors.length) return `${floors[0].criterion} scored ${floors[0].score}, under ${floors[0].needs}`;
   if (rate < yolo.rate) return `its general rate is ${rate}, under ${yolo.rate}`;
-  return changeHolds(item, unit)[0] ?? (item.state === 'pr' ? pullSurveyed(item, unit) : null);
+  // What the survey read of a pull request comes first, since the change rules can only read a head this repository holds.
+  return (item.state === 'pr' ? pullSurveyed(item, unit) : null) ?? changeHolds(item, unit)[0] ?? null;
 }
 
 // Where a merge by itself left the default branch, for the deploy job: here, or on the code host for a pull request.
