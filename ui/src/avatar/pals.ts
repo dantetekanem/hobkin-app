@@ -62,7 +62,7 @@ export interface PalsState {
   /** The mood hobkin's face shows. */
   face: Mood
   crab: CrabMood
-  /** The crab loops its mood. False holds its pose. */
+  /** The crab plays its mood's motion when the mood changes. False holds its pose. */
   moving: boolean
 }
 

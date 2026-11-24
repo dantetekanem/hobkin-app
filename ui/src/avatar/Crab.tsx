@@ -1,5 +1,6 @@
-import type { CSSProperties, ReactNode } from 'react'
+import { useRef, type CSSProperties, type ReactNode } from 'react'
 import { Art, Layer } from './Layer.tsx'
+import { useMoodPlay } from './mood-play.ts'
 import type { CrabMood } from './pals.ts'
 import type { ArtPoint } from './pets.ts'
 import './hob.css'
@@ -10,8 +11,9 @@ import './crab.css'
  * pets (197.5), at about half hobkin's height. A blocky body on four legs, two eyes and two small claws. Our own
  * drawing, in Claude's warm terracotta (`--hb-crab`).
  *
- * Like the face (Hob.tsx), it is a stack of HTML boxes, each with one SVG, so every loop moves a box on the compositor.
- * Its root is a `.hob`, so hob.css holds it still exactly as it holds the face: Still, reduced motion and away.
+ * Like the face (Hob.tsx), it is a stack of HTML boxes, each with one SVG, so every play moves a box on the compositor,
+ * and it plays its mood's motion when the mood changes, then rests (mood-play.ts). Its root is a `.hob`, so hob.css
+ * holds it still exactly as it holds the face: Still and reduced motion.
  */
 
 /** Where the crab stands: the middle of its feet. The body turns, hops and leans about it. */
@@ -102,7 +104,7 @@ export interface CrabProps {
   mood?: CrabMood
   /** Rendered size of the art's square, in CSS pixels, as a Hob's size is. */
   size?: number
-  /** Hold the pose, for good: no loop and no greeting. */
+  /** Hold the pose, for good: no motion and no greeting. */
   still?: boolean
   /** Hold the mood's pose, while a greeting still plays. */
   resting?: boolean
@@ -116,9 +118,12 @@ export function Crab({ mood = 'idle', size = 44, still = false, resting = false,
   const greetClass = greet === null ? 'hob-crab-stand' : 'hob-crab-greet'
   const lookClass = eyes.look ? `hob-crab-look hob-part ${eyes.look}` : 'hob-crab-look hob-part'
   const blinkClass = eyes.blink ? 'hob-crab-blink hob-cb-on' : 'hob-crab-blink'
+  const crabRef = useRef<HTMLSpanElement | null>(null)
+  useMoodPlay(crabRef, mood)
 
   return (
     <span
+      ref={crabRef}
       className="hob hob-crab"
       data-crab={mood}
       data-still={still || undefined}

@@ -1,10 +1,12 @@
 /*
  * The crab pal (Crab.tsx, Pals.tsx). Its root is a `.hob`, so hob.css sizes its boxes and holds it still as it holds
- * the face: Still, reduced motion, and `data-still`. Every loop is on a `.hob-layer`, an HTML box, never on a part of an
- * SVG (spec 052, A6). Lengths are shares of the box: one unit of the art is 0.390625%.
+ * the face: Still, reduced motion, and `data-still`. Every animation is on a `.hob-layer`, an HTML box, never on a part
+ * of an SVG (spec 052, A6). Lengths are shares of the box: one unit of the art is 0.390625%.
  *
- * Its loops run on periods and starts of their own, so the crab never moves in step with hobkin beside it. hobkin is
- * on its left: leaning in is a turn to the left about its feet, and its left claw is the near one.
+ * Like the face, the crab plays its mood's motion when the mood changes, for the whole number of loops closest to two
+ * seconds, and rests in the loop's last frame (mood-play.ts). Its loops run on periods and starts of their own, so the
+ * crab never moves in step with hobkin beside it. hobkin is on its left: leaning in is a turn to the left about its
+ * feet, and its left claw is the near one.
  */
 
 .hob.hob-crab {
@@ -23,17 +25,17 @@
 .hob-crab .hob-c-sad { transform: scale(1.03, 0.94); }
 .hob-crab .hob-c-sleepy { transform: scale(1.03, 0.96); }
 
-.hob-crab .hob-layer.hob-c-idle { animation: hob-crab-breathe 3.7s ease-in-out -1.2s infinite; }
-.hob-crab .hob-layer.hob-c-working { animation: hob-crab-bob 0.5s ease-in-out -0.2s infinite; }
-.hob-crab .hob-layer.hob-c-thinking { animation: hob-crab-sway 3.6s ease-in-out -0.9s infinite; }
-.hob-crab .hob-layer.hob-c-searching { animation: hob-crab-scuttle 1.9s ease-in-out infinite; }
-.hob-crab .hob-layer.hob-c-listening { animation: hob-crab-lean 3.4s ease-in-out -1.5s infinite; }
+.hob-crab .hob-layer.hob-c-idle { animation: hob-crab-breathe 3.7s ease-in-out -1.2s 1 forwards; }
+.hob-crab .hob-layer.hob-c-working { animation: hob-crab-bob 0.5s ease-in-out -0.2s 4 forwards; }
+.hob-crab .hob-layer.hob-c-thinking { animation: hob-crab-sway 3.6s ease-in-out -0.9s 1 forwards; }
+.hob-crab .hob-layer.hob-c-searching { animation: hob-crab-scuttle 1.9s ease-in-out 1 forwards; }
+.hob-crab .hob-layer.hob-c-listening { animation: hob-crab-lean 3.4s ease-in-out -1.5s 1 forwards; }
 /* Half a hop after hobkin's, so the two take turns. */
-.hob-crab .hob-layer.hob-c-happy { animation: hob-crab-hop 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) -0.45s infinite; }
-.hob-crab .hob-layer.hob-c-surprised { animation: hob-pop 2.4s ease-out -0.6s infinite; }
-.hob-crab .hob-layer.hob-c-sad { animation: hob-crab-sad 4.4s ease-in-out infinite; }
-.hob-crab .hob-layer.hob-c-dizzy { animation: hob-wobble 1.3s ease-in-out -0.3s infinite; }
-.hob-crab .hob-layer.hob-c-sleepy { animation: hob-crab-sleep 5s ease-in-out infinite; }
+.hob-crab .hob-layer.hob-c-happy { animation: hob-crab-hop 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) -0.45s 2 forwards; }
+.hob-crab .hob-layer.hob-c-surprised { animation: hob-pop 2.4s ease-out -0.6s 1 forwards; }
+.hob-crab .hob-layer.hob-c-sad { animation: hob-crab-sad 4.4s ease-in-out 1 forwards; }
+.hob-crab .hob-layer.hob-c-dizzy { animation: hob-wobble 1.3s ease-in-out -0.3s 2 forwards; }
+.hob-crab .hob-layer.hob-c-sleepy { animation: hob-crab-sleep 5s ease-in-out 1 forwards; }
 
 /* The claws, each about its shoulder. A positive turn lifts the left claw, a negative one the right. */
 .hob-crab .hob-c-thinking .hob-claw-l { transform: rotate(26deg); }
@@ -48,20 +50,20 @@
 .hob-crab .hob-c-sleepy .hob-claw-r { transform: rotate(22deg); }
 
 /* While the run works the claws tap, one after the other, as hobkin's hands type. */
-.hob-crab .hob-c-working .hob-layer.hob-claw-l { animation: hob-crab-tap-l 0.5s ease-in-out infinite; }
-.hob-crab .hob-c-working .hob-layer.hob-claw-r { animation: hob-crab-tap-r 0.5s ease-in-out -0.25s infinite; }
-.hob-crab .hob-c-happy .hob-layer.hob-claw-l { animation: hob-crab-cheer-l 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) -0.45s infinite; }
-.hob-crab .hob-c-happy .hob-layer.hob-claw-r { animation: hob-crab-cheer-r 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) -0.45s infinite; }
+.hob-crab .hob-c-working .hob-layer.hob-claw-l { animation: hob-crab-tap-l 0.5s ease-in-out 4 forwards; }
+.hob-crab .hob-c-working .hob-layer.hob-claw-r { animation: hob-crab-tap-r 0.5s ease-in-out -0.25s 4 forwards; }
+.hob-crab .hob-c-happy .hob-layer.hob-claw-l { animation: hob-crab-cheer-l 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) -0.45s 2 forwards; }
+.hob-crab .hob-c-happy .hob-layer.hob-claw-r { animation: hob-crab-cheer-r 0.9s cubic-bezier(0.3, 0.7, 0.4, 1) -0.45s 2 forwards; }
 /* Now and then the far claw snips the air. */
-.hob-crab .hob-c-idle .hob-layer.hob-claw-r { animation: hob-crab-snip 6s ease-in-out -2s infinite; }
+.hob-crab .hob-c-idle .hob-layer.hob-claw-r { animation: hob-crab-snip 6s ease-in-out -2s 1 forwards; }
 
 /* The eyes, as a pair. */
 .hob-crab .hob-cl-down { transform: translate(0, 1.5625%); }
 .hob-crab .hob-cl-left { transform: translate(-2.34375%, 0); }
 .hob-crab .hob-cl-sad { transform: translate(0, 1.171875%); opacity: 0.7; }
-.hob-crab .hob-layer.hob-cl-up { animation: hob-crab-lookup 3.6s ease-in-out -0.9s infinite; }
-.hob-crab .hob-layer.hob-cl-scan { animation: hob-crab-scan 1.9s ease-in-out infinite; }
-.hob-crab .hob-layer.hob-cb-on { animation: hob-blink 5.3s -1.7s infinite; }
+.hob-crab .hob-layer.hob-cl-up { animation: hob-crab-lookup 3.6s ease-in-out -0.9s 1 forwards; }
+.hob-crab .hob-layer.hob-cl-scan { animation: hob-crab-scan 1.9s ease-in-out 1 forwards; }
+.hob-crab .hob-layer.hob-cb-on { animation: hob-blink 5.3s -1.7s 1 forwards; }
 
 /* At rest the crab holds its mood's pose. Only the greeting still plays. */
 .hob.hob-crab[data-rest] .hob-layer.hob-crab-body,

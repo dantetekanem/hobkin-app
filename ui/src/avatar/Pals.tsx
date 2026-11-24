@@ -23,7 +23,7 @@ export interface PalsProps {
   endedWell?: boolean
   /** Since when the run rests, in milliseconds since the epoch. After a while both fall asleep. */
   restingSince?: number
-  /** Hold both for good, as a small row does: no loop and no greeting. */
+  /** Hold both for good, as a small row does: no motion and no greeting. */
   still?: boolean
   className?: string
 }
