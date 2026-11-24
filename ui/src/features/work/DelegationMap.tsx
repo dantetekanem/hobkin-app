@@ -249,6 +249,8 @@ function OwnedExecutionControls() {
   const epoch = useHost(state => state.epoch)
   const state = useExecution()
   const rows = executionFeedbackRows(targets, state.results)
+  // With nothing to control there is nothing to show: no empty block (the user, 2026-11-24, of "Owned execution controls 0": "i also dont need to see this").
+  if (targets.length === 0) return null
   return <details className="group/owned rounded-2xl bg-background text-[13px]">
     <summary className="pressable flex h-10 list-none items-center gap-2 rounded-2xl px-4 font-heading text-[12.5px] font-medium text-muted-foreground outline-offset-[-2px] [&::-webkit-details-marker]:hidden">
       <ChevronRight aria-hidden="true" className="size-3.5 transition-transform duration-[160ms] group-open/owned:rotate-90" />
