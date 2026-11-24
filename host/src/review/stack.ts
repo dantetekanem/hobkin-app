@@ -1,6 +1,5 @@
-import { readFileSync } from 'node:fs'
-import { HOBKIN_TITLE_MAX } from '#shared/protocol/hobkins.ts'
 import { Unavailable, type HostHandlers } from '../commands.ts'
+import { fill, oneAgentAtATime, readPromptFile, titled } from './agent-prompt.ts'
 
 /**
  * Make it a stack (060-make-it-a-stack). hobkin's code plans nothing: it gathers what it knows of the change, fills the
@@ -35,24 +34,10 @@ export interface StackSeat {
   exists: (hobkin: string) => Promise<boolean>
 }
 
-const TEMPLATE = readFileSync(new URL('./stack.md', import.meta.url), 'utf8')
-/** The paragraphs after a line `<!-- name -->` are parts the host chooses among. */
-const [MAIN = '', ...PARTS] = TEMPLATE.split(/^<!-- (.+) -->\n/m)
-const part = (name: string): string => {
-  const at = PARTS.indexOf(name)
-  if (at < 0 || at % 2 !== 0) throw new Error(`stack.md has no part named ${name}.`)
-  return PARTS[at + 1]!.trim()
-}
+const template = readPromptFile(new URL('./stack.md', import.meta.url))
+const part = template.part
 
 const NOT_KNOWN = 'not known to hobkin: work it out with git'
-
-/** Fills each `{{place}}` from `values`, and throws for a place left with no value. */
-function fill(text: string, values: Record<string, string>): string {
-  const filled = text.replace(/\{\{(\w+)\}\}/g, (place, name: string) => values[name] ?? place)
-  const left = /\{\{\w+\}\}/.exec(filled)
-  if (left) throw new Error(`stack.md has a place with no value: ${left[0]}`)
-  return filled
-}
 
 /** The prompt for a change, with every place filled. */
 export function stackPrompt(facts: StackFacts): string {
@@ -61,7 +46,7 @@ export function stackPrompt(facts: StackFacts): string {
     ? fill(part('pull'), { number: String(facts.pull.number), address: facts.pull.address, author: facts.pull.author ?? 'an author GitHub did not name' })
     : part('no pull')
   const ending = fill(part(facts.kind), { project: facts.project ?? '' })
-  return fill(MAIN.trim(), {
+  return fill(template.main, {
     title: facts.title,
     repository: facts.repository,
     folder: known(facts.folder),
@@ -76,37 +61,19 @@ export function stackPrompt(facts: StackFacts): string {
 const MERGED = 'This change has merged, so there is nothing to split.'
 
 /** The title the agent gets: "Stack: <the change's title>", cut to the title's limit. */
-export const stackTitle = (title: string): string => `Stack: ${title}`.slice(0, HOBKIN_TITLE_MAX).trim()
+export const stackTitle = (title: string): string => titled('Stack', title)
 
 export function stackHandlers(seat: StackSeat): Pick<HostHandlers, 'review.stack'> {
-  /** The agent started for each review, kept in this host's memory: a restart forgets it. */
-  const started = new Map<string, string>()
-  /** Reviews being started now, so two asks at once start one agent. */
-  const starting = new Map<string, Promise<{ hobkin: string; run: string | null; already: boolean }>>()
+  const oneAtATime = oneAgentAtATime(seat.exists)
 
   const begin = async (id: string) => {
     const facts = await seat.facts(id)
     if (facts.merged) throw new Unavailable(MERGED)
     if (!facts.folder) throw new Unavailable(`hobkin needs the repository ${facts.repository} on this Mac to make a stack, and has no folder for it.`)
-    const text = stackPrompt(facts)
-    const hobkin = await seat.start({ cwd: facts.folder, title: stackTitle(facts.title), text })
-    started.set(id, hobkin.id)
-    return { hobkin: hobkin.id, run: hobkin.run, already: false }
+    return seat.start({ cwd: facts.folder, title: stackTitle(facts.title), text: stackPrompt(facts) })
   }
 
   return {
-    'review.stack': async ({ id }) => {
-      const pending = starting.get(id)
-      if (pending) return { ...(await pending), run: null, already: true }
-      const there = started.get(id)
-      if (there && (await seat.exists(there))) return { hobkin: there, run: null, already: true }
-      const starts = begin(id)
-      starting.set(id, starts)
-      try {
-        return await starts
-      } finally {
-        starting.delete(id)
-      }
-    },
+    'review.stack': ({ id }) => oneAtATime(id, () => begin(id)),
   }
 }
