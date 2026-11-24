@@ -143,7 +143,7 @@ export function remember(root, { words, from }, now = Date.now(), { env = proces
   if (secret) throw Error(secretRefusal(secret));
   const run = typeof env?.[RUN_MARKER] === 'string' ? env[RUN_MARKER].replace(/[\x00-\x1f\x7f]+/g, ' ').trim().slice(0, LONGEST_NAME) : '';
   if (run) {
-    const suggested = suggestMemory(root, { memory: { kind: 'user', description: describedBy(text), text, said: text }, from: run }, now);
+    const suggested = suggestMemory(root, { memory: { kind: 'user', description: describedBy(text), text }, from: run }, now);
     return { ok: true, id: suggested.id, message: suggested.message };
   }
   const known = stillWaiting(root, 'memory', text, entry => !entry.heard);
@@ -157,7 +157,7 @@ export function remember(root, { words, from }, now = Date.now(), { env = proces
   try {
     const name = memoryNameFrom(root, text);
     const { change } = addMemory(root, { name, kind: 'user', description: describedBy(text), text },
-      { by: { kind: 'outside', title: sender }, source: { kind: 'remember', said: text, from: sender }, now, seesPrivate: false, unconfirmed: true });
+      { by: { kind: 'outside', title: sender }, source: { kind: 'remember', from: sender }, now, seesPrivate: false, unconfirmed: true });
     saved = { memory: name, change };
   } catch {
     // Refused as a near double or past the most, or not written: the main agent files it instead.

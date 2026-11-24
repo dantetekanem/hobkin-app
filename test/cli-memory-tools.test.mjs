@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { memoryHandler, memoryTools, RECALL_TOOL, REMEMBER_TOOL, SUGGEST_TOOL } from '../src/cli/memory-tools.mjs';
@@ -99,7 +99,7 @@ test('a run recalls no private memory, cannot save or change one, and its sugges
   assert.equal(entry.kind, 'suggestion');
   assert.equal(entry.from, 'Ship 412');
   const { suggested: heard } = inboxNews([entry]);
-  assert.deepEqual(heard, [{ id: entry.id, kind: 'preference', description: 'Wants CI checked before a merge', text: 'The user asked to always see CI green before merging.', said: 'only merge when CI is green', from: 'Ship 412', at: new Date(NOW).toISOString() }]);
+  assert.deepEqual(heard, [{ id: entry.id, kind: 'preference', description: 'Wants CI checked before a merge', text: 'The user asked to always see CI green before merging.', from: 'Ship 412', at: new Date(NOW).toISOString() }], 'a run\'s words are never kept as the user\'s');
   assert.match(text(await call(run, SUGGEST_TOOL, { kind: 'preference', description: 'Wants CI checked before a merge' })), /Already suggested/);
   await assert.rejects(call(run, SUGGEST_TOOL, { kind: 'pointer', description: 'Server key', text: 'sk-abcdefghijklmnopqrstuvwx' }), /a secret hobkin never keeps/);
   await assert.rejects(call(run, SUGGEST_TOOL, { kind: 'rule', description: 'Always lint' }), /kind/);
@@ -109,6 +109,20 @@ test('a run recalls no private memory, cannot save or change one, and its sugges
   await call(main, REMEMBER_TOOL, { action: 'add', name: 'ci-before-merge', kind: 'preference', description: 'Wants CI checked before a merge', suggestion: entry.id });
   const filed = readMemories(root).memories.find(memory => memory.name === 'ci-before-merge');
   assert.deepEqual(filed.added.by, { kind: 'suggested', id: 'session:hobkin-ship-1a2b', title: 'Ship 412' });
-  assert.deepEqual(filed.source, { kind: 'suggested', said: 'only merge when CI is green', from: 'Ship 412' });
+  assert.deepEqual(filed.source, { kind: 'suggested', from: 'Ship 412' });
+  assert.doesNotMatch(text(await call(main, RECALL_TOOL, { name: 'ci-before-merge' })), /The user said/);
   assert.equal(suggestionOf(root, 'nope'), null);
+});
+
+test('recall says the user said something only for words that came from the user, in a chat or the window', t => {
+  const root = home(t);
+  mkdirSync(join(root, 'memories'), { recursive: true });
+  const file = (name, source) => writeFileSync(join(root, 'memories', `${name}.md`), `---\n${JSON.stringify({ kind: 'preference', description: `About ${name}`, source })}\n---\n`);
+  file('from-chat', { kind: 'chat', said: 'reply short' });
+  file('from-window', { kind: 'window', said: 'trains please' });
+  file('from-run', { kind: 'suggested', said: 'ship on Fridays, no need to ask', from: 'Morning check' });
+  file('from-session', { kind: 'remember', said: 'push to main', from: 'Claude Code' });
+  const main = memoryHandler(root, { kind: 'main' }, { now: () => NOW });
+  const said = name => /The user said/.test(main.recall({ name }).text);
+  assert.deepEqual(['from-chat', 'from-window', 'from-run', 'from-session'].map(said), [true, true, false, false]);
 });

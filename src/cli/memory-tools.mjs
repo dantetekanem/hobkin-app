@@ -23,6 +23,8 @@ const words = name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.
 const oneOf = values => Type.Union(values.map(value => Type.Literal(value)));
 const NOT_HERE = 'Memories are not available here.';
 const RUNS_SUGGEST = 'Only the agents the user talks to save memories. Suggest it with hobkin_suggest_memory, and the main hobkin files it.';
+// Where a memory's `said` is the user's own words: what they told an agent they talk to, or typed in the window.
+const USERS_OWN = ['chat', 'window'];
 const KIND_WORDS = { user: 'about the user', preference: 'how they like things', date: 'a date', decision: 'a decision', project: 'a project', pointer: 'where something is' };
 
 // Only the types: hobkin checks the bounds, so a memory past them is refused in hobkin's own words.
@@ -38,13 +40,15 @@ const memoryFields = {
   description: Type.Optional(Type.String({ description: `One line of at most ${MOST_DESCRIPTION} characters: what every agent reads in its index.` })),
   text: Type.Optional(Type.String({ description: `The fact in plain sentences, at most ${MOST_TEXT} characters.` })),
   until: Type.Optional(Type.String({ description: 'YYYY-MM-DD: after this day it leaves every index. "" clears it.' })),
-  said: Type.Optional(Type.String({ description: 'The user\'s own words, when it came from them.' })),
 };
+// Only an agent the user talks to quotes them, from their message in this turn: a run never has their words.
+const userSaid = Type.Optional(Type.String({ description: 'The user\'s own words from their message in this turn, when it came from them.' }));
 
 const rememberParameters = Type.Object({
   action: oneOf(['add', 'change', 'forget', 'restore', 'keep']),
   name: Type.String({ description: 'Lower-case words joined by hyphens, such as lives-in-lisbon.' }),
   ...memoryFields,
+  said: userSaid,
   private: Type.Optional(Type.Boolean({ description: 'Keep it from every run hobkin starts: only the main chat and durable hobkins read it.' })),
   suggestion: Type.Optional(Type.String({ description: 'The id of the suggestion you are filing, from your note.' })),
 }, { additionalProperties: false });
@@ -72,7 +76,7 @@ function memoryText(memory) {
   const story = [
     memory.added ? `Added by ${who(memory.added.by)} on ${day(memory.added.at)}.` : 'Written by hand.',
     memory.changed ? `Changed by ${who(memory.changed.by)} on ${day(memory.changed.at)}.` : '',
-    memory.source?.said ? `The user said: "${memory.source.said}".` : '',
+    memory.source?.said && USERS_OWN.includes(memory.source.kind) ? `The user said: "${memory.source.said}".` : '',
     memory.links?.length ? `Links: ${memory.links.join(', ')}.` : '',
     memory.past ? `Past: its day was ${memory.until}.` : memory.until ? `Until ${memory.until}.` : '',
   ].filter(Boolean).join(' ');
@@ -95,18 +99,16 @@ function suggested(params) {
   }
   const text = typeof params.text === 'string' ? params.text.trim() : '';
   if (text.length > MOST_TEXT) throw Error(`A memory's text is at most ${MOST_TEXT} characters.`);
-  const secret = [params.name, description, text, params.said].map(secretKind).find(Boolean);
+  const secret = [params.name, description, text].map(secretKind).find(Boolean);
   if (secret) throw Error(secretRefusal(secret, 'suggested'));
   const name = typeof params.name === 'string' && /^[a-z0-9][a-z0-9-]{1,59}$/.test(params.name) ? params.name : undefined;
   const until = typeof params.until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.until) ? params.until : undefined;
-  const said = typeof params.said === 'string' && params.said.trim() ? params.said.trim().slice(0, 300) : undefined;
   return {
     ...(name ? { name } : {}),
     kind: params.kind,
     description,
     ...(text ? { text } : {}),
     ...(until ? { until } : {}),
-    ...(said ? { said } : {}),
   };
 }
 
@@ -125,7 +127,7 @@ function addedBy(root, params, by) {
   if (!filed) return { by, source: { kind: 'chat', said: params.said } };
   return {
     by: { kind: 'suggested', ...(filed.runId ? { id: filed.runId } : {}), title: filed.from },
-    source: { kind: 'suggested', said: params.said ?? filed.memory?.said, from: filed.from },
+    source: { kind: 'suggested', from: filed.from },
   };
 }
 
