@@ -106,7 +106,7 @@ export interface QuestionRow {
 
 export interface QuestionsView {
   state: QuestionsState
-  /** Always the five, in the user's order, so each keeps its place in every state. */
+  /** Always the five, in the user's order. The panel draws them only for a review that was rated. */
   rows: QuestionRow[]
   /** The kind of change and the general rate, or that it is not rated. */
   lead: string
@@ -138,8 +138,8 @@ function floorsOf(needs: ReviewNeeds): string | null {
 }
 
 /**
- * The review's own ratings as its panel opens with them. With none, the same five rows say a dash, and a line says
- * whether they are coming with the review being built, or why there are none.
+ * The review's own ratings as its panel opens with them. With none, a line says whether they are coming with the review
+ * being built, or why there are none, and the panel draws no rows.
  */
 export function questionsView({ yours, head, underWay }: { yours: ReviewNeeds | null; head: string; underWay: boolean }): QuestionsView {
   if (!yours) {

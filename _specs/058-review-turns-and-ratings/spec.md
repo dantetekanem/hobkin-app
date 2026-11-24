@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["032-change-review", "049-yolo-mode", "053-work-control-room", "055-review-origins-tests-zones"],
-  "updated": "2026-11-23"
+  "updated": "2026-11-24"
 }
 ---
 # Change review: a line for each repository, what a review costs, and the user's ratings in every review
@@ -83,7 +83,7 @@ The user, 2026-11-23: "outdate reviews are becoming a problem. we should not acc
 - A10. The AI Reviews list has a line for each repository with its counts and its week's cost, folds waiting rows, says why each waits, offers Review now, and says of a carried review where it was carried from.
 - A11. The Reviewer's one answer carries the five ratings with their evidence, the kind and what is missing. A malformed one is dropped with why, and the review still finishes, not rated. The ratings are capped by the facts.
 - A12. A review's status and its row carry its ratings, the commit they were made at, and the rate and floors by hobkin's formula. A pull request is rated the same way, with visibility and the general rate left out when no monitoring is known.
-- A13. Every review opens with the five ratings, their evidence, the rate and what is missing, a pull request too. A row shows the five and the rate, and a waiting change on the YOLO mode page shows its rate, who rated it and at which commit.
+- A13. Every review opens with the five ratings, their evidence, the rate and what is missing, a pull request too. A review with no ratings says so in two lines, whether they are coming with the review being built or why there are none, and draws no empty rows (the user, 2026-11-24, of five dashes with room kept under each: "this ui during review is broken"). A row shows the five and the rate, and a waiting change on the YOLO mode page shows its rate, who rated it and at which commit.
 
 ## Proof
 
