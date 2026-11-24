@@ -184,28 +184,55 @@ function gradeVetoes({ safety, sha, onlyDocs }, { quality }) {
   ];
 }
 
-function changeVetoes({ area, conflict, size, paths = [], deletedTests = [] }) {
-  const lines = (size?.additions ?? 0) + (size?.deletions ?? 0);
-  const sensitive = paths.find(path => SENSITIVE_PATH.test(path));
-  return [
-    !area && 'the survey has not read this branch yet',
-    area === 'multi' && 'touches too many areas',
-    lines > MOST_LINES_OFFERED && `over ${MOST_LINES_OFFERED} changed lines`,
-    (size?.files ?? 0) > paths.length && 'too many files to read',
-    conflict !== false && 'a conflict, or no way to tell',
-    deletedTests.length > 0 && 'deletes tests',
-    sensitive && `touches ${sensitive}`,
-  ];
+// How many areas a change touches, counted as the survey names an area: tests and docs follow the code beside them, and only both at once make two.
+function areaCount(paths) {
+  const code = paths.filter(path => !TEST_PATH.test(path) && !DOC_PATH.test(path));
+  if (!code.length) return paths.every(path => DOC_PATH.test(path)) || paths.every(path => TEST_PATH.test(path)) ? 1 : 2;
+  return new Set(code.map(areaOfPath)).size;
 }
+
+// The survey's own `multi` is more than two areas. Another limit counts the areas again from the paths, or has none.
+function tooManyAreas({ area, paths = [] }, mostAreas) {
+  if (mostAreas === MOST_AREAS) return area === 'multi';
+  if (mostAreas === null || !area) return false;
+  return areaCount(paths) > mostAreas;
+}
+
+// Plain words matched anywhere in the lowercased path, as a folder named ci is matched by `/ci/`.
+const hasWord = (path, words) => words.some(word => `/${path.toLowerCase()}`.includes(word));
+
+/**
+ * What stops a change on its own, each as the reason and the YOLO setting that holds it (null where no setting does). The limits are the user's
+ * (`yolo-rules.mjs`), and a limit left out is what the code always used.
+ */
+function changeReasons({ area, conflict, size, paths = [], deletedTests = [], ...rest }, limits = {}) {
+  const { mostLines = MOST_LINES_OFFERED, mostAreas = MOST_AREAS, askPaths, deletedTestsMayMerge = false } = limits;
+  const lines = (size?.additions ?? 0) + (size?.deletions ?? 0);
+  const sensitive = paths.find(path => (askPaths ? hasWord(path, askPaths) : SENSITIVE_PATH.test(path)));
+  return [
+    !area && ['the survey has not read this branch yet', null],
+    tooManyAreas({ area, paths, ...rest }, mostAreas) && ['touches too many areas', 'mostAreas'],
+    mostLines !== null && lines > mostLines && [`over ${mostLines} changed lines`, 'mostLines'],
+    (size?.files ?? 0) > paths.length && ['too many files to read', null],
+    conflict !== false && ['a conflict, or no way to tell', null],
+    deletedTests.length > 0 && !deletedTestsMayMerge && ['deletes tests', 'deletedTestsMayMerge'],
+    sensitive && [`touches ${sensitive}`, 'askPaths'],
+  ].filter(Boolean);
+}
+
+const changeVetoes = unit => changeReasons(unit).map(([why]) => why);
 
 /**
  * An offer's rules about the change itself, for a merge that leans on a review's scores in place of a grade and a precedent: its size and areas,
- * its tests, what it touches, whether git could tell it merges, and a way back.
+ * its tests, what it touches, whether git could tell it merges, and a way back. `limits` are YOLO mode's settings for the project, each as
+ * `yolo-rules.mjs` names it, and with none the limits are the usual ones.
  */
-export const changeHolds = (item, unit = {}) => [
-  ...changeVetoes(unit),
-  NO_WAY_BACK.includes(item.launch?.undo) && `undo is ${item.launch.undo}`,
-].filter(Boolean);
+export function changeHoldsWith(item, unit = {}, limits = {}) {
+  const wayBack = !limits.oneWayUndoMayMerge && NO_WAY_BACK.includes(item.launch?.undo) && [`undo is ${item.launch.undo}`, 'oneWayUndoMayMerge'];
+  return [...changeReasons(unit, limits), wayBack].filter(Boolean).map(([why, setting]) => ({ why, setting }));
+}
+
+export const changeHolds = (item, unit = {}) => changeHoldsWith(item, unit).map(({ why }) => why);
 
 const vetoesOf = ({ item, unit, gap, beneath }) => [
   gapWords[gap],

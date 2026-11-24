@@ -2,11 +2,11 @@ import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { atomicJson } from '../config.mjs';
 import { dropReport, readReport, saveReport } from '../reports.mjs';
-import { scoresOf, SMALL_KINDS } from './classified.mjs';
+import { scoresOf } from './classified.mjs';
 import { whyWorkModeWaits } from './controls.mjs';
 import { readJson, readMode } from './store.mjs';
 import { needOf } from './yolo-parts.mjs';
-import { AFTER_DEPLOY_MINUTES, askedOf, deployOf, deployWords, kindWords, landingReasons, READINGS, readLedger, waitingToMerge, whyItAsks } from './yolo-pass.mjs';
+import { AFTER_DEPLOY_MINUTES, askedOf, deployOf, deployWords, holdOf, kindWords, landingReasons, READINGS, readLedger, waitingToMerge } from './yolo-pass.mjs';
 import { pullNoted, pullRequestsMerge } from './yolo-pulls.mjs';
 import { readYolo, yoloView } from './yolo.mjs';
 
@@ -28,8 +28,10 @@ const dayOf = at => {
   const date = new Date(at);
   return `${date.getFullYear()}-${twoDigits(date.getMonth() + 1)}-${twoDigits(date.getDate())}`;
 };
-const smallWords = SMALL_KINDS.map(kind => kindWords[kind]);
-const smallKinds = `${smallWords.slice(0, -1).join(', ')} or ${smallWords.at(-1)}`;
+function kindsWords(kinds) {
+  const words = kinds.map(kind => kindWords[kind]);
+  return words.length > 1 ? `${words.slice(0, -1).join(', ')} or ${words.at(-1)}` : words[0];
+}
 
 // What hobkin is doing about a project getting ready. Work that landed leaves each part to say what it waits for.
 const workWords = {
@@ -61,7 +63,7 @@ function deployWaits({ state, line, pr }) {
   return sentence(line);
 }
 
-function planBlock({ name, ready, parts }, yolo) {
+function planBlock({ name, ready, parts, rules }) {
   const deploy = parts.find(part => part.name === 'deploy');
   const deploys = {
     'handed on': `The main agent deploys each one by its deploy path and watches the monitoring for ${AFTER_DEPLOY_MINUTES} minutes: ${deploy.line}`,
@@ -69,16 +71,16 @@ function planBlock({ name, ready, parts }, yolo) {
     'no deploy path': `Nothing is deployed until its deploy path is set up. ${deployWaits(deploy)}`,
   };
   const plan = [
-    `hobkin merges a small change on ${name} by itself once its review rates it ${yolo.rate} or more: ${smallKinds}.`,
-    `At most one change merges on ${name} a pass, at the commit its review scored.`,
+    `hobkin merges a small change on ${name} by itself once its review rates it ${rules.lowestRate} or more: ${kindsWords(rules.kinds)}.`,
+    `At most ${rules.mergesAPass === 1 ? 'one change merges' : `${rules.mergesAPass} changes merge`} on ${name} a pass, at the commit its review scored.`,
     deploys[deployOf({ parts: { deploy } }, true)],
     `A regression after a deploy stops merges on ${name} until its readiness is checked again.`,
     ...(pullRequestsMerge()
       ? [
         'A change waiting on its own pull request merges there the same way, once every check on its commit passed and nothing on the code host holds it.',
-        `Still asks you: a feature, a change its review could not place, one under ${yolo.rate} or under a floor, and a pull request someone else opened.`,
+        `Still asks you: a feature, a change its review could not place, one under ${rules.lowestRate} or under a floor, and a pull request someone else opened.`,
       ]
-      : [`Still asks you: a feature, a change its review could not place, one under ${yolo.rate} or under a floor, and every PR.`]),
+      : [`Still asks you: a feature, a change its review could not place, one under ${rules.lowestRate} or under a floor, and every PR.`]),
   ];
   return `## ${ready ? 'The plan' : 'The plan once it is ready'}\n\n${listed(plan)}`;
 }
@@ -95,9 +97,9 @@ function changeLine({ item, models, why }, project) {
 }
 
 // What may merge first, then what asks the user and why.
-function changesBlock(project, { yolo, waits, changes }) {
+function changesBlock(project, { waits, changes }) {
   const heading = project.ready ? '## What will merge' : '## What will merge once it is ready';
-  const rate = `Your rate is ${yolo.rate}.${waits ? ` Nothing merges while ${waits}.` : ''}`;
+  const rate = `Your rate is ${project.rules.lowestRate}.${waits ? ` Nothing merges while ${waits}.` : ''}`;
   if (!changes.length) return `${heading}\n\n${rate}\n\nNothing waits to merge on ${project.name}.`;
   const ordered = [...changes.filter(({ why }) => !why), ...changes.filter(({ why }) => why)];
   return `${heading}\n\n${rate}\n\n${listed(ordered.map(change => changeLine(change, project)))}`;
@@ -134,7 +136,7 @@ function mergedBlock(name, ledger) {
 function reportText(project, facts) {
   const { name, ready } = project;
   const headline = ready ? `Useful: ${name} is ready for YOLO mode.` : `Useful: ${name} is getting ready for YOLO mode.`;
-  const blocks = [headline, ...readinessBlocks(project), planBlock(project, facts.yolo), changesBlock(project, facts), mergedBlock(name, facts.ledger)];
+  const blocks = [headline, ...readinessBlocks(project), planBlock(project), changesBlock(project, facts), mergedBlock(name, facts.ledger)];
   return `${blocks.join('\n\n')}\n`;
 }
 
@@ -150,13 +152,14 @@ function waitingChanges(root, yolo, now) {
       const { asked, models } = askedOf(root, { yolo, landing, row, item, unit });
       const readiness = { ...asked.readiness, ready: true };
       // A pull request the code host held back at the last pass says why, while the survey reads the same commit.
-      return { slug: row.slug, item, models, why: whyItAsks({ ...asked, models, readiness }) ?? pullNoted(item, unit) };
+      const held = holdOf({ ...asked, models, readiness });
+      return { slug: row.slug, item, models, why: held?.why ?? pullNoted(item, unit), setting: held?.setting ?? null };
     });
 }
 
-function changeFact({ item, models, why }) {
+function changeFact({ item, models, why, setting }) {
   const { kind, rate } = item.review?.scores ? scoresOf(item.review, models) : {};
-  return { item: item.id, title: item.title, kind: kind ? kindWords[kind] : null, rate: rate ?? null, why };
+  return { item: item.id, title: item.title, kind: kind ? kindWords[kind] : null, rate: rate ?? null, why, setting };
 }
 
 // `held` is what the latest reading after its deploy showed: true when it held, false on a regression, null with no reading yet.

@@ -672,8 +672,8 @@ test('Work status carries what waits to merge on each project, at what rate and 
 
   const api = workStatus(h.root).yolo.projects.find(({ slug }) => slug === 'api');
   assert.deepEqual(api.changes, [
-    { item: due.id, title: 'Fix login', kind: 'a bug fix', rate: 10, why: null },
-    { item: underRate.id, title: 'Fix logout', kind: 'a bug fix', rate: 7.6, why: 'its general rate is 7.6, under 8' },
+    { item: due.id, title: 'Fix login', kind: 'a bug fix', rate: 10, why: null, setting: null },
+    { item: underRate.id, title: 'Fix logout', kind: 'a bug fix', rate: 7.6, why: 'its general rate is 7.6, under 8', setting: 'lowestRate' },
   ]);
   assert.deepEqual(api.merged, [{
     at: new Date(NOW).toISOString(),

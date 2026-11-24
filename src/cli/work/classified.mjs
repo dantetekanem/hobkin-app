@@ -14,9 +14,8 @@ export const SMALL_KINDS = KINDS.slice(0, 5);
 
 // A deploy or data risk is the harm an average hides, a regression the monitoring would not show goes unseen, and a change that is slow to undo
 // needs a person.
-const FLOORS = { safety: 8, visibility: 7, rollback: 7 };
 // A 4 or less means the review found that part missing or wrong.
-const LOWEST = 5;
+export const USUAL_FLOORS = { coverage: 5, proof: 5, safety: 8, visibility: 7, rollback: 7 };
 // A model hobkin checked broke at the change's head, so the proof it was given shows the change wrong.
 const BROKEN_MODEL_PROOF = 3;
 const COMMIT = /^[0-9a-f]{40}$/;
@@ -53,9 +52,9 @@ export function generalRate(scores) {
   return Math.floor((sum * 10) / CRITERIA.length) / 10;
 }
 
-/** The scores that hold a change whatever its average, each with what it needed. */
-export const brokenFloors = scores => CRITERIA
-  .map(criterion => ({ criterion, score: scores[criterion].score, needs: FLOORS[criterion] ?? LOWEST }))
+/** The scores that hold a change whatever its average, each with what it needed. `floors` is the lowest score of each question, as the user set them. */
+export const brokenFloors = (scores, floors = USUAL_FLOORS) => CRITERIA
+  .map(criterion => ({ criterion, score: scores[criterion].score, needs: floors[criterion] }))
   .filter(({ score, needs }) => score < needs);
 
 /**
@@ -78,7 +77,7 @@ export function withModelChecks(scores, models = []) {
 }
 
 /** A kept review with what hobkin works out from it, and from its own model checks at the change's head. */
-export function scoresOf({ kind, scores: reviewed, head, missing = null }, models = []) {
+export function scoresOf({ kind, scores: reviewed, head, missing = null }, models = [], floors = USUAL_FLOORS) {
   const scores = withModelChecks(reviewed, models);
-  return { kind, scores, rate: generalRate(scores), floors: brokenFloors(scores), missing, head };
+  return { kind, scores, rate: generalRate(scores), floors: brokenFloors(scores, floors), missing, head };
 }

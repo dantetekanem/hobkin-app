@@ -208,6 +208,9 @@ const mainSpecs = (root, slug) => readUnmerged(root).projects[slug]?.models?.spe
 /** What hobkin's latest run of each TLA+ spec on the project's default branch says of it, as the last survey found them there. */
 export const mainModels = (root, slug) => mainFacts(readRuns(root), { slug, specs: mainSpecs(root, slug) });
 
+// The part of the bar each switch lets go of. The others are improvements and never hold anything back.
+const BAR_RULES = { tests: 'testsPass', rollback: 'wayBackKnown', models: 'noModelBreaks' };
+
 const machineCount = count => (count === 1 ? '1 machine has' : `${count} machines have`);
 
 /**
@@ -238,10 +241,11 @@ function modelsPart(root, slug) {
 }
 
 /** What holds YOLO mode back on a project: no check yet, a regression after a deploy, or a part of the bar not in place, each in a line. */
-function needsOf(record, parts) {
-  if (!record) return ['Its readiness has not been checked yet.'];
-  if (record.held) return [`A regression showed after "${record.held.title}" deployed. Retry its readiness work once that is fixed.`];
-  return PARTS.filter(name => parts[name].blocks).map(name => `${partWords[name]}: ${needOf(parts[name])}`);
+function needsOf(record, parts, rules) {
+  if (!record) return { needs: ['Its readiness has not been checked yet.'], holds: [] };
+  if (record.held && rules.holdAfterRegression) return { needs: [`A regression showed after "${record.held.title}" deployed. Retry its readiness work once that is fixed.`], holds: ['holdAfterRegression'] };
+  const holding = PARTS.filter(name => parts[name].blocks && rules[BAR_RULES[name]] !== false);
+  return { needs: holding.map(name => `${partWords[name]}: ${needOf(parts[name])}`), holds: holding.map(name => BAR_RULES[name]).filter(Boolean) };
 }
 
 /**
@@ -255,8 +259,8 @@ export function readinessOf(root, slug) {
   const items = readItems(root, slug);
   const own = items.find(({ key }) => key === READY_KEY) ?? null;
   const parts = partsOf(root, { record, items, own, models: modelsPart(root, slug) });
-  const needs = needsOf(record, parts);
-  return { ready: needs.length === 0, needs, parts, at: record?.at ?? null, item: own?.id ?? null };
+  const { needs, holds } = needsOf(record, parts, rulesOf(root, slug));
+  return { ready: needs.length === 0, needs, holds, parts, at: record?.at ?? null, item: own?.id ?? null };
 }
 
 /** Whether YOLO mode may merge a change on this project by itself once a review scores it: on, on this project too, and the project ready. */

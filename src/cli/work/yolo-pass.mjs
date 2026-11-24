@@ -1,17 +1,18 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { postClientNotice } from '../client-notices.mjs';
-import { CRITERIA, scoresOf, SMALL_KINDS } from './classified.mjs';
+import { CRITERIA, scoresOf } from './classified.mjs';
 import { mergeItem, whyWorkModeWaits } from './controls.mjs';
 import { AFTER_DEPLOY_MINUTES, deployHeld, READINGS, readingFrom, sawIn } from './deploys.mjs';
 import { userTrouble } from './launches.mjs';
 import { readMachines, unmodeledIn } from './machines.mjs';
 import { nameOf } from './names.mjs';
-import { changeHolds } from './patterns.mjs';
+import { changeHoldsWith } from './patterns.mjs';
 import { changeModels, scoresHoldAt, specName } from './proofs.mjs';
-import { landingList, weighedRows } from './reads.mjs';
+import { heldByItsGrade, landingList, ratingWords, weighedRows } from './reads.mjs';
 import { readMode, readProject, retryItem, updateItem } from './store.mjs';
 import { holdProject, prepareProjects, readinessOf, readYolo, settleSwitches, yoloOnProject } from './yolo.mjs';
+import { FLOOR_RULES, floorsOf, RULE_DEFAULTS, rulesOf } from './yolo-rules.mjs';
 import { defaultPullGh, mergeOwnPull, pullCandidates, pullRequestsMerge, PULLS_OFF, pullSurveyed, signedInUser } from './yolo-pulls.mjs';
 
 /**
@@ -63,41 +64,71 @@ function readJsonLines(file) {
   });
 }
 
-/**
- * Why a finished change keeps asking the user, or null when it may merge by itself. The first reason found is the one said. `models` is what
- * hobkin's own runs say of each TLA+ model covering the change, at its head (`changeModels`), and `unmodeled` the machines the state machines
- * look found that it touches with no model naming those files (`unmodeledIn`). Scores given before commits that changed only models still count.
- * `leftOut` is why the landing list leaves it out, in that list's words, when it does.
- */
-export function whyItAsks({ yolo, on, project, readiness, landable, leftOut = null, row, item, unit = {}, models = [], unmodeled = [] }) {
-  if (!yolo.on) return 'YOLO mode is off';
-  // `on` is the project's own switch.
-  if (on === false) return 'YOLO mode is off on its project';
-  if (project?.paused) return 'its project is paused';
-  if (!readiness.ready) return 'its project is not ready for YOLO mode';
-  if (!landable) return leftOut ?? 'the last survey did not list it to land, and hobkin work sync reads it again';
-  if (!WAITS_TO_MERGE.includes(item.state)) return `its item is ${item.state}, not finished work waiting to merge`;
-  if (item.state === 'pr' && !pullRequestsMerge()) return PULLS_OFF;
-  if (row.holds) return 'it brings earlier branches with it';
-  if (!item.review) return 'no review has scored it';
+const asks = (why, setting = null) => ({ why, setting });
+const LEFT_NOTE = /^it still has work left/;
 
-  const { kind, rate, floors, head } = scoresOf(item.review, models);
+// What the landing list checks after a run's note, which a user who lets that note go still wants held. Earlier branches stay held (`row.holds`).
+function otherLeftOut(row) {
+  if (heldByItsGrade(row)) return ratingWords(row);
+  if (!row.head) return 'the last survey did not read its branch, and hobkin work sync reads it';
+  if (row.proved === false) return 'it has no proof';
+  return row.holds ? 'it brings earlier branches with it' : null;
+}
+
+// The landing list's own reason for leaving a change out, unless it is a run's note the user let go and nothing else holds it.
+function landingHold({ landable, leftOut, row, rules }) {
+  if (landable) return null;
+  const note = LEFT_NOTE.test(String(leftOut));
+  if (note && rules.leftNoteMayMerge) {
+    const other = otherLeftOut(row);
+    return other ? asks(other) : null;
+  }
+  return asks(leftOut ?? 'the last survey did not list it to land, and hobkin work sync reads it again', note ? 'leftNoteMayMerge' : null);
+}
+
+/**
+ * Why a finished change keeps asking the user and which setting holds it (null where no setting does), or null when it may merge by itself.
+ * The first reason found is the one said. `rules` are YOLO mode's settings for the project (`yolo-rules.mjs`), and with none the usual ones,
+ * with the rate of `yolo`. `models` is what hobkin's own runs say of each TLA+ model covering the change, at its head (`changeModels`), and
+ * `unmodeled` the machines the state machines look found that it touches with no model naming those files (`unmodeledIn`). Scores given before
+ * commits that changed only models still count. `leftOut` is why the landing list leaves it out, in that list's words, when it does.
+ */
+export function holdOf({ yolo, on, project, readiness, landable, leftOut = null, row, item, unit = {}, models = [], unmodeled = [], rules = { ...RULE_DEFAULTS, lowestRate: yolo.rate } }) {
+  if (!yolo.on) return asks('YOLO mode is off');
+  // `on` is the project's own switch.
+  if (on === false) return asks('YOLO mode is off on its project');
+  if (project?.paused) return asks('its project is paused');
+  if (!readiness.ready) return asks('its project is not ready for YOLO mode', readiness.holds?.[0] ?? null);
+  const left = landingHold({ landable, leftOut, row, rules });
+  if (left) return left;
+  if (!WAITS_TO_MERGE.includes(item.state)) return asks(`its item is ${item.state}, not finished work waiting to merge`);
+  if (item.state === 'pr' && !pullRequestsMerge()) return asks(PULLS_OFF);
+  if (row.holds && !rules.earlierBranchesMayMerge) return asks('it brings earlier branches with it', 'earlierBranchesMayMerge');
+  if (!item.review) return asks('no review has scored it');
+
+  const { kind, rate, floors, head } = scoresOf(item.review, models, floorsOf(rules));
   if (!scoresHoldAt(head, unit)) {
     // Nothing takes a review's commits to a pull request, so a review that changed the change leaves its scores on a commit the pull request lacks.
-    if (item.state === 'pr' && unit.sha) return `its review scored ${String(head).slice(0, SHORT_SHA)}, and its pull request is at ${unit.sha.slice(0, SHORT_SHA)}`;
-    return 'its scores are for an older commit';
+    if (item.state === 'pr' && unit.sha) return asks(`its review scored ${String(head).slice(0, SHORT_SHA)}, and its pull request is at ${unit.sha.slice(0, SHORT_SHA)}`);
+    return asks('its scores are for an older commit');
   }
-  if (!SMALL_KINDS.includes(kind)) return `its review calls it ${kind}`;
-  if (item.kind === 'feature') return 'its item is a feature';
+  if (!rules.kinds.includes(kind)) return asks(`its review calls it ${kind}`, 'kinds');
+  // The readiness work's own branches are features that never merge by themselves, whatever kinds the user lets through.
+  if (item.kind === 'feature' && (!rules.kinds.includes('feature') || String(item.key ?? '').startsWith('yolo:'))) return asks('its item is a feature', 'kinds');
   // A broken model is a floor, said before the proof score of 3 it leaves.
   const model = models.find(({ state }) => state === 'broken') ?? models.find(({ state }) => state !== 'holds');
-  if (model) return modelWords[model.state](model);
-  if (unmodeled.length) return `it changes ${unmodeled[0].name}, a state machine no model covers yet`;
-  if (floors.length) return `${floors[0].criterion} scored ${floors[0].score}, under ${floors[0].needs}`;
-  if (rate < yolo.rate) return `its general rate is ${rate}, under ${yolo.rate}`;
+  if (model) return asks(modelWords[model.state](model));
+  if (unmodeled.length) return asks(`it changes ${unmodeled[0].name}, a state machine no model covers yet`);
+  if (floors.length) return asks(`${floors[0].criterion} scored ${floors[0].score}, under ${floors[0].needs}`, FLOOR_RULES[floors[0].criterion]);
+  if (rate < rules.lowestRate) return asks(`its general rate is ${rate}, under ${rules.lowestRate}`, 'lowestRate');
   // What the survey read of a pull request comes first, since the change rules can only read a head this repository holds.
-  return (item.state === 'pr' ? pullSurveyed(item, unit) : null) ?? changeHolds(item, unit)[0] ?? null;
+  const surveyed = item.state === 'pr' ? pullSurveyed(item, unit) : null;
+  if (surveyed) return asks(surveyed);
+  return changeHoldsWith(item, unit, rules)[0] ?? null;
 }
+
+/** `holdOf`'s reason alone, or null when the change may merge by itself. */
+export const whyItAsks = asked => holdOf(asked)?.why ?? null;
 
 // Where a merge by itself left the default branch, for the deploy job: here, or on the code host for a pull request.
 const mergedWords = (target, pr) => (pr
@@ -250,6 +281,7 @@ export function askedOf(root, { yolo, landing, row, item, unit }) {
     item,
     unit,
     unmodeled: unmodeledIn(readMachines(root, row.slug)?.machines, unit),
+    rules: rulesOf(root, row.slug),
   };
   return { asked, models: changeModels(root, row.slug, unit) };
 }
@@ -258,7 +290,7 @@ export function askedOf(root, { yolo, landing, row, item, unit }) {
 export const waitingToMerge = (root, now) => [...weighedRows(root, now), ...pullCandidates(root)];
 
 /**
- * Merges what may merge by itself, at most one change a project, and answers a report of each. `handOff` gives a deploy to the main agent, and
+ * Merges what may merge by itself, as many changes a project as its settings allow (one by default), and answers a report of each. `handOff` gives a deploy to the main agent, and
  * `gh` reaches the code host. While YOLO mode is on it also files the readiness work of any project that has none yet. A pull request whose
  * merge commit the host did not say hands on no deploy, so that merge is asked about like any other.
  */
@@ -272,12 +304,12 @@ export async function yoloPass(root, { now = Date.now(), handOff, gh = defaultPu
 
   const landing = landingReasons(root);
   const reports = [];
-  const mergedOn = new Set();
+  const mergedOn = new Map();
   let signedIn = null;
   const user = () => (signedIn ??= signedInUser(gh));
   for (const { row, item, unit } of waitingToMerge(root, now)) {
-    if (mergedOn.has(row.slug)) continue;
     const { asked, models } = askedOf(root, { yolo, landing, row, item, unit });
+    if ((mergedOn.get(row.slug) ?? 0) >= asked.rules.mergesAPass) continue;
     if (whyItAsks({ ...asked, models })) {
       askForModel(root, { asked, models, now });
       continue;
@@ -285,7 +317,7 @@ export async function yoloPass(root, { now = Date.now(), handOff, gh = defaultPu
 
     const landed = item.state === 'pr' ? await mergeOwnPull(root, { row, item, unit, gh, user, now }) : await mergeAlone(root, { row, unit, now });
     if (!landed) continue;
-    mergedOn.add(row.slug);
+    mergedOn.set(row.slug, (mergedOn.get(row.slug) ?? 0) + 1);
     const { project, readiness } = asked;
     const known = Boolean(landed.target);
     const { pr = null, relied = null } = landed;

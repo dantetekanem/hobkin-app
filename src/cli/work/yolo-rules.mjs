@@ -226,3 +226,6 @@ export function setYoloRules(root, slug, change) {
   writeMode(root, { yoloProjectRules: projectPatch(mode, slug, change) });
   return rulesOf(root, slug);
 }
+
+/** The lowest score of each question, from the rules, in the shape `scoresOf` takes. */
+export const floorsOf = rules => Object.fromEntries(Object.entries(FLOOR_RULES).map(([criterion, name]) => [criterion, rules[name]]));
