@@ -6,7 +6,7 @@
  * were made at, and who made them: the change review, or hobkin's own scored run. Read without trust, so a window can
  * take them from any host.
  */
-import { isCleanProse } from './prose.ts'
+import { cleanProse } from './prose.ts'
 
 /** The five questions, in the order hobkin asks them (`CRITERIA` in hobkin's `classified.mjs`). */
 export const NEED_NAMES = ['coverage', 'proof', 'safety', 'visibility', 'rollback'] as const
@@ -16,7 +16,7 @@ export type NeedName = (typeof NEED_NAMES)[number]
 export const NEED_KINDS = ['performance', 'bug-fix', 'state-machine', 'package-update', 'small-change', 'feature', 'unclear'] as const
 export type NeedKind = (typeof NEED_KINDS)[number]
 
-/** One answer: a whole number from 1 to 10, and the one line of evidence it rests on. */
+/** One answer: a whole number from 1 to 10, and the one line of evidence it rests on, empty when none was given. */
 export interface NeedScore {
   score: number
   evidence: string
@@ -52,12 +52,14 @@ export const NEED_LINE_LIMIT = 400
 const COMMIT = /^[0-9a-f]{40}$/
 const record = (value: unknown): Record<string, unknown> | undefined => (value != null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : undefined)
 const isScore = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 10
-const isLine = (value: unknown): value is string => isCleanProse(value, NEED_LINE_LIMIT) && value.trim() !== '' && !/[\r\n]/.test(value.trim())
+/** Prose as one clean line within hobkin's limit: what can be cleaned is, and nothing else is lost with it. */
+const lineOf = (value: unknown): string => cleanProse(value, NEED_LINE_LIMIT)
 const isName = (value: unknown): value is NeedName => NEED_NAMES.includes(value as NeedName)
 
+/** An answer whose number is valid, with its evidence cleaned; none when the number is not. */
 function scoreOf(value: unknown): NeedScore | undefined {
   const answer = record(value)
-  return answer && isScore(answer.score) && isLine(answer.evidence) ? { score: answer.score, evidence: answer.evidence.trim() } : undefined
+  return answer && isScore(answer.score) ? { score: answer.score, evidence: lineOf(answer.evidence) } : undefined
 }
 
 function floorOf(value: unknown): NonNullable<ReviewNeeds['floors']>[number][] {
@@ -77,10 +79,11 @@ export function readNeeds(value: unknown): ReviewNeeds | undefined {
   }
   const kind = NEED_KINDS.includes(sent.kind as NeedKind) ? (sent.kind as NeedKind) : undefined
   const rate = typeof sent.rate === 'number' && Number.isFinite(sent.rate) && sent.rate >= 1 && sent.rate <= 10 ? sent.rate : undefined
+  const missing = lineOf(sent.missing)
   return {
     ...(kind ? { kind } : {}),
     scores,
-    ...(isLine(sent.missing) ? { missing: sent.missing.trim() } : {}),
+    ...(missing ? { missing } : {}),
     ...(rate != null ? { rate } : {}),
     ...(Array.isArray(sent.floors) ? { floors: sent.floors.flatMap(floorOf) } : {}),
     head: sent.head,

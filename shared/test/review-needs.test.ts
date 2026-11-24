@@ -21,9 +21,13 @@ test("a review's ratings are read without trust: whole scores from 1 to 10 with 
   assert.deepEqual(readNeeds({ ...sent, rate: 7.5 })?.rate, 7.5)
   assert.deepEqual([readNeeds({ ...sent, monitoring: 'unknown' })?.monitoring, readNeeds({ ...sent, monitoring: 'maybe' })?.monitoring], ['unknown', undefined])
 
-  // A score that is no whole number from 1 to 10, or has no evidence, is dropped; the others stay.
-  const odd = readNeeds({ ...sent, scores: { coverage: score(11), proof: score(6.5), safety: score(9, ''), rollback: score(7, 'one\ntwo'), visibility: score(5) } })
-  assert.deepEqual(odd?.scores, { visibility: score(5) })
+  // Only a score that is no whole number from 1 to 10 is dropped. Its evidence is prose the reader cleans: one line,
+  // single spaces, within the limit, and none when none was given; the number stays whatever its words.
+  const odd = readNeeds({ ...sent, scores: { coverage: score(11), proof: score(6.5), safety: score(9, ''), rollback: score(7, 'one\ntwo'), visibility: score(3, 'Capped at 3: no test at:  and so on.') } })
+  assert.deepEqual(odd?.scores, { safety: score(9, ''), rollback: score(7, 'one two'), visibility: score(3, 'Capped at 3: no test at: and so on.') })
+  assert.equal(readNeeds({ ...sent, scores: { proof: score(6, 'x'.repeat(500)) } })?.scores.proof?.evidence.length, 400)
+  assert.deepEqual(readNeeds({ ...sent, scores: { proof: { score: 6 } } })?.scores, { proof: score(6, '') })
+  assert.deepEqual([readNeeds({ ...sent, missing: ' A test\nof it. ' })?.missing, readNeeds({ ...sent, missing: '  ' })?.missing], ['A test of it.', undefined])
   // Without a full commit or a maker, they cannot be placed, so none are read.
   for (const wrong of [{ ...sent, head: 'abc1234' }, { ...sent, by: 'someone' }, 'nothing', null]) assert.equal(readNeeds(wrong), undefined, JSON.stringify(wrong))
   assert.equal(readNeeds({ ...sent, kind: 'a guess' })?.kind, undefined)
