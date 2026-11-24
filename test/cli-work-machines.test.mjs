@@ -153,7 +153,7 @@ function finished(h, title, { slug = 'api', file = 'app.txt', numbers } = {}) {
   branched(h.checkouts[slug], branch, file, `${title}\n`);
   const head = git(h.checkouts[slug], 'rev-parse', branch);
   const { id } = fileItem(h.root, slug, { key: title, kind: 'fix', title, brief: 'Evidence and first change.' }, NOW);
-  updateItem(h.root, slug, id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores: scored(numbers), head } }, NOW);
+  updateItem(h.root, slug, id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores: scored(numbers), head, by: 'change-review' } }, NOW);
   // Described, so the survey's own pass has nothing to file for it.
   mkdirSync(dirname(prFile(h.root, slug, id)), { recursive: true });
   writeFileSync(prFile(h.root, slug, id), 'What changed and why.\n');
@@ -227,7 +227,7 @@ test('a finished change to a machine no model covers goes back to its branch for
   assert.deepEqual([itemOf(h, unsafe).state, itemOf(h, unsafe).modelAsked], ['branch', undefined]);
 
   const asked = { yolo: { on: true, rate: 8 }, project: {}, readiness: { ready: true }, landable: true, row: { holds: 0 }, unit: { sha: touches.head } };
-  const review = { kind: 'bug-fix', scores: scored(), head: touches.head };
+  const review = { kind: 'bug-fix', scores: scored(), head: touches.head, by: 'change-review' };
   assert.equal(whyItAsks({ ...asked, item: { state: 'branch', kind: 'fix', review }, unmodeled: [CHECKOUT] }), 'it changes Checkout, a state machine no model covers yet');
 
   // A run that ends with no model leaves the change asking. It went back once for this review, and does not go again.
@@ -254,8 +254,7 @@ test('a model written after the review keeps the scores, and the change merges b
     await director.itemFinished(change.slug, itemOf(h, change));
     assert.deepEqual([itemOf(h, change).state, itemOf(h, change).reviewAsked, itemOf(h, change).modelAsked], ['branch', false, null]);
   }
-  const closed = await surveyAndClose(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
-  assert.deepEqual(closed.reviewing, [], 'a commit that only wrote a model asks for no new review');
+  await surveyAndClose(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
   assert.deepEqual([rowOf(h, holds).head, rowOf(h, holds).review.stale], [heads.get(holds.id), false], 'the scores still speak for the new head');
 
   // hobkin checks the model it asked for itself, at each new head, one check a pass.

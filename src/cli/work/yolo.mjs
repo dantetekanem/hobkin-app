@@ -268,15 +268,6 @@ export function readinessOf(root, slug) {
   return { ready: needs.length === 0, needs, holds, brokenModels: broken, parts, at: record?.at ?? null, item: own?.id ?? null };
 }
 
-/** Whether YOLO mode may merge a change on this project by itself once a review scores it: on, on this project too, and the project ready. */
-export const scoresByItself = (root, slug) => readYolo(root).on && yoloOnProject(root, slug) && readinessOf(root, slug).ready;
-
-/**
- * Whether a finished change on this project, on its branch or its own pull request, gets its review with no one asking: the user turned reviews
- * on, or YOLO mode may merge it by itself once scored, since nothing merges by itself without a review's scores.
- */
-export const reviewsByItself = (root, slug) => readMode(root).reviewOnFinish === true || scoresByItself(root, slug);
-
 /** Where a project's readiness work stands: none filed, queued, running, waiting for the user's yes, landed, or closed without landing. */
 function workOf(item, running) {
   if (!item) return 'none';

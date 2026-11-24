@@ -59,7 +59,7 @@ function finished(h, title, { file = 'app.txt', text = `${title}\n` } = {}) {
   const head = git(h.checkout, 'rev-parse', branch);
   const { id } = fileItem(h.root, 'api', { key: title, kind: 'fix', title, brief: 'Evidence and first change.' }, NOW);
   const scores = Object.fromEntries(['coverage', 'proof', 'safety', 'visibility', 'rollback'].map(name => [name, { score: 10, evidence: `What the review saw of ${name}.` }]));
-  updateItem(h.root, 'api', id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores, head } }, NOW);
+  updateItem(h.root, 'api', id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores, head, by: 'change-review' } }, NOW);
   return { id, branch, head };
 }
 

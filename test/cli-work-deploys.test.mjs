@@ -322,7 +322,7 @@ function yoloReady(h) {
 
 function reviewed(h, title, number) {
   const change = finished(h, title, { number });
-  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: git(h.checkout, 'rev-parse', change.branch) } }, NOW);
+  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: git(h.checkout, 'rev-parse', change.branch), by: 'change-review' } }, NOW);
   return change;
 }
 

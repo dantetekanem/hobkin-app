@@ -5,15 +5,13 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { clientNoticesToPost } from '../src/cli/client-notices.mjs';
 import { initialize } from '../src/cli/config.mjs';
-import { surveyAndClose } from '../src/cli/work/closing.mjs';
 import { workStatus } from '../src/cli/work/commands.mjs';
-import { WorkDirector } from '../src/cli/work/director.mjs';
 import { recordMachines } from '../src/cli/work/machines.mjs';
 import { mergePullRequest } from '../src/cli/work/controls.mjs';
-import { chooseProject, fileItem, prFile, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
-import { whyItAsks, yoloPass } from '../src/cli/work/yolo-pass.mjs';
-import { rulesOf, setYoloRules } from '../src/cli/work/yolo-rules.mjs';
+import { yoloPass } from '../src/cli/work/yolo-pass.mjs';
+import { setYoloRules } from '../src/cli/work/yolo-rules.mjs';
 import { codeHost, MERGE_COMMIT, USER } from './helpers/code-host.mjs';
 import { recordReadiness, setYolo, setYoloProject } from '../src/cli/work/yolo.mjs';
 import { branched, git, pull, repository } from './helpers/work-fixture.mjs';
@@ -61,7 +59,7 @@ function openedAsPull(h, title, { slug = 'api', number = 7, review = 'scored' } 
   const head = git(h.checkouts[slug], 'rev-parse', branch);
   const host = codeHost({ number, branch, head });
   const { id } = fileItem(h.root, slug, { key: title, kind: 'fix', title, brief: 'Evidence and first change.' }, NOW);
-  const scores = review === 'scored' ? { review: { kind: 'bug-fix', scores: scored(), head } } : {};
+  const scores = review === 'scored' ? { review: { kind: 'bug-fix', scores: scored(), head, by: 'change-review' } } : {};
   updateItem(h.root, slug, id, { state: 'pr', pr: host.url, branch, proof: 'The spec passes.', ...scores }, NOW);
   return { slug, id, branch, head, host };
 }
@@ -213,7 +211,7 @@ test('a project YOLO mode is off on never has its pull request merged, and a loc
   branched(h.checkouts.web, branch);
   const head = git(h.checkouts.web, 'rev-parse', branch);
   const { id } = fileItem(h.root, 'web', { key: 'Fix signup', kind: 'fix', title: 'Fix signup', brief: 'Evidence and first change.' }, NOW);
-  updateItem(h.root, 'web', id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores: scored(), head } }, NOW);
+  updateItem(h.root, 'web', id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores: scored(), head, by: 'change-review' } }, NOW);
   setYoloProject(h.root, 'api', false, NOW);
   await survey(h, change.host.gh);
 
@@ -223,34 +221,6 @@ test('a project YOLO mode is off on never has its pull request merged, and a loc
   assert.deepEqual(change.host.calls.filter(([group, verb]) => group === 'pr' && ['view', 'checks', 'merge'].includes(verb)), [], 'nothing is read or merged for it');
   assert.equal(whyOf(h, change), 'YOLO mode is off on its project');
   assert.deepEqual([itemOf(h, change).state, itemOf(h, { slug: 'web', id }).state, itemOf(h, { slug: 'web', id }).landed.route], ['pr', 'merged', 'yolo']);
-});
-
-test('a finished change waiting on its pull request gets its scored review by itself on a ready project, and merges once it meets the rules', async t => {
-  const h = workspace(t);
-  const change = openedAsPull(h, 'Fix login', { review: null });
-  mkdirSync(dirname(prFile(h.root, 'api', change.id)), { recursive: true });
-  writeFileSync(prFile(h.root, 'api', change.id), 'What changed and why.\n');
-  assert.equal(whyItAsks({ yolo: { on: true, rate: 8 }, on: true, project: {}, readiness: { ready: true }, landable: true, row: { holds: 0 }, item: itemOf(h, change), rules: rulesOf(h.root, 'api') }), 'no review has scored it');
-
-  await surveyAndClose(h.root, { now: NOW, gh: change.host.gh, reviews: join(h.base, 'no-reviews') });
-
-  const asked = itemOf(h, change);
-  assert.deepEqual([asked.reviewAsked, asked.reviewAskedFor, asked.state], [true, change.head, 'open']);
-
-  // Its review ran, scored the commit its pull request holds and recorded it waiting on that pull request again.
-  updateItem(h.root, 'api', change.id, { state: 'pr', reviewAsked: false, review: { kind: 'bug-fix', scores: scored(), head: change.head } }, NOW);
-  await survey(h, change.host.gh);
-  assert.deepEqual((await yoloPass(h.root, { now: NOW, gh: change.host.gh, handOff: () => {} })).map(({ item }) => item), [change.id]);
-});
-
-test('a run that ends with its change waiting on a pull request earns the same review a finished branch does', async t => {
-  const h = workspace(t);
-  const change = openedAsPull(h, 'Fix login', { review: null });
-  const director = new WorkDirector({ root: h.root, now: () => NOW, gh: change.host.gh, onChange: () => {} });
-
-  await director.itemFinished('api', itemOf(h, change));
-
-  assert.deepEqual([itemOf(h, change).reviewAsked, itemOf(h, change).state], [true, 'open']);
 });
 
 test('a merge the host queued or set to merge by itself is never recorded: hobkin turns auto-merge off, says so in Chat, and does not ask again at that commit', async t => {
@@ -287,27 +257,6 @@ test('a merge the host queued or set to merge by itself is never recorded: hobki
   assert.equal(itemOf(h, other).state, 'pr');
 });
 
-test('a change waiting on its pull request gets a review by itself only where YOLO mode may merge it, not because scoring finished changes is on', async t => {
-  const h = workspace(t, ['api', 'web']);
-  writeMode(h.root, { reviewOnFinish: true });
-  const onWeb = openedAsPull(h, 'Fix signup', { slug: 'web', review: null });
-  const onApi = openedAsPull(h, 'Fix login', { review: null });
-  setYoloProject(h.root, 'web', false, NOW);
-  const asked = change => [itemOf(h, change).state, Boolean(itemOf(h, change).reviewAsked)];
-
-  // The project YOLO mode is off on: not from the survey, and not as a run ends.
-  await surveyAndClose(h.root, { now: NOW, gh: onWeb.host.gh, reviews: join(h.base, 'no-reviews') });
-  const director = new WorkDirector({ root: h.root, now: () => NOW, gh: onWeb.host.gh, onChange: () => {} });
-  await director.itemFinished('web', itemOf(h, onWeb));
-  assert.deepEqual(asked(onWeb), ['pr', false]);
-
-  // With YOLO mode off everywhere, the same on api.
-  setYolo(h.root, { on: false }, NOW);
-  await surveyAndClose(h.root, { now: NOW, gh: onApi.host.gh, reviews: join(h.base, 'no-reviews') });
-  await director.itemFinished('api', itemOf(h, onApi));
-  assert.deepEqual(asked(onApi), ['pr', false]);
-});
-
 test('YOLO mode merges only the pull request the survey found for the change\'s branch in the project\'s own repository, whatever address its item holds', async t => {
   const h = workspace(t);
   const change = openedAsPull(h, 'Fix login');
@@ -338,7 +287,7 @@ test('the change rules read the commit the pull request holds, not a local branc
   const sensitive = git(repo, 'rev-parse', 'HEAD');
   git(repo, 'switch', '-q', 'main');
   host.view.headRefOid = sensitive;
-  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: sensitive } }, NOW);
+  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: sensitive, by: 'change-review' } }, NOW);
   await survey(h, host.gh);
   const pass = () => yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
 
@@ -348,7 +297,7 @@ test('the change rules read the commit the pull request holds, not a local branc
   // A head the host has and this repository does not: nothing is fetched, and it asks.
   const elsewhere = 'a'.repeat(40);
   host.view.headRefOid = elsewhere;
-  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: elsewhere } }, NOW);
+  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: elsewhere, by: 'change-review' } }, NOW);
   await survey(h, host.gh);
   assert.deepEqual(await pass(), []);
   assert.equal(whyOf(h, change), 'its pull request\'s head aaaaaaa is not in this repository, so its files cannot be read, and hobkin fetches nothing');
@@ -406,7 +355,7 @@ test('nothing pushes a review\'s commits to a pull request, so a review that cha
   git(h.checkouts.api, 'commit', '-q', '--allow-empty', '-m', 'review fix');
   const reviewed = git(h.checkouts.api, 'rev-parse', 'HEAD');
   git(h.checkouts.api, 'switch', '-q', 'main');
-  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: reviewed } }, NOW);
+  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: reviewed, by: 'change-review' } }, NOW);
   await survey(h, host.gh);
 
   assert.deepEqual(await yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} }), []);

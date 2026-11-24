@@ -974,7 +974,7 @@ export function trustPattern(root, pattern, word) {
 
 /** Asks `git` and `gh` now instead of at the next survey. Past a fetch they only read the repositories: all this changes is Hobkin's own record of its items. */
 export async function syncWork(root) {
-  const { settled, filed, retired, reviewing, pulse } = await surveyAndClose(root, { launchReviews: false });
+  const { settled, filed, retired, pulse } = await surveyAndClose(root);
   const merged = settled.filter(({ state }) => state === 'merged').length;
   const back = settled.length - merged;
   const found = [
@@ -982,10 +982,9 @@ export async function syncWork(root) {
     back && `${back} back to a local branch, because a PR was closed`,
     filed.length && `${filed.length} ${filed.length === 1 ? 'branch' : 'branches'} to get ready to merge`,
     retired.length && `${retired.length} dropped as ${retired.length === 1 ? 'a backup of another branch' : 'backups of other branches'}`,
-    reviewing.length && `${reviewing.length} sent for a review`,
     pulse.trouble.length && `${pulse.trouble.length} went wrong after landing`,
   ].filter(Boolean).join(', and ');
-  return reply(`Checked every project. ${found || 'Nothing was merged or closed'}.`, { settled, filed, retired, reviewing });
+  return reply(`Checked every project. ${found || 'Nothing was merged or closed'}.`, { settled, filed, retired });
 }
 
 /** The user's word that a merge went wrong. It takes no proof: it closes the launch as `trouble` and files the fix, and `severe` is for data loss or an outage. */

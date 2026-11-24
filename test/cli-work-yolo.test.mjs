@@ -9,7 +9,6 @@ import { HobkinApplication } from '../src/cli/application.mjs';
 import { clientNoticesToPost } from '../src/cli/client-notices.mjs';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
 import { answerDecision, openDecisions } from '../src/cli/decisions.mjs';
-import { surveyAndClose } from '../src/cli/work/closing.mjs';
 import { runWorkCommand, workStatus } from '../src/cli/work/commands.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import { recordMachines } from '../src/cli/work/machines.mjs';
@@ -80,7 +79,7 @@ function finished(h, title, { slug = 'api', kind = 'bug-fix', numbers, item = {}
   branched(h.checkouts[slug], branch);
   const head = git(h.checkouts[slug], 'rev-parse', branch);
   const { id } = fileItem(h.root, slug, { key: title, kind: 'fix', title, brief: 'Evidence and first change.', ...item }, NOW);
-  updateItem(h.root, slug, id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind, scores: scored(numbers), head } }, NOW);
+  updateItem(h.root, slug, id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind, scores: scored(numbers), head, by: 'change-review' } }, NOW);
   return { id, branch, head };
 }
 
@@ -423,24 +422,6 @@ function describe(h, { slug = 'api', id }) {
   writeFileSync(prFile(h.root, slug, id), 'What changed and why.\n');
 }
 
-test('with YOLO mode on, a finished branch on a ready project gets its review by itself', async t => {
-  const h = workspace(t, ['api', 'web']);
-  makeReady(h);
-  // Described and proved, with no scores yet, so a review is all each one lacks.
-  const unscored = ({ slug, id }) => {
-    describe(h, { slug, id });
-    updateItem(h.root, slug, id, { review: null }, NOW);
-  };
-  const onReady = { slug: 'api', ...finished(h, 'Fix login') };
-  const onUnready = { slug: 'web', ...finished(h, 'Fix signup', { slug: 'web' }) };
-  [onReady, onUnready].forEach(unscored);
-
-  await surveyAndClose(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
-
-  const asked = ({ slug, id }) => Boolean(itemsOf(h, slug).find(item => item.id === id).reviewAsked);
-  assert.deepEqual([asked(onReady), asked(onUnready)], [true, false]);
-});
-
 test('the director runs the pass after its own survey, and hands the deploy on', async t => {
   const h = workspace(t);
   // The survey's own reader of review grades looks in Pi's folder, and a test has none.
@@ -740,7 +721,7 @@ const brokenRun = { outcome: 'broken', broken: 'MergedAtReviewedHead', traceLeng
 
 test('a model that breaks at a change\'s head, or has not held there, keeps it asking in a plain line', () => {
   const head = 'c'.repeat(40);
-  const review = { kind: 'bug-fix', scores: scored(), head };
+  const review = { kind: 'bug-fix', scores: scored(), head, by: 'change-review' };
   const unit = { sha: head, area: 'app', conflict: false, size: { additions: 1, deletions: 0, files: 1 }, paths: ['app.txt'] };
   // Everything else about this change would let it merge by itself.
   const asks = models => whyItAsks({
@@ -772,7 +753,7 @@ function modeledChange(h, title) {
   branched(h.checkouts.api, branch, 'app.txt', `${title}\n`);
   const head = git(h.checkouts.api, 'rev-parse', branch);
   const { id } = fileItem(h.root, 'api', { key: title, kind: 'fix', title, brief: 'Evidence and first change.' }, NOW);
-  updateItem(h.root, 'api', id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores: scored(), head } }, NOW);
+  updateItem(h.root, 'api', id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores: scored(), head, by: 'change-review' } }, NOW);
   return { id, branch, head };
 }
 

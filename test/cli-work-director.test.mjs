@@ -1425,33 +1425,10 @@ test('by default a finished branch gets no review and goes straight to landing',
   assert.deepEqual(offered, [{ slug: 'api', id, title: 'Update rack', project: 'api' }]);
 });
 
-test('with reviews on, a finished branch gets its review next by itself, and only then can it land', async t => {
-  const h = fixture(t);
-  const offered = await offeredDrafts(h);
-  const [{ id }] = readItems(h.root, 'api');
-  writeMode(h.root, { reviewOnFinish: true });
-  h.agent = endsOnABranch(h);
-
-  await h.tick();
-  await h.settled();
-
-  assert.equal(h.work(doRuns(h).at(-1)).item.reviewAsked, undefined);
-  assert.deepEqual([readItems(h.root, 'api')[0].state, readItems(h.root, 'api')[0].reviewAsked], ['open', true]);
-  assert.deepEqual(offered, []);
-
-  await h.tick();
-  await h.settled();
-
-  assert.equal(h.work(doRuns(h).at(-1)).item.reviewAsked, true);
-  assert.equal(readItems(h.root, 'api')[0].reviewAsked, false);
-  assert.deepEqual(offered, [{ slug: 'api', id, title: 'Update rack', project: 'api' }]);
-});
-
-test('with reviews on, a note from the user is carried to its run, then cleared, and the new commits get their review', async t => {
+test('a note from the user is carried to its run, then cleared', async t => {
   const h = fixture(t);
   await offeredDrafts(h);
   const [{ id }] = readItems(h.root, 'api');
-  writeMode(h.root, { reviewOnFinish: true });
   updateItem(h.root, 'api', id, { state: 'branch', branch: 'hobkin/rack' });
   askAgent(h.root, 'api', id, 'Keep the old flag.');
   h.agent = endsOnABranch(h);
@@ -1461,7 +1438,6 @@ test('with reviews on, a note from the user is carried to its run, then cleared,
 
   assert.equal(h.work(doRuns(h).at(-1)).item.workNote, 'Keep the old flag.');
   assert.equal(readItems(h.root, 'api')[0].workNote, null);
-  assert.equal(readItems(h.root, 'api')[0].reviewAsked, true);
 });
 
 test('a review that fails keeps its mark, so the next try is still that review', async t => {

@@ -4,18 +4,15 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { initialize } from '../src/cli/config.mjs';
-import { surveyAndClose } from '../src/cli/work/closing.mjs';
-import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { syncWork } from '../src/cli/work/controls.mjs';
 import { readReviewGrades } from '../src/cli/work/grades.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
-import { chooseProject, fileItem, prFile, readItems, readMode, updateItem, writeMode, writeOwnerView } from '../src/cli/work/store.mjs';
+import { chooseProject, fileItem, prFile, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { branched, commit, git, repository } from './helpers/work-fixture.mjs';
 
 const HOUR = 3600000;
 const NOW = Date.parse('2026-06-01T12:00:00Z');
-const reviewsOn = { reviewOnFinish: true };
 
 function workspace(t, mode = {}) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-reviews-')));
@@ -57,12 +54,6 @@ const tipOf = (h, name) => git(h.checkout, 'rev-parse', name);
 const read = (h, { id }) => readItems(h.root, 'api').find(item => item.id === id);
 const safetyOf = (h, { id }) => readyItems(h.root).find(({ item }) => item === id).safety;
 const survey = h => surveyUnmerged(h.root, { now: NOW, gh: async () => '[]', reviews: h.reviews });
-const pass = h => surveyAndClose(h.root, { now: NOW, gh: async () => '[]', reviews: h.reviews });
-const askedFor = (h, item) => {
-  const { state, reviewAsked, reviewAskedFor } = read(h, item);
-  return [state, reviewAsked, reviewAskedFor];
-};
-const reviewsSetting = async h => (await runWorkCommand(h.root, ['reviews'])).reviewOnFinish;
 
 // Which commit a grade belongs to.
 
@@ -104,8 +95,8 @@ test('with no range a review goes to the revision it names, and only then to the
   assert.deepEqual([...grades.keys()].toSorted(), ['bbb222', 'ccc333']);
 });
 
-test('sync reads saved grades without asking for reviews, independently of the review directory', async t => {
-  const h = workspace(t, reviewsOn);
+test('sync reads saved grades independently of the review directory', async t => {
+  const h = workspace(t);
   const graded = finished(h, 'graded');
   const ungraded = finished(h, 'ungraded');
   reviewed(h, 'graded', { preflight: { head: tipOf(h, graded.branch) } });
@@ -122,115 +113,7 @@ test('sync reads saved grades without asking for reviews, independently of the r
   const synced = await syncWork(h.root);
 
   assert.equal(safetyOf(h, graded)?.grade, 'safe');
-  assert.deepEqual(synced.reviewing, []);
-  assert.deepEqual(askedFor(h, ungraded), ['branch', undefined, undefined]);
-  assert.deepEqual(readMode(h.root).queueNext, []);
-
-  const closed = await surveyAndClose(h.root, { now: NOW, gh: async () => '[]', reviews: h.reviews, launchReviews: false });
-
-  assert.equal(safetyOf(h, graded)?.grade, 'safe');
-  assert.deepEqual(closed.reviewing, []);
-  assert.deepEqual(askedFor(h, ungraded), ['branch', undefined, undefined]);
-  assert.deepEqual(readMode(h.root).queueNext, []);
+  assert.equal(safetyOf(h, ungraded), null);
+  assert.deepEqual(synced.settled, []);
 });
 
-// With reviews on, asking for the reviews that never came.
-
-test('finished work with no grade for its commit gets its review, two a pass and the top of the list first', async t => {
-  const h = workspace(t, reviewsOn);
-  const ungraded = finished(h, 'ungraded', { text: 'x\n' });
-  const stale = finished(h, 'stale', { text: 'x\n' });
-  reviewed(h, 'stale', { preflight: { head: tipOf(h, 'hobkin/stale') } });
-  onBranch(h, 'hobkin/stale', 'more.txt', 'more\n');
-  const done = finished(h, 'done', { text: 'x\ny\nz\n', state: 'done' });
-
-  const first = await pass(h);
-
-  assert.deepEqual(first.reviewing.map(({ id }) => id), [ungraded.id, stale.id]);
-  assert.deepEqual(askedFor(h, ungraded), ['open', true, tipOf(h, 'hobkin/ungraded')]);
-  assert.deepEqual(askedFor(h, stale), ['open', true, tipOf(h, 'hobkin/stale')]);
-  assert.deepEqual(readMode(h.root).queueNext, [`item:api:${ungraded.id}`, `item:api:${stale.id}`]);
-  assert.deepEqual(askedFor(h, done), ['branch', undefined, undefined], 'the third waits for the next pass, as the finished work it is');
-
-  await pass(h);
-
-  assert.deepEqual(askedFor(h, done), ['open', true, tipOf(h, 'hobkin/done')], 'work an item says is done still needs its grade');
-});
-
-test('a review that ends with no grade is not asked again for the same commit, but a new commit is', async t => {
-  const h = workspace(t, reviewsOn);
-  const item = finished(h, 'abc');
-  await pass(h);
-  // The review ended with no grade, and left no quality to say it ran.
-  updateItem(h.root, 'api', item.id, { state: 'branch', reviewAsked: false }, NOW);
-
-  await pass(h);
-  assert.deepEqual(askedFor(h, item), ['branch', false, tipOf(h, 'hobkin/abc')]);
-
-  onBranch(h, 'hobkin/abc', 'more.txt', 'more\n');
-  await pass(h);
-
-  assert.deepEqual(askedFor(h, item), ['open', true, tipOf(h, 'hobkin/abc')]);
-});
-
-test('a review that ran on a commit and left its quality but no grade is not asked again for it', async t => {
-  const h = workspace(t, reviewsOn);
-  const item = finished(h, 'abc');
-  // What a review asked as the run ended leaves when no review tooling graded it.
-  updateItem(h.root, 'api', item.id, { reviewAsked: false, quality: { rating: 'B', reason: 'Tests cover it.', head: tipOf(h, 'hobkin/abc') } }, NOW);
-
-  await pass(h);
-  assert.deepEqual(askedFor(h, item), ['branch', false, undefined]);
-
-  onBranch(h, 'hobkin/abc', 'more.txt', 'more\n');
-  await pass(h);
-
-  assert.deepEqual(askedFor(h, item), ['open', true, tipOf(h, 'hobkin/abc')]);
-});
-
-test('reviews are off in a home with no setting, so the survey asks one only once the user turns them on, with work mode on', async t => {
-  const h = workspace(t);
-  const item = finished(h, 'abc');
-  assert.equal(await reviewsSetting(h), false);
-
-  await pass(h);
-  writeMode(h.root, { reviewOnFinish: false });
-  await pass(h);
-  writeMode(h.root, { enabled: false, reviewOnFinish: true });
-  await pass(h);
-
-  assert.deepEqual(askedFor(h, item), ['branch', undefined, undefined]);
-  assert.deepEqual(readMode(h.root).queueNext, []);
-
-  writeMode(h.root, { enabled: true });
-  await pass(h);
-
-  assert.equal(await reviewsSetting(h), true);
-  assert.deepEqual(askedFor(h, item), ['open', true, tipOf(h, 'hobkin/abc')]);
-});
-
-test('a branch with its grade, of docs alone, only a person can land, or that a run or another agent holds is left alone', async t => {
-  const h = workspace(t, reviewsOn);
-  finished(h, 'graded');
-  reviewed(h, 'graded', { preflight: { head: tipOf(h, 'hobkin/graded') } });
-  finished(h, 'docs', { file: 'GUIDE.md', text: '# Guide\n' });
-  finished(h, 'step', { kind: 'yours' });
-  // Its review recorded the outcome, and its run has not ended yet.
-  finished(h, 'settling', { reviewAsked: true });
-  const running = finished(h, 'running');
-  mkdirSync(join(h.root, 'runtime.lock'));
-  writeOwnerView(h.root, { running: [{ slug: 'api', lane: 'do', item: running.id }] });
-  const rebasing = finished(h, 'rebasing');
-  const { id: fix } = fileItem(h.root, 'api', { key: 'ship:rebase:hobkin/rebasing', kind: 'pr-fix', title: 'Rebase hobkin/rebasing', brief: 'Rebase it.' }, NOW);
-  updateItem(h.root, 'api', fix, { branch: 'hobkin/rebasing', ships: rebasing.id }, NOW);
-  const wanted = finished(h, 'wanted');
-  // A second item on the same branch: one review covers them both.
-  const { id: twin } = fileItem(h.root, 'api', { key: 'twin', kind: 'fix', title: 'Fix twin', brief: 'The same work, filed twice.' }, NOW);
-  writeFileSync(prFile(h.root, 'api', twin), 'Fix twin\n');
-  updateItem(h.root, 'api', twin, { state: 'branch', branch: 'hobkin/wanted', proof: 'It passed.' }, NOW);
-
-  const { reviewing } = await pass(h);
-
-  assert.deepEqual(reviewing.map(({ id }) => id), [wanted.id]);
-  assert.deepEqual(readItems(h.root, 'api').filter(({ reviewAskedFor }) => reviewAskedFor).map(({ id }) => id), [wanted.id]);
-});

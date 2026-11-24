@@ -4,10 +4,9 @@ import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
+import { recordGrades } from '../src/cli/work/review-grades.mjs';
 import { assertReview, brokenFloors, generalRate, scoresOf } from '../src/cli/work/classified.mjs';
-import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { readyItems } from '../src/cli/work/reads.mjs';
 import { chooseProject, fileItem, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
@@ -40,7 +39,6 @@ function finished(h, title, change = {}) {
   return { id, branch, head: git(h.checkout, 'rev-parse', branch) };
 }
 
-const record = (h, outcome) => runWorkCommand(h.root, ['item', 'api'], Readable.from([JSON.stringify(outcome)]));
 const itemOf = (h, id) => readItems(h.root, 'api').find(item => item.id === id);
 
 test('a review\'s scores are kept only when they are whole, evidenced and pinned to a commit', () => {
@@ -99,26 +97,10 @@ test('a model hobkin checked at the change\'s head writes the proof score\'s evi
   assert.deepEqual(scoresOf(review()).scores, scored());
 });
 
-test('only the item\'s review run records scores', async t => {
-  const h = workspace(t);
-  const { id, head } = finished(h, 'Fix login');
-
-  await assert.rejects(record(h, { id, state: 'branch', review: review({ head }) }), /Only the run hobkin started as this item's review records its scores/);
-  assert.equal(itemOf(h, id).review, undefined);
-
-  updateItem(h.root, 'api', id, { reviewAsked: true }, NOW);
-  await assert.rejects(record(h, { id, state: 'branch', review: review({ head, kind: 'refactor' }) }), /kind must be one of/);
-  await record(h, { id, state: 'branch', review: { ...review({ head }), extra: 'dropped' } });
-
-  const kept = itemOf(h, id).review;
-  assert.deepEqual(Object.keys(kept).sort(), ['head', 'kind', 'scores']);
-  assert.deepEqual([kept.kind, kept.head, kept.scores.safety.score], ['bug-fix', head, 9]);
-});
-
 test('a finished row carries its scores and says when they are for an older commit', async t => {
   const h = workspace(t);
-  const { id, branch, head } = finished(h, 'Fix login', { reviewAsked: true });
-  await record(h, { id, state: 'branch', review: review({ head, missing: 'A test through the request.' }, { rollback: 6 }) });
+  const { id, branch, head } = finished(h, 'Fix login');
+  recordGrades(h.root, 'api', id, review({ head, missing: 'A test through the request.' }, { rollback: 6 }));
   await surveyUnmerged(h.root, { now: NOW, gh: async () => '[]', reviews: join(h.base, 'no-reviews') });
 
   const [row] = readyItems(h.root);
@@ -146,9 +128,9 @@ test('a finished row\'s proof score is hobkin\'s own once a model covering its f
   branched(h.checkout, branch, 'app.txt', 'two\n');
   const head = git(h.checkout, 'rev-parse', branch);
   const { id } = fileItem(h.root, 'api', { key: 'Fix merge', kind: 'fix', title: 'Fix merge', brief: 'Evidence and first change.' }, NOW);
-  updateItem(h.root, 'api', id, { state: 'branch', branch, proof: 'The spec passes.', reviewAsked: true }, NOW);
+  updateItem(h.root, 'api', id, { state: 'branch', branch, proof: 'The spec passes.' }, NOW);
   // The review says TLC held, and only hobkin's own run can say that.
-  await record(h, { id, state: 'branch', review: review({ head }, { proof: 10 }) });
+  recordGrades(h.root, 'api', id, review({ head }, { proof: 10 }));
   writeJson(join(h.root, 'proofs', 'broke', 'result.json'), {
     id: 'broke',
     project: 'api',

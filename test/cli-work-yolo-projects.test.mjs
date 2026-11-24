@@ -11,7 +11,7 @@ import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { yoloPass } from '../src/cli/work/yolo-pass.mjs';
 import { openReadinessPulls } from '../src/cli/work/yolo-parts.mjs';
 import { writeYoloReports } from '../src/cli/work/yolo-report.mjs';
-import { recordReadiness, reviewsByItself, runReadiness, setYolo, setYoloProject, yoloOnProject, yoloView } from '../src/cli/work/yolo.mjs';
+import { recordReadiness, runReadiness, setYolo, setYoloProject, yoloOnProject, yoloView } from '../src/cli/work/yolo.mjs';
 import { branched, git, repository, withOrigin } from './helpers/work-fixture.mjs';
 
 const NOW = Date.parse('2026-06-01T12:00:00Z');
@@ -58,7 +58,7 @@ function finished(h, slug, title) {
   branched(h.checkouts[slug], branch);
   const head = git(h.checkouts[slug], 'rev-parse', branch);
   const { id } = fileItem(h.root, slug, { key: title, kind: 'fix', title, brief: 'Evidence and first change.' }, NOW);
-  updateItem(h.root, slug, id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores: scored(), head } }, NOW);
+  updateItem(h.root, slug, id, { state: 'branch', branch, proof: 'The spec passes.', review: { kind: 'bug-fix', scores: scored(), head, by: 'change-review' } }, NOW);
   return { slug, id };
 }
 
@@ -105,7 +105,6 @@ test('a project turned off is never made ready, reviewed or merged by YOLO mode,
   assert.deepEqual(setYoloProject(h.root, 'web', false, NOW), { slug: 'web', on: false, filed: [] });
 
   assert.deepEqual(switches(h), { api: true, web: false });
-  assert.deepEqual([reviewsByItself(h.root, 'api'), reviewsByItself(h.root, 'web')], [true, false]);
   assert.throws(() => runReadiness(h.root, 'web', NOW), /YOLO mode is off on web/);
   const reports = await yoloPass(h.root, { now: NOW, handOff: () => {} });
   assert.deepEqual(reports.map(({ slug }) => slug), ['api']);

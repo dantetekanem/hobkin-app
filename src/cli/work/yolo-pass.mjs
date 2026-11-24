@@ -7,6 +7,7 @@ import { AFTER_DEPLOY_MINUTES, deployHeld, READINGS, readingFrom, sawIn } from '
 import { userTrouble } from './launches.mjs';
 import { readMachines, unmodeledIn } from './machines.mjs';
 import { askRecheck } from './proof-checks.mjs';
+import { GRADED_BY } from './review-grades.mjs';
 import { nameOf } from './names.mjs';
 import { changeHoldsWith } from './patterns.mjs';
 import { changeModels, scoresHoldAt, specName } from './proofs.mjs';
@@ -123,7 +124,8 @@ export function holdOf({ yolo, on, project, readiness, landable, leftOut = null,
   if (!WAITS_TO_MERGE.includes(item.state)) return asks(`its item is ${item.state}, not finished work waiting to merge`);
   if (item.state === 'pr' && !rules.mergePulls) return asks(PULLS_OFF, 'mergePulls');
   if (row.holds && !rules.earlierBranchesMayMerge) return asks('it brings earlier branches with it', 'earlierBranchesMayMerge');
-  if (!item.review) return asks('no review has scored it');
+  // The grades YOLO mode reads are Change Review's alone (`review-grades.mjs`): hobkin's own scored run, or a record written any other way, is not read.
+  if (item.review?.by !== GRADED_BY) return asks('its review has not rated it');
 
   const { kind, rate, floors, head } = scoresOf(item.review, models, floorsOf(rules));
   if (!scoresHoldAt(head, unit)) {

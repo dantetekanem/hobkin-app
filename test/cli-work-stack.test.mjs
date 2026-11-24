@@ -150,7 +150,7 @@ test('YOLO mode merges the bottom layer and asks about the layers above it, one 
   recordReadiness(h.root, 'api', allReady, NOW);
   updateItem(h.root, 'api', readiness.id, { state: 'merged' }, NOW);
   const [one, two] = chain(h);
-  for (const item of [one, two]) updateItem(h.root, 'api', item.id, { review: { kind: 'bug-fix', scores: scored, head: tipOf(h, item.branch) } }, NOW);
+  for (const item of [one, two]) updateItem(h.root, 'api', item.id, { review: { kind: 'bug-fix', scores: scored, head: tipOf(h, item.branch), by: 'change-review' } }, NOW);
   await survey(h);
 
   const reports = await yoloPass(h.root, { now: NOW });

@@ -26,15 +26,14 @@ import { nameOf } from './names.mjs';
 import { watchPile } from './pairs.mjs';
 import { countsAgainst, ideasWanted, planWork, skipsTheHour } from './plan.mjs';
 import { checkChangeModels, recheckModels } from './proof-checks.mjs';
-import { sameCodeAs } from './proofs.mjs';
 import { reviewDue, reviewMessage, reviewView } from './review.mjs';
 import { readSignals } from './signals.mjs';
 import {
   answerCancel, chosenProjects, currentRequest, declinedToday, DISCOVERY_EVERY_MS, followUsage, foldersLeft, hasWorkToShow, isGoal, issueMode, itemTree, landing, levels, nextDiscoveryAt, paths, pendingCancels,
-  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, roomToFill, runnableStates, takeHanded,
+  prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, roomToFill, runnableStates, takeHanded,
   sessionError, sessionUsage, skipInQueue, tokenLabel, updateItem, workName, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
-import { BRANCH_PREFIX, changedPaths, changesOnlyDocs, commitPaths, currentBranch, defaultBranch, enterFolder, folderRefusal, headBranch, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
+import { BRANCH_PREFIX, changedPaths, commitPaths, currentBranch, enterFolder, folderRefusal, headBranch, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { copyJson, unchangedSince, withVersions } from '../file-version.mjs';
 import { oneRead } from './one-read.mjs';
@@ -44,9 +43,7 @@ import { nextPause, usageLimitIn } from './usage.mjs';
 import { readWatch, watchFolder } from './watcher.mjs';
 import { openReadinessPulls } from './yolo-parts.mjs';
 import { yoloPass } from './yolo-pass.mjs';
-import { pullRequestsMerge } from './yolo-pulls.mjs';
 import { writeYoloReports } from './yolo-report.mjs';
-import { reviewsByItself, scoresByItself } from './yolo.mjs';
 
 function withSessionCost(result, sessionFile) {
   const { usd, sessionId } = sessionUsage(sessionFile);
@@ -926,31 +923,13 @@ export class WorkDirector {
   // Stopping one as not approved is the user's no, and it stands however the run ended and over whatever the run recorded on its way out.
   // Any other end means the run did not record an outcome, and one that went quiet is the same however it was stopped.
   // The item goes straight back in the queue, and the next run carries on from the branch with what this one said.
-  // A review costs a whole run, so a finished branch gets one by itself only once the user turns reviews on: then it is its next run, ahead of new work.
+  // No review starts here: Change Review rates a finished change itself, and hobkin's own scored run starts only from a card's Review button.
   async itemFinished(slug, item) {
-    const { id, title, kind, state, branch, reviewAsked, workNote, modelAsked } = item;
+    const { id, title, kind, state, reviewAsked, workNote, modelAsked } = item;
     if (reviewAsked || workNote || modelAsked) updateItem(this.root, slug, id, { reviewAsked: false, workNote: null, modelAsked: null }, this.now());
     if (!['branch', 'pr'].includes(state) || kind === 'pr-fix') return;
 
-    const project = readProject(this.root, slug);
-    // A change waiting on its own PR earns one only while YOLO mode takes pull requests (`yolo-pulls.mjs`) and may merge it there once scored.
-    const earns = state === 'branch' || (pullRequestsMerge(this.root, slug) && scoresByItself(this.root, slug));
-    if (!reviewAsked && earns && await this.earnsAReview(project, branch, item.review)) {
-      updateItem(this.root, slug, id, { reviewAsked: true }, this.now());
-      retryItem(this.root, slug, id, this.now());
-      return;
-    }
-    this.onDraftDone({ slug, id, title, project: nameOf(project) });
-  }
-
-  // With the mode off nothing new starts, and that holds for a review too. A home with no setting is off. A review of a commit whose code the
-  // branch still has, since only models changed after it, still speaks for the branch, so it earns no other.
-  async earnsAReview(project, branch, review) {
-    if (!readMode(this.root).enabled || !reviewsByItself(this.root, project.slug)) return false;
-    const repo = project.path ?? paths(this.root, project.slug).clone;
-    const base = await defaultBranch(repo);
-    if (await changesOnlyDocs(repo, base, branch)) return false;
-    return !(review?.head && (await sameCodeAs(repo, base, branch)).includes(review.head));
+    this.onDraftDone({ slug, id, title, project: nameOf(readProject(this.root, slug)) });
   }
 
   settleItem(slug, id, run, { moved = false, stalled = false, declined = false } = {}) {

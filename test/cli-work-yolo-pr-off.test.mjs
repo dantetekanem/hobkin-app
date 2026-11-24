@@ -89,7 +89,7 @@ test('with YOLO mode on, a scored change waiting on its pull request on a ready 
   const parts = Object.fromEntries(['tests', 'errors', 'slowQueries', 'performance', 'logs', 'alerts', 'rollback', 'deploy'].map(name => [name, { ready: true, how: `${name} is in place.` }]));
   recordReadiness(h.root, 'api', parts, NOW);
   updateItem(h.root, 'api', readiness, { state: 'merged' }, NOW);
-  const change = waitingOnPull(h, 'fix-login', 7, head => ({ review: { kind: 'bug-fix', scores: scored(), head } }));
+  const change = waitingOnPull(h, 'fix-login', 7, head => ({ review: { kind: 'bug-fix', scores: scored(), head, by: 'change-review' } }));
   const unscored = waitingOnPull(h, 'fix-signup', 8, () => ({}));
   const host = codeHost([change, unscored]);
   await surveyAndClose(h.root, { now: NOW, gh: host.gh, reviews: join(h.base, 'no-reviews') });
