@@ -194,6 +194,7 @@ export function YoloScreen() {
 
 /** The switch and the lowest rate. What the switch means sits in one line whatever it says, so nothing under it moves. */
 function Switchboard({ yolo, setting: { saving, problem, change } }: { yolo: YoloState; setting: Setting }) {
+  const hasRules = yolo.rules != null
   return (
     <section aria-label="YOLO mode" className="flex flex-col gap-3 rounded-3xl bg-background px-5 py-4">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-3">
@@ -201,21 +202,29 @@ function Switchboard({ yolo, setting: { saving, problem, change } }: { yolo: Yol
           <Switch checked={yolo.on} disabled={saving} onCheckedChange={(on) => void change({ on })} data-stop="" />
           <span className="font-heading text-[14px] font-medium">YOLO mode {yolo.on ? 'on' : 'off'}</span>
         </label>
-        <div className="ml-auto flex items-center gap-2">
-          <span className="eyebrow">Lowest rate</span>
-          <Segmented
-            label="Lowest general rate that merges and deploys by itself"
-            name="yolo-rate"
-            value={String(yolo.rate)}
-            options={rateChoices(yolo).map((rate) => ({ value: String(rate), label: String(rate) }))}
-            disabled={saving}
-            onChoose={(rate) => void change({ rate: Number(rate) })}
-          />
-        </div>
+        {/* With the settings block under it, the lowest rate has its one home there. An older hobkin has no block, so it stays here. */}
+        {hasRules ? null : (
+          <div className="ml-auto flex items-center gap-2">
+            <span className="eyebrow">Lowest rate</span>
+            <Segmented
+              label="Lowest general rate that merges and deploys by itself"
+              name="yolo-rate"
+              value={String(yolo.rate)}
+              options={rateChoices(yolo).map((rate) => ({ value: String(rate), label: String(rate) }))}
+              disabled={saving}
+              onChoose={(rate) => void change({ rate: Number(rate) })}
+            />
+          </div>
+        )}
       </div>
-      <p role={problem ? 'alert' : undefined} title={problem ? undefined : yoloSays(yolo)} className={cn('h-5 truncate text-[13px] leading-5', problem ? 'text-bad-fg' : 'text-muted-foreground')}>
-        {problem ? `Not saved. ${problem}` : yoloSays(yolo)}
-      </p>
+      {/* What the rules allow is the block's own sentence. Here only a switch that did not save says so. */}
+      {hasRules ? (
+        problem ? <p role="alert" className="truncate text-[13px] leading-5 text-bad-fg">Not saved. {problem}</p> : null
+      ) : (
+        <p role={problem ? 'alert' : undefined} title={problem ? undefined : yoloSays(yolo)} className={cn('h-5 truncate text-[13px] leading-5', problem ? 'text-bad-fg' : 'text-muted-foreground')}>
+          {problem ? `Not saved. ${problem}` : yoloSays(yolo)}
+        </p>
+      )}
     </section>
   )
 }
