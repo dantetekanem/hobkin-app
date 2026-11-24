@@ -457,13 +457,13 @@ function NowLine({ doing }: { doing: Doing }) {
   )
 }
 
-function QuestionBubble({ hue, question, waiting }: { hue: number; question: string; waiting: boolean }) {
+function QuestionBubble({ hue, question, waiting, square = false }: { hue: number; question: string; waiting: boolean; square?: boolean }) {
   return (
     <div className="flex max-w-[72%] items-end gap-2 self-start text-left">
       <span className="mb-0.5 shrink-0">
         <AgentHood hue={hue} size={22} mood="confused" working={waiting} />
       </span>
-      <span className="rounded-2xl rounded-bl-md bg-surface-2 px-3.5 py-2 text-[15px] leading-relaxed">{question}</span>
+      <span className={cn('bg-surface-2 px-3.5 py-2 text-[15px] leading-relaxed', !square && 'rounded-2xl rounded-bl-md')}>{question}</span>
     </div>
   )
 }
@@ -621,10 +621,10 @@ function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; h
       animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: agentEntry(still) }, still)}
       exit={holdStill({ opacity: 0, transform: 'translateY(16px)', transition: { duration: 0.16, ease: 'linear' } } as const, still)}
     >
-      <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="What the agent has done" className="mt-auto flex flex-col gap-3 pt-2 pb-3">
+      <ol ref={scroll.content} data-agent-exchange onKeyDown={walkSteps} aria-label="What the agent has done" className="aa-transcript mt-auto flex flex-col gap-3 pt-2 pb-3">
         {question ? (
-          <li data-step="question" tabIndex={-1} className="flex flex-col gap-2 rounded-[18px] outline-none [contain-intrinsic-size:auto_64px] [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
-            <QuestionBubble hue={hue} question={question} waiting={waiting} />
+          <li data-step="question" tabIndex={-1} className="flex flex-col gap-2 outline-none [contain-intrinsic-size:auto_64px] [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
+            <QuestionBubble hue={hue} question={question} waiting={waiting} square />
             <p className="flex h-6 items-center self-start pl-8 text-[12px] text-muted-foreground">{waiting ? 'Your answer goes in the box below.' : 'Answered.'}</p>
           </li>
         ) : null}
@@ -704,7 +704,7 @@ function Said({ note }: { note: AgentNote }) {
   return (
     <li data-step="note" tabIndex={-1} className={cn('group w-full min-w-0 px-2.5 outline-none [contain-intrinsic-size:auto_48px] [content-visibility:auto]', arrival)}>
       <Stamped at={note.at} line="bubble">
-        <div className="ml-auto w-fit max-w-[72%] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-left text-[15px] leading-relaxed whitespace-pre-wrap group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
+        <div className="ml-auto w-fit max-w-[72%] bg-secondary px-3.5 py-2 text-left text-[15px] leading-relaxed whitespace-pre-wrap group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
           {note.images ? <SentImages attachments={note.images} /> : null}
           {note.text}
           {note.delivery ? (

@@ -31,7 +31,7 @@ function Tokens({ line, tokens, styles }: { line: string; tokens: Highlighted['l
   })
 }
 
-const MORE = 'rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70 transition-opacity duration-[160ms] ease-[ease] hover:opacity-100'
+const MORE = 'px-2 py-0.5 text-[11px] font-medium opacity-70 transition-opacity duration-[160ms] ease-[ease] hover:opacity-100'
 const number = (count: number) => count.toLocaleString('en-US')
 const lines = (count: number) => `${number(count)} ${count === 1 ? 'line' : 'lines'}`
 
@@ -76,7 +76,7 @@ export function CodeText({ text, language, from, label, note, most = PREVIEW_LIN
   // Opened, the lines drawn are highlighted. Until they are, the first lines keep the colors they had.
   const all = useHighlighted(open && foldable ? coloredUpTo(text, count) : null, language)
   return (
-    <div ref={box} className="min-w-0 overflow-hidden rounded-xl bg-code-bg text-code-text shadow-[inset_0_0_0_1px_var(--hb-border)]">
+    <div ref={box} className="min-w-0 bg-code-bg text-code-text shadow-[inset_0_0_0_1px_var(--hb-border)]">
       <div role="region" aria-label={label} {...{ [BOX]: '' }} className="aa-box scroll-quiet py-1.5 font-mono text-[12px] leading-[1.6]">
         {textLines.slice(0, count).map((line, index) => {
           const source = all.lines[index] ? all : head

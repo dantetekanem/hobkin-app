@@ -60,7 +60,7 @@ export const StepItem = memo(
         // Every step shares one inset, so text, rows and boxes start on one line. The step paints only inside itself
         // (content-visibility), and the inset leaves room for a glyph's edge and for a row's hover to bleed into.
         className={cn(
-          'w-full min-w-0 rounded-[18px] px-2.5 text-left outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
+          'w-full min-w-0 px-2.5 text-left outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
           step.kind === 'says' ? '[contain-intrinsic-size:auto_56px]' : '[contain-intrinsic-size:auto_44px]',
           arrival,
         )}
@@ -86,14 +86,14 @@ export const StepItem = memo(
 export function EarlierSteps({ row, onMore }: { row: EarlierRow; onMore: () => void }) {
   const reading = row.kind === 'saved' && row.loading
   return (
-    <li data-step="earlier" tabIndex={-1} className="flex justify-center rounded-[18px] outline-none focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
+    <li data-step="earlier" tabIndex={-1} className="flex justify-center outline-none focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
       <button
         type="button"
         data-step-toggle
         aria-expanded={false}
         aria-busy={reading || undefined}
         onClick={reading ? undefined : onMore}
-        className="rounded-full px-3 py-1 text-[12px] text-muted-foreground transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 hover:text-foreground"
+        className="px-3 py-1 text-[12px] text-muted-foreground transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 hover:text-foreground"
       >
         {earlierWords(row)}
       </button>
@@ -193,7 +193,7 @@ function FoldRow({ icon: Icon, open, onToggle, children, failed = false }: { ico
     </>
   )
   // Its icon sits on the steps' line, and its hover reaches out into their inset.
-  const look = '-mx-2.5 flex min-w-0 items-center gap-2 rounded-xl px-2.5 py-1.5 text-left text-[13px]'
+  const look = '-mx-2.5 flex min-w-0 items-center gap-2 px-2.5 py-1.5 text-left text-[13px]'
   if (!onToggle) return <div className={look}>{content}</div>
   return (
     <button type="button" data-step-toggle aria-expanded={open} onClick={onToggle} className={cn(look, 'transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1')}>
@@ -284,7 +284,7 @@ function ProofCommand({ command, time, spec }: { command: Command; time?: EntryT
 }
 
 /** The size and look of the step view's small presses, as CodeText's MoreButton draws them. */
-const PRESS = 'rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70 transition-opacity duration-[160ms] ease-[ease] hover:opacity-100'
+const PRESS = 'px-2 py-0.5 text-[11px] font-medium opacity-70 transition-opacity duration-[160ms] ease-[ease] hover:opacity-100'
 
 interface Whole {
   /** How long the output is in all, when the feed cut it to its ends. Null when it holds it whole. */
@@ -337,7 +337,7 @@ function CutNote({ whole }: { whole: Whole }) {
     )
   }
   return (
-    <span aria-live="polite" className="rounded-full px-2 py-0.5 text-[11px] font-medium opacity-70">
+    <span aria-live="polite" className="px-2 py-0.5 text-[11px] font-medium opacity-70">
       {words}
     </span>
   )
@@ -355,7 +355,7 @@ function CommandCard({ command, time }: { command: Command; time?: EntryTime }) 
     <div
       ref={box}
       className={cn(
-        'relative min-w-0 rounded-2xl bg-code-bg text-code-text',
+        'relative min-w-0 bg-code-bg text-code-text',
         // A hairline, so the card stands off a canvas of nearly its own color. A failed one also carries a red edge.
         command.state === 'failed' ? 'shadow-[inset_3px_0_0_var(--hb-bad),inset_0_0_0_1px_var(--hb-border)]' : 'shadow-[inset_0_0_0_1px_var(--hb-border)]',
       )}
@@ -463,7 +463,7 @@ function ChangeDiffs({ places, unfold: { open, presses, toggle, more, box } }: {
   const preview = previewOf(parts.map((part) => part.rows), presses)
   return (
     <>
-      <div className="aa-diff overflow-hidden rounded-2xl" data-numbers={parts[0]!.numbered ? undefined : 'none'}>
+      <div className="aa-diff" data-numbers={parts[0]!.numbered ? undefined : 'none'}>
         <div {...{ [BOX]: '' }} className="aa-box scroll-quiet bg-code-bg py-1">
           {parts.map((part, index) =>
             preview.shown[index] ? (
@@ -553,7 +553,7 @@ function LookItem({ look }: { look: Look }) {
         data-step-toggle
         aria-expanded={open}
         onClick={toggle}
-        className="-mx-1.5 min-w-0 rounded-lg px-1.5 text-left transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1"
+        className="-mx-1.5 min-w-0 px-1.5 text-left transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1"
       >
         <LookLine look={look} />
       </button>
