@@ -125,14 +125,15 @@ function addReviews(metrics: WorkMetrics, root: string, store: ReviewStore, unde
     }
   }
 
-  let stored: ReturnType<ReviewStore['list']>
+  // Every target the home has a folder for: one whose old reviews were cleaned up still has its summaries.
+  let targets: ReviewTarget[]
   try {
-    stored = store.list()
+    targets = store.targets()
   } catch {
     metrics.gaps.push('The AI reviews could not be read, so none of them is counted.')
     return metrics
   }
-  for (const { target } of stored) {
+  for (const target of targets) {
     const id = reviewIdOf(target)
     // The folder that holds one AI review for each reviewed commit.
     const folder = dirname(assessmentFolder(root, target, '0'.repeat(40)))

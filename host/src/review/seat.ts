@@ -30,6 +30,7 @@ import { reviewModelChecks } from './model-checks.ts'
 import { monitoringLines } from './ratings.ts'
 import { carryReview } from './carry.ts'
 import { recordUsage } from './usage.ts'
+import { cleanUp } from './cleanup.ts'
 import { chatTeller } from './notify.ts'
 import type { WhoIsMe } from './owner.ts'
 import { peopleFinder, pullPeople } from './people.ts'
@@ -72,6 +73,8 @@ const finishedIn = (work: WorkState | null): FinishedChange[] => (work?.finished
 /** Item states in which hobkin's work on an item is back in the queue or running (`runnableStates` in hobkin's store), and those of finished work. */
 const WORKING = ['open', 'doing', 'stuck']
 const FINISHED = ['branch', 'pr']
+/** Item states of work hobkin closed: merged, declined from its card, dropped, or done another way. */
+const CLOSED = ['merged', 'declined', 'dropped', 'done']
 
 /** The folders hobkin keeps its projects in: the one each was chosen from, or hobkin's own copy of it. */
 const projectFolders = (data: string) => readProjects(data).map((project) => project.path ?? paths(data, project.slug).clone)
@@ -291,6 +294,12 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       renameSync(`${dayFile}.next`, dayFile)
     },
   }
+  /** Whether hobkin closed a change without a merge or merged it, or no longer has it: its items say so. */
+  const closed = (target: Extract<ReviewTarget, { kind: 'change' }>) => {
+    const item = readItems(seat.data(), target.slug).find((entry) => entry.id === target.item)
+    return !item || CLOSED.includes(item.state)
+  }
+  if (seat.live) keepCleaning(seat, closed)
   const reviews: Reviews = new Reviews({
     ...(assessments ? { assessments } : {}),
     ...(carry ? { carry } : {}),
@@ -298,6 +307,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     backAtWork,
     reviewsADay,
     dayLedger,
+    closed,
     describe,
     landing,
     ownPull,
@@ -390,6 +400,38 @@ function projectMonitoring(seat: { data: () => string; log?: (line: string) => v
     seat.log?.(`Change review of ${slug}: its monitoring could not be read, so none is handed in: ${error instanceof Error ? error.message : String(error)}`)
     return undefined
   }
+}
+
+/** How soon after the host starts the reviews are first cleaned up, and how often after that. */
+const CLEAN_FIRST_MS = 60_000
+const CLEAN_EVERY_MS = 24 * 60 * 60 * 1000
+
+/** The one cleaning schedule of each home, kept on globalThis so a host that reloads its code keeps one, not two. */
+const cleaning = ((globalThis as { __hobkinReviewCleaning?: Map<string, { first: NodeJS.Timeout; every: NodeJS.Timeout }> }).__hobkinReviewCleaning ??= new Map())
+
+/**
+ * Cleans up the home's reviews a minute after the host starts and once a day after (spec 058, A9), saying in the log
+ * what each run removed. A run that fails says why and removes nothing more: reviews go on as they are.
+ */
+function keepCleaning(seat: { root: string; log?: (line: string) => void }, closed: (target: Extract<ReviewTarget, { kind: 'change' }>) => boolean) {
+  const run = () => {
+    try {
+      const removed = cleanUp({ root: seat.root, now: Date.now(), closed: (target) => target.kind === 'change' && closed(target) })
+      if (removed.length) seat.log?.(`Reviews: cleaning up removed ${removed.length} files the home no longer needs: ${removed.join(', ')}`)
+    } catch (error) {
+      seat.log?.(`Reviews: cleaning up failed, so nothing more was removed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+  const kept = cleaning.get(seat.root)
+  if (kept) {
+    clearTimeout(kept.first)
+    clearInterval(kept.every)
+  }
+  const first = setTimeout(run, CLEAN_FIRST_MS)
+  const every = setInterval(run, CLEAN_EVERY_MS)
+  first.unref()
+  every.unref()
+  cleaning.set(seat.root, { first, every })
 }
 
 /** The quick tier, as the grammar check asks it: the model the blind check runs on. */

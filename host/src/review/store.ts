@@ -58,6 +58,8 @@ export interface ReviewStore {
   has(target: ReviewTarget, head: string): boolean
   /** Every target with a review in the home, each with its most recent one. */
   list(): StoredReview[]
+  /** Every target with a folder in the home, with a review in it or only what cleaning up kept, such as its summaries. */
+  targets(): ReviewTarget[]
   write(target: ReviewTarget, review: Review, files: ReviewFileContents[], meta?: ReviewMeta): void
   notes(target: ReviewTarget): NotesFile
   saveNotes(target: ReviewTarget, notes: NotesFile): void
@@ -146,6 +148,13 @@ export function reviewStore(root: string): ReviewStore {
           about.set(file, known)
         }
         return [{ target, at: newest.at, meta: readJson<ReviewMeta>(join(reviews, name, `meta-${newest.name}.json`)), change: known.change }]
+      })
+    },
+    targets() {
+      if (!existsSync(reviews)) return []
+      return readdirSync(reviews).flatMap((name) => {
+        const target = targetOfReviewFolder(name)
+        return target && statSync(join(reviews, name), { throwIfNoEntry: false })?.isDirectory() ? [target] : []
       })
     },
     write(target, review, files, meta) {

@@ -173,6 +173,8 @@ export interface ReviewsOptions {
   carry?: (target: ChangeTarget, head: string) => Promise<Carried>
   /** How many reviews the background builds by itself in a local day (spec 058), as the workload says. Twenty when it says nothing. */
   reviewsADay?: () => number | undefined
+  /** Whether hobkin closed a change without a merge, or no longer has it (spec 058): its review leaves the list. */
+  closed?: (target: ChangeTarget) => boolean
   /** Where the day's count of background builds is kept, so a host started again the same day keeps it. In memory without one. */
   dayLedger?: { read(): { day: string; built: number } | null; write(kept: { day: string; built: number }): void }
 }
@@ -813,6 +815,8 @@ export class Reviews {
       const status = this.status(id)
       // What merged or was discarded on the user's yes is done: it is kept in the home, notes and all, and is no longer listed.
       if (status.landing?.state === 'merged' || this.options.store.landedAt(target)) return []
+      // So is a change hobkin closed or no longer has, once it is no finished change any more.
+      if (target.kind === 'change' && !this.finished.has(id) && this.isClosed(target)) return []
       const kept = stored.get(id)
       const head = status.head ?? kept?.change?.head ?? null
       const about = this.about.get(id) ?? this.options.describe?.(target) ?? kept?.change ?? aboutFromTarget(target)
@@ -2033,6 +2037,15 @@ export class Reviews {
     } catch (error) {
       this.options.log?.(`Reviews: the line of each repository could not be worked out, so every finished change is reviewed as before: ${messageOf(error)}`)
       return { current: new Set(changes.map((target) => reviewIdOf(target))), waits: new Map() }
+    }
+  }
+
+  /** Whether hobkin closed a change or no longer has it, as its items say. One that cannot be read is not. */
+  private isClosed(target: ChangeTarget): boolean {
+    try {
+      return this.options.closed?.(target) ?? false
+    } catch {
+      return false
     }
   }
 
