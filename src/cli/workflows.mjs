@@ -11,7 +11,8 @@ import { parseSchedule } from './schedules.mjs';
  * `window`, with `timezone` and a `weekday`, `day` or `date`) may be left out, and its cadence follows from what it gives:
  * weekly with `weekday`, monthly with `day`, once with `date`, daily otherwise. `on` lists what else starts it:
  * `press`, `start` and `after:<command>`. `model`, `effort` and `cwd` default to the home's background ones, and
- * `context` to none. Whether it is on is the home's (`runtime/workflows.json`), never the file's.
+ * `context` to none. Whether it is on is the home's (`runtime/workflows.json`), never the file's, and so is when it was
+ * first seen in its folder (`runtime/workflows-seen.json`): a time that passed before then never runs.
  */
 
 const INTEGRATION_ID = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -21,6 +22,7 @@ const MOST_BYTES = 65536;
 const fields = new Set(['id', 'title', 'at', 'window', 'timezone', 'harness', 'model', 'effort', 'cwd', 'context', 'weekday', 'day', 'date', 'on']);
 const frontMatter = /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/;
 const switchesFile = root => join(root, 'runtime', 'workflows.json');
+const seenFile = root => join(root, 'runtime', 'workflows-seen.json');
 /** Whether a workflow keeps a schedule of its own. One with none starts only by what its `on` lists. */
 export const hasSchedule = schedule => schedule.at !== undefined || schedule.window !== undefined;
 
@@ -112,10 +114,39 @@ export function switchWorkflow(root, id, enabled, now = new Date()) {
 }
 
 /**
- * Every workflow in these folders, in folder and then name order, with whether it is on. `defaults` are the home's
- * background `{ model, effort, cwd }`. A missing folder has none; a file that does not parse is an error, as a routine's is.
+ * When each of these workflows was first seen, by its id, kept in the home. One not kept yet is seen now, and one that
+ * is gone is forgotten, so a workflow that comes back counts from its return. The record is written only when it changes;
+ * one that cannot be read starts again from now, which runs nothing twice.
  */
-export function loadWorkflows(root, folders, defaults) {
+function firstSeen(root, ids, now) {
+  let saved = {};
+  try {
+    const read = JSON.parse(readFileSync(seenFile(root), 'utf8'))?.seen;
+    if (read && typeof read === 'object' && !Array.isArray(read)) saved = read;
+  } catch {
+    // Nothing kept yet, or nothing readable: every workflow here is seen now.
+  }
+  const at = new Date(now).toISOString();
+  const seen = Object.fromEntries(ids.map(id => [id, typeof saved[id] === 'string' && Number.isFinite(Date.parse(saved[id])) ? saved[id] : at]));
+  if (JSON.stringify(seen) !== JSON.stringify(saved)) {
+    try {
+      atomicJson(seenFile(root), { version: 1, seen });
+    } catch {
+      // The times hold for this read, and the next read tries to keep them again.
+    }
+  }
+  return seen;
+}
+
+const later = (one, other) => (other && Date.parse(other) > Date.parse(one) ? other : one);
+
+/**
+ * Every workflow in these folders, in folder and then name order, with whether it is on and, as `enabledAt`, the time
+ * before which nothing of its schedule runs: when it was first seen, or turned on again after that. `defaults` are the
+ * home's background `{ model, effort, cwd }`. A missing folder has none; a file that does not parse is an error, as a
+ * routine's is, and counts as gone.
+ */
+export function loadWorkflows(root, folders, defaults, now = Date.now()) {
   const schedules = [];
   const errors = [];
   const { switches, error } = readWorkflowSwitches(root);
@@ -141,10 +172,16 @@ export function loadWorkflows(root, folders, defaults) {
         errors.push({ ...failed });
         continue;
       }
-      const turned = switches[schedule.id];
-      const enabled = !error && turned?.enabled !== false;
-      schedules.push({ ...schedule, enabled, ...(enabled && turned?.at ? { enabledAt: turned.at } : {}) });
+      schedules.push(schedule);
     }
   }
-  return { schedules, errors };
+  const seen = firstSeen(root, schedules.map(schedule => schedule.id), now);
+  return {
+    schedules: schedules.map(schedule => {
+      const turned = switches[schedule.id];
+      const enabled = !error && turned?.enabled !== false;
+      return { ...schedule, enabled, ...(enabled ? { enabledAt: later(seen[schedule.id], turned?.at) } : {}) };
+    }),
+    errors,
+  };
 }

@@ -55,17 +55,17 @@ test("a folder's workflows load in name order with whether the home has them on,
   write('Bad Name.md', file({ title: 'X', on: ['press'] }));
   write('broken.md', 'no front matter');
   const folders = [{ id: 'github', folder, tools: ['github_find_pull'] }, { id: 'notes', folder: join(root, 'none'), tools: [] }];
-  const loaded = loadWorkflows(root, folders, defaults);
+  const loaded = loadWorkflows(root, folders, defaults, NOW);
   assert.deepEqual(loaded.schedules.map(item => [item.id, item.enabled]), [['github/after-issue', true], ['github/triage', true]]);
   assert.deepEqual(loaded.errors.map(error => error.path), [join(folder, 'Bad Name.md'), join(folder, 'broken.md')]);
   switchWorkflow(root, 'github/triage', false, new Date(NOW));
   switchWorkflow(root, 'github/after-issue', true, new Date(NOW));
-  const switched = loadWorkflows(root, folders, defaults);
+  const switched = loadWorkflows(root, folders, defaults, NOW);
   assert.deepEqual(switched.schedules.map(item => [item.id, item.enabled, item.enabledAt]), [
     ['github/after-issue', true, '2026-11-24T14:00:00.000Z'], ['github/triage', false, undefined]]);
   assert.deepEqual(readWorkflowSwitches(root).switches['github/triage'], { enabled: false, at: '2026-11-24T14:00:00.000Z' });
   writeFileSync(join(root, 'runtime', 'workflows.json'), 'not json');
-  const unreadable = loadWorkflows(root, folders, defaults);
+  const unreadable = loadWorkflows(root, folders, defaults, NOW);
   assert.equal(unreadable.schedules.every(item => !item.enabled), true, 'a switch file that cannot be read keeps every workflow off');
   assert.match(unreadable.errors[0].message, /every workflow stays off/);
 });
@@ -98,18 +98,19 @@ class FakeRuntime {
   async idle() { await Promise.all([...this.active.values()].map(item => item.work)); }
 }
 
-/** A runner over this home with these workflow folders, whose runs are only recorded. */
-function runner(t, setUp) {
+/** A runner over this home with these workflow folders, whose runs are only recorded, on a clock the test moves. */
+function runner(t, setUp, { at = NOW } = {}) {
   const h = home(t);
   setUp(h);
   const asked = [];
   const runtime = new FakeRuntime();
   const folders = [{ id: 'github', folder: h.folder, tools: ['github_find_pull'] }];
-  const made = new HobkinRunner({ root: h.root, runtime, now: () => new Date(NOW), workflows: () => folders,
+  const clock = { at };
+  const made = new HobkinRunner({ root: h.root, runtime, now: () => new Date(clock.at), workflows: () => folders,
     config: { concurrency: 3, initializedAt: '2026-01-01T00:00:00Z', main: { cwd: h.root }, background: { harness: 'pi', model: 'fixture/check', effort: 'medium' } },
     runHarness: async request => { asked.push(request); return { status: 'completed', text: 'ok' }; } });
   const listing = () => readdirSync(h.folder).map(name => [name, statSync(join(h.folder, name)).mtimeMs]);
-  return { ...h, asked, runtime, runner: made, listing };
+  return { ...h, asked, runtime, runner: made, listing, clock };
 }
 
 test('a scheduled workflow runs on its schedule as a routine does, with its directions, and one with no schedule never runs by the clock', async t => {
@@ -117,8 +118,10 @@ test('a scheduled workflow runs on its schedule as a routine does, with its dire
     write('triage.md', file({ title: 'Triage', at: '09:00', timezone: 'UTC' }));
     write('on-press.md', file({ title: 'On a press', on: ['press'] }, 'Only when pressed.'));
     write('once.md', file({ title: 'Once', at: '10:00', timezone: 'UTC', date: '2026-11-24' }, 'Just today.'));
-  });
+  }, { at: Date.parse('2026-11-24T08:00:00Z') });
+  await h.runner.tick();
   const before = h.listing();
+  h.clock.at = NOW;
   await h.runner.tick();
   await h.runtime.idle();
   await h.runner.tick();
@@ -133,7 +136,9 @@ test("a workflow started by its integration runs now with its input in the run's
   const h = runner(t, ({ write }) => {
     write('after-issue.md', file({ title: 'After an issue', on: ['after:github.issue.add'] }, 'Label the new issue.'));
     write('triage.md', file({ title: 'Triage', at: '09:00', timezone: 'UTC' }));
-  });
+  }, { at: Date.parse('2026-11-24T08:00:00Z') });
+  await h.runner.tick();
+  h.clock.at = NOW;
   const { run } = await h.runner.startWorkflow('github/after-issue', { args: { title: 'Dark mode' }, answer: { number: 12 } });
   await h.runtime.idle();
   assert.match(run, /^once:[0-9a-f]{64}$/);
@@ -223,4 +228,42 @@ test("hobkin's application runs a workflow its integration starts, as a run in R
   assert.deepEqual(reports.filter(report => report.id === run).map(report => [report.title, report.text]), [['Sweep', 'Swept.']]);
   assert.deepEqual(await app.setWorkflowEnabled('notes/sweep', false), { id: 'notes/sweep', enabled: false });
   await assert.rejects(app.startWorkflow('notes/sweep'), /turned off/);
+});
+
+/** The runs of one workflow the runner has started so far, by occurrence. */
+const runsOf = (h, id) => Object.values(h.runtime.data.runs).filter(run => run.scheduleId === id).map(run => run.id);
+async function tickAt(h, iso) {
+  h.clock.at = Date.parse(iso);
+  await h.runner.tick();
+  await h.runtime.idle();
+}
+
+test('a daily 09:00 workflow first seen at 15:00 runs tomorrow at 09:00, not now', async t => {
+  const h = runner(t, ({ write }) => write('triage.md', file({ title: 'Triage', at: '09:00', timezone: 'UTC' })), { at: Date.parse('2026-11-24T15:00:00Z') });
+  await tickAt(h, '2026-11-24T15:00:00Z');
+  await tickAt(h, '2026-11-24T23:59:00Z');
+  assert.deepEqual(runsOf(h, 'github/triage'), []);
+  assert.equal((await h.runner.snapshot()).schedules[0].nextRun.at, '2026-11-25T09:00:00.000Z');
+  await tickAt(h, '2026-11-25T09:00:30Z');
+  assert.deepEqual(runsOf(h, 'github/triage'), ['github:triage:2026-11-25']);
+});
+
+test('a daily 09:00 workflow first seen at 08:00 runs at 09:00 that day', async t => {
+  const h = runner(t, ({ write }) => write('triage.md', file({ title: 'Triage', at: '09:00', timezone: 'UTC' })), { at: Date.parse('2026-11-24T08:00:00Z') });
+  await tickAt(h, '2026-11-24T08:00:00Z');
+  assert.deepEqual(runsOf(h, 'github/triage'), []);
+  await tickAt(h, '2026-11-24T09:00:30Z');
+  assert.deepEqual(runsOf(h, 'github/triage'), ['github:triage:2026-11-24']);
+});
+
+test('a workflow that leaves its folder and comes back counts from its return', async t => {
+  const h = runner(t, ({ write }) => write('triage.md', file({ title: 'Triage', at: '09:00', timezone: 'UTC' })), { at: Date.parse('2026-11-24T07:00:00Z') });
+  await tickAt(h, '2026-11-24T07:00:00Z');
+  rmSync(join(h.folder, 'triage.md'));
+  await tickAt(h, '2026-11-24T08:00:00Z');
+  h.write('triage.md', file({ title: 'Triage', at: '09:00', timezone: 'UTC' }));
+  await tickAt(h, '2026-11-24T10:00:00Z');
+  assert.deepEqual(runsOf(h, 'github/triage'), [], 'the 09:00 it was away for does not run');
+  await tickAt(h, '2026-11-25T09:00:30Z');
+  assert.deepEqual(runsOf(h, 'github/triage'), ['github:triage:2026-11-25']);
 });

@@ -245,7 +245,7 @@ export class HobkinRunner {
     if (!this.workflows) return routines;
     const background = this.config.background ?? {};
     const defaults = { model: background.model ?? null, effort: background.effort, cwd: background.cwd ?? this.config.main?.cwd };
-    const flows = loadWorkflows(this.root, this.workflows(), defaults);
+    const flows = loadWorkflows(this.root, this.workflows(), defaults, new Date(this.now()).getTime());
     return { ...routines, schedules: [...routines.schedules, ...flows.schedules], errors: [...routines.errors, ...flows.errors] };
   }
 
