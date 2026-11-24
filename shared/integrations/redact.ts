@@ -2,7 +2,7 @@ import type { PiServerEntry } from './types.ts'
 
 /**
  * Hides secrets before anything about an MCP server leaves the host (023-integrations, A9). An entry keeps its
- * shape, so the UI can still say where a server lives and match it to the catalog, but every value written into it
+ * shape, so the UI can still say where a server lives, but every value written into it
  * as a credential is replaced, and so is anything in a message that is shaped like one.
  *
  * A reference to the environment, `${NAME}` or `$NAME` as Pi reads them, is safe to show: Pi reads the secret only

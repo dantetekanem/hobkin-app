@@ -17,7 +17,6 @@ interface PiMcpConfigModule {
     errors: string[]
   }
   updateMcpServerConfig(path: string, name: string, patch: { enabled?: boolean }): void
-  addMcpServerConfig(path: string, name: string, config: PiServerEntry): boolean
   removeMcpServerConfig(path: string, name: string): boolean
 }
 
@@ -46,10 +45,6 @@ interface PiAuthStorageModule {
   FileAuthStorageBackend: new (path: string) => unknown
 }
 
-interface PiMcpServersModule {
-  validateMcpServerConfig(name: string, raw: unknown): PiServerEntry | string
-}
-
 function snapshot(connection: PiMcpConnection): PiMcpCheck {
   return {
     state: connection.state,
@@ -63,12 +58,11 @@ function snapshot(connection: PiMcpConnection): PiMcpCheck {
  * are out of scope (023-integrations). `cwd` is where a local server starts, as for `pi mcp list`.
  */
 export async function piMcpSource({ agentDir, cwd }: { agentDir: string; cwd: string }): Promise<McpSource> {
-  const [config, runtime, storage, servers] = (await Promise.all([
+  const [config, runtime, storage] = (await Promise.all([
     import(piCodingAgentFile('./extensions/mcp/config.js')),
     import(piCodingAgentFile('./extensions/mcp/runtime.js')),
     import(piCodingAgentFile('./core/auth-storage.js')),
-    import(piCodingAgentFile('./core/mcp-servers.js')),
-  ])) as [PiMcpConfigModule, PiMcpRuntimeModule, PiAuthStorageModule, PiMcpServersModule]
+  ])) as [PiMcpConfigModule, PiMcpRuntimeModule, PiAuthStorageModule]
 
   const path = join(agentDir, 'mcp.json')
   // Pi keeps sign-ins in mcp-auth.json beside the configuration. Named here, so a folder other than Pi's own is used whole.
@@ -110,11 +104,6 @@ export async function piMcpSource({ agentDir, cwd }: { agentDir: string; cwd: st
       return found
     },
     setEnabled: (name, on) => config.updateMcpServerConfig(path, name, { enabled: on }),
-    add: (name, entry) => {
-      const valid = servers.validateMcpServerConfig(name, entry)
-      if (typeof valid === 'string') throw Error(valid)
-      config.addMcpServerConfig(path, name, valid)
-    },
     remove: (name) => config.removeMcpServerConfig(path, name),
   }
 }

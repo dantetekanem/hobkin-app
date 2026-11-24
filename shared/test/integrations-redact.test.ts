@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { CATALOG } from '../integrations/catalog.ts'
-import { openFills } from '../integrations/entry.ts'
 import { HIDDEN, redactEntry, referencedNames, scrubText } from '../integrations/redact.ts'
 import type { PiServerEntry } from '../integrations/types.ts'
 
@@ -34,10 +32,6 @@ test('secrets in an address are hidden, and the address still says where it goes
   assert.equal(at('https://user:pa55word@mcp.example.com/mcp?api_key=k3y&project=storefront'), `https://user:${HIDDEN}@mcp.example.com/mcp?api_key=${HIDDEN}&project=storefront`)
   assert.equal(at('https://mcp.zapier.com/api/mcp/s/ODk3ZGE2NWQtYjM4Ni00ZTJlLThlNTctN2M0ZmI1ZmZmNjE5/mcp'), `https://mcp.zapier.com/api/mcp/s/${HIDDEN}/mcp`)
   assert.equal(at('http://homeassistant.local:8123/api/mcp'), 'http://homeassistant.local:8123/api/mcp')
-})
-
-test('the catalog\'s own entries pass through unchanged, since they hold only references', () => {
-  for (const entry of CATALOG) assert.deepEqual(redactEntry(entry.entry), entry.entry, `${entry.id}, which leaves ${openFills(entry.entry).length} to fill in`)
 })
 
 test('fields hobkin does not know are kept, with secrets in them hidden', () => {

@@ -3,7 +3,6 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import { fileURLToPath } from 'node:url'
-import { catalogEntry } from '#shared/integrations/catalog.ts'
 import { INTEGRATIONS_UNKNOWN, type IntegrationsState } from '#shared/integrations/wire.ts'
 import { DEV_UI_ORIGIN } from '../src/access.ts'
 import { startHost } from '../src/host.ts'
@@ -110,40 +109,6 @@ test("lists configured servers with Pi's state", { timeout: 30000 }, async (t) =
 
   await client.until(() => integrationsOf(client)?.checkedAt === state.checkedAt, 'the same state over the socket')
   assert.deepEqual(integrationsOf(client), state)
-})
-
-test('a catalog service is added as the catalog writes it, and nothing typed can stand where a key goes', { timeout: 30000 }, async (t) => {
-  const folder = piFolder(t, { mcpServers: { notes: local() } })
-  const host = await hostFor(t, { integrations: () => offlinePi(folder) })
-  const client = await Client.connect(host)
-  afterTest(t, () => client.close())
-
-  const added = await client.run<IntegrationsState>('integrations.add', { service: 'linear' })
-  assert.deepEqual(
-    added.servers.map(({ name }) => name),
-    ['notes', 'linear'],
-  )
-  const written = readConfig(folder).mcpServers
-  assert.deepEqual(written.linear, catalogEntry('linear')!.entry, 'the catalog entry, as it is')
-  assert.deepEqual(written.notes, local(), 'the other entry is as it was')
-
-  // What a person fills in goes only where the entry has a place for it, and never as a reference to read.
-  const before = readFileSync(join(folder, 'mcp.json'), 'utf8')
-  for (const [args, code] of [
-    [{ service: 'linear', headers: { Authorization: 'Bearer typed-into-the-app' } }, 'invalid-arguments'],
-    [{ service: 'home-assistant', values: { address: '${HOME_ASSISTANT_TOKEN}' } }, 'unavailable'],
-    [{ service: 'home-assistant', values: { address: 'http://127.0.0.1:9/', token: 'typed-into-the-app' } }, 'unavailable'],
-    [{ service: 'home-assistant' }, 'unavailable'],
-    [{ service: 'no-such-service' }, 'unavailable'],
-  ] as const) {
-    const refused = await client.command('integrations.add', args)
-    assert.equal(!refused.ok && refused.error.code, code, JSON.stringify(args))
-  }
-  assert.equal(readFileSync(join(folder, 'mcp.json'), 'utf8'), before, 'nothing refused was written')
-
-  // A second server for the same service gets a name of its own, as Pi counts names.
-  const again = await client.run<IntegrationsState>('integrations.add', { service: 'home-assistant', values: { address: 'http://127.0.0.1:9/' } })
-  assert.equal(named(again, 'home-assistant').entry.url, 'http://127.0.0.1:9/api/mcp')
 })
 
 test('off and on change only enabled', { timeout: 30000 }, async (t) => {

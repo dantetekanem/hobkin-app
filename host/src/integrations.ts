@@ -1,9 +1,7 @@
 import { homedir } from 'node:os'
 import { join, sep } from 'node:path'
-import { catalogEntry } from '#shared/integrations/catalog.ts'
-import { buildEntry, fillProblems } from '#shared/integrations/entry.ts'
 import { redactEntry, referencedNames, scrubText, writtenSecrets } from '#shared/integrations/redact.ts'
-import { freeName, toolEffect } from '#shared/integrations/servers.ts'
+import { toolEffect } from '#shared/integrations/servers.ts'
 import type { ConfiguredServer, PiServerEntry, ServerState, ServerTool } from '#shared/integrations/types.ts'
 import { INTEGRATIONS_UNKNOWN, type IntegrationsState } from '#shared/integrations/wire.ts'
 import { Unavailable } from './commands.ts'
@@ -49,8 +47,6 @@ export interface McpSource {
   check(server: PiMcpServer, progress: (check: PiMcpCheck) => void, signal: AbortSignal): Promise<PiMcpCheck>
   /** Writes `enabled` for one server, as Pi's `/mcp` does. Everything else in the file stays as it was. */
   setEnabled(name: string, on: boolean): void
-  /** Writes a new entry once Pi's own check of it passes. Throws with Pi's reason when it does not. */
-  add(name: string, config: PiServerEntry): void
   /** Deletes an entry. False when the file does not have it. */
   remove(name: string): boolean
 }
@@ -147,28 +143,6 @@ export class Integrations {
   async turnOn(name: string): Promise<IntegrationsState> {
     const source = await this.known(name)
     this.write(() => source.setEnabled(name, true))
-    this.read(source)
-    await this.checkOne(source, name)
-    return this.current
-  }
-
-  /**
-   * Adds a catalog service with what the person filled in. The entry is the catalog's own, so a key is only ever a
-   * reference to the environment: nothing typed in the app can put a value in its place.
-   */
-  async add(service: string, values: Readonly<Record<string, string>> = {}): Promise<IntegrationsState> {
-    const entry = catalogEntry(service)
-    if (!entry) throw new Unavailable(`There is no service called "${service}" in the catalog.`)
-    if (!entry.usable) throw new Unavailable(entry.blocked ?? `Pi cannot use ${entry.name} yet.`)
-    const config = buildEntry(entry, values)
-    if (!config) {
-      const [problem] = Object.entries(fillProblems(entry, values))
-      throw new Unavailable(problem ? `${entry.connect.fills.find((fill) => fill.key === problem[0])?.label ?? problem[0]}: ${problem[1]}` : `${entry.name} takes nothing but its own fields.`)
-    }
-    const source = await this.source()
-    this.read(source)
-    const name = freeName(entry.id, [...this.configs.keys()])
-    this.write(() => source.add(name, config), `Pi did not take the entry for ${entry.name}`)
     this.read(source)
     await this.checkOne(source, name)
     return this.current
