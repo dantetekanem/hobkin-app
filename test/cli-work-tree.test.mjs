@@ -4,7 +4,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { currentBranch, gitOrNothing, gitWithin, headBranch, prepareTree, releaseTree, retireTree } from '../src/cli/work/tree.mjs';
+import { currentBranch, gitOrNothing, gitWithin, headBranch, prepareTree, releaseTree, retireTree, withRepository } from '../src/cli/work/tree.mjs';
 
 const git = (cwd, ...args) => execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8' }).trim();
 const WORK_KEPT = 'Work in progress kept by Hobkin';
@@ -734,4 +734,28 @@ test('a repository that keeps its refs in reftable says its branch as git does, 
   assert.equal(await headBranch(repo), 'hobkin/fix-door');
   assert.equal(await headBranch(tree), 'hobkin/two');
   assert.equal(await headBranch(repo), await currentBranch(repo));
+});
+
+test('git steps on one repository take turns, and another repository goes on meanwhile', async t => {
+  const { checkout } = repository(t);
+  const order = [];
+  const gate = Promise.withResolvers();
+  const first = withRepository(checkout, async () => { order.push('first in'); await gate.promise; order.push('first out'); });
+  const second = withRepository(`${checkout}/../checkout`, async () => { order.push('second in'); });
+  const other = await withRepository('/nowhere/else', async () => 'other done');
+  assert.equal(other, 'other done');
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.deepEqual(order, ['first in'], 'the second waits for the first, whatever it names the folder');
+  gate.resolve();
+  await Promise.all([first, second]);
+  assert.deepEqual(order, ['first in', 'first out', 'second in']);
+  await assert.rejects(withRepository(checkout, async () => { throw Error('boom'); }), /boom/);
+  assert.equal(await withRepository(checkout, async () => 'after a failure'), 'after a failure', 'a failure does not hold the line');
+});
+
+test('two trees of one repository made together are both ready', async t => {
+  const { checkout, base } = repository(t);
+  const trees = ['one', 'two', 'three'].map(name => join(base, 'trees', name));
+  await Promise.all(trees.map((tree, index) => prepareTree({ repo: checkout, tree, branch: `hobkin/item-${index}` })));
+  assert.deepEqual(trees.map(tree => git(tree, 'branch', '--show-current')), ['hobkin/item-0', 'hobkin/item-1', 'hobkin/item-2']);
 });

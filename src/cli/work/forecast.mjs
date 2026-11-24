@@ -3,7 +3,7 @@ import { costHistory, estimateRun, fitsDay, fitsHour, hourShareOf, outOfStarts, 
 import { lookTime } from './chat.mjs';
 import {
   beginsAChange, canStart, countsAgainst, discoveryEntry, goalLookEntry, ideasEntry, lensEntry, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, newWorkByItself, retryAt, signalsEntry, skipsTheHour,
-  startBudgetWait, startGap, startsNewWork, waitsOnItsProject, watchEntry,
+  startBudgetWait, startGap, startsNewWork, waitsOnItsProject, watchEntry, workOf,
 } from './plan.mjs';
 import { chosenProjects, dailyLimit, grades, isGoal, lookEveryHours, paths, readState, tokenEvents, workHoursAt } from './store.mjs';
 
@@ -169,7 +169,7 @@ function play({ plan: { mode, budget, agents, workload }, queue, from, start, en
     if (next.level === 'max') day.maxRuns += 1;
     if (change) day.changes += 1;
     spends.push({ at, fresh: next.estimate.fresh });
-    active.push({ slug: next.slug, lane: next.lane, level: next.level, until: at + lengthOf(runKind(next)) });
+    active.push({ slug: next.slug, lane: next.lane, level: next.level, ...(next.lane === 'do' ? workOf(next) : {}), until: at + lengthOf(runKind(next)) });
 
     const look = nextLook(next, at);
     if (look) {

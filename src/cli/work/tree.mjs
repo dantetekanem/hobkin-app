@@ -126,8 +126,12 @@ async function readyTree({ repo, tree, branch, resume, base }) {
  * A tree that cannot be readied would fail the same way every time, so it moves aside for a new one. A failure of that new one is
  * not caught: the run fails and its item goes back in the queue. So does a branch checked out somewhere else, because no new tree could take it either.
  */
-export async function prepareTree({ repo, tree, branch, resume = false }) {
-  if (resolve(tree) === resolve(repo)) throw Error('A tree is never the project\'s own folder.');
+export async function prepareTree(request) {
+  if (resolve(request.tree) === resolve(request.repo)) throw Error('A tree is never the project\'s own folder.');
+  return withRepository(request.repo, () => readiedTree(request));
+}
+
+async function readiedTree({ repo, tree, branch, resume = false }) {
   const base = await baseRef(repo);
   const ready = () => readyTree({ repo, tree, branch, resume, base });
   if (existsSync(tree)) {
@@ -183,6 +187,10 @@ async function nothingToLose(tree) {
  */
 export async function retireTree({ repo, tree }) {
   if (!statSync(join(tree, '.git'), { throwIfNoEntry: false })?.isFile()) return false;
+  return withRepository(repo, () => retiredTree({ repo, tree }));
+}
+
+async function retiredTree({ repo, tree }) {
   try {
     if (!await nothingToLose(tree)) return false;
     await git(repo, 'worktree', 'remove', tree);
@@ -231,6 +239,20 @@ export function realPlace(folder) {
   } catch {
     return folder;
   }
+}
+
+const lines = new Map();
+
+/**
+ * Git steps on one repository take turns, so two runs of one project never fight over its locks. A line is held only for the git steps, never for a run.
+ * Two names for one folder are one line, and a step that throws lets the next go on.
+ */
+export function withRepository(repo, step) {
+  const key = realPlace(repo);
+  const turn = (lines.get(key) ?? Promise.resolve()).then(step);
+  const tail = turn.catch(() => {}).finally(() => { if (lines.get(key) === tail) lines.delete(key); });
+  lines.set(key, tail);
+  return turn;
 }
 
 /** The branch everything starts from, read from what is already here, with no network. */

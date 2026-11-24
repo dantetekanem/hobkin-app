@@ -939,6 +939,19 @@ test('a project has one item running at a time', t => {
   assert.equal(entries[0].waiting, 'one item at a time here');
 });
 
+test('an item on a branch another run holds waits for it, whoever else is running', t => {
+  const root = dataRoot(t);
+  project(root, 'api', 'critical');
+  const fix = fileItem(root, 'api', item('Rebase hobkin/abc onto main', { kind: 'pr-fix', impact: 'high', effort: 'small' }), now);
+  updateItem(root, 'api', fix.id, { branch: 'hobkin/abc', ships: 'parent' }, now);
+
+  const sameBranch = plan(root, { running: [{ slug: 'api', lane: 'do', item: 'parent', branch: 'hobkin/abc', ships: 'parent' }] });
+  assert.equal(sameBranch.entries[0].waiting, 'another item is on this branch');
+
+  const sameDescription = plan(root, { running: [{ slug: 'api', lane: 'do', item: 'parent', branch: 'hobkin/other', ships: 'parent' }] });
+  assert.equal(sameDescription.entries[0].waiting, 'another item is on this branch');
+});
+
 test('the item a running agent holds is not in the plan twice', t => {
   const root = dataRoot(t);
   project(root, 'api', 'critical');

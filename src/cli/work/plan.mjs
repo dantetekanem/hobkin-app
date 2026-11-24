@@ -8,10 +8,11 @@ import { belowWanted, canWatch, readSignals, signalsDue } from './signals.mjs';
 // `reads.mjs` imports this file too. Neither calls the other while loading, so the cycle is safe.
 import { readyItems } from './reads.mjs';
 import { shipFirst } from './ship.mjs';
+import { BRANCH_PREFIX } from './tree.mjs';
 import { aheadOfPace, readSubscription, usageWindows } from './usage.mjs';
 import {
   chosenProjects, DISCOVERY_EVERY_MS, doableKinds, folderSearched, grades, hasWorkToShow, isGoal, lenses, levels, lookEveryHours, movesFinishedWork, paths, priorityOf, roomToFill,
-  readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents, tokenLabel, workHoursAt, workloadOf,
+  readDiscovery, readItems, readLaunches, readMode, readState, runnableStates, tokenEvents, tokenLabel, workHoursAt, workloadOf, workName,
 } from './store.mjs';
 import { pendingMerges } from './unmerged.mjs';
 
@@ -420,8 +421,18 @@ function retryWait(entry, now) {
   return at > now ? `tries again at ${lookTime(at, now)}` : null;
 }
 
+/** The branch a row's item works on and the description file it writes (`ships` names the item whose pull request that is). */
+export const workOf = ({ item }) => item && { branch: item.branch ?? `${BRANCH_PREFIX}${workName(item)}`, ships: item.ships ?? item.id };
+
+// A fix on a branch shares the branch and the description of the item it fixes, so two runs there would write over each other.
+const sharesWork = (entry, run) => {
+  const own = workOf(entry);
+  return Boolean(own) && ((run.branch && run.branch === own.branch) || (run.ships && run.ships === own.ships));
+};
+
 /** What the runs already going on a project hold back. Waiting keeps a run in the project's own folder. Small work is soon done, so it waits, and the rest takes a worktree. */
 export function waitsOnItsProject(entry, here) {
+  if (entry.lane === 'do' && here.some(run => sharesWork(entry, run))) return 'another item is on this branch';
   if (here.some(run => run.lane === entry.lane)) return entry.lane === 'do' ? 'one item at a time here' : 'a look is running here';
   return here.length > 0 && entry.effort === 'small' && !entry.urgent && !entry.picked ? 'another run here' : null;
 }

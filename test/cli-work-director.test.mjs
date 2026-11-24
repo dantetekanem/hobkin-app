@@ -2161,6 +2161,9 @@ test('two items of one project run at once, each kept and settled on its own', {
 
   assert.equal(h.director.running().filter(run => run.slug === 'api' && run.lane === 'do').length, 2, 'neither run replaced the other');
   assert.deepEqual(h.director.running().map(run => run.item).sort(), [first.id, second.id].sort());
+  const [onFirst] = h.director.running().filter(run => run.item === first.id);
+  assert.match(onFirst.branch, /^hobkin\/[0-9a-f]{6}-update-rack$/, 'a run says which branch it holds');
+  assert.equal(onFirst.ships, first.id, 'and whose description it writes');
   await new Promise(resolve => setTimeout(resolve, 200));
   gates.get(first.id)?.resolve();
   await new Promise(resolve => setTimeout(resolve, 200));
@@ -2180,4 +2183,14 @@ test('a durable hobkin turn takes no worker, and a work run or a routine does', 
   assert.equal(h.director.outlook().checks, 0, 'a work run is counted as a run, not a check');
   h.runner.jobs.set('routine-1', Promise.resolve());
   assert.equal(h.director.outlook().checks, 1);
+});
+
+test('two starts on a project not cloned yet clone it once', { timeout: 20000 }, async t => {
+  const h = fixture(t);
+  const origin = join(h.base, 'origin.git');
+  execFileSync('git', ['clone', '-q', '--bare', repository(h.base, 'source'), origin]);
+  const project = { slug: 'api', name: 'api', path: join(h.base, 'clone'), remote: origin };
+  const [first, second] = await Promise.all([h.director.repositoryFor(project), h.director.repositoryFor(project)]);
+  assert.equal(first, second);
+  assert.ok(existsSync(join(first, 'app.txt')));
 });

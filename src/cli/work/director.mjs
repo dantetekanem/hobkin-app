@@ -583,14 +583,21 @@ export class WorkDirector {
     };
   }
 
+  // Two runs of one project may start together, and a second clone into the same path would fail, so they share the one in flight.
+  cloning = new Map();
+
   async repositoryFor(project) {
     const repo = project.path ?? paths(this.root, project.slug).clone;
     if (existsSync(repo) || !project.remote) return repo;
 
-    await clone('git', ['clone', '--quiet', project.remote, repo], {
-      timeout: CLONE_TIMEOUT_MS,
-      env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-    });
+    if (!this.cloning.has(repo)) {
+      const cloned = clone('git', ['clone', '--quiet', project.remote, repo], {
+        timeout: CLONE_TIMEOUT_MS,
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
+      }).finally(() => this.cloning.delete(repo));
+      this.cloning.set(repo, cloned);
+    }
+    await this.cloning.get(repo);
     return repo;
   }
 
@@ -846,6 +853,8 @@ export class WorkDirector {
       lane: 'do',
       slug,
       item: item.id,
+      branch,
+      ships: item.ships ?? item.id,
       title: `${project.name}: ${item.title}`,
       purpose: 'work-do',
       cwd: tree,
@@ -998,7 +1007,7 @@ export class WorkDirector {
    * `tier` is the tier the run's model came from, which its record and its harness request carry (`bindingFor`). Finding
    * projects runs on the chat's own model and carries none.
    */
-  start({ key, planKey, grade, lane, slug, item, title, purpose, workPrompt, cwd, level, kind = lane, estimate = {}, model, effort, tier, instructions, prepare, work, settle, handed = null }) {
+  start({ key, planKey, grade, lane, slug, item, branch, ships, title, purpose, workPrompt, cwd, level, kind = lane, estimate = {}, model, effort, tier, instructions, prepare, work, settle, handed = null }) {
     const harnessId = handed?.harnessId ?? randomUUID();
     // Its first run already ended in the record as left running, and an id is only ever used once.
     const id = `work:${slug ?? 'discover'}:${lane}:${handed ? randomUUID() : harnessId}`;
@@ -1018,7 +1027,7 @@ export class WorkDirector {
     };
     const sessionFile = join(this.root, 'jobs', `${harnessId}.jsonl`);
     const startedAt = handed?.startedAt ?? new Date(this.now()).toISOString();
-    const entry = { id, harnessId, grade, kind, model, slug, lane, item, planKey, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0, harness: 'pi', startedAt, report: handed?.report };
+    const entry = { id, harnessId, grade, kind, model, slug, lane, item, ...(branch ? { branch, ships } : {}), planKey, title, level, effort, estimate, sessionFile, tokens: 0, cached: 0, harness: 'pi', startedAt, report: handed?.report };
     // It takes messages while it works, as a running check does: `message_check` reaches it by its schedule. The runner closes its inbox when it ends.
     const inbox = handed ? null : Promise.withResolvers();
     inbox?.promise.catch(() => {});
