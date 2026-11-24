@@ -35,7 +35,7 @@ import { PI_PACKAGES } from '../setup/pi-packages.ts'
 import type { ProofRun } from '../protocol/proofs.ts'
 import { METRICS_DAYS_MAX, type WorkMetrics } from '../protocol/metrics.ts'
 import type { ActivityEntry } from '../protocol/activity.ts'
-import { GRADES, ISSUE_PICKUPS, PR_MODES, PROJECT_KINDS, REVIEW_PULLS, type FolderLook, type FolderPicked, type NewProjectDone, type Workload } from '../protocol/work.ts'
+import { GRADES, ISSUE_PICKUPS, PR_MODES, PROJECT_KINDS, REVIEW_PULLS, type FolderLook, type FolderPicked, type NewProjectDone, type Workload, type YoloRules } from '../protocol/work.ts'
 import type { OpenedReview, ReviewCode, ReviewCursor, ReviewList, ReviewMap, ReviewStatus, VerdictPreview } from '../review/status.ts'
 import type { ReviewFileContents } from '../review/types.ts'
 import { EFFORTS, TIER_IDS, type HostTiers } from '../tiers/tiers.ts'
@@ -1142,6 +1142,32 @@ export const COMMANDS = {
     args: Type.Object({ slug: projectSlug, on: Type.Boolean() }, { additionalProperties: false }),
     outside: true,
   },
+  // Every rule that decides whether YOLO mode merges a change is a setting (063-yolo-settings-and-grades). As with the switches, only the user's click changes one.
+  'work.yolo.rules': {
+    description:
+      "Set YOLO mode's rules, as the runtime names them, for every project or, with `slug`, for one project, whose own setting then differs from the rest. A value is a switch, a number, a choice or a list of words, and null where the rule allows no limit. `clear` hands a project's rules back to the rest. Every value is checked before any is written, and one that is refused is named in the answer's error with nothing written. Answers with the rules in force.",
+    runs: 'host',
+    args: Type.Object(
+      {
+        slug: Type.Optional(projectSlug),
+        rules: Type.Optional(
+          Type.Record(Type.String({ minLength: 1, maxLength: 80 }), Type.Union([Type.Number(), Type.Boolean(), Type.String({ maxLength: 200 }), Type.Array(Type.String({ maxLength: 200 }), { maxItems: 200 }), Type.Null()]), {
+            minProperties: 1,
+            maxProperties: 60,
+          }),
+        ),
+        clear: Type.Optional(Type.Array(Type.String({ minLength: 1, maxLength: 80 }), { minItems: 1, maxItems: 60 })),
+      },
+      { additionalProperties: false },
+    ),
+    rule: ({ slug, rules, clear }) => {
+      if (rules === undefined && clear === undefined) return 'need rules to set or rules to clear'
+      if (clear !== undefined && slug === undefined) return 'can clear a rule only on one project, with slug'
+      const named = new Set(Object.keys((rules as Record<string, unknown> | undefined) ?? {}))
+      return (clear as string[] | undefined)?.some((name) => named.has(name)) ? 'cannot set and clear the same rule' : null
+    },
+    outside: true,
+  },
   // Proof runs of TLA+ models (050-tla-proofs). hobkin's own `hobkin proof` writes them, and these read, stop and repeat them.
   'proof.get': {
     description:
@@ -1598,6 +1624,8 @@ export interface CommandResults {
   'work.yolo.ready': { message: string }
   /** The project's own YOLO mode switch as it stands now. */
   'work.yolo.project': { slug: string; on: boolean }
+  /** The rules in force after the change, for every project (`slug` null) or for the one named. */
+  'work.yolo.rules': { slug: string | null; rules: YoloRules }
   /** The whole run. */
   'proof.get': ProofRun
   /** What happened to the run, in a line. */

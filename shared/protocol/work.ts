@@ -303,6 +303,34 @@ export interface YoloPart {
   deploys?: boolean
 }
 
+/**
+ * What one YOLO rule is set to (063-yolo-settings-and-grades): a switch, a number, a choice, a list of words, or null for
+ * "none" where the rule allows no limit. The names and ranges are the runtime's (`yolo-rules.mjs`), which checks every value.
+ */
+export type YoloRuleValue = number | boolean | string | string[] | null
+
+/** Every rule by its name, as the runtime holds it. */
+export type YoloRules = Record<string, YoloRuleValue>
+
+const isRuleValue = (value: unknown): value is YoloRuleValue =>
+  value === null ||
+  typeof value === 'boolean' ||
+  typeof value === 'string' ||
+  (typeof value === 'number' && Number.isFinite(value)) ||
+  (Array.isArray(value) && value.every((word) => typeof word === 'string'))
+
+/** The rules a runtime sent, or undefined for a runtime that has none or sent something else. A rule whose value is not one the page can show is left out. */
+export function readYoloRules(value: unknown): YoloRules | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const entries = Object.entries(value).filter((entry): entry is [string, YoloRuleValue] => isRuleValue(entry[1]))
+  return Object.fromEntries(entries)
+}
+
+/** A list of names (the rules a project sets for itself), or undefined when the runtime sent none. */
+export function readYoloNames(value: unknown): string[] | undefined {
+  return Array.isArray(value) && value.every((name) => typeof name === 'string') ? [...value] : undefined
+}
+
 /** A finished change waiting on a project, as YOLO mode reads it (`yoloStatus` in hobkin's `src/cli/work/yolo-report.mjs`). */
 export interface YoloChange {
   item: string
@@ -312,6 +340,8 @@ export interface YoloChange {
   rate: number | null
   /** Why it keeps asking the user, in hobkin's words, or null when it merges by itself on the next pass. On a project still getting ready, what it would meet once ready. */
   why: string | null
+  /** The name of the YOLO rule that holds it, so the page can open that setting. A hobkin older than rules does not send it. */
+  holdBy?: string | null
 }
 
 /** A change YOLO mode merged by itself, from its ledger. */
@@ -355,6 +385,10 @@ export interface YoloProject {
   changes?: YoloChange[]
   /** What YOLO mode merged by itself here, newest first. A hobkin older than this does not send it. */
   merged?: YoloMerge[]
+  /** The rules in force on this project, its own over the rest. A hobkin older than rules does not send them. */
+  rules?: YoloRules
+  /** The names of the rules this project sets for itself, which differ from the rest. */
+  differs?: string[]
 }
 
 /**
@@ -375,6 +409,8 @@ export interface YoloState {
    * older than this does not send it, and then it takes none.
    */
   pullRequests?: boolean
+  /** The rules for every project that does not set its own (063-yolo-settings-and-grades). A hobkin older than rules does not send them. */
+  rules?: YoloRules
   projects: YoloProject[]
 }
 

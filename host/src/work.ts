@@ -35,6 +35,7 @@ import {
 } from '#shared/protocol/work.ts'
 import { readNeeds, type ReviewNeeds } from '#shared/review/needs.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
+import { NO_YOLO_RULES, rulesAnswered, yoloFrom, type YoloRulesRuntime } from './work-yolo.ts'
 
 /**
  * Work mode for the Work screen: read from hobkin's own snapshot with hobkin's own rules, and every action the
@@ -191,10 +192,13 @@ const newerStore = hobkinStore as Partial<typeof hobkinStore>
 const HOBKIN_WORKLOAD: WorkloadRuntime = { setWorkload: newerStore.setWorkload, workloadOf: newerStore.workloadOf }
 
 /** Each project's own YOLO mode switch, which only a hobkin that has it can set. Looked up on the module, as the workload is. */
-export interface YoloRuntime {
+export interface YoloRuntime extends YoloRulesRuntime {
   setYoloProject?: typeof hobkinYolo.setYoloProject
 }
-const HOBKIN_YOLO: YoloRuntime = { setYoloProject: (hobkinYolo as Partial<typeof hobkinYolo>).setYoloProject }
+const HOBKIN_YOLO: YoloRuntime = {
+  setYoloProject: (hobkinYolo as Partial<typeof hobkinYolo>).setYoloProject,
+  setYoloRules: (hobkinYolo as unknown as YoloRulesRuntime).setYoloRules,
+}
 
 const isCount = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 1
 
@@ -614,7 +618,7 @@ export function workFrom(snapshot: HobkinSnapshot): WorkState | null {
     queued: work.queued ?? 0,
     projects: projectsFrom(work.projects ?? []),
     finished: stacksTogether(finishedFrom(waiting?.branches ?? [])),
-    yolo: work.yolo ?? null,
+    yolo: yoloFrom(work.yolo),
     ...workloadPartsOf(work),
   }
 }
@@ -642,6 +646,7 @@ type WorkCommand =
   | 'work.yolo'
   | 'work.yolo.ready'
   | 'work.yolo.project'
+  | 'work.yolo.rules'
   | 'work.change'
   | 'work.group'
 
@@ -737,6 +742,15 @@ export function workHandlers({ app, root, workload = HOBKIN_WORKLOAD, yolo = HOB
       const set = setYoloProject(root(), slug, on)
       await app().refresh()
       return { slug: set.slug, on: set.on }
+    },
+    'work.yolo.rules': async ({ slug, rules, clear }) => {
+      // The user's click alone: the command is outside, and hobkin has no `hobkin work` command for it, so the host calls the
+      // runtime's own setter, which checks every value before it writes any and refuses in its own words.
+      const { setYoloRules } = yolo
+      if (!setYoloRules) throw new Unavailable(NO_YOLO_RULES)
+      const answer = setYoloRules(root(), slug ?? null, { set: rules ?? {}, clear: clear ?? [] })
+      await app().refresh()
+      return { slug: slug ?? null, rules: rulesAnswered(answer) }
     },
     'work.change': async ({ slug, item, action, head, note }) => {
       const named = CHANGE_ACTIONS[action]
