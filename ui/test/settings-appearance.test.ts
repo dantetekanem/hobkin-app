@@ -242,7 +242,12 @@ test('the store loads settings saved at version 1 without losing them', async ()
 })
 
 test('settings saved before version 5 load with code changes closed, and keep what they said of the other kinds', () => {
-  const saved = { openByDefault: { change: true, shell: true, looks: false, other: false } }
-  assert.deepEqual(migrateSettings(saved, 4).openByDefault, { change: false, shell: true, looks: false, other: false }, 'the old default is not a choice, so it gives way')
-  assert.equal(migrateSettings({ movement: 'still' }, 4).openByDefault, undefined, 'a save that never kept the kinds takes the default')
+  const savedWithTheOldDefault = { openByDefault: { change: true, shell: true, looks: false, other: false } }
+  const savedWithoutKinds = { movement: 'still' }
+
+  const migrated = migrateSettings(savedWithTheOldDefault, 4)
+  const migratedWithoutKinds = migrateSettings(savedWithoutKinds, 4)
+
+  assert.deepEqual(migrated.openByDefault, { change: false, shell: true, looks: false, other: false }, 'the old default is not a choice, so it gives way')
+  assert.equal(migratedWithoutKinds.openByDefault, undefined, 'a save that never kept the kinds takes the default')
 })
