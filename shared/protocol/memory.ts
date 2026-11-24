@@ -247,6 +247,11 @@ export function readMemoryList(value: unknown): MemoryList {
   })
 }
 
+/** The snapshot's `memoriesStamp` as words, also from a runtime that gives a number, or nothing. */
+export function readMemoriesStamp(value: unknown): string | undefined {
+  return idOf(typeof value === 'number' && Number.isFinite(value) ? String(value) : value)
+}
+
 /** A chat message's `memory` read without trust, or nothing when it has no change and memory name to offer Undo and See by. */
 export function readMemoryNote(value: unknown): MemoryNote | undefined {
   if (!isRow(value)) return undefined

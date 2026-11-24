@@ -3,6 +3,7 @@ import { scheduleDefinition } from 'hobkin/src/cli/checks.mjs'
 import { diffActivity, MAIN_ACTIVITY, resetActivity, type JobActivity } from '#shared/protocol/activity.ts'
 import type { AppearanceRequest } from '#shared/protocol/appearance.ts'
 import type { KeptThemes } from '#shared/protocol/theme-history.ts'
+import { readMemoriesStamp, readMemoryNote } from '#shared/protocol/memory.ts'
 import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
 import type { GitHubState } from '#shared/protocol/github.ts'
@@ -63,10 +64,21 @@ export function wireWork(work: unknown): unknown {
 }
 
 /**
+ * A message with its note about a memory read into the contract's shape (057-shared-memory), or without it when the
+ * window could not offer Undo by it. A message with no note is the same object.
+ */
+function withMemoryNote(message: ChatMessage): ChatMessage {
+  if (!('memory' in message)) return message
+  const { memory, ...line } = message
+  const note = readMemoryNote(memory)
+  return note ? { ...line, memory: note } : line
+}
+
+/**
  * hobkin's snapshot as the UI gets it: its top-level keys, and the conversation as the terminal app shows it,
  * without what the user cleared and without messages that have nothing to read, such as a reply stopped
  * before its first word (`isVisible` in hobkin's `src/cli/ui.mjs`). `schedules` gives the routines' rows, and
- * `work` the work status's projects.
+ * `work` the work status's projects. A quiet line's note about a memory and the memories' stamp are read without trust.
  */
 export function toWire(
   snapshot: HobkinSnapshot,
@@ -79,6 +91,11 @@ export function toWire(
   const values = Object.fromEntries(Object.entries(snapshot).filter(([key, value]) => !HOST_ONLY.has(key) && value !== undefined))
   if (Array.isArray(values.schedules)) values.schedules = schedules(values.schedules)
   if ('work' in values) values.work = work(values.work)
+  if ('memoriesStamp' in values) {
+    const stamp = readMemoriesStamp(values.memoriesStamp)
+    if (stamp === undefined) delete values.memoriesStamp
+    else values.memoriesStamp = stamp
+  }
   const messages = ((snapshot.messages ?? []) as ChatMessage[]).flatMap((message): ChatMessage[] => {
     if (hidden.has(message.id)) return []
     if (message.role === 'bashExecution') {
@@ -86,7 +103,7 @@ export function toWire(
       const at = message.at ?? (message as ChatMessage & { timestamp?: string | number }).timestamp
       return shell ? [{ id: message.id, role: 'bashExecution', content: shell.output, ...shell, ...(at === undefined ? {} : { at }) }] : []
     }
-    return String(message.content ?? '').trim() ? [message] : []
+    return String(message.content ?? '').trim() ? [withMemoryNote(message)] : []
   })
   return { values, messages }
 }
