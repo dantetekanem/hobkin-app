@@ -1,11 +1,9 @@
 import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
 import { registerHooks } from 'node:module'
-import { GITHUB_UNKNOWN, sampleGitHub } from '../../integrations/github/protocol.ts'
 import type { HostMessage } from '../../shared/protocol/messages.ts'
 import type { WireSnapshot } from '../../shared/protocol/snapshot.ts'
 import type { WorkState } from '../../shared/protocol/work.ts'
-import { githubHome } from '../../integrations/github/window/home.ts'
 import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/state.ts'
 
 Object.defineProperty(globalThis, 'window', { configurable: true, value: {
@@ -23,8 +21,14 @@ const { useActionItems } = await import('../src/features/actions/store.ts')
 const { useRoutines } = await import('../src/features/routines/store.ts')
 const { gatherHomeInput } = await import('../src/features/home/input.ts')
 const { setWindowParts } = await import('../src/integration/registry.ts')
-// A part that reads gh as GitHub's does, so Home's input holds what an integration adds to it.
-setWindowParts([{ manifest: { id: 'github', name: 'GitHub', line: '', commands: {}, screens: [] }, unknown: GITHUB_UNKNOWN, sample: () => sampleGitHub(1000), home: githubHome }])
+// A made-up part that tells Home who it is signed in as, so Home's input holds what an integration adds to it.
+interface Forge { login: string | null; sample?: boolean }
+setWindowParts([{
+  manifest: { id: 'forge', name: 'Forge', line: '', commands: {}, screens: [] },
+  unknown: { login: null } satisfies Forge,
+  sample: () => ({ login: 'sample', sample: true }),
+  home: (forge: Forge) => forge.login ? { known: true, tile: { key: 'forge', name: 'Forge', status: 'Connected', tone: 'ok', note: `@${forge.login}`, target: { to: 'screen', screen: 'forge' } } } : { known: false },
+}])
 after(() => {
   mock.restoreAll()
   mock.timers.reset()
@@ -66,7 +70,7 @@ test('no host, sample stores and first hello are not real publication', () => {
 
 test('new-home hello masks retained A facts until B publishes; same-home loss keeps accepted facts', () => {
   hello('/fake/A')
-  const github = { ...GITHUB_UNKNOWN, connection: 'connected' as const, login: 'actual' }
+  const forge: Forge = { login: 'actual' }
   send({ type: 'state', rev: 1, reset: true, set: {
     reports: [{
       id: 'A-report',
@@ -79,7 +83,7 @@ test('new-home hello masks retained A facts until B publishes; same-home loss ke
     reportAttention: { lastLookAt: '2026-01-01T00:00:00Z' },
     reminderOccurrences: { home: '/fake/A', entries: [] },
     wins: { today: { merged: 1, decided: 0 }, streak: 1 },
-  }, slices: { github } })
+  }, slices: { forge } })
   const before = gather()
 
   assert.equal(before.reports[0]?.id, 'A-report')
@@ -102,7 +106,7 @@ test('new-home hello masks retained A facts until B publishes; same-home loss ke
 
   assert.deepEqual(gather(), before)
   hello('/fake/B')
-  assert.equal(hostStore.getState().slices.github, github, 'reducer still retains A before reset')
+  assert.equal(hostStore.getState().slices.forge, forge, 'reducer still retains A before reset')
   unavailable()
   reset()
   const after = gather()
@@ -123,7 +127,7 @@ test('sample sources stay excluded and epoch resets recompute even with identica
   useReports.setState({ sample: false })
   useActionItems.setState({ sample: true })
   useRoutines.setState({ sample: 'full' })
-  hostStore.setState({ slices: { github: sampleGitHub(1000) } })
+  hostStore.setState({ slices: { forge: { login: 'sample', sample: true } } })
   const input = gather()
   assert.deepEqual(input.waiting, [])
   assert.deepEqual(input.routines, [])

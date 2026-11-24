@@ -1,35 +1,46 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { homeModel } from '../src/features/home/model.ts'
-import type { HomeInput } from '../src/features/home/types.ts'
+import type { HomeContribution, HomeContributed, HomeInput } from '../src/features/home/types.ts'
 import type { ActionItem, WaitingRow } from '../src/features/actions/items.ts'
 import { hostRows } from '../src/features/actions/host.ts'
 import type { FinishedChange, WorkProject, WorkState, YoloState } from '../../shared/protocol/work.ts'
-import type { GitHubPull, GitHubState } from '../../integrations/github/protocol.ts'
-import { githubHome } from '../../integrations/github/window/home.ts'
 import { contributed } from '../src/integration/home.ts'
-
-const gh = (github: GitHubState) => contributed(githubHome(github), { symbol: 'Gh', hue: 162 })
 import type { Report } from '../src/features/reports/report.ts'
 import type { RoutineFacts } from '../src/features/routines/rules.ts'
 import type { RunningAgent } from '../src/app/running-agents.ts'
 
 const now = new Date(2026, 10, 12, 18).getTime()
 const iso = (ago = 0) => new Date(now - ago).toISOString()
-/** What gh says before it has said anything. A test gives Home its own through `input({ github })`, as the part reads it. */
-const quiet: GitHubState = {
-  connection: 'unknown',
-  login: null,
-  reviews: [],
-  pulls: [],
-  issues: [],
-  more: { reviews: false, pulls: false, issues: false },
-  refreshedAt: null,
-  refreshing: false,
-  error: null,
-  sample: false,
+/**
+ * A made-up integration's contribution: a row and a card for each pull request number waiting on the user, a card for
+ * each one that went wrong, and a tile that says who it is signed in as. GitHub's own are tested in its folder.
+ */
+const forge = ({ waiting = [], failing = [], more = false, tile = false }: { waiting?: number[]; failing?: number[]; more?: boolean; tile?: boolean } = {}): HomeContributed => {
+  const url = (number: number) => `https://forge.invalid/pull/${number}`
+  const contribution: HomeContribution = {
+    known: true,
+    needs: waiting.map((number) => {
+      const target = { to: 'pull', url: url(number) } as const
+      return {
+        row: { id: `forge:${number}`, title: `PR ${number}`, detail: `app #${number}`, tone: 'info', aside: null, action: { label: 'Review', target } },
+        card: {
+          id: `forge:${number}`, label: 'Review request · app', reason: 'Waiting for your review', tone: 'info', title: `PR ${number}`, detail: null,
+          primary: { label: 'Review', target }, secondary: { label: 'Open', target: { to: 'url', url: url(number) } },
+        },
+      }
+    }),
+    cards: failing.map((number) => ({
+      id: `forge:${number}`, label: 'Checks failing · app', reason: 'Checks failing', tone: 'bad', title: `PR ${number}`, detail: null,
+      primary: { label: 'Open', target: { to: 'url', url: url(number) } },
+    })),
+    lift: failing.length,
+    more,
+    ...(tile ? { tile: { key: 'fk', name: 'Forge', status: 'Connected', tone: 'ok', note: '@octo', target: { to: 'screen', screen: 'forge' } } } : {}),
+  }
+  return contributed(contribution, { symbol: 'Fk', hue: 10 })
 }
-const input = ({ github, ...rest }: Partial<HomeInput> & { github?: GitHubState } = {}): HomeInput => ({
+const input = (rest: Partial<HomeInput> = {}): HomeInput => ({
   now,
   reports: [],
   read: new Set(),
@@ -38,7 +49,7 @@ const input = ({ github, ...rest }: Partial<HomeInput> & { github?: GitHubState 
   question: null,
   work: null,
   live: true,
-  contributions: github ? [gh(github)] : [],
+  contributions: [],
   routines: [],
   agents: [],
   wins: null,
@@ -131,10 +142,6 @@ const work = (changes: FinishedChange[] = [], projects: WorkProject[] = []): Wor
   queued: 3,
   projects,
   finished: [{ name: 'needs', heading: 'Needs you', why: null, action: null, changes }],
-})
-const pull = (number: number, rest: Partial<GitHubPull> = {}): GitHubPull => ({
-  repo: 'org/app', number, title: `PR ${number}`, labels: [], updatedAt: iso(), url: `https://github.com/org/app/pull/${number}`,
-  draft: false, author: 'user', review: 'waiting', checks: 'passing', ...rest,
 })
 const report = (id: string, ago = 1000, rest: Partial<Report> = {}): Report => ({ id, title: id, at: iso(ago), scheduleId: 'work.app.look', body: 'Critical: Broken\nNext: Fix it', outcome: 'completed', ...rest })
 const agent = (id: string, asks?: string): RunningAgent => ({ id, title: id, doing: 'Reading', project: 'app', tier: 'mid', hue: 0, mood: 'working', kind: 'work', ...(asks ? { asks } : {}) })
@@ -268,12 +275,7 @@ test('Needs deduplicates only the exact finished branch and counts known hidden 
     changed: null,
     at: iso(),
   }
-  const github = {
-    ...quiet,
-    connection: 'connected' as const,
-    reviews: [pull(1), pull(2, { review: 'approved' })],
-    more: { reviews: true, pulls: false, issues: false },
-  }
+  const contributions = [forge({ waiting: [1], more: true })]
   const model = homeModel(input({
     question,
     waiting: [branch],
@@ -281,7 +283,7 @@ test('Needs deduplicates only the exact finished branch and counts known hidden 
       [change('one'), change('one', 'different'), change('two')],
       [project('proposal', 'proposed')],
     ),
-    github,
+    contributions,
   }))
 
   assert.equal(model.needs.rows.length, 5)
@@ -289,7 +291,7 @@ test('Needs deduplicates only the exact finished branch and counts known hidden 
   assert.equal(model.needs.rows.filter(row => row.kind === 'review').length, 2)
   assert.match(model.header.title, /At least 6/)
   assert.equal(homeModel(input({ work: work([], [project('proposal', 'proposed')]) })).needs.rows[0]?.kind, 'proposal')
-  assert.match(homeModel(input({ question, github: { ...github, more: { ...github.more, reviews: false } } })).header.title, /^2 things/)
+  assert.match(homeModel(input({ question, contributions: [forge({ waiting: [1] })] })).header.title, /^2 things/)
   for (const answerTo of [
     { kind: 'merge', slug: 'other', item: 'one', head: 'head' },
     { kind: 'merge', slug: 'app', item: 'other', head: 'head' },
@@ -444,7 +446,7 @@ test('unavailable input is neutral, while a published empty home can be calm', (
     reports: [report('stale')],
     work: work([change('stale')]),
     agents: [agent('stale')],
-    github: { ...quiet, connection: 'connected', reviews: [pull(1)] },
+    contributions: [forge({ waiting: [1] })],
   }))
 
   assert.equal(model.header.mood, 'idle')
@@ -460,28 +462,24 @@ test('stack ranks dated decisions oldest first, keeps untimed source order, and 
     waiting: [action('new', iso()), action('old', iso(10000))],
     work: work([change('one'), change('two')]),
     agents: [agent('working'), agent('ask', 'Choose a version')],
-    github: {
-      ...quiet,
-      connection: 'connected',
-      reviews: [pull(2, { updatedAt: iso(99999999) }), pull(1)],
-    },
+    contributions: [forge({ waiting: [2, 1] })],
   }))
 
   assert.deepEqual(model.stack.map(card => card.kind), ['decision', 'question', 'review', 'agent', 'integration'])
   assert.equal(model.stack[0]?.primary.target.to, 'action')
   assert.equal(model.stack[0]?.id, 'decision:old')
   assert.equal(model.stack.find(card => card.kind === 'agent')?.id, 'agent:ask')
-  assert.equal(model.stack.find(card => card.kind === 'integration')?.id, 'github:org/app#2')
+  assert.equal(model.stack.find(card => card.kind === 'integration')?.id, 'forge:2')
   assert.doesNotMatch(model.stack.find(card => card.kind === 'review')?.reason ?? '', /ago|minute|hour/)
 })
 
 test('stack keeps newest recent unread problems and request ahead of own failing checks', () => {
-  const github = { ...quiet, connection: 'connected' as const, reviews: [pull(1)], pulls: [pull(2, { checks: 'failing' })] }
-  const model = homeModel(input({ reports: [report('old', 5000), report('new', 1000), report('read', 0), report('expired', 8 * 86400000), report('future', -1000)], read: new Set(['read']), github }))
+  const contributions = [forge({ waiting: [1], failing: [2] })]
+  const model = homeModel(input({ reports: [report('old', 5000), report('new', 1000), report('read', 0), report('expired', 8 * 86400000), report('future', -1000)], read: new Set(['read']), contributions }))
   assert.deepEqual(model.stack.map(card => card.kind), ['problem', 'integration'])
   assert.equal(model.stack[0]?.id, 'problem:new')
   assert.equal(model.stack[0]?.next, 'Fix it')
-  assert.equal(homeModel(input({ github: { ...github, reviews: [] } })).stack[0]?.primary.target.to, 'url')
+  assert.equal(homeModel(input({ contributions: [forge({ failing: [2] })] })).stack[0]?.primary.target.to, 'url')
 })
 
 test('stack obeys away, routine, wins boundaries and caps seven kinds with stable IDs', () => {
@@ -496,7 +494,7 @@ test('stack obeys away, routine, wins boundaries and caps seven kinds with stabl
   assert.equal(homeModel({ ...base, routines: [routine('past', -1), routine('far', 900001)] }).stack.some(card => card.kind === 'upnext'), false)
   assert.equal(homeModel({ ...base, now: new Date(2026, 10, 12, 16, 59).getTime() }).stack.some(card => card.kind === 'today'), false)
   assert.equal(homeModel({ ...base, now: new Date(2026, 10, 12, 17).getTime() }).stack.some(card => card.kind === 'today'), true)
-  const full = { ...base, question, waiting: [action('decision')], work: work([change('one')]), agents: [agent('working')], contributions: [gh({ ...quiet, connection: 'connected', reviews: [pull(1)] })] }
+  const full = { ...base, question, waiting: [action('decision')], work: work([change('one')]), agents: [agent('working')], contributions: [forge({ waiting: [1] })] }
   const stack = homeModel(full).stack
   assert.equal(stack.length, 7)
   assert.equal(new Set(stack.map(card => card.kind)).size, 7)
@@ -539,8 +537,8 @@ test('a finished change shows once: the item that asks about it opens its review
 test('every card names what its button does and shows the choices it will ask', () => {
   const asked = { ...question, choices: [{ value: 'a', label: 'Keep it' }, { value: 'b', label: 'Drop it' }], recommended: 'b', why: 'It is unused' }
   const decision = action('decision', iso(), { pick: 'Yes', question: { id: 'decision', from: 'hobkin', question: 'Ship it?', choices: [{ value: 'y', label: 'Yes' }, { value: 'n', label: 'No' }] } })
-  const github = { ...quiet, connection: 'connected' as const, reviews: [pull(1)], pulls: [pull(2, { checks: 'failing' })] }
-  const cards = homeModel(input({ question: asked, waiting: [decision], github, reports: [report('broken')], agents: [agent('busy'), agent('asks', 'Which version?')] })).stack
+  const contributions = [forge({ waiting: [1], failing: [2] })]
+  const cards = homeModel(input({ question: asked, waiting: [decision], contributions, reports: [report('broken')], agents: [agent('busy'), agent('asks', 'Which version?')] })).stack
   const byKind = Object.fromEntries(cards.map(card => [card.kind, card]))
 
   assert.equal(byKind.question?.primary.label, 'Reply')
@@ -550,8 +548,8 @@ test('every card names what its button does and shows the choices it will ask', 
   assert.equal(byKind.decision?.primary.label, 'Decide')
   assert.deepEqual(byKind.decision?.choices, ['Yes', 'No'])
   assert.equal(byKind.decision?.pick, 'Yes')
-  assert.deepEqual(byKind.integration?.primary, { label: 'Review', target: { to: 'pull', url: pull(1).url } })
-  assert.deepEqual(byKind.integration?.secondary, { label: 'Open on GitHub', target: { to: 'url', url: pull(1).url } })
+  assert.deepEqual(byKind.integration?.primary, { label: 'Review', target: { to: 'pull', url: 'https://forge.invalid/pull/1' } })
+  assert.deepEqual(byKind.integration?.secondary, { label: 'Open', target: { to: 'url', url: 'https://forge.invalid/pull/1' } })
   assert.equal(byKind.problem?.primary.label, 'Read report')
   assert.equal(byKind.agent?.primary.label, 'Reply to agent')
 })
@@ -660,13 +658,12 @@ test('connections show gh and each Pi server, and a server waiting for sign-in n
     path: '~/.pi/agent/mcp.json', problems: [], checking: false, checkedAt: iso(), error: null,
     servers: [server('stripe', 'sign-in'), server('linear', 'connected'), server('sentry', 'failed', 'Timed out'), server('notion', 'off'), server('mine', 'connecting')],
   }
-  const github = { ...quiet, connection: 'connected' as const, login: 'octo' }
-  const model = homeModel(input({ integrations, github }))
+  const model = homeModel(input({ integrations, contributions: [forge({ tile: true })] }))
 
   assert.deepEqual(model.connections.tiles.map(tile => [tile.key, tile.tone]), [
-    ['gh', 'ok'], ['stripe', 'warn'], ['linear', 'ok'], ['sentry', 'bad'], ['notion', 'quiet'], ['mine', 'info'],
+    ['fk', 'ok'], ['stripe', 'warn'], ['linear', 'ok'], ['sentry', 'bad'], ['notion', 'quiet'], ['mine', 'info'],
   ])
-  assert.deepEqual(model.connections.tiles[0]?.target, { to: 'screen', screen: 'github' })
+  assert.deepEqual(model.connections.tiles[0]?.target, { to: 'screen', screen: 'forge' })
   assert.deepEqual(model.connections.tiles[1]?.target, { to: 'screen', screen: 'integrations' })
   assert.equal(model.connections.tiles[3]?.note, 'Timed out')
   assert.equal(model.connections.summary, '2 connected · 1 needs sign-in · 1 failing')

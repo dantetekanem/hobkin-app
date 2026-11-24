@@ -39,3 +39,14 @@ test("GitHub's tile says how gh stands, and has none before the host has said an
 test('a list GitHub cut short makes the count of reviews "at least"', () => {
   assert.equal(githubHome({ ...quiet, connection: 'connected', more: { reviews: true, pulls: false, issues: false } }).more, true)
 })
+
+test("a review request is a row and a card that say who opened it and its labels, and open it in Review or on GitHub; a failing check is a card to open on GitHub", () => {
+  const github = { ...quiet, connection: 'connected' as const, reviews: [pull(1, { labels: ['bug', 'p1', 'extra'] })], pulls: [pull(2, { checks: 'failing' })] }
+  const { needs, cards } = githubHome(github)
+  assert.deepEqual(needs?.[0]?.row, { id: 'github:org/app#1', title: 'PR 1', detail: 'org/app #1', tone: 'info', aside: null, action: { label: 'Review', target: { to: 'pull', url: pull(1).url } } })
+  const card = needs![0]!.card
+  assert.deepEqual([card.label, card.reason, card.detail], ['Review request · org/app', 'Waiting for your review', 'Opened by @user'])
+  assert.deepEqual(card.facts, [{ label: 'Pull request', value: '#1', tone: 'quiet' }, { label: 'Label', value: 'bug', tone: 'quiet' }, { label: 'Label', value: 'p1', tone: 'quiet' }])
+  assert.deepEqual(card.secondary, { label: 'Open on GitHub', target: { to: 'url', url: pull(1).url } })
+  assert.deepEqual(cards?.[0], { id: 'github:org/app#2', label: 'Checks failing · org/app', reason: 'Checks failing', tone: 'bad', title: 'PR 2', detail: 'Your pull request #2', primary: { label: 'Open on GitHub', target: { to: 'url', url: pull(2).url } } })
+})

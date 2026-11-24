@@ -2,7 +2,6 @@ import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
 import { registerHooks } from 'node:module'
 import { shallow } from 'zustand/vanilla/shallow'
-import { GITHUB_UNKNOWN } from '../../integrations/github/protocol.ts'
 import type { WorkState } from '../../shared/protocol/work.ts'
 import { applyHostMessage, initialHostState, type HostState } from '../src/lib/host/state.ts'
 
@@ -51,7 +50,7 @@ const full: HostState = {
   owner: { state: 'live', limits: { images: 4, imageBytes: 1 } },
   signIn: { status: 'signed-in' },
   models: { providers: [], models: [{ id: 'fake-model', provider: 'fake', name: 'Fake', thinking: ['low'], contextWindow: null }] },
-  slices: { github: { ...GITHUB_UNKNOWN, connection: 'connected', login: 'other' } },
+  slices: { forge: { login: 'other' } },
   integrations: { path: '~/.pi/agent/mcp.json', servers: [], problems: [], checking: false, checkedAt: '2026-01-01T00:00:00Z', error: null },
   work,
   canvas: { open: true, url: 'https://page.invalid/', title: 'Page' },
