@@ -1,3 +1,4 @@
+import { readMemoryNote, type MemoryNote } from '#shared/protocol/memory.ts'
 import { shellFields, type ChatMessage, type NoticeTone, type ShellFields } from '#shared/protocol/snapshot.ts'
 import { replyText, storedBesideLive, type LiveReply, type LiveTurn } from '../../lib/host/live.ts'
 import { splitRoutineReference } from '../reports/reply.ts'
@@ -29,6 +30,8 @@ export interface NoticeEntry {
   at: number | null
   /** A review this notice is about, such as one that is ready: the chat offers to open it. */
   review?: string
+  /** A memory an agent changed (`057-shared-memory`): the chat offers Undo and See. An older host sends none. */
+  memory?: MemoryNote
 }
 
 export interface ShellEntry extends ShellFields {
@@ -158,6 +161,7 @@ function newEntry(message: ChatMessage): Entry {
   if (message.role === 'notice' || message.role === 'system') {
     // hobkin's notice that a review is ready names it; the shared message type does not declare the field.
     const review = (message as { review?: unknown }).review
+    const memory = readMemoryNote(message.memory)
     return {
       kind: 'notice',
       key: message.id,
@@ -166,6 +170,7 @@ function newEntry(message: ChatMessage): Entry {
       count: 1,
       at,
       ...(typeof review === 'string' && review ? { review } : {}),
+      ...(memory ? { memory } : {}),
     }
   }
   return {
@@ -178,9 +183,9 @@ function newEntry(message: ChatMessage): Entry {
   }
 }
 
-/** Whether a notice only repeats the one before it. Lines about what the user did are never folded. */
+/** Whether a notice only repeats the one before it. Lines about what the user did, or about a memory's change, which each have their own Undo, are never folded. */
 const repeats = (previous: Entry | undefined, next: Entry): previous is NoticeEntry =>
-  previous?.kind === 'notice' && next.kind === 'notice' && next.tone !== 'system' && previous.tone === next.tone && previous.text === next.text
+  previous?.kind === 'notice' && next.kind === 'notice' && next.tone !== 'system' && !previous.memory && !next.memory && previous.tone === next.tone && previous.text === next.text
 
 /** Each local message goes before the first stored one that is newer than it, as in the terminal app. */
 function withLocal(stored: readonly ChatMessage[], local: readonly ChatMessage[]): readonly ChatMessage[] {

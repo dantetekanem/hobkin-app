@@ -1,30 +1,16 @@
 import { Ellipsis, Lock } from 'lucide-react'
-import { memo, useEffect, useRef, type ReactNode } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import type { MemoryEntry } from '#shared/protocol/memory.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.tsx'
 import { cn } from '@/lib/utils.ts'
 import { fromWords, nameWords, textParts, untilWords, type WordsAt } from './groups.ts'
+import { LinkPress } from './LinkPress.tsx'
 import { MemoryEditor } from './MemoryEditor.tsx'
 import { draftOf, type Forgotten, type MemoryDraft } from './store.ts'
 import { memoryActions, memoryStore, useMemory } from './use-memories.ts'
 
 const sameDraft = (a: MemoryDraft, b: MemoryDraft) => a.description === b.description && a.kind === b.kind && a.until === b.until && a.private === b.private && a.text === b.text
-
-/** A press that reads as a link inside a line of words: it says it can be pressed, and changes only its underline on hover. */
-export function LinkPress({ children, onPress, label }: { children: ReactNode; onPress: () => void; label?: string }) {
-  return (
-    <button
-      type="button"
-      data-key-stop=""
-      aria-label={label}
-      onClick={onPress}
-      className="rounded-sm font-medium text-foreground underline decoration-border-strong underline-offset-[3px] transition-[text-decoration-color] duration-[160ms] ease-[ease] outline-offset-2 hover:decoration-foreground"
-    >
-      {children}
-    </button>
-  )
-}
 
 const seek = (name: string) => memoryStore.seekMemory(name)
 

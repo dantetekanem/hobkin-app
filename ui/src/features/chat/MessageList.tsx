@@ -5,6 +5,7 @@ import { shellFields } from '#shared/protocol/snapshot.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
+import { MemoryLine } from '@/features/memory/MemoryLine.tsx'
 import { useHost } from '@/lib/host/index.ts'
 import { spring, stagger, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
@@ -282,6 +283,7 @@ function Notice({ entry }: { entry: NoticeEntry }) {
             Open review
           </button>
         ) : null}
+        {entry.memory ? <MemoryLine note={entry.memory} /> : null}
       </span>
       {entry.at === null ? null : (
         <time dateTime={new Date(entry.at).toISOString()} className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
