@@ -123,7 +123,7 @@ test("of twenty finished changes of one project the background builds only the f
 
   assert.deepEqual(started, ['change:shop:c1', 'change:shop:c2', 'change:shop:c3'])
   const rows = new Map(reviews.list().reviews.map((row) => [row.id, row]))
-  assert.deepEqual(rows.get('change:shop:c4')?.turn, { ahead: 3, why: 'Waits its turn: 3 ahead in Shop.' })
+  assert.deepEqual(rows.get('change:shop:c4')?.turn, { ahead: 3, why: 'Waits its turn: 3 ahead in Shop. Not reviewed yet, so nothing checks it by itself.' })
   assert.equal(rows.get('change:shop:c4')?.waiting, true)
   assert.equal(reviews.status('change:shop:c20').turn?.ahead, 19)
 })
@@ -213,4 +213,28 @@ test("a pull request the background does not review says so on its row: it is bu
   const row = reviews.list().reviews.find((entry) => entry.id === reviewIdOf(pull))
 
   assert.deepEqual([row?.outdated, row?.turn], [{ builtFor: sha(7) }, { ahead: 0, why: 'A pull request is reviewed again when you start its AI review.' }])
+})
+
+test("pull requests the workload names wait in their repository's line like changes, and say so; the rest wait for Start AI review", async (t) => {
+  const built: string[] = []
+  const reviews = new Reviews({
+    store: reviewStore(temporaryDirectory(t)),
+    sources: {
+      change: { head: async () => null, read: async () => Promise.reject(new Error('no')) },
+      pull: {
+        head: async (target) => (target.kind === 'pull' ? sha(target.number) : null),
+        read: async (target) => (built.push(reviewIdOf(target)), Promise.reject(new Error('not read here'))),
+      },
+    },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+  })
+  t.after(() => reviews.close())
+  const pulls = Array.from({ length: 20 }, (_, index) => ({ id: reviewIdOf({ kind: 'pull', owner: 'acme', repo: 'shop', number: index + 1 }), updatedAt: new Date().toISOString() }))
+
+  reviews.watch(pulls)
+  await new Promise((resolve) => setTimeout(resolve, 30))
+
+  assert.deepEqual(built, ['pr:acme/shop/1', 'pr:acme/shop/2', 'pr:acme/shop/3'])
+  assert.equal(reviews.status('pr:acme/shop/5').turn?.why, 'Waits its turn: 4 ahead in acme/shop. Not reviewed yet, so nothing checks it by itself.')
 })

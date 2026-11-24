@@ -715,7 +715,7 @@ export class Reviews {
     const looked = this.lookedStart.get(id)
     const startsAt = looked && looked.head === head ? looked.start : undefined
     // A change not built at its commit says why it waits, and how many are ahead of it.
-    const turn = !known.phase && (stale || (head != null && !this.options.store.has(target, head))) ? this.turnOf(id, target) : undefined
+    const turn = !known.phase && (stale || head == null || !this.options.store.has(target, head)) ? this.turnOf(id, target, head) : undefined
     const carriedFrom = assessment?.state === 'ready' ? assessment.summary?.carried : undefined
     // The ratings of the review that opens: of the commit it was built for, which they name, when the change moved on.
     const needs = this.needsOf(target, stale ? (this.opened.get(id)?.review.change.head ?? at) : at)
@@ -756,7 +756,8 @@ export class Reviews {
    * ran was cut short. A review the user stopped or removed at this commit is looked at already, so it does not wait.
    */
   private waitsItsTurn(id: string, target: ReviewTarget, status: ReviewStatus): boolean {
-    if (target.kind !== 'change' || !this.finished.has(id)) return false
+    // A finished change, or a pull request the workload names: what the background reviews when its turn comes.
+    if (target.kind === 'change' ? !this.finished.has(id) : !this.watchedPulls.has(id)) return false
     if (this.preparing(id) || status.phase || status.landing) return false
     const { head } = status
     if (this.watched.get(id) === versionOf(head)) return false
@@ -845,7 +846,7 @@ export class Reviews {
       const builtFor = kept?.change?.head
       const outOfLine = target.kind === 'change' ? !this.line.current.has(id) : !this.watchedPulls.has(id)
       const outdated = !status.phase && outOfLine && head != null && builtFor != null && builtFor !== head && /^[0-9a-f]{40}$/.test(builtFor)
-      const turn = waiting || outdated ? this.turnOf(id, target) : undefined
+      const turn = waiting || outdated ? this.turnOf(id, target, head) : undefined
       const needs = this.needsOf(target, builtFor ?? head)
       const item: ReviewListItem = {
         id,
@@ -2014,7 +2015,7 @@ export class Reviews {
     }
     this.watchRisk(wanted)
     this.finished = new Set(wanted.flatMap(({ id }) => (id.startsWith('change:') ? [id] : [])))
-    this.watchedPulls = new Set(wanted.flatMap(({ id }) => (id.startsWith('pull:') ? [id] : [])))
+    this.watchedPulls = new Set(wanted.flatMap(({ id }) => (targetOfReviewId(id)?.kind === 'pull' ? [id] : [])))
     this.line = this.lineFor(wanted)
     this.dropAtWork()
     this.followBranches(wanted, limit)
@@ -2047,21 +2048,24 @@ export class Reviews {
    * every finished change is then reviewed by itself, as before there was one, and the host's log says why.
    */
   private lineFor(wanted: readonly Watched[]): Line {
-    const changes = wanted.flatMap((entry): ChangeTarget[] => {
-      const target = targetOfReviewId(entry.id)
-      return target?.kind === 'change' ? [target] : []
-    })
     try {
       const weighed = wanted.flatMap((entry): LineChange[] => {
         const target = targetOfReviewId(entry.id)
-        if (target?.kind !== 'change') return []
+        if (!target) return []
+        // A pull request the workload names waits in its repository's line, as a change does.
+        if (target.kind === 'pull') {
+          // One of hobkin's own, or one hobkin cannot tell yet, is never built by itself, so it takes no place.
+          if (this.options.ownPull && this.options.ownPull(target) !== false) return []
+          const name = `${target.owner}/${target.repo}`
+          return [{ id: entry.id, repo: `pull:${target.host ?? ''}:${name}`, name, ...(entry.updatedAt ? { at: entry.updatedAt } : {}) }]
+        }
         const refreshing = this.landingOf(target)?.state === 'refreshing'
         return [{ id: entry.id, repo: target.slug, name: entry.project ?? target.slug, grade: entry.grade ?? null, conflict: entry.conflict ?? null, refreshing, ...(entry.at ? { at: entry.at } : {}) }]
       })
       return lineOf(weighed, { keep: this.options.keepCurrent?.() ?? KEPT_CURRENT, now: this.now() })
     } catch (error) {
-      this.options.log?.(`Reviews: the line of each repository could not be worked out, so every finished change is reviewed as before: ${messageOf(error)}`)
-      return { current: new Set(changes.map((target) => reviewIdOf(target))), waits: new Map() }
+      this.options.log?.(`Reviews: the line of each repository could not be worked out, so everything handed in is reviewed as before: ${messageOf(error)}`)
+      return { current: new Set(wanted.map((entry) => entry.id)), waits: new Map() }
     }
   }
 
@@ -2200,13 +2204,16 @@ export class Reviews {
   }
 
   /** Why a change waits instead of being built by itself, and how many are ahead of it in its repository's line. */
-  private turnOf(id: string, target: ReviewTarget): ReviewTurn | undefined {
+  private turnOf(id: string, target: ReviewTarget, head: string | null): ReviewTurn | undefined {
     if (this.preparing(id)) return undefined
-    // Pull requests are not in a line: the background reviews those the user's setting names, and the rest wait for their ask.
-    if (target.kind === 'pull') return this.watchedPulls.has(id) ? undefined : { ahead: 0, why: PULL_ASKED }
-    const waits = this.line.waits.get(id) ?? (!this.finished.has(id) && this.isBackAtWork(target) ? { ahead: 0, why: AT_WORK } : undefined)
-    if (waits || !this.line.current.has(id) || this.dayHasRoom()) return waits
-    return { ahead: 0, why: `Today's ${this.dayLimit()} background reviews are spent, so the next is built after midnight.` }
+    // A pull request the workload does not name waits for the user's Start AI review.
+    if (target.kind === 'pull' && !this.watchedPulls.has(id)) return { ahead: 0, why: PULL_ASKED }
+    if (target.kind === 'change' && !this.finished.has(id)) return this.isBackAtWork(target) ? { ahead: 0, why: AT_WORK } : undefined
+    const waits = this.line.waits.get(id) ?? (this.line.current.has(id) && !this.dayHasRoom() ? { ahead: 0, why: `Today's ${this.dayLimit()} background reviews are spent, so the next is built after midnight.` } : undefined)
+    if (!waits) return undefined
+    // What waits gets no review, and so no agent goes back to it by itself: the row says so (spec 058).
+    const unchecked = head != null && this.options.store.newest(target) ? ' Its review is of an older commit, so nothing checks this one by itself.' : ' Not reviewed yet, so nothing checks it by itself.'
+    return { ahead: waits.ahead, why: `${waits.why}${unchecked}` }
   }
 
   /** The background's look at one thing to prepare, at the version it is at now. Never throws: the host publishes around it. */
@@ -2215,8 +2222,8 @@ export class Reviews {
     try {
       const target = targetOfReviewId(id)
       if (!target) return
-      // A finished change is built by itself only in its repository's line: the rest wait their turn (spec 058).
-      if (target.kind === 'change' && !this.line.current.has(id)) return
+      // A finished change, or a pull request the workload names, is built by itself only in its repository's line (spec 058).
+      if (!this.line.current.has(id)) return
       // At the day's number of background builds, nothing more is built by itself until midnight.
       if (!this.dayHasRoom()) return
       const head = target.kind === 'change' ? this.headOf(id, card) : card

@@ -53,7 +53,7 @@ test("at the day's number of background reviews the rest wait for midnight and s
   await settle()
 
   assert.deepEqual(started, ['change:shop:c1', 'change:shop:c2'])
-  assert.deepEqual(reviews.status('change:shop:c3').turn, { ahead: 0, why: "Today's 2 background reviews are spent, so the next is built after midnight." })
+  assert.deepEqual(reviews.status('change:shop:c3').turn, { ahead: 0, why: "Today's 2 background reviews are spent, so the next is built after midnight. Not reviewed yet, so nothing checks it by itself." })
   reviews.prepare('change:shop:c4', { asked: true })
   await settle()
   assert.deepEqual(started, ['change:shop:c1', 'change:shop:c2', 'change:shop:c4'], 'what the user asks for is still built')
