@@ -4,7 +4,7 @@ import { nameOf } from './names.mjs';
 import { pullRequestRows } from './reads.mjs';
 import { paths, readItems, readProject, updateItem } from './store.mjs';
 import { BRANCH_PREFIX, defaultBranch } from './tree.mjs';
-import { ghWithin, readUnmerged } from './unmerged.mjs';
+import { closeMergedPull, ghWithin, pullNow, readUnmerged } from './unmerged.mjs';
 
 /**
  * A change of hobkin's own that waits on its open pull request merges by itself on the code host, under every rule a local branch is under
@@ -263,6 +263,29 @@ async function turnBackQueued(root, { project, repo, row, item, unit, gh, now })
   return null;
 }
 
+/**
+ * A merge call gh was cut short in, which may have merged on its host before it ended. Read back at once, a pull request merged at the commit
+ * this pass asked for is this pass's merge, and recorded as YOLO mode's. One that cannot be read back is not: Chat says it may have merged, and
+ * the survey records it as a merge on the remote if it did.
+ */
+async function readBackCutShort(root, { project, repo, row, item, unit, gh, relied, now }) {
+  const pull = await pullNow(unit.url, repo, gh);
+  if (pull?.state === 'MERGED' && pull.mergeCommit?.oid && pull.headRefOid === unit.sha) {
+    closeMergedPull(root, row.slug, { ...item, pr: unit.url }, pull, now);
+    const merged = readItems(root, row.slug).find(({ id }) => id === item.id);
+    updateItem(root, row.slug, item.id, { landed: { ...merged.landed, route: 'yolo' } }, now);
+    return { target: pull.mergeCommit.oid, pr: unit.url, ...(relied ? { relied } : {}) };
+  }
+  const named = `"${item.title}" on ${nameOf(project)}`;
+  const why = pull?.state === 'OPEN' ? 'gh was cut short asking its host to merge it, and it did not merge' : 'gh was cut short asking its host to merge it, and whether it merged is not known yet';
+  noteWhy(root, row.slug, item, unit.sha, why, now, { tried: true, again: true });
+  if (pull?.state !== 'OPEN') {
+    const line = `YOLO mode asked to merge ${named}, and gh was cut short before it said whether it merged. If it did, the next survey records it as a merge on the host, and it asks you.`;
+    postClientNotice(root, { key: `yolo-cut-short:${row.slug}:${item.id}:${unit.sha}`, line, tone: 'critical' }, now);
+  }
+  return null;
+}
+
 /** What the pass found kept a pull request asking, while the survey still reads the same commit. */
 export const pullNoted = (item, unit) => (item.yoloPull && item.yoloPull.head === unit.sha ? item.yoloPull.why : null);
 
@@ -283,13 +306,12 @@ export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
   }
   const relied = held?.relied ?? null;
 
-  // Written before the call, so a merge its host made while gh was cut short is found by the next survey as YOLO mode's own (`yolo-pass.mjs`).
-  updateItem(root, row.slug, item.id, { yoloMerging: { head: unit.sha, at: new Date(now).toISOString() } }, now);
   try {
     // The address the fresh read checked, and only it, whatever the item says by now.
     await mergePullRequest(root, row.slug, item.id, { head: unit.sha, url: unit.url, gh, now });
   } catch (error) {
     if (error.notMerged && error.pull?.state === 'OPEN') return turnBackQueued(root, { project, repo, row, item, unit, gh, now });
+    if (error.cutShort) return readBackCutShort(root, { project, repo, row, item, unit, gh, relied, now });
     const said = error.notMerged ? `its host has not said its pull request merged, so nothing is recorded: ${firstLine(error.message)}` : `its pull request did not merge: ${firstLine(error.message).replace(/^"[^"]*" did not merge: /, '')}`;
     noteWhy(root, row.slug, item, unit.sha, said, now, { tried: true, again: true });
     return null;

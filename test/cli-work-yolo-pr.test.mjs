@@ -9,6 +9,7 @@ import { surveyAndClose } from '../src/cli/work/closing.mjs';
 import { workStatus } from '../src/cli/work/commands.mjs';
 import { WorkDirector } from '../src/cli/work/director.mjs';
 import { recordMachines } from '../src/cli/work/machines.mjs';
+import { mergePullRequest } from '../src/cli/work/controls.mjs';
 import { chooseProject, fileItem, prFile, readItems, updateItem, writeMode } from '../src/cli/work/store.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
 import { whyItAsks, yoloPass } from '../src/cli/work/yolo-pass.mjs';
@@ -515,25 +516,50 @@ test('nothing pushes a review\'s commits to a pull request, so a review that cha
   assert.deepEqual(host.merges(), []);
 });
 
-test('a merge the host made while gh was killed is found by the next survey and recorded as YOLO mode\'s own, and nothing merges twice', async t => {
+test('a merge the host made while gh was killed is read back in the same pass and recorded as YOLO mode\'s own, and one it cannot read back is not', async t => {
   const h = workspace(t);
   const change = openedAsPull(h, 'Fix login');
   const { host } = change;
   host.killedAfterMerge = true;
   await survey(h, host.gh);
 
-  assert.deepEqual(await yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} }), []);
-  assert.equal(itemOf(h, change).state, 'pr');
-
-  await survey(h, host.gh);
-  const [found] = await yoloPass(h.root, { now: NOW + 60000, gh: host.gh, handOff: () => {} });
+  const [merged] = await yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
 
   assert.deepEqual([itemOf(h, change).state, itemOf(h, change).landed.route], ['merged', 'yolo']);
-  assert.deepEqual([found.item, found.target, found.pr], [change.id, MERGE_COMMIT, host.url]);
+  assert.deepEqual([merged.item, merged.target, merged.pr], [change.id, MERGE_COMMIT, host.url]);
   assert.deepEqual(ledger(h).map(({ item }) => item), [change.id]);
-  assert.ok(clientNoticesToPost(h.root).some(({ line }) => line.startsWith('YOLO mode merged "Fix login" on api by itself, through its pull request')));
   assert.equal(host.merges().length, 1);
-  assert.deepEqual(await yoloPass(h.root, { now: NOW + 120000, gh: host.gh, handOff: () => {} }), [], 'and it is recorded once');
+
+  // When the pull request cannot be read back either, it is not YOLO mode's to record: Chat says it may have merged, and the survey records it.
+  const other = openedAsPull(h, 'Fix logout', { number: 8 });
+  other.host.killedAfterMerge = true;
+  await survey(h, other.host.gh);
+  const unread = async args => (args[1] === 'view' && other.host.merged ? Promise.reject(Error('HTTP 502')) : other.host.gh(args));
+  assert.deepEqual(await yoloPass(h.root, { now: NOW, gh: unread, handOff: () => {} }), []);
+  await survey(h, other.host.gh);
+  await yoloPass(h.root, { now: NOW + 60000, gh: other.host.gh, handOff: () => {} });
+  assert.deepEqual([itemOf(h, other).state, itemOf(h, other).landed.route], ['merged', 'remote']);
+  assert.deepEqual(ledger(h).map(({ item }) => item), [change.id]);
+  const said = clientNoticesToPost(h.root).find(({ line }) => line.includes('"Fix logout"'));
+  assert.match(said.line, /^YOLO mode asked to merge "Fix logout" on api, and gh was cut short before it said whether it merged/);
+});
+
+test('the user\'s own merge from the card, after a merge YOLO mode tried and the host refused, is recorded as the user\'s', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  host.mergeError = Object.assign(Error('Command failed'), { stderr: 'GraphQL: Merge commits are not allowed on this repository.' });
+  await survey(h, host.gh);
+  await yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
+
+  host.mergeError = null;
+  await mergePullRequest(h.root, 'api', change.id, { head: change.head, gh: host.gh, now: NOW + 300000 });
+  await survey(h, host.gh);
+  await yoloPass(h.root, { now: NOW + 360000, gh: host.gh, handOff: () => {} });
+
+  assert.deepEqual([itemOf(h, change).state, itemOf(h, change).landed.route], ['merged', 'remote']);
+  assert.deepEqual(ledger(h), []);
+  assert.ok(!clientNoticesToPost(h.root).some(({ line }) => line.startsWith('YOLO mode merged')));
 });
 
 test('a host that refuses the merge is asked once at a commit, and again only once the pull request moves or a day has passed', async t => {

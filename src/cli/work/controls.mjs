@@ -565,7 +565,8 @@ export async function mergePullRequest(root, reference, id, { head = null, url =
   const address = url ?? await ownPullOf(repo, item, gh);
   const pinned = head ? ['--match-head-commit', head] : [];
   await gh(['pr', 'merge', address, '--merge', ...pinned], repo).catch(error => {
-    throw Error(`"${item.title}" did not merge: ${firstLine(error.stderr || error.message)}`);
+    // A gh that was cut short may have merged it on its host before it ended, which the caller can read back.
+    throw Object.assign(Error(`"${item.title}" did not merge: ${firstLine(error.stderr || error.message)}`), { cutShort: Boolean(error.killed || error.signal) });
   });
   const pull = await pullNow(address, repo, gh);
   if (pull?.state !== 'MERGED' || !pull.mergeCommit?.oid) {
