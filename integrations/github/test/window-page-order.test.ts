@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { sampleGitHub, type GitHubIssue, type GitHubPull } from '../protocol.ts'
 import { pullStacks } from '#shared/review/pull-stacks.ts'
 import { arrangePulls, elsewhereWords, orderIssues, stackHeading, type PullUnit } from '../window/page-order.ts'
+import { pageIn } from '../window/project-filter.ts'
 import { pullSections, type PullEntry } from '../window/pull-reviews.ts'
 
 const NOW = Date.parse('2026-11-24T12:00:00Z')
@@ -112,4 +113,12 @@ test('the sample, which the page shows with no host, holds a stack of three of t
   assert.deepEqual(numbers(requested), [[482, 484], 1190, 77])
   assert.deepEqual(numbers(mine), [[1185, 1186, 1187], 479, 470, 71])
   assert.deepEqual(numbers(arrangePulls(pullSections(github, []), pullStacks([...github.reviews, ...github.pulls]), 'oldest').mine), [71, 470, [1185, 1186, 1187], 479])
+})
+
+test('under a project tab a stack stays whole, as all its layers are in one repository', () => {
+  const github = sampleGitHub(NOW)
+  const page = pageIn({ sections: pullSections(github, []), issues: github.issues }, { slug: 'billing-api', label: 'Billing API', repo: 'hobkin-sample/api', count: 6 })
+  const places = pullStacks([...github.reviews, ...github.pulls])
+  assert.deepEqual(numbers(arrangePulls(page.sections, places, 'newest').mine), [[1185, 1186, 1187]])
+  assert.deepEqual(numbers(arrangePulls(page.sections, places, 'oldest').requested), [1190])
 })
