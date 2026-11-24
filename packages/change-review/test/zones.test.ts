@@ -54,26 +54,48 @@ test('a path of this repository is its part of the app and the folder it is abou
     ['ui/src/avatar/pals.ts', 'ui', 'avatar', 'ui', 'Window · avatar'],
     ['host/src/review/vicinity-scan.ts', 'host', 'review', 'host', 'Host · review'],
     ['host/src/review/assessment.ts', 'host', 'review', 'host', 'Host · review'],
-    ['host/src/commands.ts', 'host', 'commands', 'host', 'Host · commands'],
+    ['host/src/commands.ts', 'host', 'host', 'host', 'Host'],
+    ['host/src/main.ts', 'host', 'host', 'host', 'Host'],
+    ['ui/src/App.tsx', 'ui', 'ui', 'ui', 'Window'],
     ['shared/review/types.ts', 'shared', 'review', 'shared', 'Shared · review'],
-    ['packages/change-review/src/proof.ts', 'change-review', 'proof', 'change-review', 'Change review · proof'],
-    ['src-tauri/src/main.rs', 'src-tauri', 'main', 'src-tauri', 'Native · main'],
+    ['packages/change-review/src/proof.ts', 'change-review', 'change-review', 'change-review', 'Change review'],
+    ['src-tauri/src/main.rs', 'src-tauri', 'src-tauri', 'src-tauri', 'Native'],
     ['scripts/perf/motion.ts', 'scripts', 'perf', undefined, 'Scripts · Perf'],
   ])
 })
 
-test('a generic folder is the layer, and what is under it the subject', () => {
+test('a folder no convention names is the zone, and the folder under it the subject', () => {
   check([
-    ['src/utils/date.ts', 'utils', 'date', undefined, 'Utils · Date'],
+    ['src/utils/date.ts', 'utils', 'utils', undefined, 'Utils'],
     ['src/handlers/reviews.js', 'handler', 'review', undefined, 'Handlers · Reviews'],
-    ['src/widgets/orders.js', 'widgets', 'order', undefined, 'Widgets · Orders'],
-    ['src/total.js', 'src', 'total', undefined, 'Source · total'],
-    ['lib/mygem/client.rb', 'mygem', 'client', undefined, 'Mygem · Client'],
-    ['README.md', 'root', 'README', undefined, 'Top level · README'],
+    ['src/widgets/orders.js', 'widgets', 'widgets', undefined, 'Widgets'],
+    ['src/total.js', 'src', 'src', undefined, 'Source'],
+    ['lib/foo.rb', 'lib', 'lib', undefined, 'Library'],
+    ['lib/mygem/client.rb', 'mygem', 'mygem', undefined, 'Mygem'],
+    ['README.md', 'root', 'root', undefined, 'Root'],
+    ['PLAN.md', 'root', 'root', undefined, 'Root'],
+    ['Gemfile', 'root', 'root', undefined, 'Root'],
+    ['docs/client-api-v1.md', 'docs', 'docs', undefined, 'Docs'],
+    ['docs/api/v1.md', 'docs', 'api', undefined, 'Docs · Api'],
+    ['scripts/build.sh', 'scripts', 'scripts', undefined, 'Scripts'],
+    ['bin/setup', 'bin', 'bin', undefined, 'Bin'],
     ['src/components/forms/Input.tsx', 'component', 'forms', undefined, 'Components · forms'],
     ['apps/web/src/pages/checkout/index.tsx', 'page', 'checkout', 'web', 'Web · checkout pages'],
-    ['packages/api-client/src/index.ts', 'api-client', 'index', 'api-client', 'Api client · index'],
+    ['packages/api-client/src/index.ts', 'api-client', 'api-client', 'api-client', 'Api client'],
   ])
+})
+
+test("a file's own name is a subject only in a layer named by convention", () => {
+  const sameZone = (a: string, b: string) => zoneOf(a).id === zoneOf(b).id
+  // The review the user saw: a plan at the top and a page of docs, each in a zone named after its one file.
+  assert.ok(sameZone('PLAN.md', 'README.md'), 'every file at the top is in one zone')
+  assert.ok(sameZone('docs/client-api-v1.md', 'docs/setup.md'), 'every file right in a folder is in that folder')
+  assert.ok(sameZone('src/total.js', 'src/config.js'), 'every file right under a source root is in that root')
+  assert.ok(sameZone('host/src/main.ts', 'host/src/commands.ts'), "every file right in a component is in the component's own zone")
+  assert.ok(!sameZone('docs/api/v1.md', 'docs/guide/v1.md'), 'a folder under one is a subject of its own')
+  // Under a folder named by convention the file says what it is about, the same in each such layer.
+  assert.ok(!sameZone('app/models/order.rb', 'app/models/user.rb'))
+  assert.equal(zoneOf('src/services/reviews.js').subject, zoneOf('src/handlers/reviews.js').subject)
 })
 
 test('a test takes the subject of the code it mirrors, in a test layer', () => {
@@ -89,22 +111,28 @@ test('a test takes the subject of the code it mirrors, in a test layer', () => {
     ['test/helpers/posts.test.js', 'test:helper', 'post', undefined, 'Tests · Posts helper'],
     ['engines/billing/spec/models/invoice_spec.rb', 'test:model', 'invoice', 'billing', 'Billing tests · Invoice model'],
     ['host/test/review/assessment.test.ts', 'test:host', 'review', 'host', 'Tests · Host review'],
-    ['packages/change-review/test/proof.test.ts', 'test:change-review', 'proof', 'change-review', 'Tests · Change review proof'],
+    ['packages/change-review/test/proof.test.ts', 'test:change-review', 'change-review', 'change-review', 'Change review tests'],
     ['ui/src/features/review/graph/NodeCard.test.tsx', 'test:graph', 'review', 'ui', 'Tests · Window review graph'],
-    ['ui/test/pals.test.ts', 'test:ui', 'pals', 'ui', 'Tests · Window pals'],
-    ['test/total.test.js', 'test:root', 'total', undefined, 'Tests · total'],
-    ['test/utils/date.test.ts', 'test:utils', 'date', undefined, 'Tests · Date utils'],
+    ['ui/test/pals.test.ts', 'test:ui', 'ui', 'ui', 'Window tests'],
+    ['ui/src/App.test.tsx', 'test:ui', 'ui', 'ui', 'Window tests'],
+    ['host/test/commands.test.ts', 'test:host', 'host', 'host', 'Host tests'],
+    ['test/total.test.js', 'test:root', 'root', undefined, 'Tests · Root'],
+    ['src/total.test.js', 'test:src', 'src', undefined, 'Tests · Source'],
+    ['test/docs/links.test.ts', 'test:docs', 'docs', undefined, 'Tests · Docs'],
+    ['scripts/build.test.ts', 'test:scripts', 'scripts', undefined, 'Tests · Scripts'],
+    ['test/utils/date.test.ts', 'test:utils', 'utils', undefined, 'Tests · Utils'],
+    ['test/scripts/perf/motion.test.ts', 'test:scripts', 'perf', undefined, 'Tests · Perf scripts'],
   ])
   // The request test and the controller share the subject, so each can be found from the other.
   assert.equal(zoneOf('spec/requests/orders_spec.rb').subject, zoneOf('app/controllers/orders_controller.rb').subject)
   assert.equal(zoneOf('host/test/review/assessment.test.ts').subject, zoneOf('host/src/review/assessment.ts').subject)
-})
-
-test('a folder\'s file names its subject by one rule, whether the folder is named by convention or not', () => {
-  for (const folder of ['services', 'handlers', 'widgets']) {
-    const zone = zoneOf(`src/${folder}/reviews.js`)
-    assert.equal(zone.subject, 'review', folder)
-    assert.match(zone.label, / · Reviews$/, folder)
+  // A test zone names the code zone it mirrors by its id, as the review's order finds it.
+  const mirrored = (path: string) => {
+    const zone = zoneOf(path)
+    return `${zone.component ?? '-'}/${zone.layer.slice('test:'.length)}/${zone.subject}`
+  }
+  for (const [tested, code] of [['test/total.test.js', 'total.js'], ['src/total.test.js', 'src/total.js'], ['test/docs/links.test.ts', 'docs/links.ts'], ['host/test/commands.test.ts', 'host/src/commands.ts'], ['ui/src/App.test.tsx', 'ui/src/App.tsx']] as const) {
+    assert.equal(mirrored(tested), zoneOf(code).id, tested)
   }
 })
 
@@ -117,7 +145,7 @@ test('a part the scan calls a test is in a test zone wherever its file is', () =
 })
 
 test('the same path gives the same zone, and a label is never a path', () => {
-  const paths = ['app/controllers/admin/orders_controller.rb', 'ui/src/features/review/graph/NodeCard.tsx', 'spec/requests/orders_spec.rb', 'a/b/c/d.ts', 'x']
+  const paths = ['app/controllers/admin/orders_controller.rb', 'ui/src/features/review/graph/NodeCard.tsx', 'spec/requests/orders_spec.rb', 'a/b/c/d.ts', 'x', 'src', 'host/src']
   for (const path of paths) {
     assert.deepEqual(zoneOf(path), zoneOf(path))
     assert.doesNotMatch(zoneOf(path).label, /\/|\.(rb|ts|tsx|js)\b/, path)

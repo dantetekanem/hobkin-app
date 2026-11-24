@@ -65,15 +65,16 @@ test('every node names its zone, and the review lists its zones in the order a r
 })
 
 test('a test zone no code mirrors follows the code its tests cover', async () => {
-  const doing = (body: string) => lines("import { remember } from './notes.ts';", 'export function doingAfter(previous: string) {', `  remember(${body});`, '  return previous;', '}')
+  // The notes are in a folder of their own, so the code is in two zones and the test's zone can stand between them.
+  const doing = (body: string) => lines("import { remember } from './memory/notes.ts';", 'export function doingAfter(previous: string) {', `  remember(${body});`, '  return previous;', '}')
   const flow = lines("import { doingAfter } from '../../src/doing.ts';", "test('a turn says what it does', () => {", "  expect(doingAfter('idle')).toBe('idle');", '});')
   const notes = lines('export function remember(text: string) {', '  return text;', '}')
   const review = await prepared(
-    { base: { 'src/doing.ts': doing('previous'), 'src/notes.ts': notes }, head: { 'src/doing.ts': doing('`was ${previous}`'), 'src/notes.ts': notes, 'test/e2e/flow.test.ts': flow } },
-    { links: [{ near: { changed: { path: 'src/doing.ts', line: 3 } }, other: definition('src/notes.ts', 'remember', 1, 3), direction: 'callee', hops: 1, call: { line: 3, name: 'remember' }, proven: true }] },
+    { base: { 'src/doing.ts': doing('previous'), 'src/memory/notes.ts': notes }, head: { 'src/doing.ts': doing('`was ${previous}`'), 'src/memory/notes.ts': notes, 'test/e2e/flow.test.ts': flow } },
+    { links: [{ near: { changed: { path: 'src/doing.ts', line: 3 } }, other: definition('src/memory/notes.ts', 'remember', 1, 3), direction: 'callee', hops: 1, call: { line: 3, name: 'remember' }, proven: true }] },
   )
   assert.deepEqual(validateReview(review), [])
-  assert.deepEqual(review.zones?.map((zone) => zone.id), ['src/doing.ts', 'test/e2e/flow.test.ts', 'src/notes.ts'].map((path) => zoneOf(path).id))
+  assert.deepEqual(review.zones?.map((zone) => zone.id), ['src/doing.ts', 'test/e2e/flow.test.ts', 'src/memory/notes.ts'].map((path) => zoneOf(path).id))
 })
 
 test("a node's zone is one of the review's, each zone is listed once, and a review from before zones is still valid", async () => {
@@ -105,20 +106,21 @@ test('zones follow the ways in, one way to its end before the next, even when a 
   assert.deepEqual(order(rails, railsWires), zonesOf('config/routes.rb', 'app/controllers/reviews_controller.rb', 'app/jobs/rebuild_labels_job.rb', 'app/mailers/review_mailer.rb', 'app/models/review.rb', 'app/helpers/score_helper.rb'))
 
   // Node: an import line in the helper's own file uses the changed constant, so the helper is also reached first; and a
-  // handler reaches the service by another way, which goes before the listener's own way.
+  // handler reaches the service by another way, which goes before the listener's own way. A file outside the folders
+  // named by convention sits in a folder of its own here, so each is a zone of its own.
   const js = [
-    node('u1', 'code', 'src/config.js'),
+    node('u1', 'code', 'src/config/index.js'),
     node('u2', 'code', 'src/helpers/score.js'),
-    node('u3', 'code', 'src/legacy.js'),
+    node('u3', 'code', 'src/legacy/index.js'),
     node('u4', 'code', 'src/services/sync.js'),
     node('v1', 'context', 'src/services/reviews.js'),
     node('v2', 'context', 'src/handlers/reviews.js'),
-    node('v3', 'context', 'src/server.js', { kind: 'route', exact: true }),
-    node('v4', 'context', 'src/events.js', { kind: 'listener', exact: false }),
+    node('v3', 'context', 'src/server/index.js', { kind: 'route', exact: true }),
+    node('v4', 'context', 'src/events/index.js', { kind: 'listener', exact: false }),
     node('v5', 'context', 'src/helpers/score.js'),
-    node('v6', 'context', 'src/commands.js', { kind: 'handler', exact: true }),
+    node('v6', 'context', 'src/commands/index.js', { kind: 'handler', exact: true }),
     node('v7', 'context', 'src/services/reviews.js'),
   ]
   const jsWires = [wire('uses', 'u2', 'u1'), wire('called-by', 'u2', 'v1'), wire('called-by', 'v1', 'v2'), wire('called-by', 'v2', 'v3'), wire('called-by', 'u4', 'v4'), wire('called-by', 'u1', 'v5'), wire('called-by', 'u2', 'v7'), wire('called-by', 'v7', 'v6')]
-  assert.deepEqual(order(js, jsWires), zonesOf('src/server.js', 'src/handlers/reviews.js', 'src/commands.js', 'src/services/reviews.js', 'src/helpers/score.js', 'src/config.js', 'src/events.js', 'src/services/sync.js', 'src/legacy.js'))
+  assert.deepEqual(order(js, jsWires), zonesOf('src/server/index.js', 'src/handlers/reviews.js', 'src/commands/index.js', 'src/services/reviews.js', 'src/helpers/score.js', 'src/config/index.js', 'src/events/index.js', 'src/services/sync.js', 'src/legacy/index.js'))
 })

@@ -40,22 +40,29 @@ function repoOf(t: TestContext, before: Record<string, string>, after: Record<st
 const PACKAGE = JSON.stringify({ name: 'shop', type: 'module', scripts: { test: 'node --test' } })
 const TEST_HEADER = "import assert from 'node:assert/strict'\nimport { test } from 'node:test'\n"
 
-/** A small Node project: `total` gains rounding with a test that sees it, and a constant changes that nothing reads. */
-function project(t: TestContext) {
+/** Where a file of the project sits: where it is, or where a test moved it. */
+type Moves = Readonly<Record<string, string>>
+
+/**
+ * A small Node project: `total` gains rounding with a test that sees it, and a constant changes that nothing reads.
+ * `moves` puts some of its files elsewhere, as `scanOf(moves)` does.
+ */
+function project(t: TestContext, moves: Moves = {}) {
+  const placed = (files: Record<string, string>) => Object.fromEntries(Object.entries(files).map(([path, text]) => [moves[path] ?? path, text]))
   return repoOf(
     t,
-    {
+    placed({
       'package.json': PACKAGE,
       'src/total.js': 'export function total(a, b) {\n  return a + b\n}\n',
       'src/config.js': 'export const PRECISION = 2\n',
       'src/money.ts': 'export type Money = number\n',
-    },
-    {
+    }),
+    placed({
       'src/total.js': 'export function total(a, b) {\n  return Math.round(a + b)\n}\n',
       'src/config.js': 'export const PRECISION = 3\n',
       'src/money.ts': 'export type Money = { cents: number }\n',
       'test/total.test.js': `${TEST_HEADER}import { total } from '../src/total.js'\n\ntest('rounds the total', () => {\n  assert.equal(total(1.2, 1.4), 3)\n})\n`,
-    },
+    }),
   )
 }
 
@@ -71,8 +78,12 @@ const scanWith = (anchors: ScanAnchor[], dangling: Scan['dangling'] = []): Scan 
 })
 const scanning = (scan: Scan) => async (): Promise<ScanOutcome> => ({ ok: true, scan })
 
-/** What agentic-search would report for that change. */
-const scanOf = (): Scan => ({
+/** A scan with every path `moves` names put where it moved. */
+const moved = (moves: Moves, scan: Scan): Scan =>
+  JSON.parse(JSON.stringify(scan), (key, value) => (key === 'path' && typeof value === 'string' ? (moves[value] ?? value) : value))
+
+/** What agentic-search would report for that change, with its files where `moves` puts them. */
+const scanOf = (moves: Moves = {}): Scan => moved(moves, {
   anchors: [
     {
       id: 'n1',
@@ -554,19 +565,21 @@ test('a search that fails or hangs is a note in the problems and the review goes
 })
 
 test('every part says where it runs from, or why nothing was looked for, and names its zone', async (t) => {
-  const { repo, base, head, out } = project(t)
-  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanOf()) })
+  // The constant and the type each in a folder of their own, so the parts are in several zones.
+  const moves = { 'src/config.js': 'lib/config.js', 'src/money.ts': 'types/money.ts' }
+  const { repo, base, head, out } = project(t, moves)
+  const result = await reviewChange({ cwd: repo, base, head, out, clock: steadyClock(), scan: scanning(scanOf(moves)) })
   const of = (id: string) => result.graph.nodes.find((node) => node.id === id)!
   assert.deepEqual(of('n1').runs_from, { found: 'none', hops: 0, why: 'The scan listed nothing that calls it.' })
   assert.deepEqual(of('n2').runs_from, { found: 'not-looked', why: 'It takes effect when its file loads, so what calls it was not looked for.' })
   assert.deepEqual(of('n3').runs_from, { found: 'not-looked', why: 'A test: the test runner runs it.' })
   assert.deepEqual(of('n4').runs_from, { found: 'not-looked', why: 'A type: the compiler checks it and nothing runs it.' })
-  assert.deepEqual(result.graph.nodes.map((node) => node.zone), ['-/src/total', '-/src/config', '-/test:root/total', '-/src/money', '-/test:root/total'])
+  assert.deepEqual(result.graph.nodes.map((node) => node.zone), ['-/src/src', '-/lib/lib', '-/test:root/root', '-/types/types', '-/test:root/root'])
   assert.deepEqual(result.graph.zones?.map((zone) => [zone.id, zone.label]), [
-    ['-/src/total', 'Source · total'],
-    ['-/src/config', 'Source · config'],
-    ['-/test:root/total', 'Tests · total'],
-    ['-/src/money', 'Source · money'],
+    ['-/src/src', 'Source'],
+    ['-/lib/lib', 'Library'],
+    ['-/test:root/root', 'Tests · Root'],
+    ['-/types/types', 'Types'],
   ])
 })
 
@@ -872,14 +885,14 @@ test('the Reviewer reads each part\'s zone, and a zone it renames keeps its part
   const model: ModelRunner = async ({ pass, prompt: sent }) => {
     if (pass !== 'review') return 'nothing'
     prompt = sent
-    return JSON.stringify({ events: [], claims: [], map: [{ op: 'zone', zone: '-/src/total', name: 'Money sums' }] })
+    return JSON.stringify({ events: [], claims: [], map: [{ op: 'zone', zone: '-/src/src', name: 'Money sums' }] })
   }
   const plain = await reviewChange({ cwd: repo, base, head, out: `${out}-plain`, clock: steadyClock(), scan: scanning(scanOf()) })
   const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), scan: scanning(scanOf()) })
   const data = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1)) as { zones: { id: string }[]; nodes: { id: string; zone?: string }[] }
-  assert.ok(data.zones.some((zone) => zone.id === '-/src/total'))
-  assert.equal(data.nodes.find((node) => node.id === 'n1')?.zone, '-/src/total')
-  assert.deepEqual(result.graph.zones?.find((zone) => zone.id === '-/src/total'), { id: '-/src/total', layer: 'src', subject: 'total', label: 'Source · total', told: 'Money sums' })
+  assert.ok(data.zones.some((zone) => zone.id === '-/src/src'))
+  assert.equal(data.nodes.find((node) => node.id === 'n1')?.zone, '-/src/src')
+  assert.deepEqual(result.graph.zones?.find((zone) => zone.id === '-/src/src'), { id: '-/src/src', layer: 'src', subject: 'src', label: 'Source', told: 'Money sums' })
   assert.deepEqual(levelsOf(result.units), levelsOf(plain.units))
   assert.deepEqual(result.units.units.map((unit) => unit.nodes), plain.units.units.map((unit) => unit.nodes))
 })

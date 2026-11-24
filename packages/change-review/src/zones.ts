@@ -6,14 +6,20 @@
  *   ui/src/features/review/graph/NodeCard.tsx    ui: graph · review           "Window · review graph"
  *   host/src/review/vicinity-scan.ts             host: host · review          "Host · review"
  *   spec/requests/orders_spec.rb                 test:request · order         "Tests · Orders requests"
+ *   docs/client-api-v1.md                        docs · docs                  "Docs"
+ *
+ * A file's own name is a subject only in a layer named by convention, where files are named after what they are
+ * about; everywhere else the folder is the zone, and a file right in it has no subject of its own.
  *
  * The rules, in order: the component (a package, app or engine, or a top folder this kind of repository splits into);
  * one source root dropped (`app/javascript/`, `app/`, `src/`, `lib/` but not `lib/tasks/`); then the layer from the next
  * folder. A folder named by convention (controllers, models, jobs, views...) is a layer whose file names say the
  * subject, singular, with namespace folders kept. A feature folder is the subject, and its next folder the layer. Code
- * with no such folder is in its component's layer, its first folder the subject. A test takes the subject of the code
- * it mirrors, in the layer `test:<layer>`: a test folder such as `spec/requests/` names the layer, or else the code at
- * the path the test mirrors does. Pure: the same path always gives the same zone.
+ * with no such folder is in its component's layer, its first folder the subject, and a file right in the component is
+ * in the component's own zone. Any other folder is a layer, the folder under it the subject. A file right under a
+ * source root is in that root's zone, and every file at the top in one zone, "Root". A test takes the subject of the
+ * code it mirrors, in the layer `test:<layer>`: a test folder such as `spec/requests/` names the layer, or else the
+ * code at the path the test mirrors does. Pure: the same path always gives the same zone.
  */
 import { isTestPath } from './triage.ts'
 import type { Zone } from './types.ts'
@@ -224,6 +230,9 @@ function partPlace(head: string | undefined, layer: string, inner: readonly stri
   return { layer, subject, written: subject, named: false, label }
 }
 
+/** The zone of a whole folder or component, which a file right in it is in: it has no subject but itself. */
+const ownPlace = (layer: string, label: string): Place => ({ layer, subject: layer, written: layer, named: false, label })
+
 /** The code rules, for the path inside its component. */
 function placeOf(component: string | undefined, rest: readonly string[]): Place {
   const railsFile = railsFilePlace(component, rest)
@@ -243,17 +252,19 @@ function placeOf(component: string | undefined, rest: readonly string[]): Place 
   }
 
   if (component) {
-    const subject = inner.length > 1 ? first : stemOf(name)
-    return { layer: component, subject, written: subject, named: false, label: `${head} · ${words(subject)}` }
+    // A file right in a component, after its source root, is in the component's own zone: `host/src/main.ts` is "Host".
+    if (inner.length <= 1) return ownPlace(component, head!)
+    return { layer: component, subject: first, written: first, named: false, label: `${head} · ${words(first)}` }
   }
-  if (inner.length === 1) {
-    const subject = stemOf(name)
-    // A file right under a source root is in that root's layer: `src/total.js` is "Source · total".
-    if (root && rest.length > 1) return { layer: rest[0]!, subject, written: subject, named: false, label: `${ROOT_WORDS[rest[0]!]} · ${words(subject)}` }
-    return { layer: 'root', subject, written: subject, named: false, label: `Top level · ${words(subject)}` }
+  if (inner.length <= 1) {
+    // A file right under a source root is in that root's zone, "Source"; every file at the top is in one, "Root".
+    if (root && rest.length > 1) return ownPlace(rest[0]!, ROOT_WORDS[rest[0]!]!)
+    return ownPlace('root', 'Root')
   }
-  // Any other folder is a layer by the same rule as one named by convention: the subject singular, said as written.
-  const written = inner.length > 2 ? inner[1]! : stemOf(name)
+  // Any other folder is a layer by the same rule as one named by convention, the folder under it the subject, singular,
+  // said as written; a file right in it is in the folder's own zone: `docs/client-api-v1.md` is "Docs".
+  if (inner.length === 2) return ownPlace(first, sentence(words(first)))
+  const written = inner[1]!
   return { layer: first, subject: singular(written), written, named: true, label: `${sentence(words(first))} · ${sentence(words(written))}` }
 }
 
@@ -274,11 +285,11 @@ function testPlaceOf(component: string | undefined, rest: readonly string[]): Pl
     return { layer: `test:${kind}`, subject, written, named: true, label: `${tests} · ${sentence(words(written))} ${TEST_NOUNS[kind] ?? kind}` }
   }
   const code = placeOf(component, [...mirrored.slice(0, -1), untested])
-  // A test of code at the top says only what it is about: "Tests · total".
+  // A test of a component's own files is that component's tests: "Host tests".
   const label = code.named
     ? `${tests} · ${sentence(words(code.written))} ${TEST_NOUNS[code.layer] ?? words(code.layer)}`
-    : code.layer === 'root'
-      ? `Tests · ${words(code.subject)}`
+    : code.layer === component && code.subject === component
+      ? tests
       : `Tests · ${code.label.replace(' · ', ' ')}`
   return { ...code, layer: `test:${code.layer}`, label }
 }
