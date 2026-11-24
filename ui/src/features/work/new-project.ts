@@ -65,10 +65,8 @@ export function codeAllowed(look: FolderLook | null): boolean {
 
 /** The kind as it stands: the user's pick, or what the folder says, and never Code for a folder that is no repository. */
 export function kindOf(form: Pick<NewProjectForm, 'folder' | 'looked' | 'picked'>): ProjectKind {
-  const look = currentLook(form)
-  if (!codeAllowed(look)) return 'goal'
-  if (form.picked) return form.picked
-  return look && look.found === 'folder' && !look.git ? 'goal' : 'code'
+  if (!codeAllowed(currentLook(form))) return 'goal'
+  return form.picked ?? 'code'
 }
 
 /** What a pick of a kind does: Code is not taken for a folder that is no repository, and the kind stays as it was. */
