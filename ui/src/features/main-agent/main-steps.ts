@@ -60,10 +60,14 @@ function useMainOf<Shown>(select: (entries: Entries) => Shown, same: (held: Show
   const held = useRef<{ entries: Entries; select: typeof select; shown: Shown } | null>(null)
   return useHost((state) => {
     const entries = live ? mainActivityOf(state.snapshot) : sampled
-    if (held.current?.entries === entries && held.current.select === select) return held.current.shown
-    const shown = select(entries)
-    held.current = { entries, select, shown: held.current && same(held.current.shown, shown) ? held.current.shown : shown }
-    return held.current.shown
+    const before = held.current
+    if (before && before.entries === entries && before.select === select) return before.shown
+
+    // Something that says the same as what is shown stays the very value shown, so the part does not draw again.
+    const next = select(entries)
+    const shown = before && same(before.shown, next) ? before.shown : next
+    held.current = { entries, select, shown }
+    return shown
   })
 }
 
@@ -84,9 +88,21 @@ export interface Head {
   thinking: boolean
 }
 
-const headOf = (entries: Entries): Head | null => (entries === null ? null : { any: entries.length > 0, steps: stepCount(entries), mood: moodOf(entries, true), thinking: pauseOf(entries) === 'thinking' })
-const sameHead = (left: Head | null, right: Head | null) =>
-  left === right || (left !== null && right !== null && left.any === right.any && left.steps === right.steps && left.mood === right.mood && left.thinking === right.thinking)
+function headOf(entries: Entries): Head | null {
+  if (entries === null) return null
+  return {
+    any: entries.length > 0,
+    steps: stepCount(entries),
+    mood: moodOf(entries, true),
+    thinking: pauseOf(entries) === 'thinking',
+  }
+}
+
+function sameHead(left: Head | null, right: Head | null): boolean {
+  if (left === right) return true
+  if (left === null || right === null) return false
+  return left.any === right.any && left.steps === right.steps && left.mood === right.mood && left.thinking === right.thinking
+}
 
 /** What the header shows of the steps, null from a host too old to send them. It changes with the count or the newest step's state. */
 export function useMainHead(): Head | null {

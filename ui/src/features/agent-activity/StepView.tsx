@@ -20,7 +20,7 @@ import { wholeOutput } from './older-steps.ts'
 import { previewOf } from './preview.ts'
 import { RowStamp, Stamped } from './Stamp.tsx'
 import { atOf, foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
-import { useUnfold } from './unfold.ts'
+import { useUnfold, type Unfold } from './unfold.ts'
 import { proofCheckOf } from '@/features/proofs/proof-match.ts'
 import { ProofCheckStep, useCheckRun } from '@/features/proofs/ProofCheckStep.tsx'
 import { useNear } from './use-colors.ts'
@@ -450,7 +450,8 @@ function ChangeBlock({ change }: { change: Change }) {
  * An open change's diff, in one box, and the press that shows more of a long one. Drawn only while the change is open,
  * so a closed change works out no diff and no rows, asks for no colors and watches nothing for being near the view.
  */
-function ChangeDiffs({ places, unfold: { open, presses, toggle, more, box } }: { places: readonly Place[]; unfold: ReturnType<typeof useUnfold<HTMLDivElement>> }) {
+function ChangeDiffs({ places, unfold }: { places: readonly Place[]; unfold: Unfold<HTMLDivElement> }) {
+  const { open, presses, toggle, more, box } = unfold
   // Colored only once in or near view: a page's changes far above it wait until they are scrolled to.
   const near = useNear(box)
   // A new edit diffs only the place it added or changed, and the rest are the parts drawn.

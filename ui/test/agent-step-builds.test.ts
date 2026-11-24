@@ -19,10 +19,20 @@ function counted(entry: ActivityEntry): ActivityEntry {
   })
 }
 
-const call = (index: number, state: ActivityEntry['state'] = 'completed', output = `out ${index}`): ActivityEntry =>
-  // Commands and other tools take turns, so no two are one step.
-  counted(index % 2 ? { id: `tool:${index}`, kind: 'tool', name: 'bash', state, input: JSON.stringify({ command: `echo ${index}` }), output } : { id: `tool:${index}`, kind: 'tool', name: 'lint', state, input: JSON.stringify({ file: `f${index}.ts` }), output })
+/** A call at `index`: a command at odd ones and another tool at even ones, so no two in a row are one step. */
+function call(index: number, state: ActivityEntry['state'] = 'completed', output = `out ${index}`): ActivityEntry {
+  const command = { name: 'bash', input: JSON.stringify({ command: `echo ${index}` }) }
+  const otherTool = { name: 'lint', input: JSON.stringify({ file: `f${index}.ts` }) }
+  return counted({
+    id: `tool:${index}`,
+    kind: 'tool',
+    state,
+    output,
+    ...(index % 2 ? command : otherTool),
+  })
+}
 
+/** 200 entries, each a step of its own, the newest a command still running. */
 const held = Array.from({ length: 200 }, (_, index) => call(index, index === 199 ? 'running' : 'completed'))
 const options = { cwd: '/repo', tasksOnLine: true }
 

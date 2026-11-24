@@ -297,11 +297,13 @@ interface Group {
   path?: string
 }
 
+/** The kind of step a tool call of each family makes. */
+const STEP_OF: Record<Family, Group['kind']> = { shell: 'shell', change: 'change', read: 'looks', search: 'looks', list: 'looks', fetch: 'looks', other: 'tool' }
+
 /** Which entries make which step: words alone, commands in a row, edits to one file in a row, reads and searches in a row. */
 function groupsOf(entries: readonly ActivityEntry[], options: ReadOptions): Group[] {
   const groups: Group[] = []
   for (const entry of entries) {
-    const last = groups.at(-1)
     if (entry.kind !== 'tool') {
       if (entry.text?.trim()) groups.push({ kind: 'says', entries: [entry] })
       continue
@@ -311,11 +313,13 @@ function groupsOf(entries: readonly ActivityEntry[], options: ReadOptions): Grou
       continue
     }
     if (options.tasksOnLine && isTaskTool(entry.name) && entry.state !== 'failed') continue
-    const family = familyOf(entry.name)
-    const kind = family === 'shell' ? 'shell' : family === 'change' ? 'change' : family === 'other' ? 'tool' : 'looks'
+
+    const kind = STEP_OF[familyOf(entry.name)]
     const path = kind === 'change' ? pathOf(entry, options.cwd) : undefined
-    const joins = (kind === 'shell' || kind === 'looks' || (kind === 'change' && last?.path === path)) && last?.kind === kind
-    if (joins) last.entries.push(entry)
+    const last = groups.at(-1)
+    // Commands join the commands before them, reads and searches the reads, and an edit the edits to its own file.
+    const joinsLast = last?.kind === kind && (kind === 'shell' || kind === 'looks' || (kind === 'change' && last.path === path))
+    if (joinsLast) last.entries.push(entry)
     else groups.push({ kind, entries: [entry], ...(path === undefined ? {} : { path }) })
   }
   return groups
@@ -349,47 +353,101 @@ function samePrefix(left: readonly ActivityEntry[], right: readonly ActivityEntr
 
 const NO_CHANGE = (path: string): Change => ({ path, hunks: [], whole: null, calls: 0, state: 'done', failures: [] })
 
-function stepOf(group: Group, ended: boolean, options: ReadOptions): Step {
+/** The step last built from this group's first entry, when it is of the same kind and read from the same folder. */
+function heldStep(group: Group, options: ReadOptions): Built | undefined {
+  const held = built.get(group.entries[0]!)
+  if (!held || held.cwd !== options.cwd || held.step.kind !== group.kind) return undefined
+  return held
+}
+
+/** What carries over from the step built before: its entries that are the very same, and whether each reads the same now. */
+interface Carried {
+  held: Built | undefined
+  /** How many of the group's first entries are the very ones the held step was built from. */
+  kept: number
+  /** The item built before for the entry at `index` still stands. */
+  keeps: (index: number) => boolean
+}
+
+/**
+ * A change's file as the calls kept left it, then each call after them. It goes on after all the calls held, or before
+ * the last of them when that one is the call that changed; no job ending changes a file. Anything else starts again.
+ */
+function changeOn(group: Group, { held, kept }: Carried, ended: boolean): { change: Change; beforeLast: Change | undefined } {
+  const { entries } = group
+  let change = NO_CHANGE(group.path ?? '')
+  let from = 0
+  let beforeLast = held?.beforeLast
+  if (held?.step.kind === 'change' && kept === held.entries.length) {
+    change = held.step.change
+    from = kept
+  } else if (held?.beforeLast && kept === held.entries.length - 1) {
+    change = held.beforeLast
+    from = kept
+  }
+
+  for (let index = from; index < entries.length; index++) {
+    if (index === entries.length - 1) beforeLast = change
+    change = withCall(change, entries[index]!, ended)
+  }
+  return { change: { ...change, state: changeState(entries, ended) }, beforeLast }
+}
+
+/** Builds a group's step, keeping the commands and reads that still stand and going on with a change from where it was. */
+function buildStep(group: Group, carried: Carried, ended: boolean, options: ReadOptions): { step: Step; beforeLast?: Change } {
   const { entries } = group
   const first = entries[0]!
-  const before = built.get(first)
-  const held = before && before.cwd === options.cwd && before.step.kind === group.kind ? before : undefined
+  const key = first.id
+  const { held, keeps } = carried
+  switch (group.kind) {
+    case 'says':
+      return { step: { kind: 'says', key, entries, text: first.text ?? '' } }
+    case 'codemode':
+      return { step: { kind: 'codemode', key, entries, state: stateOf(first, ended) } }
+    case 'tool': {
+      const state = stateOf(first, ended)
+      const failure = state === 'failed' ? failureOf(first) : undefined
+      const step: Step = {
+        kind: 'tool',
+        key,
+        entries,
+        name: first.name ?? 'tool',
+        summary: summaryOf(first, options.cwd),
+        state,
+        output: first.output ?? '',
+        ...(failure ? { failure } : {}),
+      }
+      return { step }
+    }
+    case 'shell': {
+      const earlier = held?.step.kind === 'shell' ? held.step.commands : []
+      const commands = entries.map((entry, index) => (keeps(index) ? earlier[index]! : commandOf(entry, ended)))
+      return { step: { kind: 'shell', key, entries, commands } }
+    }
+    case 'looks': {
+      const earlier = held?.step.kind === 'looks' ? held.step.looks : []
+      const looks = entries.map((entry, index) => (keeps(index) ? earlier[index]! : lookOf(entry, familyOf(entry.name) as LookKind, options)))
+      return { step: { kind: 'looks', key, entries, looks } }
+    }
+    case 'change': {
+      const { change, beforeLast } = changeOn(group, carried, ended)
+      return { step: { kind: 'change', key, entries, change }, beforeLast }
+    }
+  }
+}
+
+function stepOf(group: Group, ended: boolean, options: ReadOptions): Step {
+  const { entries } = group
+  const held = heldStep(group, options)
   const kept = held ? samePrefix(held.entries, entries) : 0
   // A call that is not running reads the same whether or not the job has ended.
-  const keeps = (entry: ActivityEntry) => held!.ended === ended || !isRunning(entry)
-  if (held && kept === entries.length && kept === held.entries.length && entries.every(keeps)) return held.step
+  const readsTheSame = (entry: ActivityEntry) => held?.ended === ended || !isRunning(entry)
+  const unchanged = held !== undefined && kept === entries.length && kept === held.entries.length && entries.every(readsTheSame)
+  if (unchanged) return held.step
 
-  let step: Step
-  let beforeLast: Change | undefined
-  if (group.kind === 'says') step = { kind: 'says', key: first.id, entries, text: first.text ?? '' }
-  else if (group.kind === 'codemode') step = { kind: 'codemode', key: first.id, entries, state: stateOf(first, ended) }
-  else if (group.kind === 'tool') {
-    const state = stateOf(first, ended)
-    const failure = state === 'failed' ? failureOf(first) : undefined
-    step = { kind: 'tool', key: first.id, entries, name: first.name ?? 'tool', summary: summaryOf(first, options.cwd), state, output: first.output ?? '', ...(failure ? { failure } : {}) }
-  } else if (group.kind === 'shell') {
-    const earlier = held?.step.kind === 'shell' ? held.step.commands : []
-    const commands = entries.map((entry, index) => (index < kept && keeps(entry) ? earlier[index]! : commandOf(entry, ended)))
-    step = { kind: 'shell', key: first.id, entries, commands }
-  } else if (group.kind === 'looks') {
-    const earlier = held?.step.kind === 'looks' ? held.step.looks : []
-    const looks = entries.map((entry, index) => (index < kept && keeps(entry) ? earlier[index]! : lookOf(entry, familyOf(entry.name) as LookKind, options)))
-    step = { kind: 'looks', key: first.id, entries, looks }
-  } else {
-    // The calls kept go on from the file as they left it, after all of them or before the last, which no job ending
-    // changes. Any other change starts again from the first call.
-    let change = NO_CHANGE(group.path ?? '')
-    let from = 0
-    beforeLast = held?.beforeLast
-    if (held?.step.kind === 'change' && kept === held.entries.length) [change, from] = [held.step.change, kept]
-    else if (held?.beforeLast && kept === held.entries.length - 1) [change, from] = [held.beforeLast, kept]
-    for (let index = from; index < entries.length; index++) {
-      if (index === entries.length - 1) beforeLast = change
-      change = withCall(change, entries[index]!, ended)
-    }
-    step = { kind: 'change', key: first.id, entries, change: { ...change, state: changeState(entries, ended) } }
-  }
-  built.set(first, { entries, ended, cwd: options.cwd, step, ...(beforeLast ? { beforeLast } : {}) })
+  const keeps = (index: number) => index < kept && readsTheSame(entries[index]!)
+  const { step, beforeLast } = buildStep(group, { held, kept, keeps }, ended, options)
+  built.set(entries[0]!, { entries, ended, cwd: options.cwd, step, ...(beforeLast ? { beforeLast } : {}) })
   return step
 }
 

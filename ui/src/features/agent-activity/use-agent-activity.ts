@@ -206,12 +206,17 @@ export function useAgentActivityOf<Shown>(agentId: string | null, select: (activ
   const sampled = sample ? { entries: sampleAt(sample, now - start), cwd: sample.cwd } : undefined
   const held = useRef<{ activity: AgentActivity | null; select: typeof select; shown: Shown } | null>(null)
   return useHost((state) => {
-    if (paused && held.current) return held.current.shown
+    const before = held.current
+    if (paused && before) return before.shown
+
     const activity = readActivity(state, agentId, sampled)
-    if (held.current?.activity === activity && held.current.select === select) return held.current.shown
-    const shown = select(activity)
-    held.current = { activity, select, shown: held.current && same(held.current.shown, shown) ? held.current.shown : shown }
-    return held.current.shown
+    if (before && before.activity === activity && before.select === select) return before.shown
+
+    // Something that says the same as what is shown stays the very value shown, so the part does not draw again.
+    const next = select(activity)
+    const shown = before && same(before.shown, next) ? before.shown : next
+    held.current = { activity, select, shown }
+    return shown
   })
 }
 
@@ -261,8 +266,19 @@ const glanceOf = (activity: AgentActivity | null): Glance => ({
   doing: activity ? doingNow(activity.entries, { ended: activity.ended, cwd: activity.cwd }) : null,
 })
 
-const sameDoing = (left: Doing | null, right: Doing | null) =>
-  left === right || (left !== null && right !== null && left.lead === right.lead && left.subject === right.subject && left.code === right.code && left.path === right.path && left.failed === right.failed && left.note === right.note)
+function sameDoing(left: Doing | null, right: Doing | null): boolean {
+  if (left === right) return true
+  if (left === null || right === null) return false
+  return (
+    left.lead === right.lead &&
+    left.subject === right.subject &&
+    left.code === right.code &&
+    left.path === right.path &&
+    left.failed === right.failed &&
+    left.note === right.note
+  )
+}
+
 const sameGlance = (left: Glance, right: Glance) => left.steps === right.steps && sameDoing(left.doing, right.doing)
 
 /** The glance at the agent, which draws again when its step count or what it does changes, and not while `hidden`. */

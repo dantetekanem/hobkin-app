@@ -349,6 +349,9 @@ interface OverviewProps {
   hidden: boolean
 }
 
+/** Hidden before and still hidden: nothing it would draw could be seen, so it keeps what it drew. */
+const stillHidden = (before: OverviewProps, after: OverviewProps) => before.hidden && after.hidden
+
 /** The rest of the small screen, under the face and the name: where the agent works, the glance at it and its helpers. */
 const Overview = memo(function Overview({ agentId, agent, finished, waiting, question, held, hidden }: OverviewProps) {
   return (
@@ -372,7 +375,7 @@ const Overview = memo(function Overview({ agentId, agent, finished, waiting, que
       ) : null}
     </>
   )
-}, (before, after) => before.hidden && after.hidden)
+}, stillHidden)
 
 /**
  * The bottom of the small screen: the agent's question, or what it is doing this moment and how many steps it
