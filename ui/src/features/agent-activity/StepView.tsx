@@ -14,6 +14,7 @@ import { ChangeDiff } from './ChangeDiff.tsx'
 import { CodeText, MoreButton } from './CodeText.tsx'
 import { BOX } from './boxes.ts'
 import { CodemodeCall } from './CodemodeCall.tsx'
+import { codemodeOf, codemodeText, codemodeWords, type CodemodeWords } from './codemode.ts'
 import { cutOf, cutWords, type CutState } from './cut-output.ts'
 import { earlierWords, type EarlierRow } from './newest.ts'
 import { wholeOutput } from './older-steps.ts'
@@ -641,19 +642,62 @@ function OtherTool({ id, name, summary, state, output, failure }: { id: string; 
   )
 }
 
-/** A codemode script: one row with how it stands, which opens to its operations, output and source. */
+/**
+ * A codemode script: one row with how it stands and how many tool calls it made, which opens to its operations,
+ * output and source.
+ */
 function CodemodeStep({ entry, state }: { entry: ActivityEntry; state: CallState }) {
   const { open, toggle } = useBlock('other')
+  const words = useMemo(() => codemodeWords(codemodeOf(entry, state === 'stopped')), [entry, state])
   return (
     <div className="flex flex-col gap-1.5">
       <FoldRow icon={Braces} open={open} onToggle={toggle} failed={state === 'failed'}>
         <span className="shrink-0 font-medium">{state === 'running' ? 'Running' : 'Ran'}</span>
         <code className="shrink-0 font-mono text-[12px]">codemode</code>
+        <CodemodeLine words={words} />
         <span className="ml-auto">
           <StateMark state={state} />
         </span>
       </FoldRow>
       {open ? <CodemodeCall entry={entry} ended={state === 'stopped'} /> : null}
     </div>
+  )
+}
+
+/**
+ * What a codemode row says after its name, in one line: the script's own end, how many tool calls it made and how
+ * they ended, then the failed ones' names and what they all were. The line wraps its last two parts away whole when
+ * they do not fit, the tally first, onto a second line it never shows. What is left is cut at its end.
+ */
+function CodemodeLine({ words }: { words: CodemodeWords }) {
+  const { script, calls } = words
+  if (!script && !calls) return null
+  return (
+    <span title={codemodeText(words)} className="flex max-h-[1.5em] min-w-0 flex-1 basis-0 flex-wrap items-baseline overflow-hidden text-[12px] whitespace-pre text-muted-foreground">
+      <span className="min-w-0 overflow-hidden text-ellipsis">
+        {script ? (
+          <>
+            {'· '}
+            <span className="text-bad-fg">{script}</span>
+          </>
+        ) : null}
+        {calls ? (
+          <>
+            {script ? ' · ' : '· '}
+            {calls.count}
+            {calls.passed ? `, ${calls.passed}` : ''}
+            {calls.unfinished ? `, ${calls.unfinished}` : ''}
+            {calls.failed ? (
+              <>
+                {', '}
+                <span className="text-bad-fg">{calls.failed}</span>
+              </>
+            ) : null}
+          </>
+        ) : null}
+      </span>
+      {calls?.names ? <span className="shrink-0 text-bad-fg">: {calls.names}</span> : null}
+      {calls?.tally ? <span className="shrink-0"> · {calls.tally}</span> : null}
+    </span>
   )
 }

@@ -28,6 +28,86 @@ export function codemodeOf(entry: ActivityEntry, ended = false) {
     operations: metadata?.calls.map((call, ordinal) => ({ ...call, key: `${entry.id}:${ordinal}`, status: call.status === 'running' && state !== 'running' ? 'unknown' as const : call.status })) }
 }
 
+type Codemode = ReturnType<typeof codemodeOf>
+
+/** What a codemode step's closed row says after "Ran codemode". */
+export interface CodemodeWords {
+  /** The script's own end, when it did not complete: "script failed", "stopped". It is said first. */
+  script?: string
+  /** The tool calls the script made. Absent when the host did not report them. */
+  calls?: {
+    /** "4 tool calls", "1 tool call", "2 tool calls so far", "no tool calls". */
+    count: string
+    /** "all passed", or "passed" for one. */
+    passed?: string
+    /** "1 failed", with the names of the calls that failed: "bash". */
+    failed?: string
+    names?: string
+    /** Calls that were cancelled or still running when the script ended: "1 did not finish". */
+    unfinished?: string
+    /** What they were, each kind counted in the order first seen: "bash, 2 read, ls". */
+    tally?: string
+  }
+}
+
+const SCRIPT_END: Partial<Record<Codemode['state'], string>> = { failed: 'script failed', stopped: 'stopped' }
+
+const calls = (count: number) => (count === 1 ? '1 tool call' : `${count} tool calls`)
+
+/** Each name once, in the order first seen, with how many times it came when more than once. */
+function tallyOf(names: readonly string[]): string {
+  const counts = new Map<string, number>()
+  for (const name of names) counts.set(name, (counts.get(name) ?? 0) + 1)
+  return [...counts].map(([name, count]) => (count === 1 ? name : `${count} ${name}`)).join(', ')
+}
+
+/** The words a codemode step's row says about its script and the tool calls it made. */
+export function codemodeWords({ state, operations }: Pick<Codemode, 'state' | 'operations'>): CodemodeWords {
+  const script = SCRIPT_END[state]
+  const words: CodemodeWords = script ? { script } : {}
+  if (!operations) return words
+
+  const running = state === 'running'
+  if (operations.length === 0) return { ...words, calls: { count: running ? 'no tool calls yet' : 'no tool calls' } }
+
+  const failed = operations.filter((operation) => operation.status === 'error')
+  const unfinished = operations.filter((operation) => operation.status === 'cancelled' || operation.status === 'unknown').length
+  const passed = !running && operations.every((operation) => operation.status === 'ok')
+  return {
+    ...words,
+    calls: {
+      count: running ? `${calls(operations.length)} so far` : calls(operations.length),
+      ...(passed ? { passed: operations.length === 1 ? 'passed' : 'all passed' } : {}),
+      ...(failed.length ? { failed: `${failed.length} failed`, names: [...new Set(failed.map((operation) => operation.name))].join(', ') } : {}),
+      ...(unfinished ? { unfinished: `${unfinished} did not finish` } : {}),
+      tally: tallyOf(operations.map((operation) => operation.name)),
+    },
+  }
+}
+
+/**
+ * The words as one line of text: "script failed · 4 tool calls, 1 failed: bash · bash, 2 read, ls". The failed
+ * calls' names end the result, so they can give way after the tally without taking anything else with them.
+ */
+export function codemodeText({ script, calls }: CodemodeWords): string {
+  if (!calls) return script ?? ''
+  let said = calls.count
+  if (calls.passed) said += `, ${calls.passed}`
+  if (calls.unfinished) said += `, ${calls.unfinished}`
+  if (calls.failed) said += `, ${calls.failed}${calls.names ? `: ${calls.names}` : ''}`
+  if (calls.tally) said += ` · ${calls.tally}`
+  return script ? `${script} · ${said}` : said
+}
+
+/** How long a tool call took, as the app says a time: 361 ms, 1.2 s, 1m 05s. */
+export function callTime(ms: number): string {
+  if (Math.round(ms) < 1000) return `${Math.round(ms)} ms`
+  const tenths = Math.round(ms / 100) / 10
+  if (tenths < 60) return `${tenths.toFixed(1)} s`
+  const seconds = Math.round(ms / 1000)
+  return `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
+}
+
 export interface SavedCodemode {
   entry: ActivityEntry
   correlation: 'matched' | 'missing' | 'ambiguous' | 'orphan'

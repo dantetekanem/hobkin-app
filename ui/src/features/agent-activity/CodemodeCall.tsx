@@ -1,6 +1,6 @@
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { CodeText } from './CodeText.tsx'
-import { codemodeOf, type SavedCodemode } from './codemode.ts'
+import { callTime, codemodeOf, type SavedCodemode } from './codemode.ts'
 import { useUnfold } from './unfold.ts'
 
 /** Script result is aggregate output, not a result for any one operation. */
@@ -15,7 +15,7 @@ export function CodemodeCall({ entry, ended = false, correlation }: { entry: Act
     {correlation && correlation !== 'matched' ? <p className="text-xs text-muted-foreground">Stored correlation: {correlation}. No result has been assigned to a source call.</p> : null}
     <ol className="flex min-w-0 flex-col gap-2" aria-label="Codemode operations in start order">
       {model.operations?.map(call => <li key={call.key} className="min-w-0 text-xs">
-        <div className="flex flex-wrap items-baseline gap-2"><code className="font-medium">{call.name}</code><span className={call.status === 'error' ? 'text-bad-fg' : 'text-muted-foreground'}>{call.status === 'ok' ? 'ok · execution only' : call.status === 'unknown' ? 'unknown · script ended' : call.status}</span>{call.durationMs === undefined ? null : <span>{call.durationMs} ms</span>}{call.cost === undefined ? null : <span>reported cost {call.cost}</span>}</div>
+        <div className="flex flex-wrap items-baseline gap-2"><code className="font-medium">{call.name}</code><span className={call.status === 'error' ? 'text-bad-fg' : 'text-muted-foreground'}>{call.status === 'ok' ? 'ok · execution only' : call.status === 'unknown' ? 'unknown · script ended' : call.status}</span>{call.durationMs === undefined ? null : <span>{callTime(call.durationMs)}</span>}{call.cost === undefined ? null : <span>reported cost {call.cost}</span>}</div>
         <p className="font-mono whitespace-pre-wrap [overflow-wrap:anywhere] text-muted-foreground">{call.args || 'No argument preview supplied.'}</p>
         {call.error ? <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-bad-fg">{call.error}</p> : null}
       </li>)}
