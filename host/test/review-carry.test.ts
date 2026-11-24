@@ -166,6 +166,34 @@ test('the background carries a change that moved in the line instead of building
   assert.equal(reviews.list().reviews.find((row) => row.id === 'change:shop:4c9e21')?.carried?.from, project.built)
 })
 
+test('Review again with nothing changed says so, and that it costs a whole review, and builds only on a second press', async (t) => {
+  const project = reviewed(t)
+  const reads: string[] = []
+  const reviews = new Reviews({
+    store: project.store,
+    sources: {
+      change: { head: async () => project.built, read: async (_target, at) => (reads.push(at), Promise.reject(new Error('not built here'))) },
+      pull: { head: async () => null, read: async () => Promise.reject(new Error('no')) },
+    },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    head: () => project.built,
+    assessments: new Assessments({ root: project.root, run: async () => Promise.reject(new Error('no model is asked')), repoOf: () => project.repo }),
+  })
+  t.after(() => reviews.close())
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 30))
+
+  const first = reviews.prepare('change:shop:4c9e21', { refresh: true, asked: true })
+  await settle()
+
+  assert.equal(first.again?.why, 'Nothing changed since this review: building it again costs a whole review, with its tests and its model calls. Ask again to build it.')
+  assert.deepEqual(reads, [])
+
+  reviews.prepare('change:shop:4c9e21', { refresh: true, asked: true })
+  await settle()
+  assert.deepEqual(reads, [project.built], 'the second press builds it')
+})
+
 function readHeadOf(repo: string, ref: string): string {
   return execFileSync('git', ['-C', repo, 'rev-parse', ref], { encoding: 'utf8' }).trim()
 }

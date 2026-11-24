@@ -68,6 +68,11 @@ export interface ReviewStatus {
   /** The review was carried to this commit from an older one, not built again (spec 058). */
   carried?: ReviewCarried
   /**
+   * Review again was asked with nothing changed since the review (spec 058, A6): it was not built, because that costs
+   * a whole review, and `why` says so. Asking again soon builds it.
+   */
+  again?: { why: string }
+  /**
    * For a finished change this host looked up: the commit the change starts from, at the commit it is at. A review
    * built from another start does not show the change as it is.
    */

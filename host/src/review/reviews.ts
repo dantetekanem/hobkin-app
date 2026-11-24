@@ -51,6 +51,10 @@ export interface Watched {
 
 /** Why a change an agent works on again is not reviewed now. */
 const AT_WORK = 'An agent is working on it again, so its review waits until it finishes.'
+/** What Review again with nothing changed says, before a second press builds it. */
+const COSTS_AGAIN = 'Nothing changed since this review: building it again costs a whole review, with its tests and its model calls. Ask again to build it.'
+/** How long a first Review again with nothing changed waits for the second press that builds it. */
+const AGAIN_WITHIN_MS = 10 * 60_000
 /** Why a pull request the background does not watch is not reviewed again by itself: it waits for the user's ask. */
 const PULL_ASKED = 'A pull request is reviewed again when you start its AI review.'
 
@@ -452,6 +456,8 @@ export class Reviews {
   private watchedPulls = new Set<string>()
   /** The reviews being carried to their change's new commit now. */
   private readonly carrying = new Set<string>()
+  /** When Review again was last asked with nothing changed, by review: a second press soon after builds it. */
+  private readonly againAt = new Map<string, number>()
   private readonly controller = new AbortController()
   private working = false
   /** When each review last asked where its change is now. */
@@ -941,6 +947,15 @@ export class Reviews {
     const now = this.status(id)
     // Merged, or closed on its host: there is nothing left to review, and its status says so.
     if (this.closedOn(target)) return now
+    // Review again with nothing changed costs a whole review: the first ask says so, a second one soon after builds it.
+    if (refresh && asked && this.nothingChangedSince(target, now)) {
+      const last = this.againAt.get(id)
+      if (last == null || this.now() - last > AGAIN_WITHIN_MS) {
+        this.againAt.set(id, this.now())
+        return { ...now, again: { why: COSTS_AGAIN } }
+      }
+    }
+    this.againAt.delete(id)
     if (asked) {
       this.asked.add(id)
       this.userAsked.add(id)
@@ -2071,6 +2086,18 @@ export class Reviews {
         (error: unknown) => build(`its carry failed: ${messageOf(error)}`),
       )
       .finally(() => this.carrying.delete(id))
+  }
+
+  /**
+   * Whether a review is as it would be built again now: ready at the commit its change is at, from the same start, and
+   * its change review finished there. A host with no change reviews draws only graphs, which cost nothing to draw again.
+   */
+  private nothingChangedSince(target: ReviewTarget, status: ReviewStatus): boolean {
+    const { assessments, store } = this.options
+    const { head } = status
+    if (!assessments || !head || status.stale || status.phase || !store.has(target, head)) return false
+    if (status.startsAt && store.read(target, head)?.review.change.base !== status.startsAt) return false
+    return assessments.status(target, head).state === 'ready'
   }
 
   /** Why a change waits instead of being built by itself, and how many are ahead of it in its repository's line. */
