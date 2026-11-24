@@ -28,6 +28,8 @@ import { AgentsStepper } from './AgentsStepper.tsx'
 import { NumbersTab } from './NumbersTab.tsx'
 import { SaidLine } from './parts.tsx'
 import { StatusLine } from './StatusLine.tsx'
+import { NewProjectSheet } from './NewProjectSheet.tsx'
+import { opensNewProject } from './new-project.ts'
 import { WorkloadSheet } from './WorkloadSheet.tsx'
 import { opensWorkload, type WorkloadSetting } from './workload.ts'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
@@ -60,6 +62,7 @@ const Projects = memo(ProjectsSection)
 const Reviews = memo(AiReviews)
 const Numbers = memo(NumbersTab)
 const Sheet = memo(WorkloadSheet)
+const NewSheet = memo(NewProjectSheet)
 
 /**
  * Work: hobkin and the agents it started, live, with the queue, the finished changes and the projects, and every AI
@@ -147,6 +150,11 @@ export function WorkScreen() {
   const sheetButton = useRef<HTMLButtonElement | null>(null)
   const openSheet = useCallback((at: WorkloadSetting | null) => setSheet({ at }), [])
   const closeSheet = useCallback(() => setSheet(null), [])
+  // The New project popup, opened by the button in the Projects heading or by N (059).
+  const [adding, setAdding] = useState(false)
+  const newProjectButton = useRef<HTMLButtonElement | null>(null)
+  const openNewProject = useCallback(() => setAdding(true), [])
+  const closeNewProject = useCallback(() => setAdding(false), [])
   const trigger = useRef<HTMLButtonElement | null>(null)
   const discover = useCallback(() => setDiscovering(true), [])
   const closeDiscovery = () => {
@@ -194,9 +202,15 @@ export function WorkScreen() {
       handled: event.defaultPrevented,
       typing: false,
     }
-    if (work && !covered && !sheet && opensWorkload(press)) {
+    if (work && !covered && !sheet && !adding && opensWorkload(press)) {
       event.preventDefault()
       openSheet(null)
+      return
+    }
+    // N adds a project, as W sets the workload.
+    if (work && !covered && !sheet && !adding && opensNewProject(press)) {
+      event.preventDefault()
+      openNewProject()
       return
     }
     // Enter presses whatever has the keyboard, taken here rather than left to the browser. A key held down presses it
@@ -275,7 +289,7 @@ export function WorkScreen() {
                     <Finished work={parts.finished} onRowsLeft={rowsLeft} {...shared} />
                   </Rise>
                   <Rise>
-                    <Projects work={parts.projects} onDiscover={discover} discoverRef={trigger} {...shared} />
+                    <Projects work={parts.projects} onDiscover={discover} discoverRef={trigger} onNewProject={openNewProject} newProjectRef={newProjectButton} {...shared} />
                   </Rise>
                 </WhenWorkComes>
               ) : null}
@@ -286,6 +300,7 @@ export function WorkScreen() {
       </div>
       <AnimatePresence>{discovering && work ? <Discovery work={work} live={live} variants={variants} onClose={closeDiscovery} /> : null}</AnimatePresence>
       <AnimatePresence>{listing ? <DecidedPanel key="decided" listing={listing} /> : null}</AnimatePresence>
+      <NewSheet open={adding} from="work" live={live} onClose={closeNewProject} returnTo={newProjectButton} />
       {work ? <Sheet open={sheet !== null} at={sheet?.at ?? null} work={work} live={live} onClose={closeSheet} returnTo={sheetButton} /> : null}
     </div>
   )

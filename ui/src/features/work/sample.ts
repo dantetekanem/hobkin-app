@@ -294,6 +294,8 @@ function projects(now: number): WorkProject[] {
     project({ slug: 'storefront', priority: 'P0', prMode: 'draft', issues: 'labeled', level: 'critical', open: 4, prs: 1, branches: 2, unmerged: 3, merged: 23, nextLookAt: at(0.7), repo: 'hobkin-sample/storefront' }),
     project({ slug: 'billing-api', priority: 'P1', prMode: 'off', level: 'important', open: 7, branches: 2, left: 1, unmerged: 2, merged: 9, nextLookAt: at(5), repo: 'hobkin-sample/api' }),
     project({ slug: 'docs-site', priority: 'P2', prMode: 'published', level: 'casual', open: 2, prs: 1, merged: 2, nextLookAt: at(50), repo: 'hobkin-sample/docs' }),
+    // A goal: kept in a folder that need not be a repository, worked toward in the folder itself (059).
+    project({ slug: 'marathon-plan', name: 'Marathon plan', kind: 'goal', priority: 'P1', prMode: 'off', level: 'important', open: 6, done: 14, left: 2, nextLookAt: at(9) }),
     // What the look for projects found and the user has not answered, and one they left alone.
     project({ slug: 'design-kit', state: 'proposed', priority: 'P2', prMode: 'off', level: 'casual' }),
     project({ slug: 'old-landing', state: 'skipped', priority: 'P3', prMode: 'off', level: 'casual' }),

@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type ReactNode, type Ref, type SetStateAction } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStops } from '@/app/stops.ts'
@@ -21,6 +21,8 @@ import { rateChoices, readyCount, SAMPLE_YOLO, SAMPLE_YOLO_REVIEWS, sampleAfter,
 import { runCommand } from '@/lib/host/client.ts'
 import { cn } from '@/lib/utils.ts'
 import type { FinishedGroup, WorkProject, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import { NewProjectSheet } from './NewProjectSheet.tsx'
+import { opensNewProject } from './new-project.ts'
 import { SectionHeading, Segmented } from './parts.tsx'
 import { runWork, useWorkView } from './store.ts'
 import { useReviewList } from './use-review-list.ts'
@@ -122,6 +124,17 @@ export function YoloScreen() {
   const { list: reviewList } = useReviewList(live)
   const reviews = live ? (reviewList?.reviews ?? NO_REVIEWS) : SAMPLE_YOLO_REVIEWS
   const [sample, setSample] = useState(SAMPLE_YOLO)
+  // The New project popup, opened by the button in the Projects heading or by N (059). YOLO mode's switch starts on in it.
+  const [adding, setAdding] = useState(false)
+  const newProjectButton = useRef<HTMLButtonElement | null>(null)
+  const openNewProject = () => setAdding(true)
+  const onKeyDownCapture = (event: KeyboardEvent<HTMLDivElement>) => {
+    const target = event.target
+    if (event.defaultPrevented || adding || !(target instanceof HTMLElement) || target.matches('input, textarea, [contenteditable="true"]')) return
+    if (!opensNewProject({ key: event.key, metaKey: event.metaKey, ctrlKey: event.ctrlKey, altKey: event.altKey, repeat: event.repeat, handled: event.defaultPrevented, typing: false })) return
+    event.preventDefault()
+    openNewProject()
+  }
   const yolo = live ? (work?.yolo ?? null) : sample
   const setting = useSetting(live, setSample)
   // The numbers of the last 30 days: what merged by itself, what regressed and what was held for the user (053).
@@ -142,7 +155,7 @@ export function YoloScreen() {
   const counted = useMemo(() => (yolo ? gates(yolo, { waits, paused }) : null), [yolo, waits, paused])
 
   return (
-    <div ref={root} className={SCREEN_SCROLLER}>
+    <div ref={root} onKeyDownCapture={onKeyDownCapture} className={SCREEN_SCROLLER}>
       <div className={`${SCREEN_COLUMN} flex flex-col gap-6 pb-20`}>
         {/* Where the page is, and the way back, are the trail's (053). */}
         <header className="flex items-center justify-between gap-4">
@@ -154,13 +167,14 @@ export function YoloScreen() {
             <TrustRow tiles={trust} loading={reading} />
             {counted ? <GatesRow counted={counted} rate={yolo.rate} merged={merged} /> : null}
             <ByItselfChart bars={bars} reading={reading} note={READ_WORDS[state] ?? undefined} />
-            <Projects yolo={yolo} live={live} workOn={workOn} workProjects={work?.projects ?? []} finished={work?.finished ?? []} reviews={reviews} setting={setting} setSample={setSample} />
+            <Projects yolo={yolo} live={live} workOn={workOn} workProjects={work?.projects ?? []} finished={work?.finished ?? []} reviews={reviews} setting={setting} setSample={setSample} onNewProject={openNewProject} newProjectRef={newProjectButton} />
           </>
         ) : (
           <p className="text-[13.5px] text-muted-foreground">This hobkin has not said how YOLO mode stands yet.</p>
         )}
         {live ? null : <p className="text-[12px] text-muted-foreground">Sample data. No host is running, so nothing here reaches hobkin.</p>}
       </div>
+      <NewProjectSheet open={adding} from="yolo" live={live} onClose={() => setAdding(false)} returnTo={newProjectButton} />
     </div>
   )
 }
@@ -293,7 +307,7 @@ interface CardContext {
   reviews: readonly ({ id: string } & ReviewRatings)[]
 }
 
-function Projects({ workProjects, ...context }: CardContext & { workProjects: WorkProject[] }) {
+function Projects({ workProjects, onNewProject, newProjectRef, ...context }: CardContext & { workProjects: WorkProject[]; onNewProject: () => void; newProjectRef: Ref<HTMLButtonElement> }) {
   const { yolo, live } = context
   // The order the page opened with holds while it is open, so a card whose switch was just pressed stays under the pointer.
   const kept = useRef<string[] | null>(null)
@@ -303,7 +317,11 @@ function Projects({ workProjects, ...context }: CardContext & { workProjects: Wo
   const pulls = pullsSay(yolo)
   return (
     <section aria-label="Projects" className="flex flex-col gap-3">
-      <SectionHeading label="Projects" count={readyCount(yolo)} />
+      <SectionHeading label="Projects" count={readyCount(yolo)}>
+        <Button ref={newProjectRef} variant="ghost" size="sm" data-stop="" data-new-project="" className="ml-auto text-muted-foreground" onClick={onNewProject}>
+          New project
+        </Button>
+      </SectionHeading>
       <p className="px-1 text-[13px] leading-snug text-muted-foreground">
         Each project says what YOLO mode does there and, when it does nothing, why and the one thing that moves it. Readiness sets up the rest as PRs for your merge and asks you only for what you alone can give, with YOLO mode on or off.
         {switches ? ` ${switches}` : null}
@@ -317,7 +335,7 @@ function Projects({ workProjects, ...context }: CardContext & { workProjects: Wo
           ))}
         </ul>
       ) : (
-        <p className="px-1 text-[13px] text-muted-foreground">No projects yet. Take one on Work first.</p>
+        <p className="px-1 text-[13px] text-muted-foreground">No projects yet. New project adds one, or take one on Work.</p>
       )}
     </section>
   )
@@ -451,7 +469,7 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, revie
     <div className="grid h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4">
       <div className="flex min-w-0 items-center gap-2">
         {hasSwitch(project) ? (
-          <Switch checked={on} disabled={switching} onCheckedChange={(next) => void toggle(next)} aria-label={`YOLO mode on ${project.name}`} data-stop="" className="mr-1" />
+          <Switch checked={on} disabled={switching} onCheckedChange={(next) => void toggle(next)} aria-label={`YOLO mode on ${project.name}`} data-stop="" data-yolo-project={project.slug} className="mr-1" />
         ) : null}
         <h3 className="min-w-0 font-heading text-[15px] font-semibold">
           {/* A box rather than a button: WebKit lays a button's content out in a box of its own, which cut the name short. */}

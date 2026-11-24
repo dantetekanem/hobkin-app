@@ -8,11 +8,10 @@ import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { rowLayout } from '@/features/reports/list-motion.ts'
 import { useNow } from '@/features/chat/use-now.ts'
-import { timeOf, waited } from '@/features/reports/time.ts'
 import type { IssuePickup } from '#shared/protocol/work.ts'
 import type { Grade, PrMode, QueueRow, WorkProject, WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
-import { discoverableProjects, trackedProjects } from './projects.ts'
+import { discoverableProjects, isGoal, projectFacts, trackedProjects } from './projects.ts'
 import { GradeChip, IssueLink, PullLink, SaidLine, SectionHeading, Segmented } from './parts.tsx'
 import { outsidePaused, queueInSight, SHOWN_SHUT, startNowLine } from './queue-rows.ts'
 import { clickPressesRow } from './row-press.ts'
@@ -225,29 +224,13 @@ const PICKUPS: readonly { value: IssuePickup; label: string }[] = [
   { value: 'all', label: 'All' },
 ]
 
-const plural = (amount: number, one: string, many = `${one}s`) => `${amount} ${amount === 1 ? one : many}`
-
-/** What a project has going, as the terminal's Work tab says it (`projectStatus` in hobkin's `src/cli/ui.mjs`). */
-function factsOf(project: WorkProject, now: number): string {
-  const next = timeOf(project.nextLookAt)
-  const facts = [
-    project.open ? plural(project.open, 'item') : '',
-    project.prs ? plural(project.prs, 'PR') : '',
-    project.branches ? plural(project.branches, 'branch', 'branches') : '',
-    project.left ? `${project.left} left for you` : '',
-    project.unmerged ? `${project.unmerged} unmerged` : '',
-    next !== null && next > now ? `next look in ${waited(now, next)}` : '',
-  ].filter(Boolean)
-  return [project.level, ...(facts.length ? facts : ['not looked at yet'])].join(' · ')
-}
-
 /** A project's facts, the one part of its row that follows the clock: when work mode looks at it next. */
 function Facts({ project }: { project: WorkProject }) {
   const now = useNow(true, 30_000)
-  return factsOf(project, now)
+  return projectFacts(project, now)
 }
 
-export function ProjectsSection({ work, live, variants, turn, onDiscover, discoverRef }: { work: Pick<WorkState, 'projects' | 'folder'>; onDiscover: () => void; discoverRef: Ref<HTMLButtonElement> } & Shared) {
+export function ProjectsSection({ work, live, variants, turn, onDiscover, discoverRef, onNewProject, newProjectRef }: { work: Pick<WorkState, 'projects' | 'folder'>; onDiscover: () => void; discoverRef: Ref<HTMLButtonElement>; onNewProject: () => void; newProjectRef: Ref<HTMLButtonElement> } & Shared) {
   const tracked = trackedProjects(work.projects)
   const waiting = discoverableProjects(work.projects)
   const proposed = waiting.filter(({ state }) => state === 'proposed').length
@@ -255,7 +238,10 @@ export function ProjectsSection({ work, live, variants, turn, onDiscover, discov
   return (
     <section aria-label="Projects" className="flex flex-col gap-2">
       <SectionHeading label="Projects" count={`${tracked.length} taken`}>
-        <Button ref={discoverRef} variant="ghost" size="sm" data-stop="" className="ml-auto text-muted-foreground" onClick={onDiscover}>
+        <Button ref={newProjectRef} variant="ghost" size="sm" data-stop="" data-new-project="" className="ml-auto text-muted-foreground" onClick={onNewProject}>
+          New project
+        </Button>
+        <Button ref={discoverRef} variant="ghost" size="sm" data-stop="" className="text-muted-foreground" onClick={onDiscover}>
           Discover projects{waiting.length ? ` · ${waiting.length}${proposed ? `, ${proposed} proposed` : ''}` : ''}
         </Button>
       </SectionHeading>
@@ -397,6 +383,9 @@ function ProjectItem({ project, live, variants, order }: { project: WorkProject;
               onChoose={(priority) => void runWork({ do: 'priority', slug: project.slug, priority }, place)}
             />
           </div>
+          {/* A goal has no pull request or issue to set: its work happens in its folder. */}
+          {isGoal(project) ? null : (
+            <>
           <div className="flex items-center gap-2">
             <span className="eyebrow">Finished work</span>
             <Segmented
@@ -419,6 +408,8 @@ function ProjectItem({ project, live, variants, order }: { project: WorkProject;
               onChoose={(issues) => void runWork({ do: 'issues', slug: project.slug, issues }, place)}
             />
           </div>
+            </>
+          )}
         </div>
         <OpenArrow className="ml-auto" />
       </div>

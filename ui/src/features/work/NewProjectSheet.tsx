@@ -1,12 +1,12 @@
 import { Dialog } from '@base-ui/react/dialog'
-import { useEffect, useRef, useState, type KeyboardEvent, type RefObject } from 'react'
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { runCommand } from '@/lib/host/client.ts'
 import { cn } from '@/lib/utils.ts'
-import type { FolderLook, NewProjectDone, ProjectKind, WorkState } from '#shared/protocol/work.ts'
+import type { FolderLook, NewProjectDone, ProjectKind } from '#shared/protocol/work.ts'
 import {
   addProject,
   addsFromKey,
@@ -46,14 +46,13 @@ const KINDS: readonly { value: ProjectKind; label: string }[] = [
 interface NewProjectSheetProps {
   open: boolean
   from: OpenedFrom
-  work: WorkState | null
   live: boolean
   onClose: () => void
   /** The New project button, which has the keyboard again once the popup closes without an add. */
   returnTo: RefObject<HTMLButtonElement | null>
 }
 
-export function NewProjectSheet({ open, from, work, live, onClose, returnTo }: NewProjectSheetProps) {
+export function NewProjectSheet({ open, from, live, onClose, returnTo }: NewProjectSheetProps) {
   const still = useStill()
   const popup = useRef<HTMLDivElement | null>(null)
   // After an add the keyboard goes to the new project's row, not back to the button.
@@ -81,7 +80,7 @@ export function NewProjectSheet({ open, from, work, live, onClose, returnTo }: N
             fade,
           )}
         >
-          {open ? <NewProjectForm from={from} work={work} live={live} onClose={onClose} onAdded={() => (added.current = true)} /> : null}
+          {open ? <NewProjectForm from={from} live={live} onClose={onClose} onAdded={() => (added.current = true)} /> : null}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>
@@ -92,7 +91,7 @@ const FIELD = 'border-[1.5px] border-input bg-background px-4 text-[13.5px] outl
 /** A line that changes: one line of fixed height, clamped, so what is around it never moves. */
 const LINE = 'h-[18px] truncate text-[12.5px] leading-[18px]'
 
-function NewProjectForm({ from, work, live, onClose, onAdded }: { from: OpenedFrom; work: WorkState | null; live: boolean; onClose: () => void; onAdded: () => void }) {
+function NewProjectForm({ from, live, onClose, onAdded }: { from: OpenedFrom; live: boolean; onClose: () => void; onAdded: () => void }) {
   const [folder, setFolder] = useState('')
   const [picked, setPicked] = useState<ProjectKind | null>(null)
   const [wants, setWants] = useState('')
@@ -103,8 +102,6 @@ function NewProjectForm({ from, work, live, onClose, onAdded }: { from: OpenedFr
   // Set when the project was added and only YOLO mode would not turn on: the popup stays to say so.
   const [done, setDone] = useState<NewProjectDone | null>(null)
   const typed = useRef('')
-  const projects = useRef(work?.projects ?? [])
-  projects.current = work?.projects ?? []
 
   const form: NewProjectForm = { folder, picked, wants, yoloChoice, from, looked }
   const kind = kindOf(form)
@@ -117,7 +114,7 @@ function NewProjectForm({ from, work, live, onClose, onAdded }: { from: OpenedFr
     if (!typed.current || looked?.asked === typed.current) return
     const asked = typed.current
     const timer = setTimeout(() => {
-      const look: Promise<FolderLook> = live ? runCommand('work.project.look', { folder: asked }) : Promise.resolve(sampleLook(asked, projects.current))
+      const look: Promise<FolderLook> = live ? runCommand('work.project.look', { folder: asked }) : Promise.resolve(sampleLook(asked, useWorkUi.getState().sample.projects))
       look
         .then((answer) => {
           if (typed.current === asked) setLooked({ asked, look: answer })
@@ -258,7 +255,7 @@ function NewProjectForm({ from, work, live, onClose, onAdded }: { from: OpenedFr
 }
 
 /** One field of the popup: its name, quieter than what it holds, and the field with its line. */
-function Section({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
+function Section({ label, htmlFor, children }: { label: string; htmlFor?: string; children: ReactNode }) {
   const name = 'mb-1.5 block px-1 text-[13px] leading-snug font-medium text-muted-foreground'
   return (
     <div className="border-t border-border/60 py-3 first-of-type:border-t-0">

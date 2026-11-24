@@ -53,6 +53,7 @@ readViews({
   'features/work/AgentsStepper.tsx': { AgentsStepper: part('AgentsStepper') },
   'features/work/StatusLine.tsx': { StatusLine: part('StatusLine') },
   'features/work/WorkloadSheet.tsx': { WorkloadSheet: part('WorkloadSheet') },
+  'features/work/NewProjectSheet.tsx': { NewProjectSheet: part('NewProjectSheet') },
   'features/work/parts.tsx': { SaidLine: part('SaidLine') },
   'features/work/AiReviews.tsx': { AiReviews: part('AiReviews') },
   'features/work/NumbersTab.tsx': { NumbersTab: part('NumbersTab') },
