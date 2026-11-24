@@ -59,6 +59,7 @@ import { TurnRelay } from './turn-relay.ts'
 import { ActivityKeeper } from './activity.ts'
 import { agentHandlers } from './agents.ts'
 import { AgentScheduleReader, scheduleEnvironmentOf, scheduleHandlers, scheduleOperationsOf } from './schedules.ts'
+import { memoryHandlers, memoryOperationsAt } from './memories.ts'
 import { hobkinHandlers } from './hobkins.ts'
 import { routineHandlers } from './routines.ts'
 import { appearanceRequest, loadHostAppearance } from './appearance-host.ts'
@@ -713,6 +714,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[], models: async () => (await signIn.refresh(), signIn.models ?? null), images: imagesForAgents, schedules: () => agentSchedules.read(owner.snapshot) }),
     // An agent's schedules, cancelled, paused or run now from the window's list, through hobkin's own methods (056).
     ...scheduleHandlers({ operations: () => scheduleOperationsOf(hobkin()), schedules: () => agentSchedules.read(owner.snapshot) }),
+    // What hobkin remembers for every agent, on the window's Memory page, through hobkin's own memory functions (057).
+    ...memoryHandlers({ operations: () => memoryOperationsAt(owner.app?.runtime.directory ?? resolveDataRoot(root)) }),
     // Durable hobkins (034-durable-hobkins): hobkin's runtime keeps them, and the host checks only what it knows.
     ...hobkinHandlers({
       app: hobkin,
