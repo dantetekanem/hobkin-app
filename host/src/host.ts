@@ -30,6 +30,7 @@ import { execFileSync } from 'node:child_process'
 import { hostCode, keptByApp, shouldRestart } from './code-age.ts'
 import { sampleGitHubSource } from './github-sample.ts'
 import { GitHub, type GitHubSource } from './github.ts'
+import { MergedPulls } from './merged-pulls.ts'
 import { History } from './history.ts'
 import { Titles, titleHobkins } from './titles.ts'
 import { piModelRunner } from './review/agent.ts'
@@ -389,6 +390,19 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     merged: (pull) => (pull.url || pull.repo ? github.closed(pull) : github.readSoon()),
     log,
   })
+  // A pull request merged or closed outside the app leaves Work and the Review list on the GitHub page's cadence, not at hobkin's half-hourly survey. Only a live host asks GitHub.
+  const mergedPulls = options.reviewGh
+    ? new MergedPulls({
+        data: () => hobkin().runtime.directory,
+        gh: options.reviewGh,
+        reviewed: () => reviews.openPulls(),
+        retire: (pull) => reviews.settlePull({ kind: 'pull', ...pull }),
+        closed: (pull) => github.closed(pull),
+        changed: () => hobkin().refresh(),
+        wanted: connected,
+        log,
+      })
+    : null
   // Each issue on the GitHub page carries the hobkin work filed for it, read from hobkin's items when GitHub or hobkin's work changes.
   const issueWork = issueWorkReader(() => hobkin().runtime.directory)
   const reminderReader = new ReminderReader()
@@ -655,7 +669,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'integrations.refresh': () => integrations.refresh(),
     'integrations.turn-off': ({ name }) => integrations.turnOff(name),
     'integrations.turn-on': ({ name }) => integrations.turnOn(name),
-    'integrations.add': ({ service, values }) => integrations.add(service, values),
     'integrations.remove': ({ name }) => integrations.remove(name),
     // Skills and Pi extensions change Pi's settings only on the user's word, through the code `pi config` runs (039-skills-and-extensions).
     'skills.refresh': () => skills.refresh(),
@@ -852,6 +865,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   openWhenReady()
   lookAgain()
   github.start()
+  mergedPulls?.start()
   backups.start()
   // The canvases are followed on disk. The folder is there only once hobkin's home is open, so every couple of
   // seconds they are read again while the watch does not follow the open home's folder, which picks them up after
@@ -902,6 +916,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         questions.close()
         signIn.cancel()
         github.close()
+        mergedPulls?.close()
         backups.close()
         integrations.close()
         proofs.close()
