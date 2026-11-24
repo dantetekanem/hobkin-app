@@ -99,6 +99,21 @@ test('nothing is deleted without the look that named it, or once what it would t
   assert.equal(existsSync(tree), true);
 });
 
+test('a branch a session named for the item, outside hobkin/, is the item\'s own and goes as shown', async t => {
+  const h = workspace(t);
+  const filed = fileItem(h.root, 'api', { key: 'Restore the story', kind: 'fix', title: 'Restore the story', brief }, NOW);
+  const branch = 'fix/review-false-merge-bb22';
+  git(h.checkout, 'switch', '-q', '-c', branch);
+  commit(h.checkout, 'story.txt', 'restored\n');
+  git(h.checkout, 'switch', '-q', 'main');
+  updateItem(h.root, 'api', filed.id, { state: 'branch', branch }, NOW);
+
+  const { plan } = await deleteItemBranch(h.root, 'api', filed.id, { look: true });
+
+  assert.equal(plan.branch, branch);
+  assert.equal(plan.lost, 1);
+});
+
 test('it refuses, before anything is deleted, a running item, one with no branch or another\'s, and a branch the user\'s own folder holds', async t => {
   const h = workspace(t);
   const refused = async (id, pattern) => {

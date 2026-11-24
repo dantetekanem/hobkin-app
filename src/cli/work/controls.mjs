@@ -744,8 +744,12 @@ export function declineStopped(root, slug, id, now = Date.now()) {
 const overStates = ['merged', 'done', 'declined', 'dropped'];
 const DELETE_BRANCH_TIMEOUT_MS = 2 * 60000;
 
-/** The branch an item made for itself is `hobkin/` and its work name, which starts with its id. A fix on another item's branch has none of its own. */
-const isOwnBranch = ({ id }, branch) => branch === `${BRANCH_PREFIX}${id}` || branch.startsWith(`${BRANCH_PREFIX}${id}-`);
+/**
+ * The branch an item made for itself is `hobkin/` and its work name, which starts with its id. A branch outside `hobkin/` that the item names,
+ * such as one a session made for it, is its own too: the preview names it and what goes with it before anything does. A `hobkin/` branch of
+ * another item's id never is, so a fix on another item's branch has none of its own.
+ */
+const isOwnBranch = ({ id }, branch) => (branch.startsWith(BRANCH_PREFIX) ? branch === `${BRANCH_PREFIX}${id}` || branch.startsWith(`${BRANCH_PREFIX}${id}-`) : true);
 
 /** The files and folders git ignores in a tree, by the pattern that matched them, sorted: `.env`, `build/`. */
 async function ignoredIn(tree) {
