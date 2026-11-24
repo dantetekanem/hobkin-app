@@ -130,13 +130,39 @@ async function branchRules(gh, url, base, repo) {
   const rules = paged.flat();
   const protection = branch.protection?.required_status_checks ?? {};
   const protectedNames = [...(protection.contexts ?? []), ...(protection.checks ?? []).map(({ context }) => context)];
-  const ruleNames = rules
+  const ruleChecks = rules
     .filter(({ type }) => type === 'required_status_checks')
-    .flatMap(({ parameters }) => (parameters?.required_status_checks ?? []).map(({ context }) => context));
+    .flatMap(({ parameters }) => parameters?.required_status_checks ?? []);
+  const ruleNames = ruleChecks.map(({ context }) => context);
+  // A check a rule pins to one app passes only on that app's own run, never on a status of the same name from elsewhere.
+  const pinned = [
+    ...(protection.checks ?? []).map(({ context, app_id: app }) => ({ name: context, app })),
+    ...ruleChecks.map(({ context, integration_id: app }) => ({ name: context, app })),
+  ].filter(({ name, app }) => name && Number.isInteger(app) && app > 0);
   return {
     names: [...new Set([...protectedNames, ...ruleNames].filter(Boolean))],
+    pinned,
     queue: rules.some(({ type }) => type === 'merge_queue'),
   };
+}
+
+/**
+ * Each check pinned to an app that its app has not reported a success for at the head, read on every page of the check runs, or null when they
+ * cannot be read.
+ */
+async function pinnedNotPassed(gh, url, sha, pinned, repo) {
+  const where = repositoryOf(url);
+  if (!where) return null;
+  const said = [];
+  for (const { name, app } of pinned) {
+    const path = `repos/${where.owner}/${where.name}/commits/${sha}/check-runs?check_name=${encodeURIComponent(name)}&per_page=100`;
+    const pages = await gh(['api', '--hostname', where.host, '--paginate', '--slurp', path], repo).then(parsed, () => null);
+    if (!Array.isArray(pages)) return null;
+    const runs = pages.flatMap(page => page?.check_runs ?? []).filter(run => run.app?.id === app);
+    if (!runs.length) said.push(`${name} (not reported by app ${app})`);
+    else if (runs.some(({ conclusion }) => conclusion !== 'success')) said.push(`${name} (${runs.find(({ conclusion }) => conclusion !== 'success').conclusion ?? 'pending'} from app ${app})`);
+  }
+  return said;
 }
 
 const MERGE_QUEUE_QUERY = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){isMergeQueueEnabled isInMergeQueue}}}';
@@ -182,6 +208,8 @@ function notPassed(rollup, required, listed) {
 }
 
 const UNLISTED = 'hobkin could not list the checks its branch requires, so it relied on the host\'s own state';
+// Said while the change waits, a pass before it merges on the host's state alone, so the page shows it.
+const UNLISTED_WAIT = 'hobkin cannot list this branch\'s required checks, so it goes by GitHub\'s own state';
 
 /** The signed-in user on the code host, whose pull requests hobkin opens, or null when it cannot be read. */
 export async function signedInUser(gh, repo) {
@@ -224,7 +252,9 @@ export async function pullHolds({ gh, repo, item, unit, user }) {
   const listed = rules?.names ?? null;
   // Where the branch's own list cannot be read, the host's clean state is all that says a required check reported.
   const relied = said => (listed ? said : `${said}. ${UNLISTED}`);
-  const failing = notPassed(rollup, required, listed ?? []);
+  const fromApps = rules?.pinned.length ? await pinnedNotPassed(gh, unit.url, unit.sha, rules.pinned, repo) : [];
+  if (!fromApps) return 'its pull request\'s checks could not be read, so nothing merges';
+  const failing = [...new Set([...notPassed(rollup, required, listed ?? []), ...fromApps])];
   if (failing.length) return relied(`its pull request's checks have not all passed at this commit: ${failing.join(', ')}`);
   if (view.mergeStateStatus !== 'CLEAN') return relied(mergeStateWords[view.mergeStateStatus] ?? `the code host says its pull request is ${String(view.mergeStateStatus).toLowerCase()}, not clean to merge`);
   if (!listed) return { relied: UNLISTED };
@@ -305,6 +335,10 @@ export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
     return null;
   }
   const relied = held?.relied ?? null;
+  if (relied && !(item.yoloPull?.head === unit.sha && item.yoloPull.why === UNLISTED_WAIT)) {
+    noteWhy(root, row.slug, item, unit.sha, UNLISTED_WAIT, now);
+    return null;
+  }
 
   try {
     // The address the fresh read checked, and only it, whatever the item says by now.

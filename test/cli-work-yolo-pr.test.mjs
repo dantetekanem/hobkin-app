@@ -490,7 +490,10 @@ test('when the host will not list the required checks, YOLO mode merges only on 
   assert.deepEqual(await pass(), []);
   assert.equal(whyOf(h, change), 'branch protection blocks its pull request. hobkin could not list the checks its branch requires, so it relied on the host\'s own state');
 
+  // Said while it waits, a pass before it merges, so the page shows it on a change about to merge.
   host.view.mergeStateStatus = 'CLEAN';
+  assert.deepEqual(await pass(), []);
+  assert.equal(whyOf(h, change), 'hobkin cannot list this branch\'s required checks, so it goes by GitHub\'s own state');
   const [merged] = await pass();
   assert.equal(merged.checks, 'not listed');
   const line = clientNoticesToPost(h.root).map(({ line: said }) => said).find(said => said.startsWith('YOLO mode merged'));
@@ -620,4 +623,23 @@ test('the merge goes to the pull request that was checked, whatever its item say
   assert.equal(merged.pr, host.url);
   assert.equal(ledger(h)[0].pr, host.url);
   assert.ok(clientNoticesToPost(h.root).some(({ line }) => line.includes(`through its pull request ${host.url} on the code host`)));
+});
+
+test('a required check pinned to an app passes only on that app\'s own check run, read on every page', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  host.pinned = [{ context: 'test', app_id: 15368 }];
+  await survey(h, host.gh);
+  const pass = () => yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
+
+  // A check of that name succeeded, from another app, and the host says it is clean.
+  host.checkRuns.test = [{ name: 'test', app: { id: 999 }, conclusion: 'success' }];
+  assert.deepEqual(await pass(), []);
+  assert.equal(whyOf(h, change), 'its pull request\'s checks have not all passed at this commit: test (not reported by app 15368)');
+
+  host.checkRuns.test = [{ name: 'test', app: { id: 999 }, conclusion: 'success' }, { name: 'test', app: { id: 15368 }, conclusion: 'success' }];
+  assert.equal((await pass()).length, 1);
+  assert.ok(host.calls.some(args => args.includes('--paginate') && args.at(-1).includes('/check-runs?check_name=test')));
+  assert.ok(host.calls.some(args => args.includes('--paginate') && args.at(-1).endsWith('/rules/branches/main')));
 });
