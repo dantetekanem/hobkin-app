@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { Type } from 'typebox';
@@ -61,6 +62,27 @@ function applyChange(items, { action, item, text }) {
   return items.map(entry => (entry === item ? text.trim() : entry));
 }
 
+/** Every item the list holds as written, for the window, which changes one by its exact text. */
+export const readMemoryItems = root => storedItems(root);
+
+/** A fingerprint of the list's file as it is now, empty or missing alike, so a change made meanwhile is not lost. */
+export const memoryListVersion = root => {
+  const stat = lstatSync(memoryPath(root), { throwIfNoEntry: false });
+  return createHash('sha256').update(stat?.isFile() ? readFileSync(memoryPath(root)) : '').digest('hex');
+};
+
+/** One change to the list by the tool's rules, written at once. It answers the items the list holds after it. */
+export function changeMemoryList(root, request) {
+  const needsText = request?.action !== 'remove';
+  if (!Check(parameters, request) || (needsText && !request.text?.trim())
+    || (request.action !== 'add' && !request.item)) {
+    throw Error(`Invalid memory change: use one line of at most ${MAX_ITEM_LENGTH} characters; replace and remove need the exact item.`);
+  }
+  const items = applyChange(storedItems(root), request);
+  writePrivate(memoryPath(root), items.length ? `${bulletList(items)}\n` : '');
+  return items;
+}
+
 export function createMemoryTool(root) {
   return defineTool({
     name: 'hobkin_memory',
@@ -69,13 +91,7 @@ export function createMemoryTool(root) {
       + `Add an item, or replace or remove one by its exact text. Holds at most ${MAX_ITEMS} one-line items.`,
     parameters,
     async execute(_id, request) {
-      const needsText = request.action !== 'remove';
-      if (!Check(parameters, request) || (needsText && !request.text?.trim())
-        || (request.action !== 'add' && !request.item)) {
-        throw Error(`Invalid memory change: use one line of at most ${MAX_ITEM_LENGTH} characters; replace and remove need the exact item.`);
-      }
-      const items = applyChange(storedItems(root), request);
-      writePrivate(memoryPath(root), items.length ? `${bulletList(items)}\n` : '');
+      const items = changeMemoryList(root, request);
       const summary = `Memory holds ${items.length} of ${MAX_ITEMS} items.\n${bulletList(items)}`.trim();
       return { content: [{ type: 'text', text: summary }], details: { items } };
     },
