@@ -26,6 +26,7 @@ import { detectRunbooks } from '../../../packages/change-review/src/proof.ts'
 import { assessmentFolder, gitIn, type GitRun } from './assessment.ts'
 import { movedSince } from './landing.ts'
 import type { Prepared, ReviewStore } from './store.ts'
+import { USAGE_FILE } from './usage.ts'
 import { fileName, fileRole, isTestPath } from '#shared/review/paths.ts'
 import { importCandidates, relativeImports } from '#shared/review/units.ts'
 
@@ -293,6 +294,9 @@ export const runTests: TestRun = async (tree, files, signal) => {
   return { passed: true }
 }
 
+/** What a carried change review does not copy: what says how its own run went, and what its model calls took. */
+const NOT_COPIED = new Set(['summary.json', 'failed.json', 'restarted.json', USAGE_FILE])
+
 /** Written whole beside it, then put in place. */
 function writeWhole(file: string, text: string) {
   const next = `${file}.${process.pid}.next`
@@ -326,10 +330,12 @@ export function copyCarried({ root, store, target, built, head, base, why, tests
   const summary = JSON.parse(readFileSync(join(old, 'summary.json'), 'utf8')) as AssessmentSummary
   const folder = assessmentFolder(root, target, head)
   mkdirSync(folder, { recursive: true, mode: 0o700 })
+  // Its model calls were paid for once, where it was built: the copy keeps a usage of its own, its test run.
   for (const name of readdirSync(old)) {
-    if (name === 'summary.json' || name === 'failed.json' || name === 'restarted.json' || !existsSync(join(old, name))) continue
+    if (NOT_COPIED.has(name) || !existsSync(join(old, name))) continue
     copyFileSync(join(old, name), join(folder, name))
   }
+  writeWhole(join(folder, USAGE_FILE), JSON.stringify({ calls: [], carried: { from, tests, at } }))
   const review: Review = { ...built.review, change: { ...built.review.change, head, base } }
   store.write(target, review, built.files, { ...(built.meta ?? { storyBy: 'host' }), preparedAt: at })
   // Last, so a review is never carried without its words.

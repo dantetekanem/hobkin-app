@@ -10,6 +10,7 @@ import { assessmentFolder, Assessments } from '../src/review/assessment.ts'
 import { carryReview, runTests, type TestRun } from '../src/review/carry.ts'
 import { reviewedAt, Reviews } from '../src/review/reviews.ts'
 import { reviewStore } from '../src/review/store.ts'
+import { recordUsage, tokensIn } from '../src/review/usage.ts'
 import { temporaryDirectory } from './support.ts'
 
 const TARGET = { kind: 'change' as const, slug: 'shop', item: '4c9e21' }
@@ -262,4 +263,16 @@ test('a verdict on a carried review says it was carried, from which commit, and 
 
   assert.equal(reviewedAt(at), 'At commit ddddddd, the one this review was built from.')
   assert.equal(reviewedAt(at, { from: 'c'.repeat(40), why: 'Only its start moved.' }), 'Carried from ccccccc to ddddddd, its tests run at ddddddd: this review was built from ccccccc.')
+})
+
+test("a carried review keeps no copy of the model calls it was built with, so their tokens count once: its own usage is its test run", async (t) => {
+  const project = reviewed(t)
+  recordUsage(assessmentFolder(project.root, TARGET, project.built), { pass: 'review', tier: 'high', model: 'a', at: '2026-11-22T10:00:00.000Z', input: 1000, output: 100, cacheRead: 0, cacheWrite: 0, tokens: 1100 })
+  const head = project.rebaseOnto({ 'src/other.js': 'export const other = 2\n' })
+
+  await carrier(project).carry(head)
+
+  const folder = assessmentFolder(project.root, TARGET, head)
+  assert.equal(tokensIn(folder), null)
+  assert.deepEqual(JSON.parse(readFileSync(join(folder, 'usage.json'), 'utf8')), { calls: [], carried: { from: project.built, tests: 1, at: JSON.parse(readFileSync(join(folder, 'summary.json'), 'utf8')).at } })
 })
