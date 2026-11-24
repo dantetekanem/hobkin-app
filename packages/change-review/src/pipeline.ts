@@ -20,7 +20,7 @@ import { deriveFacts, goneAtHead, guardsPutOn, type CallerSite } from './facts.t
 import { gitRepo } from './git.ts'
 import { type ContextEntry, readReviewAnswer, reviewRequest } from './model.ts'
 import { applyModelChecks } from './model-checks.ts'
-import { capNeeds, needsFacts } from './needs.ts'
+import { DEFAULT_RATING_TRIES, needsFacts, rateNeeds, type AskRatings } from './needs.ts'
 import { nodeTestsOf, removedTestsOf } from './node-tests.ts'
 import { packOrigins, runsFromOf, walkOrigin } from './origins.ts'
 import { progressFiles, trackProgress } from './progress.ts'
@@ -45,6 +45,7 @@ import type {
   Origin,
   Progress,
   Answered,
+  NotRated,
   ReviewNeeds,
   ReviewNode,
   RiskEvent,
@@ -88,6 +89,11 @@ export interface ReviewChangeOptions {
    * to the Reviewer for the user's visibility question. Absent: monitoring is unknown, and no visibility score is asked for.
    */
   monitoring?: readonly string[]
+  /**
+   * How many narrow calls may be made for ratings the Reviewer's answer lacks (spec 063), default 3. Each is a model
+   * call; 0 makes none. The five ratings are never optional: after the last try the review says it is not rated.
+   */
+  ratingTries?: number
   /** The scan; agentic-search by default. */
   scan?: (request: ScanRequest) => Promise<ScanOutcome>
   /** The test runs; the real ones by default. */
@@ -133,6 +139,8 @@ export interface ReviewChangeResult {
   answer: DeployAnswer
   /** The user's five questions answered, capped by the facts, at the review's head (spec 058). Absent: not rated. */
   needs?: ReviewNeeds
+  /** Set when the ratings are not all there after the tries, with how many and why (spec 063). `needs` then holds only those given. */
+  notRated?: NotRated
 }
 
 /** Lines of a test that put a double in place of a definition; `sym` stands for its name. */
@@ -562,6 +570,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const zoneNames = new Map<string, string>()
   /** The user's questions answered, once the Reviewer answered and the levels are final. */
   let needs: ReviewNeeds | undefined
+  let notRated: NotRated | undefined
   const graphOf = (list: ReviewNode[]): Graph => ({
     schema: 'review-graph/1',
     range: triage.range,
@@ -573,6 +582,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     ...tested,
     zones: zonesOf(list, zoneNames),
     ...(needs ? { needs } : {}),
+    ...(notRated ? { notRated } : {}),
   })
   save('graph.json', graphOf(nodes))
 
@@ -964,16 +974,34 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     }
   }
   save('blind-check.json', blind)
-  // The user's questions, held to what the review measured once every level is final. They set no level.
-  if (answered) {
-    const dropped: string[] = []
-    needs = capNeeds(answered, needsFacts({ nodes: applied.nodes, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length) }), head, dropped)
-    problems.push(...dropped.map((problem) => `From the Reviewer: ${problem}`))
-  }
+  // The user's five questions, held to what the review measured once every level is final. They set no level. They are
+  // never optional: what the answer lacked is asked again, narrowly, up to the tries (spec 063).
+  const dropped: string[] = []
+  const askRatings: AskRatings | undefined = model
+    ? async ({ system, prompt }) => {
+        if (signal.aborted) throw stopped()
+        const asked = await attempt(() => model({ pass: 'review', system, prompt, signal }))
+        if (signal.aborted) throw stopped()
+        return 'value' in asked ? { text: asked.value } : asked
+      }
+    : undefined
+  const rating = await rateNeeds({
+    ...(answered ? { answered } : {}),
+    facts: needsFacts({ nodes: applied.nodes, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length) }),
+    head,
+    review: story,
+    ...(options.monitoring?.length ? { monitoring: options.monitoring } : {}),
+    tries: options.ratingTries ?? DEFAULT_RATING_TRIES,
+    ...(askRatings ? { ask: askRatings } : {}),
+    problems: dropped,
+  })
+  needs = rating.needs
+  notRated = rating.notRated
+  problems.push(...dropped.map((problem) => `From the Reviewer: ${problem}`))
   const graph = graphOf(applied.nodes)
   save('graph.json', graph)
   if (applied.rejected.length) save('rejected-events.json', applied.rejected)
-  return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy, answer: deployAnswer(units.units, words.answer, modelChecks, changesOnlyModels(changedPaths) ? { models: changedPaths } : undefined), ...(needs ? { needs } : {}) }
+  return { triage, graph, units, story, blind, rejected: applied.rejected, problems, progress: tracker.progress(), storyBy, answer: deployAnswer(units.units, words.answer, modelChecks, changesOnlyModels(changedPaths) ? { models: changedPaths } : undefined), ...(needs ? { needs } : {}), ...(notRated ? { notRated } : {}) }
 }
 
 /** What the blind check leaves on the units: its questions, each on the unit it was asked of. It changes no level. */

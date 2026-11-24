@@ -176,7 +176,7 @@ const levelsOf = (units: Units) => Object.fromEntries(units.units.map((unit) => 
 test('the blind check runs once and changes no level', async (t) => {
   const { repo, base, head, out, git } = project(t)
   const { model, calls } = fakeModel()
-  const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), scan: async (): Promise<ScanOutcome> => ({ ok: true, scan: scanOf() }) })
+  const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), ratingTries: 0, scan: async (): Promise<ScanOutcome> => ({ ok: true, scan: scanOf() }) })
 
   assert.deepEqual(calls, { review: 1, checker: 1 }, 'one careful pass and one blind check')
   // total's direct test fails without the rounding: mid by rule 6. No test goes through a request to it, so no
@@ -781,20 +781,32 @@ test('a whole review of the mentions change comes out rated, at its commit, and 
       rollback: score(9, 'A rollback undoes it; nothing is stored.'),
     },
   }
-  const answering = (withNeeds: boolean): ModelRunner => async ({ pass }) => (pass === 'review' ? JSON.stringify({ events: [], claims: [], ...(withNeeds ? { needs } : {}) }) : 'nothing')
-  const review = (withNeeds: boolean, folder: string) =>
-    reviewChange({ cwd: repo, base, head, out: folder, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove: mentionsEntries, entryTests: mentionsEntryTests, model: answering(withNeeds) })
+  const asks: string[] = []
+  const answering = (withNeeds: boolean): ModelRunner => async ({ pass, prompt }) => {
+    if (pass !== 'review') return 'nothing'
+    if (prompt.startsWith('Ratings still missing')) asks.push(prompt)
+    return JSON.stringify({ events: [], claims: [], ...(withNeeds ? { needs } : {}) })
+  }
+  const review = (withNeeds: boolean, folder: string, more: { ratingTries?: number } = {}) =>
+    reviewChange({ cwd: repo, base, head, out: folder, clock: steadyClock(), scan: scanning(mentionsScan()), entriesAbove: mentionsEntries, entryTests: mentionsEntryTests, model: answering(withNeeds), ...more })
   const rated = await review(true, out)
+  assert.equal(asks.length, 0, 'a complete answer is never asked again')
   const plain = await review(false, `${out}-plain`)
+  assert.equal(asks.length, 3, 'with no ratings the narrow call is made the default number of times, and no more')
+  const once = await review(false, `${out}-once`, { ratingTries: 1 })
+  assert.equal(asks.length, 4)
+  assert.equal(once.notRated?.tries, 1)
 
-  // No monitoring is known for this project, so the visibility the Reviewer gave is a guess and is not kept.
-  const { visibility: _guessed, ...known } = needs.scores
-  assert.deepEqual(rated.needs, { ...needs, scores: known, head, by: 'change-review', monitoring: 'unknown' })
+  // No monitoring is known for this project, so the visibility the Reviewer gave is a guess: it is 3 by rule, and says so.
+  assert.deepEqual(rated.needs, { ...needs, scores: { ...needs.scores, visibility: { score: 3, evidence: 'no monitoring is known for this project, so a regression would not show', byRule: true } }, head, by: 'change-review', monitoring: 'unknown' })
+  assert.equal(rated.notRated, undefined)
   assert.ok(rated.problems.includes('From the Reviewer: needs.scores.visibility: a visibility rating was given with no monitoring known, and was not kept'), rated.problems.join('\n'))
   const saved = JSON.parse(readFileSync(join(out, 'graph.json'), 'utf8')) as { needs?: unknown }
   assert.deepEqual(saved.needs, rated.needs)
-  assert.equal(plain.needs, undefined, 'an answer with no needs is not rated')
-  assert.equal((JSON.parse(readFileSync(join(`${out}-plain`, 'graph.json'), 'utf8')) as { needs?: unknown }).needs, undefined)
+  // An answer that never carries the ratings ends not rated, with the tries and why, in the result and in graph.json.
+  assert.equal(plain.needs, undefined)
+  assert.deepEqual(plain.notRated, { tries: 3, missing: ['kind', 'coverage', 'proof', 'safety', 'rollback'], why: 'after 3 tries the answer still lacked the kind, coverage, proof, safety and rollback: the answer was no JSON object with ratings' })
+  assert.deepEqual((JSON.parse(readFileSync(join(`${out}-plain`, 'graph.json'), 'utf8')) as { notRated?: unknown }).notRated, plain.notRated)
   assert.deepEqual(rated.units, plain.units)
   assert.equal(rated.story, plain.story)
   assert.deepEqual(rated.answer, plain.answer)
@@ -865,7 +877,7 @@ test('the Reviewer reorganizes the map in its one answer: a part renamed, two un
       { op: 'remove', node: 'n1', why: 'it is small' },
     ],
   })
-  const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), scan: scanning(scanOf()) })
+  const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), ratingTries: 0, scan: scanning(scanOf()) })
 
   assert.deepEqual(calls, { review: 1, checker: 1 }, 'still one call to the Reviewer')
   assert.deepEqual(result.units.units.map((unit) => [unit.nodes, unit.grouping, unit.level]), [[['n2', 'n1'], 'regrouped', 'mid']])
@@ -890,7 +902,7 @@ test('the Reviewer reads each part\'s zone, and a zone it renames keeps its part
     return JSON.stringify({ events: [], claims: [], map: [{ op: 'zone', zone: '-/src/src', name: 'Money sums' }] })
   }
   const plain = await reviewChange({ cwd: repo, base, head, out: `${out}-plain`, clock: steadyClock(), scan: scanning(scanOf()) })
-  const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), scan: scanning(scanOf()) })
+  const result = await reviewChange({ cwd: repo, base, head, out, model, clock: steadyClock(), ratingTries: 0, scan: scanning(scanOf()) })
   const data = JSON.parse(prompt.slice(prompt.indexOf('\n') + 1)) as { zones: { id: string }[]; nodes: { id: string; zone?: string }[] }
   assert.ok(data.zones.some((zone) => zone.id === '-/src/src'))
   assert.equal(data.nodes.find((node) => node.id === 'n1')?.zone, '-/src/src')
@@ -902,8 +914,8 @@ test('the Reviewer reads each part\'s zone, and a zone it renames keeps its part
 test('an answer with an empty map gives the same review as one with none', async (t) => {
   const { repo, base, head, out } = project(t)
   const answer = { events: [], claims: [], words: { title: 'Round the total', units: { u2: { title: '`total` rounds every sum' } } } }
-  const plain = await reviewChange({ cwd: repo, base, head, out, model: answering(answer).model, clock: steadyClock(), scan: scanning(scanOf()) })
-  const empty = await reviewChange({ cwd: repo, base, head, out: `${out}-empty`, model: answering({ ...answer, map: [] }).model, clock: steadyClock(), scan: scanning(scanOf()) })
+  const plain = await reviewChange({ cwd: repo, base, head, out, model: answering(answer).model, clock: steadyClock(), ratingTries: 0, scan: scanning(scanOf()) })
+  const empty = await reviewChange({ cwd: repo, base, head, out: `${out}-empty`, model: answering({ ...answer, map: [] }).model, clock: steadyClock(), ratingTries: 0, scan: scanning(scanOf()) })
   assert.deepEqual(empty.units, plain.units)
   assert.equal(empty.story, plain.story)
   assert.deepEqual(empty.problems, plain.problems)
