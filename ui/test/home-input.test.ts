@@ -5,6 +5,7 @@ import { GITHUB_UNKNOWN, sampleGitHub } from '../../shared/protocol/github.ts'
 import type { HostMessage } from '../../shared/protocol/messages.ts'
 import type { WireSnapshot } from '../../shared/protocol/snapshot.ts'
 import type { WorkState } from '../../shared/protocol/work.ts'
+import { githubHome } from '../../integrations/github/window/home.ts'
 import { applyHostMessage, applyLink, initialHostState } from '../src/lib/host/state.ts'
 
 Object.defineProperty(globalThis, 'window', { configurable: true, value: {
@@ -21,6 +22,9 @@ const { useReports } = await import('../src/features/reports/store.ts')
 const { useActionItems } = await import('../src/features/actions/store.ts')
 const { useRoutines } = await import('../src/features/routines/store.ts')
 const { gatherHomeInput } = await import('../src/features/home/input.ts')
+const { setWindowParts } = await import('../src/integration/registry.ts')
+// A part that reads gh as GitHub's does, so Home's input holds what an integration adds to it.
+setWindowParts([{ manifest: { id: 'github', name: 'GitHub', line: '', commands: {}, screens: [] }, unknown: GITHUB_UNKNOWN, sample: () => sampleGitHub(1000), home: githubHome }])
 after(() => {
   mock.restoreAll()
   mock.timers.reset()
@@ -44,7 +48,7 @@ const unavailable = () => {
   assert.equal(input.live, false)
   for (const key of ['reports', 'waiting', 'routines', 'agents'] as const) assert.deepEqual(input[key], [])
   for (const key of ['question', 'work', 'attention', 'wins'] as const) assert.equal(input[key], null)
-  assert.deepEqual(input.github, GITHUB_UNKNOWN)
+  assert.deepEqual(input.contributions, [])
   assert.equal(input.read.size, 0)
 }
 
@@ -79,7 +83,7 @@ test('new-home hello masks retained A facts until B publishes; same-home loss ke
   const before = gather()
 
   assert.equal(before.reports[0]?.id, 'A-report')
-  assert.equal(before.github.login, 'actual')
+  assert.equal(before.contributions[0]?.tile?.note, '@actual')
   assert.equal(before.read.has('A-report'), true)
   assert.deepEqual(before.reminders, { home: '/fake/A', entries: [] })
   const question = {
@@ -109,7 +113,7 @@ test('new-home hello masks retained A facts until B publishes; same-home loss ke
   assert.equal(after.attention, undefined)
   assert.equal(after.reminders, undefined)
   assert.equal(after.wins, undefined)
-  assert.deepEqual(after.github, GITHUB_UNKNOWN)
+  assert.deepEqual(after.contributions, [{ known: false }])
 })
 
 test('sample sources stay excluded and epoch resets recompute even with identical field references', () => {
@@ -123,7 +127,7 @@ test('sample sources stay excluded and epoch resets recompute even with identica
   const input = gather()
   assert.deepEqual(input.waiting, [])
   assert.deepEqual(input.routines, [])
-  assert.deepEqual(input.github, GITHUB_UNKNOWN)
+  assert.deepEqual(input.contributions, [{ known: false }])
   const reports = [{ id: 'same-reference', title: 'Actual', body: 'Done', outcome: 'completed' }]
   reset({ reports })
   assert.equal(gather().reports[0]?.id, 'same-reference')

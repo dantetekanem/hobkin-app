@@ -75,15 +75,13 @@ test('question target leaves the current sheet untouched, or navigates to Action
   assert.deepEqual(commands, [])
 })
 
-test('URL targets open only supported GitHub HTTPS pages through the existing opener', () => {
+test('URL targets open only plain HTTPS addresses through the existing opener', () => {
   const url = 'https://github.com/owner/repo/pull/7'
   openTarget({ to: 'url', url })
 
   for (const url of [
     'javascript:alert(1)',
-    'https://example.com/',
     'http://github.com/a/b',
-    'https://github.com.evil/a',
     'https://github.com@evil/a',
     'https://github.com/\\evil/a',
   ]) {

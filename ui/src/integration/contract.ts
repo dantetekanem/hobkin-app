@@ -2,6 +2,8 @@ import type { LucideIcon } from 'lucide-react'
 import type { ComponentType } from 'react'
 import type { IntegrationManifest } from '#shared/integration/manifest.ts'
 import type { PullRequest } from '#shared/protocol/pulls.ts'
+import type { SpotlightTarget } from '../app/spotlight-entries.ts'
+import type { HomeContribution } from '../features/home/types.ts'
 
 /**
  * What an integration's window part gives the window (_specs/064-integration-drops). The folder's `window.tsx`
@@ -31,4 +33,8 @@ export interface WindowPart<State = unknown> {
   mark?: { symbol: string; hue: number }
   /** The pull requests this state holds, for Work's rows and the trail's titles. */
   pulls?(state: State): readonly PullRequest[]
+  /** What it adds to Home, read from its state: needs, cards, its tile among the connections. `now` is the clock Home draws by. */
+  home?(state: State, now: number): HomeContribution
+  /** What the spotlight finds of it: its pull requests and issues, each saying where Enter goes. */
+  spotlight?(state: State): readonly SpotlightTarget[]
 }

@@ -19,8 +19,7 @@ const model = (over: Partial<Model>): Model => ({
   upcoming: { rows: [], day: { start: 0, end: 0, now: 0, marks: [] }, summary: '' },
   problems: { rows: [], more: 0 },
   projects: { rows: [] },
-  github: { known: false, reviews: 0, failing: 0, rows: [] },
-  connections: { known: false, tiles: [], summary: null },
+  connections: { known: false, lift: 0, tiles: [], summary: null },
   week: { days: [], completed: 0, unfinished: 0, wins: null },
   yolo: null,
   ...over,
@@ -29,7 +28,7 @@ const model = (over: Partial<Model>): Model => ({
 const order = (m: Model) => orderWidgets(m, null).map(widget => widget.kind)
 
 test('a calm dashboard keeps the ambient order and hides what does not apply', () => {
-  // Nothing urgent, no github/connections/projects: those three drop out; the day's shape leads, empty cards sink.
+  // Nothing urgent, no connections/projects: those three drop out; the day's shape leads, empty cards sink.
   assert.deepEqual(order(model({})), ['upcoming', 'running', 'week', 'needs', 'problems'])
 })
 
@@ -38,11 +37,10 @@ test('urgent widgets float to the top; empty ones sink', () => {
     needs: { rows: needRows('accent'), more: 0 },
     problems: { rows: rows('bad'), more: 1 },
     running: { rows: [], held: null, slots: null, queue: [] },
-    github: { known: true, reviews: 2, failing: 1, rows: rows('info') },
-    connections: { known: true, tiles: [tile('warn')], summary: null },
+    connections: { known: true, lift: 1, tiles: [tile('warn')], summary: null },
   })
   const ranked = order(m)
-  // Needs (waiting on you) leads, then a fresh problem, then the connections/github sign-in, then ambient cards.
+  // Needs (waiting on you) leads, then a fresh problem, then the connections sign-in, then ambient cards.
   assert.deepEqual(ranked.slice(0, 2), ['needs', 'problems'])
   assert.ok(ranked.indexOf('connections') < ranked.indexOf('upcoming'), 'a sign-in and failing checks outrank the timeline')
   assert.ok(ranked.indexOf('connections') < ranked.indexOf('week'), 'a sign-in outranks the week recap')

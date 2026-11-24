@@ -25,6 +25,8 @@ export const homeHostFields = (state: HostState) => ({
   home: state.home,
   question: state.question,
   work: state.work,
+  /** What the host said of each integration. `github` is the bridge `heldSlice` still reads (`integration/slice.ts`), which goes with it. */
+  slices: state.slices,
   github: state.github,
   integrations: state.integrations,
   reportAttention: state.snapshot.reportAttention,
@@ -36,8 +38,8 @@ export const homeHostFields = (state: HostState) => ({
 })
 
 /** The whole host state `gatherHomeInput` takes, built from those fields. What Home does not read keeps its initial value. */
-export function homeHost({ home, question, work, github, integrations, ...snapshot }: ReturnType<typeof homeHostFields>): HostState {
-  return { ...initialHostState, home, question, work, github, integrations, snapshot }
+export function homeHost({ home, question, work, slices, github, integrations, ...snapshot }: ReturnType<typeof homeHostFields>): HostState {
+  return { ...initialHostState, home, question, work, slices, github, integrations, snapshot }
 }
 
 /**

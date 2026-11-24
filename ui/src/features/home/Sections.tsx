@@ -110,7 +110,7 @@ const NEED_ICON: Record<NeedKind, ReactNode> = {
   question: <MessageCircleQuestion />,
   decision: <Signpost />,
   review: <GitMerge />,
-  github: <GitPullRequest />,
+  integration: <GitPullRequest />,
   connection: <Plug />,
   proposal: <Lightbulb />,
 }

@@ -36,9 +36,9 @@ function score(kind: WidgetKind, model: Model): Score {
       return model.running.queue.length ? 220 : 70
     case 'connections': {
       if (!model.connections.known) return null
-      // GitHub's counts live in this widget, so failing checks or a server waiting for sign-in lift it.
-      const needsUser = model.connections.tiles.some(tile => tile.tone === 'warn' || tile.tone === 'bad') || model.github.failing > 0
-      return needsUser ? 560 + model.github.failing * 20 : 60
+      // An integration's counts live in this widget, so what it says needs the user, or a server waiting for sign-in, lifts it.
+      const needsUser = model.connections.tiles.some(tile => tile.tone === 'warn' || tile.tone === 'bad') || model.connections.lift > 0
+      return needsUser ? 560 + model.connections.lift * 20 : 60
     }
     case 'upcoming':
       return model.upcoming.rows.some(row => row.tone === 'warn') ? 300 : 150

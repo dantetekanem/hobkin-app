@@ -108,10 +108,9 @@ test("a card's chips come from hobkin's facts at its head, with the counts and p
 })
 
 test("Home's Problems says a model broke on main, and opens its run", () => {
-  const github: HomeInput['github'] = { connection: 'unknown', login: null, reviews: [], pulls: [], issues: [], more: { reviews: false, pulls: false, issues: false }, refreshedAt: null, refreshing: false, error: null, sample: false }
   const work = (models?: ModelFact[]) => ({ queue: [], finished: [], projects: [{ slug: 'hobkin', name: 'hobkin', ...(models ? { models } : {}) }] }) as unknown as WorkState
   const home = (state: WorkState | null): HomeInput => ({
-    now: STARTED, reports: [], read: new Set(), attention: null, waiting: [], question: null, work: state, live: true, github,
+    now: STARTED, reports: [], read: new Set(), attention: null, waiting: [], question: null, work: state, live: true, contributions: [],
     routines: [], agents: [], wins: null, integrations: null, dismissed: new Set(), layout: null, custom: null, thoughts: null,
   })
 

@@ -1,4 +1,5 @@
-import { GITHUB_UNKNOWN } from '#shared/protocol/github.ts'
+import { homeContributions } from '@/integration/home.ts'
+import { heldSlice } from '@/integration/slice.ts'
 import { agentsFrom } from '@/lib/host/frame.ts'
 import type { HostState } from '@/lib/host/state.ts'
 import type { useActionItems } from '@/features/actions/store.ts'
@@ -23,7 +24,7 @@ export function gatherHomeInput(now: number, host: HostState, reports: Reports, 
   const live = host.home !== null && reports.ready && !reports.sample
   if (!live) return {
     now, live: false, reports: [], read: new Set(), attention: null, waiting: [], question: null,
-    work: null, github: GITHUB_UNKNOWN, routines: [], agents: [], wins: null, integrations: null, dismissed, layout: null, custom: null, thoughts: null,
+    work: null, contributions: [], routines: [], agents: [], wins: null, integrations: null, dismissed, layout: null, custom: null, thoughts: null,
   }
   return {
     now,
@@ -42,7 +43,11 @@ export function gatherHomeInput(now: number, host: HostState, reports: Reports, 
     waiting: actions.sample ? [] : actions.rows.filter(({ id }) => !actions.answering.includes(id)),
     question: host.question,
     work: host.work,
-    github: host.github && !host.github.sample ? host.github : GITHUB_UNKNOWN,
+    // What an integration holds as a sample is not Home's to show: only what the host said.
+    contributions: homeContributions(now, (id) => {
+      const held = heldSlice(host, id)
+      return (held as { sample?: boolean } | undefined)?.sample ? undefined : held
+    }),
     routines: routines.sample === null ? routines.prepared.facts : [],
     agents,
     wins: host.snapshot.wins,

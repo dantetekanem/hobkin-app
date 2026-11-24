@@ -5,14 +5,31 @@ import type { HomeInput } from '../src/features/home/types.ts'
 import type { ActionItem, WaitingRow } from '../src/features/actions/items.ts'
 import { hostRows } from '../src/features/actions/host.ts'
 import type { FinishedChange, WorkProject, WorkState, YoloState } from '../../shared/protocol/work.ts'
-import type { GitHubPull } from '../../shared/protocol/github.ts'
+import type { GitHubPull, GitHubState } from '../../shared/protocol/github.ts'
+import { githubHome } from '../../integrations/github/window/home.ts'
+import { contributed } from '../src/integration/home.ts'
+
+const gh = (github: GitHubState) => contributed(githubHome(github), { symbol: 'Gh', hue: 162 })
 import type { Report } from '../src/features/reports/report.ts'
 import type { RoutineFacts } from '../src/features/routines/rules.ts'
 import type { RunningAgent } from '../src/app/running-agents.ts'
 
 const now = new Date(2026, 10, 12, 18).getTime()
 const iso = (ago = 0) => new Date(now - ago).toISOString()
-const input = (rest: Partial<HomeInput> = {}): HomeInput => ({
+/** What gh says before it has said anything. A test gives Home its own through `input({ github })`, as the part reads it. */
+const quiet: GitHubState = {
+  connection: 'unknown',
+  login: null,
+  reviews: [],
+  pulls: [],
+  issues: [],
+  more: { reviews: false, pulls: false, issues: false },
+  refreshedAt: null,
+  refreshing: false,
+  error: null,
+  sample: false,
+}
+const input = ({ github, ...rest }: Partial<HomeInput> & { github?: GitHubState } = {}): HomeInput => ({
   now,
   reports: [],
   read: new Set(),
@@ -21,18 +38,7 @@ const input = (rest: Partial<HomeInput> = {}): HomeInput => ({
   question: null,
   work: null,
   live: true,
-  github: {
-    connection: 'unknown',
-    login: null,
-    reviews: [],
-    pulls: [],
-    issues: [],
-    more: { reviews: false, pulls: false, issues: false },
-    refreshedAt: null,
-    refreshing: false,
-    error: null,
-    sample: false,
-  },
+  contributions: github ? [gh(github)] : [],
   routines: [],
   agents: [],
   wins: null,
@@ -263,7 +269,7 @@ test('Needs deduplicates only the exact finished branch and counts known hidden 
     at: iso(),
   }
   const github = {
-    ...input().github,
+    ...quiet,
     connection: 'connected' as const,
     reviews: [pull(1), pull(2, { review: 'approved' })],
     more: { reviews: true, pulls: false, issues: false },
@@ -334,16 +340,6 @@ test('Projects uses only chosen state and exact work provenance without declarin
   assert.match(model.projects.rows[0]?.detail ?? '', /Failed to inspect/)
   assert.equal(model.projects.rows[0]?.tone, 'bad')
   assert.equal(model.projects.rows[1]?.tone, 'quiet')
-})
-
-test('GitHub counts waiting reviews and own failing PRs only when connected', () => {
-  const github = { ...input().github, connection: 'connected' as const, reviews: [pull(1), pull(2, { review: 'approved' })], pulls: [pull(3, { checks: 'failing' }), pull(4)] }
-  const model = homeModel(input({ github })).github
-  assert.equal(model.known, true)
-  assert.equal(model.reviews, 1)
-  assert.equal(model.failing, 1)
-  assert.deepEqual(model.rows.map(row => row.action.target), [{ to: 'pull', url: pull(1).url }, { to: 'url', url: pull(3).url }])
-  assert.deepEqual(homeModel(input({ github: { ...github, connection: 'signed-out' } })).github, { known: false, reviews: 0, failing: 0, rows: [] })
 })
 
 test('day strip uses local midnight across DST and only actual scheduled observations', () => {
@@ -448,13 +444,13 @@ test('unavailable input is neutral, while a published empty home can be calm', (
     reports: [report('stale')],
     work: work([change('stale')]),
     agents: [agent('stale')],
-    github: { ...input().github, connection: 'connected', reviews: [pull(1)] },
+    github: { ...quiet, connection: 'connected', reviews: [pull(1)] },
   }))
 
   assert.equal(model.header.mood, 'idle')
   assert.notEqual(model.header.title, 'Nothing needs you')
   assert.deepEqual([model.stack, model.needs.rows, model.running.rows, model.problems.rows, model.projects.rows, model.upcoming.rows, model.week.days], [[], [], [], [], [], [], []])
-  assert.equal(model.github.known, false)
+  assert.equal(model.connections.known, false)
   assert.equal(homeModel(input()).header.title, 'Nothing needs you')
 })
 
@@ -465,24 +461,24 @@ test('stack ranks dated decisions oldest first, keeps untimed source order, and 
     work: work([change('one'), change('two')]),
     agents: [agent('working'), agent('ask', 'Choose a version')],
     github: {
-      ...input().github,
+      ...quiet,
       connection: 'connected',
       reviews: [pull(2, { updatedAt: iso(99999999) }), pull(1)],
     },
   }))
 
-  assert.deepEqual(model.stack.map(card => card.kind), ['decision', 'question', 'review', 'agent', 'github'])
+  assert.deepEqual(model.stack.map(card => card.kind), ['decision', 'question', 'review', 'agent', 'integration'])
   assert.equal(model.stack[0]?.primary.target.to, 'action')
   assert.equal(model.stack[0]?.id, 'decision:old')
   assert.equal(model.stack.find(card => card.kind === 'agent')?.id, 'agent:ask')
-  assert.equal(model.stack.find(card => card.kind === 'github')?.id, 'github:org/app#2')
+  assert.equal(model.stack.find(card => card.kind === 'integration')?.id, 'github:org/app#2')
   assert.doesNotMatch(model.stack.find(card => card.kind === 'review')?.reason ?? '', /ago|minute|hour/)
 })
 
 test('stack keeps newest recent unread problems and request ahead of own failing checks', () => {
-  const github = { ...input().github, connection: 'connected' as const, reviews: [pull(1)], pulls: [pull(2, { checks: 'failing' })] }
+  const github = { ...quiet, connection: 'connected' as const, reviews: [pull(1)], pulls: [pull(2, { checks: 'failing' })] }
   const model = homeModel(input({ reports: [report('old', 5000), report('new', 1000), report('read', 0), report('expired', 8 * 86400000), report('future', -1000)], read: new Set(['read']), github }))
-  assert.deepEqual(model.stack.map(card => card.kind), ['problem', 'github'])
+  assert.deepEqual(model.stack.map(card => card.kind), ['problem', 'integration'])
   assert.equal(model.stack[0]?.id, 'problem:new')
   assert.equal(model.stack[0]?.next, 'Fix it')
   assert.equal(homeModel(input({ github: { ...github, reviews: [] } })).stack[0]?.primary.target.to, 'url')
@@ -500,7 +496,7 @@ test('stack obeys away, routine, wins boundaries and caps seven kinds with stabl
   assert.equal(homeModel({ ...base, routines: [routine('past', -1), routine('far', 900001)] }).stack.some(card => card.kind === 'upnext'), false)
   assert.equal(homeModel({ ...base, now: new Date(2026, 10, 12, 16, 59).getTime() }).stack.some(card => card.kind === 'today'), false)
   assert.equal(homeModel({ ...base, now: new Date(2026, 10, 12, 17).getTime() }).stack.some(card => card.kind === 'today'), true)
-  const full = { ...base, question, waiting: [action('decision')], work: work([change('one')]), agents: [agent('working')], github: { ...base.github, connection: 'connected' as const, reviews: [pull(1)] } }
+  const full = { ...base, question, waiting: [action('decision')], work: work([change('one')]), agents: [agent('working')], contributions: [gh({ ...quiet, connection: 'connected', reviews: [pull(1)] })] }
   const stack = homeModel(full).stack
   assert.equal(stack.length, 7)
   assert.equal(new Set(stack.map(card => card.kind)).size, 7)
@@ -543,7 +539,7 @@ test('a finished change shows once: the item that asks about it opens its review
 test('every card names what its button does and shows the choices it will ask', () => {
   const asked = { ...question, choices: [{ value: 'a', label: 'Keep it' }, { value: 'b', label: 'Drop it' }], recommended: 'b', why: 'It is unused' }
   const decision = action('decision', iso(), { pick: 'Yes', question: { id: 'decision', from: 'hobkin', question: 'Ship it?', choices: [{ value: 'y', label: 'Yes' }, { value: 'n', label: 'No' }] } })
-  const github = { ...input().github, connection: 'connected' as const, reviews: [pull(1)], pulls: [pull(2, { checks: 'failing' })] }
+  const github = { ...quiet, connection: 'connected' as const, reviews: [pull(1)], pulls: [pull(2, { checks: 'failing' })] }
   const cards = homeModel(input({ question: asked, waiting: [decision], github, reports: [report('broken')], agents: [agent('busy'), agent('asks', 'Which version?')] })).stack
   const byKind = Object.fromEntries(cards.map(card => [card.kind, card]))
 
@@ -554,8 +550,8 @@ test('every card names what its button does and shows the choices it will ask', 
   assert.equal(byKind.decision?.primary.label, 'Decide')
   assert.deepEqual(byKind.decision?.choices, ['Yes', 'No'])
   assert.equal(byKind.decision?.pick, 'Yes')
-  assert.deepEqual(byKind.github?.primary, { label: 'Review', target: { to: 'pull', url: pull(1).url } })
-  assert.deepEqual(byKind.github?.secondary, { label: 'Open on GitHub', target: { to: 'url', url: pull(1).url } })
+  assert.deepEqual(byKind.integration?.primary, { label: 'Review', target: { to: 'pull', url: pull(1).url } })
+  assert.deepEqual(byKind.integration?.secondary, { label: 'Open on GitHub', target: { to: 'url', url: pull(1).url } })
   assert.equal(byKind.problem?.primary.label, 'Read report')
   assert.equal(byKind.agent?.primary.label, 'Reply to agent')
 })
@@ -664,7 +660,7 @@ test('connections show gh and each Pi server, and a server waiting for sign-in n
     path: '~/.pi/agent/mcp.json', problems: [], checking: false, checkedAt: iso(), error: null,
     servers: [server('stripe', 'sign-in'), server('linear', 'connected'), server('sentry', 'failed', 'Timed out'), server('notion', 'off'), server('mine', 'connecting')],
   }
-  const github = { ...input().github, connection: 'connected' as const, login: 'octo' }
+  const github = { ...quiet, connection: 'connected' as const, login: 'octo' }
   const model = homeModel(input({ integrations, github }))
 
   assert.deepEqual(model.connections.tiles.map(tile => [tile.key, tile.tone]), [
@@ -678,7 +674,7 @@ test('connections show gh and each Pi server, and a server waiting for sign-in n
   assert.equal(need?.title, 'Sign in to stripe')
   assert.deepEqual(need?.action.target, { to: 'screen', screen: 'integrations' })
   assert.ok(model.problems.rows.some(row => row.title === 'sentry could not connect' && row.detail === 'Timed out'))
-  assert.deepEqual(homeModel(input()).connections, { known: false, tiles: [], summary: null })
+  assert.deepEqual(homeModel(input()).connections, { known: false, lift: 0, tiles: [], summary: null })
 })
 
 const yolo = (rest: Partial<YoloState> = {}): YoloState => ({

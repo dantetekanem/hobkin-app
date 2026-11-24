@@ -1,8 +1,8 @@
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
-import type { GitHubState } from '#shared/protocol/github.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { FinishedChange, WorkState } from '#shared/protocol/work.ts'
 import type { RunningAgent } from '../../app/running-agents.ts'
+import type { ScreenId } from '../../app/screens.ts'
 import type { Mood } from '../../avatar/moods.tsx'
 import type { WaitingRow } from '../actions/items.ts'
 import type { OutcomeDay } from '../reports/briefing.ts'
@@ -33,7 +33,8 @@ export interface HomeInput {
   work: WorkState | null
   /** A live host: finished changes can open in Review. */
   live: boolean
-  github: GitHubState
+  /** What each integration's window part adds (`homeContributions`). Empty with no integration. */
+  contributions: readonly HomeContributed[]
   routines: readonly RoutineFacts[]
   agents: readonly RunningAgent[]
   /** `snapshot.wins`: `{ today: { merged, decided }, streak }` from hobkin, or anything else. Untrusted shape. */
@@ -55,16 +56,16 @@ export interface HomeInput {
 
 /** Where a button or row goes. Reminder completion uses its separate user-only control, never a navigation target. */
 export type HomeTarget =
-  | { to: 'screen'; screen: 'actions' | 'reports' | 'routines' | 'work' | 'yolo' | 'github' | 'integrations' }
+  | { to: 'screen'; screen: ScreenId }
   | { to: 'report'; id: string }
   /** An Action Items row. One that hobkin handles elsewhere (`row.opens`) is resolved by the model, not here. */
   | { to: 'action'; id: string }
   | { to: 'review'; change: FinishedChange }
   | { to: 'agent'; id: string }
   | { to: 'routine'; id: string }
-  /** A pull request on github.com, opened in the app's own Review. */
+  /** A pull request, opened in the app's own Review. */
   | { to: 'pull'; url: string }
-  /** A page on github.com, opened in the browser. */
+  /** A page of an integration's service, opened in the browser. */
   | { to: 'url'; url: string }
   /** The question hobkin is asking in the conversation. */
   | { to: 'question' }
@@ -81,7 +82,7 @@ export interface HomeAction {
 /** The colors a mark can take. They map to the app's tokens: accent yellow, bad, warn, ok, info, and quiet grey. */
 export type HomeTone = 'accent' | 'bad' | 'warn' | 'ok' | 'info' | 'quiet'
 
-export type CardKind = 'reminder' | 'question' | 'decision' | 'review' | 'github' | 'problem' | 'away' | 'agent' | 'upnext' | 'today'
+export type CardKind = 'reminder' | 'question' | 'decision' | 'review' | 'integration' | 'problem' | 'away' | 'agent' | 'upnext' | 'today'
 
 /** A short labelled fact on a card, such as "Size: 120 lines · 4 files". */
 export interface CardFact {
@@ -132,7 +133,7 @@ export interface HomeRow {
   face?: { hue: number; mood: Mood; asking: boolean }
 }
 
-export type NeedKind = 'question' | 'decision' | 'review' | 'github' | 'connection' | 'proposal'
+export type NeedKind = 'question' | 'decision' | 'review' | 'integration' | 'connection' | 'proposal'
 
 export interface NeedRow extends HomeRow {
   kind: NeedKind
@@ -155,20 +156,20 @@ export interface DayStrip {
   marks: DayMark[]
 }
 
-/** gh, or one of Pi's servers, as the Connections widget draws it. */
+/** An integration, or one of Pi's servers, as the Connections widget draws it. */
 export interface ConnectionTile {
   key: string
   name: string
   /** "Connected", "Sign in", "Failed", "Off", "Connecting". */
   status: string
   tone: HomeTone
-  /** What went wrong, or who gh is signed in as. */
+  /** What went wrong, or who an integration is signed in as. */
   note: string | null
   mark: MarkLook
   target: HomeTarget
 }
 
-/** The widgets Home draws around the smart stack, each a self-contained card the screen renders by kind. GitHub's counts live inside Connections, so it is not a widget of its own. */
+/** The widgets Home draws around the smart stack, each a self-contained card the screen renders by kind. An integration's counts live inside Connections, so it is not a widget of its own. */
 export type WidgetKind = 'needs' | 'running' | 'upcoming' | 'problems' | 'projects' | 'connections' | 'week'
 
 /** A short, friendly hint that teaches the app. Several rotate through the strip at the top; the user can dismiss any. */
@@ -263,6 +264,31 @@ export interface HomeYolo {
   projects: YoloRow[]
 }
 
+/**
+ * What an integration's window part adds to Home (`WindowPart.home`), read from its own state. Home draws it as its
+ * own: the rows among what needs the user, their cards on the stack, the integration's tile among the connections.
+ */
+export interface HomeContribution {
+  /** Waiting on the user: a row among Needs, and the card it has on the stack. Both carry the same id. */
+  needs?: readonly { row: HomeRow; card: HomeCardFields }[]
+  /** Cards for the stack of things that went wrong, which are not among Needs. */
+  cards?: readonly HomeCardFields[]
+  /** Its tile among the connections, first. Without one, it has none. The part's own mark is drawn on it. */
+  tile?: Omit<ConnectionTile, 'mark'>
+  /** The host has said something about it, so the Connections widget has something to show. */
+  known?: boolean
+  /** How many of its things need the user, which lift the Connections widget. */
+  lift?: number
+  /** Its lists are cut short, so the count of what needs the user is a least. */
+  more?: boolean
+}
+
+/** A contribution with its tile drawn in the part's mark. */
+export type HomeContributed = Omit<HomeContribution, 'tile'> & { tile?: ConnectionTile }
+
+/** A stack card as an integration gives it: what it says, and where it goes. Home gives it its face. */
+export type HomeCardFields = Omit<StackCard, 'kind' | 'mood' | 'next' | 'facts' | 'choices' | 'pick' | 'why' | 'secondary'> & Partial<Pick<StackCard, 'next' | 'facts' | 'choices' | 'pick' | 'why' | 'secondary'>>
+
 export interface HomeModel {
   /** The widgets to draw, most relevant first. The screen maps over this and renders each by its kind. */
   widgets: HomeWidget[]
@@ -297,16 +323,11 @@ export interface HomeModel {
   }
   problems: { rows: HomeRow[]; more: number }
   projects: { rows: HomeRow[] }
-  github: {
-    /** False when gh is not connected or not known yet: the widget says so instead of counting. */
-    known: boolean
-    reviews: number
-    failing: number
-    rows: HomeRow[]
-  }
   connections: {
-    /** False until the host has said anything about gh or Pi's servers. */
+    /** False until the host has said anything about an integration or Pi's servers. */
     known: boolean
+    /** How many things an integration says need the user among its connection, which lift the widget. */
+    lift: number
     tiles: ConnectionTile[]
     /** "3 connected · 1 needs sign-in". */
     summary: string | null

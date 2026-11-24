@@ -52,7 +52,7 @@ const full: HostState = {
   signIn: { status: 'signed-in' },
   models: { providers: [], models: [{ id: 'fake-model', provider: 'fake', name: 'Fake', thinking: ['low'], contextWindow: null }] },
   github: { ...GITHUB_UNKNOWN, connection: 'connected', login: 'actual' },
-  slices: {},
+  slices: { github: { ...GITHUB_UNKNOWN, connection: 'connected', login: 'other' } },
   integrations: { path: '~/.pi/agent/mcp.json', servers: [], problems: [], checking: false, checkedAt: '2026-01-01T00:00:00Z', error: null },
   work,
   canvas: { open: true, url: 'https://page.invalid/', title: 'Page' },

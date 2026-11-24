@@ -1,16 +1,15 @@
 import { remindersOf, type ReminderOccurrence } from '#shared/protocol/reminders.ts'
 import type { ConfiguredServer } from '#shared/integrations/types.ts'
-import type { GitHubConnection, GitHubPull } from '#shared/protocol/github.ts'
 import type { PendingQuestion } from '#shared/protocol/question.ts'
 import type { FinishedChange, YoloState } from '#shared/protocol/work.ts'
 import { isFinishedBranch, type WaitingRow } from '../actions/items.ts'
-import { ownMark, serviceMark } from '../integrations/marks.ts'
+import { ownMark } from '../integrations/marks.ts'
 import { outcomeWeek, sinceLastLook } from '../reports/briefing.ts'
 import { kindOf, sourceOf, toneOf, triageOf } from '../reports/report.ts'
 import { clockTime, timeOf, waited } from '../reports/time.ts'
 import { readyCount, yoloSays } from '../settings/yolo.ts'
 import { brokenModels, specFile } from '../proofs/proof-match.ts'
-import type { CardFact, ConnectionTile, DayMark, HomeAction, HomeInput, HomeModel, HomeRow, HomeTarget, HomeTone, HomeYolo, NeedKind, NeedRow, StackCard } from './types.ts'
+import type { CardFact, ConnectionTile, HomeCardFields, DayMark, HomeAction, HomeInput, HomeModel, HomeRow, HomeTarget, HomeTone, HomeYolo, NeedKind, NeedRow, StackCard } from './types.ts'
 import { stripItems, thoughtsOf, TIPS } from './tips.ts'
 import { customWidgetsOf, layoutOf, orderWidgets } from './widgets.ts'
 
@@ -51,7 +50,8 @@ interface Need {
   question?: PendingQuestion
   waiting?: WaitingRow
   change?: FinishedChange
-  pull?: GitHubPull
+  /** An integration's card for this row. */
+  card?: HomeCardFields
   reminder?: ReminderOccurrence & { home: string }
 }
 
@@ -146,17 +146,8 @@ function needsOf(input: HomeInput): Need[] {
     }, { at: null, change }))
   }
 
-  if (input.github.connection === 'connected') {
-    for (const pull of input.github.reviews.filter(pr => pr.review === 'waiting')) {
-      needs.push(need('github', {
-        id: `github:${pull.repo}#${pull.number}`,
-        title: pull.title,
-        detail: `${pull.repo} #${pull.number}`,
-        tone: 'info',
-        target: { to: 'pull', url: pull.url },
-        label: 'Review',
-      }, { at: null, pull }))
-    }
+  for (const { row, card } of input.contributions.flatMap(contribution => contribution.needs ?? [])) {
+    needs.push({ row: { ...row, kind: 'integration' }, at: null, card })
   }
 
   for (const server of input.integrations?.servers.filter(server => server.state === 'sign-in') ?? []) {
@@ -352,46 +343,7 @@ function projectsOf(input: HomeInput): HomeRow[] {
   })
 }
 
-function githubOf(input: HomeInput): HomeModel['github'] {
-  if (input.github.connection !== 'connected') return { known: false, reviews: 0, failing: 0, rows: [] }
-
-  const reviews = input.github.reviews.filter(pr => pr.review === 'waiting')
-  const failing = input.github.pulls.filter(pr => pr.checks === 'failing')
-  const rows = new Map<string, HomeRow>()
-  for (const pr of [...reviews, ...failing]) {
-    const id = `github:${pr.repo}#${pr.number}`
-    if (rows.has(id)) continue
-
-    const failed = failing.some(other => other.repo === pr.repo && other.number === pr.number)
-    rows.set(id, row(failed
-      ? {
-          id,
-          title: pr.title,
-          detail: `${pr.repo} #${pr.number} · Checks failing`,
-          tone: 'bad',
-          target: { to: 'url', url: pr.url },
-          label: 'GitHub',
-        }
-      : {
-          id,
-          title: pr.title,
-          detail: `${pr.repo} #${pr.number} · Review requested`,
-          tone: 'info',
-          target: { to: 'pull', url: pr.url },
-          label: 'Review',
-        }))
-  }
-  return { known: true, reviews: reviews.length, failing: failing.length, rows: [...rows.values()] }
-}
-
 type Standing = Pick<ConnectionTile, 'status' | 'tone'>
-
-/** `unknown` has no tile: the host has not said anything about gh yet. */
-const GH: Partial<Record<GitHubConnection, Standing>> = {
-  connected: { status: 'Connected', tone: 'ok' },
-  'signed-out': { status: 'Sign in', tone: 'warn' },
-  missing: { status: 'Not installed', tone: 'quiet' },
-}
 
 const SERVER: Record<ConfiguredServer['state'], Standing> = {
   connected: { status: 'Connected', tone: 'ok' },
@@ -407,19 +359,11 @@ function serverNote(server: ConfiguredServer): string | null {
   return null
 }
 
-/** gh first, as GitHub connects through it, then Pi's servers in the order of its file. */
+/** The integrations' tiles first, in the order of their folders, then Pi's servers in the order of its file. */
 function connectionsOf(input: HomeInput): HomeModel['connections'] {
   const tiles: ConnectionTile[] = []
-  const gh = GH[input.github.connection]
-  if (gh) {
-    tiles.push({
-      key: 'gh',
-      name: 'GitHub',
-      ...gh,
-      note: input.github.login ? `@${input.github.login}` : null,
-      mark: serviceMark('github'),
-      target: screen('github'),
-    })
+  for (const { tile } of input.contributions) {
+    if (tile) tiles.push(tile)
   }
   for (const server of input.integrations?.servers ?? []) {
     tiles.push({
@@ -442,7 +386,8 @@ function connectionsOf(input: HomeInput): HomeModel['connections'] {
     failing ? `${failing} failing` : '',
   ].filter(Boolean).join(' · ') || null
   return {
-    known: input.github.connection !== 'unknown' || input.integrations !== null,
+    known: input.contributions.some(contribution => contribution.known) || input.integrations !== null,
+    lift: input.contributions.reduce((sum, contribution) => sum + (contribution.lift ?? 0), 0),
     tiles,
     summary,
   }
@@ -577,22 +522,6 @@ function needCard({ row, at, question, waiting, change, reminder }: Need, now: n
   return null
 }
 
-function reviewRequestCard(row: NeedRow, pull: GitHubPull): Candidate {
-  const labels = pull.labels.slice(0, 2).map(label => ({ label: 'Label', value: label, tone: 'quiet' as const }))
-  return candidate(1, null, {
-    id: row.id,
-    kind: 'github',
-    label: `Review request · ${pull.repo}`,
-    reason: 'Waiting for your review',
-    tone: row.tone,
-    title: row.title,
-    detail: pull.author ? `Opened by @${pull.author}` : null,
-    facts: [{ label: 'Pull request', value: `#${pull.number}`, tone: 'quiet' }, ...labels],
-    primary: open(row.action.target, 'Review'),
-    secondary: open({ to: 'url', url: pull.url }, 'Open on GitHub'),
-  })
-}
-
 /** The stack's cards that do not come from the agents at work, in the order they are weighed: the agents' come in between. */
 interface StackParts {
   needs: Candidate[]
@@ -607,8 +536,8 @@ function stackParts(input: HomeInput, needs: Need[]): StackParts {
     if (card) needCards.push(card)
   }
   const candidates: Candidate[] = []
-  for (const { row, pull } of needs) {
-    if (row.kind === 'github' && pull) candidates.push(reviewRequestCard(row, pull))
+  for (const { card } of needs) {
+    if (card) candidates.push(candidate(1, null, { ...card, kind: 'integration' }))
   }
 
   for (const report of problemReports(input)) {
@@ -627,19 +556,8 @@ function stackParts(input: HomeInput, needs: Need[]): StackParts {
     }))
   }
 
-  if (input.github.connection === 'connected') {
-    for (const pr of input.github.pulls.filter(pr => pr.checks === 'failing')) {
-      candidates.push(candidate(2, null, {
-        id: `github:${pr.repo}#${pr.number}`,
-        kind: 'github',
-        label: `Checks failing · ${pr.repo}`,
-        reason: 'Checks failing',
-        tone: 'bad',
-        title: pr.title,
-        detail: `Your pull request #${pr.number}`,
-        primary: open({ to: 'url', url: pr.url }, 'Open on GitHub'),
-      }))
-    }
+  for (const card of input.contributions.flatMap(contribution => contribution.cards ?? [])) {
+    candidates.push(candidate(2, null, { ...card, kind: 'integration' }))
   }
 
   const fresh = sinceLastLook(input.reports, input.read, input.attention)
@@ -893,8 +811,7 @@ export function homeParts(input: HomeInput): HomeParts {
     upcoming: { rows: [], day: { start, end, now: input.now, marks: [] }, summary: '' },
     problems: { rows: [], more: 0 },
     projects: { rows: [] },
-    github: { known: false, reviews: 0, failing: 0, rows: [] },
-    connections: { known: false, tiles: [], summary: null },
+    connections: { known: false, lift: 0, tiles: [], summary: null },
     week: { days: [], completed: 0, unfinished: 0, wins: null },
     yolo: null,
   } }
@@ -909,7 +826,7 @@ export function homeParts(input: HomeInput): HomeParts {
     if (band !== 0) return band
     return priority(a) === -1 ? (a.at ?? Infinity) - (b.at ?? Infinity) : 0
   })
-  const atLeast = input.github.connection === 'connected' && input.github.more.reviews
+  const atLeast = input.contributions.some(contribution => contribution.more)
   const problems = problemsOf(input).filter(row => kept(row.id))
   const fresh = sinceLastLook(input.reports, input.read, input.attention)
   const days = outcomeWeek(input.reports, input.now)
@@ -934,7 +851,6 @@ export function homeParts(input: HomeInput): HomeParts {
       upcoming: upcomingOf(input, start, end),
       problems: { rows: problems.slice(0, 4), more: Math.max(0, problems.length - 4) },
       projects: { rows: projectsOf(input) },
-      github: githubOf(input),
       connections: connectionsOf(input),
       week: {
         days,
@@ -961,7 +877,6 @@ export function withAgents(parts: HomeParts, agents: HomeInput['agents']): HomeM
     upcoming: rest.upcoming,
     problems: rest.problems,
     projects: rest.projects,
-    github: rest.github,
     connections: rest.connections,
     week: rest.week,
     yolo: rest.yolo,

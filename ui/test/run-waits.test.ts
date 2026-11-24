@@ -68,7 +68,7 @@ test('the count over the agents says how many work, and how many wait only when 
 test("Home's chip counts the agents at work, and a card says that a waiting one waits", () => {
   const home = (agents: HomeInput['agents']): HomeInput => ({
     now: Date.now(), live: true, reports: [], read: new Set(), attention: null, waiting: [], question: null, work: null, routines: [], wins: null, integrations: null, dismissed: new Set(), layout: null, custom: null, thoughts: null,
-    github: { connection: 'unknown', login: null, reviews: [], pulls: [], issues: [], more: { reviews: false, pulls: false, issues: false }, refreshedAt: null, refreshing: false, error: null, sample: false },
+    contributions: [],
     agents,
   })
 
