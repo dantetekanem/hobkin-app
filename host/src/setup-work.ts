@@ -55,7 +55,7 @@ export function fateOf(project: PickedFacts, mode: WorkModeFacts): Fate {
 /** hobkin's work functions the setup uses. Tests hand in others. */
 export interface SetupWorkRuntime {
   readMode: (root: string) => { enabled: boolean; autoPick: boolean; folder?: string | null }
-  readProjects: (root: string) => { slug: string; path?: string; remote?: string; state?: string }[]
+  readProjects: (root: string) => { slug: string; name?: string; path?: string; remote?: string; state?: string }[]
   setFolder: (root: string, requested: string) => { folder: string | null; changed: boolean }
   /** Offers the project in Work for the user to take. */
   propose: (root: string, project: { name: string; path: string }) => unknown
@@ -74,7 +74,7 @@ export const HOBKIN_WORK: SetupWorkRuntime = {
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
 /** The folder as it is on disk, and the ways it can be written, since hobkin keeps the real one. */
-function onDisk(path: string): { folder: boolean; git: boolean; spellings: string[] } {
+export function onDisk(path: string): { folder: boolean; git: boolean; spellings: string[] } {
   try {
     const folder = statSync(path).isDirectory()
     const git = folder && existsSync(join(path, '.git'))
@@ -84,16 +84,22 @@ function onDisk(path: string): { folder: boolean; git: boolean; spellings: strin
   }
 }
 
-function factsOf(root: string, path: string, runtime: SetupWorkRuntime): PickedFacts {
-  const { folder, git, spellings } = onDisk(path)
+/** The project work mode has for this very folder, by any spelling of its path, and the one under its name that lives elsewhere. */
+export function projectsAt(root: string, path: string, runtime: Pick<SetupWorkRuntime, 'readProjects'>) {
+  const disk = onDisk(path)
   const projects = runtime.readProjects(root)
-  const known = projects.find((project) => project.path !== undefined && spellings.includes(project.path))
+  const known = projects.find((project) => project.path !== undefined && disk.spellings.includes(project.path))
   const named = known ? undefined : projects.find(({ slug }) => slug === slugOf(basename(path)))
+  return { disk, known, named }
+}
+
+function factsOf(root: string, path: string, runtime: SetupWorkRuntime): PickedFacts {
+  const { disk, known, named } = projectsAt(root, path, runtime)
   return {
     known: known ? (known.state ?? 'known') : null,
     namesake: named ? (named.path ?? named.remote ?? named.slug) : null,
-    folder,
-    git,
+    folder: disk.folder,
+    git: disk.git,
   }
 }
 
