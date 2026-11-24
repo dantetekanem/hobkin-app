@@ -125,9 +125,10 @@ export class AgentScheduleRunner {
     return this.schedules.filter(schedule => isLive(schedule) && (!owner || sameOwner(schedule.owner, owner))).length;
   }
 
-  /** When the last of an owner's live schedules ends at the latest, or null when it has none. */
+  /** When the last of an owner's live schedules ends at the latest: Infinity when one has no end, or null when it has none. */
   liveUntil(owner) {
-    const ends = this.schedules.filter(schedule => isLive(schedule) && sameOwner(schedule.owner, owner)).map(schedule => Date.parse(schedule.until));
+    const ends = this.schedules.filter(schedule => isLive(schedule) && sameOwner(schedule.owner, owner))
+      .map(schedule => (schedule.until == null ? Infinity : Date.parse(schedule.until)));
     return ends.length ? Math.max(...ends) : null;
   }
 
@@ -257,7 +258,7 @@ export class AgentScheduleRunner {
       ...(schedule.command === undefined ? {} : { command: schedule.command }),
       ...details,
       ...(isLive(schedule)
-        ? { wakesLeft: MOST_WAKES - schedule.wakes, until: schedule.until }
+        ? { wakesLeft: MOST_WAKES - schedule.wakes, ...(schedule.until == null ? {} : { until: schedule.until }) }
         : { endedWhy: endedWhyForAgent(schedule) }),
     });
   }

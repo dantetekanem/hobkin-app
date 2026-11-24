@@ -19,8 +19,10 @@ export const MOST_COMMAND = 4000;
 export const MOST_NOTE = 1000;
 export const SHORTEST_EVERY_MS = MINUTE;
 export const LONGEST_EVERY_MS = HOUR;
+// A schedule an agent gave no lifetime ends after this. One may live as long as its agent says, or have no end at all.
 export const LIFETIME_MS = 2 * HOUR;
-export const LONGEST_LIFETIME_MS = 24 * HOUR;
+/** The lifetime an agent gives for a schedule with no end. */
+export const NO_END = 'none';
 export const TIMEOUT_MS = 2 * MINUTE;
 export const SHORTEST_TIMEOUT_MS = 5000;
 export const LONGEST_TIMEOUT_MS = 10 * MINUTE;
@@ -45,20 +47,20 @@ export const STOP_ON = Object.freeze(['success', 'failure', 'never']);
 export const OWNER_KINDS = Object.freeze(['main', 'hobkin', 'run']);
 
 const CLOCK = /^([01]?\d|2[0-3]):([0-5]\d)$/;
-const DURATION = /^(?:(\d{1,3})h)?(?:(\d{1,4})m)?(?:(\d{1,5})s)?$/;
+const DURATION = /^(?:(\d{1,4})d)?(?:(\d{1,5})h)?(?:(\d{1,6})m)?(?:(\d{1,7})s)?$/;
 const LINE_MOST = 200;
 
 export const isLive = schedule => LIVE_STATES.includes(schedule?.state);
 const iso = time => new Date(time).toISOString();
 const plural = (count, word) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
-/** Milliseconds from a duration such as `90s`, `10m`, `2h` or `1h30m`, or null when it is not one. */
+/** Milliseconds from a duration such as `90s`, `10m`, `2h`, `1h30m` or `3d`, or null when it is not one. */
 export function parseDuration(text) {
   if (typeof text !== 'string') return null;
   const match = text.trim().toLowerCase().match(DURATION);
   if (!match || !text.trim()) return null;
-  const [hours, minutes, seconds] = match.slice(1).map(part => Number(part ?? 0));
-  const ms = ((hours * 60 + minutes) * 60 + seconds) * 1000;
+  const [days, hours, minutes, seconds] = match.slice(1).map(part => Number(part ?? 0));
+  const ms = (((days * 24 + hours) * 60 + minutes) * 60 + seconds) * 1000;
   return ms > 0 ? ms : null;
 }
 
@@ -113,9 +115,11 @@ function timing({ every: everyAsked, expiresIn, timeoutMs, maxRuns, pendingExit,
   const everyFits = every !== null && every >= SHORTEST_EVERY_MS && every <= LONGEST_EVERY_MS && every % 1000 === 0;
   if (everyAsked !== undefined && !everyFits) return refuse('Give every as a duration from 1m to 1h, such as 2m or 15m.');
 
-  const lifetime = expiresIn === undefined ? LIFETIME_MS : parseDuration(expiresIn);
-  if (lifetime === null || lifetime < MINUTE || lifetime > LONGEST_LIFETIME_MS) {
-    return refuse('A schedule lives at most 24 hours. Give expiresIn as a duration from 1m to 24h, such as 2h.');
+  // How long it lives is the agent's to say, with no most, and `none` gives it no end. Null is no end.
+  const endless = typeof expiresIn === 'string' && expiresIn.trim().toLowerCase() === NO_END;
+  const lifetime = expiresIn === undefined ? LIFETIME_MS : endless ? null : parseDuration(expiresIn);
+  if (!endless && (lifetime === null || lifetime < MINUTE)) {
+    return refuse(`expiresIn is a duration from 1m, such as 2h or 3d, or ${NO_END} for no end. Without it, it ends after 2h.`);
   }
 
   const timeout = timeoutMs === undefined ? TIMEOUT_MS : timeoutMs;
@@ -145,7 +149,7 @@ function firstTime({ in: delayAsked, at }, every, now) {
   if (delayAsked !== undefined && at !== undefined) return refuse('Give in or at for its first time, not both.');
   if (delayAsked !== undefined) {
     const delay = parseDuration(delayAsked);
-    if (delay === null || delay > LONGEST_LIFETIME_MS) return refuse('Give in as a duration up to 24h, such as 90s, 10m or 1h30m.');
+    if (delay === null) return refuse('Give in as a duration, such as 90s, 10m, 1h30m or 2d.');
     return { first: now + delay };
   }
   if (at !== undefined) {
@@ -185,9 +189,9 @@ export function askedSchedule(request, { now, owner, cwd, live = [], id = random
   const fires = firstTime(asked, every, now);
   if (fires.refused) return fires;
   const { first } = fires;
-  const until = now + lifetime;
-  if (first >= until) {
-    return refuse(`It would first fire at ${clockWords(first)}, after its lifetime ends at ${clockWords(until)}. Give a sooner time, or a longer expiresIn up to 24h.`);
+  const until = lifetime === null ? null : now + lifetime;
+  if (until !== null && first >= until) {
+    return refuse(`It would first fire at ${clockWords(first)}, after its lifetime ends at ${clockWords(until)}. Give a sooner time, or a longer expiresIn.`);
   }
 
   const noRoom = roomRefusal(live, owner);
@@ -213,7 +217,7 @@ export function askedSchedule(request, { now, owner, cwd, live = [], id = random
       ...(maxRuns === undefined ? {} : { maxRuns }),
       lifetimeMs: lifetime,
       createdAt: iso(now),
-      until: iso(until),
+      until: until === null ? null : iso(until),
       nextAt: iso(first),
       state: 'waiting',
       runs: 0,
@@ -232,8 +236,11 @@ export const sameOwner = (left, right) => left?.kind === right?.kind && (left.ki
 export const isDue = (schedule, now) => (schedule.state === 'waiting' && Date.parse(schedule.nextAt) <= now)
   || (schedule.runNow === true && (schedule.state === 'waiting' || schedule.state === 'paused'));
 
+/** Whether a schedule's lifetime has passed by `now`. One with no end (`until` null) never passes. */
+const outlived = (schedule, now) => schedule.until != null && Date.parse(schedule.until) <= now;
+
 /** A live schedule whose lifetime has passed, and is not running: its end. A running one ends after its run. */
-export const isExpired = (schedule, now) => (schedule.state === 'waiting' || schedule.state === 'paused') && Date.parse(schedule.until) <= now;
+export const isExpired = (schedule, now) => (schedule.state === 'waiting' || schedule.state === 'paused') && outlived(schedule, now);
 
 /** Ends a schedule: `state` one of the ended states, `why` in plain words, `by` who ended it. */
 /**
@@ -369,7 +376,7 @@ function endWhy(schedule, outcome, now) {
     return { state: 'done', words: { user: `it woke its agent ${most}`, agent: `it woke you ${most}` } };
   }
   if (schedule.maxRuns !== undefined && schedule.runs >= schedule.maxRuns) return { state: 'done', words: `it ran its ${plural(schedule.maxRuns, 'run')}` };
-  if (Date.parse(schedule.until) <= now) return { state: 'expired', words: expiredWhy(schedule) };
+  if (outlived(schedule, now)) return { state: 'expired', words: expiredWhy(schedule) };
   return null;
 }
 
@@ -384,7 +391,7 @@ export function scheduleView(schedule, ownerTitle) {
   const last = lastRunView(schedule.history.at(-1));
   const live = isLive(schedule);
   // Its next time shows while it can still come: not once it ended, not while it is held, not past its lifetime.
-  const comes = live && schedule.state !== 'paused' && schedule.nextAt && Date.parse(schedule.nextAt) < Date.parse(schedule.until);
+  const comes = live && schedule.state !== 'paused' && schedule.nextAt && !outlived(schedule, Date.parse(schedule.nextAt));
   return {
     id: schedule.id,
     owner: { ...schedule.owner },
@@ -396,7 +403,8 @@ export function scheduleView(schedule, ownerTitle) {
     ...(schedule.every === undefined ? {} : { every: schedule.every }),
     state: schedule.state,
     ...(comes ? { nextAt: schedule.nextAt } : {}),
-    until: schedule.until,
+    // One with no end has no end time.
+    ...(schedule.until == null ? {} : { until: schedule.until }),
     runs: schedule.runs,
     ...(schedule.maxRuns === undefined ? {} : { maxRuns: schedule.maxRuns }),
     wakes: schedule.wakes,
@@ -448,7 +456,8 @@ export function scheduledText(schedule, owner, { canWait = true } = {}) {
   const repeats = schedule.every === undefined ? '' : `, then every ${spanWords(schedule.every * 1000)}`;
   const wakes = schedule.command === undefined ? 'with your note' : WAKE_WORDS[schedule.wakeOn];
   const then = afterScheduling(owner, canWait, schedule.id);
-  return `Scheduled "${schedule.name}" (id ${schedule.id}). It first fires at ${clockWords(Date.parse(schedule.nextAt))}${repeats}, and it ends by ${clockWords(Date.parse(schedule.until))} at the latest. `
+  const ends = schedule.until == null ? '. It has no end: cancel it when you are done.' : `, and it ends by ${clockWords(Date.parse(schedule.until))} at the latest.`;
+  return `Scheduled "${schedule.name}" (id ${schedule.id}). It first fires at ${clockWords(Date.parse(schedule.nextAt))}${repeats}${ends} `
     + `hobkin wakes you ${wakes}, ${MOST_WAKES} times at most. ${then}`;
 }
 

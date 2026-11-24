@@ -618,7 +618,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     const asked = waitAsked !== undefined && assistant?.stopReason === 'stop';
     // A run that can wait and keeps a live schedule waits for it to wake it, as one that asked to wait does.
     const scheduledUntil = !asked && assistant?.stopReason === 'stop' && Number.isInteger(request.waits) && request.waits < MOST_WAITS ? schedulesUntil() : null;
-    const waiting = asked || Number.isFinite(scheduledUntil);
+    // A schedule with no end keeps it waiting with no time to start again: only a wake, or the schedule's end, starts it.
+    const waiting = asked || typeof scheduledUntil === 'number';
     if (!waiting && assistant?.stopReason === 'toolUse') throw Error(stoppedMidStep([...calledLast]));
     if (!waiting && (assistant?.stopReason !== 'stop' || !result.text.trim())) {
       throw Error(`Pi did not finish a response (${assistant?.stopReason ?? 'missing'}).`);
@@ -645,7 +646,8 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
     result.status = waiting ? WAITING : 'completed';
     if (asked) result.wait = waitAsked;
     else if (waiting) {
-      result.wait = { until: new Date(scheduledUntil + SCHEDULES_GRACE_MS).toISOString(), note: 'Waits for its schedules to wake it.', askedAt: new Date(now()).toISOString(), schedules: true };
+      const until = Number.isFinite(scheduledUntil) ? new Date(scheduledUntil + SCHEDULES_GRACE_MS).toISOString() : null;
+      result.wait = { until, note: 'Waits for its schedules to wake it.', askedAt: new Date(now()).toISOString(), schedules: true };
     }
     if (!durable) {
       child.terminate();
