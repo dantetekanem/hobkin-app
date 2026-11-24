@@ -39,11 +39,17 @@ export function engineNeeds(graph: unknown): ReviewNeeds | undefined {
   return read?.by === 'change-review' ? withHobkinRate(read) : undefined
 }
 
+/** hobkin's readiness record of a project, as far as its monitoring and its way back go. `at` is null before any record. */
+export interface Readiness {
+  at: string | null
+  parts: Record<string, { state: string; line?: string } | undefined>
+}
+
 /**
  * What hobkin's readiness record says of a project's monitoring and its way back, one line for each part, as the
  * Reviewer is handed it. Undefined for a project never recorded: then nothing is known of its monitoring.
  */
-export function monitoringLines(readiness: { at: string | null; parts: Record<string, { state: string; line?: string } | undefined> } | null, words: Readonly<Record<string, string>>): string[] | undefined {
+export function monitoringLines(readiness: Readiness | null, words: Readonly<Record<string, string>>): string[] | undefined {
   if (!readiness?.at) return undefined
   const lines = TOLD_PARTS.flatMap((name) => {
     const part = readiness.parts[name]

@@ -90,9 +90,10 @@ function shownCallers(review: Review): Set<string> {
 
 /** The callers one call away the scan finds now, as `path::name`, leaving out changed code that calls the change, which is no context. */
 function scannedCallers(vicinity: Vicinity, review: Review): Set<string> {
-  const isChanged = ({ path, startLine, endLine }: VicinityLink['other']) =>
-    review.nodes.some((node) => node.kind === 'code' && node.subtitle === path && node.anchors.some((anchor) => anchor.side === 'added' && anchor.startLine <= endLine && startLine <= anchor.endLine))
-  return new Set(vicinity.links.filter((link) => link.direction === 'caller' && link.hops === 1 && !isChanged(link.other)).map(callerKey))
+  const holds = (anchor: Review['nodes'][number]['anchors'][number], { startLine, endLine }: VicinityLink['other']) => anchor.side === 'added' && anchor.startLine <= endLine && startLine <= anchor.endLine
+  const isChanged = (other: VicinityLink['other']) => review.nodes.some((node) => node.kind === 'code' && node.subtitle === other.path && node.anchors.some((anchor) => holds(anchor, other)))
+  const callers = vicinity.links.filter((link) => link.direction === 'caller' && link.hops === 1 && !isChanged(link.other))
+  return new Set(callers.map(callerKey))
 }
 
 const sameSets = (a: ReadonlySet<string>, b: ReadonlySet<string>) => a.size === b.size && [...a].every((key) => b.has(key))
@@ -185,7 +186,23 @@ function writeWhole(file: string, text: string) {
  * Copies a review that holds to the change's new commit: its graph review, rewritten for the new start and commit, and
  * its change review's files, with a summary that says it was carried, from where, and that the change's tests passed.
  */
-export function copyCarried({ root, store, target, built, head, base, why, tests, at }: { root: string; store: ReviewStore; target: ReviewTarget; built: Prepared; head: string; base: string; why: string; tests: number; at: string }): void {
+export interface CarriedCopy {
+  root: string
+  store: ReviewStore
+  target: ReviewTarget
+  /** The review at the commit it was built for. */
+  built: Prepared
+  /** The change's new commit, and the start it is on. */
+  head: string
+  base: string
+  why: string
+  /** How many test files ran at the new commit. */
+  tests: number
+  /** When it was carried, as an ISO time. */
+  at: string
+}
+
+export function copyCarried({ root, store, target, built, head, base, why, tests, at }: CarriedCopy): void {
   const from = built.review.change.head
   const old = assessmentFolder(root, target, from)
   const summary = JSON.parse(readFileSync(join(old, 'summary.json'), 'utf8')) as AssessmentSummary
