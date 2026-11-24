@@ -56,7 +56,7 @@ function StartNowTold({ said }: { said: Said }) {
   )
 }
 
-export function QueueSection({ work, live, variants, turn }: { work: Pick<WorkState, 'queue' | 'queued' | 'projects' | 'enabled'> } & Shared) {
+export function QueueSection({ work, live, variants, turn, only }: { work: Pick<WorkState, 'queue' | 'queued' | 'projects' | 'enabled'>; /** The name of the one project the page shows, when it does. */ only?: string } & Shared) {
   const [open, setOpen] = useState(false)
   const told = useWorkUi((state) => state.said['queue'])
   // A paused project starts nothing, so its rows leave the queue until it is switched back on.
@@ -84,7 +84,7 @@ export function QueueSection({ work, live, variants, turn }: { work: Pick<WorkSt
           </AnimatePresence>
         </ul>
       ) : (
-        <p className="px-1 text-[13.5px] text-muted-foreground">{work.enabled ? 'Nothing is queued. The next look comes round by itself.' : 'Nothing is queued.'}</p>
+        <p className="px-1 text-[13.5px] text-muted-foreground">{only ? `Nothing is queued for ${only}.` : work.enabled ? 'Nothing is queued. The next look comes round by itself.' : 'Nothing is queued.'}</p>
       )}
       {toggles || unlisted > 0 || paused > 0 ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">

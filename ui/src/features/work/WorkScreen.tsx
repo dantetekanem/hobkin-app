@@ -33,6 +33,9 @@ import { opensNewProject } from './new-project.ts'
 import { WorkloadSheet } from './WorkloadSheet.tsx'
 import { opensWorkload, type WorkloadSetting } from './workload.ts'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
+import { ProjectChips } from './ProjectChips.tsx'
+import { useProjectChoice } from './project-choice.ts'
+import { chipsOf, filterPage, resolveChoice } from './project-filter.ts'
 import { runWork, useWorkUi, useWorkView } from './store.ts'
 import { useWorkTab, type WorkTab } from './tab.ts'
 import { prioritiesOfWork } from './review-order.ts'
@@ -87,6 +90,10 @@ export function WorkScreen() {
     const chosen = projects?.filter(project => project.state === 'chosen' && project.slug).map(project => project.slug)
     return new Set(chosen).size >= 3
   }, [projects])
+  // The same agents the list under the input shows: hobkin's own with a host, the frame's sample without one.
+  // A durable hobkin is the user's own and no work of hobkin's, so it is left out here (034-durable-hobkins).
+  const listed = useRunningAgents()
+  const agents = useMemo(() => listed.filter((agent) => !agent.durable), [listed])
   // What each part of the page reads of work mode, each held while it says the same.
   const parts = useSame(
     work && {
@@ -96,14 +103,30 @@ export function WorkScreen() {
       priorities: { projects: work.projects, finished: work.finished },
     },
   )
+  // The project the page shows alone, or All. The chips and what each section keeps come from the state the page already
+  // has, held while they say the same, so the sections draw again only for what the filter changes.
+  const choice = useProjectChoice((state) => state.slug)
+  const chooseProject = useProjectChoice((state) => state.choose)
+  const view = useSame(
+    useMemo(() => {
+      if (!work) return null
+      const page = { finished: work.finished, queue: work.queue, agents }
+      const chips = chipsOf(page, work.projects)
+      const only = resolveChoice(choice, chips)
+      return { chips, only, name: chips.find(({ slug }) => slug === only)?.name, page: filterPage(page, work.projects, only) }
+    }, [work, agents, choice]),
+  )
+  const only = view?.only ?? null
+  const filtered = view?.page
+  // The queue and the finished changes read of work mode only their own part, and with a project chosen, only its rows.
+  const queuePart = useSame(
+    useMemo(() => (parts && filtered && only ? { ...parts.queue, queue: filtered.queue, queued: filtered.queue.filter(({ skipped }) => !skipped).length } : (parts?.queue ?? null)), [parts, filtered, only]),
+  )
+  const finishedPart = useSame(useMemo(() => (parts && filtered && only ? { ...parts.finished, finished: filtered.finished } : (parts?.finished ?? null)), [parts, filtered, only]))
   // An item opened from another screen, such as an issue's chip on the GitHub page, takes the keyboard as Work arrives.
   useLayoutEffect(() => bindWorkTarget(main.current), [])
   // Coming back along the trail, the row in focus and the scroll come back too (053). After the handoff above, which goes first.
   useKeptPlace('work', main)
-  // The same agents the list under the input shows: hobkin's own with a host, the frame's sample without one.
-  // A durable hobkin is the user's own and no work of hobkin's, so it is left out here (034-durable-hobkins).
-  const listed = useRunningAgents()
-  const agents = useMemo(() => listed.filter((agent) => !agent.durable), [listed])
   const still = useStill()
   const arriving = useArriving()
   const variants = useMemo(() => rowVariants(still), [still])
@@ -270,23 +293,27 @@ export function WorkScreen() {
           ) : (
             <WorkPage key="work" way={way} role="tabpanel" id="work-panel-work" aria-labelledby="work-tab-work" className="flex flex-col gap-10">
               <Rise>
+                <div className="flex flex-col gap-4">
+                {view ? <ProjectChips chips={view.chips} value={only} onChoose={chooseProject} /> : null}
                 <AtWork
-                  agents={agents}
+                  only={view?.name}
+                  agents={filtered?.agents ?? agents}
                   live={live}
                   capacity={work?.agents ?? 0}
                   enabled={work?.enabled ?? false}
                   allowed={work ? work.agentsAllowed : null}
                   most={work?.maxAgents ?? 0}
                 />
+                </div>
               </Rise>
               {parts ? (
                 <WhenWorkComes>
                   <Rise>
-                    <Queue work={parts.queue} {...shared} />
+                    <Queue work={queuePart ?? parts.queue} only={view?.name} {...shared} />
                   </Rise>
                   {/* What needs the user comes right after the queue, so it is never a long scroll away. */}
                   <Rise>
-                    <Finished work={parts.finished} onRowsLeft={rowsLeft} {...shared} />
+                    <Finished work={finishedPart ?? parts.finished} only={view?.name} onRowsLeft={rowsLeft} {...shared} />
                   </Rise>
                   <Rise>
                     <Projects work={parts.projects} onDiscover={discover} discoverRef={trigger} onNewProject={openNewProject} newProjectRef={newProjectButton} {...shared} />
@@ -328,6 +355,7 @@ const WorkTabs = memo(function WorkTabs({ tab, counts, onChoose }: { tab: WorkTa
  * the agents or those numbers change, not for the rest of work mode. `allowed` is null while work mode is not known.
  */
 const AtWork = memo(function AtWork({
+  only,
   agents,
   live,
   capacity,
@@ -335,6 +363,8 @@ const AtWork = memo(function AtWork({
   allowed,
   most,
 }: {
+  /** The name of the one project the page shows, when it does. */
+  only?: string
   agents: RunningAgent[]
   live: boolean
   capacity: number
@@ -350,7 +380,11 @@ const AtWork = memo(function AtWork({
         {agents.some(({ asks }) => asks) ? <span className="text-[11px] font-medium text-sun-fg">· {agents.filter(({ asks }) => asks).length} waiting for you</span> : null}
         {allowed !== null ? <AgentsAtOnce allowed={allowed} most={most} live={live} /> : null}
       </div>
-      <DelegationMap agents={agents} capacity={capacity} enabled={enabled} live={live} />
+      {only && agents.length === 0 ? (
+        <p className="px-1 text-[13.5px] text-muted-foreground">No agent is at work on {only}.</p>
+      ) : (
+        <DelegationMap agents={agents} capacity={capacity} enabled={enabled && !only} live={live} />
+      )}
     </section>
   )
 })

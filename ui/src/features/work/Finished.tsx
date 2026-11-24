@@ -33,7 +33,7 @@ interface Shared {
   onRowsLeft: () => void
 }
 
-export function FinishedSection({ work, ...shared }: { work: Pick<WorkState, 'finished' | 'merging'> } & Shared) {
+export function FinishedSection({ work, only, ...shared }: { work: Pick<WorkState, 'finished' | 'merging'>; /** The name of the one project the page shows, when it does. */ only?: string } & Shared) {
   // A merged change goes on to the right, the way the work goes. One the user said no to is set aside to the left.
   const [leaving, setLeaving] = useState<Leaving>('answered')
   const said = useWorkUi((state) => state.said['finished'])
@@ -46,7 +46,7 @@ export function FinishedSection({ work, ...shared }: { work: Pick<WorkState, 'fi
       {arrange(needsFirst(work.finished)).map((arranged) => (
         <Group key={arranged.group.name} arranged={arranged} leaving={leaving} onLeaving={setLeaving} {...shared} />
       ))}
-      {total === 0 ? <p className="px-1 text-[13.5px] text-muted-foreground">Nothing finished waits for you.</p> : null}
+      {total === 0 ? <p className="px-1 text-[13.5px] text-muted-foreground">{only ? `Nothing finished for ${only} waits for you.` : 'Nothing finished waits for you.'}</p> : null}
     </section>
   )
 }
