@@ -748,7 +748,7 @@ export function workHandlers({ app, root, workload = HOBKIN_WORKLOAD, yolo = HOB
       // runtime's own setter, which checks every value before it writes any and refuses in its own words.
       const { setYoloRules } = yolo
       if (!setYoloRules) throw new Unavailable(NO_YOLO_RULES)
-      const answer = setYoloRules(root(), slug ?? null, { set: rules ?? {}, clear: clear ?? [] })
+      const answer = setYoloRules(root(), slug ?? null, { ...rules, ...(clear ? { same: clear } : {}) })
       await app().refresh()
       return { slug: slug ?? null, rules: rulesAnswered(answer) }
     },

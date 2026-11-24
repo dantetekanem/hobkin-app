@@ -388,7 +388,7 @@ export interface YoloProject {
   /** The rules in force on this project, its own over the rest. A hobkin older than rules does not send them. */
   rules?: YoloRules
   /** The names of the rules this project sets for itself, which differ from the rest. */
-  differs?: string[]
+  overrides?: string[]
 }
 
 /**

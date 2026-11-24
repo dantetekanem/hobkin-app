@@ -1145,7 +1145,7 @@ export const COMMANDS = {
   // Every rule that decides whether YOLO mode merges a change is a setting (063-yolo-settings-and-grades). As with the switches, only the user's click changes one.
   'work.yolo.rules': {
     description:
-      "Set YOLO mode's rules, as the runtime names them, for every project or, with `slug`, for one project, whose own setting then differs from the rest. A value is a switch, a number, a choice or a list of words, and null where the rule allows no limit. `clear` hands a project's rules back to the rest. Every value is checked before any is written, and one that is refused is named in the answer's error with nothing written. Answers with the rules in force.",
+      "Set YOLO mode's rules, as the runtime names them, for every project or, with `slug`, for one project, whose own setting then differs from the rest. A value is a switch, a number, a choice or a list of words, and null where the rule allows no limit. `clear` names the rules a project hands back to the rest. Every value is checked before any is written, and one that is refused is named in the answer's error with nothing written. Answers with the rules in force.",
     runs: 'host',
     args: Type.Object(
       {

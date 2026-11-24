@@ -1,19 +1,16 @@
 import { readYoloNames, readYoloRules, type YoloChange, type YoloProject, type YoloRules, type YoloState } from '#shared/protocol/work.ts'
 
-/** What the window asks of the runtime's setter: the rules to set, and on one project the ones to hand back to the rest. */
-export interface YoloRulesChange {
-  set: Record<string, unknown>
-  clear: string[]
-}
+/** What the window asks of the runtime's setter (`setYoloRules` in hobkin's `yolo-rules.mjs`): the rules to set, and on one project, in `same`, the ones to hand back to the rest. */
+export type YoloRulesChange = Record<string, unknown> & { same?: string[] }
 
-/** hobkin's setter of YOLO rules (`setYoloRules` in its `yolo-rules.mjs`), when it has one. Looked up on the module, since an older hobkin has none. */
+/** hobkin's setter of YOLO rules, when it has one. Looked up on the module, since an older hobkin has none. */
 export interface YoloRulesRuntime {
   setYoloRules?: (root: string, slug: string | null, change: YoloRulesChange) => unknown
 }
 
 export const NO_YOLO_RULES = 'This hobkin has no YOLO rules to set yet. Update hobkin.'
 
-/** The rules in force as the runtime answered a change, which may send them bare or under `rules`. Empty when it sent none. */
+/** The rules in force as the runtime answered a change: bare, as `setYoloRules` does, or under `rules`. Empty when it sent none. */
 export function rulesAnswered(answer: unknown): YoloRules {
   const inside = (answer as { rules?: unknown } | null | undefined)?.rules
   return readYoloRules(inside) ?? readYoloRules(answer) ?? {}
@@ -25,13 +22,13 @@ const changeOf = (change: YoloChange): YoloChange => {
 }
 
 const projectOf = (project: YoloProject): YoloProject => {
-  const { rules, differs, changes, ...rest } = project
+  const { rules, overrides, changes, ...rest } = project
   const own = readYoloRules(rules)
-  const names = readYoloNames(differs)
+  const names = readYoloNames(overrides)
   return {
     ...rest,
     ...(own ? { rules: own } : {}),
-    ...(names ? { differs: names } : {}),
+    ...(names ? { overrides: names } : {}),
     ...(Array.isArray(changes) ? { changes: changes.map(changeOf) } : {}),
   }
 }
