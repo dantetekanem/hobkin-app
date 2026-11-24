@@ -55,35 +55,29 @@ export function folderLine(form: Pick<NewProjectForm, 'folder' | 'looked'>): str
   if (look.known) return `Work already has this folder as ${look.known.name}, ${STATE_WORDS[look.known.state] ?? 'known'}.`
   if (look.namesake) return `Another project called ${look.name ?? 'this'} is already in Work, at ${look.namesake}.`
   const named = look.name ? ` It would be called ${look.name}.` : ''
-  return look.git ? `A git repository.${named}` : `A folder with no git repository.${named}`
+  return look.git ? `A git repository.${named}` : `No git repository yet: hobkin starts one when you add it.${named}`
 }
 
-/** Whether Code can stand for the folder: not when hobkin has seen it and it holds no repository of its own. */
-export function codeAllowed(look: FolderLook | null): boolean {
-  return !(look && look.found === 'folder' && !look.git)
-}
-
-/** The kind as it stands: the user's pick, or what the folder says, and never Code for a folder that is no repository. */
+/**
+ * The kind as it stands: the user's pick, or what the folder suggests. A folder that already is a repository starts as
+ * Code and one that is not starts as a goal. Either kind can be picked for any folder, since hobkin starts a
+ * repository in a folder that has none.
+ */
 export function kindOf(form: Pick<NewProjectForm, 'folder' | 'looked' | 'picked'>): ProjectKind {
-  if (!codeAllowed(currentLook(form))) return 'goal'
-  return form.picked ?? 'code'
-}
+  if (form.picked) return form.picked
 
-/** What a pick of a kind does: Code is not taken for a folder that is no repository, and the kind stays as it was. */
-export function pickKind(form: Pick<NewProjectForm, 'folder' | 'looked' | 'picked'>, choice: ProjectKind): ProjectKind | null {
-  return choice === 'code' && !codeAllowed(currentLook(form)) ? form.picked : choice
+  const look = currentLook(form)
+  const plainFolder = look?.found === 'folder' && !look.git
+  return plainFolder ? 'goal' : 'code'
 }
 
 const KIND_WORDS: Record<ProjectKind, string> = {
   code: 'Work makes changes on branches. Each waits for your yes before it merges.',
-  goal: 'Work does steps toward your words in the folder itself, with no branch, review or merge.',
+  goal: 'Work does steps toward your words in the folder itself and commits each one. No branch, review or merge.',
 }
 
-/** The one line under the kind: what it means, and why Code cannot be picked when the folder is no repository. */
-export function kindLine(form: Pick<NewProjectForm, 'folder' | 'looked' | 'picked'>): string {
-  const words = KIND_WORDS[kindOf(form)]
-  return codeAllowed(currentLook(form)) ? words : `${words} Code needs a git repository.`
-}
+/** The one line under the kind: what it means. */
+export const kindLine = (form: Pick<NewProjectForm, 'folder' | 'looked' | 'picked'>): string => KIND_WORDS[kindOf(form)]
 
 /** The YOLO switch: the user's own setting, or the page that opened the popup; never on for a goal. */
 export function yoloOn(form: Pick<NewProjectForm, 'folder' | 'looked' | 'picked' | 'yoloChoice' | 'from'>): boolean {
@@ -180,8 +174,8 @@ export const rowAfterAdd = (from: OpenedFrom, slug: string): string =>
   from === 'work' ? `[data-world-project="${slug}"]` : `[data-yolo-project="${slug}"]`
 
 // The sample, for a window with no host. Its folders are `~/Projects/<name>` for each sample project, a git repository
-// each. Any other folder under ~/Projects is a repository too, one under ~/Documents is a plain folder, a last part with a
-// dot is a file, and every other path has no folder.
+// each. Any other folder under ~/Projects is a repository too, one under ~/Documents is a folder with no repository yet, a
+// last part with a dot is a file, and every other path has no folder.
 
 const SAMPLE_HOME = '~/Projects'
 const slugOf = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'project'
@@ -217,7 +211,6 @@ export function sampleAdd(work: WorkState, args: { folder: string; kind: Project
   if (look.found !== 'folder' || !look.name) return { refused: look.found === 'file' ? 'That is a file, not a folder.' : 'There is no folder there.' }
   if (look.known) return { refused: `Work already has this folder as ${look.known.name}.` }
   if (look.namesake) return { refused: `A project called ${look.name} is already in Work, at ${look.namesake}.` }
-  if (args.kind === 'code' && !look.git) return { refused: 'Code needs a git repository, and this folder has none.' }
   if (args.kind === 'goal' && !args.wants?.trim()) return { refused: 'A goal needs the words it works toward.' }
   const slug = slugOf(look.name)
   const project: WorkProject = {

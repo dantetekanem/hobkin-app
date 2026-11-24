@@ -14,7 +14,6 @@ import {
   folderLine,
   kindLine,
   kindOf,
-  pickKind,
   READY_LINE,
   rowAfterAdd,
   sampleAdd,
@@ -211,7 +210,7 @@ function NewProjectForm({ from, live, onClose, onAdded }: { from: OpenedFrom; li
       </Section>
 
       <Section label="Kind">
-        <Segmented label="Kind" name="new-project-kind" value={kind} options={KINDS} disabled={Boolean(done)} onChoose={(choice) => setPicked(pickKind(form, choice))} />
+        <Segmented label="Kind" name="new-project-kind" value={kind} options={KINDS} disabled={Boolean(done)} onChoose={setPicked} />
         <p className={cn(LINE, 'mt-1.5 px-1 text-muted-foreground')} title={kindLine(form)}>
           {kindLine(form)}
         </p>

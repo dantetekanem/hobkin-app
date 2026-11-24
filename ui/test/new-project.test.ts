@@ -5,13 +5,11 @@ import {
   addProject,
   addsFromKey,
   blocker,
-  codeAllowed,
   folderLine,
   kindLine,
   kindOf,
   newProjectArgs,
   opensNewProject,
-  pickKind,
   rowAfterAdd,
   sampleAdd,
   sampleLook,
@@ -32,7 +30,7 @@ test('the folder line says one thing for each state of what is typed', () => {
   assert.equal(folderLine(formFor({ folder: '  ', found: null })), 'Type a folder, or choose one with Open.')
   assert.equal(folderLine(formFor({ found: null })), 'Looking…')
   assert.equal(folderLine(formFor({ found: { git: true } })), 'A git repository. It would be called app.')
-  assert.equal(folderLine(formFor({ found: { git: false } })), 'A folder with no git repository. It would be called app.')
+  assert.equal(folderLine(formFor({ found: { git: false } })), 'No git repository yet: hobkin starts one when you add it. It would be called app.')
   assert.equal(folderLine(formFor({ found: { found: 'missing', folder: null, name: null } })), 'There is no folder there.')
   assert.equal(folderLine(formFor({ found: { found: 'file' } })), 'That is a file, not a folder.')
   assert.equal(folderLine(formFor({ found: { known: { slug: 'app', name: 'app', state: 'chosen' } } })), 'Work already has this folder as app, taken.')
@@ -45,24 +43,16 @@ test('an answer for older text is no answer: the line says it is looking', () =>
   assert.equal(folderLine({ ...form, looked: { asked: '~/Projects/app', look: look() } }), 'Looking…')
 })
 
-test('the kind follows the folder until the user picks, and Code never stands for a folder with no repository', () => {
-  assert.equal(kindOf(formFor({ found: { git: true } })), 'code')
-  assert.equal(kindOf(formFor({ found: { git: false } })), 'goal')
-  assert.equal(kindOf(formFor({ found: null })), 'code', 'before the look, a repository is the usual case')
-  assert.equal(kindOf(formFor({ found: { git: true }, picked: 'goal' })), 'goal', 'a pick stays')
-  assert.equal(kindOf(formFor({ found: { git: false }, picked: 'code' })), 'goal', 'Code cannot stand for a plain folder')
-  assert.equal(codeAllowed(look({ git: false })), false)
-  assert.equal(codeAllowed(null), true)
-})
+test('the kind follows the folder until the user picks, and either kind can be picked for any folder', () => {
+  const repository = formFor({ found: { git: true } })
+  const plainFolder = formFor({ found: { git: false } })
 
-test('picking Code for a plain folder changes nothing, and the line says why', () => {
-  const plain = formFor({ found: { git: false } })
-  assert.equal(pickKind(plain, 'code'), null)
-  assert.equal(pickKind({ ...plain, picked: 'goal' }, 'code'), 'goal')
-  assert.equal(pickKind(plain, 'goal'), 'goal')
-  assert.equal(pickKind(formFor({ found: { git: true } }), 'code'), 'code')
-  assert.equal(kindLine(plain), 'Work does steps toward your words in the folder itself, with no branch, review or merge. Code needs a git repository.')
-  assert.notEqual(kindLine(formFor({ found: { git: true } })), kindLine(formFor({ found: { git: true }, picked: 'goal' })))
+  assert.equal(kindOf(repository), 'code')
+  assert.equal(kindOf(plainFolder), 'goal')
+  assert.equal(kindOf(formFor({ found: null })), 'code', 'before the look, a repository is the usual case')
+  assert.equal(kindOf({ ...repository, picked: 'goal' }), 'goal', 'a pick stays')
+  assert.equal(kindOf({ ...plainFolder, picked: 'code' }), 'code', 'hobkin starts a repository in a folder that has none')
+  assert.notEqual(kindLine(repository), kindLine({ ...repository, picked: 'goal' }))
 })
 
 test('the YOLO switch starts from the page, and a goal has none to switch', () => {
@@ -162,5 +152,5 @@ test('the sample looks from its own projects and an add changes only the sample'
   assert.equal(project?.state, 'chosen')
   assert.equal(work.projects.some(({ slug }) => slug === 'long-run'), false, 'the sample it came from is as it was')
   assert.deepEqual(sampleAdd(work, { folder: '~/Projects/storefront', kind: 'code' }), { refused: 'Work already has this folder as storefront.' })
-  assert.ok('refused' in sampleAdd(work, { folder: '~/Documents/long-run', kind: 'code' }))
+  assert.ok('state' in sampleAdd(work, { folder: '~/Documents/long-run', kind: 'code' }), 'a folder with no repository can be code too')
 })
