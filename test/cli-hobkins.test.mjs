@@ -18,6 +18,7 @@ import { readEvents } from '../src/cli/events.mjs';
 import { readReport, savedReportPath } from '../src/cli/reports.mjs';
 import { allCardActions } from '../src/cli/work/card-actions.mjs';
 import { durableDirections } from '../src/cli/hobkins.mjs';
+import { readDirections } from '../src/cli/directions.mjs';
 import { startSession } from '../src/cli/session.mjs';
 import { sessionsToTell } from '../src/cli/session-log.mjs';
 import { fakePi } from './helpers/pi-session.mjs';
@@ -165,13 +166,15 @@ test('a started hobkin runs its first turn and then waits', async t => {
     [call.request.harness, call.request.cwd, call.request.prompt, call.request.sessionFile, call.request.purpose, call.request.model, call.request.effort],
     ['pi', h.folder, text, sessionFile, 'durable', 'fixture/local', 'medium'],
   );
-  assert.equal(call.request.directions, durableDirections(id));
+  // Its own directions, then the user's, as every other agent reads them (057-shared-memory).
+  const directions = durableDirections(id, { directions: readDirections(h.root) });
+  assert.equal(call.request.directions, directions);
   assert.equal('resume' in call.request, false);
 
   // Pi gets the directions as its own system prompt, with a job's tools.
   const { signal, ...request } = call.request;
   const { args } = buildInvocation(request);
-  assert.equal(args[args.indexOf('--append-system-prompt') + 1], durableDirections(id));
+  assert.equal(args[args.indexOf('--append-system-prompt') + 1], directions);
   assert.ok(args.includes('--approve'));
   assert.ok(!args.includes('--no-tools'));
 

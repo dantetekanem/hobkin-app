@@ -14,6 +14,7 @@ import { efforts, validateBinding } from './schedules.mjs';
 import { tierBinding, tierNames } from './tiers.mjs';
 import { turnFrom } from './turn-metrics.mjs';
 import { keptPrompt } from './prompt-parts.mjs';
+import { directionsSection, readDirections } from './directions.mjs';
 import { keepsMemories, MAIN_INDEX_BYTES, memorySnapshot } from './memories.mjs';
 import { memoryHandler } from './memory-tools.mjs';
 import { answerMemoryRequest, MEMORY_REQUESTS } from './memory-command.mjs';
@@ -74,11 +75,21 @@ export { turnRunId };
 
 /**
  * What a durable hobkin is told each turn: its own directions, the canvas skill, and its id for the canvas commands,
- * then the index of hobkin's memories when there are any (057-shared-memory).
+ * then the user's directions with the line that names them, and the index of hobkin's memories when there are any
+ * (057-shared-memory).
  */
-export function durableDirections(id, { memories = '' } = {}) {
+export function durableDirections(id, { directions = '', memories = '' } = {}) {
   const own = `${prompt('durable').trim()}\n\n${canvasSkill().trim()}\n\nYour id is ${id}. Pass \`--hobkin ${id}\` to every \`hobkin canvas\` command, so it uses your own canvas.\n`;
-  return memories ? `${own}\n${memories}\n` : own;
+  return [own, ...[directions && directionsSection(directions.trim()), memories].filter(Boolean).map(part => `\n${part}\n`)].join('');
+}
+
+/** The user's directions as every other agent reads them, or none when they cannot be read: that costs the part, never the turn. */
+function usersDirections(root) {
+  try {
+    return readDirections(root);
+  } catch {
+    return '';
+  }
 }
 
 // What a durable hobkin's memory tools say when no turn of it runs.
@@ -354,7 +365,7 @@ export class Hobkins {
       cwd: record.cwd,
       sessionFile: record.sessionFile,
       purpose: 'durable',
-      directions: durableDirections(record.id, { memories: this.keptMemories(record).memories() }),
+      directions: durableDirections(record.id, { directions: usersDirections(this.root), memories: this.keptMemories(record).memories() }),
       // The token says who the process is, and the home is where `hobkin tell` reaches hobkin.
       env: { [TURN_TOKEN]: this.tokenOf(record.id), [TURN_HOME]: this.root },
       // It keeps schedules for itself, which wake it with a turn or a message (056-agent-schedules).

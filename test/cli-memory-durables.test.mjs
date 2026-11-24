@@ -112,3 +112,26 @@ test('a durable hobkin on Claude Code reads and saves with hobkin memory in its 
   await until(async () => (await app.hobkins.read(id)).hobkin.state === 'waiting');
   await assert.rejects(command(['list']), /not a turn hobkin is running now/);
 });
+
+test("a durable hobkin's directions carry the user's own directions with their name line, and one that cannot be read costs only that part", { timeout: 10000 }, async t => {
+  const { updateProfile } = await import('../src/cli/profile.mjs');
+  const { writeFileSync, mkdirSync } = await import('node:fs');
+  const h = home(t);
+  updateProfile(h.root, { name: 'Sam' });
+  writeFileSync(join(h.root, 'AGENTS.md'), 'Answer in plain words.\n');
+  const app = await h.open();
+  const { id } = await app.hobkins.start({ text: 'Plan the trip.', cwd: h.root, engine: { kind: 'tier', tier: 'mid' } });
+  await until(() => h.calls.length === 1);
+  const { directions } = h.calls[0].request;
+  assert.ok(directions.startsWith(durableDirections(id).trimEnd()));
+  assert.match(directions, /\n## Directions\n\nThese are the user's standing directions[\s\S]*The user's name is Sam\.[\s\S]*Answer in plain words\./);
+  h.calls[0].end.resolve({ status: 'completed', text: 'Planned.', cost: null });
+  await until(async () => (await app.hobkins.read(id)).hobkin.state === 'waiting');
+
+  rmSync(join(h.root, 'AGENTS.md'));
+  mkdirSync(join(h.root, 'AGENTS.md'));
+  const other = await app.hobkins.start({ text: 'Again.', cwd: h.root, engine: { kind: 'tier', tier: 'mid' } });
+  await until(() => h.calls.length === 2);
+  assert.equal(h.calls[1].request.directions, durableDirections(other.id), 'directions that cannot be read leave its own as they were');
+  h.calls[1].end.resolve({ status: 'completed', text: 'Done.', cost: null });
+});
