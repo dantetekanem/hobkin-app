@@ -1320,6 +1320,19 @@ export class Reviews {
     if (gone) this.options.onChange?.()
   }
 
+  /** The pull requests with a review standing that nothing has marked closed yet, as the host asks GitHub about them. */
+  openPulls(): Extract<ReviewTarget, { kind: 'pull' }>[] {
+    return this.options.store.list().flatMap(({ target }) => (target.kind === 'pull' && !this.options.store.landedAt(target) ? [target] : []))
+  }
+
+  /** A pull request that GitHub says is no longer open, merged or closed anywhere: its review leaves the lists now, as the sweep would have found. */
+  settlePull(target: Extract<ReviewTarget, { kind: 'pull' }>): void {
+    if (this.options.store.landedAt(target)) return
+    this.options.store.saveLanded(target, new Date(this.now()).toISOString())
+    this.retire(reviewIdOf(target), target)
+    this.options.onChange?.()
+  }
+
   /**
    * Stops a review that is waiting or under way, on the user's word: a preparation still waiting leaves the queue,
    * one under way finishes its map and starts no change review, and a change review is stopped where it is, its tests

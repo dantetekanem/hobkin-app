@@ -157,3 +157,31 @@ test('a pull request closed or merged on its host gets no more AI review: the sw
   assert.equal(calls.length, 2, 'nothing queues it again')
   assert.ok(store.landedAt(pull), 'the home keeps it, marked closed')
 })
+
+test('a reviewed pull request is listed as open until the host says GitHub closed it, and then it leaves the list at once', (t) => {
+  const root = temporaryDirectory(t)
+  const pull: Extract<ReviewTarget, { kind: 'pull' }> = { kind: 'pull', owner: 'acme', repo: 'web', number: 13 }
+  const store = reviewStore(root)
+  store.write(pull, SAMPLE, SAMPLE_FILES, { preparedAt: '2026-11-20T09:00:00.000Z', storyBy: 'host', graph: GRAPH_RULES })
+  let changes = 0
+  const reviews = new Reviews({
+    store,
+    sources: { change: { head: async () => null, read: async () => Promise.reject(new Error('none')) }, pull: { head: async () => 'a'.repeat(40), read: async () => Promise.reject(new Error('none')) } },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    onChange: () => {
+      changes += 1
+    },
+  })
+  t.after(() => reviews.close())
+  assert.deepEqual(reviews.openPulls(), [pull])
+  assert.ok(reviews.list().reviews.some((item) => item.id === reviewIdOf(pull)))
+
+  reviews.settlePull(pull)
+
+  assert.deepEqual(reviews.openPulls(), [])
+  assert.ok(!reviews.list().reviews.some((item) => item.id === reviewIdOf(pull)))
+  assert.equal(changes, 1)
+  reviews.settlePull(pull)
+  assert.equal(changes, 1, 'told once')
+})
