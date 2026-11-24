@@ -248,11 +248,17 @@ export function repoLinesOf(list: ReviewList | null, priorityOf: PriorityOf = NO
 }
 
 /** A row that waits its turn can be built now, outside its repository's line, unless it is being built already. */
-export const canReviewNow = (row: ReviewRow) => row.turn != null && !['queued', 'running'].includes(row.item.assessment?.state ?? '') && row.item.state !== 'preparing'
+export function canReviewNow(row: ReviewRow): boolean {
+  const built = ['queued', 'running'].includes(row.item.assessment?.state ?? '') || row.item.state === 'preparing'
+  return row.turn != null && !built
+}
 
 /** Nothing changed since the review: it is ready at the commit the change is at. Review again then costs a whole review for nothing new. */
-export const nothingChanged = (row: ReviewRow) =>
-  readOutdated(row.item.outdated) == null && row.item.assessment?.state === 'ready' && row.item.assessment.head != null && row.item.assessment.head === row.item.head
+export function nothingChanged(row: ReviewRow): boolean {
+  const { assessment, head, outdated } = row.item
+  if (readOutdated(outdated) || assessment?.state !== 'ready') return false
+  return assessment.head != null && assessment.head === head
+}
 
 /** A review that ran can be run again: one that is ready, or one that stopped. One under way is already being built. */
 export const canReviewAgain = (row: ReviewRow) => row.group !== 'running' && !(row.group === 'unmerged' && ['queued', 'running'].includes(row.item.assessment?.state ?? ''))

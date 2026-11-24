@@ -12,6 +12,7 @@ import type { QuestionsView } from './needs.ts'
 export function Questions({ view, heading }: { view: QuestionsView; heading: string }) {
   const [whole, setWhole] = useState(false)
   const rated = view.rows.some((row) => row.evidence !== '')
+  const unrated = view.state === 'pending' || view.state === 'unrated'
 
   return (
     <section aria-label="Your questions" data-state={view.state} className="flex flex-col gap-1">
@@ -52,7 +53,7 @@ export function Questions({ view, heading }: { view: QuestionsView; heading: str
       <p className="min-h-5 truncate text-[14px] leading-5 text-warn-fg" title={view.floors ?? undefined}>
         {view.floors}
       </p>
-      <p className={cn('min-h-10 text-[14px] leading-5 text-pretty [overflow-wrap:anywhere]', !whole && 'line-clamp-2', view.state === 'pending' || view.state === 'unrated' ? 'text-muted-foreground' : '')}>{view.note}</p>
+      <p className={cn('min-h-10 text-[14px] leading-5 text-pretty [overflow-wrap:anywhere]', !whole && 'line-clamp-2', unrated && 'text-muted-foreground')}>{view.note}</p>
       <p className="min-h-5 truncate text-[12.5px] leading-5 text-muted-foreground">{view.by}</p>
     </section>
   )

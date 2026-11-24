@@ -194,7 +194,14 @@ function ReviewAgain({ row, live, onAgain }: { row: ReviewRow; live: boolean; on
   const started = useRef(onAgain)
   started.current = onAgain
   const again = useMemo(
-    () => createReviewAgain({ id: row.item.id, unchanged, now, command: live ? (name, args) => runCommand(name, args) : sampleBuild, started: () => started.current() }),
+    () =>
+      createReviewAgain({
+        id: row.item.id,
+        unchanged,
+        now,
+        command: live ? (name, args) => runCommand(name, args) : sampleBuild,
+        started: () => started.current(),
+      }),
     [row.item.id, unchanged, now, live],
   )
   useEffect(() => () => again.cancel(), [again])

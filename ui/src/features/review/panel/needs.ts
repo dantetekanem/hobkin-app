@@ -47,20 +47,27 @@ export interface Ratings {
   hobkins: ReviewNeeds | null
 }
 
+/** The names hobkin's older scores give the five questions, as the Work card says them. */
+const SCORE_NAMES: Readonly<Record<string, NeedName>> = { coverage: 'coverage', proof: 'proof', 'deploy and data': 'safety', visibility: 'visibility', rollback: 'rollback' }
+
 /** hobkin's older scores in the ratings' shape: its kind and its names read back, and no commit when they are for an older one. */
 function fromScores(scores: ChangeScores, head: string): ReviewNeeds {
-  const byName: Readonly<Record<string, NeedName>> = { coverage: 'coverage', proof: 'proof', 'deploy and data': 'safety', visibility: 'visibility', rollback: 'rollback' }
   const kind = scores.kind.toLowerCase().replaceAll(' ', '-')
   const answers: ReviewNeeds['scores'] = {}
   for (const { name, score, evidence } of scores.scores) {
-    const known = byName[name]
+    const known = SCORE_NAMES[name]
     if (known && score != null) answers[known] = { score, evidence }
   }
+  const floors = scores.floors.flatMap(({ name, score, needs }) => {
+    const known = SCORE_NAMES[name]
+    return known ? [{ name: known, score, needs }] : []
+  })
+
   return {
     ...(NEED_KINDS.includes(kind as NeedKind) ? { kind: kind as NeedKind } : {}),
     scores: answers,
     rate: scores.rate,
-    floors: scores.floors.flatMap(({ name, score, needs }) => (byName[name] ? [{ name: byName[name]!, score, needs }] : [])),
+    floors,
     head: scores.stale ? '' : head,
     by: 'hobkin',
   }
@@ -70,7 +77,8 @@ function fromScores(scores: ChangeScores, head: string): ReviewNeeds {
 function pick(list: readonly ReviewNeeds[], head: string): ReviewNeeds | null {
   const at = list.find((needs) => needs.head === head)
   if (at) return at
-  return [...list].sort((a, b) => Date.parse(b.at ?? '') - Date.parse(a.at ?? '') || 0)[0] ?? null
+  const newestFirst = [...list].sort((a, b) => Date.parse(b.at ?? '') - Date.parse(a.at ?? ''))
+  return newestFirst[0] ?? null
 }
 
 /**
