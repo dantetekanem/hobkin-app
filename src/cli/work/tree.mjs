@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -10,11 +10,12 @@ const NEVER_KEPT = ['node_modules', '.env*'].flatMap(name => [`:(exclude,glob)**
 
 const run = promisify(execFile);
 // A remote that wants a password, or never answers, must not hold a run. Nobody is here to type one, so git fails instead of asking.
-export const gitWithin = timeout => async (cwd, ...args) => (await run('git', ['-C', cwd, ...args], {
+const runGit = async (timeout, cwd, args) => (await run('git', ['-C', cwd, ...args], {
   maxBuffer: 16 * 1024 * 1024,
   timeout,
   env: { ...process.env, GIT_TERMINAL_PROMPT: '0' },
-})).stdout.trim();
+})).stdout;
+export const gitWithin = timeout => async (cwd, ...args) => (await runGit(timeout, cwd, args)).trim();
 const git = gitWithin(GIT_TIMEOUT_MS);
 export const gitOrNothing = (cwd, ...args) => git(cwd, ...args).catch(() => '');
 const firstLine = error => String(error.stderr || error.message || error).trim().split('\n', 1)[0];
@@ -36,6 +37,47 @@ async function baseRef(repo) {
   return git(repo, 'rev-parse', '--abbrev-ref', 'HEAD');
 }
 
+const HOBKIN_IDENTITY = ['-c', 'user.name=Hobkin', '-c', 'user.email=hobkin@localhost'];
+const OWN_COMMIT = [...HOBKIN_IDENTITY, 'commit', '--quiet', '--no-verify', '--no-gpg-sign'];
+
+/**
+ * A project's folder always has a repository of its own, whatever sits above it. A folder with a `.git` is left as it is. Otherwise git starts
+ * one there with no remote, and one commit holds what the folder has, as Hobkin. If git fails, the `.git` made here goes too, so nothing stays.
+ */
+export async function startRepository(folder, name) {
+  if (existsSync(join(folder, '.git'))) return false;
+  try {
+    await git(folder, 'init', '--quiet');
+    await git(folder, 'add', '--all', '--', '.', ...NEVER_KEPT);
+    await git(folder, ...OWN_COMMIT, '--allow-empty', '-m', `Start tracking ${name} with hobkin`);
+  } catch (error) {
+    rmSync(join(folder, '.git'), { recursive: true, force: true });
+    throw Error(`hobkin could not start a git repository in ${folder}: ${firstLine(error)}`);
+  }
+  return true;
+}
+
+/** Every path that is changed or untracked in a project's own repository, one by one, with a rename's old path too. */
+export async function changedPaths(folder) {
+  const entries = (await runGit(GIT_TIMEOUT_MS, folder, ['status', '--porcelain', '-z', '--untracked-files=all'])).split('\0').filter(Boolean);
+  const changed = [];
+  while (entries.length) {
+    const entry = entries.shift();
+    changed.push(entry.slice(3));
+    if (/[RC]/.test(entry.slice(0, 2))) changed.push(entries.shift());
+  }
+  return changed;
+}
+
+/** One commit of exactly these paths, whatever else is staged, as Hobkin. It returns the commit, or nothing when the paths hold no change. */
+export async function commitPaths(folder, paths, title, body) {
+  if (!paths.length) return null;
+  await git(folder, '--literal-pathspecs', 'add', '--all', '--', ...paths);
+  const message = ['-m', title, ...(body ? ['-m', body] : [])];
+  await git(folder, '--literal-pathspecs', ...OWN_COMMIT, ...message, '--only', '--', ...paths);
+  return git(folder, 'rev-parse', 'HEAD');
+}
+
 const nothingStaged = tree => git(tree, 'diff', '--cached', '--quiet').then(() => true, () => false);
 const keptStamp = () => new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
 
@@ -55,7 +97,7 @@ async function keepWork(tree) {
   await git(tree, 'add', '--all', '--', '.', ...NEVER_KEPT);
   if (await nothingStaged(tree)) return;
   await git(tree, 'switch', '--quiet', '-c', `${current}-kept-${keptStamp()}`);
-  await git(tree, '-c', 'user.name=Hobkin', '-c', 'user.email=hobkin@localhost', 'commit', '--quiet', '--no-verify', '--no-gpg-sign', '-m', 'Work in progress kept by Hobkin');
+  await git(tree, ...OWN_COMMIT, '-m', 'Work in progress kept by Hobkin');
 }
 
 async function readyTree({ repo, tree, branch, resume, base }) {

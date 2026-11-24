@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { main } from '../src/cli/main.mjs';
@@ -169,11 +169,11 @@ test('after its study a goal gets one look of its own and none of the code looks
 
 const words = 'Keep the household papers in order and file what arrives.';
 
-test('newProject takes a goal in a plain folder, with its words as the directions', t => {
+test('newProject takes a goal in a plain folder, with its words as the directions', async t => {
   const h = director(t);
   const folder = goalFolder(h, 'papers');
 
-  const result = newProject(h.root, { path: folder, kind: 'goal', wants: words, level: 'casual' });
+  const result = await newProject(h.root, { path: folder, kind: 'goal', wants: words, level: 'casual' });
 
   assert.deepEqual([result.ok, result.slug, result.name, result.kind], [true, 'papers', 'papers', 'goal']);
   assert.match(result.message, /goal/);
@@ -182,14 +182,14 @@ test('newProject takes a goal in a plain folder, with its words as the direction
   assert.equal(readFileSync(paths(h.root, 'papers').directions, 'utf8'), `${words}\n`);
 });
 
-test('newProject takes code from a repository, keeps its words, and never reads a goal\'s parent as the project', t => {
+test('newProject takes code from a repository, keeps its words, and never reads a goal\'s parent as the project', async t => {
   const h = director(t);
   const checkout = repository(h.base, 'api');
   const inside = join(checkout, 'notes');
   mkdirSync(inside);
 
-  const code = newProject(h.root, { path: checkout, wants: 'Leave auth alone.' });
-  const goal = newProject(h.root, { path: inside, kind: 'goal', wants: words });
+  const code = await newProject(h.root, { path: checkout, wants: 'Leave auth alone.' });
+  const goal = await newProject(h.root, { path: inside, kind: 'goal', wants: words });
 
   assert.deepEqual([code.kind, goal.kind], ['code', 'goal']);
   assert.equal(readProject(h.root, 'api').kind, undefined);
@@ -197,7 +197,7 @@ test('newProject takes code from a repository, keeps its words, and never reads 
   assert.match(readFileSync(paths(h.root, 'api').directions, 'utf8'), /Leave auth alone/);
 });
 
-test('newProject refuses in plain words and changes nothing', t => {
+test('newProject refuses in plain words and changes nothing', async t => {
   const h = director(t);
   const folder = goalFolder(h, 'papers');
   const file = join(h.base, 'a-file');
@@ -205,19 +205,96 @@ test('newProject refuses in plain words and changes nothing', t => {
   const other = join(h.base, 'elsewhere');
   mkdirSync(other);
   mkdirSync(join(other, 'papers'));
-  newProject(h.root, { path: folder, kind: 'goal', wants: words });
+  await newProject(h.root, { path: folder, kind: 'goal', wants: words });
 
-  const refuse = (details, message) => assert.throws(() => newProject(h.root, details), message);
-  refuse({ path: join(h.base, 'missing'), kind: 'goal', wants: words }, /Not a folder/);
-  refuse({ path: file, kind: 'goal', wants: words }, /Not a folder/);
-  refuse({ path: goalFolder(h, 'plain') }, /Not a git repository/);
-  refuse({ path: goalFolder(h, 'bare'), kind: 'goal', wants: '  ' }, /A goal needs your words/);
-  refuse({ path: folder, kind: 'goal', wants: words }, /papers is already a project/);
-  refuse({ path: join(other, 'papers'), kind: 'goal', wants: words }, /papers is already a project/);
-  refuse({ path: folder, kind: 'mansion', wants: words }, /code or a goal/);
-  refuse({ kind: 'goal', wants: words }, /Say which folder/);
-  refuse({ path: goalFolder(h, 'later'), kind: 'goal', wants: words, level: 'huge' }, /level must be one of/);
+  const refuse = (details, message) => assert.rejects(newProject(h.root, details), message);
+  await refuse({ path: join(h.base, 'missing'), kind: 'goal', wants: words }, /Not a folder/);
+  await refuse({ path: file, kind: 'goal', wants: words }, /Not a folder/);
+  await refuse({ path: goalFolder(h, 'bare'), kind: 'goal', wants: '  ' }, /A goal needs your words/);
+  await refuse({ path: folder, kind: 'goal', wants: words }, /papers is already a project/);
+  await refuse({ path: join(other, 'papers'), kind: 'goal', wants: words }, /papers is already a project/);
+  await refuse({ path: folder, kind: 'mansion', wants: words }, /code or a goal/);
+  await refuse({ kind: 'goal', wants: words }, /Say which folder/);
+  await refuse({ path: goalFolder(h, 'later'), kind: 'goal', wants: words, level: 'huge' }, /level must be one of/);
   assert.deepEqual(readProjects(h.root).map(({ slug }) => slug), ['papers']);
+});
+
+const started = folder => git(folder, 'log', '--format=%an|%s', '-1');
+const files = folder => git(folder, 'ls-tree', '-r', '--name-only', 'HEAD').split('\n');
+
+test('every project has a repository of its own: a plain folder gets one whose first commit holds its files, with no remote', async t => {
+  const h = director(t);
+  const goal = goalFolder(h, 'papers');
+  writeFileSync(join(goal, 'lease.txt'), 'rent\n');
+  const code = goalFolder(h, 'tool');
+  writeFileSync(join(code, 'main.rb'), 'puts 1\n');
+
+  const first = await newProject(h.root, { path: goal, kind: 'goal', wants: words });
+  const second = await newProject(h.root, { path: code, wants: 'Keep it small.' });
+
+  assert.equal(first.gitStarted, true);
+  assert.match(first.message, /hobkin started a git repository there/);
+  assert.equal(second.gitStarted, true);
+  for (const folder of [goal, code]) {
+    assert.equal(git(folder, 'rev-parse', '--show-toplevel'), folder);
+    assert.equal(git(folder, 'status', '--porcelain'), '');
+    assert.equal(git(folder, 'remote'), '');
+    assert.equal(git(folder, 'rev-list', '--count', 'HEAD'), '1');
+  }
+  assert.deepEqual(files(goal), ['lease.txt']);
+  assert.equal(started(goal), 'Hobkin|Start tracking papers with hobkin');
+  assert.equal(readProject(h.root, 'tool').kind, undefined);
+});
+
+test('an empty folder gets a repository with an empty first commit', async t => {
+  const h = director(t);
+  const folder = goalFolder(h, 'empty');
+
+  const result = await newProject(h.root, { path: folder, kind: 'goal', wants: words });
+
+  assert.equal(result.gitStarted, true);
+  assert.equal(git(folder, 'rev-list', '--count', 'HEAD'), '1');
+  assert.equal(git(folder, 'ls-tree', '-r', 'HEAD'), '');
+});
+
+test('a folder that already holds a repository is left exactly as it is', async t => {
+  const h = director(t);
+  const checkout = repository(h.base, 'api');
+  writeFileSync(join(checkout, 'draft.txt'), 'not yet\n');
+  const head = git(checkout, 'rev-parse', 'HEAD');
+
+  const result = await newProject(h.root, { path: checkout, wants: 'Leave auth alone.' });
+
+  assert.equal('gitStarted' in result, false);
+  assert.equal(git(checkout, 'rev-parse', 'HEAD'), head);
+  assert.equal(git(checkout, 'status', '--porcelain'), '?? draft.txt');
+});
+
+test('a goal\'s folder inside another repository gets a repository of its own', async t => {
+  const h = director(t);
+  const outer = repository(h.base, 'outer');
+  const outerHead = git(outer, 'rev-parse', 'HEAD');
+  const inside = join(outer, 'notes');
+  mkdirSync(inside);
+  writeFileSync(join(inside, 'a.txt'), 'a\n');
+
+  await newProject(h.root, { path: inside, kind: 'goal', wants: words });
+
+  assert.equal(git(inside, 'rev-parse', '--show-toplevel'), inside);
+  assert.deepEqual(files(inside), ['a.txt']);
+  assert.equal(git(outer, 'rev-parse', 'HEAD'), outerHead);
+});
+
+test('when git fails the add is refused with its reason, no project is written and no repository is left', async t => {
+  const h = director(t);
+  const folder = goalFolder(h, 'papers');
+  writeFileSync(join(folder, 'locked.txt'), 'a\n');
+  chmodSync(join(folder, 'locked.txt'), 0o000);
+
+  await assert.rejects(newProject(h.root, { path: folder, kind: 'goal', wants: words }), /could not start a git repository/);
+
+  assert.equal(existsSync(join(folder, '.git')), false);
+  assert.deepEqual(readProjects(h.root).map(({ slug }) => slug), []);
 });
 
 test('the command line takes a goal with its words on stdin, and a proposal can never carry a kind', async t => {
@@ -231,13 +308,15 @@ test('the command line takes a goal with its words on stdin, and a proposal can 
 
   const added = await run([words], 'add', 'project', folder, 'casual', '--goal');
   const bare = await run([], 'add', 'project', goalFolder(h, 'bare'), '--goal');
-  const plain = await run([], 'add', 'project', goalFolder(h, 'plain'));
+  const plainFolder = goalFolder(h, 'plain');
+  const plain = await run([], 'add', 'project', plainFolder);
   const proposed = await run([JSON.stringify({ name: 'sneaky', path: '/repos/sneaky', level: 'casual', kind: 'goal' })], 'propose');
 
   assert.deepEqual([added.code, added.json.kind, added.json.slug], [0, 'goal', 'papers']);
   assert.equal(readFileSync(paths(h.root, 'papers').directions, 'utf8'), `${words}\n`);
   assert.match(bare.json.message, /A goal needs your words/);
-  assert.match(plain.json.message, /Not a git repository/);
+  assert.equal(plain.json.slug, 'plain');
+  assert.equal(git(plainFolder, 'rev-list', '--count', 'HEAD'), '1');
   assert.equal(proposed.code, 0);
   assert.equal(readProject(h.root, 'sneaky').kind, undefined);
 });

@@ -616,15 +616,12 @@ test('add project takes a real repository by hand, at the level given', async t 
 
 test('add project refuses a folder that cannot be worked on, and never replaces a project', async t => {
   const h = owned(t);
-  const plain = join(h.base, 'plain');
-  mkdirSync(plain);
   mkdirSync(join(h.base, 'other'));
   const elsewhere = repository(join(h.base, 'other'), 'api');
   const checkout = repository(h.base, 'api');
   await success(h.root, 'add', 'project', checkout);
 
   assert.match((await failure(h.root, 'add', 'project', join(h.base, 'missing'))).message, /Not a folder/);
-  assert.match((await failure(h.root, 'add', 'project', plain)).message, /Not a git repository/);
   assert.match((await failure(h.root, 'add', 'project', elsewhere)).message, /already/);
   assert.match((await failure(h.root, 'add', 'project', checkout, 'huge')).message, /level must be one of/);
   assert.deepEqual(readProjects(h.root).map(({ path }) => path), [checkout]);

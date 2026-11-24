@@ -650,7 +650,7 @@ export const proposedProjects = root => readProjects(root).filter(project => pro
 
 export const chosenProjects = root => readProjects(root).filter(project => project.state === 'chosen');
 
-function assertLevel(level) {
+export function assertLevel(level) {
   if (!levels[level]) throw Error(`level must be one of: ${Object.keys(levels).join(', ')}`);
 }
 
