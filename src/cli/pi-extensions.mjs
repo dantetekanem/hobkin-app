@@ -12,9 +12,12 @@ const LEFT_OUT = ['pi-emote'];
 /**
  * The main chat compacts by hobkin's rule and keeps hobkin's memory. One package holds compaction off until the window is nearly full, which let
  * the chat reach 420K tokens and lose its own past, and one adds a second memory beside hobkin's. The scheduler gave the main agent timers of its
- * own beside hobkin's routines, and posted what they found as if the user had typed it. All three stay installed and in every other run.
+ * own beside hobkin's routines, and posted what they found as if the user had typed it. All three stay installed and in every other run, but
+ * that a run given hobkin's schedules leaves the scheduler out, and one given hobkin's memories leaves the memory out (`LEFT_OUT_WITH_MEMORIES`).
  */
 export const LEFT_OUT_OF_THE_MAIN_CHAT = ['pi-cache-compact-preserved-messages', 'pi-memory', 'pi-scheduler'];
+/** A run that reads hobkin's memories has one memory, hobkin's: the Pi memory package stays out of it (057-shared-memory). */
+export const LEFT_OUT_WITH_MEMORIES = Object.freeze(['pi-memory']);
 
 const keptWithout = names => ({ enabled, path }) => enabled && !path.split(sep).some(part => names.includes(part));
 

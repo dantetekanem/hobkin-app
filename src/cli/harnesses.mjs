@@ -4,7 +4,7 @@ import { isAbsolute } from 'node:path';
 import { efforts, validateBinding } from './schedules.mjs';
 import { piCommand, piEnvironment } from './launcher.mjs';
 import { keptEffort } from './model-settings.mjs';
-import { extensionArguments, extensionPaths } from './pi-extensions.mjs';
+import { extensionArguments, extensionPaths, LEFT_OUT_WITH_MEMORIES } from './pi-extensions.mjs';
 import { clean, startRpcProcess } from './rpc-process.mjs';
 import { createTurnMetrics } from './turn-metrics.mjs';
 import { BRIDGE, serveBridge } from './bridge.mjs';
@@ -145,7 +145,8 @@ export const namingExtensions = run => async (request, options) => {
   const asked = Date.now();
   const schedules = request.schedules === true;
   const memories = Object.hasOwn(MEMORY_EXTENSIONS, request.memories ?? '') ? MEMORY_EXTENSIONS[request.memories] : null;
-  const extensions = [...await extensionPaths(request.cwd, { leaveOut: schedules ? ['pi-scheduler'] : [] }), codeToolGuardExtension,
+  const leaveOut = [...(schedules ? ['pi-scheduler'] : []), ...(memories ? LEFT_OUT_WITH_MEMORIES : [])];
+  const extensions = [...await extensionPaths(request.cwd, { leaveOut }), codeToolGuardExtension,
     ...(Number.isInteger(request.waits) ? [waitExtension] : []), ...(schedules ? [scheduleExtension] : []), ...(memories ? [memories] : [])];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
   const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };

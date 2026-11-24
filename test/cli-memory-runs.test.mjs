@@ -227,3 +227,28 @@ test('a hobkin session run gets the right-now list and the shared index, recalls
   assert.deepEqual(inboxToTell(h.root, NOW).map(entry => [entry.kind, entry.from]), [['suggestion', 'Ship 412']]);
   h.calls[0].end.resolve({ status: 'completed', text: 'Useful: done.', cost: null });
 });
+
+test("a run that gets hobkin's memory leaves out the Pi memory extension, so it has one memory, and any other run keeps it", async t => {
+  const agentDir = mkdtempSync(join(tmpdir(), 'hobkin-agent-'));
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  process.env.PI_CODING_AGENT_DIR = agentDir;
+  t.after(() => {
+    if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+    else process.env.PI_CODING_AGENT_DIR = previous;
+    rmSync(agentDir, { recursive: true, force: true });
+  });
+  mkdirSync(join(agentDir, 'extensions/pi-memory'), { recursive: true });
+  writeFileSync(join(agentDir, 'extensions/pi-memory/index.ts'), 'export default function () {}\n');
+  writeFileSync(join(agentDir, 'extensions/own.ts'), 'export default function () {}\n');
+  const started = [];
+  const run = namingExtensions(async request => { started.push(request.extensions); });
+  await run(job(t, { memories: 'run' }));
+  await run(job(t, { memories: 'keeper', purpose: 'durable' }));
+  await run(job(t));
+  const [given, keeper, other] = started;
+  for (const extensions of [given, keeper]) {
+    assert.equal(extensions.some(path => path.includes('pi-memory')), false);
+    assert.equal(extensions.some(path => path.endsWith('own.ts')), true, 'the user\'s own extensions stay');
+  }
+  assert.equal(other.some(path => path.includes('pi-memory')), true);
+});
