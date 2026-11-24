@@ -11,7 +11,7 @@ import { changeHolds } from './patterns.mjs';
 import { changeModels, scoresHoldAt, specName } from './proofs.mjs';
 import { landingList, weighedRows } from './reads.mjs';
 import { readMode, readProject, retryItem, updateItem } from './store.mjs';
-import { holdProject, prepareProjects, readinessOf, readYolo } from './yolo.mjs';
+import { holdProject, prepareProjects, readinessOf, readYolo, yoloOnProject } from './yolo.mjs';
 
 /**
  * The one place a change merges with no yes from the user. It runs after the director's own survey and returns at once while YOLO mode is off.
@@ -65,8 +65,10 @@ function readJsonLines(file) {
  * look found that it touches with no model naming those files (`unmodeledIn`). Scores given before commits that changed only models still count.
  * `leftOut` is why the landing list leaves it out, in that list's words, when it does.
  */
-export function whyItAsks({ yolo, project, readiness, landable, leftOut = null, row, item, unit = {}, models = [], unmodeled = [] }) {
+export function whyItAsks({ yolo, on, project, readiness, landable, leftOut = null, row, item, unit = {}, models = [], unmodeled = [] }) {
   if (!yolo.on) return 'YOLO mode is off';
+  // `on` is the project's own switch.
+  if (on === false) return 'YOLO mode is off on its project';
   if (project?.paused) return 'its project is paused';
   if (!readiness.ready) return 'its project is not ready for YOLO mode';
   if (!landable) return leftOut ?? 'the last survey did not list it to land, and hobkin work sync reads it again';
@@ -216,6 +218,7 @@ export function askedOf(root, { yolo, landing, row, item, unit }) {
   const key = `${row.slug}:${row.item}`;
   const asked = {
     yolo,
+    on: yoloOnProject(root, row.slug),
     project: readProject(root, row.slug),
     readiness: readinessOf(root, row.slug),
     landable: landing.get(key) === null,

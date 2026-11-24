@@ -30,7 +30,7 @@ import { readWatch } from './watcher.mjs';
 import { recordAfterDeploy } from './yolo-pass.mjs';
 import { writeYoloReports, yoloStatus } from './yolo-report.mjs';
 import { openReadinessPulls, partSaid, partWords, RECORDED } from './yolo-parts.mjs';
-import { mainModels, readinessOf, recordReadiness, yoloView } from './yolo.mjs';
+import { mainModels, readinessOf, recordReadiness, yoloOnProject, yoloView } from './yolo.mjs';
 
 const HELP = `Usage: hobkin work [command] [--home folder]. With no command, the full status.
 Read, as JSON, with nothing running:
@@ -135,12 +135,15 @@ async function yoloCommand(root, [reference, change], input) {
     writeYoloReports(root, { slug: project.slug });
     return reply(line, { regressed });
   }
-  if (!report.trim()) return readinessOf(root, project.slug);
+  // `on` is the project's own switch, which only the user sets, in the window.
+  const on = yoloOnProject(root, project.slug);
+  if (!report.trim()) return { ...readinessOf(root, project.slug), on };
 
   recordReadiness(root, project.slug, JSON.parse(report));
   await openReadinessPulls(root, { slug: project.slug, lastTry: false });
   const { ready, needs, parts } = readinessOf(root, project.slug);
-  const bar = ready ? 'YOLO mode can run on it.' : `YOLO mode waits on: ${needs.join(' ')}`;
+  const off = on ? '' : ' YOLO mode is off on it, so its changes wait for the user until they turn it on there.';
+  const bar = `${ready ? 'YOLO mode can run on it.' : `YOLO mode waits on: ${needs.join(' ')}`}${off}`;
   const each = RECORDED.map(name => `${partWords[name]}: ${partSaid(parts[name])}`).join('; ');
   return reply(`Recorded the readiness of ${nameOf(project)}. ${bar} Each part: ${each}.`, { ready, needs, parts });
 }

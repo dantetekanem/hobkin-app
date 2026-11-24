@@ -181,12 +181,12 @@ export function yoloStatus(root, now = Date.now()) {
 
 /**
  * Writes each project's report again where its words changed, or only `slug`'s, and answers what it wrote. Nothing is written while YOLO mode is
- * off. Called after the owner's pass and after a deploy's reading, never on a timer of its own.
+ * off, or for a project it is off on. Called after the owner's pass and after a deploy's reading, never on a timer of its own.
  */
 export function writeYoloReports(root, { slug = null, now = Date.now() } = {}) {
   const yolo = readYolo(root);
   if (!yolo.on) return [];
-  const projects = yoloView(root).projects.filter(project => !slug || project.slug === slug);
+  const projects = yoloView(root).projects.filter(project => project.on && (!slug || project.slug === slug));
   if (!projects.length) return [];
 
   const before = readIndex(root);

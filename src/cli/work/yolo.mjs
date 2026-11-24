@@ -5,7 +5,7 @@ import { readMachines } from './machines.mjs';
 import { nameOf } from './names.mjs';
 import { machinesLookDue } from './plan.mjs';
 import { mainFacts, readRuns, specName } from './proofs.mjs';
-import { chosenProjects, fileItem, ownerView, paths, pickNow, readItems, readJson, readKeptJson, readMode, runnableStates, updateItem, workName, writeMode } from './store.mjs';
+import { chosenProjects, fileItem, ownerView, paths, pickNow, putBackInQueue, readItems, readJson, readKeptJson, readMode, runnableStates, skipInQueue, updateItem, workName, writeMode } from './store.mjs';
 import { BRANCH_PREFIX } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { fileParts, needOf, PARTS, partOf, partsOf, partWords, READY_KEY, RECORDED, WAITS_FOR_A_YES } from './yolo-parts.mjs';
@@ -50,6 +50,25 @@ export function readYolo(root) {
 const readinessFile = (root, slug) => join(paths(root, slug).directory, 'yolo.json');
 const readinessItem = (root, slug) => readItems(root, slug).find(({ key }) => key === READY_KEY) ?? null;
 
+// Each project's own switch, as the window set it, or null in a home where no switch was set yet.
+const projectSwitches = ({ yoloProjects }) => (yoloProjects && typeof yoloProjects === 'object' && !Array.isArray(yoloProjects) ? yoloProjects : null);
+
+/**
+ * Whether YOLO mode works on this project, by the project's own switch, which only the window sets. The main switch still decides first, and
+ * this says nothing about it. A home where no project's switch was set yet keeps what it had: with YOLO mode off, every project, and with it
+ * on, each project it took on, which is each one its readiness work was filed on. Once any switch is set, they are all written down, so a
+ * project chosen after that starts off, and only the user turns it on.
+ */
+export function yoloOnProject(root, slug, mode = readMode(root)) {
+  const set = projectSwitches(mode);
+  if (set) return set[slug] === true;
+  return mode.yolo?.on === true ? Boolean(readinessItem(root, slug)) : true;
+}
+
+// Every chosen project's switch as it stands now, so writing one, or flipping the main switch, changes no other project.
+const settledSwitches = (root, mode) => projectSwitches(mode)
+  ?? Object.fromEntries(chosenProjects(root).map(({ slug }) => [slug, yoloOnProject(root, slug, mode)]));
+
 function fileReadiness(root, project, now) {
   const readiness = {
     key: READY_KEY,
@@ -62,10 +81,11 @@ function fileReadiness(root, project, now) {
   return fileItem(root, project.slug, readiness, now);
 }
 
-/** Each chosen project gets its readiness work once, as a feature in the queue. It answers what it filed. */
+/** Each chosen project YOLO mode is on for gets its readiness work once, as a feature in the queue. It answers what it filed. */
 export function prepareProjects(root, now = Date.now()) {
+  const mode = readMode(root);
   return chosenProjects(root).flatMap(project => {
-    if (readinessItem(root, project.slug)) return [];
+    if (!yoloOnProject(root, project.slug, mode) || readinessItem(root, project.slug)) return [];
     const { id, title } = fileReadiness(root, project, now);
     return [{ slug: project.slug, id, title }];
   });
@@ -86,6 +106,7 @@ function freshBranch(item, now) {
 export function runReadiness(root, slug, now = Date.now()) {
   const project = chosenProjects(root).find(chosen => chosen.slug === slug);
   if (!project) throw Error(`${slug} is not a project work mode works on.`);
+  if (!yoloOnProject(root, slug)) throw Error(`YOLO mode is off on ${nameOf(project)}, so its readiness is not run. Turn it on there first.`);
   const known = readinessItem(root, slug);
   if (WAITS_FOR_A_YES.includes(known?.state)) throw Error(`The readiness work on ${nameOf(project)} waits for your yes on its branch. Merge it or say no to it first.`);
 
@@ -113,12 +134,33 @@ export function runReadiness(root, slug, now = Date.now()) {
  * merges nothing. A value left out keeps what it was.
  */
 export function setYolo(root, { on, rate } = {}, now = Date.now()) {
+  const mode = readMode(root);
   const before = readYolo(root);
   const next = { on: on ?? before.on, rate: rate ?? before.rate };
   if (typeof next.on !== 'boolean') throw Error('YOLO mode is on or off.');
   if (!isRate(next.rate)) throw Error(`The lowest general rate YOLO mode accepts is a whole number from ${LOWEST_RATE} to ${HIGHEST_RATE}.`);
-  writeMode(root, { yolo: next });
+  // A home with no project switches yet reads them through the main switch, so flipping it writes each project's down first.
+  const flipped = next.on !== before.on;
+  writeMode(root, { yolo: next, ...(flipped ? { yoloProjects: settledSwitches(root, mode) } : {}) });
   return { ...next, filed: next.on ? prepareProjects(root, now) : [] };
+}
+
+/**
+ * The user's word on YOLO mode for one project, from the window alone, as with the main switch. Every other project keeps its switch. Off, its
+ * readiness work that has not started is set aside in the queue, so YOLO mode makes nothing ready there, and on puts it back, and files it
+ * while YOLO mode is on. Nothing running is stopped, and nothing merges.
+ */
+export function setYoloProject(root, slug, on, now = Date.now()) {
+  if (typeof on !== 'boolean') throw Error('YOLO mode on a project is on or off.');
+  if (!chosenProjects(root).some(chosen => chosen.slug === slug)) throw Error(`${slug} is not a project work mode works on.`);
+  writeMode(root, { yoloProjects: { ...settledSwitches(root, readMode(root)), [slug]: on } });
+
+  const item = readinessItem(root, slug);
+  const key = item && `item:${slug}:${item.id}`;
+  if (!on && item && ['open', 'stuck'].includes(item.state)) skipInQueue(root, key);
+  if (on && key && readMode(root).queueSkipped.includes(key)) putBackInQueue(root, key);
+  const filed = on && readYolo(root).on ? prepareProjects(root, now).filter(each => each.slug === slug) : [];
+  return { slug, on, filed };
 }
 
 /**
@@ -202,10 +244,11 @@ export function readinessOf(root, slug) {
 }
 
 /**
- * Whether a finished branch on this project gets its review with no one asking: the user turned reviews on, or YOLO mode is on and the project
- * is ready, since nothing merges by itself without a review's scores.
+ * Whether a finished branch on this project gets its review with no one asking: the user turned reviews on, or YOLO mode is on, on this project
+ * too, and the project is ready, since nothing merges by itself without a review's scores.
  */
-export const reviewsByItself = (root, slug) => readMode(root).reviewOnFinish === true || (readYolo(root).on && readinessOf(root, slug).ready);
+export const reviewsByItself = (root, slug) => readMode(root).reviewOnFinish === true
+  || (readYolo(root).on && yoloOnProject(root, slug) && readinessOf(root, slug).ready);
 
 /** Where a project's readiness work stands: none filed, queued, running, waiting for the user's yes, landed, or closed without landing. */
 function workOf(item, running) {
@@ -219,10 +262,11 @@ function workOf(item, running) {
 /**
  * YOLO mode as the window and Home read it: the switch, the rate, how many projects are ready, what holds each of the others back, every part of
  * each project as it stands with its PR or action item, where each project's readiness work stands and its item, so the window can offer the yes
- * to its branch, when its readiness was last recorded, and what hobkin's runs say of its models on the default branch.
+ * to its branch, when its readiness was last recorded, what hobkin's runs say of its models on the default branch, and its own switch as `on`.
  */
 export function yoloView(root) {
   const { running } = ownerView(root);
+  const mode = readMode(root);
   const projects = chosenProjects(root).map(project => {
     const { ready, needs, parts, at } = readinessOf(root, project.slug);
     const runs = running.filter(run => run.slug === project.slug);
@@ -230,7 +274,8 @@ export function yoloView(root) {
     const work = workOf(item, runs);
     const models = mainModels(root, project.slug);
     const each = PARTS.map(name => ({ name, label: partWords[name], ...parts[name] }));
-    return { slug: project.slug, name: nameOf(project), ready, needs, parts: each, work, item: item?.id ?? null, checkedAt: at, ...(models.length ? { models } : {}) };
+    const on = yoloOnProject(root, project.slug, mode);
+    return { slug: project.slug, name: nameOf(project), on, ready, needs, parts: each, work, item: item?.id ?? null, checkedAt: at, ...(models.length ? { models } : {}) };
   });
   return { ...readYolo(root), lowest: LOWEST_RATE, highest: HIGHEST_RATE, ready: projects.filter(({ ready }) => ready).length, projects };
 }
