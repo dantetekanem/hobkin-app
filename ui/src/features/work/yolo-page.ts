@@ -317,7 +317,7 @@ function firstChange(changes: readonly YoloChange[]): YoloChange | undefined {
 const readinessLabel = ({ action }: ReadinessRow) => (action === 'Check again' ? 'Check readiness' : action)
 
 /** The press that sets a part up: its Action Item, its PR, its branch's card on Work, or readiness itself to confirm a step or redo it. */
-function partPress(project: YoloProject, part: YoloPart, readiness: ReadinessRow): VerdictAction | null {
+export function partPress(project: YoloProject, part: YoloPart, readiness: ReadinessRow): VerdictAction | null {
   if (part.state === 'user' && part.action) return { label: 'Answer item', press: { do: 'action', id: part.action } }
   if (part.pr) return { label: 'Open PR', press: { do: 'pr', url: part.pr } }
   if (part.state === 'pr' && part.item) return { label: 'Open on Work', press: { do: 'work', key: `${project.slug}:${part.item}` } }
