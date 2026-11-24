@@ -59,12 +59,26 @@ The user, 2026-11-23: "hobkin needs a custom memory system to remember things th
 
 ## Proof
 
+- A1. In hobkin, `test/cli-memories.test.mjs` › "an add is refused for a name in use, for a near double naming the other, for what looks like a secret, and for bad fields" and › "every change is undone each way, and an undo is refused once the memory changed since"
+- A2. In hobkin, `test/cli-memories.test.mjs` › "the index lists by kind in order, newest change first, leaves out a past one, and over its cap says how many more"
+- A3. In hobkin, `test/cli-memories.test.mjs` › "recall finds by name, by kind and by words, every word matching, the name counting most, and says what is past"
+- A4. In hobkin, `test/cli-kept-prompt.test.mjs` › "a memory added mid-conversation reaches the main agent as a note and the prompt stays as written", and the tool lists in `test/cli-hobkin-extension.test.mjs`, `test/cli-main-session-child.test.mjs` and `test/persona-rpc.test.mjs`
+- A5. In hobkin, `test/cli-memory-durables.test.mjs` › "a durable hobkin on Claude Code reads and saves with hobkin memory in its turn, private ones too, and its token names it only while the turn runs"
+- A6. In hobkin, `test/cli-memory-runs.test.mjs` › "a hobkin session run gets the right-now list and the shared index, recalls no private memory, and its suggestion carries its title"; `test/cli-owned-lifecycle-integration.test.mjs` › "helpers get the index of shared memories and never a private one, and none when there are no memories"
+- A7. In hobkin, `test/cli-inbox.test.mjs` › "hobkin remember saves a memory at once, with where it came from, and the main agent still hears it once"
+- A8. In hobkin, `test/cli-memory-runs.test.mjs` › "a run's recall and suggestion are served over its own pipe as hobkin knows the run, never with a private memory"
+- A9. In hobkin, `test/cli-memory-runs.test.mjs` › "a run that gets hobkin's memory leaves out the Pi memory extension, so it has one memory, and any other run keeps it"
+- A10. `host/test/memories-runtime.test.ts` › "the window's add, change, forget and undo go through hobkin's runtime as the user's own, from the window"; `host/test/memories.test.ts` › "a save or a forget of a memory that changed since it was read is refused in words that keep the draft, and the runtime is not asked", › "only the window changes memories: hobkin's own client tool lists and runs memory.list alone" and › "a runtime without memories, or one that cannot load them, lists none with a line the page shows and refuses every change in the same words"; `shared/test/memory-protocol.test.ts` › "words are cut to the lengths the notes give, a cut never splits a character, and a fingerprint or an id is never cut"; `host/test/backup.test.ts` › "a backup holds hobkin's own records, and leaves out working copies, artifacts, run transcripts and indexes"
+- A11. `ui/test/memory-store.test.ts` › "a save the host refuses because the memory changed meanwhile keeps the draft and says why in the row" and › "forget turns the row into a forgotten line in place, and Undo brings the memory back"; `ui/test/memory-groups.test.ts` › "a search needs every word somewhere in the name, the description or the text, and the name counts most"; check: still renders of the page, a row being edited, a refused save, a forgotten row and the empty page, light and dark (2026-11-23), then the live window.
+- A12. `ui/test/chat-memory-line.test.ts` › "a line's Undo sends memory.undo once, and the line then says it was undone" and › "an older host's line, or one whose note is broken, shows as any other line, with no Undo"; `host/test/memories-wire.test.ts` › "a quiet line's note about a memory reaches the window in its shape"
+- A13. `ui/test/memory-store.test.ts` › "with no host the sample holds memories of every kind, and its changes work on it in memory"
+
 ## Steps
 
-- [ ] S1 (A1, A2, A3). Runtime: the store, the index and the search.
-- [ ] S2 (A4, A5, A6, A7, A8, A9). Runtime: the tools and the command, and the index in every agent's prompt.
-- [ ] S3 (A10). Host and protocol: the five commands, the backup, the chat line's note.
-- [ ] S4 (A11, A12, A13). Window: the Memory page and the chat line.
+- [x] S1 (A1, A2, A3). Runtime: the store, the index and the search. hobkin f9fe0df, and f80688e for what the host calls (`memory-window.mjs`). A home with no `memories` folder reads as none and gets no folder.
+- [x] S2 (A4, A5, A6, A7, A8, A9). Runtime: the tools and the command, and the index in every agent's prompt. hobkin 53e026f, f578a14, a115159, e76cce7, f37398f, b7d65b9, 0db08d7, 303a6f2, cb119cc, 562e1c0. Tested with fakes and temporary homes: no model was called, so whether an agent keeps to the rules for what is worth a memory is not known. With 30 memories the index is 3,516 bytes. Beside the index a run with memories carries about 2.7 KB of tool definitions, the main chat about 3.4 KB of them and 2.3 KB of rules, and the background directions grew about 750 bytes for every run. The main chat gets its two tools only when its Pi child restarts. `hobkin remember` always saves as about the user.
+- [x] S3 (A10). Host and protocol: the five commands, the backup, the chat line's note. 7225de1, e818c8b, 64ff1da, f5cf3f9, b20b112, 8f4be32. A hobkin without the memory module lists none and says to restart the app. What a run on Claude Code needs from the host is being added.
+- [x] S4 (A11, A12, A13). Window: the Memory page and the chat line. 630fa1d, e955082, 4575367, 7722df1, 4386e6d. Seen only as still renders with sample memories: not in the live window, and not with a real memory. The chat line reads See, then Undo, so See keeps its place when Undo turns into its result.
 
 ## Open questions
 
