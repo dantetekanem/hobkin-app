@@ -48,6 +48,26 @@ test('a change that waited two days is taken next', () => {
   assert.equal(line.waits.get('change:shop:c3')?.ahead, 3)
 })
 
+test("on a first look at twenty old changes three are built: the one that waited longest and the first two in Work's order", () => {
+  // Every change finished days ago; c10 longest ago.
+  const changes = finished(20, (index) => ({ at: new Date(NOW - (index === 9 ? 200 : 60 + index) * HOUR).toISOString() }))
+
+  const line = lineOf(changes, { now: NOW })
+
+  assert.deepEqual([...line.current], ['change:shop:c10', 'change:shop:c1', 'change:shop:c2'])
+  assert.deepEqual(line.waits.get('change:shop:c3'), { ahead: 3, why: 'Waits its turn: 3 ahead in Shop.' })
+})
+
+test('four P0 changes: three are built and the fourth waits its turn first in line', () => {
+  const changes = finished(6, (index) => (index < 4 ? { grade: 'P0' } : {}))
+
+  const line = lineOf(changes, { now: NOW })
+
+  assert.deepEqual([...line.current], ['change:shop:c1', 'change:shop:c2', 'change:shop:c3'])
+  assert.deepEqual(line.waits.get('change:shop:c4'), { ahead: 3, why: 'Waits its turn: 3 ahead in Shop.' })
+  assert.equal(line.waits.get('change:shop:c5')?.ahead, 4)
+})
+
 test('the number kept current is the workload’s when it is a whole number, else three', () => {
   assert.equal(lineOf(finished(6), { now: NOW, keep: 5 }).current.size, 5)
   for (const keep of [0, -1, 2.5, Number.NaN]) assert.equal(lineOf(finished(6), { now: NOW, keep }).current.size, 3, String(keep))

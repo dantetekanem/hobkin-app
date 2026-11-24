@@ -1,8 +1,9 @@
 /**
  * The line of each repository's reviews (spec 058): which finished changes the background keeps reviewed at the commit
  * they are at, and, for each other one, how many are ahead of it and why it waits. A repository keeps a few current,
- * three unless the workload says otherwise. The line is Work's order, with P0 work always taken and a change that has
- * waited two days taken next, so none waits for ever. A change that conflicts, is being brought up to date to merge, or
+ * three unless the workload says otherwise, and never more. The line is Work's order with P0 work first; of its places,
+ * at most one goes to the change that has waited longest past two days, so none waits for ever and a home full of old
+ * changes still builds only its few. A change that conflicts, is being brought up to date to merge, or
  * that an agent works on again is not in the line, and says why. What the user asks for is not in here at all: it is
  * always built, and pushes nothing out. Pure, and worked out again from what is there on every look, so a host that
  * reloads its code loses nothing.
@@ -70,14 +71,14 @@ export function lineOf(changes: readonly LineChange[], { keep = KEPT_CURRENT, no
       else inLine.push(change)
     }
     const urgent = inLine.filter((change) => change.grade === 'P0')
-    const old = inLine
+    // The one that waited longest past two days takes one place, the rest follow Work's order.
+    const longest = inLine
       .filter((change) => change.grade !== 'P0' && waitedTooLong(change, now))
-      .sort((a, b) => Date.parse(a.at!) - Date.parse(b.at!))
-    const rest = inLine.filter((change) => !urgent.includes(change) && !old.includes(change))
-    const ordered = [...urgent, ...old, ...rest]
-    const room = Math.max(urgent.length, kept)
+      .reduce<LineChange | undefined>((oldest, change) => (!oldest || Date.parse(change.at!) < Date.parse(oldest.at!) ? change : oldest), undefined)
+    const rest = inLine.filter((change) => !urgent.includes(change) && change !== longest)
+    const ordered = [...urgent, ...(longest ? [longest] : []), ...rest]
     ordered.forEach((change, ahead) => {
-      if (ahead < room) current.add(change.id)
+      if (ahead < kept) current.add(change.id)
       else waits.set(change.id, { ahead, why: `Waits its turn: ${ahead} ahead in ${change.name}.` })
     })
   }
