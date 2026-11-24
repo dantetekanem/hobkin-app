@@ -13,6 +13,11 @@ import { imagesProblem } from './paste-image.mjs';
 import { efforts, validateBinding } from './schedules.mjs';
 import { tierBinding, tierNames } from './tiers.mjs';
 import { turnFrom } from './turn-metrics.mjs';
+import { keptPrompt } from './prompt-parts.mjs';
+import { keepsMemories, MAIN_INDEX_BYTES, memorySnapshot } from './memories.mjs';
+import { memoryHandler } from './memory-tools.mjs';
+import { answerMemoryRequest, MEMORY_REQUESTS } from './memory-command.mjs';
+import { answerRequest, takeRequests } from './hobkin-tell.mjs';
 
 /**
  * Durable hobkins: the hobkins the user starts with Command+N in the window and talks to directly. Each is one record in
@@ -67,10 +72,17 @@ const clip = text => String(text ?? '').trim().slice(0, SAID_MAX);
 
 export { turnRunId };
 
-/** What a durable hobkin is told each turn: its own directions, the canvas skill, and its id for the canvas commands. */
-export function durableDirections(id) {
-  return `${prompt('durable').trim()}\n\n${canvasSkill().trim()}\n\nYour id is ${id}. Pass \`--hobkin ${id}\` to every \`hobkin canvas\` command, so it uses your own canvas.\n`;
+/**
+ * What a durable hobkin is told each turn: its own directions, the canvas skill, and its id for the canvas commands,
+ * then the index of hobkin's memories when there are any (057-shared-memory).
+ */
+export function durableDirections(id, { memories = '' } = {}) {
+  const own = `${prompt('durable').trim()}\n\n${canvasSkill().trim()}\n\nYour id is ${id}. Pass \`--hobkin ${id}\` to every \`hobkin canvas\` command, so it uses your own canvas.\n`;
+  return memories ? `${own}\n${memories}\n` : own;
 }
+
+// What a durable hobkin's memory tools say when no turn of it runs.
+const NOT_A_MEMORY_TURN = "Nothing was done: that is not a turn hobkin is running now. hobkin memory reads private memories and saves only from a durable hobkin's own turn, while it runs.";
 
 function message(text) {
   if (typeof text !== 'string' || !text.trim() || text.length > MESSAGE_MAX || Buffer.byteLength(text) > MAX_MESSAGE_BYTES) {
@@ -227,8 +239,26 @@ export class Hobkins {
    * `config` gives hobkin's configuration as it was opened; a turn reads the tiers fresh and falls back to it. `warms`
    * says the runner's harness takes a request to start a process ahead of its turn (`warm` below).
    */
-  constructor({ runtime, runner, root, config, now = Date.now, warms = false }) {
+  constructor({ runtime, runner, root, config, now = Date.now, warms = false, memoryKeeper }) {
     Object.assign(this, { runtime, runner, root, config, now, warms });
+    // What a hobkin's memory tools reach, as that hobkin (057-shared-memory). hobkin's own posts its changes in Chat.
+    this.memoryKeeper = memoryKeeper ?? (owner => memoryHandler(root, owner, { now: () => new Date(this.now()).getTime() }));
+    // Each hobkin's index of memories as its process was first started with it while hobkin runs, and what it was told since.
+    this.memoryPrompts = new Map();
+  }
+
+  /**
+   * A hobkin's index of memories, private ones too, kept as first written while hobkin runs: its process's start stays
+   * the same turn after turn, so a kept process is kept, and what changed since reaches it as a note with its next turn.
+   */
+  keptMemories(record) {
+    let kept = this.memoryPrompts.get(record.id);
+    if (!kept) {
+      const recall = record.engine?.kind === 'claude' ? 'hobkin memory' : 'hobkin_recall';
+      kept = keptPrompt({ memories: () => memorySnapshot(this.root, { private: true, maxBytes: MAIN_INDEX_BYTES, recall }) });
+      this.memoryPrompts.set(record.id, kept);
+    }
+    return kept;
   }
 
   at() { return new Date(this.now()).toISOString(); }
@@ -324,11 +354,13 @@ export class Hobkins {
       cwd: record.cwd,
       sessionFile: record.sessionFile,
       purpose: 'durable',
-      directions: durableDirections(record.id),
+      directions: durableDirections(record.id, { memories: this.keptMemories(record).memories() }),
       // The token says who the process is, and the home is where `hobkin tell` reaches hobkin.
       env: { [TURN_TOKEN]: this.tokenOf(record.id), [TURN_HOME]: this.root },
       // It keeps schedules for itself, which wake it with a turn or a message (056-agent-schedules).
       schedules: true,
+      // On Pi it reads and saves hobkin's memories with their tools, once the home keeps any (057-shared-memory).
+      ...(harness === 'pi' && keepsMemories(this.root) ? { memories: 'keeper' } : {}),
     };
   }
 
@@ -484,11 +516,16 @@ export class Hobkins {
         return { status: 'interrupted', noModel: true, error: 'The hobkin ended before this turn began.' };
       }
       mkdirSync(join(this.root, 'hobkins'), { recursive: true, mode: 0o700 });
+      const start = this.processStart(record, { harness, model, effort });
+      // What changed in hobkin's memories since its index was written goes ahead of the words, once (057-shared-memory).
+      const news = this.keptMemories(record).news();
+      news?.told();
+      // A schedule's wake is its own block already (`scheduleWakeBlock`).
+      const words = from && from.kind !== 'schedule' ? messageBlock(from, asked) : asked;
       return this.runner.runHarness({
-        ...this.processStart(record, { harness, model, effort }),
+        ...start,
         id: harnessId,
-        // A schedule's wake is its own block already (`scheduleWakeBlock`).
-        prompt: from && from.kind !== 'schedule' ? messageBlock(from, asked) : asked,
+        prompt: news ? `${news.text}${words}` : words,
         ...images,
         ...(resume ? { resume } : {}),
         ...(Object.keys(claude).length ? { claude } : {}),
@@ -545,6 +582,7 @@ export class Hobkins {
     if (ended.run) await this.runner.kill(ended.run, { source: 'user', reason: 'The user ended this hobkin.' });
     await this.ending.get(id);
     this.hobkinTokens.delete(id);
+    this.memoryPrompts.delete(id);
     await closeKept(sessionFile);
     try {
       if (readCanvases(this.root)[id]?.open) closeCanvas(this.root, id);
@@ -876,10 +914,36 @@ export class Hobkins {
     return { sent: true, to: sent.to, title: sent.title, note: `${arrives} Nothing waits for an answer: one, if it comes, starts a turn of yours.` };
   }
 
-  /** Each tick: what `hobkin tell` asked, then messages for durable hobkins that wait. Trouble costs this tick only. */
+  /**
+   * What `hobkin memory` asked from a turn's shell (057-shared-memory), each answered once as the hobkin its token
+   * names, with private memories, while that turn runs. The folder is looked in only once a command has made it.
+   */
+  takeMemoryRequests() {
+    if (!existsSync(join(this.root, 'runtime', MEMORY_REQUESTS))) return;
+    for (const { id, request } of takeRequests(this.root, MEMORY_REQUESTS)) {
+      let answer;
+      try {
+        const turn = typeof request?.token === 'string' ? this.tokens.get(request.token) : undefined;
+        const record = turn && this.records[turn.id];
+        if (!record || record.state === 'ended') throw Error(NOT_A_MEMORY_TURN);
+        const handler = this.memoryKeeper({ kind: 'hobkin', id: record.id, ...(record.title ? { title: record.title } : {}) });
+        answer = { ok: true, value: answerMemoryRequest(this.root, handler, request, { now: new Date(this.now()).getTime(), private: true }) };
+      } catch (error) {
+        answer = { ok: false, error: String(error?.message ?? error) };
+      }
+      try {
+        answerRequest(this.root, MEMORY_REQUESTS, id, answer);
+      } catch {
+        // The command then says hobkin did not answer.
+      }
+    }
+  }
+
+  /** Each tick: what `hobkin tell` and `hobkin memory` asked, then messages for durable hobkins that wait. Trouble costs this tick only. */
   async tick() {
     try {
       await this.takeTells();
+      this.takeMemoryRequests();
       await this.deliver();
     } catch {
       // Nothing is taken from the store before it is delivered, so the next tick looks again.

@@ -96,3 +96,14 @@ test('hobkin memory suggest files an entry in the inbox from the run that typed 
   await assert.rejects(runMemoryCommand(root, ['suggest'], { env: {}, input: Readable.from(['not json']) }), /one JSON object on standard input/);
   await assert.rejects(runMemoryCommand(root, ['suggest'], { env: { [TURN_TOKEN]: TOKEN }, input: json({ kind: 'user', description: 'X' }) }), /hobkin memory add/);
 });
+
+test('hobkin memory runs from the command line, takes its own flags and prints its words', async t => {
+  const { main } = await import('../src/cli/main.mjs');
+  const { initialize } = await import('../src/cli/config.mjs');
+  const root = home(t);
+  initialize(root, { cwd: root, now: '2026-01-01T00:00:00Z' });
+  const output = { text: '', write(chunk) { this.text += chunk; } };
+  await main(['memory', 'search', 'lisbon', '--kind', 'user', '--home', root], output, { env: {} });
+  assert.match(output.text, /^lives-in-lisbon \(about the user\): Lives in Lisbon\n/);
+  assert.doesNotMatch(output.text, /partner/);
+});

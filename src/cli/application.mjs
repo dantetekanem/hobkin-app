@@ -407,7 +407,9 @@ export class HobkinApplication {
           app.presentDecision();
         },
       });
-      app.hobkins = new Hobkins({ runtime: app.runtime, runner: app.runner, root: app.runtime.directory, config: () => app.config, now: app.now, warms });
+      app.hobkins = new Hobkins({ runtime: app.runtime, runner: app.runner, root: app.runtime.directory, config: () => app.config, now: app.now, warms,
+        // What a durable hobkin's `hobkin memory` reaches in its turn, as that hobkin (057-shared-memory).
+        memoryKeeper: owner => app.memoryKeeper(owner) });
       Object.assign(app, { askQuestion, showDone, showRow, presence });
       app.landOffers = new LandOffers({
         file: decision => fileDecision(app.runtime.directory, decision, app.now()),
