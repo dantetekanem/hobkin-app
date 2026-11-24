@@ -40,9 +40,10 @@ test('one yes merges every row in turn, here or on its host, each at the commit 
   const two = finished(h, 'Work two');
   const three = { ...finished(h, 'Work three', { state: 'pr', pr: 'https://example.com/pull/3' }), how: 'mergePr' };
   const asked = [];
+  // A host that merges what it is asked to, and says so with the merge commit when read after.
   const gh = async args => {
     asked.push(args);
-    return '';
+    return args[1] === 'view' ? JSON.stringify({ state: 'MERGED', mergedAt: '2026-06-01T12:00:00Z', mergeCommit: { oid: 'c'.repeat(40) } }) : '';
   };
 
   const answer = await mergeGroup(h.root, [one, two, three], { gh, now: NOW });

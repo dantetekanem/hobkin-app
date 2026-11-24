@@ -502,23 +502,28 @@ test('a PR merged from its card closes at once, as the survey closes one its hos
   assert.match(told.line, /^Merged the PR for "work 0" on api: https:\/\/example\.com\/pull\/7\.$/);
 });
 
-test('a PR its host cannot read back still closes on the merge, from what the last survey knew', async t => {
+test('a PR is recorded merged only once its host says it merged, with a merge commit: one it queued, set to merge later or cannot read back stays waiting', async t => {
   const h = workspace(t);
   branched(h.checkout, 'hobkin/7-fix', 'feature.txt', 'feature\n');
   const item = finished(h, 'hobkin/7-fix', { state: 'pr', pr: 'https://example.com/pull/7' });
   const head = tipOf(h, 'hobkin/7-fix');
-  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify([pull(7, { additions: 5, headRefOid: head })]), reviews: h.reviews });
-  const gh = async args => {
-    if (args[1] === 'view') throw Error('HTTP 502');
-    return '';
+  const opened = pull(7, { additions: 5, headRefOid: head });
+  await surveyUnmerged(h.root, { now: NOW, gh: async () => JSON.stringify([opened]), reviews: h.reviews });
+  const answers = {
+    queued: () => JSON.stringify(opened),
+    'set to merge later': () => JSON.stringify({ ...opened, autoMergeRequest: { enabledAt: '2026-06-01T12:00:00Z' } }),
+    'merged with no merge commit': () => JSON.stringify({ ...opened, state: 'MERGED', mergedAt: '2026-06-02T00:00:00Z' }),
+    unreadable: () => { throw Error('HTTP 502'); },
   };
 
-  await mergePullRequest(h.root, 'api', item.id, { head, gh, now: NOW + 1000 });
+  for (const [what, view] of Object.entries(answers)) {
+    // The merge call itself ends well each time, as gh does when it queues a pull request or turns auto-merge on.
+    const gh = async args => (args[1] === 'view' ? view() : '');
 
-  const { state, landed } = read(h, item);
-  assert.equal(state, 'merged');
-  assert.deepEqual([landed.sha, landed.at, landed.route], [head, new Date(NOW + 1000).toISOString(), 'remote']);
-  assert.deepEqual(landed.size, { additions: 5, deletions: 0, files: 1 });
+    await assert.rejects(mergePullRequest(h.root, 'api', item.id, { head, gh, now: NOW + 1000 }), /has not said it merged/, what);
+
+    assert.equal(read(h, item).state, 'pr', what);
+  }
 });
 
 test('a PR that does not merge says why and changes nothing', async t => {

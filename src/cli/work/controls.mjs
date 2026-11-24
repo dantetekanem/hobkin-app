@@ -525,9 +525,19 @@ function prOf(root, reference, id) {
   return { project, item };
 }
 
+/** Why a merge call that ended well left no merge behind: gh queues a PR or turns auto-merge on, and says nothing of it, on a branch that asks. */
+function notMergedYet(pull) {
+  if (!pull) return 'its host could not be read back';
+  if (pull.state === 'OPEN') return 'it is still open, put in a merge queue or set to merge once its checks pass';
+  if (pull.state === 'MERGED') return 'its host gives no merge commit';
+  return `it is ${String(pull.state).toLowerCase()}`;
+}
+
 /**
  * A PR lands on its host, and only on the user's word, so this is the one place hobkin asks its host to merge one. `head` is the commit the user
- * saw, so a PR that moved since is refused there. A merge that went through closes the item now, with what the host says of it.
+ * saw, so a PR that moved since is refused there. The item closes only once its host says the PR merged, with the merge commit. A call that
+ * ended well with the PR still open, queued or set to merge later, is refused with why, and carries `notMerged` and what the host said
+ * (`pull`), and the survey closes the item once its host says it merged.
  */
 export async function mergePullRequest(root, reference, id, { head = null, gh = ghWithin(MERGE_PR_TIMEOUT_MS), now = Date.now() } = {}) {
   const { project, item } = prOf(root, reference, id);
@@ -537,6 +547,10 @@ export async function mergePullRequest(root, reference, id, { head = null, gh = 
     throw Error(`"${item.title}" did not merge: ${firstLine(error.stderr || error.message)}`);
   });
   const pull = await pullNow(item.pr, repo, gh);
+  if (pull?.state !== 'MERGED' || !pull.mergeCommit?.oid) {
+    const why = `"${item.title}" was sent to its host to merge, and its host has not said it merged: ${notMergedYet(pull)}. hobkin marks it merged once its host says so.`;
+    throw Object.assign(Error(why), { notMerged: true, pull });
+  }
   closeMergedPull(root, project.slug, item, pull, now);
 
   const named = `the PR for "${item.title}" on ${nameOf(project)}`;

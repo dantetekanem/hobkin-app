@@ -138,7 +138,12 @@ test('a refreshed PR merges on its host at whatever head the refresh left', asyn
   refreshThenMerge(h.root, 'api', item.id, { now: NOW + 1000 });
 
   refreshEnds(h, item, { state: 'pr' });
-  const merged = await mergeRefreshed(h.root, { now: NOW + 3000, gh: async args => { calls.push(args); } });
+  // A host that merges what it is asked to, and says so with the merge commit when read after.
+  const gh = async args => {
+    calls.push(args);
+    return args[1] === 'view' ? JSON.stringify({ state: 'MERGED', mergedAt: '2026-06-01T12:00:00Z', mergeCommit: { oid: 'c'.repeat(40) } }) : '';
+  };
+  const merged = await mergeRefreshed(h.root, { now: NOW + 3000, gh });
 
   assert.equal(merged[0].ok, true);
   assert.deepEqual(calls[0], ['pr', 'merge', 'https://example.com/pull/8', '--merge']);

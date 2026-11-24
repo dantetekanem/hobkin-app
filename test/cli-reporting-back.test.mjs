@@ -450,6 +450,10 @@ test('what the user does from a card is said in Chat as a system line, and it st
   }
 });
 
+/** gh as a host that merges what it is asked to: the merge ends well, and a read after it says merged, with its merge commit. */
+const MERGED_VIEW = JSON.stringify({ state: 'MERGED', mergedAt: '2026-06-01T12:00:00Z', mergeCommit: { oid: 'c'.repeat(40) } });
+const mergingHost = async ([, verb]) => (verb === 'view' ? MERGED_VIEW : '');
+
 test('a PR merged from its card leaves Decisions at once, and Chat says which one with its link', async t => {
   const h = fixture(t);
   pile(h.root, 1);
@@ -459,7 +463,7 @@ test('a PR merged from its card leaves Decisions at once, and Chat says which on
   try {
     assert.equal(cards(await app.refresh()).length, 1);
 
-    await app.workAction('mergePr', 'api', id, { head: 'abc1234', gh: async () => '' });
+    await app.workAction('mergePr', 'api', id, { head: 'abc1234', gh: mergingHost });
     const view = await app.refresh();
 
     assert.deepEqual(cards(view), []);
@@ -477,7 +481,7 @@ test('the main agent hears what the user did from a card with the next message, 
   let app = await h.openApp();
   try {
     await app.workAction('done', 'api', first.id);
-    await app.workAction('mergePr', 'api', second.id, { gh: async () => '' });
+    await app.workAction('mergePr', 'api', second.id, { gh: mergingHost });
     const sent = t.mock.method(app.runtime, 'send');
 
     await app.send('what did I just do?');
@@ -685,7 +689,7 @@ test('a group answered at once says each row in Chat and one line that sums it u
   });
   const gh = async ([, verb, url]) => {
     if (verb === 'merge' && url.endsWith('/1')) throw Object.assign(Error('failed'), { stderr: 'Head branch was modified.' });
-    return '';
+    return mergingHost([, verb]);
   };
   const app = await h.openApp();
   try {
