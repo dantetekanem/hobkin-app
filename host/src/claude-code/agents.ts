@@ -14,6 +14,8 @@ export interface ClaudeCodeHooks {
   ask: Ask
   /** Told the harness id of each run sent to Claude Code (`ClaudeRuns.routed`). */
   onClaude?: (harnessId: string) => void
+  /** The environment a run on Claude Code keeps its schedules with, from hobkin's runtime (056-agent-schedules). */
+  scheduling?: HarnessRoute['scheduling']
 }
 
 /**
@@ -37,5 +39,6 @@ export async function agentHarness(hooks: ClaudeCodeHooks, runFor: HarnessRoute[
     runFor,
     directions: claudeDirections(harnesses.workDirections, background),
     ...(hooks.onClaude ? { onClaude: hooks.onClaude } : {}),
+    ...(hooks.scheduling ? { scheduling: hooks.scheduling } : {}),
   })
 }

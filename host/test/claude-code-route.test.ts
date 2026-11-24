@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import { CLAUDE_CODE_DEFAULTS, changeClaudeCode, type ClaudeCodeSettings } from '#shared/protocol/claude-code.ts'
 import type { ClaudeTiers } from '#shared/tiers/claude-code.ts'
 import type { TierId } from '#shared/tiers/tiers.ts'
-import { routeHarness, type ClaudeLaunch, type RunFacts } from '../src/claude-code/route.ts'
+import { scheduleDirections } from '../src/claude-code/directions.ts'
+import { routeHarness, type ClaudeLaunch, type HarnessRoute, type RunFacts } from '../src/claude-code/route.ts'
 
 interface Call {
   harness: 'pi' | 'claude'
@@ -219,4 +220,106 @@ test("a work run whose request names its tier goes by that tier, whatever its pr
   const older = router(settings, record, '/usr/local/bin/claude', levelSays)
   await older.run({ ...work, id: 'w1' }, {})
   assert.deepEqual(older.calls.map((call) => call.harness), ['pi'])
+})
+
+/** A router over fake harnesses whose runtime hands each run sent to Claude Code an environment for `hobkin schedule`. */
+function schedulingRouter(settings: ClaudeCodeSettings, scheduling: HarnessRoute['scheduling']) {
+  const calls: Call[] = []
+  const run = routeHarness({
+    pi: async (request, options) => {
+      calls.push({ harness: 'pi', request, options })
+      return { status: 'completed', via: 'pi' }
+    },
+    claude: async (request, options, launch) => {
+      calls.push({ harness: 'claude', request, options, launch })
+      return { status: 'completed', via: 'claude' }
+    },
+    settings: () => settings,
+    findClaude: () => '/usr/local/bin/claude',
+    runFor: async (harnessId) => ({ ...runs, d1: { scheduleId: 'hobkin.a1b2c3d4', title: 'Tests' } })[harnessId],
+    directions: (purpose) => `directions for ${purpose ?? 'a routine'}`,
+    ...(scheduling ? { scheduling } : {}),
+  })
+  return { run, calls }
+}
+
+const SCHEDULING = { HOBKIN_SCHEDULE_TOKEN: 'c'.repeat(32), HOBKIN_HOME: '/home/data' }
+const durableTurn = { id: 'd1', harness: 'claude', purpose: 'durable', cwd: '/tmp/project', prompt: 'Go.', directions: 'You are a durable hobkin.', env: { HOBKIN_TURN: 'a'.repeat(32), HOBKIN_HOME: '/home/data' }, sessionFile: '/tmp/d1.jsonl' }
+
+test('a session run on Claude Code gets its schedule token and home, and directions that say how to schedule', async () => {
+  const asked: unknown[][] = []
+  const scheduling = async (harnessId: string, options: { commands: boolean }) => (asked.push([harnessId, options]), SCHEDULING)
+  const { run, calls } = schedulingRouter(changeClaudeCode(CLAUDE_CODE_DEFAULTS, { enabled: true, permissions: 'all' }), scheduling)
+
+  await run(session, {})
+
+  const [call] = calls
+  assert.deepEqual(asked, [['s1', { commands: true }]], 'permissions "all" may schedule a command')
+  assert.equal(call!.launch?.env?.HOBKIN_SCHEDULE_TOKEN, SCHEDULING.HOBKIN_SCHEDULE_TOKEN)
+  assert.equal(call!.launch?.env?.HOBKIN_HOME, '/home/data')
+  assert.equal(call!.launch?.env?.PATH, process.env.PATH, 'with the rest of the host environment')
+  assert.equal(call!.launch?.directions, `directions for a routine\n\n${scheduleDirections({ durable: false, commands: true })}`)
+  assert.match(call!.launch!.directions, /hobkin schedule make/)
+  assert.match(call!.launch!.directions, /end when its turn ends/)
+  assert.doesNotMatch(call!.launch!.directions, /plain wakes only/)
+})
+
+test('a run whose permissions are not "all" asks for wakes only, and its directions say so', async () => {
+  for (const permissions of ['auto', 'ask', 'edits'] as const) {
+    const asked: unknown[][] = []
+    const scheduling = async (harnessId: string, options: { commands: boolean }) => (asked.push([harnessId, options]), SCHEDULING)
+    const { run, calls } = schedulingRouter(changeClaudeCode(CLAUDE_CODE_DEFAULTS, { enabled: true, permissions }), scheduling)
+
+    await run(session, {})
+
+    assert.deepEqual(asked, [['s1', { commands: false }]], permissions)
+    assert.match(calls[0]!.launch!.directions, /plain wakes only/, permissions)
+  }
+})
+
+test("a durable turn on Claude Code gets its schedule token beside its own, and is told a wake starts its next turn", async () => {
+  const asked: unknown[][] = []
+  const scheduling = async (harnessId: string, options: { commands: boolean }) => (asked.push([harnessId, options]), SCHEDULING)
+  const { run, calls } = schedulingRouter(CLAUDE_CODE_DEFAULTS, scheduling)
+
+  await run(durableTurn, {})
+
+  const { launch } = calls[0]!
+  assert.deepEqual(asked, [['d1', { commands: true }]], 'a durable turn runs with every permission')
+  assert.deepEqual([launch?.env?.HOBKIN_TURN, launch?.env?.HOBKIN_SCHEDULE_TOKEN, launch?.env?.HOBKIN_HOME], ['a'.repeat(32), SCHEDULING.HOBKIN_SCHEDULE_TOKEN, '/home/data'])
+  assert.equal(launch?.directions, `You are a durable hobkin.\n\n${scheduleDirections({ durable: true, commands: true })}`)
+  assert.match(launch!.directions, /wake starts your next turn/)
+})
+
+test('a runtime without schedules, one that keeps none for the run, or one that fails leaves the run on Claude Code as it was', async () => {
+  const settings = changeClaudeCode(CLAUDE_CODE_DEFAULTS, { enabled: true })
+  const before = schedulingRouter(settings, undefined)
+  await before.run(session, {})
+  await before.run(durableTurn, {})
+  const [sessionAsBefore, durableAsBefore] = before.calls.map((call) => call.launch)
+  assert.equal(sessionAsBefore && 'env' in sessionAsBefore, false, 'a session run gets no environment of its own, as before')
+
+  const answers: HarnessRoute['scheduling'][] = [
+    async () => null,
+    async () => ({ HOBKIN_SCHEDULE_TOKEN: 7 }),
+    async () => {
+      throw Error('the runtime broke')
+    },
+  ]
+  for (const scheduling of answers) {
+    const { run, calls } = schedulingRouter(settings, scheduling)
+    await run(session, {})
+    await run(durableTurn, {})
+    assert.deepEqual(calls.map((call) => call.launch), [sessionAsBefore, durableAsBefore])
+  }
+
+  // A run that stays on Pi never asks, nor does a Work run or a routine on Claude Code, which keep no schedules.
+  const asked: unknown[] = []
+  const onPi = schedulingRouter(CLAUDE_CODE_DEFAULTS, async (...args) => (asked.push(args), SCHEDULING))
+  await onPi.run(session, {})
+  const onClaude = schedulingRouter(settings, async (...args) => (asked.push(args), SCHEDULING))
+  await onClaude.run(work, {})
+  await onClaude.run(routine, {})
+  assert.deepEqual(onClaude.calls.map((call) => [call.harness, call.launch?.env]), [['claude', undefined], ['claude', undefined]])
+  assert.deepEqual(asked, [])
 })
