@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { appendFileSync, lstatSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { appendFileSync, closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { writePrivate } from './reports.mjs';
 import { SECRET_SHAPES } from './feedback/draft.mjs';
@@ -530,6 +530,45 @@ function written(root, name, source, isPrivate, now) {
 }
 
 /**
+ * A new memory's file, made whole beside it and then linked into place, which fails when another process made one of
+ * that name first: two adds of one name, from `hobkin remember` and the window say, never both answer saved.
+ */
+function createdOnce(root, name, source, isPrivate, now) {
+  ensureFolder(root, isPrivate);
+  const file = fileOf(root, name, isPrivate);
+  const temporary = `${file}.${randomUUID()}.tmp`;
+  try {
+    const fd = openSync(temporary, 'wx', 0o600);
+    try {
+      writeFileSync(fd, source);
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    linkSync(temporary, file);
+  } catch (error) {
+    if (error.code === 'EEXIST') refuse(takenMessage(name));
+    throw error;
+  } finally {
+    rmSync(temporary, { force: true });
+  }
+  return parse(name, source, { isPrivate, now });
+}
+
+/** Refused when the file is not what the change read a moment ago: another process changed it in between. */
+function stillAsRead(file, source) {
+  // A file that was never readable as a memory has nothing to compare; forgetting it is all that is done with it.
+  if (source === undefined) return;
+  let now;
+  try {
+    now = readFileSync(file, 'utf8');
+  } catch {
+    now = null;
+  }
+  if (now !== source) stale();
+}
+
+/**
  * Adds one memory. `actor` is who asks as hobkin knows them, `{ by, source, now, seesPrivate, unconfirmed }`: `by` is
  * the memory's author and `source` where it came from, with the user's own words. `unconfirmed` marks one nobody has
  * kept yet, which only readers of private memories read until it is kept (`keepMemory`). Refused, in plain words, for
@@ -555,7 +594,7 @@ export function addMemory(root, fields = {}, actor = {}) {
   const twin = nearDouble(memories, description);
   if (twin && twin.private && actor.seesPrivate === false) refuse('Nothing was saved: another memory already says nearly the same.');
   if (twin) refuse(`Nothing was saved: "${twin.name}" already says nearly the same ("${twin.description}"). Change that one instead, or say in the description what makes this one different.`);
-  const memory = written(root, name, body, isPrivate, now);
+  const memory = createdOnce(root, name, body, isPrivate, now);
   const change = logChange(root, { at: iso(now), by, name, did: 'added', before: null, after: body });
   clearForgotten(root, now);
   return { memory, change };
@@ -593,6 +632,7 @@ export function changeMemory(root, name, fields = {}, actor = {}) {
     unconfirmed: current.unconfirmed === true && !keeping,
   }, text);
   if (isPrivate !== found.isPrivate && lstatSync(fileOf(root, name, isPrivate), { throwIfNoEntry: false })) refuse(takenMessage(name));
+  stillAsRead(found.file, found.source);
   const memory = written(root, name, body, isPrivate, now);
   if (isPrivate !== found.isPrivate) rmSync(found.file, { force: true });
   const change = logChange(root, { at: iso(now), by, name, did: 'changed', before: found.source, after: body });
@@ -632,6 +672,7 @@ export function forgetMemory(root, name, actor = {}) {
   }
   mkdirSync(forgottenFolder(root), { recursive: true, mode: 0o700 });
   const kept = keptPath(root, name, now);
+  stillAsRead(found.file, found.source);
   renameSync(found.file, kept);
   const change = logChange(root, { at: iso(now), by, name, did: 'forgot', before: found.source ?? null, after: null, kept: kept.slice(folderOf(root).length + 1) });
   clearForgotten(root, now);
@@ -705,6 +746,7 @@ export function undoMemoryChange(root, id, actor = {}) {
     if (found?.source !== record.after || typeof record.before !== 'string') changedSince();
     const isPrivate = frontOf(record.before)?.meta.private === true;
     if (isPrivate !== found.isPrivate && lstatSync(fileOf(root, name, isPrivate), { throwIfNoEntry: false })) refuse(takenMessage(name));
+    stillAsRead(found.file, found.source);
     written(root, name, record.before, isPrivate, now);
     if (isPrivate !== found.isPrivate) rmSync(found.file, { force: true });
     const change = logChange(root, { at: iso(now), by, name, did: 'changed', before: found.source, after: record.before, undid: id });

@@ -361,3 +361,40 @@ test('a secret saved before it was refused leaves changes.jsonl and the inbox at
   assert.doesNotMatch(readFileSync(join(root, 'memories', 'changes.jsonl'), 'utf8'), /blue-otter-42/);
   assert.throws(() => undoMemoryChange(root, change, { by: { kind: 'user' }, now: NOW }), /looked like a secret, so hobkin kept no copy/);
 });
+
+test('eight processes adding the same name at once save it once, the other seven are refused as a name in use, and the one add can be undone', async t => {
+  const { spawn } = await import('node:child_process');
+  const root = home(t);
+  const store = new URL('../src/cli/memories.mjs', import.meta.url).href;
+  const at = Date.now() + 400;
+  const adding = index => new Promise((resolve, reject) => {
+    const program = `
+      const { addMemory } = await import(${JSON.stringify(store)});
+      while (Date.now() < ${at}) {}
+      try {
+        addMemory(${JSON.stringify(root)}, { name: 'race-name', kind: 'user', description: 'Written by process ${index} zq${index}' }, { by: { kind: 'user' } });
+        process.stdout.write('saved');
+      } catch (error) {
+        process.stdout.write(error.refused ? 'refused: ' + error.message : 'failed: ' + error.message);
+      }`;
+    const child = spawn(process.execPath, ['--input-type=module', '-e', program]);
+    let out = '';
+    child.stdout.on('data', chunk => { out += chunk; });
+    child.on('error', reject);
+    child.on('close', () => resolve(out));
+  });
+  const answers = await Promise.all(Array.from({ length: 8 }, (_, index) => adding(index)));
+  assert.equal(answers.filter(answer => answer === 'saved').length, 1, answers.join('\n'));
+  assert.ok(answers.filter(answer => answer !== 'saved').every(answer => /^refused: Nothing was saved: "race-name" is in use/.test(answer)), answers.join('\n'));
+  const added = readFileSync(join(root, 'memories', 'changes.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(line => line.did === 'added');
+  assert.equal(added.length, 1);
+  assert.equal(undoMemoryChange(root, added[0].id, { by: { kind: 'user' } }).did, 'forgot');
+});
+
+test('a file that is not a memory can still be forgotten, as the window does with a broken one', t => {
+  const root = home(t);
+  mkdirSync(join(root, 'memories'), { recursive: true });
+  writeFileSync(join(root, 'memories', 'huge.md'), 'x'.repeat(5000));
+  forgetMemory(root, 'huge', { by: { kind: 'user' }, now: NOW });
+  assert.equal(existsSync(join(root, 'memories', 'huge.md')), false);
+});
