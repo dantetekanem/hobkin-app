@@ -1,11 +1,10 @@
 import { motion, type Variants } from 'motion/react'
 import type { ReactNode } from 'react'
-import { spring, tween } from '@/lib/motion.ts'
+import { tween } from '@/lib/motion.ts'
 import { useStill } from './still.ts'
 
 /**
- * Pieces of a canvas screen that land one after another as the screen travels in, on the screen's own spring, so
- * they arrive with it and stop where they land.
+ * Pieces of a canvas screen that fade in one after another as the screen travels in, so they arrive with it.
  * They share the screen's own variant names (enter, center, exit), so the canvas drives them.
  *
  * They play when the screen mounts (Canvas gives every screen its own entrance). A piece that appears later,
@@ -13,16 +12,20 @@ import { useStill } from './still.ts'
  * a piece its own initial and animate instead.
  */
 
+/**
+ * The screen itself travels, left or right, and its pieces only fade in on it: nothing rises from below (the user,
+ * 2026-11-24, of coming back from hobkin's mind: "a little down to top move, i want only left/right").
+ */
 const rise: Variants = {
-  enter: { opacity: 0, transform: 'translateY(26px) scale(0.98)' },
-  center: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.push, opacity: tween.enter } },
+  enter: { opacity: 0, transform: 'translateY(0px) scale(1)' },
+  center: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: { duration: 0 }, opacity: tween.enter } },
   exit: { opacity: 0, transition: tween.exit },
 }
 
-/** The first, largest piece: it rises from further below than the rest. */
+/** The first, largest piece: it fades in as the rest do, and shrinks a little as it leaves. */
 const hero: Variants = {
-  enter: { opacity: 0, transform: 'translateY(64px) scale(0.96)' },
-  center: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.push, opacity: tween.enter } },
+  enter: { opacity: 0, transform: 'translateY(0px) scale(1)' },
+  center: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: { duration: 0 }, opacity: tween.enter } },
   exit: { opacity: 0, transform: 'translateY(0px) scale(0.86)', transition: tween.exit },
 }
 
