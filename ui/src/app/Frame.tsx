@@ -17,6 +17,7 @@ import { Divider } from './Divider.tsx'
 import { useWantedOnce } from './first-use.ts'
 import { KeyHints } from './KeyHints.tsx'
 import { useFrameKeys } from './keys.ts'
+import { watchKeyboard } from './keyboard-watch.ts'
 import { useView } from './view-store.ts'
 import { QuestionSheet } from '@/features/questions/QuestionSheet.tsx'
 // The Mac's notifications start with the frame, and only when the shell has them (`037-notifications`).
@@ -41,6 +42,7 @@ export function Frame() {
   const typeFace = useSettings((state) => state.typeFace)
   const chatSide = useRef<HTMLDivElement | null>(null)
   useFrameKeys()
+  useEffect(watchKeyboard, [])
   useEffect(() => startAgentCompletion({
     host: hostStore,
     notice: (content) => useChat.setState(({ local }) => ({ local: [...local, {
