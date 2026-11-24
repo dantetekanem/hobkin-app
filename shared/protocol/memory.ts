@@ -113,6 +113,9 @@ export interface MemoryNowChange {
   version?: string
 }
 
+/** What `memory.now.change` answers with: the list as it stands after the change, or why it was refused, in plain words. */
+export type MemoryNowChanged = { ok: true; now?: readonly string[]; nowVersion?: string } | { ok: false; reason: string }
+
 /**
  * On a chat line hobkin posts when an agent adds, changes or forgets a memory: which one and the change's id, so the
  * line offers Undo and See. A host from before sends none, and the line shows as any other.
@@ -197,8 +200,8 @@ function linesOf(value: unknown, most: number, count: number): string[] | undefi
     .slice(0, count)
 }
 
-/** One memory in the contract's shape, or nothing for one whose name is not a memory's name. */
-function memoryOf(value: unknown): MemoryEntry | undefined {
+/** One memory read without trust into the contract's shape, or nothing for one whose name is not a memory's name. */
+export function readMemory(value: unknown): MemoryEntry | undefined {
   if (!isRow(value)) return undefined
   const name = nameOf(value.name)
   if (!name) return undefined
@@ -230,7 +233,7 @@ export function readMemoryList(value: unknown): MemoryList {
   const memories: MemoryEntry[] = []
   for (const row of value.memories) {
     if (memories.length >= MEMORIES_MAX) break
-    const memory = memoryOf(row)
+    const memory = readMemory(row)
     if (!memory || seen.has(memory.name)) continue
     seen.add(memory.name)
     memories.push(memory)

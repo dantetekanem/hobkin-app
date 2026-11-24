@@ -10,6 +10,7 @@ import { HOBKIN_CLAUDE_EFFORTS, HOBKIN_MESSAGE_MAX, HOBKIN_TELL_MAX, HOBKIN_TITL
 import { CLAUDE_AGENT_KINDS, CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_PERMISSIONS, type ClaudeCodeState } from '../protocol/claude-code.ts'
 import { CLAUDE_LEVELS } from '../tiers/claude-code.ts'
 import { DIRECTIONS_MAX_BYTES, DIRECTIONS_MISSING, type DirectionsFile, type DirectionsSaved } from '../protocol/directions.ts'
+import { MEMORY_KINDS, MEMORY_NAME, type MemoryForgot, type MemoryList, type MemoryNowChanged, type MemorySaved, type MemoryUndone } from '../protocol/memory.ts'
 import type { FileContent } from '../protocol/files.ts'
 import type { GitHubState } from '../protocol/github.ts'
 import type { KeyHelp, ModelsState, ModelsUpdate } from '../protocol/models.ts'
@@ -128,6 +129,11 @@ const hobkinEngine = Type.Union([
 ])
 /** One of the schedules an agent keeps for itself, by the runtime's id for it (`056-agent-schedules`). */
 const scheduleId = Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$' })
+/** A memory by its name, which is its file's name, and the fingerprint or change id the runtime gave (`057-shared-memory`). */
+const memoryName = Type.String({ pattern: MEMORY_NAME.source })
+const memoryMark = Type.String({ pattern: '^\\S{1,128}$' })
+/** One line of words, as a memory's description and a "right now" item are. */
+const oneLine = (maxLength: number) => Type.String({ minLength: 1, maxLength, pattern: '^[^\\x00-\\x1f\\x7f]*\\S[^\\x00-\\x1f\\x7f]*$' })
 /** A work project by hobkin's slug for it, and one of its items by id. */
 const projectSlug =Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' })
 const workItem = words(64)
@@ -1220,6 +1226,59 @@ export const COMMANDS = {
     args: Type.Object({ id: scheduleId }, { additionalProperties: false }),
     outside: true,
   },
+  // What hobkin remembers for every agent it runs (057-shared-memory), on the window's Memory page. hobkin's own agents
+  // change memories with their own tools and rules, so only the window sends the four that change them.
+  'memory.list': {
+    description: "Every memory hobkin keeps for the agents it runs, by kind, with who added and changed each and when, and the main chat's \"right now\" list with its fingerprint.",
+    runs: 'host',
+    args: nothing,
+    hobkin: true,
+  },
+  'memory.save': {
+    description:
+      'Add a memory, or with the `version` it was read at change the memory of that name, as the user: kind, a one-line description, its text, and when it stops being true. Refused, in plain words, for a name in use, a near double, what looks like a secret, a full store, and a memory that changed since it was read.',
+    runs: 'host',
+    args: Type.Object(
+      {
+        name: Type.Optional(memoryName),
+        description: oneLine(150),
+        text: Type.Optional(Type.String({ maxLength: 2000 })),
+        kind: oneOf(MEMORY_KINDS),
+        until: Type.Optional(Type.String({ pattern: '^\\d{4}-\\d\\d-\\d\\d$' })),
+        private: Type.Optional(Type.Boolean()),
+        version: Type.Optional(memoryMark),
+      },
+      { additionalProperties: false },
+    ),
+    rule: ({ name, version }) => (version !== undefined && name === undefined ? 'need the name of the memory to change' : null),
+    outside: true,
+  },
+  'memory.forget': {
+    description: 'Forget a memory by its name, as the user, with the `version` it was read at. It can be brought back for thirty days with memory.undo. Refused for a memory that changed since it was read.',
+    runs: 'host',
+    args: Type.Object({ name: memoryName, version: Type.Optional(memoryMark) }, { additionalProperties: false }),
+    outside: true,
+  },
+  'memory.undo': {
+    description: 'Take back one change to the memories, by its id from a save, a forget or a chat line: an add is forgotten, a change goes back to what it said, a forget is restored. Refused once the memory has changed again.',
+    runs: 'host',
+    args: Type.Object({ change: memoryMark }, { additionalProperties: false }),
+    outside: true,
+  },
+  'memory.now.change': {
+    description: "Add a line to the main chat's \"right now\" list, or replace or remove one by its exact words, as the user, with the `version` the list was read at. Holds at most 20 lines of 200 characters.",
+    runs: 'host',
+    args: Type.Object(
+      { action: oneOf(['add', 'replace', 'remove']), item: Type.Optional(Type.String({ minLength: 1, maxLength: 65536 })), text: Type.Optional(oneLine(200)), version: Type.Optional(memoryMark) },
+      { additionalProperties: false },
+    ),
+    rule: ({ action, item, text }) => {
+      if (action !== 'remove' && text === undefined) return 'need the new words as text'
+      if (action !== 'add' && item === undefined) return 'need the line as it reads now as item'
+      return null
+    },
+    outside: true,
+  },
   'routine.run': {
     description:
       "Run a routine once now, by its id, as hobkin's run_routine does: even when it is off or not due, and no setting changes. hobkin refuses while it is already running or its background places are full. Answers once the run has started; its report comes later in Reports.",
@@ -1508,6 +1567,12 @@ export interface CommandResults {
   'schedule.cancel': { ok: true }
   'schedule.pause': { ok: true }
   'schedule.run': { ok: true }
+  /** A refusal of a change comes as its answer, in plain words, so the window keeps the user's draft and says why. */
+  'memory.list': MemoryList
+  'memory.save': MemorySaved
+  'memory.forget': MemoryForgot
+  'memory.undo': MemoryUndone
+  'memory.now.change': MemoryNowChanged
   'agent.session': SavedJobSession
   'activity.before': OlderSteps
   /** Null when the session saved no such tool result. */
