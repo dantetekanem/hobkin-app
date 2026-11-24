@@ -15,6 +15,7 @@ import {
   type ChangeChoice,
   type ChangeScores,
   type FinishedChange,
+  type StackPlace,
   type FinishedGroup,
   type Grade,
   type IssuePickup,
@@ -104,6 +105,8 @@ interface ReadyRow {
   models?: ModelFact[]
   /** When hobkin last wrote its item: its `updatedAt`. */
   at?: string | null
+  /** Its place in a stack, read without trust: a hobkin older than stacks sends none. */
+  stack?: unknown
 }
 
 /** A row of hobkin's queue (`planRow` in its `src/cli/work/commands.mjs`). */
@@ -405,7 +408,23 @@ function proofCheckOf({ review }: ReadyRow): FinishedChange['proofCheck'] {
   return { line: proof.evidence ?? '', run: proof.run }
 }
 
+const isWhole = (value: unknown): value is number => Number.isInteger(value)
+const isText = (value: unknown): value is string => typeof value === 'string'
+const textOrNull = (value: unknown) => value === null || isText(value)
+
+/** A row's place in a stack when every field is as it should be, else none. */
+function stackOf(value: unknown): StackPlace | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const { id, layer, of, name, below, base } = value as Record<string, unknown>
+  if (!isText(id) || id === '') return undefined
+  if (!isWhole(layer) || !isWhole(of)) return undefined
+  if (of < 2 || layer < 1 || layer > of) return undefined
+  if (!textOrNull(name) || !textOrNull(below) || !textOrNull(base)) return undefined
+  return { id, layer, of, name, below, base } as StackPlace
+}
+
 export function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
+  const stack = stackOf(entry.stack)
   const size = entry.size ? { lines: entry.size.additions + entry.size.deletions, files: entry.size.files } : null
   return {
     key: `${entry.slug}:${entry.item}`,
@@ -426,6 +445,7 @@ export function changeOf(entry: ReadyRow, group: GroupName): FinishedChange {
     scores: scoreLine(entry),
     scoring: scoringOf(entry),
     ...(entry.models ? { models: entry.models } : {}),
+    ...(stack ? { stack } : {}),
     proofCheck: proofCheckOf(entry),
     ...(entry.at ? { at: entry.at } : {}),
     size,

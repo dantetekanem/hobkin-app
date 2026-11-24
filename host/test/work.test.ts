@@ -103,6 +103,29 @@ test("a finished change carries when hobkin last wrote its item, as the ready ro
   assert.equal('at' in cardOf('billing-api:b2b2b2'), false)
 })
 
+test("a finished row's place in a stack reaches the window as it is, and a missing or malformed one sends none", () => {
+  const place = { id: 'a1a1a1', layer: 2, of: 3, name: '#482 Split the cart', below: 'a1a1a1', base: 'c'.repeat(40) }
+  const rows = [
+    change('shop', 'b2b2b2', 'Layer two', { stack: place }),
+    change('shop', 'c3c3c3', 'Not in a stack'),
+    change('shop', 'd4d4d4', 'Layer past the top', { stack: { ...place, layer: 4 } }),
+    change('shop', 'e5e5e5', 'A stack of one', { stack: { ...place, layer: 1, of: 1 } }),
+    change('shop', 'f6f6f6', 'A fraction', { stack: { ...place, layer: 1.5 } }),
+    change('shop', 'a7a7a7', 'No id', { stack: { ...place, id: '' } }),
+    change('shop', 'b8b8b8', 'Name a number', { stack: { ...place, name: 3 } }),
+    change('shop', 'c9c9c9', 'Base a number', { stack: { ...place, base: 7 } }),
+    change('shop', 'd0d0d0', 'Not an object', { stack: 'layer 2 of 3' }),
+    change('shop', 'e1e1e1', 'Bottom, unnamed', { stack: { id: 'e1e1e1', layer: 1, of: 2, name: null, below: null, base: null } }),
+  ]
+
+  const work = workFrom({ work: status(), waiting: { branches: rows } })!
+
+  const cardOf = (item: string) => work.finished.flatMap(({ changes }) => changes).find((card) => card.key === `shop:${item}`)!
+  assert.deepEqual(cardOf('b2b2b2').stack, place)
+  assert.deepEqual(cardOf('e1e1e1').stack, { id: 'e1e1e1', layer: 1, of: 2, name: null, below: null, base: null })
+  for (const item of ['c3c3c3', 'd4d4d4', 'e5e5e5', 'f6f6f6', 'a7a7a7', 'b8b8b8', 'c9c9c9', 'd0d0d0']) assert.equal('stack' in cardOf(item), false, item)
+})
+
 test('finished changes keep hobkin\'s groups and reasons', () => {
   const work = workFrom({ work: status(), waiting: { branches } })
   assert.ok(work)
