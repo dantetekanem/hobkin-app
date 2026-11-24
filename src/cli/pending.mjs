@@ -7,7 +7,8 @@ const DAY_MS = 24 * HOUR_MS;
 
 export const PRESENT_MS = 2 * MINUTE_MS;
 
-const TO_READ = ['land', 'rebase', 'elsewhere', 'unlanded'];
+// A layer of a stack that waits for the one under it (`stacked`) is a change of its own to read, and the window needs every layer to draw the stack.
+const TO_READ = ['land', 'rebase', 'elsewhere', 'unlanded', 'stacked'];
 const ASKS = ['allowance', 'proposal'];
 // Each of these is about branches that already have their rows, or is the old card about the pile itself.
 const NOT_QUESTIONS = ['land', 'merge', 'read', 'pair', 'pending'];

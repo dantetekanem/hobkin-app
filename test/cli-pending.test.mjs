@@ -61,8 +61,14 @@ test('one project is named, and lines under a thousand stay whole', () => {
   assert.equal(groupOf(result, 'read').fact, '120 lines in api');
 });
 
-test('rows an agent is on, or that sit under another branch, ask nothing of the user', () => {
-  assert.equal(card({ ready: [branch('a', { gap: 'closing' }), branch('b', { gap: 'stacked' })] }).total, 0);
+test('a row an agent is on asks nothing of the user', () => {
+  assert.equal(card({ ready: [branch('a', { gap: 'closing' })] }).total, 0);
+});
+
+test('a layer of a stack that waits for the one under it is a change to read', () => {
+  const result = card({ ready: [branch('bottom'), branch('above', { gap: 'stacked' })] });
+
+  assert.equal(groupOf(result, 'read').count, 2);
 });
 
 test('reports never become Action Items, even with a Next line', () => {
@@ -185,7 +191,7 @@ test('each thing the card counts is one row to list, by the same rules', () => {
   const rows = waitingRows({ now: NOW, ...given });
 
   const items = list => list.map(({ item }) => item);
-  assert.deepEqual(items(rows.branches), ['good', 'read', 'done', 'copy']);
+  assert.deepEqual(items(rows.branches), ['good', 'read', 'done', 'copy', 'under'], 'a layer that waits for the one under it is listed, so a stack is whole');
   assert.deepEqual(items(rows.yours), ['turn', 'keys', 'dns']);
   assert.equal(rows.yours[1].gap, 'land', 'a step on a finished branch keeps the branch, for its page');
   assert.deepEqual(rows.asks.map(({ kind }) => kind), ['allowance']);

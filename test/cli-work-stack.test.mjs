@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 import { initialize } from '../src/cli/config.mjs';
+import { readWaiting } from '../src/cli/pending-read.mjs';
 import { runWorkCommand } from '../src/cli/work/commands.mjs';
 import { mergeItem, mergePullRequest, publishItem } from '../src/cli/work/controls.mjs';
 import { offerFor } from '../src/cli/work/patterns.mjs';
@@ -69,6 +70,17 @@ test('finished branches built one on the other are layers of one stack, counted 
   assert.deepEqual(placeOf(h, two), { id: one.id, layer: 2, of: 3, name: 'The split of the big change', below: one.id, base: tipOf(h, 'hobkin/one') });
   assert.deepEqual(placeOf(h, three), { id: one.id, layer: 3, of: 3, name: 'The split of the big change', below: two.id, base: tipOf(h, 'hobkin/two') });
   assert.deepEqual([one, two, three].map(item => row(h, item).gap), ['land', 'stacked', 'stacked']);
+});
+
+test('every layer of a stack is among the finished branches the window is sent, each with its place', async t => {
+  const h = workspace(t);
+  const [one, two, three] = chain(h);
+  await survey(h);
+
+  const sent = readWaiting(h.root, { now: NOW }).branches;
+  const layerOf = ({ id }) => sent.find(({ item }) => item === id)?.stack?.layer;
+
+  assert.deepEqual([one, two, three].map(layerOf), [1, 2, 3]);
 });
 
 test('a finished branch with nothing under or over it is in no stack', async t => {
