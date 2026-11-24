@@ -159,7 +159,8 @@ test('a stack is sent whole: a layer hobkin did not list, such as one an agent w
   const { id: top } = fileItem(root, slug, { key: 'layer-3', kind: 'fix', title: 'Separate selection', brief: 'Evidence.' })
   const place = (layer: number, below: string | null) => ({ id: bottom, layer, of: 3, name: 'The enemy turn', below, base: null })
   const layersAbove = [finished(slug, above, { gap: 'stacked', stack: place(2, bottom) }), finished(slug, top, { gap: 'stacked', stack: place(3, above) })]
-  const closing = [{ slug, project: 'web', item: bottom, title: 'Remove the dead planner', branch: 'stack/split/1-remove', doing: 'getting it ready to merge' }]
+  // The work that went back to it is another item on its branch, which gets it ready to merge.
+  const closing = [{ slug, project: 'web', item: 'ship01', title: 'Bring it up to date', branch: 'stack/split/1-remove', doing: 'getting it ready to merge' }]
 
   const work = workReader(() => root)({ work: status({ closing }), waiting: { branches: layersAbove, yours: [] } })
 
@@ -174,14 +175,14 @@ test('a stack is sent whole: a layer hobkin did not list, such as one an agent w
     { title: first!.title, branch: first!.branch, pr: first!.pr, about: first!.about, proof: first!.proof },
     { title: 'Remove the dead planner', branch: 'stack/split/1-remove', pr: 'https://github.com/acme/web/pull/196', about: 'Removes the planner nothing calls.', proof: 'pnpm test passes' },
   )
-  assert.equal(first!.reason, 'An agent is working on it: getting it ready to merge.')
+  assert.equal(first!.reason, 'hobkin is getting it ready to merge.')
   assert.deepEqual(first!.choices.map(({ value }) => value), ['diff', 'open'], 'it can be read, and has no yes while hobkin does not offer it')
   assert.deepEqual(toPrepare(work).map(({ id }) => id).toSorted(), [`change:${slug}:${bottom}`, `change:${slug}:${above}`, `change:${slug}:${top}`].toSorted(), 'and it is reviewed like the rest')
 
   // A layer hobkin lists itself is never made twice, and a stack with every layer listed is left as it came.
   const whole = workReader(() => root)({ work: status(), waiting: { branches: [finished(slug, bottom, { stack: place(1, null) }), ...layersAbove], yours: [] } })
   assert.deepEqual(cards(whole).map(({ item }) => item), [bottom, above, top])
-  assert.equal(cards(whole)[0]!.reason.startsWith('An agent'), false)
+  assert.equal(cards(whole)[0]!.reason.startsWith('hobkin is'), false)
 
   // With nothing said of what is being done to it, the card still says why it has no merge.
   const unsaid = workReader(() => root)({ work: status(), waiting: { branches: layersAbove, yours: [] } })

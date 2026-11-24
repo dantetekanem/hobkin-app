@@ -153,15 +153,21 @@ function leftGroup(yours: unknown, shown: ReadonlySet<string>, itemOf: ItemOf): 
 const FINISHED_ON_BRANCH = ['branch', 'pr']
 const NOT_OFFERED = 'hobkin is not offering it to merge right now.'
 
-/** What hobkin says is being done to each piece of finished work an agent went back to, by the change's key. */
+/**
+ * What hobkin says is being done to each piece of finished work it went back to, by the change's key and by its
+ * branch, since the work can be another item on the same branch, such as one that gets it ready to merge.
+ */
 function doingByKey(closing: unknown): Map<string, string> {
   const rows = Array.isArray(closing) ? (closing as ClosingRow[]) : []
   const doing = new Map<string, string>()
   for (const row of rows) {
     const slug = text(row.slug)
     const id = text(row.item)
+    const branch = text(row.branch)
     const words = text(row.doing)
-    if (slug && id && words) doing.set(`${slug}:${id}`, words)
+    if (!slug || !words) continue
+    if (id) doing.set(`${slug}:${id}`, words)
+    if (branch) doing.set(`${slug}@${branch}`, words)
   }
   return doing
 }
@@ -189,7 +195,7 @@ function unlistedLayerCard(above: FinishedChange, item: Item, doing: string | nu
   const opensPr: FinishedChange['choices'] = row.pr ? [{ value: 'open', label: 'Open the PR in the browser' }] : []
   return {
     ...changeOf(row, 'needs'),
-    reason: doing ? `An agent is working on it: ${doing}.` : NOT_OFFERED,
+    reason: doing ? `hobkin is ${doing}.` : NOT_OFFERED,
     yes: 'It has no merge here until hobkin offers it again.',
     choices: [{ value: 'diff', label: 'Show the diff' }, ...opensPr],
     issue: issueOf(item),
@@ -216,7 +222,7 @@ function withUnlistedLayers(groups: readonly FinishedGroup[], itemOf: ItemOf, do
     if (!item || !FINISHED_ON_BRANCH.includes(String(item.state))) return null
 
     made.add(key)
-    return unlistedLayerCard(above, item, doing.get(key) ?? null)
+    return unlistedLayerCard(above, item, doing.get(key) ?? doing.get(`${above.slug}@${String(item.branch)}`) ?? null)
   }
 
   return groups.map((group) => ({
