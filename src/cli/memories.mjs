@@ -66,6 +66,26 @@ const refuse = message => {
   throw new MemoryRefused(message);
 };
 
+// What the file system says when the memories folder is there but not hobkin's to read or write.
+const FOLDER_ERRORS = new Set(['EACCES', 'EPERM', 'EROFS', 'ENOTDIR']);
+const FOLDER_TROUBLE = code => `hobkin cannot read or write its memories folder (${code}). Check that the memories folder in hobkin's data folder is yours and not locked.`;
+
+/** Runs one change of the store, turning a folder hobkin may not use into a refusal in plain words. */
+function inFolder(done, change) {
+  try {
+    return change();
+  } catch (error) {
+    if (!isMemoryRefusal(error) && FOLDER_ERRORS.has(error?.code)) refuse(`Nothing was ${done}: ${FOLDER_TROUBLE(error.code)}`);
+    throw error;
+  }
+}
+
+export const addMemory = (root, fields, actor) => inFolder('saved', () => addingMemory(root, fields, actor));
+export const changeMemory = (root, name, fields, actor) => inFolder('saved', () => changingMemory(root, name, fields, actor));
+export const forgetMemory = (root, name, actor) => inFolder('done', () => forgettingMemory(root, name, actor));
+export const restoreMemory = (root, name, actor) => inFolder('done', () => restoringMemory(root, name, actor));
+export const undoMemoryChange = (root, id, actor) => inFolder('done', () => undoingMemoryChange(root, id, actor));
+
 const folderOf = root => join(root, 'memories');
 const privateFolder = root => join(folderOf(root), 'private');
 const forgottenFolder = root => join(folderOf(root), 'forgotten');
@@ -176,12 +196,15 @@ function scan(root, { includePrivate, now }) {
   const memories = [];
   const unreadable = [];
   const seen = new Set();
+  let blocked = false;
   for (const isPrivate of includePrivate ? [false, true] : [false]) {
     const folder = isPrivate ? privateFolder(root) : folderOf(root);
     let entries;
     try {
       entries = readdirSync(folder, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      // A folder that is not there is no memories; one that is there and cannot be read is said so to the window.
+      if (error?.code !== 'ENOENT') blocked = true;
       continue;
     }
     for (const entry of entries) {
@@ -201,7 +224,7 @@ function scan(root, { includePrivate, now }) {
     }
   }
   memories.sort((a, b) => a.name.localeCompare(b.name));
-  if (includePrivate) return { memories, unreadable };
+  if (includePrivate) return { memories, unreadable, ...(blocked ? { folderUnreadable: true } : {}) };
   // One nobody has kept yet, as another session handed it over, is read only where private ones are (057-shared-memory),
   // and a reader of shared ones never meets a link to, or the name of, one it may not read.
   const shown = memories.filter(memory => !memory.unconfirmed);
@@ -604,7 +627,7 @@ function stillAsRead(file, source) {
  * a name in use, for a memory that says nearly the same as another (naming it, unless it is private and the asker may
  * not see it), for what looks like a secret, past 300 memories and for a field out of its bounds.
  */
-export function addMemory(root, fields = {}, actor = {}) {
+function addingMemory(root, fields = {}, actor = {}) {
   const now = actor.now ?? Date.now();
   const by = checkedAuthor(actor.by);
   const name = checkedName(fields.name);
@@ -635,7 +658,7 @@ export function addMemory(root, fields = {}, actor = {}) {
  * `until: null` clears its day, and `private` moves the file. `actor.keep` keeps one nobody had kept yet; any other
  * change leaves it as unconfirmed as it was.
  */
-export function changeMemory(root, name, fields = {}, actor = {}) {
+function changingMemory(root, name, fields = {}, actor = {}) {
   const now = actor.now ?? Date.now();
   const by = checkedAuthor(actor.by);
   const found = locate(root, checkedName(name), now);
@@ -686,7 +709,7 @@ function keptPath(root, name, now) {
 }
 
 /** Moves one memory aside, restorable for 30 days. `actor.version`, when given, must be the file's as it is now. */
-export function forgetMemory(root, name, actor = {}) {
+function forgettingMemory(root, name, actor = {}) {
   const now = actor.now ?? Date.now();
   const by = checkedAuthor(actor.by);
   const found = locate(root, checkedName(name), now);
@@ -738,7 +761,7 @@ function newestForgotten(root, name, now) {
 }
 
 /** Brings back the memory of this name that forget took last, within 30 days. */
-export function restoreMemory(root, name, actor = {}) {
+function restoringMemory(root, name, actor = {}) {
   const now = actor.now ?? Date.now();
   const by = checkedAuthor(actor.by);
   checkedName(name);
@@ -758,7 +781,7 @@ function keptFileOf(root, record) {
  * forget is restored. Refused once the memory changed since, and for a forget whose memory is gone or whose name is in
  * use again. The undo is a change of its own, which can be undone in turn.
  */
-export function undoMemoryChange(root, id, actor = {}) {
+function undoingMemoryChange(root, id, actor = {}) {
   const now = actor.now ?? Date.now();
   const by = checkedAuthor(actor.by);
   const record = typeof id === 'string' ? readChanges(root).find(change => change.id === id) : null;
@@ -796,7 +819,12 @@ export function memoryNameFrom(root, words) {
   const stem = base.length >= 2 ? base : `${base}-memory`;
   for (let count = 1; ; count += 1) {
     const name = count === 1 ? stem : `${stem}-${count}`;
-    if (!taken(root, name)) return name;
+    try {
+      if (!taken(root, name)) return name;
+    } catch {
+      // A folder that cannot be looked in leaves the name as it is, and the save says why it cannot be made.
+      return name;
+    }
   }
 }
 

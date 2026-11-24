@@ -93,3 +93,25 @@ test('the right-now list changes by its own rules and refuses a stale version', 
   assert.match(memoryNowChange(root, { action: 'add', text: 'x'.repeat(201), version: replaced.nowVersion }).reason, /200 characters/);
   assert.equal(readFileSync(join(root, 'memory.md'), 'utf8'), '- Replied to the landlord\n');
 });
+
+test('a memories folder that cannot be read refuses a save in plain words, and the list says it could not be read', async t => {
+  if (process.getuid?.() === 0) return;
+  const { chmodSync } = await import('node:fs');
+  const { isMemoryRefusal } = await import('../src/cli/memories.mjs');
+  const { memoryHandler } = await import('../src/cli/memory-tools.mjs');
+  const root = home(t);
+  memorySave(root, { name: 'tax-papers', description: 'Tax papers are in ~/Documents/Taxes', kind: 'pointer' });
+  chmodSync(join(root, 'memories'), 0o000);
+  try {
+    const list = memoryList(root);
+    assert.deepEqual(list.memories, []);
+    assert.match(list.unavailable, /could not read its memories folder/);
+    assert.match(memorySave(root, { description: 'Prefers trains', kind: 'preference' }).message, /cannot read or write its memories folder \(EACCES\)/);
+    const main = memoryHandler(root, { kind: 'main' });
+    assert.throws(() => main.remember({ action: 'add', name: 'trains', kind: 'preference', description: 'Prefers trains' }), error => isMemoryRefusal(error) && /cannot read or write its memories folder/.test(error.message));
+    assert.match(memoryForget(root, { name: 'tax-papers' }).message, /cannot read or write its memories folder/);
+  } finally {
+    chmodSync(join(root, 'memories'), 0o700);
+  }
+  assert.equal(memoryList(root).unavailable, undefined, 'a list that is real says nothing of it');
+});

@@ -28,9 +28,13 @@ function nowList(root) {
 
 /** `memory.list`: every memory, private ones too, with its version; the right-now list and its version; the files that are not memories. */
 export function memoryList(root, { now = Date.now() } = {}) {
-  const { memories, unreadable } = readMemories(root, { private: true, now });
-  return { memories, ...nowList(root), unreadable };
+  const { memories, unreadable, folderUnreadable } = readMemories(root, { private: true, now });
+  // A folder that is there and cannot be read lists none, and the page says why rather than show an empty list as real.
+  const unavailable = folderUnreadable ? { unavailable: FOLDER_UNREADABLE } : {};
+  return { memories, ...nowList(root), unreadable, ...unavailable };
 }
+
+const FOLDER_UNREADABLE = "hobkin could not read its memories folder, so none can be shown. Check that the memories folder in hobkin's data folder is yours and not locked.";
 
 /**
  * `memory.save`: with no `version` it adds a memory, named from its description when it has no name; with one it
