@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import { COMMANDS } from '#shared/commands/registry.ts'
 import { createClientTool } from '../src/client-tool.ts'
 import { runCommand, Unavailable } from '../src/commands.ts'
+import { afterTest, Client, hostFor } from './support.ts'
 import { chooseFolder, folderPickHandlers, type PickRun } from '../src/folder-pick.ts'
 
 type Ending = { out?: string; fail?: { code?: number; stderr?: string } }
@@ -67,4 +68,16 @@ test("only the window sends it: hobkin's client tool neither lists nor runs it",
   assert.equal(listed.some((command) => command.name === 'work.folder.pick'), false)
   await assert.rejects(tool.execute('2', { action: 'run', name: 'work.folder.pick', args: {} }), /cannot run work\.folder\.pick/)
   assert.deepEqual(ran, [])
+})
+
+test('a host shows no chooser unless the entry hands one in: the answer is no folder, and a handed-in one is used', { timeout: 30000 }, async (t) => {
+  const quiet = await hostFor(t)
+  const quietClient = await Client.connect(quiet)
+  afterTest(t, () => quietClient.close())
+  assert.deepEqual(await quietClient.run('work.folder.pick', {}), { folder: null })
+
+  const host = await hostFor(t, { pickFolder: async () => '/picked/here' })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  assert.deepEqual(await client.run('work.folder.pick', {}), { folder: '/picked/here' })
 })

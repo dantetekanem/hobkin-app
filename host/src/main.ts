@@ -6,6 +6,7 @@ import { ghSource } from './github-gh.ts'
 import { actual, resolveHome, type ResolvedHome } from './home.ts'
 import { startHost } from './host.ts'
 import { openGitHubPage } from './github.ts'
+import { chooseFolder } from './folder-pick.ts'
 import { openFileInSystem, openInSystem } from './open.ts'
 import { watchParent } from './parent-watch.ts'
 import { installPackage, installPi, piAgentFolder } from './pi/install.ts'
@@ -90,6 +91,7 @@ async function main(args: readonly string[]): Promise<void> {
     // A link or a file the user clicked opens in the Mac's default app, in the scripted host too.
     openSystem: openInSystem,
     openFile: openFileInSystem,
+    pickFolder: () => chooseFolder(),
     ...scripted,
     // Installing Pi or a Pi package changes the Mac outside the app: only a live host may, on the user's word in the window.
     // A live host may also install a Node of hobkin's own for a Mac without npm, and asks the login shell for its PATH

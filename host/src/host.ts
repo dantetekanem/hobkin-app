@@ -43,6 +43,7 @@ import { PiExtensions } from './pi-extensions.ts'
 import { piExtensionSourceFor, piSkillSourceFor } from './pi-resources.ts'
 import { Skills } from './skills.ts'
 import { whyNotUsable } from './main-model.ts'
+import { folderPickHandlers } from './folder-pick.ts'
 import { openableUrl } from './open.ts'
 import { LauncherModels, withLauncher, type Launcher } from './launcher-models.ts'
 import { piModelAccess, type LiveModelAccess, type ModelAccess } from './model-access.ts'
@@ -74,6 +75,7 @@ import { ReminderReader, reminderHandlers } from './reminders.ts'
 import { proofHandlers, ProofsKeeper } from './proofs.ts'
 import { proofToolsHandlers } from './setup-proof.ts'
 import { workHandlers } from './work.ts'
+import { newProjectHandlers } from './work-new-project.ts'
 import { metricsHandlers } from './metrics.ts'
 import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
 import { preparedByItself, workReader } from './work-items.ts'
@@ -136,6 +138,8 @@ export interface HostOptions {
   openSystem?: (url: string) => void
   /** Opens a file in the system's default app (`file.open`). Nothing opens when not given. */
   openFile?: (path: string) => void
+  /** Shows the Mac's folder chooser (`work.folder.pick`). No chooser shows when not given: the answer is no folder. The entry passes the real one. */
+  pickFolder?: () => Promise<string | null>
   /**
    * Where Integrations reads and writes MCP servers (023-integrations). Pi's own code over Pi's configuration when not
    * given: for a live host Pi's own folder, and for a scripted one the folder in PI_CODING_AGENT_DIR or the agent
@@ -715,6 +719,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     // Its agents and routines, stopped or told something while they work, by run id (011-work).
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[], models: async () => (await signIn.refresh(), signIn.models ?? null), images: imagesForAgents, schedules: () => agentSchedules.read(owner.snapshot) }),
     // An agent's schedules, cancelled, paused or run now from the window's list, through hobkin's own methods (056).
+    ...newProjectHandlers({ root: () => hobkin().runtime.directory, refresh: () => hobkin().refresh() }),
+    ...folderPickHandlers({ pick: options.pickFolder ?? (async () => null) }),
     ...scheduleHandlers({ operations: () => scheduleOperationsOf(hobkin()), schedules: () => agentSchedules.read(owner.snapshot) }),
     // What hobkin remembers for every agent, on the window's Memory page, through hobkin's own memory functions (057).
     ...memoryHandlers({ operations: () => memoryOperationsAt(owner.app?.runtime.directory ?? resolveDataRoot(root)) }),
