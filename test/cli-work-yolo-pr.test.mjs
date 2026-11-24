@@ -67,18 +67,36 @@ function codeHost({ number, branch, head }) {
     // The checks the default branch requires, by its protection and by its rulesets, or null when the host will not say.
     protection: ['test'],
     rules: [],
+    // Whether the default branch merges through a queue, by a ruleset or as the pull request itself says, and whether that can be read.
+    queueRule: false,
+    mergeQueue: false,
+    graphqlError: false,
+    // Required checks pinned to an app, as `{ context, app_id }`, and the check runs at the head each app reported, by name.
+    pinned: [],
+    checkRuns: {},
   };
   host.gh = async args => {
     host.calls.push(args);
     const [group, verb] = args;
     if (group === 'api' && verb === 'user') return `${host.login}\n`;
+    if (group === 'api' && args.includes('graphql')) {
+      if (host.graphqlError) throw Object.assign(Error('failed'), { stderr: 'GraphQL: Field isMergeQueueEnabled does not exist' });
+      return JSON.stringify({ data: { repository: { pullRequest: { isMergeQueueEnabled: host.mergeQueue, isInMergeQueue: false } } } });
+    }
     if (group === 'api' && args.at(-1) === 'repos/the-user/api/branches/main') {
       if (!host.protection) throw Object.assign(Error('failed'), { stderr: 'HTTP 403: Resource not accessible' });
-      return JSON.stringify({ name: 'main', protected: true, protection: { required_status_checks: { contexts: host.protection, checks: [] } } });
+      return JSON.stringify({ name: 'main', protected: true, protection: { required_status_checks: { contexts: host.protection, checks: host.pinned } } });
     }
     if (group === 'api' && args.at(-1) === 'repos/the-user/api/rules/branches/main') {
       if (!host.rules) throw Object.assign(Error('failed'), { stderr: 'HTTP 403: Resource not accessible' });
-      return JSON.stringify(host.rules.length ? [{ type: 'required_status_checks', parameters: { required_status_checks: host.rules.map(context => ({ context })) } }] : []);
+      const required = host.rules.length ? [{ type: 'required_status_checks', parameters: { required_status_checks: host.rules.map(context => ({ context })) } }] : [];
+      const rules = [...required, ...(host.queueRule ? [{ type: 'merge_queue', parameters: {} }] : [])];
+      // Read with --paginate --slurp, each page an array of its own.
+      return JSON.stringify(args.includes('--slurp') ? [rules] : rules);
+    }
+    if (group === 'api' && /\/check-runs\?check_name=/.test(args.at(-1))) {
+      const name = decodeURIComponent(args.at(-1).split('check_name=')[1].split('&')[0]);
+      return JSON.stringify([{ total_count: 0, check_runs: host.checkRuns[name] ?? [] }]);
     }
     if (group === 'pr' && verb === 'list') {
       const { headRefOid, isDraft, reviewDecision, statusCheckRollup, mergeable } = host.view;
@@ -532,4 +550,28 @@ test('a host that refuses the merge is asked once at a commit, and again only on
 
   await pass(NOW + 25 * 3600000);
   assert.equal(host.merges().length, 2, 'a day later, in case its settings changed');
+});
+
+test('a pull request whose branch merges through a queue is never asked to merge, and one where that cannot be told keeps asking too', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  await survey(h, host.gh);
+  const pass = () => yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
+  const QUEUE = 'its branch merges through a queue, which YOLO mode does not use';
+
+  host.mergeQueue = true;
+  assert.deepEqual(await pass(), []);
+  assert.equal(whyOf(h, change), QUEUE);
+
+  host.mergeQueue = false;
+  host.queueRule = true;
+  assert.deepEqual(await pass(), []);
+  assert.equal(whyOf(h, change), QUEUE, 'a ruleset that asks for one');
+
+  host.queueRule = false;
+  host.graphqlError = true;
+  assert.deepEqual(await pass(), []);
+  assert.equal(whyOf(h, change), 'hobkin cannot tell whether its branch merges through a queue, so nothing merges');
+  assert.deepEqual(host.merges(), []);
 });

@@ -114,25 +114,49 @@ function repositoryOf(url) {
 }
 
 /**
- * The names of the checks the default branch requires, by its branch protection and by its rulesets, read with the user's own access, or null
- * when either cannot be read. gh pr checks --required leaves out a required check that never reported, so these are read apart.
+ * What the default branch asks of a merge, by its branch protection and by every page of its rulesets, read with the user's own access: the
+ * names of the checks it requires, and whether it merges through a queue. Null when either cannot be read. gh pr checks --required leaves out a
+ * required check that never reported, so these are read apart.
  */
-async function requiredContexts(gh, url, base, repo) {
+async function branchRules(gh, url, base, repo) {
   const where = repositoryOf(url);
   if (!where) return null;
-  const api = path => gh(['api', '--hostname', where.host, path], repo).then(parsed, () => null);
-  const [branch, rules] = await Promise.all([
+  const api = (path, pages = []) => gh(['api', '--hostname', where.host, ...pages, path], repo).then(parsed, () => null);
+  const [branch, paged] = await Promise.all([
     api(`repos/${where.owner}/${where.name}/branches/${base}`),
-    api(`repos/${where.owner}/${where.name}/rules/branches/${base}`),
+    api(`repos/${where.owner}/${where.name}/rules/branches/${base}`, ['--paginate', '--slurp']),
   ]);
-  if (!branch?.name || !Array.isArray(rules)) return null;
+  if (!branch?.name || !Array.isArray(paged)) return null;
+  const rules = paged.flat();
   const protection = branch.protection?.required_status_checks ?? {};
   const protectedNames = [...(protection.contexts ?? []), ...(protection.checks ?? []).map(({ context }) => context)];
   const ruleNames = rules
     .filter(({ type }) => type === 'required_status_checks')
     .flatMap(({ parameters }) => (parameters?.required_status_checks ?? []).map(({ context }) => context));
-  return [...new Set([...protectedNames, ...ruleNames].filter(Boolean))];
+  return {
+    names: [...new Set([...protectedNames, ...ruleNames].filter(Boolean))],
+    queue: rules.some(({ type }) => type === 'merge_queue'),
+  };
 }
+
+const MERGE_QUEUE_QUERY = 'query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){pullRequest(number:$number){isMergeQueueEnabled isInMergeQueue}}}';
+
+/**
+ * Whether the pull request's own base branch merges through a queue, as the pull request itself says, or null when that cannot be read. gh pr
+ * merge on such a branch queues the pull request, or turns auto-merge on, and gh has no way to take it out of the queue again.
+ */
+async function mergeQueueOf(gh, url, repo) {
+  const where = repositoryOf(url);
+  if (!where) return null;
+  const number = String(url).split('/').at(-1);
+  const fields = ['-f', `query=${MERGE_QUEUE_QUERY}`, '-F', `owner=${where.owner}`, '-F', `name=${where.name}`, '-F', `number=${number}`];
+  const answer = await gh(['api', '--hostname', where.host, 'graphql', ...fields], repo).then(parsed, () => null);
+  const pull = answer?.data?.repository?.pullRequest;
+  if (typeof pull?.isMergeQueueEnabled !== 'boolean') return null;
+  return pull.isMergeQueueEnabled || pull.isInMergeQueue === true;
+}
+
+const QUEUE_WORDS = 'its branch merges through a queue, which YOLO mode does not use';
 
 /**
  * Every check at the pull request's head that has not passed. A required check, by gh or by the branch's protection and rulesets, passes only
@@ -188,12 +212,16 @@ export async function pullHolds({ gh, repo, item, unit, user }) {
   if (view.mergeable !== 'MERGEABLE') return view.mergeable === 'CONFLICTING' ? 'its pull request conflicts with its base branch' : mergeStateWords.UNKNOWN;
   if (view.reviewDecision === 'CHANGES_REQUESTED') return 'changes were requested on its pull request';
   if (!['', 'APPROVED', null, undefined].includes(view.reviewDecision)) return 'its pull request needs a review approval';
+  // A merge there would only queue it, or turn auto-merge on, and gh cannot take it out again: never asked for.
+  const [rules, queue] = await Promise.all([branchRules(gh, unit.url, base, repo), mergeQueueOf(gh, unit.url, repo)]);
+  if (queue === null) return 'hobkin cannot tell whether its branch merges through a queue, so nothing merges';
+  if (queue || rules?.queue) return QUEUE_WORDS;
 
   const rollup = Array.isArray(view.statusCheckRollup) ? view.statusCheckRollup : [];
   if (!rollup.length) return 'its pull request has no checks at this commit';
   const required = await requiredChecks(gh, unit.url, repo);
   if (!required) return 'its pull request\'s checks could not be read, so nothing merges';
-  const listed = await requiredContexts(gh, unit.url, base, repo);
+  const listed = rules?.names ?? null;
   // Where the branch's own list cannot be read, the host's clean state is all that says a required check reported.
   const relied = said => (listed ? said : `${said}. ${UNLISTED}`);
   const failing = notPassed(rollup, required, listed ?? []);
