@@ -1,19 +1,15 @@
-import { GitMerge } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
-import { useNow } from '@/features/chat/use-now.ts'
-import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
-import { clockTime, dayLabel, timeOf } from '@/features/reports/time.ts'
+import type { Leaving } from '@/features/reports/list-motion.ts'
 import type { FinishedGroup, WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
-import type { MergingRow } from '#shared/protocol/work.ts'
 import { ChangeRow } from './ChangeRow.tsx'
 import { needsFirst } from './finished-cards.ts'
 import { StackGroup, type DrawCard } from './StackGroup.tsx'
 import { arrange, placeOf, type Arranged } from './stacks.ts'
-import { IssueLink, PullLink, SectionHeading } from './parts.tsx'
+import { SectionHeading } from './parts.tsx'
 import { runWork, useWorkUi, type Said } from './store.ts'
 
 /**
@@ -24,8 +20,8 @@ import { runWork, useWorkUi, type Said } from './store.ts'
  * every title it acts on, in the order they go, and then says how each went.
  *
  * A "Left for you" row leads with the note its run left and offers Answer, and no merge: Review, Ask for changes, and
- * Close without merging, which takes a second click. Under the groups, what the user said yes to that is still being
- * brought up to date before it merges.
+ * Close without merging, which takes a second click. What the user said merge to leaves at once (the user, 2026-11-24:
+ * "when i do a merge it should IMMEDIATELLY remove the nodes/cards"): it has no row here while it is brought up to date.
  */
 
 interface Shared {
@@ -51,79 +47,7 @@ export function FinishedSection({ work, ...shared }: { work: Pick<WorkState, 'fi
         <Group key={arranged.group.name} arranged={arranged} leaving={leaving} onLeaving={setLeaving} {...shared} />
       ))}
       {total === 0 ? <p className="px-1 text-[13.5px] text-muted-foreground">Nothing finished waits for you.</p> : null}
-      {work.merging?.length ? <MergingGroup rows={work.merging} variants={shared.variants} turn={shared.turn} /> : null}
     </section>
-  )
-}
-
-/** When the user said yes, in the conversation's clock, with the day when it was not today. */
-function saidYesAt(since: string | null, now: number): string {
-  const at = timeOf(since)
-  if (at === null) return 'You said yes'
-  const day = dayLabel(at, now)
-  return `You said yes ${day === 'Today' ? '' : `${day} `}at ${clockTime(at)}`
-}
-
-/**
- * What the user said yes to that has not merged yet: an agent brings each up to date and runs its proof again, and
- * hobkin merges it once that run ends well. Nothing here waits on the user, so a row offers nothing but its links.
- */
-function MergingGroup({ rows, variants, turn }: { rows: MergingRow[]; variants: Variants; turn: () => number }) {
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="px-1 pt-1">
-        <h3 className="flex items-baseline gap-2 font-heading text-[16px] leading-tight font-semibold tracking-[-0.015em]">
-          You said yes, merging
-          <span className="text-[13px] font-medium text-muted-foreground tabular-nums">{rows.length}</span>
-        </h3>
-        <p className="mt-0.5 text-[12.5px] leading-snug text-muted-foreground">Nothing waits on you. One that cannot merge after its refresh says why in Chat.</p>
-      </div>
-      <ul className="relative flex flex-col">
-        <AnimatePresence mode="popLayout">
-          {rows.map((row) => (
-            <MergingItem key={row.key} row={row} variants={variants} order={turn()} />
-          ))}
-        </AnimatePresence>
-      </ul>
-    </div>
-  )
-}
-
-function MergingItem({ row, variants, order }: { row: MergingRow; variants: Variants; order: number }) {
-  const still = useStill()
-  const now = useNow(true, 30_000)
-  const doing = row.handedOff
-    ? "The main agent's session brings it up to date and runs its proof again, then merges it."
-    : 'An agent brings it up to date and runs its proof again, then hobkin merges it.'
-  const line = `${saidYesAt(row.since, now)}. ${doing}`
-  return (
-    <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
-      <div
-        data-work-item=""
-        data-work-main=""
-        data-stop=""
-        data-merging={row.key}
-        tabIndex={-1}
-        role="group"
-        aria-label={`${row.project}: ${row.title}. ${line}`}
-        // A click does nothing here, so nothing changes under the pointer (053). The keyboard still shows where it is.
-        className="flex min-h-12 scroll-mt-[124px] scroll-mb-6 items-center gap-3 rounded-2xl px-3 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-surface-2"
-      >
-        <span className="flex w-7 shrink-0 justify-center text-muted-foreground">
-          <GitMerge aria-hidden="true" className="size-4" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate text-[13.5px] leading-snug font-medium">
-              <span className="text-muted-foreground">{row.project}:</span> {row.title}
-            </span>
-            <IssueLink issue={row.issue} />
-            <PullLink url={row.pr} />
-          </span>
-          <span className="mt-0.5 block text-[12px] leading-snug text-muted-foreground">{line}</span>
-        </span>
-      </div>
-    </motion.li>
   )
 }
 

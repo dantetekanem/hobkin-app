@@ -20,8 +20,8 @@ test("a filed issue's chip says what its hobkin item waits on, and leads to wher
   for (const chip of [...chipsAt(card('merge')), ...chipsAt(card('refresh'))]) assert.deepEqual(chip, leadsToCard('Approve its change'))
   // Something holds it back from one yes, and its card says what.
   for (const chip of chipsAt(card('needs'))) assert.deepEqual(chip, leadsToCard('Review its change'))
-  // The user said yes, and it is being brought up to date before it merges: nothing waits on them.
-  assert.deepEqual(issueChip(filed('open'), { on: 'merging' }), { label: 'Merging after your yes', tone: 'live', target: '[data-merging="storefront:caa304"]' })
+  // The user said yes, and it is being brought up to date before it merges: nothing waits on them, and Work shows no card for it.
+  assert.deepEqual(issueChip(filed('open'), { on: 'merging' }), { label: 'Merging after your yes', tone: 'live', target: null })
 })
 
 test('a chip with nowhere to go on the Work screen is never a call to act', () => {
@@ -99,7 +99,6 @@ test('the sample shows every chip, one issue with nothing filed, and every chip 
   const places = new Set([
     ...work.queue.map(({ key }) => `[data-queue-row="${key}"]`),
     ...work.finished.flatMap(({ changes }) => changes).map(({ key }) => `[data-change="${key}"]`),
-    ...(work.merging ?? []).map(({ key }) => `[data-merging="${key}"]`),
   ])
   for (const { work: filedFor } of issues) {
     const target = filedFor ? chipOf(filedFor).target : null

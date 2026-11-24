@@ -60,7 +60,8 @@ export const JUST_ADDED: IssueChip = { label: 'Added to queue', tone: 'ok', targ
 /** `place`: where the Work screen shows the item now (`placeOnWork`). `justAdded`: the user added it in this window, so while its item waits in the queue the chip says so. */
 export function issueChip({ slug, item, state }: IssueWork, place: WorkPlace, justAdded = false): IssueChip {
   const key = `${slug}:${item}`
-  if (place?.on === 'merging') return { label: 'Merging after your yes', tone: 'live', target: `[data-merging="${key}"]` }
+  // Work shows no card for what the user said merge to: it left the moment they did.
+  if (place?.on === 'merging') return { label: 'Merging after your yes', tone: 'live', target: null }
   if (place?.on === 'card') return { label: CARD_WAITS[place.group], tone: 'warn', target: `[data-change="${key}"]` }
   const target = place?.on === 'queue' ? `[data-queue-row="item:${key}"]` : null
   const standing = STANDINGS[state] ?? { label: 'Filed', tone: 'quiet' }
