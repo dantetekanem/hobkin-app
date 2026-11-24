@@ -67,6 +67,42 @@
 }
 
 /*
+ * A step, a message, a command or the thinking row that comes after the transcript was drawn (arrive.ts): it fades in
+ * while it moves up from just below, by translate alone, and nothing changes size. The keyframes have only a start and
+ * no fill, so once it has arrived the row carries no transform and no opacity of its own and is no layer of its own.
+ * Under Still it only fades. How far it travels and how long it takes are these two, to tune in one place. The thinking
+ * row waits a little before it shows (`data-arrive='late'`), so it does not flash between two quick steps.
+ */
+.aa-arrive {
+  --aa-arrive-rise: 14px;
+  --aa-arrive-time: 220ms;
+  animation: aa-arrive var(--aa-arrive-time) ease-out;
+}
+.aa-arrive[data-arrive='late'] {
+  animation-delay: 400ms;
+  animation-fill-mode: backwards;
+}
+@keyframes aa-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(var(--aa-arrive-rise));
+  }
+}
+@keyframes aa-arrive-still {
+  from {
+    opacity: 0;
+  }
+}
+:root[data-motion='still'] .aa-arrive {
+  animation-name: aa-arrive-still;
+}
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-motion='lively']) .aa-arrive {
+    animation-name: aa-arrive-still;
+  }
+}
+
+/*
  * A box of the transcript (a command's output, a file read, a diff, a tool's output) never grows past one height. Past
  * it, the box scrolls inside, and the transcript around it keeps one rhythm however long the output.
  */

@@ -1,15 +1,13 @@
-import { AnimatePresence, motion } from 'motion/react'
 import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, Search, SquareTerminal, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react'
 import { createContext, Fragment, memo, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
-import { holdStill, useStill } from '@/app/still.ts'
 import { FilePath } from '@/components/FilePath.tsx'
-import { GrowingMarkdown, risen, sunk } from '@/features/chat/markdown.ts'
+import { GrowingMarkdown } from '@/features/chat/markdown.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { languageOf } from '@/features/review/code/languages.ts'
-import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import './agent-activity.css'
+import { Arrivals, useArrival } from './arrive.ts'
 import { useBlock } from './blocks.ts'
 import { diffsOf, placesOf, type Part, type Place } from './change-parts.ts'
 import { ChangeDiff } from './ChangeDiff.tsx'
@@ -21,7 +19,7 @@ import { earlierWords, type EarlierRow } from './newest.ts'
 import { wholeOutput } from './older-steps.ts'
 import { previewOf } from './preview.ts'
 import { RowStamp, Stamped } from './Stamp.tsx'
-import { atOf, foldOf, looksSummary, sameStep, shownCommandsKey, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
+import { atOf, foldOf, looksSummary, sameStep, tailOf, type CallState, type Change, type Command, type Look, type LookKind, type Step } from './steps.ts'
 import { useUnfold } from './unfold.ts'
 import { proofCheckOf } from '@/features/proofs/proof-match.ts'
 import { ProofCheckStep, useCheckRun } from '@/features/proofs/ProofCheckStep.tsx'
@@ -44,32 +42,27 @@ export const StepJob = createContext<string | null>(null)
 /** The entries the step drawn was made from, so a part of it finds its own. */
 const StepEntries = createContext<readonly ActivityEntry[]>([])
 
-const arriving = { transform: spring.rise, opacity: tween.enter }
-
 /**
  * One step of an agent's work as its canvas draws it: what it said as Markdown, its commands folded into one group,
  * a file it changed as a diff, and what it read in one row. Each kind of tool block arrives open or closed to its
  * one-line header as Settings says, and opens or closes by that header, or with every other block by Control+O
- * (blocks.ts). A step that arrives after the canvas has
- * opened rises into place by itself (Reveal.tsx: a piece that comes later needs its own entrance). A step that did not
- * change is not drawn again, and one out of view is not drawn at all.
+ * (blocks.ts). A step that comes after the canvas was drawn fades in as it moves up from just below (arrive.ts), and
+ * nothing of it changes size. A step that did not change is not drawn again, and one out of view is not drawn at all.
  */
 export const StepItem = memo(
   function StepItem({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: boolean }) {
-    const still = useStill()
+    const arrival = useArrival()
     return (
-      <motion.li
+      <li
         data-step={step.kind}
         data-step-key={step.key}
         tabIndex={-1}
-        initial={holdStill(sunk, still)}
-        animate={holdStill({ ...risen, transition: arriving }, still)}
-        style={{ transformOrigin: '0% 100%' }}
         // Every step shares one inset, so text, rows and boxes start on one line. The step paints only inside itself
         // (content-visibility), and the inset leaves room for a glyph's edge and for a row's hover to bleed into.
         className={cn(
           'w-full min-w-0 rounded-[18px] px-2.5 text-left outline-none [content-visibility:auto] focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]',
           step.kind === 'says' ? '[contain-intrinsic-size:auto_56px]' : '[contain-intrinsic-size:auto_44px]',
+          arrival,
         )}
       >
         {/* On a page that shows times, the step's first row has its time beside it. A group of commands times each of its rows. */}
@@ -78,7 +71,7 @@ export const StepItem = memo(
             <StepBody step={step} timeOf={timeOf} ended={ended} />
           </StepEntries.Provider>
         </Stamped>
-      </motion.li>
+      </li>
     )
   },
   (before, after) => before.timeOf === after.timeOf && before.ended === after.ended && sameStep(before.step, after.step),
@@ -185,27 +178,9 @@ export function StateMark({ state, time, exitCode }: { state: CallState; time?: 
   )
 }
 
-/**
- * A number that changes by sliding: the old one leaves upward as the new one rises in. Both sit in the grid's one
- * cell while they pass, so the count keeps its height and nothing leaves the flow (no style sheet is added for it).
- */
+/** A count in a row. A new one takes the old one's place at once. */
 function Count({ value }: { value: number }) {
-  const still = useStill()
-  return (
-    <span className="relative inline-grid overflow-hidden tabular-nums">
-      <AnimatePresence initial={false}>
-        <motion.span
-          key={value}
-          className="col-start-1 row-start-1"
-          initial={holdStill({ opacity: 0, transform: 'translateY(70%)' }, still)}
-          animate={holdStill({ opacity: 1, transform: 'translateY(0%)', transition: arriving }, still)}
-          exit={holdStill({ opacity: 0, transform: 'translateY(-70%)', transition: tween.exit }, still)}
-        >
-          {value}
-        </motion.span>
-      </AnimatePresence>
-    </span>
-  )
+  return <span className="tabular-nums">{value}</span>
 }
 
 /** The row a group folds into. It opens to the list with Enter or a click. */
@@ -227,21 +202,15 @@ function FoldRow({ icon: Icon, open, onToggle, children, failed = false }: { ico
   )
 }
 
-/** A list that opens under its row: each line rises in after the one before. */
+/** A list that opens under its row, all of it at once. */
 function Opened({ children }: { children: ReactNode[] }) {
-  const still = useStill()
   return (
     // Lined up under the row's words, past its icon. The times of its items reach back past the indent (Stamp.tsx).
     <ul className="flex flex-col gap-1 pl-[22px] [--aa-indent:22px]">
       {children.map((child, index) => (
-        <motion.li
-          key={index}
-          initial={holdStill({ opacity: 0, transform: 'translateY(10px)' }, still)}
-          animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: { ...spring.rise, delay: Math.min(index, 8) * 0.03 }, opacity: { ...tween.enter, delay: Math.min(index, 8) * 0.03 } } }, still)}
-          className="min-w-0"
-        >
+        <li key={index} className="min-w-0">
           {child}
-        </motion.li>
+        </li>
       ))}
     </ul>
   )
@@ -250,14 +219,11 @@ function Opened({ children }: { children: ReactNode[] }) {
 /**
  * Commands in a row (021 A3, A4). The newest stays out of the fold, with any still running and any that failed. The
  * ones that passed before it fold into one row that opens to the list. When a new command starts, the one before it
- * slides up into that row and the count goes up as the new one rises in.
+ * goes into that row at once and the count goes up, and the new one arrives as a step does.
  */
 function ShellGroup({ commands, timeOf }: { commands: Command[]; timeOf: TimeOf }) {
-  const still = useStill()
   const { open, toggle } = useBlock('shell')
   const { folded, open: shown } = foldOf(commands)
-  // Motion measures where the commands are only when one comes or goes, not each time one prints more.
-  const layoutKey = shownCommandsKey(shown)
   return (
     <div className="flex flex-col gap-1.5">
       {folded.length ? (
@@ -275,25 +241,22 @@ function ShellGroup({ commands, timeOf }: { commands: Command[]; timeOf: TimeOf 
           {open ? <Opened>{folded.map((command) => <CommandCard key={command.id} command={command} time={timeOf(command.id)} />)}</Opened> : null}
         </>
       ) : null}
-      {/* Positioned, so a command giving way is lifted out within it and never stretches the canvas. */}
       <div className="relative flex flex-col gap-1.5">
-        <AnimatePresence initial={false} mode="popLayout">
+        <Arrivals>
           {shown.map((command) => (
-            <motion.div
-              key={command.id}
-              // Under Still nothing travels, not even to make room.
-              layout={still ? false : 'position'}
-              layoutDependency={layoutKey}
-              initial={holdStill(sunk, still)}
-              animate={holdStill({ ...risen, transition: { ...arriving, layout: spring.sheet } }, still)}
-              // It gives way to the next command by sliding up into the row above.
-              exit={holdStill({ opacity: 0, transform: 'translateY(-18px) scale(0.97)', transition: { transform: spring.screenExit, opacity: { duration: 0.2, ease: 'linear' } } } as const, still)}
-            >
-              <CommandOrProof command={command} time={timeOf(command.id)} />
-            </motion.div>
+            <ShownCommand key={command.id} command={command} time={timeOf(command.id)} />
           ))}
-        </AnimatePresence>
+        </Arrivals>
       </div>
+    </div>
+  )
+}
+
+/** A command out of the fold. One that starts after its group was drawn arrives as a step does. */
+function ShownCommand({ command, time }: { command: Command; time?: EntryTime }) {
+  return (
+    <div className={useArrival()}>
+      <CommandOrProof command={command} time={time} />
     </div>
   )
 }

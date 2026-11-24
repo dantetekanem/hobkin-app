@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
-import { atOf, doingNow, exchangeOf, foldOf, looksSummary, pauseOf, shownCommandsKey, stepCount, stepsOf, tailOf, type Step } from '../src/features/agent-activity/steps.ts'
+import { atOf, doingNow, exchangeOf, foldOf, looksSummary, pauseOf, stepCount, stepsOf, tailOf, type Step } from '../src/features/agent-activity/steps.ts'
 
 const said = (id: string, text: string): ActivityEntry => ({ id: `message:${id}`, kind: 'assistant', text })
 const tool = (id: string, name: string, args: object, state: ActivityEntry['state'] = 'completed', output = ''): ActivityEntry => ({
@@ -90,20 +90,6 @@ test('commands in a row fold into one group with the newest open', () => {
 
   // Words between commands end the run.
   assert.deepEqual(kinds(stepsOf([bash('a', 'ls'), said('1:0', 'Now the tests.'), bash('b', 'pnpm test')])), ['shell', 'says', 'shell'])
-})
-
-test('the commands shown out of the fold say they moved only when a command comes or goes, not when one prints more', () => {
-  const group = (entries: readonly ActivityEntry[]) => {
-    const [step] = stepsOf(entries)
-    assert.ok(step?.kind === 'shell')
-    return shownCommandsKey(foldOf(step.commands).open)
-  }
-  const done = [bash('1', 'pnpm install'), bash('2', 'pnpm lint')]
-  const keys = new Set<string>()
-  for (let lines = 1; lines <= 10; lines++) keys.add(group([...done, bash('3', 'pnpm test', 'running', 'ok\n'.repeat(lines))]))
-  assert.equal(keys.size, 1, 'ten output chunks are one layout')
-  keys.add(group([...done, bash('3', 'pnpm test'), bash('4', 'pnpm build', 'running')]))
-  assert.equal(keys.size, 2, 'a new command is a new layout')
 })
 
 test('a step says when it began, and each command and read in a group when it happened', () => {

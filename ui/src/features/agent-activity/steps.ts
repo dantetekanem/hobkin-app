@@ -447,9 +447,6 @@ export function foldOf(commands: readonly Command[]): { folded: Command[]; open:
   return { folded: commands.filter((command, index) => !isOpen(command, index)), open: commands.filter(isOpen) }
 }
 
-/** Which commands are shown out of a group's fold: it changes when one comes or goes, never when one prints more. */
-export const shownCommandsKey = (commands: readonly Command[]): string => commands.map((command) => command.id).join('\n')
-
 /** The last lines of a text, and how many lines are above them. */
 export function tailOf(text: string, most: number): { lines: string[]; hidden: number } {
   const trimmed = text.replace(/\n+$/, '')

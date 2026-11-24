@@ -10,6 +10,7 @@ import { Hob } from '@/avatar/Hob.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { sampleLength } from '@/features/agent-activity/sample.ts'
 import { stepsOf } from '@/features/agent-activity/steps.ts'
+import { Arrivals } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { StepItem } from '@/features/agent-activity/StepView.tsx'
 import { Tasks } from '@/features/agent-activity/TaskList.tsx'
@@ -167,11 +168,12 @@ function Exchange({ timeOf, turnStart, ended, cwd, word, sample }: { timeOf: (id
     >
       <motion.ol ref={scroll.content} style={{ y: scroll.y }} aria-label="What hobkin has done" className="mt-auto flex flex-col gap-3 pt-2 pb-10">
         <ShowStamps>
-          <AnimatePresence initial={false}>
+          {/* The steps drawn with the mind are simply there. Later ones arrive, and nothing leaves with a motion. */}
+          <Arrivals>
             {steps.map((step) => (
               <StepItem key={step.key} step={step} timeOf={timeOf} ended={ended} />
             ))}
-          </AnimatePresence>
+          </Arrivals>
           {word ? <Quiet word={word} entries={entries} timeOf={timeOf} turnStart={turnStart} /> : null}
         </ShowStamps>
         {sample ? <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is hobkin's own main agent, as it works.</li> : null}

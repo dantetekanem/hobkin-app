@@ -11,6 +11,7 @@ import { FilePath } from '@/components/FilePath.tsx'
 import { AgentHood } from '@/components/Mark.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { exchangeOf, pauseOf, type Doing, type ExchangeItem } from '@/features/agent-activity/steps.ts'
+import { Arrivals, useArrival } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { earlierRow, useNewest } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
@@ -510,11 +511,6 @@ function HelpersStrip({ runId, hue }: { runId: string; hue: number }) {
   )
 }
 
-const RISE_IN = {
-  initial: { opacity: 0, transform: 'translateY(22px) scale(0.92)' },
-  animate: { opacity: 1, transform: 'translateY(0px) scale(1)', transition: { transform: spring.rise, opacity: tween.enter } },
-} as const
-
 /** The steps and messages of the exchange, top to bottom, for the keyboard. */
 const walkable = (list: HTMLElement) => [...list.querySelectorAll<HTMLElement>(':scope > [data-step]')]
 /** A screen on its way out keeps its own input and exchange: each is found from within its own screen. */
@@ -637,13 +633,14 @@ function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; h
         ) : null}
         {earlier ? <EarlierSteps row={earlier} onMore={showEarlier} /> : null}
         <ShowStamps>
-          <StepJob.Provider value={job}>
-            <AnimatePresence initial={false}>
+          {/* The steps drawn with the page are simply there. Later ones arrive, and nothing leaves with a motion. */}
+          <Arrivals>
+            <StepJob.Provider value={job}>
               {newest.shown.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
-            </AnimatePresence>
-          </StepJob.Provider>
-          {/* It leaves in the same moment the next step arrives, so the list glides once instead of settling twice. */}
-          <AnimatePresence initial={false}>{thinking ? <Thinking key="thinking" activity={activity} run={agentId} /> : <AgentWaits key="waits" agentId={agentId} />}</AnimatePresence>
+            </StepJob.Provider>
+            {/* It goes in the same moment the next step arrives. */}
+            {thinking ? <Thinking key="thinking" activity={activity} run={agentId} /> : <AgentWaits key="waits" agentId={agentId} />}
+          </Arrivals>
         </ShowStamps>
         {activity?.sample ? (
           <li className="self-center text-[12px] text-muted-foreground">Sample activity. With a host this is the agent's own work, as it happens.</li>
@@ -679,7 +676,7 @@ function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; h
  * long, counted from its last step (021 A6). While the host sends the run's pulse, its working line says it instead.
  */
 function Thinking({ activity, run }: { activity: AgentActivity | null; run: string }) {
-  const still = useStill()
+  const arrival = useArrival()
   // Worked out again only when the steps change, not when the run ends or the clock ticks.
   const entries = activity?.entries
   const timeOf = activity?.timeOf
@@ -687,11 +684,8 @@ function Thinking({ activity, run }: { activity: AgentActivity | null; run: stri
   const now = useNow(since !== undefined, 1000)
   const seconds = since === undefined ? 0 : Math.max(0, Math.round((now - since) / 1000))
   return (
-    <motion.li
-      initial={holdStill({ opacity: 0, transform: 'translateY(12px)' }, still)}
-      animate={holdStill({ opacity: 1, transform: 'translateY(0px)', transition: { transform: spring.rise, opacity: { ...tween.enter, delay: 0.4 } } }, still)}
-      className="pl-2.5 text-[13px] text-muted-foreground tabular-nums"
-    >
+    // It waits a moment before it shows, so a quick step after the last one does not flash it.
+    <li data-arrive="late" className={cn('pl-2.5 text-[13px] text-muted-foreground tabular-nums', arrival)}>
       {/* It is now, so its place in the times' column is empty. */}
       <Stamped line="note">
         <span className="flex items-center gap-2">
@@ -703,22 +697,15 @@ function Thinking({ activity, run }: { activity: AgentActivity | null; run: stri
           />
         </span>
       </Stamped>
-    </motion.li>
+    </li>
   )
 }
 
 /** What the user said to the agent, on their side, timed by when they pressed Enter. The bubble takes the keyboard's ring. */
 function Said({ note }: { note: AgentNote }) {
-  const still = useStill()
+  const arrival = useArrival()
   return (
-    <motion.li
-      data-step="note"
-      tabIndex={-1}
-      initial={holdStill(RISE_IN.initial, still)}
-      animate={holdStill(RISE_IN.animate, still)}
-      style={{ transformOrigin: '100% 100%' }}
-      className="group w-full min-w-0 px-2.5 outline-none [contain-intrinsic-size:auto_48px] [content-visibility:auto]"
-    >
+    <li data-step="note" tabIndex={-1} className={cn('group w-full min-w-0 px-2.5 outline-none [contain-intrinsic-size:auto_48px] [content-visibility:auto]', arrival)}>
       <Stamped at={note.at} line="bubble">
         <div className="ml-auto w-fit max-w-[72%] rounded-2xl rounded-br-md bg-secondary px-3.5 py-2 text-left text-[15px] leading-relaxed whitespace-pre-wrap group-focus-visible:[box-shadow:0_0_0_2px_var(--hb-focus)]">
           {note.images ? <SentImages attachments={note.images} /> : null}
@@ -735,7 +722,7 @@ function Said({ note }: { note: AgentNote }) {
           ) : null}
         </div>
       </Stamped>
-    </motion.li>
+    </li>
   )
 }
 
