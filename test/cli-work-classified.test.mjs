@@ -95,6 +95,8 @@ test('a model hobkin checked at the change\'s head writes the proof score\'s evi
   const unchecked = scoresOf(review(), [{ spec: '_specs/tla/WorkItem.tla', state: 'unchecked' }]);
   assert.deepEqual(unchecked.scores, scored());
   assert.deepEqual(scoresOf(review()).scores, scored());
+  assert.equal(scoresOf({ ...review(), by: 'change-review' }).by, 'change-review', 'whose grades they are goes with them');
+  assert.equal('by' in scoresOf(review()), false);
 });
 
 test('a finished row carries its scores and says when they are for an older commit', async t => {

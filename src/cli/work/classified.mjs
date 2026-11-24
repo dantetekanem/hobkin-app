@@ -77,7 +77,8 @@ export function withModelChecks(scores, models = []) {
 }
 
 /** A kept review with what hobkin works out from it, and from its own model checks at the change's head. */
-export function scoresOf({ kind, scores: reviewed, head, missing = null }, models = [], floors = USUAL_FLOORS) {
+export function scoresOf({ kind, scores: reviewed, head, missing = null, by }, models = [], floors = USUAL_FLOORS) {
   const scores = withModelChecks(reviewed, models);
-  return { kind, scores, rate: generalRate(scores), floors: brokenFloors(scores, floors), missing, head };
+  // Whose grades they are goes with them, so a reader never takes Change Review's grades for a run of hobkin's own.
+  return { kind, scores, rate: generalRate(scores), floors: brokenFloors(scores, floors), missing, head, ...(by ? { by } : {}) };
 }
