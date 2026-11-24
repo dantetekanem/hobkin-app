@@ -1,6 +1,7 @@
 import { Maximize2, X } from 'lucide-react'
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { Button } from '@/components/ui/button.tsx'
+import { Kbd } from '@/components/ui/kbd.tsx'
 import { cn } from '@/lib/utils.ts'
 import type { ProofRun } from '#shared/protocol/proofs.ts'
 import { loadGraphView, ProofBody, useBoxLayout } from './ProofBody.tsx'
@@ -154,13 +155,14 @@ interface PanelHeadingProps extends Pick<ProofPanelProps, 'onClose' | 'onExpand'
 /**
  * The model, what hobkin said to the last press, and expand and close; which of the change's models it is and how it
  * stands, with Stop or Run again; what failed and why it is not evidence; then its keys. Each row has one room at a
- * width whatever the run says, so nothing moves as a run loads, and from 520 pixels every part of it reads whole.
+ * width whatever the run says, so nothing moves as a run loads, and from 520 pixels every part of it reads whole. It
+ * stays at the top while the run scrolls under it, so Close is always in the same place.
  */
 function PanelHeading({ run, siblings, onMove, control, onClose, onExpand }: PanelHeadingProps) {
   const phase = phaseOf(run)
   const model = specFile(run.spec).replace(/\.tla$/, '')
   return (
-    <header className="flex flex-col gap-1">
+    <header className="sticky top-0 z-10 -mx-5 -mt-4 flex flex-col gap-1 bg-background px-5 pt-4 pb-2">
       <div className="flex h-9 min-w-0 items-center gap-3">
         <span className="eyebrow shrink-0">Proof</span>
         <h2 title={run.spec} className="min-w-0 shrink-0 truncate font-mono text-[15px] font-semibold">
@@ -192,10 +194,13 @@ function PanelHeading({ run, siblings, onMove, control, onClose, onExpand }: Pan
   )
 }
 
+/** Close, with its key as the app shows keys: Escape, and T, close the panel too. */
 function CloseButton({ onClose }: { onClose: () => void }) {
   return (
-    <Button variant="ghost" size="icon" data-stop="" aria-label="Close the proof" title="Close (Escape or T)" onClick={onClose}>
+    <Button variant="outline" size="sm" data-stop="" aria-label="Close the proof" aria-keyshortcuts="Escape" title="Close the proof (Esc or T)" onClick={onClose} className="shrink-0 rounded-xl">
       <X aria-hidden />
+      Close
+      <Kbd>Esc</Kbd>
     </Button>
   )
 }
