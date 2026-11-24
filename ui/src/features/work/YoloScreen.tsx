@@ -1,3 +1,4 @@
+import { ChevronRightIcon } from 'lucide-react'
 import { memo, useEffect, useMemo, useRef, useState, type Dispatch, type KeyboardEvent, type ReactNode, type Ref, type SetStateAction } from 'react'
 import { requestCanvasFocus } from '@/app/focus.ts'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
@@ -27,11 +28,10 @@ import { SectionHeading, Segmented } from './parts.tsx'
 import { runWork, useWorkView } from './store.ts'
 import { useReviewList } from './use-review-list.ts'
 import { openOnWork } from './work-target.ts'
+import { projectCard, readinessLine, type Blocker, type CardChange } from './yolo-card.ts'
 import {
   byItselfBars,
   changeOpens,
-  changeRows,
-  reviewsOf,
   gates,
   GATES_COUNTS,
   hasSwitch,
@@ -39,11 +39,11 @@ import {
   isOn,
   mergedDays,
   mergedLine,
-  mergesHeld,
   offLine,
   projectOpens,
   projectOrder,
   readinessRow,
+  reviewsOf,
   sampleReadiness,
   pullsSay,
   sampleSwitch,
@@ -52,16 +52,13 @@ import {
   trustTiles,
   waitingChange,
   yoloReportId,
-  yoloVerdict,
   type ByItselfBars,
-  type ChangeRow,
-  type ReviewRatings,
   type Gates,
   type MergedRow,
   type PartOpen,
   type PartRow,
   type ReadinessPress,
-  type StatusLine,
+  type ReviewRatings,
   type TrustTile,
   type VerdictAction,
   type VerdictTone,
@@ -120,7 +117,7 @@ export function YoloScreen() {
   const root = useRef<HTMLDivElement | null>(null)
   useStops(root)
   const { work, live } = useWorkView()
-  // Each AI review the host knows, for the ratings of the changes waiting (spec 058). With no host, the YOLO sample's own.
+  // Each review the host knows, for the ratings of the changes waiting (spec 058). With no host, the YOLO sample's own.
   const { list: reviewList } = useReviewList(live)
   const reviews = live ? (reviewList?.reviews ?? NO_REVIEWS) : SAMPLE_YOLO_REVIEWS
   const [sample, setSample] = useState(SAMPLE_YOLO)
@@ -179,7 +176,7 @@ export function YoloScreen() {
   )
 }
 
-/** The switch and the lowest rate. What the switch means sits in two lines whatever it says, so nothing under it moves. */
+/** The switch and the lowest rate. What the switch means sits in one line whatever it says, so nothing under it moves. */
 function Switchboard({ yolo, setting: { saving, problem, change } }: { yolo: YoloState; setting: Setting }) {
   return (
     <section aria-label="YOLO mode" className="flex flex-col gap-3 rounded-3xl bg-background px-5 py-4">
@@ -200,7 +197,7 @@ function Switchboard({ yolo, setting: { saving, problem, change } }: { yolo: Yol
           />
         </div>
       </div>
-      <p role={problem ? 'alert' : undefined} className={cn('line-clamp-2 h-10 text-[13px] leading-5', problem ? 'text-bad-fg' : 'text-muted-foreground')}>
+      <p role={problem ? 'alert' : undefined} title={problem ? undefined : yoloSays(yolo)} className={cn('h-5 truncate text-[13px] leading-5', problem ? 'text-bad-fg' : 'text-muted-foreground')}>
         {problem ? `Not saved. ${problem}` : yoloSays(yolo)}
       </p>
     </section>
@@ -303,9 +300,12 @@ interface CardContext {
   finished: FinishedGroup[]
   setting: Setting
   setSample: SetSample
-  /** The AI reviews the host knows, each with its id, commit and ratings. */
+  /** The reviews the host knows, each with its id, commit and ratings. */
   reviews: readonly ({ id: string } & ReviewRatings)[]
 }
+
+/** The one line under Projects. The longer notes about switches and pull requests are its tooltip. */
+const SAYS = 'Each project says whether changes merge there by themselves and what stops them.'
 
 function Projects({ workProjects, onNewProject, newProjectRef, ...context }: CardContext & { workProjects: WorkProject[]; onNewProject: () => void; newProjectRef: Ref<HTMLButtonElement> }) {
   const { yolo, live } = context
@@ -322,10 +322,8 @@ function Projects({ workProjects, onNewProject, newProjectRef, ...context }: Car
           New project
         </Button>
       </SectionHeading>
-      <p className="px-1 text-[13px] leading-snug text-muted-foreground">
-        Each project says what YOLO mode does there and, when it does nothing, why and the one thing that moves it. Readiness sets up the rest as PRs for your merge and asks you only for what you alone can give, with YOLO mode on or off.
-        {switches ? ` ${switches}` : null}
-        {pulls ? ` ${pulls}` : null}
+      <p title={[SAYS, switches, pulls].filter(Boolean).join(' ')} className="h-5 truncate px-1 text-[13px] leading-5 text-muted-foreground">
+        {SAYS}
       </p>
       <ProofSetup live={live} />
       {ordered.length ? (
@@ -366,11 +364,11 @@ interface Said {
 }
 
 /**
- * One project, in the order the user reads it: what YOLO mode does there and the one press that moves it, what waits to
- * merge, what merged by itself, then its readiness. The header and the two status lines keep their height whatever they
- * say, so the press never moves while the status changes live.
+ * One project, in the order the user reads it: whether changes merge there by themselves, the few things that stop them
+ * each with its press, the changes waiting one line each, what merged by itself, then its readiness in one closed line.
+ * The switch and the verdict keep their place whatever the data says.
  */
-function ProjectCard({ project, workProject, yolo, live, workOn, finished, reviews, setting, setSample }: CardContext & { project: YoloProject; workProject: WorkProject | undefined }) {
+function ProjectCard({ project, workProject, yolo, live, workOn, finished, reviews, setting, setSample, initiallyOpen = false }: CardContext & { project: YoloProject; workProject: WorkProject | undefined; initiallyOpen?: boolean }) {
   // The card says when readiness was last checked, so it follows the clock itself: the page around it does not.
   const now = useNow(true, 30_000)
   const readiness = readinessRow(project, { workOn, now, zone: ZONE, waiting: waitingChange(project, finished) })
@@ -380,11 +378,12 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, revie
     lowest: yolo.lowest,
     waits: yolo.waits ?? (workOn ? null : 'work mode is off'),
     paused: workProject?.paused ?? false,
-    prMode: workProject?.prMode ?? 'off',
     pullRequests: yolo.pullRequests ?? false,
     readiness,
   }
-  const verdict = yoloVerdict(project, context)
+  const card = projectCard(project, context, reviewsOf(project, reviews))
+  // Readiness is one closed line that opens to its parts.
+  const [open, setOpen] = useState(initiallyOpen)
   const reportId = useReports((state) => yoloReportId(project, state.inbox.reports))
   const [busy, setBusy] = useState(false)
   const [said, setSaid] = useState<Said | null>(null)
@@ -466,27 +465,24 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, revie
 
   // The switch leads the heading, so it sits in the same place on every card, open or folded.
   const heading = (
-    <div className="grid h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4">
-      <div className="flex min-w-0 items-center gap-2">
-        {hasSwitch(project) ? (
-          <Switch checked={on} disabled={switching} onCheckedChange={(next) => void toggle(next)} aria-label={`YOLO mode on ${project.name}`} data-stop="" data-yolo-project={project.slug} className="mr-1" />
-        ) : null}
-        <h3 className="min-w-0 font-heading text-[15px] font-semibold">
-          {/* A box rather than a button: WebKit lays a button's content out in a box of its own, which cut the name short. */}
-          <span {...pressProps(() => go(projectOpens(project.slug)))} aria-label={`${project.name}: opens its page`} className="pressable -mx-1.5 flex h-7 min-w-0 items-center gap-1 rounded-lg px-1.5">
-            <span className="truncate">{project.name}</span>
-            <OpenArrow className="size-3.5" />
-          </span>
-        </h3>
-        {on ? <Mark tone={readiness.tone}>{readiness.state}</Mark> : null}
-        {/* Last on the line, so nothing before it moves when hobkin writes the first one. */}
-        {on && reportId ? (
-          <Button variant="ghost" size="xs" data-stop="" aria-label={`YOLO report on ${project.name}`} onClick={() => openTarget({ to: 'report', id: reportId })} className="shrink-0">
-            Report
-          </Button>
-        ) : null}
-      </div>
-      {on ? <PrimaryPress action={verdict.action} busy={busy || setting.saving} name={project.name} onPress={act} /> : null}
+    <div className="flex h-8 items-center gap-2">
+      {hasSwitch(project) ? (
+        <Switch checked={on} disabled={switching} onCheckedChange={(next) => void toggle(next)} aria-label={`YOLO mode on ${project.name}`} data-stop="" data-yolo-project={project.slug} className="mr-1" />
+      ) : null}
+      <h3 className="min-w-0 font-heading text-[15px] font-semibold">
+        {/* A box rather than a button: WebKit lays a button's content out in a box of its own, which cut the name short. */}
+        <span {...pressProps(() => go(projectOpens(project.slug)))} aria-label={`${project.name}: opens its page`} className="pressable -mx-1.5 flex h-7 min-w-0 items-center gap-1 rounded-lg px-1.5">
+          <span className="truncate">{project.name}</span>
+          <OpenArrow className="size-3.5" />
+        </span>
+      </h3>
+      <Mark tone={on ? card.verdict.tone : 'quiet'}>{on ? card.verdict.text : 'Off'}</Mark>
+      {/* Last on the line, so nothing before it moves when hobkin writes the first one. */}
+      {on && reportId ? (
+        <Button variant="ghost" size="xs" data-stop="" aria-label={`YOLO report on ${project.name}`} onClick={() => openTarget({ to: 'report', id: reportId })} className="ml-auto shrink-0">
+          Report
+        </Button>
+      ) : null}
     </div>
   )
 
@@ -504,21 +500,28 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, revie
     )
   }
 
-  const changes = changeRows(project, { rate: yolo.rate, holds: mergesHeld(project, context), reviews: reviewsOf(project, reviews) })
   const days = mergedDays(project, { zone: ZONE, now })
   const setUp = stillToSetUp(project)
   const placed = inPlace(project)
 
   return (
-    <li aria-label={project.name} className="flex flex-col gap-3 rounded-2xl bg-background px-4 py-3">
+    <li aria-label={project.name} className="flex flex-col gap-2 rounded-2xl bg-background px-4 py-3">
       {heading}
-      <dl className="grid grid-cols-[64px_88px_minmax(0,1fr)] items-start gap-x-3 gap-y-2">
-        <Status label="Merges" line={verdict.merges} said={said} />
-        <Status label="Deploys" line={verdict.deploys} said={null} />
-      </dl>
-      {changes.length ? (
-        <Part heading="Next to merge" count={changes.length}>
-          {changes.map((row) => (
+      {said ? (
+        <p role={said.tone === 'refused' ? 'alert' : undefined} title={said.text} className={cn('truncate text-[13px] leading-5', said.tone === 'refused' ? 'text-bad-fg' : 'text-foreground/85')}>
+          {said.text}
+        </p>
+      ) : null}
+      {card.blockers.length ? (
+        <ul aria-label={`What stops changes merging on ${project.name}`} className="flex flex-col">
+          {card.blockers.map((blocker) => (
+            <BlockerLine key={blocker.key} blocker={blocker} name={project.name} busy={busy || setting.saving} onPress={act} />
+          ))}
+        </ul>
+      ) : null}
+      {card.changes.length ? (
+        <Part heading="Waiting" count={card.changes.length}>
+          {card.changes.map((row) => (
             <ChangeLine key={row.item} row={row} name={project.name} onReview={() => go(changeOpens(project.slug, row.item, live))} />
           ))}
         </Part>
@@ -539,8 +542,16 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, revie
       ) : null}
       <section aria-label={`Readiness of ${project.name}`} className="flex flex-col gap-1">
         <div className="flex h-7 items-center gap-2">
-          <h4 className="eyebrow">Readiness</h4>
-          <span className="truncate text-[12px] text-muted-foreground tabular-nums">{readiness.checked}</span>
+          <button
+            type="button"
+            data-stop=""
+            aria-expanded={open}
+            onClick={() => setOpen((was) => !was)}
+            className="pressable -mx-1.5 flex h-7 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-1.5 text-left text-[12.5px] text-muted-foreground hover:text-foreground"
+          >
+            <ChevronRightIcon aria-hidden="true" className={cn('size-3.5 shrink-0', open && 'rotate-90')} />
+            <span className="truncate tabular-nums">{readinessLine(project, readiness)}</span>
+          </button>
           <Button
             variant="ghost"
             size="xs"
@@ -550,30 +561,34 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, revie
             title={readiness.title}
             aria-label={`${readiness.title ?? readiness.action} on ${project.name}`}
             onClick={() => void runReadiness(readiness.press)}
-            className="ml-auto data-disabled:opacity-50"
+            className="shrink-0 data-disabled:opacity-50"
           >
             {readiness.action}
           </Button>
         </div>
-        {setUp.map(({ heading, rows }) => (
-          <section key={heading} aria-label={heading} className="flex flex-col">
-            <h5 className="pt-1 pb-0.5 text-[11.5px] font-medium text-muted-foreground">{heading}</h5>
-            <ul className="flex flex-col">
-              {rows.map((row) => (
-                <PartLine key={row.name} row={row} />
-              ))}
-            </ul>
-          </section>
-        ))}
-        {placed ? (
-          <p title={placed} className="truncate pt-1 text-[12.5px] text-muted-foreground">
-            {placed}
-          </p>
+        {open ? (
+          <>
+            {setUp.map(({ heading, rows }) => (
+              <section key={heading} aria-label={heading} className="flex flex-col">
+                <h5 className="pt-1 pb-0.5 text-[11.5px] font-medium text-muted-foreground">{heading}</h5>
+                <ul className="flex flex-col">
+                  {rows.map((row) => (
+                    <PartLine key={row.name} row={row} />
+                  ))}
+                </ul>
+              </section>
+            ))}
+            {placed ? (
+              <p title={placed} className="truncate pt-1 text-[12.5px] text-muted-foreground">
+                {placed}
+              </p>
+            ) : null}
+            {/* Its state machines' models on main, a part of its readiness when it has any (050-tla-proofs). */}
+            <div data-models="" className="empty:hidden">
+              <ProjectModels models={project.models ?? []} live={live} />
+            </div>
+          </>
         ) : null}
-        {/* Its state machines' models on main, a part of its readiness when it has any (050-tla-proofs). */}
-        <div data-models="" className="empty:hidden">
-          <ProjectModels models={project.models ?? []} live={live} />
-        </div>
       </section>
     </li>
   )
@@ -586,43 +601,34 @@ function go(open: YoloOpen) {
   else openOnWork(open.target)
 }
 
-/** The one press that moves YOLO mode on the project. Its place keeps its width when there is none, so the line beside it never moves. */
-function PrimaryPress({ action, busy, name, onPress }: { action: VerdictAction | null; busy: boolean; name: string; onPress: (action: VerdictAction) => void }) {
-  if (!action) return <span aria-hidden="true" className="w-[136px]" />
+/** One thing that stops changes merging: the reason, how many changes it holds, and the press that moves it. Each keeps its column, so nothing moves. */
+function BlockerLine({ blocker, name, busy, onPress }: { blocker: Blocker; name: string; busy: boolean; onPress: (action: VerdictAction) => void }) {
+  const { press } = blocker
   return (
-    <Button
-      variant="default"
-      size="sm"
-      data-stop=""
-      disabled={busy}
-      focusableWhenDisabled
-      title={action.title}
-      aria-label={`${action.title ?? action.label} on ${name}`}
-      onClick={() => onPress(action)}
-      className="w-[136px] data-disabled:opacity-50"
-    >
-      {action.label}
-    </Button>
-  )
-}
-
-/** One status line: what, where it stands, and why, in two lines at most. hobkin's answer to the last press takes the line until the work moves on. */
-function Status({ label, line, said }: { label: string; line: StatusLine; said: Said | null }) {
-  const text = said?.text || line.text
-  return (
-    <>
-      <dt className="eyebrow flex h-5 items-center">{label}</dt>
-      <dd className="flex h-5 items-center">
-        <Mark tone={line.tone}>{line.state}</Mark>
-      </dd>
-      <dd
-        role={said?.tone === 'refused' ? 'alert' : undefined}
-        title={text}
-        className={cn('line-clamp-2 h-10 text-[13px] leading-5 break-words', said?.tone === 'refused' ? 'text-bad-fg' : 'text-foreground/85')}
-      >
-        {text}
-      </dd>
-    </>
+    <li className="grid h-7 grid-cols-[minmax(0,1fr)_64px_136px] items-center gap-x-3 text-[12.5px]">
+      <span title={blocker.detail ? `${blocker.text}\n${blocker.detail}` : blocker.text} className="flex min-w-0 items-center gap-2">
+        <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-warn-fg" />
+        <span className="truncate">{blocker.text}</span>
+      </span>
+      <span className="text-right text-muted-foreground tabular-nums">{blocker.count ? `holds ${blocker.count}` : ''}</span>
+      {press ? (
+        <Button
+          variant="outline"
+          size="xs"
+          data-stop=""
+          disabled={busy}
+          focusableWhenDisabled
+          title={press.title}
+          aria-label={`${press.title ?? press.label} on ${name}`}
+          onClick={() => onPress(press)}
+          className="w-[136px] justify-self-end data-disabled:opacity-50"
+        >
+          {press.label}
+        </Button>
+      ) : (
+        <span aria-hidden="true" />
+      )}
+    </li>
   )
 }
 
@@ -639,56 +645,26 @@ function Part({ heading, count, children }: { heading: string; count: number; ch
 }
 
 /**
- * A change waiting to merge: its title, kind and rate against the user's on the first line, and why it asks on the second.
- * Every row has the same columns. The row opens the change's review, and its arrow shows that it does.
+ * A change waiting to merge, in one line: its title, its rate with the review's five numbers, and where it stands. The reason and the review's scores are the
+ * line's tooltip. The row opens the change's review, and its arrow shows that it does.
  */
-function ChangeLine({ row, name, onReview }: { row: ChangeRow; name: string; onReview: () => void }) {
-  const rated = row.reviewLine ? ` ${row.reviewLine}` : ''
+function ChangeLine({ row, name, onReview }: { row: CardChange; name: string; onReview: () => void }) {
   return (
     <li className="border-t border-border/60 first:border-t-0">
       <div
         {...pressProps(onReview)}
-        aria-label={`${row.title} on ${name}: ${row.kind}, rated ${row.rate}, ${row.against}.${rated} Opens its review.`}
-        className="pressable -mx-2 grid h-[68px] grid-cols-[minmax(0,1fr)_136px_44px_112px_16px] grid-rows-3 items-center gap-x-3 rounded-lg px-2 outline-offset-[-2px]"
+        title={row.tip}
+        aria-label={`${row.title} on ${name}: ${row.state}, rate ${row.rate}, ${row.grades ? `grades ${row.grades}` : 'not graded'}. Opens its review.`}
+        className="pressable -mx-2 grid h-8 grid-cols-[minmax(0,1fr)_150px_156px_16px] items-center gap-x-3 rounded-lg px-2 outline-offset-[-2px]"
       >
-        <span title={row.title} className="truncate text-[13px] font-medium">
-          {row.title}
+        <span className="truncate text-[13px] font-medium">{row.title}</span>
+        <span className="text-right text-[12px] text-muted-foreground tabular-nums">
+          <span className="font-semibold text-foreground">{row.rate}</span> · {row.grades ?? 'not graded'}
         </span>
-        <span title={row.kind} className="truncate text-right text-[12px] text-muted-foreground">
-          {row.kind}
-        </span>
-        <Mark tone={row.tone} className="justify-self-start tabular-nums">
-          {row.rate}
-        </Mark>
-        <span className="truncate text-[12px] text-muted-foreground tabular-nums">{row.against}</span>
-        <OpenArrow className="row-span-3 justify-self-end" />
-        {/* The AI review's own numbers keep their line whether or not there are any, so no row changes height. */}
-        <ReviewNumbers row={row} />
-        <span title={row.why} className="col-span-4 truncate text-[12.5px] text-muted-foreground">
-          {row.why}
-        </span>
+        <Mark tone={row.tone}>{row.state}</Mark>
+        <OpenArrow className="justify-self-end" />
       </div>
     </li>
-  )
-}
-
-/** The AI review's five numbers and rate on a waiting change's row, named as the review's, with the commit; an empty line with none. */
-function ReviewNumbers({ row: { review, reviewLine, rateBy } }: { row: ChangeRow }) {
-  if (!review || !reviewLine) return <span aria-hidden="true" className="col-span-4 h-5" />
-  return (
-    <span aria-hidden="true" title={reviewLine} className="col-span-4 flex h-5 min-w-0 items-baseline gap-1.5 truncate text-[12px] text-muted-foreground tabular-nums">
-      <span className="shrink-0 font-medium">AI review</span>
-      {review.other ? <span className="shrink-0 text-warn-fg">rated at {review.at}, older:</span> : null}
-      {review.numbers.map(({ name, word, value }) => (
-        <span key={name} className="shrink-0">
-          {word} <span className={value === 'not known' ? '' : 'font-semibold text-foreground'}>{value}</span>
-        </span>
-      ))}
-      <span className="shrink-0">
-        · {review.rate ? <>rate <span className="font-semibold text-foreground">{review.rate}</span></> : 'no general rate'}, at {review.at}
-      </span>
-      {rateBy === 'review' ? <span className="truncate">· YOLO mode goes by hobkin&apos;s own scored run</span> : null}
-    </span>
   )
 }
 

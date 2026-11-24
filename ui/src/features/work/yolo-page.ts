@@ -1,9 +1,8 @@
 import type { MetricsDay } from '#shared/protocol/metrics.ts'
-import type { ChangeChoice, FinishedChange, FinishedGroup, FinishedGroupName, Landing, PrMode, YoloChange, YoloPart, YoloPartState, YoloProject, YoloState } from '#shared/protocol/work.ts'
+import type { ChangeChoice, FinishedChange, FinishedGroup, FinishedGroupName, Landing, YoloChange, YoloPart, YoloPartState, YoloProject, YoloState } from '#shared/protocol/work.ts'
 import { SERIES_COLOR, type DaySeries, type FunnelStep } from '../numbers/chart-kit.ts'
 import { countWords, lastDays, NO_DATA, shareWords, sumDays, TILE_DAYS } from '../numbers/format.ts'
 import { finishedReviewId } from '../review/entry.ts'
-import { needNumbers, rateWords, type NeedNumbers } from '../review/panel/needs.ts'
 import { reviewIdOf } from '#shared/review/ids.ts'
 import { dateLabel, dayName, whenText } from '../routines/words.ts'
 
@@ -259,13 +258,6 @@ function waitingYes(waiting: WaitingChange | null): Pick<ReadinessRow, 'action' 
 
 export type VerdictTone = ReadinessTone | 'bad'
 
-/** One line of what YOLO mode does on a project: where it stands in a word or two, and why, in a sentence or two. */
-export interface StatusLine {
-  state: string
-  tone: VerdictTone
-  text: string
-}
-
 /**
  * The one press that moves YOLO mode on a project: its readiness row's own press, an Action Item, a PR, Work itself or a card
  * there, a change's review, or the rate a change would pass at.
@@ -284,41 +276,14 @@ export interface VerdictAction {
   title?: string
 }
 
-/** What YOLO mode does on a project, at a glance: whether it merges there, whether it deploys, and the one press that moves it. */
-export interface YoloVerdict {
-  merges: StatusLine
-  deploys: StatusLine
-  action: VerdictAction | null
-}
-
-/** What the verdict reads besides the project: the switch and the rate, why work mode holds every merge, and the project as Work knows it. */
-export interface VerdictContext {
-  on: boolean
-  rate: number
-  lowest: number
-  /** hobkin's words for why nothing merges anywhere: work mode off or paused. */
-  waits: string | null
-  paused: boolean
-  prMode: PrMode
-  /** Whether hobkin takes a change waiting on its pull request at all. A hobkin that does not say takes none. */
-  pullRequests?: boolean
-  readiness: ReadinessRow
-}
-
 const sentence = (text: string) => (/[.!?]$/.test(text) ? text : `${text}.`)
-const tenths = (value: number) => Math.round(value * 10) / 10
-
-/** The waiting change that would merge first: one that merges by itself on the next pass, else the highest rated, in hobkin's order among equals. */
-function firstChange(changes: readonly YoloChange[]): YoloChange | undefined {
-  return changes.find(({ why }) => !why) ?? changes.toSorted((a, b) => (b.rate ?? -1) - (a.rate ?? -1))[0]
-}
 
 // The readiness row's own press, named apart from a model's Check again on the same card.
 const readinessLabel = ({ action }: ReadinessRow) => (action === 'Check again' ? 'Check readiness' : action)
 
 /** The press that sets a part up: its Action Item, its PR, its branch's card on Work, or readiness itself to confirm a step or redo it. */
 export function partPress(project: YoloProject, part: YoloPart, readiness: ReadinessRow): VerdictAction | null {
-  if (part.state === 'user' && part.action) return { label: 'Answer item', press: { do: 'action', id: part.action } }
+  if (part.state === 'user' && part.action) return { label: 'Open item', press: { do: 'action', id: part.action } }
   if (part.pr) return { label: 'Open PR', press: { do: 'pr', url: part.pr } }
   if (part.state === 'pr' && part.item) return { label: 'Open on Work', press: { do: 'work', key: `${project.slug}:${part.item}` } }
   // A step the user took is confirmed by the next check, and a part still to do is redone by one.
@@ -326,93 +291,14 @@ export function partPress(project: YoloProject, part: YoloPart, readiness: Readi
   return checks && readiness.canRun ? { label: readinessLabel(readiness), press: { do: 'readiness' } } : null
 }
 
-/** Whether its deploys run: by the recorded path, never on this project, or not yet, with what that waits on. */
-function deploysOf(deploy: YoloPart | undefined): StatusLine {
-  if (!deploy) return { state: 'Not said', tone: 'quiet', text: 'This hobkin does not say how it deploys.' }
-  if (deploy.state === 'done' && deploy.deploys === false) return { state: 'None', tone: 'quiet', text: 'Nothing deploys on this project.' }
-  if (deploy.state === 'done') return { state: 'Ready', tone: 'ok', text: 'Each merge goes to the main agent to deploy by its recorded path.' }
-  const waits = { user: `It waits on you: ${sentence(deploy.line)}`, pr: deploy.pr ? 'Its PR waits for your merge.' : 'Its branch waits for your merge.' }[deploy.state as 'user' | 'pr']
-  return { state: 'Not set up', tone: 'warn', text: `Nothing deploys yet. ${waits ?? sentence(deploy.line)}` }
-}
-
-/** Whether changes merge by itself there, or the exact reason none does. */
-function mergesOf(project: YoloProject, context: VerdictContext): StatusLine {
-  const stuck = (text: string): StatusLine => ({ state: 'Stuck', tone: 'warn', text })
-  if (!context.on) return { state: 'Off', tone: 'quiet', text: 'YOLO mode is off, so every change here asks you.' }
-  if (context.waits) return stuck(`Nothing merges by itself while ${context.waits}.`)
-  if (context.paused) return stuck(`Nothing merges by itself while ${project.name} is paused on Work.`)
-  if (!project.ready) return { state: 'Getting ready', tone: 'warn', text: `Nothing merges by itself until it is ready. ${context.readiness.detail}` }
-
-  const next = firstChange(project.changes ?? [])
-  if (next && !next.why) return { state: 'Merging', tone: 'live', text: `"${next.title}" merges by itself on the next pass: ${next.kind} rated ${next.rate}.` }
-  if (next?.why) return stuck(`Nothing can merge by itself. "${next.title}" asks you: ${sentence(next.why)}`)
-  if (context.prMode !== 'off' && !context.pullRequests) return stuck('PR mode is on here, so each change goes up as a PR for your merge, and YOLO mode merges no PR.')
-  if (context.prMode === 'draft') return stuck('PR mode makes each change a draft PR here, and YOLO mode never merges a draft, so each one waits for you.')
-  if (context.prMode !== 'off') {
-    const asPull = `Each change goes up as a PR, and the next small one rated ${context.rate} or more merges there by itself once every check on it passed.`
-    return { state: 'Idle', tone: 'quiet', text: `Nothing waits to merge. ${asPull} A draft, or one with no checks, never does.` }
-  }
-  return { state: 'Idle', tone: 'quiet', text: `Nothing waits to merge. The next small change rated ${context.rate} or more merges by itself.` }
-}
-
-/** The one press: what holds every merge first, then what holds this project, then the change that waits, then its deploys. */
-function actionOf(project: YoloProject, context: VerdictContext): VerdictAction | null {
-  const { readiness } = context
-  const parts = project.parts ?? []
-  const readinessPress = readiness.canRun ? ({ label: readinessLabel(readiness), press: { do: 'readiness' }, ...(readiness.title ? { title: readiness.title } : {}) } as const) : null
-  if (!context.on) return project.ready ? null : readinessPress
-  if (context.waits || context.paused) return { label: 'Open Work', press: { do: 'work', key: null } }
-  if (!project.ready) {
-    // Readiness work under way, or waiting for the user's yes, is the readiness row's to press. Otherwise the part that holds it.
-    if (project.work && project.work !== 'landed' && project.work !== 'closed') return readinessPress
-    const held = parts.filter(({ blocks }) => blocks).map((part) => partPress(project, part, readiness)).find(Boolean)
-    return held ?? readinessPress
-  }
-
-  const next = firstChange(project.changes ?? [])
-  const deploy = parts.find(({ name }) => name === 'deploy')
-  const deployPress = deploy && deploy.state !== 'done' ? partPress(project, deploy, readiness) : null
-  const review = next ? ({ label: 'Open review', press: { do: 'review', slug: project.slug, item: next.item } } as const) : null
-  if (next && !next.why) return deployPress ?? review
-  if (next?.why && next.rate !== null && next.why === `its general rate is ${next.rate}, under ${context.rate}`) {
-    const passes = Math.floor(next.rate)
-    if (passes >= context.lowest) return { label: `Set rate to ${passes}`, press: { do: 'rate', rate: passes }, title: `Lower your rate to ${passes}, so "${next.title}" merges by itself` }
-  }
-  return review ?? deployPress
-}
-
-export function yoloVerdict(project: YoloProject, context: VerdictContext): YoloVerdict {
-  const deploy = project.parts?.find(({ name }) => name === 'deploy')
-  return { merges: mergesOf(project, context), deploys: deploysOf(deploy), action: actionOf(project, context) }
-}
-
-/** One change waiting on a project, with its rate against the user's. */
-export interface ChangeRow {
-  item: string
-  title: string
-  kind: string
-  rate: string
-  against: string
-  tone: ReadinessTone
-  why: string
-  /** Whose rate the row leads with: hobkin's own scored run, which YOLO mode merges by, the AI review's, or nobody's. */
-  rateBy: 'hobkin' | 'review' | null
-  /** The AI review's own five numbers and rate, or null when its review has none. */
-  review: NeedNumbers | null
-  /** The AI review's ratings in words, said as the review's, with the commit they were made at. Null with none. */
-  reviewLine: string | null
-}
-
-/** A change's AI review as the host's review list carries it: the commit its row is at, and its ratings as sent. */
+/** A change's review as the host's review list carries it: the commit its row is at, and its ratings as sent. */
 export interface ReviewRatings {
   head: string | null
   needs?: unknown
 }
 
-const NO_REVIEWS: ReadonlyMap<string, ReviewRatings> = new Map()
-
 /**
- * Each waiting change's AI review on a project, by its item, found in the review list by the id its row opens
+ * Each waiting change's review on a project, by its item, found in the review list by the id its row opens
  * (`change:<project>:<item>`), so a review of another project or of a pull request of its own is never taken for it.
  */
 export function reviewsOf({ slug, changes = [] }: YoloProject, listed: readonly ({ id: string } & ReviewRatings)[]): Map<string, ReviewRatings> {
@@ -425,57 +311,8 @@ export function reviewsOf({ slug, changes = [] }: YoloProject, listed: readonly 
   return found
 }
 
-/** The AI review's ratings of a change in a line: its five numbers, its rate and the commit, and what YOLO mode goes by when only it rated. */
-function reviewLineOf(review: NeedNumbers, { head, needs }: ReviewRatings, scored: boolean): string {
-  const numbers = review.numbers.map(({ word, value }) => `${word} ${value}`).join(', ')
-  const rated = sentence(rateWords(needs, head ?? undefined) ?? '')
-  const goesBy = scored ? '' : " YOLO mode goes by hobkin's own scored run, not this one."
-  return `AI review: ${review.other ? `${review.other}: ` : ''}${numbers}. ${rated}${goesBy}`
-}
-
-/** Where a change that passes every rule stands: it merges on the next pass, once its project is ready, or when what holds every merge lets go. */
-function passes(project: YoloProject, holds: string | null): Pick<ChangeRow, 'against' | 'why'> {
-  if (holds) return { against: 'held', why: `It would merge by itself, but nothing merges while ${holds}.` }
-  if (!project.ready) return { against: 'once ready', why: `It merges by itself once ${project.name} is ready.` }
-  return { against: 'merges next pass', why: 'It merges by itself on the next pass.' }
-}
-
-/**
- * The changes waiting on a project, the ones that pass every rule first, then by rate. `holds` is why nothing merges by itself
- * anywhere or on this project, such as YOLO mode being off, and null when nothing does.
- */
-export function changeRows(
-  project: YoloProject,
-  { rate, holds, reviews = NO_REVIEWS }: { rate: number; holds: string | null; reviews?: ReadonlyMap<string, ReviewRatings> },
-): ChangeRow[] {
-  const changes = project.changes ?? []
-  const ordered = [...changes.filter(({ why }) => !why), ...changes.filter(({ why }) => why).toSorted((a, b) => (b.rate ?? -1) - (a.rate ?? -1))]
-  return ordered.map((change) => {
-    const scored = change.rate !== null
-    // The AI review's own ratings, by the change's item, as the review list carries them.
-    const sent = reviews.get(change.item)
-    const review = sent ? needNumbers(sent.needs, sent.head ?? undefined) : null
-    const under = scored ? tenths(rate - change.rate!) : 0
-    const against = scored ? (under > 0 ? `${under} under ${rate}` : `at or above ${rate}`) : review ? 'by the AI review' : 'no rate yet'
-    const asks = { against, why: `It asks you: ${sentence(change.why ?? '')}` }
-    return {
-      item: change.item,
-      title: change.title,
-      kind: change.kind ?? (review ? 'not scored by hobkin' : 'no review yet'),
-      // hobkin's own rate leads, since YOLO mode merges by it; the review's leads only a change hobkin has not scored.
-      rate: scored ? String(change.rate) : (review?.rate ?? '–'),
-      rateBy: scored ? 'hobkin' : review ? 'review' : null,
-      // The rate's own tone against the user's: at or above, under, or none of hobkin's yet.
-      tone: !scored ? 'quiet' : under > 0 ? 'warn' : 'ok',
-      ...(change.why ? asks : passes(project, holds)),
-      review,
-      reviewLine: review && sent ? reviewLineOf(review, sent, scored) : null,
-    }
-  })
-}
-
 /** Why nothing merges by itself on a project whatever its changes say: YOLO mode off, work mode waiting, or the project paused. Null when nothing holds. */
-export function mergesHeld(project: YoloProject, { on, waits, paused }: Pick<VerdictContext, 'on' | 'waits' | 'paused'>): string | null {
+export function mergesHeld(project: YoloProject, { on, waits, paused }: { on: boolean; waits: string | null; paused: boolean }): string | null {
   if (!on) return 'YOLO mode is off'
   if (waits) return waits
   return paused ? `${project.name} is paused on Work` : null

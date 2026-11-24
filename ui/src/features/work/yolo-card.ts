@@ -1,5 +1,5 @@
 import type { YoloChange, YoloPart, YoloProject } from '#shared/protocol/work.ts'
-import { needNumbers } from '../review/panel/needs.ts'
+import { needNumbers, type NeedNumbers } from '../review/panel/needs.ts'
 import { isOn, partPress, type ReadinessRow, type ReviewRatings, type VerdictAction, type VerdictTone } from './yolo-page.ts'
 
 /**
@@ -45,7 +45,9 @@ export interface CardChange {
   /** One word or few of where it stands. */
   state: string
   tone: VerdictTone
-  /** The reason's whole sentence and the AI review's five scores, for a tooltip. */
+  /** The review's five numbers in one short run ("9 9 9 8 9", a dash for one it has none for), or null while it has none. */
+  grades: string | null
+  /** The reason's whole sentence and the review's scores, for a tooltip. */
   tip: string
 }
 
@@ -69,7 +71,7 @@ type Reason = { key: string; state: string; tone: VerdictTone }
 /** What one of hobkin's sentences means to the window. A sentence it does not know is its own reason, kept as written. */
 function reasonOf(why: string): Reason {
   if (why === PULLS_OFF) return { key: 'pulls', state: 'Pull requests off', tone: 'warn' }
-  if (why === UNRATED) return { key: 'unrated', state: 'Not rated', tone: 'quiet' }
+  if (why === UNRATED) return { key: 'unrated', state: 'Not reviewed', tone: 'quiet' }
   if (why === PAUSED) return { key: 'paused', state: 'Paused', tone: 'quiet' }
   if (why === NOT_READY) return { key: 'not-ready', state: 'Waits for readiness', tone: 'quiet' }
   if (OFF.test(why)) return { key: 'off', state: 'Off', tone: 'quiet' }
@@ -105,13 +107,12 @@ function partBlocker(project: YoloProject, part: YoloPart, readiness: ReadinessR
   return { key, text: `${part.label}: ${stand}`, detail: part.line, count, press }
 }
 
-/** The tooltip's AI review line: its five numbers and its rate, said as the review's. */
-function reviewLine(review: ReviewRatings | undefined): string | null {
-  const numbers = review ? needNumbers(review.needs, review.head ?? undefined) : null
+/** The tooltip's review line: its five numbers and its rate, said as the review's. */
+function reviewLine(numbers: NeedNumbers | null): string | null {
   if (!numbers) return null
   const scores = numbers.numbers.map(({ word, value }) => `${word} ${value}`).join(', ')
   const rate = numbers.rate ? `, rate ${numbers.rate}` : ''
-  return `AI review${numbers.other ? ` (${numbers.other.toLowerCase()})` : ''}: ${scores}${rate}, at ${numbers.at}.`
+  return `Review${numbers.other ? ` (${numbers.other.toLowerCase()})` : ''}: ${scores}${rate}, at ${numbers.at}.`
 }
 
 /** The changes waiting on a project, the ones that pass every rule first, then by rate. */
@@ -121,7 +122,7 @@ function ordered(changes: readonly YoloChange[]): YoloChange[] {
 
 /**
  * One project's card: whether changes merge there by themselves and, when none can, the distinct things that stop them, each
- * once with how many changes it holds. `reviews` are the AI reviews by change, for the tooltip.
+ * once with how many changes it holds. `reviews` are the reviews by change, for the tooltip.
  */
 export function projectCard(project: YoloProject, read: CardRead, reviews: ReadonlyMap<string, ReviewRatings>): ProjectCard {
   const changes = ordered(project.changes ?? [])
@@ -161,7 +162,7 @@ export function projectCard(project: YoloProject, read: CardRead, reviews: Reado
         case 'pulls':
           return { ...rest, text: 'Pull requests do not merge by themselves yet: switched off in hobkin' }
         case 'unrated':
-          return { ...rest, text: 'Not rated yet', press: only ? { label: 'Open review', press: { do: 'review', slug: project.slug, item: only } } : null }
+          return { ...rest, text: 'Not reviewed yet', press: only ? { label: 'Open review', press: { do: 'review', slug: project.slug, item: only } } : null }
         case 'note':
           return { ...rest, text: 'A run left a note for you', press: { label: only ? 'Open on Work' : 'Open Work', press: { do: 'work', key: workKey } } }
         case 'rate': {
@@ -184,13 +185,16 @@ export function projectCard(project: YoloProject, read: CardRead, reviews: Reado
     const state = reason?.state ?? heldNow ?? 'Would merge'
     const tone: VerdictTone = reason ? reason.tone : heldNow ? 'quiet' : 'ok'
     const why = change.why ? sentence(capital(change.why)) : heldNow ? `It passes every rule, but ${heldNow.toLowerCase()}.` : 'It passes every rule and merges on the next pass.'
-    const tip = [why, reviewLine(reviews.get(change.item))].filter(Boolean).join(' ')
-    return { item: change.item, title: change.title, rate: change.rate === null ? '–' : String(change.rate), state: projectOn ? state : 'Off', tone, tip }
+    const sent = reviews.get(change.item)
+    const numbers = sent ? needNumbers(sent.needs, sent.head ?? undefined) : null
+    const grades = numbers ? numbers.numbers.map(({ value }) => (/^\d/.test(value) ? value : '–')).join(' ') : null
+    const tip = [why, reviewLine(numbers)].filter(Boolean).join(' ')
+    return { item: change.item, title: change.title, rate: change.rate === null ? '–' : String(change.rate), grades, state: projectOn ? state : 'Off', tone, tip }
   })
 
   const can = projectOn && !heldNow ? changes.filter(({ why }) => !why).length : 0
   const verdict: CardVerdict = !projectOn
-    ? { kind: 'off', text: 'Off', tone: 'quiet' }
+    ? { kind: 'off', text: isOn(project) ? 'Off while YOLO mode is off' : 'Off', tone: 'quiet' }
     : can > 0 || (!changes.length && !list.length)
       ? { kind: 'merges', text: can > 0 && can < changes.length ? `Merges by itself: ${can} of ${changes.length} can merge` : 'Merges by itself', tone: 'ok' }
       : { kind: 'nothing', text: changes.length ? `Merging nothing: 0 of ${changes.length} can merge` : 'Merging nothing', tone: 'warn' }
