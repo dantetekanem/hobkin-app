@@ -44,6 +44,7 @@ export const KEY_LIST: readonly KeyEntry[] = [
   { keys: '↑ ↓', does: 'Move through the agents, ↵ opens one', where: 'the agents list', basic: true },
   { keys: 'x', does: 'Stop the selected agent', where: 'the agents list' },
   { keys: 'w', does: 'Set the workload', where: 'Work, outside text fields' },
+  { keys: 'q', does: 'List the whole queue', where: 'Work, outside text fields' },
   { keys: 'n', does: 'Add a new project', where: 'Work and YOLO mode, outside text fields' },
   { keys: 'space', does: 'Open or close a finished change', where: 'Work, on a finished change' },
   { keys: '⌃⌥P', does: 'Full prompt editor', where: 'anywhere' },

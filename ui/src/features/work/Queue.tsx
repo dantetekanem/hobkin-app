@@ -4,6 +4,7 @@ import { useMemo, useState, type KeyboardEvent, type MouseEvent, type Ref } from
 import { useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { Kbd } from '@/components/ui/kbd.tsx'
 import { OpenArrow } from '@/components/ui/open-arrow.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { rowLayout } from '@/features/reports/list-motion.ts'
@@ -13,7 +14,8 @@ import type { Grade, PrMode, QueueRow, WorkProject, WorkState } from '@/lib/host
 import { cn } from '@/lib/utils.ts'
 import { discoverableProjects, isGoal, projectFacts, trackedProjects } from './projects.ts'
 import { GradeChip, IssueLink, PullLink, SaidLine, SectionHeading, Segmented } from './parts.tsx'
-import { outsidePaused, queueInSight, SHOWN_SHUT, startNowLine } from './queue-rows.ts'
+import { outsidePaused, queueInSight, startNowLine } from './queue-rows.ts'
+import { queueCount, shownBefore } from './queue-sheet.ts'
 import { clickPressesRow } from './row-press.ts'
 import { runWork, useWorkUi, type Said } from './store.ts'
 
@@ -56,20 +58,19 @@ function StartNowTold({ said }: { said: Said }) {
   )
 }
 
-export function QueueSection({ work, live, variants, turn, only }: { work: Pick<WorkState, 'queue' | 'queued' | 'projects' | 'enabled'>; /** The name of the one project the page shows, when it does. */ only?: string } & Shared) {
-  const [open, setOpen] = useState(false)
+export function QueueSection({ work, live, variants, turn, only, onShowAll }: { work: Pick<WorkState, 'queue' | 'queued' | 'projects' | 'enabled'>; /** The name of the one project the page shows, when it does. */ only?: string; /** Opens the sheet that lists every row. */ onShowAll: () => void } & Shared) {
   const told = useWorkUi((state) => state.said['queue'])
   // A paused project starts nothing, so its rows leave the queue until it is switched back on.
   const pausedSlugs = useMemo(() => new Set(work.projects.filter(({ paused }) => paused).map(({ slug }) => slug)), [work.projects])
   const { rows: queue, paused } = useMemo(() => outsidePaused(work.queue, pausedSlugs), [work.queue, pausedSlugs])
-  const { rows, hidden } = queueInSight(queue, open)
+  // The page keeps to its first rows. The sheet has all of them, as the control says.
+  const { rows } = queueInSight(queue, false)
   const urgent = queue.filter(({ grade, skipped }) => grade === 'P0' && !skipped).length
   const waiting = queue.filter(({ skipped }) => !skipped).length
   // hobkin counts the paused projects' waiting rows in its queue too, and can count more than the rows it lists.
   const pausedWaiting = work.queue.filter(({ skipped }) => !skipped).length - waiting
   const queued = Math.max(waiting, work.queued - pausedWaiting)
-  const unlisted = queued - waiting
-  const toggles = hidden > 0 || (open && queue.length > SHOWN_SHUT)
+  const all = queueCount(work)
 
   return (
     <section aria-label="Queue" className="flex flex-col gap-2">
@@ -86,14 +87,14 @@ export function QueueSection({ work, live, variants, turn, only }: { work: Pick<
       ) : (
         <p className="px-1 text-[13.5px] text-muted-foreground">{only ? `Nothing is queued for ${only}.` : work.enabled ? 'Nothing is queued. The next look comes round by itself.' : 'Nothing is queued.'}</p>
       )}
-      {toggles || unlisted > 0 || paused > 0 ? (
+      {shownBefore(rows.length, all) || paused > 0 ? (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-1">
-          {toggles ? (
-            <Button variant="ghost" size="sm" data-stop="" aria-expanded={open} onClick={() => setOpen(!open)} className="text-muted-foreground">
-              {open ? 'Show fewer' : `Show all ${queue.length}`}
+          {shownBefore(rows.length, all) ? (
+            <Button variant="ghost" size="sm" data-stop="" aria-haspopup="dialog" aria-keyshortcuts="q" onClick={onShowAll} className="text-muted-foreground">
+              Show all {all}
+              <Kbd>Q</Kbd>
             </Button>
           ) : null}
-          {unlisted > 0 && !hidden ? <span className="px-2 text-[12.5px] text-muted-foreground">and {unlisted} more queued</span> : null}
           {paused > 0 ? (
             <span className="px-2 text-[12.5px] text-muted-foreground">
               {paused} more wait on {pausedSlugs.size === 1 ? 'a paused project' : 'paused projects'}
@@ -107,11 +108,27 @@ export function QueueSection({ work, live, variants, turn, only }: { work: Pick<
 
 function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolean; variants: Variants; order: number }) {
   const still = useStill()
+  return (
+    <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
+      <QueueRowCard row={row} live={live} />
+    </motion.li>
+  )
+}
+
+/**
+ * One queue row with what hobkin said of its last action. On the page it is one of the screen's stops, which Left and
+ * Right walk along. In the queue sheet it is not, since the sheet has the keyboard: its buttons are reached with Tab.
+ */
+export function QueueRowCard({ row, live, sheet = false }: { row: QueueRow; live: boolean; sheet?: boolean }) {
   const busy = useWorkUi((state) => Boolean(state.busy[row.key]))
   const said = useWorkUi((state) => state.said[row.key])
   const act = (action: 'run' | 'skip' | 'back') => void runWork({ do: 'queue', key: row.key, action }, { live, place: row.key })
   const primary = row.skipped ? () => act('back') : () => act('run')
   const [starting, setStarting] = useState(false)
+  // The row's buttons are reached along the row on the page, and by Tab in the sheet.
+  const reach = sheet ? undefined : -1
+  const mark = sheet ? {} : { 'data-work-item': '', 'data-work-main': '', 'data-stop': '', 'data-queue-row': row.key }
+  const control = sheet ? {} : { 'data-row-control': '' }
 
   const startNow = async () => {
     setStarting(true)
@@ -138,14 +155,12 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
   const cost = row.tokens ? `~${tokens.format(row.tokens).toLowerCase()}` : null
 
   return (
-    <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
+    <>
       <div
-        data-work-item=""
-        data-work-main=""
-        data-stop=""
-        data-queue-row={row.key}
+        {...mark}
         tabIndex={-1}
         role="group"
+        data-sheet-row={sheet ? row.key : undefined}
         aria-label={`${row.grade ?? ''} ${row.project}: ${row.title}. ${words ?? ''}. Enter ${row.skipped ? 'puts it back' : 'runs it next'}.`}
         onKeyDown={onKeyDown}
         onClick={onClick}
@@ -174,19 +189,19 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
         </span>
         <span className="flex shrink-0 items-center gap-1">
           {row.skipped ? (
-            <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled onClick={() => act('back')}>
+            <Button variant="outline" size="sm" tabIndex={reach} {...control} disabled={busy} focusableWhenDisabled onClick={() => act('back')}>
               Put back
             </Button>
           ) : (
             <>
-              <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled title={START_NOW_TITLE} onClick={() => void startNow()}>
+              <Button variant="outline" size="sm" tabIndex={reach} {...control} disabled={busy} focusableWhenDisabled title={START_NOW_TITLE} onClick={() => void startNow()}>
                 <Play aria-hidden="true" />
                 {busy && starting ? 'Starting…' : 'Start now'}
               </Button>
-              <Button variant="outline" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled onClick={() => act('run')}>
+              <Button variant="outline" size="sm" tabIndex={reach} {...control} disabled={busy} focusableWhenDisabled onClick={() => act('run')}>
                 Run next
               </Button>
-              <Button variant="ghost" size="sm" tabIndex={-1} data-row-control="" disabled={busy} focusableWhenDisabled onClick={() => act('skip')} className="text-muted-foreground">
+              <Button variant="ghost" size="sm" tabIndex={reach} {...control} disabled={busy} focusableWhenDisabled onClick={() => act('skip')} className="text-muted-foreground">
                 Skip
               </Button>
             </>
@@ -199,7 +214,7 @@ function QueueItem({ row, live, variants, order }: { row: QueueRow; live: boolea
           {said.text}
         </SaidLine>
       ) : null}
-    </motion.li>
+    </>
   )
 }
 

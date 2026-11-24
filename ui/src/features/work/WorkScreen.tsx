@@ -33,6 +33,8 @@ import { opensNewProject } from './new-project.ts'
 import { WorkloadSheet } from './WorkloadSheet.tsx'
 import { opensWorkload, type WorkloadSetting } from './workload.ts'
 import { ProjectsSection, QueueSection } from './Queue.tsx'
+import { QueueSheet } from './QueueSheet.tsx'
+import { opensQueue } from './queue-sheet.ts'
 import { ProjectChips } from './ProjectChips.tsx'
 import { useProjectChoice } from './project-choice.ts'
 import { chipsOf, filterPage, resolveChoice } from './project-filter.ts'
@@ -65,6 +67,7 @@ const Projects = memo(ProjectsSection)
 const Reviews = memo(AiReviews)
 const Numbers = memo(NumbersTab)
 const Sheet = memo(WorkloadSheet)
+const QueueAll = memo(QueueSheet)
 const NewSheet = memo(NewProjectSheet)
 
 /**
@@ -122,6 +125,8 @@ export function WorkScreen() {
   const queuePart = useSame(
     useMemo(() => (parts && filtered && only ? { ...parts.queue, queue: filtered.queue, queued: filtered.queue.filter(({ skipped }) => !skipped).length } : (parts?.queue ?? null)), [parts, filtered, only]),
   )
+  // The sheet reads the whole queue of work mode, and the page's project choice is its start.
+  const queueWork = useSame(useMemo(() => (work ? { queue: work.queue, queued: work.queued, projects: work.projects } : null), [work]))
   const finishedPart = useSame(useMemo(() => (parts && filtered && only ? { ...parts.finished, finished: filtered.finished } : (parts?.finished ?? null)), [parts, filtered, only]))
   // An item opened from another screen, such as an issue's chip on the GitHub page, takes the keyboard as Work arrives.
   useLayoutEffect(() => bindWorkTarget(main.current), [])
@@ -173,6 +178,10 @@ export function WorkScreen() {
   const sheetButton = useRef<HTMLButtonElement | null>(null)
   const openSheet = useCallback((at: WorkloadSetting | null) => setSheet({ at }), [])
   const closeSheet = useCallback(() => setSheet(null), [])
+  // The queue sheet, with every row, opened by Show all in the Queue or by Q.
+  const [queueOpen, setQueueOpen] = useState(false)
+  const openQueue = useCallback(() => setQueueOpen(true), [])
+  const closeQueue = useCallback(() => setQueueOpen(false), [])
   // The New project popup, opened by the button in the Projects heading or by N (059).
   const [adding, setAdding] = useState(false)
   const newProjectButton = useRef<HTMLButtonElement | null>(null)
@@ -225,13 +234,19 @@ export function WorkScreen() {
       handled: event.defaultPrevented,
       typing: false,
     }
-    if (work && !covered && !sheet && !adding && opensWorkload(press)) {
+    if (work && !covered && !sheet && !adding && !queueOpen && opensWorkload(press)) {
       event.preventDefault()
       openSheet(null)
       return
     }
+    // Q lists the whole queue, on the Work page only, as W sets the workload.
+    if (work && tab === 'work' && !covered && !sheet && !adding && !queueOpen && opensQueue(press)) {
+      event.preventDefault()
+      openQueue()
+      return
+    }
     // N adds a project, as W sets the workload.
-    if (work && !covered && !sheet && !adding && opensNewProject(press)) {
+    if (work && !covered && !sheet && !adding && !queueOpen && opensNewProject(press)) {
       event.preventDefault()
       openNewProject()
       return
@@ -309,7 +324,7 @@ export function WorkScreen() {
               {parts ? (
                 <WhenWorkComes>
                   <Rise>
-                    <Queue work={queuePart ?? parts.queue} only={view?.name} {...shared} />
+                    <Queue work={queuePart ?? parts.queue} only={view?.name} onShowAll={openQueue} {...shared} />
                   </Rise>
                   {/* What needs the user comes right after the queue, so it is never a long scroll away. */}
                   <Rise>
@@ -328,6 +343,7 @@ export function WorkScreen() {
       <AnimatePresence>{discovering && work ? <Discovery work={work} live={live} variants={variants} onClose={closeDiscovery} /> : null}</AnimatePresence>
       <AnimatePresence>{listing ? <DecidedPanel key="decided" listing={listing} /> : null}</AnimatePresence>
       <NewSheet open={adding} from="work" live={live} onClose={closeNewProject} returnTo={newProjectButton} />
+      {queueWork ? <QueueAll open={queueOpen} work={queueWork} only={only && view?.name ? { slug: only, name: view.name } : null} live={live} onClose={closeQueue} /> : null}
       {work ? <Sheet open={sheet !== null} at={sheet?.at ?? null} work={work} live={live} onClose={closeSheet} returnTo={sheetButton} /> : null}
     </div>
   )
