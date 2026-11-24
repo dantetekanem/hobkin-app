@@ -427,11 +427,11 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       return proposeProject(root, proposal);
     }
     case 'item': {
-      // Agents file work through this, and `max`, `grade`, `reviewAsked`, `reviewAskedFor`, `modelAsked`, `modelAskedFor`, `workNote`, the issue an item came from and what a merge, an offer or a deploy records are only ever hobkin's or the user's word, so none can arrive here.
-      const { max, grade, reviewAsked, reviewAskedFor, modelAsked, modelAskedFor, workNote, landed, closedByUser, offerHeldUntil, pushbacks, withMainAgent, issue, deploy, ...item } = await readJson(input);
+      // Agents file work through this, and `max`, `grade`, `reviewAsked`, `reviewAskedFor`, `modelAsked`, `modelAskedFor`, `workNote`, the issue an item came from and what a merge, an offer or a deploy records are only ever hobkin's or the user's word, so none can arrive here. `stack` is read only when a branch is registered.
+      const { max, grade, reviewAsked, reviewAskedFor, modelAsked, modelAskedFor, workNote, landed, closedByUser, offerHeldUntil, pushbacks, withMainAgent, issue, deploy, stack, ...item } = await readJson(input);
       if (isGoal(readProject(root, args[0])) && (item.branch !== undefined || item.pr !== undefined || ['branch', 'pr'].includes(item.state))) throw Error(GOAL_HAS_NO_BRANCHES);
       // A branch an agent already made, with no item yet, is registered as finished work. Its `issue` only finds hobkin's own item for that issue.
-      if (!item.id && item.branch !== undefined) return adoptBranch(root, args[0], { ...item, ...(issue === undefined ? {} : { issue }) });
+      if (!item.id && item.branch !== undefined) return adoptBranch(root, args[0], { ...item, ...(issue === undefined ? {} : { issue }), stack });
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
       if (item.launch) assertLaunch(item.launch);

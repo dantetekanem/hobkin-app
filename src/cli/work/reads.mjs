@@ -14,6 +14,7 @@ import {
   byPriority, byRank, chosenProjects, currentRequest, issueMode, itemStates, landing, nextLookAt, ownerView, prFile, priorityOf, readItems, readLaunches, readMode, readProjects, readTrust, runnableStates,
   tokenLabel,
 } from './store.mjs';
+import { stackPlaces } from './stacks.mjs';
 import { BRANCH_PREFIX } from './tree.mjs';
 import { finishedOnBranch, readUnmerged, SHIP_KIND } from './unmerged.mjs';
 
@@ -305,6 +306,8 @@ function readyRow(root, project, item, items, openUnits = []) {
     onlyDocs,
     landedOn,
     gap: gapOf(item, unit, items),
+    // Where it stands among the finished branches built on each other, or null when none is under or over it.
+    stack: stackPlaces(items, openUnits).get(branch) ?? null,
     holds: stackedBeneath(unit, openUnits).length,
     described: existsSync(prFile(root, project.slug, id)),
     proved: Boolean(proof),

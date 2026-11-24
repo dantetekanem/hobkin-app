@@ -1,6 +1,7 @@
 import { findProject, nameOf } from './names.mjs';
 import { fileItem, ownerView, paths, readItems, updateItem } from './store.mjs';
 import { defaultBranch, gitOrNothing, isMerged } from './tree.mjs';
+import { stackNameOf } from './stacks.mjs';
 import { landingTip } from './unmerged.mjs';
 
 /**
@@ -8,7 +9,8 @@ import { landingTip } from './unmerged.mjs';
  * its review, a fix if the review finds it risky, the merge on the user's yes, "Deploy now?" and its issue's closing. The branch keeps its name,
  * since the survey reads any branch a finished item names, and nothing on it is moved or rewritten. It has to be a real local branch holding
  * commits the default branch lacks, and one no open item names yet. The issue an item came from stays hobkin's or the user's word, so `issue`
- * only says which of hobkin's own items for an issue the branch is for, and it puts the branch there.
+ * only says which of hobkin's own items for an issue the branch is for, and it puts the branch there. `stack` says what the branch's stack is of, when it
+ * is one layer of several, and is kept on the item as one short line.
  */
 
 // Items nothing works on any more, so their branch is free to name again.
@@ -48,7 +50,7 @@ function issueItem(root, project, items, issue) {
   return item;
 }
 
-export async function adoptBranch(root, reference, { title, branch, state = 'branch', summary, proof, kind = 'chore', issue: named }, now = Date.now()) {
+export async function adoptBranch(root, reference, { title, branch, state = 'branch', summary, proof, kind = 'chore', issue: named, stack }, now = Date.now()) {
   const project = findProject(root, reference);
   const issue = issueOf(named);
   if (![title, summary, proof].every(isText)) throw Error('A branch is registered with its title, summary and proof.');
@@ -62,7 +64,9 @@ export async function adoptBranch(root, reference, { title, branch, state = 'bra
   const known = items.find(item => item.branch === branch && !OVER.includes(item.state));
   if (known) throw Error(`${branch} is already "${known.title}", item ${known.id}. Pipe { "id": "${known.id}", ... } to change it.`);
 
-  const finished = { state: 'branch', branch, summary: summary.trim(), proof: proof.trim(), attempts: 0, lastError: null };
+  // What a stack is of is said once, here, by whoever registers its layers. An update by id never sets it.
+  const stackName = stackNameOf(stack);
+  const finished = { state: 'branch', branch, summary: summary.trim(), proof: proof.trim(), attempts: 0, lastError: null, ...(stackName ? { stack: stackName } : {}) };
   const own = issue ? issueItem(root, project, items, issue) : null;
   const item = own ?? fileItem(root, project.slug, { key: `adopted:${branch}:${tip.slice(0, SHORT_SHA)}`, kind, title: title.trim(), brief: summary.trim() }, now);
   updateItem(root, project.slug, item.id, finished, now);
