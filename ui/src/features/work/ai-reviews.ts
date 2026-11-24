@@ -47,11 +47,6 @@ export interface ReviewOrdering {
 export interface ReviewRow {
   item: ReviewListItem
   state: RowState
-  /**
-   * The old coarse group, kept for the GitHub window's rows (`integrations/github/window/pull-reviews.ts`), which reads
-   * it: `running` also holds a row that only waits its turn. The Review list does not use it; read `state`.
-   */
-  group: 'unmerged' | 'running' | 'ready' | 'failed'
   /** A merge the user asked for that failed, with the reason given, and when it was asked. Null for any other row. */
   merge: { why: string; at: number | null } | null
   /** The project, or `owner/repo` for a pull request, with the number of the pull request the review has. */
@@ -147,7 +142,6 @@ function rowOf(item: ReviewListItem, priorityOf: PriorityOf): ReviewRow | null {
   const row: ReviewRow = {
     item,
     state,
-    group: item.mergeAsked ? 'unmerged' : state.kind === 'reviewing' || state.kind === 'waits' ? 'running' : state.kind,
     merge: item.mergeAsked ? { why: item.mergeAsked.why ?? 'no reason was given.', at: timeOf(item.mergeAsked.at) } : null,
     ...placeOf(item),
     priority: priorityOf(item),
