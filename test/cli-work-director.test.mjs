@@ -1134,7 +1134,7 @@ test('a background Pi run records its session tokens and harness cost', async t 
   assert.equal(tokensToday(h.root, h.clock), 150);
 });
 
-test('a project gets one do at a time, and small work waits for what is running there', async t => {
+test('a project runs a second item beside its first when an agent is free, the second in a tree of its own', async t => {
   const release = Promise.withResolvers();
   const h = fixture(t);
   h.agent = async request => {
@@ -1142,21 +1142,21 @@ test('a project gets one do at a time, and small work waits for what is running 
     if (request.purpose === 'work-do') await release.promise;
   };
   writeMode(h.root, { enabled: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
-  chooseProject(h.root, repository(h.base, 'api'));
+  const checkout = repository(h.base, 'api');
+  chooseProject(h.root, checkout);
   fileItem(h.root, 'api', item);
-  fileItem(h.root, 'api', { ...item, key: 'second' });
+  fileItem(h.root, 'api', { ...item, key: 'second', title: 'Update second' });
   await h.ticks(2);
 
-  while (!h.calls.some(call => call.purpose === 'work-do')) {
+  while (h.calls.filter(call => call.purpose === 'work-do').length < 2) {
     await h.director.tick();
     await new Promise(resolve => setTimeout(resolve, 50));
   }
-  const before = h.calls.length;
-  await h.director.tick();
-  await new Promise(resolve => setTimeout(resolve, 100));
+  const runs = h.calls.filter(call => call.purpose === 'work-do');
 
-  assert.equal(h.calls.filter(call => call.purpose === 'work-do').length, 1);
-  assert.equal(h.calls.length, before, 'small work waits, so the folder stays simple');
+  assert.equal(runs.length, 2);
+  assert.notEqual(runs[0].cwd, runs[1].cwd);
+  assert.deepEqual(runs.map(call => h.work(call).item.title).sort(), ['Update rack', 'Update second']);
   release.resolve();
   await h.settled();
 });

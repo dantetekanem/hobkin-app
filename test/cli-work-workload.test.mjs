@@ -81,12 +81,12 @@ test('a home that set none of the workload starts work exactly as before', t => 
   const running = [{ slug: 'web', lane: 'do', item: 'zzzzzz', startedAt: at(evening - 5 * MINUTE) }];
   const free = plan(root, { running, lastStartAt: evening - MINUTE });
 
-  assert.equal(free.next.title, 'Fix login');
+  assert.equal(free.next.title, 'Fix the outage', 'a project\'s second item starts beside its first');
   assert.equal(free.pause, null);
   assert.deepEqual(waits(free), [
-    ['Fix the outage', 'one item at a time here'],
+    ['Fix the outage', null],
     ['Fix login', null],
-    ['Fix the footer', 'one item at a time here'],
+    ['Fix the footer', null],
     ['Add export', null],
   ]);
   assert.equal(forecastWork(root, free, { now: evening, running }).line, 'Next 8h: about 4 jobs · 1 P0 · 2 P1 · 1 P2 · 2 agents at a time.');
@@ -162,12 +162,12 @@ test('with hours of 09:00 to 18:00, nothing new starts at 20:00, running agents 
 test('with ship first off, new work starts while 8 finished changes wait, and the bar is the user\'s number', t => {
   const root = busyHome(t, { waiting: 8 });
   const running = [{ slug: 'web', lane: 'do', item: 'zzzzzz', startedAt: at(evening - 5 * MINUTE) }];
-  assert.equal(plan(root, { running }).next, null, 'on by default: new work holds at 8');
+  assert.equal(plan(root, { running }).next.title, 'Fix the outage', 'on by default: new work holds at 8, and an urgent fix goes beside the run');
 
   setShipFirstOn(root, false);
   const open = plan(root, { running });
   assert.equal(open.shipFirst.holding, false);
-  assert.equal(open.next.title, 'Fix login');
+  assert.equal(open.next.title, 'Fix the outage');
   assert.deepEqual(waits(open).filter(([, waiting]) => waiting === 'shipping first'), []);
   assert.notEqual(forecastWork(root, open, { now: evening, running }).limit, 'ship');
 
@@ -222,7 +222,7 @@ test('the work state says what holds work mode, until when, in one sentence', t 
   setWorkHours(evenings, { from: '09:00', to: '18:00' });
   assert.deepEqual(holding(evenings), { kind: 'hours', until: at(new Date(2026, 5, 2, 9).getTime()), line: 'Work hours are 09:00 to 18:00, so nothing new starts until 09:00 tomorrow.' });
 
-  const shipping = busyHome(t, { waiting: 8 });
+  const shipping = busyHome(t, { waiting: 8, urgent: false });
   assert.deepEqual(holding(shipping, { running: twoRunning.slice(0, 1) }), {
     kind: 'ship-first', until: null, line: '8 finished changes wait for you, so new work holds until fewer than 8 wait.',
   });

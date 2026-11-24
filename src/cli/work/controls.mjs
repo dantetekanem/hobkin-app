@@ -361,7 +361,7 @@ function runningItem(root, { slug, item: id }) {
 
 /**
  * The same as `k` on a job, from another process: the owner reads the request on its next tick and kills the run. `decline` is `Stop it: not approved`,
- * and a project runs one item at a time, so it has at most one item to say no to.
+ * and a project can run several items at once, so a no names its item. Cancelling without it stops them all.
  */
 export function cancelRuns(root, reference, { decline = false } = {}) {
   if (!reference) throw Error('Say what to cancel: a project, a run id or an item id.');
@@ -369,7 +369,9 @@ export function cancelRuns(root, reference, { decline = false } = {}) {
   const runs = runsNamed(root, running, reference);
   if (!owner) throw Error('Nothing is running, because no dashboard is open.');
   if (!runs.length) throw Error(`Nothing is running on ${reference}. hobkin work running lists what is.`);
-  const notApproved = decline ? runs.find(run => run.item) : null;
+  const withItems = decline ? runs.filter(run => run.item) : [];
+  if (withItems.length > 1) throw Error(`More than one item is running on ${reference}. Name the item to say no to: ${withItems.map(run => run.item).join(', ')}.`);
+  const notApproved = withItems[0] ?? null;
   if (decline && !notApproved) throw Error(`Nothing running on ${reference} has an item to say no to, so nothing was cancelled. hobkin work cancel ${reference} stops it for now.`);
 
   const ids = runs.map(({ id }) => id);

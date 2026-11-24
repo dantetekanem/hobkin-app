@@ -7,7 +7,7 @@ import { Readable } from 'node:stream';
 import { main } from '../src/cli/main.mjs';
 import { openDiff } from '../src/cli/work/controls.mjs';
 import {
-  chooseProject, dropProject, fileItem, paths, prFile, proposeProject, readItems, readMode, readProject, readProjects, recordTokens, updateItem, writeMode, writeState,
+  chooseProject, dropProject, fileItem, paths, prFile, proposeProject, readItems, readMode, readProject, readProjects, pendingCancels, recordTokens, updateItem, writeMode, writeOwnerView, writeState,
 } from '../src/cli/work/store.mjs';
 import { director, studied } from './helpers/work-director.mjs';
 import { branched, git, repository } from './helpers/work-fixture.mjs';
@@ -914,6 +914,24 @@ test('cancel --decline needs an item to say no to, and asks for nothing without 
   assert.equal(existsSync(join(h.root, 'work', 'cancels.jsonl')), false);
   await success(h.root, 'cancel', 'discover');
   await h.tick();
+});
+
+test('cancel --decline on a project with two items running names them and asks for nothing, and an item id says no to one', async t => {
+  const root = home(t);
+  proposeProject(root, proposal('api'));
+  chooseProject(root, 'api');
+  writeFileSync(join(root, 'runtime.lock'), '');
+  const [first, second] = ['Fix login', 'Fix logout'].map(title => fileItem(root, 'api', item(title)));
+  const runs = [first, second].map(({ id, title }) => ({ id: `work:api:do:${id}`, slug: 'api', lane: 'do', item: id, title: `api: ${title}` }));
+  writeOwnerView(root, { running: runs, checks: 0, lastStartAt: null });
+
+  const { message } = await failure(root, 'cancel', 'api', '--decline');
+
+  assert.match(message, new RegExp(`Name the item to say no to: ${first.id}, ${second.id}`));
+  assert.equal(existsSync(join(root, 'work', 'cancels.jsonl')), false, 'nothing was asked');
+
+  await success(root, 'cancel', first.id, '--decline');
+  assert.deepEqual(pendingCancels(root).map(({ run, decline }) => [run, decline]), [[`work:api:do:${first.id}`, true]]);
 });
 
 test('cancel reaches a run by its id or its item, and leaves the others alone', async t => {

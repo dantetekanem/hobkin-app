@@ -8,7 +8,7 @@ import { workStatus } from '../src/cli/work/commands.mjs';
 import { countsAgainst, ideasWanted, itemGrade, planWork } from '../src/cli/work/plan.mjs';
 import { itemsView, queueView, searchView } from '../src/cli/work/reads.mjs';
 import {
-  chooseProject, fileItem, lenses, nextLookAt, paths, pickNext, readMode, readProject, setAgents, recordDiscovery, recordTokens, setProjectPaused, setProjectPriority, skipInQueue, updateItem, writeMode, writeState,
+  chooseProject, fileItem, lenses, nextLookAt, paths, pickNext, pickNow, proposeProject, readMode, readProject, setAgents, recordDiscovery, recordTokens, setProjectPaused, setProjectPriority, skipInQueue, updateItem, writeMode, writeState,
 } from '../src/cli/work/store.mjs';
 import { writeJson } from './helpers/work-fixture.mjs';
 
@@ -914,7 +914,7 @@ test('max keeps its limits', t => {
   assert.equal(next, null);
 });
 
-test('a run on a project makes small work there wait, and medium work may share it from a worktree', t => {
+test('a look on a code project holds no item back, and a goal\'s step waits for it', t => {
   const root = dataRoot(t);
   project(root, 'api', 'critical');
   fileItem(root, 'api', item('small', { impact: 'high', effort: 'small' }), now);
@@ -923,20 +923,56 @@ test('a run on a project makes small work there wait, and medium work may share 
 
   const { entries, next } = plan(root, { running });
 
-  assert.equal(entries.find(entry => entry.title === 'small').waiting, 'another run here');
-  assert.equal(next.title, 'medium');
+  assert.deepEqual(entries.map(entry => entry.waiting), [null, null]);
+  assert.equal(next.title, 'small');
+
+  proposeProject(root, { name: 'novel', path: '/repos/novel', level: 'critical', kind: 'goal' });
+  chooseProject(root, 'novel');
+  mkdirSync(paths(root, 'novel').directory, { recursive: true });
+  writeFileSync(paths(root, 'novel').project, '# What it is\n');
+  writeState(root, 'novel', { lastLensAt: new Date(now).toISOString(), lastIdeasAt: new Date(now).toISOString() });
+  fileItem(root, 'novel', item('step', { impact: 'high', effort: 'small' }), now);
+  const goal = plan(root, { running: [{ slug: 'novel', lane: 'look' }] }).entries.find(entry => entry.title === 'step');
+  assert.equal(goal.waiting, 'another run here');
 });
 
-test('a project has one item running at a time', t => {
+test('a code project runs as many items at once as there are free workers, and a goal runs one step at a time', t => {
   const root = dataRoot(t);
+  setAgents(root, 4);
+  project(root, 'api', 'critical');
+  for (const name of ['one', 'two', 'three', 'four']) fileItem(root, 'api', item(name, { impact: 'high', effort: 'medium' }), now);
+  const running = [{ slug: 'api', lane: 'do', item: 'zzzzz1', branch: 'hobkin/zzzzz1-x', ships: 'zzzzz1' }, { slug: 'api', lane: 'do', item: 'zzzzz2', branch: 'hobkin/zzzzz2-x', ships: 'zzzzz2' }];
+
+  const { entries, next, free } = plan(root, { running });
+
+  assert.equal(free, 2);
+  assert.deepEqual(entries.map(entry => entry.waiting), [null, null, null, null]);
+  assert.ok(next, 'a third item starts beside the two');
+
+  const full = plan(root, { running: [...running, { slug: 'api', lane: 'do', item: 'zzzzz3' }, { slug: 'api', lane: 'do', item: 'zzzzz4' }] });
+  assert.equal(full.next, null, 'four workers are the only ceiling');
+
+  proposeProject(root, { name: 'novel', path: '/repos/novel', level: 'critical', kind: 'goal' });
+  chooseProject(root, 'novel');
+  mkdirSync(paths(root, 'novel').directory, { recursive: true });
+  writeFileSync(paths(root, 'novel').project, '# What it is\n');
+  writeState(root, 'novel', { lastLensAt: new Date(now).toISOString(), lastIdeasAt: new Date(now).toISOString() });
+  fileItem(root, 'novel', item('step', { impact: 'high', effort: 'medium' }), now);
+  const goal = plan(root, { running: [{ slug: 'novel', lane: 'do', item: 'zzzzz9' }] }).entries.find(entry => entry.title === 'step');
+  assert.equal(goal.waiting, 'one step at a time here');
+});
+
+test('a Start now pick on an item starts at once while another item of its project runs and a worker is free', t => {
+  const root = dataRoot(t);
+  setAgents(root, 4);
   project(root, 'api', 'critical');
   fileItem(root, 'api', item('one', { impact: 'high', effort: 'medium' }), now);
-  const running = [{ slug: 'api', lane: 'do' }];
+  const picked = fileItem(root, 'api', item('two', { impact: 'low', effort: 'medium' }), now);
+  pickNow(root, `item:api:${picked.id}`);
 
-  const { entries, next } = plan(root, { running });
+  const { next } = plan(root, { running: [{ slug: 'api', lane: 'do', item: 'zzzzz1', branch: 'hobkin/zzzzz1-x', ships: 'zzzzz1' }] });
 
-  assert.equal(next, null);
-  assert.equal(entries[0].waiting, 'one item at a time here');
+  assert.equal(next.title, 'two');
 });
 
 test('an item on a branch another run holds waits for it, whoever else is running', t => {
