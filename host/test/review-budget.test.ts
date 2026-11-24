@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test, type TestContext } from 'node:test'
 import { reviewIdOf } from '#shared/review/ids.ts'
 import { Reviews, type Watched } from '../src/review/reviews.ts'
+import { reviewHandlers } from '../src/review/seat.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
 
@@ -79,4 +80,45 @@ test('the number of background reviews a day is twenty unless the workload says 
   await settle()
 
   assert.deepEqual(started, ['change:shop:c1'], 'the twentieth of the day, and no more')
+})
+
+test("an ask from hobkin's agent takes a place in the line and counts toward the day's number, and one from the window goes outside both", async (t) => {
+  const started: string[] = []
+  const heads = new Map<string, string>()
+  const reviews = new Reviews({
+    store: reviewStore(temporaryDirectory(t)),
+    sources: {
+      change: { head: async (target) => heads.get(reviewIdOf(target)) ?? null, read: async (target) => (started.push(reviewIdOf(target)), Promise.reject(new Error('not read here'))) },
+      pull: { head: async () => sha(99), read: async (target) => (started.push(reviewIdOf(target)), Promise.reject(new Error('not read here'))) },
+    },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    keepCurrent: () => 1,
+    reviewsADay: () => 2,
+    now: () => TODAY,
+  })
+  t.after(() => reviews.close())
+  const agent = reviewHandlers(reviews, 'hobkin')['review.prepare']!
+  const window = reviewHandlers(reviews)['review.prepare']!
+  const wanted = changes(3)
+  for (const entry of wanted) heads.set(entry.id, entry.head!)
+  reviews.watch(wanted)
+  await settle()
+  assert.deepEqual(started, ['change:shop:c1'])
+
+  // Out of the line: the agent hears why, and nothing is built.
+  const waiting = await agent({ id: 'change:shop:c3' })
+  assert.match(waiting.turn?.why ?? '', /^Waits its turn: 2 ahead in Shop\./)
+  // In no line, it takes the day's last place; past it, it hears when.
+  await agent({ id: 'pr:acme/api/1' })
+  await settle()
+  const spent = await agent({ id: 'pr:acme/api/2' })
+  assert.match(spent.turn?.why ?? '', /^Today's 2 background reviews are spent, so the next is built after midnight\./)
+  await settle()
+  assert.deepEqual(started, ['change:shop:c1', 'pr:acme/api/1'])
+
+  // The window's ask is the user's: it is built whatever the line and the day.
+  await window({ id: 'change:shop:c3' })
+  await settle()
+  assert.deepEqual(started, ['change:shop:c1', 'pr:acme/api/1', 'change:shop:c3'])
 })

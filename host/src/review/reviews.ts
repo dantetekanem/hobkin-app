@@ -974,11 +974,17 @@ export class Reviews {
    * while a newer one is prepared. `refresh` prepares it again even for the same commit. `asked` says someone asked
    * for it, the window or hobkin, so hobkin says in its chat when a pull request's review they asked for is ready.
    */
-  prepare(id: string, { refresh = false, asked = false }: { refresh?: boolean; asked?: boolean } = {}): ReviewStatus {
+  prepare(id: string, { refresh = false, asked = false, byAgent = false }: { refresh?: boolean; asked?: boolean; byAgent?: boolean } = {}): ReviewStatus {
     const target = this.target(id)
     const now = this.status(id)
     // Merged, or closed on its host: there is nothing left to review, and its status says so.
     if (this.closedOn(target)) return now
+    // hobkin's agent asks as the background does (spec 058): in the line, within the day's number, or it hears why.
+    if (byAgent) {
+      const waits = this.agentWaits(id, target, now)
+      if (waits) return { ...now, turn: waits }
+      if (!this.running.has(id) && !this.queue.some((job) => reviewIdOf(job.target) === id)) this.countBuilt()
+    }
     // Review again with nothing changed costs a whole review: the first ask says so, a second one soon after builds it.
     if (refresh && asked && this.nothingChangedSince(target, now)) {
       const last = this.againAt.get(id)
@@ -990,7 +996,8 @@ export class Reviews {
     this.againAt.delete(id)
     if (asked) {
       this.asked.add(id)
-      this.userAsked.add(id)
+      // Only the user's own ask keeps a review from being dropped by the line.
+      if (!byAgent) this.userAsked.add(id)
     }
     const waiting = this.queue.find((job) => reviewIdOf(job.target) === id)
     if (waiting) {
@@ -2160,6 +2167,18 @@ export class Reviews {
     if (!assessments || !head || status.stale || status.phase || !store.has(target, head)) return false
     if (status.startsAt && store.read(target, head)?.review.change.base !== status.startsAt) return false
     return assessments.status(target, head).state === 'ready'
+  }
+
+  /**
+   * Why an ask from hobkin's agent is not built now, or undefined when it is: a change or a watched pull request out of
+   * its line waits its turn there, and past the day's number anything waits for midnight. One in no line takes a place
+   * of the day's number.
+   */
+  private agentWaits(id: string, target: ReviewTarget, now: ReviewStatus): ReviewTurn | undefined {
+    const inSomeLine = this.line.current.has(id) || this.line.waits.has(id)
+    if (inSomeLine && !this.line.current.has(id)) return this.turnOf(id, target, now.head) ?? this.line.waits.get(id)
+    if (!this.dayHasRoom()) return { ahead: 0, why: `Today's ${this.dayLimit()} background reviews are spent, so the next is built after midnight.` }
+    return undefined
   }
 
   /** The local day a time is on, as `YYYY-MM-DD`. */

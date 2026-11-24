@@ -503,10 +503,14 @@ export function toPrepare(work: WorkState | null, github?: GitHubState, { pulls 
 
 type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'review.codeHosts' | 'review.people' | 'review.remove' | 'review.stop' | 'review.get' | 'review.file' | 'review.notes' | 'review.map' | 'review.code' | 'review.show' | 'review.note' | 'review.preview' | 'review.verdict'
 
-export function reviewHandlers(reviews: Reviews): Pick<HostHandlers, ReviewCommand> {
+/**
+ * The review commands, as the window runs them or as hobkin's agent does (`from`). Only the window's Review now is the
+ * user's own and goes outside the line; hobkin's agent asks as the background does, in the line and the day's number.
+ */
+export function reviewHandlers(reviews: Reviews, from: 'window' | 'hobkin' = 'window'): Pick<HostHandlers, ReviewCommand> {
   return {
     // Asked for by the window or by hobkin, as against what the background prepares by itself.
-    'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh, asked: true }),
+    'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh, asked: true, ...(from === 'hobkin' ? { byAgent: true } : {}) }),
     'review.list': () => reviews.list(),
     'review.codeHosts': () => ({ hosts: reviews.codeHosts() }),
     'review.people': ({ id }) => reviews.people(id),
