@@ -965,7 +965,11 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   }
   save('blind-check.json', blind)
   // The user's questions, held to what the review measured once every level is final. They set no level.
-  if (answered) needs = capNeeds(answered, needsFacts({ nodes: applied.nodes, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length) }), head)
+  if (answered) {
+    const dropped: string[] = []
+    needs = capNeeds(answered, needsFacts({ nodes: applied.nodes, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length) }), head, dropped)
+    problems.push(...dropped.map((problem) => `From the Reviewer: ${problem}`))
+  }
   const graph = graphOf(applied.nodes)
   save('graph.json', graph)
   if (applied.rejected.length) save('rejected-events.json', applied.rejected)

@@ -43,7 +43,7 @@ const facts = (more: Partial<NeedsFacts> = {}): NeedsFacts => ({ unproven: [], p
 const answered = (scores = five): Answered => ({ kind: 'bug-fix', scores })
 
 test('the ratings are capped by the facts', () => {
-  const bitten = capNeeds(answered({ coverage: score(9), proof: score(9), safety: score(9), visibility: score(8), rollback: score(9) }), facts({ unproven: ['formatScore'], proven: 0, testsChanged: 0, high: ['rebuild_all'], undoNone: ['DropColumn#change'] }), 'abc123')
+  const bitten = capNeeds(answered({ coverage: score(9), proof: score(9), safety: score(9), visibility: score(8), rollback: score(9) }), facts({ unproven: ['formatScore'], proven: 0, testsChanged: 0, high: ['rebuild_all'], undoNone: ['DropColumn#change'] }), 'abc123')!
   assert.deepEqual(
     Object.fromEntries(Object.entries(bitten.scores).map(([name, kept]) => [name, [kept!.score, kept!.capped?.from]])),
     { coverage: [3, 9], proof: [4, 9], safety: [5, 9], visibility: [8, undefined], rollback: [4, 9] },
@@ -53,16 +53,16 @@ test('the ratings are capped by the facts', () => {
   assert.deepEqual([bitten.head, bitten.by, bitten.monitoring], ['abc123', 'change-review', 'given'])
 
   // A cap that does not bite leaves the Reviewer's number and words; one proven definition is enough for coverage.
-  const kept = capNeeds(answered(), facts({ unproven: ['helper'], proven: 1 }), 'abc123')
+  const kept = capNeeds(answered(), facts({ unproven: ['helper'], proven: 1 }), 'abc123')!
   assert.deepEqual(kept.scores.coverage, five.coverage)
 
   // A TLA+ model of the change that breaks leaves proof at 3, as hobkin's own scores do.
-  assert.equal(capNeeds(answered(), facts({ brokenModels: ['Review.tla'] }), 'abc123').scores.proof!.score, 3)
+  assert.equal(capNeeds(answered(), facts({ brokenModels: ['Review.tla'] }), 'abc123')!.scores.proof!.score, 3)
   // A change of only models is proven by its model check, not by tests: the test caps do not apply, the check's do.
-  const models = capNeeds(answered(), facts({ onlyModels: true, proven: 0, testsChanged: 0, unproven: [] }), 'abc123')
+  const models = capNeeds(answered(), facts({ onlyModels: true, proven: 0, testsChanged: 0, unproven: [] }), 'abc123')!
   assert.deepEqual([models.scores.coverage!.score, models.scores.proof!.score], [8, 9])
-  assert.equal(capNeeds(answered(), facts({ onlyModels: true, proven: 0, testsChanged: 0, brokenModels: ['Review.tla'] }), 'abc123').scores.proof!.score, 3)
-  const unchecked = capNeeds(answered(), facts({ onlyModels: true, proven: 0, testsChanged: 0, uncheckedModels: ['Review.tla'] }), 'abc123').scores.proof!
+  assert.equal(capNeeds(answered(), facts({ onlyModels: true, proven: 0, testsChanged: 0, brokenModels: ['Review.tla'] }), 'abc123')!.scores.proof!.score, 3)
+  const unchecked = capNeeds(answered(), facts({ onlyModels: true, proven: 0, testsChanged: 0, uncheckedModels: ['Review.tla'] }), 'abc123')!.scores.proof!
   assert.deepEqual([unchecked.score, unchecked.capped?.why], [4, 'the model check of Review.tla was not run at this commit'])
 })
 
@@ -77,8 +77,11 @@ test('a pull request is rated the same way, with monitoring unknown when none is
   assert.equal(data().monitoring, 'unknown')
   assert.deepEqual(data(['Errors go to Sentry, with an alert to the user.', 'Way back: kamal rollback.']).monitoring, ['Errors go to Sentry, with an alert to the user.', 'Way back: kamal rollback.'])
 
-  // With no monitoring known, a visibility score given anyway is kept at 4 at most where a part writes data or runs at load.
-  const unknown = capNeeds(answered(), facts({ monitoring: false, dataOrLoad: ['total'] }), 'abc123')
-  assert.deepEqual([unknown.monitoring, unknown.scores.visibility!.score, unknown.scores.visibility!.capped?.why], ['unknown', 4, 'no monitoring is known for a part that writes data or runs at load (total)'])
-  assert.deepEqual(capNeeds(answered(), facts({ monitoring: false }), 'abc123').scores.visibility, five.visibility)
+  // With no monitoring known there is no visibility score: one given anyway is a guess, and is not kept.
+  const problems: string[] = []
+  const unknown = capNeeds(answered(), facts({ monitoring: false, dataOrLoad: ['total'] }), 'abc123', problems)!
+  assert.deepEqual([unknown.monitoring, unknown.scores.visibility, Object.keys(unknown.scores)], ['unknown', undefined, ['coverage', 'proof', 'safety', 'rollback']])
+  assert.deepEqual(problems, ['needs.scores.visibility: a visibility rating was given with no monitoring known, and was not kept'])
+  // A review whose only rating was that guess is not rated.
+  assert.equal(capNeeds({ kind: 'feature', scores: { visibility: score(9) } }, facts({ monitoring: false }), 'abc123', []), undefined)
 })

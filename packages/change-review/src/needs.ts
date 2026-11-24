@@ -75,7 +75,8 @@ function capsOf(facts: NeedsFacts): Partial<Record<NeedCriterion, { most: number
   else if (!facts.onlyModels && facts.testsChanged === 0) caps.proof = { most: 4, why: 'no test was added or changed with the change' }
   if (facts.high.length) caps.safety = { most: 5, why: `${named(facts.high)} ${facts.high.length === 1 ? 'is' : 'are'} rated high` }
   if (facts.undoNone.length) caps.rollback = { most: 4, why: `nothing undoes ${named(facts.undoNone)}` }
-  if (!facts.monitoring && facts.dataOrLoad.length) caps.visibility = { most: 4, why: `no monitoring is known for a part that writes data or runs at load (${named(facts.dataOrLoad)})` }
+  // With no monitoring known there is no visibility score at all (`capNeeds`). With monitoring given, whether it covers
+  // a part that writes data or runs at load is the Reviewer's to judge: the prompt asks for 4 or less where it does not.
   return caps
 }
 
@@ -88,9 +89,19 @@ function held(kept: NeedScore, cap: { most: number; why: string } | undefined): 
   return { ...kept, score: cap.most, evidence: `${evidence}${said}`, capped: { from: kept.score, why: cap.why } }
 }
 
-/** The Reviewer's answers to the user's questions, held to what the review measured, at the review's commit. */
-export function capNeeds(answered: Answered, facts: NeedsFacts, head: string): ReviewNeeds {
+/**
+ * The Reviewer's answers to the user's questions, held to what the review measured, at the review's commit. With no
+ * monitoring known, a visibility score is a guess: it is not kept, and `problems` says so. Undefined when no score is
+ * left: not rated, never a guessed number.
+ */
+export function capNeeds(answered: Answered, facts: NeedsFacts, head: string, problems: string[] = []): ReviewNeeds | undefined {
   const caps = capsOf(facts)
-  const scores = Object.fromEntries(Object.entries(answered.scores).map(([criterion, kept]) => [criterion, held(kept!, caps[criterion as NeedCriterion])]))
+  const given = Object.entries(answered.scores).filter(([criterion]) => {
+    if (criterion !== 'visibility' || facts.monitoring) return true
+    problems.push('needs.scores.visibility: a visibility rating was given with no monitoring known, and was not kept')
+    return false
+  })
+  if (!given.length) return undefined
+  const scores = Object.fromEntries(given.map(([criterion, kept]) => [criterion, held(kept!, caps[criterion as NeedCriterion])]))
   return { ...answered, scores, head, by: 'change-review', monitoring: facts.monitoring ? 'given' : 'unknown' }
 }

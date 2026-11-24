@@ -772,7 +772,10 @@ test('a whole review of the mentions change comes out rated, at its commit, and 
   const rated = await review(true, out)
   const plain = await review(false, `${out}-plain`)
 
-  assert.deepEqual(rated.needs, { ...needs, head, by: 'change-review', monitoring: 'unknown' })
+  // No monitoring is known for this project, so the visibility the Reviewer gave is a guess and is not kept.
+  const { visibility: _guessed, ...known } = needs.scores
+  assert.deepEqual(rated.needs, { ...needs, scores: known, head, by: 'change-review', monitoring: 'unknown' })
+  assert.ok(rated.problems.includes('From the Reviewer: needs.scores.visibility: a visibility rating was given with no monitoring known, and was not kept'), rated.problems.join('\n'))
   const saved = JSON.parse(readFileSync(join(out, 'graph.json'), 'utf8')) as { needs?: unknown }
   assert.deepEqual(saved.needs, rated.needs)
   assert.equal(plain.needs, undefined, 'an answer with no needs is not rated')
