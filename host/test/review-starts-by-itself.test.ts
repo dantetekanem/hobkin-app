@@ -287,6 +287,8 @@ const pull = (number: number, over: Partial<GitHubPull> = {}): GitHubPull => ({
   ...over,
 })
 
+/** The pull requests a GitHub state lists, as Change Review's background takes them. */
+const known = (github: GitHubState) => ({ mine: github.pulls, waiting: github.reviews, sample: github.sample })
 function githubWith(lists: Partial<Pick<GitHubState, 'pulls' | 'reviews'>>, sample = false): GitHubState {
   return { ...NO_GITHUB_LISTS, connection: 'connected', login: 'the-user', refreshedAt: null, refreshing: false, error: null, sample, ...lists }
 }
@@ -297,16 +299,16 @@ test('pull requests are prepared by themselves only as the setting names them: t
   const github = githubWith({ pulls: [pull(1), pull(2, { draft: true }), pull(3)], reviews: [pull(7), pull(1)] })
   const ids = (watched: { id: string }[]) => watched.map(({ id }) => id)
 
-  assert.deepEqual(ids(toPrepare(workWith(), github)), [ID], 'none, unless the setting says so')
-  assert.deepEqual(ids(toPrepare(workWith(), github, { pulls: 'none' })), [ID])
-  assert.deepEqual(ids(toPrepare(workWith(), github, { pulls: 'mine' })), [ID, 'pr:acme/shop/1', 'pr:acme/shop/3'], 'a draft is not ready for a review')
-  assert.deepEqual(ids(toPrepare(workWith(), github, { pulls: 'waiting' })), [ID, 'pr:acme/shop/7', 'pr:acme/shop/1'])
-  assert.deepEqual(ids(toPrepare(workWith(), github, { pulls: 'both' })), [ID, 'pr:acme/shop/1', 'pr:acme/shop/3', 'pr:acme/shop/7'], 'each once')
-  assert.deepEqual(toPrepare(workWith(), github, { pulls: 'mine' })[1], { id: 'pr:acme/shop/1', updatedAt: '2026-11-20T10:00:00Z' }, 'watched again when it changes on GitHub')
+  assert.deepEqual(ids(toPrepare(workWith(), known(github))), [ID], 'none, unless the setting says so')
+  assert.deepEqual(ids(toPrepare(workWith(), known(github), { pulls: 'none' })), [ID])
+  assert.deepEqual(ids(toPrepare(workWith(), known(github), { pulls: 'mine' })), [ID, 'pr:acme/shop/1', 'pr:acme/shop/3'], 'a draft is not ready for a review')
+  assert.deepEqual(ids(toPrepare(workWith(), known(github), { pulls: 'waiting' })), [ID, 'pr:acme/shop/7', 'pr:acme/shop/1'])
+  assert.deepEqual(ids(toPrepare(workWith(), known(github), { pulls: 'both' })), [ID, 'pr:acme/shop/1', 'pr:acme/shop/3', 'pr:acme/shop/7'], 'each once')
+  assert.deepEqual(toPrepare(workWith(), known(github), { pulls: 'mine' })[1], { id: 'pr:acme/shop/1', updatedAt: '2026-11-20T10:00:00Z' }, 'watched again when it changes on GitHub')
 
   // A finished change's own pull request is that change's review, and made-up data is never reviewed.
-  assert.deepEqual(ids(toPrepare(workWith('https://github.com/acme/shop/pull/3'), github, { pulls: 'mine' })), [ID, 'pr:acme/shop/1'])
-  assert.deepEqual(ids(toPrepare(workWith(), githubWith({ pulls: [pull(1)] }, true), { pulls: 'both' })), [ID])
+  assert.deepEqual(ids(toPrepare(workWith('https://github.com/acme/shop/pull/3'), known(github), { pulls: 'mine' })), [ID, 'pr:acme/shop/1'])
+  assert.deepEqual(ids(toPrepare(workWith(), known(githubWith({ pulls: [pull(1)] }, true)), { pulls: 'both' })), [ID])
 })
 
 test('with "my pull requests" on, a pull request of the user’s gets an AI review with no click; with it off, none starts', async (t) => {
@@ -332,11 +334,11 @@ test('with "my pull requests" on, a pull request of the user’s gets an AI revi
   const github = githubWith({ pulls: [pull(12)] })
   const empty = { finished: [] } as unknown as WorkState
 
-  reviews.watch(toPrepare(empty, github))
+  reviews.watch(toPrepare(empty, known(github)))
   await reviews.settled()
   assert.equal(started.length, 0, 'off: nothing starts')
 
-  reviews.watch(toPrepare(empty, github, { pulls: 'mine' }))
+  reviews.watch(toPrepare(empty, known(github), { pulls: 'mine' }))
   await reviews.settled()
   assert.deepEqual(started.map((job) => [job.target, job.head]), [[{ kind: 'pull', owner: 'acme', repo: 'shop', number: 12 }, await sample.head(TARGET)]])
 })
@@ -346,7 +348,7 @@ test('while hobkin cannot say whether a pull request is its own, that pull reque
   let own: boolean | null = null
   const reviews = new Reviews({ store: reviewStore(temporaryDirectory(t)), sources: { change: sample, pull: sample }, work: () => ({ workAction: async () => ({}) }), card: () => null, ownPull: () => own })
   t.after(() => reviews.close())
-  const wanted = toPrepare({ finished: [] } as unknown as WorkState, githubWith({ pulls: [pull(12)] }), { pulls: 'mine' })
+  const wanted = toPrepare({ finished: [] } as unknown as WorkState, known(githubWith({ pulls: [pull(12)] })), { pulls: 'mine' })
 
   reviews.watch(wanted)
   await reviews.settled()
@@ -375,7 +377,7 @@ test('a pull request one of hobkin’s changes opened is never reviewed by itsel
   t.after(() => reviews.close())
 
   const github = githubWith({ pulls: [pull(12), pull(13), pull(14), pull(15)] })
-  reviews.watch(toPrepare({ finished: [] } as unknown as WorkState, github, { pulls: 'mine' }), 10)
+  reviews.watch(toPrepare({ finished: [] } as unknown as WorkState, known(github), { pulls: 'mine' }), 10)
   await reviews.settled()
   assert.deepEqual(
     [12, 13, 14, 15].map((number) => [number, reviews.status(`pr:acme/shop/${number}`).state]),

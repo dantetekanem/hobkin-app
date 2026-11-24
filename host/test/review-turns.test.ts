@@ -512,7 +512,7 @@ test("a pull request waits in the line at the commit GitHub says it is at, so th
     updatedAt: new Date(NOW - (80 + index) * HOUR).toISOString(), head: sha(index + 1),
   })) as GitHubPull[]
 
-  const wanted = toPrepare({ finished: [] } as unknown as WorkState, { ...github, pulls: listed }, { pulls: 'mine' })
+  const wanted = toPrepare({ finished: [] } as unknown as WorkState, { mine: listed, waiting: [], sample: github.sample }, { pulls: 'mine' })
   reviews.watch(wanted)
   await new Promise((resolve) => setTimeout(resolve, 30))
 

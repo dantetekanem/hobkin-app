@@ -25,6 +25,9 @@ import { projectsHandlers } from './projects-folder.ts'
 import { setupAnswerHandlers } from './setup-answers.ts'
 import { setupWorkHandlers } from './setup-work.ts'
 import { runCommand, Unavailable, type HostHandlers } from './commands.ts'
+import { IntegrationHost, type IntegrationModule } from './integration-host.ts'
+import { ToolCallWatcher } from './tool-calls.ts'
+import type { JobActivity } from '#shared/protocol/activity.ts'
 import { openablePath, readTextFile } from './files.ts'
 import { execFileSync } from 'node:child_process'
 import { hostCode, keptByApp, shouldRestart } from './code-age.ts'
@@ -150,6 +153,10 @@ export interface HostOptions {
    * folder in its home, never ~/.pi/agent.
    */
   integrations?: () => Promise<McpSource>
+  /** Where the integrations are found (spec 064): a folder holding one folder each, or their code ready made. The repository's `integrations/` when not given. */
+  integrationFolder?: string | readonly IntegrationModule[]
+  /** What a test hands each integration, by its id (`HostContext.options`). */
+  integrationOptions?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
   /** Where backups of the home and their settings are kept. Beside the home (`<home>-backups`) when not given. Never inside it. */
   backupsDir?: string
   /** The zip tool, for tests. */
@@ -210,6 +217,12 @@ function thenReadGitHub<Handlers extends object>(handlers: Handlers, names: read
   return wrapped
 }
 
+/** Every run's activity in the snapshot, without the main chat's own, which comes from Pi's events. */
+function jobActivityOf(snapshot: object | null): JobActivity | undefined {
+  const activity = (snapshot as { jobActivity?: unknown } | null)?.jobActivity
+  return activity && typeof activity === 'object' ? (activity as JobActivity) : undefined
+}
+
 /** The command line of the process that started this one, or nothing when it cannot be read. */
 function parentCommand(): string {
   try {
@@ -228,6 +241,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
 
   const token = createToken()
   const turns = new TurnRelay()
+  // Each tool call of the main conversation and of the runs, given to the integrations once as it starts and once as it ends.
+  const toolCalls = new ToolCallWatcher((call) => integrationHost?.toolCall(call), { skipFirstLook: true })
   let server: HostServer | null = null
 
   const send = (socket: WebSocket, message: HostMessage) => {
@@ -240,12 +255,19 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     const text = JSON.stringify(message)
     for (const socket of open) socket.send(text)
   }
+  // The integrations the host runs, loaded below once what they read is there. Until then there are none.
+  let integrationHost: IntegrationHost | null = null
   const publish = () => {
     const now = facts()
     windows.publish(now)
+    // The runs' tool calls are in their feeds, which move with the snapshot.
+    if (integrationHost?.hearsToolCalls()) toolCalls.activity(jobActivityOf(owner.snapshot))
     // Finished changes and pull requests waiting for the user get their reviews ready in the background (005 S6).
     // What a run left for the user is reviewed only once the user asks.
-    reviews.watch(toPrepare(now.work, now.github, { pulls: pullsOf(now.work?.yolo?.rules, now.work?.workload?.reviewPulls) }))
+    // The pull requests come from the integrations, and from GitHub's own state until it is one of them.
+    const fromIntegrations = integrationHost?.pulls() ?? null
+    const known = fromIntegrations && !fromIntegrations.sample ? fromIntegrations : { mine: now.github.pulls, waiting: now.github.reviews, sample: now.github.sample }
+    reviews.watch(toPrepare(now.work, known, { pulls: pullsOf(now.work?.yolo?.rules, now.work?.workload?.reviewPulls) }))
   }
   const connected = () => [...(server?.sockets() ?? [])].some((socket) => socket.readyState === socket.OPEN)
 
@@ -280,7 +302,9 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   // hobkin reaches the app through one tool, which runs the same commands a click does (`013-hobkin-access`).
   // What hobkin's own agent asks of the reviews takes its turn in a repository's line and counts toward the day's
   // number, as the background does: only the window's ask is the user's (`058-review-turns-and-ratings`).
-  const client = createClientTool({ run: (name, args) => runCommand({ ...handlers, ...reviewHandlers(reviews, 'hobkin') }, name, args) })
+  const client = createClientTool({
+    run: (name, args) => runCommand({ ...handlers, ...reviewHandlers(reviews, 'hobkin'), ...integrationHost?.handlers() }, name, args, integrationHost?.hooks('hobkin')),
+  })
 
   // Load optional styling before any owner startup; canonical data comes from root admission.
   const appearance = await loadHostAppearance(root, publish, log)
@@ -302,6 +326,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     onSessionEvent: (event) => {
       const message = turns.accept(event)
       if (message) broadcast(message)
+      if (integrationHost?.hearsToolCalls()) toolCalls.event(event)
     },
     frontEnd: {
       askQuestion: questions.ask,
@@ -387,7 +412,11 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     runtime: async () => (live ? ((await access()) as Partial<LiveModelAccess>).runtime : undefined),
     gh: options.reviewGh,
     // A pull request that merged is closed on GitHub, and so is the issue it fixes: both leave the lists now, not at the next five-minute read.
-    merged: (pull) => (pull.url || pull.repo ? github.closed(pull) : github.readSoon()),
+    merged: (pull) => {
+      integrationHost?.merged(pull)
+      if (pull.url || pull.repo) github.closed(pull)
+      else github.readSoon()
+    },
     log,
   })
   // A pull request merged or closed outside the app leaves Work and the Review list on the GitHub page's cadence, not at hobkin's half-hourly survey. Only a live host asks GitHub.
@@ -414,12 +443,26 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       return { home, entries: [] }
     }
   }
+  // The integrations: each folder under `integrations/`, found now that what they read is there (spec 064).
+  const loadedIntegrations = (integrationHost = await IntegrationHost.load({
+    integrations: options.integrationFolder,
+    live,
+    ...(options.reviewGh ? { gh: options.reviewGh } : {}),
+    integrationOptions: options.integrationOptions,
+    log,
+    changed: publish,
+    connected,
+    hobkin,
+    dataRoot: () => hobkin().runtime.directory,
+    snapshotWork: () => owner.snapshot?.work,
+  }))
   const facts = () => ({
     owner: owner.wireState(),
     signIn: signIn.state,
     models: signIn.models,
     github: issueWork(github.state, owner.snapshot?.work),
     integrations: integrations.state,
+    slices: loadedIntegrations.slices(),
     proofs: proofs.state,
     canvas: canvases.main,
     canvases: canvases.others(),
@@ -814,7 +857,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       return socket.close(CLOSE.badMessage, 'Not JSON')
     }
     if (message?.type === 'command' && typeof message.id === 'string' && typeof message.name === 'string') {
-      send(socket, { type: 'result', id: message.id, ...(await runCommand(handlers, message.name, message.args)) })
+      send(socket, { type: 'result', id: message.id, ...(await runCommand({ ...handlers, ...loadedIntegrations.handlers() }, message.name, message.args, loadedIntegrations.hooks('window'))) })
     } else if (message?.type === 'presence') {
       const back = message.focused === true && !user.focused
       Object.assign(user, { focused: message.focused === true, typing: message.typing === true })
@@ -865,6 +908,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   openWhenReady()
   lookAgain()
   github.start()
+  loadedIntegrations.start()
   mergedPulls?.start()
   backups.start()
   // The canvases are followed on disk. The folder is there only once hobkin's home is open, so every couple of
@@ -916,6 +960,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
         questions.close()
         signIn.cancel()
         github.close()
+        loadedIntegrations.close()
         mergedPulls?.close()
         backups.close()
         integrations.close()

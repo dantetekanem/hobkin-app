@@ -10,6 +10,9 @@ import { createClientTool } from '../src/client-tool.ts'
 import type { CommandCall } from '../src/integration-contract.ts'
 import { IntegrationHost, type IntegrationModule } from '../src/integration-host.ts'
 import { ToolCallWatcher } from '../src/tool-calls.ts'
+import echo from './fixtures/integrations/echo/integration.ts'
+import echoHost from './fixtures/integrations/echo/host.ts'
+import { afterTest, Client, hostFor } from './support.ts'
 
 const FIXTURES = fileURLToPath(new URL('./fixtures/integrations', import.meta.url))
 
@@ -208,4 +211,29 @@ test('the pull requests the parts know are combined, and a sample never counts b
     await known(part('a-real', { mine: [pull(2)], waiting: [pull(3)], sample: false }), part('b-sample', { mine: [pull(4)], waiting: [], sample: true }), part('c-real', { mine: [pull(5)], waiting: [], sample: false })),
     { mine: [pull(2), pull(5)], waiting: [pull(3)], sample: false },
   )
+})
+
+test('a host started with an integration runs its commands, sends its slice with the reset and again when it differs, and hears the window', async (t) => {
+  const heard: Heard[] = []
+  const host = await hostFor(t, { integrationFolder: [{ folder: 'echo', manifest: echo, host: echoHost }], integrationOptions: { echo: { heard } } })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  const states = () => client.received.flatMap((message) => (message.type === 'state' && message.slices ? [message] : []))
+
+  await client.until(() => states().length > 0, "the integration's slice")
+  assert.equal(states()[0]!.reset, true, 'with the reset')
+  assert.deepEqual(states()[0]!.slices, { echo: { said: 0 } })
+
+  const said = await client.command('echo.say', { text: 'hello' })
+  assert.deepEqual(said, { type: 'result', id: said.id, ok: true, value: { said: 'hello' } })
+  await client.until(() => states().length > 1, 'the changed slice')
+  assert.deepEqual(states()[1]!.slices, { echo: { said: 1 } })
+  assert.equal(states()[1]!.reset, undefined)
+  const wrong = await client.command('echo.say', { text: 3 })
+  assert.equal(!wrong.ok && wrong.error.code, 'invalid-arguments')
+  assert.deepEqual(await client.command('view.open', { screen: 'echo-page' }).then(({ ok }) => ok), true)
+  assert.deepEqual(heard.filter(({ what }) => what === 'after').map(({ detail }) => detail), [
+    { name: 'echo.say', from: 'window', ok: true },
+    { name: 'view.open', from: 'window', ok: true },
+  ])
 })

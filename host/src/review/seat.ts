@@ -10,7 +10,7 @@ import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
 import { whyProjectWaits } from 'hobkin/src/cli/work/controls.mjs'
 import { readinessOf } from 'hobkin/src/cli/work/yolo.mjs'
 import { partWords } from 'hobkin/src/cli/work/yolo-parts.mjs'
-import type { GitHubState } from '#shared/protocol/github.ts'
+import type { PullRequest } from '#shared/protocol/pulls.ts'
 import type { FinishedChange, ReviewPulls, WorkState } from '#shared/protocol/work.ts'
 import type { GrammarAsk } from '#shared/review/grammar.ts'
 import { pullUrl, reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/ids.ts'
@@ -623,13 +623,20 @@ export function pullVicinity(assessments: Assessments, run?: ScanRun): (target: 
     )
 }
 
+/** The open pull requests the app knows: the user's own, and those waiting for the user's review. Made-up ones say `sample`. */
+export interface KnownPulls {
+  mine: readonly PullRequest[]
+  waiting: readonly PullRequest[]
+  sample: boolean
+}
+
 /**
  * What the background prepares: every finished change at its commit, then the open pull requests `pulls` names (spec 053):
- * the user's own, those waiting for the user's review, both, or none, as GitHub last listed them, each watched by when it
+ * the user's own, those waiting for the user's review, both, or none, as the code host last listed them, each watched by when it
  * last changed there. A draft is not ready for a review, a pull request a finished change opened is that change's review,
  * and made-up data is never reviewed. Any other pull request is reviewed once the user asks ("Start AI review", spec 032).
  */
-export function toPrepare(work: WorkState | null, github?: GitHubState, { pulls = 'none' }: { pulls?: ReviewPulls } = {}): Watched[] {
+export function toPrepare(work: WorkState | null, known: KnownPulls | null = null, { pulls = 'none' }: { pulls?: ReviewPulls } = {}): Watched[] {
   const finished = finishedIn(work)
   // In Work's order, with what each repository's line weighs (spec 058).
   const changes = finished.map((change) => ({
@@ -640,10 +647,10 @@ export function toPrepare(work: WorkState | null, github?: GitHubState, { pulls 
     conflict: change.conflict,
     ...(change.at ? { at: change.at } : {}),
   }))
-  if (pulls === 'none' || !github || github.sample) return changes
+  if (pulls === 'none' || !known || known.sample) return changes
   const openedByChanges = new Set(finished.flatMap((change) => (change.pr ? [change.pr] : [])))
-  const mine = pulls === 'mine' || pulls === 'both' ? github.pulls : []
-  const waitingForTheUser = pulls === 'waiting' || pulls === 'both' ? github.reviews : []
+  const mine = pulls === 'mine' || pulls === 'both' ? known.mine : []
+  const waitingForTheUser = pulls === 'waiting' || pulls === 'both' ? known.waiting : []
   const watched = new Map<string, Watched>()
   for (const pull of [...mine, ...waitingForTheUser]) {
     const target = targetOfReviewId(pull.url)

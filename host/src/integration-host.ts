@@ -158,6 +158,11 @@ export class IntegrationHost {
     return this.running.map(({ manifest }) => manifest.id)
   }
 
+  /** Whether any part wants to hear tool calls, so the host looks for them only then. */
+  hearsToolCalls(): boolean {
+    return this.running.some(({ part }) => part.onToolCall !== undefined)
+  }
+
   /** The parts' handlers, merged. */
   handlers(): Record<string, (args: never) => unknown> {
     return Object.assign({}, ...this.running.map(({ part }) => part.handlers ?? {}))
