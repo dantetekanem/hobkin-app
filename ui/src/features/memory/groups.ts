@@ -198,15 +198,23 @@ function addedWords(memory: MemoryEntry): string | null {
  * changed by hobkin, Nov 20". Null when the host said neither.
  */
 export function fromWords(memory: MemoryEntry, at: WordsAt): string | null {
+  const addedTime = timeOf(memory.added?.at)
+  const changedTime = timeOf(memory.changed?.at)
+  const parts: string[] = []
+
   const added = addedWords(memory)
-  const addedAt = timeOf(memory.added?.at)
-  const first = added === null ? null : addedAt ? `${added}, ${dayWords(addedAt, at)}` : added
-  const changed = memory.changed
-  const changedTime = timeOf(changed?.at)
-  const changedOn = changedTime && changedTime !== addedAt ? dayWords(changedTime, at) : null
-  const second = changedOn ? (changed?.by ? `changed by ${whoOf(changed.by)}, ${changedOn}` : `changed ${changedOn}`) : null
-  const line = [first, second].filter(Boolean).join(' · ')
-  return line ? line.charAt(0).toUpperCase() + line.slice(1) : null
+  if (added !== null) parts.push(addedTime ? `${added}, ${dayWords(addedTime, at)}` : added)
+
+  // A change stamped with the add's own time is the add itself.
+  if (changedTime && changedTime !== addedTime) {
+    const by = memory.changed?.by
+    const day = dayWords(changedTime, at)
+    parts.push(by ? `changed by ${whoOf(by)}, ${day}` : `changed ${day}`)
+  }
+
+  if (parts.length === 0) return null
+  const line = parts.join(' · ')
+  return line.charAt(0).toUpperCase() + line.slice(1)
 }
 
 /** "until Mar 3, 2027", for the day a memory holds until. The day is the calendar's, wherever the user is. */
@@ -218,24 +226,29 @@ export function untilWords(until: string, now: number): string {
 
 export type TextPart = { text: string } | { link: string }
 
-/** A memory's text with each `[[name]]` of another memory as a link of its own. */
+const LINK = /\[\[([^\]]+)\]\]/g
+
+/** A memory's text with each `[[name]]` of another memory as a link of its own. Brackets around anything else stay words. */
 export function textParts(text: string): TextPart[] {
   const parts: TextPart[] = []
-  let rest = ''
-  let last = 0
-  for (const match of text.matchAll(/\[\[([^\]]+)\]\]/g)) {
-    const name = match[1]!
+  let end = 0
+  for (const match of text.matchAll(LINK)) {
+    const name = match[1] ?? ''
     if (!MEMORY_NAME.test(name)) continue
-    rest += text.slice(last, match.index)
-    if (rest) parts.push({ text: rest })
+
+    const before = text.slice(end, match.index)
+    if (before) parts.push({ text: before })
     parts.push({ link: name })
-    rest = ''
-    last = match.index + match[0].length
+    end = match.index + match[0].length
   }
-  rest += text.slice(last)
-  if (rest) parts.push({ text: rest })
+
+  const after = text.slice(end)
+  if (after) parts.push({ text: after })
   return parts
 }
+
+/** The memories a text links to with `[[name]]`, in order. */
+export const linksIn = (text: string): string[] => textParts(text).flatMap((part) => ('link' in part ? [part.link] : []))
 
 /** A memory's name as words, for a link to it: "car-insurance-quotes" as "car insurance quotes". */
 export const nameWords = (name: string): string => name.replaceAll('-', ' ')

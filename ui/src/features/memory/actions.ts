@@ -1,5 +1,5 @@
 import { readMemoryList, type MemoryEntry, type MemorySave } from '#shared/protocol/memory.ts'
-import { NEW_DRAFT, draftOf, refusalWords, without, type MemoryDraft, type MemorySend, type MemoryStore } from './store.ts'
+import { NEW_DRAFT, draftOf, refusalWords, without, type LineUndo, type MemoryDraft, type MemorySend, type MemoryStore } from './store.ts'
 
 /**
  * What the Memory page and a chat line do (`057-shared-memory`), each through one of the host's commands: save a row,
@@ -7,14 +7,19 @@ import { NEW_DRAFT, draftOf, refusalWords, without, type MemoryDraft, type Memor
  * A refusal keeps what the user typed and says why where it happened. Pure: the host is reached only through `send`.
  */
 
-const row = (value: unknown): Record<string, unknown> => (typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {})
+type Answer = Record<string, unknown>
+
+const answerOf = (value: unknown): Answer => (typeof value === 'object' && value !== null ? (value as Answer) : {})
 
 /** Why an answer is a refusal, in the host's words, or null when it went through. */
-function refusalIn(answer: unknown): string | null {
-  const { saved, forgot, ok, message, reason } = row(answer)
-  if (saved === false || forgot === false || ok === false) return String(message ?? reason ?? 'hobkin did not do it.')
-  return null
+function refusalIn(answer: Answer): string | null {
+  const refused = answer.saved === false || answer.forgot === false || answer.ok === false
+  if (!refused) return null
+  return String(answer.message ?? answer.reason ?? 'hobkin did not do it.')
 }
+
+/** The change id an answer carries, which `memory.undo` takes back. */
+const changeIn = (answer: Answer): string | null => (typeof answer.change === 'string' && answer.change ? answer.change : null)
 
 /** A memory the host answered with, read without trust. */
 const memoryIn = (value: unknown): MemoryEntry | undefined => readMemoryList({ memories: [value] }).memories[0]
@@ -22,8 +27,9 @@ const memoryIn = (value: unknown): MemoryEntry | undefined => readMemoryList({ m
 /** What `memory.save` is sent for a draft: every field the row holds, so the memory reads as the row does. */
 function saveOf(draft: MemoryDraft, memory: MemoryEntry | undefined): MemorySave {
   const until = draft.until.trim()
+  const kept = memory ? { name: memory.name, ...(memory.version ? { version: memory.version } : {}) } : {}
   return {
-    ...(memory ? { name: memory.name, ...(memory.version ? { version: memory.version } : {}) } : {}),
+    ...kept,
     description: draft.description.trim(),
     kind: draft.kind,
     text: draft.text.trim(),
@@ -34,55 +40,78 @@ function saveOf(draft: MemoryDraft, memory: MemoryEntry | undefined): MemorySave
 
 export function createMemoryActions(store: MemoryStore, send: MemorySend) {
   const set = store.setState
-  const busy = (key: string, on: boolean) => set(({ busy: now }) => ({ busy: on ? { ...now, [key]: true } : without(now, key) }))
-  const refuse = (key: string, words: string | null) => set(({ refused }) => ({ refused: words === null ? without(refused, key) : { ...refused, [key]: words } }))
+  const isBusy = (key: string) => store.getState().busy[key] === true
 
-  /** Puts the memory as the host keeps it in the list, in place of the one of its name. */
-  const keep = (memory: MemoryEntry) =>
+  const markBusy = (key: string, busy: boolean) => {
+    set((state) => ({ busy: busy ? { ...state.busy, [key]: true } : without(state.busy, key) }))
+  }
+
+  const setRefusal = (key: string, words: string | null) => {
+    set(({ refused }) => ({ refused: words === null ? without(refused, key) : { ...refused, [key]: words } }))
+  }
+
+  /** Puts the memory as the host keeps it in the list, in place of the one of its name, or first when it is new. */
+  const keepMemory = (memory: MemoryEntry) => {
     set(({ list }) => {
       const memories = list?.memories ?? []
       const at = memories.findIndex((one) => one.name === memory.name)
-      return { list: { ...list, memories: at < 0 ? [memory, ...memories] : memories.with(at, memory) } }
+      const next = at < 0 ? [memory, ...memories] : memories.with(at, memory)
+      return { list: { ...list, memories: next } }
     })
+  }
 
-  /** Sends a save of these fields for the row `key`. The draft, if any, closes only when the host keeps it. */
+  const setForgotten = (name: string, refused?: string) => {
+    set(({ forgotten }) => {
+      const lost = forgotten[name]
+      return lost ? { forgotten: { ...forgotten, [name]: { ...lost, refused } } } : {}
+    })
+  }
+
+  /** Sends a save of these fields for the row `key`. The draft, if any, closes only once the host keeps it. */
   const sendSave = async (key: string, args: MemorySave): Promise<void> => {
-    if (store.getState().busy[key]) return
+    if (isBusy(key)) return
     if (!args.description) {
-      refuse(key, 'Write a description first: one line that says what to remember.')
+      setRefusal(key, 'Write a description first: one line that says what to remember.')
       return
     }
-    busy(key, true)
-    refuse(key, null)
+
+    markBusy(key, true)
+    setRefusal(key, null)
     try {
-      const answer = await send('memory.save', args)
+      const answer = answerOf(await send('memory.save', args))
       const refused = refusalIn(answer)
-      const memory = refused === null ? memoryIn(row(answer).memory) : undefined
-      if (refused !== null || !memory) {
-        refuse(key, refused ?? 'hobkin answered without the memory it kept.')
+      if (refused !== null) {
+        setRefusal(key, refused)
         return
       }
-      keep(memory)
-      const change = row(answer).change
+      const memory = memoryIn(answer.memory)
+      if (!memory) {
+        setRefusal(key, 'hobkin answered without the memory it kept.')
+        return
+      }
+
+      keepMemory(memory)
+      const change = changeIn(answer)
       set(({ drafts, saved }) => ({
         drafts: without(drafts, key),
-        saved: typeof change === 'string' && change ? { ...saved, [memory.name]: change } : without(saved, memory.name),
+        saved: change ? { ...saved, [memory.name]: change } : without(saved, memory.name),
       }))
       store.settled()
     } catch (error) {
-      refuse(key, refusalWords(error))
+      setRefusal(key, refusalWords(error))
     } finally {
-      busy(key, false)
+      markBusy(key, false)
     }
   }
 
-  /** Sends a Right now change. Once it goes through, the list is read again for its new version. */
-  const sendNow = async (args: { action: 'add' | 'replace' | 'remove'; item?: string; text?: string }): Promise<boolean> => {
+  /** Sends a Right now change, and says whether it went through. Once it has, the list is read again for its new version. */
+  const sendNow = async (change: { action: 'add' | 'replace' | 'remove'; item?: string; text?: string }): Promise<boolean> => {
     if (store.getState().nowBusy) return false
     const version = store.getState().list?.nowVersion
+
     set({ nowBusy: true, nowRefused: null })
     try {
-      const refused = refusalIn(await send('memory.now.change', { ...args, ...(version ? { version } : {}) }))
+      const refused = refusalIn(answerOf(await send('memory.now.change', { ...change, ...(version ? { version } : {}) })))
       if (refused !== null) {
         set({ nowRefused: refused })
         return false
@@ -99,33 +128,39 @@ export function createMemoryActions(store: MemoryStore, send: MemorySend) {
 
   return {
     /** Saves the row's draft, or the new memory's. */
-    save(key: string): Promise<void> {
+    async save(key: string): Promise<void> {
       const draft = store.getState().drafts[key]
-      if (!draft) return Promise.resolve()
-      const memory = key === NEW_DRAFT ? undefined : store.memoryNamed(key)
-      if (key !== NEW_DRAFT && !memory) {
-        refuse(key, 'That memory is not here any more.')
-        return Promise.resolve()
+      if (!draft) return
+      if (key === NEW_DRAFT) return sendSave(key, saveOf(draft, undefined))
+
+      const memory = store.memoryNamed(key)
+      if (!memory) {
+        setRefusal(key, 'That memory is not here any more.')
+        return
       }
       return sendSave(key, saveOf(draft, memory))
     },
+
     /** Make private, or Share with every agent: the memory saved as it is, but for that. */
-    setPrivate(name: string, keepPrivate: boolean): Promise<void> {
+    async setPrivate(name: string, keepPrivate: boolean): Promise<void> {
       const memory = store.memoryNamed(name)
-      if (!memory) return Promise.resolve()
+      if (!memory) return
       return sendSave(name, saveOf({ ...draftOf(memory), private: keepPrivate }, memory))
     },
+
+    /** Forgets a memory. Its row stays where it was as one line with Undo until the page is left. */
     async forget(name: string): Promise<void> {
       const memory = store.memoryNamed(name)
-      if (!memory || store.getState().busy[name]) return
-      busy(name, true)
-      refuse(name, null)
+      if (!memory || isBusy(name)) return
+
+      markBusy(name, true)
+      setRefusal(name, null)
       try {
-        const answer = await send('memory.forget', { name, ...(memory.version ? { version: memory.version } : {}) })
+        const answer = answerOf(await send('memory.forget', { name, ...(memory.version ? { version: memory.version } : {}) }))
         const refused = refusalIn(answer)
-        const change = row(answer).change
-        if (refused !== null || typeof change !== 'string' || !change) {
-          refuse(name, refused ?? 'hobkin answered without a way to bring it back, so nothing is shown as forgotten.')
+        const change = changeIn(answer)
+        if (refused !== null || change === null) {
+          setRefusal(name, refused ?? 'hobkin answered without a way to bring it back, so nothing is shown as forgotten.')
           return
         }
         set(({ list, forgotten, saved }) => ({
@@ -134,64 +169,75 @@ export function createMemoryActions(store: MemoryStore, send: MemorySend) {
           saved: without(saved, name),
         }))
       } catch (error) {
-        refuse(name, refusalWords(error))
+        setRefusal(name, refusalWords(error))
       } finally {
-        busy(name, false)
+        markBusy(name, false)
       }
     },
+
     /** Brings back a memory forgotten on this page, in its place, then reads the list for it as kept. */
     async undoForget(name: string): Promise<void> {
       const lost = store.getState().forgotten[name]
-      if (!lost || store.getState().busy[name]) return
-      busy(name, true)
+      if (!lost || isBusy(name)) return
+
+      markBusy(name, true)
       try {
-        const refused = refusalIn(await send('memory.undo', { change: lost.change }))
+        const refused = refusalIn(answerOf(await send('memory.undo', { change: lost.change })))
         if (refused !== null) {
-          set(({ forgotten }) => ({ forgotten: { ...forgotten, [name]: { ...lost, refused } } }))
+          setForgotten(name, refused)
           return
         }
         set(({ forgotten }) => ({ forgotten: without(forgotten, name) }))
-        keep(lost.entry)
+        keepMemory(lost.entry)
         void store.read()
       } catch (error) {
-        set(({ forgotten }) => ({ forgotten: { ...forgotten, [name]: { ...lost, refused: refusalWords(error) } } }))
+        setForgotten(name, refusalWords(error))
       } finally {
-        busy(name, false)
+        markBusy(name, false)
       }
     },
+
     /** Takes back a save made on this page: an added memory goes, a changed one reads as it did. */
     async undoSave(name: string): Promise<void> {
       const change = store.getState().saved[name]
-      if (!change || store.getState().busy[name]) return
-      busy(name, true)
-      refuse(name, null)
+      if (!change || isBusy(name)) return
+
+      markBusy(name, true)
+      setRefusal(name, null)
       try {
-        const refused = refusalIn(await send('memory.undo', { change }))
+        const refused = refusalIn(answerOf(await send('memory.undo', { change })))
         if (refused !== null) {
-          refuse(name, refused)
+          setRefusal(name, refused)
           return
         }
         set(({ saved }) => ({ saved: without(saved, name) }))
         void store.read()
       } catch (error) {
-        refuse(name, refusalWords(error))
+        setRefusal(name, refusalWords(error))
       } finally {
-        busy(name, false)
+        markBusy(name, false)
       }
     },
+
     /** A chat line's Undo: sent once, and the line then says it was undone or why it could not be. */
     async undoLine(change: string): Promise<void> {
       if (store.getState().lines[change]) return
-      const settle = (undo: { state: 'sending' | 'undone' | 'refused'; reason?: string }) => set(({ lines }) => ({ lines: { ...lines, [change]: undo } }))
-      settle({ state: 'sending' })
+      const record = (undo: LineUndo) => set(({ lines }) => ({ lines: { ...lines, [change]: undo } }))
+
+      record({ state: 'sending' })
       try {
-        const refused = refusalIn(await send('memory.undo', { change }))
-        settle(refused === null ? { state: 'undone' } : { state: 'refused', reason: refused })
-        if (refused === null && store.getState().open) void store.read()
+        const refused = refusalIn(answerOf(await send('memory.undo', { change })))
+        if (refused !== null) {
+          record({ state: 'refused', reason: refused })
+          return
+        }
+        record({ state: 'undone' })
+        if (store.getState().open) void store.read()
       } catch (error) {
-        settle({ state: 'refused', reason: refusalWords(error) })
+        record({ state: 'refused', reason: refusalWords(error) })
       }
     },
+
     /** Saves the Right now line being written: a new one, or the words of the one it changes. */
     async nowSave(): Promise<void> {
       const edit = store.getState().nowEdit
@@ -205,16 +251,21 @@ export function createMemoryActions(store: MemoryStore, send: MemorySend) {
         store.nowCancel()
         return
       }
-      const done = await sendNow(edit.item === null ? { action: 'add', text } : { action: 'replace', item: edit.item, text })
-      if (done) store.nowCancel()
+
+      const change = edit.item === null ? { action: 'add' as const, text } : { action: 'replace' as const, item: edit.item, text }
+      if (await sendNow(change)) store.nowCancel()
     },
+
     /** Removes a Right now line. It stays where it was as one line with Undo until the page is left. */
     async nowRemove(item: string, index: number): Promise<void> {
-      if (await sendNow({ action: 'remove', item })) set(({ nowRemoved }) => ({ nowRemoved: [...nowRemoved, { text: item, index }] }))
+      if (!(await sendNow({ action: 'remove', item }))) return
+      set(({ nowRemoved }) => ({ nowRemoved: [...nowRemoved, { text: item, index }] }))
     },
+
     /** Puts a removed line back on the list. */
     async nowUndoRemove(text: string): Promise<void> {
-      if (await sendNow({ action: 'add', text })) set(({ nowRemoved }) => ({ nowRemoved: nowRemoved.filter((one) => one.text !== text) }))
+      if (!(await sendNow({ action: 'add', text }))) return
+      set(({ nowRemoved }) => ({ nowRemoved: nowRemoved.filter((one) => one.text !== text) }))
     },
   }
 }

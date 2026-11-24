@@ -4,7 +4,7 @@ import type { MemoryEntry } from '#shared/protocol/memory.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.tsx'
 import { cn } from '@/lib/utils.ts'
-import { fromWords, nameWords, textParts, untilWords, type WordsAt } from './groups.ts'
+import { fromWords, linksIn, nameWords, textParts, untilWords, type WordsAt } from './groups.ts'
 import { LinkPress } from './LinkPress.tsx'
 import { MemoryEditor } from './MemoryEditor.tsx'
 import { draftOf, type Forgotten, type MemoryDraft } from './store.ts'
@@ -12,7 +12,7 @@ import { memoryActions, memoryStore, useMemory } from './use-memories.ts'
 
 const sameDraft = (a: MemoryDraft, b: MemoryDraft) => a.description === b.description && a.kind === b.kind && a.until === b.until && a.private === b.private && a.text === b.text
 
-const seek = (name: string) => memoryStore.seekMemory(name)
+const goToMemory = (name: string) => memoryStore.seekMemory(name)
 
 /** The text with each `[[name]]` as a press that goes to that memory. */
 function TextWithLinks({ text }: { text: string }) {
@@ -20,7 +20,7 @@ function TextWithLinks({ text }: { text: string }) {
     <>
       {textParts(text).map((part, index) =>
         'link' in part ? (
-          <LinkPress key={index} onPress={() => seek(part.link)} label={`Go to the memory ${nameWords(part.link)}`}>
+          <LinkPress key={index} onPress={() => goToMemory(part.link)} label={`Go to the memory ${nameWords(part.link)}`}>
             {nameWords(part.link)}
           </LinkPress>
         ) : (
@@ -29,6 +29,15 @@ function TextWithLinks({ text }: { text: string }) {
       )}
     </>
   )
+}
+
+type RowMode = 'shown' | 'editing' | 'forgotten'
+
+/** Where the keyboard lands in a row as it turns into each of its modes. */
+const FOCUS_IN: Record<RowMode, string> = {
+  shown: '[data-row-edit]',
+  editing: '[data-first-field]',
+  forgotten: '[data-row-undo]',
 }
 
 export interface MemoryRowProps {
@@ -53,17 +62,19 @@ export const MemoryRow = memo(function MemoryRow({ memory, forgotten, past, at }
   const refused = useMemory((state) => state.refused[name] ?? null)
   const saved = useMemory((state) => state.saved[name] !== undefined)
   const root = useRef<HTMLElement | null>(null)
-  const mode = forgotten ? 'forgotten' : draft ? 'editing' : 'shown'
+  const mode: RowMode = forgotten ? 'forgotten' : draft ? 'editing' : 'shown'
   const shownMode = useRef(mode)
 
   // The keyboard follows the row as it changes: into the editor, back to Edit, onto Undo.
   useEffect(() => {
     if (shownMode.current === mode) return
-    const had = root.current?.contains(document.activeElement) || document.activeElement === document.body
     shownMode.current = mode
-    if (!had && mode !== 'editing') return
-    const target = mode === 'editing' ? '[data-first-field]' : mode === 'forgotten' ? '[data-row-undo]' : '[data-row-edit]'
-    root.current?.querySelector<HTMLElement>(target)?.focus({ preventScroll: true })
+
+    const active = document.activeElement
+    const keyboardWasHere = root.current?.contains(active) || active === document.body
+    // Opening the editor always takes the keyboard. The other changes keep it only when it was in the row.
+    if (mode !== 'editing' && !keyboardWasHere) return
+    root.current?.querySelector<HTMLElement>(FOCUS_IN[mode])?.focus({ preventScroll: true })
   }, [mode])
 
   const description = memory.description || name
@@ -101,8 +112,9 @@ export const MemoryRow = memo(function MemoryRow({ memory, forgotten, past, at }
 
   const from = fromWords(memory, at)
   const until = memory.until ? untilWords(memory.until, at.now) : null
-  const inline = new Set(memory.text ? textParts(memory.text).flatMap((part) => ('link' in part ? [part.link] : [])) : [])
-  const moreLinks = (memory.links ?? []).filter((link) => !inline.has(link))
+  // The links its text already shows in place are not listed again under it.
+  const linkedInText = new Set(memory.text ? linksIn(memory.text) : [])
+  const moreLinks = (memory.links ?? []).filter((link) => !linkedInText.has(link))
   const said = memory.source?.said
 
   return (
@@ -130,7 +142,7 @@ export const MemoryRow = memo(function MemoryRow({ memory, forgotten, past, at }
         <p className="flex flex-wrap gap-x-2 text-[12.5px] text-muted-foreground">
           Linked:
           {moreLinks.map((link) => (
-            <LinkPress key={link} onPress={() => seek(link)} label={`Go to the memory ${nameWords(link)}`}>
+            <LinkPress key={link} onPress={() => goToMemory(link)} label={`Go to the memory ${nameWords(link)}`}>
               {nameWords(link)}
             </LinkPress>
           ))}

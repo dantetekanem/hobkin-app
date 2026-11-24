@@ -35,8 +35,8 @@ export function MemoryEditor({ label, draft, dirty, busy, refused, onChange, onS
   const [warned, setWarned] = useState(false)
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    const save = (event.key === 's' || event.key === 'Enter') && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey
-    if (save) {
+    const onlyCommand = event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey
+    if (onlyCommand && (event.key === 's' || event.key === 'Enter')) {
       event.preventDefault()
       onSave()
       return

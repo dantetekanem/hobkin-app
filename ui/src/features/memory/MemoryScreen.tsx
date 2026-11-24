@@ -1,7 +1,7 @@
 import { Plus, Search } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { MEMORY_KINDS, MEMORY_NOW_MAX, type MemoryEntry } from '#shared/protocol/memory.ts'
+import { MEMORY_KINDS, MEMORY_NOW_MAX, type MemoryEntry, type MemoryKind, type MemoryList } from '#shared/protocol/memory.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStill } from '@/app/still.ts'
@@ -10,12 +10,12 @@ import { Button } from '@/components/ui/button.tsx'
 import { Empty, Notices, PageHeading, pieces, useLanding, walkWithArrows } from '@/features/skills/page-parts.tsx'
 import { useHasHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
-import { countsOf, isPast, KIND_WORDS, pageOf, todayOf, type MemoryCounts, type MemoryFilter, type WordsAt } from './groups.ts'
+import { countsOf, isPast, KIND_WORDS, pageOf, todayOf, type MemoryCounts, type MemoryFilter, type MemorySection, type WordsAt } from './groups.ts'
 import { MemoryEditor } from './MemoryEditor.tsx'
 import { LinkPress } from './LinkPress.tsx'
 import { MemoryRow } from './MemoryRow.tsx'
 import { NowList } from './NowList.tsx'
-import { NEW_DRAFT, type MemoryDraft } from './store.ts'
+import { NEW_DRAFT, type MemoryDraft, type MemoryState } from './store.ts'
 import { memoryActions, memoryStore, useMemory, useMemoryPage } from './use-memories.ts'
 
 const NO_MEMORIES: readonly MemoryEntry[] = []
@@ -86,14 +86,12 @@ export function MemoryScreen() {
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
-    const target = event.target
-    // Inside a field the arrows move its caret and its choices.
-    if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || (target instanceof HTMLInputElement && target.type !== 'search')) return
-    if (target instanceof HTMLElement && target.closest('[role="listbox"],[role="menu"],[role="switch"]')) return
+    if (arrowsBelongTo(event.target)) return
     walkWithArrows(event, scroller.current, still)
   }
 
-  const notices = [...(notice ? [notice] : []), ...(problem ? [problem] : []), ...(list?.unavailable ? [list.unavailable] : []), ...unreadableNotice(list?.unreadable)]
+  const notices = noticesOf(notice, problem, list)
+  const canAdd = !adding && list !== null && !list.unavailable && problem === null
   // With nothing remembered, the page says how a memory comes to be, and the Right now list keeps its own Add below.
   const empty = list !== null && memories.length === 0 && !query && filter === 'all'
   const searching = query.trim().length > 0
@@ -123,7 +121,7 @@ export function MemoryScreen() {
                     className="h-8 w-full max-w-[360px] rounded-full border border-input bg-surface pr-3 pl-8 text-[13px] outline-offset-2 placeholder:text-muted-foreground/70"
                   />
                 </label>
-                <Button data-key-stop="" disabled={adding || list === null || Boolean(list.unavailable) || problem !== null} onClick={() => memoryStore.add(filter !== 'all' && filter !== 'now' && filter !== 'past' ? filter : 'user')}>
+                <Button data-key-stop="" disabled={!canAdd} onClick={() => memoryStore.add(kindToAdd(filter))}>
                   <Plus aria-hidden="true" />
                   Add a memory
                 </Button>
@@ -140,26 +138,15 @@ export function MemoryScreen() {
             <div className="flex flex-col gap-9">
               {list === null && !problem ? <Empty>Reading what hobkin remembers.</Empty> : null}
               {empty ? <Empty>hobkin remembers nothing yet. Tell it in Chat, such as “remember that I live in Lisbon”, or add a memory here.</Empty> : null}
-              {list !== null ? (
-                parts.map((part) =>
-                  part.key === 'now' ? (
-                    <NowList key="now" lines={part.lines} total={now.length} searching={searching} />
-                  ) : (
-                    <section key={part.key} aria-label={part.label} className="flex flex-col gap-3">
-                      <h3 className="eyebrow">{part.label}</h3>
-                      {part.memories.length === 0 ? (
-                        <Empty>{part.key === 'found' ? `Nothing holds every word of “${query.trim()}”.` : part.key === 'past' ? 'Nothing has passed its day.' : 'Nothing of this kind yet.'}</Empty>
-                      ) : (
-                        <div className="flex flex-col gap-2">
-                          {part.memories.map((memory) => (
-                            <MemoryRow key={memory.name} memory={memory} forgotten={forgotten[memory.name]} past={isPast(memory, today)} at={at} />
-                          ))}
-                        </div>
-                      )}
-                    </section>
-                  ),
-                )
-              ) : null}
+              {list !== null
+                ? parts.map((part) =>
+                    part.key === 'now' ? (
+                      <NowList key="now" lines={part.lines} total={now.length} searching={searching} />
+                    ) : (
+                      <MemoryPart key={part.key} section={part} query={query} today={today} at={at} forgotten={forgotten} />
+                    ),
+                  )
+                : null}
             </div>
           </Rise>
 
@@ -174,11 +161,50 @@ export function MemoryScreen() {
 }
 
 /** The files hobkin could not read as a memory, named, so a broken one is never silently missing. */
-function unreadableNotice(unreadable: readonly string[] | undefined): string[] {
-  if (!unreadable?.length) return []
+function unreadableNotice(unreadable: readonly string[]): string {
   const names = unreadable.slice(0, 5).join(', ')
   const more = unreadable.length > 5 ? ` and ${unreadable.length - 5} more` : ''
-  return [`hobkin could not read ${unreadable.length === 1 ? 'one file' : `${unreadable.length} files`} in its memories folder: ${names}${more}.`]
+  const files = unreadable.length === 1 ? 'one file' : `${unreadable.length} files`
+  return `hobkin could not read ${files} in its memories folder: ${names}${more}.`
+}
+
+/** What the page says above the list, in order: what just went wrong here, why it could not read, and what hobkin could not keep or read. */
+function noticesOf(notice: string | null, problem: string | null, list: MemoryList | null): string[] {
+  const notices: string[] = []
+  if (notice) notices.push(notice)
+  if (problem) notices.push(problem)
+  if (list?.unavailable) notices.push(list.unavailable)
+  if (list?.unreadable?.length) notices.push(unreadableNotice(list.unreadable))
+  return notices
+}
+
+/** A memory added while one kind is shown starts as that kind. */
+const kindToAdd = (filter: MemoryFilter): MemoryKind => (filter === 'all' || filter === 'now' || filter === 'past' ? 'user' : filter)
+
+/** A field the arrows work inside: its caret, its list of choices, or its switch. */
+function arrowsBelongTo(target: EventTarget): boolean {
+  if (target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement) return true
+  if (target instanceof HTMLInputElement && target.type !== 'search') return true
+  return target instanceof HTMLElement && target.closest('[role="listbox"],[role="menu"],[role="switch"]') !== null
+}
+
+/** One part of the list: a kind, the past ones or what a search found, with its rows, or a line saying it has none. */
+function MemoryPart({ section, query, today, at, forgotten }: { section: MemorySection; query: string; today: string; at: WordsAt; forgotten: MemoryState['forgotten'] }) {
+  const none = section.key === 'found' ? `Nothing holds every word of “${query.trim()}”.` : section.key === 'past' ? 'Nothing has passed its day.' : 'Nothing of this kind yet.'
+  return (
+    <section aria-label={section.label} className="flex flex-col gap-3">
+      <h3 className="eyebrow">{section.label}</h3>
+      {section.memories.length === 0 ? (
+        <Empty>{none}</Empty>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {section.memories.map((memory) => (
+            <MemoryRow key={memory.name} memory={memory} forgotten={forgotten[memory.name]} past={isPast(memory, today)} at={at} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
 }
 
 /**

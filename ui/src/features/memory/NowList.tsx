@@ -9,6 +9,21 @@ import { memoryActions, memoryStore, useMemory } from './use-memories.ts'
 /** Every line of the list keeps one height, whether it reads, is being written or was just removed. */
 const LINE = 'flex min-h-12 items-center gap-2 px-4 py-2'
 
+type NowRow = { kind: 'line'; line: NowLine } | { kind: 'removed'; text: string }
+
+const lineRow = (line: NowLine): NowRow => ({ kind: 'line', line })
+
+/** The lines with each one removed on this page back where it was, as one line with Undo. */
+function withRemoved(lines: readonly NowLine[], removed: readonly { text: string; index: number }[]): NowRow[] {
+  const rows = lines.map(lineRow)
+  const inOrder = [...removed].sort((a, b) => a.index - b.index)
+  for (const gone of inOrder) {
+    const at = Math.min(gone.index, rows.length)
+    rows.splice(at, 0, { kind: 'removed', text: gone.text })
+  }
+  return rows
+}
+
 /**
  * The Right now list (`memory.md`): the main chat's short list of what matters at the moment, with its own add, edit
  * and remove. A removed line stays where it was as one line with Undo until the page is left. A search shows only the
@@ -21,9 +36,7 @@ export function NowList({ lines, total, searching }: { lines: readonly NowLine[]
   const removed = useMemory((state) => state.nowRemoved)
   const full = total >= MEMORY_NOW_MAX
 
-  // What was removed sits where it was, among the lines still there.
-  const rows: ({ kind: 'line'; line: NowLine } | { kind: 'removed'; text: string })[] = lines.map((line) => ({ kind: 'line', line }))
-  if (!searching) for (const gone of [...removed].sort((a, b) => a.index - b.index)) rows.splice(Math.min(gone.index, rows.length), 0, { kind: 'removed', text: gone.text })
+  const rows = searching ? lines.map(lineRow) : withRemoved(lines, removed)
   const adding = edit !== null && edit.item === null
 
   return (
