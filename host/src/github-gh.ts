@@ -1,8 +1,10 @@
 import { execFile } from 'node:child_process'
-import { accessSync, constants, statSync } from 'node:fs'
-import { delimiter, join } from 'node:path'
 import { GITHUB_LIMIT, type ChecksState, type GitHubIssue, type GitHubPull, type ReviewState } from '#shared/protocol/github.ts'
 import { plainWords, type GitHubRead, type GitHubSource } from './github.ts'
+import { findGh, type GhOutcome } from './review/gh.ts'
+
+// These moved to review/gh.ts, which Change Review needs; the old names stay importable from here until the switch.
+export { findGh, GH_PLACES, type GhOutcome } from './review/gh.ts'
 
 /**
  * Reading GitHub through gh, GitHub's command line tool, with the login gh already has. One fixed GraphQL query reads
@@ -43,32 +45,7 @@ export const GH_ARGS: readonly string[] = ['api', 'graphql', '--hostname', 'gith
 
 export const GH_TIMEOUT_MS = 20_000
 
-/** How one run of gh ended. */
-export type GhOutcome =
-  | { kind: 'done'; stdout: string }
-  | { kind: 'missing' }
-  | { kind: 'timeout'; ms: number }
-  | { kind: 'failed'; code: number | null; stdout: string; stderr: string }
-
 export type GhRunner = (args: readonly string[]) => Promise<GhOutcome>
-
-/** Where Homebrew puts gh. An app opened from the Finder gets a PATH without them. */
-export const GH_PLACES: readonly string[] = ['/opt/homebrew/bin', '/usr/local/bin']
-
-/** The gh program to run: the first one on the PATH, then in Homebrew's folders. Null when there is none. */
-export function findGh({ path = process.env.PATH ?? '', places = GH_PLACES }: { path?: string; places?: readonly string[] } = {}): string | null {
-  for (const folder of [...path.split(delimiter), ...places]) {
-    if (!folder) continue
-    const file = join(folder, 'gh')
-    try {
-      accessSync(file, constants.X_OK)
-      if (statSync(file).isFile()) return file
-    } catch {
-      // Not here.
-    }
-  }
-  return null
-}
 
 /** gh never asks anything, never shows a spinner or colors, and never says it has an update. */
 const QUIET = { GH_PROMPT_DISABLED: '1', GH_NO_UPDATE_NOTIFIER: '1', GH_NO_EXTENSION_UPDATE_NOTIFIER: '1', GH_SPINNER_DISABLED: '1', NO_COLOR: '1', CLICOLOR: '0' }

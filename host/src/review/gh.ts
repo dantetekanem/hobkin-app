@@ -4,7 +4,33 @@
  * has. Nothing here asks gh for its token.
  */
 import { spawn } from 'node:child_process'
-import { findGh, type GhOutcome } from '../github-gh.ts'
+import { accessSync, constants, statSync } from 'node:fs'
+import { delimiter, join } from 'node:path'
+
+/** How one run of gh ended. */
+export type GhOutcome =
+  | { kind: 'done'; stdout: string }
+  | { kind: 'missing' }
+  | { kind: 'timeout'; ms: number }
+  | { kind: 'failed'; code: number | null; stdout: string; stderr: string }
+
+/** Where Homebrew puts gh. An app opened from the Finder gets a PATH without them. */
+export const GH_PLACES: readonly string[] = ['/opt/homebrew/bin', '/usr/local/bin']
+
+/** The gh program to run: the first one on the PATH, then in Homebrew's folders. Null when there is none. */
+export function findGh({ path = process.env.PATH ?? '', places = GH_PLACES }: { path?: string; places?: readonly string[] } = {}): string | null {
+  for (const folder of [...path.split(delimiter), ...places]) {
+    if (!folder) continue
+    const file = join(folder, 'gh')
+    try {
+      accessSync(file, constants.X_OK)
+      if (statSync(file).isFile()) return file
+    } catch {
+      // Not here.
+    }
+  }
+  return null
+}
 
 /**
  * Runs gh with these arguments, and with `input` on its standard input when given. `timeoutMs` gives one slow call,
