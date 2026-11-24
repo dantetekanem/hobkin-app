@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
-import { NO_GITHUB_LISTS, type GitHubPull, type GitHubState } from '#shared/protocol/github.ts'
+import type { PullRequest } from '#shared/protocol/pulls.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { reviewIdOf } from '#shared/review/ids.ts'
 import type { Review } from '#shared/review/types.ts'
@@ -506,13 +506,12 @@ test("a pull request waits in the line at the commit GitHub says it is at, so th
     now: () => NOW,
   })
   t.after(() => reviews.close())
-  const github = { ...NO_GITHUB_LISTS, connection: 'connected', login: 'the-user', refreshedAt: null, refreshing: false, error: null, sample: false } as unknown as GitHubState
   const listed = Array.from({ length: 6 }, (_, index) => ({
     repo: 'acme/shop', number: index + 1, title: `#${index + 1}`, labels: [], url: `https://github.com/acme/shop/pull/${index + 1}`, draft: false, author: 'someone', review: 'none', checks: 'none',
     updatedAt: new Date(NOW - (80 + index) * HOUR).toISOString(), head: sha(index + 1),
-  })) as GitHubPull[]
+  })) as PullRequest[]
 
-  const wanted = toPrepare({ finished: [] } as unknown as WorkState, { mine: listed, waiting: [], sample: github.sample }, { pulls: 'mine' })
+  const wanted = toPrepare({ finished: [] } as unknown as WorkState, { mine: listed, waiting: [], sample: false }, { pulls: 'mine' })
   reviews.watch(wanted)
   await new Promise((resolve) => setTimeout(resolve, 30))
 

@@ -6,7 +6,6 @@ import type { KeptThemes } from '#shared/protocol/theme-history.ts'
 import { readMemoriesStamp, readMemoryNote } from '#shared/protocol/memory.ts'
 import type { CanvasState } from '#shared/protocol/canvas.ts'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
-import type { GitHubState } from '#shared/protocol/github.ts'
 import { diffMessages } from '#shared/protocol/message-ops.ts'
 import { withoutNothingNew } from '#shared/reports/nothing-new.ts'
 import type { OwnerState, StateMessage } from '#shared/protocol/messages.ts'
@@ -116,8 +115,6 @@ export interface HostFacts {
   signIn: SignInState
   /** The providers Pi knows and the models it can use now, or null until Pi has said. */
   models: ModelsState | null
-  /** The user's GitHub as gh reads it. Left out by a host that does not read it. */
-  github?: GitHubState
   /** Each integration's state by its id (spec 064). Left out by a host that runs none. */
   slices?: Record<string, unknown>
   /** The MCP servers in Pi's configuration, with their secrets hidden. Left out by a host that does not read them. */
@@ -153,7 +150,6 @@ export class StateSync {
   private owner: OwnerState
   private signIn: SignInState
   private models: ModelsState | null
-  private github: GitHubState | null
   private integrations: IntegrationsState | null
   /** Each integration's slice as last sent, with the JSON it was compared by. */
   private slices = new Map<string, { value: unknown; json: string }>()
@@ -177,7 +173,7 @@ export class StateSync {
   private readonly now: () => number
 
   constructor(
-    { owner, signIn, models, github, integrations, slices, proofs, canvas, canvases, appearance, themes }: Omit<HostFacts, 'snapshot'>,
+    { owner, signIn, models, integrations, slices, proofs, canvas, canvases, appearance, themes }: Omit<HostFacts, 'snapshot'>,
     { now = Date.now }: { now?: () => number } = {},
   ) {
     this.now = now
@@ -188,7 +184,6 @@ export class StateSync {
     this.owner = owner
     this.signIn = signIn
     this.models = models
-    this.github = github ?? null
     this.integrations = integrations ?? null
     this.slices = new Map(Object.entries(slices ?? {}).map(([id, value]) => [id, { value, json: JSON.stringify(value) }]))
     this.proofs = proofs ?? null
@@ -226,7 +221,6 @@ export class StateSync {
       owner: this.owner,
       signIn: this.signIn,
       ...(this.models ? { models: this.models } : {}),
-      ...(this.github ? { github: this.github } : {}),
       ...(this.integrations ? { integrations: this.integrations } : {}),
       ...(this.slices.size ? { slices: this.slicesSent(true) } : {}),
       ...(this.work ? { work: this.work } : {}),
@@ -242,11 +236,10 @@ export class StateSync {
    * What changed, or null when nothing did. A new owner state starts over, because its snapshot is another source.
    * Without `activity`, the jobs' feeds are only kept, not compared: no window that connects reads them whole.
    */
-  update({ owner, signIn, models, github, integrations, slices, work = null, proofs, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts, { activity: whole = true }: { activity?: boolean } = {}): StateMessage | null {
+  update({ owner, signIn, models, integrations, slices, work = null, proofs, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts, { activity: whole = true }: { activity?: boolean } = {}): StateMessage | null {
     const ownerChanged = this.differs('owner', owner, this.owner)
     const signInChanged = this.differs('signIn', signIn, this.signIn)
     const modelsChanged = models !== null && this.differs('models', models, this.models)
-    const githubChanged = github !== undefined && this.differs('github', github, this.github)
     const integrationsChanged = integrations !== undefined && this.differs('integrations', integrations, this.integrations)
     const slicesChanged = slices === undefined ? [] : this.changedSlices(slices)
     const workChanged = this.differs('work', work, this.work)
@@ -262,7 +255,6 @@ export class StateSync {
     this.owner = owner
     this.signIn = signIn
     if (models) this.models = models
-    if (github) this.github = github
     if (integrations) this.integrations = integrations
     if (proofs) this.proofs = proofs
     if (canvas) this.canvas = canvas
@@ -301,7 +293,6 @@ export class StateSync {
       !ownerChanged &&
       !signInChanged &&
       !modelsChanged &&
-      !githubChanged &&
       !integrationsChanged &&
       !slicesChanged.length &&
       !workChanged &&
@@ -330,8 +321,6 @@ export class StateSync {
       ...(ownerChanged ? { owner } : {}),
       ...(signInChanged ? { signIn } : {}),
       ...(modelsChanged ? { models: models! } : {}),
-      // A UI that starts over forgets the slice, so a reset always carries it.
-      ...(this.github && (githubChanged || startOver) ? { github: this.github } : {}),
       ...(this.integrations && (integrationsChanged || startOver) ? { integrations: this.integrations } : {}),
       ...(this.slices.size && (slicesChanged.length || startOver) ? { slices: this.slicesSent(startOver, slicesChanged) } : {}),
       // Work mode goes whole, and null once the snapshot has none, so a UI never keeps one that is gone.

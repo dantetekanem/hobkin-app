@@ -185,7 +185,6 @@ test('kept messages that are the same objects are not serialized again, and a ch
 
 test('a host fact that is the same object is not serialized again, and only a changed one is sent', () => {
   const facts = { owner: { state: 'failed', message: 'fake owner' } as const, signIn: { status: 'unknown' } as const, models: null, snapshot: null }
-  const github = { connection: 'connected', login: 'someone', refreshedAt: null, refreshing: false, error: null, sample: true, reviews: [], pulls: [], issues: [], more: { reviews: false, pulls: false, issues: false } }
   const integrations = { path: null, servers: [], problems: [], checking: false, checkedAt: null, error: null }
   const appearance = { id: 10, name: 'Night', palette: DARK_PALETTE }
   // Each fact with a value and a changed one. The owner keeps its state, because a new state starts over.
@@ -193,7 +192,6 @@ test('a host fact that is the same object is not serialized again, and only a ch
     ['owner', { state: 'failed', message: 'first' }, { state: 'failed', message: 'second' }],
     ['signIn', { status: 'signed-in' }, { status: 'signed-out' }],
     ['models', { providers: [{ id: 'openai', name: 'OpenAI', connected: true }], models: [] }, { providers: [], models: [] }],
-    ['github', github, { ...github, refreshing: true }],
     ['integrations', integrations, { ...integrations, checking: true }],
     ['work', { enabled: true, queue: [] }, { enabled: false, queue: [] }],
     ['canvas', canvasOf(1), canvasOf(2)],

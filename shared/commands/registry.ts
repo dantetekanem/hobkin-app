@@ -12,7 +12,6 @@ import { CLAUDE_LEVELS } from '../tiers/claude-code.ts'
 import { DIRECTIONS_MAX_BYTES, DIRECTIONS_MISSING, type DirectionsFile, type DirectionsSaved } from '../protocol/directions.ts'
 import { MEMORY_KINDS, MEMORY_NAME, type MemoryForgot, type MemoryList, type MemoryNowChanged, type MemorySaved, type MemoryUndone } from '../protocol/memory.ts'
 import type { FileContent } from '../protocol/files.ts'
-import type { GitHubState } from '../protocol/github.ts'
 import type { KeyHelp, ModelsState, ModelsUpdate } from '../protocol/models.ts'
 import { NUDGE_SCREENS } from '../protocol/nudge.ts'
 import { INTEGRATION_ID, type IntegrationManifest } from '../integration/manifest.ts'
@@ -549,30 +548,6 @@ export const COMMANDS = {
     args: nothing,
     outside: true,
   },
-  'github.refresh': {
-    description:
-      "Read the user's GitHub again through gh, with the login gh already has: the pull requests waiting for their review, their own open pull requests, and their open issues. It only reads. A read already under way answers this one too.",
-    runs: 'host',
-    args: nothing,
-  },
-  'github.open': {
-    description: 'Open a page on github.com in the system browser, such as a pull request from the GitHub page. Nothing but an https://github.com address is opened.',
-    runs: 'host',
-    args: Type.Object({ url: Type.String({ pattern: '^https://github\\.com/', maxLength: 2048 }) }, { additionalProperties: false }),
-  },
-  'github.issue.close': {
-    description:
-      "Close a GitHub issue through gh, as the user and only on their word from the GitHub page, by its repository `owner/name` and its number: `reason` is `completed` or `not-planned`. When hobkin has work filed for the issue that is not finished, hobkin's own work actions decline that item too, and a run going on it stops as not approved. GitHub's lists are read again after, so the issue leaves them.",
-    runs: 'host',
-    args: Type.Object(
-      {
-        repo: Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$', maxLength: 200 }),
-        number: Type.Integer({ minimum: 1, maximum: 1000000000 }),
-        reason: oneOf(['completed', 'not-planned']),
-      },
-      { additionalProperties: false },
-    ),
-  },
   'integrations.refresh': {
     description:
       "Read Pi's MCP configuration again and connect to each server that is on, the way `pi mcp list` does, to report its state, its tools and Pi's message when it fails. It only reads, and closes every connection it opened. A look already under way answers this one too.",
@@ -766,7 +741,7 @@ export const COMMANDS = {
   // (`shared/protocol/nudge.ts`). None of them send a message or take an action on the user's behalf.
   'view.open': {
     description:
-      'Move the window to a screen, as clicking its place in the menu does: home, reports, routines, actions, work, github, settings or integrations, or a screen an integration adds. It only shows the screen; it takes no action on it.',
+      'Move the window to a screen, as clicking its place in the menu does: home, reports, routines, actions, work, settings or integrations, or a screen an integration adds. It only shows the screen; it takes no action on it.',
     runs: 'host',
     args: Type.Object({ screen: words(64) }, { additionalProperties: false }),
     rule: ({ screen }) => (isScreen(String(screen)) ? null : `screen must be a screen the app has, such as ${NUDGE_SCREENS.join(', ')}`),
@@ -1211,15 +1186,6 @@ export const COMMANDS = {
       { additionalProperties: false },
     ),
   },
-  'work.issue': {
-    description:
-      "Add a GitHub issue to hobkin's work queue, by its repository `owner/name` and its number: the host finds the hobkin project whose repository is github.com/owner/name, reads the issue through gh, only reading, and files it with hobkin's own `issue` work action, first in the queue. A bug label makes it a fix, a security label security work. Adding it again changes nothing and says so. Refused with the reason when no hobkin project is that repository.",
-    runs: 'host',
-    args: Type.Object(
-      { repo: Type.String({ pattern: '^[A-Za-z0-9][A-Za-z0-9_.-]*/[A-Za-z0-9_.-]+$', maxLength: 200 }), number: Type.Integer({ minimum: 1, maximum: 1000000000 }) },
-      { additionalProperties: false },
-    ),
-  },
   'agent.session': {
     description: 'Read the saved Pi job session belonging to a known report. Read-only; never resumes or sends its contents to a model. Returns the saved active branch; files over 2 MiB are refused without opening a partial branch.',
     runs: 'host',
@@ -1515,10 +1481,6 @@ export interface CommandResults {
   'setup.save': SetupSaved
   'setup.saved': SetupSaved | null
   'setup.work': SetupWorkDone
-  'github.refresh': GitHubState
-  'github.open': { ok: true }
-  /** What was done, in plain words: the issue closed on GitHub, and what hobkin said of its item, when it had one to decline. */
-  'github.issue.close': { message: string }
   'system.open': { ok: true }
   'canvas.show': CanvasState
   'canvas.close': CanvasState
@@ -1625,8 +1587,6 @@ export interface CommandResults {
   'work.change': { message: string }
   /** hobkin's line for each row, in the order they went, and the line that sums them up. */
   'work.group': { message: string; lines: string[] }
-  /** What hobkin said: the issue was added, or it was already filed. */
-  'work.issue': { message: string }
   /** What hobkin did, in its own words. */
   'agent.stop': { message: string }
   'agent.say': { queued: boolean }

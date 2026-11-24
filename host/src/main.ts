@@ -2,10 +2,8 @@ import { statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { DEV_PORT } from './access.ts'
 import { originsFor, parseArguments, USAGE, type HostArguments } from './arguments.ts'
-import { ghSource } from './github-gh.ts'
 import { actual, resolveHome, type ResolvedHome } from './home.ts'
 import { startHost } from './host.ts'
-import { openGitHubPage } from './github.ts'
 import { chooseFolder } from './folder-pick.ts'
 import { openFileInSystem, openInSystem } from './open.ts'
 import { watchParent } from './parent-watch.ts'
@@ -86,8 +84,6 @@ async function main(args: readonly string[]): Promise<void> {
     // Only --origin changes the pages a host talks to. Without it the host keeps its usual ones.
     origins: originsFor(options),
     log: (line) => console.log(line),
-    // A GitHub row the user chose opens in the browser, in the scripted host too: the user asked for it.
-    openGitHub: openGitHubPage,
     // A link or a file the user clicked opens in the Mac's default app, in the scripted host too.
     openSystem: openInSystem,
     openFile: openFileInSystem,
@@ -106,9 +102,9 @@ async function main(args: readonly string[]): Promise<void> {
           installProofTools: (root: string) => setupProofTools(root),
         }
       : {}),
-    // A live host always reads the real GitHub, read only. The scripted one shows made-up data unless asked.
-    // Change Review reads pull requests the same way, and only a live host posts a verdict the user confirmed.
-    ...(options.live || options.github ? { github: ghSource(), reviewGh: spawnGh() } : {}),
+    // A live host runs gh: Change Review reads pull requests through it, and only a live host posts a verdict the user
+    // confirmed. The integrations get it too (`context.gh`). A scripted host runs it only when started with --github.
+    ...(options.live || options.github ? { reviewGh: spawnGh() } : {}),
   })
   if (options.github && !options.live) console.log('The GitHub page reads the real GitHub through gh, read only.')
   if (options.origin) console.log(`It also talks to the page at ${options.origin}.`)

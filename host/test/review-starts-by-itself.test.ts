@@ -3,7 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
-import { NO_GITHUB_LISTS, type GitHubPull, type GitHubState } from '#shared/protocol/github.ts'
+import type { PullRequest } from '#shared/protocol/pulls.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { shownAsRow } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
@@ -273,7 +273,7 @@ test('a pull request a finished change opened is listed while that change has no
   assert.deepEqual(listed().sort(), ['pr:acme/shop/12', 'pr:acme/shop/13'])
 })
 
-const pull = (number: number, over: Partial<GitHubPull> = {}): GitHubPull => ({
+const pull = (number: number, over: Partial<PullRequest> = {}): PullRequest => ({
   repo: 'acme/shop',
   number,
   title: `Pull ${number}`,
@@ -287,10 +287,12 @@ const pull = (number: number, over: Partial<GitHubPull> = {}): GitHubPull => ({
   ...over,
 })
 
-/** The pull requests a GitHub state lists, as Change Review's background takes them. */
-const known = (github: GitHubState) => ({ mine: github.pulls, waiting: github.reviews, sample: github.sample })
-function githubWith(lists: Partial<Pick<GitHubState, 'pulls' | 'reviews'>>, sample = false): GitHubState {
-  return { ...NO_GITHUB_LISTS, connection: 'connected', login: 'the-user', refreshedAt: null, refreshing: false, error: null, sample, ...lists }
+/** The pull requests a code host lists: the user's own, and those waiting for the user's review. */
+interface Lists { pulls: PullRequest[]; reviews: PullRequest[]; sample: boolean }
+/** The lists as Change Review's background takes them. */
+const known = (lists: Lists) => ({ mine: lists.pulls, waiting: lists.reviews, sample: lists.sample })
+function githubWith(lists: Partial<Pick<Lists, 'pulls' | 'reviews'>>, sample = false): Lists {
+  return { pulls: [], reviews: [], sample, ...lists }
 }
 
 const workWith = (pr: string | null = null) => ({ finished: [{ changes: [{ slug: 'shop', item: '4c9e21', head: 'a'.repeat(40), pr }] }] }) as unknown as WorkState

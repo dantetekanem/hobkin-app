@@ -31,8 +31,6 @@ import type { JobActivity } from '#shared/protocol/activity.ts'
 import { openablePath, readTextFile } from './files.ts'
 import { execFileSync } from 'node:child_process'
 import { hostCode, keptByApp, shouldRestart } from './code-age.ts'
-import { sampleGitHubSource } from './github-sample.ts'
-import { GitHub, type GitHubSource } from './github.ts'
 import { MergedPulls } from './merged-pulls.ts'
 import { History } from './history.ts'
 import { Titles, titleHobkins } from './titles.ts'
@@ -81,7 +79,6 @@ import { proofToolsHandlers } from './setup-proof.ts'
 import { workHandlers } from './work.ts'
 import { newProjectHandlers } from './work-new-project.ts'
 import { metricsHandlers } from './metrics.ts'
-import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
 import { workReader } from './work-items.ts'
 import type { GhCall } from './review/gh.ts'
 import { reviewBrief } from './review/guide.ts'
@@ -113,8 +110,6 @@ export interface HostOptions {
   keychain?: boolean
   /** A cap on how long a question nobody waits on stays up. hobkin's own thirty seconds apply without it. */
   questionWaitMs?: number
-  /** Where the GitHub page reads from (024-github). Made-up data when not given, and gh never runs. The entry (`main.ts`) passes gh for --live and --github. */
-  github?: GitHubSource
   /** What the host finds of the `claude` CLI (033-claude-code-agents). The real lookup runs `claude` when not given. */
   claudeStatus?: () => Promise<ClaudeCodeStatus>
   /** What the host finds of Pi for the first-run setup (025-onboarding). The real lookup runs `pi` when not given. */
@@ -139,8 +134,6 @@ export interface HostOptions {
    * pull request reads as the sample change and nothing is posted. The entry passes it for --live and --github.
    */
   reviewGh?: GhCall
-  /** Opens a page on github.com in the system browser. */
-  openGitHub?: (url: string) => void
   /** Opens a web or mail address in the system's default app (`system.open`). Nothing opens when not given; the entry passes the real one. */
   openSystem?: (url: string) => void
   /** Opens a file in the system's default app (`file.open`). Nothing opens when not given. */
@@ -203,20 +196,6 @@ const whyNotLive = (owner: OwnerState): string => {
  * The host: hobkin's application for one home, behind a WebSocket on this machine.
  * It sends hobkin's state as it changes and runs the commands a UI sends back.
  */
-/** The same handlers, with GitHub read again after each of `names` has done its work. What it answers is unchanged, and a refusal is passed on as it is. */
-function thenReadGitHub<Handlers extends object>(handlers: Handlers, names: readonly (keyof Handlers)[], read: () => void): Handlers {
-  const wrapped = { ...handlers }
-  for (const name of names) {
-    const run = handlers[name] as unknown as (...args: unknown[]) => unknown
-    wrapped[name] = (async (...args: unknown[]) => {
-      const said = await run(...args)
-      read()
-      return said
-    }) as unknown as Handlers[typeof name]
-  }
-  return wrapped
-}
-
 /** Every run's activity in the snapshot, without the main chat's own, which comes from Pi's events. */
 function jobActivityOf(snapshot: object | null): JobActivity | undefined {
   const activity = (snapshot as { jobActivity?: unknown } | null)?.jobActivity
@@ -264,10 +243,8 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     if (integrationHost?.hearsToolCalls()) toolCalls.activity(jobActivityOf(owner.snapshot))
     // Finished changes and pull requests waiting for the user get their reviews ready in the background (005 S6).
     // What a run left for the user is reviewed only once the user asks.
-    // The pull requests come from the integrations, and from GitHub's own state until it is one of them.
-    const fromIntegrations = integrationHost?.pulls() ?? null
-    const known = fromIntegrations && !fromIntegrations.sample ? fromIntegrations : { mine: now.github.pulls, waiting: now.github.reviews, sample: now.github.sample }
-    reviews.watch(toPrepare(now.work, known, { pulls: pullsOf(now.work?.yolo?.rules, now.work?.workload?.reviewPulls) }))
+    // The pull requests come from the integrations that know them.
+    reviews.watch(toPrepare(now.work, integrationHost?.pulls() ?? null, { pulls: pullsOf(now.work?.yolo?.rules, now.work?.workload?.reviewPulls) }))
   }
   const connected = () => [...(server?.sockets() ?? [])].some((socket) => socket.readyState === socket.OPEN)
 
@@ -364,8 +341,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const openWhenReady = () => {
     if (!live || signIn.state.status === 'signed-in') owner.start()
   }
-  // The GitHub page reads through gh and only reads. It reads again every few minutes while a UI is connected.
-  const github = new GitHub({ source: options.github ?? sampleGitHubSource(), onChange: publish, wanted: connected, log })
   // Integrations reads Pi's MCP servers only when asked, through Pi's own code, and hides their secrets before anything is sent.
   // TLA+ proof runs, read from hobkin's home when its files change (050-tla-proofs).
   // The finished changes that still wait for the user keep their newest check in the slice, however many runs came after it.
@@ -411,29 +386,23 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     app: () => hobkin(),
     runtime: async () => (live ? ((await access()) as Partial<LiveModelAccess>).runtime : undefined),
     gh: options.reviewGh,
-    // A pull request that merged is closed on GitHub, and so is the issue it fixes: both leave the lists now, not at the next five-minute read.
-    merged: (pull) => {
-      integrationHost?.merged(pull)
-      if (pull.url || pull.repo) github.closed(pull)
-      else github.readSoon()
-    },
+    // A pull request that merged on the user's word is heard by the integrations, which drop it from their lists now.
+    merged: (pull) => integrationHost?.merged(pull),
     log,
   })
-  // A pull request merged or closed outside the app leaves Work and the Review list on the GitHub page's cadence, not at hobkin's half-hourly survey. Only a live host asks GitHub.
+  // A pull request merged or closed outside the app leaves Work and the Review list on the cadence of the integrations' lists, not at hobkin's half-hourly survey. Only a live host asks the code host.
   const mergedPulls = options.reviewGh
     ? new MergedPulls({
         data: () => hobkin().runtime.directory,
         gh: options.reviewGh,
         reviewed: () => reviews.openPulls(),
         retire: (pull) => reviews.settlePull({ kind: 'pull', ...pull }),
-        closed: (pull) => github.closed(pull),
+        closed: (pull) => integrationHost?.merged(pull),
         changed: () => hobkin().refresh(),
         wanted: connected,
         log,
       })
     : null
-  // Each issue on the GitHub page carries the hobkin work filed for it, read from hobkin's items when GitHub or hobkin's work changes.
-  const issueWork = issueWorkReader(() => hobkin().runtime.directory)
   const reminderReader = new ReminderReader()
   const reminders = () => {
     const home = owner.app?.runtime.directory ?? resolveDataRoot(root)
@@ -460,7 +429,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     owner: owner.wireState(),
     signIn: signIn.state,
     models: signIn.models,
-    github: issueWork(github.state, owner.snapshot?.work),
     integrations: integrations.state,
     slices: loadedIntegrations.slices(),
     proofs: proofs.state,
@@ -654,7 +622,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       return done
     },
     'signin.out': ({ provider }) => signIn.signOut(provider),
-    'github.refresh': () => github.refresh(),
     'claude-code.read': async () => ({ status: await lookUpClaude(), settings: claudeCode.read() }),
     'claude-code.apply': async (change) => ({ settings: claudeCode.apply(change), status: await lookUpClaude() }),
     // Who the user is, for the first-run setup. hobkin's snapshot carries the name the window greets them by, so it is
@@ -722,11 +689,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'extensions.check-updates': () => piExtensions.checkUpdates(),
     'extensions.turn-off': ({ path }) => piExtensions.turnOff(path),
     'extensions.turn-on': ({ path }) => piExtensions.turnOn(path),
-    'github.open': ({ url }) => {
-      // Nothing opens the user's browser unless the caller hands an opener in. The app does (main.ts); a test never does.
-      ;(options.openGitHub ?? (() => {}))(url)
-      return done
-    },
     'system.open': ({ url }) => {
       // Checked again here, so no opener is ever handed an address the registry's pattern let through.
       ;(options.openSystem ?? (() => {}))(openableUrl(url).href)
@@ -765,16 +727,12 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       ;(options.openFile ?? (() => {}))(real)
       return done
     },
-    // The Work screen's actions, each one of hobkin's own work actions. A yes on a card can merge a pull request on
-    // GitHub, and hobkin then closes the issue it fixed, so GitHub is read again once the action is done.
-    ...thenReadGitHub(workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }), ['work.change', 'work.group'], () => github.readSoon()),
+    // The Work screen's actions, each one of hobkin's own work actions. An integration hears how each ended (`afterCommand`).
+    ...workHandlers({ app: hobkin, root: () => hobkin().runtime.directory }),
     // Work in numbers: hobkin's fold of its own records, with the AI reviews the host keeps, kept for a minute (053).
     ...metricsHandlers({ data: () => hobkin().runtime.directory, root, reviews }),
     // TLA+ proof runs: read, stopped and repeated through hobkin's own proof functions, when the runtime running has them.
     ...proofHandlers({ keeper: proofs, home: () => hobkin().runtime.directory }),
-    // Add to queue on the GitHub page: the issue is read through gh, only reading, and filed with hobkin's own issue action.
-    // Close issue closes it through gh on the user's word, declines hobkin's unfinished item for it, and reads GitHub again.
-    ...workIssueHandlers({ app: hobkin, root: () => hobkin().runtime.directory, gh: options.reviewGh, refreshGitHub: () => github.refresh() }),
     // Its agents and routines, stopped or told something while they work, by run id (011-work).
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[], models: async () => (await signIn.refresh(), signIn.models ?? null), images: imagesForAgents, schedules: () => agentSchedules.read(owner.snapshot) }),
     // An agent's schedules, cancelled, paused or run now from the window's list, through hobkin's own methods (056).
@@ -907,7 +865,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   writeHostFile(root, { pid: process.pid, port: server.port, token })
   openWhenReady()
   lookAgain()
-  github.start()
   loadedIntegrations.start()
   mergedPulls?.start()
   backups.start()
@@ -959,7 +916,6 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       closing ??= (async () => {
         questions.close()
         signIn.cancel()
-        github.close()
         loadedIntegrations.close()
         mergedPulls?.close()
         backups.close()

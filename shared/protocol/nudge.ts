@@ -10,7 +10,7 @@
  * one that needs a target open in it. An integration's screens (spec 064) join them when it registers, so a screen in
  * an instruction is checked at run time (`isScreen` in `shared/commands/registry.ts`).
  */
-export const NUDGE_SCREENS = ['home', 'reports', 'routines', 'actions', 'work', 'github', 'settings', 'integrations'] as const
+export const NUDGE_SCREENS = ['home', 'reports', 'routines', 'actions', 'work', 'settings', 'integrations'] as const
 export type NudgeScreen = (typeof NUDGE_SCREENS)[number]
 
 export type NudgeAction =

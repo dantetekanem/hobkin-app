@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { GhOutcome } from '../src/github-gh.ts'
+import type { GhOutcome } from '../src/review/gh.ts'
 import { gitPublisher, githubRepoOf } from '../src/review/publish.ts'
 
 test('reads the GitHub repository a project pushes to from its origin', () => {

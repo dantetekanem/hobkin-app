@@ -4,7 +4,6 @@ import type { KeptThemes } from './theme-history.ts'
 import type { ActivitySteps } from './activity.ts'
 import type { IntegrationsState } from '../integrations/wire.ts'
 import type { CanvasState } from './canvas.ts'
-import type { GitHubState } from './github.ts'
 import type { MessageOp } from './message-ops.ts'
 import type { ModelsState } from './models.ts'
 import type { Nudge } from './nudge.ts'
@@ -87,8 +86,6 @@ export interface StateMessage {
   signIn?: SignInState
   /** The whole models slice, whenever any of it changed. */
   models?: ModelsState
-  /** The user's GitHub as the host reads it through gh, whole, whenever any of it changed and with every reset. */
-  github?: GitHubState
   /** Each integration's own state by its id (spec 064), whole per integration whenever it differs and with every reset. An id missing from a reset is an integration this host does not run. */
   slices?: Record<string, unknown>
   /** The MCP servers in Pi's configuration with their state, secrets hidden, whole, whenever any of it changed and with every reset. */
