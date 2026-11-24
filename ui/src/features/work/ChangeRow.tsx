@@ -298,7 +298,7 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
                 <ReviewBadge status={assessment} />
               </div>
               {sentence ? (
-                <p className="line-clamp-2 text-[13.5px] leading-snug break-words">
+                <p className="line-clamp-2 text-[13.5px] leading-[19px] break-words">
                   {sentence.kind === 'note' ? (
                     <>
                       <span aria-hidden="true" title="Its run's own words to you" className="mr-1.5 inline-block size-1.5 -translate-y-px rounded-full bg-warn-fg" />
