@@ -345,16 +345,115 @@ function numberShaped(text) {
   return null;
 }
 
+// A word that names a secret, the kind it looks like, and what value near it, in the same sentence, makes one: `any`
+// value, a number of four digits or more (`digits4`), an identity number (`id`), a run of words (`seed`) or any answer.
+const SECRET_WORDS = [
+  ['a password', 'any', /\b(?:pass(?:words?|wd|codes?|phrases?)|pw|pwd)\b/i],
+  ['a PIN', 'any', /\bpins?\b/i],
+  ['a security code', 'any', /\b(?:cvv|cvc|csc|security\s+codes?)\b/i],
+  ['a door or lock code', 'any', /\b(?:(?:door|gate|alarm|lock|safe|garage|entry|access|keypad|building)\s+codes?|combos?|combinations?)\b/i],
+  ['a door or lock code', 'digits4', /\b(?:door|gate|alarm|lock|safe|garage|keypad|lockbox)\b/i],
+  ['recovery codes', 'any', /\b(?:recovery|backup|2fa|mfa|verification|one[- ]time)\s+codes?\b/i],
+  ['a seed phrase', 'seed', /\b(?:seed|mnemonic|recovery\s+phrase)\b/i],
+  ['a key or a token', 'any', /\b(?:(?:api|secret|access|private|licen[cs]e|product)\s+keys?|tokens?)\b/i],
+  ['a login', 'any', /\b(?:log\s?in|sign\s?in|logins?)\b/i],
+  ['a security answer', 'answer', /\b(?:(?:security|secret)\s+(?:answers?|questions?)|maiden\s+name)\b/i],
+  ['a social insurance number', 'id', /\b(?:sin|social\s+insurance)\b/i],
+  ['a social security number', 'id', /\b(?:ssn|social\s+security)\b/i],
+  ['a passport, licence or health card number', 'id', /\b(?:passport|(?:driver[’']?s\s+)?licen[cs]e(?!\s+(?:plate|renewal))|health\s+(?:card|number)|ohip|ramq|medicare|id\s+card)\b/i],
+  ['an account number', 'id', /\b(?:account|acct|chequing|checking|savings|transit|institution|routing|sort\s+code)\b/i],
+];
+const NUMBER_WORD = '(?:zero|oh|one|two|three|four|five|six|seven|eight|nine)';
+// A value right after one of these is where or what something is, not the secret: "in 1Password", "room 1204".
+const PLACE_BEFORE = new Set(['in', 'on', 'at', 'inside', 'under', 'behind', 'from', 'via', 'by', 'through', 'into', 'room', 'apartment',
+  'apt', 'unit', 'suite', 'floor', 'seat', 'row', 'street', 'flight', 'order', 'booking', 'reference', 'ticket', 'tracking', 'phone', 'mobile',
+  'tel', 'plate', 'ending', 'model', 'version', 'since', 'until', 'before', 'after', 'born', 'every']);
+const UNIT_AFTER = /^(?:characters?|chars?|digits?|letters?|words?|long|bits?|times|days?|weeks?|months?|years?|hours?|minutes?|seconds?|km|kg|dollars?)$/i;
+// Words with digits in them that are names, not values.
+const NOT_VALUES = new Set(['1password', '2fa', 'mfa', '2-factor', '2-step']);
+const dateLike = text => /^\d{4}-\d{2}-\d{2}$/.test(text) || /^\d{1,2}\/\d{2,4}$/.test(text);
+
+/** The sentences of some words: a sentence ends at ".", "!" or "?" and a space, or at a blank line. */
+const sentencesOf = words => words.split(/(?<=[.!?])\s+|\n\s*\n/).map(part => part.trim()).filter(Boolean);
+
 /**
- * What a secret looks like in these words, by its shape, or null: a password, a PIN or a code named and given, keys
- * and tokens, a card, account, social insurance or social security number, a passport, licence or health card said
- * with its number. Best effort, and a refusal when it matches. A plain number that only passes a card's checksum, such
- * as an order number, is not one.
+ * What in a sentence looks like a value: digits, also split by spaces or dashes; spelled-out digits; a word with
+ * digits in it; something in quotes. One right after a word that says where or what it is, or a number of units, is
+ * not one.
+ */
+function valuesIn(sentence) {
+  const values = [];
+  const wordBefore = index => (sentence.slice(0, index).match(/([A-Za-z0-9]+)[^A-Za-z0-9]*$/)?.[1] ?? '').toLowerCase();
+  const wordAfter = end => sentence.slice(end).match(/^[^A-Za-z0-9]*([A-Za-z]+)/)?.[1] ?? '';
+  const found = (type, text, index, digits = digitsIn(text).length) => {
+    if (PLACE_BEFORE.has(wordBefore(index)) || UNIT_AFTER.test(wordAfter(index + text.length)) || dateLike(text)) return;
+    values.push({ type, text, digits });
+  };
+  for (const match of sentence.matchAll(/(?:^|[\s(:=/])["“'‘]([^"“”'‘’\n]{1,80})["”'’]/g)) {
+    found('quoted', match[1], match.index + match[0].indexOf(match[1]));
+  }
+  for (const match of sentence.matchAll(/(?<![\w.:/])\d(?:[ \-/]?\d){2,}#?(?![\w:])/g)) found('digits', match[0], match.index);
+  for (const match of sentence.matchAll(new RegExp(`\\b${NUMBER_WORD}(?:[\\s-]+${NUMBER_WORD}){2,}\\b`, 'gi'))) {
+    found('digits', match[0], match.index, match[0].split(/[\s-]+/).length);
+  }
+  for (const match of sentence.matchAll(/(?<![\w-])[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*(?![\w-])/g)) {
+    const token = match[0];
+    if (/[A-Za-z]/.test(token) && /\d/.test(token) && !NOT_VALUES.has(token.toLowerCase())) found('word', token, match.index);
+  }
+  return values;
+}
+
+/** Whether a value near a word of this `need` makes it a secret. */
+function makesSecret(need, value) {
+  if (need === 'digits4') return value.type === 'digits' && value.digits >= 4;
+  if (need === 'id') return value.type === 'quoted' || (value.type === 'digits' && value.digits >= 5) || (value.type === 'word' && value.digits >= 4);
+  return value.type !== 'digits' || value.digits >= 3;
+}
+
+/** A seed phrase given as a run of twelve words or more after the word that names it. */
+function seedRun(sentence, word) {
+  const after = sentence.slice(sentence.search(word)).replace(word, '').replace(/^\s*(?:phrase|words|is|are|[:=])\s*/gi, '');
+  return (after.match(/\b[a-z]+\b/g) ?? []).length >= 12;
+}
+
+/** An answer given after a word that names a security question: "Security answer: Silva", "maiden name is Silva". */
+function answerGiven(sentence, word) {
+  const after = sentence.slice(sentence.search(word)).replace(word, '');
+  const given = after.match(/^[^.]*?(?:\s(?:is|are|was)\s|\s*[:=])\s*["'“‘]?([^\s"'”’,;.]+)/i)?.[1]?.toLowerCase();
+  return Boolean(given) && !NOT_A_VALUE.has(given);
+}
+
+/** "Use X as the password": what is given that way is the secret, whatever it looks like. */
+const GIVEN_AS = /\b(?:use|enter|type|try)\s+["“']?([^\s"”']+)["”']?\s+as\s+(?:(?:the|a|its|your|my|our)\s+)?(?:(?:wifi|admin|router|nas)\s+)?(password|passcode|passphrase|pin|pw|login|code)\b/i;
+
+/** A word that names a secret near a thing that looks like its value, in one sentence, either order: the kind, or null. */
+function nearValue(text) {
+  for (const sentence of sentencesOf(text)) {
+    const given = GIVEN_AS.exec(sentence);
+    if (given && !NOT_A_VALUE.has(given[1].toLowerCase())) return /pin/i.test(given[2]) ? 'a PIN' : /login/i.test(given[2]) ? 'a login' : 'a password';
+    let values = null;
+    for (const [kind, need, word] of SECRET_WORDS) {
+      if (!word.test(sentence)) continue;
+      if (need === 'answer' ? answerGiven(sentence, word) : need === 'seed' && seedRun(sentence, word)) return kind;
+      if (need === 'answer') continue;
+      values ??= valuesIn(sentence);
+      if (values.some(value => makesSecret(need, value))) return kind;
+    }
+  }
+  return null;
+}
+
+/**
+ * What a secret looks like in these words, by its shape, or null: a word that names one (a password, a PIN, a door,
+ * lock or recovery code, a seed phrase, a key or token, a login, a security answer, a passport, licence, health card,
+ * SIN, SSN or account) near something that looks like its value, and keys, tokens, card numbers and IBANs by their own
+ * shape. What only says that one exists, where it is kept or who has it has no value near the word. A plain number
+ * that only passes a card's checksum, such as an order number, is not one. It is a net, not a proof.
  */
 export function secretKind(text) {
   const value = String(text ?? '');
   if (!value) return null;
-  const named = namedSecret(value) ?? numberSaid(value);
+  const named = namedSecret(value) ?? numberSaid(value) ?? nearValue(value);
   if (named) return named;
   if (SHAPES.some(pattern => pattern.test(value))) return 'a password, a key or a token';
   const hasIban = [...value.matchAll(/\b[A-Z]{2}\d{2}(?: ?[A-Z0-9]{4}){2,7}(?: ?[A-Z0-9]{1,4})?\b/g)].some(match => iban(match[0]));
@@ -363,9 +462,52 @@ export function secretKind(text) {
 
 export const looksSecret = text => secretKind(text) !== null;
 
-/** The refusal for a secret of `kind`, which says what a memory may say instead. */
+/**
+ * A memory judged as one text: its name with its hyphens read as spaces, its description, its text and the user's
+ * words, each as it is, and where one field runs on into the next, as "Bank card PIN:" and "4821" do, the two read as
+ * one sentence. The kind of secret it looks like, or null.
+ */
+export function memorySecretKind({ name, description, text, said } = {}) {
+  const fields = [typeof name === 'string' ? name.replace(/-/g, ' ') : '', description, text]
+    .map(field => (typeof field === 'string' ? field.trim() : ''))
+    .filter(Boolean);
+  for (const field of [...fields, typeof said === 'string' ? said : '']) {
+    const kind = secretKind(field);
+    if (kind) return kind;
+  }
+  for (let index = 0; index + 1 < fields.length; index += 1) {
+    if (/[.!?]$/.test(fields[index])) continue;
+    const runsOn = `${sentencesOf(fields[index]).at(-1)} ${fields[index + 1].split(/\s+/)[0]}`;
+    const kind = secretKind(runsOn);
+    if (kind) return kind;
+  }
+  return null;
+}
+
+// What a memory may say instead of each kind of secret: that it exists and where it is kept.
+const KEEP_INSTEAD = {
+  'a password': 'The wifi password is in the password manager',
+  'a PIN': 'The bank PIN is in the password manager',
+  'a security code': 'The travel card is the one ending 4242',
+  'a door code': 'The gate code is with the concierge',
+  'a door or lock code': 'The gate code is with the concierge',
+  'recovery codes': 'The recovery codes are printed and kept in the safe',
+  'a seed phrase': "The wallet's seed phrase is on paper in the safe",
+  'a key or a token': "The weather site's API key is in the project's .env file",
+  'a password, a key or a token': 'The deploy key is in the password manager',
+  'a login': 'The NAS login is in the password manager',
+  'a security answer': "The bank's security answers are in the password manager",
+  'a passport, licence or health card number': 'The passport is in the desk drawer and expires 2030-03-10',
+  'a social insurance number': 'The SIN card is in the safe',
+  'a social security number': 'The social security card is in the safe',
+  'an account number': 'The chequing account is at RBC',
+  'a card number': 'The travel card is the one ending 4242',
+};
+export const KEEP_INSTEAD_EXAMPLES = Object.freeze(Object.values(KEEP_INSTEAD));
+
+/** The refusal for a secret of `kind`: what it looked like, and what a memory may keep instead. */
 export const secretRefusal = (kind, done = 'saved') => `Nothing was ${done}: it looks like ${kind}, a secret hobkin never keeps. `
-  + 'A memory can say that it exists and where it is kept, such as "The wifi password is in the password manager", never the thing itself.';
+  + `Keep only that it exists and where it is kept, such as "${KEEP_INSTEAD[kind] ?? KEEP_INSTEAD['a password']}", never the thing itself.`;
 
 function checkedName(name) {
   if (typeof name !== 'string' || !NAME.test(name)) {
@@ -454,7 +596,7 @@ function holdsSecret(source) {
   if (typeof source !== 'string') return false;
   const front = frontOf(source);
   if (!front) return looksSecret(source);
-  return [front.meta.description, front.body, front.meta.source?.said].some(looksSecret);
+  return memorySecretKind({ description: front.meta.description, text: front.body, said: front.meta.source?.said }) !== null;
 }
 
 /** Rewrites a JSONL file through `map`, line by line, only when a line changed. A line that is not JSON stays as it is. */
@@ -507,8 +649,8 @@ export function scrubSecrets(root) {
 }
 
 /** Refuses a memory whose words look like a secret, after taking any such words out of what hobkin kept before. */
-function refuseSecret(root, values, done) {
-  const kind = values.map(secretKind).find(Boolean);
+function refuseSecret(root, memory, done) {
+  const kind = memorySecretKind(memory);
   if (!kind) return;
   try {
     scrubSecrets(root);
@@ -637,7 +779,7 @@ function addingMemory(root, fields = {}, actor = {}) {
   const until = checkedUntil(fields.until);
   const isPrivate = fields.private === true;
   const source = sourceOf(actor.source) ?? undefined;
-  refuseSecret(root, [name, description, text, source?.said]);
+  refuseSecret(root, { name, description, text, said: source?.said });
   const unconfirmed = actor.unconfirmed === true;
   const body = serialize(name, { kind, description, until, added: { at: iso(now), by }, source, isPrivate, unconfirmed }, text);
   if (taken(root, name)) refuse(takenMessage(name));
@@ -672,7 +814,7 @@ function changingMemory(root, name, fields = {}, actor = {}) {
   const isPrivate = has('private') ? fields.private === true : found.isPrivate;
   const description = has('description') ? checkedDescription(fields.description) : current.description;
   const text = has('text') ? checkedText(fields.text) : (current.text ?? '');
-  refuseSecret(root, [description, text, current.source?.said]);
+  refuseSecret(root, { name, description, text, said: current.source?.said });
   const body = serialize(name, {
     kind: has('kind') ? checkedKind(fields.kind) : current.kind,
     description,

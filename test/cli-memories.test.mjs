@@ -319,7 +319,7 @@ test('what names a secret and gives it is refused, saying what kind it looked li
   for (const [words, kind] of Object.entries(refused)) {
     assert.throws(() => addMemory(root, { ...insurance, text: words }, MAIN), error => {
       assert.match(error.message, new RegExp(`it looks like ${kind}, a secret hobkin never keeps`), words);
-      assert.match(error.message, /can say that it exists and where it is kept/);
+      assert.match(error.message, /Keep only that it exists and where it is kept/);
       return true;
     }, words);
   }

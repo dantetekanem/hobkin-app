@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { Type } from 'typebox';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import {
-  addMemory, changeMemory, forgetMemory, keepMemory, MEMORY_KINDS, MOST_DESCRIPTION, MOST_TEXT, recallMemories, restoreMemory, secretKind, secretRefusal,
+  addMemory, changeMemory, forgetMemory, keepMemory, MEMORY_KINDS, MOST_DESCRIPTION, MOST_TEXT, recallMemories, restoreMemory, memorySecretKind, secretRefusal,
 } from './memories.mjs';
 import { rememberHeard, suggestMemory, suggestionOf } from './inbox.mjs';
 
@@ -99,7 +99,7 @@ function suggested(params) {
   }
   const text = typeof params.text === 'string' ? params.text.trim() : '';
   if (text.length > MOST_TEXT) throw Error(`A memory's text is at most ${MOST_TEXT} characters.`);
-  const secret = [params.name, description, text].map(secretKind).find(Boolean);
+  const secret = memorySecretKind({ name: params.name, description, text });
   if (secret) throw Error(secretRefusal(secret, 'suggested'));
   const name = typeof params.name === 'string' && /^[a-z0-9][a-z0-9-]{1,59}$/.test(params.name) ? params.name : undefined;
   const until = typeof params.until === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(params.until) ? params.until : undefined;
