@@ -409,7 +409,11 @@ function projectMonitoring(seat: { data: () => string; log?: (line: string) => v
 const CLEAN_FIRST_MS = 60_000
 /** While true, the scheduled cleaning only says in the log what it would remove. */
 const CLEAN_LOOKS_ONLY = true
-/** While false, a review whose change moved is never carried to the new commit: it is built again, or waits its turn. */
+/**
+ * While false, a review whose change moved is never carried to the new commit: it is built again, or waits its turn.
+ * It is off because a change can reach a file by a path no import can follow (a built path, an alias, a rename), so
+ * no check proves the old review still holds; see "Open questions" in `_specs/058-review-turns-and-ratings/spec.md`.
+ */
 const CARRIES_REVIEWS = false
 const CLEAN_EVERY_MS = 24 * 60 * 60 * 1000
 
