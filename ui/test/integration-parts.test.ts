@@ -58,3 +58,30 @@ test('a folder that fails to load is left out and the others stay', async () => 
   assert.deepEqual(windowParts().map((one) => one.manifest.id), ['sketch'])
   assert.equal(logged.length, 2)
 })
+
+test("a part's screen is in the menu walk after Work, and opened and closed while out of the menu it goes back to where it was opened from", async () => {
+  const { GitPullRequest } = await import('lucide-react')
+  const { walkScreens, inMenu, screenIndex } = await import('../src/app/screens.ts')
+  const drawn: WindowPart<Sketch> = { ...part, screens: [{ id: 'sketch', icon: GitPullRequest, component: () => null }] }
+  setWindowParts([drawn])
+  const MAIN = ['home', 'reports', 'routines', 'actions', 'work']
+
+  assert.deepEqual(walkScreens({ screen: 'home', reviewOpen: false }), [...MAIN, 'sketch'])
+  assert.ok(screenIndex('sketch') > screenIndex('work') && screenIndex('sketch') < screenIndex('world'), 'after Work and before the contextual screens')
+  assert.deepEqual(walkScreens({ screen: 'home', reviewOpen: false, outOfMenu: ['sketch'] }), MAIN, 'taken out of the menu')
+  assert.deepEqual(walkScreens({ screen: 'sketch', reviewOpen: false, outOfMenu: ['sketch'] }), [...MAIN, 'sketch'], 'in the walk while open')
+  assert.equal(inMenu('sketch', ['sketch']), false)
+
+  const { useView } = await import('../src/app/view-store.ts')
+  useView.setState({ screen: 'reports', trail: [], screenReturn: null })
+  useView.getState().openPartScreen('sketch')
+  assert.deepEqual([useView.getState().screen, useView.getState().screenReturn], ['sketch', 'reports'])
+  useView.getState().closePartScreen()
+  assert.equal(useView.getState().screen, 'reports')
+})
+
+test('with no part for a screen, the window has no such screen', async () => {
+  const { screenIndex, walkScreens } = await import('../src/app/screens.ts')
+  assert.equal(screenIndex('sketch'), -1)
+  assert.deepEqual(walkScreens({ screen: 'home', reviewOpen: false }), ['home', 'reports', 'routines', 'actions', 'work'])
+})
