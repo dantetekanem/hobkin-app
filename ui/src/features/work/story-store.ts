@@ -39,4 +39,12 @@ useStory.setState({
   stop: () => {
     if (useStory.getState().story) useStory.setState({ story: null, landedId: null })
   },
+  landed: (id) => {
+    useStory.setState({ landedId: id })
+  },
+  left: (id) => {
+    const { story, landedId } = useStory.getState()
+    if (!story || story.ids[story.at] !== id || landedId === id) return
+    useStory.setState({ story: null, landedId: null })
+  },
 })
