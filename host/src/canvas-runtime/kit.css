@@ -29,6 +29,8 @@
   --hb-tint: 48%;
   --hb-lift: 0 1px 1px rgb(22 24 31 / 0.08), 0 7px 16px -8px rgb(22 24 31 / 0.34);
   --hb-offset: rgb(22 24 31 / 0.12);
+  /* The dots under a board: barely there, as under Change Review's graph (the same share of ink). */
+  --hb-dot: color-mix(in oklab, var(--hb-ink) 24%, transparent);
 }
 
 :root[data-hb-theme="dark"] {
@@ -49,6 +51,7 @@
   --hb-tint: 24%;
   --hb-lift: 0 1px 1px rgb(0 0 0 / 0.35), 0 9px 20px -8px rgb(0 0 0 / 0.7);
   --hb-offset: rgb(0 0 0 / 0.5);
+  --hb-dot: color-mix(in oklab, var(--hb-ink) 17%, transparent);
 }
 
 /* A board takes the app's theme as a whole page, the browser's own controls and scroll bars included. */
@@ -68,8 +71,9 @@ body.hb-board {
   padding: 32px;
   color: var(--hb-ink);
   background-color: var(--hb-paper);
-  background-image: radial-gradient(circle at 1.5px 1.5px, var(--hb-line) 1.1px, transparent 1.6px);
-  background-size: 24px 24px;
+  /* Change Review's own grid: a dot of 1.6px every 32px. */
+  background-image: radial-gradient(circle at 1.5px 1.5px, var(--hb-dot) 0.8px, transparent 1.3px);
+  background-size: 32px 32px;
   font: 14px/1.45 -apple-system, BlinkMacSystemFont, system-ui, "Helvetica Neue", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
