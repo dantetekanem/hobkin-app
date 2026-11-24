@@ -74,6 +74,8 @@ function codeHost({ number, branch, head }) {
       return JSON.stringify([pull(number, { url, headRefName: branch, headRefOid, isDraft, reviewDecision, statusCheckRollup, mergeable })]);
     }
     if (group === 'pr' && verb === 'view') {
+      // Any other address is a pull request of another repository on a branch of the same name, at the same head, and clean.
+      if (args[2] !== url) return JSON.stringify({ ...host.view, url: args[2] });
       return JSON.stringify(host.merged ? { ...host.view, state: 'MERGED', mergedAt: new Date(NOW).toISOString(), mergeCommit: { oid: MERGE_COMMIT } } : host.view);
     }
     if (group === 'pr' && verb === 'checks') {
@@ -373,4 +375,20 @@ test('a change waiting on its pull request gets a review by itself only where YO
   await surveyAndClose(h.root, { now: NOW, gh: onApi.host.gh, reviews: join(h.base, 'no-reviews') });
   await director.itemFinished('api', itemOf(h, onApi));
   assert.deepEqual(asked(onApi), ['pr', false]);
+});
+
+test('YOLO mode merges only the pull request the survey found for the change\'s branch in the project\'s own repository, whatever address its item holds', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  await survey(h, host.gh);
+  // A run's outcome can name a pull request, so an item can hold one in another repository, on a branch of the same name and at the same head.
+  const elsewhere = 'https://example.com/other-repo/pull/7';
+  updateItem(h.root, 'api', change.id, { pr: elsewhere }, NOW);
+
+  assert.deepEqual(await yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} }), []);
+
+  assert.deepEqual(host.merges(), []);
+  assert.ok(host.calls.every(args => !args.includes(elsewhere)), 'nothing is read or merged at that address');
+  assert.equal(whyOf(h, change), `its item names ${elsewhere}, not the pull request the survey found on its branch in this repository`);
 });

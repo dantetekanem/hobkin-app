@@ -60,6 +60,8 @@ export function pullCandidates(root) {
 export function pullSurveyed(item, unit) {
   if (!item.pr || !String(item.branch ?? '').startsWith(BRANCH_PREFIX)) return 'its pull request is not on a branch of hobkin\'s own';
   if (unit.kind !== 'pr') return 'the last survey saw no open pull request for it';
+  // The survey lists the pull requests of the project's own repository, by branch. A run's outcome can name any address, so only that one counts.
+  if (item.pr !== unit.url) return `its item names ${item.pr}, not the pull request the survey found on its branch in this repository`;
   if (unit.draft) return 'its pull request is a draft';
   if (unit.conflict) return 'its pull request conflicts with its base branch';
   if (unit.review === 'CHANGES_REQUESTED') return 'changes were requested on its pull request';
@@ -131,10 +133,10 @@ export async function signedInUser(gh, repo) {
 
 /** Why the pull request, read again from the code host now, keeps the change asking, or null when it may merge. Checked in this order. */
 export async function pullHolds({ gh, repo, item, unit, user }) {
-  const view = await gh(['pr', 'view', item.pr, '--json', VIEW_FIELDS], repo).then(parsed, () => null);
+  const view = await gh(['pr', 'view', unit.url, '--json', VIEW_FIELDS], repo).then(parsed, () => null);
   if (!view?.state) return 'its pull request could not be read, so nothing merges';
   if (view.state !== 'OPEN') return `its pull request is ${view.state.toLowerCase()}`;
-  if (view.url !== item.pr) return 'its pull request is not the one hobkin opened for it';
+  if (view.url !== unit.url || item.pr !== unit.url) return 'its pull request is not the one the survey found on its branch in this repository';
   if (view.headRefName !== item.branch) return `its pull request is on ${view.headRefName}, not on its own branch`;
   if (view.isCrossRepository !== false) return 'its pull request comes from another repository';
   if (!user) return 'who is signed in to the code host could not be read, so nothing merges';
