@@ -1,4 +1,5 @@
-import { NUDGE_SCREENS, type Nudge, type NudgeAction, type NudgeScreen } from '#shared/protocol/nudge.ts'
+import { isScreen } from '#shared/commands/registry.ts'
+import type { Nudge, NudgeAction } from '#shared/protocol/nudge.ts'
 
 /**
  * The latest instruction hobkin gave the window (`view.open`, `view.spotlight`, `view.back`, `conversation.draft`):
@@ -14,8 +15,8 @@ export class Nudges {
     this.onChange = onChange
   }
 
-  open(screen: NudgeScreen): Nudge {
-    if (!NUDGE_SCREENS.includes(screen)) throw Error(`The window has no screen named "${screen}".`)
+  open(screen: string): Nudge {
+    if (!isScreen(screen)) throw Error(`The window has no screen named "${screen}".`)
     return this.push({ kind: 'open', screen })
   }
 

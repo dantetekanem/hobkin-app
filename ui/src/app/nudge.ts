@@ -13,7 +13,7 @@ import { useView } from './view-store.ts'
  */
 
 /** Opens a screen the way the user reaches it: GitHub and the two overlays through their own openers, the rest straight. */
-function openScreen(screen: NudgeScreen): void {
+function openScreen(screen: string): void {
   const view = useView.getState()
   if (screen === 'github') return view.openGitHub()
   // Settings and Integrations are overlays that toggle, so open one only when it is not already the one showing.
@@ -25,7 +25,7 @@ function openScreen(screen: NudgeScreen): void {
     if (view.screen !== 'integrations') view.toggleIntegrations()
     return
   }
-  view.openScreen(screen)
+  view.openScreen(screen as NudgeScreen)
 }
 
 /** Does one instruction. Navigation only moves the view; a draft only fills the composer, it is never sent. */

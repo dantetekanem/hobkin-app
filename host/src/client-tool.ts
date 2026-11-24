@@ -1,6 +1,6 @@
 import { Type } from 'typebox'
 import { Check } from 'typebox/value'
-import { COMMANDS, isCommand, type CommandDefinition } from '#shared/commands/registry.ts'
+import { allCommands, commandDefinition, type CommandDefinition } from '#shared/commands/registry.ts'
 import type { CommandOutcome } from './commands.ts'
 
 /**
@@ -35,8 +35,8 @@ const reply = (value: unknown) => ({ content: [{ type: 'text' as const, text: JS
 
 /** The command, when hobkin may run it. Otherwise why not, in words hobkin can pass on. */
 function commandFor(name: string | undefined): [string, CommandDefinition] {
-  if (!name || !isCommand(name)) throw Error(`There is no command named "${name ?? ''}". Use the list action to see them.`)
-  const command = COMMANDS[name] as CommandDefinition
+  const command = name ? commandDefinition(name) : undefined
+  if (!name || !command) throw Error(`There is no command named "${name ?? ''}". Use the list action to see them.`)
   if (command.outside) throw Error(`${name} changes something outside the app, so it needs the user's yes in the window. Tell the user where to do it.`)
   if (!command.hobkin) throw Error(`hobkin cannot run ${name} through this tool.`)
   return [name, command]
@@ -62,7 +62,7 @@ export function createClientTool({ run }: ClientToolOptions) {
       const { action, name, args } = params
       if (action === 'list') {
         return reply(
-          Object.entries(COMMANDS as Record<string, CommandDefinition>)
+          allCommands()
             .filter(([, command]) => command.hobkin && !command.outside)
             .map(([command, { description }]) => ({ name: command, description })),
         )

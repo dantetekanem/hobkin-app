@@ -15,6 +15,7 @@ import type { FileContent } from '../protocol/files.ts'
 import type { GitHubState } from '../protocol/github.ts'
 import type { KeyHelp, ModelsState, ModelsUpdate } from '../protocol/models.ts'
 import { NUDGE_SCREENS } from '../protocol/nudge.ts'
+import { INTEGRATION_ID, type IntegrationManifest } from '../integration/manifest.ts'
 import type { SystemMetrics, UsageFacts } from '../protocol/system.ts'
 import type { SlashCommand, SlashOutcome } from '../protocol/slash.ts'
 import type { ShellFields } from '../protocol/snapshot.ts'
@@ -778,9 +779,10 @@ export const COMMANDS = {
   // (`shared/protocol/nudge.ts`). None of them send a message or take an action on the user's behalf.
   'view.open': {
     description:
-      'Move the window to a screen, as clicking its place in the menu does: home, reports, routines, actions, work, github, settings or integrations. It only shows the screen; it takes no action on it.',
+      'Move the window to a screen, as clicking its place in the menu does: home, reports, routines, actions, work, github, settings or integrations, or a screen an integration adds. It only shows the screen; it takes no action on it.',
     runs: 'host',
-    args: Type.Object({ screen: oneOf(NUDGE_SCREENS) }, { additionalProperties: false }),
+    args: Type.Object({ screen: words(64) }, { additionalProperties: false }),
+    rule: ({ screen }) => (isScreen(String(screen)) ? null : `screen must be a screen the app has, such as ${NUDGE_SCREENS.join(', ')}`),
     hobkin: true,
   },
   'view.spotlight': {
@@ -1743,13 +1745,62 @@ export interface HistoryConversation extends Omit<HistoryEntry, 'messages'> {
 
 export type ArgumentCheck = { ok: true } | { ok: false; code: 'unknown-command' | 'invalid-arguments'; message: string }
 
-export const isCommand = (name: string): name is CommandName => Object.hasOwn(COMMANDS, name)
+const isCoreCommand = (name: string): name is CommandName => Object.hasOwn(COMMANDS, name)
+
+/**
+ * What integrations added when the app started, by command name (spec 064). The registry is the same everywhere the
+ * app runs: the host and the window each register the manifests they found, so a command is checked the same on both.
+ * The list lives on `globalThis`, so a hot update of this module keeps it.
+ */
+const slot = globalThis as { __hobkinIntegrationCommands?: Map<string, CommandDefinition>; __hobkinIntegrationScreens?: Set<string> }
+const addedCommands = (): Map<string, CommandDefinition> => (slot.__hobkinIntegrationCommands ??= new Map())
+const addedScreens = (): Set<string> => (slot.__hobkinIntegrationScreens ??= new Set())
+
+const isCoreScreen = (id: string): boolean => (NUDGE_SCREENS as readonly string[]).includes(id)
+
+/** Whether the app has a screen by this id, one of its own or an integration's. */
+export const isScreen = (id: string): boolean => isCoreScreen(id) || addedScreens().has(id)
+
+/** The ids of the screens integrations added, in the order they were registered. */
+export const integrationScreens = (): string[] => [...addedScreens()]
+
+/**
+ * Adds an integration's commands and screens, all or nothing. Refused, with the reason, when its id is not a valid
+ * integration id, a command is not named `<id>.<something>`, or a command or screen id is one the app already has,
+ * its own or another integration's.
+ */
+export function registerIntegration({ id, commands, screens }: IntegrationManifest): void {
+  if (typeof id !== 'string' || !INTEGRATION_ID.test(id)) throw Error(`"${String(id)}" is not an integration id: it starts with a letter and holds lowercase letters, digits and dashes.`)
+  const names = Object.keys(commands)
+  for (const name of names) {
+    if (!name.startsWith(`${id}.`) || name.length === id.length + 1) throw Error(`${name} is not named ${id}.<something>, as every command of ${id} must be.`)
+    if (isCommand(name)) throw Error(`${name} is a command the app already has.`)
+  }
+  const ids = new Set<string>()
+  for (const { id: screen } of screens) {
+    if (isScreen(screen) || ids.has(screen)) throw Error(`${screen} is a screen the app already has.`)
+    ids.add(screen)
+  }
+  for (const name of names) addedCommands().set(name, commands[name]!)
+  for (const screen of ids) addedScreens().add(screen)
+}
+
+/** Whether the app has a command by this name, one of its own or an integration's. */
+export const isCommand = (name: string): boolean => isCoreCommand(name) || addedCommands().has(name)
+
+/** The command's definition, or undefined when the app has none by this name. */
+export const commandDefinition = (name: string): CommandDefinition | undefined =>
+  isCoreCommand(name) ? (COMMANDS[name] as CommandDefinition) : addedCommands().get(name)
+
+/** Every command the app has: its own, then each integration's. */
+export const allCommands = (): [string, CommandDefinition][] => [...Object.entries(COMMANDS as Record<string, CommandDefinition>), ...addedCommands()]
 
 /** Whether `args` fit the command, with the first reason they do not. */
 export function checkArguments(name: string, args: unknown): ArgumentCheck {
-  if (!isCommand(name)) return { ok: false, code: 'unknown-command', message: `There is no command named "${name}".` }
+  const definition = commandDefinition(name)
+  if (!definition) return { ok: false, code: 'unknown-command', message: `There is no command named "${name}".` }
 
-  const { args: schema, rule } = COMMANDS[name] as CommandDefinition
+  const { args: schema, rule } = definition
   if (Check(schema, args)) {
     const broken = rule?.(args as Record<string, unknown>)
     return broken ? { ok: false, code: 'invalid-arguments', message: `${name}: arguments ${broken}.` } : { ok: true }
