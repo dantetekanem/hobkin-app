@@ -1360,75 +1360,67 @@
   color: var(--hb-muted);
 }
 
-/* At reading size the heading says the words that fit (`headingWords`); from far away, the layer over the subject. */
-.rv-zone-near {
-  display: block;
+/* The heading says the words that fit in its region at the size it is read at (`headingWords`): one of these three. */
+.rv-zone-near,
+.rv-zone-far,
+.rv-zone-farther {
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.rv-zone-layer,
-.rv-zone-subject {
+.rv-zone-near {
+  display: block;
+}
+.rv-zone-far,
+.rv-zone-farther {
   display: none;
 }
 
 /*
- * From far away the heading grows inside the same room, so the zones read as a map: the layer small with the counts
- * beside it, and under them the subject large, which is what tells two zones of a layer apart and is cut only at its
- * end. A zone with no subject of its own says its name large. It ends well above the cards, whose tags stand higher
- * from far away.
+ * From far away the heading is the same quiet line in larger type (`FAR_HEADING`), so the zones still read as a map,
+ * and it says only its name: the mark says what the zone asks, and the counts come back at reading size. It ends above
+ * the cards, whose tags stand higher from far away. It once grew into two lines, the layer small over the subject
+ * large, and shouted over the cards it holds (the user, 2026-11-24: "this is ugly af").
  */
 .rv[data-far='true'] .rv-zone-head {
-  top: 2px;
-  /* The counts' column is the flexible one, so the subject under both columns never widens the layer's. */
-  grid-template-columns: auto minmax(0, max-content) minmax(0, 1fr);
-  grid-template-areas:
-    '. layer counts'
-    'mark subject subject';
-  align-content: center;
+  top: calc(var(--zone-head) - 68px);
+  grid-template-columns: auto minmax(0, max-content);
   column-gap: 12px;
-  height: calc(var(--zone-head) - 26px);
+  height: 44px;
 }
 .rv[data-far='true'] .rv-zone-label {
-  display: contents;
+  font-size: 24px;
+  font-weight: 600;
 }
 .rv[data-far='true'] .rv-zone-near {
   display: none;
 }
+.rv[data-far='true'] .rv-zone-far {
+  display: block;
+}
 .rv[data-far='true'] .rv-zone-mark {
-  grid-area: mark;
-  width: 18px;
-  height: 18px;
+  width: 12px;
+  height: 12px;
 }
-.rv[data-far='true'] .rv-zone-layer {
-  grid-area: layer;
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 21px;
-  line-height: 26px;
-  color: color-mix(in oklab, var(--hb-text) 78%, var(--hb-muted));
-}
-.rv[data-far='true'] .rv-zone-subject {
-  grid-area: subject;
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-size: 36px;
-  line-height: 42px;
-  color: var(--hb-text);
-}
-.rv[data-far='true'] .rv-zone-counts {
-  grid-area: counts;
-  max-width: none;
-  font-size: 21px;
-  line-height: 26px;
-}
-/* A name with no layer has the small line to its counts. */
-.rv[data-far='true'] .rv-zone-head[data-one-line='true'] .rv-zone-counts {
-  grid-area: layer / layer / counts / counts;
-}
+.rv[data-far='true'] .rv-zone-counts,
 .rv[data-far='true'] .rv-zone-chevron {
   display: none;
+}
+
+/* From farther still, larger again. These come after the far rules, which hold here too. */
+.rv[data-farther='true'] .rv-zone-head {
+  top: 4px;
+  height: 64px;
+}
+.rv[data-farther='true'] .rv-zone-label {
+  font-size: 40px;
+}
+.rv[data-farther='true'] .rv-zone-far {
+  display: none;
+}
+.rv[data-farther='true'] .rv-zone-farther {
+  display: block;
+}
+.rv[data-farther='true'] .rv-zone-mark {
+  width: 16px;
+  height: 16px;
 }

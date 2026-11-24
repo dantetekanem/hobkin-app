@@ -6,7 +6,7 @@ import { ZONE_FRAME } from '#shared/review/layout.ts'
 import { tween } from '@/lib/motion.ts'
 import { useSession, useSessionStore } from '../state/context.tsx'
 import { useZoneEntrance } from './entrance.tsx'
-import { countsRoom, HEADING, headingRoom, headingWords, REGION_PREFIX, zoneTitle, zoneWords } from './zones.ts'
+import { countsRoom, FAR_HEADING, farRoom, HEADING, headingRoom, headingWords, REGION_PREFIX, zoneTitle, zoneWords } from './zones.ts'
 
 /** The room the layout keeps for the heading, and beside the nodes, for the region's CSS. */
 const FRAME = { '--zone-head': `${ZONE_FRAME.head}px`, '--zone-pad': `${ZONE_FRAME.pad}px` } as React.CSSProperties
@@ -17,8 +17,8 @@ const FRAME = { '--zone-head': `${ZONE_FRAME.head}px`, '--zone-pad': `${ZONE_FRA
  * a button: it folds the whole zone into one card, and opens it again; its place and size stay the same either way. A
  * zone of tests folds only with the code it covers, so its heading only says what it is. A name too wide for its region
  * gives up its layer before its subject (`headingWords`), and the whole name is the heading's title. From far away the
- * heading grows inside that room, the layer small over the subject large, so the zones read as a map. It arrives with
- * its first node, only fading.
+ * heading is the same one line in larger type, so the zones still read as a map, and it says only its name: the mark
+ * says what the zone asks. It arrives with its first node, only fading.
  */
 function ZoneRegionComponent({ id, width = 0 }: NodeProps) {
   const store = useSessionStore()
@@ -31,13 +31,20 @@ function ZoneRegionComponent({ id, width = 0 }: NodeProps) {
   const words = zoneWords(zone)
   const title = zoneTitle(zone)
   const near = headingWords(title, headingRoom(width, words), HEADING.size)
+  const far = headingWords(title, farRoom(width, 'far'), FAR_HEADING.far.size)
+  const farther = headingWords(title, farRoom(width, 'farther'), FAR_HEADING.farther.size)
   const said = (
     <>
       <span className="rv-zone-mark" aria-hidden="true" />
+      {/* One of the three shows, by how far the graph is (`graph.css`). The heading's own label says the whole name. */}
       <span className="rv-zone-label">
         <span className="rv-zone-near">{near}</span>
-        {title.layer != null ? <span className="rv-zone-layer">{title.layer}</span> : null}
-        <span className="rv-zone-subject">{title.subject}</span>
+        <span className="rv-zone-far" aria-hidden="true">
+          {far}
+        </span>
+        <span className="rv-zone-farther" aria-hidden="true">
+          {farther}
+        </span>
       </span>
       <span className="rv-zone-counts" style={{ '--counts-room': `${countsRoom(width)}px` } as React.CSSProperties}>
         {words}
@@ -56,14 +63,13 @@ function ZoneRegionComponent({ id, width = 0 }: NodeProps) {
       transition={entrance ? { ...tween.enter, delay: entrance.delay } : { duration: 0 }}
     >
       {zone.tests ? (
-        <div className="rv-zone-head" data-one-line={title.layer == null} title={`${zone.label}: ${words}. It folds with the code it covers.`} aria-label={`${zone.label}: ${words}`}>
+        <div className="rv-zone-head" title={`${zone.label}: ${words}. It folds with the code it covers.`} aria-label={`${zone.label}: ${words}`}>
           {said}
         </div>
       ) : (
         <button
           type="button"
           className="rv-zone-head pressable nodrag nopan"
-          data-one-line={title.layer == null}
           aria-expanded={!folded}
           aria-label={`${folded ? 'Open' : 'Fold'} ${zone.label}: ${words}`}
           title={`${folded ? 'Open' : 'Fold'} ${zone.label}`}

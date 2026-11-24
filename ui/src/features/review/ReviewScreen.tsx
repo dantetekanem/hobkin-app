@@ -57,6 +57,8 @@ import { afterVerdict, verdictKind, type VerdictCommands } from './verdict.ts'
 const COVER = { top: 112, bottom: 148 }
 /** Below this zoom a card shows only its name, large. */
 const FAR = 0.6
+/** Below this one a zone's heading is larger again, so the zones of a large review still read as a map. */
+const FARTHER = 0.36
 
 /** The places hobkin pointed to (`review.show`) that this window has shown, so each is shown once. */
 const shown = shownPlaces(storageOrNull())
@@ -312,8 +314,12 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
 
   // From far away the cards show only their names. Set on the root, so no card draws again for it.
   useMotionValueEvent(camera.viewport, 'change', (viewport) => {
+    const element = root.current
+    if (!element) return
     const far = String(viewport.zoom < FAR)
-    if (root.current && root.current.dataset.far !== far) root.current.dataset.far = far
+    const farther = String(viewport.zoom < FARTHER)
+    if (element.dataset.far !== far) element.dataset.far = far
+    if (element.dataset.farther !== farther) element.dataset.farther = farther
   })
 
   // With reduced motion a step is a cut with a short fade.
@@ -418,7 +424,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
     <StageProvider value={stage}>
       <MotionConfig reducedMotion={reduced ? 'always' : 'never'}>
         <EntranceContext.Provider value={entrance}>
-          <div ref={root} tabIndex={-1} className="rv" data-reduced={reduced} data-treatment={treatment} data-far="false" data-entrance={entrance?.quiet ? 'quiet' : undefined} data-rv-root>
+          <div ref={root} tabIndex={-1} className="rv" data-reduced={reduced} data-treatment={treatment} data-far="false" data-farther="false" data-entrance={entrance?.quiet ? 'quiet' : undefined} data-rv-root>
             <div ref={graph} className="absolute inset-0">
               <Graph />
             </div>

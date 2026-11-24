@@ -286,6 +286,18 @@ export function headingRoom(regionWidth: number, counts: string): number {
   return Math.max(0, heading - forCounts)
 }
 
+/**
+ * The heading's type from far away, and from farther still: the same one line, larger so it still reads, with a larger
+ * mark and no counts or chevron beside the name (`graph.css`).
+ */
+export const FAR_HEADING = { far: { size: 24, mark: 12 }, farther: { size: 40, mark: 16 }, gap: 12 } as const
+
+/** The room a heading's name has from far away in a region this wide: the heading's room less its padding, its mark and one gap. */
+export function farRoom(regionWidth: number, distance: 'far' | 'farther'): number {
+  const beside = 24 + FAR_HEADING[distance].mark + FAR_HEADING.gap
+  return Math.max(0, regionWidth - 2 * ZONE_FRAME.pad + HEADING.overhang - beside)
+}
+
 /** The most room a heading's counts take at reading size, so its name keeps the rest: two fifths of the heading. */
 export function countsRoom(regionWidth: number): number {
   return Math.max(0, (regionWidth - 2 * ZONE_FRAME.pad + HEADING.overhang - HEADING.beside) * 0.4)

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { nodeRect, ZONE_FRAME } from '#shared/review/layout.ts'
 import type { Review, ReviewNode, ReviewZone } from '#shared/review/types.ts'
-import { headingRoom, headingWords, MAX_ZONES, regionsOf, zoneTitle, zoneWords, zonesOf, type GraphZone } from '../src/features/review/graph/zones.ts'
+import { FAR_HEADING, farRoom, headingRoom, headingWords, MAX_ZONES, regionsOf, zoneTitle, zoneWords, zonesOf, type GraphZone } from '../src/features/review/graph/zones.ts'
 import { pullReview } from '../src/features/review/sample/pull.ts'
 import { planEntrance } from '../src/features/review/graph/entrance-plan.ts'
 import { keyOwner, pressKey } from '../src/features/review/keys.ts'
@@ -208,4 +208,17 @@ test("a zone's heading never loses its subject before its layer: the whole name,
   assert.ok(headingRoom(344, 'Unchanged') > room('Controllers · Posts'), 'a one-column zone says "Controllers · Posts" whole')
   assert.ok(headingRoom(344, '2 need you · 13 tests') < headingRoom(344, 'Unchanged'))
   assert.ok(headingRoom(344, '2 need you · 13 tests · and a great many more words') > room('production err'), 'counts never take all the room')
+})
+
+test('from far away a heading is the same one line in larger type and without its counts, so the name gives up its layer sooner', () => {
+  const title = zoneTitle({ label: 'Host controllers · Admin orders', subjects: 1 })
+  const { far, farther } = FAR_HEADING
+  assert.ok(far.size > 14 && farther.size > far.size, 'the type grows with the distance')
+  // No counts and no chevron beside the name: all the heading's room but its padding, its mark and one gap.
+  assert.equal(farRoom(344, 'far'), 344 - 2 * ZONE_FRAME.pad + 24 - (24 + far.mark + FAR_HEADING.gap))
+  assert.ok(farRoom(344, 'farther') < farRoom(344, 'far'), 'a larger mark leaves a little less')
+  assert.equal(headingWords(title, farRoom(1000, 'far'), far.size), 'Host controllers · Admin orders', 'a wide zone still says the whole name')
+  assert.equal(headingWords(title, farRoom(344, 'far'), far.size), 'Admin orders', 'a one-column zone says the subject')
+  assert.equal(headingWords(title, farRoom(344, 'farther'), farther.size), 'Admin orders', 'and from farther still, for its end to be cut')
+  assert.equal(farRoom(40, 'far'), 0, 'never less than nothing')
 })
