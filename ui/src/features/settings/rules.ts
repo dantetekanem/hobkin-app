@@ -40,8 +40,11 @@ export function budgetUse(used: number | null, limit: number | null): { share: n
 /** The kinds of tool block an agent's steps are drawn in (021-agent-rendering): code changes, commands, reads and searches, and every other tool. */
 export type BlockKind = 'change' | 'shell' | 'looks' | 'other'
 
-/** Which kinds of block are open when they arrive, until the user opens or closes one. Code changes are, the rest show their one-line header. */
-export const OPEN_BY_DEFAULT: Readonly<Record<BlockKind, boolean>> = { change: true, shell: false, looks: false, other: false }
+/** Which kinds of block are open when they arrive, until the user opens or closes one. None is: each shows its one-line header. */
+export const OPEN_BY_DEFAULT: Readonly<Record<BlockKind, boolean>> = { change: false, shell: false, looks: false, other: false }
+
+/** The first saved version in which code changes arrive closed. Older saves kept the old default as if it were a choice. */
+const CHANGES_CLOSED_SINCE = 5
 
 /** How much of the window's backgrounds and cards shows (#20). Text, icons and the focus ring always stay solid. */
 export const OPACITY = { min: 0.1, max: 1, step: 0.05, initial: 1 } as const
@@ -121,8 +124,10 @@ export function receiveAppearance(state: { appearanceId: number }, { id, name, p
 }
 
 /** Settings saved before version 2 gain background opacity and the custom theme (what cannot be used is dropped). The theme ask older versions kept is dropped. A saved palette is nudged to read; an unusable backdrop is dropped. */
-export function migrateSettings(saved: unknown): Record<string, unknown> {
+export function migrateSettings(saved: unknown, from = 0): Record<string, unknown> {
   const state = typeof saved === 'object' && saved !== null ? (saved as Record<string, unknown>) : {}
+  const kinds = state.openByDefault
+  const closedChanges = from < CHANGES_CLOSED_SINCE && typeof kinds === 'object' && kinds !== null ? { openByDefault: { ...kinds, change: false } } : {}
   const palette = adjustedPalette(state.palette)
   const opacity = typeof state.backgroundOpacity === 'number' && state.backgroundOpacity <= OPACITY.max ? state.backgroundOpacity : OPACITY.initial
   const borders = palette ? { ...borderColors({ border: state.border as string }), ...borderColors({ borderStrong: state.borderStrong as string }) } : {}
@@ -130,6 +135,7 @@ export function migrateSettings(saved: unknown): Record<string, unknown> {
   const { themeName: _themeName, ...carried } = rest
   return {
     ...carried,
+    ...closedChanges,
     ...borders,
     backgroundOpacity: stepOpacity(opacity, 0),
     palette,

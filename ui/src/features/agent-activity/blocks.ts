@@ -5,7 +5,7 @@ import { useSettings } from '../settings/store.ts'
 
 /**
  * Whether the tool blocks of an agent's steps are open: a file read's text, a command's output, a diff, a tool's output.
- * Each kind arrives open or closed to its one-line header as Settings says (code changes open, the rest closed), until
+ * Each kind arrives open or closed to its one-line header as Settings says (every kind closed at first), until
  * the user opens or closes it by its header. Control+O opens every block, and closes them all again the next time.
  * Kept while the window is open, the same for every agent and the mind.
  */

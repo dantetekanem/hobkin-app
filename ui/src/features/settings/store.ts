@@ -177,8 +177,9 @@ export const useSettings = create<SettingsState>()(
     {
       name: 'hobkin-client-settings',
       // Version 4 drops the tracked theme ask: Custom's request is a chat message to main hobkin.
-      version: 4,
-      migrate: (saved) => migrateSettings(saved),
+      // Version 5 closes code changes: older saves kept the old default, open, as if it had been chosen.
+      version: 5,
+      migrate: (saved, from) => migrateSettings(saved, from),
       partialize: ({ movement, sound, typeFace, pet, agents, dailyTokens, usageEvents, feedback, showGitHubInMenu, backgroundOpacity, openByDefault, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
         movement,
         sound,

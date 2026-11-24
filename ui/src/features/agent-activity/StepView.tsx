@@ -404,7 +404,7 @@ function CommandCard({ command, time }: { command: Command; time?: EntryTime }) 
 
 /**
  * A file the agent changed (021 A1, A2): the review's own diff, with syntax colors, added and removed lines tinted
- * and the words that changed marked. It arrives open, unless Settings says otherwise. Edits to one file in a row are
+ * and the words that changed marked. It arrives as its one row and opens to this when pressed, unless Settings says it arrives open. Edits to one file in a row are
  * one change that updates in place, drawn in one box as Pi's code previews draw an edit: each place it changed after
  * the one before, with a quiet band where lines were left out between them. It is as tall as its lines, wrapped: a
  * long one shows its first lines across its parts and opens in place to all of them. Closed, it is its one row, and

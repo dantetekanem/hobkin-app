@@ -123,10 +123,10 @@ test('the store loads settings saved at version 1 without losing them', async ()
     const state = useSettings.getState()
     assert.deepEqual([state.movement, state.typeFace, state.agents, state.showGitHubInMenu], ['still', 'geist', 6, false])
     assert.deepEqual([state.backgroundOpacity, state.palette, state.customTheme], [1, null, false])
-    assert.deepEqual(state.openByDefault, { change: true, shell: false, looks: false, other: false }, 'code changes open by default, every other kind of block closed')
-    assert.equal(JSON.parse(values.get('hobkin-client-settings')!).version, 4, 'saved again at the new version')
+    assert.deepEqual(state.openByDefault, { change: false, shell: false, looks: false, other: false }, 'every kind of block arrives closed to its one row')
+    assert.equal(JSON.parse(values.get('hobkin-client-settings')!).version, 5, 'saved again at the new version')
     state.setOpenByDefault('shell', true)
-    assert.deepEqual(JSON.parse(values.get('hobkin-client-settings')!).state.openByDefault, { change: true, shell: true, looks: false, other: false }, 'kept with the window\'s other settings')
+    assert.deepEqual(JSON.parse(values.get('hobkin-client-settings')!).state.openByDefault, { change: false, shell: true, looks: false, other: false }, 'kept with the window\'s other settings')
     state.setOpenByDefault('shell', false)
 
     assert.equal(state.appearanceId, 0)
@@ -239,4 +239,10 @@ test('the store loads settings saved at version 1 without losing them', async ()
     if (previousWindow) Object.defineProperty(globalThis, 'window', previousWindow)
     else Reflect.deleteProperty(globalThis, 'window')
   }
+})
+
+test('settings saved before version 5 load with code changes closed, and keep what they said of the other kinds', () => {
+  const saved = { openByDefault: { change: true, shell: true, looks: false, other: false } }
+  assert.deepEqual(migrateSettings(saved, 4).openByDefault, { change: false, shell: true, looks: false, other: false }, 'the old default is not a choice, so it gives way')
+  assert.equal(migrateSettings({ movement: 'still' }, 4).openByDefault, undefined, 'a save that never kept the kinds takes the default')
 })
