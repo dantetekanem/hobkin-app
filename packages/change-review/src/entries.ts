@@ -5,7 +5,7 @@
  * caller, until each way ends where a request enters. What it finds are entry points whose tests the proof may run,
  * nothing more. A scan that fails, or a way cut short, is a note, never a crash.
  */
-import { originWords } from './origins.ts'
+import { originWords, routedWay } from './origins.ts'
 import { scanAnchors } from './scan.ts'
 import type { ScanOutcome } from './scan.ts'
 import type { Origin, OriginStep } from './types.ts'
@@ -192,17 +192,17 @@ export async function entriesAbove({ starts, isEntry, scan, maxHops = ENTRY_HOPS
       const below = [...step.below, here]
       const byPath = definition.entry ? undefined : isEntry(definition.path)
       if (definition.entry || byPath) {
-        const kind = definition.entry?.kind ?? (typeof byPath === 'string' ? byPath : 'path')
+        const way = definition.entry ? routedWay(definition.entry, below.toReversed(), step.hops) : { kind: typeof byPath === 'string' ? byPath : 'path', chain: below.toReversed(), hops: step.hops }
         entries[step.root]!.push({
           symbol: definition.symbol,
           path: definition.path,
-          hops: step.hops,
+          hops: way.hops,
           line: definition.startLine,
-          kind,
+          kind: way.kind,
           ...originWords(definition.entry, definition.symbol),
           exact: definition.entry?.exact ?? false,
           by: definition.entry ? 'scan' : 'path',
-          chain: below.toReversed(),
+          chain: way.chain,
         })
         continue
       }
@@ -230,18 +230,18 @@ export async function entriesAbove({ starts, isEntry, scan, maxHops = ENTRY_HOPS
           ...(site.enqueue ? { enqueues: true } : {}),
           ...(guard ? { guard } : {}),
         }
-        const hops = step.hops + 1
-        reached(step.root, hops)
+        reached(step.root, step.hops + 1)
+        const way = routedWay(site.entry, [...below, top].toReversed(), step.hops + 1)
         entries[step.root]!.push({
           symbol: site.symbol,
           path: site.path,
-          hops,
+          hops: way.hops,
           line: top.line,
-          kind: site.entry.kind,
+          kind: way.kind,
           ...originWords(site.entry, site.symbol, site.key),
           exact: site.entry.exact,
           by: 'scan',
-          chain: [...below, top].toReversed(),
+          chain: way.chain,
         })
       }
     }

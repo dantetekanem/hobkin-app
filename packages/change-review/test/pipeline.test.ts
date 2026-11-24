@@ -592,8 +592,11 @@ test('a part only tests call says so, and a caller the scan names as an entry is
     found: 'origins',
     origins: [
       {
-        kind: 'controller', label: 'POST /orders', route: { verbs: ['POST'], path: '/orders' }, exact: true, by: 'scan', symbol: 'OrdersController#create', hops: 1,
-        chain: [{ symbol: 'OrdersController#create', path: 'app/controllers/orders_controller.rb', line: 2, call_line: 5, guard: 'if order.valid?' }],
+        kind: 'route', label: 'POST /orders', route: { verbs: ['POST'], path: '/orders' }, exact: true, by: 'scan', symbol: 'OrdersController#create', hops: 2,
+        chain: [
+          { symbol: 'POST /orders', path: 'config/routes.rb', line: 2, call_line: 2, door: true },
+          { symbol: 'OrdersController#create', path: 'app/controllers/orders_controller.rb', line: 2, call_line: 5, guard: 'if order.valid?' },
+        ],
       },
     ],
   })

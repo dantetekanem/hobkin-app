@@ -35,8 +35,9 @@ test('the pack shows the ways in it holds: the scan\'s entry with its route, and
   assert.equal(hops, 2)
   assert.deepEqual(origins, [
     {
-      kind: 'controller', label: 'GET /t/:id', route: { verbs: ['GET'], path: '/t/:id' }, exact: true, by: 'scan', symbol: 'TopicsController#show', hops: 2,
+      kind: 'route', label: 'GET /t/:id', route: { verbs: ['GET'], path: '/t/:id' }, exact: true, by: 'scan', symbol: 'TopicsController#show', hops: 3,
       chain: [
+        { symbol: 'GET /t/:id', path: 'config/routes.rb', line: 3, call_line: 3, door: true },
         { symbol: 'TopicsController#show', path: 'app/controllers/topics_controller.rb', line: 5, call_line: 7 },
         { symbol: 'PostsHelper#render_post', path: 'app/helpers/posts_helper.rb', line: 12, call_line: 14, guard: 'if post.mentions?' },
       ],

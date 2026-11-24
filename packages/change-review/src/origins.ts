@@ -31,9 +31,21 @@ export const MOST_ORIGINS = 3
 
 const calls = (count: number) => `${count} call${count === 1 ? '' : 's'}`
 
-/** An origin the scan names: a controller action, a job, a command, a handler, or a kind newer than this reader. */
+/**
+ * A routed action is reached by its route first, as the window shows it: the way starts at the route line, a door
+ * with no definition, and the action is its next step. A Node route is its own first step already.
+ */
+export function routedWay(entry: ScanEntry, chain: readonly OriginStep[], hops: number): { kind: string; chain: OriginStep[]; hops: number } {
+  const route = entry.kind === 'route' ? undefined : entry.routes?.[0]
+  if (!route) return { kind: entry.kind, chain: [...chain], hops }
+  const door: OriginStep = { symbol: `${route.verbs.join('/')} ${route.path}`, path: route.file, line: route.line, call_line: route.line, door: true }
+  return { kind: 'route', chain: [door, ...chain], hops: hops + 1 }
+}
+
+/** An origin the scan names: a route, a controller action, a job, a command, a handler, or a kind newer than this reader. */
 function named(entry: ScanEntry, symbol: string, chain: OriginStep[], hops: number, key?: string): Origin {
-  return { kind: entry.kind, ...originWords(entry, symbol, key), exact: entry.exact, by: 'scan', symbol, chain, hops }
+  const way = routedWay(entry, chain, hops)
+  return { kind: way.kind, ...originWords(entry, symbol, key), exact: entry.exact, by: 'scan', symbol, chain: way.chain, hops: way.hops }
 }
 
 /** An origin by its path alone, never sure: its kind is the name of the rule that matched. */

@@ -299,7 +299,8 @@ function originSaid(origin: Origin): string {
 
 /** The definitions a way in passes between its origin and the part, as words: ", through a and b". Empty when it passes none. */
 function throughOf(origin: Origin): string {
-  const between = origin.chain.slice(1).map((step) => step.symbol)
+  // A route line is the door a request comes in by, not a definition it passes.
+  const between = origin.chain.filter((step) => !step.door).slice(1).map((step) => step.symbol)
   if (!between.length) return ''
   return `, through ${listed(between.length > 3 ? [...between.slice(0, 2), `${between.length - 2} more`] : between)}`
 }

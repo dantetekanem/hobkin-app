@@ -524,6 +524,8 @@ export interface OriginStep {
   enqueues?: boolean
   /** The innermost condition in front of that call, as written. */
   guard?: string
+  /** No definition, but the line that sends a request on: the route that names the next step's action. */
+  door?: boolean
 }
 
 /** A place work enters that reaches a changed part, and the way it takes. */

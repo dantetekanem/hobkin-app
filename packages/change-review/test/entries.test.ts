@@ -122,6 +122,8 @@ test('the path rule can name the kind of an entry point, and the scan\'s words a
   })
   assert.deepEqual([found.entries.a![0]!.kind, found.entries.a![0]!.label, found.entries.a![0]!.by], ['handler', 'showTopic', 'path'])
   assert.deepEqual([found.entries.b![0]!.label, found.entries.b![0]!.route], ['GET /orders/:id', { verbs: ['GET'], path: '/orders/:id' }])
+  // A routed action is reached by its route first, as the window shows it: the route line, then the action.
+  assert.deepEqual([found.entries.b![0]!.kind, found.entries.b![0]!.hops, found.entries.b![0]!.chain![0]], ['route', 2, { symbol: 'GET /orders/:id', path: 'config/routes.rb', line: 3, call_line: 3, door: true }])
   assert.deepEqual([found.entries.c![0]!.kind, found.entries.c![0]!.label, found.entries.c![0]!.chain![0]!.enqueues], ['handler', 'review.prepare', true])
 })
 

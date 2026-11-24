@@ -469,6 +469,8 @@ test('where a unit is reached from says what was looked at: the origin and its w
       },
       'Reached from review.prepare (handlers), through prepareReview, from GET /reviews/:id (showReview), through findReview, and from ReviewMailer#scored.',
     ],
+    // The route line a request comes in by is no definition the way passes through.
+    [{ found: 'origins', origins: [{ ...origin, kind: 'route', hops: 2, chain: [{ ...step('GET /topics/:id'), door: true }, step('TopicsController#show')] }] }, 'Reached from GET /topics/:id (TopicsController#show).'],
     // A listener is said by its event, and a call expression is no name to give beside a label.
     [{ found: 'origins', origins: [{ ...origin, kind: 'listener', label: 'sync', symbol: "bus.on('sync', (id) => syncReviews(id))", exact: false, hops: 1, chain: [step('bus.on')] }] }, 'Reached from the sync event (likely).'],
     [{ found: 'origins', origins: [{ ...origin, kind: 'route', label: 'GET /reviews/:id/sync', symbol: "app.get('/reviews/:id/sync', (req, res) => res.json(sync(req.params.id)))", hops: 1, chain: [step('app.get')] }] }, 'Reached from GET /reviews/:id/sync.'],
