@@ -357,7 +357,22 @@ function scoringOf(entry: ReadyRow): HobkinScoring | null {
   }
 }
 
-function mergeLine({ branch, size, pr, conflict, behind }: ReadyRow): string {
+/**
+ * The layer a stacked change waits for, in words: hobkin lands a stack bottom first and refuses a layer while the one
+ * under it has not landed (060-make-it-a-stack). Null for a change that waits for no layer.
+ */
+function layerItWaitsFor(entry: ReadyRow): string | null {
+  if (entry.gap !== 'stacked') return null
+
+  const place = stackOf(entry.stack)
+  return place ? `layer ${place.layer - 1} of its stack` : 'the layer under it'
+}
+
+function mergeLine(entry: ReadyRow): string {
+  const waitsFor = layerItWaitsFor(entry)
+  if (waitsFor) return `It cannot merge until ${waitsFor} has landed.`
+
+  const { branch, size, pr, conflict, behind } = entry
   const named = branch ?? 'its branch'
   if (pr) return `It is the PR ${pr}, and merging it merges it on GitHub.`
   if (conflict) return 'It conflicts with the default branch, so it cannot merge until an agent rebases it.'
@@ -379,6 +394,8 @@ function choicesOf(entry: ReadyRow): FinishedChange['choices'] {
   const opens = entry.pr ? [choice('open', 'Open the PR in the browser')] : []
   const review = choice('review', rated(entry) ? 'Review it again' : 'Get it reviewed')
   const cancel = choice('decline', 'Cancel it')
+  // A layer that waits for the one under it can be read, reviewed and cancelled, and has no yes of its own yet.
+  if (layerItWaitsFor(entry)) return [diff, ...opens, review, cancel]
   if (entry.conflict) return [choice('rebase', 'Have an agent rebase it'), diff, ...opens, review, cancel]
   return risky(entry) ? [review, diff, ...opens, merge, cancel] : [merge, diff, ...opens, review, cancel]
 }
@@ -388,6 +405,8 @@ function choicesOf(entry: ReadyRow): FinishedChange['choices'] {
  * in the order hobkin checks them (`oneYesCarries` in `src/cli/work/groups.mjs`), in its own words where it has them.
  */
 function reasonOf(entry: ReadyRow, group: GroupName): string {
+  const waitsFor = layerItWaitsFor(entry)
+  if (waitsFor) return sentence(`${waitsFor} lands first`)
   if (group === 'merge') return groupWords.merge.why(1)
   if (group === 'refresh') return `${count(entry.behind ?? 0, 'commit')} behind its base, so an agent brings it up to date first.`
   if (entry.unread) return sentence(entry.unread)

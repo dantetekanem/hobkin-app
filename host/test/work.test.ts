@@ -126,6 +126,23 @@ test("a finished row's place in a stack reaches the window as it is, and a missi
   for (const item of ['c3c3c3', 'd4d4d4', 'e5e5e5', 'f6f6f6', 'a7a7a7', 'b8b8b8', 'c9c9c9', 'd0d0d0']) assert.equal('stack' in cardOf(item), false, item)
 })
 
+test('a layer that waits for the one under it has no merge among its choices, and says which layer lands first', () => {
+  const place = { id: 'a1a1a1', layer: 2, of: 3, name: null, below: 'a1a1a1', base: 'abc1234' }
+  const rows = [
+    change('shop', 'a1a1a1', 'Bottom', { stack: { ...place, layer: 1, below: null, base: null } }),
+    change('shop', 'b2b2b2', 'Second', { gap: 'stacked', stack: place }),
+  ]
+
+  const work = workFrom({ work: status(), waiting: { branches: rows } })!
+
+  const cardOf = (item: string) => work.finished.flatMap(({ changes }) => changes).find((card) => card.key === `shop:${item}`)!
+  const landsWith = (item: string) => cardOf(item).choices.some(({ value }) => ['merge', 'mergePr', 'refreshMerge'].includes(value))
+  assert.equal(landsWith('a1a1a1'), true, 'the bottom layer keeps its yes')
+  assert.equal(landsWith('b2b2b2'), false)
+  assert.equal(cardOf('b2b2b2').reason, 'Layer 1 of its stack lands first.')
+  assert.equal(cardOf('b2b2b2').yes, 'It cannot merge until layer 1 of its stack has landed.')
+})
+
 test('finished changes keep hobkin\'s groups and reasons', () => {
   const work = workFrom({ work: status(), waiting: { branches } })
   assert.ok(work)
