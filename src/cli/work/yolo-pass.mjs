@@ -82,7 +82,11 @@ export function whyItAsks({ yolo, on, project, readiness, landable, leftOut = nu
   if (!item.review) return 'no review has scored it';
 
   const { kind, rate, floors, head } = scoresOf(item.review, models);
-  if (!scoresHoldAt(head, unit)) return 'its scores are for an older commit';
+  if (!scoresHoldAt(head, unit)) {
+    // Nothing takes a review's commits to a pull request, so a review that changed the change leaves its scores on a commit the pull request lacks.
+    if (item.state === 'pr' && unit.sha) return `its review scored ${String(head).slice(0, SHORT_SHA)}, and its pull request is at ${unit.sha.slice(0, SHORT_SHA)}`;
+    return 'its scores are for an older commit';
+  }
   if (!SMALL_KINDS.includes(kind)) return `its review calls it ${kind}`;
   if (item.kind === 'feature') return 'its item is a feature';
   // A broken model is a floor, said before the proof score of 3 it leaves.

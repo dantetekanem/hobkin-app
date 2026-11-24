@@ -474,3 +474,22 @@ test('when the host will not list the required checks, YOLO mode merges only on 
   const line = clientNoticesToPost(h.root).map(({ line: said }) => said).find(said => said.startsWith('YOLO mode merged'));
   assert.match(line, /hobkin could not list the checks its branch requires, so it relied on the host's own state\./);
 });
+
+test('nothing pushes a review\'s commits to a pull request, so a review that changed the change leaves it asking, and says which commit each side holds', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  // The review committed a fix on the local branch, scored it there, and nothing took it to the pull request.
+  git(h.checkouts.api, 'switch', '-q', change.branch);
+  git(h.checkouts.api, 'commit', '-q', '--allow-empty', '-m', 'review fix');
+  const reviewed = git(h.checkouts.api, 'rev-parse', 'HEAD');
+  git(h.checkouts.api, 'switch', '-q', 'main');
+  updateItem(h.root, 'api', change.id, { review: { kind: 'bug-fix', scores: scored(), head: reviewed } }, NOW);
+  await survey(h, host.gh);
+
+  assert.deepEqual(await yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} }), []);
+
+  assert.equal(whyOf(h, change), `its review scored ${reviewed.slice(0, 7)}, and its pull request is at ${change.head.slice(0, 7)}`);
+  assert.ok(host.calls.every(([group]) => group !== 'push'));
+  assert.deepEqual(host.merges(), []);
+});
