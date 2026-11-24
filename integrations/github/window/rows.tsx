@@ -9,6 +9,7 @@ import {
   GitMerge,
   GitPullRequest,
   GitPullRequestDraft,
+  Layers,
   ListPlus,
   LoaderCircle,
   MessageSquareText,
@@ -24,6 +25,7 @@ import { motion, type Variants } from 'motion/react'
 import { createContext, useContext, useEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import type { IssueWork } from '../protocol.ts'
+import type { StackPlace } from '#shared/protocol/work.ts'
 import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
@@ -81,14 +83,14 @@ const REVIEW: Record<ReviewState, Said> = {
   none: { label: 'No review asked', tone: 'quiet', icon: CircleDashed },
 }
 
-const CHECKS: Record<ChecksState, Said> = {
+export const CHECKS: Record<ChecksState, Said> = {
   passing: { label: 'Checks pass', tone: 'ok', icon: Check },
   failing: { label: 'Checks fail', tone: 'bad', icon: X },
   pending: { label: 'Checks running', tone: 'quiet', icon: Clock },
   none: { label: 'No checks', tone: 'quiet', icon: Minus },
 }
 
-function Chip({ label, tone, icon: Icon }: Said) {
+export function Chip({ label, tone, icon: Icon }: Said) {
   return (
     <span className={cn('inline-flex h-6 items-center gap-1 rounded-full px-2.5 font-heading text-[12.5px] font-medium whitespace-nowrap', TONE[tone])}>
       <Icon className="size-3.5" aria-hidden="true" />
@@ -160,14 +162,33 @@ function Size({ size }: { size: NonNullable<PullEntry['size']> }) {
   )
 }
 
+/** "Layer 2 of 3": a pull request's place in its stack, counted from the bottom, of the layers the page lists. */
+export function LayerBadge({ place }: { place: StackPlace }) {
+  return (
+    <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-surface-2 px-2 font-heading text-[12px] font-medium whitespace-nowrap text-foreground tabular-nums [&_svg]:size-3.5">
+      <Layers aria-hidden="true" className="text-muted-foreground" />
+      Layer {place.layer} of {place.of}
+    </span>
+  )
+}
+
 /** A plain click opens the pull request's review. A click with a key held, or a middle click, is the browser's. */
 const opensHere = (event: MouseEvent<HTMLAnchorElement>) => !(event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)
 
 /**
  * A pull request, with its AI review on the right. One that waits for the user's review says who opened it; one of
- * theirs says where its review stands. One the AI reviewed that left GitHub's lists shows what the review knows.
+ * theirs says where its review stands. One the AI reviewed that left GitHub's lists shows what the review knows. A layer
+ * of a stack says its place, and, when the rest of its stack is in another list, where.
  */
-export function PullCard({ entry, mine, live, now, ...placed }: Placed & { entry: PullEntry; mine: boolean; live: boolean; now: number }) {
+export function PullCard({
+  entry,
+  mine,
+  live,
+  now,
+  place = null,
+  elsewhere = null,
+  ...placed
+}: Placed & { entry: PullEntry; mine: boolean; live: boolean; now: number; place?: StackPlace | null; elsewhere?: string | null }) {
   const { pull, id } = entry
   const target = id ? targetOfReviewId(id) : null
   const url = pull?.url ?? (target?.kind === 'pull' ? pullUrl(target) : null)
@@ -189,6 +210,7 @@ export function PullCard({ entry, mine, live, now, ...placed }: Placed & { entry
             <Icon className={cn('size-4 shrink-0', pull?.draft ? 'text-muted-foreground' : 'text-ok-fg')} aria-hidden="true" />
             <span className="font-medium text-foreground">{entry.repo}</span>
             {entry.number !== null ? <span className="tabular-nums">#{entry.number}</span> : null}
+            {place ? <LayerBadge place={place} /> : null}
             {pull?.author && !mine ? <span>· by @{pull.author}</span> : null}
             {Number.isFinite(updated) ? (
               <time dateTime={pull!.updatedAt} className="tabular-nums">
@@ -204,6 +226,7 @@ export function PullCard({ entry, mine, live, now, ...placed }: Placed & { entry
             {entry.size ? <Size size={entry.size} /> : null}
             {pull ? <Labels labels={pull.labels} /> : null}
           </p>
+          {elsewhere ? <p className="mt-2 text-[13px] leading-snug text-muted-foreground">{elsewhere}</p> : null}
           {/* Its title opens the review here. This opens the pull request itself on github.com, to read it there, close it or change it. */}
           {url ? (
             <Button variant="ghost" size="sm" data-stop="" className="relative z-10 mt-2 -ml-2" title="Opens this pull request on github.com" onClick={() => openAddress(url)}>

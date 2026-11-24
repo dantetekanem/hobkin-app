@@ -2,6 +2,7 @@ import { CircleAlert, RotateCw } from 'lucide-react'
 import { AnimatePresence, type Variants } from 'motion/react'
 import { useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { GITHUB_LIMIT, type GitHubConnection, type GitHubState } from '../protocol.ts'
+import { pullStacks } from '#shared/review/pull-stacks.ts'
 import { useScreenState } from '@/app/location.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
@@ -21,8 +22,11 @@ import { PageTabs, TabCount } from '@/features/work/PageTabs.tsx'
 import { useReviewList } from '@/features/work/use-review-list.ts'
 import { useWorkView } from '@/features/work/store.ts'
 import { run } from './commands.ts'
+import { OrderChoice } from './OrderChoice.tsx'
+import { arrangePulls, elsewhereWords, orderIssues, PULL_LIST_LABELS, type ArrangedPulls, type PageOrder, type PullUnit } from './page-order.ts'
 import { chosenTab, pageIn, projectTabs } from './project-filter.ts'
 import { ProjectTabs } from './ProjectTabs.tsx'
+import { PullStack } from './PullStack.tsx'
 import { pullSections, type PullSections } from './pull-reviews.ts'
 import { GroupHeading, IssueRow, NoteRow, PullCard } from './rows.tsx'
 
@@ -53,9 +57,9 @@ const DOT: Record<GitHubConnection, string> = {
   'signed-out': 'bg-warn',
 }
 
-/** What the page keeps of itself: its tab and the project it is narrowed to (null for All). A new visit starts here. */
+/** What the page keeps of itself: its tab, the project it is narrowed to (null for All) and its order. A new visit starts here. */
 export type GitHubTab = 'pulls' | 'issues'
-const FIRST_VISIT: { tab: GitHubTab; project: string | null } = { tab: 'pulls', project: null }
+const FIRST_VISIT: { tab: GitHubTab; project: string | null; order: PageOrder } = { tab: 'pulls', project: null, order: 'newest' }
 
 const rowsIn = (container: HTMLElement | null): HTMLElement[] => [...(container?.querySelectorAll<HTMLElement>(ROW) ?? [])]
 
@@ -117,10 +121,12 @@ export function GitHubScreen() {
   const hasHost = useHasHost()
   const still = useStill()
   const now = useNow(true, 30_000)
-  const [{ tab: savedTab, project }, remember] = useScreenState('github', FIRST_VISIT)
+  const [{ tab: savedTab, project, order: savedOrder }, remember] = useScreenState('github', FIRST_VISIT)
   const tab: GitHubTab = savedTab === 'issues' ? 'issues' : 'pulls'
+  const order: PageOrder = savedOrder === 'oldest' ? 'oldest' : 'newest'
   const setTab = (next: GitHubTab) => remember({ tab: next })
   const setProject = (next: string | null) => remember({ project: next })
+  const setOrder = (next: PageOrder) => remember({ order: next })
   const { work } = useWorkView()
   // Each pull request's AI review, from the host's list of reviews, or the sample's without a host.
   const reviews = useReviewList(hasHost)
@@ -133,6 +139,10 @@ export function GitHubScreen() {
   const inProject = chosenTab(projects, project)
   const shown = pageIn(all, inProject)
   const narrowed = inProject?.slug ? { name: inProject.label, count: inProject.count } : null
+  // Which open pull request sits on which, from everything GitHub lists, so a stack split between two lists stays one.
+  const places = useMemo(() => pullStacks([...github.reviews, ...github.pulls]), [github.reviews, github.pulls])
+  const arranged = arrangePulls(shown.sections, places, order)
+  const issues = orderIssues(shown.issues, order)
 
   // Where the keyboard is in the screen: whether the screen holds it, and the place of the last row it was on.
   const keyboard = useRef({ held: false, row: 0 })
@@ -190,16 +200,24 @@ export function GitHubScreen() {
               <ProjectTabs tabs={projects} chosen={inProject} onChoose={setProject} />
             </div>
           ) : null}
-          <PageTabs
-            id="github"
-            label="GitHub lists"
-            value={tab}
-            onChoose={setTab}
-            tabs={[
-              { value: 'pulls', label: 'Pull requests', extra: connected && shown.sections.requested.length ? <TabCount tone="live">{shown.sections.requested.length} to review</TabCount> : null },
-              { value: 'issues', label: 'Issues', extra: connected && shown.issues.length ? <TabCount>{shown.issues.length}</TabCount> : null },
-            ]}
-          />
+          {/* The order serves both tabs, so it sits beside them, held to the row's top and right whatever the tabs' counts say. */}
+          <div className="flex items-start gap-4">
+            <div className="min-w-0">
+              <PageTabs
+                id="github"
+                label="GitHub lists"
+                value={tab}
+                onChoose={setTab}
+                tabs={[
+                  { value: 'pulls', label: 'Pull requests', extra: connected && shown.sections.requested.length ? <TabCount tone="live">{shown.sections.requested.length} to review</TabCount> : null },
+                  { value: 'issues', label: 'Issues', extra: connected && shown.issues.length ? <TabCount>{shown.issues.length}</TabCount> : null },
+                ]}
+              />
+            </div>
+            <div className="mt-2 ml-auto">
+              <OrderChoice value={order} onChoose={setOrder} />
+            </div>
+          </div>
           {reviewListUnavailable && connected ? (
             <p role="alert" className="px-1 text-[13.5px] leading-snug text-bad-fg">
               Reviews are hidden because the list could not be refreshed. {reviews.error}
@@ -208,7 +226,7 @@ export function GitHubScreen() {
           {(['pulls', 'issues'] as const).map((key) => (
             <section key={key} id={`github-panel-${key}`} role="tabpanel" aria-labelledby={`github-tab-${key}`} hidden={tab !== key}>
               {connected && tab === key ? (
-                <Lists tab={key} github={{ ...github, issues: shown.issues }} sections={shown.sections} reviewListUnavailable={reviewListUnavailable} project={narrowed} live={hasHost} still={still} now={now} onRowsLeft={keepKeyboard} />
+                <Lists tab={key} github={{ ...github, issues }} sections={shown.sections} arranged={arranged} reviewListUnavailable={reviewListUnavailable} project={narrowed} live={hasHost} still={still} now={now} onRowsLeft={keepKeyboard} />
               ) : null}
             </section>
           ))}
@@ -281,6 +299,8 @@ interface Group<Item> {
   /** What the group holds, under its heading. */
   about?: string
   items: readonly Item[]
+  /** How many the heading counts, when an item is more than one, as a stack is. Else how many items there are. */
+  count?: number
   /** The row for one item, given its turn in the arrival. */
   row: (item: Item, order: number) => ReactNode
   /** What the group says when it has nothing in it. */
@@ -297,14 +317,16 @@ interface Narrowed {
 
 /**
  * The selected tab's groups as one list, so its pieces land one after another as the screen arrives, and a row a refresh
- * brings rises in on its own. `github` and `sections` hold what the project tab leaves, and `project` is that tab: under it
- * the empty lines name the project, and a tab with nothing of the project's says so once. `onRowsLeft` runs once the rows
- * that left have gone.
+ * brings rises in on its own. `github` and `sections` hold what the project tab leaves, in the order chosen, and
+ * `arranged` the same pull requests as the list draws them, a stack as one piece. `project` is the project tab: under
+ * it the empty lines name the project, and a tab with nothing of the project's says so once. `onRowsLeft` runs once the
+ * rows that left have gone.
  */
 function Lists({
   tab,
   github,
   sections,
+  arranged,
   reviewListUnavailable,
   project = null,
   live,
@@ -315,6 +337,7 @@ function Lists({
   tab: 'pulls' | 'issues'
   github: GitHubState
   sections: PullSections
+  arranged: ArrangedPulls
   reviewListUnavailable: boolean
   project?: Narrowed | null
   live: boolean
@@ -330,8 +353,8 @@ function Lists({
   const turn = () => (arriving ? order++ : -1)
   const pieces: ReactNode[] = []
 
-  const addGroup = <Item,>({ key, label, about, items, row, empty, more }: Group<Item>) => {
-    pieces.push(<GroupHeading key={`${key}:heading`} label={label} count={items.length} about={about} variants={variants} order={turn()} />)
+  const addGroup = <Item,>({ key, label, about, items, count = items.length, row, empty, more }: Group<Item>) => {
+    pieces.push(<GroupHeading key={`${key}:heading`} label={label} count={count} about={about} variants={variants} order={turn()} />)
     for (const item of items) {
       pieces.push(row(item, turn()))
     }
@@ -350,6 +373,14 @@ function Lists({
       )
     }
   }
+
+  /** A pull request on its own, as a card, or a stack, as one frame of its layers. */
+  const unitRow = (group: string, mine: boolean) => (unit: PullUnit, order: number) =>
+    unit.kind === 'stack' ? (
+      <PullStack key={`${group}:${unit.key}`} unit={unit} mine={mine} live={live} now={now} variants={variants} order={order} />
+    ) : (
+      <PullCard key={`${group}:${unit.key}`} entry={unit.entry} place={unit.place} elsewhere={elsewhereWords(unit.elsewhere)} mine={mine} live={live} now={now} variants={variants} order={order} />
+    )
 
   const where = project ? ` in ${project.name}` : ''
   const nothingHere = tab === 'pulls' ? sections.requested.length + sections.mine.length + sections.reviewed.length === 0 : github.issues.length === 0
@@ -373,28 +404,31 @@ function Lists({
   } else if (tab === 'pulls') {
     addGroup({
       key: 'reviews',
-      label: 'Review requested',
+      label: PULL_LIST_LABELS.requested,
       about: 'Open pull requests that ask for your review.',
-      items: sections.requested,
-      row: (entry, order) => <PullCard key={`reviews:${entry.pull?.url ?? entry.id}`} entry={entry} mine={false} live={live} now={now} variants={variants} order={order} />,
+      items: arranged.requested,
+      count: sections.requested.length,
+      row: unitRow('reviews', false),
       empty: `Nothing${where} waits for your review.`,
       more: github.more.reviews,
     })
     addGroup({
       key: 'pulls',
-      label: 'Your pull requests',
+      label: PULL_LIST_LABELS.mine,
       about: 'Your open pull requests, with where their review and checks stand.',
-      items: sections.mine,
-      row: (entry, order) => <PullCard key={`pulls:${entry.pull?.url ?? entry.id}`} entry={entry} mine live={live} now={now} variants={variants} order={order} />,
+      items: arranged.mine,
+      count: sections.mine.length,
+      row: unitRow('pulls', true),
       empty: `You have no open pull requests${where}.`,
       more: github.more.pulls,
     })
     addGroup({
       key: 'ai',
-      label: 'Recently reviewed',
+      label: PULL_LIST_LABELS.reviewed,
       about: 'Other pull requests with a review: merged or closed since, or opened from a link. Work’s Ready for Review tab lists every review.',
-      items: sections.reviewed,
-      row: (entry, order) => <PullCard key={`ai:${entry.id}`} entry={entry} mine={false} live={live} now={now} variants={variants} order={order} />,
+      items: arranged.reviewed,
+      count: sections.reviewed.length,
+      row: unitRow('ai', false),
       empty: reviewListUnavailable ? 'Reviews are unavailable.' : `No other pull request${where} has a review yet.`,
       more: false,
     })
