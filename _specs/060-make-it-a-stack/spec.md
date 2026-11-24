@@ -68,6 +68,10 @@ The user again, with a picture of Work listing the five layers an agent had made
 - A2. `host/test/review-stack.test.ts` › "the prompt carries the change facts, with no place left unfilled, for each kind of change"; check: the prompt read whole, `host/src/review/stack.md`.
 - A3. `ui/test/review-stack-button.test.ts` › "the button is there on every change that has not merged, plain up to 300 changed lines and emphasized past them, and never about risk", › "a press asks the host once with the review, a second press while it is on its way does nothing, and the answer opens the hobkin page", › "an agent that was already there is opened the same, and a refusal stays as one line until the next press", › "with no host a press says a sample review starts nothing, and asks nobody" and › "Shift+S in the review puts the keyboard on the button, and S alone still hides the panel"; check (2026-11-24, still renders): the header with the plain button, the emphasized one in the dark theme, and a refusal in one line under the size row.
 - A4. `ui/test/work-ai-reviews-again.test.ts` › "a row names its build button by its state: Rebuild for a review of an older commit, Review now for one waiting its turn, Review again for the rest"; check (2026-11-24, still renders): a row of a current review and a row of an older commit in the dark theme, each with Make it a stack beside Remove, and the smallest list of one row.
+- A6. In hobkin, `test/cli-work-stack.test.mjs`, its eight tests: three branches built one on the other as layers 1 to 3 with the layer under each and its commit, a lone branch with no stack, the name on every layer, and a fork. `host/test/work.test.ts`: a row's place reaches the window as it is, and a missing or malformed one sends none.
+- A7. In hobkin, `test/cli-work-stack.test.mjs` (the bottom merges alone and the layer above is then the bottom; a merge, a publish and an offer of an upper layer refused by name) and the rewritten tests of `test/cli-work-done.test.mjs`.
+- A8. `host/test/review-stale.test.ts`: a layer's review starts at the commit under it, and the bottom layer and a change in no stack start from the default branch.
+- A9. `ui/test/work-stacks.test.ts`, its seven tests; check (2026-11-24, still renders, dark and light): the stack of five with its lines closed, layer 3 open with no Merge, the stack of two, and a stack beside two changes in no stack.
 - A5. check: nothing in `ui/`, `shared/` or `host/` names `stackPlan` or the plan's box (`rg "stack-plan|StackBox|stackPlan"` finds none).
 
 ## Steps
@@ -76,9 +80,10 @@ The user again, with a picture of Work listing the five layers an agent had made
 - [x] S2 (A3, A5). Window: the button starts the agent, and the plan in code is removed. 4cb85cb, 149c749. The review's key listener is registered once, so the app's window needs one Command+R before Shift+S works.
 - [x] S3 (A4). Window: Make it a stack and Rebuild on the rows of the AI Reviews list. 19e0e4d. Rebuild takes the place of Review again on a row of an older commit and calls what the review's own notice calls.
 - [x] S4. In the app's window, on a real pull request: one press, the agent's page, and what the agent built. The user, 2026-11-24, on rpsleague #183: the agent made five layers and registered them, and Work listed them as five unrelated cards.
-- [ ] S5 (A6, A7). Runtime: a stack read from the branches, its place on each finished row, bottom first, and the stack's name on `hobkin work item`.
-- [ ] S6 (A8). Host: the place passed to the window, and a layer's review started at the layer under it.
-- [ ] S7 (A9). Window: the stack as one group on Work.
+- [x] S5 (A6, A7). Runtime: a stack read from the branches, its place on each finished row, bottom first, and the stack's name on `hobkin work item`. hobkin adbdbaa and 831087e. A fork reads as layers 1, 2 and 2 of 3. A bottom merged by hand outside hobkin keeps the layer above waiting until the next survey.
+- [x] S6 (A8). Host: the place passed to the window, and a layer's review started at the layer under it. a6e1206, d7a849e, b9f8b5b. A review built before its change was in a stack reads as outdated and wants one Rebuild.
+- [x] S7 (A9). Window: the stack as one group on Work. 887d513, 0c3ef31. Seen in still renders only.
+- [ ] S8. In the app's window: the user's own stack of five as one group, and the bottom layer merged alone.
 
 ## Open questions
 
