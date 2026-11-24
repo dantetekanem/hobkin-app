@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
-import { namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
+import { buildInvocation, namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
 import { BRIDGE } from '../src/cli/bridge.mjs';
 import { scheduleExtension } from '../src/cli/schedule-extension.mjs';
 import { ownedRoleTools } from '../src/cli/owned-agent-extension.mjs';
@@ -305,4 +305,12 @@ test('a wake is steered into a run once, however late its Pi takes messages', as
   assert.equal(calls[0].heard.length, 1, 'heard once');
   assert.match(calls[0].heard[0], /"note":"Look at the deploy\."/);
   assert.deepEqual(app.agentSchedules.wakes(), []);
+});
+
+test('a routine or a Work run, which gets no schedule tools, is told nothing about them', t => {
+  for (const purpose of [undefined, 'work-discover', 'work-look', 'work-do']) {
+    const { args } = buildInvocation(request(t, { ...(purpose ? { purpose } : {}) }));
+    const told = args.join('\n');
+    assert.doesNotMatch(told, /hobkin_schedule|hobkin schedule|HOBKIN_SCHEDULE_TOKEN/, `a ${purpose ?? 'routine'} run`);
+  }
 });
