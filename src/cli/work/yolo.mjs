@@ -150,9 +150,11 @@ export function setYolo(root, { on, rate, rules } = {}, now = Date.now()) {
   const next = { on: on ?? before.on, rate: rate ?? before.rate };
   if (typeof next.on !== 'boolean') throw Error('YOLO mode is on or off.');
   if (!isRate(next.rate)) throw Error(`The lowest general rate YOLO mode accepts is a number from ${LOWEST_RATE} to ${HIGHEST_RATE}, with one decimal at most.`);
-  // Every rule is checked before anything is written. The lowest rate of the call's own `rate` wins over one named in `rules`.
+  // Every rule is checked before anything is written. The call's own `rate` wins over a lowest rate named in `rules`.
   const asked = rules ? everyProjectPatch(mode, rules) : {};
-  const kept = { ...plainYolo(mode), ...next, ...(asked.rules ? { rules: asked.rules } : {}), ...(asked.rate !== undefined && rate === undefined ? { rate: asked.rate } : {}) };
+  const named = asked.rate !== undefined && rate === undefined ? { rate: asked.rate } : {};
+  const written = asked.rules ? { rules: asked.rules } : {};
+  const kept = { ...plainYolo(mode), ...next, ...written, ...named };
   // A home with no project switches yet reads them through the main switch, so flipping it writes each project's down first.
   const flipped = next.on !== before.on;
   writeMode(root, { yolo: kept, ...(asked.reviewPulls === undefined ? {} : { reviewPulls: asked.reviewPulls }), ...(flipped ? { yoloProjects: settledSwitches(root, mode) } : {}) });

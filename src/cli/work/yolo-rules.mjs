@@ -190,12 +190,9 @@ export function everyProjectPatch(mode, change) {
   if (sameNames(change).length) throw Error('Same as all projects is for one project: the settings of all projects have nothing to return to.');
   const { lowestRate, reviewPulls, ...rules } = checkedChange(change);
   const yolo = plain(mode.yolo);
-  const patch = {
-    rules: { ...plain(yolo.rules), ...rules },
-    ...(lowestRate === undefined ? {} : { rate: lowestRate }),
-    ...(reviewPulls === undefined ? {} : { reviewPulls }),
-  };
-  return patch;
+  const rate = lowestRate === undefined ? {} : { rate: lowestRate };
+  const pulls = reviewPulls === undefined ? {} : { reviewPulls };
+  return { rules: { ...plain(yolo.rules), ...rules }, ...rate, ...pulls };
 }
 
 function projectPatch(mode, slug, change) {
@@ -217,7 +214,8 @@ export function setYoloRules(root, slug, change) {
   const mode = readMode(root);
   if (slug === null || slug === undefined) {
     const { rules, rate, reviewPulls } = everyProjectPatch(mode, change);
-    writeMode(root, { yolo: { ...plain(mode.yolo), rules, ...(rate === undefined ? {} : { rate }) }, ...(reviewPulls === undefined ? {} : { reviewPulls }) });
+    const yolo = { ...plain(mode.yolo), rules, ...(rate === undefined ? {} : { rate }) };
+    writeMode(root, { yolo, ...(reviewPulls === undefined ? {} : { reviewPulls }) });
     return rulesOf(root, null);
   }
   const project = chosenProjects(root).find(chosen => chosen.slug === slug);
