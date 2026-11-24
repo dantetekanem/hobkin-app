@@ -30,9 +30,9 @@ export function isMood(value: unknown): value is Mood {
 }
 
 /**
- * One of a face's boxes (Layer.tsx): art in the face's square, and the classes in hob.css that loop it. `at` is the
- * point it turns or grows about, in the art's units: the middle or the corner of what it draws, where the SVG parts
- * turned with their fill box before they were boxes.
+ * One of a face's boxes (Layer.tsx): art in the face's square, and the classes in hob.css that move it: a loop that
+ * plays for about two seconds when the mood changes. `at` is the point it turns or grows about, in the art's units: the
+ * middle or the corner of what it draws, where the SVG parts turned with their fill box before they were boxes.
  */
 export interface Piece {
   art: ReactNode

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react'
 import { faceMotion } from './face-motion.ts'
 import { Art, Layer } from './Layer.tsx'
+import { useMoodPlay } from './mood-play.ts'
 import { MOOD_LAYERS, type Mood, type Piece } from './moods.tsx'
 import { ART_BOX, BODY_PATH, FEET, drawingOf, type ArtPoint, type Pet, type PetChoice } from './pets.ts'
 import { PetLayers } from './PetPart.tsx'
@@ -20,7 +21,7 @@ export interface HobProps {
   tint?: string
   /** Eye color. hobkin's own eyes are yellow. An agent's are the color behind it, so they read on any hue. */
   eye?: string
-  /** Hold the pose: no looping animation. */
+  /** Hold the pose: no motion, not even when the mood changes. */
   still?: boolean
   /** Element the pointer is tracked in. The eyes follow the pointer while it is inside. */
   followWithin?: RefObject<HTMLElement | null>
@@ -33,13 +34,15 @@ const EYES_AT: ArtPoint = [100, 138]
 
 /**
  * The hobkin character, drawn as the chosen pet, every mood from hobkin's own art. The face is a stack of HTML boxes,
- * each with one SVG, so every loop moves a box on the compositor. A small face holds its parts and moves as a whole
- * (face-motion.ts).
+ * each with one SVG, so every play moves a box on the compositor. It plays its mood's motion when the mood changes, for
+ * about two seconds, and then rests (mood-play.ts). A small face holds its parts and moves as a whole (face-motion.ts).
  */
 export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = false, followWithin, className, title }: HobProps) {
   const art = MOOD_LAYERS[mood]
   const chosen = usePetChoice()
   const followRef = useEyeFollow(followWithin)
+  const faceRef = useRef<HTMLSpanElement | null>(null)
+  useMoodPlay(faceRef, mood)
   const style = { '--hob-stage': stage, '--hob-mark': tint, '--hob-eye': eye } as CSSProperties
   const drawing = drawingOf({ choice: chosen, pet, tint })
   const shown = pet ?? chosen
@@ -72,6 +75,7 @@ export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = f
 
   return (
     <span
+      ref={faceRef}
       className={['hob', className].filter(Boolean).join(' ')}
       data-mood={mood}
       data-pet={shown}
@@ -109,7 +113,7 @@ export function Hob({ mood = 'idle', pet, size = 44, stage, tint, eye, still = f
   )
 }
 
-/** A mood's pieces in the order they were drawn: a piece that loops in a box of its own, a still one as plain art. */
+/** A mood's pieces in the order they were drawn: a piece that moves in a box of its own, a still one as plain art. */
 function Pieces({ pieces }: { pieces: readonly Piece[] }) {
   return pieces.map((piece, index) =>
     piece.loop ? (

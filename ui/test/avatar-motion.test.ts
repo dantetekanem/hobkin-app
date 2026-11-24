@@ -9,7 +9,7 @@ test('a face under 40 px holds its parts and moves as a whole in its mood', () =
   assert.deepEqual(faceMotion({ size: 39.9, mood: 'sleepy', still: false }), { parts: false, whole: 'sleepy' })
 })
 
-test('a face of 40 px or more keeps every loop of its mood on its parts', () => {
+test('a face of 40 px or more moves each of its parts in its mood', () => {
   assert.deepEqual(faceMotion({ size: 40, mood: 'working', still: false }), { parts: true, whole: null })
   assert.deepEqual(faceMotion({ size: 184, mood: 'celebrating', still: false }), { parts: true, whole: null })
 })
