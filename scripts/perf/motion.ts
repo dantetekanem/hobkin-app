@@ -3,6 +3,8 @@
  * forever (`infinite`) with its file, line, selector and the properties its keyframes change, and fails one that
  * changes anything but `transform` or `opacity`, or that is set on a part of an SVG. WebKit runs only transform and
  * opacity of an HTML box on the compositor; anything else restyles, lays out and paints on the main thread every frame.
+ * It also fails any endless animation under ui/src/avatar: a face and its crab play their motion for about two seconds
+ * when the mood changes, then rest (2026-11-23), because every face loop that runs makes WebKit draw every frame.
  * Run from the repository root:
  *
  *   node scripts/perf/motion.ts [path ...]
@@ -23,6 +25,7 @@ import { join, relative, resolve } from 'node:path'
 
 const ROOT = resolve(import.meta.dirname, '../..')
 const SOURCE = join(ROOT, 'ui/src')
+const FACES = join(SOURCE, 'avatar')
 const MOVES_ON_THE_COMPOSITOR = new Set(['transform', 'opacity'])
 const SVG_ELEMENTS = new Set(['g', 'path', 'circle', 'ellipse', 'rect', 'line', 'polyline', 'polygon', 'text', 'tspan', 'use', 'image', 'symbol', 'marker', 'foreignobject'])
 const FACE_PART = /^hob-/
@@ -209,8 +212,8 @@ function endlessNames(block: Block, keyframes: Map<string, Set<string>>): string
   return names
 }
 
-/** What keeps an endless animation off the compositor, if anything. */
-function problemsOf(selector: string, name: string, changes: Set<string> | undefined): string[] {
+/** What keeps an endless animation off the compositor, or off a face, if anything. */
+function problemsOf(file: string, selector: string, name: string, changes: Set<string> | undefined): string[] {
   const problems: string[] = []
   if (!changes) problems.push(`no @keyframes ${name} under ui/src`)
 
@@ -218,6 +221,7 @@ function problemsOf(selector: string, name: string, changes: Set<string> | undef
   if (offThread.length > 0) problems.push(`changes ${offThread.sort().join(', ')}`)
 
   if (isSvgPart(selector)) problems.push('set on a part of an SVG')
+  if (file.startsWith(`${FACES}/`)) problems.push('a face plays its mood once, for about two seconds, and never loops')
   return problems
 }
 
@@ -235,7 +239,7 @@ function endlessIn(file: string, keyframes: Map<string, Set<string>>): Endless[]
           selector,
           keyframes: name,
           properties: [...(changes ?? [])].sort(),
-          problems: problemsOf(selector, name, changes),
+          problems: problemsOf(file, selector, name, changes),
         })
       }
     }
