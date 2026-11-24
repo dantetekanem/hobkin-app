@@ -1,6 +1,6 @@
 {
   "name": "hobkin-client",
-  "version": "0.1.23",
+  "version": "0.1.24",
   "private": true,
   "type": "module",
   "description": "A Mac client for hobkin: the conversation on the left, its work on the right.",
