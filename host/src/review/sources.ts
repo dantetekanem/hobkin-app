@@ -52,6 +52,8 @@ export interface ChangeFacts {
   title: string
   branch: string | null
   head: string | null
+  /** Its place in a stack: a layer starts at the commit under it, the bottom layer where a change always started. */
+  stack?: { base: string | null }
 }
 
 /**
@@ -117,7 +119,8 @@ export function changeSource({
     return { facts, repo, target }
   }
   const startAt = async (target: ReviewTarget, head: string) => {
-    const { repo } = where(target)
+    const { facts, repo } = where(target)
+    if (facts.stack?.base) return facts.stack.base
     return startOfChange({ reader: git(repo), into: await baseOf(repo), head, recorded: recorded?.(target) ?? null })
   }
   return {

@@ -110,3 +110,32 @@ test('a review whose source cannot say where its change starts says nothing of i
 
   assert.equal('startsAt' in reviews.status(id), false)
 })
+
+test("a layer of a stack starts where the layer under it is, and the bottom layer and a change in no stack start as they did", async () => {
+  const BELOW = 'c'.repeat(40)
+  const FORKED = 'd'.repeat(40)
+  const target = targetOfReviewId('change:hobkin:7d02c9')!
+  const git = { resolve: async () => null, mergeBase: async () => FORKED } as unknown as GitReader
+  const startOf = (stack?: { base: string | null }) =>
+    changeSource({
+      find: () => ({ project: 'hobkin', title: 'Layer', branch: null, head: 'e'.repeat(40), ...(stack ? { stack } : {}) }),
+      repoOf: () => '/repo',
+      baseOf: async () => 'main',
+      git: () => git,
+    }).start!(target, 'e'.repeat(40))
+
+  assert.equal(await startOf({ base: BELOW }), BELOW, 'a layer starts at the commit under it')
+  assert.equal(await startOf({ base: null }), FORKED, 'the bottom layer starts from the default branch')
+  assert.equal(await startOf(), FORKED, 'a change in no stack starts from the default branch')
+})
+
+test("a review built from the default branch before its change was a layer says it starts elsewhere once its change is a layer, so the window calls it outdated", async (t) => {
+  const id = 'change:hobkin:7d02c9'
+  const BELOW = 'c'.repeat(40)
+  const { reviews } = reviewsAt(t, id, { startsAt: BELOW })
+
+  await reviews.lookAgain(id, () => 0)
+
+  assert.equal(reviews.status(id).startsAt, BELOW)
+  assert.notEqual(reviews.get(id).review.change.base, BELOW)
+})

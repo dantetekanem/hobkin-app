@@ -345,7 +345,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       change: changeSource({
         find: (slug, item) => {
           const change = find(slug, item)
-          return change && { project: change.project, title: change.title, branch: change.branch, head: change.head }
+          return change && { project: change.project, title: change.title, branch: change.branch, head: change.head, ...(change.stack ? { stack: { base: change.stack.base } } : {}) }
         },
         repoOf,
         baseOf: defaultBranch,
