@@ -21,7 +21,7 @@ import { assertState, attentionView, closingItems, itemCounts, itemsView, landin
 import { reviewView } from './review.mjs';
 import { readSignals, recordSignals, signalGaps } from './signals.mjs';
 import {
-  agentStates, chooseAutoPick, currentRequest, fileItem, folderSearched, issueMode, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject,
+  agentStates, chooseAutoPick, currentRequest, fileItem, folderSearched, isGoal, issueMode, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject,
   readDiscovery, readItems, readMode, readProject, readProjects, readState, setAgents, setDailyTokens, tokenLabel, updateItem, writeMode,
 } from './store.mjs';
 import { gitOrNothing, prepareTree } from './tree.mjs';
@@ -233,6 +233,7 @@ function statusOf(root, outlook, planFor) {
       prMode: landing(project),
       issues: issueMode(project),
       ...itemCounts(items),
+      ...(isGoal(project) ? { done: items.filter(item => item.state === 'done').length } : {}),
       unmerged: unmerged.perProject[project.slug] ?? 0,
       nextLookAt: project.state === 'chosen' ? nextLookAt(root, project) : null,
       lookError,
@@ -337,6 +338,8 @@ function reviewScores(root, slug, { id, review }) {
   return keptReview(review);
 }
 
+const GOAL_HAS_NO_BRANCHES = 'A goal has no branches or pull requests. Finish a step with the state done, a summary and what shows it.';
+
 /** These take no lock. They only append or rewrite `mode.json`, and the owner picks that up on its next tick. */
 export async function runWorkCommand(requestedRoot, [action, ...args], input, { state, brief } = {}) {
   const root = resolveDataRoot(requestedRoot);
@@ -421,6 +424,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'item': {
       // Agents file work through this, and `max`, `grade`, `reviewAsked`, `reviewAskedFor`, `modelAsked`, `modelAskedFor`, `workNote`, the issue an item came from and what a merge, an offer or a deploy records are only ever hobkin's or the user's word, so none can arrive here.
       const { max, grade, reviewAsked, reviewAskedFor, modelAsked, modelAskedFor, workNote, landed, closedByUser, offerHeldUntil, pushbacks, withMainAgent, issue, deploy, ...item } = await readJson(input);
+      if (isGoal(readProject(root, args[0])) && (item.branch !== undefined || item.pr !== undefined || ['branch', 'pr'].includes(item.state))) throw Error(GOAL_HAS_NO_BRANCHES);
       // A branch an agent already made, with no item yet, is registered as finished work. Its `issue` only finds hobkin's own item for that issue.
       if (!item.id && item.branch !== undefined) return adoptBranch(root, args[0], { ...item, ...(issue === undefined ? {} : { issue }) });
       if (!item.id) return fileItem(root, args[0], item);

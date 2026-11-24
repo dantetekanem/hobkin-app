@@ -10,7 +10,7 @@ import { areaOf, isTestPath } from './patterns.mjs';
 import { readOnce } from './one-read.mjs';
 import { modelsAt, sameCodeAs, specsAt } from './proofs.mjs';
 import { BRANCH_PREFIX, changesOnlyDocs, defaultBranch, gitOrNothing, gitWithin, isMerged, realPlace } from './tree.mjs';
-import { chosenProjects, fileItem, paths, readItems, readKeptJson, runnableStates, updateItem } from './store.mjs';
+import { chosenProjects, fileItem, isGoal, paths, readItems, readKeptJson, runnableStates, updateItem } from './store.mjs';
 
 export const SHIP_KIND = 'pr-fix';
 const SHORT_SHA = 7;
@@ -642,7 +642,8 @@ export async function surveyUnmerged(root, { now = Date.now(), gh = defaultGh, r
   const filed = [];
   const adopted = [];
   const retired = [];
-  for (const { slug, path } of chosenProjects(root)) {
+  // A goal has no branches, and git would read the repository around its folder.
+  for (const { slug, path } of chosenProjects(root).filter(project => !isGoal(project))) {
     const { clone, trees } = paths(root, slug);
     // A name alone says a branch is a backup, so this reads nothing from the repository. It goes first, so no item for a backup counts as finished work below.
     retired.push(...retireBackupWork(root, slug, now));
