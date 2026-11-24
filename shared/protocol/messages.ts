@@ -89,6 +89,8 @@ export interface StateMessage {
   models?: ModelsState
   /** The user's GitHub as the host reads it through gh, whole, whenever any of it changed and with every reset. */
   github?: GitHubState
+  /** Each integration's own state by its id (spec 064), whole per integration whenever it differs and with every reset. An id missing from a reset is an integration this host does not run. */
+  slices?: Record<string, unknown>
   /** The MCP servers in Pi's configuration with their state, secrets hidden, whole, whenever any of it changed and with every reset. */
   integrations?: IntegrationsState
   /** Work mode as the Work screen draws it, whole, whenever any of it changed and with every reset. Null once hobkin's snapshot has none. */

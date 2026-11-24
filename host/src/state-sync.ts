@@ -118,6 +118,8 @@ export interface HostFacts {
   models: ModelsState | null
   /** The user's GitHub as gh reads it. Left out by a host that does not read it. */
   github?: GitHubState
+  /** Each integration's state by its id (spec 064). Left out by a host that runs none. */
+  slices?: Record<string, unknown>
   /** The MCP servers in Pi's configuration, with their secrets hidden. Left out by a host that does not read them. */
   integrations?: IntegrationsState
   /** Work mode as the Work screen draws it, read from the snapshot. Null or left out while the snapshot has none, as in a view the terminal saved. */
@@ -153,6 +155,8 @@ export class StateSync {
   private models: ModelsState | null
   private github: GitHubState | null
   private integrations: IntegrationsState | null
+  /** Each integration's slice as last sent, with the JSON it was compared by. */
+  private slices = new Map<string, { value: unknown; json: string }>()
   private work: WorkState | null = null
   private proofs: ProofsState | null = null
   private canvas: CanvasState | null = null
@@ -173,7 +177,7 @@ export class StateSync {
   private readonly now: () => number
 
   constructor(
-    { owner, signIn, models, github, integrations, proofs, canvas, canvases, appearance, themes }: Omit<HostFacts, 'snapshot'>,
+    { owner, signIn, models, github, integrations, slices, proofs, canvas, canvases, appearance, themes }: Omit<HostFacts, 'snapshot'>,
     { now = Date.now }: { now?: () => number } = {},
   ) {
     this.now = now
@@ -186,6 +190,7 @@ export class StateSync {
     this.models = models
     this.github = github ?? null
     this.integrations = integrations ?? null
+    this.slices = new Map(Object.entries(slices ?? {}).map(([id, value]) => [id, { value, json: JSON.stringify(value) }]))
     this.proofs = proofs ?? null
   }
 
@@ -223,6 +228,7 @@ export class StateSync {
       ...(this.models ? { models: this.models } : {}),
       ...(this.github ? { github: this.github } : {}),
       ...(this.integrations ? { integrations: this.integrations } : {}),
+      ...(this.slices.size ? { slices: this.slicesSent(true) } : {}),
       ...(this.work ? { work: this.work } : {}),
       ...(this.proofs ? { proofs: this.proofs } : {}),
       ...(this.canvas ? { canvas: this.canvas } : {}),
@@ -236,12 +242,13 @@ export class StateSync {
    * What changed, or null when nothing did. A new owner state starts over, because its snapshot is another source.
    * Without `activity`, the jobs' feeds are only kept, not compared: no window that connects reads them whole.
    */
-  update({ owner, signIn, models, github, integrations, work = null, proofs, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts, { activity: whole = true }: { activity?: boolean } = {}): StateMessage | null {
+  update({ owner, signIn, models, github, integrations, slices, work = null, proofs, canvas, canvases, nudge, appearance, themes, snapshot }: HostFacts, { activity: whole = true }: { activity?: boolean } = {}): StateMessage | null {
     const ownerChanged = this.differs('owner', owner, this.owner)
     const signInChanged = this.differs('signIn', signIn, this.signIn)
     const modelsChanged = models !== null && this.differs('models', models, this.models)
     const githubChanged = github !== undefined && this.differs('github', github, this.github)
     const integrationsChanged = integrations !== undefined && this.differs('integrations', integrations, this.integrations)
+    const slicesChanged = slices === undefined ? [] : this.changedSlices(slices)
     const workChanged = this.differs('work', work, this.work)
     const proofsChanged = proofs !== undefined && this.differs('proofs', proofs, this.proofs)
     const canvasChanged = canvas !== undefined && this.differs('canvas', canvas, this.canvas)
@@ -296,6 +303,7 @@ export class StateSync {
       !modelsChanged &&
       !githubChanged &&
       !integrationsChanged &&
+      !slicesChanged.length &&
       !workChanged &&
       !proofsChanged &&
       !canvasChanged &&
@@ -325,6 +333,7 @@ export class StateSync {
       // A UI that starts over forgets the slice, so a reset always carries it.
       ...(this.github && (githubChanged || startOver) ? { github: this.github } : {}),
       ...(this.integrations && (integrationsChanged || startOver) ? { integrations: this.integrations } : {}),
+      ...(this.slices.size && (slicesChanged.length || startOver) ? { slices: this.slicesSent(startOver, slicesChanged) } : {}),
       // Work mode goes whole, and null once the snapshot has none, so a UI never keeps one that is gone.
       ...(workChanged || (startOver && this.work) ? { work: this.work } : {}),
       ...(this.proofs && (proofsChanged || startOver) ? { proofs: this.proofs } : {}),
@@ -348,6 +357,26 @@ export class StateSync {
     const before = this.seen.has(fact) ? this.seen.get(fact) : JSON.stringify(held)
     this.seen.set(fact, json)
     return json !== before
+  }
+
+  /** The ids of the integrations whose state differs from what was last sent, now held as it is. A new integration differs. */
+  private changedSlices(slices: Record<string, unknown>): string[] {
+    const changed: string[] = []
+    const next = new Map<string, { value: unknown; json: string }>()
+    for (const [id, value] of Object.entries(slices)) {
+      const held = this.slices.get(id)
+      // The same object is the same state, because a part gives a new one to change it.
+      const json = held && held.value === value ? held.json : JSON.stringify(value)
+      next.set(id, { value, json })
+      if (!held || held.json !== json) changed.push(id)
+    }
+    this.slices = next
+    return changed
+  }
+
+  /** The slices as sent: every one, or only the ids that changed. */
+  private slicesSent(all: boolean, changed: readonly string[] = []): Record<string, unknown> {
+    return Object.fromEntries([...this.slices].filter(([id]) => all || changed.includes(id)).map(([id, { value }]) => [id, value]))
   }
 
   /** The window's work status. The same status keeps what it gave, so its encoding is kept too, unless `rebuild` asks for it anew. */

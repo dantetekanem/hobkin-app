@@ -348,3 +348,16 @@ test('hobkin\'s work status reaches the window as its projects alone, so a runni
   assert.deepEqual(sync.update({ ...facts, snapshot: { busy: false, work: status(300, 3) } })?.set, { work: { projects: [{ ...shown.projects[0], open: 3 }] } })
   assert.deepEqual(sync.full().set?.work, { projects: [{ ...shown.projects[0], open: 3 }] })
 })
+
+test("an integration's slice is sent whole when it differs and with every reset, and an equal one sends nothing", () => {
+  const facts = { owner: { state: 'live', limits: { images: 1, imageBytes: 1 } } as const, signIn: { status: 'unknown' } as const, models: null, snapshot: null }
+  const sync = new StateSync({ ...facts, slices: { echo: { said: 0 }, other: { n: 1 } } })
+  assert.deepEqual(sync.full().slices, { echo: { said: 0 }, other: { n: 1 } }, 'a reconnect receives each one')
+  assert.equal(sync.update({ ...facts, slices: { echo: { said: 0 }, other: { n: 1 } } }), null, 'equal new objects send nothing')
+  const same = { n: 1 }
+  assert.deepEqual(sync.update({ ...facts, slices: { echo: { said: 1 }, other: same } })?.slices, { echo: { said: 1 } }, 'only the one that differs, whole')
+  assert.equal(sync.update({ ...facts, slices: { echo: { said: 1 }, other: same } }), null)
+  assert.deepEqual(sync.update({ ...facts, owner: { state: 'failed', message: 'x' }, slices: { echo: { said: 1 }, other: same } })?.slices, { echo: { said: 1 }, other: { n: 1 } }, 'every one with a reset')
+  assert.equal('slices' in new StateSync(facts).full(), false, 'a host that runs none sends none')
+  assert.equal(new StateSync(facts).update(facts), null)
+})
