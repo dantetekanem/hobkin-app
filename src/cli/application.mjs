@@ -158,10 +158,9 @@ const UNSEEN_MS = 10 * 60000;
 const aboutDecision = ({ tldr, question, choices }) => ({ title: tldr, body: [question, '', ...choices.map(({ label }) => `- ${label}`)].join('\n') });
 
 // What a schedule's wake may be (056-agent-schedules): as a hidden turn of the main chat, and as a message steered into
-// a working turn. A delivery that cannot reach its agent in this long is tried again later.
+// a working turn.
 const MAIN_WAKE_MOST = 32768;
 const STEER_MOST = 4096;
-const DELIVERY_WAIT_MS = 30000;
 
 const NOT_A_RUN = 'Nothing was done: that is not a run hobkin is running now. hobkin schedule works only from a run hobkin started, while it runs.';
 const NO_COMMANDS = 'This run\'s Claude Code permissions are not "all", so hobkin runs no command for it: a scheduled command would run without the prompt Claude Code would have shown. Schedule a plain wake instead, with no command, and look yourself when it wakes you.';
@@ -170,13 +169,6 @@ const NO_COMMANDS = 'This run\'s Claude Code permissions are not "all", so hobki
 function scheduleOwnerOf(runId) {
   if (isTurnRunId(runId)) return { kind: 'hobkin', id: runId.split(':')[1] };
   return String(runId).startsWith('session:') ? { kind: 'run', id: runId } : null;
-}
-
-/** Whether `promise` settled true within `ms`. One that takes longer counts as not yet. */
-function within(promise, ms) {
-  let timer;
-  return Promise.race([promise, new Promise(resolve => { timer = setTimeout(() => resolve(false), ms); timer.unref(); })])
-    .finally(() => clearTimeout(timer));
 }
 
 /** The schedules agents keep, as the home holds them. One that cannot be read costs only the schedules: hobkin opens without them. */
@@ -1150,9 +1142,11 @@ export class HobkinApplication {
       const waitsElsewhere = owner.kind === 'main' || (owner.kind === 'run' && runs[owner.id]?.status !== 'running');
       if (delivering || waitsElsewhere) continue;
 
+      // The owner's place is held until this delivery itself settles, however long its run takes to take messages, so
+      // one wake is never sent twice. A run that ends meanwhile settles it, and its wake waits for the next way in.
       this.scheduleDeliveries.add(key);
       const delivery = owner.kind === 'hobkin' ? this.wakeHobkin(owner.id, wakes) : this.steerRun(owner.id, wakes);
-      void within(delivery, DELIVERY_WAIT_MS)
+      void delivery
         .then(done => { if (done) this.agentSchedules.delivered(wakes.map(wake => wake.id)); })
         .catch(() => {})
         .finally(() => this.scheduleDeliveries.delete(key));

@@ -275,3 +275,34 @@ test('a reset ends the main chat\'s schedules, and a wake not delivered before a
   assert.equal(app.agentSchedules.live({ kind: 'main' }), 0);
   assert.equal((await app.refresh()).agentSchedules.find(item => item.id === kept.id).endedWhy, 'the chat was reset');
 });
+
+test('a wake is steered into a run once, however late its Pi takes messages', async t => {
+  const h = home(t);
+  const calls = [];
+  const app = await h.open({ runHarness: async (request, options) => {
+    if (request.purpose) return notHere;
+    // Pi takes the run's messages only when the test says, as a slow start would.
+    return heldCall(calls, request, { ...options, onReady: send => { calls.ready = () => options.onReady(send); } });
+  } });
+  await startSession({ root: h.root, title: 'Slow start', brief: 'Watch.', cwd: h.root, approved: true, tier: 'mid' });
+  void app.tickSessions();
+  await until(() => calls.length === 1);
+  await calls[0].options.schedules.make({ name: 'Ping', in: '1m', note: 'Look at the deploy.' });
+  h.clock.now += MINUTE;
+
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await app.tickAgentSchedules();
+  t.mock.timers.tick(65000);
+  for (let tick = 0; tick < 3; tick++) {
+    await new Promise(resolve => setImmediate(resolve));
+    await app.tickAgentSchedules();
+  }
+  t.mock.timers.reset();
+  calls.ready();
+  await until(() => calls[0].heard.length > 0);
+  await wait(50);
+
+  assert.equal(calls[0].heard.length, 1, 'heard once');
+  assert.match(calls[0].heard[0], /"note":"Look at the deploy\."/);
+  assert.deepEqual(app.agentSchedules.wakes(), []);
+});
