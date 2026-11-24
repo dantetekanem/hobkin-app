@@ -76,6 +76,42 @@ export function pressProof(
   }
 }
 
+/**
+ * A model's row in the panel or on a step's card: it opens its run beside the review, or swaps the open run for it in
+ * place, and the row of the run open now closes it.
+ */
+export function pressRow(session: ProofHolder, run: string, from: string | null): void {
+  if (session.proof?.run === run) session.closeProof()
+  else session.openProof(run, from)
+}
+
+/** What a model's row says it does: open its run, or close it while it is the one open. */
+export function rowWords(open: ProofHolder['proof'], run: string): 'Open run' | 'Close run' {
+  return open?.run === run ? 'Close run' : 'Open run'
+}
+
+/** The review, as far as giving the keyboard back needs it: its controls, and itself. */
+export interface KeyboardRoot {
+  querySelectorAll(selector: string): Iterable<{ closest(selector: string): unknown; focus(options?: FocusOptions): void }>
+  focus(options?: FocusOptions): void
+}
+
+/**
+ * When the run closes, by T, Escape or its Close button, the keyboard goes back to the control that opened it (its
+ * `data-proof-from`), never the copy of a card measured out of sight, or to the review when T opened it from there or
+ * that control is gone. Says which.
+ */
+export function giveKeyboardBack(review: KeyboardRoot, from: string | null): 'control' | 'review' {
+  const named = from == null ? [] : [...review.querySelectorAll(`[data-proof-from="${from.replace(/["\\]/g, '\\$&')}"]`)]
+  const control = named.find((each) => !each.closest('[inert]'))
+  if (control) {
+    control.focus({ preventScroll: true })
+    return 'control'
+  }
+  review.focus({ preventScroll: true })
+  return 'review'
+}
+
 /** The panel's width with the check and the proof side by side: 1,100 pixels of content, its padding and a scroll bar. */
 export const PROOF_SIDE = SIDE_BY_SIDE_PX + 60
 /** The least it takes beside the graph, as tabs. */

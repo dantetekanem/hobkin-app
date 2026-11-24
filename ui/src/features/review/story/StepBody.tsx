@@ -10,7 +10,8 @@ import { KIND, LevelBadge, statusOf } from '../graph/kinds.tsx'
 import { isChangedCode, originWords, trailOf, type Trail } from '../graph/trail.ts'
 import { AskLink } from '../panel/AskLink.tsx'
 import { questionAsk } from '../panel/ask.ts'
-import { useReduced, useSessionStore } from '../state/context.tsx'
+import { pressRow, rowWords } from '../proof/beside.ts'
+import { useReduced, useSession, useSessionStore } from '../state/context.tsx'
 import type { ModelLine } from './node-models.ts'
 import { firstTests, NO_TEST, noTestWords, splitTests, TEST_HEADINGS, testsFor, type TestsGraph } from './node-tests.ts'
 import type { CardContent } from './StepCard.tsx'
@@ -271,12 +272,14 @@ const MODEL_ICON: Readonly<Record<Tone, LucideIcon>> = { ok: Check, bad: X, warn
 function ModelRow({ model }: { model: ModelLine }) {
   const store = useSessionStore()
   const reduced = useReduced()
+  const open = useSession((session) => session.proof)
   const Icon = MODEL_ICON[model.tone]
+  const words = model.run ? rowWords(open, model.run) : ''
   const parts = (
     <>
       <Icon className={cn('rv-tests-icon', model.tone === 'live' && !reduced && 'animate-spin')} data-tone={model.tone} aria-hidden="true" />
       <span className="rv-tests-name">{model.text}</span>
-      <span className="rv-tests-result">{model.run ? 'Open run' : ''}</span>
+      <span className="rv-tests-result">{words}</span>
     </>
   )
   if (!model.run) {
@@ -289,7 +292,15 @@ function ModelRow({ model }: { model: ModelLine }) {
   const run = model.run
   const from = `card:${model.spec}`
   return (
-    <button type="button" className="rv-tests-row" data-model="" data-proof-from={from} title={`${model.text}. hobkin ran this check itself. Opens it beside the review.`} onClick={() => store.getState().openProof(run, from)}>
+    <button
+      type="button"
+      className="rv-tests-row"
+      data-model=""
+      data-proof-from={from}
+      aria-expanded={words === 'Close run'}
+      title={`${model.text}. hobkin ran this check itself. ${words === 'Close run' ? 'Open beside the review: press to close it (Esc).' : 'Opens it beside the review.'}`}
+      onClick={() => pressRow(store.getState(), run, from)}
+    >
       {parts}
     </button>
   )

@@ -6,7 +6,7 @@ import type { Review } from '#shared/review/types.ts'
 import { layoutOf } from '../src/features/proofs/proof-layout.ts'
 import { escapeReview } from '../src/features/review/entry.ts'
 import { pressKey } from '../src/features/review/keys.ts'
-import { firstToLook, GRAPH_KEEPS, onProofKey, pressProof, PROOF_TABS, proofRoom, proofSiblings } from '../src/features/review/proof/beside.ts'
+import { firstToLook, giveKeyboardBack, GRAPH_KEEPS, onProofKey, pressProof, pressRow, PROOF_TABS, proofRoom, proofSiblings, rowWords } from '../src/features/review/proof/beside.ts'
 import { createReviewMemory } from '../src/features/review/state/memory.ts'
 import { createSession } from '../src/features/review/state/session.ts'
 import { reviewModelRows } from '../src/features/review/story/node-models.ts'
@@ -103,6 +103,70 @@ test('T opens the proof beside the review and T or Escape closes it, with the re
   t()
   t(true)
   assert.deepEqual(expanded, ['beta', null])
+})
+
+test('Escape closes the run, or the code when it was opened after the run, one press each, and never the review while the run is open', () => {
+  const session = createSession(sample, createReviewMemory())
+  const escape = () => escapeReview(session.getState(), () => assert.fail('the review stays open'))
+  const node = sample.nodes.find((entry) => entry.anchors.length > 0)!.id
+
+  // The run, then the code: the code closes first, then the run.
+  session.getState().openProof('beta', 'row:beta')
+  assert.equal(session.getState().openCode(node), true)
+  escape()
+  assert.equal(session.getState().code, null)
+  assert.deepEqual(session.getState().proof, { run: 'beta', from: 'row:beta' })
+  escape()
+  assert.equal(session.getState().proof, null)
+
+  // The code, then the run: the run closes first, then the code.
+  session.getState().openCode(node)
+  session.getState().openProof('alpha', null)
+  escape()
+  assert.equal(session.getState().proof, null)
+  assert.notEqual(session.getState().code, null)
+  escape()
+  assert.equal(session.getState().code, null)
+})
+
+test("a model's row reads Close run while its run is open and closes it; another row's swaps it in place, and one Escape closes it", () => {
+  const session = createSession(sample, createReviewMemory())
+  assert.equal(rowWords(null, 'beta'), 'Open run')
+
+  pressRow(session.getState(), 'beta', 'row:beta')
+  assert.deepEqual(session.getState().proof, { run: 'beta', from: 'row:beta' })
+  assert.equal(rowWords(session.getState().proof, 'beta'), 'Close run')
+  assert.equal(rowWords(session.getState().proof, 'alpha'), 'Open run')
+
+  pressRow(session.getState(), 'alpha', 'row:alpha')
+  assert.deepEqual(session.getState().proof, { run: 'alpha', from: 'row:alpha' }, 'swapped in place')
+  escapeReview(session.getState(), () => assert.fail('one Escape closes the run, not the review'))
+  assert.equal(session.getState().proof, null)
+
+  pressRow(session.getState(), 'beta', 'row:beta')
+  pressRow(session.getState(), 'beta', 'row:beta')
+  assert.equal(session.getState().proof, null, 'the open run\'s row closes it')
+})
+
+test("the run's Close does what Escape does: the run closes, and the keyboard goes back to the control that opened it, else to the review", () => {
+  const closed = createSession(sample, createReviewMemory())
+  const escaped = createSession(sample, createReviewMemory())
+  for (const session of [closed, escaped]) session.getState().openProof('beta', 'row:beta')
+  closed.getState().closeProof()
+  escapeReview(escaped.getState(), () => assert.fail('the review stays open'))
+  assert.equal(closed.getState().proof, null)
+  assert.equal(escaped.getState().proof, null)
+
+  const focused: string[] = []
+  const control = (name: string, inert = false) => ({ closest: (selector: string) => (inert && selector === '[inert]' ? {} : null), focus: () => focused.push(name) })
+  const review = (controls: ReturnType<typeof control>[]) => ({
+    querySelectorAll: (selector: string) => (selector === '[data-proof-from="row:beta"]' ? controls : []),
+    focus: () => focused.push('review'),
+  })
+  assert.equal(giveKeyboardBack(review([control('copy', true), control('row')]), 'row:beta'), 'control')
+  assert.equal(giveKeyboardBack(review([]), 'row:beta'), 'review', 'a row that is gone gives it to the review')
+  assert.equal(giveKeyboardBack(review([control('row')]), null), 'review', 'T from the review gives it back to the review')
+  assert.deepEqual(focused, ['row', 'review', 'review'], 'never to the copy of a card measured out of sight')
 })
 
 test('T says so when the change has no model check to open, and opens nothing', () => {

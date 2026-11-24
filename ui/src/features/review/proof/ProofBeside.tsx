@@ -5,7 +5,7 @@ import { openRunAmong } from '../../proofs/open-run.ts'
 import { MENU } from '../panel/Header.tsx'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import { useModelRows } from '../story/use-model-checks.ts'
-import { pressProof, proofRoom, proofSiblings } from './beside.ts'
+import { giveKeyboardBack, pressProof, proofRoom, proofSiblings } from './beside.ts'
 
 /** The proof's code loads when it first opens, and the review's does not wait for it. */
 const ProofPanel = lazy(() => import('../../proofs/ProofPanel.tsx').then((module) => ({ default: module.ProofPanel })))
@@ -20,12 +20,6 @@ export function proofFrom(element: Element | null): string | null {
   return element?.closest?.('[data-proof-from]')?.getAttribute('data-proof-from') ?? null
 }
 
-/** The control `from` names, as drawn: never the copy of a card measured out of sight. */
-function controlOf(root: HTMLElement, from: string): HTMLElement | null {
-  const named = root.querySelectorAll<HTMLElement>(`[data-proof-from="${CSS.escape(from)}"]`)
-  return [...named].find((control) => !control.closest('[inert]')) ?? null
-}
-
 interface ProofBesideProps {
   /** The review's width. */
   canvas: number
@@ -38,8 +32,8 @@ interface ProofBesideProps {
 /**
  * The proof beside the review (053-work-control-room, "Proofs"; the user, 2026-11-21: "the TLA+ and TLAPS approval
  * should be much easier to view, move across, have in the same screen, using keys to open/close"). T opens it on the
- * change's first model that needs a look, a click on a model's row opens it on that model, and T, Escape or its close
- * button closes it. J and K move through the change's models in the order the review lists them, and Shift+T or its
+ * change's first model that needs a look, a click on a model's row opens it on that model or swaps it in place, and T,
+ * Escape, its Close button or the open model's row closes it. J and K move through the change's models in the order the review lists them, and Shift+T or its
  * expand button opens the full page, which comes back to the review as it was, with the proof open again.
  *
  * It sits at the right, the full height of the review, at a fixed width (`proofRoom`), so nothing moves while its code
@@ -108,9 +102,7 @@ export function ProofBeside({ canvas, room, root, keys }: ProofBesideProps) {
     const was = opener.current
     opener.current = null
     const review = root.current
-    if (!was || !review) return
-    const control = was.from ? controlOf(review, was.from) : null
-    ;(control ?? review).focus({ preventScroll: true })
+    if (was && review) giveKeyboardBack(review, was.from)
   }, [proof, root])
 
   // The frame's menu floats over the middle of the top: where it lies over the proof, the proof starts under it.
@@ -131,7 +123,14 @@ export function ProofBeside({ canvas, room, root, keys }: ProofBesideProps) {
         >
           <Suspense fallback={<p className="px-5 pt-4 text-[13px] text-muted-foreground">Opening the proof…</p>}>
             <div className="min-h-0 flex-1">
-              <ProofPanel run={proof.run} siblings={siblings} onClose={() => store.getState().closeProof()} onExpand={expand} />
+              <ProofPanel
+                run={proof.run}
+                siblings={siblings}
+                onClose={() => store.getState().closeProof()}
+                onExpand={expand}
+                // J and K move it to another model: the review knows which is open, so that model's row says Close run.
+                onShow={(id) => store.getState().openProof(id, store.getState().proof?.from ?? null)}
+              />
             </div>
             <TakeKeyboard box={box} run={proof.run} />
           </Suspense>

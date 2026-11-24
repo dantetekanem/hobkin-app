@@ -3,8 +3,8 @@ import { Kbd } from '@/components/ui/kbd.tsx'
 import { cn } from '@/lib/utils.ts'
 import '../../proofs/proofs.css'
 import type { Tone } from '../../proofs/run/run-view.ts'
-import { firstToLook } from '../proof/beside.ts'
-import { useSessionStore } from '../state/context.tsx'
+import { firstToLook, pressRow, rowWords } from '../proof/beside.ts'
+import { useSession, useSessionStore } from '../state/context.tsx'
 import type { ModelRow } from '../story/node-models.ts'
 
 const DOT: Readonly<Record<Tone, string>> = { ok: 'bg-ok-fg', bad: 'bg-bad-fg', warn: 'bg-warn-fg', live: 'pf-pulse bg-sun', quiet: 'bg-muted-foreground' }
@@ -19,6 +19,7 @@ const WORDS: Readonly<Record<Tone, string>> = { ok: 'text-foreground', bad: 'tex
  */
 export function ModelChecks({ rows, heading }: { rows: readonly ModelRow[]; heading: string }) {
   const store = useSessionStore()
+  const open = useSession((session) => session.proof)
   const keyed = firstToLook(rows)
 
   return (
@@ -39,6 +40,7 @@ export function ModelChecks({ rows, heading }: { rows: readonly ModelRow[]; head
           )
           const run = row.run
           const from = `row:${row.spec}`
+          const words = run ? rowWords(open, run) : null
           return (
             <li key={row.spec}>
               {run ? (
@@ -46,13 +48,14 @@ export function ModelChecks({ rows, heading }: { rows: readonly ModelRow[]; head
                   type="button"
                   data-stop
                   data-proof-from={from}
-                  title={`${row.file}: ${row.said}. hobkin ran this check itself. Opens it beside the review.`}
-                  onClick={() => store.getState().openProof(run, from)}
-                  className="rv-matter flex h-12 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left"
+                  aria-expanded={words === 'Close run'}
+                  title={`${row.file}: ${row.said}. hobkin ran this check itself. ${words === 'Close run' ? 'Open beside the review: press to close it (Esc).' : 'Opens it beside the review.'}`}
+                  onClick={() => pressRow(store.getState(), run, from)}
+                  className={cn('rv-matter flex h-12 w-full min-w-0 items-center gap-2 rounded-lg px-2 text-left', words === 'Close run' && 'bg-secondary')}
                 >
                   {parts}
                   <span className="flex shrink-0 items-center gap-1 font-heading text-[12.5px] font-semibold text-muted-foreground">
-                    <span className="@max-[300px]:hidden">Open run</span>
+                    <span className="@max-[300px]:hidden">{words}</span>
                     {run === keyed ? <Kbd>T</Kbd> : null}
                     <ChevronRight aria-hidden="true" className="size-3.5" />
                   </span>

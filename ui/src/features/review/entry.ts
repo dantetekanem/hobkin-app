@@ -23,17 +23,22 @@ interface EscapableSession {
   /** The proof open beside the review (spec 053). */
   proof?: unknown
   closeProof?(): void
+  /** When the proof and the code opened, as a count that goes up: the one opened last is the inner one. */
+  proofAt?: number
+  codeAt?: number
 }
 
 /**
- * Escape closes the innermost thing first: the note editor, the finder, the proof beside the review, an open wire,
- * selected lines, the code, then every open group of a large change at once (spec 053), those the outline, U or a kept
- * place opened by themselves too: one press, never one for each. Graph focus never traps the screen's exit.
+ * Escape closes the innermost thing first: the note editor, the finder, the proof beside the review (or first the
+ * code, with its selected lines, when the code opened after it), an open wire, selected lines, the code, then every open
+ * group of a large change at once (spec 053), those the outline, U or a kept place opened by themselves too: one press,
+ * never one for each. With the proof open it never leaves the review. Graph focus never traps the screen's exit.
  */
 export function escapeReview(session: EscapableSession, close: () => void): void {
+  const codeOverProof = session.code != null && (session.codeAt ?? 0) > (session.proofAt ?? 0)
   if (session.editor) session.closeEditor()
   else if (session.finder) session.closeFinder()
-  else if (session.proof && session.closeProof) session.closeProof()
+  else if (session.proof && session.closeProof && !codeOverProof) session.closeProof()
   else if (session.wire) session.openWire(null)
   else if (session.selection) session.selectLines(null)
   else if (session.code != null) session.closeCode()

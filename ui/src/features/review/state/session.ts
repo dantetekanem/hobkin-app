@@ -96,6 +96,12 @@ export interface Session {
    * opened it by its `data-proof-from`, which takes the keyboard back when it closes (null: the review itself).
    */
   proof: { run: string; from: string | null } | null
+  /**
+   * When the proof and the code last opened, as a count that goes up (`entry.ts`): Escape closes the one opened last.
+   * Opening another run in the proof counts as opening it.
+   */
+  proofAt: number
+  codeAt: number
 
   step(delta: number): void
   goTo(index: number): void
@@ -365,6 +371,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
   let digits = NO_DIGITS
   let digitTimer: ReturnType<typeof setTimeout> | undefined
   let asked = 0
+  /** The count `proofAt` and `codeAt` take from. */
+  let openedCount = 0
   /** What Enter found when it opened the code: the wire it closed, and the move the review was on. */
   let beforeCode: { wire: string | null; move: number } | null = null
 
@@ -472,6 +480,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       notice: null,
       // A place not taken brings nothing back: not its proof, and not its camera (`resumedCamera`).
       proof: back && kept?.proof ? { run: kept.proof, from: null } : null,
+      proofAt: 0,
+      codeAt: 0,
       resumed: back != null,
 
       step: (delta) => {
@@ -523,7 +533,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         if (!target) return false
         // A folded test shows its own code, with its card in focus.
         if (nodeId && !focus.includes(drawnAs(view, nodeId))) get().focusOn(nodeId)
-        set({ code: target, wire: null })
+        set({ code: target, wire: null, ...(get().code == null ? { codeAt: (openedCount += 1) } : {}) })
         markSeen(reviewNodesOf(get().view, target))
         return true
       },
@@ -651,7 +661,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       showTest: (testId) => {
         if (!get().nodeOf.has(testId)) return false
         beforeCode = null
-        set({ code: testId, wire: null })
+        set({ code: testId, wire: null, ...(get().code == null ? { codeAt: (openedCount += 1) } : {}) })
         markSeen([testId])
         return true
       },
@@ -755,7 +765,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       say: (text) => set({ notice: { key: (get().notice?.key ?? 0) + 1, text } }),
       openProof: (run, from = null) => {
         const now = get().proof
-        if (now?.run !== run || now.from !== from) set({ proof: { run, from } })
+        if (now?.run !== run || now.from !== from) set({ proof: { run, from }, proofAt: (openedCount += 1) })
       },
       closeProof: () => {
         if (get().proof) set({ proof: null })
