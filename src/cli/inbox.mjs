@@ -23,6 +23,8 @@ const NOTE_LISTS = {
   reminder: { name: 'reminders', heard: ({ text, on, from }) => ({ text, on, from }) },
   memory: { name: 'remember', heard: ({ text, from, at }) => ({ text, from, at }) },
   answer: { name: 'answered', heard: ({ question, answer, from, at }) => ({ question, answer, from, at }) },
+  // A memory a run suggested (057-shared-memory), which the main agent files with hobkin_remember, passing its id, or not.
+  suggestion: { name: 'suggested', heard: ({ id, memory, from, at }) => ({ id, ...memory, from, at }) },
 };
 
 const folderOf = root => join(root, 'runtime');
@@ -220,3 +222,23 @@ export function inboxNews(entries) {
 }
 
 export const markInboxHeard = (root, entries) => entries.forEach(({ id }) => append(root, { id, heard: true }));
+
+/**
+ * A memory an agent the user does not talk to suggests (057-shared-memory): a routine, a Work run or a session run,
+ * named by its title. The main agent hears it with the user's next message and files it or not. `memory` is checked
+ * by the caller. The same description from the same run, not heard yet, is the same suggestion.
+ */
+export function suggestMemory(root, { memory, from, runId }, now = Date.now()) {
+  const known = readLog(root).find(entry => entry.kind === 'suggestion' && !entry.heard && entry.runId === runId
+    && wordsOf(entry.memory?.description ?? '') === wordsOf(memory.description));
+  if (known) return { ok: true, id: known.id, message: 'Already suggested, and the main hobkin has not heard it yet.' };
+  const id = randomUUID();
+  append(root, { id, kind: 'suggestion', memory, from: nameOf(from), ...(runId ? { runId } : {}), at: iso(now) });
+  return { ok: true, id, message: 'Suggested. The main hobkin hears it with the user\'s next message there, and files it or not.' };
+}
+
+/** A suggestion by its id, for the main agent filing it, or null. */
+export function suggestionOf(root, id) {
+  if (typeof id !== 'string' || !id) return null;
+  return readLog(root).find(entry => entry.id === id && entry.kind === 'suggestion') ?? null;
+}
