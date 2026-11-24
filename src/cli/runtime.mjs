@@ -103,7 +103,7 @@ function recordMainStop(root, run, actions) {
 
 export class HobkinRuntime {
   /** `pulses` (`pulse.mjs`), when given, is where the main turn's pulse is kept for whoever publishes it. */
-  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, agentSchedules, memoryKeeper, editReport, metricsNow, pulses = null, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {} } = {}) {
+  constructor(root, config, { createMain = openPiSession, onMainStartup, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, ownedLifecycle, agentSchedules, memoryKeeper, integrations, editReport, metricsNow, pulses = null, stopWaitMs = STOP_WAIT_MS, unreadWaitMs = UNREAD_WAIT_MS, onChange = () => {} } = {}) {
     // What the main agent's memory tools reach, `{ recall, remember }` (057-shared-memory).
     this.memoryKeeper = memoryKeeper;
     this.directory = root;
@@ -121,6 +121,8 @@ export class HobkinRuntime {
     this.ownedAgent = ownedAgent;
     // What the main agent's schedule tools reach, `{ make, manage }` (056-agent-schedules).
     this.agentSchedules = agentSchedules;
+    // What the host's integrations offer the main conversation (065-integration-drops), handed on as it opens.
+    this.integrations = integrations;
     this.ownedLifecycle = ownedLifecycle;
     this.ownedActivity = new OwnedActivity();
     this.mainOwnedRoots = new Set();
@@ -360,6 +362,7 @@ export class HobkinRuntime {
       stopWorkload: this.stopWorkload,
       agentSchedules: this.agentSchedules,
       memoryKeeper: this.memoryKeeper,
+      ...(this.integrations ? { integrations: this.integrations } : {}),
       ownedAgent: this.ownedLifecycle ? (request, signal) => {
         const turn = this.mainTurn;
         if (!main || turn?.session !== main || !turn.owned || turn.preflight !== true || turn.stopping || this.resetting || this.closing) throw Error('No active admitted owned turn');

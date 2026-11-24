@@ -17,6 +17,7 @@ import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { hobkinCommand } from './work/chat.mjs';
 import { HOBKIN_VERSION } from './version.mjs';
 import hobkinBridge, { HOBKIN_BRIDGE_TOOLS } from './hobkin-extension.mjs';
+import { createIntegrationExtension } from './integration-extension.mjs';
 import { agentScheduleTools } from './schedule-tools.mjs';
 import { mainMemoryTools, memoryHandler } from './memory-tools.mjs';
 
@@ -59,7 +60,7 @@ export async function closePiSession(session) {
 
 /** Pi owns the transcript format. Durable stores only its identity and dispatch receipts. */
 export async function openPiSession(
-  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, memoryKeeper, startup },
+  { root, config, saved, fresh = false, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, memoryKeeper, integrations, startup },
   dependencies = {},
 ) {
   startup?.signal.throwIfAborted();
@@ -91,6 +92,7 @@ export async function openPiSession(
       ownedAgent,
       agentSchedules,
       memoryKeeper,
+      integrations,
       prompts: mainPrompts(root, config),
     }, { ...dependencies, bootstrap });
   }
@@ -295,6 +297,8 @@ export async function openConversation(
   const settingsManager = scriptedMain ? SettingsManager.inMemory({ compaction: { enabled: false }, retry: { enabled: false } })
     : SettingsManager.create(config.main.cwd, effectiveAgentDir);
   const appendSystemPrompt = mainPrompts(root, config);
+  // The tools integrations offer the main conversation, as its parent handed them to this child (065-integration-drops).
+  const offered = !scriptedMain && rpcBridge?.integrations ? rpcBridge.integrations : null;
   const builtIns = [
     { name: 'codemode', factory: createCodemodeExtension(), builtin: true, replaceable: true },
     { name: 'tool-search', factory: createToolSearchExtension(), builtin: true, replaceable: true },
@@ -306,7 +310,7 @@ export async function openConversation(
     settingsManager: scriptedMain ? settingsManager : SettingsManager.inMemory({}),
     ...resources.loader,
     additionalExtensionPaths: [...resources.loader.additionalExtensionPaths, ...(rpcBridge?.clientExtensionPath ? [rpcBridge.clientExtensionPath] : [])],
-    extensionFactories: [...builtIns, rpcBridge && !scriptedMain ? hobkinBridge : createMemoryExtension(root)],
+    extensionFactories: [...builtIns, rpcBridge && !scriptedMain ? hobkinBridge : createMemoryExtension(root), ...(offered ? [createIntegrationExtension(offered)] : [])],
     appendSystemPrompt,
   });
   await resourceLoader.reload();
@@ -345,7 +349,7 @@ export async function openConversation(
     });
     options = { ...options, customTools: [...customTools, settingsTool] };
   }
-  const bridgeTools = rpcBridge ? [...HOBKIN_BRIDGE_TOOLS, ...(rpcBridge.clientExtensionPath ? ['client'] : [])] : [];
+  const bridgeTools = rpcBridge ? [...HOBKIN_BRIDGE_TOOLS, ...(rpcBridge.clientExtensionPath ? ['client'] : []), ...(offered?.tools.map(tool => tool.name) ?? [])] : [];
   options.tools = scriptedMain ? ['client'] : [...resources.builtinTools, 'codemode', 'tool_search', ...options.customTools.map(tool => tool.name), ...bridgeTools];
   const { session, modelFallbackMessage } = await (createSession ?? createAgentSession)(options);
   currentSession.current = session;

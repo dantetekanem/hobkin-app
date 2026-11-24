@@ -6,6 +6,7 @@ import { readSessionHeader } from './migration/ownership.mjs';
 import { resolveResourcePolicy } from './resource-policy.mjs';
 import { validateBinding } from './schedules.mjs';
 import { startRpcProcess } from './rpc-process.mjs';
+import { readOffer } from './integration-extension.mjs';
 
 const entry = fileURLToPath(import.meta.url);
 const fields = (value, allowed) => {
@@ -120,10 +121,14 @@ export function startMainSessionChild(payload, { startupTimeoutMs = 180000, onFa
   });
 }
 
-/** Native RPC owns all ordinary commands; this channel accepts one trusted bootstrap, never a module selector. */
+/**
+ * Native RPC owns all ordinary commands; this channel accepts one trusted bootstrap, never a module selector. The tools
+ * integrations offer the main conversation come in the environment its parent started it with (065-integration-drops).
+ */
 export function runMainSessionChild(channel = process, {
   loadSdk = () => import('@earendil-works/pi-coding-agent'),
   openSession = async (...args) => (await import('./pi-session.mjs')).openConversation(...args),
+  env = process.env,
 } = {}) {
   const completion = Promise.withResolvers();
   let seen = false, stopped = false, runtime, disposal, metadata;
@@ -143,10 +148,11 @@ export function runMainSessionChild(channel = process, {
       const expected = data.expected ?? (header ? { sessionId: header.sessionId, sessionFile: data.file } : null);
       const { AgentSessionRuntime, runRpcMode } = await loadSdk();
       if (stopped) return;
+      const offer = readOffer(env);
       const { session, services } = await openSession({ root: data.root, config: data.config, file: data.file, expected }, {
         loadSdk, agentDir: data.agentDir, resourceCandidates: data.resourceCandidates, deferExtensionBinding: true,
         recoverScriptedHistory: data.recoverScriptedHistory,
-        rpcBridge: data.clientExtensionPath ? { clientExtensionPath: data.clientExtensionPath } : {},
+        rpcBridge: { ...(data.clientExtensionPath ? { clientExtensionPath: data.clientExtensionPath } : {}), ...(offer ? { integrations: offer } : {}) },
       });
       const refuse = async () => { throw Error('Main session replacement belongs to the Hobkin parent.'); };
       runtime = new AgentSessionRuntime(session, services, refuse);

@@ -20,6 +20,8 @@ import { createOwnedAgentSessionTool } from './owned-agent-tool.mjs';
 import { agentScheduleTools } from './schedule-tools.mjs';
 import { MAIN_INDEX_BYTES, memorySnapshot } from './memories.mjs';
 import { mainMemoryTools, memoryHandler } from './memory-tools.mjs';
+import { INTEGRATIONS_ENV, integrationExtension } from './integration-extension.mjs';
+import { integrationEnvironment, integrationOffer, isIntegrationCall, MAIN_AGENT, serveIntegration } from './integrations.mjs';
 
 export const extensionPath = fileURLToPath(new URL('./hobkin-extension.mjs', import.meta.url));
 const dialogMethods = new Set(['select', 'confirm', 'input', 'editor']);
@@ -349,7 +351,10 @@ export class PiRpcSession {
     let reply = { cancelled: true };
     try {
       if (method === 'input' && title === BRIDGE) {
-        reply = { value: JSON.stringify(await serveBridge(placeholder, this, controller.signal)) };
+        // A tool an integration offered the main conversation runs in the host as `#main` (065-integration-drops).
+        const answer = this.integrations && isIntegrationCall(placeholder) ? serveIntegration(placeholder, this.integrations, controller.signal)
+          : serveBridge(placeholder, this, controller.signal);
+        reply = { value: JSON.stringify(await answer) };
       } else {
         reply = await this.route({ method, title, ...request }, controller.signal) ?? reply;
       }
@@ -388,7 +393,7 @@ function within(promise, ms, message) {
 
 /** Starts the main chat as `<launcher> --mode rpc`; nothing is submitted, and a binding that differs is disposed. */
 export async function openRpcSession(
-  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, memoryKeeper, prompts, startup },
+  { root, config, file, expected, askQuestion, triggerSchedule, messageCheck, stopWorkload, ownedAgent, agentSchedules, memoryKeeper, integrations, prompts, startup },
   { spawnProcess, signalProcess, startupTimeoutMs = 180000, graceMs, clientBridge, bootstrap, scriptedMain = false } = {},
 ) {
   scriptedMain = scriptedMain === true;
@@ -445,6 +450,13 @@ export async function openRpcSession(
     ...mainMemoryTools(memoryKeeper ?? memoryHandler(root, { kind: 'main' })),
   };
   if (clientBridge) session.tools.client = clientBridge.tool;
+  // The tools integrations offer the main conversation (065-integration-drops): its Pi reads them from its environment,
+  // through the extension a launcher's Pi is named or the one the session child loads itself. A scripted main is offered none.
+  const offer = scriptedMain ? null : integrationOffer(integrations, 'main');
+  session.integrations = offer ? { host: integrations, offer, agent: MAIN_AGENT } : null;
+  const env = piEnvironment(config.launcher);
+  delete env[INTEGRATIONS_ENV];
+  if (offer) Object.assign(env, integrationEnvironment(offer));
   const { command, args } = piCommand(config.launcher, [
     '--mode', 'rpc',
     '--session', file,
@@ -452,6 +464,7 @@ export async function openRpcSession(
     '--thinking', config.main.effort,
     '--extension', extensionPath,
     ...(clientBridge ? ['--extension', clientBridge.extensionPath] : []),
+    ...(offer ? ['--extension', integrationExtension] : []),
     ...SHIPPED_SKILLS.flatMap(path => ['--skill', path]),
     ...prompts.flatMap(text => ['--append-system-prompt', text]),
   ]);
@@ -461,7 +474,7 @@ export async function openRpcSession(
     command,
     args,
     cwd: config.main.cwd,
-    env: piEnvironment(config.launcher),
+    env,
     spawnProcess,
     signalProcess,
     // A reply never exceeds the transcript it describes.
