@@ -126,7 +126,7 @@ export default echo
 | Field | When the host calls it |
 | --- | --- |
 | `state()` | On every publish. Its answer is your slice: JSON only, nothing secret. It reaches every window whole when it differs, and with every reconnect. |
-| `handlers` | One function per command of your manifest, by full name. Throw `Unavailable` (from `#host/commands.ts`) to refuse with a reason the user and hobkin read. Anything else thrown reads as a failure. |
+| `handlers` | One function per command of your manifest, by full name. Throw `Unavailable` (from `#host/commands.ts`) to refuse with a reason the user and hobkin read. Anything else thrown reads as a failure. (An agent tool refuses differently: see "Tools for agents".) |
 | `start()` | Once, when the host is serving. Start timers here, and `unref()` them. |
 | `close()` | Once, when the host stops. Clear what `start` started. |
 | `beforeCommand(call)` | Before every command the host runs, yours and the app's, from the window (`call.from === 'window'`) or from hobkin (`'hobkin'`). Throw `Unavailable` to refuse it. |
@@ -186,12 +186,72 @@ export default part
 | `home(state, now)` | What you add to Home: `needs` (rows waiting on the user, each with its stack card), `cards` (things that went wrong), a `tile` among Connections, `known`, `lift` (how many need the user), `more`. Type: `HomeContribution` in `ui/src/features/home/types.ts`. GitHub's is `integrations/github/window/home.ts`. |
 | `spotlight(state)` | Entries the spotlight finds, each with where Enter goes. GitHub's is `integrations/github/window/spotlight.ts`. |
 
+A screen and a card, the smallest that fit the app (`NotesState` is your own state type):
+
+```tsx
+import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
+import { Button } from '@/components/ui/button.tsx'
+import { useSlice } from '@/integration/use-slice.ts'
+import { run } from './commands.ts'
+
+export function NotesScreen() {
+  const { notes } = useSlice<NotesState>('notes')
+  return (
+    <div className={`${SCREEN_SCROLLER} pb-16`}>
+      <div className={`flex flex-col gap-4 ${SCREEN_COLUMN}`}>
+        <header className="px-1">
+          <h1 className="eyebrow">Notes</h1>
+          <p className="mt-1 font-heading text-[26px] font-semibold">{notes.length} notes</p>
+        </header>
+        <ul aria-label="Notes" className="flex flex-col gap-2">
+          {notes.map((note, index) => <li key={index} className="rounded-2xl bg-background px-4 py-3 text-[14px]">{note}</li>)}
+        </ul>
+        {notes.length ? <Button onClick={() => void run('notes.clear', {})}>Clear all</Button> : null}
+      </div>
+    </div>
+  )
+}
+
+export function NotesCard({ still: _still }: { still: boolean }) {
+  const { notes } = useSlice<NotesState>('notes')
+  return (
+    <section aria-label="Notes" className="flex flex-col gap-1 rounded-[28px] bg-background p-5">
+      <h3 className="font-heading text-[22px] font-semibold">Notes</h3>
+      <p className="text-[13px] text-muted-foreground">{notes.length} notes</p>
+    </section>
+  )
+}
+```
+
+For the full look, read `integrations/github/window/GitHubScreen.tsx` and `GitHubCard.tsx`.
+
+A tile among Home's Connections. Set `known: true`, or Home treats the integration as not heard from yet. The tile
+gets your part's `mark` by itself:
+
+```ts
+import type { HomeContribution } from '@/features/home/types.ts'
+
+export const notesHome = (state: NotesState): HomeContribution => ({
+  known: true,
+  tile: {
+    key: 'notes',
+    name: 'Notes',
+    status: `${state.notes.length} notes`,
+    tone: 'quiet', // 'accent' | 'bad' | 'warn' | 'ok' | 'info' | 'quiet'
+    note: null, // a second line: what went wrong, or who it is signed in as
+    target: { to: 'screen', screen: 'notes' }, // where a press goes: your screen's id
+  },
+})
+```
+
 What a screen or card uses from the core:
 
 - `useSlice<State>(id)` from `@/integration/use-slice.ts`: your state as the host sent it, `unknown` before that, and
   `sample(now)` with no host.
 - `runnerFor<Results>()(manifest)` from `@/integration/commands.ts`: a `run(name, args)` typed by your manifest and
-  results. GitHub keeps one in `window/commands.ts`.
+  results. `Results` has one key per command, spelled exactly as in the manifest, each with what that command's
+  handler returns (`EchoResults` above). GitHub keeps its runner in `window/commands.ts`:
+  `export const run = runnerFor<GitHubResults>()(manifest)`.
 - `openLink(event, url)` and `openAddress(url)` from `@/lib/open-link.ts`: links that open in the system browser from
   the Mac window and as a normal link in a browser tab.
 - `createTwoClicks` from `@/lib/two-clicks.ts`: the press-twice confirm the app uses before anything it cannot undo.
@@ -232,9 +292,11 @@ const echo: HostPartFactory = (context) => ({
 - `description` is all the agent knows about it: say what it does and when to use it.
 - `agents`: `main` (hobkin's main conversation), `runs` (work, routines and workflows) and `durable` (durable hobkins
   on Pi). All three when left out. Helpers and Claude Code agents do not get integration tools.
-- `execute` runs in the host, with arguments already checked against `parameters`. It answers text, or
-  `{ text, failed: true }`. What it throws reaches the agent as a failed call with the error's words. `run.agent` is
-  `#main` or the run's id; `run.signal` is set when the agent stops waiting.
+- `execute(args, run)` runs in the host, with arguments already checked against `parameters`. It answers text, or
+  `{ text, failed: true }` to tell the agent the call did not work, in words it can act on. What it throws reaches the
+  agent the same way, as a failed call with the error's words. (A command handler refuses with `Unavailable` instead,
+  because a person or hobkin's `client` tool reads that.) `run` is `{ agent, id, signal? }`: `agent` is `#main` or
+  the run's id, `id` the call's, and `signal` is set when the agent stops waiting.
 - The main conversation reads the tools when hobkin opens it: a new tool reaches it once hobkin opens again. Runs read
   them as they start.
 - A folder whose tool names are bad or repeated is left out whole, and the host logs why.
@@ -280,20 +342,66 @@ Read what echo said since yesterday and write a digest of three lines. Use echo_
   `"HH:mm"` or a list of them, or a `window`, with `timezone`, and `weekday` 0 to 6 from Sunday, `day` of the month, or
   a `date` for once); `model`, `effort` and `cwd`, which default to the home's background ones; and `on`, what else
   starts it. It never says `enabled`: whether it is on is the user's, kept in their home.
-- What starts it: its schedule; `press` (Run now on its row in Routines, "Run <title>" in the spotlight, or a button
-  of your own); `after:<command>` (once that app command ended well, the run's input is `{ command, args, answer }`);
-  and `start` (your host part's `context.startWorkflow(name, input)`).
+- What starts it: its schedule, and each start `on` lists, all of them together: `press` (Run now on its row in
+  Routines, "Run <title>" in the spotlight, or a button of your own); `after:<command>` (once that app command ended
+  well, the run's input is `{ command, args, answer }`); and `start` (your host part's
+  `context.startWorkflow(name, input)`). hobkin refuses a file with neither a schedule nor anything in `on`, or with a
+  setting it does not know, leaves it out, and lists why with the routines' errors.
+- A schedule, the same fields a routine has. Every Monday at 08:00 in Toronto:
+  `"at": "08:00", "timezone": "America/Toronto", "weekday": 1`. Several times a day: `"at": ["09:00", "17:00"]`. Every
+  30 minutes between 09:00 and 17:00: `"window": { "start": "09:00", "end": "17:00", "everyMinutes": 30 }` (use `at` or
+  `window`, not both). Once: `"date": "2026-12-01"` with `at`. The first of each month: `"day": 1` with `at`.
 - Each start is one run: the body is its directions, its input is in its context as `input`, it is offered your
   integration's tools and no other integration's, and it reports in Reports like a routine. Several runs of one workflow may run at once.
 - A newly added workflow never runs a scheduled time that passed before it first appeared.
 - The window lists workflows in Routines, under your integration's name, where the user runs them and turns them off
-  and on. Your own card or screen can do the same with `useWorkflows(id)`, `runWorkflow(id)` and
-  `setWorkflowEnabled(id, on)` from `@/integration/use-workflows.ts`.
+  and on. Your own card or screen can do the same with `@/integration/use-workflows.ts`: `useWorkflows(id)` gives your
+  workflows' rows (`{ id, title, starts, enabled, cadence, state, lastRun }`), `runWorkflow(workflowId)` starts one
+  and answers `{ run }`, and `setWorkflowEnabled(workflowId, on)` turns one off or on. Both reject with the host's
+  reason. `pressable(row)` from `@/integration/workflows.ts` says whether a row may be run now.
+
+```tsx
+import { Button } from '@/components/ui/button.tsx'
+import { runWorkflow, useWorkflows } from '@/integration/use-workflows.ts'
+import { pressable } from '@/integration/workflows.ts'
+
+export function TidyButton() {
+  const tidy = useWorkflows('notes').find((row) => row.id === 'notes/tidy')
+  return tidy && pressable(tidy) ? <Button onClick={() => void runWorkflow(tidy.id).catch(() => {})}>Tidy now</Button> : null
+}
+```
 
 ## Testing
 
-Host part: build a fake context and call the part directly. `integrations/github/test/host-support.ts` does it in 40
-lines; copy it. Hand fakes through `options` (GitHub takes a fake `source`), and a fake `gh` when you run commands.
+Before you start, run `pnpm -s typecheck` once. An error it shows then is not yours: leave it, and judge your work by
+errors that name your folder.
+
+Host part: build a fake context and call the part directly.
+
+```ts
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import { Unavailable } from '#host/commands.ts'
+import type { HostContext } from '#host/integration-contract.ts'
+import notesPart from '../host.ts'
+
+const closed = () => { throw new Unavailable('hobkin is not open.') }
+const context: HostContext = {
+  id: 'notes', live: false, options: {}, log: () => {}, changed: () => {}, connected: () => true,
+  hobkin: closed, dataRoot: closed, snapshotWork: () => undefined, startWorkflow: async () => closed(),
+}
+
+test('notes.add keeps the note, and an agent finds it with the tool', async () => {
+  const part = await notesPart(context)
+  await (part.handlers!['notes.add'] as (args: { text: string }) => unknown)({ text: 'buy milk' })
+  const find = part.tools!.find((tool) => tool.name === 'find')!
+  assert.equal(await find.execute({ word: 'milk' }, { agent: '#main', id: 'call-1' }), 'buy milk')
+  assert.deepEqual(await part.toolHooks!.before!({ agent: '#main', id: 'call-2', name: 'bash', args: { command: 'rm -rf ~' } }), { block: 'Notes does not let an agent remove your home folder.' })
+})
+```
+
+Hand fakes through `options` (GitHub takes a fake `source`; see `integrations/github/test/host-support.ts`), and a
+fake `gh` when your commands run gh.
 To test through a real host, start one with `integrationFolder` (a folder, or the modules themselves) and
 `integrationOptions: { <id>: {...} }`, as `integrations/github/test/host-wiring.test.ts` does.
 
