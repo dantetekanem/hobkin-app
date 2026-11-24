@@ -59,26 +59,45 @@ export interface StackBox {
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`
 
+/** How many of the layer's parts need the reviewer, or nothing when none does. */
+function needsWords(needsYou: number): string {
+  if (needsYou === 0) return ''
+  return needsYou === 1 ? ' · 1 needs you' : ` · ${needsYou} need you`
+}
+
 function rowOf(layer: StackLayer): StackRow {
   const kind = layer.kind === 'mechanical' ? 'Mechanical' : 'Behaviour'
-  const needs = layer.needsYou > 0 ? ` · ${layer.needsYou} need you` : ''
+  const size = `${plural(layer.files.length, 'file')} · +${layer.additions} −${layer.deletions}`
+
   return {
     number: layer.number,
-    text: `${layer.number} · ${kind} · ${layer.title} · ${plural(layer.files.length, 'file')} · +${layer.additions} −${layer.deletions}${needs}`,
+    text: `${layer.number} · ${kind} · ${layer.title} · ${size}${needsWords(layer.needsYou)}`,
     note: layer.splitFurther ? `This zone is over ${LAYER_LINES} lines, so the agent splits it further, or says why not.` : null,
   }
 }
 
+function headingOf(layers: number): string {
+  if (layers === 0) return 'No layers'
+  if (layers === 1) return 'One layer'
+  return `A stack of ${layers}, bottom first`
+}
+
+/** Why nothing is built from here, the first reason that holds. */
+function footerOf(input: StackButtonInput, layers: number): string {
+  if (input.sample) return 'Sample review: nothing is made from here.'
+  if (input.outdated) return 'This review is of an older commit. Rebuild it first: a stack is made from the commit its review read.'
+  if (layers === 0) return 'The review lists no changed files.'
+  return 'hobkin cannot build a stack yet.'
+}
+
 export function stackBox(input: StackButtonInput, plan: StackPlan): StackBox {
   const { layers } = plan
-  const heading = layers.length === 0 ? 'No layers' : layers.length === 1 ? 'One layer' : `A stack of ${layers.length}, bottom first`
-  const note = layers.length === 1 ? "The review's facts give one layer. The agent can still split it inside its files." : null
-  const footer = input.sample
-    ? 'Sample review: nothing is made from here.'
-    : input.outdated
-      ? 'This review is of an older commit. Rebuild it first: a stack is made from the commit its review read.'
-      : layers.length === 0
-        ? 'The review lists no changed files.'
-        : 'hobkin cannot build a stack yet.'
-  return { heading, rows: layers.map(rowOf), note, footer }
+  const oneLayer = layers.length === 1
+
+  return {
+    heading: headingOf(layers.length),
+    rows: layers.map(rowOf),
+    note: oneLayer ? "The review's facts give one layer. The agent can still split it inside its files." : null,
+    footer: footerOf(input, layers.length),
+  }
 }
