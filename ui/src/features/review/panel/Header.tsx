@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils.ts'
 import { usePullPeople } from '../use-people.ts'
 import { ByLineNames } from './ByLine.tsx'
 import { carriedLine, outdatedNotice } from './outdated.ts'
+import { StackStrip } from './StackStrip.tsx'
 import { StackButton, StackLine, useStack } from './StackButton.tsx'
 import { headerBadge, type HeaderBadge, type HeaderFix } from './sidebar.ts'
 
@@ -83,6 +84,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
           <X />
         </QuietButton>
       </div>
+      <StackStrip reviewId={review.id} live={live} />
       <h2 className="mt-1 font-heading text-[17px] leading-[1.28] font-semibold tracking-[-0.02em] text-pretty [overflow-wrap:anywhere]">{title}</h2>
       {pullRequest && live ? <ByLine id={review.id} /> : null}
       {/* A change that lands is never reviewed again, so its review offers no "Try again". */}

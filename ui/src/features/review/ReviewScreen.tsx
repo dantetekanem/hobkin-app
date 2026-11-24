@@ -30,6 +30,7 @@ import { Finder } from './graph/Finder.tsx'
 import { Graph } from './graph/Graph.tsx'
 import { WireCard } from './graph/WireCard.tsx'
 import { inProofPanel, keyOwner, pressKey } from './keys.ts'
+import { LAYER_EVENT } from './panel/StackStrip.tsx'
 import type { AskCommand } from './panel/ask.ts'
 import { celebrate } from './panel/Celebration.tsx'
 import { STEPS_STRIP, StepsPanel, stepsPanelWidth, type PanelChrome } from './panel/StepsPanel.tsx'
@@ -394,6 +395,10 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
         // Shift+S puts the keyboard on "Make it a stack" in the panel's size row. The header does it. A key held down only repeats.
         focusStack: () => {
           if (!event.repeat) steps?.querySelector('[data-rv-stack]')?.dispatchEvent(new Event('rv-stack'))
+        },
+        // { and } go to the layer under and over, in a review that is a layer of a stack. The strip in the panel does it; a key held down only repeats.
+        moveLayer: (direction) => {
+          if (!event.repeat) steps?.querySelector('[data-rv-layers]')?.dispatchEvent(new CustomEvent(LAYER_EVENT, { detail: direction }))
         },
         verdict: (kind: Verdict) => {
           // A key held down only repeats: it never gives the second click that confirms.

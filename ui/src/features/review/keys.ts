@@ -35,6 +35,8 @@ export interface KeyEffects {
   proofKey(shift: boolean): void
   /** Puts the keyboard on the panel's "Make it a stack" button (spec 060), which Enter presses. Missing where there is no panel to show it. */
   focusStack?(): void
+  /** `{` and `}` (spec 060): -1 goes to the review of the layer under this one in its stack, 1 to the layer over it. Missing where there is no panel. */
+  moveLayer?(direction: -1 | 1): void
 }
 
 /**
@@ -177,6 +179,8 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
     // At the edge of the graph the key is still the review's: it must not fall through to something else.
     return true
   }
+  // { and } go to the layer under and over, in a review that is a layer of a stack. [ and ] are the code panel's, which has them open.
+  if ((key === '{' || key === '}') && effects.moveLayer) return effects.moveLayer(key === '{' ? -1 : 1), true
   // Shift+S puts the keyboard on "Make it a stack", and Enter presses it, so no single key starts an agent. S alone hides the panel.
   if (shift && key === 'S' && effects.focusStack) return effects.focusStack(), true
   if (shift) return false
