@@ -1,5 +1,5 @@
 import { Ellipsis, Lock } from 'lucide-react'
-import { memo, useEffect, useRef } from 'react'
+import { Fragment, memo, useEffect, useRef, type ReactNode } from 'react'
 import type { MemoryEntry } from '#shared/protocol/memory.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.tsx'
@@ -136,25 +136,23 @@ export const MemoryRow = memo(function MemoryRow({ memory, forgotten, past, at }
           ))}
         </p>
       ) : null}
-      <p className="flex flex-wrap items-center gap-x-1.5 text-[12px] text-muted-foreground">
-        {from ? <span>{from}</span> : null}
-        {until ? <span>{from ? '· ' : ''}{past ? `Held ${until}` : until}</span> : null}
-        {memory.private ? (
-          <span className="inline-flex items-center gap-1">
-            {from || until ? '· ' : ''}
-            <Lock aria-hidden="true" className="size-3" />
-            Private
-          </span>
-        ) : null}
-        {saved ? (
-          <span>
-            ·{' '}
-            <LinkPress onPress={() => void memoryActions.undoSave(name)} label={`Undo the save of ${description}`}>
-              Undo
+      <MetaLine
+        parts={[
+          from,
+          until ? (past ? `${until}, now past` : until) : null,
+          memory.private ? (
+            <span className="inline-flex items-baseline gap-1">
+              <Lock aria-hidden="true" className="size-3 translate-y-[1px] self-center" />
+              Private
+            </span>
+          ) : null,
+          saved ? (
+            <LinkPress onPress={() => void memoryActions.undoSave(name)} label={`Undo your change to ${description}`}>
+              Undo your change
             </LinkPress>
-          </span>
-        ) : null}
-      </p>
+          ) : null,
+        ]}
+      />
       {refused ? (
         <p role="alert" className="text-[12.5px] leading-snug break-words text-bad-fg">
           {refused}
@@ -163,6 +161,22 @@ export const MemoryRow = memo(function MemoryRow({ memory, forgotten, past, at }
     </article>
   )
 })
+
+/** Where a memory came from, the day it holds until, private, and Undo after a save, one after another with a dot between. */
+function MetaLine({ parts }: { parts: readonly ReactNode[] }) {
+  const shown = parts.filter((part) => part !== null && part !== undefined && part !== '')
+  if (shown.length === 0) return null
+  return (
+    <p className="text-[12px] leading-relaxed text-muted-foreground">
+      {shown.map((part, index) => (
+        <Fragment key={index}>
+          {index > 0 ? <span aria-hidden="true"> · </span> : null}
+          {part}
+        </Fragment>
+      ))}
+    </p>
+  )
+}
 
 /** Forget, Make private or Share with every agent, and Copy name: a popover, the one thing that may cover the list. */
 function RowMenu({ name, description, isPrivate, busy }: { name: string; description: string; isPrivate: boolean; busy: boolean }) {

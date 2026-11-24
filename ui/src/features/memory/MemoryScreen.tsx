@@ -94,7 +94,8 @@ export function MemoryScreen() {
   }
 
   const notices = [...(notice ? [notice] : []), ...(problem ? [problem] : []), ...(list?.unavailable ? [list.unavailable] : []), ...unreadableNotice(list?.unreadable)]
-  const empty = list !== null && memories.length === 0 && now.length === 0 && !query
+  // With nothing remembered, the page says how a memory comes to be, and the Right now list keeps its own Add below.
+  const empty = list !== null && memories.length === 0 && !query && filter === 'all'
   const searching = query.trim().length > 0
 
   return (
@@ -138,9 +139,8 @@ export function MemoryScreen() {
           <Rise>
             <div className="flex flex-col gap-9">
               {list === null && !problem ? <Empty>Reading what hobkin remembers.</Empty> : null}
-              {empty ? (
-                <Empty>hobkin remembers nothing yet. Tell it in Chat, such as “remember that I live in Lisbon”, or add a memory here.</Empty>
-              ) : list !== null ? (
+              {empty ? <Empty>hobkin remembers nothing yet. Tell it in Chat, such as “remember that I live in Lisbon”, or add a memory here.</Empty> : null}
+              {list !== null ? (
                 parts.map((part) =>
                   part.key === 'now' ? (
                     <NowList key="now" lines={part.lines} total={now.length} searching={searching} />

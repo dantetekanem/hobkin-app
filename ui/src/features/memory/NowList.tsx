@@ -59,7 +59,7 @@ export function NowList({ lines, total, searching }: { lines: readonly NowLine[]
             ) : (
               <li key={`line:${row.line.index}`} className={LINE}>
                 <p className="min-w-0 flex-1 text-[13.5px] leading-snug break-words">{row.line.text}</p>
-                <Button variant="ghost" size="sm" data-key-stop="" disabled={busy || edit !== null} onClick={() => memoryStore.nowStart(row.line.text)}>
+                <Button variant="outline" size="sm" data-key-stop="" disabled={busy || edit !== null} onClick={() => memoryStore.nowStart(row.line.text)}>
                   Edit
                 </Button>
                 <Button variant="ghost" size="icon-sm" data-key-stop="" disabled={busy || edit !== null} aria-label={`Remove “${row.line.text}”`} onClick={() => void memoryActions.nowRemove(row.line.text, row.line.index)}>
