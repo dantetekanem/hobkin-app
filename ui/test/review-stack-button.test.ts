@@ -5,25 +5,32 @@ import type { Review } from '#shared/review/types.ts'
 import { pressKey } from '../src/features/review/keys.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
 import { createSession } from '../src/features/review/state/session.ts'
-import { createStackStart, SAMPLE_STACK, stackButton, type StackStarted } from '../src/features/review/stack-start.ts'
+import { createStackStart, focusStackButton, rowOffersStack, SAMPLE_STACK, stackButton, type StackStarted } from '../src/features/review/stack-start.ts'
 
 const sample = JSON.parse(readFileSync(new URL('../src/features/review/sample/review.json', import.meta.url), 'utf8')) as Review
 const effects = { panelKey: () => false, toggleSteps: () => {}, verdict: () => {}, proofKey: () => {} }
 const input = { merged: false, busy: false, lines: 120 }
 
-test('the button is there on every change that has not merged, plain up to 300 changed lines and emphasized past them, and never about risk', () => {
-  const small = stackButton(input)
-  assert.deepEqual([small.shown, small.emphasized, small.busy], [true, false, false])
-  assert.equal(stackButton({ ...input, lines: 300 }).emphasized, false, '300 is where a reviewer stops, not past it')
+test('the button is there only on a change above 300 changed lines that has not merged, and never about risk', () => {
+  assert.equal(stackButton(input).shown, false, '120 lines: no button')
+  assert.equal(stackButton({ ...input, lines: 300 }).shown, false, '300 is where a reviewer stops, not past it')
+  assert.equal(stackButton({ ...input, lines: 301 }).shown, true)
 
   const big = stackButton({ ...input, lines: 1586 })
-  assert.deepEqual([big.shown, big.emphasized], [true, true])
+  assert.deepEqual([big.shown, big.busy], [true, false])
   assert.match(big.tooltip, /^1,586 changed lines/)
+  assert.match(big.tooltip, /agent splits/)
   assert.doesNotMatch(big.tooltip, /risk/i)
 
-  assert.equal(stackButton({ ...input, busy: true }).busy, true)
-  assert.equal(stackButton({ ...input, merged: true }).shown, false)
-  assert.equal(stackButton({ ...input, merged: true, busy: true }).busy, false)
+  assert.equal(stackButton({ ...input, lines: 1586, busy: true }).busy, true)
+  assert.equal(stackButton({ ...input, lines: 1586, merged: true }).shown, false)
+  assert.equal(stackButton({ ...input, lines: 1586, merged: true, busy: true }).busy, false)
+})
+
+test('a row offers the stack only when it knows the change is above 300 lines', () => {
+  assert.equal(rowOffersStack({}), false, 'a row with no size offers none')
+  assert.equal(rowOffersStack({ lines: 300 }), false)
+  assert.equal(rowOffersStack({ lines: 301 }), true)
 })
 
 function start({ live = true, answer = { hobkin: 'h1', run: 'r1', already: false } as StackStarted | Error } = {}) {
@@ -84,4 +91,14 @@ test('Shift+S in the review puts the keyboard on the button, and S alone still h
   assert.equal(pressKey(session.getState(), { key: 's', shift: false, alt: false }, heard), true)
   assert.deepEqual(log, ['stack', 'steps'])
   assert.equal(pressKey(session.getState(), { key: 'S', shift: true, alt: false }, effects), false, 'a window with no button leaves the key unused')
+})
+
+test('the key puts the keyboard on the button wherever it stands, and does nothing when the review has none', () => {
+  const focused: unknown[] = []
+  const button = { focus: (options?: unknown) => focused.push(options) }
+  assert.equal(focusStackButton({ querySelector: (selector) => (selector === '[data-rv-stack]' ? button : null) }), true)
+  assert.deepEqual(focused, [{ preventScroll: true }])
+  assert.equal(focusStackButton({ querySelector: () => null }), false)
+  assert.equal(focusStackButton(null), false)
+  assert.equal(focused.length, 1)
 })

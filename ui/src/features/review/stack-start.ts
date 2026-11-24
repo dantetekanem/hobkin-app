@@ -5,7 +5,7 @@
  */
 import { createStore } from 'zustand/vanilla'
 
-/** Past this many changed lines (additions plus deletions) the button is drawn for attention. */
+/** Only a change above this many changed lines (additions plus deletions) is offered a stack. */
 export const BIG_CHANGE_LINES = 300
 
 /** What the host answers: the hobkin it started, or the one already there for this change (`already`, nothing new started). */
@@ -30,20 +30,25 @@ export interface StackButtonInput {
 
 export interface StackButtonState {
   shown: boolean
-  /** Past `BIG_CHANGE_LINES`: drawn in the attention color of the Outdated notice. About size, never about risk. */
-  emphasized: boolean
   /** The call is on its way: the button says so in place, and a press does nothing. */
   busy: boolean
   tooltip: string
 }
 
 export function stackButton({ merged, busy, lines }: StackButtonInput): StackButtonState {
-  if (merged) return { shown: false, emphasized: false, busy: false, tooltip: '' }
-  const big = lines > BIG_CHANGE_LINES
-  const tooltip = big
-    ? `${lines.toLocaleString('en-US')} changed lines, more than a reviewer takes in at a sitting. An agent splits it into layers.`
-    : 'An agent splits this change into layers a reviewer reads one at a time.'
-  return { shown: true, emphasized: big, busy, tooltip }
+  if (merged || lines <= BIG_CHANGE_LINES) return { shown: false, busy: false, tooltip: '' }
+  const tooltip = `${lines.toLocaleString('en-US')} changed lines, more than a reviewer takes in at a sitting. An agent splits the change into layers.`
+  return { shown: true, busy, tooltip }
+}
+
+/** A row of the AI Reviews list offers a stack only when it knows its change is above `BIG_CHANGE_LINES`. */
+export const rowOffersStack = ({ lines }: { lines?: number }) => stackButton({ merged: false, busy: false, lines: lines ?? 0 }).shown
+
+/** Shift+S: puts the keyboard on the button wherever the review draws it. Nothing happens, and false comes back, when it has none. */
+export function focusStackButton(root: { querySelector(selector: string): { focus(options?: { preventScroll: boolean }): void } | null } | null): boolean {
+  const button = root?.querySelector('[data-rv-stack]')
+  button?.focus({ preventScroll: true })
+  return button != null
 }
 
 const messageOf = (error: unknown) => (error instanceof Error ? error.message : String(error))

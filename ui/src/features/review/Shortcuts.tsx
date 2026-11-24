@@ -54,7 +54,7 @@ const GROUPS: { title: string; keys: [keys: string[], does: string][] }[] = [
       [['esc'], 'In the input: back to the review, the words kept. It never stops Hobkin'],
       [['S'], 'Hide the panel, or bring it back'],
       [['{', '}'], 'In a stack: the review of the layer under this one, or of the layer over it'],
-      [['⇧S'], 'Put the keyboard on Make it a stack, under the change\'s size. Enter starts the agent'],
+      [['⇧S'], 'On a change above 300 lines, put the keyboard on Make it a stack, beside Refresh review. Enter starts the agent'],
     ],
   },
   {

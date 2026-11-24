@@ -31,6 +31,8 @@ import { Graph } from './graph/Graph.tsx'
 import { WireCard } from './graph/WireCard.tsx'
 import { inProofPanel, keyOwner, pressKey } from './keys.ts'
 import { LAYER_EVENT } from './panel/StackStrip.tsx'
+import { StackCorner } from './StackCorner.tsx'
+import { focusStackButton } from './stack-start.ts'
 import type { AskCommand } from './panel/ask.ts'
 import { celebrate } from './panel/Celebration.tsx'
 import { STEPS_STRIP, StepsPanel, stepsPanelWidth, type PanelChrome } from './panel/StepsPanel.tsx'
@@ -138,7 +140,7 @@ export function ReviewScreen() {
     </ReactFlowProvider>
   )} renderWaiting={(status, reason) => status === 'preparing' || status === 'awaiting'
     ? <Preparing loader={loader} closeReview={closeReview} />
-    : <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />} renderRun={() => <RunCard loader={loader} />} />
+    : <ReviewWaiting status={status} reason={reason} closeReview={closeReview} />} renderRun={() => <RunCard loader={loader} />} renderBeside={(review, preparation, action) => <StackCorner review={review} preparation={preparation} live={live} action={action} />} />
 }
 
 function ReviewWaiting({ status, reason, closeReview }: { status: string; reason: string | null; closeReview: () => void }) {
@@ -392,9 +394,9 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
         panelKey,
         // S hides the panel, or brings it back. The panel does it, and keeps the keyboard where it belongs.
         toggleSteps: () => steps?.dispatchEvent(new Event('rv-toggle')),
-        // Shift+S puts the keyboard on "Make it a stack" in the panel's size row. The header does it. A key held down only repeats.
+        // Shift+S puts the keyboard on "Make it a stack" in the corner beside "Refresh review", when the change has one. A key held down only repeats.
         focusStack: () => {
-          if (!event.repeat) steps?.querySelector('[data-rv-stack]')?.dispatchEvent(new Event('rv-stack'))
+          if (!event.repeat) focusStackButton(element.closest('[data-rv-load]'))
         },
         // { and } go to the layer under and over, in a review that is a layer of a stack. The strip in the panel does it; a key held down only repeats.
         moveLayer: (direction) => {
