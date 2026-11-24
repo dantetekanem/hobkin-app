@@ -3,6 +3,16 @@ import { CodeText } from './CodeText.tsx'
 import { callTime, codemodeOf, type SavedCodemode } from './codemode.ts'
 import { useUnfold } from './unfold.ts'
 
+/**
+ * What the list of calls can and cannot tell. The calls are the tools the script ran through codemode. A script that
+ * did its work with codemode's own functions has none, and then there is nothing to say: no line, and never "no tool calls".
+ */
+function CallsNote({ operations }: { operations: readonly unknown[] | undefined }) {
+  if (operations === undefined) return <p className="text-[11px] text-muted-foreground">The runtime did not say which tools this script ran.</p>
+  if (operations.length === 0) return null
+  return <p className="text-[11px] text-muted-foreground">Arguments and errors are previews and may be cut short. What each call returned is not kept.</p>
+}
+
 /** Script result is aggregate output, not a result for any one operation. */
 export function CodemodeCall({ entry, ended = false, correlation }: { entry: ActivityEntry; ended?: boolean; correlation?: SavedCodemode['correlation'] }) {
   const { open, toggle, box } = useUnfold<HTMLDivElement>()
@@ -20,7 +30,7 @@ export function CodemodeCall({ entry, ended = false, correlation }: { entry: Act
         {call.error ? <p className="whitespace-pre-wrap [overflow-wrap:anywhere] text-bad-fg">{call.error}</p> : null}
       </li>)}
     </ol>
-    <p className="text-[11px] text-muted-foreground">{model.operations === undefined ? 'Operation metadata unavailable. ' : model.operations.length === 0 ? 'No operations reported. ' : ''}Arguments and errors are upstream previews and may be truncated. Inner results are unavailable.</p>
+    <CallsNote operations={model.operations} />
     <div className="flex min-w-0 flex-col gap-1"><span className="eyebrow">Script result · aggregate</span>
       {model.output ? <CodeText text={model.output} language={null} label="Received aggregate script output" most={4} /> : <p className="text-xs text-muted-foreground">{model.state === 'running' ? 'No script output yet.' : 'No script output received.'}</p>}
     </div>

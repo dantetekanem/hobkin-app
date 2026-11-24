@@ -36,7 +36,7 @@ export interface CodemodeWords {
   script?: string
   /** The tool calls the script made. Absent when the host did not report them. */
   calls?: {
-    /** "4 tool calls", "1 tool call", "2 tool calls so far", "no tool calls". */
+    /** "4 tool calls", "1 tool call", "2 tool calls so far", or "listed 12 tools" for a script that only printed the tools it found. */
     count: string
     /** "all passed", or "passed" for one. */
     passed?: string
@@ -61,14 +61,38 @@ function tallyOf(names: readonly string[]): string {
   return [...counts].map(([name, count]) => (count === 1 ? name : `${count} ${name}`)).join(', ')
 }
 
-/** The words a codemode step's row says about its script and the tool calls it made. */
-export function codemodeWords({ state, operations }: Pick<Codemode, 'state' | 'operations'>): CodemodeWords {
+/** One tool as codemode's own search prints it: `{"name":"…","description":"…`. */
+const LISTED_TOOL = /\{"name":"[^"]+","description":/g
+
+/**
+ * What a script that ran no tool through codemode printed, when that is a list of tools: "listed 12 tools". A list cut
+ * short by the feed is not counted. Null for any other output.
+ */
+function listedTools(output: string): string | null {
+  const found = output.match(LISTED_TOOL)?.length ?? 0
+  if (found === 0) return null
+
+  const whole = output.trimEnd().endsWith(']')
+  if (!whole) return 'listed tools'
+  return found === 1 ? 'listed 1 tool' : `listed ${found} tools`
+}
+
+/**
+ * The words a codemode step's row says about its script and the tool calls it made. The calls are the tools the
+ * script ran through codemode, as the runtime reports them. A script can do all its work with codemode's own
+ * functions and report none, so a row with none never says "no tool calls": it says what the script printed when
+ * that can be told, and otherwise nothing.
+ */
+export function codemodeWords({ state, operations, output = '' }: Pick<Codemode, 'state' | 'operations'> & { output?: string }): CodemodeWords {
   const script = SCRIPT_END[state]
   const words: CodemodeWords = script ? { script } : {}
   if (!operations) return words
 
   const running = state === 'running'
-  if (operations.length === 0) return { ...words, calls: { count: running ? 'no tool calls yet' : 'no tool calls' } }
+  if (operations.length === 0) {
+    const listed = running ? null : listedTools(output)
+    return listed ? { ...words, calls: { count: listed } } : words
+  }
 
   const failed = operations.filter((operation) => operation.status === 'error')
   const unfinished = operations.filter((operation) => operation.status === 'cancelled' || operation.status === 'unknown').length

@@ -50,7 +50,7 @@ test('while the script runs, its tool calls are counted so far', () => {
   const words = wordsOf(script([call('read', 'ok'), call('bash', 'running')], 'running'))
 
   assert.deepEqual(words, { calls: { count: '2 tool calls so far', tally: 'read, bash' } })
-  assert.equal(codemodeText(wordsOf(script([], 'running'))), 'no tool calls yet')
+  assert.equal(codemodeText(wordsOf(script([], 'running'))), '', 'with none reported yet, the row claims nothing')
 })
 
 test('a script whose tool calls are not known says nothing about them', () => {
@@ -59,8 +59,14 @@ test('a script whose tool calls are not known says nothing about them', () => {
   assert.equal(codemodeText(wordsOf(script(undefined, 'failed'))), 'script failed')
 })
 
-test('a script that made no tool calls says so', () => {
-  assert.equal(codemodeText(wordsOf(script([]))), 'no tool calls')
+test('a script with no tool run reported never says "no tool calls": it says what it printed, or nothing', () => {
+  // The count is of tools the script ran through codemode. A script that works with codemode's own functions has none.
+  assert.equal(codemodeText(wordsOf(script([]))), '')
+
+  const listing = 'Script completed\nWall time 0.0 seconds\nOutput:\n\n[{"name":"mcp__mail__get","description":"Get a message."},{"name":"mcp__mail__draft","description":"Write a draft."}]'
+  assert.equal(codemodeText(wordsOf({ ...script([]), output: listing })), 'listed 2 tools')
+  assert.equal(codemodeText(wordsOf({ ...script([]), output: listing.slice(0, 120) })), 'listed tools', 'a listing cut short is not counted')
+  assert.equal(codemodeText(wordsOf({ ...script([call('read', 'ok')]), output: listing })), '1 tool call, passed · read', 'reported runs are what the row says')
 })
 
 test('a script that failed or was stopped says so first, then its tool calls', () => {
