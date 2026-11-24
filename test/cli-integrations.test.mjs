@@ -149,8 +149,8 @@ test('a run or a durable hobkin offered tools loads the extension with its offer
   assert.deepEqual(plainRun.extensions, nothing.extensions);
 });
 
-/** A fake Pi on RPC whose one turn calls a tool over its bridge, says what it read and settles. */
-const calling = (name, params) => `
+/** A fake Pi on RPC whose one turn calls a tool over its bridge (or sends `request` whole), says what it read and settles. */
+const calling = (name, params, request = { op: 'integration_tool', name, id: 'call-1', params }) => `
 let input = '';
 const send = event => process.stdout.write(JSON.stringify(event) + '\\n');
 process.stdin.setEncoding('utf8');
@@ -165,13 +165,14 @@ process.stdin.on('data', chunk => {
     else if (cmd.type === 'get_session_stats') reply({ sessionId: 'pi-job', cost: 0.1 });
     else if (cmd.type === 'extension_ui_response') {
       const answer = cmd.cancelled ? { ok: false, error: 'The Hobkin host did not answer.' } : JSON.parse(cmd.value);
-      send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Read: ' + (answer.ok ? answer.result.text : answer.error) }] } });
+      const read = answer.ok ? (typeof answer.result?.text === 'string' ? answer.result.text : JSON.stringify(answer.result)) : answer.error;
+      send({ type: 'message_end', message: { role: 'assistant', stopReason: 'stop', content: [{ type: 'text', text: 'Read: ' + read }] } });
       send({ type: 'agent_settled' });
     } else if (cmd.type === 'prompt') {
       reply({ disposition: 'started' });
       send({ type: 'agent_start' });
       send({ type: 'extension_ui_request', id: 'integration', method: 'input', title: ${JSON.stringify(BRIDGE)},
-        placeholder: JSON.stringify({ op: 'integration_tool', name: ${JSON.stringify(name)}, id: 'call-1', params: ${JSON.stringify(params)} }) });
+        placeholder: ${JSON.stringify(JSON.stringify(request))} });
     } else reply();
   }
 });
@@ -265,10 +266,14 @@ async function inPi(t, extensions, serve) {
   models.checkAuth = async () => ({ available: true });
   const asked = [];
   const ui = new Proxy({
+    // As Pi's RPC dialog does, a dialog whose signal aborts resolves with nothing.
     input: async (title, placeholder, options) => {
       if (title !== BRIDGE) return undefined;
       asked.push(JSON.parse(placeholder));
-      const answer = await serve(placeholder, options?.signal);
+      const signal = options?.signal;
+      if (signal?.aborted) return undefined;
+      const aborted = new Promise(resolve => signal?.addEventListener('abort', () => resolve(undefined), { once: true }));
+      const answer = await Promise.race([serve(placeholder, signal), aborted]);
       return answer === undefined ? undefined : JSON.stringify(answer);
     },
   }, { get: (target, name) => (name in target ? target[name] : () => undefined) });
@@ -302,4 +307,91 @@ test("in Pi itself an offered tool is a real tool with its JSON schema, and a ca
     ['clock_now', {}, { agent: MAIN_AGENT, id: 'call-2' }],
     ['github_find_pull', { words: '3' }, { agent: MAIN_AGENT, id: 'call-3' }],
   ]);
+});
+
+/** A host that hooks these tools and answers each hook as `before` and `after` say, keeping what it heard. */
+function hooking(hooked, { before = () => null, after = () => null, tools = [findPull, anyAgent] } = {}) {
+  const given = host(tools, (name, args) => ({ text: `${name} ran with ${JSON.stringify(args)}` }));
+  const heard = [];
+  return Object.assign(given, {
+    heard,
+    hookedTools: () => hooked,
+    async beforeTool(call) { heard.push(['before', call]); return before(call); },
+    async afterTool(call, result) { heard.push(['after', call, result]); return after(call, result); },
+  });
+}
+
+test('an offer carries the tool names hooked, or all, even with no tools, and none when nothing is hooked', () => {
+  assert.deepEqual(integrationOffer(hooking('all', { tools: [] }), 'runs'), { tools: [], hooked: 'all' });
+  assert.deepEqual(integrationOffer(hooking(['bash', 'bash', 'mcp__files__read', 'not a name']), 'durable').hooked, ['bash', 'mcp__files__read']);
+  assert.equal(Object.hasOwn(integrationOffer(hooking([]), 'main'), 'hooked'), false);
+  assert.equal(integrationOffer(hooking([], { tools: [] }), 'main'), null);
+  assert.equal(integrationOffer({ hookedTools: () => { throw Error('broken'); } }, 'main'), null);
+});
+
+test("the bridge asks the host's before and after only for a hooked tool, as this agent, and passes on only what they may answer", async () => {
+  const given = hooking(['bash'], {
+    before: call => (call.args.command === 'rm -rf /' ? { block: 'Not that.', args: { command: 'ls' } } : { args: { command: `${call.args.command} -l` }, extra: 1 }),
+    after: () => ({ text: 'Shorter.', failed: false, extra: 1 }),
+  });
+  const served = { host: given, offer: integrationOffer(given, 'runs'), agent: 'run-1' };
+  const ask = request => serveIntegration(JSON.stringify({ id: 'call-1', ...request }), served);
+  assert.deepEqual(await ask({ op: 'tool_before', name: 'bash', args: { command: 'rm -rf /' } }), { ok: true, result: { block: 'Not that.' } });
+  assert.deepEqual(await ask({ op: 'tool_before', name: 'bash', args: { command: 'ls' } }), { ok: true, result: { args: { command: 'ls -l' } } });
+  assert.deepEqual(await ask({ op: 'tool_after', name: 'bash', args: { command: 'ls' }, result: { text: 'a\nb', failed: false } }), { ok: true, result: { text: 'Shorter.', failed: false } });
+  assert.deepEqual(given.heard, [
+    ['before', { agent: 'run-1', id: 'call-1', name: 'bash', args: { command: 'rm -rf /' } }],
+    ['before', { agent: 'run-1', id: 'call-1', name: 'bash', args: { command: 'ls' } }],
+    ['after', { agent: 'run-1', id: 'call-1', name: 'bash', args: { command: 'ls' } }, { text: 'a\nb', failed: false }],
+  ]);
+  assert.deepEqual(await ask({ op: 'tool_before', name: 'read', args: { path: 'x' } }), { ok: false, error: 'Invalid bridge request.' }, 'a tool nothing hooks');
+  const quiet = hooking('all');
+  const silent = { host: quiet, offer: integrationOffer(quiet, 'runs'), agent: 'run-1' };
+  assert.deepEqual(await serveIntegration(JSON.stringify({ op: 'tool_before', id: 'c', name: 'read', args: {} }), silent), { ok: true, result: null });
+  assert.deepEqual(await serveIntegration(JSON.stringify({ op: 'tool_after', id: 'c', name: 'read', args: {}, result: { text: 'x', failed: false } }), silent), { ok: true, result: null });
+});
+
+test('in Pi itself a before hook refuses a call with its reason or changes its arguments, an after hook changes what the agent reads, and an unhooked call never asks', async t => {
+  const given = hooking(['github_find_pull'], {
+    before: call => (call.args.words === 'secret' ? { block: 'That search is not allowed.' } : { args: { words: `${call.args.words} is:open` } }),
+    after: (_call, result) => ({ text: `${result.text} (checked)` }),
+  });
+  const offer = integrationOffer(given, 'main');
+  const { session, asked } = await inPi(t, [createIntegrationExtension(offer)], placeholder => serveIntegration(placeholder, { host: given, offer, agent: MAIN_AGENT }));
+  scriptedModel(session, [{ name: 'github_find_pull', arguments: { words: 'secret' } }, { name: 'github_find_pull', arguments: { words: 'flaky' } }, { name: 'clock_now', arguments: {} }]);
+  await session.prompt('Go.', { preflightResult() {} });
+  const [refused, changed, unhooked] = toolResults(session);
+  assert.equal(refused.isError, true);
+  assert.match(refused.content[0].text, /That search is not allowed\./);
+  assert.equal(changed.content[0].text, 'github_find_pull ran with {"words":"flaky is:open"} (checked)');
+  assert.equal(unhooked.content[0].text, 'clock_now ran with {}');
+  assert.deepEqual(given.calls.map(call => call.args), [{ words: 'flaky is:open' }, {}], 'the refused call never ran');
+  assert.deepEqual(asked.map(request => [request.op, request.name]), [
+    ['tool_before', 'github_find_pull'], ['tool_before', 'github_find_pull'], ['integration_tool', 'github_find_pull'], ['tool_after', 'github_find_pull'], ['integration_tool', 'clock_now'],
+  ]);
+});
+
+test('in Pi itself a hook that throws, or has not answered in time, lets the call through as it was', async t => {
+  const slow = Promise.withResolvers();
+  t.after(() => slow.resolve(null));
+  const given = hooking('all', { before: call => (call.args.words === 'slow' ? slow.promise : Promise.reject(Error('The hook broke.'))), after: () => { throw Error('So did this one.'); } });
+  const offer = integrationOffer(given, 'main');
+  const { session } = await inPi(t, [createIntegrationExtension(offer, { hookWaitMs: 100 })], placeholder => serveIntegration(placeholder, { host: given, offer, agent: MAIN_AGENT }));
+  scriptedModel(session, [{ name: 'github_find_pull', arguments: { words: 'slow' } }, { name: 'github_find_pull', arguments: { words: 'broken' } }]);
+  await session.prompt('Go.', { preflightResult() {} });
+  assert.deepEqual(toolResults(session).map(result => [result.isError, result.content[0].text]), [
+    [false, 'github_find_pull ran with {"words":"slow"}'],
+    [false, 'github_find_pull ran with {"words":"broken"}'],
+  ]);
+});
+
+test("a run's hooked call is asked of the host over its pipe as the run, and one nothing hooks is refused there", { timeout: 10000 }, async t => {
+  const given = hooking(['bash'], { before: () => ({ block: 'No shell in this run.' }) });
+  const integrations = { host: given, offer: integrationOffer(given, 'runs'), agent: 'check:2026-11-24' };
+  const asking = request => fake(calling(null, null, request));
+  const blocked = await runHarness(job(t), { spawnProcess: asking({ op: 'tool_before', id: 'call-1', name: 'bash', args: { command: 'ls' } }), integrations });
+  assert.equal(blocked.text, 'Read: {"block":"No shell in this run."}');
+  assert.deepEqual(given.heard, [['before', { agent: 'check:2026-11-24', id: 'call-1', name: 'bash', args: { command: 'ls' } }]]);
+  const unhooked = await runHarness(job(t), { spawnProcess: asking({ op: 'tool_before', id: 'call-2', name: 'read', args: {} }), integrations });
+  assert.equal(unhooked.text, 'Read: Invalid bridge request.');
 });

@@ -323,8 +323,10 @@ export class HobkinApplication {
   /**
    * `integrations` is what the host's integrations give agents (065-integration-drops): `tools()`, the tools offered, each
    * with a name, a description, JSON schema parameters and the agents it goes to (`main`, `runs`, `durable`), and
-   * `callTool(name, args, { agent, id }, signal)`, which runs one and answers `{ text, failed? }`. `agent` is `#main` for
-   * the main conversation and the run's id for any other. Without it no agent is given anything new.
+   * `callTool(name, args, { agent, id }, signal)`, which runs one and answers `{ text, failed? }`. `hookedTools()` names
+   * the tools whose calls it hears in every agent, or says `all`: `beforeTool({ agent, id, name, args })` may answer
+   * `{ block: reason }` or `{ args }`, and `afterTool(call, { text, failed })` may answer `{ text, failed }`. `agent` is
+   * `#main` for the main conversation and the run's id for any other. Without it no agent is given anything new.
    */
   static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, harnessWarms, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch, integrations = null } = {}) {
     signal?.throwIfAborted();

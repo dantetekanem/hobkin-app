@@ -169,3 +169,14 @@ test("hobkin's application hands its option to the main conversation as it opens
   await app.runtime.connect();
   assert.equal(opened.at(-1).integrations, given);
 });
+
+test("a host that only hooks calls still gives the main conversation the extension, and its hooks are asked as #main", { timeout: 10000 }, async t => {
+  const heard = [];
+  const hooking = { tools: () => [], hookedTools: () => ['bash'], async beforeTool(call) { heard.push(call); return { block: 'Not now.' }; } };
+  const main = await launched(t, hooking);
+  assert.equal(main.spawned.args.includes(integrationExtension), true);
+  assert.deepEqual(readOffer(main.spawned.options.env), { tools: [], hooked: ['bash'] });
+  const answer = await main.ask({ op: 'tool_before', name: 'bash', id: 'pi-call-1', args: { command: 'ls' } });
+  assert.deepEqual(answer, { ok: true, result: { block: 'Not now.' } });
+  assert.deepEqual(heard, [{ agent: MAIN_AGENT, id: 'pi-call-1', name: 'bash', args: { command: 'ls' } }]);
+});
