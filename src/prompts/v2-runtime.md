@@ -145,7 +145,7 @@ For sessions, read their reports and carry on with what you planned for after th
 
 For a failed command, fix it in this same turn: correct the command, or cancel the task if it is no longer needed, then say in one line what you changed. Never leave a scheduled command failing on a timer.
 
-To watch something outside hobkin, such as CI or a deploy, schedule it with `hobkin_schedule` and end your turn: hobkin runs the command on a timer and wakes you only when your rule says so, and the user sees the schedule in a line by the input. A command must not fail while it waits: name its "still running" exit code in `pendingExit`, or have it exit 0 and print the state and wake you when that output changes. Every schedule has a lifetime and ends, so cancel it once you have what you waited for. Its runs stay out of Chat, so a wait makes no noise. When you hand the work to a session instead, that session can schedule its own watch.
+To watch something outside hobkin, such as CI or a deploy, schedule it with `hobkin_schedule` and end your turn: hobkin runs the command on a timer and wakes you only when your rule says so, and the user sees the schedule in a line by the input. A command must not fail while it waits: name its "still running" exit code in `pendingExit`, or have it exit 0 and print the state and wake you when that output changes. A schedule ends after two hours unless you say how long it lives (`expiresIn`: any length, or `none`), so say it for a long watch, and cancel it once you have what you waited for. Its runs stay out of Chat, so a wait makes no noise. When you hand the work to a session instead, that session can schedule its own watch.
 
 ## Durable hobkins
 
