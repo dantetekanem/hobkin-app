@@ -179,7 +179,7 @@ function noticesOf(notice: string | null, problem: string | null, list: MemoryLi
 }
 
 /** A memory added while one kind is shown starts as that kind. */
-const kindToAdd = (filter: MemoryFilter): MemoryKind => (filter === 'all' || filter === 'now' || filter === 'past' ? 'user' : filter)
+const kindToAdd = (filter: MemoryFilter): MemoryKind => ((MEMORY_KINDS as readonly string[]).includes(filter) ? (filter as MemoryKind) : 'user')
 
 /** A field the arrows work inside: its caret, its list of choices, or its switch. */
 function arrowsBelongTo(target: EventTarget): boolean {
@@ -188,9 +188,15 @@ function arrowsBelongTo(target: EventTarget): boolean {
   return target instanceof HTMLElement && target.closest('[role="listbox"],[role="menu"],[role="switch"]') !== null
 }
 
+/** What a part says when it has nothing to show, where that differs from a kind's. */
+const NONE_WORDS: Partial<Record<MemorySection['key'], string>> = {
+  past: 'Nothing has passed its day.',
+  unkept: 'Nothing waits to be kept. Every memory here reaches the agents it is meant for.',
+}
+
 /** One part of the list: a kind, the past ones or what a search found, with its rows, or a line saying it has none. */
 function MemoryPart({ section, query, today, at, forgotten }: { section: MemorySection; query: string; today: string; at: WordsAt; forgotten: MemoryState['forgotten'] }) {
-  const none = section.key === 'found' ? `Nothing holds every word of “${query.trim()}”.` : section.key === 'past' ? 'Nothing has passed its day.' : 'Nothing of this kind yet.'
+  const none = NONE_WORDS[section.key] ?? (section.key === 'found' ? `Nothing holds every word of “${query.trim()}”.` : 'Nothing of this kind yet.')
   return (
     <section aria-label={section.label} className="flex flex-col gap-3">
       <h3 className="eyebrow">{section.label}</h3>
@@ -212,11 +218,13 @@ function MemoryPart({ section, query, today, at, forgotten }: { section: MemoryS
  * so they stay as they are while a search runs.
  */
 function FilterChips({ counts, filter, onFilter }: { counts: MemoryCounts; filter: MemoryFilter; onFilter: (filter: MemoryFilter) => void }) {
-  const chips: { value: MemoryFilter; label: string; count: string }[] = [
+  const chips: { value: MemoryFilter; label: string; count: string; hidden?: boolean }[] = [
     { value: 'all', label: 'All', count: String(counts.all) },
     ...MEMORY_KINDS.map((kind) => ({ value: kind, label: KIND_WORDS[kind].heading, count: String(counts.kinds[kind]) })),
     { value: 'now', label: 'Right now', count: `${counts.now} of ${MEMORY_NOW_MAX}` },
     { value: 'past', label: 'Past', count: String(counts.past) },
+    // Last, and its place kept while there are none, so it comes and goes without moving the others or the list.
+    { value: 'unkept', label: 'Not kept', count: String(counts.unkept), hidden: counts.unkept === 0 && filter !== 'unkept' },
   ]
   return (
     <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
@@ -226,12 +234,16 @@ function FilterChips({ counts, filter, onFilter }: { counts: MemoryCounts; filte
           <button
             key={chip.value}
             type="button"
-            data-key-stop=""
+            data-key-stop={chip.hidden ? undefined : ''}
             aria-pressed={chosen}
+            aria-hidden={chip.hidden || undefined}
+            tabIndex={chip.hidden ? -1 : undefined}
+            disabled={chip.hidden}
             onClick={() => onFilter(chosen && chip.value !== 'all' ? 'all' : chip.value)}
             className={cn(
               'inline-flex h-7 items-center gap-1.5 rounded-full px-3 text-[12.5px] font-medium whitespace-nowrap outline-offset-2 transition-colors duration-[160ms] ease-[ease]',
               chosen ? 'bg-foreground text-background' : 'bg-background text-foreground hover:bg-surface-2',
+              chip.hidden && 'invisible',
             )}
           >
             {chip.label}

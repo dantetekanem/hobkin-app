@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { MemoryEntry } from '#shared/protocol/memory.ts'
-import { countsOf, findMemories, fromWords, pageOf, textParts, untilWords, type PagePart } from '../src/features/memory/groups.ts'
+import { countsOf, findMemories, fromWords, pageOf, saidWords, textParts, untilWords, type PagePart } from '../src/features/memory/groups.ts'
 
 const TODAY = '2026-11-23'
 const NOW = Date.parse('2026-11-23T15:00:00Z')
@@ -84,19 +84,46 @@ test('with a search the page shows what was found, ranked, past ones too, and th
 
 test('a row says who added it, where, who changed it and when, in plain words', () => {
   const words = (fields: Partial<MemoryEntry>) => fromWords({ name: 'm', ...fields }, { now: NOW, timeZone: 'UTC' })
-  assert.equal(words({ added: { at: '2026-11-02T10:00:00Z', by: { kind: 'main' } }, source: { kind: 'chat', said: 'Remember Sam is my partner' } }), 'From you, in Chat, Nov 2')
+  // Only the user's own add reads "From you". The main chat saving the user's words is hobkin's add, in Chat.
+  assert.equal(words({ added: { at: '2026-11-02T10:00:00Z', by: { kind: 'main' } }, source: { kind: 'chat', said: 'Remember Sam is my partner' } }), 'From hobkin, in Chat, Nov 2')
   assert.equal(
     words({ added: { at: '2026-11-15T18:18:48Z', by: { kind: 'outside', title: 'Claude Code' } }, changed: { at: '2026-11-20T09:02:00Z', by: { kind: 'main' } }, source: { kind: 'remember' } }),
-    'From Claude Code, Nov 15 · changed by hobkin, Nov 20',
+    'From another session (Claude Code), Nov 15 · changed by hobkin, Nov 20',
   )
+  // Another session is never "you", whatever it is called.
+  assert.equal(words({ added: { at: '2026-11-16T10:00:00Z', by: { kind: 'outside', title: 'you' } }, source: { kind: 'remember', said: 'I like tea' } }), 'From another session (you), Nov 16')
+  assert.equal(words({ added: { at: '2026-11-16T10:00:00Z', by: { kind: 'outside' } } }), 'From another session, Nov 16')
   assert.equal(words({ added: { at: '2026-11-03T09:00:00Z', by: { kind: 'user' } }, source: { kind: 'window' } }), 'From you, Nov 3')
   assert.equal(words({ added: { at: '2026-11-04T09:00:00Z', by: { kind: 'main' } } }), 'From hobkin, Nov 4')
   assert.equal(words({ added: { at: '2026-11-05T09:00:00Z', by: { kind: 'hobkin', id: 'h1', title: 'Trip planner' } } }), 'From Trip planner, Nov 5')
+  assert.equal(words({ added: { at: '2026-11-05T09:00:00Z', by: { kind: 'hobkin', id: 'h1', title: 'Trip planner' } }, source: { kind: 'chat', said: 'Train under 600 km' } }), 'From Trip planner, Nov 5')
   assert.equal(words({ added: { at: '2026-11-06T09:00:00Z', by: { kind: 'suggested', title: 'Morning check' } } }), 'Suggested by Morning check, Nov 6')
   assert.equal(words({ added: { at: '2025-12-30T09:00:00Z', by: { kind: 'user' } }, changed: { at: '2026-01-02T09:00:00Z', by: { kind: 'user' } } }), 'From you, Dec 30, 2025 · changed by you, Jan 2')
   // A change that is the add itself says nothing more.
   assert.equal(words({ added: { at: '2026-11-07T09:00:00Z', by: { kind: 'main' } }, changed: { at: '2026-11-07T09:00:00Z', by: { kind: 'main' } } }), 'From hobkin, Nov 7')
   assert.equal(words({}), null)
+})
+
+test('"You said" quotes the user only for words said in Chat or here, never for what another session or a run handed over', () => {
+  const said = (source: MemoryEntry['source']) => saidWords({ name: 'm', source })
+  assert.equal(said({ kind: 'chat', said: 'Sam is my partner' }), 'Sam is my partner')
+  assert.equal(said({ kind: 'window', said: 'Tea, not coffee' }), 'Tea, not coffee')
+  assert.equal(said({ kind: 'remember', said: 'The user wants appointments before noon' }), null)
+  assert.equal(said({ kind: 'suggested', said: 'remind me two weeks before', from: 'Morning check' }), null)
+  assert.equal(said({ kind: 'moved', said: 'Something' }), null)
+  assert.equal(said({ kind: 'chat' }), null)
+  assert.equal(said(undefined), null)
+})
+
+test('a memory nobody has kept yet counts apart, and Not kept shows only those', () => {
+  const memories = [...MEMORIES, memory('appointments-before-noon', { kind: 'preference', unconfirmed: true, added: at('2026-11-22') })]
+  assert.equal(countsOf(memories, [], TODAY).unkept, 1)
+  assert.equal(countsOf(MEMORIES, [], TODAY).unkept, 0)
+  // It is still a memory of its kind, with the others.
+  assert.deepEqual(labels(pageOf({ memories, filter: 'preference', today: TODAY })), ['How you like things:appointments-before-noon,short-replies'])
+  assert.deepEqual(labels(pageOf({ memories, filter: 'unkept', today: TODAY })), ['Not kept yet:appointments-before-noon'])
+  assert.deepEqual(labels(pageOf({ memories: MEMORIES, filter: 'unkept', today: TODAY })), ['Not kept yet:'])
+  assert.deepEqual(labels(pageOf({ memories, filter: 'unkept', query: 'noon', today: TODAY })), ['1 found:appointments-before-noon'])
 })
 
 test('a day it holds until reads as a date, and links in the text are their own parts', () => {

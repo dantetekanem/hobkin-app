@@ -67,6 +67,20 @@ export function createMemoryActions(store: MemoryStore, send: MemorySend) {
     })
   }
 
+  /**
+   * A change to a memory was refused. The list is read again at once, though a row is being edited, so a memory that
+   * moved on shows as it is now and the next Save goes against that. When it did move on, a row with a draft says so in
+   * its own words and keeps the draft; one without says to try again. Any other refusal is shown in the host's words.
+   */
+  const afterRefusal = async (key: string, sentVersion: string | undefined, refused: string) => {
+    await store.read()
+    const nowVersion = store.memoryNamed(key)?.version
+    const movedOn = sentVersion !== undefined && nowVersion !== undefined && nowVersion !== sentVersion
+    if (!movedOn) setRefusal(key, refused)
+    else if (store.getState().drafts[key]) setRefusal(key, null)
+    else setRefusal(key, 'It changed meanwhile, so nothing was saved. It now shows as it is: try again.')
+  }
+
   /** Sends a save of these fields for the row `key`. The draft, if any, closes only once the host keeps it. */
   const sendSave = async (key: string, args: MemorySave): Promise<void> => {
     if (isBusy(key)) return
@@ -80,8 +94,12 @@ export function createMemoryActions(store: MemoryStore, send: MemorySend) {
     try {
       const answer = answerOf(await send('memory.save', args))
       const refused = refusalIn(answer)
-      if (refused !== null) {
+      if (refused !== null && key === NEW_DRAFT) {
         setRefusal(key, refused)
+        return
+      }
+      if (refused !== null) {
+        await afterRefusal(key, args.version, refused)
         return
       }
       const memory = memoryIn(answer.memory)
@@ -92,8 +110,9 @@ export function createMemoryActions(store: MemoryStore, send: MemorySend) {
 
       keepMemory(memory)
       const change = changeIn(answer)
-      set(({ drafts, saved }) => ({
+      set(({ drafts, draftFrom, saved }) => ({
         drafts: without(drafts, key),
+        draftFrom: without(draftFrom, key),
         saved: change ? { ...saved, [memory.name]: change } : without(saved, memory.name),
       }))
       store.settled()
@@ -146,6 +165,13 @@ export function createMemoryActions(store: MemoryStore, send: MemorySend) {
       const memory = store.memoryNamed(name)
       if (!memory) return
       return sendSave(name, saveOf({ ...draftOf(memory), private: keepPrivate }, memory))
+    },
+
+    /** Keep: a memory another session handed over, saved as it is by the user, so every agent may read it from now on. */
+    async keep(name: string): Promise<void> {
+      const memory = store.memoryNamed(name)
+      if (!memory) return
+      return sendSave(name, saveOf(draftOf(memory), memory))
     },
 
     /** Forgets a memory. Its row stays where it was as one line with Undo until the page is left. */

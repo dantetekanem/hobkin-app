@@ -14,9 +14,18 @@ import { createMemoryStore, refusalWords, type MemoryCommand, type MemorySend, t
  * the page and on the line alike.
  */
 
+/**
+ * Raised whenever the store's state or its actions change shape. A hot update that finds an older pair makes them afresh
+ * (the drafts open in it are lost), so a page drawn by new code never reads state or calls actions the old pair lacks.
+ */
+const RULES = 2
+
 interface Kept {
+  rules?: number
   store: MemoryStore
   actions: MemoryActions
+  /** Stops following the host. A pair from before rules had none, and its listener stays until the window reloads. */
+  stop?: () => void
 }
 
 /**
@@ -40,7 +49,7 @@ function make(): Kept {
   const store = createMemoryStore({ send })
   let live = hasHost(hostStore.getState())
   store.stampSeen(hostStore.getState().snapshot.memoriesStamp)
-  hostStore.subscribe((state) => {
+  const stop = hostStore.subscribe((state) => {
     const now = hasHost(state)
     if (now !== live) {
       live = now
@@ -48,13 +57,17 @@ function make(): Kept {
     }
     store.stampSeen(state.snapshot.memoriesStamp)
   })
-  return { store, actions: createMemoryActions(store, send) }
+  return { rules: RULES, store, actions: createMemoryActions(store, send), stop }
 }
 
 // The store, the sample's changes and the host listener are made once and live on globalThis, as the clocks do
 // (`lib/clock.ts`): a hot update that runs this file again finds them instead of making a second set beside them.
 const holder = globalThis as { __hobkinMemory?: Kept }
-const kept = (holder.__hobkinMemory ??= make())
+if (holder.__hobkinMemory?.rules !== RULES) {
+  holder.__hobkinMemory?.stop?.()
+  holder.__hobkinMemory = make()
+}
+const kept = holder.__hobkinMemory
 
 export const memoryStore = kept.store
 export const memoryActions = kept.actions

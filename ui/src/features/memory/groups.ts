@@ -16,12 +16,15 @@ export const KIND_WORDS: Readonly<Record<MemoryKind, { heading: string; one: str
   pointer: { heading: 'Where things are', one: 'Where something is' },
 }
 
-/** What the page shows: every memory, one kind, the Right now list, or the past ones. */
-export type MemoryFilter = 'all' | MemoryKind | 'now' | 'past'
+/** What the page shows: every memory, one kind, the Right now list, the past ones, or the ones nobody has kept yet. */
+export type MemoryFilter = 'all' | MemoryKind | 'now' | 'past' | 'unkept'
 
-/** A part of the page that holds memories: a kind, the ones of no kind the window knows, the past ones, or what a search found. */
+/**
+ * A part of the page that holds memories: a kind, the ones of no kind the window knows, the past ones, the ones nobody
+ * has kept yet, or what a search found.
+ */
 export interface MemorySection {
-  key: MemoryKind | 'other' | 'past' | 'found'
+  key: MemoryKind | 'other' | 'past' | 'unkept' | 'found'
   label: string
   memories: readonly MemoryEntry[]
 }
@@ -100,6 +103,8 @@ export interface MemoryCounts {
   past: number
   /** Lines in the Right now list. */
   now: number
+  /** Handed over by another session, and nobody has kept them yet. */
+  unkept: number
 }
 
 /** How many memories of each kind the page holds. A search does not change them. */
@@ -107,18 +112,21 @@ export function countsOf(memories: readonly MemoryEntry[], now: readonly string[
   const kinds = Object.fromEntries(MEMORY_KINDS.map((kind) => [kind, 0])) as Record<MemoryKind, number>
   let other = 0
   let past = 0
+  let unkept = 0
   for (const memory of memories) {
+    if (memory.unconfirmed) unkept += 1
     if (isPast(memory, today)) past += 1
     else if (memory.kind) kinds[memory.kind] += 1
     else other += 1
   }
-  return { all: memories.length - past, kinds, other, past, now: now.length }
+  return { all: memories.length - past, kinds, other, past, now: now.length, unkept }
 }
 
 const inFilter = (memory: MemoryEntry, filter: MemoryFilter, today: string): boolean => {
   if (filter === 'all') return true
   if (filter === 'now') return false
   if (filter === 'past') return isPast(memory, today)
+  if (filter === 'unkept') return memory.unconfirmed === true
   return memory.kind === filter && !isPast(memory, today)
 }
 
@@ -145,6 +153,8 @@ export function pageOf({ memories, now = [], query = '', filter = 'all', today }
   if (filter === 'now') return nowPart
 
   const shown = memories.filter((memory) => inFilter(memory, filter, today)).sort(newestFirst)
+  if (filter === 'unkept') return [{ key: 'unkept', label: 'Not kept yet', memories: shown }]
+
   const current = shown.filter((memory) => !isPast(memory, today))
   const parts: PagePart[] = []
   for (const kind of MEMORY_KINDS) {
@@ -172,30 +182,38 @@ function dayWords(at: number, { now, timeZone }: WordsAt): string {
   return new Intl.DateTimeFormat('en', { timeZone, month: 'short', day: 'numeric', ...(sameYear ? {} : { year: 'numeric' }) }).format(at)
 }
 
-/** Who an author is, in a few words: "you", "hobkin", a durable hobkin's or a session's name. */
+/**
+ * Who an author is, in a few words: "you" only for the user's own change here, "hobkin", a durable hobkin's name, or
+ * "another session (Claude Code)", whatever that session calls itself.
+ */
 function whoOf(by: MemoryAuthor, from?: string): string {
   if (by.kind === 'user') return 'you'
   if (by.kind === 'main') return 'hobkin'
   if (by.kind === 'hobkin') return by.title ?? 'a hobkin'
-  if (by.kind === 'outside') return by.title ?? 'another session'
+  if (by.kind === 'outside') return by.title ? `another session (${by.title})` : 'another session'
   if (by.kind === 'suggested') return by.title ?? from ?? 'a run'
   return 'someone'
 }
 
-/** How it came to be: "From you, in Chat", "From Claude Code", "Suggested by Morning check". */
+/** How it came to be: "From you", "From hobkin, in Chat", "From another session (Claude Code)", "Suggested by Morning check". */
 function addedWords(memory: MemoryEntry): string | null {
   const by = memory.added?.by
-  const said = Boolean(memory.source?.said)
   if (!by) return memory.added?.at ? 'Added' : null
   if (by.kind === 'suggested') return `Suggested by ${whoOf(by, memory.source?.from)}`
-  if (by.kind === 'main' && said && memory.source?.kind === 'chat') return 'From you, in Chat'
-  if (by.kind === 'hobkin' && said) return `From you, in ${whoOf(by)}`
+  if (by.kind === 'main' && saidWords(memory) !== null) return 'From hobkin, in Chat'
   return `From ${whoOf(by)}`
 }
 
+/** The user's own words a memory came from: only what they said in Chat or on this page, never what a session or a run handed over. */
+export function saidWords(memory: MemoryEntry): string | null {
+  const source = memory.source
+  const fromTheUser = source?.kind === 'chat' || source?.kind === 'window'
+  return fromTheUser && source.said ? source.said : null
+}
+
 /**
- * Where a memory came from and when, and who changed it last: "From you, in Chat, Nov 2", "From Claude Code, Nov 15 ·
- * changed by hobkin, Nov 20". Null when the host said neither.
+ * Where a memory came from and when, and who changed it last: "From hobkin, in Chat, Nov 2", "From another session
+ * (Claude Code), Nov 15 · changed by hobkin, Nov 20". Null when the host said neither.
  */
 export function fromWords(memory: MemoryEntry, at: WordsAt): string | null {
   const addedTime = timeOf(memory.added?.at)

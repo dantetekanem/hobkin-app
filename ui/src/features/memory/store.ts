@@ -65,6 +65,8 @@ export interface MemoryState {
   problem: string | null
   /** The rows being edited, by memory name, and `NEW_DRAFT` for one being added. */
   drafts: Readonly<Record<string, MemoryDraft>>
+  /** The version of the memory each draft was opened from, to tell when it changed meanwhile. */
+  draftFrom: Readonly<Record<string, string>>
   /** The rows whose command is on its way. */
   busy: Readonly<Record<string, true>>
   /** Why the host refused a row's last command. */
@@ -93,6 +95,7 @@ const INITIAL: MemoryState = {
   reading: false,
   problem: null,
   drafts: {},
+  draftFrom: {},
   busy: {},
   refused: {},
   saved: {},
@@ -113,6 +116,16 @@ export function without<Value>(record: Readonly<Record<string, Value>>, key: str
   if (!(key in record)) return record as Record<string, Value>
   const { [key]: _gone, ...rest } = record
   return rest
+}
+
+/**
+ * The memory changed after its row was opened for editing (another agent, or another window, saved it meanwhile). The
+ * row then shows what it says now under the draft, and Save puts the draft in its place.
+ */
+export function changedMeanwhile(state: Pick<MemoryState, 'drafts' | 'draftFrom'>, memory: MemoryEntry): boolean {
+  const openedFrom = state.draftFrom[memory.name]
+  if (!state.drafts[memory.name] || openedFrom === undefined || memory.version === undefined) return false
+  return openedFrom !== memory.version
 }
 
 /** The draft a memory opens with: its own fields, and About you for one with no kind. */
@@ -182,7 +195,11 @@ export function createMemoryStore({ send }: { send: MemorySend }) {
     edit(name: string) {
       const memory = memoryNamed(name)
       if (!memory) return
-      store.setState(({ drafts, refused }) => ({ drafts: { ...drafts, [name]: draftOf(memory) }, refused: without(refused, name) }))
+      store.setState(({ drafts, draftFrom, refused }) => ({
+        drafts: { ...drafts, [name]: draftOf(memory) },
+        draftFrom: memory.version ? { ...draftFrom, [name]: memory.version } : without(draftFrom, name),
+        refused: without(refused, name),
+      }))
     },
     add(kind: MemoryKind = 'user') {
       store.setState(({ drafts, refused }) => ({
@@ -197,7 +214,7 @@ export function createMemoryStore({ send }: { send: MemorySend }) {
       })
     },
     cancel(key: string) {
-      store.setState(({ drafts, refused }) => ({ drafts: without(drafts, key), refused: without(refused, key) }))
+      store.setState(({ drafts, draftFrom, refused }) => ({ drafts: without(drafts, key), draftFrom: without(draftFrom, key), refused: without(refused, key) }))
       settled()
     },
     /** Brings a memory into view, from a link or a chat line's See. */

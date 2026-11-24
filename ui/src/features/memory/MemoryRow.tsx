@@ -4,10 +4,10 @@ import type { MemoryEntry } from '#shared/protocol/memory.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu.tsx'
 import { cn } from '@/lib/utils.ts'
-import { fromWords, linksIn, nameWords, textParts, untilWords, type WordsAt } from './groups.ts'
+import { fromWords, linksIn, nameWords, saidWords, textParts, untilWords, type WordsAt } from './groups.ts'
 import { LinkPress } from './LinkPress.tsx'
 import { MemoryEditor } from './MemoryEditor.tsx'
-import { draftOf, type Forgotten, type MemoryDraft } from './store.ts'
+import { changedMeanwhile, draftOf, type Forgotten, type MemoryDraft } from './store.ts'
 import { memoryActions, memoryStore, useMemory } from './use-memories.ts'
 
 const sameDraft = (a: MemoryDraft, b: MemoryDraft) => a.description === b.description && a.kind === b.kind && a.until === b.until && a.private === b.private && a.text === b.text
@@ -51,13 +51,16 @@ export interface MemoryRowProps {
 
 /**
  * One memory: its description, the text under it, where it came from and when, its links, Edit, and a small menu with
- * Forget, Make private or Share with every agent, and Copy name. Editing happens in the row, which keeps its place in
- * the list until Save. Forgotten, it is one line with Undo, in the same place. It draws again only when its own memory,
- * draft, refusal or command changes, so a key typed in one row draws no other.
+ * Forget, Make private or Share with every agent, and Copy name. One another session handed over and nobody has kept
+ * says so, and offers Keep beside Edit. Editing happens in the row, which keeps its place in the list until Save; if
+ * the memory changes meanwhile, the row shows what it says now under the draft. Forgotten, it is one line with Undo, in
+ * the same place. It draws again only when its own memory, draft, refusal or command changes, so a key typed in one row
+ * draws no other.
  */
 export const MemoryRow = memo(function MemoryRow({ memory, forgotten, past, at }: MemoryRowProps) {
   const { name } = memory
   const draft = useMemory((state) => state.drafts[name])
+  const moved = useMemory((state) => changedMeanwhile(state, memory))
   const busy = useMemory((state) => state.busy[name] === true)
   const refused = useMemory((state) => state.refused[name] ?? null)
   const saved = useMemory((state) => state.saved[name] !== undefined)
@@ -106,6 +109,8 @@ export const MemoryRow = memo(function MemoryRow({ memory, forgotten, past, at }
           onSave={() => void memoryActions.save(name)}
           onCancel={() => memoryStore.cancel(name)}
         />
+        {/* Under the editor, so Save and Cancel stay where they are when it shows. */}
+        {moved ? <ItSaysNow memory={memory} at={at} /> : null}
       </article>
     )
   }
@@ -115,13 +120,20 @@ export const MemoryRow = memo(function MemoryRow({ memory, forgotten, past, at }
   // The links its text already shows in place are not listed again under it.
   const linkedInText = new Set(memory.text ? linksIn(memory.text) : [])
   const moreLinks = (memory.links ?? []).filter((link) => !linkedInText.has(link))
-  const said = memory.source?.said
+  const said = saidWords(memory)
+  const unkept = memory.unconfirmed === true
 
   return (
     <article ref={root} data-memory={name} tabIndex={-1} aria-label={description} className="flex flex-col gap-2 rounded-[22px] bg-background p-4 outline-offset-2 focus:outline-2 focus:outline-ring">
       <header className="flex items-start gap-3">
         <h4 className={cn('min-w-0 flex-1 pt-1 text-[15px] leading-snug font-semibold tracking-[-0.01em] text-pretty break-words', past && 'text-muted-foreground')}>{description}</h4>
+        {/* Right-aligned, with Keep first: when Keep goes, Edit and the menu stay where they are. */}
         <div className="flex shrink-0 items-center gap-1">
+          {unkept ? (
+            <Button size="sm" data-key-stop="" disabled={busy} onClick={() => void memoryActions.keep(name)} aria-label={`Keep ${description}, so every agent may read it`}>
+              Keep
+            </Button>
+          ) : null}
           <Button variant="outline" size="sm" data-key-stop="" data-row-edit="" disabled={busy} onClick={() => memoryStore.edit(name)} aria-label={`Edit ${description}`}>
             Edit
           </Button>
@@ -151,6 +163,7 @@ export const MemoryRow = memo(function MemoryRow({ memory, forgotten, past, at }
       <MetaLine
         parts={[
           from,
+          unkept ? 'not kept yet: no run reads it' : null,
           until ? (past ? `${until}, now past` : until) : null,
           memory.private ? (
             <span className="inline-flex items-baseline gap-1">
@@ -174,7 +187,22 @@ export const MemoryRow = memo(function MemoryRow({ memory, forgotten, past, at }
   )
 })
 
-/** Where a memory came from, the day it holds until, private, and Undo after a save, one after another with a dot between. */
+/** What a memory says now, after it changed while its row was open: under the draft, which Save puts in its place. */
+function ItSaysNow({ memory, at }: { memory: MemoryEntry; at: WordsAt }) {
+  const from = fromWords(memory, at)
+  return (
+    <section aria-label="What it says now" className="mt-3 flex flex-col gap-1.5 rounded-2xl bg-surface px-4 py-3">
+      <p role="status" className="text-[12.5px] leading-snug text-foreground">
+        It changed while you were editing it. This is what it says now. Save puts your words above in its place; Cancel keeps it as it is.
+      </p>
+      <p className="text-[14px] leading-snug font-semibold break-words">{memory.description || memory.name}</p>
+      {memory.text ? <p className="text-[13px] leading-relaxed whitespace-pre-line break-words text-muted-foreground">{memory.text}</p> : null}
+      {from ? <p className="text-[12px] text-muted-foreground">{from}</p> : null}
+    </section>
+  )
+}
+
+/** Where a memory came from, whether it is kept, the day it holds until, private, and Undo after a save, with a dot between. */
 function MetaLine({ parts }: { parts: readonly ReactNode[] }) {
   const shown = parts.filter((part) => part !== null && part !== undefined && part !== '')
   if (shown.length === 0) return null

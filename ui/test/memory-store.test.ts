@@ -4,7 +4,7 @@ import { MEMORY_KINDS, type MemoryEntry, type MemoryList } from '#shared/protoco
 import { createMemoryActions } from '../src/features/memory/actions.ts'
 import { createSampleHost } from '../src/features/memory/sample-host.ts'
 import { sampleMemoryList } from '../src/features/memory/sample.ts'
-import { createMemoryStore, NEW_DRAFT, NOT_AVAILABLE_YET, refusalWords, type MemoryCommand, type MemorySend } from '../src/features/memory/store.ts'
+import { changedMeanwhile, createMemoryStore, NEW_DRAFT, NOT_AVAILABLE_YET, refusalWords, type MemoryCommand, type MemorySend } from '../src/features/memory/store.ts'
 import { RESTART_NEEDED } from '../src/lib/host/refusal.ts'
 
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve))
@@ -43,6 +43,67 @@ test('a save the host refuses because the memory changed meanwhile keeps the dra
   assert.equal(state.drafts['lives-in-lisbon']?.description, 'Lives in Lisbon since March 2025', 'the words typed stay')
   assert.equal(state.refused['lives-in-lisbon'], 'It changed since you opened it.')
   assert.equal(state.busy['lives-in-lisbon'], undefined)
+})
+
+test('a save refused because the memory moved on reads it again: the draft stays, the row knows it changed, and the next Save goes against it as it is now', async () => {
+  const moved = { ...LISBON, description: 'Lives in Lisbon, near the river', version: 'v2' }
+  let onDisk: MemoryEntry = LISBON
+  const { host, store, actions } = pageWith({ memories: [] }, {
+    'memory.list': () => ({ memories: [onDisk] }),
+    'memory.save': (args) => (args.version === onDisk.version ? { saved: true, memory: { ...onDisk, description: args.description, version: 'v3' } } : { saved: false, message: 'This memory changed since you opened it.' }),
+  })
+  store.opened()
+  await settle()
+  store.edit('lives-in-lisbon')
+  store.change('lives-in-lisbon', { description: 'Lives in Lisbon since March 2025' })
+
+  // The main chat changes it while the row is open. The stamp moves, and the page holds its read for the row.
+  onDisk = moved
+  store.stampSeen('s-after')
+  await actions.save('lives-in-lisbon')
+
+  const state = store.getState()
+  assert.equal(host.named('memory.list').length, 2, 'the refusal reads the list at once')
+  assert.equal(state.drafts['lives-in-lisbon']?.description, 'Lives in Lisbon since March 2025', 'the words typed stay')
+  assert.equal(store.memoryNamed('lives-in-lisbon')?.description, 'Lives in Lisbon, near the river', 'the row has what it says now')
+  assert.equal(changedMeanwhile(state, store.memoryNamed('lives-in-lisbon')!), true)
+  assert.equal(state.refused['lives-in-lisbon'], undefined, 'the row says it changed in its own words instead')
+
+  await actions.save('lives-in-lisbon')
+  assert.deepEqual(host.named('memory.save').map(({ args }) => args.version), ['v1', 'v2'])
+  assert.equal(store.getState().drafts['lives-in-lisbon'], undefined)
+  assert.equal(store.memoryNamed('lives-in-lisbon')?.description, 'Lives in Lisbon since March 2025')
+})
+
+test('Make private refused because the memory moved on reads it again and says so, and goes through the next time', async () => {
+  let onDisk: MemoryEntry = LISBON
+  const { host, store, actions } = pageWith({ memories: [] }, {
+    'memory.list': () => ({ memories: [onDisk] }),
+    'memory.save': (args) => (args.version === onDisk.version ? { saved: true, memory: { ...onDisk, private: args.private, version: 'v3' } } : { saved: false, message: 'This memory changed since you opened it.' }),
+  })
+  store.opened()
+  await settle()
+  onDisk = { ...LISBON, version: 'v2' }
+  await actions.setPrivate('lives-in-lisbon', true)
+  assert.match(store.getState().refused['lives-in-lisbon'] ?? '', /changed meanwhile/i)
+
+  await actions.setPrivate('lives-in-lisbon', true)
+  assert.deepEqual(host.named('memory.save').map(({ args }) => args.version), ['v1', 'v2'])
+  assert.equal(store.memoryNamed('lives-in-lisbon')?.private, true)
+  assert.equal(store.getState().refused['lives-in-lisbon'], undefined)
+})
+
+test('Keep saves a memory nobody has kept yet as it is, by the user, with no draft opened', async () => {
+  const handed: MemoryEntry = { ...LISBON, unconfirmed: true, private: true, until: '2027-01-01' }
+  const { host, store, actions } = pageWith({ memories: [handed] }, { 'memory.save': (args) => ({ saved: true, memory: { ...handed, version: 'v2', unconfirmed: undefined }, change: 'c-keep', echo: args }) })
+  store.opened()
+  await settle()
+  await actions.keep('lives-in-lisbon')
+
+  assert.deepEqual(host.named('memory.save')[0]?.args, { name: 'lives-in-lisbon', version: 'v1', description: 'Lives in Lisbon', kind: 'user', text: 'Since 2025.', until: '2027-01-01', private: true })
+  assert.equal(store.memoryNamed('lives-in-lisbon')?.unconfirmed, undefined)
+  assert.equal(store.getState().saved['lives-in-lisbon'], 'c-keep', 'Keep can be undone as any save')
+  assert.deepEqual(store.getState().drafts, {})
 })
 
 test('a save that goes through takes the host memory, closes the draft and can be undone', async () => {
@@ -180,6 +241,7 @@ test('with no host the sample holds memories of every kind, and its changes work
   assert.deepEqual(new Set(sample.memories.map(({ kind }) => kind)), new Set(MEMORY_KINDS))
   assert.equal(sample.memories.filter((memory) => memory.private).length, 1)
   assert.equal(sample.memories.filter((memory) => memory.past).length, 1)
+  assert.equal(sample.memories.filter((memory) => memory.unconfirmed).length, 1)
   assert.deepEqual(new Set(sample.memories.map((memory) => memory.added?.by?.kind)), new Set(['user', 'main', 'hobkin', 'outside', 'suggested']))
   assert.equal(sample.now?.length, 5)
 
@@ -196,6 +258,11 @@ test('with no host the sample holds memories of every kind, and its changes work
   await settle()
   const added = store.getState().list?.memories.find((memory) => memory.description === 'Likes the window seat')
   assert.equal(added?.added?.by?.kind, 'user')
+
+  // Keeping the one another session handed over takes its mark off.
+  const handed = sample.memories.find((memory) => memory.unconfirmed)!
+  await actions.keep(handed.name)
+  assert.equal(store.memoryNamed(handed.name)?.unconfirmed, undefined)
 
   await actions.forget(added!.name)
   await settle()

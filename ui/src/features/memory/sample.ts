@@ -15,7 +15,7 @@ const SAMPLE_MEMORIES: readonly MemoryEntry[] = [
     text: 'Moved to Lisbon in March 2025. For anything that depends on place (prices, laws, stores, a maker\'s service site), look up the Portuguese version first.\n\nThe car is insured there too: see [[car-insurance-renewal]].',
     added: { at: day('2026-11-15', '18:18'), by: { kind: 'outside', title: 'Claude Code' } },
     changed: { at: day('2026-11-20', '09:02'), by: { kind: 'main' } },
-    source: { kind: 'remember', said: 'I live in Lisbon now, look up the Portuguese one' },
+    source: { kind: 'remember', from: 'Claude Code' },
     links: ['car-insurance-renewal'],
   },
   {
@@ -41,6 +41,15 @@ const SAMPLE_MEMORIES: readonly MemoryEntry[] = [
     text: 'More only when asked, or when something is unsafe or wrong.',
     added: { at: day('2026-10-01', '08:15'), by: { kind: 'main' } },
     source: { kind: 'chat', said: 'Keep it short. Point first.' },
+  },
+  {
+    name: 'appointments-before-noon',
+    kind: 'preference',
+    description: 'Wants appointments before noon',
+    text: 'Mornings are free; afternoons are for work calls.',
+    unconfirmed: true,
+    added: { at: day('2026-11-22', '16:40'), by: { kind: 'outside', title: 'Claude Code' } },
+    source: { kind: 'remember', from: 'Claude Code' },
   },
   {
     name: 'train-over-flying',

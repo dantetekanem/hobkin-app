@@ -53,7 +53,8 @@ export function createSampleHost(start: MemoryList, now: () => number = Date.now
     if (!before) return { saved: false, message: 'That memory is not here any more.' }
     if (before.version !== args.version) return { saved: false, message: 'It changed while you were editing it. Your words are kept here: cancel to see it as it is now.' }
 
-    const { until: _until, ...unchanged } = before
+    // A save by the user is a keep, so a memory nobody had kept is kept now.
+    const { until: _until, unconfirmed: _unkept, ...unchanged } = before
     const after = withPast({ ...unchanged, ...fields, changed: byTheUser(), version: nextVersion() })
     memories = memories.map((memory) => (memory === before ? after : memory))
     return { saved: true, memory: after, change: record({ name: after.name, before, after }) }
