@@ -101,6 +101,20 @@ const tierOf = (request: Record<string, unknown>, run: RunFacts, root: string | 
 const isEnv = (value: unknown): value is Record<string, string> =>
   typeof value === 'object' && value !== null && !Array.isArray(value) && Object.values(value).every((entry) => typeof entry === 'string')
 
+/** The token that makes a shell's `hobkin` commands a durable hobkin's own (`TURN_TOKEN` in hobkin's `hobkin-tell.mjs`). */
+const TURN_TOKEN = 'HOBKIN_TURN'
+
+/**
+ * What hobkin's runtime put in a run's environment, such as its name in `HOBKIN_RUN` (057-shared-memory), over the
+ * host's, or nothing when it put nothing. A run that is not a durable turn never gets a turn's token, so `hobkin memory`
+ * in its shell never reads a private memory.
+ */
+function runEnvironment(request: Record<string, unknown>): { env?: NodeJS.ProcessEnv } {
+  if (!isEnv(request.env)) return {}
+  const { [TURN_TOKEN]: _turn, ...given } = request.env
+  return Object.keys(given).length > 0 ? { env: { ...process.env, ...given } } : {}
+}
+
 /**
  * What the run's runtime gives it for `hobkin schedule`, or nothing when it has none for the run or fails to say. Only
  * a run whose Claude Code permissions are "all" may have hobkin run a command for it; hobkin holds that to its token.
@@ -210,7 +224,7 @@ export function routeHarness(route: HarnessRoute): Harness {
       claude,
       settings: chosen,
       title: run?.title?.trim() || 'An agent',
-      ...withScheduling({ directions: route.directions(purpose) }, scheduling, { durable: false, commands }),
+      ...withScheduling({ directions: route.directions(purpose), ...runEnvironment(request) }, scheduling, { durable: false, commands }),
     })
   }
 }

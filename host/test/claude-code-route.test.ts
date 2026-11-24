@@ -323,3 +323,23 @@ test('a runtime without schedules, one that keeps none for the run, or one that 
   assert.deepEqual(onClaude.calls.map((call) => [call.harness, call.launch?.env]), [['claude', undefined], ['claude', undefined]])
   assert.deepEqual(asked, [])
 })
+
+test("a run on Claude Code carries the name hobkin's runtime gave it, and only a durable turn carries a turn's token", async () => {
+  const { run, calls } = router(changeClaudeCode(CLAUDE_CODE_DEFAULTS, { enabled: true }), runs)
+  // hobkin names every run it starts but a durable turn in HOBKIN_RUN (057-shared-memory), so `hobkin memory` and
+  // `hobkin remember` typed in its shell are known as that run's, and only suggest.
+  const named = [
+    { ...session, env: { HOBKIN_RUN: 'Research the move' } },
+    { ...work, env: { HOBKIN_RUN: 'Fix the login redirect' } },
+    { ...routine, env: { HOBKIN_RUN: 'Inbox check', HOBKIN_TURN: 'b'.repeat(32) } },
+  ]
+  for (const request of named) await run(request, {})
+  await run(durableTurn, {})
+
+  const [sessionRun, workRun, routineRun, turn] = calls.map((call) => call.launch?.env)
+  assert.deepEqual([sessionRun?.HOBKIN_RUN, workRun?.HOBKIN_RUN, routineRun?.HOBKIN_RUN], ['Research the move', 'Fix the login redirect', 'Inbox check'])
+  assert.equal(sessionRun?.PATH, process.env.PATH, 'with the rest of the host environment')
+  assert.deepEqual([sessionRun?.HOBKIN_TURN, workRun?.HOBKIN_TURN, routineRun?.HOBKIN_TURN], [undefined, undefined, undefined], 'a run that is not a turn never reads as a hobkin')
+  assert.equal(turn?.HOBKIN_TURN, 'a'.repeat(32), "a durable turn's token lets hobkin memory read its private memories")
+  assert.equal(turn?.HOBKIN_RUN, undefined)
+})
