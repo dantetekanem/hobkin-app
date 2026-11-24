@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["032-change-review", "049-yolo-mode", "050-tla-proofs", "052-ten-times-lighter"],
-  "updated": "2026-11-21"
+  "updated": "2026-11-23"
 }
 ---
 # Work as a control room: numbers, a project page, a trail, a workload, and approval at a glance
@@ -121,6 +121,7 @@ Kept from before
 - Spec 052's rules hold: nothing is redone while its inputs are the same, endless motion moves only transform and opacity of HTML boxes, what cannot be seen is not mounted, and budgets are tests that count.
 - Every protocol field added here is optional. A window with an older host shows the page without what the host does not send.
 - Sample data covers every new page, so each shows without a host.
+- A model check's run opened beside a review closes with Escape and with a Close button, as well as with T (the user, 2026-11-23: "Open run (T) only toggles with T, for model check, i need esc to work there and a close button"). Escape closes what was opened last, one press each: the code when it was opened after the run, else the run, and never the review while the run is open. A model's row reads Close run while its run is the one open, and another row's swaps the run in place. The panel's Close button names its key, Esc, and stays at the top while the run scrolls under it. Closing by T, Escape or Close gives the keyboard back to the control that opened the run, else to the review.
 
 ## Out of scope
 
@@ -167,6 +168,7 @@ Kept from before
 - A33. Buttons, links and rows that act show the pointer cursor and a hover layer, a row that opens something shows its arrow on hover and focus without moving anything, and nothing that does not act changes on hover.
 - A34. The motion check passes, and no chart or tile has an endless animation.
 - A35. Every new page and panel shows with sample data and no host.
+- A36. The run beside a review closes with Escape, with its own Close button and with T. Escape closes the code first when it was opened after the run, never the review while the run is open, and the keyboard goes back to the control that opened the run.
 
 ## Proof
 
@@ -207,6 +209,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - A33. `ui/test/work-row-press.test.ts` › "a click on a row presses the row, but not one on its own controls, outside it, or at the end of a text selection"; check: move the pointer over buttons, rows and cards on Work, YOLO mode, World, a project, a review and a proof, and see the pointer cursor, the hover layer and the arrow on rows that open something, and no change on what does not act.
 - A34. `scripts/perf/motion.ts`
 - A35. `ui/test/numbers-sample.test.ts` › "the sample is the same on every read"; check: with no host running, open Work and its Numbers tab, YOLO mode, World, a project, the large sample review and a proof beside it.
+- A36. `ui/test/review-proof-beside.test.ts` › "Escape closes the run, or the code when it was opened after the run, one press each, and never the review while the run is open", › "a model's row reads Close run while its run is open and closes it; another row's swaps it in place, and one Escape closes it" and › "the run's Close does what Escape does: the run closes, and the keyboard goes back to the control that opened it, else to the review"; check: the live window, with a model check's run open beside a review.
 
 ## Steps
 
@@ -224,6 +227,7 @@ Each lane names its tests here as it writes them. Until then an id below is unpr
 - [x] S12 (A8, A9). YOLO mode's trust figures, funnel and chart, and World's card.
 - [x] S13 (A24, A27). The proof beside the review and the evidence above the verdict.
 - [x] S14 (A34, A35). Sample data for every new page, still renders in light and dark, the motion check.
+- [x] S15 (A36). Escape and Close for the run beside a review: 8a7f57a, d5786a5. Not seen in the live window.
 
 ## Open questions
 
