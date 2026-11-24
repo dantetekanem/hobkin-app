@@ -1,44 +1,30 @@
-import { ExternalLink, GitMerge, Waypoints } from 'lucide-react'
+import { GitMerge } from 'lucide-react'
 import { AnimatePresence, motion, type Variants } from 'motion/react'
-import { useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
-import { useStore } from 'zustand'
+import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { useStill } from '@/app/still.ts'
-import { useView } from '@/app/view-store.ts'
-import { Button, buttonVariants } from '@/components/ui/button.tsx'
-import { OpenArrow } from '@/components/ui/open-arrow.tsx'
+import { Button } from '@/components/ui/button.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
-import { CLOSE_CONFIRM_MS, createIssueClose } from '@/features/github/issue-close.ts'
-import { openOnGitHub } from '@/features/github/open.ts'
-import { finishedReviewId } from '@/features/review/entry.ts'
 import { rowLayout, type Leaving } from '@/features/reports/list-motion.ts'
 import { clockTime, dayLabel, timeOf } from '@/features/reports/time.ts'
-import { useGitHub, type FinishedChange, type FinishedGroup, type GitHubPull, type WorkState } from '@/lib/host/index.ts'
+import type { FinishedGroup, WorkState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { MergingRow } from '#shared/protocol/work.ts'
-import type { HobkinChoice } from './actions.ts'
-import { endAtWord, needsFirst } from './finished-cards.ts'
+import { ChangeRow } from './ChangeRow.tsx'
+import { needsFirst } from './finished-cards.ts'
 import { StackGroup, type DrawCard } from './StackGroup.tsx'
 import { arrange, placeOf, type Arranged } from './stacks.ts'
-import { GradeChip, IssueLink, PullLink, ReviewBadge, SaidLine, SectionHeading } from './parts.tsx'
-import { ProofCheckLine, ProofChips } from '@/features/proofs/ProofChips.tsx'
-import { saysHigh } from './review-badge.ts'
-import { clickPressesRow } from './row-press.ts'
-import { underWay } from './review-follow.ts'
-import { sampleAssessmentOf } from './sample-reviews.ts'
+import { IssueLink, PullLink, SectionHeading } from './parts.tsx'
 import { runWork, useWorkUi, type Said } from './store.ts'
-import { useChangeReview } from './use-change-review.ts'
 
 /**
- * Finished changes in hobkin's three groups, the one that needs the user first, then what runs left for the user,
- * then ready to merge and refresh then merge. Each card leads with the level its change review found (spec 032) beside
- * its title, and the GitHub issue it came from beside its project, then says what the change is, its proof, its grade,
- * why it is in its group and what a yes does, and offers hobkin's choices in hobkin's order. A long proof shows two
- * lines, ended at a word, and all of it on "Show all". "Review" opens it in Change Review, "Review again" runs the
- * change review once more instead of hobkin's agent review, and a change on GitHub links to its pull request. A group's
- * one yes first lists every title it acts on, in the order they go, and then says how each went.
+ * Finished changes in hobkin's groups, the one that needs the user first, then what runs left for the user, then ready
+ * to merge and refresh then merge. Each is a short row (`ChangeRow`, spec 061): its facts, its title with its priority
+ * and the level its change review found, the one sentence for its group, and the one action that fits it. A row opens
+ * in place to everything a card held, and "Review" opens the change in Change Review. A group's one yes first lists
+ * every title it acts on, in the order they go, and then says how each went.
  *
- * A "Left for you" card shows the note its run left, whole, and offers no merge: Review, Ask for changes, and Close
- * without merging, which takes a second click. Under the groups, what the user said yes to that is still being
+ * A "Left for you" row leads with the note its run left and offers Answer, and no merge: Review, Ask for changes, and
+ * Close without merging, which takes a second click. Under the groups, what the user said yes to that is still being
  * brought up to date before it merges.
  */
 
@@ -224,11 +210,11 @@ function Group({ arranged, leaving, onLeaving, live, variants, turn, onRowsLeft 
           {entries.map((entry) => {
             if (entry.kind === 'stack') {
               const drawCard: DrawCard = ({ change, group: own }, place, whole) => (
-                <ChangeCard key={change.key} change={change} group={own} place={place} live={live} variants={variants} order={whole ? turn() : -1} onLeaving={onLeaving} />
+                <ChangeRow key={change.key} change={change} group={own} place={place} bare={!whole} live={live} variants={variants} order={whole ? turn() : -1} onLeaving={onLeaving} />
               )
               return <StackGroup key={entry.key} entry={entry} live={live} variants={variants} order={turn()} leaving={leaving} onRowsLeft={onRowsLeft} drawCard={drawCard} />
             }
-            return <ChangeCard key={entry.key} change={entry.at.change} group={entry.at.group} place={entry.place ? placeOf(entry.place) : null} live={live} variants={variants} order={turn()} onLeaving={onLeaving} />
+            return <ChangeRow key={entry.key} change={entry.at.change} group={entry.at.group} place={entry.place ? placeOf(entry.place) : null} live={live} variants={variants} order={turn()} onLeaving={onLeaving} />
           })}
         </AnimatePresence>
       </ul>
@@ -289,378 +275,6 @@ function GroupQuestion({ group, onAnswer }: { group: FinishedGroup; onAnswer: (y
           Not now
         </Button>
       </div>
-    </motion.div>
-  )
-}
-
-const REVIEW_STATE: Record<GitHubPull['review'], { label: string; tone: string } | null> = {
-  approved: { label: 'Approved', tone: 'bg-ok/15 text-ok-fg' },
-  'changes-requested': { label: 'Changes requested', tone: 'bg-bad/15 text-bad-fg' },
-  waiting: { label: 'Waiting for review', tone: 'bg-surface-2 text-muted-foreground' },
-  none: null,
-}
-const CHECKS_STATE: Record<GitHubPull['checks'], { label: string; tone: string } | null> = {
-  passing: { label: 'Checks pass', tone: 'bg-ok/15 text-ok-fg' },
-  failing: { label: 'Checks fail', tone: 'bg-bad/15 text-bad-fg' },
-  pending: { label: 'Checks running', tone: 'bg-surface-2 text-muted-foreground' },
-  none: null,
-}
-
-/** Where a change's pull request stands on GitHub, when gh has read it. */
-function PullStatus({ pull }: { pull: GitHubPull | undefined }) {
-  if (!pull) return null
-  return (
-    <>
-      {[REVIEW_STATE[pull.review], CHECKS_STATE[pull.checks], pull.draft ? { label: 'Draft', tone: 'bg-surface-2 text-muted-foreground' } : null]
-        .filter((said): said is { label: string; tone: string } => said !== null)
-        .map(({ label, tone }) => (
-          <span key={label} className={cn('inline-flex h-5 items-center rounded-full px-2 font-heading text-[11px] font-medium whitespace-nowrap', tone)}>
-            {label}
-          </span>
-        ))}
-    </>
-  )
-}
-
-const prNumber = (url: string) => /\/pull\/(\d+)/.exec(url)?.[1]
-
-/** What a choice says while hobkin carries it out. */
-const UNDER_WAY: Partial<Record<HobkinChoice, string>> = { merge: 'Merging…', mergePr: 'Merging…', refreshMerge: 'Asking for its refresh…' }
-
-/** The card's own "Review again", in place of hobkin's "Get it reviewed": the change review once more, never an agent run. */
-const REVIEW_AGAIN_TITLE = 'Runs the change review again at this commit: its tests and one model pass.'
-const SAMPLE_REVIEW_AGAIN = 'This is sample data, so no change review runs here.'
-
-/** The yes that lands a change stands out, unless its change review says it needs the user. Every other choice stays quiet. */
-function variantOf(choice: HobkinChoice, risky: boolean): 'default' | 'outline' | 'ghost' {
-  const lands = choice === 'merge' || choice === 'mergePr' || choice === 'refreshMerge' || choice === 'rebase'
-  if (!lands) return 'ghost'
-  return risky ? 'outline' : 'default'
-}
-
-export function ChangeCard({ change, group, place = null, live, variants, order, onLeaving }: { change: FinishedChange; group: FinishedGroup; /** "2 of 5", when the change is a layer of a stack. */ place?: string | null; live: boolean; variants: Variants; order: number; onLeaving: (leaving: Leaving) => void }) {
-  const still = useStill()
-  const busy = useWorkUi((state) => Boolean(state.busy[change.key] || state.busy[`group:${group.name}`]))
-  const said = useWorkUi((state) => state.said[change.key])
-  const github = useGitHub()
-  const [chosen, setChosen] = useState<HobkinChoice | null>(null)
-  const [noting, setNoting] = useState(false)
-  const pull = change.pr ? [...github.pulls, ...github.reviews].find(({ url }) => url === change.pr) : undefined
-  const reviewId = finishedReviewId(change, live)
-  // A sample card's change review is the sample's, so nothing is asked for it.
-  const followed = useChangeReview(live ? reviewId : null, change.head)
-  const assessment = live ? followed.assessment : sampleAssessmentOf(change)
-  const { again } = followed
-  const risky = saysHigh(assessment)
-
-  const review = () => {
-    if (reviewId) useView.getState().openReviewFor(reviewId)
-  }
-
-  // "Review again" runs the change review once more in the host. hobkin's own review, an agent run, is never asked for.
-  const reviewAgain = async () => {
-    if (!live) {
-      useWorkUi.getState().note(change.key, { tone: 'refused', text: SAMPLE_REVIEW_AGAIN })
-      return
-    }
-    try {
-      await again()
-      useWorkUi.getState().forget(change.key)
-    } catch (error) {
-      useWorkUi.getState().note(change.key, { tone: 'refused', text: error instanceof Error ? error.message : String(error) })
-    }
-  }
-
-  const choose = async (choice: Exclude<HobkinChoice, 'review'>, note?: string) => {
-    setChosen(choice)
-    // What merges goes on to the right; what is set aside, said no to or closed unmerged, goes to the left.
-    onLeaving(choice === 'decline' || choice === 'done' ? 'deleted' : 'answered')
-    const result = await runWork({ do: 'change', change, choice, ...(note === undefined ? {} : { note }) }, { live, place: change.key })
-    setChosen(null)
-    if (result.tone !== 'done') return
-    // The card leaves with its answer, so what hobkin said goes to the section.
-    setNoting(false)
-    useWorkUi.getState().forget(change.key)
-    if (result.text) useWorkUi.getState().note('finished', result)
-  }
-
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    // Enter on the card opens it in Change Review, to read before saying yes. Its choices are to its right.
-    if (event.target !== event.currentTarget || event.key !== 'Enter') return
-    event.preventDefault()
-    review()
-  }
-  // A click on the card does what Enter does (053). One on its choices, links and chips is theirs.
-  const onClick = (event: MouseEvent<HTMLDivElement>) => {
-    if (clickPressesRow(event)) review()
-  }
-
-  // A choice under way keeps the keyboard where it is: a plain disabled button would drop it.
-  const control = { tabIndex: -1, 'data-row-control': '', size: 'sm' as const, disabled: busy, focusableWhenDisabled: true }
-
-  return (
-    <motion.li layout={still ? false : 'position'} variants={variants} custom={order} initial="enter" animate="center" exit="gone" transition={rowLayout} className="relative">
-      <div
-        data-work-item=""
-        data-work-main=""
-        data-stop=""
-        data-change={change.key}
-        tabIndex={-1}
-        role="group"
-        aria-label={`${change.project}: ${change.title}. ${change.reason} A click or Enter opens it in Review.`}
-        onKeyDown={onKeyDown}
-        onClick={onClick}
-        className={cn('flex scroll-mt-[124px] scroll-mb-6 flex-col gap-2.5 rounded-3xl bg-background p-5 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2', reviewId && 'pressable')}
-      >
-        <div className="flex items-start gap-3">
-          <span className="mt-[3px] w-7 shrink-0">
-            <GradeChip grade={change.grade} />
-          </span>
-          <div className="min-w-0 flex-1">
-            {/* The level its AI review found leads the card, beside the title. */}
-            <div className="flex items-start gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="eyebrow">{change.project}</p>
-                  <IssueLink issue={change.issue} />
-                </div>
-                <h4 className="mt-0.5 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">
-                  {place ? <span className="mr-2 text-[12px] font-medium tracking-normal text-muted-foreground tabular-nums">{place}</span> : null}
-                  {change.title}
-                </h4>
-              </div>
-              <ReviewBadge status={assessment} size="md" />
-              {reviewId ? <OpenArrow className="mt-1.5" /> : null}
-            </div>
-            {/* What hobkin's own model checks found for its item, each opening its run (050-tla-proofs). */}
-            <div className="mt-2 empty:hidden">
-              <ProofChips project={change.slug} item={change.item} head={change.head} models={change.models} />
-            </div>
-            {change.about ? (
-              <p title={change.about} className="mt-1.5 line-clamp-2 text-[13.5px] leading-relaxed">
-                {endAtWord(change.about)}
-              </p>
-            ) : null}
-            {/* What the run left for the user is why the card is here, so it is shown whole. */}
-            {change.left ? (
-              <div className="mt-2.5 rounded-2xl bg-warn/10 px-3.5 py-2.5">
-                <p className="eyebrow text-warn-fg">Its note to you</p>
-                <p className="mt-1 text-[13px] leading-relaxed break-words">{change.left}</p>
-              </div>
-            ) : null}
-            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground empty:hidden">
-              {change.size ? (
-                <span className="tabular-nums">
-                  {change.size.lines} {change.size.lines === 1 ? 'line' : 'lines'} · {change.size.files} {change.size.files === 1 ? 'file' : 'files'}
-                </span>
-              ) : null}
-              {change.behind > 0 ? <span className="tabular-nums">· {change.behind} behind</span> : null}
-              <PullStatus pull={pull} />
-            </div>
-            <ClampedLine className="mt-2" label={<span className="text-muted-foreground">Proof: </span>} text={change.proof ? endAtWord(change.proof) : 'No proof: nothing recorded shows it works.'} />
-            {/* What its review scored it: the kind, the general rate and the five scores (049-yolo-mode). */}
-            {change.scores ? <p className="mt-1 text-[12.5px] leading-snug break-words text-muted-foreground">{change.scores}</p> : null}
-            {change.proofCheck ? <ProofCheckLine check={change.proofCheck} /> : null}
-            <p className={cn('mt-1 text-[12.5px] leading-snug', group.name === 'needs' || group.name === 'left' ? 'text-warn-fg' : 'text-muted-foreground')}>{change.reason}</p>
-            <p className="mt-1 text-[12px] leading-snug break-words text-muted-foreground">{change.yes}</p>
-          </div>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-1.5 pl-10">
-          {change.choices.map(({ value, label }) => {
-            if (value === 'diff') {
-              return (
-                <Button key={value} variant="outline" {...control} disabled={false} onClick={review}>
-                  <Waypoints aria-hidden="true" />
-                  Review
-                </Button>
-              )
-            }
-            if (value === 'open') {
-              return change.pr ? (
-                <a
-                  key={value}
-                  href={change.pr}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  tabIndex={-1}
-                  data-row-control=""
-                  onClick={(event) => openOnGitHub(event, change.pr!)}
-                  className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-                >
-                  Open PR #{prNumber(change.pr)}
-                  <ExternalLink aria-hidden="true" />
-                </a>
-              ) : null
-            }
-            if (value === 'review') {
-              return (
-                <Button key={value} {...control} disabled={busy || underWay(assessment)} variant="ghost" title={REVIEW_AGAIN_TITLE} onClick={() => void reviewAgain()}>
-                  Review again
-                </Button>
-              )
-            }
-            if (value === 'done') return <CloseWithoutMerging key={value} label={label} busy={busy} onClose={() => choose('done')} />
-            return (
-              <Button key={value} {...control} variant={variantOf(value, risky)} className={cn(value === 'decline' && 'text-bad-fg')} onClick={() => void choose(value)}>
-                {busy && chosen === value ? (UNDER_WAY[value] ?? `${label}…`) : label}
-              </Button>
-            )
-          })}
-          <Button {...control} variant="ghost" aria-expanded={noting} onClick={() => setNoting((open) => !open)}>
-            Ask for changes
-          </Button>
-        </div>
-
-        <AnimatePresence>{noting ? <AskForChanges key="noting" busy={busy} onSend={(note) => void choose('changes', note)} onCancel={() => setNoting(false)} /> : null}</AnimatePresence>
-        {said?.tone === 'refused' ? (
-          <SaidLine tone="refused" className="pl-10">
-            {said.text}
-          </SaidLine>
-        ) : null}
-      </div>
-    </motion.li>
-  )
-}
-
-/**
- * A card's line that shows two lines at most, ended at a word, and all of it on "Show all". Its whole text is also its
- * title. A line that arrived cut inside a word ends at its last whole word (`endAtWord`).
- */
-function ClampedLine({ text, label, className }: { text: string; label?: ReactNode; className?: string }) {
-  const [open, setOpen] = useState(false)
-  const [clamped, setClamped] = useState(false)
-  const line = useRef<HTMLSpanElement | null>(null)
-
-  useLayoutEffect(() => {
-    const element = line.current
-    if (!element || open) return
-    const measure = () => setClamped(element.scrollHeight > element.clientHeight + 1)
-    measure()
-    const observer = new ResizeObserver(measure)
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [text, open])
-
-  return (
-    <div className={cn('flex flex-col items-start gap-0.5', className)}>
-      <span ref={line} title={text} className={cn('text-[12.5px] leading-snug', !open && 'line-clamp-2')}>
-        {label}
-        {text}
-      </span>
-      {clamped || open ? (
-        <button
-          type="button"
-          tabIndex={-1}
-          data-row-control=""
-          aria-expanded={open}
-          onClick={() => setOpen(!open)}
-          className="rounded-full text-[12px] font-medium text-muted-foreground underline-offset-2 transition-colors duration-[160ms] ease-[ease] hover:text-foreground hover:underline"
-        >
-          {open ? 'Show less' : 'Show all'}
-        </button>
-      ) : null}
-    </div>
-  )
-}
-
-/**
- * Close without merging, hobkin's own done, confirmed in place with the same two clicks as Close issue on the GitHub
- * page (`issue-close.ts`): the first turns it into "Click again to close" for ten seconds, a line along its foot running
- * out over them, and the second closes it. Escape, moving away from it or the ten seconds take the first click back.
- */
-function CloseWithoutMerging({ label, busy, onClose }: { label: string; busy: boolean; onClose: () => Promise<void> }) {
-  const still = useStill()
-  const latest = useRef(onClose)
-  useEffect(() => {
-    latest.current = onClose
-  })
-  const [flow] = useState(() =>
-    createIssueClose({
-      close: async () => {
-        await latest.current()
-        return ''
-      },
-    }),
-  )
-  useEffect(() => () => flow.dispose(), [flow])
-  const { armed, busy: closing } = useStore(flow)
-
-  // Focus that moves to another control takes the first click back. A click that focuses nothing names nowhere, and the ten seconds see to it.
-  const onBlur = (event: FocusEvent<HTMLButtonElement>) => {
-    if (armed && event.relatedTarget instanceof Node) flow.cancel()
-  }
-  const onKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== 'Escape' || !armed) return
-    // Escape takes the first click back; the screen then steps back onto the card.
-    flow.cancel()
-  }
-
-  return (
-    <Button
-      variant="ghost"
-      tabIndex={-1}
-      data-row-control=""
-      size="sm"
-      disabled={busy}
-      focusableWhenDisabled
-      aria-pressed={armed}
-      onBlur={onBlur}
-      onKeyDown={onKeyDown}
-      onClick={() => void flow.press()}
-      className={cn('relative overflow-hidden', armed ? 'bg-foreground text-background hover:bg-foreground hover:text-background' : 'text-bad-fg')}
-    >
-      {closing ? 'Closing…' : armed ? 'Click again to close' : label}
-      {armed && !still ? (
-        <motion.span
-          aria-hidden="true"
-          className="absolute inset-x-0 bottom-0 h-0.5 origin-left bg-current opacity-55"
-          initial={{ scaleX: 1 }}
-          animate={{ scaleX: 0 }}
-          transition={{ duration: CLOSE_CONFIRM_MS / 1000, ease: 'linear' }}
-        />
-      ) : null}
-    </Button>
-  )
-}
-
-/** The user's own words for what to change. An agent goes back to the change with them, first in the queue. */
-function AskForChanges({ busy, onSend, onCancel }: { busy: boolean; onSend: (note: string) => void; onCancel: () => void }) {
-  const still = useStill()
-  const [note, setNote] = useState('')
-  const field = useRef<HTMLInputElement | null>(null)
-  useEffect(() => field.current?.focus({ preventScroll: true }), [])
-  const words = note.trim()
-
-  return (
-    <motion.div
-      className="flex items-center gap-2 pl-10"
-      initial={still ? { opacity: 0 } : { opacity: 0, transform: 'translateY(-6px)' }}
-      animate={still ? { opacity: 1 } : { opacity: 1, transform: 'translateY(0px)' }}
-      exit={{ opacity: 0, transition: { duration: 0.12 } }}
-      transition={{ type: 'spring', duration: 0.36, bounce: 0.1 }}
-    >
-      <input
-        ref={field}
-        value={note}
-        onChange={(event) => setNote(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' && words && !busy) {
-            event.preventDefault()
-            onSend(words)
-          } else if (event.key === 'Escape') {
-            // Used here, so the frame leaves it alone.
-            event.preventDefault()
-            onCancel()
-          }
-        }}
-        placeholder="Type the changes, then Enter"
-        aria-label="The changes to ask for"
-        className="h-8 min-w-0 flex-1 rounded-full border-[1.5px] border-input bg-surface px-3.5 text-[13px] outline-none placeholder:text-muted-foreground focus-visible:border-ring"
-      />
-      <Button size="sm" disabled={!words || busy} onClick={() => onSend(words)}>
-        Send
-      </Button>
     </motion.div>
   )
 }
