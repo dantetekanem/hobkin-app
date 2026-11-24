@@ -34,7 +34,7 @@ import {
   prFile, proposedProjects, readDiscovery, readItems, readMode, readProject, readProjects, readState, recordDiscovery, recordTokens, requestAllowance, retryItem, roomToFill, runnableStates, takeHanded,
   sessionError, sessionUsage, skipInQueue, tokenLabel, updateItem, workName, writeMode, writeOwnerView, writeState,
 } from './store.mjs';
-import { BRANCH_PREFIX, changesOnlyDocs, currentBranch, defaultBranch, enterFolder, folderRefusal, headBranch, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
+import { BRANCH_PREFIX, changedPaths, changesOnlyDocs, commitPaths, currentBranch, defaultBranch, enterFolder, folderRefusal, headBranch, leaveFolder, prepareTree, realPlace, releaseTree } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { copyJson, unchangedSince, withVersions } from '../file-version.mjs';
 import { oneRead } from './one-read.mjs';
@@ -884,10 +884,40 @@ export class WorkDirector {
       ...cost,
       ...this.bindingFor(level, 'do'),
       instructions: `Finish this step on ${project.name}: ${item.title}`,
-      prepare: entry => this.place(entry, { project }),
+      prepare: async entry => {
+        entry.before = await this.pathsChanged(project);
+        return this.place(entry, { project });
+      },
       work: place => ({ lane: 'do', place, item, landing: 'off', ...this.describeFor(project, item) }),
-      settle: (run, entry) => this.settleItem(slug, item.id, run, entry),
+      settle: async (run, entry) => {
+        await this.commitStep(project, item, entry.before);
+        this.settleItem(slug, item.id, run, entry);
+      },
     });
+  }
+
+  /** What is changed in a goal's folder before a run starts, which is the user's own. Null when git could not say, so nothing is committed after. */
+  async pathsChanged(project) {
+    if (!existsSync(join(project.path, '.git'))) return null;
+    return changedPaths(project.path).catch(() => null);
+  }
+
+  /**
+   * A goal's step ends with one commit of the paths that are changed now and were not before the run, whatever its outcome, so every step has a
+   * way back. What was changed before the run is the user's and stays as it is. A failure is noted on the item and never reaches the tick.
+   */
+  async commitStep(project, item, before) {
+    const { slug } = project;
+    const note = lastError => updateItem(this.root, slug, item.id, { commitNote: lastError }, this.now());
+    if (!before) return note('Hobkin could not read the git state of the folder before the run, so it committed nothing.');
+    try {
+      const earlier = new Set(before);
+      const own = (await changedPaths(project.path)).filter(path => !earlier.has(path));
+      const commit = await commitPaths(project.path, own, item.title, `Step ${item.id} on ${project.name ?? slug}.`);
+      if (commit) updateItem(this.root, slug, item.id, { commit, commitNote: null }, this.now());
+    } catch (error) {
+      note(`Hobkin could not commit this step: ${String(error.stderr || error.message).trim().split('\n', 1)[0]}`);
+    }
   }
 
   // Closing Hobkin keeps the item, so it resumes, and so does anything that was not the item's doing.

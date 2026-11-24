@@ -297,6 +297,75 @@ test('when git fails the add is refused with its reason, no project is written a
   assert.deepEqual(readProjects(h.root).map(({ slug }) => slug), []);
 });
 
+/** A goal in a plain folder added the way the user adds it, with one tracked file and one the user has changed since. */
+async function addedGoal(h) {
+  const folder = goalFolder(h, 'novel');
+  writeFileSync(join(folder, 'notes.md'), 'one\n');
+  writeFileSync(join(folder, 'mine.md'), 'mine\n');
+  await newProject(h.root, { path: folder, kind: 'goal', wants: 'Finish chapter three.' });
+  writeMode(h.root, { enabled: true, machinesLook: true, lastDiscoveryAt: new Date(h.clock).toISOString() });
+  writeFileSync(join(folder, 'mine.md'), 'mine, edited by the user\n');
+  return folder;
+}
+
+const doneWith = h => request => {
+  const { project, item: filed } = h.work(request);
+  if (!filed) return;
+  writeFileSync(join(request.cwd, 'notes.md'), 'one\ntwo\n');
+  writeFileSync(join(request.cwd, 'chapter3.md'), 'It rained.\n');
+  updateItem(h.root, project.slug, filed.id, { state: 'done', summary: 'Wrote chapter3.md.', proof: 'The file is there.' });
+};
+
+test('a step\'s run ends with one commit of exactly what it changed, recorded on the item, and the user\'s own edit stays uncommitted', async t => {
+  const h = director(t);
+  const folder = await addedGoal(h);
+  h.agent = doneWith(h);
+  const { id } = fileItem(h.root, 'novel', step);
+
+  await h.ticks(4);
+
+  const [item] = readItems(h.root, 'novel');
+  assert.equal(item.state, 'done');
+  assert.equal(git(folder, 'rev-list', '--count', 'HEAD'), '2');
+  assert.equal(item.commit, git(folder, 'rev-parse', 'HEAD'));
+  assert.equal(git(folder, 'log', '-1', '--format=%an|%s', 'HEAD'), 'Hobkin|Draft chapter three');
+  assert.match(git(folder, 'log', '-1', '--format=%b', 'HEAD'), new RegExp(id));
+  assert.deepEqual(git(folder, 'show', '--name-only', '--format=', 'HEAD').split('\n').sort(), ['chapter3.md', 'notes.md']);
+  assert.equal(git(folder, 'status', '--porcelain'), 'M mine.md');
+});
+
+test('a run that changes nothing makes no commit', async t => {
+  const h = director(t);
+  const folder = await addedGoal(h);
+  h.agent = (request) => {
+    const { project, item: filed } = h.work(request);
+    if (filed) updateItem(h.root, project.slug, filed.id, { state: 'done', summary: 'Looked.', proof: 'Nothing to change.' });
+  };
+  fileItem(h.root, 'novel', step);
+
+  await h.ticks(4);
+
+  const [item] = readItems(h.root, 'novel');
+  assert.equal(item.state, 'done');
+  assert.equal(item.commit, undefined);
+  assert.equal(git(folder, 'rev-list', '--count', 'HEAD'), '1');
+});
+
+test('a run that ends without an outcome still has its changes committed', async t => {
+  const h = director(t);
+  const folder = await addedGoal(h);
+  h.agent = request => {
+    const { project, item: filed } = h.work(request);
+    if (filed) writeFileSync(join(request.cwd, 'chapter3.md'), 'Half.\n');
+  };
+  fileItem(h.root, 'novel', step);
+
+  await h.ticks(4);
+
+  assert.equal(git(folder, 'log', '-1', '--format=%s'), 'Draft chapter three');
+  assert.deepEqual(files(folder).sort(), ['chapter3.md', 'mine.md', 'notes.md']);
+});
+
 test('the command line takes a goal with its words on stdin, and a proposal can never carry a kind', async t => {
   const h = director(t);
   const folder = goalFolder(h, 'papers');

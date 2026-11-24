@@ -75,6 +75,7 @@ export function director(t) {
   });
   h.settled = async () => {
     await Promise.all([...h.runner.jobs.values()]);
+    await h.director.closing;
     await h.director.watching;
     await h.director.surveying;
     await new Promise(resolve => setImmediate(resolve));
