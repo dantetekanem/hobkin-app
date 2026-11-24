@@ -59,6 +59,18 @@ test('a folder that fails to load is left out and the others stay', async () => 
   assert.equal(logged.length, 2)
 })
 
+test('loading the parts again, as a hot update of the window does, adds their commands and screens again without a clash', async () => {
+  const { isCommand, isScreen } = await import('#shared/commands/registry.ts')
+  const logged: string[] = []
+  const folders = { '../sketch/window.tsx': async () => ({ default: part }) }
+  await loadWindowParts(folders, (line) => logged.push(line))
+  // A part whose manifest module was loaded again brings commands that are new objects with the same names.
+  const again: WindowPart<Sketch> = { ...part, manifest: { ...manifest, commands: { 'sketch.draw': { ...manifest.commands['sketch.draw'] } } } }
+  await loadWindowParts({ '../sketch/window.tsx': async () => ({ default: again }) }, (line) => logged.push(line))
+  assert.deepEqual(logged, [])
+  assert.ok(isCommand('sketch.draw') && isScreen('sketch'))
+})
+
 test("a part's screen is in the menu walk after Work, and opened and closed while out of the menu it goes back to where it was opened from", async () => {
   const { GitPullRequest } = await import('lucide-react')
   const { walkScreens, inMenu, screenIndex } = await import('../src/app/screens.ts')

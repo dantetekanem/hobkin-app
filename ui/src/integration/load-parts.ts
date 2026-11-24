@@ -1,8 +1,12 @@
-import { registerIntegration } from '#shared/commands/registry.ts'
+import { registerIntegration, unregisterIntegration } from '#shared/commands/registry.ts'
+import type { IntegrationManifest } from '#shared/integration/manifest.ts'
 import type { WindowPart } from './contract.ts'
 import { setWindowParts } from './registry.ts'
 
 type Folders = Record<string, () => Promise<{ default?: unknown }>>
+
+/** The manifests the last load added to the registry, kept on `globalThis` so a hot update of this module still finds them. */
+const slot = globalThis as { __hobkinRegisteredManifests?: readonly IntegrationManifest[] }
 
 /**
  * Loads each folder's window part and hands them to the registry. A folder that fails to load, or whose file does
@@ -22,15 +26,19 @@ export async function loadWindowParts(folders: Folders, log: (message: string, e
     }),
   )
   const parts = loaded.filter((part) => part !== null)
-  // Its commands and screens join the registry the window knows. A refusal is logged and the part stays: until the
-  // switch the app's own registry still holds GitHub's names, and a part must not lose its screen over them.
+  // Its commands and screens join the registry the window knows, in place of what the last load added: a hot update
+  // loads the parts again. A refusal is logged and the part stays, so it never loses its screen over a name.
+  for (const manifest of slot.__hobkinRegisteredManifests ?? []) unregisterIntegration(manifest)
+  const registered: IntegrationManifest[] = []
   for (const { manifest } of parts) {
     try {
       registerIntegration(manifest)
+      registered.push(manifest)
     } catch (error) {
       log(`integration ${manifest.id} was not added to the command registry`, error)
     }
   }
+  slot.__hobkinRegisteredManifests = registered
   setWindowParts(parts)
   return parts
 }
