@@ -427,6 +427,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       if (!item.id) return fileItem(root, args[0], item);
       assertState(item.state, agentStates);
       if (item.launch) assertLaunch(item.launch);
+      if (item.files !== undefined && !(Array.isArray(item.files) && item.files.every(file => typeof file === 'string'))) throw Error('files must be a list of paths relative to the project\'s folder.');
       // A session the main agent was handed this work by has said how it went, so its card comes back now, not when the hand-off runs out.
       const reported = item.state || item.proof ? { withMainAgent: null } : {};
       return updateItem(root, args[0], item.id, { ...(await trueOutcome(root, args[0], item)), ...reported });

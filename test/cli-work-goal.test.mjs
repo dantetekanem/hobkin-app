@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import { main } from '../src/cli/main.mjs';
 import { newProject } from '../src/cli/work/controls.mjs';
@@ -388,4 +388,76 @@ test('the command line takes a goal with its words on stdin, and a proposal can 
   assert.equal(git(plainFolder, 'rev-list', '--count', 'HEAD'), '1');
   assert.equal(proposed.code, 0);
   assert.equal(readProject(h.root, 'sneaky').kind, undefined);
+});
+
+/** Two steps of one goal at once, as the director starts them: each records what it did and the files it changed, then its run goes on until it is let go. */
+async function twoStepsAtOnce(t, claims, { wrote = {}, others = {} } = {}) {
+  const h = director(t);
+  const folder = await addedGoal(h);
+  const gates = {};
+  h.agent = async request => {
+    const { project, item: filed } = h.work(request);
+    if (!filed) return;
+    const mine = filed.title === 'Draft chapter three' ? 'one' : 'two';
+    for (const [name, text] of Object.entries(wrote[mine] ?? {})) {
+      mkdirSync(dirname(join(request.cwd, name)), { recursive: true });
+      writeFileSync(join(request.cwd, name), text);
+    }
+    updateItem(h.root, project.slug, filed.id, { state: 'done', summary: `Step ${mine}.`, proof: 'It is there.', files: claims[mine] });
+    gates[mine] = Promise.withResolvers();
+    await gates[mine].promise;
+  };
+  const first = fileItem(h.root, 'novel', step);
+  const second = fileItem(h.root, 'novel', { ...step, key: 'draft:four', title: 'Draft chapter four' });
+  const project = readProject(h.root, 'novel');
+  h.director.startGoalDo(project, readItems(h.root, 'novel').find(({ id }) => id === first.id), project.level, {});
+  h.director.startGoalDo(project, readItems(h.root, 'novel').find(({ id }) => id === second.id), project.level, {});
+  while (Object.keys(gates).length < 2) await new Promise(resolve => setTimeout(resolve, 10));
+  const settle = async mine => {
+    gates[mine].resolve();
+    while (h.director.running().some(run => run.item === (mine === 'one' ? first.id : second.id))) await new Promise(resolve => setTimeout(resolve, 10));
+    // Its settle runs the commit just after the run leaves the list.
+    await new Promise(resolve => setTimeout(resolve, 300));
+  };
+  t.after(() => Object.values(gates).forEach(gate => gate.resolve()));
+  const item = id => readItems(h.root, 'novel').find(entry => entry.id === id);
+  return { h, folder, first, second, settle, item };
+}
+const committed = (folder, ref) => git(folder, 'show', '--name-only', '--format=', ref).split('\n').filter(Boolean).sort();
+
+test('two steps of one goal at once each commit only the files they claim, and what nobody claimed is left with a note', async t => {
+  const wrote = { one: { 'chapter3.md': 'It rained.\n', 'stray.md': 'who wrote me\n' }, two: { 'chapter4.md': 'It poured.\n' } };
+  const { folder, first, second, settle, item } = await twoStepsAtOnce(t, { one: ["chapter3.md"], two: ["chapter4.md"] }, { wrote });
+
+  await settle('one');
+  assert.deepEqual(committed(folder, item(first.id).commit), ['chapter3.md']);
+  await settle('two');
+
+  assert.deepEqual(committed(folder, item(second.id).commit), ['chapter4.md']);
+  assert.match(item(second.id).commitNote ?? '', /Left for you to commit: stray\.md/);
+  assert.deepEqual(git(folder, 'status', '--porcelain').split('\n').sort(), ['?? stray.md', 'M mine.md'], 'the user\'s edit and the unclaimed file stay uncommitted');
+});
+
+test('a path two overlapping steps both claim is committed by neither, and a folder claim covers what is inside it', async t => {
+  const wrote = { one: { 'shared.md': 'one\n', 'notes/a.md': 'a\n' }, two: { 'shared.md': 'two\n' } };
+  const { h, folder, first, second, settle, item } = await twoStepsAtOnce(t, { one: ['shared.md', 'notes/'], two: ['shared.md'] }, { wrote });
+
+  await settle('one');
+  await settle('two');
+
+  assert.deepEqual(committed(folder, item(first.id).commit), ['notes/a.md']);
+  assert.equal(item(second.id).commit, undefined);
+  assert.match(item(first.id).commitNote ?? '', /shared\.md/);
+  assert.match(git(folder, 'status', '--porcelain'), /\?\? shared\.md/);
+});
+
+test('files a step names outside its folder or that are not paths are ignored, and the item command takes only a list', async t => {
+  const wrote = { one: { 'chapter3.md': 'It rained.\n' }, two: {} };
+  const { h, folder, first, settle, item } = await twoStepsAtOnce(t, { one: ['chapter3.md', '../outside.md', '/etc/passwd', 7], two: [] }, { wrote });
+
+  await settle('one');
+  await settle('two');
+
+  assert.deepEqual(committed(folder, item(first.id).commit), ['chapter3.md']);
+  await assert.rejects(runWorkCommand(h.root, ['item', 'novel'], piped({ id: first.id, state: 'done', files: 'chapter3.md' })), /files must be a list/);
 });

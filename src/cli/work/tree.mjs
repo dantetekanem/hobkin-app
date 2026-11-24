@@ -72,10 +72,13 @@ export async function changedPaths(folder) {
 /** One commit of exactly these paths, whatever else is staged, as Hobkin. It returns the commit, or nothing when the paths hold no change. */
 export async function commitPaths(folder, paths, title, body) {
   if (!paths.length) return null;
-  await git(folder, '--literal-pathspecs', 'add', '--all', '--', ...paths);
-  const message = ['-m', title, ...(body ? ['-m', body] : [])];
-  await git(folder, '--literal-pathspecs', ...OWN_COMMIT, ...message, '--only', '--', ...paths);
-  return git(folder, 'rev-parse', 'HEAD');
+  // Two steps of one folder may end together, and git lets one commit at a time hold the index.
+  return withRepository(folder, async () => {
+    await git(folder, '--literal-pathspecs', 'add', '--all', '--', ...paths);
+    const message = ['-m', title, ...(body ? ['-m', body] : [])];
+    await git(folder, '--literal-pathspecs', ...OWN_COMMIT, ...message, '--only', '--', ...paths);
+    return git(folder, 'rev-parse', 'HEAD');
+  });
 }
 
 const nothingStaged = tree => git(tree, 'diff', '--cached', '--quiet').then(() => true, () => false);

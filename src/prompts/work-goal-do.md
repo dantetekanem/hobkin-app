@@ -36,10 +36,10 @@ Use the request's `decide` command for a question only the user can settle, with
 5. Record the outcome by piping JSON to `work.commands.item`:
 
 ```json
-{ "id": "<id>", "state": "done", "summary": "What you did, in a sentence or two, naming every file you wrote or changed.", "proof": "What shows it is done: what you checked and what you saw.", "left": "What remains for the user or for a later step, if anything." }
+{ "id": "<id>", "state": "done", "summary": "What you did, in a sentence or two, naming every file you wrote or changed.", "files": ["chapters/three.md"], "proof": "What shows it is done: what you checked and what you saw.", "left": "What remains for the user or for a later step, if anything." }
 ```
 
-`summary` names every file you wrote or changed, by its path in the folder, and says which were new and which already existed. Leave `left` out when nothing remains. Write `summary`, `proof` and `left` as plain sentences for a person, with normal spaces between words and numbers. The user reads them on a card.
+`summary` names every file you wrote or changed, by its path in the folder, and says which were new and which already existed. `files` lists the same files as paths relative to the folder, one entry for each file you wrote or changed, or a folder ending in `/` when you changed everything in it. Other steps may run in this folder at the same time, and hobkin commits your step by this list, so a file you changed and left out of it stays uncommitted for the user. Leave `left` out when nothing remains. Write `summary`, `proof` and `left` as plain sentences for a person, with normal spaces between words and numbers. The user reads them on a card.
 
 Use `"state": "done"` when the step is complete. Missing permission or access is not completion: report it without marking the step done, and leave it open so a later run can go on. Never use `branch` or `pr`: hobkin refuses them on a goal. One step, one record: search `items` first and leave what is already filed alone. If you find more work while you do this, file it as a new step with `work.commands.item`, and do not do it now.
 

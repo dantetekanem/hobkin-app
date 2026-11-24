@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { openCheck } from '../checks.mjs';
@@ -80,6 +80,10 @@ const elapsedSince = (at, now) => (at ? now - Date.parse(at) : Infinity);
 const firstLine = text => String(text ?? '').trim().split('\n', 1)[0].trim().slice(0, MAX_REASON_LENGTH);
 const runError = run => firstLine(run?.result?.error ?? run?.error);
 // Several items of one project can run at once, so a do run's key names its item. A look stays one to a project.
+// The files a step says it changed, as paths inside the folder: a folder ends in a slash. Anything else, and anything outside, is not a claim.
+const claimedPaths = files => (Array.isArray(files) ? files : [])
+  .filter(file => typeof file === 'string' && file && !isAbsolute(file) && !file.split('/').includes('..'))
+  .map(file => file.replace(/^\.\//, ''));
 const laneKey = (slug, lane, item) => (lane === 'do' ? `${slug}:${lane}:${item ?? ''}` : `${slug}:${lane}`);
 // An older hobkin ran work in terminal panes and could leave an agent at work there as it closed. Without its report there is no telling whether it still works.
 const LEFT_WITHOUT_REPORT = 'An older hobkin left this agent at work in a terminal pane as it closed, and it wrote no report. hobkin now runs work only as its own jobs, so the item waits at the end of the queue with its branch as it is.';
@@ -892,15 +896,26 @@ export class WorkDirector {
       ...this.bindingFor(level, 'do'),
       instructions: `Finish this step on ${project.name}: ${item.title}`,
       prepare: async entry => {
+        this.markOverlap(entry);
         entry.before = await this.pathsChanged(project);
         return this.place(entry, { project });
       },
       work: place => ({ lane: 'do', place, item, landing: 'off', ...this.describeFor(project, item) }),
       settle: async (run, entry) => {
-        await this.commitStep(project, item, entry.before);
+        await this.commitStep(project, item, entry.before, entry);
         this.settleItem(slug, item.id, run, entry);
       },
     });
+  }
+
+  /** Steps of one goal that run together share its folder, so each knows which others it ran beside and commits by what it claims. */
+  markOverlap(entry) {
+    const beside = this.running().filter(run => run !== entry && run.slug === entry.slug && run.lane === 'do' && !run.branch);
+    entry.overlaps ??= new Set();
+    for (const run of beside) {
+      entry.overlaps.add(run.item);
+      (run.overlaps ??= new Set()).add(entry.item);
+    }
   }
 
   /** What is changed in a goal's folder before a run starts, which is the user's own. Null when git could not say, so nothing is committed after. */
@@ -912,19 +927,38 @@ export class WorkDirector {
   /**
    * A goal's step ends with one commit of the paths that are changed now and were not before the run, whatever its outcome, so every step has a
    * way back. What was changed before the run is the user's and stays as it is. A failure is noted on the item and never reaches the tick.
+   * A step that ran beside another cannot tell its own changes from theirs, so it commits only the files it named in `files`. A file two of them
+   * named is committed by neither, and a file nobody named stays uncommitted. Both are said on the item.
    */
-  async commitStep(project, item, before) {
+  async commitStep(project, item, before, entry = {}) {
     const { slug } = project;
     const note = lastError => updateItem(this.root, slug, item.id, { commitNote: lastError }, this.now());
     if (!before) return note('Hobkin could not read the git state of the folder before the run, so it committed nothing.');
     try {
       const earlier = new Set(before);
-      const own = (await changedPaths(project.path)).filter(path => !earlier.has(path));
+      const changed = (await changedPaths(project.path)).filter(path => !earlier.has(path));
+      const { own, left } = entry.overlaps?.size ? this.byClaim(slug, item, changed, entry.overlaps) : { own: changed, left: [] };
       const commit = await commitPaths(project.path, own, item.title, `Step ${item.id} on ${project.name ?? slug}.`);
-      if (commit) updateItem(this.root, slug, item.id, { commit, commitNote: null }, this.now());
+      const commitNote = left.length ? `Left for you to commit: ${left.join(', ')}.` : null;
+      if (commit || left.length) updateItem(this.root, slug, item.id, { ...(commit ? { commit } : {}), commitNote }, this.now());
     } catch (error) {
       note(`Hobkin could not commit this step: ${String(error.stderr || error.message).trim().split('\n', 1)[0]}`);
     }
+  }
+
+  /** Splits what changed into what this step commits and what it leaves, by the files each overlapping step named. */
+  byClaim(slug, item, changed, overlaps) {
+    const items = readItems(this.root, slug);
+    const claims = id => claimedPaths(items.find(entry => entry.id === id)?.files);
+    const mine = claims(item.id);
+    const theirs = [...overlaps].flatMap(claims);
+    const named = (list, path) => list.some(claim => path === claim || (claim.endsWith('/') && path.startsWith(claim)));
+    const own = changed.filter(path => named(mine, path) && !named(theirs, path));
+    const both = changed.filter(path => named(mine, path) && named(theirs, path));
+    // What no step named may be the work of one still going, so it is only said once the last of them ends.
+    const othersGoing = this.running().some(run => run.slug === slug && run.item !== item.id && overlaps.has(run.item));
+    const unnamed = othersGoing ? [] : changed.filter(path => !named(mine, path) && !named(theirs, path));
+    return { own, left: [...both, ...unnamed] };
   }
 
   // Closing Hobkin keeps the item, so it resumes, and so does anything that was not the item's doing.
