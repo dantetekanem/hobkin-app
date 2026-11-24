@@ -253,7 +253,7 @@ function placeOf(component: string | undefined, rest: readonly string[]): Place 
 
   if (component) {
     // A file right in a component, after its source root, is in the component's own zone: `host/src/main.ts` is "Host".
-    if (inner.length <= 1) return ownPlace(component, head!)
+    if (inner.length <= 1) return ownPlace(component, componentWords(component))
     return { layer: component, subject: first, written: first, named: false, label: `${head} · ${words(first)}` }
   }
   if (inner.length <= 1) {

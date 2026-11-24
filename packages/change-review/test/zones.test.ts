@@ -131,7 +131,14 @@ test('a test takes the subject of the code it mirrors, in a test layer', () => {
     const zone = zoneOf(path)
     return `${zone.component ?? '-'}/${zone.layer.slice('test:'.length)}/${zone.subject}`
   }
-  for (const [tested, code] of [['test/total.test.js', 'total.js'], ['src/total.test.js', 'src/total.js'], ['test/docs/links.test.ts', 'docs/links.ts'], ['host/test/commands.test.ts', 'host/src/commands.ts'], ['ui/src/App.test.tsx', 'ui/src/App.tsx']] as const) {
+  const testAndCode = [
+    ['test/total.test.js', 'total.js'],
+    ['src/total.test.js', 'src/total.js'],
+    ['test/docs/links.test.ts', 'docs/links.ts'],
+    ['host/test/commands.test.ts', 'host/src/commands.ts'],
+    ['ui/src/App.test.tsx', 'ui/src/App.tsx'],
+  ] as const
+  for (const [tested, code] of testAndCode) {
     assert.equal(mirrored(tested), zoneOf(code).id, tested)
   }
 })

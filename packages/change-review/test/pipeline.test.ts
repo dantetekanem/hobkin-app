@@ -79,8 +79,10 @@ const scanWith = (anchors: ScanAnchor[], dangling: Scan['dangling'] = []): Scan 
 const scanning = (scan: Scan) => async (): Promise<ScanOutcome> => ({ ok: true, scan })
 
 /** A scan with every path `moves` names put where it moved. */
-const moved = (moves: Moves, scan: Scan): Scan =>
-  JSON.parse(JSON.stringify(scan), (key, value) => (key === 'path' && typeof value === 'string' ? (moves[value] ?? value) : value))
+const moved = (moves: Moves, scan: Scan): Scan => {
+  const movedPath = (key: string, value: unknown) => (key === 'path' && typeof value === 'string' ? (moves[value] ?? value) : value)
+  return JSON.parse(JSON.stringify(scan), movedPath)
+}
 
 /** What agentic-search would report for that change, with its files where `moves` puts them. */
 const scanOf = (moves: Moves = {}): Scan => moved(moves, {
