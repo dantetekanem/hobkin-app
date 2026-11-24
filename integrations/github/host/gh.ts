@@ -22,7 +22,7 @@ export const GH_QUERY = [
   search('authored', 'is:issue is:open author:@me', 'issue'),
   '}',
   'fragment pull on PullRequest {',
-  '  number title url updatedAt state createdAt headRefOid isDraft reviewDecision additions deletions changedFiles',
+  '  number title url updatedAt state createdAt headRefOid isDraft reviewDecision additions deletions changedFiles baseRefName headRefName isCrossRepository',
   '  repository { nameWithOwner }',
   '  author { login }',
   '  labels(first: 10) { nodes { name } }',
@@ -145,10 +145,20 @@ function headOf(node: unknown): Pick<GitHubPull, 'head' | 'openedAt' | 'pushedAt
   return { ...(head && /^[0-9a-f]{40}$/.test(head) ? { head } : {}), ...(openedAt ? { openedAt } : {}), ...(pushedAt ? { pushedAt } : {}) }
 }
 
+/**
+ * The branch it would merge into and its own, by name, each only when GitHub sent one. A fork's head lives in another
+ * repository, so it is left out: a branch there named main is not this repository's main.
+ */
+function branchesOf(node: unknown): Pick<GitHubPull, 'baseBranch' | 'headBranch'> {
+  const baseBranch = text(at(node, 'baseRefName'))
+  const headBranch = at(node, 'isCrossRepository') === true ? null : text(at(node, 'headRefName'))
+  return { ...(baseBranch ? { baseBranch } : {}), ...(headBranch ? { headBranch } : {}) }
+}
+
 function pullOf(node: unknown): GitHubPull | null {
   const row = rowOf(node)
   if (!row) return null
-  return { ...row, draft: at(node, 'isDraft') === true, author: text(at(node, 'author', 'login')), review: reviewOf(node), checks: checksOf(node), ...sizeOf(node), ...headOf(node) }
+  return { ...row, draft: at(node, 'isDraft') === true, author: text(at(node, 'author', 'login')), review: reviewOf(node), checks: checksOf(node), ...sizeOf(node), ...headOf(node), ...branchesOf(node) }
 }
 
 const newestFirst = <Row extends { updatedAt: string }>(rows: Row[]): Row[] => [...rows].sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt))

@@ -35,4 +35,11 @@ export interface PullRequest {
   head?: string
   openedAt?: string
   pushedAt?: string
+  /**
+   * The branch it would merge into, and its own branch, by name. A pull request whose base is another's head sits on it,
+   * as a layer of a stack (`shared/review/pull-stacks.ts`). The head is left out when it lives in another repository,
+   * a fork's, as no pull request here can sit on it. A host or a cached list from before these does not send them.
+   */
+  baseBranch?: string
+  headBranch?: string
 }

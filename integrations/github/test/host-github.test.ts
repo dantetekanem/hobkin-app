@@ -148,6 +148,36 @@ test("a pull request's head commit, when it was opened and when its head was com
   assert.equal(GH_QUERY.match(/search\(/g)?.length, 4)
 })
 
+test("a pull request's base and head branch come from the same read, and a fork's head, which lives in another repository, is left out", () => {
+  const stdout = answer({
+    pulls: [
+      pullNode(3, { baseRefName: 'main', headRefName: 'gateway-limits', isCrossRepository: false }),
+      pullNode(4, { baseRefName: 'gateway-limits', headRefName: 'limit-headers', isCrossRepository: false }),
+      // A fork's branch named main is not this repository's main, so nothing here sits on it.
+      pullNode(5, { baseRefName: 'main', headRefName: 'main', isCrossRepository: true }),
+      // Not a name, and an answer from before these were asked for.
+      pullNode(6, { baseRefName: '', headRefName: 7 }),
+      pullNode(7),
+    ],
+  })
+
+  const pulls = connected(readAnswer(stdout)).lists.pulls
+
+  assert.deepEqual(
+    pulls.map(({ number, baseBranch, headBranch }) => ({ number, baseBranch, headBranch })),
+    [
+      { number: 3, baseBranch: 'main', headBranch: 'gateway-limits' },
+      { number: 4, baseBranch: 'gateway-limits', headBranch: 'limit-headers' },
+      { number: 5, baseBranch: 'main', headBranch: undefined },
+      { number: 6, baseBranch: undefined, headBranch: undefined },
+      { number: 7, baseBranch: undefined, headBranch: undefined },
+    ],
+  )
+  assert.deepEqual(Object.keys(pulls[4]!).filter((key) => ['baseBranch', 'headBranch'].includes(key)), [], 'none sent, none kept')
+  assert.match(GH_QUERY, /fragment pull on PullRequest \{\n  number title url updatedAt state createdAt headRefOid isDraft reviewDecision additions deletions changedFiles baseRefName headRefName isCrossRepository\n/)
+  assert.equal(GH_QUERY.match(/search\(/g)?.length, 4)
+})
+
 test('a review and its checks read as one of a few plain states', () => {
   const cases: [Record<string, unknown>, GitHubPull['review'], GitHubPull['checks']][] = [
     [{ reviewDecision: 'APPROVED', commits: rollup('SUCCESS') }, 'approved', 'passing'],
