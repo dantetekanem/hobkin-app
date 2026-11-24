@@ -3,11 +3,13 @@ import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
+import { NO_GITHUB_LISTS, type GitHubPull, type GitHubState } from '#shared/protocol/github.ts'
+import type { WorkState } from '#shared/protocol/work.ts'
 import { reviewIdOf } from '#shared/review/ids.ts'
 import type { Review } from '#shared/review/types.ts'
 import type { Assessments } from '../src/review/assessment.ts'
 import { Reviews, type Watched } from '../src/review/reviews.ts'
-import { finishTimes } from '../src/review/seat.ts'
+import { finishTimes, toPrepare } from '../src/review/seat.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { clockOf, lineOf, type LineChange } from '../src/review/turns.ts'
 import { temporaryDirectory } from './support.ts'
@@ -293,7 +295,8 @@ test("pull requests the workload names wait in their repository's line like chan
   await new Promise((resolve) => setTimeout(resolve, 30))
 
   assert.deepEqual(built, ['pr:acme/shop/1', 'pr:acme/shop/2', 'pr:acme/shop/3'])
-  assert.equal(reviews.status('pr:acme/shop/5').turn?.why, 'Waits its turn: 4 ahead in acme/shop. Not reviewed yet, so nothing checks it by itself.')
+  // An older list names no commit: the row says so.
+  assert.equal(reviews.status('pr:acme/shop/5').turn?.why, "Waits its turn: 4 ahead in acme/shop. Not reviewed yet, so nothing checks it by itself. GitHub's list did not say its commit, and hobkin has read none of it yet.")
 })
 
 test('the line\'s clock is when a change finished, not when hobkin last wrote it', async (t) => {
@@ -424,4 +427,49 @@ test("an old change keeps the longest-wait place until its review finished, one 
 
   // Three of the day's six went to the longest waits: then the place goes back to Work's order.
   assert.deepEqual(started, ['change:shop:c1', 'change:shop:c2', 'change:shop:c20', 'change:shop:c19', 'change:shop:c18', 'change:shop:c3'])
+})
+
+test("a pull request waits in the line at the commit GitHub says it is at, so the longest-wait place passes on once its review finished", async (t) => {
+  const root = temporaryDirectory(t)
+  const store = reviewStore(root)
+  const pullOf = (number: number) => ({ kind: 'pull' as const, owner: 'acme', repo: 'shop', number })
+  // Pull requests 5 and 6 waited longest, and their reviews at the commits GitHub names have finished.
+  for (const number of [5, 6]) store.write(pullOf(number), ({ change: { title: `#${number}`, project: 'acme/shop', head: sha(number), base: 'b'.repeat(40) } }) as unknown as Review, [])
+  const assessments = {
+    status: (target: { kind: string; number?: number }, head: string | null) => ({ state: target.kind === 'pull' && [5, 6].includes(target.number!) ? 'ready' : 'idle', head }),
+    cutShort: () => false,
+    start: (job: { head: string }) => ({ state: 'running', head: job.head }),
+    stop: () => false,
+    pending: () => [],
+    present: () => null,
+    read: () => null,
+    busy: () => false,
+    forget: () => {},
+    close: () => {},
+  } as unknown as Assessments
+  const built: string[] = []
+  const reviews = new Reviews({
+    store,
+    sources: {
+      change: { head: async () => null, read: async () => Promise.reject(new Error('no')) },
+      pull: { head: async (target) => (target.kind === 'pull' ? sha(target.number) : null), read: async (target) => (built.push(reviewIdOf(target)), Promise.reject(new Error('not read here'))) },
+    },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+    assessments,
+    now: () => NOW,
+  })
+  t.after(() => reviews.close())
+  const github = { ...NO_GITHUB_LISTS, connection: 'connected', login: 'the-user', refreshedAt: null, refreshing: false, error: null, sample: false } as unknown as GitHubState
+  const listed = Array.from({ length: 6 }, (_, index) => ({
+    repo: 'acme/shop', number: index + 1, title: `#${index + 1}`, labels: [], url: `https://github.com/acme/shop/pull/${index + 1}`, draft: false, author: 'someone', review: 'none', checks: 'none',
+    updatedAt: new Date(NOW - (80 + index) * HOUR).toISOString(), head: sha(index + 1),
+  })) as GitHubPull[]
+
+  const wanted = toPrepare({ finished: [] } as unknown as WorkState, { ...github, pulls: listed }, { pulls: 'mine' })
+  reviews.watch(wanted)
+  await new Promise((resolve) => setTimeout(resolve, 30))
+
+  assert.deepEqual(wanted[0], { id: 'pr:acme/shop/1', updatedAt: listed[0]!.updatedAt, head: sha(1) })
+  assert.deepEqual(built, ['pr:acme/shop/1', 'pr:acme/shop/2', 'pr:acme/shop/4'])
 })

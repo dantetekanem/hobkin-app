@@ -523,7 +523,8 @@ export function toPrepare(work: WorkState | null, github?: GitHubState, { pulls 
     const target = targetOfReviewId(pull.url)
     if (pull.draft || openedByChanges.has(pull.url) || target?.kind !== 'pull') continue
     const id = reviewIdOf(target)
-    if (!watched.has(id)) watched.set(id, { id, updatedAt: pull.updatedAt })
+    // At the commit GitHub says it is at, which its place in the line goes by; an older list does not say.
+    if (!watched.has(id)) watched.set(id, { id, updatedAt: pull.updatedAt, ...(pull.head ? { head: pull.head } : {}) })
   }
   return [...changes, ...watched.values()]
 }

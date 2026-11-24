@@ -499,6 +499,8 @@ export class Reviews {
   private readonly cardAtLook = new Map<string, string | null>()
   /** The commit each review's change was last looked up at, for one this host has no status of: a look makes no status. */
   private readonly lookedHead = new Map<string, string>()
+  /** The watched pull requests GitHub's list named no commit for, as an older list does: their rows say so. */
+  private pullsWithoutHead = new Set<string>()
   /** The last failed build of each target, as the home keeps it, read once. */
   private readonly failures = new Map<string, BuildFailed | null>()
   /** Where each change started when this host last looked, and the commit it was at then: a start holds for that commit alone. */
@@ -2038,6 +2040,7 @@ export class Reviews {
     this.watchRisk(wanted)
     this.finished = new Set(wanted.flatMap(({ id }) => (id.startsWith('change:') ? [id] : [])))
     this.watchedPulls = new Set(wanted.flatMap(({ id }) => (targetOfReviewId(id)?.kind === 'pull' ? [id] : [])))
+    this.pullsWithoutHead = new Set(wanted.flatMap(({ id, head }) => (!head && this.watchedPulls.has(id) ? [id] : [])))
     this.line = this.lineFor(wanted)
     this.dropAtWork()
     this.followBranches(wanted, limit)
@@ -2079,8 +2082,10 @@ export class Reviews {
           // One of hobkin's own, or one hobkin cannot tell yet, is never built by itself, so it takes no place.
           if (this.options.ownPull && this.options.ownPull(target) !== false) return []
           const name = `${target.owner}/${target.repo}`
-          const reviewed = this.reviewFinished(target, entry.head ?? null)
-          const failedAt = this.failedBuild(target, entry.head ?? null)?.at
+          // GitHub's list names its commit; an older list does not, and then it is the one this host last read of it.
+          const head = entry.head ?? this.statuses.get(entry.id)?.head ?? this.lookedHead.get(entry.id) ?? this.options.store.latest(target)?.review.change.head ?? null
+          const reviewed = this.reviewFinished(target, head)
+          const failedAt = this.failedBuild(target, head)?.at
           return [{ id: entry.id, repo: `pull:${target.host ?? ''}:${name}`, name, reviewed, ...(entry.updatedAt ? { at: entry.updatedAt } : {}), ...(failedAt ? { failedAt } : {}) }]
         }
         const refreshing = this.landingOf(target)?.state === 'refreshing'
@@ -2305,7 +2310,13 @@ export class Reviews {
     if (!waits) return undefined
     // What waits gets no review, and so no agent goes back to it by itself: the row says so (spec 058).
     const unchecked = head != null && this.options.store.newest(target) ? ' Its review is of an older commit, so nothing checks this one by itself.' : ' Not reviewed yet, so nothing checks it by itself.'
-    return { ahead: waits.ahead, why: `${waits.why}${unchecked}` }
+    const read = this.statuses.get(id)?.head ?? this.lookedHead.get(id)
+    const unnamed = !this.pullsWithoutHead.has(id)
+      ? ''
+      : read
+        ? ` GitHub's list did not say its commit, so the line goes by ${read.slice(0, 7)}, the one hobkin last read.`
+        : " GitHub's list did not say its commit, and hobkin has read none of it yet."
+    return { ahead: waits.ahead, why: `${waits.why}${unchecked}${unnamed}` }
   }
 
   /** The background's look at one thing to prepare, at the version it is at now. Never throws: the host publishes around it. */
