@@ -236,10 +236,18 @@ export const isDue = (schedule, now) => (schedule.state === 'waiting' && Date.pa
 export const isExpired = (schedule, now) => (schedule.state === 'waiting' || schedule.state === 'paused') && Date.parse(schedule.until) <= now;
 
 /** Ends a schedule: `state` one of the ended states, `why` in plain words, `by` who ended it. */
+/**
+ * Ends a schedule: `state` one of the ended states, `why` in plain words, `by` who ended it. `why` is the words the
+ * window shows the user, about the agent, or `{ user, agent }` when the agent reads it differently, about itself.
+ */
 export function ended(schedule, state, why, now, by = 'hobkin') {
   const { runNow: _, nextAt: __, ...rest } = schedule;
-  return { ...rest, state, endedWhy: why, endedBy: by, endedAt: iso(now) };
+  const { user, agent } = typeof why === 'string' ? { user: why } : why;
+  return { ...rest, state, endedWhy: user, ...(agent && agent !== user ? { toldWhy: agent } : {}), endedBy: by, endedAt: iso(now) };
 }
+
+/** Why a schedule ended, as its own agent reads it. */
+export const endedWhyForAgent = schedule => schedule.toldWhy ?? schedule.endedWhy;
 
 export const expiredWhy = (schedule, closed = false) => `its ${spanWords(schedule.lifetimeMs ?? LIFETIME_MS)} ran out${closed ? ' while hobkin was closed' : ''}`;
 
@@ -331,7 +339,7 @@ export function afterRun(schedule, { fired, result = null, timedOut = false }, n
   delete next.runNow;
 
   const why = endWhy(next, outcome, now);
-  if (why) next = ended(next, why.state, why.text, now);
+  if (why) next = ended(next, why.state, why.words, now);
   else next = { ...next, state: schedule.state === 'paused' ? 'paused' : 'waiting', nextAt: nextTime(schedule, fired, now) };
 
   const wake = wakes ? {
@@ -344,16 +352,24 @@ export function afterRun(schedule, { fired, result = null, timedOut = false }, n
   return { schedule: next, wake };
 }
 
-/** Why a schedule ends after this run, or null while it goes on. */
+/**
+ * Why a schedule ends after this run, or null while it goes on: its state and its `words`, the user's or, where the
+ * agent reads them about itself, `{ user, agent }`.
+ */
 function endWhy(schedule, outcome, now) {
   const shell = schedule.command !== undefined;
-  if (outcome === 'error') return { state: 'failed', text: `its command could not start: ${schedule.history.at(-1)?.line ?? 'no reason given'}` };
-  if (schedule.every === undefined) return { state: 'done', text: shell ? 'it ran once' : 'it woke you once' };
-  if (shell && schedule.stopOn === 'success' && outcome === 'passed') return { state: 'done', text: 'its command passed' };
-  if (shell && schedule.stopOn === 'failure' && failing(outcome)) return { state: 'done', text: 'its command failed' };
-  if (schedule.wakes >= MOST_WAKES) return { state: 'done', text: `it woke you ${MOST_WAKES} times, the most one schedule may` };
-  if (schedule.maxRuns !== undefined && schedule.runs >= schedule.maxRuns) return { state: 'done', text: `it ran its ${plural(schedule.maxRuns, 'run')}` };
-  if (Date.parse(schedule.until) <= now) return { state: 'expired', text: expiredWhy(schedule) };
+  if (outcome === 'error') return { state: 'failed', words: `its command could not start: ${schedule.history.at(-1)?.line ?? 'no reason given'}` };
+  if (schedule.every === undefined) {
+    return { state: 'done', words: shell ? 'it ran once' : { user: 'it woke its agent once', agent: 'it woke you once' } };
+  }
+  if (shell && schedule.stopOn === 'success' && outcome === 'passed') return { state: 'done', words: 'its command passed' };
+  if (shell && schedule.stopOn === 'failure' && failing(outcome)) return { state: 'done', words: 'its command failed' };
+  if (schedule.wakes >= MOST_WAKES) {
+    const most = `${MOST_WAKES} times, the most one schedule may`;
+    return { state: 'done', words: { user: `it woke its agent ${most}`, agent: `it woke you ${most}` } };
+  }
+  if (schedule.maxRuns !== undefined && schedule.runs >= schedule.maxRuns) return { state: 'done', words: `it ran its ${plural(schedule.maxRuns, 'run')}` };
+  if (Date.parse(schedule.until) <= now) return { state: 'expired', words: expiredWhy(schedule) };
   return null;
 }
 
@@ -477,6 +493,7 @@ export function scheduleForAgent(schedule) {
   delete view.owner;
   return {
     ...view,
+    ...(view.endedWhy === undefined ? {} : { endedWhy: endedWhyForAgent(schedule) }),
     ...(schedule.command === undefined ? {} : { wakeOn: schedule.wakeOn, stopOn: schedule.stopOn, ...(schedule.pendingExit.length ? { pendingExit: schedule.pendingExit } : {}), timeoutMs: schedule.timeoutMs }),
   };
 }

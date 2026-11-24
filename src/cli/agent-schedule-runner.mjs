@@ -5,7 +5,7 @@ import { atomicJson } from './config.mjs';
 import { executeShell } from './shell.mjs';
 import { TURN_TOKEN } from './hobkin-tell.mjs';
 import {
-  afterRun, askedSchedule, ended, expiredWhy, isDue, isExpired, isLive, KEPT_AFTER_END_MS, MOST_AT_ONCE, MOST_WAKES,
+  afterRun, askedSchedule, ended, endedWhyForAgent, expiredWhy, isDue, isExpired, isLive, KEPT_AFTER_END_MS, MOST_AT_ONCE, MOST_WAKES,
   sameOwner, scheduleForAgent, scheduleView, SHOWN_AFTER_END_MS,
 } from './agent-schedules.mjs';
 
@@ -179,7 +179,8 @@ export class AgentScheduleRunner {
     const schedule = this.find(id);
     if (!schedule) return { ok: false, reason: NO_SUCH };
     if (!isLive(schedule)) return { ok: false, reason: ENDED };
-    this.end(schedule, 'cancelled', by === 'user' ? 'the user cancelled it from the window' : 'the agent cancelled it', by);
+    const why = by === 'user' ? 'the user cancelled it from the window' : { user: 'the agent cancelled it', agent: 'you cancelled it' };
+    this.end(schedule, 'cancelled', why, by);
     this.running.get(id)?.controller.abort();
     this.save();
     return { ok: true };
@@ -257,7 +258,7 @@ export class AgentScheduleRunner {
       ...details,
       ...(isLive(schedule)
         ? { wakesLeft: MOST_WAKES - schedule.wakes, until: schedule.until }
-        : { endedWhy: schedule.endedWhy }),
+        : { endedWhy: endedWhyForAgent(schedule) }),
     });
   }
 

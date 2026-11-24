@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterRun, askedSchedule, MOST_WAKES, parseDuration, scheduleView } from '../src/cli/agent-schedules.mjs';
+import { afterRun, askedSchedule, MOST_WAKES, parseDuration, scheduleForAgent, scheduleView } from '../src/cli/agent-schedules.mjs';
 import { AgentScheduleRunner, readAgentSchedules } from '../src/cli/agent-schedule-runner.mjs';
 
 const NOW = Date.parse('2026-11-23T14:00:00Z');
@@ -90,7 +90,11 @@ test('a run wakes its agent by wakeOn, a pending exit code wakes and stops nothi
   assert.deepEqual([capped.schedule.state, capped.schedule.endedWhy, capped.schedule.runs], ['done', 'it ran its 3 runs', 3]);
 
   const loud = runs(watch({ wakeOn: 'always' }), Array.from({ length: MOST_WAKES }, () => exit(0)));
-  assert.deepEqual([loud.schedule.state, loud.schedule.wakes, loud.schedule.endedWhy], ['done', 12, 'it woke you 12 times, the most one schedule may']);
+  assert.deepEqual([loud.schedule.state, loud.schedule.wakes], ['done', 12]);
+  assert.equal(scheduleView(loud.schedule).endedWhy, 'it woke its agent 12 times, the most one schedule may', 'the window reads it about the agent');
+  assert.equal(scheduleForAgent(loud.schedule).endedWhy, 'it woke you 12 times, the most one schedule may', 'the agent reads it about itself');
+  const once = afterRun(make({ in: '10m', note: 'Look.' }), { fired: NOW }, NOW).schedule;
+  assert.deepEqual([scheduleView(once).endedWhy, scheduleForAgent(once).endedWhy], ['it woke its agent once', 'it woke you once']);
 
   const short = watch({ expiresIn: '3m' });
   const late = afterRun(short, { fired: NOW + 2 * MINUTE, result: exit(0) }, NOW + 4 * MINUTE).schedule;
@@ -204,8 +208,10 @@ test('a wake is kept until it is delivered, and a schedule that ends without wak
   assert.deepEqual(runner.cancel('nothing'), { ok: false, reason: 'There is no schedule with that id.' });
 
   const own = runner.make(run, '/work', { in: '5m', note: 'Look again.' });
-  runner.manage(run, { action: 'cancel', id: own.id });
+  const { schedule: cancelled } = runner.manage(run, { action: 'cancel', id: own.id });
   assert.equal(runner.wakes().length, 1, "the agent's own cancel tells it nothing");
+  assert.equal(cancelled.endedWhy, 'you cancelled it');
+  assert.equal(runner.view().find(item => item.id === own.id).endedWhy, 'the agent cancelled it');
 });
 
 test('pause, resume and run now do what they say for a live schedule and are refused for an ended or unknown one', async t => {
