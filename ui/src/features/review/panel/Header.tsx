@@ -14,6 +14,7 @@ import { cn } from '@/lib/utils.ts'
 import { usePullPeople } from '../use-people.ts'
 import { ByLineNames } from './ByLine.tsx'
 import { carriedLine, outdatedNotice } from './outdated.ts'
+import { StackBox, StackButton, useStack } from './StackBox.tsx'
 import { headerBadge, type HeaderBadge, type HeaderFix } from './sidebar.ts'
 
 /**
@@ -46,6 +47,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
   rebuild: () => void
 }) {
   const [described, setDescribed] = useState(false)
+  const stack = useStack(review, { live, preparation, ready: assessment != null })
   const pull = targetOfReviewId(review.id)?.kind === 'pull'
   // The pull request this review has: its own, or the one its finished change opened.
   const pullRequest = pullOfReview(review.id, preparation?.pr)
@@ -60,7 +62,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
   )
 
   return (
-    <header className="px-4 pt-3 pb-3.5">
+    <header ref={stack.header} data-rv-stack className="px-4 pt-3 pb-3.5">
       {/* Floated, so the words beside it wrap clear of the menu and run full width below it. */}
       {overlap > 0 ? <div aria-hidden="true" className="float-right" style={{ width: overlap, height: MENU.bottom - 14 }} /> : null}
       <div className="flex items-center gap-1">
@@ -107,6 +109,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
             <ChevronDown aria-hidden="true" className={cn('transition-transform duration-[160ms] ease-[var(--ease-out)]', described && 'rotate-180')} />
           </button>
         ) : null}
+        <StackButton stack={stack} />
       </div>
       {/* Under the commits it shows, every review keeps a place for a carry, so nothing moves when one is said. */}
       <Carried status={preparation} />
@@ -121,6 +124,7 @@ export function PanelHeader({ review, overlap, onHide, onClose, live, preparatio
           )}
         </div>
       ) : null}
+      <StackBox stack={stack} />
       <Outdated review={review} preparation={preparation} live={live} rebuild={rebuild} />
     </header>
   )

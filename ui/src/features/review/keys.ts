@@ -33,6 +33,8 @@ export interface KeyEffects {
    * closes it; Shift+T opens the full page (053-work-control-room, `proof/beside.ts`).
    */
   proofKey(shift: boolean): void
+  /** Opens the stack's box under the panel's size row, or closes it (spec 060). Missing where there is no panel to show it. */
+  toggleStack?(): void
 }
 
 /**
@@ -175,6 +177,8 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
     // At the edge of the graph the key is still the review's: it must not fall through to something else.
     return true
   }
+  // Shift+S is the stack's: the box with the plan for making the change a stack. S alone hides the panel.
+  if (shift && key === 'S' && effects.toggleStack) return effects.toggleStack(), true
   if (shift) return false
 
   // O and P choose the mode, and start it from the beginning, wherever the reviewer is.
