@@ -87,8 +87,8 @@ function OrderSwitch() {
  * cost. Its rows that wait their turn fold under "Waiting (N)", closed at first; the button keeps its place at the end
  * of the line, and the rows open under it.
  */
-function RepoLines({ lines, live, onAgain }: { lines: RepoLine[]; live: boolean; onAgain: () => void }) {
-  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set())
+export function RepoLines({ lines, live, onAgain, openAtFirst = [] }: { lines: RepoLine[]; live: boolean; onAgain: () => void; openAtFirst?: readonly string[] }) {
+  const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(openAtFirst))
   const toggle = (project: string) =>
     setOpen((before) => {
       const next = new Set(before)
@@ -235,7 +235,8 @@ function ReviewAgain({ row, live, onAgain }: { row: ReviewRow; live: boolean; on
         {/* Each of its words holds the button's place; only the one that applies shows, and only it is read. */}
         <span className="grid justify-items-center">
           <span className={cn('col-start-1 row-start-1', (armed || busy) && 'invisible')}>{label}</span>
-          <span className={cn('col-start-1 row-start-1', !armed && 'invisible')}>Click again to confirm</span>
+          {/* Only a press that asks first holds the place of its second. */}
+          {unchanged ? <span className={cn('col-start-1 row-start-1', !armed && 'invisible')}>Click again to confirm</span> : null}
           <span className={cn('col-start-1 row-start-1', !busy && 'invisible')}>Starting…</span>
         </span>
       </Button>

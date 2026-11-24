@@ -30,7 +30,10 @@ export function HobkinScores({ view, heading }: { view: HobkinView; heading: str
         <ul className="flex flex-col">
           {view.rows.map((row) => (
             <li key={row.name} className="flex min-w-0 items-baseline gap-2.5 py-0.5">
-              <span className="w-11 shrink-0 font-mono text-[14px] leading-5 tabular-nums">{row.number}</span>
+              <span className="w-11 shrink-0 font-mono text-[14px] leading-5 tabular-nums">
+                {row.number}
+                {row.number === '–' ? null : <span className="text-[11px] text-muted-foreground">/10</span>}
+              </span>
               <span className="flex min-w-0 flex-1 flex-col">
                 <span className="text-[13px] leading-5 text-muted-foreground">{row.question}</span>
                 <span className="text-[14px] leading-5 text-pretty [overflow-wrap:anywhere]">{row.evidence}</span>

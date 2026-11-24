@@ -40,7 +40,7 @@ test('every review opens with the five ratings in the user\'s order, their evide
   // A rating the facts capped says so in its evidence, as the engine wrote it.
   assert.equal(view.rows[1]!.evidence, rated().scores.proof!.evidence)
   assert.equal(view.lead, 'Bug fix · general rate 7.4')
-  assert.equal(view.floors, 'Held whatever the rate: proof is 4, under the 6 it needs.')
+  assert.equal(view.floors, 'Held whatever the rate: proof is 4, needs 6.')
   assert.equal(view.note, 'Still missing: A request test that renders a post with tags in its text and in code.')
   assert.equal(view.by, 'Rated by this review at abc1234')
 })
@@ -57,13 +57,13 @@ test('a pull request with no monitoring known shows four numbers, says monitorin
 test('with no ratings, the part says whether they are coming or why there are none, in the same rows', () => {
   const coming = questionsView({ yours: null, head: HEAD, underWay: true })
   assert.equal(coming.state, 'pending')
-  assert.equal(coming.lead, 'Not rated yet')
-  assert.match(coming.note!, /being built/)
+  assert.equal(coming.lead, 'Not rated yet: the review is being built.')
+  assert.equal(coming.note, 'Its ratings come with its answer.')
 
   const none = questionsView({ yours: null, head: HEAD, underWay: false })
   assert.equal(none.state, 'unrated')
-  assert.equal(none.lead, 'Not rated')
-  assert.match(none.note!, /Review again rates it\.$/)
+  assert.equal(none.lead, 'Not rated. Review again rates it.')
+  assert.equal(none.note, 'This review is older than the ratings, or its answer gave none.')
 
   for (const view of [coming, none]) {
     assert.equal(view.rows.length, 5, 'every row keeps its place')
@@ -76,7 +76,7 @@ test('ratings made at an older commit than the review shows say so', () => {
   const view = questionsView({ yours: rated({ head: OLDER }), head: HEAD, underWay: false })
   assert.equal(view.state, 'older')
   assert.deepEqual(view.rows.map((row) => row.number), ['8', '4', '7', '6', '9'])
-  assert.equal(view.by, 'Rated by this review at 0ld0ld0, an older commit than the one shown')
+  assert.equal(view.by, 'Rated by this review at 0ld0ld0, an older commit')
 })
 
 test("a status's ratings are read without trust: the review's own at its commit, and hobkin's own, from its scores when it sends no ratings", () => {
@@ -108,7 +108,7 @@ test("hobkin's own scores fold when they agree with the review's within a point,
   const near = rated({ by: 'hobkin', rate: 7.9, scores: { ...rated().scores, proof: { score: 5, evidence: 'Three tests prove it.' } } })
   const agrees = hobkinView(rated(), near)
   assert.equal(agrees.state, 'agrees')
-  assert.equal(agrees.lead, "hobkin's own scored run: bug fix, general rate 7.9")
+  assert.equal(agrees.lead, 'Bug fix, general rate 7.9')
 
   const far = rated({ by: 'hobkin', scores: { ...rated().scores, proof: { score: 8, evidence: 'The suite passes.' } } })
   const differs = hobkinView(rated(), far)

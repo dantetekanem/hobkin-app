@@ -125,7 +125,7 @@ function rowsOf(needs: ReviewNeeds | null, unwatched: boolean): QuestionRow[] {
 
 function floorsOf(needs: ReviewNeeds): string | null {
   if (!needs.floors?.length) return null
-  const held = needs.floors.map(({ name, score, needs: wanted }) => `${NAME_WORDS[name]} is ${score}, under the ${wanted} it needs`)
+  const held = needs.floors.map(({ name, score, needs: wanted }) => `${NAME_WORDS[name]} is ${score}, needs ${wanted}`)
   return `Held whatever the rate: ${held.join('; ')}.`
 }
 
@@ -136,8 +136,8 @@ function floorsOf(needs: ReviewNeeds): string | null {
 export function questionsView({ yours, head, underWay }: { yours: ReviewNeeds | null; head: string; underWay: boolean }): QuestionsView {
   if (!yours) {
     return underWay
-      ? { state: 'pending', rows: rowsOf(null, false), lead: 'Not rated yet', floors: null, note: 'The review is being built. Its ratings come with its answer.', by: null }
-      : { state: 'unrated', rows: rowsOf(null, false), lead: 'Not rated', floors: null, note: 'This review is older than the ratings, or its answer gave none. Review again rates it.', by: null }
+      ? { state: 'pending', rows: rowsOf(null, false), lead: 'Not rated yet: the review is being built.', floors: null, note: 'Its ratings come with its answer.', by: null }
+      : { state: 'unrated', rows: rowsOf(null, false), lead: 'Not rated. Review again rates it.', floors: null, note: 'This review is older than the ratings, or its answer gave none.', by: null }
   }
 
   const unwatched = yours.scores.visibility == null
@@ -150,7 +150,7 @@ export function questionsView({ yours, head, underWay }: { yours: ReviewNeeds | 
     lead: lineOf([kind, rate]),
     floors: floorsOf(yours),
     note: yours.missing ? `Still missing: ${yours.missing}` : null,
-    by: older ? `Rated by this review at ${short(yours.head)}, an older commit than the one shown` : `Rated by this review at ${short(yours.head)}`,
+    by: older ? `Rated by this review at ${short(yours.head)}, an older commit` : `Rated by this review at ${short(yours.head)}`,
   }
 }
 
@@ -175,7 +175,7 @@ const AGREE = 1
  * ratings of its own. `head` is the commit shown, when its scores are to be checked against it.
  */
 export function hobkinView(yours: ReviewNeeds | null, hobkins: ReviewNeeds | null, head?: string): HobkinView {
-  if (!hobkins) return { state: 'none', lead: "hobkin's own scored run has not scored this change.", rows: [], floors: null, older: null }
+  if (!hobkins) return { state: 'none', lead: 'It has not scored this change.', rows: [], floors: null, older: null }
 
   const rows = rowsOf(hobkins, false).map((row) => {
     const mine = hobkins.scores[row.name]?.score
@@ -183,13 +183,14 @@ export function hobkinView(yours: ReviewNeeds | null, hobkins: ReviewNeeds | nul
     const apart = mine != null && theirs != null && Math.abs(mine - theirs) > AGREE
     return { ...row, differs: apart ? `${theirs} in this review` : null }
   })
-  const kind = hobkins.kind ? KIND_WORDS[hobkins.kind].toLowerCase() : null
+  const kind = hobkins.kind ? KIND_WORDS[hobkins.kind] : null
   const rate = hobkins.rate != null ? `general rate ${hobkins.rate}` : null
-  const said = [kind, rate].filter(Boolean).join(', ')
   const state: HobkinState = !yours ? 'alone' : rows.some((row) => row.differs) ? 'differs' : 'agrees'
+  // Its heading names it as hobkin's, so its line says only what it found.
+  const said = [kind, rate].filter(Boolean).join(', ')
   return {
     state,
-    lead: said ? `hobkin's own scored run: ${said}` : "hobkin's own scored run",
+    lead: said ? `${said.charAt(0).toUpperCase()}${said.slice(1)}` : 'Scored, with no kind or rate',
     rows,
     floors: floorsOf(hobkins),
     older: head != null && hobkins.head !== head ? 'Scored on an older commit, not this one.' : null,
