@@ -1,25 +1,17 @@
 import type { MouseEvent } from 'react'
 import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import { useView } from '@/app/view-store.ts'
-import { runCommand, type GitHubPull } from '@/lib/host/index.ts'
+import { openAddress, openLink } from '@/lib/open-link.ts'
+import type { GitHubPull } from '@/lib/host/index.ts'
 
-/** The Mac window. Its web view opens no window of its own for a link, and the shell has no opener for one. */
-const inMacWindow = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window
-
-/**
- * A row is a link to its page on github.com. In a browser tab the link opens it, as any link does. In the Mac
- * window the host opens it in the system browser instead (`github.open`).
- */
+/** A row is a link to its page on github.com (the window opens it through the core's `system.open`). Until the switch, Work and the spotlight still call it by this name. */
 export function openOnGitHub(event: MouseEvent<HTMLAnchorElement>, url: string): void {
-  if (!inMacWindow) return
-  event.preventDefault()
-  void runCommand('github.open', { url }).catch(() => {})
+  openLink(event, url)
 }
 
-/** Opens a page on github.com without a link to follow, as the spotlight does: in the system browser from the Mac window, in a new tab from a browser tab. */
+/** Opens a page on github.com without a link to follow. */
 export function openGitHubPage(url: string): void {
-  if (inMacWindow) void runCommand('github.open', { url }).catch(() => {})
-  else window.open(url, '_blank', 'noopener,noreferrer')
+  openAddress(url)
 }
 
 /** Opens this pull request in shared Review, from its row or the spotlight. */

@@ -37,12 +37,12 @@ export const Trail = memo(function Trail({ pill = null, dot = false }: {
   const openProof = useView((view) => view.openProof)
   const project = useView((view) => view.project)
   const settingsReturn = useView((view) => view.settingsReturn)
-  const githubReturn = useView((view) => view.githubReturn)
+  const screenReturn = useView((view) => view.screenReturn)
   const mindReturn = useView((view) => view.mindReturn)
   const canvasReturn = useView((view) => view.canvasReturn)
   const shown = useMemo(
-    () => shownTrail({ screen, trail, openAgent, openReview, openProof, project, settingsReturn, githubReturn, mindReturn, canvasReturn }),
-    [screen, trail, openAgent, openReview, openProof, project, settingsReturn, githubReturn, mindReturn, canvasReturn],
+    () => shownTrail({ screen, trail, openAgent, openReview, openProof, project, settingsReturn, screenReturn, mindReturn, canvasReturn }),
+    [screen, trail, openAgent, openReview, openProof, project, settingsReturn, screenReturn, mindReturn, canvasReturn],
   )
   // The canvas names itself in the menu, and its drawing starts right under it.
   const places = screen === 'canvas' ? [] : shown

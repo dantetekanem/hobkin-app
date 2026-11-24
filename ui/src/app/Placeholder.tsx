@@ -2,11 +2,11 @@ import { Hob } from '@/avatar/Hob.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
 import { Button } from '@/components/ui/button.tsx'
 import { Hero, Rise } from './Reveal.tsx'
-import { type ScreenId } from './screens.ts'
+import { type CoreScreenId } from './screens.ts'
 import { useView } from './view-store.ts'
 import { useQuestions } from '@/features/questions/store.ts'
 
-type PlaceholderScreen = Exclude<ScreenId, 'review' | 'agent' | 'mind' | 'home' | 'settings' | 'github' | 'world' | 'yolo' | 'project' | 'proof' | 'skills' | 'extensions' | 'memory' | 'canvas'>
+type PlaceholderScreen = Exclude<CoreScreenId, 'review' | 'agent' | 'mind' | 'home' | 'settings' | 'world' | 'yolo' | 'project' | 'proof' | 'skills' | 'extensions' | 'memory' | 'canvas'>
 
 const COPY: Record<PlaceholderScreen, { mood: Mood; line: string; spec: string }> = {
   work: { mood: 'working', line: 'hobkin and the agents it started, live, with the queue and the finished changes.', spec: '011-work' },

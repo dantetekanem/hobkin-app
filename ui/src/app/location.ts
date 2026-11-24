@@ -1,10 +1,12 @@
+import { useCallback, useMemo } from 'react'
 import { create } from 'zustand'
 import type { Place } from '../features/main-agent/mind.ts'
 import { useReports } from '../features/reports/store.ts'
 import { useRoutines } from '../features/routines/store.ts'
 import { hostStore } from '../lib/host/client.ts'
 import { depth } from './overlays.ts'
-import { SCREENS, screenIndex, type ScreenId } from './screens.ts'
+import { isPartScreen } from '../integration/screens.ts'
+import { screenIndex, screens, type ScreenId } from './screens.ts'
 import { MOST_PLACES, namesItsPage, samePlace, stopOf, type Keep, type Stop } from './trail.ts'
 import { useView, type ScreenMotion } from './view-store.ts'
 
@@ -16,7 +18,7 @@ import { useView, type ScreenMotion } from './view-store.ts'
 export interface Spot {
   screen: ScreenId
   settingsReturn: ScreenId | null
-  githubReturn: ScreenId | null
+  screenReturn: ScreenId | null
   openAgent: string | null
   openReview: string | null
   /** The project its page shows, by slug. */
@@ -31,24 +33,23 @@ export interface Spot {
   report: string | null
   routine: string | null
   action: string | null
-  githubTab: GitHubTab
-  /** The project GitHub's lists are narrowed to, by its slug. Null for All. */
-  githubProject: string | null
+  /** What each integration's screen remembers of itself, by the screen's id. The screen's own part says what that is. */
+  pages: ScreenPages
 }
 
-export type GitHubTab = 'pulls' | 'issues'
+export type ScreenPages = Readonly<Record<string, Readonly<Record<string, unknown>>>>
 
 const KEY = 'hobkin-client-location-1'
 /** How many places back the window remembers. */
 const MOST = 50
 
-const isScreen = (value: unknown): value is ScreenId => SCREENS.some(({ id }) => id === value)
+const isScreen = (value: unknown): value is ScreenId => screens().some(({ id }) => id === value)
 const screenOr = (value: unknown) => (isScreen(value) ? value : null)
 const idOr = (value: unknown) => (typeof value === 'string' && value.length > 0 ? value : null)
 const placeOr = (value: unknown): Place | null => {
   const p = value as Record<string, unknown> | null
   if (!p || !isScreen(p.screen)) return null
-  return { screen: p.screen, settingsReturn: screenOr(p.settingsReturn), githubReturn: screenOr(p.githubReturn), openAgent: idOr(p.openAgent), previewReturn: screenOr(p.previewReturn) }
+  return { screen: p.screen, settingsReturn: screenOr(p.settingsReturn), screenReturn: screenOr(p.screenReturn ?? p.githubReturn), openAgent: idOr(p.openAgent), previewReturn: screenOr(p.previewReturn) }
 }
 
 const keepOr = (value: unknown): Keep | null => {
@@ -68,13 +69,13 @@ const stopOr = (value: unknown): Stop | null => {
   if (!s || typeof s !== 'object' || !isScreen(s.screen)) return null
   const about = idOr(s.about)
   const settingsReturn = screenOr(s.settingsReturn)
-  const githubReturn = screenOr(s.githubReturn)
+  const screenReturn = screenOr(s.screenReturn ?? s.githubReturn)
   const keep = keepOr(s.keep)
   return {
     screen: s.screen,
     ...(about ? { about } : {}),
     ...(settingsReturn ? { settingsReturn } : {}),
-    ...(githubReturn ? { githubReturn } : {}),
+    ...(screenReturn ? { screenReturn } : {}),
     ...(keep ? { keep } : {}),
   }
 }
@@ -89,7 +90,7 @@ function trailOfSlots(raw: Record<string, unknown>, page: ScreenId): Stop[] {
   const slots: Partial<Record<ScreenId, Place>> = {
     proof: placeOr(raw.proofReturn) ?? undefined,
     review: placeOr(raw.reviewReturn) ?? undefined,
-    agent: agent ? { screen: agent, settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null } : undefined,
+    agent: agent ? { screen: agent, settingsReturn: null, screenReturn: null, openAgent: null, previewReturn: null } : undefined,
   }
   const base = page === 'mind' ? placeOr(raw.mindReturn) : page === 'canvas' ? placeOr(raw.canvasReturn) : { screen: page }
   const trail: Stop[] = []
@@ -100,6 +101,20 @@ function trailOfSlots(raw: Record<string, unknown>, page: ScreenId): Stop[] {
     at = place.screen
   }
   return trail
+}
+
+/**
+ * What the integrations' screens remembered. A window saved before screens kept their own state had GitHub's tab and
+ * project as two fields of the place: they become that screen's.
+ */
+function pagesOf(raw: Record<string, unknown>): ScreenPages {
+  const saved = raw.pages
+  const pages: Record<string, Record<string, unknown>> = {}
+  if (saved && typeof saved === 'object' && !Array.isArray(saved)) {
+    for (const [id, page] of Object.entries(saved)) if (page && typeof page === 'object' && !Array.isArray(page)) pages[id] = { ...page }
+  }
+  if (!pages.github && ('githubTab' in raw || 'githubProject' in raw)) pages.github = { tab: raw.githubTab === 'issues' ? 'issues' : 'pulls', project: idOr(raw.githubProject) }
+  return pages
 }
 
 /** A saved place with the home it was saved in, or null for anything this window did not write. */
@@ -113,11 +128,11 @@ export function readSpot(text: string | null): (Spot & { home: string | null }) 
   // A place about nothing it names, as an agent with no id, would go back to an empty page: it is left out.
   const trail = saved.filter(namesItsPage)
   return {
-    screen: raw.screen, settingsReturn: screenOr(raw.settingsReturn), githubReturn: screenOr(raw.githubReturn), openAgent: idOr(raw.openAgent),
+    screen: raw.screen, settingsReturn: screenOr(raw.settingsReturn), screenReturn: screenOr(raw.screenReturn ?? raw.githubReturn), openAgent: idOr(raw.openAgent),
     openReview: idOr(raw.openReview), project: idOr(raw.project), trail: trail.slice(-(MOST_PLACES - 1)),
     mindReturn: placeOr(raw.mindReturn), canvasReturn: placeOr(raw.canvasReturn), report: idOr(raw.report),
     openProof: idOr(raw.openProof),
-    routine: idOr(raw.routine), action: idOr(raw.action), githubTab: raw.githubTab === 'issues' ? 'issues' : 'pulls', githubProject: idOr(raw.githubProject), home: idOr(raw.home),
+    routine: idOr(raw.routine), action: idOr(raw.action), pages: pagesOf(raw), home: idOr(raw.home),
   }
 }
 
@@ -149,13 +164,12 @@ function storage(): Storage | null {
 const saved = readSpot(storage()?.getItem(KEY) ?? null)
 
 /**
- * A screen's own open state: Action Items' open item, and GitHub's tab and the project it is narrowed to (null for All). A reload and
- * Command+Left bring it back; a new visit starts over.
+ * A screen's own open state: Action Items' open item, and what each integration's screen keeps of itself (`pages`, as
+ * GitHub's tab and the project it is narrowed to). A reload and Command+Left bring it back; a new visit starts over.
  */
-export const remembered = create<{ action: string | null; githubTab: GitHubTab; githubProject: string | null }>()(() => ({
+export const remembered = create<{ action: string | null; pages: ScreenPages }>()(() => ({
   action: saved?.action ?? null,
-  githubTab: saved?.githubTab ?? 'pulls',
-  githubProject: saved?.githubProject ?? null,
+  pages: saved?.pages ?? {},
 }))
 type Remembered = ReturnType<typeof remembered.getState>
 
@@ -163,9 +177,20 @@ export function useRemembered<K extends keyof Remembered>(key: K): [Remembered[K
   return [remembered((state) => state[key]), (value) => remembered.setState({ [key]: value } as Pick<Remembered, K>)]
 }
 
+/**
+ * What an integration's screen keeps of itself, as its part says it: the saved values over `initial`, and a way to
+ * change some of them. A new visit to the screen starts from `initial` again. `initial` must be the same object each draw.
+ */
+export function useScreenState<State extends object>(screen: string, initial: State): [State, (change: Partial<State>) => void] {
+  const kept = remembered((state) => state.pages[screen])
+  const state = useMemo(() => ({ ...initial, ...kept }) as State, [initial, kept])
+  const change = useCallback((next: Partial<State>) => remembered.setState((held) => ({ pages: { ...held.pages, [screen]: { ...held.pages[screen], ...next } } })), [screen])
+  return [state, change]
+}
+
 function spotNow(): Spot {
-  const { screen, settingsReturn, githubReturn, openAgent, openReview, project, trail, mindReturn, canvasReturn, openProof } = useView.getState()
-  return { screen, settingsReturn, githubReturn, openAgent, openReview, project, trail, mindReturn, canvasReturn, openProof, report: useReports.getState().openId, routine: useRoutines.getState().openId, ...remembered.getState() }
+  const { screen, settingsReturn, screenReturn, openAgent, openReview, project, trail, mindReturn, canvasReturn, openProof } = useView.getState()
+  return { screen, settingsReturn, screenReturn, openAgent, openReview, project, trail, mindReturn, canvasReturn, openProof, report: useReports.getState().openId, routine: useRoutines.getState().openId, ...remembered.getState() }
 }
 
 /**
@@ -173,9 +198,9 @@ function spotNow(): Spot {
  * closed meanwhile is left for the place under it by the canvas itself (`placeMove`), once the host has said so.
  */
 function show(spot: Spot, screenMotion?: ScreenMotion): void {
-  const { screen, settingsReturn, githubReturn, openAgent, openReview, project, trail, mindReturn, canvasReturn, openProof, action, githubTab, githubProject } = spot
-  useView.setState({ screen, settingsReturn, githubReturn, openAgent, openReview, project, trail, mindReturn, canvasReturn, openProof, previewReturn: null, previewFrom: null, ...(screenMotion ? { screenMotion } : {}) })
-  remembered.setState({ action, githubTab, githubProject })
+  const { screen, settingsReturn, screenReturn, openAgent, openReview, project, trail, mindReturn, canvasReturn, openProof, action, pages } = spot
+  useView.setState({ screen, settingsReturn, screenReturn, openAgent, openReview, project, trail, mindReturn, canvasReturn, openProof, previewReturn: null, previewFrom: null, ...(screenMotion ? { screenMotion } : {}) })
+  remembered.setState({ action, pages })
 }
 
 /** The report and routine a reload left open, until their home sends them, or has sent its lists without them. */
@@ -260,7 +285,7 @@ const unsubscribe = [
     const returning = before.trail.some((stop) => samePlace(stop, stopOf(view)))
     if (!applying && !returning && view.screen !== before.screen) {
       if (view.screen === 'actions') remembered.setState({ action: null })
-      if (view.screen === 'github') remembered.setState({ githubTab: 'pulls', githubProject: null })
+      if (isPartScreen(view.screen)) remembered.setState(({ pages }) => ({ pages: Object.fromEntries(Object.entries(pages).filter(([id]) => id !== view.screen)) }))
     }
     changed()
   }),

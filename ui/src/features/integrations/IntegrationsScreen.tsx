@@ -2,17 +2,13 @@ import { RotateCw } from 'lucide-react'
 import { AnimatePresence, LayoutGroup, motion, type Variants } from 'motion/react'
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import type { IntegrationsState } from '#shared/integrations/wire.ts'
-import { requestCanvasFocus } from '@/app/focus.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
-import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { windowParts } from '@/integration/registry.ts'
-import { useGitHub } from '@/lib/host/index.ts'
 import { spring, stagger, staggerDelay } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { Detail } from './Detail.tsx'
-import { GitHubCard } from './GitHubCard.tsx'
 import { itemsOf, type Item } from './items.ts'
 import { actionsFor, useServers } from './live.ts'
 import { needsLook } from './source.ts'
@@ -81,11 +77,8 @@ export function IntegrationsScreen() {
   const actions = actionsFor(live)
   /** What the host said when connecting or removing did not happen. */
   const [notice, setNotice] = useState<string | null>(null)
-  // GitHub connects through gh (024-github), apart from Pi's servers.
-  const github = useGitHub()
-  // The cards of the full integrations, from their window parts. The line for GitHub stays until its part has a card.
+  // The cards of the full integrations, from their window parts.
   const cards = windowParts().flatMap((part) => (part.card ? [{ id: part.manifest.id, Card: part.card }] : []))
-  const showGitHub = !cards.some((card) => card.id === 'github')
   const items = useMemo(() => itemsOf(servers), [servers])
   const [openKey, setOpenKey] = useState<string | null>(null)
   const root = useRef<HTMLDivElement | null>(null)
@@ -149,12 +142,6 @@ export function IntegrationsScreen() {
     actions.refresh().catch((error: unknown) => setNotice(messageOf(error)))
   }
 
-  /** Pages › GitHub, with the keyboard on the page once it has arrived. From GitHub's card. */
-  const openGitHubPage = () => {
-    useView.getState().openGitHub()
-    requestCanvasFocus()
-  }
-
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
     if (event.key === 'Escape') {
@@ -192,11 +179,10 @@ export function IntegrationsScreen() {
         <motion.div ref={scroller} layoutScroll inert={open !== null} className={`${SCREEN_SCROLLER} pb-12`}>
           {/* The screen loads on demand and may arrive after the canvas has played its entrance, so it starts its own. */}
           <motion.div variants={pieces} initial="enter" animate="center" className={`flex flex-col gap-12 ${SCREEN_COLUMN}`}>
-            {cards.length > 0 || showGitHub ? (
+            {cards.length > 0 ? (
               <Hero>
                 <section aria-label="Full integrations" className="flex flex-col gap-4">
                   <KindHeading title="Full integrations" line="Each connects through a tool you already use, and has a whole page in hobkin." />
-                  {showGitHub ? <GitHubCard github={github} still={still} onOpen={openGitHubPage} /> : null}
                   {cards.map(({ id, Card }) => (
                     <Card key={id} still={still} />
                   ))}

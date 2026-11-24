@@ -1,4 +1,4 @@
-// Focused rendered check: node ui/test/github-tabs.check.mjs (sample Vite UI already on 5187).
+// Focused rendered check: node integrations/github/test/window-tabs.check.mjs (sample Vite UI already on 5187).
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'

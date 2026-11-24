@@ -36,7 +36,7 @@ export function visibleScreens(): ScreenId[] {
   return walkScreens({
     screen,
     reviewOpen: openReview !== null,
-    githubInMenu: useSettings.getState().showGitHubInMenu,
+    outOfMenu: useSettings.getState().screensOutOfMenu,
     canvasOpen: safely(() => mainCanvasInMenu(), false),
   })
 }
@@ -81,7 +81,7 @@ function contextOf(target: EventTarget | null): KeyContext {
     veilSection: veil,
     dialog: useNewHobkin.getState().open ? 'new-hobkin' : useNerdStats.getState().open ? 'nerd-stats' : useChat.getState().draft.place === 'editor' ? 'prompt' : undefined,
     asking: safely(() => runningAgents().some((agent) => agent.asks), false),
-    githubInMenu: useSettings.getState().showGitHubInMenu,
+    outOfMenu: useSettings.getState().screensOutOfMenu,
     typing: typingIn(target),
     hobkinPage: screen === 'agent' && hobkinOfAgent(openAgent) !== null,
     board: safely(() => boardAt(target), null),
@@ -97,7 +97,7 @@ function perform(action: KeyAction): boolean {
       // The canvas is a place with a way back of its own, kept as it opens. A page of the menu's first row starts a new
       // trail, as its item does; a page open for now, such as Settings, is a place on the trail.
       if (action.screen === 'canvas') view.openCanvasPlace()
-      else if (inMenu(action.screen, useSettings.getState().showGitHubInMenu)) view.openMenuScreen(action.screen)
+      else if (inMenu(action.screen, useSettings.getState().screensOutOfMenu)) view.openMenuScreen(action.screen)
       else view.openScreen(action.screen)
       if (action.focusCanvas) {
         view.engageCanvas()

@@ -2,10 +2,10 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { sampleGitHub, type GitHubPull } from '#shared/protocol/github.ts'
 import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
-import { aiOf, pullReviewId, pullSections, startAiReview } from '../src/features/github/pull-reviews.ts'
-import { rowsOf } from '../src/features/work/ai-reviews.ts'
-import { followReviewList } from '../src/features/work/review-list-follow.ts'
-import { SAMPLE_REVIEW_LIST } from '../src/features/work/sample-reviews.ts'
+import { aiOf, pullReviewId, pullSections, startAiReview } from '../window/pull-reviews.ts'
+import { rowsOf } from '../../../ui/src/features/work/ai-reviews.ts'
+import { followReviewList } from '../../../ui/src/features/work/review-list-follow.ts'
+import { SAMPLE_REVIEW_LIST } from '../../../ui/src/features/work/sample-reviews.ts'
 
 const HEAD = 'f3a9c1e7'.padEnd(40, '0')
 const NOW = Date.parse('2026-11-12T12:00:00Z')

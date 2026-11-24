@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { sampleGitHub, type IssueWork } from '#shared/protocol/github.ts'
 import type { FinishedGroupName, WorkState } from '#shared/protocol/work.ts'
-import { issueChip, JUST_ADDED, placeOnWork, type WorkPlace } from '../src/features/github/issue-work.ts'
-import { sampleWork } from '../src/features/work/sample.ts'
+import { issueChip, JUST_ADDED, placeOnWork, type WorkPlace } from '../window/issue-work.ts'
+import { sampleWork } from '../../../ui/src/features/work/sample.ts'
 
 const filed = (state: string, pr: string | null = null): IssueWork => ({ slug: 'storefront', project: 'storefront', item: 'caa304', state, pr })
 const card = (group: FinishedGroupName): WorkPlace => ({ on: 'card', group })

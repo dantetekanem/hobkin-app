@@ -33,8 +33,8 @@ interface SettingsState extends BorderColors {
   dailyTokens: number
   usageEvents: boolean
   feedback: boolean
-  /** GitHub sits in the screen menu. The switch is in GitHub's detail in Integrations (024-github). */
-  showGitHubInMenu: boolean
+  /** The integrations' screens the user took out of the menu, by id. Each one's switch is on its card in Integrations (024-github). */
+  screensOutOfMenu: readonly string[]
   /** How much of the backgrounds and cards shows, 0.1 to 1. Text, icons and the focus ring stay solid (app/theme.ts). */
   backgroundOpacity: number
   /**
@@ -72,7 +72,8 @@ interface SettingsState extends BorderColors {
   changeDailyTokens: (delta: -1 | 1) => void
   setUsageEvents: (on: boolean) => void
   setFeedback: (on: boolean) => void
-  setShowGitHubInMenu: (on: boolean) => void
+  /** Puts an integration's screen in the menu or takes it out. It stays reachable from its card and the spotlight. */
+  setScreenInMenu: (id: string, inMenu: boolean) => void
   setBackgroundOpacity: (opacity: number) => void
   changeBackgroundOpacity: (delta: -1 | 1) => void
   setOpenByDefault: (kind: BlockKind, open: boolean) => void
@@ -114,6 +115,13 @@ export function watchAppearance(host: Pick<StoreApi<HostState>, 'getState' | 'su
   return unsubscribe
 }
 
+/** Settings saved before the menu kept a list: the one switch it had, for GitHub, becomes that screen in the list. */
+function outOfMenuFrom(saved: Record<string, unknown>): Record<string, unknown> {
+  const { showGitHubInMenu, ...rest } = saved
+  if (Array.isArray(rest.screensOutOfMenu)) return rest
+  return { ...rest, screensOutOfMenu: showGitHubInMenu === false ? ['github'] : [] }
+}
+
 export const useSettings = create<SettingsState>()(
   persist(
     (set, get) => ({
@@ -125,7 +133,7 @@ export const useSettings = create<SettingsState>()(
       dailyTokens: BUDGET.initial,
       usageEvents: true,
       feedback: true,
-      showGitHubInMenu: true,
+      screensOutOfMenu: [],
       backgroundOpacity: OPACITY.initial,
       openByDefault: { ...OPEN_BY_DEFAULT },
       palette: null,
@@ -167,7 +175,7 @@ export const useSettings = create<SettingsState>()(
       changeDailyTokens: (delta) => set({ dailyTokens: stepBudget(get().dailyTokens, delta) }),
       setUsageEvents: (usageEvents) => set({ usageEvents }),
       setFeedback: (feedback) => set({ feedback }),
-      setShowGitHubInMenu: (showGitHubInMenu) => set({ showGitHubInMenu }),
+      setScreenInMenu: (id, inMenu) => set({ screensOutOfMenu: [...get().screensOutOfMenu.filter((out) => out !== id), ...(inMenu ? [] : [id])] }),
       setBackgroundOpacity: (opacity) => set({ backgroundOpacity: stepOpacity(opacity, 0) }),
       changeBackgroundOpacity: (delta) => set({ backgroundOpacity: stepOpacity(get().backgroundOpacity, delta) }),
       setOpenByDefault: (kind, open) => set({ openByDefault: { ...OPEN_BY_DEFAULT, ...get().openByDefault, [kind]: open } }),
@@ -178,9 +186,10 @@ export const useSettings = create<SettingsState>()(
       name: 'hobkin-client-settings',
       // Version 4 drops the tracked theme ask: Custom's request is a chat message to main hobkin.
       // Version 5 closes code changes: older saves kept the old default, open, as if it had been chosen.
-      version: 5,
-      migrate: (saved, from) => migrateSettings(saved, from),
-      partialize: ({ movement, sound, typeFace, pet, agents, dailyTokens, usageEvents, feedback, showGitHubInMenu, backgroundOpacity, openByDefault, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
+      // Version 6 keeps the screens out of the menu as a list: a saved "GitHub is not in the menu" becomes that screen in it.
+      version: 6,
+      migrate: (saved, from) => outOfMenuFrom(migrateSettings(saved, from)),
+      partialize: ({ movement, sound, typeFace, pet, agents, dailyTokens, usageEvents, feedback, screensOutOfMenu, backgroundOpacity, openByDefault, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
         movement,
         sound,
         typeFace,
@@ -189,7 +198,7 @@ export const useSettings = create<SettingsState>()(
         dailyTokens,
         usageEvents,
         feedback,
-        showGitHubInMenu,
+        screensOutOfMenu,
         backgroundOpacity,
         openByDefault,
         palette,
@@ -204,3 +213,10 @@ export const useSettings = create<SettingsState>()(
     },
   ),
 )
+
+/** Whether an integration's screen is in the menu, and how to put it in or take it out: what the switch on its card in Integrations uses. */
+export function useScreenInMenu(id: string): [boolean, (inMenu: boolean) => void] {
+  const out = useSettings((settings) => settings.screensOutOfMenu.includes(id))
+  const set = useSettings((settings) => settings.setScreenInMenu)
+  return [!out, (inMenu) => set(id, inMenu)]
+}

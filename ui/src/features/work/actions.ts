@@ -19,8 +19,6 @@ export type WorkAction =
   | { do: 'issues'; slug: string; issues: IssuePickup }
   /** The project's switch: work mode stops there alone, or starts again. */
   | { do: 'paused'; slug: string; paused: boolean }
-  /** Add to queue on the GitHub page: hobkin files the issue on the project whose repository it is in. */
-  | { do: 'issue'; repo: string; number: number }
   | { do: 'proposal'; slug: string; answer: 'take' | 'skip' }
   | { do: 'agents'; agents: number }
   | { do: 'tokens'; tokens: number }
@@ -32,7 +30,7 @@ export type WorkAction =
   | { do: 'group'; group: FinishedGroup }
   | { do: 'stop'; run: string; how: 'for-now' | 'not-approved' }
 
-type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.issue' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.workload' | 'work.allowance' | 'work.change' | 'work.group' | 'agent.stop'
+type WorkCommand = 'work.mode' | 'work.queue' | 'work.project' | 'work.proposal' | 'work.agents' | 'work.tokens' | 'work.workload' | 'work.allowance' | 'work.change' | 'work.group' | 'agent.stop'
 
 /** A host command with its arguments. */
 export type WorkCall = { [Name in WorkCommand]: { name: Name; args: CommandArgs<Name> } }[WorkCommand]
@@ -232,8 +230,6 @@ export function commandFor(action: WorkAction): WorkCall {
       return { name: 'work.project', args: { slug: action.slug, issues: action.issues } }
     case 'paused':
       return { name: 'work.project', args: { slug: action.slug, paused: action.paused } }
-    case 'issue':
-      return { name: 'work.issue', args: { repo: action.repo, number: action.number } }
     case 'proposal':
       return { name: 'work.proposal', args: { slug: action.slug, answer: action.answer } }
     case 'agents':

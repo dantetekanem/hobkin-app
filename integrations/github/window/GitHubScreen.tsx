@@ -2,7 +2,7 @@ import { CircleAlert, RotateCw } from 'lucide-react'
 import { AnimatePresence, type Variants } from 'motion/react'
 import { useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
 import { GITHUB_LIMIT, type GitHubConnection, type GitHubState } from '#shared/protocol/github.ts'
-import { useRemembered } from '@/app/location.ts'
+import { useScreenState } from '@/app/location.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'
 import { useStops } from '@/app/stops.ts'
@@ -52,6 +52,10 @@ const DOT: Record<GitHubConnection, string> = {
   missing: 'bg-warn',
   'signed-out': 'bg-warn',
 }
+
+/** What the page keeps of itself: its tab and the project it is narrowed to (null for All). A new visit starts here. */
+export type GitHubTab = 'pulls' | 'issues'
+const FIRST_VISIT: { tab: GitHubTab; project: string | null } = { tab: 'pulls', project: null }
 
 const rowsIn = (container: HTMLElement | null): HTMLElement[] => [...(container?.querySelectorAll<HTMLElement>(ROW) ?? [])]
 
@@ -113,8 +117,10 @@ export function GitHubScreen() {
   const hasHost = useHasHost()
   const still = useStill()
   const now = useNow(true, 30_000)
-  const [tab, setTab] = useRemembered('githubTab')
-  const [project, setProject] = useRemembered('githubProject')
+  const [{ tab: savedTab, project }, remember] = useScreenState('github', FIRST_VISIT)
+  const tab: GitHubTab = savedTab === 'issues' ? 'issues' : 'pulls'
+  const setTab = (next: GitHubTab) => remember({ tab: next })
+  const setProject = (next: string | null) => remember({ project: next })
   const { work } = useWorkView()
   // Each pull request's AI review, from the host's list of reviews, or the sample's without a host.
   const reviews = useReviewList(hasHost)

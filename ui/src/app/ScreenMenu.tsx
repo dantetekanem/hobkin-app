@@ -18,7 +18,7 @@ import { focusBoard, focusTalk, keyboardInCanvas, requestCanvasFocus } from './f
 import { estimatedRow, putBack, rowPieces, type AroundMenu, type RowGeometry } from './menu-agents.ts'
 import { menuLayout, type SecondRow } from './menu-rows.ts'
 import { useRunningAgents, type RunningAgent } from './running-agents.ts'
-import { inMenu, SCREENS, type ScreenId } from './screens.ts'
+import { inMenu, screens, type ScreenId } from './screens.ts'
 import { holdStill, useStill } from './still.ts'
 import { Trail } from './Trail.tsx'
 import { useView } from './view-store.ts'
@@ -97,8 +97,8 @@ function Marker() {
 export function ScreenMenu({ shift = 0, transition }: { shift?: number; transition?: Transition }) {
   const screen = useView((view) => view.screen)
   const openMenuScreen = useView((view) => view.openMenuScreen)
-  const githubInMenu = useSettings((settings) => settings.showGitHubInMenu)
-  const main = SCREENS.filter((tab) => inMenu(tab.id, githubInMenu))
+  const outOfMenu = useSettings((settings) => settings.screensOutOfMenu)
+  const main = screens().filter((tab) => inMenu(tab.id, outOfMenu))
   // The badge matches the Action Items screen exactly: the same filtered rows it lists, so it never reads "2" over an
   // empty list. Only genuine decisions wait on the user, both in the count and on the screen.
   const badges: Partial<Record<ScreenId, number>> = { actions: useActionCount() }

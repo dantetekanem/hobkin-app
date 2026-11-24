@@ -1,3 +1,4 @@
+import { isPartScreen } from '../integration/screens.ts'
 import type { ScreenId, VeilSection } from './screens.ts'
 
 /**
@@ -36,8 +37,8 @@ export interface KeyContext {
   dialog?: 'new-hobkin' | 'nerd-stats' | 'prompt'
   /** An agent is waiting for the user. */
   asking: boolean
-  /** GitHub is in the menu. The user can take it out, in Integrations, and a GitHub opened then is open only for now. */
-  githubInMenu: boolean
+  /** The screens the user took out of the menu. One of an integration's opened then is open only for now. */
+  outOfMenu: readonly string[]
   /** The keyboard is in a text field: an input, a textarea, the prompt editor, anything editable. */
   typing?: boolean
   /** The agent screen shows a durable hobkin's page (`034-durable-hobkins`). */
@@ -211,10 +212,11 @@ const OPEN_FOR_NOW: readonly ScreenId[] = ['agent', 'review', 'settings', 'integ
 
 /**
  * A review, Settings, Integrations, Work's World, YOLO mode, a project's page and a proof run are open only for now,
- * and so is a GitHub opened while the menu leaves it out.
+
+ * and so is an integration's screen opened while the menu leaves it out.
  */
-function openForNow({ screen, githubInMenu }: KeyContext): boolean {
-  return OPEN_FOR_NOW.includes(screen) || (screen === 'github' && !githubInMenu)
+function openForNow({ screen, outOfMenu }: KeyContext): boolean {
+  return OPEN_FOR_NOW.includes(screen) || (isPartScreen(screen) && outOfMenu.includes(screen))
 }
 
 /**
@@ -223,7 +225,7 @@ function openForNow({ screen, githubInMenu }: KeyContext): boolean {
  *
  * A screen that is open only for now is left for the place before it on the trail (053): a review, an agent, World, YOLO
  * mode, a project or a proof run for the page it was opened from, Integrations for Settings, Settings for the screen
- * under it. With nothing on the trail, a GitHub the menu leaves out goes to the screen it was opened over and the rest
+ * under it. With nothing on the trail, an integration's screen the menu leaves out goes to the screen it was opened over and the rest
  * to Work. A menu screen stays open and the keyboard goes home.
  *
  * A canvas with the keyboard in it closes (`040-canvas-board`). The main canvas is not a place open only for now: Escape

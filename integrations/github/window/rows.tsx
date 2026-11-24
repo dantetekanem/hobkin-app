@@ -45,6 +45,7 @@ import { issueChip, JUST_ADDED, placeOnWork, type ChipTone } from './issue-work.
 import { addIssueToQueue } from './add-to-queue.ts'
 import { run } from './commands.ts'
 import { openPullRequestReview } from './review.ts'
+import { reviewStarted } from '@/features/work/review-started.ts'
 import { startAiReview, type PullAi, type PullEntry } from './pull-reviews.ts'
 
 /**
@@ -243,7 +244,11 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
   const start = async (again: boolean) => {
     setStarting(true)
     setRefusal(null)
-    const why = await startAiReview(id, { live, prepare: (reviewId) => runCommand('review.prepare', { id: reviewId, ...(again ? { refresh: true } : {}) }), open: openReview })
+    const why = await startAiReview(id, { live, prepare: async (reviewId) => {
+        const answer = await runCommand('review.prepare', { id: reviewId, ...(again ? { refresh: true } : {}) })
+        reviewStarted(reviewId)
+        return answer
+      }, open: openReview })
     setStarting(false)
     setRefusal(why)
   }

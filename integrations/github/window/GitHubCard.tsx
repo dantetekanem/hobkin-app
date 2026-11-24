@@ -2,12 +2,13 @@ import { ArrowUpRight, LoaderCircle } from 'lucide-react'
 import type { GitHubConnection, GitHubState } from '#shared/protocol/github.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
-import { useSettings } from '@/features/settings/store.ts'
+import { useScreenInMenu } from '@/features/settings/store.ts'
 import { cn } from '@/lib/utils.ts'
 import { ghLine } from './gh.ts'
 import { useSlice } from '@/integration/use-slice.ts'
 import { serviceMark } from '@/features/integrations/marks.ts'
 import { ServiceMark } from '@/features/integrations/ServiceMark.tsx'
+import { requestCanvasFocus } from '@/app/focus.ts'
 import { useView } from '@/app/view-store.ts'
 
 /** How gh stands, as the card's pill. While gh is still being asked, the pill shows a spinner where its dot would be. */
@@ -50,9 +51,11 @@ function StatePill({ connection, still }: { connection: GitHubConnection; still:
  */
 export function GitHubCard({ still }: { still: boolean }) {
   const github = useSlice<GitHubState>('github')
-  const onOpen = () => useView.getState().openGitHub()
-  const showInMenu = useSettings((settings) => settings.showGitHubInMenu)
-  const setShowInMenu = useSettings((settings) => settings.setShowGitHubInMenu)
+  const onOpen = () => {
+    useView.getState().openPartScreen('github')
+    requestCanvasFocus()
+  }
+  const [showInMenu, setShowInMenu] = useScreenInMenu('github')
 
   const { connection } = github
   const offers = [

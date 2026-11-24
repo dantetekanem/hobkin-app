@@ -2,8 +2,8 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import { sampleGitHub, type GitHubIssue } from '#shared/protocol/github.ts'
 import type { WorkProject } from '#shared/protocol/work.ts'
-import { chosenTab, pageIn, projectTabs, type GitHubPage } from '../src/features/github/project-filter.ts'
-import { pullSections, type PullEntry } from '../src/features/github/pull-reviews.ts'
+import { chosenTab, pageIn, projectTabs, type GitHubPage } from '../window/project-filter.ts'
+import { pullSections, type PullEntry } from '../window/pull-reviews.ts'
 
 const NOW = Date.parse('2026-11-13T09:00:00Z')
 

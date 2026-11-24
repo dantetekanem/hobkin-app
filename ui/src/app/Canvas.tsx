@@ -17,7 +17,6 @@ import { YoloScreen } from '@/features/work/YoloScreen.tsx'
 import ProjectScreen from '@/features/project/ProjectScreen.tsx'
 import { ProofScreen } from '@/features/proofs/ProofScreen.tsx'
 import { ActionsScreen } from '@/features/actions/ActionsScreen.tsx'
-import { GitHubScreen } from '@/features/github/GitHubScreen.tsx'
 import { CanvasPane } from '@/features/canvas-panel/CanvasPane.tsx'
 import { CanvasScreen } from '@/features/canvas-panel/CanvasScreen.tsx'
 import { useSplit, useSplitSizes } from '@/features/canvas-panel/use-board.ts'
@@ -30,7 +29,8 @@ import { ScreenBoundary } from './ScreenBoundary.tsx'
 import { PAGE_TOP } from './screen-layout.ts'
 import { ScreenMenu } from './ScreenMenu.tsx'
 import { useStill } from './still.ts'
-import { type ScreenId } from './screens.ts'
+import { partScreen } from '@/integration/screens.ts'
+import { type CoreScreenId, type ScreenId } from './screens.ts'
 import { canvasGrowth, pageInsetMove, useView, type ScreenMotion } from './view-store.ts'
 
 // The menu's screens load with the frame. A screen loaded on demand slides in empty, and React shows it only once its
@@ -54,7 +54,7 @@ function OpenProjectPage() {
 }
 
 /** Each canvas screen. A feature replaces its placeholder here when it is built. */
-const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
+const SCREEN_VIEWS: Record<CoreScreenId, ComponentType> = {
   home: HomeScreen,
   work: WorkScreen,
   world: WorldScreen,
@@ -68,7 +68,6 @@ const SCREEN_VIEWS: Record<ScreenId, ComponentType> = {
   skills: SkillsScreen,
   extensions: ExtensionsScreen,
   memory: MemoryScreen,
-  github: GitHubScreen,
   agent: AgentScreen,
   mind: MainAgentScreen,
   review: ReviewScreen,
@@ -176,7 +175,7 @@ export function Canvas() {
   const travelOf: Travel = { ...motionOf, still, agent: enteringAgent }
   // A durable hobkin is an agent with a page of its own (034-durable-hobkins). Moving between it and an agent travels.
   const durable = enteringAgent && hobkinOfAgent(openAgent) !== null
-  const View = needsModel ? SignInScreen : durable ? HobkinScreen : SCREEN_VIEWS[screen]
+  const View = needsModel ? SignInScreen : durable ? HobkinScreen : SCREEN_VIEWS[screen as CoreScreenId] ?? partScreen(screen)?.component ?? WorkScreen
   const splitNow = useSplit()
   const split = needsModel ? null : splitNow
   const sizes = useSplitSizes()

@@ -1,6 +1,7 @@
 import type { StoreApi } from 'zustand'
 import type { NudgeAction, NudgeScreen } from '#shared/protocol/nudge.ts'
 import { useChat } from '@/features/chat/chat-store.ts'
+import { isPartScreen } from '@/integration/screens.ts'
 import { hostStore } from '@/lib/host/client.ts'
 import type { HostState } from '@/lib/host/state.ts'
 import { travel } from './location.ts'
@@ -12,10 +13,10 @@ import { useView } from './view-store.ts'
  * instruction has an id, so the window does each one once and nothing on a reconnect (`shared/protocol/nudge.ts`).
  */
 
-/** Opens a screen the way the user reaches it: GitHub and the two overlays through their own openers, the rest straight. */
+/** Opens a screen the way the user reaches it: an integration's screens and the two overlays through their own openers, the rest straight. */
 function openScreen(screen: string): void {
   const view = useView.getState()
-  if (screen === 'github') return view.openGitHub()
+  if (isPartScreen(screen)) return view.openPartScreen(screen)
   // Settings and Integrations are overlays that toggle, so open one only when it is not already the one showing.
   if (screen === 'settings') {
     if (view.screen !== 'settings') view.toggleSettings()

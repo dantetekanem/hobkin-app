@@ -1,7 +1,8 @@
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { Place } from '../features/main-agent/mind.ts'
+import { isPartScreen } from '../integration/screens.ts'
 import { depth } from './overlays.ts'
-import { SCREENS, type ScreenId } from './screens.ts'
+import { screens, type ScreenId } from './screens.ts'
 
 /**
  * The trail (053): the places the user came through to the page they are on, oldest first, as the frame shows them
@@ -25,8 +26,8 @@ export interface Stop {
   about?: string
   /** For Settings and the pages under it: the screen under them. */
   settingsReturn?: ScreenId
-  /** For a GitHub open for now: the screen it was opened over. */
-  githubReturn?: ScreenId
+  /** For an integration's screen open for now: the screen it was opened over. */
+  screenReturn?: ScreenId
   keep?: Keep
 }
 
@@ -42,7 +43,7 @@ export interface Where {
   /** The project its page shows, by slug. */
   project: string | null
   settingsReturn: ScreenId | null
-  githubReturn: ScreenId | null
+  screenReturn: ScreenId | null
 }
 
 /** The view a trail is shown for: where it is, the places before it, and the ways back the mind and the canvas keep. */
@@ -74,7 +75,7 @@ export function stopOf(where: Where): Stop {
     screen: where.screen,
     ...(about ? { about } : {}),
     ...(depth(where) > 0 && where.settingsReturn ? { settingsReturn: where.settingsReturn } : {}),
-    ...(where.screen === 'github' && where.githubReturn ? { githubReturn: where.githubReturn } : {}),
+    ...(isPartScreen(where.screen) && where.screenReturn ? { screenReturn: where.screenReturn } : {}),
   }
 }
 
@@ -107,7 +108,7 @@ export function whereOf(stop: Stop, now: Where): Where {
     openProof: stop.screen === 'proof' ? about : now.openProof,
     project: open('project', now.project),
     settingsReturn: stop.settingsReturn ?? null,
-    githubReturn: stop.githubReturn ?? null,
+    screenReturn: stop.screenReturn ?? null,
   }
 }
 
@@ -120,8 +121,6 @@ export function shownTrail(view: TrailView): Stop[] {
   const below = under ? [stopOf({ ...view, ...under })] : []
   return [...view.trail, ...below, stopOf(view)].slice(-MOST_PLACES)
 }
-
-const LABEL: ReadonlyMap<ScreenId, string> = new Map(SCREENS.map(({ id, label }) => [id, label]))
 
 /**
  * A place's short name: the page's, or what it is about once that is known. `found` is the project's or the agent's
@@ -138,7 +137,7 @@ export function placeName(stop: Stop, found?: string): string {
     case 'agent':
       return found ?? 'Agent'
     default:
-      return LABEL.get(stop.screen) ?? stop.screen
+      return screens().find(({ id }) => id === stop.screen)?.label ?? stop.screen
   }
 }
 

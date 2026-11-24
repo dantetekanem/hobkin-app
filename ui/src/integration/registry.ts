@@ -10,8 +10,10 @@ const slot = globalThis as { __hobkinWindowParts?: readonly WindowPart[] }
 
 /** Every part, in the order of their folders' names. Empty until they are handed in. */
 export function windowParts(): readonly WindowPart[] {
-  return slot.__hobkinWindowParts ?? []
+  return slot.__hobkinWindowParts ?? NO_PARTS
 }
+
+const NO_PARTS: readonly WindowPart[] = []
 
 export function setWindowParts(parts: readonly WindowPart[]): void {
   slot.__hobkinWindowParts = [...parts].sort((left, right) => left.manifest.id.localeCompare(right.manifest.id))

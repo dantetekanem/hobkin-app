@@ -1,14 +1,16 @@
-import { BookOpen, Bot, Brain, CalendarClock, FileText, FolderGit2, GitPullRequest, House, Inbox, NotebookPen, Plug, Presentation, Puzzle, Settings2, Sigma, Waypoints, Workflow, Zap, type LucideIcon } from 'lucide-react'
+import { BookOpen, Bot, Brain, CalendarClock, FileText, FolderGit2, House, Inbox, NotebookPen, Plug, Presentation, Puzzle, Settings2, Sigma, Waypoints, Workflow, Zap, type LucideIcon } from 'lucide-react'
+import { isPartScreen, partScreens } from '../integration/screens.ts'
 
-/** The screens in menu order. The order sets the direction a screen comes in from. */
-export const SCREENS = [
+/** The screens the app has in itself, in menu order. An integration's screens come after Work (`screens`). */
+const BEFORE_INTEGRATIONS = [
   { id: 'home', label: 'Home', icon: House },
   { id: 'reports', label: 'Reports', icon: FileText },
   { id: 'routines', label: 'Routines', icon: CalendarClock },
   { id: 'actions', label: 'Action Items', icon: Inbox },
   { id: 'work', label: 'Work', icon: Workflow },
-  // Issues and pull requests through the user's own gh (024-github). The user can take it out of the menu, in Integrations.
-  { id: 'github', label: 'GitHub', icon: GitPullRequest },
+] as const satisfies readonly ScreenDefinition[]
+
+const AFTER_INTEGRATIONS = [
   // These show in the menu only while something is open in them.
   { id: 'world', label: 'World', icon: Workflow, contextual: true },
   // YOLO mode's switch and each project's readiness, a page of Work's own as World is (049-yolo-mode).
@@ -32,36 +34,54 @@ export const SCREENS = [
   { id: 'canvas', label: 'Canvas', icon: Presentation, contextual: true },
 ] as const satisfies readonly ScreenDefinition[]
 
-export type ScreenId = (typeof SCREENS)[number]['id']
+export type CoreScreenId = (typeof BEFORE_INTEGRATIONS)[number]['id'] | (typeof AFTER_INTEGRATIONS)[number]['id']
 
-interface ScreenDefinition {
+/** A core screen's id, or one of an integration's screens (its manifest's `screens`). */
+export type ScreenId = CoreScreenId | (string & {})
+
+export interface ScreenDefinition {
   id: string
   label: string
   icon: LucideIcon
   contextual?: boolean
 }
 
-export function screenIndex(id: ScreenId): number {
-  return SCREENS.findIndex((screen) => screen.id === id)
+let held: { parts: readonly unknown[]; list: readonly ScreenDefinition[] } | null = null
+
+/**
+ * The screens in menu order. The order sets the direction a screen comes in from: the app's own first, then each
+ * integration's screens in folder order, then the contextual ones (_specs/064-integration-drops).
+ */
+export function screens(): readonly ScreenDefinition[] {
+  const own = partScreens()
+  if (held?.parts === own) return held.list
+  const list = [...BEFORE_INTEGRATIONS, ...own.map(({ id, label, icon }) => ({ id, label, icon })), ...AFTER_INTEGRATIONS] as const
+  held = { parts: own, list }
+  return list
 }
 
-/** Whether a screen has a place in the menu's first row. GitHub has one unless the user took it out of the menu. */
-export function inMenu(id: ScreenId, githubInMenu: boolean): boolean {
-  const entry = SCREENS.find((screen) => screen.id === id)
-  return entry !== undefined && !('contextual' in entry) && (githubInMenu || id !== 'github')
+export function screenIndex(id: ScreenId): number {
+  return screens().findIndex((screen) => screen.id === id)
+}
+
+/** Whether a screen has a place in the menu's first row. An integration's screens have one unless the user took them out of the menu. */
+export function inMenu(id: ScreenId, outOfMenu: readonly string[] = []): boolean {
+  const entry = screens().find((screen) => screen.id === id)
+  return entry !== undefined && !('contextual' in entry) && !outOfMenu.includes(id)
 }
 
 export interface WalkView {
   /** The screen showing. */
   screen: ScreenId
   reviewOpen: boolean
-  githubInMenu: boolean
+  /** The screens the user took out of the menu. */
+  outOfMenu?: readonly string[]
   /** The main hobkin's canvas is open, and the menu shows it: its group on the canvas, its pill anywhere else. */
   canvasOpen?: boolean
 }
 
 /** Numbered shortcuts follow the top menu and the contextual row the screen menu currently shows. */
-export function walkScreens({ screen, githubInMenu, canvasOpen = false }: WalkView): ScreenId[] {
+export function walkScreens({ screen, outOfMenu = [], canvasOpen = false }: WalkView): ScreenId[] {
   const openNow: Partial<Record<ScreenId, boolean>> = {
     review: screen === 'review',
     settings: screen === 'settings' || screen === 'integrations' || screen === 'skills' || screen === 'extensions' || screen === 'memory',
@@ -69,10 +89,10 @@ export function walkScreens({ screen, githubInMenu, canvasOpen = false }: WalkVi
     skills: screen === 'skills',
     extensions: screen === 'extensions',
     memory: screen === 'memory',
-    github: screen === 'github',
     canvas: canvasOpen,
   }
-  return SCREENS.filter(({ id }) => inMenu(id, githubInMenu) || openNow[id]).map(({ id }) => id)
+  // An integration's screen the menu leaves out is in the walk while it is open.
+  return screens().filter(({ id }) => inMenu(id, outOfMenu) || openNow[id] || (id === screen && isPartScreen(id))).map(({ id }) => id)
 }
 
 /**

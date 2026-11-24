@@ -1,13 +1,13 @@
 import { Hob } from '@/avatar/Hob.tsx'
 import { Hero, Rise } from './Reveal.tsx'
-import { SCREENS, type ScreenId } from './screens.ts'
+import { screens, type ScreenId } from './screens.ts'
 
 /**
  * Stands in for a screen that can show only sample data so far, while a host is connected: the user's own hobkin
  * must never be shown made-up data. It goes away as soon as the screen reads hobkin.
  */
 export function NotWiredYet({ screen }: { screen: ScreenId }) {
-  const label = SCREENS.find((entry) => entry.id === screen)?.label ?? screen
+  const label = screens().find((entry) => entry.id === screen)?.label ?? screen
   return (
     <div className="grid h-full place-items-center p-8 pt-24">
       <div className="flex max-w-md flex-col items-center gap-4 text-center">

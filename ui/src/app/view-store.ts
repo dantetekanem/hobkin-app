@@ -2,7 +2,8 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { requestCanvasFocus } from './focus.ts'
 import { arrive, readKeep } from './kept-place.ts'
-import { closeOver, depth, ground, toggleIntegrationsOver, togglePageOver, toggleSettingsOver, type Over, type PageUnderSettings } from './overlays.ts'
+import { closeOver, depth, ground, isUnderSettings, toggleIntegrationsOver, togglePageOver, toggleSettingsOver, type Over, type PageUnderSettings } from './overlays.ts'
+import { isPartScreen } from '../integration/screens.ts'
 import { screenIndex, type ScreenId, type VeilSection } from './screens.ts'
 import { MOST_PLACES, samePlace, shownTrail, stopOf, whereOf, type Stop } from './trail.ts'
 import type { Place } from '../features/main-agent/mind.ts'
@@ -103,8 +104,8 @@ interface ViewState {
   previewFrom: string | null
   /** While Settings or Integrations is open: the screen under both, which closing returns to. */
   settingsReturn: ScreenId | null
-  /** While GitHub is open: the screen it was opened over. Closing a GitHub the menu leaves out returns there. */
-  githubReturn: ScreenId | null
+  /** While an integration's screen is open: the screen it was opened over. Closing one the menu leaves out returns there. */
+  screenReturn: ScreenId | null
   /** Where leaving hobkin's mind goes back to. A reload keeps it (location.ts). */
   mindReturn: Place | null
   /** Where closing the main canvas goes back to: the place it was opened over. A reload keeps it (location.ts). */
@@ -156,10 +157,10 @@ interface ViewState {
   toggleIntegrations: () => void
   /** Opens a page under Settings, such as Skills or Pi extensions. On that page it steps back up to Settings. */
   togglePage: (page: PageUnderSettings) => void
-  /** Opens GitHub, from the menu, the spotlight or GitHub's entry in Integrations, whether or not the menu shows it. */
-  openGitHub: () => void
-  /** Leaves GitHub for the screen it was opened over. The menu offers it for a GitHub it leaves out, which is open only for now. */
-  closeGitHub: () => void
+  /** Opens an integration's screen, from the menu, the spotlight or its card in Integrations, whether or not the menu shows it. */
+  openPartScreen: (screen: ScreenId) => void
+  /** Leaves an integration's screen for the screen it was opened over. The menu offers it for one it leaves out, which is open only for now. */
+  closePartScreen: () => void
   /** Takes the right side to the main canvas, coming in from the right, and keeps the place it came from. */
   openCanvasPlace: () => void
   /** Leaves the main canvas for the place it was opened over, exactly as it was. */
@@ -175,10 +176,10 @@ interface ViewState {
 }
 
 /** The screen and its ways back, as a way back of its own. */
-const placeOf = ({ screen, settingsReturn, githubReturn, openAgent, previewReturn }: Place): Place => ({ screen, settingsReturn, githubReturn, openAgent, previewReturn })
+const placeOf = ({ screen, settingsReturn, screenReturn, openAgent, previewReturn }: Place): Place => ({ screen, settingsReturn, screenReturn, openAgent, previewReturn })
 
 /** The screen under the canvas, for a canvas with no way back. */
-const UNDER_CANVAS: Place = { screen: 'work', settingsReturn: null, githubReturn: null, openAgent: null, previewReturn: null }
+const UNDER_CANVAS: Place = { screen: 'work', settingsReturn: null, screenReturn: null, openAgent: null, previewReturn: null }
 
 /**
  * How a move treats the trail:
@@ -237,7 +238,7 @@ function screenStep(current: ViewState, screen: ScreenId): Partial<ViewState> {
     previewReturn: null,
     previewFrom: null,
     settingsReturn: null,
-    githubReturn: screen === 'github' ? backFromGitHub(current) : null,
+    screenReturn: isPartScreen(screen) ? backFromPartScreen(current) : null,
     screenMotion: { axis: 'x', direction: screenIndex(screen) > screenIndex(current.screen) ? 1 : -1 },
   }
 }
@@ -255,12 +256,12 @@ function stepOver(state: ViewState, step: (over: Over) => Over): Partial<ViewSta
 }
 
 /**
- * Where leaving GitHub goes back to: the screen showing when it opened, the one under Settings and Integrations, or
+ * Where leaving an integration's screen goes back to: the screen showing when it opened, the one under Settings and Integrations, or
  * the one an agent's preview came from. Opened again from over itself, it keeps the way back it had.
  */
-function backFromGitHub(state: ViewState): ScreenId | null {
+function backFromPartScreen(state: ViewState): ScreenId | null {
   const back = state.screen === 'agent' ? (state.previewReturn ?? 'work') : ground(state)
-  return back === 'github' ? state.githubReturn : back
+  return isPartScreen(back) ? state.screenReturn : back
 }
 
 /**
@@ -273,7 +274,8 @@ export function launchView({ screen, settingsReturn, canvasReturn, conversationW
   const under = ground(place)
   // A review is not reopened either, so a review that cannot be drawn can never keep the app from starting.
   return {
-    screen: under === 'review' || under === 'canvas' || under === 'proof' || under === 'project' ? 'work' : under,
+    // An integration's screen saved before its folder went is not one this window has.
+    screen: under === 'review' || under === 'canvas' || under === 'proof' || under === 'project' || screenIndex(under) < 0 ? 'work' : under,
     conversationWidth,
     openReview: null,
     openAgent: place.openAgent,
@@ -302,7 +304,7 @@ export const useView = create<ViewState>()(
       previewReturn: null,
       previewFrom: null,
       settingsReturn: null,
-      githubReturn: null,
+      screenReturn: null,
       mindReturn: null,
       canvasReturn: null,
       openProof: null,
@@ -328,8 +330,8 @@ export const useView = create<ViewState>()(
       },
       back: () => {
         const view = get()
-        // With nothing on the trail, each page goes where it always went: a GitHub open for now to the screen under it.
-        const to = view.trail.at(-1) ?? { screen: view.screen === 'github' ? (view.githubReturn ?? 'work') : 'work' }
+        // With nothing on the trail, each page goes where it always went: an integration's screen open for now to the screen under it.
+        const to = view.trail.at(-1) ?? { screen: isPartScreen(view.screen) ? (view.screenReturn ?? 'work') : 'work' }
         set(restored(view, to, view.trail.slice(0, -1)))
       },
       backTo: (index) => {
@@ -342,7 +344,7 @@ export const useView = create<ViewState>()(
       leave: () => {
         const view = get()
         if (view.screen === 'integrations') view.toggleIntegrations()
-        else if (view.screen === 'skills' || view.screen === 'extensions' || view.screen === 'memory') view.togglePage(view.screen)
+        else if (isUnderSettings(view.screen)) view.togglePage(view.screen)
         else if (view.screen === 'settings') view.closeSettings()
         else if (view.screen === 'review') view.closeReview()
         else view.back()
@@ -443,10 +445,10 @@ export const useView = create<ViewState>()(
       closeSettings: () => {
         if (depth(get()) > 0) set(stepOver(get(), closeOver))
       },
-      // GitHub is a menu screen, so it travels in along the menu as the others do, from wherever it is opened.
-      openGitHub: () => get().openScreen('github'),
-      closeGitHub: () => {
-        if (get().screen === 'github') get().back()
+      // An integration's screen is a menu screen, so it travels in along the menu as the others do, from wherever it is opened.
+      openPartScreen: (screen) => get().openScreen(screen),
+      closePartScreen: () => {
+        if (isPartScreen(get().screen)) get().back()
       },
       // The canvas is a place to the right of everything: it comes in from the right and goes back the same way.
       openCanvasPlace: () => {
