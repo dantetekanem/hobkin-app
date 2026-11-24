@@ -2,7 +2,7 @@ Schedule something for yourself: a shell command hobkin runs on a timer, or a pl
 
 - `note` (required): what to do when it wakes you, 1 to 1000 characters.
 - `command`: the shell command, run with `bash -lc` in your folder each time it fires. Leave it out for a plain wake, which only wakes you with your note.
-- When it first fires: `in`, a duration such as `90s`, `10m` or `1h30m`, or `at`, a 24-hour clock time such as `19:30` in the user's time zone. A repeating one with neither runs at once.
+- When it first fires: `in`, a duration such as `90s`, `10m` or `1h30m`, or `at`, in the user's time zone, a 24-hour clock time such as `19:30` or a date and time such as `2026-11-27T09:00`. A repeating one with neither runs at once.
 - `every`: repeat this often, `1m` or longer, such as `2m`, `6h` or `1d`. Without it, it fires once.
 - `wakeOn` (a command only): `change` (the default when it repeats; its first run only sets what to compare with), `failure`, `success`, `always` (the default when it fires once) or `never`.
 - `stopOn` (a repeating command only): `success` or `failure` ends it on the first run that passes or fails. Default `never`.

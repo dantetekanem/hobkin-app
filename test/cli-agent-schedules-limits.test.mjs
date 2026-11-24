@@ -173,3 +173,21 @@ test('pendingExit takes as many exit codes as the agent names, each from 0 to 25
   const after = afterRun(zero, { fired: NOW, result: { code: 0, stdout: 'still running', stderr: '', killed: false } }, NOW + 1000);
   assert.deepEqual([after.schedule.history.at(-1).outcome, after.wake], ['pending', null], 'exit 0 named as not yet is not yet');
 });
+
+test('at takes a date and time in the home\'s time zone as well as a clock time, one three days out reads as that day, and one already past is refused with why', () => {
+  const plain = { note: 'Look at the release.', expiresIn: '7d' };
+  const friday = new Date(2026, 10, 27, 9, 0).getTime();
+  const once = make({ ...plain, at: '2026-11-27T09:00' });
+  assert.equal(once.nextAt, iso(friday), 'read as the home\'s own clock reads it');
+  assert.match(scheduledText(once, main), /It first fires at Fri, Nov 27, 9:00\sAM, and it ends by/);
+  assert.equal(scheduleForAgent(once).nextAt, iso(friday));
+  assert.equal(scheduleView(once).nextAt, iso(friday), 'the window counts down to it');
+  assert.equal(make({ ...plain, every: '1d', at: '2026-11-27T09:00' }).nextAt, iso(friday), 'a repeating one starts then');
+
+  const past = ask({ ...plain, at: '2026-11-20T09:00' }).refused;
+  assert.match(past, /^2026-11-20T09:00 has passed: it is \d{4}-\d\d-\d\dT\d\d:\d\d here now\. Give a time still to come\./);
+  for (const at of ['2026-02-30T09:00', '2026-11-27T25:00', '2026-11-27T09:00Z', '2026-11-27', 'Friday 9am']) {
+    assert.match(ask({ ...plain, at }).refused, /Give at as a 24-hour clock time such as 19:30, or a date and time such as 2026-11-27T09:00, in the user's time zone\./, at);
+  }
+  assert.match(ask({ ...plain, at: '2026-12-20T09:00' }).refused, /after its lifetime ends/, 'its lifetime still bounds it');
+});

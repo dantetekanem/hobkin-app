@@ -23,7 +23,7 @@ const scheduleParameters = Type.Object({
   command: Type.Optional(Type.String({ description: 'The shell command to run each time, up to 4000 characters. Leave it out for a plain wake.' })),
   note: Type.String({ description: 'What to do when it wakes you, 1 to 1000 characters.' }),
   in: Type.Optional(Type.String({ description: 'When it first fires, as a duration such as 90s, 10m or 1h30m.' })),
-  at: Type.Optional(Type.String({ description: "When it first fires, as a 24-hour clock time such as 19:30 in the user's time zone." })),
+  at: Type.Optional(Type.String({ description: "When it first fires, in the user's time zone: a 24-hour clock time such as 19:30, or a date and time such as 2026-11-27T09:00." })),
   every: Type.Optional(Type.String({ description: 'Repeat this often, 1m or longer, such as 6h or 1d. Without it, it fires once.' })),
   wakeOn: Type.Optional(oneOf(WAKE_ON)),
   stopOn: Type.Optional(oneOf(STOP_ON)),

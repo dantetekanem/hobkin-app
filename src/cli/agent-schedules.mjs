@@ -49,6 +49,8 @@ export const STOP_ON = Object.freeze(['success', 'failure', 'never']);
 export const OWNER_KINDS = Object.freeze(['main', 'hobkin', 'run']);
 
 const CLOCK = /^([01]?\d|2[0-3]):([0-5]\d)$/;
+// A date and time as the home's own clock reads it, with no zone of its own.
+const DATE_TIME = /^(\d{4})-(\d\d)-(\d\d)T([01]\d|2[0-3]):([0-5]\d)$/;
 const DURATION = /^(?:(\d{1,4})d)?(?:(\d{1,5})h)?(?:(\d{1,6})m)?(?:(\d{1,7})s)?$/;
 const LINE_MOST = 200;
 
@@ -74,6 +76,19 @@ export function spanWords(ms) {
 }
 
 /** The next time the local clock reads `at` after `now`. */
+/** The time a date and time names on the home's own clock, or null for a day no calendar has, such as Feb 30. */
+function dateTime(at) {
+  const [, year, month, day, hour, minute] = at.match(DATE_TIME).map(Number);
+  const time = new Date(year, month - 1, day, hour, minute);
+  return time.getFullYear() === year && time.getMonth() === month - 1 && time.getDate() === day ? time.getTime() : null;
+}
+
+/** A time as `at` takes it, on the home's own clock. */
+const localWords = time => {
+  const date = new Date(time), two = number => String(number).padStart(2, '0');
+  return `${date.getFullYear()}-${two(date.getMonth() + 1)}-${two(date.getDate())}T${two(date.getHours())}:${two(date.getMinutes())}`;
+};
+
 function nextClock(at, now) {
   const [, hour, minute] = at.match(CLOCK).map(Number);
   const day = new Date(now);
@@ -161,12 +176,16 @@ function firstTime({ in: delayAsked, at }, every, now) {
     return { first: now + delay };
   }
   if (at !== undefined) {
-    if (typeof at !== 'string' || !CLOCK.test(at)) return refuse('Give at as a 24-hour clock time, HH:MM, such as 19:30.');
-    return { first: nextClock(at, now) };
+    const forms = "Give at as a 24-hour clock time such as 19:30, or a date and time such as 2026-11-27T09:00, in the user's time zone.";
+    if (typeof at === 'string' && CLOCK.test(at)) return { first: nextClock(at, now) };
+    const time = typeof at === 'string' && DATE_TIME.test(at) ? dateTime(at) : null;
+    if (time === null) return refuse(forms);
+    if (time <= now) return refuse(`${at} has passed: it is ${localWords(now)} here now. Give a time still to come.`);
+    return { first: time };
   }
   // A repeating schedule runs at once, so a change is measured from now.
   if (every !== null) return { first: now };
-  return refuse('Say when it fires: in (such as 10m) or at (HH:MM) for once, or every (such as 2m) to repeat.');
+  return refuse('Say when it fires: in (such as 10m) or at (such as 19:30 or 2026-11-27T09:00) for once, or every (such as 2m) to repeat.');
 }
 
 /** Why there is no room for another: the owner keeps the most one agent may, or hobkin the most it holds. */
@@ -238,7 +257,8 @@ export function askedSchedule(request, { now, owner, cwd, live = [], id = random
 }
 
 /** A time as the agent reads it: the weekday and the clock in the user's time zone. */
-export const clockWords = time => new Date(time).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' });
+// With its date, since a schedule may first fire or end weeks away.
+export const clockWords = time => new Date(time).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 
 export const sameOwner = (left, right) => left?.kind === right?.kind && (left.kind === 'main' || left.id === right.id);
 
