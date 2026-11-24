@@ -73,8 +73,9 @@ function askReviews(root, now = Date.now()) {
 
   const { running } = ownerView(root);
   const asked = [];
-  // A change waiting on its pull request is one only while YOLO mode takes pull requests (`yolo-pulls.mjs`).
-  const pulls = pullRequestsMerge() ? pullCandidates(root) : [];
+  // A change waiting on its pull request is one only while YOLO mode takes pull requests (`yolo-pulls.mjs`), and only where YOLO mode may merge
+  // it once scored: scoring finished changes, the user's own setting, has never reviewed pull requests by itself.
+  const pulls = pullRequestsMerge() ? pullCandidates(root).filter(({ row }) => scoresByItself(root, row.slug)) : [];
   for (const { row } of [...weighedRows(root, now), ...pulls].filter(entry => wantsAReview(root, entry))) {
     if (asked.length === REVIEWS_A_PASS) break;
     if (!reviewsByItself(root, row.slug) || beingWorkedOn(root, row, running)) continue;

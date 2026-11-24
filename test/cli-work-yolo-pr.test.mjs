@@ -353,3 +353,24 @@ test('a merge the host queued or set to merge by itself is never recorded: hobki
   assert.match(problem.line, /could not turn that off \(auto-merge is not allowed for this repository\), so it may still merge there/);
   assert.equal(itemOf(h, other).state, 'pr');
 });
+
+test('a change waiting on its pull request gets a review by itself only where YOLO mode may merge it, not because scoring finished changes is on', async t => {
+  const h = workspace(t, ['api', 'web']);
+  writeMode(h.root, { reviewOnFinish: true });
+  const onWeb = openedAsPull(h, 'Fix signup', { slug: 'web', review: null });
+  const onApi = openedAsPull(h, 'Fix login', { review: null });
+  setYoloProject(h.root, 'web', false, NOW);
+  const asked = change => [itemOf(h, change).state, Boolean(itemOf(h, change).reviewAsked)];
+
+  // The project YOLO mode is off on: not from the survey, and not as a run ends.
+  await surveyAndClose(h.root, { now: NOW, gh: onWeb.host.gh, reviews: join(h.base, 'no-reviews') });
+  const director = new WorkDirector({ root: h.root, now: () => NOW, gh: onWeb.host.gh, onChange: () => {} });
+  await director.itemFinished('web', itemOf(h, onWeb));
+  assert.deepEqual(asked(onWeb), ['pr', false]);
+
+  // With YOLO mode off everywhere, the same on api.
+  setYolo(h.root, { on: false }, NOW);
+  await surveyAndClose(h.root, { now: NOW, gh: onApi.host.gh, reviews: join(h.base, 'no-reviews') });
+  await director.itemFinished('api', itemOf(h, onApi));
+  assert.deepEqual(asked(onApi), ['pr', false]);
+});

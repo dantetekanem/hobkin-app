@@ -46,7 +46,7 @@ import { openReadinessPulls } from './yolo-parts.mjs';
 import { yoloPass } from './yolo-pass.mjs';
 import { pullRequestsMerge } from './yolo-pulls.mjs';
 import { writeYoloReports } from './yolo-report.mjs';
-import { reviewsByItself } from './yolo.mjs';
+import { reviewsByItself, scoresByItself } from './yolo.mjs';
 
 function withSessionCost(result, sessionFile) {
   const { usd, sessionId } = sessionUsage(sessionFile);
@@ -876,8 +876,8 @@ export class WorkDirector {
     if (!['branch', 'pr'].includes(state) || kind === 'pr-fix') return;
 
     const project = readProject(this.root, slug);
-    // A change waiting on its own PR earns one as a branch does only while YOLO mode takes pull requests (`yolo-pulls.mjs`).
-    const earns = state === 'branch' || pullRequestsMerge();
+    // A change waiting on its own PR earns one only while YOLO mode takes pull requests (`yolo-pulls.mjs`) and may merge it there once scored.
+    const earns = state === 'branch' || (pullRequestsMerge() && scoresByItself(this.root, slug));
     if (!reviewAsked && earns && await this.earnsAReview(project, branch, item.review)) {
       updateItem(this.root, slug, id, { reviewAsked: true }, this.now());
       retryItem(this.root, slug, id, this.now());
