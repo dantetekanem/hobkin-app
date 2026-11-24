@@ -3,10 +3,8 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import type { Review } from '#shared/review/types.ts'
 import { pressKey } from '../src/features/review/keys.ts'
-import { zoneWords } from '../src/features/review/graph/zones.ts'
-import { filterOutline, outlineItems, outlineOf, zonesOutline } from '../src/features/review/outline/outline.ts'
+import { filterOutline, outlineItems, outlineOf } from '../src/features/review/outline/outline.ts'
 import { largeReview } from '../src/features/review/sample/large.ts'
-import { pullReview } from '../src/features/review/sample/pull.ts'
 import { createReviewMemory } from '../src/features/review/state/memory.ts'
 import { createSession } from '../src/features/review/state/session.ts'
 
@@ -80,27 +78,4 @@ test('L opens the outline and closes it; a review in Focus opens with it open', 
   pressKey(small.getState(), { key: 'l', shift: false, alt: false }, keys)
   assert.equal(small.getState().outline, false)
   assert.equal(open(large).getState().outline, true)
-})
-
-test('by zone, the outline lists each zone of the graph with what it holds and its nodes, the code on the way in too', () => {
-  const pull = pullReview('pr:hobkin-sample/storefront/482')
-  const session = open(pull)
-  const { view } = session.getState()
-  const sections = zonesOutline(pull, view)
-  assert.deepEqual(sections.map((section) => section.title), view.zones.map((zone) => zone.label), 'one heading for each zone, in the order a request passes them')
-  for (const [index, section] of sections.entries()) assert.equal(section.note, zoneWords(view.zones[index]!))
-  // Every node of the review is listed once, under its zone, and the routes and controllers on the way in are there.
-  const rows = rowsOf(sections)
-  assert.deepEqual(rows.map((row) => row.id).sort(), pull.nodes.map((node) => node.id).sort())
-  for (const section of sections) for (const row of section.rows) assert.equal(view.zoneOf[row.id], section.id)
-  const routes = sections.find((section) => section.title === 'Routes')!
-  assert.deepEqual(routes.rows.map((row) => row.title), ['GET /posts/:id', 'GET /feed'])
-  // A zone found by its name keeps all it holds; a word finds a node in any zone.
-  assert.equal(rowsOf(filterOutline(sections, 'routes')).length, 2)
-  assert.deepEqual(rowsOf(filterOutline(sections, 'find_by_handles')).map((row) => row.title), ['User.find_by_handles'])
-
-  // The switch: Attention, or Zones, kept while the review is open.
-  assert.equal(session.getState().outlineView, 'attention')
-  session.getState().setOutlineView('zones')
-  assert.equal(session.getState().outlineView, 'zones')
 })

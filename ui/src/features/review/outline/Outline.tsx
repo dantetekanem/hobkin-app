@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils.ts'
 import { useReduced, useRig, useSession, useSessionStore } from '../state/context.tsx'
 import { drawnAs } from '../state/session.ts'
 import { useAskedFocus } from './asked-focus.ts'
-import { filterOutline, outlineItems, outlineOf, zonesOutline, type OutlineItem, type OutlineRow, type OutlineSection, type OutlineView } from './outline.ts'
+import { filterOutline, outlineItems, outlineOf, type OutlineItem, type OutlineRow, type OutlineSection } from './outline.ts'
 
 /** How wide the outline is, and the room it takes beside the steps panel with its margins. */
 export const OUTLINE = { width: 272, gap: 10 } as const
@@ -19,14 +19,11 @@ const LINE = { heading: 34, group: 32, row: 30 } as const
 
 const count = (value: number) => value.toLocaleString('en-US')
 
-/** The outline's switch, in the order it shows them. */
-const VIEWS: readonly [OutlineView, string][] = [['attention', 'Attention'], ['zones', 'Zones']]
-
 /**
  * The outline (spec 053), opened and closed with L: a list at the left, beside the steps panel, of every unit and file of
  * the review under Needs you, Worth a look and Safe, in rank order, the safe ones in the groups the graph folds them
- * into, each row with its lines and whether it is seen. Its switch, always in the same place, lists by zone instead
- * (spec 055): each zone of the graph with what it holds, and every node in it, the code on the way in too. Typing filters it, the arrows choose, and Enter moves the graph
+ * into, each row with its lines and whether it is seen. It has one list and no tabs: zones are how the graph draws
+ * the change, never a second way to list it. Typing filters it, the arrows choose, and Enter moves the graph
  * to the row, opening its group when the graph folded it. Its rows are drawn only while they are in view, as the code is.
  * The room it takes counts as covered, so the camera never frames anything under it.
  *
@@ -80,14 +77,13 @@ function OutlineBody({ onClose }: { onClose: () => void }) {
   const seen = useSession((session) => session.seen)
   const focus = useSession((session) => session.focus)
   const asked = useSession((session) => session.outlineAsked)
-  const by = useSession((session) => session.outlineView)
   const [query, setQuery] = useState('')
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const [active, setActive] = useState(0)
   const field = useRef<HTMLInputElement>(null)
   const scroller = useRef<HTMLDivElement>(null)
 
-  const sections = useMemo(() => (by === 'zones' ? zonesOutline(review, view) : outlineOf(review, view)), [by, review, view])
+  const sections = useMemo(() => outlineOf(review, view), [review, view])
   const shown = useMemo(() => filterOutline(sections, query), [query, sections])
   const items = useMemo(() => outlineItems(shown, expanded, query.trim() !== ''), [expanded, query, shown])
   const choosable = useMemo(() => items.flatMap((item, index) => (item.kind === 'heading' ? [] : [index])), [items])
@@ -102,7 +98,7 @@ function OutlineBody({ onClose }: { onClose: () => void }) {
     overscan: 8,
     initialRect: { width: OUTLINE.width, height: 720 },
   })
-  useEffect(() => setActive(0), [query, by])
+  useEffect(() => setActive(0), [query])
   useEffect(() => {
     if (chosen != null) virtual.scrollToIndex(chosen, { align: 'auto' })
   }, [chosen, virtual])
@@ -132,21 +128,6 @@ function OutlineBody({ onClose }: { onClose: () => void }) {
           <X />
         </button>
       </header>
-      <div role="radiogroup" aria-label="List by" className="mx-2.5 mb-2 grid h-9 shrink-0 grid-cols-2 gap-1 rounded-xl bg-secondary p-1">
-        {VIEWS.map(([choice, words]) => (
-          <button
-            key={choice}
-            type="button"
-            role="radio"
-            aria-checked={by === choice}
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={() => store.getState().setOutlineView(choice)}
-            className={cn('pressable rounded-[9px] font-heading text-[12.5px] font-semibold transition-[background-color,color] duration-[160ms]', by === choice ? 'bg-background text-foreground' : 'text-muted-foreground')}
-          >
-            {words}
-          </button>
-        ))}
-      </div>
       <label className="mx-2.5 mb-2 flex h-9 shrink-0 items-center gap-2 rounded-xl bg-secondary px-3">
         <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
         <input
@@ -176,7 +157,7 @@ function OutlineBody({ onClose }: { onClose: () => void }) {
           className="min-w-0 flex-1 bg-transparent font-sans text-[13.5px] outline-none placeholder:text-muted-foreground"
         />
       </label>
-      <div ref={scroller} className="rv-scroll min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" role="list" aria-label={by === 'zones' ? 'Every zone and what is in it' : 'Every unit and file'}>
+      <div ref={scroller} className="rv-scroll min-h-0 flex-1 overflow-y-auto px-1.5 pb-2" role="list" aria-label="Every unit and file">
         {items.length === 0 ? <p className="px-3 py-3 text-[13px] text-muted-foreground">Nothing matches.</p> : null}
         <div style={{ height: virtual.getTotalSize(), position: 'relative' }}>
           {virtual.getVirtualItems().map((line) => {

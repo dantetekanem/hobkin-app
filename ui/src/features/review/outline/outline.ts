@@ -10,7 +10,6 @@ import { zoneWords } from '../graph/zones.ts'
 import type { ReviewView } from '../state/memory.ts'
 
 /** What the outline lists by: what needs the reviewer, or the zones of the graph. */
-export type OutlineView = 'attention' | 'zones'
 
 export interface OutlineRow {
   /** The node of the review. */
@@ -99,17 +98,6 @@ export function outlineOf(review: Pick<Review, 'nodes'>, view: Pick<ReviewView, 
     { id: 'worth-a-look', title: 'Worth a look', rows: worth.map(rowOf), groups: [] },
     { id: 'safe', title: 'Safe', rows: safe.filter((node) => groupOf(node) == null).map(rowOf), groups },
   ]
-}
-
-/** The outline by zone: each zone the graph draws, in its order, with what it holds and every node of the review in it. */
-export function zonesOutline(review: Pick<Review, 'nodes'>, view: Pick<ReviewView, 'zones' | 'zoneOf'>): OutlineSection[] {
-  return view.zones.map((zone) => ({
-    id: zone.id,
-    title: zone.label,
-    note: zoneWords(zone),
-    rows: review.nodes.filter((node) => view.zoneOf[node.id] === zone.id).map(rowOf),
-    groups: [],
-  }))
 }
 
 /** The outline with only what matches every word typed, by name or path. A group or a zone whose name matches keeps all of it. */
