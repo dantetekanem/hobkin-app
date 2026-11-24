@@ -744,6 +744,26 @@ export class Assessments {
     }
   }
 
+  /**
+   * Takes a target's change review out of the queue while it only waits its turn, as for a change an agent works on
+   * again: one under way goes on. Returns whether one was waiting.
+   */
+  unqueue(target: ReviewTarget, why: string): boolean {
+    const mine = `${reviewIdOf(target)}@`
+    let dropped = false
+    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
+      const job = this.queue[index]!
+      if (!this.key(job.target, job.head).startsWith(mine)) continue
+      this.queue.splice(index, 1)
+      this.live.delete(this.key(job.target, job.head))
+      this.records.delete(this.key(job.target, job.head))
+      this.options.log?.(`Change review of ${reviewIdOf(target)} at ${job.head.slice(0, 7)} was taken out of the queue: ${why}`)
+      dropped = true
+    }
+    if (dropped) this.options.onChange?.()
+    return dropped
+  }
+
   /** The targets with a change review waiting or under way, each once. */
   pending(): ReviewTarget[] {
     const targets = new Map<string, ReviewTarget>()

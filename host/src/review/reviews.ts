@@ -8,7 +8,7 @@
  */
 import { createHash } from 'node:crypto'
 import { homedir } from 'node:os'
-import type { ChangeScores } from '#shared/protocol/work.ts'
+import type { ChangeScores, Grade } from '#shared/protocol/work.ts'
 import { agentMessage } from '#shared/agent-message.ts'
 import { CLIENT_PRODUCER_VERSION } from '../producer-version.ts'
 import { completeReview, draftReview } from '#shared/review/prepare.ts'
@@ -16,7 +16,7 @@ import { reviewIdOf, targetOfReviewId, type NamedCodeHost, type ReviewTarget } f
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
 import { deployOf, deployWhy, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus } from '#shared/review/assessment.ts'
 import { count } from '#shared/review/prose.ts'
-import { IDLE_STATUS, shownAsRow, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewPeople, type ReviewStatus, type VerdictPreview } from '#shared/review/status.ts'
+import { IDLE_STATUS, shownAsRow, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewPeople, type ReviewRepoLine, type ReviewStatus, type ReviewTurn, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { openReview } from '#shared/review/validate.ts'
 import { githubApi, type HostApi } from './code-hosts.ts'
@@ -30,6 +30,7 @@ import { fixBrief } from '../../../packages/change-review/src/fix.ts'
 import { riskShown, riskStep, type RiskWork } from './risk-fix.ts'
 import type { ReviewSource } from './sources.ts'
 import type { Prepared, ReviewStore } from './store.ts'
+import { KEPT_CURRENT, lineOf, type Line, type LineChange } from './turns.ts'
 
 /** How often reviewed pull requests are asked of GitHub, to see which are no longer open. */
 const SWEEP_EVERY_MS = 2 * 60_000
@@ -39,7 +40,15 @@ export interface Watched {
   id: string
   head?: string | null
   updatedAt?: string | null
+  /** For a finished change, what its repository's line weighs (spec 058): its project's name, grade, conflict and when it finished. */
+  project?: string
+  grade?: Grade | null
+  conflict?: boolean | null
+  at?: string
 }
+
+/** Why a change an agent works on again is not reviewed now. */
+const AT_WORK = 'An agent is working on it again, so its review waits until it finishes.'
 
 /** What a finished change's card says a yes does, from the Work screen (`011-work`). */
 export interface ChangeCard {
@@ -140,6 +149,10 @@ export interface ReviewsOptions {
    * starts nothing on its project now. A host given none sends no agent back by itself.
    */
   ownWork?: (target: ChangeTarget) => RiskWork | null
+  /** How many reviews each repository keeps current (spec 058), as the workload says. Three when it says nothing. */
+  keepCurrent?: () => number | undefined
+  /** Whether an agent works on a change again, as hobkin's items say: its waiting review is dropped, and its row says why. */
+  backAtWork?: (target: ChangeTarget) => boolean
 }
 
 /** A pull request, as a review target. */
@@ -420,6 +433,10 @@ export class Reviews {
   private readonly watched = new Map<string, string>()
   /** The finished changes the background was last handed: those hobkin lists on Work. */
   private finished = new Set<string>()
+  /** Each repository's line, worked out again each time the background is handed the finished changes (spec 058). */
+  private line: Line = { current: new Set(), waits: new Map() }
+  /** The reviews the user asked for since this host started: the line never drops what waits for one. */
+  private readonly userAsked = new Set<string>()
   private readonly controller = new AbortController()
   private working = false
   /** When each review last asked where its change is now. */
@@ -652,10 +669,13 @@ export class Reviews {
     const scores = target.kind === 'change' ? this.options.card(target.slug, target.item)?.scores : undefined
     const looked = this.lookedStart.get(id)
     const startsAt = looked && looked.head === head ? looked.start : undefined
+    // A change not built at its commit says why it waits, and how many are ahead of it.
+    const turn = !known.phase && (stale || (head != null && !this.options.store.has(target, head))) ? this.turnOf(id, target) : undefined
     return {
       ...known,
       head,
       stale,
+      ...(turn ? { turn } : {}),
       ...(assessment ? { assessment } : {}),
       ...(landing ? { landing } : {}),
       ...(mergeAsked ? { mergeAsked } : {}),
@@ -769,6 +789,10 @@ export class Reviews {
       const waiting = this.waitsItsTurn(id, target, status)
       // Nothing ran, nothing waits: a finished change the background will not prepare at this commit is not listed for it.
       if (!kept && !this.statuses.has(id) && !waiting) return []
+      // Built for an older commit, and not in its repository's line: it waits its turn to be built again (spec 058).
+      const builtFor = kept?.change?.head
+      const outdated = target.kind === 'change' && !status.phase && !this.line.current.has(id) && head != null && builtFor != null && builtFor !== head && /^[0-9a-f]{40}$/.test(builtFor)
+      const turn = waiting || outdated ? this.turnOf(id, target) : undefined
       const item: ReviewListItem = {
         id,
         kind: target.kind,
@@ -785,6 +809,8 @@ export class Reviews {
         ...(status.pr ? { pr: status.pr } : {}),
         ...(status.scores ? { rate: status.scores.rate } : {}),
         ...(waiting ? { waiting: true as const } : {}),
+        ...(turn ? { turn } : {}),
+        ...(outdated ? { outdated: { builtFor: builtFor! } } : {}),
         updatedAt: new Date(at).toISOString(),
       }
       return [{ item, at }]
@@ -794,7 +820,29 @@ export class Reviews {
     const behindRows = this.pullsOfChanges(shownRows)
     const once = items.filter(({ item }) => !behindRows.has(item.id))
     once.sort((a, b) => b.at - a.at || a.item.id.localeCompare(b.item.id))
-    return { reviews: once.map(({ item }) => item) }
+    const reviews = once.map(({ item }) => item)
+    return { reviews, repos: this.repoLines(reviews.filter(shownAsRow)) }
+  }
+
+  /**
+   * A line for each repository with rows (spec 058): its finished changes in the line, those that wait, those whose
+   * review is of an older commit, and the reviews finished in the last seven days.
+   */
+  private repoLines(rows: readonly ReviewListItem[]): ReviewRepoLine[] {
+    const lines = new Map<string, ReviewRepoLine>()
+    const weekAgo = this.now() - 7 * 24 * 60 * 60 * 1000
+    for (const row of rows) {
+      // A repository is its project's slug, or a pull request's repository, whatever name a row gives it.
+      const target = targetOfReviewId(row.id)
+      const repo = target?.kind === 'change' ? `change:${target.slug}` : target?.kind === 'pull' ? `pull:${target.host ?? ''}:${target.owner}/${target.repo}` : row.project
+      const line = lines.get(repo) ?? { project: row.project, current: 0, waiting: 0, outdated: 0, builtThisWeek: 0 }
+      if (row.outdated) line.outdated += 1
+      else if (row.turn) line.waiting += 1
+      else if (this.line.current.has(row.id)) line.current += 1
+      if (Date.parse(row.assessment?.summary?.at ?? '') >= weekAgo) line.builtThisWeek += 1
+      lines.set(repo, line)
+    }
+    return [...lines.values()]
   }
 
   /** The review names of the pull requests these finished changes opened, as their cards give the address. */
@@ -869,7 +917,10 @@ export class Reviews {
     const now = this.status(id)
     // Merged, or closed on its host: there is nothing left to review, and its status says so.
     if (this.closedOn(target)) return now
-    if (asked) this.asked.add(id)
+    if (asked) {
+      this.asked.add(id)
+      this.userAsked.add(id)
+    }
     const waiting = this.queue.find((job) => reviewIdOf(job.target) === id)
     if (waiting) {
       waiting.refresh ||= refresh
@@ -1881,6 +1932,8 @@ export class Reviews {
     }
     this.watchRisk(wanted)
     this.finished = new Set(wanted.flatMap(({ id }) => (id.startsWith('change:') ? [id] : [])))
+    this.line = this.lineFor(wanted)
+    this.dropAtWork()
     this.followBranches(wanted, limit)
     for (const entry of wanted) {
       if (this.queue.length + this.running.size >= limit) return
@@ -1906,12 +1959,73 @@ export class Reviews {
     }
   }
 
+  /**
+   * Each repository's line of the finished changes handed in Work's order. One that cannot be worked out is no line:
+   * every finished change is then reviewed by itself, as before there was one, and the host's log says why.
+   */
+  private lineFor(wanted: readonly Watched[]): Line {
+    const changes = wanted.flatMap((entry): ChangeTarget[] => {
+      const target = targetOfReviewId(entry.id)
+      return target?.kind === 'change' ? [target] : []
+    })
+    try {
+      const weighed = wanted.flatMap((entry): LineChange[] => {
+        const target = targetOfReviewId(entry.id)
+        if (target?.kind !== 'change') return []
+        const refreshing = this.landingOf(target)?.state === 'refreshing'
+        return [{ id: entry.id, repo: target.slug, name: entry.project ?? target.slug, grade: entry.grade ?? null, conflict: entry.conflict ?? null, refreshing, ...(entry.at ? { at: entry.at } : {}) }]
+      })
+      return lineOf(weighed, { keep: this.options.keepCurrent?.() ?? KEPT_CURRENT, now: this.now() })
+    } catch (error) {
+      this.options.log?.(`Reviews: the line of each repository could not be worked out, so every finished change is reviewed as before: ${messageOf(error)}`)
+      return { current: new Set(changes.map((target) => reviewIdOf(target))), waits: new Map() }
+    }
+  }
+
+  /** Whether an agent works on a change again, as hobkin's items say. One that cannot be read is not. */
+  private isBackAtWork(target: ChangeTarget): boolean {
+    try {
+      return this.options.backAtWork?.(target) ?? false
+    } catch {
+      return false
+    }
+  }
+
+  /**
+   * Drops the review that only waits its turn for a change an agent works on again: its graph's place in the queue, and
+   * its change review's. What is under way goes on, and one the user asked for is never dropped.
+   */
+  private dropAtWork() {
+    if (!this.options.backAtWork) return
+    const dropped = (target: ReviewTarget): target is ChangeTarget => {
+      const id = reviewIdOf(target)
+      return target.kind === 'change' && !this.finished.has(id) && !this.userAsked.has(id) && this.isBackAtWork(target)
+    }
+    for (let index = this.queue.length - 1; index >= 0; index -= 1) {
+      const { target } = this.queue[index]!
+      if (!dropped(target)) continue
+      const id = reviewIdOf(target)
+      this.queue.splice(index, 1)
+      this.say(id, `Dropped: ${AT_WORK}`)
+      this.set(id, { state: this.options.store.newest(target) ? 'ready' : 'idle', phase: null })
+    }
+    for (const target of this.options.assessments?.pending() ?? []) if (dropped(target)) this.options.assessments!.unqueue(target, AT_WORK)
+  }
+
+  /** Why a change waits instead of being built by itself, and how many are ahead of it in its repository's line. */
+  private turnOf(id: string, target: ReviewTarget): ReviewTurn | undefined {
+    if (target.kind !== 'change' || this.preparing(id)) return undefined
+    return this.line.waits.get(id) ?? (!this.finished.has(id) && this.isBackAtWork(target) ? { ahead: 0, why: AT_WORK } : undefined)
+  }
+
   /** The background's look at one thing to prepare, at the version it is at now. Never throws: the host publishes around it. */
   private watchOne({ id, head: card = null, updatedAt = null }: Watched) {
     const { store } = this.options
     try {
       const target = targetOfReviewId(id)
       if (!target) return
+      // A finished change is built by itself only in its repository's line: the rest wait their turn (spec 058).
+      if (target.kind === 'change' && !this.line.current.has(id)) return
       const head = target.kind === 'change' ? this.headOf(id, card) : card
       const version = versionOf(head, updatedAt)
       if (this.watched.get(id) === version || this.statuses.get(id)?.phase) return

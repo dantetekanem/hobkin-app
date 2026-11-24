@@ -237,8 +237,20 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       })
     : undefined
   const store = reviewStore(seat.root)
+  /** How many reviews each repository keeps current, when the workload names a whole number (spec 058). */
+  const keepCurrent = () => {
+    const kept = (seat.work()?.workload as { reviewsPerProject?: unknown } | undefined)?.reviewsPerProject
+    return Number.isInteger(kept) && (kept as number) >= 1 ? (kept as number) : undefined
+  }
+  /** Whether hobkin's agent works on a change again: its item is back in the queue or running. */
+  const backAtWork = (target: Extract<ReviewTarget, { kind: 'change' }>) => {
+    const item = readItems(seat.data(), target.slug).find((entry) => entry.id === target.item)
+    return item != null && WORKING.includes(item.state)
+  }
   const reviews: Reviews = new Reviews({
     ...(assessments ? { assessments } : {}),
+    keepCurrent,
+    backAtWork,
     describe,
     landing,
     ownPull,
@@ -351,7 +363,15 @@ export function pullVicinity(assessments: Assessments, run?: ScanRun): (target: 
  */
 export function toPrepare(work: WorkState | null, github?: GitHubState, { pulls = 'none' }: { pulls?: ReviewPulls } = {}): Watched[] {
   const finished = finishedIn(work)
-  const changes = finished.map((change) => ({ id: reviewIdOf({ kind: 'change', slug: change.slug, item: change.item }), head: change.head }))
+  // In Work's order, with what each repository's line weighs (spec 058).
+  const changes = finished.map((change) => ({
+    id: reviewIdOf({ kind: 'change', slug: change.slug, item: change.item }),
+    head: change.head,
+    project: change.project,
+    grade: change.grade,
+    conflict: change.conflict,
+    ...(change.at ? { at: change.at } : {}),
+  }))
   if (pulls === 'none' || !github || github.sample) return changes
   const openedByChanges = new Set(finished.flatMap((change) => (change.pr ? [change.pr] : [])))
   const mine = pulls === 'mine' || pulls === 'both' ? github.pulls : []
