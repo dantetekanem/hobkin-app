@@ -16,11 +16,13 @@ import { promisify } from 'node:util'
 import { reviewFolder, reviewIdOf, type ReviewTarget } from '#shared/review/ids.ts'
 import { DEPLOY_WORDS, deployOf, deployWhy, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus, type AssessmentSummary, type BlindCheck, type ChangeAssessment, type Level, type RatedNode, type StoryWords, type Unit, type Units } from '#shared/review/assessment.ts'
 import { attentionOf, fileBuckets, pathBucket, rankAttention } from '#shared/review/attention.ts'
+import type { ReviewNeeds } from '#shared/review/needs.ts'
 import { count, isSafePath } from '#shared/review/prose.ts'
 import type { NodeBucket, Review, ReviewFileContents, ReviewNode } from '#shared/review/types.ts'
 import { STEP_IDS, type Effect, type Exposure, type Proof, type Undo } from '../../../packages/change-review/src/types.ts'
 import type { HostTree } from './code-hosts.ts'
 import { readEngineFacts, withEngineFacts } from './engine-facts.ts'
+import { engineNeeds } from './ratings.ts'
 import { readyHostTree } from './host-tree.ts'
 import { testsNotRun, unitStory, unitWords, type UnitPlace, type UnitRun } from './unit-story.ts'
 
@@ -625,6 +627,8 @@ export class Assessments {
   private readonly buckets = new Map<string, Map<string, NodeBucket>>()
   /** Files read at a reviewed commit for the tests the change review found, each once, null when git had none. */
   private readonly heads = new Map<string, string | null>()
+  /** Each finished review's ratings, read once for each time its graph was written. */
+  private readonly ratings = new Map<string, { at: number; needs: ReviewNeeds | null }>()
   /** The last one waiting for each review tree, so a tree has one user at a time. */
   private readonly turns = new Map<string, Promise<void>>()
   private readonly controller = new AbortController()
@@ -1018,6 +1022,25 @@ export class Assessments {
     return text
   }
 
+  /**
+   * The user's five questions as a finished change review at this commit answered them (spec 058), with hobkin's rate
+   * and floors and when it finished, or null when it is not finished or not rated. Read again only when its graph is.
+   */
+  needsOf(target: ReviewTarget, head: string): ReviewNeeds | null {
+    const folder = assessmentFolder(this.options.root, target, head)
+    const file = join(folder, 'graph.json')
+    const at = statSync(file, { throwIfNoEntry: false })?.mtimeMs
+    if (at == null) return null
+    const key = this.key(target, head)
+    const kept = this.ratings.get(key)
+    if (kept?.at === at) return kept.needs
+    const finished = readJson<AssessmentSummary>(join(folder, 'summary.json'))?.at
+    const rated = finished ? engineNeeds(readJson<unknown>(file)) : undefined
+    const needs = rated ? { ...rated, at: finished! } : null
+    this.ratings.set(key, { at, needs })
+    return needs
+  }
+
   /** A file the review was shown with that its prepared files do not hold: one read at the commit for a test the change review found. */
   shownFile(target: ReviewTarget, head: string, fileId: string): ReviewFileContents | null {
     const text = this.heads.get(`${this.key(target, head)}\u0000${fileId}`)
@@ -1067,7 +1090,7 @@ export class Assessments {
   /** Forgets what this host remembers of a target's change reviews, once its files are gone. */
   forget(target: ReviewTarget): void {
     const mine = `${reviewIdOf(target)}@`
-    for (const map of [this.live, this.records, this.buckets, this.heads]) for (const key of [...map.keys()]) if (key.startsWith(mine)) map.delete(key)
+    for (const map of [this.live, this.records, this.buckets, this.heads, this.ratings]) for (const key of [...map.keys()]) if (key.startsWith(mine)) map.delete(key)
   }
 
   close(): void {

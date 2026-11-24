@@ -31,6 +31,7 @@ import {
   type WorkState,
   type YoloState,
 } from '#shared/protocol/work.ts'
+import { readNeeds, type ReviewNeeds } from '#shared/review/needs.ts'
 import { Unavailable, type HostHandlers } from './commands.ts'
 
 /**
@@ -70,6 +71,9 @@ interface ReviewScores {
   scores: Record<string, Score>
   floors: { criterion: string; score: number; needs: number }[]
   stale?: boolean
+  /** What proof the review still wanted, in a line, and the commit it scored. */
+  missing?: string | null
+  head?: string
 }
 
 /** A finished change as hobkin lists it: one of its `readyItems` or `pullRequestRows` (`src/cli/work/reads.mjs`). */
@@ -311,10 +315,26 @@ function scoreLine({ review }: ReadyRow): string | null {
   return `${KIND_WORDS[review.kind] ?? review.kind}, general rate ${review.rate}: ${each}.${held}${older}`
 }
 
+/**
+ * hobkin's own scores as a review's ratings (spec 058): by hobkin, with what proof is still missing and the commit they
+ * were made at, both of which the card's words leave out. Undefined with no scores, or scores of no known commit.
+ */
+export function hobkinNeedsOf({ review }: ReadyRow): ReviewNeeds | undefined {
+  if (!review) return undefined
+  const floors = review.floors.map(({ criterion, score, needs }) => ({ name: criterion, score, needs }))
+  return readNeeds({ kind: review.kind, scores: review.scores, missing: review.missing ?? undefined, rate: review.rate, floors, head: review.head, by: 'hobkin' })
+}
+
+/** The card's scores, with hobkin's as a review's ratings beside them for the review host to read (`needs`). */
+export type HobkinScoring = ChangeScores & { needs?: ReviewNeeds }
+
 /** The same scores in parts, for the review: the card's words for the kind and each score, with its evidence. */
-function scoringOf({ review }: ReadyRow): ChangeScores | null {
+function scoringOf(entry: ReadyRow): HobkinScoring | null {
+  const { review } = entry
   if (!review) return null
+  const needs = hobkinNeedsOf(entry)
   return {
+    ...(needs ? { needs } : {}),
     kind: KIND_WORDS[review.kind] ?? review.kind,
     rate: review.rate,
     scores: SCORE_WORDS.map(([criterion, name]) => ({ name, score: review.scores[criterion]?.score ?? null, evidence: review.scores[criterion]?.evidence ?? '' })),

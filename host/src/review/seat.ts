@@ -8,10 +8,13 @@ import { join } from 'node:path'
 import { paths, readItems, readProject, readProjects } from 'hobkin/src/cli/work/store.mjs'
 import { defaultBranch } from 'hobkin/src/cli/work/tree.mjs'
 import { whyProjectWaits } from 'hobkin/src/cli/work/controls.mjs'
+import { readinessOf } from 'hobkin/src/cli/work/yolo.mjs'
+import { partWords } from 'hobkin/src/cli/work/yolo-parts.mjs'
 import type { GitHubState } from '#shared/protocol/github.ts'
 import type { FinishedChange, ReviewPulls, WorkState } from '#shared/protocol/work.ts'
 import type { GrammarAsk } from '#shared/review/grammar.ts'
 import { pullUrl, reviewIdOf, targetOfReviewId, type ReviewTarget } from '#shared/review/ids.ts'
+import { readNeeds } from '#shared/review/needs.ts'
 import type { ReviewLanding } from '#shared/review/status.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
 import type { HostHandlers } from '../commands.ts'
@@ -24,6 +27,7 @@ import { githubApi, namedApi, readCodeHosts, type CodeHosts, type HostApi } from
 import { reviewCode, reviewMap } from './guide.ts'
 import { mergePlan, movedSince } from './landing.ts'
 import { reviewModelChecks } from './model-checks.ts'
+import { monitoringLines } from './ratings.ts'
 import { chatTeller } from './notify.ts'
 import type { WhoIsMe } from './owner.ts'
 import { peopleFinder, pullPeople } from './people.ts'
@@ -221,7 +225,9 @@ export function hostReviews(seat: ReviewSeat): Reviews {
           const model = piModelRunner({ root: seat.root, data: seat.data, runtime: seat.runtime })
           // hobkin's TLC runs at the head of the change's models, which the Reviewer weighs like tests that ran (050-tla-proofs).
           const modelChecks = await reviewModelChecks(request, { data: seat.data, log: seat.log })
-          const result = await reviewChange({ ...request, model, modelChecks })
+          // What hobkin's readiness record says of the project's monitoring and its way back, for the visibility rating (spec 058).
+          const monitoring = request.target.kind === 'change' ? projectMonitoring(seat, request.target.slug) : undefined
+          const result = await reviewChange({ ...request, model, modelChecks, ...(monitoring ? { monitoring } : {}) })
           for (const problem of result.problems) seat.log?.(`Change review at ${request.head.slice(0, 7)}: ${problem}`)
           return { units: result.units, storyBy: result.storyBy, answer: result.answer }
         },
@@ -308,7 +314,9 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     head: (target) => (target.kind === 'change' ? (find(target.slug, target.item)?.head ?? null) : null),
     card: (slug, item) => {
       const change = find(slug, item)
-      return change && { landing: change.landing, yes: change.yes, branch: change.branch, pr: change.pr, scores: change.scoring ?? null }
+      // hobkin's scores as ratings travel beside the card's words (`HobkinScoring` in host/src/work.ts).
+      const hobkinNeeds = readNeeds((change?.scoring as { needs?: unknown } | null | undefined)?.needs) ?? null
+      return change && { landing: change.landing, yes: change.yes, branch: change.branch, pr: change.pr, scores: change.scoring ?? null, hobkinNeeds }
     },
     // Only a live host posts to GitHub or opens a pull request, and only for a verdict the user confirmed.
     ...(seat.live && seat.gh ? { gh: seat.gh, publish: gitPublisher({ repoOf, baseOf: defaultBranch, gh: seat.gh }) } : {}),
@@ -328,6 +336,19 @@ export function hostReviews(seat: ReviewSeat): Reviews {
     log: seat.log,
   })
   return reviews
+}
+
+/**
+ * What hobkin's readiness record says of a project's monitoring and its way back, in the lines the Reviewer is handed,
+ * or undefined when hobkin has no record of it. One that cannot be read is no monitoring known, and the log says why.
+ */
+function projectMonitoring(seat: { data: () => string; log?: (line: string) => void }, slug: string): string[] | undefined {
+  try {
+    return monitoringLines(readinessOf(seat.data(), slug), partWords)
+  } catch (error) {
+    seat.log?.(`Change review of ${slug}: its monitoring could not be read, so none is handed in: ${error instanceof Error ? error.message : String(error)}`)
+    return undefined
+  }
 }
 
 /** The quick tier, as the grammar check asks it: the model the blind check runs on. */

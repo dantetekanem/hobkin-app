@@ -15,6 +15,7 @@ import { completeReview, draftReview } from '#shared/review/prepare.ts'
 import { reviewIdOf, targetOfReviewId, type NamedCodeHost, type ReviewTarget } from '#shared/review/ids.ts'
 import { detached as detachedNotes, foldNotes, type Note, type NoteEntry, type NoteIntent, type NoteTarget } from '#shared/review/notes.ts'
 import { deployOf, deployWhy, type AssessmentLogLine, type AssessmentRequest, type AssessmentStatus } from '#shared/review/assessment.ts'
+import type { ReviewNeeds } from '#shared/review/needs.ts'
 import { count } from '#shared/review/prose.ts'
 import { IDLE_STATUS, shownAsRow, type MergeAsked, type OpenedReview, type ReviewCursor, type ReviewLanding, type ReviewList, type ReviewListItem, type ReviewNotes, type ReviewPeople, type ReviewRepoLine, type ReviewStatus, type ReviewTurn, type VerdictPreview } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
@@ -64,6 +65,8 @@ export interface ChangeCard {
   pr: string | null
   /** What hobkin's own scored review gave it. Missing or null when it has none, or the host is older. */
   scores?: ChangeScores | null
+  /** The same scores as a review's ratings, by hobkin, with what is missing and the commit they were made at (spec 058). */
+  hobkinNeeds?: ReviewNeeds | null
 }
 
 /** Where a finished change's pull request goes: its GitHub repository as `owner/name`, the branch it merges into, and its own. */
@@ -675,11 +678,14 @@ export class Reviews {
     const startsAt = looked && looked.head === head ? looked.start : undefined
     // A change not built at its commit says why it waits, and how many are ahead of it.
     const turn = !known.phase && (stale || (head != null && !this.options.store.has(target, head))) ? this.turnOf(id, target) : undefined
+    // The ratings of the review that opens: of the commit it was built for, which they name, when the change moved on.
+    const needs = this.needsOf(target, stale ? (this.opened.get(id)?.review.change.head ?? at) : at)
     return {
       ...known,
       head,
       stale,
       ...(turn ? { turn } : {}),
+      ...(needs.length ? { needs } : {}),
       ...(assessment ? { assessment } : {}),
       ...(landing ? { landing } : {}),
       ...(mergeAsked ? { mergeAsked } : {}),
@@ -798,6 +804,7 @@ export class Reviews {
       const outOfLine = target.kind === 'change' ? !this.line.current.has(id) : !this.watchedPulls.has(id)
       const outdated = !status.phase && outOfLine && head != null && builtFor != null && builtFor !== head && /^[0-9a-f]{40}$/.test(builtFor)
       const turn = waiting || outdated ? this.turnOf(id, target) : undefined
+      const needs = this.needsOf(target, builtFor ?? head)
       const item: ReviewListItem = {
         id,
         kind: target.kind,
@@ -816,6 +823,7 @@ export class Reviews {
         ...(waiting ? { waiting: true as const } : {}),
         ...(turn ? { turn } : {}),
         ...(outdated ? { outdated: { builtFor: builtFor! } } : {}),
+        ...(needs.length ? { needs } : {}),
         updatedAt: new Date(at).toISOString(),
       }
       return [{ item, at }]
@@ -2016,6 +2024,17 @@ export class Reviews {
       this.set(id, { state: this.options.store.newest(target) ? 'ready' : 'idle', phase: null })
     }
     for (const target of this.options.assessments?.pending() ?? []) if (dropped(target)) this.options.assessments!.unqueue(target, AT_WORK)
+  }
+
+  /**
+   * The user's five questions answered for a review (spec 058): the change review's own at the commit, and hobkin's
+   * scored run's from the change's card, each saying who made it. Empty when neither rated it.
+   */
+  private needsOf(target: ReviewTarget, head: string | null): ReviewNeeds[] {
+    // A change review of an older host, or a stand-in, may not answer it: then the review is not rated by it.
+    const own = head ? (this.options.assessments?.needsOf?.(target, head) ?? null) : null
+    const hobkins = target.kind === 'change' ? (this.options.card(target.slug, target.item)?.hobkinNeeds ?? null) : null
+    return [own, hobkins].filter((needs): needs is ReviewNeeds => needs != null)
   }
 
   /** Why a change waits instead of being built by itself, and how many are ahead of it in its repository's line. */

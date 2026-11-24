@@ -66,3 +66,22 @@ declare module 'hobkin/src/cli/work/controls.mjs' {
   /** Why work mode starts nothing on a project now, in hobkin's words: "work mode is off", "shop is paused". Null while it runs. */
   export function whyProjectWaits(root: string, project: { slug: string; name?: string; [key: string]: unknown }, now?: number): string | null
 }
+
+declare module 'hobkin/src/cli/work/classified.mjs' {
+  /** hobkin's five questions, in the order a card says them. */
+  export const CRITERIA: readonly ('coverage' | 'proof' | 'safety' | 'visibility' | 'rollback')[]
+  /** The average of the five, cut to one decimal and never rounded up. Every one of the five must be there. */
+  export function generalRate(scores: Record<'coverage' | 'proof' | 'safety' | 'visibility' | 'rollback', { score: number }>): number
+  /** The scores that hold a change whatever its average, each with what it needed. Every one of the five must be there. */
+  export function brokenFloors(scores: Record<'coverage' | 'proof' | 'safety' | 'visibility' | 'rollback', { score: number }>): { criterion: 'coverage' | 'proof' | 'safety' | 'visibility' | 'rollback'; score: number; needs: number }[]
+}
+
+declare module 'hobkin/src/cli/work/yolo.mjs' {
+  /** A project's readiness for YOLO mode as its last record and its readiness work say: each part with its state and line. `at` is null before any record. */
+  export function readinessOf(root: string, slug: string): { ready: boolean; needs: string[]; parts: Record<string, { state: string; line?: string; [key: string]: unknown }>; at: string | null; item: string | null }
+}
+
+declare module 'hobkin/src/cli/work/yolo-parts.mjs' {
+  /** Each readiness part in the words hobkin shows it by: "Error tracking", "Rollback". */
+  export const partWords: Record<string, string>
+}
