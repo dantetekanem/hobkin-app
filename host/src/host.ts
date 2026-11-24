@@ -58,7 +58,7 @@ import { readsOf, Windows } from './windows.ts'
 import { TurnRelay } from './turn-relay.ts'
 import { ActivityKeeper } from './activity.ts'
 import { agentHandlers } from './agents.ts'
-import { AgentScheduleReader, scheduleHandlers, scheduleOperationsOf } from './schedules.ts'
+import { AgentScheduleReader, scheduleEnvironmentOf, scheduleHandlers, scheduleOperationsOf } from './schedules.ts'
 import { hobkinHandlers } from './hobkins.ts'
 import { routineHandlers } from './routines.ts'
 import { appearanceRequest, loadHostAppearance } from './appearance-host.ts'
@@ -299,7 +299,14 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     },
     tools: [client],
     modelRuntime: live ? async () => ((await access()) as Partial<LiveModelAccess>).runtime : undefined,
-    claudeCode: { settings: () => claudeCode.read(), findClaude, ask: questions.ask, onClaude: claudeRuns.routed },
+    claudeCode: {
+      settings: () => claudeCode.read(),
+      findClaude,
+      ask: questions.ask,
+      onClaude: claudeRuns.routed,
+      // A run on Claude Code keeps its schedules through `hobkin schedule`, with a token hobkin gives it (056-agent-schedules).
+      scheduling: (harnessId, options) => scheduleEnvironmentOf(owner.app, harnessId, options),
+    },
   })
   const customTheme = appearanceSession(
     { captureExecution: () => live ? owner.captureExecution() : null },

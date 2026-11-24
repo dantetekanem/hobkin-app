@@ -37,6 +37,16 @@ export function scheduleOperationsOf(app: object): ScheduleOperations | null {
   }
 }
 
+/**
+ * What the application gives a run on Claude Code for `hobkin schedule`: its token and home, or null for a run that
+ * keeps no schedules and from a runtime without them. The route checks what comes back.
+ */
+export async function scheduleEnvironmentOf(app: object | null | undefined, harnessId: string, options: { commands: boolean }): Promise<unknown> {
+  const environment = (app as { agentScheduleEnvironment?: unknown } | null | undefined)?.agentScheduleEnvironment
+  if (!isMethod(environment)) return null
+  return environment.call(app, harnessId, options)
+}
+
 export interface ScheduleSeat {
   /** The runtime's operations, or nothing from a runtime that has none. Throws `Unavailable` while hobkin is not open. */
   operations: () => ScheduleOperations | null | undefined

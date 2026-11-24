@@ -4,7 +4,7 @@ import { COMMANDS } from '#shared/commands/registry.ts'
 import type { AgentSchedule } from '#shared/protocol/schedules.ts'
 import { createClientTool } from '../src/client-tool.ts'
 import { runCommand, Unavailable } from '../src/commands.ts'
-import { AgentScheduleReader, scheduleHandlers, scheduleOperationsOf, type ScheduleOperations } from '../src/schedules.ts'
+import { AgentScheduleReader, scheduleEnvironmentOf, scheduleHandlers, scheduleOperationsOf, type ScheduleOperations } from '../src/schedules.ts'
 
 const WATCH: AgentSchedule = { id: 'sch-1', owner: { kind: 'run', id: 'session:ship' }, name: 'Watch CI for #412', does: 'shell', command: 'gh pr checks 412', state: 'waiting', every: 120 }
 const NAP: AgentSchedule = { id: 'sch-2', owner: { kind: 'main' }, does: 'wake', note: 'Look at the deploy.', state: 'paused' }
@@ -182,6 +182,24 @@ test('an application from before schedules, or with only some of the methods, ha
     assert.equal(scheduleOperationsOf(app), null)
     const handlers = scheduleHandlers({ operations: () => scheduleOperationsOf(app), schedules: () => [WATCH] })
     assert.ok(refused('Schedules are not available in this hobkin yet. Restart the app to load them.')(await runCommand(handlers, 'schedule.cancel', { id: 'sch-1' })))
+  }
+})
+
+test("a run's schedule environment comes from the application's own method, and a runtime without it gives none", async () => {
+  const asked: unknown[][] = []
+  const app = {
+    home: '/home/data',
+    async agentScheduleEnvironment(harnessId: string, options: { commands: boolean }) {
+      asked.push([harnessId, options])
+      return { HOBKIN_SCHEDULE_TOKEN: 'c'.repeat(32), HOBKIN_HOME: this.home }
+    },
+  }
+
+  assert.deepEqual(await scheduleEnvironmentOf(app, 'session:ship:1', { commands: false }), { HOBKIN_SCHEDULE_TOKEN: 'c'.repeat(32), HOBKIN_HOME: '/home/data' })
+  assert.deepEqual(asked, [['session:ship:1', { commands: false }]])
+
+  for (const older of [null, undefined, {}, { agentScheduleEnvironment: 'not a method' }]) {
+    assert.equal(await scheduleEnvironmentOf(older, 'session:ship:1', { commands: true }), null)
   }
 })
 
