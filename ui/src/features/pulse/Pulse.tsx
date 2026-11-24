@@ -27,30 +27,32 @@ interface PulseProps {
   className?: string
   noticeFirst?: boolean
   after?: ReactNode
+  /** Only the phase, `Working…`: the time and the count are left to a hover. */
+  phaseOnly?: boolean
 }
 
-export function Pulse({ run, fallback, className, noticeFirst = false, after = null }: PulseProps) {
+export function Pulse({ run, fallback, className, noticeFirst = false, after = null, phaseOnly = false }: PulseProps) {
   const pulse = usePulse(run)
   if (!pulse) return <>{fallback}</>
 
   return (
     <>
-      <PulseWords pulse={pulse} className={className} noticeFirst={noticeFirst} />
+      <PulseWords pulse={pulse} className={className} noticeFirst={noticeFirst} phaseOnly={phaseOnly} />
       {after}
     </>
   )
 }
 
 /** The line itself: the one part that counts the seconds, so only it draws again each second. */
-function PulseWords({ pulse, className, noticeFirst }: { pulse: RunPulse; className?: string; noticeFirst: boolean }) {
+function PulseWords({ pulse, className, noticeFirst, phaseOnly }: { pulse: RunPulse; className?: string; noticeFirst: boolean; phaseOnly: boolean }) {
   const now = useNow(true)
-  const { words, notice, tone } = pulseLine(pulse, now)
+  const { words, phase, notice, tone } = pulseLine(pulse, now)
   const quiet = notice ? <span className={TONE_TEXT[tone]}>{notice}</span> : null
 
   return (
     <span className={cn('tabular-nums', className)}>
       {quiet && noticeFirst ? <>{quiet} · </> : null}
-      {words}
+      {phaseOnly ? phase : words}
       {quiet && !noticeFirst ? <> · {quiet}</> : null}
     </span>
   )

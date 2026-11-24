@@ -11,7 +11,7 @@ const pulse = (fields: Partial<RunPulse> = {}): RunPulse => ({ startedAt: STARTE
 test("the line reads as the user's Pi extension writes it: the phase, the time since the run began, the arrow and the count", () => {
   const now = STARTED + 7 * MINUTE + 7 * SECOND
   const line = pulseLine(pulse({ lastTokenAt: now - SECOND, direction: 'down', tokens: 30_000 }), now)
-  assert.deepEqual(line, { words: 'Working… (7m 7s · ↓ 30.0k tokens)', notice: null, tone: 'plain' })
+  assert.deepEqual(line, { words: 'Working… (7m 7s · ↓ 30.0k tokens)', phase: 'Working…', notice: null, tone: 'plain' })
 })
 
 test('thinking says so, a request on its way points up, and the time and the count take the shape their size needs', () => {

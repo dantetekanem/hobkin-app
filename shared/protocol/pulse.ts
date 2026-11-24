@@ -25,6 +25,8 @@ export type PulseTone = 'plain' | 'warn' | 'bad'
 /** The line's parts: its words, the quiet notice when there is one, and the notice's tone. */
 export interface PulseLine {
   words: string
+  /** The phase alone, `Working…`, for a place that keeps the time and the count for its hover. */
+  phase: string
   notice: string | null
   tone: PulseTone
 }
@@ -60,10 +62,11 @@ function tokenWords(tokens: number): string {
 
 /** The line for `pulse` at `now`, with the extension's numbers and thresholds. */
 export function pulseLine(pulse: RunPulse, now: number): PulseLine {
-  const words = `${PHASE_WORD[pulse.phase]}… (${elapsedWords(now - pulse.startedAt)} · ${ARROW[pulse.direction]} ${tokenWords(pulse.tokens)})`
+  const phase = `${PHASE_WORD[pulse.phase]}…`
+  const words = `${phase} (${elapsedWords(now - pulse.startedAt)} · ${ARROW[pulse.direction]} ${tokenWords(pulse.tokens)})`
   const quietMs = now - pulse.lastTokenAt
   const stage = QUIET_STAGES.find(({ overMs }) => quietMs > overMs)
-  return stage ? { words, notice: stage.notice, tone: stage.tone } : { words, notice: null, tone: 'plain' }
+  return stage ? { words, phase, notice: stage.notice, tone: stage.tone } : { words, phase, notice: null, tone: 'plain' }
 }
 
 const NO_PULSES: Readonly<Record<string, RunPulse>> = Object.freeze({})

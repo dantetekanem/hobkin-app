@@ -369,22 +369,22 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
         {' · '}
         {update ?? agent.project}
       </span>
-    ) : update ? (
-      // Its own latest words, small and cut to one line; a hover opens the whole line in the app's
-      // soft, animated tooltip rather than the browser's plain one.
+    ) : (
+      // Its project, the phase alone and its latest words, cut to one line. The time and the count are the hover's
+      // (the user, 2026-11-24: "i dont need time and token count in these agents. can show when hovering"), with the
+      // whole of its words, in the app's soft tooltip rather than the browser's plain one. Before it speaks, the plain
+      // phase ("running the tests") stands in for its words.
       <Tooltip>
         <TooltipTrigger render={<span className="block truncate text-[11px] text-muted-foreground" />}>
-          {agent.project} · <Pulse run={run} fallback={update} noticeFirst after={<> · {update}</>} />
+          {agent.project} · <Pulse run={run} fallback={update ?? agent.doing} noticeFirst phaseOnly after={<> · {update ?? agent.doing}</>} />
         </TooltipTrigger>
         <TooltipContent side="right" align="center" sideOffset={10} className="max-w-xs text-left leading-snug whitespace-normal">
-          {update}
+          <span className="block">
+            <Pulse run={run} fallback={null} />
+          </span>
+          {update ?? agent.doing}
         </TooltipContent>
       </Tooltip>
-    ) : (
-      // Before it speaks, the plain phase ("running the tests") stands in.
-      <span className="block truncate text-[11px] text-muted-foreground">
-        {agent.project} · <Pulse run={run} fallback={agent.doing} noticeFirst after={<> · {agent.doing}</>} />
-      </span>
     )
 })
 
