@@ -110,3 +110,36 @@ test('after a restart an overdue daily schedule fires once, and one with no end 
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(runner.view().find(view => view.id === daily.id).nextAt, iso(NOW + 4 * DAY));
 });
+
+/** A plain wake fired `times` times, an hour apart: each run wakes its agent. */
+function fired(schedule, times) {
+  let current = schedule;
+  for (let at = 0; at < times && current.state === 'waiting'; at += 1) {
+    const time = NOW + at * HOUR;
+    current = afterRun(current, { fired: time }, time + 1000).schedule;
+  }
+  return current;
+}
+
+test('a schedule wakes its agent as many times as the agent says, or with no cap when it says none, and twelve when it says nothing', () => {
+  const plain = { every: '1h', note: 'Look at the job.', expiresIn: '3d' };
+
+  const thirty = fired(make({ ...plain, maxWakes: 30 }), 40);
+  assert.deepEqual([thirty.state, thirty.wakes, thirty.maxWakes], ['done', 30, 30]);
+  assert.equal(thirty.endedWhy, 'it woke its agent 30 times, its cap on wakes');
+  assert.equal(scheduleForAgent(thirty).endedWhy, 'it woke you 30 times, its cap on wakes');
+
+  const uncapped = make({ ...plain, maxWakes: 'none' });
+  assert.equal(uncapped.maxWakes, null, 'stored as no cap, never a big number');
+  const after = fired(uncapped, 60);
+  assert.deepEqual([after.state, after.wakes], ['waiting', 60]);
+  assert.equal(scheduleView(after).maxWakes, undefined, 'the window reads no cap');
+  assert.match(scheduledText(uncapped, main), /hobkin wakes you with your note, with no cap on wakes\./);
+
+  const usual = make(plain);
+  assert.equal(usual.maxWakes, 12);
+  assert.deepEqual([fired(usual, 20).wakes, scheduleView(usual).maxWakes], [12, 12]);
+  assert.match(scheduledText(usual, main), /with your note, 12 times at most\./);
+  assert.match(ask({ ...plain, maxWakes: 0 }).refused, /maxWakes is a number of wakes from 1, or none for no cap/);
+  assert.match(ask({ ...plain, maxWakes: 'lots' }).refused, /maxWakes is a number of wakes from 1/);
+});

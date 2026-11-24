@@ -18,7 +18,7 @@ export const SCHEDULE_REQUESTS = 'schedule-requests';
 const TOKEN = /^[0-9a-f]{32}$/;
 const ACTIONS = ['list', 'cancel', 'pause', 'resume', 'run'];
 const MOST_INPUT = 65536;
-export const SCHEDULE_USAGE = 'Usage: hobkin schedule [list | make | cancel <id> | pause <id> | resume <id> | run <id>]. make reads the schedule as JSON on standard input, with the fields hobkin_schedule takes: note, and command, in or at, every, wakeOn, stopOn, pendingExit, maxRuns, expiresIn, timeoutMs and name.';
+export const SCHEDULE_USAGE = 'Usage: hobkin schedule [list | make | cancel <id> | pause <id> | resume <id> | run <id>]. make reads the schedule as JSON on standard input, with the fields hobkin_schedule takes: note, and command, in or at, every, wakeOn, stopOn, pendingExit, maxRuns, maxWakes, expiresIn, timeoutMs and name.';
 const OUTSIDE = "Nothing was done: hobkin schedule works only inside a run hobkin started, which tells hobkin who is asking.";
 
 async function readAll(input) {

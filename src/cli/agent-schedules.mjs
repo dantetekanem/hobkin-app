@@ -27,7 +27,10 @@ export const TIMEOUT_MS = 2 * MINUTE;
 export const SHORTEST_TIMEOUT_MS = 5000;
 export const LONGEST_TIMEOUT_MS = 10 * MINUTE;
 export const MOST_RUNS = 1440;
-export const MOST_WAKES = 12;
+// How many times a schedule wakes its agent when the agent says nothing. It may say any number, or none for no cap.
+export const DEFAULT_WAKES = 12;
+/** A schedule's cap on wakes: its own, null for none, or the default for one stored before schedules had their own. */
+export const wakeCap = schedule => (schedule.maxWakes === undefined ? DEFAULT_WAKES : schedule.maxWakes);
 export const MOST_PENDING_CODES = 4;
 export const MOST_PER_OWNER = 5;
 export const MOST_IN_HOME = 20;
@@ -110,7 +113,7 @@ function wordsRefusal({ name, command, note, wakeOn, stopOn, pendingExit, timeou
  * How often, how long and how it wakes and stops, in milliseconds where it is a span: `{ every, lifetime, timeout }`
  * with `every` null for a schedule that fires once, or `{ refused }`.
  */
-function timing({ every: everyAsked, expiresIn, timeoutMs, maxRuns, pendingExit, wakeOn, stopOn }) {
+function timing({ every: everyAsked, expiresIn, timeoutMs, maxRuns, maxWakes, pendingExit, wakeOn, stopOn }) {
   const every = everyAsked === undefined ? null : parseDuration(everyAsked);
   const everyFits = every !== null && every >= SHORTEST_EVERY_MS && every % 1000 === 0;
   if (everyAsked !== undefined && !everyFits) return refuse('every is a duration from 1m, such as 2m, 6h or 1d.');
@@ -127,6 +130,10 @@ function timing({ every: everyAsked, expiresIn, timeoutMs, maxRuns, pendingExit,
     return refuse('Give timeoutMs from 5000 to 600000, which is 5 seconds to 10 minutes.');
   }
   if (maxRuns !== undefined && (!Number.isInteger(maxRuns) || maxRuns < 1 || maxRuns > MOST_RUNS)) return refuse(`Give maxRuns from 1 to ${MOST_RUNS}.`);
+  const capped = Number.isInteger(maxWakes) && maxWakes >= 1;
+  if (maxWakes !== undefined && maxWakes !== NO_END && !capped) {
+    return refuse(`maxWakes is a number of wakes from 1, or ${NO_END} for no cap. Without it, ${DEFAULT_WAKES}.`);
+  }
 
   const exitCode = code => Number.isInteger(code) && code >= 1 && code <= 255;
   if (pendingExit !== undefined && (!Array.isArray(pendingExit) || pendingExit.length > MOST_PENDING_CODES || !pendingExit.every(exitCode))) {
@@ -197,7 +204,7 @@ export function askedSchedule(request, { now, owner, cwd, live = [], id = random
   const noRoom = roomRefusal(live, owner);
   if (noRoom) return refuse(noRoom);
 
-  const { name, command, note, wakeOn, stopOn, pendingExit, maxRuns } = asked;
+  const { name, command, note, wakeOn, stopOn, pendingExit, maxRuns, maxWakes } = asked;
   const shell = command !== undefined;
   return {
     schedule: {
@@ -215,6 +222,8 @@ export function askedSchedule(request, { now, owner, cwd, live = [], id = random
         timeoutMs: timeout,
       } : {}),
       ...(maxRuns === undefined ? {} : { maxRuns }),
+      // Null is no cap on wakes.
+      maxWakes: maxWakes === undefined ? DEFAULT_WAKES : maxWakes === NO_END ? null : maxWakes,
       lifetimeMs: lifetime,
       createdAt: iso(now),
       until: until === null ? null : iso(until),
@@ -323,7 +332,8 @@ export function afterRun(schedule, { fired, result = null, timedOut = false }, n
   const baseline = shell && outcome !== 'error' ? fingerprint(code, output.stdout) : schedule.baseline;
   const changed = schedule.baseline !== undefined && baseline !== schedule.baseline;
   const wakeRuleSays = shell ? wakesBy(schedule.wakeOn, outcome, changed) : true;
-  const wakes = outcome !== 'pending' && schedule.wakes < MOST_WAKES && wakeRuleSays;
+  const cap = wakeCap(schedule);
+  const wakes = outcome !== 'pending' && (cap === null || schedule.wakes < cap) && wakeRuleSays;
 
   let line;
   if (shell) line = outcome === 'error' ? String(result?.error ?? 'It could not start.').slice(0, LINE_MOST) : lastLine(output);
@@ -371,8 +381,9 @@ function endWhy(schedule, outcome, now) {
   }
   if (shell && schedule.stopOn === 'success' && outcome === 'passed') return { state: 'done', words: 'its command passed' };
   if (shell && schedule.stopOn === 'failure' && failing(outcome)) return { state: 'done', words: 'its command failed' };
-  if (schedule.wakes >= MOST_WAKES) {
-    const most = `${MOST_WAKES} times, the most one schedule may`;
+  const cap = wakeCap(schedule);
+  if (cap !== null && schedule.wakes >= cap) {
+    const most = `${plural(cap, 'time')}, its cap on wakes`;
     return { state: 'done', words: { user: `it woke its agent ${most}`, agent: `it woke you ${most}` } };
   }
   if (schedule.maxRuns !== undefined && schedule.runs >= schedule.maxRuns) return { state: 'done', words: `it ran its ${plural(schedule.maxRuns, 'run')}` };
@@ -408,7 +419,8 @@ export function scheduleView(schedule, ownerTitle) {
     runs: schedule.runs,
     ...(schedule.maxRuns === undefined ? {} : { maxRuns: schedule.maxRuns }),
     wakes: schedule.wakes,
-    maxWakes: MOST_WAKES,
+    // None with no cap on wakes.
+    ...(wakeCap(schedule) === null ? {} : { maxWakes: wakeCap(schedule) }),
     ...(last ? { last } : {}),
     ...(live ? {} : { endedWhy: schedule.endedWhy }),
   };
@@ -458,7 +470,7 @@ export function scheduledText(schedule, owner, { canWait = true } = {}) {
   const then = afterScheduling(owner, canWait, schedule.id);
   const ends = schedule.until == null ? '. It has no end: cancel it when you are done.' : `, and it ends by ${clockWords(Date.parse(schedule.until))} at the latest.`;
   return `Scheduled "${schedule.name}" (id ${schedule.id}). It first fires at ${clockWords(Date.parse(schedule.nextAt))}${repeats}${ends} `
-    + `hobkin wakes you ${wakes}, ${MOST_WAKES} times at most. ${then}`;
+    + `hobkin wakes you ${wakes}, ${wakeCap(schedule) === null ? 'with no cap on wakes' : `${plural(wakeCap(schedule), 'time')} at most`}. ${then}`;
 }
 
 /** What a run that waited on its schedules is told when hobkin starts it once more after they all ended without a word. */

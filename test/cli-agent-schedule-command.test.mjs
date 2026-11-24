@@ -112,3 +112,20 @@ test('a run on Claude Code schedules with hobkin schedule and its own token, and
   await assert.rejects(schedule(app, all, ['list']), /not a run hobkin is running now/, 'the token names the run only while it runs');
   assert.ok(Date.now() - endedAt < 2000, 'at once, not after the answer time');
 });
+
+test('hobkin schedule takes what the tool takes: a lifetime with no end, an interval of a day and no cap on wakes', async t => {
+  const h = home(t);
+  const app = await h.open();
+  await startSession({ root: h.root, title: 'Watch the job', brief: 'Check the job every day.', cwd: h.root, approved: true, tier: 'mid' });
+  void app.tickSessions();
+  await until(() => h.calls.length === 1);
+  const asked = await app.agentScheduleEnvironment(h.calls[0].request.id, { commands: false });
+
+  const made = await schedule(app, asked, ['make'], json({ name: 'Look at the job', every: '1d', expiresIn: 'none', maxWakes: 'none', note: 'Look at the job.' }));
+
+  const [view] = app.agentSchedules.view();
+  assert.deepEqual([view.every, view.until, view.maxWakes], [24 * 3600, undefined, undefined]);
+  assert.match(made.text, /It has no end: cancel it when you are done\./);
+  await assert.rejects(runScheduleCommand('/nowhere', ['cancel'], { env: asked }), /maxWakes, expiresIn/, 'its usage names every field');
+  h.calls[0].end.resolve({ status: 'completed', text: 'Useful: Done.', cost: null });
+});

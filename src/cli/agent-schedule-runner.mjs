@@ -5,7 +5,7 @@ import { atomicJson } from './config.mjs';
 import { executeShell } from './shell.mjs';
 import { TURN_TOKEN } from './hobkin-tell.mjs';
 import {
-  afterRun, askedSchedule, ended, endedWhyForAgent, expiredWhy, isDue, isExpired, isLive, KEPT_AFTER_END_MS, MOST_AT_ONCE, MOST_WAKES,
+  afterRun, askedSchedule, ended, endedWhyForAgent, expiredWhy, isDue, isExpired, isLive, KEPT_AFTER_END_MS, MOST_AT_ONCE, wakeCap,
   sameOwner, scheduleForAgent, scheduleView, SHOWN_AFTER_END_MS,
 } from './agent-schedules.mjs';
 
@@ -258,7 +258,7 @@ export class AgentScheduleRunner {
       ...(schedule.command === undefined ? {} : { command: schedule.command }),
       ...details,
       ...(isLive(schedule)
-        ? { wakesLeft: MOST_WAKES - schedule.wakes, ...(schedule.until == null ? {} : { until: schedule.until }) }
+        ? { ...(wakeCap(schedule) === null ? {} : { wakesLeft: wakeCap(schedule) - schedule.wakes }), ...(schedule.until == null ? {} : { until: schedule.until }) }
         : { endedWhy: endedWhyForAgent(schedule) }),
     });
   }

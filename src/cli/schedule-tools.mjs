@@ -29,6 +29,7 @@ const scheduleParameters = Type.Object({
   stopOn: Type.Optional(oneOf(STOP_ON)),
   pendingExit: Type.Optional(Type.Array(Type.Integer(), { description: 'Up to 4 exit codes that mean "not yet".' })),
   maxRuns: Type.Optional(Type.Integer({ description: 'At most this many runs, up to 1440.' })),
+  maxWakes: Type.Optional(Type.Union([Type.Integer(), Type.Literal('none')], { description: 'At most this many wakes, or none for no cap. Default 12.' })),
   expiresIn: Type.Optional(Type.String({ description: 'Its lifetime, 2h unless you say, 24h at most.' })),
   timeoutMs: Type.Optional(Type.Integer({ description: 'How long one run may take, 5000 to 600000. Default 120000.' })),
 }, { additionalProperties: false });

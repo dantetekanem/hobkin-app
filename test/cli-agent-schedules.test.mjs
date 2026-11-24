@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterRun, askedSchedule, MOST_WAKES, parseDuration, scheduleForAgent, scheduleView } from '../src/cli/agent-schedules.mjs';
+import { afterRun, askedSchedule, DEFAULT_WAKES, parseDuration, scheduleForAgent, scheduleView } from '../src/cli/agent-schedules.mjs';
 import { AgentScheduleRunner, readAgentSchedules } from '../src/cli/agent-schedule-runner.mjs';
 
 const NOW = Date.parse('2026-11-23T14:00:00Z');
@@ -87,10 +87,10 @@ test('a run wakes its agent by wakeOn, a pending exit code wakes and stops nothi
   const capped = runs(watch({ maxRuns: 3 }), [exit(0), exit(0), exit(0)]);
   assert.deepEqual([capped.schedule.state, capped.schedule.endedWhy, capped.schedule.runs], ['done', 'it ran its 3 runs', 3]);
 
-  const loud = runs(watch({ wakeOn: 'always' }), Array.from({ length: MOST_WAKES }, () => exit(0)));
+  const loud = runs(watch({ wakeOn: 'always' }), Array.from({ length: DEFAULT_WAKES }, () => exit(0)));
   assert.deepEqual([loud.schedule.state, loud.schedule.wakes], ['done', 12]);
-  assert.equal(scheduleView(loud.schedule).endedWhy, 'it woke its agent 12 times, the most one schedule may', 'the window reads it about the agent');
-  assert.equal(scheduleForAgent(loud.schedule).endedWhy, 'it woke you 12 times, the most one schedule may', 'the agent reads it about itself');
+  assert.equal(scheduleView(loud.schedule).endedWhy, 'it woke its agent 12 times, its cap on wakes', 'the window reads it about the agent');
+  assert.equal(scheduleForAgent(loud.schedule).endedWhy, 'it woke you 12 times, its cap on wakes', 'the agent reads it about itself');
   const once = afterRun(make({ in: '10m', note: 'Look.' }), { fired: NOW }, NOW).schedule;
   assert.deepEqual([scheduleView(once).endedWhy, scheduleForAgent(once).endedWhy], ['it woke its agent once', 'it woke you once']);
 
