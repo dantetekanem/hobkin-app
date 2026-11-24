@@ -406,7 +406,18 @@ function movedWords({ rebased, same, subjects }: Moved, into: string, at: string
 }
 
 /** What a yes does to a finished change, line by line, as git says it lands now. */
-function landingLines(plan: MergePlan, pr: string | null): string[] {
+/**
+ * Which commit a verdict's review was built at: this one, or, for a review carried here, the one it was built from,
+ * with this one where its tests ran (spec 058).
+ */
+export function reviewedAt(at: string, carried?: { from: string; why: string }): string {
+  const here = at.slice(0, 7)
+  if (!carried) return `At commit ${here}, the one this review was built from.`
+  const from = carried.from.slice(0, 7)
+  return `Carried from ${from} to ${here}, its tests run at ${here}: this review was built from ${from}.`
+}
+
+function landingLines(plan: MergePlan, pr: string | null, carried?: { from: string; why: string }): string[] {
   const at = plan.head.slice(0, 7)
   const how =
     plan.route === 'refreshMerge'
@@ -417,7 +428,7 @@ function landingLines(plan: MergePlan, pr: string | null): string[] {
           ? `Merge it into ${plan.into} on this machine: ${plan.into} moves up to ${at}. Nothing is pushed.`
           : `Merge it into ${plan.into} on this machine, with a merge commit. Nothing is pushed.`
   const moved = plan.moved ? movedWords(plan.moved, plan.into, at) : null
-  return [how, ...(moved ? [moved] : []), moved ? `This merges ${at}, the commit shown here.` : `At commit ${at}, the one this review was built from.`]
+  return [how, ...(moved ? [moved] : []), moved ? `This merges ${at}, the commit shown here.` : reviewedAt(plan.head, carried)]
 }
 
 /** Why a review's change review stops, or never starts, once its change is done on its host. */
@@ -1543,10 +1554,10 @@ export class Reviews {
       } catch (error) {
         throw new Unavailable(messageOf(error))
       }
-      return { review, card, plan, preview: { verdict, lines: landingLines(plan, card.pr), confirm: token(plan) } }
+      return { review, card, plan, preview: { verdict, lines: landingLines(plan, card.pr, this.status(id).carried), confirm: token(plan) } }
     }
     if (verdict === 'approve-merge') {
-      return { review, card, preview: { verdict, lines: [card.yes, `At commit ${at.slice(0, 7)}, the one this review was built from. A branch that moved since is refused.`], confirm: token(card.landing) } }
+      return { review, card, preview: { verdict, lines: [card.yes, `${reviewedAt(at, this.status(id).carried)} A branch that moved since is refused.`], confirm: token(card.landing) } }
     }
     const note = askForChanges(review, notes, summary)
     if (!note) throw new Unavailable('There is nothing to ask for yet. Write a comment, or say what to change.')

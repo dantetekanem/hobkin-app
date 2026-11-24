@@ -8,7 +8,7 @@ import type { Review } from '#shared/review/types.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
 import { assessmentFolder, Assessments } from '../src/review/assessment.ts'
 import { carryReview, runTests, type TestRun } from '../src/review/carry.ts'
-import { Reviews } from '../src/review/reviews.ts'
+import { reviewedAt, Reviews } from '../src/review/reviews.ts'
 import { reviewStore } from '../src/review/store.ts'
 import { temporaryDirectory } from './support.ts'
 
@@ -256,3 +256,10 @@ test("the change's tests carry it only when the runner counts every one passed: 
 function readHeadOf(repo: string, ref: string): string {
   return execFileSync('git', ['-C', repo, 'rev-parse', ref], { encoding: 'utf8' }).trim()
 }
+
+test('a verdict on a carried review says it was carried, from which commit, and that its tests ran at the one it merges', () => {
+  const at = 'd'.repeat(40)
+
+  assert.equal(reviewedAt(at), 'At commit ddddddd, the one this review was built from.')
+  assert.equal(reviewedAt(at, { from: 'c'.repeat(40), why: 'Only its start moved.' }), 'Carried from ccccccc to ddddddd, its tests run at ddddddd: this review was built from ccccccc.')
+})
