@@ -7,20 +7,22 @@
 import { captureChange, type SizeLimit } from '#shared/review/capture.ts'
 import type { PrepareInput } from '#shared/review/draft.ts'
 import { pullUrl, type ReviewTarget } from '#shared/review/ids.ts'
-import type { PullOwner } from '#shared/review/status.ts'
+import type { PullOwner, ReviewStatus } from '#shared/review/status.ts'
 import { SIZE_LIMIT } from '#shared/review/types.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
+import { gitIn } from './assessment.ts'
 import { githubApi, type HostApi } from './code-hosts.ts'
 import type { GhCall } from './gh.ts'
 import { gitReader, type GitReader } from './git.ts'
 import { whosePull, type WhoIsMe } from './owner.ts'
-import type { PullCheckout, PullTarget, Say } from './pull-checkout.ts'
+import { pullRefs, type PullCheckout, type PullTarget, type Say } from './pull-checkout.ts'
+import { pullCode } from './refresh-code.ts'
 
 /**
  * What the review passes need, but its id. A pull request also has its description, which the review shows as it is,
  * and whose it is, which decides whether it can be merged or closed from here.
  */
-export type ChangeInput = Omit<PrepareInput, 'id'> & { description?: string; owner?: PullOwner }
+export type ChangeInput = Omit<PrepareInput, 'id'> & { description?: string; owner?: PullOwner; code?: ReviewStatus['code'] }
 
 /** What a source tells while it reads: each step, in plain words, and the change's title as soon as it knows it. */
 export interface ReadWatch {
@@ -206,9 +208,11 @@ export function pullSource({
       if (!checkout) throw new Error('This host checks out no pull requests, so it cannot read one.')
       const say = watch.say ?? (() => {})
       say(`Reading #${pull.number} on ${pull.host ?? 'GitHub'}.`)
-      const details = await read(pull)<{ title: string; body?: string | null; base: { ref: string }; head: { ref: string }; user?: { login?: string } | null }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
+      const details = await read(pull)<{ title: string; body?: string | null; base: { ref: string }; head: { ref: string }; user?: { login?: string } | null; mergeable?: boolean | null; mergeable_state?: string }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
       watch.titled?.(details.title)
       const { repo, base } = await checkout.fetch(pull, { head, baseBranch: details.base.ref, headBranch: details.head.ref }, say)
+      // How far behind its base the pull request is, counted in the checkout this read already made.
+      const behind = await gitIn(repo, 'rev-list', '--count', `${head}..${pullRefs(pull).base}`).then((count) => Number.parseInt(count, 10), () => null)
       const reader = gitReader(repo)
       say('Reading the changed files.')
       const capture = await captureChange(reader, base, head, limit)
@@ -222,6 +226,7 @@ export function pullSource({
         change: { project: `${pull.owner}/${pull.repo}`, item: `#${pull.number}`, title: details.title, branch: details.head.ref },
         description,
         owner: whosePull({ author: details.user?.login ?? null, description }, await me(pull)),
+        code: pullCode(details, Number.isSafeInteger(behind) ? behind : null, details.base.ref),
         capture,
         spec: specPath && specText != null ? { path: specPath, text: specText } : null,
         readHead: (path) => reader.text(head, path),

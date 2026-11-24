@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, s
 import { join } from 'node:path'
 import { reviewFolder, targetOfReviewFolder, type ReviewTarget } from '#shared/review/ids.ts'
 import type { NoteEntry } from '#shared/review/notes.ts'
-import type { MergeAsked, PullOwner } from '#shared/review/status.ts'
+import type { MergeAsked, PullOwner, ReviewStatus } from '#shared/review/status.ts'
 import type { Review, ReviewFileContents } from '#shared/review/types.ts'
 import { NO_RISK_RECORD, type RiskRecord } from './risk-fix.ts'
 
@@ -29,6 +29,8 @@ export interface ReviewMeta {
   producerVersion?: string | null
   /** For a pull request: who opened it and whether it is the user's, as it was when the review was prepared. */
   owner?: PullOwner
+  /** For a pull request: how far behind its base it was, and whether it conflicted, when the review read it. */
+  code?: NonNullable<ReviewStatus['code']>
 }
 
 export interface Prepared {

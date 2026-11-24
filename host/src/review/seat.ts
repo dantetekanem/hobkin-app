@@ -18,6 +18,7 @@ import { readNeeds } from '#shared/review/needs.ts'
 import type { ReviewLanding } from '#shared/review/status.ts'
 import type { Vicinity } from '#shared/review/vicinity.ts'
 import { Unavailable, type HostHandlers } from '../commands.ts'
+import { codeOf, type RefreshFacts } from './refresh-code.ts'
 import type { StackFacts } from './stack.ts'
 import { findGh } from '../github-gh.ts'
 import type { PiModelRuntime } from '../pi.ts'
@@ -149,6 +150,9 @@ function codeHostsSeat(seat: ReviewSeat) {
 /** What a review's change is, for Make it a stack: set once per review seat, read by `review.stack`. */
 export const stackFacts = new WeakMap<Reviews, (id: string) => Promise<StackFacts>>()
 
+/** What a review's change is, for Code stale, refresh: set once per review seat, read by `review.refresh-code`. */
+export const refreshFacts = new WeakMap<Reviews, (id: string) => Promise<RefreshFacts>>()
+
 export function hostReviews(seat: ReviewSeat): Reviews {
   const hosts = codeHostsSeat(seat)
   // This side learns the named hosts' pages at once, when hobkin is open, so their pull requests read as reviews.
@@ -177,6 +181,13 @@ export function hostReviews(seat: ReviewSeat): Reviews {
   const intoOf = async (repo: string) => {
     if (!into.has(repo)) into.set(repo, await defaultBranch(repo))
     return into.get(repo)!
+  }
+  /** The branch a project merges into, once found: it is asked of git the first time, so the next status names it. */
+  const intoNow = (slug: string) => {
+    const repo = repoOf(slug)
+    if (!repo) return null
+    if (!into.has(repo)) void intoOf(repo).catch(() => {})
+    return into.get(repo) ?? null
   }
   /** Where a finished change stands in hobkin's own records after a yes: merged, or being brought up to date to merge. */
   const landing = (target: Extract<ReviewTarget, { kind: 'change' }>): ReviewLanding | null => {
@@ -374,7 +385,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       const change = find(slug, item)
       // hobkin's scores as ratings travel beside the card's words (`HobkinScoring` in host/src/work.ts).
       const hobkinNeeds = readNeeds((change?.scoring as { needs?: unknown } | null | undefined)?.needs) ?? null
-      return change && { landing: change.landing, yes: change.yes, branch: change.branch, pr: change.pr, scores: change.scoring ?? null, hobkinNeeds }
+      return change && { landing: change.landing, yes: change.yes, branch: change.branch, pr: change.pr, scores: change.scoring ?? null, hobkinNeeds, code: codeOf({ behind: change.behind, conflict: change.conflict, base: intoNow(slug) }) }
     },
     // Only a live host posts to GitHub or opens a pull request, and only for a verdict the user confirmed.
     ...(seat.live && seat.gh ? { gh: seat.gh, publish: gitPublisher({ repoOf, baseOf: defaultBranch, gh: seat.gh }) } : {}),
@@ -431,6 +442,10 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       kind: status.owner?.mine ? 'mine' : 'other',
       pull: { number: target.number, address: pullUrl(target) ?? `${target.owner}/${target.repo}#${target.number}`, author: status.owner?.author ?? null },
     }
+  })
+  refreshFacts.set(reviews, async (id) => {
+    const { title, repository, folder, merged, branch, kind, pull } = await stackFacts.get(reviews)!(id)
+    return { title, repository, folder, merged, branch, kind, ...(pull ? { pull } : {}), code: reviews.status(id).code ?? codeOf({}) }
   })
   return reviews
 }

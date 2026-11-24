@@ -81,7 +81,8 @@ import { issueWorkReader, workIssueHandlers } from './work-issues.ts'
 import { preparedByItself, workReader } from './work-items.ts'
 import type { GhCall } from './review/gh.ts'
 import { reviewBrief } from './review/guide.ts'
-import { hostReviews, reviewHandlers, stackFacts, toPrepare } from './review/seat.ts'
+import { hostReviews, refreshFacts, reviewHandlers, stackFacts, toPrepare } from './review/seat.ts'
+import { refreshHandlers } from './review/refresh-code.ts'
 import { stackHandlers } from './review/stack.ts'
 
 export interface HostOptions {
@@ -749,6 +750,19 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...stackHandlers({
       facts: (id) => stackFacts.get(reviews)!(id),
       start: async ({ cwd, title, text }) => handlers['hobkin.start']!({ cwd, title, text, engine: { kind: 'tier', tier: 'max' } }),
+      exists: async (id) => {
+        try {
+          await handlers['hobkin.read']!({ id })
+          return true
+        } catch {
+          return false
+        }
+      },
+    }),
+    // Code stale, refresh: one agent on the mid tier (ordinary coding work, spec 017) brings the branch up to date, started the same way.
+    ...refreshHandlers({
+      facts: (id) => refreshFacts.get(reviews)!(id),
+      start: async ({ cwd, title, text }) => handlers['hobkin.start']!({ cwd, title, text, engine: { kind: 'tier', tier: 'mid' } }),
       exists: async (id) => {
         try {
           await handlers['hobkin.read']!({ id })

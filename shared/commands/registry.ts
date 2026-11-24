@@ -919,6 +919,12 @@ export const COMMANDS = {
     runs: 'host',
     args: Type.Object({ id: reviewId }, { additionalProperties: false }),
   },
+  'review.refresh-code': {
+    description:
+      "Bring a change's code up to date, by its review id: start one agent in the change's repository, on the mid tier, told to merge the branch it merges into into the change's branch (never a rebase, never a forced push) in a git worktree of its own, settle every conflict, run the tests, and say what conflicted. It pushes only for hobkin's own change with a pull request and for the user's own pull request, with a plain push; another author's pull request gets nothing pushed. Answers with the agent's id (`hobkin`) and its first run. While that agent is still there a second ask starts nothing and answers with it, `already: true`. Refused for a change that has merged, for a repository with no folder on this Mac, and for a change whose status `code` says it is not behind and not in conflict. It spends a run, so only the window sends it.",
+    runs: 'host',
+    args: Type.Object({ id: reviewId }, { additionalProperties: false }),
+  },
   'review.people': {
     description: 'Who a prepared review’s pull request is from: its author, and who it is for when an agent opened it because they asked, each with a link to their profile when one is known. A finished change answers for the pull request it opened, and with null when it opened none.',
     runs: 'host',
@@ -1538,6 +1544,7 @@ export interface CommandResults {
   'review.list': ReviewList
   'review.codeHosts': { hosts: { name: string; web: string }[] }
   'review.stack': { hobkin: string; run: string | null; already: boolean }
+  'review.refresh-code': { hobkin: string; run: string | null; already: boolean }
   'review.people': { author: { name: string; url?: string } | null; for?: { name: string; url?: string } } | null
   'review.remove': { id: string; removed: true }
   'review.stop': ReviewStatus

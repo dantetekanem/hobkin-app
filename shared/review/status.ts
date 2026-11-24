@@ -77,6 +77,12 @@ export interface ReviewStatus {
    * built from another start does not show the change as it is.
    */
   startsAt?: string
+  /**
+   * Whether the change's code is stale: how many commits it is behind the branch it merges into, whether it conflicts
+   * with it, and that branch's name. Each is null when not known. The window offers a refresh when `behind` is above 0
+   * or `conflict` is true.
+   */
+  code?: { behind: number | null; conflict: boolean | null; base: string | null }
 }
 
 /** A person a pull request names: their name, and their profile when it is known. */

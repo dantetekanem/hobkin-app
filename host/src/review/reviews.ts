@@ -87,6 +87,8 @@ export interface ChangeCard {
   scores?: ChangeScores | null
   /** The same scores as a review's ratings, by hobkin, with what is missing and the commit they were made at (spec 058). */
   hobkinNeeds?: ReviewNeeds | null
+  /** Where its branch stands against the branch it merges into, as hobkin's survey has it. */
+  code?: ReviewStatus['code']
 }
 
 /** Where a finished change's pull request goes: its GitHub repository as `owner/name`, the branch it merges into, and its own. */
@@ -580,7 +582,7 @@ export class Reviews {
     // A review prepared before the host started is ready from its file.
     const newest = this.options.store.newest(this.target(id))
     if (!newest) return IDLE_STATUS(id)
-    return { ...IDLE_STATUS(id), state: 'ready', preparedAt: newest.meta?.preparedAt ?? new Date(newest.at).toISOString(), storyBy: newest.meta?.storyBy ?? null, ...(newest.meta?.owner ? { owner: newest.meta.owner } : {}) }
+    return { ...IDLE_STATUS(id), state: 'ready', preparedAt: newest.meta?.preparedAt ?? new Date(newest.at).toISOString(), storyBy: newest.meta?.storyBy ?? null, ...(newest.meta?.owner ? { owner: newest.meta.owner } : {}), ...(newest.meta?.code ? { code: newest.meta.code } : {}) }
   }
 
   /** A preparation of this review is waiting or under way. */
@@ -732,7 +734,9 @@ export class Reviews {
     const stale = known.state === 'ready' && head != null && !this.options.store.has(target, head) && landing?.state !== 'refreshing'
     const mergeAsked = this.mergeAskedOf(target, landing)
     const pr = target.kind === 'change' ? this.pullOfChange(target)?.pr : undefined
-    const scores = target.kind === 'change' ? this.options.card(target.slug, target.item)?.scores : undefined
+    const card = target.kind === 'change' ? this.options.card(target.slug, target.item) : null
+    const scores = card?.scores
+    const code = card?.code ?? known.code
     const looked = this.lookedStart.get(id)
     const startsAt = looked && looked.head === head ? looked.start : undefined
     // A change not built at its commit says why it waits, and how many are ahead of it.
@@ -752,6 +756,7 @@ export class Reviews {
       ...(mergeAsked ? { mergeAsked } : {}),
       ...(pr ? { pr } : {}),
       ...(scores ? { scores } : {}),
+      ...(code ? { code } : {}),
       ...(startsAt ? { startsAt } : {}),
     }
   }
@@ -1092,7 +1097,7 @@ export class Reviews {
       this.asked.delete(id)
       this.opened.delete(id)
       if (log) log.request = requestOf(target, cached.review)
-      this.set(id, { state: 'ready', phase: null, stale: false, preparedAt: cached.meta?.preparedAt ?? this.status(id).preparedAt, storyBy: cached.meta?.storyBy ?? null, ...(cached.meta?.owner ? { owner: cached.meta.owner } : {}) })
+      this.set(id, { state: 'ready', phase: null, stale: false, preparedAt: cached.meta?.preparedAt ?? this.status(id).preparedAt, storyBy: cached.meta?.storyBy ?? null, ...(cached.meta?.owner ? { owner: cached.meta.owner } : {}), ...(cached.meta?.code ? { code: cached.meta.code } : {}) })
       this.assess(target, cached.review)
       return
     }
@@ -1111,7 +1116,7 @@ export class Reviews {
     const review = input.description === undefined ? completed : { ...completed, change: { ...completed.change, description: input.description } }
 
     const files = filesOf(draft.input.capture.files, draft.headFiles, review)
-    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const, graph: GRAPH_RULES, producerVersion: CLIENT_PRODUCER_VERSION, ...(input.owner ? { owner: input.owner } : {}) }
+    const meta = { preparedAt: new Date(this.now()).toISOString(), storyBy: 'host' as const, graph: GRAPH_RULES, producerVersion: CLIENT_PRODUCER_VERSION, ...(input.owner ? { owner: input.owner } : {}), ...(input.code ? { code: input.code } : {}) }
     store.write(target, review, files, meta)
     this.keepFailure(target, null)
     say(`Drew the graph: ${count(review.nodes.length, 'node')} and ${count(review.edges.length, 'wire')}.`)
