@@ -17,8 +17,8 @@ const HOUR = 60 * MINUTE;
 export const MOST_NAME = 80;
 export const MOST_COMMAND = 4000;
 export const MOST_NOTE = 1000;
+// A schedule repeats at most once a minute, and as seldom as its agent says.
 export const SHORTEST_EVERY_MS = MINUTE;
-export const LONGEST_EVERY_MS = HOUR;
 // A schedule an agent gave no lifetime ends after this. One may live as long as its agent says, or have no end at all.
 export const LIFETIME_MS = 2 * HOUR;
 /** The lifetime an agent gives for a schedule with no end. */
@@ -112,8 +112,8 @@ function wordsRefusal({ name, command, note, wakeOn, stopOn, pendingExit, timeou
  */
 function timing({ every: everyAsked, expiresIn, timeoutMs, maxRuns, pendingExit, wakeOn, stopOn }) {
   const every = everyAsked === undefined ? null : parseDuration(everyAsked);
-  const everyFits = every !== null && every >= SHORTEST_EVERY_MS && every <= LONGEST_EVERY_MS && every % 1000 === 0;
-  if (everyAsked !== undefined && !everyFits) return refuse('Give every as a duration from 1m to 1h, such as 2m or 15m.');
+  const everyFits = every !== null && every >= SHORTEST_EVERY_MS && every % 1000 === 0;
+  if (everyAsked !== undefined && !everyFits) return refuse('every is a duration from 1m, such as 2m, 6h or 1d.');
 
   // How long it lives is the agent's to say, with no most, and `none` gives it no end. Null is no end.
   const endless = typeof expiresIn === 'string' && expiresIn.trim().toLowerCase() === NO_END;

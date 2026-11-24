@@ -21,8 +21,7 @@ const make = (asked, extra) => {
 
 test('a schedule is refused with no note, a bad interval or timeout, or past the most live ones; one given no lifetime gets two hours', () => {
   assert.match(ask({ every: '2m' }).refused, /Give a note/);
-  assert.match(ask({ every: '30s', note: 'Look.' }).refused, /from 1m to 1h/);
-  assert.match(ask({ every: '61m', note: 'Look.' }).refused, /from 1m to 1h/);
+  assert.match(ask({ every: '30s', note: 'Look.' }).refused, /every is a duration from 1m/);
   assert.match(ask({ every: '2m', note: 'Look.', command: 'true', timeoutMs: 4000 }).refused, /5 seconds to 10 minutes/);
   assert.match(ask({ every: '2m', note: 'Look.', command: 'true', timeoutMs: 600001 }).refused, /5 seconds to 10 minutes/);
   assert.match(ask({ note: 'Look.' }).refused, /Say when it fires/);

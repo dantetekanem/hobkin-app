@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { afterRun, askedSchedule, isExpired, scheduleForAgent, scheduledText, scheduleView } from '../src/cli/agent-schedules.mjs';
+import { AgentScheduleRunner } from '../src/cli/agent-schedule-runner.mjs';
 
 // How long, how often and how many wakes are the agent's to say (the client's _specs/056-agent-schedules, 2026-11-24).
 const NOW = Date.parse('2026-11-24T14:00:00Z');
@@ -45,4 +49,64 @@ test('a schedule with no end runs on and on: its lifetime never ends it after a 
   assert.equal(schedule.state, 'done', 'its wakes cap still ends it, which is the agent\'s to say');
   assert.notEqual(schedule.endedWhy, undefined);
   assert.doesNotMatch(schedule.endedWhy, /ran out/);
+});
+
+test('a schedule repeats as often as its agent says, from one minute up with no most, so every six hours and every day work', () => {
+  assert.equal(make({ every: '6h', note: 'Look at the job.', expiresIn: '3d' }).every, 6 * 3600);
+  assert.equal(make({ every: '1d', note: 'Look at the job.', expiresIn: 'none' }).every, 24 * 3600);
+  assert.equal(make({ every: '1d12h', note: 'Look.', expiresIn: '7d' }).every, 36 * 3600);
+  assert.match(ask({ every: '30s', note: 'Look.' }).refused, /every is a duration from 1m, such as 2m, 6h or 1d/, 'the one-minute least stays');
+  assert.match(ask({ every: 'daily', note: 'Look.' }).refused, /every is a duration from 1m/);
+});
+
+/** A fake clock and a shell whose runs end when the test says, around hobkin's own runner and store. */
+function harness(t) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-schedule-limits-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const clock = { now: NOW };
+  const calls = [];
+  const shell = request => {
+    const done = Promise.withResolvers();
+    calls.push({ ...request, end: result => done.resolve(result) });
+    request.signal?.addEventListener('abort', () => done.resolve({ code: null, killed: true, interrupted: true, stdout: '', stderr: '' }), { once: true });
+    return done.promise;
+  };
+  const timers = { setTimeout: () => ({}), clearTimeout: () => {} };
+  const env = { PATH: '/bin', HOBKIN_TURN: 'a'.repeat(32), HOBKIN_SCHEDULE_TOKEN: 'b'.repeat(32) };
+  const open = () => {
+    const runner = new AgentScheduleRunner({ root, now: () => clock.now, shell, timers, env });
+    runner.open();
+    t.after(() => runner.close());
+    return runner;
+  };
+  return { root, clock, calls, open };
+}
+
+test('after a restart an overdue daily schedule fires once, and one with no end is never ended as expired', async t => {
+  const h = harness(t);
+  let runner = h.open();
+  const daily = runner.make(main, '/work', { command: 'true', every: '1d', note: 'Look at the job.', expiresIn: '7d' });
+  const endless = runner.make(main, '/work', { every: '1h', note: 'Look.', expiresIn: 'none', in: '1h' });
+  runner.tick();
+  h.calls.at(-1).end({ code: 0, stdout: 'ok', stderr: '', killed: false });
+  await new Promise(resolve => setImmediate(resolve));
+  const store = join(h.root, 'runtime/agent-schedules.json');
+  const kept = readFileSync(store, 'utf8');
+  await runner.close();
+  writeFileSync(store, kept);
+
+  // hobkin stays closed for three days.
+  h.clock.now = NOW + 3 * DAY;
+  const calls = h.calls.length;
+  runner = h.open();
+  const [overdue, still] = [daily, endless].map(item => runner.view().find(view => view.id === item.id));
+  assert.deepEqual([overdue.state, still.state], ['waiting', 'waiting'], 'neither ended while hobkin was closed');
+  assert.equal(still.until, undefined);
+
+  runner.tick();
+  runner.tick();
+  assert.equal(h.calls.length, calls + 1, 'the overdue daily one fires once, not once for each day missed');
+  h.calls.at(-1).end({ code: 0, stdout: 'ok', stderr: '', killed: false });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(runner.view().find(view => view.id === daily.id).nextAt, iso(NOW + 4 * DAY));
 });
