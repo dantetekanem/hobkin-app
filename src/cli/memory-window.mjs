@@ -52,7 +52,8 @@ export function memorySave(root, save = {}, { now = Date.now() } = {}) {
       return { saved: true, memory, change };
     }
     if (typeof save.name !== 'string' || !save.name) return { saved: false, message: 'Say which memory to change: a change needs its name and version.' };
-    const { memory, change } = changeMemory(root, save.name, fields, { by: BY_USER, now, version: save.version });
+    // Any save by the user keeps a memory another session handed over, so every agent reads it from then on.
+    const { memory, change } = changeMemory(root, save.name, fields, { by: BY_USER, now, version: save.version, keep: true });
     return { saved: true, memory, change };
   } catch (error) {
     return refusedAs(error, words => ({ saved: false, message: words }));

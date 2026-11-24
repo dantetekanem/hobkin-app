@@ -148,6 +148,7 @@ function parse(name, source, { isPrivate, now }) {
     ...(from ? { source: from } : {}),
     ...(links.length ? { links } : {}),
     ...(until && until < today(now) ? { past: true } : {}),
+    ...(front.meta.unconfirmed === true ? { unconfirmed: true } : {}),
     version: fingerprint(source),
   };
 }
@@ -200,7 +201,8 @@ function scan(root, { includePrivate, now }) {
     }
   }
   memories.sort((a, b) => a.name.localeCompare(b.name));
-  return { memories, unreadable };
+  // One nobody has kept yet, as another session handed it over, is read only where private ones are (057-shared-memory).
+  return { memories: includePrivate ? memories : memories.filter(memory => !memory.unconfirmed), unreadable };
 }
 
 /**
@@ -352,7 +354,7 @@ function checkedAuthor(by) {
   return author;
 }
 
-function serialize(name, { kind, description, until, added, changed, source, isPrivate }, text) {
+function serialize(name, { kind, description, until, added, changed, source, isPrivate, unconfirmed }, text) {
   const meta = {
     kind,
     description,
@@ -361,6 +363,7 @@ function serialize(name, { kind, description, until, added, changed, source, isP
     ...(changed ? { changed } : {}),
     ...(source ? { source } : {}),
     ...(isPrivate ? { private: true } : {}),
+    ...(unconfirmed ? { unconfirmed: true } : {}),
   };
   const body = `---\n${JSON.stringify(meta, null, 2)}\n---\n${text ? `${text}\n` : ''}`;
   if (bytes(body) > MOST_MEMORY_BYTES) refuse(`A memory is at most ${MOST_MEMORY_BYTES / 1024} KB as a file. Make its text shorter, or split it into two facts.`);
@@ -527,10 +530,11 @@ function written(root, name, source, isPrivate, now) {
 }
 
 /**
- * Adds one memory. `actor` is who asks as hobkin knows them, `{ by, source, now, seesPrivate }`: `by` is the
- * memory's author and `source` where it came from, with the user's own words. Refused, in plain words, for a name in
- * use, for a memory that says nearly the same as another (naming it, unless it is private and the asker may not see
- * it), for what looks like a secret, past 300 memories and for a field out of its bounds.
+ * Adds one memory. `actor` is who asks as hobkin knows them, `{ by, source, now, seesPrivate, unconfirmed }`: `by` is
+ * the memory's author and `source` where it came from, with the user's own words. `unconfirmed` marks one nobody has
+ * kept yet, which only readers of private memories read until it is kept (`keepMemory`). Refused, in plain words, for
+ * a name in use, for a memory that says nearly the same as another (naming it, unless it is private and the asker may
+ * not see it), for what looks like a secret, past 300 memories and for a field out of its bounds.
  */
 export function addMemory(root, fields = {}, actor = {}) {
   const now = actor.now ?? Date.now();
@@ -543,7 +547,8 @@ export function addMemory(root, fields = {}, actor = {}) {
   const isPrivate = fields.private === true;
   const source = sourceOf(actor.source) ?? undefined;
   refuseSecret(root, [name, description, text, source?.said]);
-  const body = serialize(name, { kind, description, until, added: { at: iso(now), by }, source, isPrivate }, text);
+  const unconfirmed = actor.unconfirmed === true;
+  const body = serialize(name, { kind, description, until, added: { at: iso(now), by }, source, isPrivate, unconfirmed }, text);
   if (taken(root, name)) refuse(takenMessage(name));
   const { memories } = scan(root, { includePrivate: true, now });
   if (memories.length >= MOST_MEMORIES) refuse(`Nothing was saved: hobkin keeps at most ${MOST_MEMORIES} memories. Forget one that no longer holds, or change one that says nearly the same.`);
@@ -559,7 +564,8 @@ export function addMemory(root, fields = {}, actor = {}) {
 /**
  * Changes what is given of one memory, `{ description, text, kind, until, private }`, and keeps who added it. A
  * `version` in `actor` that is not the file's as it is now is refused, so a change made meanwhile is not lost.
- * `until: null` clears its day, and `private` moves the file.
+ * `until: null` clears its day, and `private` moves the file. `actor.keep` keeps one nobody had kept yet; any other
+ * change leaves it as unconfirmed as it was.
  */
 export function changeMemory(root, name, fields = {}, actor = {}) {
   const now = actor.now ?? Date.now();
@@ -570,7 +576,8 @@ export function changeMemory(root, name, fields = {}, actor = {}) {
   if (actor.version !== undefined && actor.version !== found.memory.version) stale();
   const current = found.memory;
   const has = key => Object.hasOwn(fields, key) && fields[key] !== undefined;
-  if (!['description', 'text', 'kind', 'until', 'private'].some(has)) refuse('Say what to change: its description, text, kind, until or private.');
+  const keeping = actor.keep === true && current.unconfirmed === true;
+  if (!keeping && !['description', 'text', 'kind', 'until', 'private'].some(has)) refuse('Say what to change: its description, text, kind, until or private.');
   const isPrivate = has('private') ? fields.private === true : found.isPrivate;
   const description = has('description') ? checkedDescription(fields.description) : current.description;
   const text = has('text') ? checkedText(fields.text) : (current.text ?? '');
@@ -583,12 +590,23 @@ export function changeMemory(root, name, fields = {}, actor = {}) {
     changed: { at: iso(now), by },
     source: current.source,
     isPrivate,
+    unconfirmed: current.unconfirmed === true && !keeping,
   }, text);
   if (isPrivate !== found.isPrivate && lstatSync(fileOf(root, name, isPrivate), { throwIfNoEntry: false })) refuse(takenMessage(name));
   const memory = written(root, name, body, isPrivate, now);
   if (isPrivate !== found.isPrivate) rmSync(found.file, { force: true });
   const change = logChange(root, { at: iso(now), by, name, did: 'changed', before: found.source, after: body });
   return { memory, change };
+}
+
+/**
+ * Keeps a memory nobody had kept yet, as another session handed it over, so every agent reads it from now on. Who may
+ * keep one is the door's to say: the user, or the main chat once it heard of it.
+ */
+export function keepMemory(root, name, actor = {}) {
+  const found = locate(root, checkedName(name), actor.now ?? Date.now());
+  if (found?.memory && !found.memory.unconfirmed) refuse(`"${name}" is kept already.`);
+  return changeMemory(root, name, {}, { ...actor, keep: true });
 }
 
 function keptPath(root, name, now) {
@@ -768,7 +786,8 @@ function indexOf(shown, { maxBytes, recall }) {
   let count = 0;
   let kind = null;
   for (const memory of shown) {
-    const piece = `${memory.kind === kind ? '' : `\n\n### ${KIND_TITLES[memory.kind]}`}\n- ${memory.name}: ${memory.description}${memory.private ? ' (private)' : ''}`;
+    const marks = `${memory.private ? ' (private)' : ''}${memory.unconfirmed ? ' (not yet kept)' : ''}`;
+    const piece = `${memory.kind === kind ? '' : `\n\n### ${KIND_TITLES[memory.kind]}`}\n- ${memory.name}: ${memory.description}${marks}`;
     const room = count === shown.length - 1 ? maxBytes : maxBytes - reserve;
     if (size + bytes(piece) > room) break;
     text += piece;

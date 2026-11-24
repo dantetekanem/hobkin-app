@@ -127,6 +127,10 @@ function describedBy(text) {
   return cut.slice(0, cut.lastIndexOf(' ') > 40 ? cut.lastIndexOf(' ') : MOST_DESCRIPTION).replace(/[\s,;:.-]+$/, '');
 }
 
+// A session's name that would read as the user's own words or as hobkin's, which no other session may take.
+const READS_AS_SOMEONE = new Set(['you', 'your', 'yourself', 'user', 'theuser', 'me', 'myself', 'i', 'mine', 'owner', 'hobkin', 'mainhobkin',
+  'themainhobkin', 'hobkinmain', 'main', 'mainchat', 'themainchat', 'assistant', 'theassistant', 'system']);
+
 /**
  * `hobkin remember`, from another of the user's sessions: hobkin saves it at once as a memory every agent reads, from
  * that session, and its main agent hears of it once with the user's next message (057-shared-memory). One another
@@ -146,11 +150,14 @@ export function remember(root, { words, from }, now = Date.now(), { env = proces
   if (known) return { ok: true, id: known.id, message: 'Already saved, and hobkin\'s main agent has not heard it yet.' };
 
   const sender = nameOf(from);
+  if (READS_AS_SOMEONE.has(sender.toLowerCase().replace(/[^a-z]/g, ''))) {
+    throw Error(`Nothing was saved: --from names the session that hands this over, such as Claude Code, and "${sender}" reads as the user or as hobkin.`);
+  }
   let saved = null;
   try {
     const name = memoryNameFrom(root, text);
     const { change } = addMemory(root, { name, kind: 'user', description: describedBy(text), text },
-      { by: { kind: 'outside', title: sender }, source: { kind: 'remember', said: text, from: sender }, now, seesPrivate: false });
+      { by: { kind: 'outside', title: sender }, source: { kind: 'remember', said: text, from: sender }, now, seesPrivate: false, unconfirmed: true });
     saved = { memory: name, change };
   } catch {
     // Refused as a near double or past the most, or not written: the main agent files it instead.
@@ -206,7 +213,7 @@ export function inboxNotice(entry, now) {
       id: `notice:remember:${entry.id}`,
       role: 'notice',
       tone: 'quiet',
-      content: `${entry.memory ? 'Remembered' : 'Noted'} from ${entry.from}: ${entry.text}`,
+      content: `${entry.memory ? 'Remembered' : 'Noted'} from another session${entry.from === UNNAMED ? '' : ` (${entry.from})`}: ${entry.text}`,
       ...(entry.memory && entry.change ? { memory: { change: entry.change, name: entry.memory, did: 'added' } } : {}),
       at: iso(now),
     };
@@ -279,6 +286,9 @@ export function suggestMemory(root, { memory, from, runId }, now = Date.now()) {
   append(root, { id, kind: 'suggestion', memory, from: nameOf(from), ...(runId ? { runId } : {}), at: iso(now) });
   return { ok: true, id, message: 'Suggested. The main hobkin hears it with the user\'s next message there, and files it or not.' };
 }
+
+/** Whether the main agent has heard of the memory `hobkin remember` saved by this name, so it may keep it. */
+export const rememberHeard = (root, name) => readLog(root).some(entry => entry.kind === 'memory' && entry.memory === name && entry.heard === true);
 
 /** A suggestion by its id, for the main agent filing it, or null. */
 export function suggestionOf(root, id) {

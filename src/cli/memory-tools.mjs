@@ -2,9 +2,9 @@ import { readFileSync } from 'node:fs';
 import { Type } from 'typebox';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import {
-  addMemory, changeMemory, forgetMemory, MEMORY_KINDS, MOST_DESCRIPTION, MOST_TEXT, recallMemories, restoreMemory, secretKind, secretRefusal,
+  addMemory, changeMemory, forgetMemory, keepMemory, MEMORY_KINDS, MOST_DESCRIPTION, MOST_TEXT, recallMemories, restoreMemory, secretKind, secretRefusal,
 } from './memories.mjs';
-import { suggestMemory, suggestionOf } from './inbox.mjs';
+import { rememberHeard, suggestMemory, suggestionOf } from './inbox.mjs';
 
 /**
  * The tools agents keep hobkin's memories with (057-shared-memory). `hobkin_recall` reads one whole, for every agent
@@ -42,7 +42,7 @@ const memoryFields = {
 };
 
 const rememberParameters = Type.Object({
-  action: oneOf(['add', 'change', 'forget', 'restore']),
+  action: oneOf(['add', 'change', 'forget', 'restore', 'keep']),
   name: Type.String({ description: 'Lower-case words joined by hyphens, such as lives-in-lisbon.' }),
   ...memoryFields,
   private: Type.Optional(Type.Boolean({ description: 'Keep it from every run hobkin starts: only the main chat and durable hobkins read it.' })),
@@ -146,14 +146,21 @@ function saved(root, params, { by, now }) {
     };
     return { ...addMemory(root, fields, { ...asked, now }), did: 'added', by: asked.by };
   }
+  // Only the main chat keeps one another session handed over, and only once it heard of it with the user's message.
+  const mayKeep = by.kind === 'main' && rememberHeard(root, name);
   if (action === 'change') {
     const given = CHANGEABLE.filter(key => params[key] !== undefined);
     const fields = Object.fromEntries(given.map(key => [key, params[key]]));
-    return { ...changeMemory(root, name, fields, { by, now }), did: 'changed', by };
+    return { ...changeMemory(root, name, fields, { by, now, keep: mayKeep }), did: 'changed', by };
+  }
+  if (action === 'keep') {
+    if (by.kind !== 'main') throw Error('Only the user or the main hobkin keeps a memory another session handed over.');
+    if (!mayKeep) throw Error(`"${name}" can be kept once the main hobkin hears of it with the user's next message, or by the user on the Memory page.`);
+    return { ...keepMemory(root, name, { by, now }), did: 'changed', by, words: `Kept "${name}". Every agent hobkin runs reads it from now on.` };
   }
   if (action === 'forget') return { ...forgetMemory(root, name, { by, now }), did: 'forgot', by };
   if (action === 'restore') return { ...restoreMemory(root, name, { by, now }), did: 'restored', by };
-  throw Error('Say what to do: add, change, forget or restore.');
+  throw Error('Say what to do: add, change, forget, restore or keep.');
 }
 
 /**
@@ -192,7 +199,7 @@ export function memoryHandler(root, owner, { now = Date.now, onChange = () => {}
       // A line in Chat that could not be posted costs the line, never the memory.
     }
     return {
-      text: doneText[done.did](name),
+      text: done.words ?? doneText[done.did](name),
       change: done.change,
       did: done.did,
       ...(done.memory ? { memory: done.memory } : {}),
