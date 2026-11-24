@@ -253,6 +253,18 @@ export function canReviewNow(row: ReviewRow): boolean {
   return row.turn != null && !built
 }
 
+/**
+ * What the row's build button is called, and whether it builds at once outside its repository's line (`now`). A review
+ * of an older commit says "Rebuild", the word the review's own Outdated notice uses, and does what that notice's button
+ * does: it builds the review again at the change's commit. Otherwise a waiting row says "Review now", and any other
+ * "Review again".
+ */
+export function buildButton(row: ReviewRow): { word: 'Rebuild' | 'Review now' | 'Review again'; now: boolean } {
+  if (readOutdated(row.item.outdated)) return { word: 'Rebuild', now: false }
+  if (canReviewNow(row)) return { word: 'Review now', now: true }
+  return { word: 'Review again', now: false }
+}
+
 /** Nothing changed since the review: it is ready at the commit the change is at. Review again then costs a whole review for nothing new. */
 export function nothingChanged(row: ReviewRow): boolean {
   const { assessment, head, outdated } = row.item

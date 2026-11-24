@@ -8,12 +8,13 @@ import { waited } from '@/features/reports/time.ts'
 import { peopleOfOwner } from '@/features/review/panel/by-line.ts'
 import { ByLineNames } from '@/features/review/panel/ByLine.tsx'
 import { usePullPeople } from '@/features/review/use-people.ts'
+import { useStackStart } from '@/features/review/use-stack-start.ts'
 import { clockWords } from '@/features/review/preparing-model.ts'
 import { heldDown } from '@/features/review/verdict.ts'
 import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import type { NeedNumbers } from '@/features/review/panel/needs.ts'
-import { canReviewAgain, canReviewNow, groupReviews, nothingChanged, repoLinesOf, reviewToOpen, REVIEW_ORDERS, type PriorityOf, type RepoLine, type ReviewGroup, type ReviewRow } from './ai-reviews.ts'
+import { buildButton, canReviewAgain, canReviewNow, groupReviews, nothingChanged, repoLinesOf, reviewToOpen, REVIEW_ORDERS, type PriorityOf, type RepoLine, type ReviewGroup, type ReviewRow } from './ai-reviews.ts'
 import { DeployWhy, GradeChip, ReviewBadge, ReviewProgress, SectionHeading, Segmented } from './parts.tsx'
 import { useReviewOrder } from './review-order.ts'
 import { ACTION_LABEL, createReviewAgain, createRowActions, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
@@ -26,7 +27,7 @@ import type { ReviewListView } from './use-review-list.ts'
  * ready one its answer for the whole change (risky or safe to deploy), why, and when it finished. A click opens it.
  * One that is ready or stopped can be run again from its row: the review is built once more at the change's commit.
  * One that is waiting or running can be stopped from its row, alone: several run at a time.
- * Under it, on every row that has them: Remove, and Remove and delete branch.
+ * Under it, on every row: Make it a stack (spec 060), and where the row has them, Remove, and Remove and delete branch. A review of an older commit says Rebuild where the others say Review again.
  */
 const GROUPS: readonly { group: ReviewGroup; label: string }[] = [
   // What the user said yes to and has not merged: first, so a yes that did not land is never out of sight.
@@ -188,7 +189,7 @@ const sampleBuild = async () => {
  * its width while it asks, so nothing beside it moves. It says so while the host is asked, and why when it refuses.
  */
 function ReviewAgain({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: () => void }) {
-  const now = canReviewNow(row)
+  const { word, now } = buildButton(row)
   // A live host decides whether anything changed; only a row with no host to ask checks by itself.
   const unchanged = !live && !now && nothingChanged(row)
   // Read when the host took it, so a list that reads itself again with a new function never starts this over.
@@ -208,7 +209,7 @@ function ReviewAgain({ row, live, onAgain }: { row: ReviewRow; live: boolean; on
   useEffect(() => () => again.cancel(), [again])
   const { armed, busy, error } = useStore(again)
   const said = error ?? again.said()
-  const label = now ? 'Review now' : 'Review again'
+  const label = word
 
   return (
     <span
@@ -296,7 +297,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
   const recorded = item.kind === 'pull' ? peopleOfOwner(item.owner) : null
   const people = answered ?? recorded
   const again = canReviewAgain(row)
-  // A row with no action, as someone else's pull request while its review runs, has no row of them.
+  // Every row has Make it a stack; the others are Remove and its kin, which a row offers by its state.
   const actions = rowActions(row)
   return (
     // The row is the card: opening it and running it again are two buttons, side by side, never one inside the other.
@@ -364,7 +365,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
         {/* A row that waits its turn has nothing running to stop. */}
         {!again && !item.waiting ? <StopReview id={item.id} live={live} onStopped={onAgain} /> : null}
       </div>
-      {actions.length ? <RowActions row={row} actions={actions} live={live} onChanged={onAgain} /> : null}
+      <RowActions row={row} actions={actions} live={live} onChanged={onAgain} />
     </li>
   )
 }
@@ -426,6 +427,7 @@ function RowActions({ row, actions: offered, live, onChanged }: { row: ReviewRow
   const armed: RowAction | null = removal.armed ? 'remove' : ((flow.preview?.verdict as RowAction | undefined) ?? null)
   // The action whose second click the host is doing now.
   const [doing, setDoing] = useState<RowAction | null>(null)
+  const stack = useStackStart(item.id, live)
 
   const press = async (action: RowAction) => {
     if (armed === action) setDoing(action)
@@ -449,6 +451,13 @@ function RowActions({ row, actions: offered, live, onChanged }: { row: ReviewRow
       }}
     >
       <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" data-stop="" aria-disabled={stack.busy} title="An agent splits this change into layers a reviewer reads one at a time." onClick={() => void stack.press()} className={cn('shrink-0', stack.busy && 'opacity-60')}>
+          {/* Both words hold the button's place; only the one that applies shows, and only it is read. */}
+          <span className="grid justify-items-center">
+            <span className={cn('col-start-1 row-start-1', stack.busy && 'invisible')}>Make it a stack</span>
+            <span className={cn('col-start-1 row-start-1', !stack.busy && 'invisible')}>Starting…</span>
+          </span>
+        </Button>
         {offered.map((action) => (
           <Button
             key={action}
@@ -471,6 +480,11 @@ function RowActions({ row, actions: offered, live, onChanged }: { row: ReviewRow
           </Button>
         ))}
       </div>
+      {stack.error ? (
+        <p role="alert" className="mt-2 text-[13px] leading-snug text-pretty text-bad-fg [overflow-wrap:anywhere]">
+          {stack.error}
+        </p>
+      ) : null}
       <RowSaid kind={item.kind} removal={removal} flow={flow} armed={armed} doing={doing} />
     </div>
   )

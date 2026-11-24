@@ -86,3 +86,22 @@ test('a press the host refuses says why, and Escape takes back the one that wait
   waiting.cancel()
   assert.equal(waiting.getState().armed, false)
 })
+
+test('a row names its build button by its state: Rebuild for a review of an older commit, Review now for one waiting its turn, Review again for the rest', async () => {
+  const { rowsOf, buildButton } = await import('../src/features/work/ai-reviews.ts')
+  const head = '7d02c99f8c61be4291e0c2046d29787cbc1c010a'
+  const base = { kind: 'change' as const, project: 'shop', head, state: 'ready' as const, phase: null, error: null, updatedAt: '2026-11-13T10:00:00Z' }
+  const rows = rowsOf({
+    reviews: [
+      { ...base, id: 'change:shop:current', title: 'a', assessment: { state: 'ready', head } },
+      { ...base, id: 'change:shop:older', title: 'b', outdated: { builtFor: '1111111111111111111111111111111111111111' }, assessment: { state: 'ready', head: '1111111111111111111111111111111111111111' } },
+      { ...base, id: 'change:shop:waits', title: 'c', turn: { ahead: 2, why: 'Waits its turn: 2 ahead in shop.' }, assessment: { state: 'ready', head } },
+      { ...base, id: 'change:shop:older-waits', title: 'd', outdated: { builtFor: '1111111111111111111111111111111111111111' }, turn: { ahead: 2, why: 'Waits its turn: 2 ahead in shop.' }, assessment: { state: 'ready', head: '1111111111111111111111111111111111111111' } },
+    ],
+  })
+  const by = (id: string) => buildButton(rows.find((row) => row.item.id === id)!)
+  assert.deepEqual(by('change:shop:current'), { word: 'Review again', now: false })
+  assert.deepEqual(by('change:shop:older'), { word: 'Rebuild', now: false })
+  assert.deepEqual(by('change:shop:waits'), { word: 'Review now', now: true })
+  assert.deepEqual(by('change:shop:older-waits'), { word: 'Rebuild', now: false }, 'Rebuild builds it again at the change commit, as the review notice does, never a plain Review now')
+})
