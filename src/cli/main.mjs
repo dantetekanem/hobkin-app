@@ -71,7 +71,7 @@ export function parseArguments(args) {
     else if (flag === '--approved' && options.command === 'session') options.approved = true;
     else if (flag === '--tier' && options.command === 'session' && values[0] && !values[0].startsWith('-')) options.tier = values.shift();
     else if (['--help', '-h'].includes(flag) && options.command === 'work') options.args.unshift('help');
-    else if (['--auto', '--decline'].includes(flag) && options.command === 'work') options.args.push(flag);
+    else if (['--auto', '--decline', '--goal'].includes(flag) && options.command === 'work') options.args.push(flag);
     else if (flag === '--help' || flag === '-h') options.command = 'help';
     else if (flag === '--version' || flag === '-v') options.command = 'version';
     else if (COMMANDS_WITH_WORDS.includes(options.command) && (!flag.startsWith('-') || (options.command === 'canvas' && flag === '-'))) options.args.push(flag);

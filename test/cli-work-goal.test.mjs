@@ -3,9 +3,11 @@ import { test } from 'node:test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
+import { main } from '../src/cli/main.mjs';
+import { newProject } from '../src/cli/work/controls.mjs';
 import { runWorkCommand, workStatus } from '../src/cli/work/commands.mjs';
 import { surveyUnmerged } from '../src/cli/work/unmerged.mjs';
-import { chooseProject, isGoal, paths, fileItem, proposeProject, readItems, updateItem, readProject, setProjectIssues, setProjectPrMode, writeDirections, writeMode } from '../src/cli/work/store.mjs';
+import { chooseProject, isGoal, paths, fileItem, proposeProject, readItems, readProjects, updateItem, readProject, setProjectIssues, setProjectPrMode, writeDirections, writeMode } from '../src/cli/work/store.mjs';
 import { prepareProjects, runReadiness, setYolo, setYoloProject, yoloView } from '../src/cli/work/yolo.mjs';
 import { director } from './helpers/work-director.mjs';
 import { branched, git, repository } from './helpers/work-fixture.mjs';
@@ -165,3 +167,77 @@ test('after its study a goal gets one look of its own and none of the code looks
   assert.equal(focuses.filter(focus => focus === 'study').length, 1);
 });
 
+const words = 'Keep the household papers in order and file what arrives.';
+
+test('newProject takes a goal in a plain folder, with its words as the directions', t => {
+  const h = director(t);
+  const folder = goalFolder(h, 'papers');
+
+  const result = newProject(h.root, { path: folder, kind: 'goal', wants: words, level: 'casual' });
+
+  assert.deepEqual([result.ok, result.slug, result.name, result.kind], [true, 'papers', 'papers', 'goal']);
+  assert.match(result.message, /goal/);
+  const project = readProject(h.root, 'papers');
+  assert.deepEqual([project.kind, project.state, project.path, project.level], ['goal', 'chosen', folder, 'casual']);
+  assert.equal(readFileSync(paths(h.root, 'papers').directions, 'utf8'), `${words}\n`);
+});
+
+test('newProject takes code from a repository, keeps its words, and never reads a goal\'s parent as the project', t => {
+  const h = director(t);
+  const checkout = repository(h.base, 'api');
+  const inside = join(checkout, 'notes');
+  mkdirSync(inside);
+
+  const code = newProject(h.root, { path: checkout, wants: 'Leave auth alone.' });
+  const goal = newProject(h.root, { path: inside, kind: 'goal', wants: words });
+
+  assert.deepEqual([code.kind, goal.kind], ['code', 'goal']);
+  assert.equal(readProject(h.root, 'api').kind, undefined);
+  assert.equal(readProject(h.root, 'notes').path, inside);
+  assert.match(readFileSync(paths(h.root, 'api').directions, 'utf8'), /Leave auth alone/);
+});
+
+test('newProject refuses in plain words and changes nothing', t => {
+  const h = director(t);
+  const folder = goalFolder(h, 'papers');
+  const file = join(h.base, 'a-file');
+  writeFileSync(file, 'x');
+  const other = join(h.base, 'elsewhere');
+  mkdirSync(other);
+  mkdirSync(join(other, 'papers'));
+  newProject(h.root, { path: folder, kind: 'goal', wants: words });
+
+  const refuse = (details, message) => assert.throws(() => newProject(h.root, details), message);
+  refuse({ path: join(h.base, 'missing'), kind: 'goal', wants: words }, /Not a folder/);
+  refuse({ path: file, kind: 'goal', wants: words }, /Not a folder/);
+  refuse({ path: goalFolder(h, 'plain') }, /Not a git repository/);
+  refuse({ path: goalFolder(h, 'bare'), kind: 'goal', wants: '  ' }, /A goal needs your words/);
+  refuse({ path: folder, kind: 'goal', wants: words }, /papers is already a project/);
+  refuse({ path: join(other, 'papers'), kind: 'goal', wants: words }, /papers is already a project/);
+  refuse({ path: folder, kind: 'mansion', wants: words }, /code or a goal/);
+  refuse({ kind: 'goal', wants: words }, /Say which folder/);
+  refuse({ path: goalFolder(h, 'later'), kind: 'goal', wants: words, level: 'huge' }, /level must be one of/);
+  assert.deepEqual(readProjects(h.root).map(({ slug }) => slug), ['papers']);
+});
+
+test('the command line takes a goal with its words on stdin, and a proposal can never carry a kind', async t => {
+  const h = director(t);
+  const folder = goalFolder(h, 'papers');
+  const run = async (input, ...args) => {
+    let text = '';
+    const code = await main(['work', ...args, '--home', h.root], { write: chunk => { text += chunk; } }, { input: Readable.from(input) });
+    return { code, json: JSON.parse(text) };
+  };
+
+  const added = await run([words], 'add', 'project', folder, 'casual', '--goal');
+  const bare = await run([], 'add', 'project', goalFolder(h, 'bare'), '--goal');
+  const plain = await run([], 'add', 'project', goalFolder(h, 'plain'));
+  const proposed = await run([JSON.stringify({ name: 'sneaky', path: '/repos/sneaky', level: 'casual', kind: 'goal' })], 'propose');
+
+  assert.deepEqual([added.code, added.json.kind, added.json.slug], [0, 'goal', 'papers']);
+  assert.equal(readFileSync(paths(h.root, 'papers').directions, 'utf8'), `${words}\n`);
+  assert.match(bare.json.message, /A goal needs your words/);
+  assert.match(plain.json.message, /Not a git repository/);
+  assert.equal(proposed.code, 0);
+  assert.equal(readProject(h.root, 'sneaky').kind, undefined);
+});

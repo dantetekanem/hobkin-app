@@ -15,7 +15,7 @@ import { itemGrade, planWork, rowWait, withPending } from './plan.mjs';
 import { NEEDS_AN_OWNER, weighedRows } from './reads.mjs';
 import {
   answerAllowance, chooseProject, doableKinds, dropProject, fileItem, itemTree, lookEveryHours, movesFinishedWork, ownerView, paths, pickNext, pickNow, prFile, putBackInQueue, readItems, readMode, readProject, realFolder,
-  requestCancel, retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeMode,
+  requestCancel, retryItem, runnableStates, setProjectLevel, setProjectPaused, setProjectPrMode, setProjectPriority, setTrust, skipInQueue, skipProject, slugOf, startWork, tokenLabel, updateItem, writeDirections, writeMode,
 } from './store.mjs';
 import { BRANCH_PREFIX, currentBranch, defaultBranch, gitOrNothing, gitWithin, isMerged, landBranch, realPlace, retireTree, worktreeOn } from './tree.mjs';
 import { AFTER_MERGE, changeFacts, closeMergedPull, ghWithin, landedRecord, landingTip, pullNow, readUnmerged, SHIP_KIND } from './unmerged.mjs';
@@ -202,6 +202,32 @@ export function addProject(root, reference, level) {
   const known = readProject(root, slugOf(basename(folder)));
   if (known) throw Error(`${known.slug} is already a project, at ${shortPath(known.path ?? known.remote)}.`);
   return takeProject(root, folder, level);
+}
+
+/**
+ * The user's own add of a folder, as code or as a goal, from the window or the command line. A goal needs no repository, and its folder is
+ * taken as it is: the kind is what keeps git out of it, never whether the folder has a repository, because git looks upward. The user's words
+ * become the project's directions, so the study and every run are given them. It throws in plain words, and writes nothing, on any refusal.
+ */
+export function newProject(root, { path, kind = 'code', wants = '', level } = {}) {
+  if (!['code', 'goal'].includes(kind)) throw Error(`A project is code or a goal, not ${kind}.`);
+  if (!path) throw Error('Say which folder.');
+  const goal = kind === 'goal';
+  if (goal && !String(wants ?? '').trim()) throw Error('A goal needs your words, since they are what work mode works toward.');
+  const folder = realFolder(path);
+  const known = projectNamed(root, folder) ?? readProject(root, slugOf(basename(folder)));
+  // A proposal for this very folder is taken as it always was, and by hand as code only. Anything else with this folder or this name is refused.
+  const proposalForIt = known?.path === folder && known.state === 'proposed' && !goal;
+  if (known && !proposalForIt) throw Error(`${known.slug} is already a project, at ${shortPath(known.path ?? known.remote)}.`);
+  if (!goal && !existsSync(join(folder, '.git'))) throw Error(`Not a git repository: ${shortPath(folder)}`);
+
+  const chosen = chooseProject(root, folder, levelNamed(level), undefined, goal ? { kind } : {});
+  writeDirections(root, chosen.slug, wants);
+  const words = String(wants ?? '').trim() ? ' Your words are its directions.' : '';
+  const next = goal
+    ? `Work mode studies the folder and your words first, then files the first steps.${words}`
+    : `Its work joins the queue on the next tick.${words}`;
+  return reply(`Took ${nameOf(chosen)} as ${goal ? 'a goal' : 'code'} at ${chosen.level}. ${next}`, { slug: chosen.slug, name: nameOf(chosen), kind });
 }
 
 /** The key stops a repeat, as it does for agents. A title closed for good comes back, because adding it by hand says what changed. */

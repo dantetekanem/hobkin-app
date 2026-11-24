@@ -692,13 +692,14 @@ function projectFor(root, reference) {
     ?? { slug: slugOf(basename(reference)), name: basename(reference), path: reference, level: 'important', first: [] };
 }
 
-export function chooseProject(root, reference, level, now = Date.now()) {
+/** `kind` is the user's own add's alone: a proposal never carries one (the `propose` command drops it). */
+export function chooseProject(root, reference, level, now = Date.now(), { kind } = {}) {
   const project = projectFor(root, reference);
   if (!project) throw Error(`Unknown project: ${reference}`);
   if (level !== undefined) assertLevel(level);
 
   const chosenLevel = level ?? project.level;
-  appendEvent(projectsPath(root), { ...project, level: chosenLevel, state: 'chosen', at: new Date(now).toISOString() });
+  appendEvent(projectsPath(root), { ...project, ...(kind ? { kind } : {}), level: chosenLevel, state: 'chosen', at: new Date(now).toISOString() });
   for (const item of project.first ?? []) fileItem(root, project.slug, item, now);
   return readProject(root, project.slug);
 }

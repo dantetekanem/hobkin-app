@@ -4,7 +4,7 @@ import { resolveDataRoot } from '../migration/admission.mjs';
 import { adoptBranch } from './adopt.mjs';
 import { keptReview } from './classified.mjs';
 import {
-  addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, openDiff, pauseWork, publishItem, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
+  addItem, addProject, answerAllow, askAgent, callTrouble, cancelRuns, declineItem, dropWork, markDone, markMax, mergeItem, newProject, openDiff, pauseWork, publishItem, putBackRow, reply, requestReview, resumeWork, retryNow, setGrade, setLevel, setPriority, setPrMode, skipRow,
   skipWork, startMode, stopMode, syncWork, takeProject, triggerRow, trueOutcome, trustPattern,
 } from './controls.mjs';
 import { deployNow, recordDeployed } from './deploys.mjs';
@@ -51,7 +51,7 @@ Change, printing ok and message. Project: name, slug or path. Item: id start.
   trigger <project> [look|study|item]  run it next, inside limits (was run)
   cancel <project|run id|item> [--decline]  stop it; --decline: not approved
   sync                                 find what merged or closed, file rebases
-  add project <path|name> [level]      take a project (was choose)
+  add project <path|name> [level] [--goal]  take a project (was choose); --goal: a folder that is no repository, the words on stdin
   add item <project> <title> [--brief text]  add work by hand
   skip <project> [look|study|item]     skip a proposal or a row (was later)
   back <project> <look|study|item>     put a skipped row back
@@ -373,6 +373,11 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'ship': return setShipFirst(root, args[0]);
     case 'add': {
       const [what, reference, ...rest] = args;
+      if (what === 'project' && rest.includes('--goal')) {
+        // A goal needs the user's own words, and they arrive on stdin.
+        const wants = input && !input.isTTY ? await readText(input) : '';
+        return newProject(root, { path: reference, kind: 'goal', wants, level: rest.find(word => word !== '--goal') });
+      }
       if (what === 'project') return addProject(root, reference, ...rest);
       if (what === 'item') return addItem(root, reference, rest.join(' '), brief);
       throw new WrongCommand(HELP);
@@ -417,8 +422,8 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
     case 'allow': return answerAllow(root, args[0]);
     case 'progress': return noteDiscovery(root, await readJson(input));
     case 'propose': {
-      // A level is only a suggestion the user answers, but `priority`, `prMode` and `issues` would pass unseen, and they are only ever the user's word.
-      const { priority, prMode, issues, ...proposal } = await readJson(input);
+      // A level is only a suggestion the user answers, but `priority`, `prMode`, `issues` and `kind` would pass unseen, and they are only ever the user's word.
+      const { priority, prMode, issues, kind, ...proposal } = await readJson(input);
       return proposeProject(root, proposal);
     }
     case 'item': {
