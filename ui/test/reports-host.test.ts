@@ -29,6 +29,13 @@ afterEach(() => {
   useReports.getState().close()
 })
 
+test('reports that found nothing new are neither listed nor unread, so only real ones count', () => {
+  hello()
+  snapshot([report, { ...report, id: 'local:recap:2', body: 'Nothing new.' }, { ...report, id: 'local:recap:3', body: '**nothing new**' }])
+  assert.deepEqual(ids(), [report.id])
+  assert.equal(useReports.getState().inbox.reports.filter(({ id }) => !useReports.getState().inbox.read.has(id)).length, 1)
+})
+
 test('three seconds in a real report records its read; closing or changing homes cancels pending reads', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   const calls: unknown[] = []

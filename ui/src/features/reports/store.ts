@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { toast } from 'sonner'
+import { withoutNothingNew } from '#shared/reports/nothing-new.ts'
 import { hostStore, runCommand } from '../../lib/host/client.ts'
 import type { HostState } from '../../lib/host/state.ts'
 import { hasHost } from '../../lib/host/frame.ts'
@@ -91,7 +92,7 @@ export const useReports = create<ReportsState>()((set, get) => ({
   sample: true,
   ready: false,
   selectionRevision: 0,
-  inbox: createInbox(sampleReports, sampleRead),
+  inbox: createInbox(withoutNothingNew(sampleReports), sampleRead),
   kind: 'all',
   title: '',
   openId: null,
@@ -170,7 +171,8 @@ function syncReports(state: HostState, previous?: HostState): void {
   const published = !changedHome && (!previous || state.snapshot.reports !== previous.snapshot.reports || state.epoch !== previous.epoch)
   const ready = sample ? state.link === 'none' : !changedHome && (current.ready || published)
   const rows = ready ? state.snapshot.reports : []
-  const reports = Array.isArray(rows) ? rows.filter(isReport) : []
+  // Whatever the host sends, a report that found nothing new is no report: not listed, not unread, not counted.
+  const reports = Array.isArray(rows) ? withoutNothingNew(rows).filter(isReport) : []
   if (changedHome) {
     completedOpen = null
     pending = null
