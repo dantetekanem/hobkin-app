@@ -26,7 +26,7 @@ export function ReviewLoad({ loader, renderReview, renderWaiting, renderRun, ren
 
   const refresh = waitingForStart || ((run || landing) && !retryNotes) ? null : createElement('button', {
     type: 'button',
-    className: 'rounded-lg border bg-card px-3 py-2 text-sm',
+    className: 'rounded-lg border bg-card px-3 py-2 text-sm whitespace-nowrap',
     onClick: () => void (retryNotes ? loader.flushNotes() : loader.refresh()),
   }, retryNotes ? 'Retry saving notes' : 'Refresh review')
 
