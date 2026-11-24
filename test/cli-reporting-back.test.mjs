@@ -452,7 +452,12 @@ test('what the user does from a card is said in Chat as a system line, and it st
 
 /** gh as a host that merges what it is asked to: the merge ends well, and a read after it says merged, with its merge commit. */
 const MERGED_VIEW = JSON.stringify({ state: 'MERGED', mergedAt: '2026-06-01T12:00:00Z', mergeCommit: { oid: 'c'.repeat(40) } });
-const mergingHost = async ([, verb]) => (verb === 'view' ? MERGED_VIEW : '');
+// Its open PRs, one for each row these tests make, so an item's own address is the one open on its branch.
+const OPEN_PRS = JSON.stringify([0, 1, 2, 3].map(number => ({ url: `https://example.com/pull/${number}` })));
+const mergingHost = async ([, verb]) => {
+  if (verb === 'list') return OPEN_PRS;
+  return verb === 'view' ? MERGED_VIEW : '';
+};
 
 test('a PR merged from its card leaves Decisions at once, and Chat says which one with its link', async t => {
   const h = fixture(t);

@@ -575,3 +575,23 @@ test('a pull request whose branch merges through a queue is never asked to merge
   assert.equal(whyOf(h, change), 'hobkin cannot tell whether its branch merges through a queue, so nothing merges');
   assert.deepEqual(host.merges(), []);
 });
+
+test('the merge goes to the pull request that was checked, whatever its item says by the time of the call, and Chat and the ledger name that one', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  await survey(h, host.gh);
+  const elsewhere = 'https://github.invalid/the-user/other-repo/pull/7';
+  const checkedThen = async args => {
+    // Something writes another address on the item while the pass reads the checks.
+    if (args[0] === 'pr' && args[1] === 'checks') updateItem(h.root, 'api', change.id, { pr: elsewhere }, NOW);
+    return host.gh(args);
+  };
+
+  const [merged] = await yoloPass(h.root, { now: NOW, gh: checkedThen, handOff: () => {} });
+
+  assert.deepEqual(host.merges().map(args => args[2]), [host.url]);
+  assert.equal(merged.pr, host.url);
+  assert.equal(ledger(h)[0].pr, host.url);
+  assert.ok(clientNoticesToPost(h.root).some(({ line }) => line.includes(`through its pull request ${host.url} on the code host`)));
+});

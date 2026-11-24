@@ -141,12 +141,13 @@ test('a refreshed PR merges on its host at whatever head the refresh left', asyn
   // A host that merges what it is asked to, and says so with the merge commit when read after.
   const gh = async args => {
     calls.push(args);
+    if (args[1] === 'list') return JSON.stringify([{ url: 'https://example.com/pull/8' }]);
     return args[1] === 'view' ? JSON.stringify({ state: 'MERGED', mergedAt: '2026-06-01T12:00:00Z', mergeCommit: { oid: 'c'.repeat(40) } }) : '';
   };
   const merged = await mergeRefreshed(h.root, { now: NOW + 3000, gh });
 
   assert.equal(merged[0].ok, true);
-  assert.deepEqual(calls[0], ['pr', 'merge', 'https://example.com/pull/8', '--merge']);
+  assert.deepEqual(calls.find(args => args[1] === 'merge'), ['pr', 'merge', 'https://example.com/pull/8', '--merge']);
 });
 
 test('with work mode off or paused, refresh and merge goes to the main agent to hand to a session, and queues nothing', t => {

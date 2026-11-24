@@ -253,7 +253,7 @@ const QUEUED = 'its host queued its pull request or set it to merge by itself in
  * which is the opposite of what the user allowed. hobkin turns auto-merge off where its host lets it, says so in Chat, and the change asks.
  */
 async function turnBackQueued(root, { project, repo, row, item, unit, gh, now }) {
-  const refused = await gh(['pr', 'merge', item.pr, '--disable-auto'], repo).then(() => null, error => firstLine(error.stderr || error.message));
+  const refused = await gh(['pr', 'merge', unit.url, '--disable-auto'], repo).then(() => null, error => firstLine(error.stderr || error.message));
   const named = `"${item.title}" on ${nameOf(project)}`;
   const asked = `YOLO mode asked to merge ${named}, and its host queued the pull request or set it to merge by itself instead.`;
   const why = refused ? `${QUEUED}, and hobkin could not turn that off (${refused}), so it may still merge there` : `${QUEUED}, so hobkin turned that off`;
@@ -286,7 +286,8 @@ export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
   // Written before the call, so a merge its host made while gh was cut short is found by the next survey as YOLO mode's own (`yolo-pass.mjs`).
   updateItem(root, row.slug, item.id, { yoloMerging: { head: unit.sha, at: new Date(now).toISOString() } }, now);
   try {
-    await mergePullRequest(root, row.slug, item.id, { head: unit.sha, gh, now });
+    // The address the fresh read checked, and only it, whatever the item says by now.
+    await mergePullRequest(root, row.slug, item.id, { head: unit.sha, url: unit.url, gh, now });
   } catch (error) {
     if (error.notMerged && error.pull?.state === 'OPEN') return turnBackQueued(root, { project, repo, row, item, unit, gh, now });
     const said = error.notMerged ? `its host has not said its pull request merged, so nothing is recorded: ${firstLine(error.message)}` : `its pull request did not merge: ${firstLine(error.message).replace(/^"[^"]*" did not merge: /, '')}`;
@@ -298,5 +299,5 @@ export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
   if (merged?.state !== 'merged' || !merged.landed?.sha) return null;
   // It merged on YOLO mode's word, not the user's.
   updateItem(root, row.slug, item.id, { landed: { ...merged.landed, route: 'yolo' } }, now);
-  return { target: merged.landed.sha, pr: item.pr, ...(relied ? { relied } : {}) };
+  return { target: merged.landed.sha, pr: unit.url, ...(relied ? { relied } : {}) };
 }

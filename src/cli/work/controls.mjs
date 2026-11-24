@@ -534,27 +534,49 @@ function notMergedYet(pull) {
 }
 
 /**
- * A PR lands on its host, and only on the user's word, so this is the one place hobkin asks its host to merge one. `head` is the commit the user
- * saw, so a PR that moved since is refused there. The item closes only once its host says the PR merged, with the merge commit. A call that
- * ended well with the PR still open, queued or set to merge later, is refused with why, and carries `notMerged` and what the host said
- * (`pull`), and the survey closes the item once its host says it merged.
+ * The PR an item names, once its host says it is the one open on the item's own branch in the project's own repository. An item's address can
+ * be written by a run's outcome, so it is never asked to merge on its word alone.
  */
-export async function mergePullRequest(root, reference, id, { head = null, gh = ghWithin(MERGE_PR_TIMEOUT_MS), now = Date.now() } = {}) {
+async function ownPullOf(repo, item, gh) {
+  const origin = await gitOrNothing(repo, 'remote', 'get-url', 'origin');
+  const listing = ['pr', 'list', ...(origin ? ['--repo', origin] : []), '--head', item.branch, '--state', 'open', '--json', 'url'];
+  let open = null;
+  try {
+    open = JSON.parse(await gh(listing, repo));
+  } catch {
+    // Said below, as the PR that could not be checked.
+  }
+  if (!Array.isArray(open)) throw Error(`"${item.title}" did not merge: the PR open on its branch could not be read, so nothing was asked.`);
+  if (open.some(({ url }) => url === item.pr)) return item.pr;
+  const there = open[0]?.url ? ` (that is ${open[0].url})` : '';
+  throw Error(`"${item.title}" did not merge: ${item.pr} is not the pull request open on its branch ${item.branch} in this repository${there}, so nothing was asked.`);
+}
+
+/**
+ * A PR lands on its host, and only on the user's word, so this is the one place hobkin asks its host to merge one. `head` is the commit the user
+ * saw, so a PR that moved since is refused there. `url` is the address a caller already checked, YOLO mode's, and only it is merged, said and
+ * recorded; without one, the item's own address is checked against the PR open on its branch first. The item closes only once its host says
+ * the PR merged, with the merge commit. A call that ended well with the PR still open, queued or set to merge later, is refused with why, and
+ * carries `notMerged` and what the host said (`pull`), and the survey closes the item once its host says it merged.
+ */
+export async function mergePullRequest(root, reference, id, { head = null, url = null, gh = ghWithin(MERGE_PR_TIMEOUT_MS), now = Date.now() } = {}) {
   const { project, item } = prOf(root, reference, id);
   const repo = project.path ?? paths(root, project.slug).clone;
+  const address = url ?? await ownPullOf(repo, item, gh);
   const pinned = head ? ['--match-head-commit', head] : [];
-  await gh(['pr', 'merge', item.pr, '--merge', ...pinned], repo).catch(error => {
+  await gh(['pr', 'merge', address, '--merge', ...pinned], repo).catch(error => {
     throw Error(`"${item.title}" did not merge: ${firstLine(error.stderr || error.message)}`);
   });
-  const pull = await pullNow(item.pr, repo, gh);
+  const pull = await pullNow(address, repo, gh);
   if (pull?.state !== 'MERGED' || !pull.mergeCommit?.oid) {
     const why = `"${item.title}" was sent to its host to merge, and its host has not said it merged: ${notMergedYet(pull)}. hobkin marks it merged once its host says so.`;
     throw Object.assign(Error(why), { notMerged: true, pull });
   }
-  closeMergedPull(root, project.slug, item, pull, now);
+  const merged = { ...item, pr: address };
+  closeMergedPull(root, project.slug, merged, pull, now);
 
   const named = `the PR for "${item.title}" on ${nameOf(project)}`;
-  return reply(`Merged ${named}.`, { told: toldOfMerge(project, item, 'merged the PR', `Merged ${named}: ${item.pr}.`) });
+  return reply(`Merged ${named}.`, { told: toldOfMerge(project, merged, 'merged the PR', `Merged ${named}: ${address}.`) });
 }
 
 /** Opens an item's PR in the browser, to read or comment on it there. */

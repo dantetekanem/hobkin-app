@@ -487,12 +487,14 @@ test('a PR merged from its card closes at once, as the survey closes one its hos
   const calls = [];
   const gh = async (args, cwd) => {
     calls.push([args, cwd]);
+    if (args[1] === 'list') return JSON.stringify([{ url: 'https://example.com/pull/7' }]);
     return args[1] === 'view' ? JSON.stringify(merged) : '';
   };
 
   const { message, told } = await mergePullRequest(h.root, 'api', item.id, { head: 'abc1234', gh });
 
-  assert.deepEqual(calls[0], [['pr', 'merge', 'https://example.com/pull/7', '--merge', '--match-head-commit', 'abc1234'], h.checkout]);
+  assert.deepEqual(calls[0][0].slice(0, 2), ['pr', 'list'], 'its address is checked against the PR open on its branch first');
+  assert.deepEqual(calls[1], [['pr', 'merge', 'https://example.com/pull/7', '--merge', '--match-head-commit', 'abc1234'], h.checkout]);
   const { state, mergedAt, landed } = read(h, item);
   assert.deepEqual([state, mergedAt], ['merged', '2026-06-02T00:00:00Z']);
   assert.deepEqual([landed.sha, landed.at, landed.route, landed.area], ['abc123', '2026-06-02T00:00:00Z', 'remote', 'root']);
@@ -518,7 +520,10 @@ test('a PR is recorded merged only once its host says it merged, with a merge co
 
   for (const [what, view] of Object.entries(answers)) {
     // The merge call itself ends well each time, as gh does when it queues a pull request or turns auto-merge on.
-    const gh = async args => (args[1] === 'view' ? view() : '');
+    const gh = async args => {
+      if (args[1] === 'list') return JSON.stringify([{ url: 'https://example.com/pull/7' }]);
+      return args[1] === 'view' ? view() : '';
+    };
 
     await assert.rejects(mergePullRequest(h.root, 'api', item.id, { head, gh, now: NOW + 1000 }), /has not said it merged/, what);
 
@@ -526,10 +531,29 @@ test('a PR is recorded merged only once its host says it merged, with a merge co
   }
 });
 
+test('Merge PR asks to merge only the pull request open on the item\'s own branch in the project\'s own repository', async t => {
+  const h = workspace(t);
+  branched(h.checkout, 'hobkin/9-fix', 'feature.txt', 'feature\n');
+  const item = finished(h, 'hobkin/9-fix', { state: 'pr', pr: 'https://example.com/other-repo/pull/9' });
+  const calls = [];
+  const gh = async args => {
+    calls.push(args);
+    return args[1] === 'list' ? JSON.stringify([{ url: 'https://example.com/pull/9' }]) : '';
+  };
+
+  await assert.rejects(mergePullRequest(h.root, 'api', item.id, { gh }), /https:\/\/example\.com\/other-repo\/pull\/9 is not the pull request open on its branch hobkin\/9-fix in this repository \(that is https:\/\/example\.com\/pull\/9\), so nothing was asked/);
+
+  assert.ok(calls.every(args => args[1] !== 'merge'));
+  assert.equal(read(h, item).state, 'pr');
+});
+
 test('a PR that does not merge says why and changes nothing', async t => {
   const h = workspace(t);
   const item = finished(h, 'hobkin/8-fix', { state: 'pr', pr: 'https://example.com/pull/8' });
-  const gh = async () => { throw Object.assign(Error('failed'), { stderr: 'Head branch was modified.\nmore' }); };
+  const gh = async args => {
+    if (args[1] === 'list') return JSON.stringify([{ url: 'https://example.com/pull/8' }]);
+    throw Object.assign(Error('failed'), { stderr: 'Head branch was modified.\nmore' });
+  };
 
   await assert.rejects(mergePullRequest(h.root, 'api', item.id, { head: 'abc1234', gh }), /did not merge: Head branch was modified\.$/);
 

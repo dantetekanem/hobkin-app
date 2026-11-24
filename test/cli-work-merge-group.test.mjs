@@ -43,6 +43,7 @@ test('one yes merges every row in turn, here or on its host, each at the commit 
   // A host that merges what it is asked to, and says so with the merge commit when read after.
   const gh = async args => {
     asked.push(args);
+    if (args[1] === 'list') return JSON.stringify([{ url: 'https://example.com/pull/3' }]);
     return args[1] === 'view' ? JSON.stringify({ state: 'MERGED', mergedAt: '2026-06-01T12:00:00Z', mergeCommit: { oid: 'c'.repeat(40) } }) : '';
   };
 
@@ -51,7 +52,7 @@ test('one yes merges every row in turn, here or on its host, each at the commit 
   assert.deepEqual([one, two, three].map(row => itemOf(h, row).state), ['merged', 'merged', 'merged']);
   assert.deepEqual([itemOf(h, one).landed.route, itemOf(h, two).landed.route], ['group', 'group']);
   assert.match(git(h.checkout, 'log', '-1', '--format=%s', 'main'), /Merge: Work two/);
-  assert.deepEqual(asked[0], ['pr', 'merge', 'https://example.com/pull/3', '--merge', '--match-head-commit', three.head]);
+  assert.deepEqual(asked.find(args => args[1] === 'merge'), ['pr', 'merge', 'https://example.com/pull/3', '--merge', '--match-head-commit', three.head]);
   assert.deepEqual(answer.walked, [
     { action: 'merge', slug: 'api', item: one.item },
     { action: 'merge', slug: 'api', item: two.item },
