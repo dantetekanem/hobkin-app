@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterRun, askedSchedule, MOST_WAKES, parseDuration, scheduleView } from '../src/cli/agent-schedules.mjs';
@@ -110,25 +110,36 @@ function harness(t, { root = realpathSync(mkdtempSync(join(tmpdir(), 'hobkin-sch
   const clock = { now: NOW };
   const timers = [];
   const fakeTimers = {
-    setTimeout: (fn, ms) => { const timer = { fn, at: clock.now + ms, cleared: false }; timers.push(timer); return timer; },
-    clearTimeout: timer => { if (timer) timer.cleared = true; },
+    setTimeout: (fn, ms) => {
+      const timer = { fn, at: clock.now + ms, cleared: false };
+      timers.push(timer);
+      return timer;
+    },
+    clearTimeout: timer => {
+      if (timer) timer.cleared = true;
+    },
   };
   const calls = [];
-  const shell = (request) => {
+  const shell = request => {
     const done = Promise.withResolvers();
     const call = { ...request, end: result => done.resolve(result) };
-    request.signal?.addEventListener('abort', () => done.resolve({ code: null, killed: true, interrupted: true, stdout: '', stderr: '' }), { once: true });
+    const stopped = () => done.resolve({ code: null, killed: true, interrupted: true, stdout: '', stderr: '' });
+    request.signal?.addEventListener('abort', stopped, { once: true });
     calls.push(call);
     return done.promise;
   };
+  const env = { PATH: '/bin', HOBKIN_TURN: 'a'.repeat(32), HOBKIN_SCHEDULE_TOKEN: 'b'.repeat(32) };
   const open = (options = {}) => {
-    const runner = new AgentScheduleRunner({ root, now: () => clock.now, shell, timers: fakeTimers, env: { PATH: '/bin', HOBKIN_TURN: 'a'.repeat(32), HOBKIN_SCHEDULE_TOKEN: 'b'.repeat(32) }, ...options });
+    const runner = new AgentScheduleRunner({ root, now: () => clock.now, shell, timers: fakeTimers, env, ...options });
     runner.open();
     t.after(() => runner.close());
     return runner;
   };
   const fireTimers = () => {
-    for (const timer of timers.filter(timer => !timer.cleared && timer.at <= clock.now)) { timer.cleared = true; timer.fn(); }
+    for (const timer of timers.filter(timer => !timer.cleared && timer.at <= clock.now)) {
+      timer.cleared = true;
+      timer.fn();
+    }
   };
   return { root, clock, calls, open, fireTimers };
 }
@@ -235,12 +246,11 @@ test('schedules outlive a restart: a cut-off run counts as interrupted, an overd
   h.clock.now += MINUTE;
   runner.tick();
   assert.equal(runner.wakes().length, 2, 'the plain wakes fired');
-  // hobkin stops while the command runs, and nothing writes after.
-  const store = readFileSync(join(h.root, 'runtime/agent-schedules.json'), 'utf8');
+  // hobkin stops while the command runs, and nothing writes after: the store is as the crash left it.
+  const storeFile = join(h.root, 'runtime/agent-schedules.json');
+  const storeAtCrash = readFileSync(storeFile, 'utf8');
   await runner.close();
-  rmSync(join(h.root, 'runtime/agent-schedules.json'));
-  const { writeFileSync } = await import('node:fs');
-  writeFileSync(join(h.root, 'runtime/agent-schedules.json'), store);
+  writeFileSync(storeFile, storeAtCrash);
 
   h.clock.now = NOW + 30 * MINUTE;
   const calls = h.calls.length;

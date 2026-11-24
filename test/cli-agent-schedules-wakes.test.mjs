@@ -131,6 +131,22 @@ function home(t) {
 }
 
 const notHere = { status: 'failed', cost: null, error: 'Not in this test.' };
+
+/**
+ * A harness start the test ends with `end.resolve`: it takes messages while it runs, keeping each in `heard`, and ends
+ * interrupted when hobkin closes.
+ */
+function heldCall(calls, request, options) {
+  const call = { request, options, heard: [], end: Promise.withResolvers() };
+  const cancelled = () => call.end.resolve({ status: 'interrupted', text: '', error: 'Harness cancelled.', cost: null });
+  request.signal?.addEventListener('abort', cancelled, { once: true });
+  options?.onReady?.(async message => {
+    call.heard.push(message);
+    return { disposition: 'queued' };
+  });
+  calls.push(call);
+  return call.end.promise;
+}
 const userWords = app => app.runtime.messages().filter(message => message.role === 'user').map(message => (typeof message.content === 'string' ? message.content : message.content.map(part => part.text ?? '').join('')));
 async function until(check, ms = 5000) {
   const deadline = Date.now() + ms;
@@ -165,11 +181,7 @@ test('a run is steered while it runs, started again while it waits, and told onc
   const calls = [];
   const app = await h.open({ runHarness: async (request, options) => {
     if (request.purpose) return notHere;
-    const call = { request, options, heard: [], end: Promise.withResolvers() };
-    request.signal?.addEventListener('abort', () => call.end.resolve({ status: 'interrupted', text: '', error: 'Harness cancelled.', cost: null }), { once: true });
-    options?.onReady?.(async message => { call.heard.push(message); return { disposition: 'queued' }; });
-    calls.push(call);
-    return call.end.promise;
+    return heldCall(calls, request, options);
   } });
   const started = await startSession({ root: h.root, title: 'Ship 412', brief: 'Ship #412 and watch CI.', cwd: h.root, approved: true, tier: 'mid' });
   const sessions = app.tickSessions();
@@ -218,11 +230,7 @@ test("a durable hobkin's wake starts a turn while it waits and is steered into t
   const calls = [];
   const app = await h.open({ runHarness: async (request, options) => {
     if (request.purpose !== 'durable' || request.warm) return request.warm ? { status: 'warmed' } : notHere;
-    const call = { request, options, heard: [], end: Promise.withResolvers() };
-    request.signal?.addEventListener('abort', () => call.end.resolve({ status: 'interrupted', text: '', error: 'Harness cancelled.', cost: null }), { once: true });
-    options?.onReady?.(async message => { call.heard.push(message); return { disposition: 'queued' }; });
-    calls.push(call);
-    return call.end.promise;
+    return heldCall(calls, request, options);
   } });
   const { id } = await app.hobkins.start({ cwd: h.root, engine: { kind: 'tier', tier: 'mid' }, title: 'Deploy watcher' });
   const owner = { kind: 'hobkin', id };

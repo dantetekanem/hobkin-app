@@ -88,71 +88,113 @@ function madeName(text) {
 
 const refuse = refused => ({ refused });
 
-/**
- * A schedule the agent asked for with `hobkin_schedule`, or why it is refused, in words the agent acts on. `owner` is
- * who asked, `cwd` the folder its command runs in, and `live` the live schedules hobkin keeps now, every owner's.
- * Answers `{ schedule }` or `{ refused }`.
- */
-export function askedSchedule(asked, { now, owner, cwd, live = [], id = randomBytes(4).toString('hex') }) {
-  const { name, command, note, wakeOn, stopOn, pendingExit, maxRuns, timeoutMs } = asked ?? {};
-  if (!OWNER_KINDS.includes(owner?.kind)) return refuse('Only the main chat, a durable hobkin or a hobkin session run may keep schedules.');
-  if (typeof note !== 'string' || !note.trim() || note.length > MOST_NOTE) return refuse(`Give a note of what to do when it wakes you, in 1 to ${MOST_NOTE} characters.`);
-  if (name !== undefined && (typeof name !== 'string' || name.length > MOST_NAME)) return refuse(`A name is at most ${MOST_NAME} characters.`);
+/** Why the words of a request do not hold up: its note, name and command, and options only a command takes. */
+function wordsRefusal({ name, command, note, wakeOn, stopOn, pendingExit, timeoutMs }) {
+  if (typeof note !== 'string' || !note.trim() || note.length > MOST_NOTE) {
+    return `Give a note of what to do when it wakes you, in 1 to ${MOST_NOTE} characters.`;
+  }
+  if (name !== undefined && (typeof name !== 'string' || name.length > MOST_NAME)) return `A name is at most ${MOST_NAME} characters.`;
   if (command !== undefined && (typeof command !== 'string' || !command.trim() || command.length > MOST_COMMAND)) {
-    return refuse(`A command is 1 to ${MOST_COMMAND} characters. Leave it out for a plain wake.`);
+    return `A command is 1 to ${MOST_COMMAND} characters. Leave it out for a plain wake.`;
   }
-  const shell = command !== undefined;
-  if (!shell && (wakeOn !== undefined || stopOn !== undefined || pendingExit !== undefined || timeoutMs !== undefined)) {
-    return refuse('wakeOn, stopOn, pendingExit and timeoutMs are for a command. A plain wake always wakes you with its note.');
+  const commandOnly = [wakeOn, stopOn, pendingExit, timeoutMs].some(option => option !== undefined);
+  if (command === undefined && commandOnly) {
+    return 'wakeOn, stopOn, pendingExit and timeoutMs are for a command. A plain wake always wakes you with its note.';
   }
+  return null;
+}
 
-  const every = asked?.every === undefined ? null : parseDuration(asked.every);
-  if (asked?.every !== undefined && (every === null || every < SHORTEST_EVERY_MS || every > LONGEST_EVERY_MS || every % 1000)) {
-    return refuse('Give every as a duration from 1m to 1h, such as 2m or 15m.');
-  }
-  const lifetime = asked?.expiresIn === undefined ? LIFETIME_MS : parseDuration(asked.expiresIn);
+/**
+ * How often, how long and how it wakes and stops, in milliseconds where it is a span: `{ every, lifetime, timeout }`
+ * with `every` null for a schedule that fires once, or `{ refused }`.
+ */
+function timing({ every: everyAsked, expiresIn, timeoutMs, maxRuns, pendingExit, wakeOn, stopOn }) {
+  const every = everyAsked === undefined ? null : parseDuration(everyAsked);
+  const everyFits = every !== null && every >= SHORTEST_EVERY_MS && every <= LONGEST_EVERY_MS && every % 1000 === 0;
+  if (everyAsked !== undefined && !everyFits) return refuse('Give every as a duration from 1m to 1h, such as 2m or 15m.');
+
+  const lifetime = expiresIn === undefined ? LIFETIME_MS : parseDuration(expiresIn);
   if (lifetime === null || lifetime < MINUTE || lifetime > LONGEST_LIFETIME_MS) {
     return refuse('A schedule lives at most 24 hours. Give expiresIn as a duration from 1m to 24h, such as 2h.');
   }
+
   const timeout = timeoutMs === undefined ? TIMEOUT_MS : timeoutMs;
   if (!Number.isInteger(timeout) || timeout < SHORTEST_TIMEOUT_MS || timeout > LONGEST_TIMEOUT_MS) {
     return refuse('Give timeoutMs from 5000 to 600000, which is 5 seconds to 10 minutes.');
   }
   if (maxRuns !== undefined && (!Number.isInteger(maxRuns) || maxRuns < 1 || maxRuns > MOST_RUNS)) return refuse(`Give maxRuns from 1 to ${MOST_RUNS}.`);
-  if (pendingExit !== undefined && (!Array.isArray(pendingExit) || pendingExit.length > MOST_PENDING_CODES
-    || pendingExit.some(code => !Number.isInteger(code) || code < 1 || code > 255))) {
+
+  const exitCode = code => Number.isInteger(code) && code >= 1 && code <= 255;
+  if (pendingExit !== undefined && (!Array.isArray(pendingExit) || pendingExit.length > MOST_PENDING_CODES || !pendingExit.every(exitCode))) {
     return refuse(`Give pendingExit as up to ${MOST_PENDING_CODES} exit codes from 1 to 255 that mean "not yet".`);
   }
   if (wakeOn !== undefined && !WAKE_ON.includes(wakeOn)) return refuse(`wakeOn is one of ${WAKE_ON.join(', ')}.`);
   if (stopOn !== undefined && !STOP_ON.includes(stopOn)) return refuse(`stopOn is one of ${STOP_ON.join(', ')}.`);
-  if (wakeOn === 'change' && every === null) return refuse('A schedule that fires once has nothing to compare with, so wakeOn change needs every.');
-  if (stopOn !== undefined && stopOn !== 'never' && every === null) return refuse('stopOn ends a schedule that repeats, so it needs every.');
-  if (pendingExit?.length && every === null) return refuse('pendingExit says "not yet, look again", so it needs every.');
 
-  if (asked?.in !== undefined && asked?.at !== undefined) return refuse('Give in or at for its first time, not both.');
-  let first;
-  if (asked?.in !== undefined) {
-    const delay = parseDuration(asked.in);
-    if (delay === null || delay > LONGEST_LIFETIME_MS) return refuse('Give in as a duration up to 24h, such as 90s, 10m or 1h30m.');
-    first = now + delay;
-  } else if (asked?.at !== undefined) {
-    if (typeof asked.at !== 'string' || !CLOCK.test(asked.at)) return refuse('Give at as a 24-hour clock time, HH:MM, such as 19:30.');
-    first = nextClock(asked.at, now);
-  } else if (every !== null) {
-    // A repeating schedule runs at once, so a change is measured from now.
-    first = now;
-  } else {
-    return refuse('Say when it fires: in (such as 10m) or at (HH:MM) for once, or every (such as 2m) to repeat.');
+  // What only a schedule that repeats can do.
+  if (every === null) {
+    if (wakeOn === 'change') return refuse('A schedule that fires once has nothing to compare with, so wakeOn change needs every.');
+    if (stopOn !== undefined && stopOn !== 'never') return refuse('stopOn ends a schedule that repeats, so it needs every.');
+    if (pendingExit?.length) return refuse('pendingExit says "not yet, look again", so it needs every.');
   }
+  return { every, lifetime, timeout };
+}
+
+/** When it first fires: after `in`, at the next `at`, or at once for one that repeats. `{ first }` or `{ refused }`. */
+function firstTime({ in: delayAsked, at }, every, now) {
+  if (delayAsked !== undefined && at !== undefined) return refuse('Give in or at for its first time, not both.');
+  if (delayAsked !== undefined) {
+    const delay = parseDuration(delayAsked);
+    if (delay === null || delay > LONGEST_LIFETIME_MS) return refuse('Give in as a duration up to 24h, such as 90s, 10m or 1h30m.');
+    return { first: now + delay };
+  }
+  if (at !== undefined) {
+    if (typeof at !== 'string' || !CLOCK.test(at)) return refuse('Give at as a 24-hour clock time, HH:MM, such as 19:30.');
+    return { first: nextClock(at, now) };
+  }
+  // A repeating schedule runs at once, so a change is measured from now.
+  if (every !== null) return { first: now };
+  return refuse('Say when it fires: in (such as 10m) or at (HH:MM) for once, or every (such as 2m) to repeat.');
+}
+
+/** Why there is no room for another: the owner keeps the most one agent may, or hobkin the most it holds. */
+function roomRefusal(live, owner) {
+  const kept = live.filter(isLive);
+  if (kept.filter(item => sameOwner(item.owner, owner)).length >= MOST_PER_OWNER) {
+    return `You already keep ${MOST_PER_OWNER} live schedules, the most one agent may. Cancel one with hobkin_schedules first.`;
+  }
+  if (kept.length >= MOST_IN_HOME) return `hobkin already keeps ${MOST_IN_HOME} live schedules, the most it holds. Cancel one with hobkin_schedules first.`;
+  return null;
+}
+
+/**
+ * A schedule the agent asked for with `hobkin_schedule`, or why it is refused, in words the agent acts on. `owner` is
+ * who asked, `cwd` the folder its command runs in, and `live` the live schedules hobkin keeps now, every owner's.
+ * Answers `{ schedule }` or `{ refused }`.
+ */
+export function askedSchedule(request, { now, owner, cwd, live = [], id = randomBytes(4).toString('hex') }) {
+  const asked = request ?? {};
+  if (!OWNER_KINDS.includes(owner?.kind)) return refuse('Only the main chat, a durable hobkin or a hobkin session run may keep schedules.');
+  const wordsRefused = wordsRefusal(asked);
+  if (wordsRefused) return refuse(wordsRefused);
+
+  const times = timing(asked);
+  if (times.refused) return times;
+  const { every, lifetime, timeout } = times;
+
+  const fires = firstTime(asked, every, now);
+  if (fires.refused) return fires;
+  const { first } = fires;
   const until = now + lifetime;
   if (first >= until) {
     return refuse(`It would first fire at ${clockWords(first)}, after its lifetime ends at ${clockWords(until)}. Give a sooner time, or a longer expiresIn up to 24h.`);
   }
 
-  const owned = live.filter(item => isLive(item) && sameOwner(item.owner, owner));
-  if (owned.length >= MOST_PER_OWNER) return refuse(`You already keep ${MOST_PER_OWNER} live schedules, the most one agent may. Cancel one with hobkin_schedules first.`);
-  if (live.filter(isLive).length >= MOST_IN_HOME) return refuse(`hobkin already keeps ${MOST_IN_HOME} live schedules, the most it holds. Cancel one with hobkin_schedules first.`);
+  const noRoom = roomRefusal(live, owner);
+  if (noRoom) return refuse(noRoom);
 
+  const { name, command, note, wakeOn, stopOn, pendingExit, maxRuns } = asked;
+  const shell = command !== undefined;
   return {
     schedule: {
       id,
@@ -262,13 +304,18 @@ export function afterRun(schedule, { fired, result = null, timedOut = false }, n
 
   const output = shell ? { stdout: keptStream(result?.stdout), stderr: keptStream(result?.stderr) } : null;
   const code = shell ? result?.code ?? null : null;
-  const settledAt = shell && outcome !== 'error' ? fingerprint(code, output.stdout) : schedule.baseline;
-  // The first run of a command only sets what to compare with.
-  const changed = schedule.baseline !== undefined && settledAt !== schedule.baseline;
-  const wakes = outcome !== 'pending' && schedule.wakes < MOST_WAKES && (shell ? wakesBy(schedule.wakeOn, outcome, changed) : true);
-  const line = shell ? (outcome === 'error' ? String(result?.error ?? 'It could not start.').slice(0, LINE_MOST) : lastLine(output)) : undefined;
+  // What the next run is compared with. The first run of a command only sets it, and one that could not start keeps it.
+  const baseline = shell && outcome !== 'error' ? fingerprint(code, output.stdout) : schedule.baseline;
+  const changed = schedule.baseline !== undefined && baseline !== schedule.baseline;
+  const wakeRuleSays = shell ? wakesBy(schedule.wakeOn, outcome, changed) : true;
+  const wakes = outcome !== 'pending' && schedule.wakes < MOST_WAKES && wakeRuleSays;
+
+  let line;
+  if (shell) line = outcome === 'error' ? String(result?.error ?? 'It could not start.').slice(0, LINE_MOST) : lastLine(output);
   const last = {
-    at: iso(now), startedAt: iso(fired), outcome,
+    at: iso(now),
+    startedAt: iso(fired),
+    outcome,
     ...(code === null ? {} : { exitCode: code }),
     woke: wakes,
     ...(line ? { line } : {}),
@@ -277,7 +324,7 @@ export function afterRun(schedule, { fired, result = null, timedOut = false }, n
     ...schedule,
     runs: schedule.runs + 1,
     wakes: schedule.wakes + (wakes ? 1 : 0),
-    ...(settledAt === undefined ? {} : { baseline: settledAt }),
+    ...(baseline === undefined ? {} : { baseline }),
     ...(output ? { output } : {}),
     history: [...schedule.history, last].slice(-MOST_HISTORY),
   };
@@ -288,7 +335,8 @@ export function afterRun(schedule, { fired, result = null, timedOut = false }, n
   else next = { ...next, state: schedule.state === 'paused' ? 'paused' : 'waiting', nextAt: nextTime(schedule, fired, now) };
 
   const wake = wakes ? {
-    kind: 'fired', outcome,
+    kind: 'fired',
+    outcome,
     ...(code === null ? {} : { exitCode: code }),
     ...(output ? { output: wakeOutput(output) } : {}),
     ...(line && outcome === 'error' ? { error: line } : {}),
@@ -317,11 +365,10 @@ function nextTime(schedule, fired, now) {
 
 /** A schedule as the window reads it (`AgentSchedule` in the client's `shared/protocol/schedules.ts`). */
 export function scheduleView(schedule, ownerTitle) {
-  const last = schedule.history.at(-1);
-  const shown = last?.outcome === 'interrupted'
-    ? { at: last.at, outcome: 'error', woke: false, line: 'It was cut off before it finished.' }
-    : last && { at: last.at, outcome: last.outcome, ...(last.exitCode === undefined ? {} : { exitCode: last.exitCode }), woke: last.woke === true, ...(last.line ? { line: last.line } : {}) };
+  const last = lastRunView(schedule.history.at(-1));
   const live = isLive(schedule);
+  // Its next time shows while it can still come: not once it ended, not while it is held, not past its lifetime.
+  const comes = live && schedule.state !== 'paused' && schedule.nextAt && Date.parse(schedule.nextAt) < Date.parse(schedule.until);
   return {
     id: schedule.id,
     owner: { ...schedule.owner },
@@ -332,19 +379,39 @@ export function scheduleView(schedule, ownerTitle) {
     note: schedule.note,
     ...(schedule.every === undefined ? {} : { every: schedule.every }),
     state: schedule.state,
-    ...(live && schedule.state !== 'paused' && schedule.nextAt && Date.parse(schedule.nextAt) < Date.parse(schedule.until) ? { nextAt: schedule.nextAt } : {}),
+    ...(comes ? { nextAt: schedule.nextAt } : {}),
     until: schedule.until,
     runs: schedule.runs,
     ...(schedule.maxRuns === undefined ? {} : { maxRuns: schedule.maxRuns }),
     wakes: schedule.wakes,
     maxWakes: MOST_WAKES,
-    ...(shown ? { last: shown } : {}),
+    ...(last ? { last } : {}),
     ...(live ? {} : { endedWhy: schedule.endedWhy }),
   };
 }
 
+/**
+ * A run in the protocol's words. The window knows no `interrupted`, so a run a restart cut off shows as one that could
+ * not finish, with the line that says why.
+ */
+function lastRunView(run) {
+  if (!run) return undefined;
+  if (run.outcome === 'interrupted') return { at: run.at, outcome: 'error', woke: false, line: 'It was cut off before it finished.' };
+  return {
+    at: run.at,
+    outcome: run.outcome,
+    ...(run.exitCode === undefined ? {} : { exitCode: run.exitCode }),
+    woke: run.woke === true,
+    ...(run.line ? { line: run.line } : {}),
+  };
+}
+
 const WAKE_WORDS = {
-  change: 'when its output changes', failure: 'when a run fails', success: 'when a run passes', always: 'after each run that is not pending', never: 'never: it only runs',
+  change: 'when its output changes',
+  failure: 'when a run fails',
+  success: 'when a run passes',
+  always: 'after each run that is not pending',
+  never: 'never: it only runs',
 };
 
 /** What `hobkin_schedule` answers its agent: what was made, when it fires, when it ends, when it wakes, and what to do now. */

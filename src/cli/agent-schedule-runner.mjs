@@ -150,9 +150,13 @@ export class AgentScheduleRunner {
     if (!['cancel', 'pause', 'resume', 'run'].includes(action)) throw Error('action is one of list, cancel, pause, resume or run.');
     const schedule = typeof id === 'string' ? this.find(id) : undefined;
     if (!schedule || !sameOwner(schedule.owner, owner)) throw Error(NOT_YOURS);
-    const answer = action === 'cancel' ? this.cancel(id, 'agent')
-      : action === 'run' ? this.runNow(id)
-        : this.pause(id, action === 'pause', 'agent');
+    const actions = {
+      cancel: () => this.cancel(id, 'agent'),
+      pause: () => this.pause(id, true, 'agent'),
+      resume: () => this.pause(id, false, 'agent'),
+      run: () => this.runNow(id),
+    };
+    const answer = actions[action]();
     if (!answer.ok) throw Error(answer.reason);
     return { schedule: scheduleForAgent(this.find(id)) };
   }
@@ -173,11 +177,15 @@ export class AgentScheduleRunner {
     const schedule = this.find(id);
     if (!schedule) return { ok: false, reason: NO_SUCH };
     if (!isLive(schedule)) return { ok: false, reason: ENDED };
-    if (schedule.state === 'running') this.replace({ ...schedule, resumeTo: paused ? 'paused' : 'waiting' });
-    else if (paused) this.replace({ ...schedule, state: 'paused', pausedBy: by });
-    else {
+    if (schedule.state === 'running') {
+      this.replace({ ...schedule, resumeTo: paused ? 'paused' : 'waiting' });
+    } else if (paused) {
+      this.replace({ ...schedule, state: 'paused', pausedBy: by });
+    } else {
+      // A time that passed while it was held comes at once.
       const { pausedBy: _, ...rest } = schedule;
-      this.replace({ ...rest, state: 'waiting', nextAt: iso(Math.max(Date.parse(schedule.nextAt), this.now())) });
+      const nextAt = iso(Math.max(Date.parse(schedule.nextAt), this.now()));
+      this.replace({ ...rest, state: 'waiting', nextAt });
     }
     this.save();
     return { ok: true };
@@ -234,7 +242,9 @@ export class AgentScheduleRunner {
       note: schedule.note,
       ...(schedule.command === undefined ? {} : { command: schedule.command }),
       ...details,
-      ...(isLive(schedule) ? { wakesLeft: MOST_WAKES - schedule.wakes, until: schedule.until } : { endedWhy: schedule.endedWhy }),
+      ...(isLive(schedule)
+        ? { wakesLeft: MOST_WAKES - schedule.wakes, until: schedule.until }
+        : { endedWhy: schedule.endedWhy }),
     });
   }
 
@@ -293,6 +303,7 @@ export class AgentScheduleRunner {
     return fired > 0;
   }
 
+  /** Runs a schedule's command in the background, ended through its signal at its timeout, and settles it after. */
   start(schedule) {
     const fired = this.now();
     const controller = new AbortController();
@@ -302,31 +313,35 @@ export class AgentScheduleRunner {
       controller.abort();
     }, schedule.timeoutMs);
     this.running.set(schedule.id, entry);
+
     const { runNow: _, ...rest } = schedule;
-    this.replace({ ...rest, state: 'running', resumeTo: schedule.state === 'paused' ? 'paused' : 'waiting', startedAt: iso(fired) });
-    const ran = (async () => {
-      try {
-        return await this.shell({ command: schedule.command, cwd: schedule.cwd, signal: controller.signal, env: withoutTokens(this.env) });
-      } catch (error) {
-        return { code: null, killed: false, stdout: '', stderr: '', error: String(error?.message ?? error) };
-      }
-    })();
-    entry.done = ran.then(result => {
-        this.timers.clearTimeout(entry.timer);
-        this.running.delete(schedule.id);
-        const current = this.find(schedule.id);
-        // One cancelled or ended meanwhile keeps its end, and hobkin closing leaves it to the next open.
-        if (current?.state !== 'running' || this.closed) return;
-        this.settle(current, { fired, result, timedOut: entry.timedOut }, current.resumeTo);
-        this.save();
-      });
+    const resumeTo = schedule.state === 'paused' ? 'paused' : 'waiting';
+    this.replace({ ...rest, state: 'running', resumeTo, startedAt: iso(fired) });
+
+    entry.done = this.runCommand(schedule, controller.signal).then(result => {
+      this.timers.clearTimeout(entry.timer);
+      this.running.delete(schedule.id);
+      const current = this.find(schedule.id);
+      // One cancelled or ended meanwhile keeps its end, and hobkin closing leaves it to the next open.
+      if (current?.state !== 'running' || this.closed) return;
+      this.settle(current, { fired, result, timedOut: entry.timedOut }, current.resumeTo);
+      this.save();
+    });
+  }
+
+  /** The shell's result, or one that says the command could not start. The shell is called at once, before any wait. */
+  async runCommand(schedule, signal) {
+    try {
+      return await this.shell({ command: schedule.command, cwd: schedule.cwd, signal, env: withoutTokens(this.env) });
+    } catch (error) {
+      return { code: null, killed: false, stdout: '', stderr: '', error: String(error?.message ?? error) };
+    }
   }
 
   /** A firing's result: the schedule as it is after, its wake queued, and its end with the reason kept. */
   settle(schedule, run, resumeTo) {
-    const before = { ...schedule };
-    delete before.resumeTo;
-    const { schedule: after, wake } = afterRun(before, run, this.now());
+    const { resumeTo: _, ...firing } = schedule;
+    const { schedule: after, wake } = afterRun(firing, run, this.now());
     if (!isLive(after)) {
       this.replace(after);
       // Its last run woke its agent with the end in it, or the end is told on its own.
@@ -334,8 +349,11 @@ export class AgentScheduleRunner {
       else this.tellOfEnd(after, 'hobkin');
       return;
     }
-    const next = { ...after, state: resumeTo === 'paused' && after.state === 'waiting' ? 'paused' : after.state };
-    delete next.startedAt;
+
+    const { startedAt: __, ...settled } = after;
+    // One held while it ran, or run now while held, stays held.
+    const held = resumeTo === 'paused' && settled.state === 'waiting';
+    const next = { ...settled, state: held ? 'paused' : settled.state };
     this.replace(next);
     if (wake) this.queue(next, wake);
   }

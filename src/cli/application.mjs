@@ -1142,15 +1142,13 @@ export class HobkinApplication {
    */
   deliverScheduleWakes(runs) {
     this.scheduleDeliveries ??= new Set();
-    const byOwner = new Map();
-    for (const wake of this.agentSchedules.wakes()) {
-      const key = JSON.stringify([wake.owner.kind, wake.owner.id ?? null]);
-      byOwner.set(key, [...(byOwner.get(key) ?? []), wake]);
-    }
+    const byOwner = Map.groupBy(this.agentSchedules.wakes(), wake => JSON.stringify([wake.owner.kind, wake.owner.id ?? null]));
     for (const [key, wakes] of byOwner) {
       const { owner } = wakes[0];
-      if (owner.kind === 'main' || this.scheduleDeliveries.has(key)) continue;
-      if (owner.kind === 'run' && runs[owner.id]?.status !== 'running') continue;
+      const delivering = this.scheduleDeliveries.has(key);
+      const waitsElsewhere = owner.kind === 'main' || (owner.kind === 'run' && runs[owner.id]?.status !== 'running');
+      if (delivering || waitsElsewhere) continue;
+
       this.scheduleDeliveries.add(key);
       const delivery = owner.kind === 'hobkin' ? this.wakeHobkin(owner.id, wakes) : this.steerRun(owner.id, wakes);
       void within(delivery, DELIVERY_WAIT_MS)
@@ -1236,7 +1234,10 @@ export class HobkinApplication {
   /** The main chat lives as long as hobkin does, a durable hobkin until it is ended, and a run while it runs or waits. */
   scheduleOwnerAlive(owner, runs) {
     if (owner.kind === 'main') return true;
-    if (owner.kind === 'hobkin') return Boolean(this.hobkins?.records?.[owner.id]) && this.hobkins.records[owner.id].state !== 'ended';
+    if (owner.kind === 'hobkin') {
+      const record = this.hobkins?.records?.[owner.id];
+      return Boolean(record) && record.state !== 'ended';
+    }
     return ['running', WAITING].includes(runs[owner.id]?.status);
   }
 
