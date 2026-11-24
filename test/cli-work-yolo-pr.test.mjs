@@ -61,6 +61,9 @@ function codeHost({ number, branch, head }) {
     required: [{ name: 'test', bucket: 'pass' }],
     checksError: null,
     mergeError: null,
+    // A merge call that ends well and leaves the pull request open with auto-merge on, as gh does on a branch that asks for a merge queue.
+    queues: false,
+    undoError: null,
   };
   host.gh = async args => {
     host.calls.push(args);
@@ -77,14 +80,24 @@ function codeHost({ number, branch, head }) {
       if (host.checksError) throw host.checksError;
       return JSON.stringify(host.required);
     }
+    if (group === 'pr' && verb === 'merge' && args.includes('--disable-auto')) {
+      if (host.undoError) throw host.undoError;
+      host.view.autoMergeRequest = null;
+      return '';
+    }
     if (group === 'pr' && verb === 'merge') {
       if (host.mergeError) throw host.mergeError;
+      if (host.queues) {
+        host.view.autoMergeRequest = { enabledAt: new Date(NOW).toISOString() };
+        return '';
+      }
       host.merged = true;
       return '';
     }
     return '[]';
   };
-  host.merges = () => host.calls.filter(([group, verb]) => group === 'pr' && verb === 'merge');
+  host.merges = () => host.calls.filter(args => args[0] === 'pr' && args[1] === 'merge' && !args.includes('--disable-auto'));
+  host.undos = () => host.calls.filter(args => args[0] === 'pr' && args[1] === 'merge' && args.includes('--disable-auto'));
   return host;
 }
 
@@ -305,4 +318,38 @@ test('a run that ends with its change waiting on a pull request earns the same r
   await director.itemFinished('api', itemOf(h, change));
 
   assert.deepEqual([itemOf(h, change).reviewAsked, itemOf(h, change).state], [true, 'open']);
+});
+
+test('a merge the host queued or set to merge by itself is never recorded: hobkin turns auto-merge off, says so in Chat, and does not ask again at that commit', async t => {
+  const h = workspace(t);
+  const change = openedAsPull(h, 'Fix login');
+  const { host } = change;
+  host.queues = true;
+  await survey(h, host.gh);
+  const pass = () => yoloPass(h.root, { now: NOW, gh: host.gh, handOff: () => {} });
+
+  assert.deepEqual(await pass(), []);
+
+  assert.deepEqual([itemOf(h, change).state, ledger(h)], ['pr', []]);
+  assert.deepEqual(host.undos(), [['pr', 'merge', host.url, '--disable-auto']]);
+  assert.equal(host.view.autoMergeRequest, null);
+  const lines = clientNoticesToPost(h.root).map(({ line }) => line);
+  assert.ok(!lines.some(line => line.startsWith('YOLO mode merged')), lines.join('\n'));
+  assert.ok(lines.includes('YOLO mode asked to merge "Fix login" on api, and its host queued the pull request or set it to merge by itself instead. hobkin turned that off, and it asks you.'), lines.join('\n'));
+  assert.match(whyOf(h, change), /^its host queued its pull request or set it to merge by itself instead of merging it, so hobkin turned that off/);
+
+  await survey(h, host.gh);
+  assert.deepEqual(await pass(), []);
+  assert.equal(host.merges().length, 1, 'not asked again at the same commit');
+
+  // When the host will not turn it off, Chat says so as a problem.
+  const other = openedAsPull(h, 'Fix logout', { number: 8 });
+  other.host.queues = true;
+  other.host.undoError = Object.assign(Error('failed'), { stderr: 'auto-merge is not allowed for this repository' });
+  await survey(h, other.host.gh);
+  await yoloPass(h.root, { now: NOW, gh: other.host.gh, handOff: () => {} });
+  const problem = clientNoticesToPost(h.root).find(({ line }) => line.includes('"Fix logout"'));
+  assert.equal(problem.tone, 'critical');
+  assert.match(problem.line, /could not turn that off \(auto-merge is not allowed for this repository\), so it may still merge there/);
+  assert.equal(itemOf(h, other).state, 'pr');
 });

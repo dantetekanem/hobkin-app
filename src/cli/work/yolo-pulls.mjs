@@ -1,8 +1,10 @@
+import { postClientNotice } from '../client-notices.mjs';
 import { mergePullRequest } from './controls.mjs';
+import { nameOf } from './names.mjs';
 import { pullRequestRows } from './reads.mjs';
 import { paths, readItems, readProject, updateItem } from './store.mjs';
 import { BRANCH_PREFIX, defaultBranch } from './tree.mjs';
-import { ghWithin, pullNow, readUnmerged } from './unmerged.mjs';
+import { ghWithin, readUnmerged } from './unmerged.mjs';
 
 /**
  * A change of hobkin's own that waits on its open pull request merges by itself on the code host, under every rule a local branch is under
@@ -155,10 +157,31 @@ export async function pullHolds({ gh, repo, item, unit, user }) {
   return null;
 }
 
-/** The reason a pull request kept asking at the pass, kept on its item for its report, when it changed. */
-function noteWhy(root, slug, item, head, why, now) {
-  if (item.yoloPull?.head === head && item.yoloPull?.why === why) return;
-  updateItem(root, slug, item.id, { yoloPull: { head, why } }, now);
+/**
+ * The reason a pull request kept asking at the pass, kept on its item for its report, when it changed. `tried` says a merge was asked for at
+ * that commit and did not happen, so the pass asks no more until the pull request moves.
+ */
+function noteWhy(root, slug, item, head, why, now, { tried = false } = {}) {
+  const known = item.yoloPull;
+  if (known?.head === head && known?.why === why && Boolean(known.tried) === tried) return;
+  updateItem(root, slug, item.id, { yoloPull: { head, why, ...(tried ? { tried } : {}) } }, now);
+}
+
+const QUEUED = 'its host queued its pull request or set it to merge by itself instead of merging it';
+
+/**
+ * A merge call that ended well and left the pull request open: on a branch that asks for a merge queue, gh queues it or turns auto-merge on,
+ * which is the opposite of what the user allowed. hobkin turns auto-merge off where its host lets it, says so in Chat, and the change asks.
+ */
+async function turnBackQueued(root, { project, repo, row, item, unit, gh, now }) {
+  const refused = await gh(['pr', 'merge', item.pr, '--disable-auto'], repo).then(() => null, error => firstLine(error.stderr || error.message));
+  const named = `"${item.title}" on ${nameOf(project)}`;
+  const asked = `YOLO mode asked to merge ${named}, and its host queued the pull request or set it to merge by itself instead.`;
+  const why = refused ? `${QUEUED}, and hobkin could not turn that off (${refused}), so it may still merge there` : `${QUEUED}, so hobkin turned that off`;
+  const line = refused ? `${asked} hobkin could not turn that off (${refused}), so it may still merge there. It asks you.` : `${asked} hobkin turned that off, and it asks you.`;
+  noteWhy(root, row.slug, item, unit.sha, why, now, { tried: true });
+  postClientNotice(root, { key: `yolo-queued:${row.slug}:${item.id}:${unit.sha}`, line, tone: refused ? 'critical' : 'useful' }, now);
+  return null;
 }
 
 /** What the pass found kept a pull request asking, while the survey still reads the same commit. */
@@ -170,6 +193,8 @@ export const pullNoted = (item, unit) => (item.yoloPull && item.yoloPull.head ==
  * on its item. `user` reads the signed-in user once a pass.
  */
 export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
+  // A merge asked for at this commit that did not happen is not asked for again until the pull request moves.
+  if (item.yoloPull?.head === unit.sha && item.yoloPull.tried) return null;
   const project = readProject(root, row.slug);
   const repo = project.path ?? paths(root, row.slug).clone;
   const why = await pullHolds({ gh, repo, item, unit, user: await user() });
@@ -181,13 +206,15 @@ export async function mergeOwnPull(root, { row, item, unit, gh, user, now }) {
   try {
     await mergePullRequest(root, row.slug, item.id, { head: unit.sha, gh, now });
   } catch (error) {
-    noteWhy(root, row.slug, item, unit.sha, `its pull request did not merge: ${firstLine(error.message).replace(/^"[^"]*" did not merge: /, '')}`, now);
+    if (error.notMerged && error.pull?.state === 'OPEN') return turnBackQueued(root, { project, repo, row, item, unit, gh, now });
+    const said = error.notMerged ? `its host has not said its pull request merged, so nothing is recorded: ${firstLine(error.message)}` : `its pull request did not merge: ${firstLine(error.message).replace(/^"[^"]*" did not merge: /, '')}`;
+    noteWhy(root, row.slug, item, unit.sha, said, now, { tried: Boolean(error.notMerged) });
     return null;
   }
+  // The item closed only once its host said it merged, with its merge commit (`mergePullRequest`).
   const merged = readItems(root, row.slug).find(({ id }) => id === item.id);
-  if (merged?.state !== 'merged') return null;
+  if (merged?.state !== 'merged' || !merged.landed?.sha) return null;
   // It merged on YOLO mode's word, not the user's.
   updateItem(root, row.slug, item.id, { landed: { ...merged.landed, route: 'yolo' } }, now);
-  const pull = await pullNow(item.pr, repo, gh);
-  return { target: pull?.state === 'MERGED' ? pull.mergeCommit?.oid ?? null : null, pr: item.pr };
+  return { target: merged.landed.sha, pr: item.pr };
 }
