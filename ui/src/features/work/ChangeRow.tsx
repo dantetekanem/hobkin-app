@@ -38,7 +38,6 @@ interface Props {
   bare?: boolean
   /** Opens drawn already open, and with the reply box under the note: for a stack's layers and for pictures. */
   initiallyOpen?: boolean
-  initiallyAnswering?: boolean
   live: boolean
   variants: Variants
   order: number
@@ -76,14 +75,14 @@ function openingMotion({ still, bare }: { still: boolean; bare: boolean }) {
   }
 }
 
-export function ChangeRow({ change, group, place = null, bare = false, initiallyOpen = false, initiallyAnswering = false, live, variants, order, onLeaving }: Props) {
+export function ChangeRow({ change, group, place = null, bare = false, initiallyOpen = false, live, variants, order, onLeaving }: Props) {
   const still = useStill()
   const busy = useWorkUi((state) => Boolean(state.busy[change.key] || state.busy[`group:${group.name}`]))
   const said = useWorkUi((state) => state.said[change.key])
   const github = useGitHub()
   const [chosen, setChosen] = useState<HobkinChoice | null>(null)
-  const [noting, setNoting] = useState(initiallyAnswering)
-  const [opened, setOpened] = useState(initiallyOpen || initiallyAnswering)
+  const [noting, setNoting] = useState(false)
+  const [opened, setOpened] = useState(initiallyOpen)
   const open = bare || opened
   const pull = change.pr ? [...github.pulls, ...github.reviews].find(({ url }) => url === change.pr) : undefined
   const reviewId = finishedReviewId(change, live)
@@ -128,12 +127,6 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
     if (result.text) useWorkUi.getState().note('finished', result)
   }
 
-  // Answer opens the row with the reply box under the note, and the keyboard goes into the box.
-  const answer = () => {
-    setOpened(true)
-    setNoting(true)
-  }
-
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     const key = rowKey({ key: event.key, onRow: event.target === event.currentTarget })
     if (key === null) return
@@ -152,13 +145,6 @@ export function ChangeRow({ change, group, place = null, bare = false, initially
   const Chevron = open ? ChevronDown : ChevronRight
 
   const closedAction = () => {
-    if (action.kind === 'answer') {
-      return (
-        <Button {...control} variant="outline" onClick={answer}>
-          Answer
-        </Button>
-      )
-    }
     if (action.kind === 'review') {
       return (
         <Button {...control} disabled={false} variant="outline" onClick={review}>

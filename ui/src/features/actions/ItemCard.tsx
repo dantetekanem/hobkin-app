@@ -40,7 +40,7 @@ export function ItemCard({ row, now, variants, order, reads = false, onAsk, onRe
   const choices = row.question.choices
   // "Routine inbox-sweep" already says it is a routine.
   const source = row.from.toLowerCase().startsWith(label.toLowerCase()) ? row.from : `${label} · ${row.from}`
-  const action = reads ? 'Read' : row.opens ? OPENS_IN[row.opens.screen] : 'Answer'
+  const action = reads ? 'Read' : row.opens ? OPENS_IN[row.opens.screen] : 'Reply'
 
   return (
     <motion.li

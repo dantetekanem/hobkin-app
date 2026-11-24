@@ -156,7 +156,7 @@ export function FollowUps({ label, ask, top, onAnswer, onEnough, still }: Follow
                 aria-invalid={problem ? true : undefined}
                 className="h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-muted-foreground/70"
               />
-              <Button type="submit" size="icon-lg" aria-label="Answer" disabled={sending !== null || typed.trim() === ''} className="size-10">
+              <Button type="submit" size="icon-lg" aria-label="Send" disabled={sending !== null || typed.trim() === ''} className="size-10">
                 <ArrowUp className="size-4" aria-hidden="true" />
               </Button>
             </motion.div>

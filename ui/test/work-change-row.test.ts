@@ -43,9 +43,9 @@ test('a change with nothing of its own to say falls back to its reason, and with
   assert.equal(sentenceOf(change({ about: null, reason: '' }), named('merge')), null)
 })
 
-test('the action is Answer in Left for you, the change\'s own yes in its own words where it has one, and Review otherwise', () => {
+test('the action is Review in Left for you, the change\'s own yes in its own words where it has one, and Review otherwise', () => {
   const yes = change({ choices: [{ value: 'diff', label: 'Show the diff' }, { value: 'refreshMerge', label: 'Refresh and merge it' }, { value: 'decline', label: 'Cancel it' }] })
-  assert.deepEqual(actionOf(yes, named('left')), { kind: 'answer', label: 'Answer' })
+  assert.deepEqual(actionOf(yes, named('left')), { kind: 'review', label: 'Review' })
   assert.deepEqual(actionOf(yes, named('refresh')), { kind: 'yes', choice: 'refreshMerge', label: 'Refresh and merge it' })
   assert.deepEqual(actionOf(change(), named('needs')), { kind: 'review', label: 'Review' })
 })

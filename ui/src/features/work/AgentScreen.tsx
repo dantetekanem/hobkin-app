@@ -392,7 +392,7 @@ const Glance = memo(function Glance({ agentId, hue, question, waiting, hidden }:
       <div className="flex w-full flex-col gap-2">
         <QuestionBubble hue={hue} question={question} waiting />
         <p className="flex h-6 items-center gap-1.5 self-start pl-8 text-[12px] text-muted-foreground">
-          Answer with <Kbd>⌘G</Kbd> or Enter on it in the list.
+          Reply with <Kbd>⌘G</Kbd> or Enter on it in the list.
         </p>
       </div>
     )
@@ -778,7 +778,7 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
     if (answering && !live) answerAgent(agentId)
   }
 
-  const label = finished ? `${name} has finished` : answering ? `Answer ${name}` : `Message ${name}`
+  const label = finished ? `${name} has finished` : answering ? `Reply to ${name}` : `Message ${name}`
 
   return (
     <div className="pointer-events-auto mt-auto shrink-0 px-[10%] pt-2 pb-2">

@@ -547,7 +547,7 @@ test('every card names what its button does and shows the choices it will ask', 
   const cards = homeModel(input({ question: asked, waiting: [decision], github, reports: [report('broken')], agents: [agent('busy'), agent('asks', 'Which version?')] })).stack
   const byKind = Object.fromEntries(cards.map(card => [card.kind, card]))
 
-  assert.equal(byKind.question?.primary.label, 'Answer')
+  assert.equal(byKind.question?.primary.label, 'Reply')
   assert.deepEqual(byKind.question?.choices, ['Keep it', 'Drop it'])
   assert.equal(byKind.question?.pick, 'Drop it')
   assert.equal(byKind.question?.why, 'It is unused')
@@ -557,7 +557,7 @@ test('every card names what its button does and shows the choices it will ask', 
   assert.deepEqual(byKind.github?.primary, { label: 'Review', target: { to: 'pull', url: pull(1).url } })
   assert.deepEqual(byKind.github?.secondary, { label: 'Open on GitHub', target: { to: 'url', url: pull(1).url } })
   assert.equal(byKind.problem?.primary.label, 'Read report')
-  assert.equal(byKind.agent?.primary.label, 'Answer agent')
+  assert.equal(byKind.agent?.primary.label, 'Reply to agent')
 })
 
 test('an idle Running now previews the queue, and header chips go where they point', () => {

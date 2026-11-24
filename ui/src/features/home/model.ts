@@ -115,7 +115,7 @@ function needsOf(input: HomeInput): Need[] {
       detail: question.tldr ?? null,
       tone: 'accent',
       target: { to: 'question' },
-      label: 'Answer',
+      label: 'Reply',
     }, { at: timeOf(question.askedAt), question }))
   }
 
@@ -539,7 +539,7 @@ function needCard({ row, at, question, waiting, change, reminder }: Need, now: n
       choices: labelsOf(question.choices),
       pick: pickOf(question.choices, question.recommended),
       why: question.why ?? null,
-      primary: open(row.action.target, 'Answer'),
+      primary: open(row.action.target, 'Reply'),
     })
   }
 
@@ -708,7 +708,7 @@ function stackOf({ needs, middle, last }: StackParts, agents: HomeInput['agents'
     choices: labelsOf(agent.choices),
     pick: pickOf(agent.choices, agent.recommended),
     why: agent.why ?? null,
-    primary: open({ to: 'agent', id: agent.id }, 'Answer agent'),
+    primary: open({ to: 'agent', id: agent.id }, 'Reply to agent'),
   }))
   // A run that waits for its time (spec 053) says so, and what its row says of when.
   const working = agents.filter(agent => !agent.asks).map(agent => candidate(4, null, {
@@ -788,7 +788,7 @@ function runningOf(agents: HomeInput['agents'], work: HomeInput['work']): HomeMo
       tone: agent.asks ? 'accent' : 'info',
       target: { to: 'agent', id: agent.id },
       aside: agent.project,
-      label: agent.asks ? 'Answer' : 'Watch',
+      label: agent.asks ? 'Reply' : 'Watch',
     }),
     face: { hue: agent.hue, mood: agent.mood, asking: Boolean(agent.asks) },
   }))

@@ -113,7 +113,7 @@ export function AnswerField({ ask, label, initial, onAnswer, still }: AnswerFiel
           disabled={keeping}
           className="h-full min-w-0 flex-1 bg-transparent text-[16px] text-foreground outline-none placeholder:text-muted-foreground/70"
         />
-        <Button type="submit" size="icon-lg" aria-label="Answer" disabled={keeping || (empty && !ask.optional)} className="size-10">
+        <Button type="submit" size="icon-lg" aria-label="Send" disabled={keeping || (empty && !ask.optional)} className="size-10">
           <ArrowUp className="size-4" aria-hidden="true" />
         </Button>
       </div>

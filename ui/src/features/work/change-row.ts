@@ -74,11 +74,11 @@ function ownSentence(change: Pick<FinishedChange, 'left' | 'reason' | 'about'>, 
 
 const LANDS: readonly ChangeChoice[] = ['merge', 'mergePr', 'refreshMerge', 'rebase']
 
-/** The one action on a closed row: Answer where a run left a note, the change's own yes where it has one, and Review otherwise. */
-export type RowAction = { kind: 'answer'; label: 'Answer' } | { kind: 'yes'; choice: ChangeChoice; label: string } | { kind: 'review'; label: 'Review' }
+/** The one action on a closed row: Review where a run left a note, the change's own yes where it has one, and Review otherwise. */
+export type RowAction = { kind: 'yes'; choice: ChangeChoice; label: string } | { kind: 'review'; label: 'Review' }
 
 export function actionOf(change: Pick<FinishedChange, 'choices'>, group: Pick<FinishedGroup, 'name'>): RowAction {
-  if (group.name === 'left') return { kind: 'answer', label: 'Answer' }
+  if (group.name === 'left') return { kind: 'review', label: 'Review' }
   const yes = change.choices.find(({ value }) => LANDS.includes(value))
   if (yes) return { kind: 'yes', choice: yes.value, label: yes.label }
   return { kind: 'review', label: 'Review' }
