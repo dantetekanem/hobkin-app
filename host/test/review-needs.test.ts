@@ -109,3 +109,18 @@ test('a review whose change review gave no ratings is not rated, and says nothin
 
   assert.equal(reviews.status('change:shop:a1').needs, undefined)
 })
+
+test('a rating made at another commit than the one its row and status are at says which, as a carried review does', (t) => {
+  const from = 'd'.repeat(40)
+  const hobkins: ReviewNeeds = { kind: 'feature', scores: { coverage: answer(9) }, head: 'e'.repeat(40), by: 'hobkin' }
+  // Carried to HEAD: the change review's graph names the commit it was rated at, its summary where it came from.
+  const reviews = reviewed(t, { nodes: [], needs: { ...ENGINE_NEEDS, head: from } }, () => ({ hobkinNeeds: hobkins }))
+  writeFileSync(join(reviews.folder, 'summary.json'), JSON.stringify({ level: 'safe', critical: false, needsYou: 0, worthALook: 0, safe: 1, storyBy: 'model', at: '2026-11-23T10:00:00.000Z', carried: { from, why: 'Only its start moved.', tests: 1 } }))
+
+  const status = reviews.status('change:shop:a1')
+  const row = reviews.list().reviews.find((entry) => entry.id === 'change:shop:a1')
+
+  const words = ['Rated at ddddddd, where this review was built, before it was carried to ccccccc.', 'Rated at eeeeeee; the change is at ccccccc now.']
+  assert.deepEqual(status.needs?.map((needs) => [needs.head, needs.atOtherCommit]), [[from, words[0]], ['e'.repeat(40), words[1]]])
+  assert.deepEqual(row?.needs?.map((needs) => needs.atOtherCommit), words)
+})

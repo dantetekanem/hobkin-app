@@ -28,6 +28,7 @@ test("a review's ratings are read without trust: whole scores from 1 to 10 with 
   assert.equal(readNeeds({ ...sent, scores: { proof: score(6, 'x'.repeat(500)) } })?.scores.proof?.evidence.length, 400)
   assert.deepEqual(readNeeds({ ...sent, scores: { proof: { score: 6 } } })?.scores, { proof: score(6, '') })
   assert.deepEqual([readNeeds({ ...sent, missing: ' A test\nof it. ' })?.missing, readNeeds({ ...sent, missing: '  ' })?.missing], ['A test of it.', undefined])
+  assert.deepEqual([readNeeds({ ...sent, atOtherCommit: 'Rated at ddddddd; the change is at ccccccc now.' })?.atOtherCommit, readNeeds({ ...sent, atOtherCommit: 7 })?.atOtherCommit], ['Rated at ddddddd; the change is at ccccccc now.', undefined])
   // Without a full commit or a maker, they cannot be placed, so none are read.
   for (const wrong of [{ ...sent, head: 'abc1234' }, { ...sent, by: 'someone' }, 'nothing', null]) assert.equal(readNeeds(wrong), undefined, JSON.stringify(wrong))
   assert.equal(readNeeds({ ...sent, kind: 'a guess' })?.kind, undefined)

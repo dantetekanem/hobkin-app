@@ -720,7 +720,7 @@ export class Reviews {
     const turn = !known.phase && (stale || head == null || !this.options.store.has(target, head)) ? this.turnOf(id, target, head) : undefined
     const carriedFrom = assessment?.state === 'ready' ? assessment.summary?.carried : undefined
     // The ratings of the review that opens: of the commit it was built for, which they name, when the change moved on.
-    const needs = this.needsOf(target, stale ? (this.opened.get(id)?.review.change.head ?? at) : at)
+    const needs = this.needsOf(target, stale ? (this.opened.get(id)?.review.change.head ?? at) : at, head, carriedFrom)
     return {
       ...known,
       head,
@@ -849,7 +849,7 @@ export class Reviews {
       const outOfLine = target.kind === 'change' ? !this.line.current.has(id) : !this.watchedPulls.has(id)
       const outdated = !status.phase && outOfLine && head != null && builtFor != null && builtFor !== head && /^[0-9a-f]{40}$/.test(builtFor)
       const turn = waiting || outdated ? this.turnOf(id, target, head) : undefined
-      const needs = this.needsOf(target, builtFor ?? head)
+      const needs = this.needsOf(target, builtFor ?? head, head, known?.state === 'ready' ? known.summary?.carried : undefined)
       const item: ReviewListItem = {
         id,
         kind: target.kind,
@@ -2125,11 +2125,18 @@ export class Reviews {
    * The user's five questions answered for a review (spec 058): the change review's own at the commit, and hobkin's
    * scored run's from the change's card, each saying who made it. Empty when neither rated it.
    */
-  private needsOf(target: ReviewTarget, head: string | null): ReviewNeeds[] {
+  private needsOf(target: ReviewTarget, head: string | null, shownAt: string | null, carried?: { from: string }): ReviewNeeds[] {
     // A change review of an older host, or a stand-in, may not answer it: then the review is not rated by it.
     const own = head ? (this.options.assessments?.needsOf?.(target, head) ?? null) : null
     const hobkins = target.kind === 'change' ? (this.options.card(target.slug, target.item)?.hobkinNeeds ?? null) : null
-    return [own, hobkins].filter((needs): needs is ReviewNeeds => needs != null)
+    return [own, hobkins].filter((needs): needs is ReviewNeeds => needs != null).map((needs) => {
+      // A rating always names the commit it was made at; one made at another than its row's says which (spec 058).
+      if (!shownAt || needs.head === shownAt) return needs
+      const [rated, now] = [needs.head.slice(0, 7), shownAt.slice(0, 7)]
+      const atOtherCommit =
+        needs.by === 'change-review' && carried?.from === needs.head ? `Rated at ${rated}, where this review was built, before it was carried to ${now}.` : `Rated at ${rated}; the change is at ${now} now.`
+      return { ...needs, atOtherCommit }
+    })
   }
 
   /**

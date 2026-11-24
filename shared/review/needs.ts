@@ -38,6 +38,8 @@ export interface ReviewNeeds {
   floors?: { name: NeedName; score: number; needs: number }[]
   /** The full commit they were made at. */
   head: string
+  /** When that is another commit than the one their row or status is at, the words that say which. */
+  atOtherCommit?: string
   /** Who made them: this change review, from its Reviewer's one answer, or hobkin's own scored run. */
   by: 'change-review' | 'hobkin'
   /** When they were made, as an ISO time. */
@@ -80,6 +82,7 @@ export function readNeeds(value: unknown): ReviewNeeds | undefined {
   const kind = NEED_KINDS.includes(sent.kind as NeedKind) ? (sent.kind as NeedKind) : undefined
   const rate = typeof sent.rate === 'number' && Number.isFinite(sent.rate) && sent.rate >= 1 && sent.rate <= 10 ? sent.rate : undefined
   const missing = lineOf(sent.missing)
+  const atOtherCommit = lineOf(sent.atOtherCommit)
   return {
     ...(kind ? { kind } : {}),
     scores,
@@ -87,6 +90,7 @@ export function readNeeds(value: unknown): ReviewNeeds | undefined {
     ...(rate != null ? { rate } : {}),
     ...(Array.isArray(sent.floors) ? { floors: sent.floors.flatMap(floorOf) } : {}),
     head: sent.head,
+    ...(atOtherCommit ? { atOtherCommit } : {}),
     by: sent.by,
     ...(typeof sent.at === 'string' && !Number.isNaN(Date.parse(sent.at)) ? { at: sent.at } : {}),
     ...(sent.monitoring === 'given' || sent.monitoring === 'unknown' ? { monitoring: sent.monitoring } : {}),
