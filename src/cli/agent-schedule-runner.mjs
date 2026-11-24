@@ -49,6 +49,9 @@ export class AgentScheduleRunner {
   // Each command running now, by its schedule's id: how to stop it and whether hobkin ended it at its timeout.
   running = new Map();
   closed = false;
+  // Why the store could not be written last, or null once a write went through. What is kept in memory goes on, and
+  // the next write catches up.
+  lastError = null;
 
   /**
    * `shell` runs a command as `executeShell` does, `timers` holds the timeout, and `env` is the environment a command
@@ -88,12 +91,19 @@ export class AgentScheduleRunner {
     return this;
   }
 
+  /** Writes the store whole. A write that fails, as on a full disk, never throws: its error is kept and the next write tries again. */
   save() {
     const now = this.now();
     // An ended schedule shows for an hour and leaves the store a day after it ended.
     this.schedules = this.schedules.filter(schedule => isLive(schedule) || now - Date.parse(schedule.endedAt) < KEPT_AFTER_END_MS);
-    if (!this.schedules.length && !this.pending.length && !existsSync(join(this.root, STORE))) return;
-    atomicJson(join(this.root, STORE), { version: 1, schedules: this.schedules, wakes: this.pending });
+    try {
+      if (this.schedules.length || this.pending.length || existsSync(join(this.root, STORE))) {
+        atomicJson(join(this.root, STORE), { version: 1, schedules: this.schedules, wakes: this.pending });
+      }
+      this.lastError = null;
+    } catch (error) {
+      this.lastError = String(error?.message ?? error);
+    }
     try {
       this.onChange();
     } catch {
@@ -282,7 +292,8 @@ export class AgentScheduleRunner {
       this.pending = kept;
       changed = true;
     }
-    if (this.startDue() || changed) this.save();
+    // A store that could not be written is written again on each tick until it can be.
+    if (this.startDue() || changed || this.lastError) this.save();
   }
 
   /** Fires what is due, earliest first. A plain wake fires at once, and a command only while fewer than three run. */
@@ -318,15 +329,22 @@ export class AgentScheduleRunner {
     const resumeTo = schedule.state === 'paused' ? 'paused' : 'waiting';
     this.replace({ ...rest, state: 'running', resumeTo, startedAt: iso(fired) });
 
-    entry.done = this.runCommand(schedule, controller.signal).then(result => {
+    entry.done = this.runCommand(schedule, controller.signal).then(result => this.finish(schedule.id, entry, { fired, result }));
+  }
+
+  /** A command's run ended: the schedule settles with its result. Nothing here may reject, since nothing waits on it. */
+  finish(id, entry, { fired, result }) {
+    try {
       this.timers.clearTimeout(entry.timer);
-      this.running.delete(schedule.id);
-      const current = this.find(schedule.id);
+      this.running.delete(id);
+      const current = this.find(id);
       // One cancelled or ended meanwhile keeps its end, and hobkin closing leaves it to the next open.
       if (current?.state !== 'running' || this.closed) return;
       this.settle(current, { fired, result, timedOut: entry.timedOut }, current.resumeTo);
       this.save();
-    });
+    } catch (error) {
+      this.lastError = String(error?.message ?? error);
+    }
   }
 
   /** The shell's result, or one that says the command could not start. The shell is called at once, before any wait. */

@@ -1101,7 +1101,8 @@ export class HobkinApplication {
       if (asked) this.takeScheduleRequests(runs);
       this.agentSchedules.tick({ alive: owner => this.scheduleOwnerAlive(owner, runs) });
       this.deliverScheduleWakes(runs);
-      this.agentSchedulesError = null;
+      // A store that could not be written is kept as the schedules' trouble, and the next write tries again.
+      this.agentSchedulesError = this.agentSchedules.lastError ?? null;
     } catch (error) {
       this.agentSchedulesError = String(error?.message ?? error);
     }
@@ -1189,17 +1190,24 @@ export class HobkinApplication {
    * The environment a run on Claude Code keeps its schedules with (`hobkin schedule`, 056-agent-schedules), for the host
    * to start that run's process with: a token of the run's own and the home. `commands` says whether hobkin may run a
    * command for it, which only a run whose Claude Code permissions are "all" may; any other may schedule plain wakes.
-   * Null for a run that keeps no schedules, such as a Work run or a routine. The token names the run only while it runs.
+   * Null for a run that keeps no schedules, such as a Work run or a routine, and when the runs cannot be read: the run
+   * then goes on without them. The token names the run only while it runs. It never rejects.
    */
   async agentScheduleEnvironment(harnessId, { commands = false } = {}) {
-    const { runs } = await this.runner.runIndex();
-    const run = Object.values(runs).find(item => item.harnessId === harnessId && item.status === 'running');
-    const owner = run && scheduleOwnerOf(run.id);
-    if (!owner) return null;
-    const { cwd, wait } = (await this.runtime.state()).runs[run.id] ?? {};
-    const token = turnToken();
-    (this.scheduleTokens ??= new Map()).set(token, { owner, runId: run.id, cwd, waits: owner.kind === 'run' ? wait?.waits ?? 0 : undefined, commands: commands === true });
-    return { [SCHEDULE_ENVIRONMENT.token]: token, [SCHEDULE_ENVIRONMENT.home]: this.runtime.directory };
+    try {
+      const { runs } = await this.runner.runIndex();
+      const run = Object.values(runs).find(item => item.harnessId === harnessId && item.status === 'running');
+      const owner = run && scheduleOwnerOf(run.id);
+      if (!owner) return null;
+      const { cwd, wait } = (await this.runtime.state()).runs[run.id] ?? {};
+      const token = turnToken();
+      const waits = owner.kind === 'run' ? wait?.waits ?? 0 : undefined;
+      (this.scheduleTokens ??= new Map()).set(token, { owner, runId: run.id, cwd, waits, commands: commands === true });
+      return { [SCHEDULE_ENVIRONMENT.token]: token, [SCHEDULE_ENVIRONMENT.home]: this.runtime.directory };
+    } catch (error) {
+      this.agentSchedulesError = String(error?.message ?? error);
+      return null;
+    }
   }
 
   /** What `hobkin schedule` asked from a run's shell, each answered once, as the run its token names. A token outlives no run. */

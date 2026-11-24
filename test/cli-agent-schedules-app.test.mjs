@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
@@ -74,4 +74,27 @@ test("a failure in the schedules' tick is kept and the runtime's tick goes on", 
   assert.equal(app.agentSchedulesError, 'The disk is full.');
   await app.runner.tick();
   assert.equal(app.runner.lastError, null);
+});
+
+test('what the host calls never rejects: an operation on a store that cannot be written answers, and a run whose runs cannot be read gets no token', async t => {
+  const h = home(t);
+  const unhandled = [];
+  const listen = reason => unhandled.push(reason);
+  process.on('unhandledRejection', listen);
+  t.after(() => process.off('unhandledRejection', listen));
+  const app = await h.open({ now: () => NOW });
+  const made = app.agentSchedules.make({ kind: 'main' }, h.root, { every: '5m', in: '5m', note: 'Look.' });
+
+  const runtime = join(h.root, 'runtime');
+  chmodSync(runtime, 0o500);
+  const paused = await app.pauseAgentSchedule(made.id, true);
+  chmodSync(runtime, 0o700);
+  assert.deepEqual(paused, { ok: true });
+  await app.tickAgentSchedules();
+  assert.equal(app.agentSchedulesError, null, 'the next write caught up');
+
+  app.runner.runIndex = async () => { throw Error('The store is closed.'); };
+  assert.equal(await app.agentScheduleEnvironment('any-harness', { commands: true }), null);
+  assert.equal(app.agentSchedulesError, 'The store is closed.');
+  assert.deepEqual(unhandled, []);
 });

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterRun, askedSchedule, MOST_WAKES, parseDuration, scheduleView } from '../src/cli/agent-schedules.mjs';
@@ -290,4 +290,35 @@ test('schedules end with their owner, and a home that never schedules writes not
   runner.endOwner(main, 'the chat was reset');
   assert.equal(runner.view().find(view => view.id === kept.id).endedWhy, 'the chat was reset');
   assert.equal(runner.live(main), 0);
+});
+
+test('a store that cannot be written costs only the write: the run settles, nothing rejects unhandled, and the error is kept', async t => {
+  const h = harness(t);
+  const unhandled = [];
+  const listen = reason => unhandled.push(reason);
+  process.on('unhandledRejection', listen);
+  t.after(() => process.off('unhandledRejection', listen));
+  const runner = h.open();
+  const watch = runner.make(main, '/work', { command: 'sleep 1', every: '5m', note: 'Look.' });
+  runner.tick();
+  const runtime = join(h.root, 'runtime');
+  chmodSync(runtime, 0o500);
+
+  h.calls[0].end(exit(0, 'done'));
+  await settle();
+  await settle();
+  // Writable again before anything can fail, so the home can be removed.
+  const failedWrite = runner.lastError;
+  chmodSync(runtime, 0o700);
+  assert.deepEqual(unhandled, []);
+  assert.match(failedWrite, /EACCES/);
+  assert.equal(runner.find(watch.id).state, 'waiting', 'the run settled in memory');
+  chmodSync(runtime, 0o500);
+  assert.deepEqual(runner.cancel(watch.id), { ok: true }, 'an operation still answers');
+  chmodSync(runtime, 0o700);
+  assert.equal(runner.find(watch.id).state, 'cancelled');
+
+  runner.make(main, '/work', { in: '5m', note: 'Look again.' });
+  assert.equal(readAgentSchedules(h.root).schedules.find(item => item.id === watch.id).state, 'cancelled', 'the next write catches up');
+  assert.equal(runner.lastError, null);
 });
