@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import {
   appPackage,
   classifyTarget,
+  integrationEntries,
   leakedUserPaths,
   mapImport,
   nodeBinaryProblems,
@@ -149,4 +150,12 @@ test('accepts only a standalone official arm64 Node', () => {
 test('finds a user folder in a staged file, but not a placeholder one', () => {
   assert.deepEqual(leakedUserPaths("home: '/Users/someone/.hobkin', cwd: '/Users/example/project'"), [])
   assert.deepEqual(leakedUserPaths('from /Users/alex/code and /Users/alex/code again, and /Users/sam/x'), ['/Users/alex', '/Users/sam'])
+})
+
+test('stages each integration folder\'s manifest and host part, and nothing else of it', () => {
+  assert.deepEqual(
+    integrationEntries(['github/host.ts', 'github/integration.ts', 'github/window.tsx', 'github/test/host.test.ts', 'github/host/state.ts', 'github/window/Card.tsx', 'echo/integration.ts', 'README.md', 'Bad_Name/host.ts']),
+    ['integrations/echo/integration.ts', 'integrations/github/host.ts', 'integrations/github/integration.ts'],
+  )
+  assert.deepEqual(integrationEntries([]), [])
 })

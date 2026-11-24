@@ -17,13 +17,14 @@
  * Packages come from the pnpm store with --offline, so staging never reaches the network.
  */
 import { spawnSync, type SpawnSyncOptions } from 'node:child_process'
-import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { isBuiltin } from 'node:module'
 import { tmpdir } from 'node:os'
-import { basename, dirname, join, posix, relative, resolve } from 'node:path'
+import { basename, dirname, join, posix, relative, resolve, sep } from 'node:path'
 import {
   appPackage,
   classifyTarget,
+  integrationEntries,
   mapImport,
   nodeBinaryProblems,
   packageManifest,
@@ -110,6 +111,10 @@ function hostFiles(client: string, runtime: string): HostFiles {
   }
 
   load(ENTRY, 'the entry')
+  // The host finds each integration's manifest and host part by listing the folder, so no import leads to them.
+  const integrations = join(client, 'integrations')
+  const listed = existsSync(integrations) ? readdirSync(integrations, { recursive: true }).map((path) => String(path).split(sep).join('/')) : []
+  for (const path of integrationEntries(listed)) load(path, 'the integrations folder')
   while (queue.length) {
     const file = queue.shift()!
     if (!isFile(join(client, file))) {

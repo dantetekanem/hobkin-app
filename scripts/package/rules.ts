@@ -78,6 +78,18 @@ export const FOLDER_READS: Readonly<Record<string, readonly string[]>> = {
   'ui/src/features/review/sample/': ['review.json', 'files.json'],
 }
 
+/**
+ * The files the host loads from the integrations folder, given the paths under it (`github/host.ts`, ...): each
+ * folder's manifest and host part. The window part, the tests and the rest of a folder are not the host's. A folder
+ * whose name is not a valid integration id is not an integration, and neither is a file beside the folders.
+ */
+export function integrationEntries(paths: readonly string[]): string[] {
+  return paths
+    .filter((path) => /^[a-z][a-z0-9-]{0,31}\/(integration|host)\.ts$/.test(path))
+    .map((path) => `integrations/${path}`)
+    .sort()
+}
+
 const CODE = /\.(ts|mts|mjs|js)$/
 
 export type Target =
