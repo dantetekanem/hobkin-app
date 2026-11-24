@@ -591,19 +591,6 @@ export const COMMANDS = {
     args: mcpServer,
     outside: true,
   },
-  'integrations.add': {
-    description:
-      "Add a service from the Integrations catalog to Pi's configuration, by its catalog id, with the values its entry asks for, such as the address of the user's own server. A key is never a value here: the entry reads it from an environment variable the user sets in their shell profile.",
-    runs: 'host',
-    args: Type.Object(
-      {
-        service: Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}$' }),
-        values: Type.Optional(Type.Record(Type.String({ pattern: '^[a-z][a-z0-9-]{0,63}$' }), Type.String({ maxLength: 512 }))),
-      },
-      { additionalProperties: false },
-    ),
-    outside: true,
-  },
   'integrations.remove': {
     description: "Remove an MCP server from Pi's configuration: its entry is deleted, and nothing else in the file changes.",
     runs: 'host',
@@ -1591,7 +1578,6 @@ export interface CommandResults {
   'integrations.refresh': IntegrationsState
   'integrations.turn-off': IntegrationsState
   'integrations.turn-on': IntegrationsState
-  'integrations.add': IntegrationsState
   'integrations.remove': IntegrationsState
   /** Each answers with Pi's list as it stands once the change is made, read again through Pi. */
   'skills.refresh': SkillsState
@@ -1765,11 +1751,10 @@ export const isScreen = (id: string): boolean => isCoreScreen(id) || addedScreen
 export const integrationScreens = (): string[] => [...addedScreens()]
 
 /**
- * Adds an integration's commands and screens, all or nothing. Refused, with the reason, when its id is not a valid
- * integration id, a command is not named `<id>.<something>`, or a command or screen id is one the app already has,
- * its own or another integration's.
+ * Throws the reason when `registerIntegration` would refuse this manifest, and changes nothing. A loader asks before it
+ * runs the integration's code, so a refused folder has run none.
  */
-export function registerIntegration({ id, commands, screens }: IntegrationManifest): void {
+export function checkIntegration({ id, commands, screens }: IntegrationManifest): void {
   if (typeof id !== 'string' || !INTEGRATION_ID.test(id)) throw Error(`"${String(id)}" is not an integration id: it starts with a letter and holds lowercase letters, digits and dashes.`)
   const names = Object.keys(commands)
   for (const name of names) {
@@ -1781,8 +1766,23 @@ export function registerIntegration({ id, commands, screens }: IntegrationManife
     if (isScreen(screen) || ids.has(screen)) throw Error(`${screen} is a screen the app already has.`)
     ids.add(screen)
   }
-  for (const name of names) addedCommands().set(name, commands[name]!)
-  for (const screen of ids) addedScreens().add(screen)
+}
+
+/**
+ * Adds an integration's commands and screens, all or nothing. Refused, with the reason, when its id is not a valid
+ * integration id, a command is not named `<id>.<something>`, or a command or screen id is one the app already has,
+ * its own or another integration's.
+ */
+export function registerIntegration(manifest: IntegrationManifest): void {
+  checkIntegration(manifest)
+  for (const [name, command] of Object.entries(manifest.commands)) addedCommands().set(name, command)
+  for (const { id } of manifest.screens) addedScreens().add(id)
+}
+
+/** Takes an integration's commands and screens out again, as a host that stops does. Only what this manifest added goes. */
+export function unregisterIntegration({ commands, screens }: IntegrationManifest): void {
+  for (const [name, command] of Object.entries(commands)) if (addedCommands().get(name) === command) addedCommands().delete(name)
+  for (const { id } of screens) addedScreens().delete(id)
 }
 
 /** Whether the app has a command by this name, one of its own or an integration's. */
