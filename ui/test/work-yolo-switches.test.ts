@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { YoloChange, YoloProject, YoloState } from '#shared/protocol/work.ts'
 import { SAMPLE_YOLO } from '../src/features/settings/yolo.ts'
-import { GATES_COUNTS, gates, hasSwitch, isOn, offLine, projectOrder, sampleSwitch, switchesSay, trustTiles } from '../src/features/work/yolo-page.ts'
+import { GATES_COUNTS, gates, hasSwitch, isOn, offLine, projectOrder, pullsSay, sampleSwitch, switchesSay, trustTiles } from '../src/features/work/yolo-page.ts'
 
 const change = (item: string, rate: number, why: string | null = null): YoloChange => ({ item, title: `Change ${item}`, kind: 'a bug fix', rate, why })
 const project = (slug: string, on: boolean | undefined, change_: Partial<YoloProject> = {}): YoloProject => ({
@@ -39,7 +39,15 @@ test('a hobkin that sends no switch has every project shown on, with no switch, 
   assert.deepEqual([hasSwitch(older), isOn(older)], [false, true])
   assert.deepEqual([hasSwitch(project('api', false)), isOn(project('api', false))], [true, false])
   assert.equal(switchesSay(yolo([older])), null)
-  assert.equal(switchesSay(yolo([project('api', true)])), 'Each project has its own switch. A project YOLO mode was already working on stays on until you turn it off, and one taken on Work later starts off.')
+  assert.equal(switchesSay(yolo([project('api', true)])), 'Each project has its own switch. A project you had when the switches came stays on until you turn it off, and one taken on Work later starts off.')
+})
+
+test('where hobkin takes pull requests, the page says two can merge on back-to-back passes on checks from before the first landed', () => {
+  assert.equal(pullsSay(yolo([project('api', true)])), null, 'a hobkin that takes none says nothing of them')
+  assert.equal(
+    pullsSay({ ...yolo([project('api', true)]), pullRequests: true }),
+    'A pull request merges one a pass on each project. The next one can merge on the pass after, on checks that ran before the first landed, unless its repository requires branches to be up to date before merging.',
+  )
 })
 
 test('the gates count only the projects YOLO mode is on for and say so, and the 30-day numbers are for every project and say so', () => {

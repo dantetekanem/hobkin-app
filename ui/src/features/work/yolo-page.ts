@@ -43,7 +43,16 @@ export function offLine({ changes }: YoloProject): string {
 /** What a project's switch is before the user touched it, said once over the projects while hobkin sends switches. */
 export function switchesSay({ projects }: YoloState): string | null {
   if (!projects.some(hasSwitch)) return null
-  return 'Each project has its own switch. A project YOLO mode was already working on stays on until you turn it off, and one taken on Work later starts off.'
+  return 'Each project has its own switch. A project you had when the switches came stays on until you turn it off, and one taken on Work later starts off.'
+}
+
+/**
+ * Where hobkin takes pull requests: one merges a pass on each project, and the next can merge on checks from before the first landed, which
+ * only a repository that requires branches to be up to date prevents. Null where hobkin takes none.
+ */
+export function pullsSay({ pullRequests }: YoloState): string | null {
+  if (!pullRequests) return null
+  return 'A pull request merges one a pass on each project. The next one can merge on the pass after, on checks that ran before the first landed, unless its repository requires branches to be up to date before merging.'
 }
 
 /** The sample after a project's switch is pressed, so the page answers with no host as hobkin would. */
@@ -289,6 +298,8 @@ export interface VerdictContext {
   waits: string | null
   paused: boolean
   prMode: PrMode
+  /** Whether hobkin takes a change waiting on its pull request at all. A hobkin that does not say takes none. */
+  pullRequests?: boolean
   readiness: ReadinessRow
 }
 
@@ -333,8 +344,10 @@ function mergesOf(project: YoloProject, context: VerdictContext): StatusLine {
   const next = firstChange(project.changes ?? [])
   if (next && !next.why) return { state: 'Merging', tone: 'live', text: `"${next.title}" merges by itself on the next pass: ${next.kind} rated ${next.rate}.` }
   if (next?.why) return stuck(`Nothing can merge by itself. "${next.title}" asks you: ${sentence(next.why)}`)
+  if (context.prMode !== 'off' && !context.pullRequests) return stuck('PR mode is on here, so each change goes up as a PR for your merge, and YOLO mode merges no PR.')
   if (context.prMode !== 'off') {
-    return { state: 'Idle', tone: 'quiet', text: `Nothing waits to merge. Each change goes up as a PR, and the next small one rated ${context.rate} or more merges there by itself once its checks pass.` }
+    const asPull = `Each change goes up as a PR, and the next small one rated ${context.rate} or more merges there by itself once every check on it passed.`
+    return { state: 'Idle', tone: 'quiet', text: `Nothing waits to merge. ${asPull} A draft, or one with no checks, never does.` }
   }
   return { state: 'Idle', tone: 'quiet', text: `Nothing waits to merge. The next small change rated ${context.rate} or more merges by itself.` }
 }

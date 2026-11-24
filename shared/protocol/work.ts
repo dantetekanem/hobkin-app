@@ -303,6 +303,11 @@ export interface YoloState {
   ready: number
   /** Why nothing merges by itself anywhere, while work mode is off or paused, in hobkin's words. A hobkin older than this does not send it. */
   waits?: string | null
+  /**
+   * Whether YOLO mode takes a change waiting on its own pull request at all, by a switch in hobkin's code that ships off. A hobkin
+   * older than this does not send it, and then it takes none.
+   */
+  pullRequests?: boolean
   projects: YoloProject[]
 }
 

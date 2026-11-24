@@ -41,6 +41,7 @@ import {
   projectOrder,
   readinessRow,
   sampleReadiness,
+  pullsSay,
   sampleSwitch,
   stillToSetUp,
   switchesSay,
@@ -289,12 +290,14 @@ function Projects({ workProjects, ...context }: CardContext & { workProjects: Wo
   const ordered = projectOrder(yolo.projects, kept.current)
   if (!kept.current && ordered.length) kept.current = ordered.map(({ slug }) => slug)
   const switches = switchesSay(yolo)
+  const pulls = pullsSay(yolo)
   return (
     <section aria-label="Projects" className="flex flex-col gap-3">
       <SectionHeading label="Projects" count={readyCount(yolo)} />
       <p className="px-1 text-[13px] leading-snug text-muted-foreground">
         Each project says what YOLO mode does there and, when it does nothing, why and the one thing that moves it. Readiness sets up the rest as PRs for your merge and asks you only for what you alone can give, with YOLO mode on or off.
         {switches ? ` ${switches}` : null}
+        {pulls ? ` ${pulls}` : null}
       </p>
       <ProofSetup live={live} />
       {ordered.length ? (
@@ -350,6 +353,7 @@ function ProjectCard({ project, workProject, yolo, live, workOn, finished, setti
     waits: yolo.waits ?? (workOn ? null : 'work mode is off'),
     paused: workProject?.paused ?? false,
     prMode: workProject?.prMode ?? 'off',
+    pullRequests: yolo.pullRequests ?? false,
     readiness,
   }
   const verdict = yoloVerdict(project, context)

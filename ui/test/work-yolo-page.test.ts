@@ -195,7 +195,7 @@ test('a change that merges on the next pass says so, and the deploy that still n
   assert.deepEqual(verdictOf({ parts: [DEPLOY_DONE], changes: [change('Fix login', 9.2, null, 'fl')] }).action, { label: 'Open review', press: { do: 'review', slug: 'api', item: 'fl' } })
 })
 
-test('nothing merges while YOLO mode is off, work mode waits or the project is paused, each says so, and in PR mode a change merges as its PR', () => {
+test('nothing merges while YOLO mode is off, work mode waits or the project is paused, each says so, and in PR mode a change merges as its PR only where hobkin takes pull requests', () => {
   const off = verdictOf({}, { on: false })
   assert.deepEqual([off.merges.state, off.merges.text, off.action], ['Off', 'YOLO mode is off, so every change here asks you.', null])
   assert.deepEqual(verdictOf({ ...project(), ready: false }, { on: false }).action, { label: 'Run readiness', press: { do: 'readiness' } }, 'readiness still runs with it off')
@@ -203,10 +203,16 @@ test('nothing merges while YOLO mode is off, work mode waits or the project is p
   const waits = verdictOf({}, { waits: 'work mode is paused' })
   assert.deepEqual([waits.merges.state, waits.merges.text, waits.action], ['Stuck', 'Nothing merges by itself while work mode is paused.', { label: 'Open Work', press: { do: 'work', key: null } }])
   assert.equal(verdictOf({}, { paused: true }).merges.text, 'Nothing merges by itself while api is paused on Work.')
+  // A hobkin that takes no pull request, as it ships, or one older than the switch.
   assert.deepEqual(verdictOf({ changes: [] }, { prMode: 'published' }).merges, {
+    state: 'Stuck',
+    tone: 'warn',
+    text: 'PR mode is on here, so each change goes up as a PR for your merge, and YOLO mode merges no PR.',
+  })
+  assert.deepEqual(verdictOf({ changes: [] }, { prMode: 'published', pullRequests: true }).merges, {
     state: 'Idle',
     tone: 'quiet',
-    text: 'Nothing waits to merge. Each change goes up as a PR, and the next small one rated 8 or more merges there by itself once its checks pass.',
+    text: 'Nothing waits to merge. Each change goes up as a PR, and the next small one rated 8 or more merges there by itself once every check on it passed. A draft, or one with no checks, never does.',
   })
 })
 
