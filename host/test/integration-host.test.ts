@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { test, type TestContext } from 'node:test'
 import { Type } from 'typebox'
@@ -7,8 +8,9 @@ import { defineIntegration, type IntegrationManifest } from '#shared/integration
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { runCommand, Unavailable } from '../src/commands.ts'
 import { createClientTool } from '../src/client-tool.ts'
-import type { CommandCall } from '../src/integration-contract.ts'
-import { IntegrationHost, type IntegrationModule } from '../src/integration-host.ts'
+import type { CommandCall, HostContext, HostPart, ToolHooks } from '../src/integration-contract.ts'
+import { IntegrationHost, type IntegrationHostOptions, type IntegrationModule } from '../src/integration-host.ts'
+import { workflowHandlers } from '../src/workflows.ts'
 import { ToolCallWatcher } from '../src/tool-calls.ts'
 import echo from './fixtures/integrations/echo/integration.ts'
 import echoHost from './fixtures/integrations/echo/host.ts'
@@ -64,7 +66,7 @@ test('view.open takes a core screen or a registered one, and refuses any other',
 interface Heard { what: string; detail: unknown }
 
 /** The fixture folders loaded the way the host loads them, with what the echo integration heard and the host logged. */
-async function loaded(t: TestContext, extra: Record<string, unknown> = {}, integrations: string | readonly IntegrationModule[] = FIXTURES) {
+async function loaded(t: TestContext, extra: Record<string, unknown> = {}, integrations: string | readonly IntegrationModule[] = FIXTURES, more: Partial<IntegrationHostOptions> = {}) {
   const heard: Heard[] = []
   const logs: string[] = []
   const changes: number[] = []
@@ -80,6 +82,7 @@ async function loaded(t: TestContext, extra: Record<string, unknown> = {}, integ
     },
     dataRoot: () => '/nowhere',
     snapshotWork: () => undefined,
+    ...more,
   })
   t.after(() => host.close())
   const only = (what: string) => heard.filter((item) => item.what === what).map(({ detail }) => detail)
@@ -236,4 +239,157 @@ test('a host started with an integration runs its commands, sends its slice with
     { name: 'echo.say', from: 'window', ok: true },
     { name: 'view.open', from: 'window', ok: true },
   ])
+})
+
+// Tools, hooks on tool calls and workflows (spec 065, A9 to A11).
+
+/** An integration made of a few lines: its host part is what the test gives. */
+const inline = (id: string, part: HostPart | ((context: HostContext) => HostPart)): IntegrationModule => ({
+  folder: id,
+  manifest: defineIntegration({ id, name: id, line: 'x', screens: [], commands: {} }),
+  host: (context) => (typeof part === 'function' ? part(context) : part),
+})
+const runtimeOf = async (t: TestContext, modules: IntegrationModule[], more: Partial<IntegrationHostOptions> = {}) => {
+  const { host } = await loaded(t, {}, modules, more)
+  return host.runtimeOption()
+}
+const call = (name: string, args: Record<string, unknown> = {}) => ({ agent: '#main', id: 'c1', name, args })
+
+test("an integration's tools are offered to agents by their prefixed names with JSON schemas, and a call runs in the host with the agent named", async (t) => {
+  const { host, logs } = await loaded(t)
+  const option = host.runtimeOption()!
+  const [shout] = option.tools()
+  assert.equal(shout!.name, 'echo_shout')
+  assert.deepEqual(shout!.agents, ['main', 'runs'])
+  assert.equal((shout!.parameters as { type: string }).type, 'object')
+  assert.equal(JSON.parse(JSON.stringify(shout)).parameters.properties.text.type, 'string')
+  assert.deepEqual(await option.callTool('echo_shout', { text: 'hi' }, { agent: 'run-7', id: 'x' }), { text: 'run-7: HI' })
+  assert.deepEqual(await option.callTool('echo_shout', { text: 'explode' }, { agent: '#main', id: 'x' }), { text: 'it exploded', failed: true })
+  const bad = await option.callTool('echo_shout', { text: 3 }, { agent: '#main', id: 'x' })
+  assert.equal(bad.failed, true)
+  assert.match(bad.text, /echo_shout was given arguments that do not fit/)
+  assert.equal((await option.callTool('nothing', {}, { agent: '#main', id: 'x' })).failed, true)
+  assert.ok(logs.some((line) => line.includes('echo: The tool echo_shout failed: it exploded')))
+})
+
+test('with no tools, hooks or workflows the host offers hobkin nothing, and a bad tool leaves its folder out', async (t) => {
+  assert.equal(await runtimeOf(t, [inline('plain', {})]), null)
+  const { host, logs } = await loaded(t, {}, [inline('odd', { tools: [{ name: 'Bad Name', description: 'x', parameters: Type.Object({}), execute: () => 'x' }] }), inline('twice', { tools: [{ name: 'a', description: 'x', parameters: Type.Object({}), execute: () => 'x' }, { name: 'a', description: 'x', parameters: Type.Object({}), execute: () => 'x' }] })])
+  assert.deepEqual(host.ids(), [])
+  assert.equal(logs.filter((line) => line.includes('is left out')).length, 2)
+})
+
+test('a tool name is its integration id with _ for -, and two integrations cannot give the same name', async (t) => {
+  const tool = (name: string) => ({ name, description: 'x', parameters: Type.Object({}), execute: () => 'x' })
+  const { host, logs } = await loaded(t, {}, [inline('a-b', { tools: [tool('c_d')] }), inline('a', { tools: [tool('b_c_d')] })])
+  assert.deepEqual(host.runtimeOption()!.tools().map(({ name }) => name), ['a_b_c_d'], 'the second is left out as a duplicate')
+  assert.ok(logs.some((line) => line.includes('a_b_c_d is given twice')))
+})
+
+test('a before hook refuses a hooked call with its reason, changes another call, and a call nothing hooks is let through', async (t) => {
+  const { host, only } = await loaded(t)
+  const option = host.runtimeOption()!
+  assert.deepEqual(option.hookedTools(), ['echo_shout', 'bash'])
+  assert.deepEqual(await option.beforeTool(call('echo_shout', { text: 'forbidden' })), { block: 'echo does not say that.' })
+  assert.deepEqual(await option.beforeTool(call('bash', { command: 'ls' })), { args: { command: 'ls --quiet' } })
+  assert.equal(await option.beforeTool(call('echo_shout', { text: 'fine' })), null)
+  assert.equal(await option.beforeTool(call('read', { path: 'x' })), null, 'not its tool')
+  assert.equal(only('tool-before').length, 3, 'the hook never heard the unhooked call')
+})
+
+test('an after hook changes what the agent reads, and leaves other results as they were', async (t) => {
+  const { host } = await loaded(t, { hide: 'secret' })
+  const option = host.runtimeOption()!
+  assert.deepEqual(await option.afterTool(call('echo_shout'), { text: 'a secret here', failed: false }), { text: 'a *** here', failed: false })
+  assert.equal(await option.afterTool(call('echo_shout'), { text: 'nothing', failed: false }), null)
+  assert.equal(await option.afterTool(call('read'), { text: 'a secret', failed: false }), null)
+})
+
+test('hooks run in folder order: the first refusal wins, and changed arguments pass to the next hook', async (t) => {
+  const seen: unknown[] = []
+  const hook = (name: string, before: ToolHooks['before']) => inline(name, { toolHooks: { tools: 'all', before: (c) => (seen.push([name, c.args]), before!(c)) } })
+  const option = (await runtimeOf(t, [
+    hook('b-second', (c) => (c.args.stop ? { block: 'second said no' } : undefined)),
+    hook('a-first', (c) => ({ args: { ...c.args, first: true } })),
+    hook('c-third', (c) => ({ args: { ...c.args, third: true } })),
+  ]))!
+  assert.equal(option.hookedTools(), 'all')
+  assert.deepEqual(await option.beforeTool(call('x', { n: 1 })), { args: { n: 1, first: true, third: true } })
+  assert.deepEqual(seen.slice(0, 3), [['a-first', { n: 1 }], ['b-second', { n: 1, first: true }], ['c-third', { n: 1, first: true }]])
+  seen.length = 0
+  assert.deepEqual(await option.beforeTool(call('x', { stop: true })), { block: 'second said no' })
+  assert.deepEqual((seen as [string, unknown][]).map(([name]) => name), ['a-first', 'b-second'], 'the third was never asked')
+})
+
+test('a hook that throws or is slow lets the call through and is logged, unless it says to refuse', async (t) => {
+  const failing = (id: string, failClosed: boolean, how: 'throw' | 'slow') =>
+    inline(id, { toolHooks: { tools: ['x'], failClosed, before: () => (how === 'throw' ? Promise.reject(Error('it broke')) : new Promise(() => {})), after: () => { throw Error('after broke') } } })
+  const open = await loaded(t, {}, [failing('open-throw', false, 'throw'), failing('open-slow', false, 'slow')], { hookTimeoutMs: 20 })
+  const option = open.host.runtimeOption()!
+  assert.equal(await option.beforeTool(call('x', { n: 1 })), null)
+  assert.equal(await option.afterTool(call('x'), { text: 'as it was', failed: false }), null)
+  assert.ok(open.logs.some((line) => line.includes('open-throw: Its before hook failed for x, so the call went through: it broke')))
+  assert.ok(open.logs.some((line) => line.includes('did not answer within')))
+  open.host.close()
+
+  const closed = (await runtimeOf(t, [failing('shut', true, 'slow')], { hookTimeoutMs: 20 }))!
+  assert.match((await closed.beforeTool(call('x')) as { block: string }).block, /shut integration's check of this call failed, so it was refused/)
+  const after = await closed.afterTool(call('x'), { text: 'secret', failed: false })
+  assert.equal(after?.failed, true)
+  assert.match(after!.text!, /withheld/)
+})
+
+test("each integration's workflows folder is given with that integration's tool names", async (t) => {
+  const { host } = await loaded(t)
+  assert.deepEqual(host.runtimeOption()!.workflowFolders(), [{ id: 'echo', folder: join(FIXTURES, 'echo', 'workflows'), tools: ['echo_shout'] }])
+  assert.equal((await runtimeOf(t, [inline('bare', {})]))?.workflowFolders(), undefined)
+})
+
+test('a command that ended well starts the workflows that list after:<command>, with its arguments and answer, and no other', async (t) => {
+  const started: unknown[] = []
+  const rows = [
+    { id: 'echo/digest', integration: 'echo', on: ['press', 'after:echo.say'], enabled: true },
+    { id: 'echo/off', integration: 'echo', on: ['after:echo.say'], enabled: false },
+    { id: 'echo/other', integration: 'echo', on: ['after:echo.quiet'], enabled: true },
+    { id: 'routine', on: ['after:echo.say'] },
+  ]
+  const { host } = await loaded(t, {}, FIXTURES, { workflows: { rows: () => rows, start: async (id, input) => (started.push([id, input]), { run: 'r1' }) } })
+  await runCommand(host.handlers(), 'echo.say', { text: 'hi' }, host.hooks('window'))
+  await runCommand(host.handlers(), 'echo.say', { text: 3 }, host.hooks('window'))
+  assert.deepEqual(started, [['echo/digest', { command: 'echo.say', args: { text: 'hi' }, answer: { said: 'hi' } }]])
+  started.length = 0
+  await runCommand({ 'echo.say': () => { throw Error('no') } }, 'echo.say', { text: 'hi' }, host.hooks('window'))
+  assert.deepEqual(started, [], 'a command that failed starts nothing')
+})
+
+test("a part starts its own workflow by its file name, and is refused with the reason when hobkin cannot", async (t) => {
+  const started: unknown[] = []
+  let context!: HostContext
+  await loaded(t, {}, [inline('flow', (given) => ((context = given), {}))], { workflows: { rows: () => [], start: async (id, input) => (started.push([id, input]), { run: 'r2' }) } })
+  assert.deepEqual(await context.startWorkflow('digest', { n: 1 }), { run: 'r2' })
+  assert.deepEqual(started, [['flow/digest', { n: 1 }]])
+  await assert.rejects(context.startWorkflow('../x'), /not a workflow's file name/)
+  await loaded(t, {}, [inline('lone', (given) => ((context = given), {}))])
+  await assert.rejects(context.startWorkflow('digest'), /no workflow starts/)
+})
+
+test("workflow.run and workflow.enable go to the application's own calls, and say why when the runtime has none", async () => {
+  const calls: unknown[] = []
+  const app = {
+    startWorkflow: async (id: string, input?: unknown) => (calls.push(['start', id, input]), { run: 'r3' }),
+    setWorkflowEnabled: async (id: string, enabled: boolean) => (calls.push(['enable', id, enabled]), { id, enabled }),
+  }
+  const handlers = workflowHandlers({ app: () => app })
+  assert.deepEqual(await runCommand(handlers, 'workflow.run', { id: 'echo/digest' }), { ok: true, value: { run: 'r3' } })
+  assert.deepEqual(await runCommand(handlers, 'workflow.enable', { id: 'echo/digest', on: false }), { ok: true, value: { id: 'echo/digest', enabled: false } })
+  assert.deepEqual(calls, [['start', 'echo/digest', undefined], ['enable', 'echo/digest', false]])
+  assert.equal((await runCommand(handlers, 'workflow.run', { id: 'digest' })).ok, false, 'an id names its integration')
+  assert.equal(commandDefinition('workflow.run')?.hobkin, true)
+  assert.equal(commandDefinition('workflow.enable')?.hobkin, undefined, 'turning one off is the window only')
+
+  const old = workflowHandlers({ app: () => ({}) })
+  const none = await runCommand(old, 'workflow.run', { id: 'echo/digest' })
+  assert.deepEqual(none, { ok: false, error: { code: 'unavailable', message: "hobkin's runtime in this host has no workflows yet." } })
+  const refused = workflowHandlers({ app: () => ({ startWorkflow: async () => { throw Error('Workflow is turned off.') } }) })
+  assert.deepEqual(await runCommand(refused, 'workflow.run', { id: 'echo/digest' }), { ok: false, error: { code: 'unavailable', message: 'Workflow is turned off.' } })
 })

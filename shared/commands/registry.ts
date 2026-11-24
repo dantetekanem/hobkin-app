@@ -1194,6 +1194,19 @@ export const COMMANDS = {
       { additionalProperties: false },
     ),
   },
+  // An integration's workflows (065-integration-drops): routines in its `workflows/` folder, started by the user's press or by hobkin.
+  'workflow.run': {
+    description:
+      "Start one run of an integration's workflow now, by its id `<integration>/<name>`, as the user's press on it does. It runs with its own directions and the integration's tools, and reports in Reports. Refused when the workflow is unknown or turned off, or when hobkin's runtime has no workflows.",
+    runs: 'host',
+    args: Type.Object({ id: Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}/[a-z0-9][a-z0-9._-]{0,79}$', maxLength: 160 }) }, { additionalProperties: false }),
+    hobkin: true,
+  },
+  'workflow.enable': {
+    description: "Turn an integration's workflow on or off, by its id `<integration>/<name>`. A workflow turned off does not run, by its schedule or any other start.",
+    runs: 'host',
+    args: Type.Object({ id: Type.String({ pattern: '^[a-z0-9][a-z0-9-]{0,63}/[a-z0-9][a-z0-9._-]{0,79}$', maxLength: 160 }), on: Type.Boolean() }, { additionalProperties: false }),
+  },
   'agent.session': {
     description: 'Read the saved Pi job session belonging to a known report. Read-only; never resumes or sends its contents to a model. Returns the saved active branch; files over 2 MiB are refused without opening a partial branch.',
     runs: 'host',
@@ -1489,6 +1502,9 @@ export interface CommandResults {
   'setup.save': SetupSaved
   'setup.saved': SetupSaved | null
   'setup.work': SetupWorkDone
+  /** The run that started, by its id. */
+  'workflow.run': { run: string }
+  'workflow.enable': { id: string; enabled: boolean }
   'system.open': { ok: true }
   'canvas.show': CanvasState
   'canvas.close': CanvasState

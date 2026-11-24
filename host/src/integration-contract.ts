@@ -1,3 +1,4 @@
+import type { Static, TSchema } from 'typebox'
 import type { PullRequest } from '#shared/protocol/pulls.ts'
 import type { CommandOutcome } from './commands.ts'
 import type { GhCall } from './review/gh.ts'
@@ -47,6 +48,61 @@ export interface Merged {
   number?: number
 }
 
+/** Which of hobkin's agents a tool goes to: the main conversation, its runs (routines, Work, sessions), or a durable hobkin's turns. */
+export type ToolAgents = 'main' | 'runs' | 'durable'
+
+/** What a tool's `execute` is told of the call. */
+export interface ToolRun {
+  /** The agent that called it: `#main` for the main conversation, or the run's id. */
+  agent: string
+  /** The call's id, unique within its agent. */
+  id: string
+  signal?: AbortSignal
+}
+
+/** What a tool gives the agent: its words, and whether the call failed. */
+export type ToolAnswer = string | { text: string; failed?: boolean }
+
+/**
+ * A tool an integration gives agents (_specs/065-integration-drops). The host names it `<id with _ for ->_<name>`, so
+ * `find_pull` of `github` is `github_find_pull`. Its `execute` runs in the host, and what it returns is what the agent
+ * reads. One that throws is read as a failed call with the reason.
+ */
+export interface AgentTool<Parameters extends TSchema = TSchema> {
+  /** Its own short name: lowercase letters, digits and `_`, starting with a letter. */
+  name: string
+  /** What it does and when to use it, as the agent reads it. */
+  description: string
+  parameters: Parameters
+  /** Which agents get it. All three when left out. */
+  agents?: readonly ToolAgents[]
+  execute(args: Static<Parameters>, run: ToolRun): ToolAnswer | Promise<ToolAnswer>
+}
+
+/** A tool as a call names it, in the agent's own name for it, with its arguments. */
+export interface HookedCall {
+  agent: string
+  id: string
+  /** The tool's name as the agent knows it: `bash`, or `github_find_pull`. */
+  name: string
+  args: Record<string, unknown>
+}
+
+/**
+ * Hooks on the calls of the tools a part names, or of every tool. Hooks run in folder order: the first refusal wins,
+ * and changed arguments pass to the next hook. One that throws or has not answered in 10 seconds lets the call through
+ * as it was, and the host logs why, unless `failClosed` says the call must be refused when the hook fails.
+ */
+export interface ToolHooks {
+  /** The tools it hooks, by the names agents know them by, or every tool. */
+  tools: readonly string[] | 'all'
+  /** Before a call runs. Nothing lets it through, `{ block }` refuses it with a reason the agent reads, `{ args }` runs it with other arguments. */
+  before?(call: HookedCall): void | { block: string } | { args: Record<string, unknown> } | Promise<void | { block: string } | { args: Record<string, unknown> }>
+  /** After a call ended: what the agent reads instead, and whether it counts as failed. Nothing changes it. */
+  after?(call: HookedCall, result: { text: string; failed: boolean }): void | { text?: string; failed?: boolean } | Promise<void | { text?: string; failed?: boolean }>
+  failClosed?: boolean
+}
+
 export interface HostContext {
   /** The integration's id, its folder's name. */
   readonly id: string
@@ -67,6 +123,12 @@ export interface HostContext {
   dataRoot(): string
   /** The `work` key of hobkin's snapshot as it is now, or undefined before hobkin has one. A new object each time it changes. */
   snapshotWork(): unknown
+  /**
+   * Starts one run of this integration's workflow (`workflows/<name>.md`) now, with `input` in the run's context as
+   * `input`. Answers the run's id. Throws `Unavailable`, with the reason, when hobkin is not open, its runtime has no
+   * workflows, or the workflow is unknown or turned off.
+   */
+  startWorkflow(name: string, input?: unknown): Promise<{ run: string }>
 }
 
 /** Everything is optional: an integration gives only what it uses. */
@@ -79,6 +141,10 @@ export interface HostPart {
   start?(): void
   /** Called once as the host stops. */
   close?(): void
+  /** Tools it gives hobkin's agents, run in the host. With none, and no hooks, no agent loads anything new. */
+  tools?: readonly AgentTool<any>[]
+  /** Hooks on the tool calls of any agent. */
+  toolHooks?: ToolHooks
   /** Before every command the host runs, its own included. Throwing `Unavailable` refuses the command with that reason. */
   beforeCommand?(call: CommandCall): void | Promise<void>
   /** After every command the host ran, with how it ended. What it throws is logged and changes nothing. */
@@ -95,3 +161,6 @@ export interface HostPart {
 }
 
 export type HostPartFactory = (context: HostContext) => HostPart | Promise<HostPart>
+
+/** Types a tool's arguments from its schema. */
+export const defineTool = <Parameters extends TSchema>(tool: AgentTool<Parameters>): AgentTool<Parameters> => tool

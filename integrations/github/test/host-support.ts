@@ -32,6 +32,7 @@ export function fakeContext(fakes: Fakes = {}) {
     hobkin: () => fakes.app ?? (() => { throw new Unavailable('hobkin is not open.') })(),
     dataRoot: () => fakes.root ?? (() => { throw new Unavailable('hobkin is not open.') })(),
     snapshotWork: () => fakes.work,
+    startWorkflow: async () => { throw new Unavailable('hobkin is not open.') },
   }
   return { context, heard }
 }

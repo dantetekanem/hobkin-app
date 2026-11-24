@@ -1,11 +1,12 @@
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
+import { Check, Errors } from 'typebox/value'
 import { checkIntegration, registerIntegration, unregisterIntegration } from '#shared/commands/registry.ts'
 import type { IntegrationManifest } from '#shared/integration/manifest.ts'
 import type { PullRequest } from '#shared/protocol/pulls.ts'
 import { Unavailable, type CommandHooks } from './commands.ts'
-import type { CommandCall, CommandDone, CommandSource, HostContext, HostPart, HostPartFactory, Merged, ToolCall } from './integration-contract.ts'
+import type { AgentTool, CommandCall, CommandDone, CommandSource, HookedCall, HostContext, HostPart, HostPartFactory, Merged, ToolCall, ToolHooks } from './integration-contract.ts'
 import { REPOSITORY_ROOT } from './home.ts'
 import type { GhCall } from './review/gh.ts'
 import type { WorkApp } from './work.ts'
@@ -23,6 +24,8 @@ export interface IntegrationModule {
   folder: string
   manifest: IntegrationManifest
   host?: HostPartFactory
+  /** The folder of its workflows (`workflows/<name>.md`), when it has one. */
+  workflows?: string
 }
 
 /** The pull requests the integrations know, as Change Review's background reads them. */
@@ -46,6 +49,23 @@ export interface IntegrationHostOptions {
   hobkin: () => WorkApp
   dataRoot: () => string
   snapshotWork: () => unknown
+  /** hobkin's workflows: starts one by its id (`<integration>/<name>`), and the rows of the snapshot's `schedules`, which say what starts each. Without it no workflow starts. */
+  workflows?: {
+    start(id: string, input?: unknown): Promise<{ run: string }>
+    rows(): readonly unknown[]
+  }
+  /** How long a tool hook may take before the call goes on without it. Ten seconds when not given. */
+  hookTimeoutMs?: number
+}
+
+/** What the host hands hobkin's application as `integrations` (hobkin's `src/cli/integrations.mjs`). */
+export interface RuntimeIntegrations {
+  tools(): { name: string; description: string; parameters: Record<string, unknown>; agents?: readonly string[] }[]
+  callTool(name: string, args: unknown, call: { agent: string; id: string }, signal?: AbortSignal): Promise<{ text: string; failed?: boolean }>
+  hookedTools(): string[] | 'all'
+  beforeTool(call: HookedCall): Promise<{ block: string } | { args: Record<string, unknown> } | null>
+  afterTool(call: HookedCall, result: { text: string; failed: boolean }): Promise<{ text?: string; failed?: boolean } | null>
+  workflowFolders(): { id: string; folder: string; tools: string[] }[]
 }
 
 /** The folder the repository keeps its integrations in. */
@@ -90,7 +110,8 @@ async function modulesIn(folder: string, log: (line: string) => void): Promise<I
         if (typeof factory !== 'function') throw Error('host.ts has no default export that is a function')
         host = factory as HostPartFactory
       }
-      found.push({ folder: name, manifest, ...(host ? { host } : {}) })
+      const workflows = join(path, 'workflows')
+      found.push({ folder: name, manifest, ...(host ? { host } : {}), ...(isFolder(workflows, 'workflows') ? { workflows } : {}) })
     } catch (error) {
       log(`The integration ${name} is left out: ${message(error)}`)
     }
@@ -104,13 +125,50 @@ interface Running {
   manifest: IntegrationManifest
   part: HostPart
   log: (line: string) => void
+  /** Its tools by the name agents know them by. */
+  tools: Map<string, AgentTool<any>>
+  workflows?: string
 }
+
+/** A tool's own short name. */
+const TOOL_NAME = /^[a-z][a-z0-9_]{0,40}$/
+const WORKFLOW_NAME = /^[a-z0-9][a-z0-9._-]{0,79}$/
+const TOOL_AGENTS = ['main', 'runs', 'durable']
+const HOOK_MS = 10_000
+
+const plain = (value: unknown): value is Record<string, unknown> => Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+
+/** The tools of a part by their names for agents, or the first thing wrong with them. */
+function toolsOf(id: string, part: HostPart, taken: ReadonlySet<string>): Map<string, AgentTool<any>> {
+  const tools = new Map<string, AgentTool<any>>()
+  for (const tool of part.tools ?? []) {
+    if (typeof tool?.name !== 'string' || !TOOL_NAME.test(tool.name)) throw Error(`a tool is named "${String(tool?.name)}", which is not a short name of lowercase letters, digits and _`)
+    const full = `${id.replaceAll('-', '_')}_${tool.name}`
+    if (tools.has(full) || taken.has(full)) throw Error(`the tool ${full} is given twice`)
+    if (typeof tool.description !== 'string' || !tool.description.trim()) throw Error(`the tool ${tool.name} has no description`)
+    if (!plain(tool.parameters) || tool.parameters.type !== 'object') throw Error(`the tool ${tool.name} has no object schema for its parameters`)
+    if (typeof tool.execute !== 'function') throw Error(`the tool ${tool.name} has no execute`)
+    if (tool.agents !== undefined && (!Array.isArray(tool.agents) || tool.agents.some((agent) => !TOOL_AGENTS.includes(agent)))) throw Error(`the tool ${tool.name} names agents that are not main, runs or durable`)
+    tools.set(full, tool)
+  }
+  return tools
+}
+
+function hooksProblem(hooks: ToolHooks | undefined): string | null {
+  if (hooks === undefined) return null
+  if (!hooks || (hooks.tools !== 'all' && (!Array.isArray(hooks.tools) || hooks.tools.some((name) => typeof name !== 'string')))) return 'its toolHooks do not name the tools they hook'
+  return null
+}
+
+const covers = (hooks: ToolHooks | undefined, name: string): boolean => hooks !== undefined && (hooks.tools === 'all' || hooks.tools.includes(name))
 
 export class IntegrationHost {
   private readonly running: Running[]
+  private readonly options: IntegrationHostOptions
 
-  private constructor(running: Running[]) {
+  private constructor(running: Running[], options: IntegrationHostOptions) {
     this.running = running
+    this.options = options
   }
 
   /** Loads every integration. One that fails is logged and left out, and never fails the host. */
@@ -119,7 +177,7 @@ export class IntegrationHost {
     const given = options.integrations ?? INTEGRATIONS_FOLDER
     const modules = typeof given === 'string' ? await modulesIn(given, log) : [...given].sort((left, right) => left.folder.localeCompare(right.folder))
     const running: Running[] = []
-    for (const { folder, manifest, host } of modules) {
+    for (const { folder, manifest, host, workflows } of modules) {
       try {
         const problem = manifestProblem(manifest)
         if (problem) throw Error(problem)
@@ -139,18 +197,26 @@ export class IntegrationHost {
           hobkin: options.hobkin,
           dataRoot: options.dataRoot,
           snapshotWork: options.snapshotWork,
+          startWorkflow: async (name, input) => {
+            if (!options.workflows) throw new Unavailable('hobkin is not open in this host, so no workflow starts.')
+            if (!WORKFLOW_NAME.test(name)) throw new Unavailable(`"${name}" is not a workflow's file name.`)
+            return options.workflows.start(`${id}/${name}`, input)
+          },
         }
         const part: HostPart = host ? await host(context) : {}
         if (!part || typeof part !== 'object') throw Error('host.ts did not give a part')
         const stray = Object.keys(part.handlers ?? {}).find((name) => !Object.hasOwn(manifest.commands, name))
         if (stray) throw Error(`host.ts handles ${stray}, which its manifest does not have`)
+        const badHooks = hooksProblem(part.toolHooks)
+        if (badHooks) throw Error(badHooks)
+        const tools = toolsOf(id, part, new Set(running.flatMap((other) => [...other.tools.keys()])))
         registerIntegration(manifest)
-        running.push({ manifest, part, log: say })
+        running.push({ manifest, part, log: say, tools, ...(workflows ? { workflows } : {}) })
       } catch (error) {
         log(`The integration ${folder} is left out: ${message(error)}`)
       }
     }
-    return new IntegrationHost(running)
+    return new IntegrationHost(running, options)
   }
 
   /** The ids of the integrations that loaded, in order. */
@@ -204,6 +270,143 @@ export class IntegrationHost {
   /** After a command ended, with how. */
   after(done: CommandDone): void {
     this.tell((part) => part.afterCommand?.(done), `afterCommand failed for ${done.name}`)
+    this.startAfter(done)
+  }
+
+  /**
+   * A command that ended well starts each workflow that lists `after:<command>` in its `on`, with the command, its
+   * arguments and its answer as the input. A start that fails is logged and changes nothing.
+   */
+  private startAfter({ name, args, outcome }: CommandDone): void {
+    const { workflows } = this.options
+    if (!workflows || !outcome.ok) return
+    let rows: readonly unknown[] = []
+    try {
+      rows = workflows.rows()
+    } catch (error) {
+      this.options.log?.(`Workflows could not be read: ${message(error)}`)
+    }
+    for (const row of rows) {
+      const { id, on, integration, enabled } = (row ?? {}) as { id?: unknown; on?: unknown; integration?: unknown; enabled?: unknown }
+      if (typeof id !== 'string' || typeof integration !== 'string' || enabled === false || !Array.isArray(on) || !on.includes(`after:${name}`)) continue
+      workflows.start(id, { command: name, args, answer: outcome.value }).catch((error: unknown) => this.options.log?.(`${id} did not start after ${name}: ${message(error)}`))
+    }
+  }
+
+  /**
+   * What hobkin's application is given as `integrations`: the tools its parts offer, a call to run one, the tool
+   * calls its parts hook, and the folders of workflows. Null when no part gives any, so no agent loads anything new.
+   */
+  runtimeOption(): RuntimeIntegrations | null {
+    const folders = this.running.flatMap(({ manifest, tools, workflows }) => (workflows ? [{ id: manifest.id, folder: workflows, tools: [...tools.keys()] }] : []))
+    const hooked = this.hookedTools()
+    const offered = this.running.some(({ tools }) => tools.size > 0)
+    if (!offered && hooked.length === 0 && !folders.length) return null
+    return {
+      tools: () => this.running.flatMap(({ tools }) => [...tools].map(([name, tool]) => ({
+        name,
+        description: tool.description,
+        parameters: JSON.parse(JSON.stringify(tool.parameters)) as Record<string, unknown>,
+        ...(tool.agents ? { agents: [...tool.agents] } : {}),
+      }))),
+      callTool: (name, args, call, signal) => this.callTool(name, args, call, signal),
+      hookedTools: () => (hooked === 'all' ? 'all' : hooked),
+      beforeTool: (call) => this.beforeTool(call),
+      afterTool: (call, result) => this.afterTool(call, result),
+      workflowFolders: () => folders,
+    }
+  }
+
+  /** The tool names the parts hook, or every tool. */
+  private hookedTools(): string[] | 'all' {
+    const names = new Set<string>()
+    for (const { part } of this.running) {
+      const hooks = part.toolHooks
+      if (!hooks || (!hooks.before && !hooks.after)) continue
+      if (hooks.tools === 'all') return 'all'
+      for (const name of hooks.tools) names.add(name)
+    }
+    return [...names]
+  }
+
+  private async callTool(name: string, args: unknown, call: { agent: string; id: string }, signal?: AbortSignal): Promise<{ text: string; failed?: boolean }> {
+    const running = this.running.find(({ tools }) => tools.has(name))
+    const tool = running?.tools.get(name)
+    if (!running || !tool) return { text: `There is no tool named ${name}.`, failed: true }
+    if (!Check(tool.parameters, args)) {
+      const why = Errors(tool.parameters, args)[0]
+      return { text: `${name} was given arguments that do not fit${why ? `: ${why.instancePath ? `${why.instancePath.slice(1).replaceAll('/', '.')} ` : ''}${why.message}` : ''}.`, failed: true }
+    }
+    try {
+      const answer = await tool.execute(args, { agent: call.agent, id: call.id, ...(signal ? { signal } : {}) })
+      return typeof answer === 'string' ? { text: answer } : { text: String(answer?.text ?? ''), ...(answer?.failed ? { failed: true } : {}) }
+    } catch (error) {
+      running.log(`The tool ${name} failed: ${message(error)}`)
+      return { text: message(error), failed: true }
+    }
+  }
+
+  /** Runs one hook, giving up on it after its time. */
+  private async guarded<Value>(run: () => Value | Promise<Value>): Promise<{ ok: true; value: Value } | { ok: false; why: string }> {
+    const ms = this.options.hookTimeoutMs ?? HOOK_MS
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const slow = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(Error(`it did not answer within ${ms / 1000} seconds`)), ms)
+      timer.unref()
+    })
+    try {
+      return { ok: true, value: await Promise.race([Promise.resolve().then(run), slow]) }
+    } catch (error) {
+      return { ok: false, why: message(error) }
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  /** The hooks of the parts, in folder order, that cover a tool. */
+  private hooksFor(name: string, step: 'before' | 'after') {
+    return this.running.filter(({ part }) => part.toolHooks?.[step] && covers(part.toolHooks, name))
+  }
+
+  private async beforeTool(call: HookedCall): Promise<{ block: string } | { args: Record<string, unknown> } | null> {
+    let args = call.args
+    let changed = false
+    for (const { manifest, part, log } of this.hooksFor(call.name, 'before')) {
+      const hooks = part.toolHooks!
+      const answer = await this.guarded(() => hooks.before!({ ...call, args }))
+      if (!answer.ok) {
+        log(`Its before hook failed for ${call.name}, so the call ${hooks.failClosed ? 'was refused' : 'went through'}: ${answer.why}`)
+        if (hooks.failClosed) return { block: `The ${manifest.id} integration's check of this call failed, so it was refused: ${answer.why}.` }
+        continue
+      }
+      const value = answer.value as { block?: unknown; args?: unknown } | void
+      if (value && typeof value.block === 'string' && value.block.trim()) return { block: value.block }
+      if (value && plain(value.args)) {
+        args = value.args
+        changed = true
+      }
+    }
+    return changed ? { args } : null
+  }
+
+  private async afterTool(call: HookedCall, result: { text: string; failed: boolean }): Promise<{ text?: string; failed?: boolean } | null> {
+    let current = result
+    let changed = false
+    for (const { manifest, part, log } of this.hooksFor(call.name, 'after')) {
+      const hooks = part.toolHooks!
+      const answer = await this.guarded(() => hooks.after!(call, current))
+      if (!answer.ok) {
+        log(`Its after hook failed for ${call.name}, so ${hooks.failClosed ? 'its result was withheld' : 'the agent read it as it was'}: ${answer.why}`)
+        if (hooks.failClosed) return { text: `The ${manifest.id} integration's check of this result failed, so it is withheld: ${answer.why}.`, failed: true }
+        continue
+      }
+      const value = answer.value as { text?: unknown; failed?: unknown } | void
+      if (value && (typeof value.text === 'string' || typeof value.failed === 'boolean')) {
+        current = { text: typeof value.text === 'string' ? value.text : current.text, failed: typeof value.failed === 'boolean' ? value.failed : current.failed }
+        changed = true
+      }
+    }
+    return changed ? current : null
   }
 
   /** A tool call of an agent, as it starts or as it ends. */

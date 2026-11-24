@@ -137,6 +137,8 @@ declare module 'hobkin/src/cli/application.mjs' {
     showRow?: (target: { tab: string; report?: unknown }) => void
     presence?: () => { seenAt: number; away: boolean; occupied: boolean }
     onChange?: (snapshot: HobkinSnapshot) => void
+    /** What the host's integrations give agents: tools, hooks on tool calls, and workflow folders (065-integration-drops). A runtime from before ignores it. */
+    integrations?: object
     memoryIndex?: object | null
     fetch?: typeof globalThis.fetch
     signal?: AbortSignal
@@ -182,6 +184,10 @@ declare module 'hobkin/src/cli/application.mjs' {
   export class HobkinApplication {
     static open(root: string, options?: OpenOptions): Promise<HobkinApplication>
     snapshot: HobkinSnapshot
+    /** Absent in a runtime from before workflows. Starts one run of a workflow (`<integration>/<name>`) now, with `input` in its context. */
+    startWorkflow?(id: string, input?: unknown): Promise<{ run: string }>
+    /** Absent in a runtime from before workflows. Turns a workflow on or off, kept in the home. */
+    setWorkflowEnabled?(id: string, enabled: boolean): Promise<{ id: string; enabled: boolean }>
     /** Absent in a runtime from before durable hobkins. */
     hobkins?: DurableHobkins
     /** The configuration hobkin opened with. Its runtime holds the same object, and reconnects with it. */
