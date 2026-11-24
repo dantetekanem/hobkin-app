@@ -61,7 +61,7 @@ test('picking Code for a plain folder changes nothing, and the line says why', (
   assert.equal(pickKind({ ...plain, picked: 'goal' }, 'code'), 'goal')
   assert.equal(pickKind(plain, 'goal'), 'goal')
   assert.equal(pickKind(formFor({ found: { git: true } }), 'code'), 'code')
-  assert.equal(kindLine(plain), 'Code needs a git repository of its own, and this folder has none.')
+  assert.equal(kindLine(plain), 'Work does steps toward your words in the folder itself, with no branch, review or merge. Code needs a git repository.')
   assert.notEqual(kindLine(formFor({ found: { git: true } })), kindLine(formFor({ found: { git: true }, picked: 'goal' })))
 })
 

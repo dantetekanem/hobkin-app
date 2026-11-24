@@ -76,13 +76,13 @@ export function pickKind(form: Pick<NewProjectForm, 'folder' | 'looked' | 'picke
 
 const KIND_WORDS: Record<ProjectKind, string> = {
   code: 'Work makes changes on branches. Each waits for your yes before it merges.',
-  goal: 'Work studies the folder and does steps toward your words, in the folder itself.',
+  goal: 'Work does steps toward your words in the folder itself, with no branch, review or merge.',
 }
 
-/** The one line under the kind: what it means, or why Code cannot be picked. */
+/** The one line under the kind: what it means, and why Code cannot be picked when the folder is no repository. */
 export function kindLine(form: Pick<NewProjectForm, 'folder' | 'looked' | 'picked'>): string {
-  if (!codeAllowed(currentLook(form))) return 'Code needs a git repository of its own, and this folder has none.'
-  return KIND_WORDS[kindOf(form)]
+  const words = KIND_WORDS[kindOf(form)]
+  return codeAllowed(currentLook(form)) ? words : `${words} Code needs a git repository.`
 }
 
 /** The YOLO switch: the user's own setting, or the page that opened the popup; never on for a goal. */
@@ -112,8 +112,8 @@ export function blocker(form: NewProjectForm): string | null {
   return null
 }
 
-/** The line in the foot when nothing is missing and nothing was refused. */
-export const READY_LINE = 'Adds it to Work. Nothing starts by itself.'
+/** The line in the foot when nothing is missing and nothing was refused. Whether the study starts by itself is work mode's own switch. */
+export const READY_LINE = 'Adds it to Work, and its first study joins the queue.'
 
 /** The arguments of `work.project.new`, or null while something stands in the way. */
 export function newProjectArgs(form: NewProjectForm): { folder: string; kind: ProjectKind; wants?: string } | null {
