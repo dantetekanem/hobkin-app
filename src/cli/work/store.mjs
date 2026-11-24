@@ -1,4 +1,4 @@
-import { appendFileSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs';
+import { appendFileSync, closeSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join } from 'node:path';
@@ -612,8 +612,12 @@ export function setProjectPriority(root, slug, priority) {
   return readProject(root, slug);
 }
 
+/** A project is code unless the user's own add said it is a goal. The kind is the guard, never whether the folder has a repository: git looks upward. */
+export const isGoal = project => project?.kind === 'goal';
+
 export function setProjectPrMode(root, slug, prMode) {
   if (!prModes.includes(prMode)) throw Error(`PR mode must be one of: ${prModes.join(', ')}`);
+  if (isGoal(readProject(root, slug))) throw Error('A goal has no pull requests, so its pull request setting does nothing.');
   appendEvent(projectsPath(root), { slug, prMode });
   return readProject(root, slug);
 }
@@ -621,7 +625,9 @@ export function setProjectPrMode(root, slug, prMode) {
 /** The user's word on which issues a project picks up by itself. Turned on, it reads them on the next tick instead of after the last wait. */
 export function setProjectIssues(root, slug, issues) {
   if (!issueModes.includes(issues)) throw Error(`Issue pickup must be one of: ${issueModes.join(', ')}`);
-  if (!readProject(root, slug)) throw Error(`Unknown project: ${slug}`);
+  const project = readProject(root, slug);
+  if (!project) throw Error(`Unknown project: ${slug}`);
+  if (isGoal(project)) throw Error('A goal has no GitHub issues to pick up.');
   appendEvent(projectsPath(root), { slug, issues });
   if (issues !== 'off') writeState(root, slug, { lastIssuesAt: null });
   return readProject(root, slug);
@@ -705,6 +711,15 @@ function answerProject(root, slug, state, now) {
 
 export const skipProject = (root, slug, now = Date.now()) => answerProject(root, slug, 'skipped', now);
 export const dropProject = (root, slug, now = Date.now()) => answerProject(root, slug, 'dropped', now);
+
+/** The user's own words for a project. Every study, look and run is given them, and blank words leave the file as it is. */
+export function writeDirections(root, slug, words) {
+  const text = String(words ?? '').trim();
+  if (!text) return;
+  const { directions, directory } = paths(root, slug);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  writeFileSync(directions, `${text}\n`, { mode: 0o600 });
+}
 
 export const readItems = (root, slug) => readWorkRecords(paths(root, slug).items, 'id');
 

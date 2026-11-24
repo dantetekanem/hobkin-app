@@ -5,7 +5,7 @@ import { readMachines } from './machines.mjs';
 import { nameOf } from './names.mjs';
 import { machinesLookDue } from './plan.mjs';
 import { mainFacts, readRuns, specName } from './proofs.mjs';
-import { chosenProjects, fileItem, ownerView, paths, pickNow, putBackInQueue, readItems, readJson, readKeptJson, readMode, runnableStates, skipInQueue, updateItem, workName, writeMode } from './store.mjs';
+import { chosenProjects, fileItem, isGoal, ownerView, paths, pickNow, putBackInQueue, readItems, readJson, readKeptJson, readMode, runnableStates, skipInQueue, updateItem, workName, writeMode } from './store.mjs';
 import { BRANCH_PREFIX } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
 import { fileParts, needOf, PARTS, partOf, partsOf, partWords, READY_KEY, RECORDED, WAITS_FOR_A_YES } from './yolo-parts.mjs';
@@ -39,6 +39,7 @@ const READY_BRIEF = 'With YOLO mode on, hobkin merges and deploys small changes 
   + 'undo. Set up each part that is missing on a branch of its own for hobkin to open as a PR, ask the user for each step only they can take, and '
   + 'record every part as the YOLO readiness section of your directions says.';
 
+const goalMerges = 'A goal has nothing to merge, so YOLO mode does nothing there.';
 const isRate = rate => Number.isInteger(rate) && rate >= LOWEST_RATE && rate <= HIGHEST_RATE;
 
 /** The switch as it stands. A home that never set it has it off. */
@@ -95,7 +96,7 @@ function fileReadiness(root, project, now) {
 export function prepareProjects(root, now = Date.now()) {
   const mode = readMode(root);
   return chosenProjects(root).flatMap(project => {
-    if (!yoloOnProject(root, project.slug, mode) || readinessItem(root, project.slug)) return [];
+    if (isGoal(project) || !yoloOnProject(root, project.slug, mode) || readinessItem(root, project.slug)) return [];
     const { id, title } = fileReadiness(root, project, now);
     return [{ slug: project.slug, id, title }];
   });
@@ -116,6 +117,7 @@ function freshBranch(item, now) {
 export function runReadiness(root, slug, now = Date.now()) {
   const project = chosenProjects(root).find(chosen => chosen.slug === slug);
   if (!project) throw Error(`${slug} is not a project work mode works on.`);
+  if (isGoal(project)) throw Error(goalMerges);
   if (!yoloOnProject(root, slug)) throw Error(`YOLO mode is off on ${nameOf(project)}, so its readiness is not run. Turn it on there first.`);
   const known = readinessItem(root, slug);
   if (WAITS_FOR_A_YES.includes(known?.state)) throw Error(`The readiness work on ${nameOf(project)} waits for your yes on its branch. Merge it or say no to it first.`);
@@ -162,7 +164,9 @@ export function setYolo(root, { on, rate } = {}, now = Date.now()) {
  */
 export function setYoloProject(root, slug, on, now = Date.now()) {
   if (typeof on !== 'boolean') throw Error('YOLO mode on a project is on or off.');
-  if (!chosenProjects(root).some(chosen => chosen.slug === slug)) throw Error(`${slug} is not a project work mode works on.`);
+  const project = chosenProjects(root).find(chosen => chosen.slug === slug);
+  if (!project) throw Error(`${slug} is not a project work mode works on.`);
+  if (isGoal(project)) throw Error(goalMerges);
   writeMode(root, { yoloProjects: { ...settledSwitches(root, readMode(root)), [slug]: on } });
 
   const item = readinessItem(root, slug);
@@ -279,7 +283,7 @@ function workOf(item, running) {
 export function yoloView(root) {
   const { running } = ownerView(root);
   const mode = readMode(root);
-  const projects = chosenProjects(root).map(project => {
+  const projects = chosenProjects(root).filter(project => !isGoal(project)).map(project => {
     const { ready, needs, parts, at } = readinessOf(root, project.slug);
     const runs = running.filter(run => run.slug === project.slug);
     const item = readinessItem(root, project.slug);
