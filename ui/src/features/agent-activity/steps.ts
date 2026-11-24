@@ -581,7 +581,11 @@ export function doingNow(entries: readonly ActivityEntry[], options: ReadOptions
   else if (family === 'change') subject = pathOf(entry, options.cwd)
   else if (family === 'other') subject = entry.name ?? 'a tool'
   else subject = lookOf(entry, family, options).what
-  const drawn = { ...(family === 'other' ? {} : { code: true }), ...(family === 'change' || family === 'read' || family === 'list' ? { path: true } : {}) }
+  const aboutPath = family === 'change' || family === 'read' || family === 'list'
+  const drawn = {
+    ...(family === 'other' ? {} : { code: true }),
+    ...(aboutPath ? { path: true } : {}),
+  }
   const [running, done, failed] = DOING[family]
   const writes = /^write$/i.test(entry.name ?? '')
   const lead = writes ? (state === 'running' ? 'Writing' : 'Wrote') : state === 'running' ? running : done
