@@ -10,6 +10,7 @@ import { createPulses, createPulseWire, feedPiEvent } from './pulse.mjs';
 import { TeamsAgents } from './teams-agents.mjs';
 import { CompatibilityDelivery } from './compatibility.mjs';
 import { namingExtensions, runHarness as defaultRunHarness } from './harnesses.mjs';
+import { agentKindOf, integrationOffer } from './integrations.mjs';
 import { restartingAfterCodeToolCrash } from './code-tool-crash.mjs';
 import { withShippedSkills } from './skills-extension.mjs';
 import { UsageLedger } from './usage.mjs';
@@ -319,10 +320,17 @@ export class HobkinApplication {
     });
   }
 
-  static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, harnessWarms, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch } = {}) {
+  /**
+   * `integrations` is what the host's integrations give agents (065-integration-drops): `tools()`, the tools offered, each
+   * with a name, a description, JSON schema parameters and the agents it goes to (`main`, `runs`, `durable`), and
+   * `callTool(name, args, { agent, id }, signal)`, which runs one and answers `{ text, failed? }`. Without it no agent is
+   * given anything new.
+   */
+  static async open(root, { createMain, onMainStartup, askQuestion, showDone, showRow, presence, runHarness, harnessWarms, ownedLifecycle, sessionDependencies, shell, now, intervalMs, signal, onChange = null, memoryIndex = null, clipboard, fetch, integrations = null } = {}) {
     signal?.throwIfAborted();
     const app = new HobkinApplication();
     app.onChange = onChange;
+    app.integrations = integrations;
     app.now = () => new Date(now?.() ?? Date.now()).getTime();
     app.config = loadConfig(root);
     // hobkin's own harness starts a durable hobkin's process ahead of its turn when asked. One that is given says whether it does.
@@ -492,11 +500,16 @@ export class HobkinApplication {
       // Every run but a durable hobkin's turn carries its title in its environment, so `hobkin remember` typed in its
       // shell is only that run's suggestion.
       const started = admission && !turnRun ? { ...request, env: { ...request.env, [RUN_MARKER]: (title ?? admission.id).replace(/[\x00-\x1f\x7f]+/g, ' ').slice(0, 80) } } : request;
+      // What integrations offer this kind of agent (065-integration-drops), run in the host as the run hobkin knows. A
+      // durable hobkin's process started ahead of its turn is given the same, so the turn can take it.
+      const kind = agentKindOf(request.purpose);
+      const offer = kind && integrationOffer(app.integrations, kind);
+      const integrations = offer ? { host: app.integrations, offer, agent: admission?.id ?? request.id } : undefined;
       const cancel = () => { void ownedScope?.cancel(); };
       request.signal?.addEventListener('abort', cancel, { once: true });
       try {
         request.signal?.throwIfAborted();
-        return await run(started, { ...options, metricsRoot, ownedScope, ...(schedules ? { schedules } : {}), ...(memories ? { memories } : {}),
+        return await run(started, { ...options, metricsRoot, ownedScope, ...(schedules ? { schedules } : {}), ...(memories ? { memories } : {}), ...(integrations ? { integrations } : {}),
           onControl: child => { if (admission) app.runtime.bindHarness(admission.id, request.id, child); },
         });
       } finally {

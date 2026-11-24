@@ -22,6 +22,8 @@ import { agentScheduleTools, SCHEDULE_TOOLS } from './schedule-tools.mjs';
 import { memoryExtension } from './memory-extension.mjs';
 import { memoryKeeperExtension } from './memory-keeper-extension.mjs';
 import { MEMORY_TOOLS, memoryTools } from './memory-tools.mjs';
+import { integrationExtension } from './integration-extension.mjs';
+import { integrationEnvironment, isIntegrationCall, serveIntegration } from './integrations.mjs';
 
 const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
@@ -149,19 +151,23 @@ export function buildInvocation(request) {
  * request) gets `hobkin_wait` (`wait-extension.mjs`), and one that keeps schedules (`schedules` on its request) gets
  * `hobkin_schedule` and `hobkin_schedules` (`schedule-extension.mjs`) in place of the Pi scheduler, whose timers would
  * live only in this process (056-agent-schedules). One that reads hobkin's memories (`memories` on its request: `run`
- * or `keeper`) gets their tools (057-shared-memory).
+ * or `keeper`) gets their tools (057-shared-memory). One that integrations offer tools to (`options.integrations.offer`)
+ * gets them, with its offer in its environment (`integration-extension.mjs`, 065-integration-drops).
  */
 export const namingExtensions = run => async (request, options) => {
   if (!usesTools(request.purpose)) return run(request, options);
   const asked = Date.now();
   const schedules = request.schedules === true;
   const memories = Object.hasOwn(MEMORY_EXTENSIONS, request.memories ?? '') ? MEMORY_EXTENSIONS[request.memories] : null;
+  const offer = options?.integrations?.offer;
   const leaveOut = [...(schedules ? ['pi-scheduler'] : []), ...(memories ? LEFT_OUT_WITH_MEMORIES : [])];
   const extensions = [...await extensionPaths(request.cwd, { leaveOut }), codeToolGuardExtension,
-    ...(Number.isInteger(request.waits) ? [waitExtension] : []), ...(schedules ? [scheduleExtension] : []), ...(memories ? [memories] : [])];
+    ...(Number.isInteger(request.waits) ? [waitExtension] : []), ...(schedules ? [scheduleExtension] : []), ...(memories ? [memories] : []),
+    ...(offer ? [integrationExtension] : [])];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
   const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };
-  return run({ ...request, extensions }, { ...options, turn });
+  const offered = offer ? { env: { ...request.env, ...integrationEnvironment(offer) } } : {};
+  return run({ ...request, extensions, ...offered }, { ...options, turn });
 };
 
 // A durable hobkin's Pi process stays up after a turn that ended well, so the next turn of that conversation only prompts
@@ -411,7 +417,7 @@ async function startAndKeep(request, { invocation, env, key, result, startProces
 }
 
 /** The caller persists admission before invoking this function. It never retries a child; only its signal stops one. */
-export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, schedules, memories, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS, now = Date.now } = {}) {
+export async function runHarness(request, { spawnProcess = spawn, startProcess = startRpcProcess, maxOutputBytes = MAX_LEFT_OUT_BYTES, onEvent = () => {}, onReady = () => {}, onControl = () => {}, metricsRoot, ownedScope, schedules, memories, integrations, turn, keepIdleMs = KEPT_IDLE_MS, teamsDir = defaultTeamsDir(), teamsCheckMs = TEAMS_CHECK_MS, now = Date.now } = {}) {
   // Before anything else, so a turn nobody timed still counts its process start.
   const entered = Date.now();
   const invocation = buildInvocation(request);
@@ -543,6 +549,9 @@ export async function runHarness(request, { spawnProcess = spawn, startProcess =
       } else if (bridged && isMemoryCall(record.placeholder)) {
         // As the agent hobkin handed this run's memories for, `{ recall, remember | suggest }`; without them a call is refused in plain words.
         void serveBridge(record.placeholder, { tools: memoryTools(memories) }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
+      } else if (bridged && integrations?.offer && isIntegrationCall(record.placeholder)) {
+        // A tool an integration offered this run runs in the host, as the run hobkin knows (065-integration-drops).
+        void serveIntegration(record.placeholder, integrations, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
       } else if (bridged && ownedScope) {
         void serveBridge(record.placeholder, { tools }, request.signal).then(reply => child.send({ type: 'extension_ui_response', id: record.id, value: JSON.stringify(reply) })).catch(error => settled.reject(error));
       } else child.send({ type: 'extension_ui_response', id: record.id, cancelled: true });
