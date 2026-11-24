@@ -8,6 +8,7 @@ import { mainFacts, readRuns, specName } from './proofs.mjs';
 import { chosenProjects, fileItem, isGoal, ownerView, paths, pickNow, putBackInQueue, readItems, readJson, readKeptJson, readMode, runnableStates, skipInQueue, updateItem, workName, writeMode } from './store.mjs';
 import { BRANCH_PREFIX } from './tree.mjs';
 import { readUnmerged } from './unmerged.mjs';
+import { everyProjectPatch, HIGHEST_RATE, isRate, LOWEST_RATE, overridesOf, rulesOf, USUAL_RATE } from './yolo-rules.mjs';
 import { fileParts, needOf, PARTS, partOf, partsOf, partWords, READY_KEY, RECORDED, WAITS_FOR_A_YES } from './yolo-parts.mjs';
 
 /**
@@ -19,10 +20,7 @@ import { fileParts, needOf, PARTS, partOf, partsOf, partWords, READY_KEY, RECORD
  * pass's (`yolo-pass.mjs`).
  */
 
-// The floors already put every change that passes them above 6, so a lower rate would ask for nothing.
-export const LOWEST_RATE = 6;
-export const HIGHEST_RATE = 10;
-const USUAL_RATE = 8;
+export { HIGHEST_RATE, LOWEST_RATE };
 const modelOnMain = {
   broken: ({ spec, why }) => `${specName(spec)} breaks on the default branch${why ? `: ${why}` : ''}`,
   unproven: ({ spec, why }) => `${specName(spec)} did not hold on the default branch${why ? `: ${why}` : ''}`,
@@ -40,7 +38,6 @@ const READY_BRIEF = 'With YOLO mode on, hobkin merges and deploys small changes 
   + 'record every part as the YOLO readiness section of your directions says.';
 
 const goalMerges = 'A goal has nothing to merge, so YOLO mode does nothing there.';
-const isRate = rate => Number.isInteger(rate) && rate >= LOWEST_RATE && rate <= HIGHEST_RATE;
 
 /** The switch as it stands. A home that never set it has it off. */
 export function readYolo(root) {
@@ -141,20 +138,25 @@ export function runReadiness(root, slug, now = Date.now()) {
   return { ...started, message: `${started.message} Its state machines look goes first.` };
 }
 
+const plainYolo = ({ yolo }) => (yolo && typeof yolo === 'object' && !Array.isArray(yolo) ? yolo : {});
+
 /**
  * The user's word on YOLO mode, from the window alone: no `hobkin work` command calls this. Turning it on files each project's readiness work and
- * merges nothing. A value left out keeps what it was.
+ * merges nothing. A value left out keeps what it was. `rules` is a change to the settings of all projects (`setYoloRules`), checked with the rest.
  */
-export function setYolo(root, { on, rate } = {}, now = Date.now()) {
+export function setYolo(root, { on, rate, rules } = {}, now = Date.now()) {
   const mode = readMode(root);
   const before = readYolo(root);
   const next = { on: on ?? before.on, rate: rate ?? before.rate };
   if (typeof next.on !== 'boolean') throw Error('YOLO mode is on or off.');
-  if (!isRate(next.rate)) throw Error(`The lowest general rate YOLO mode accepts is a whole number from ${LOWEST_RATE} to ${HIGHEST_RATE}.`);
+  if (!isRate(next.rate)) throw Error(`The lowest general rate YOLO mode accepts is a number from ${LOWEST_RATE} to ${HIGHEST_RATE}, with one decimal at most.`);
+  // Every rule is checked before anything is written. The lowest rate of the call's own `rate` wins over one named in `rules`.
+  const asked = rules ? everyProjectPatch(mode, rules) : {};
+  const kept = { ...plainYolo(mode), ...next, ...(asked.rules ? { rules: asked.rules } : {}), ...(asked.rate !== undefined && rate === undefined ? { rate: asked.rate } : {}) };
   // A home with no project switches yet reads them through the main switch, so flipping it writes each project's down first.
   const flipped = next.on !== before.on;
-  writeMode(root, { yolo: next, ...(flipped ? { yoloProjects: settledSwitches(root, mode) } : {}) });
-  return { ...next, filed: next.on ? prepareProjects(root, now) : [] };
+  writeMode(root, { yolo: kept, ...(asked.reviewPulls === undefined ? {} : { reviewPulls: asked.reviewPulls }), ...(flipped ? { yoloProjects: settledSwitches(root, mode) } : {}) });
+  return { on: kept.on, rate: kept.rate, filed: kept.on ? prepareProjects(root, now) : [] };
 }
 
 /**
@@ -291,7 +293,9 @@ export function yoloView(root) {
     const models = mainModels(root, project.slug);
     const each = PARTS.map(name => ({ name, label: partWords[name], ...parts[name] }));
     const on = yoloOnProject(root, project.slug, mode);
-    return { slug: project.slug, name: nameOf(project), on, ready, needs, parts: each, work, item: item?.id ?? null, checkedAt: at, ...(models.length ? { models } : {}) };
+    return { slug: project.slug, name: nameOf(project), on, rules: rulesOf(root, project.slug, mode), overrides: overridesOf(root, project.slug, mode), ready, needs, parts: each, work, item: item?.id ?? null, checkedAt: at, ...(models.length ? { models } : {}) };
   });
-  return { ...readYolo(root), lowest: LOWEST_RATE, highest: HIGHEST_RATE, ready: projects.filter(({ ready }) => ready).length, projects };
+  return { ...readYolo(root), rules: rulesOf(root, null, mode), lowest: LOWEST_RATE, highest: HIGHEST_RATE, ready: projects.filter(({ ready }) => ready).length, projects };
 }
+
+export { setYoloRules } from './yolo-rules.mjs';

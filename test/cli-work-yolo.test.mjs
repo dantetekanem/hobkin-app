@@ -264,7 +264,7 @@ test('a part whose PR cannot open from the readiness run waits on its branch and
   assert.deepEqual([readinessOf(h.root, 'api').parts.tests.state, readinessOf(h.root, 'api').parts.tests.pr], ['pr', PR_URL]);
 });
 
-test('no hobkin work command changes YOLO mode, and a rate outside 6 to 10 is refused', async t => {
+test('no hobkin work command changes YOLO mode, and a rate outside 1 to 10 or with two decimals is refused', async t => {
   const h = workspace(t);
 
   await assert.rejects(runWorkCommand(h.root, ['yolo', 'on']), /Unknown project: on/);
@@ -272,7 +272,7 @@ test('no hobkin work command changes YOLO mode, and a rate outside 6 to 10 is re
   const view = await runWorkCommand(h.root, ['yolo']);
   assert.deepEqual([view.on, view.rate, view.ready], [false, 8, 0]);
 
-  for (const rate of [5, 11, 7.5, '8']) assert.throws(() => setYolo(h.root, { on: true, rate }, NOW), /a whole number from 6 to 10/);
+  for (const rate of [0.5, 11, 7.55, '8']) assert.throws(() => setYolo(h.root, { on: true, rate }, NOW), /a number from 1 to 10, with one decimal at most/);
   assert.throws(() => setYolo(h.root, { on: 'yes' }, NOW), /on or off/);
   assert.equal(readMode(h.root).yolo, undefined, 'a refused change writes nothing');
 
