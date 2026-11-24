@@ -9,7 +9,7 @@ import { entriesOf, oneRowPerLayer, placeLookup, projectEntries, projectLookup, 
 const at = '2026-11-24T12:00:00Z'
 const head = (n: number) => String(n).padStart(40, '0')
 const item = (id: string, over: Partial<ReviewListItem>): ReviewListItem => ({ id, kind: 'change', title: id, project: 'rpsleague', head: null, state: 'ready', phase: null, error: null, updatedAt: at, ...over })
-const needs = [{ by: 'change-review', head: head(1), rate: 7, scores: { coverage: { score: 7, evidence: 'ok' } } }]
+const needs: ReviewListItem['needs'] = [{ by: 'change-review', head: head(1), rate: 7, scores: { coverage: { score: 7, evidence: 'ok' } } }]
 
 /** A change that is layer `layer` of a stack of four, which opened pull request `pr`. */
 const change = (layer: number, over: Partial<FinishedChange> = {}): FinishedChange =>

@@ -1,8 +1,9 @@
-import { GitBranch, GitPullRequest, Play, RotateCcw, Square, TriangleAlert } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { ChevronDown, ChevronRight, GitBranch, GitPullRequest, Play, RotateCcw, Square, TriangleAlert } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react'
 import { useStore } from 'zustand'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { openAddress } from '@/lib/open-link.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { waited } from '@/features/reports/time.ts'
@@ -18,12 +19,15 @@ import { pullScreen } from '@/integration/pull-screen.ts'
 import { runCommand } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { buildButton, canReviewAgain, canReviewNow, nothingChanged, repoWordsOf, reviewToOpen, REVIEW_ORDERS, rowsOf, type PriorityOf, type ReviewOrder, type ReviewRow } from './ai-reviews.ts'
-import { GRADE_WORDS, orderRows, placedRows, projectsOf, setKeyOf, stateNews, stateWords } from './review-list.ts'
-import { offersStory, sortStory, stackLookup, waitingRows, type StackOf } from './review-story.ts'
+import { GRADE_WORDS, orderRows, placedRows, setKeyOf, stateNews, stateWords } from './review-list.ts'
+import { offersStory, sortStory, waitingRows, type StackOf } from './review-story.ts'
+import { entriesOf, oneRowPerLayer, placeLookup, projectEntries, projectLookup, stackLookupOf, type ListEntry } from './review-stacks.ts'
+import { ReviewStack, type LineOf } from './ReviewStack.tsx'
+import { clickPressesRow } from './row-press.ts'
 import { useStory } from './story-store.ts'
 import { useWorkView } from './store.ts'
 import { DeployWhy, GradeChip, ReviewBadge, ReviewProgress, SectionHeading, Segmented } from './parts.tsx'
-import { QUESTIONS, type NeedNumbers } from '@/features/review/panel/needs.ts'
+import { QUESTIONS } from '@/features/review/panel/needs.ts'
 import { useReviewOrder } from './review-order.ts'
 import { ReviewRowMenu, type ReviewRowMenuItem } from './ReviewRowMenu.tsx'
 import { ACTION_LABEL, createReviewAgain, createRowActions, rowActions, type RowAction, type RowCommands } from './review-row-actions.ts'
@@ -47,12 +51,16 @@ export function AiReviews({ live, reviews, priorityOf }: {
 }) {
   const order = useReviewOrder((state) => state.order)
   const { work } = useWorkView()
-  const rows = useMemo(() => rowsOf(reviews.list, priorityOf), [reviews.list, priorityOf])
+  // One row for each layer, and a pull request under the project whose repository it is in: read from the work.
+  const finished = work?.finished
+  const placeOf = useMemo(() => placeLookup((finished ?? []).flatMap((group) => group.changes)), [finished])
+  const projectOf = useMemo(() => projectLookup(work?.projects ?? []), [work?.projects])
+  const rows = useMemo(() => oneRowPerLayer(rowsOf(reviews.list, priorityOf), placeOf), [reviews.list, priorityOf, placeOf])
   const words = useMemo(() => repoWordsOf(reviews.list), [reviews.list])
   const waiting = useMemo(() => waitingRows(rows), [rows])
-  const stackOf = useMemo(() => stackLookup((work?.finished ?? []).flatMap((group) => group.changes)), [work])
+  const stackOf = useMemo(() => stackLookupOf(placeOf), [placeOf])
   const placed = usePlacedRows(rows, order, stackOf, work !== null)
-  const projects = useMemo(() => projectsOf(placed), [placed])
+  const projects = useMemo(() => projectEntries(entriesOf(placed, placeOf), projectOf), [placed, placeOf, projectOf])
 
   return (
     <div className="flex flex-col gap-8">
@@ -69,8 +77,8 @@ export function AiReviews({ live, reviews, priorityOf }: {
       {live && offersStory(waiting) ? <StoryOffer count={waiting.length} onStart={() => startStory(sortStory(waiting, stackOf))} /> : null}
       {reviews.list && rows.length === 0 ? <NoReviews /> : null}
       {rows.length > 0 ? <OrderSwitch count={rows.length} /> : null}
-      {projects.map(({ project, rows: own }) => (
-        <Project key={project} project={project} words={words.get(project)} rows={own} live={live} onAgain={reviews.refresh} />
+      {projects.map(({ project, entries, count }) => (
+        <Project key={project} project={project} words={words.get(project)} entries={entries} count={count} live={live} onAgain={reviews.refresh} />
       ))}
     </div>
   )
@@ -147,16 +155,20 @@ function NoReviews() {
 }
 
 /** One project's rows under a quiet heading, a visual aid only: its name and count, and what the host keeps of its line. */
-function Project({ project, words, rows, live, onAgain }: { project: string; words: string | undefined; rows: ReviewRow[]; live: boolean; onAgain: () => void }) {
+function Project({ project, words, entries, count, live, onAgain }: { project: string; words: string | undefined; entries: ListEntry[]; count: number; live: boolean; onAgain: () => void }) {
   return (
     <section aria-label={project} className="flex flex-col gap-3">
-      <SectionHeading label={project} count={rows.length}>
+      <SectionHeading label={project} count={count}>
         {words ? <span className="min-w-0 text-[13px] leading-snug text-muted-foreground tabular-nums">{words}</span> : null}
       </SectionHeading>
       <ul className="flex flex-col gap-2">
-        {rows.map((row) => (
-          <Card key={row.item.id} row={row} live={live} onAgain={onAgain} />
-        ))}
+        {entries.map((entry) =>
+          entry.kind === 'row' ? (
+            <Card key={entry.row.item.id} row={entry.row} live={live} onAgain={onAgain} line={null} />
+          ) : (
+            <ReviewStack key={entry.id} entry={entry} draw={({ row }, line) => <Card row={row} live={live} onAgain={onAgain} line={line} />} />
+          ),
+        )}
       </ul>
     </section>
   )
@@ -300,39 +312,53 @@ function StopReview({ control }: { control: ReturnType<typeof useStop> }) {
   )
 }
 
-/** The place of a row's grades, one size whatever it holds, so the row's height never changes when a rating lands. */
-const LEAD = 'flex h-[46px] w-[19rem] max-w-full shrink-0 items-stretch gap-1'
+/** The place in front of a row: one narrow size whatever it holds, so the title starts at one line and no row moves when a rating lands. */
+const PLACE = 'flex h-11 w-[6.5rem] shrink-0 items-center justify-center rounded-xl bg-tone-1 px-2 text-center tabular-nums'
 
 const toneOf = (value: number, low: number, high: number) => (value >= high ? 'text-ok-fg' : value >= low ? 'text-warn-fg' : 'text-bad-fg')
 
-/** The general rate and the five grades, each with its question as its tooltip. A grade not known is a dash. */
-function Grades({ needs }: { needs: NeedNumbers }) {
+/**
+ * Where a row's grades go: the general rate alone, in its tone, and the five grades with their evidence on a hover of it
+ * (the user, 2026-11-24: "just leave the average rate and a hover to see details"). A row with no rating says its state in
+ * the same place, in the same words on every row.
+ */
+function RatePlace({ row }: { row: ReviewRow }) {
+  const { needs } = row
+  if (!needs) return <Standing row={row} />
   const rate = needs.rate != null ? Number(needs.rate) : null
   return (
-    <span className={LEAD} aria-label={`Rated: ${needs.numbers.map(({ word, value }) => `${word} ${value}`).join(', ')}${needs.rate ? `, general rate ${needs.rate}` : ''}`}>
-      <span title="General rate: the review's own answer for the whole change." className="flex w-12 shrink-0 flex-col items-center justify-center rounded-xl bg-surface-2 tabular-nums">
-        <span className="text-[10.5px] leading-none text-muted-foreground">Rate</span>
-        <span className={cn('font-heading text-[16px] leading-tight font-semibold', rate != null ? toneOf(rate, 6, 8) : 'text-muted-foreground')}>{needs.rate ?? '–'}</span>
-      </span>
-      {needs.numbers.map(({ name, value }) => {
-        const known = /^\d/.test(value)
-        return (
-          <span key={name} title={`${QUESTIONS[name]}${known ? '' : ' Not known.'}`} className="flex min-w-0 flex-1 flex-col items-center justify-center rounded-xl bg-tone-1 tabular-nums">
-            <span className="text-[10.5px] leading-none text-muted-foreground">{GRADE_WORDS[name]}</span>
-            <span className={cn('text-[14px] leading-tight font-semibold', known ? toneOf(Number(value), 5, 7) : 'text-muted-foreground')}>{known ? value : '–'}</span>
-          </span>
-        )
-      })}
-    </span>
+    <Tooltip>
+      <TooltipTrigger
+        render={<span data-grades="" className={cn(PLACE, 'cursor-default bg-surface-2')} />}
+        aria-label={`Rate ${needs.rate ?? 'not given'}. ${needs.numbers.map(({ word, value }) => `${word} ${value}`).join(', ')}.`}
+      >
+        <span className={cn('font-heading text-[18px] leading-none font-semibold tracking-[-0.02em]', rate != null ? toneOf(rate, 6, 8) : 'text-muted-foreground')}>{needs.rate ?? '–'}</span>
+      </TooltipTrigger>
+      <TooltipContent side="right" align="start" sideOffset={8} className="max-w-sm text-left leading-snug whitespace-normal">
+        <span className="flex flex-col gap-1.5">
+          <span className="text-[11px] opacity-70">General rate: the review&apos;s own answer for the whole change.{needs.other ? ` ${needs.other}.` : ''}</span>
+          {needs.numbers.map(({ name, value, evidence }) => {
+            const known = /^\d/.test(value)
+            return (
+              <span key={name} className="grid grid-cols-[3.2rem_1.5rem_minmax(0,1fr)] items-baseline gap-x-2">
+                <span className="opacity-70">{GRADE_WORDS[name]}</span>
+                <span className={cn('font-semibold tabular-nums', known ? toneOf(Number(value), 5, 7) : 'opacity-60')}>{known ? value : '–'}</span>
+                <span className="text-[11.5px] opacity-80">{evidence || QUESTIONS[name]}</span>
+              </span>
+            )
+          })}
+        </span>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
-/** Where the grades go, for a row with none: what the row is doing, or that its review has not rated it. Same size as the grades. */
+/** Where the grades go, for a row with none: what the row is doing, or that its review has not rated it. */
 function Standing({ row }: { row: ReviewRow }) {
   const failed = row.state.kind === 'failed'
   return (
-    <span title={row.item.rating?.text ?? row.line} className={cn(LEAD, 'items-center rounded-xl bg-tone-1 px-3 text-[13px] leading-snug tabular-nums', failed ? 'text-bad-fg' : 'text-muted-foreground')}>
-      <span className="truncate">{stateWords(row.state)}</span>
+    <span title={row.item.rating?.text ?? row.line} className={cn(PLACE, 'text-[12px] leading-tight', failed ? 'text-bad-fg' : 'text-muted-foreground')}>
+      <span className="line-clamp-2">{stateWords(row.state)}</span>
     </span>
   )
 }
@@ -347,7 +373,43 @@ function detailOf(row: ReviewRow): { text: string; bad: boolean } | null {
   return null
 }
 
-function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: () => void }) {
+/** A layer over the lowest in a stack: one line with its place, its title, its rate and its state, whose press opens its whole row under it. */
+function LayerLine({ row, line, news, menu }: { row: ReviewRow; line: LineOf; news: string | null; menu: ReactNode }) {
+  const Chevron = line.opened ? ChevronDown : ChevronRight
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget || event.key !== 'Enter') return
+    event.preventDefault()
+    line.onToggle()
+  }
+  const onClick = (event: MouseEvent<HTMLDivElement>) => {
+    if (clickPressesRow(event)) line.onToggle()
+  }
+  return (
+    <div
+      data-stop=""
+      data-layer={row.item.id}
+      tabIndex={-1}
+      role="button"
+      aria-expanded={line.opened}
+      aria-label={`${line.place}: ${row.item.title}, ${line.lands}. ${line.opened ? 'Enter closes it.' : 'Enter opens it.'}`}
+      onKeyDown={onKeyDown}
+      onClick={onClick}
+      className="pressable flex min-h-11 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl bg-background/60 px-4 py-2 outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2"
+    >
+      <RatePlace row={row} />
+      <span className="w-9 shrink-0 text-[12px] font-medium text-muted-foreground tabular-nums">{line.place}</span>
+      <span className="min-w-0 flex-1 basis-40 truncate text-[13.5px] leading-snug font-medium">{row.item.title}</span>
+      {news && row.needs ? <span className={cn(TAG, row.state.kind === 'failed' && 'bg-bad/15 text-bad-fg')}>{news}</span> : null}
+      {row.merge ? <span className={cn(TAG, 'bg-bad/15 text-bad-fg')}>Did not merge</span> : null}
+      <span className="hidden shrink-0 text-[12px] text-muted-foreground sm:inline">{line.lands}</span>
+      {menu}
+      <Chevron aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+    </div>
+  )
+}
+
+/** `line`: the row is a layer above the lowest in a stack, so it is one line until it is opened. Null for a row that is whole. */
+function Card({ row, live, onAgain, line }: { row: ReviewRow; live: boolean; onAgain: () => void; line: LineOf | null }) {
   const { item, state } = row
   const Kind = item.kind === 'pull' ? GitPullRequest : GitBranch
   // Who its pull request is from: its own, or the one a finished change opened. The host is asked once for each review,
@@ -365,7 +427,12 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
   const detail = detailOf(row)
   // A rated row shows its grades, so what it is doing is a tag; an unrated one says it where its grades would be.
   const news = row.needs ? stateNews(state) : null
-  return (
+  const menu = (
+    <span className={cn('flex shrink-0 items-center', !line && !buildsHere && !stopsHere && 'ml-auto')}>
+      <ReviewRowMenu label={`More for ${item.title}`} items={menuItems({ row, live, control, stopping, rowControls, canBuild: buildsHere, canStop: stopsHere })} />
+    </span>
+  )
+  const whole = (
     // The row is the card: opening it and running it again are two buttons, side by side, never one inside the other.
     <li className="flex flex-col rounded-3xl bg-background transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 has-[[data-review-id]:focus-visible]:bg-tone-2">
       {/* The button that opens the review is stretched under the line above it, so that line's links sit beside the button and the rest of the line still opens the review. */}
@@ -395,7 +462,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
           onClick={() => useView.getState().openReviewFor(reviewToOpen(item, live))}
           className="stretched flex w-full scroll-mt-[164px] scroll-mb-6 flex-wrap items-start gap-x-4 gap-y-2.5 rounded-3xl px-5 pt-2.5 pb-2.5 text-left"
         >
-          {row.needs ? <Grades needs={row.needs} /> : <Standing row={row} />}
+          <RatePlace row={row} />
           <span className="flex min-w-[15rem] flex-1 flex-col gap-1.5">
             <span className="flex items-start gap-3">
               <span className="min-w-0 flex-1 font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance">
@@ -442,9 +509,7 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
           {/* A row that waits its turn has nothing running to stop. */}
           {stopsHere ? <StopReview control={stopping} /> : null}
           {/* The menu is in the same place on every row: at the end, after the row's one action. */}
-          <span className={cn('flex shrink-0 items-center', !buildsHere && !stopsHere && 'ml-auto')}>
-            <ReviewRowMenu label={`More for ${item.title}`} items={menuItems({ row, live, control, stopping, rowControls, canBuild: buildsHere, canStop: stopsHere })} />
-          </span>
+          {menu}
         </div>
         {rowControls.stack.error ? (
           <p role="alert" className="mt-2 text-[13px] leading-snug text-pretty text-bad-fg [overflow-wrap:anywhere]">
@@ -453,6 +518,13 @@ function Card({ row, live, onAgain }: { row: ReviewRow; live: boolean; onAgain: 
         ) : null}
         <RowSaid kind={item.kind} removal={rowControls.removal} flow={rowControls.flow} armed={rowControls.armed} doing={rowControls.doing} />
       </div>
+    </li>
+  )
+  if (!line) return whole
+  return (
+    <li className="flex flex-col">
+      <LayerLine row={row} line={line} news={news} menu={menu} />
+      {line.opened ? <ul className="mt-2">{whole}</ul> : null}
     </li>
   )
 }

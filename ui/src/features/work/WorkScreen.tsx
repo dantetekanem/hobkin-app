@@ -17,7 +17,9 @@ import { keepSame } from '@/lib/host/keep-same.ts'
 import { spring } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { Discovery } from './Discovery.tsx'
-import { reviewCounts, rowsOf, type ReviewCounts as Counts } from './ai-reviews.ts'
+import { rowsOf } from './ai-reviews.ts'
+import { oneRowPerLayer, placeLookup } from './review-stacks.ts'
+import { waitingRows } from './review-story.ts'
 import { AiReviews } from './AiReviews.tsx'
 import { DecidedPanel } from './DecidedPanel.tsx'
 import { DelegationMap } from './DelegationMap.tsx'
@@ -149,7 +151,9 @@ export function WorkScreen() {
   // new view each time it draws: the list, its error and its refresh say whether anything in it changed.
   const { list: reviewList, error: reviewError, refresh: refreshReviews } = useReviewList(live)
   const reviews = useMemo(() => ({ list: reviewList, error: reviewError, refresh: refreshReviews }), [reviewList, reviewError, refreshReviews])
-  const counts = useSame(useMemo(() => reviewCounts(rowsOf(reviewList)), [reviewList]))
+  // One count of what waits on the user, over the rows the list shows (one for each layer). A merge that did not land has its own mark on its row.
+  const finishedChanges = work?.finished
+  const waits = useMemo(() => waitingRows(oneRowPerLayer(rowsOf(reviewList), placeLookup((finishedChanges ?? []).flatMap((group) => group.changes)))).length, [reviewList, finishedChanges])
   const priorities = parts?.priorities ?? null
   const reviewPriority = useMemo(() => prioritiesOfWork(priorities), [priorities])
   const tally = useSame(useMemo(() => reviewTallyOf(reviewList), [reviewList]))
@@ -296,7 +300,7 @@ export function WorkScreen() {
           <Header work={work} live={live} working={agents.length} tiles={tiles} onSheet={openSheet} sheetButton={sheetButton} onOpenWorld={worldAvailable ? openWorld : undefined} />
         </Hero>
         <div className="flex flex-col gap-6">
-          <WorkTabs tab={tab} counts={counts} onChoose={chooseTab} />
+          <WorkTabs tab={tab} waits={waits} onChoose={chooseTab} />
           {tab === 'reviews' ? (
             <WorkPage key="reviews" way={way} role="tabpanel" id="work-panel-reviews" aria-labelledby="work-tab-reviews">
               <Reviews live={live} reviews={reviews} priorityOf={reviewPriority} />
@@ -349,8 +353,8 @@ export function WorkScreen() {
   )
 }
 
-/** Work's pages as tabs, the reviews' counts beside Ready for Review. They draw again when the page or a count changes. */
-const WorkTabs = memo(function WorkTabs({ tab, counts, onChoose }: { tab: WorkTab; counts: Counts; onChoose: (tab: WorkTab) => void }) {
+/** Work's pages as tabs, the count of what waits beside Ready for Review. They draw again when the page or the count changes. */
+const WorkTabs = memo(function WorkTabs({ tab, waits, onChoose }: { tab: WorkTab; waits: number; onChoose: (tab: WorkTab) => void }) {
   return (
     <PageTabs
       id="work"
@@ -359,7 +363,7 @@ const WorkTabs = memo(function WorkTabs({ tab, counts, onChoose }: { tab: WorkTa
       onChoose={onChoose}
       tabs={[
         { value: 'work', label: 'Work' },
-        { value: 'reviews', label: 'Ready for Review', extra: <ReviewCounts counts={counts} /> },
+        { value: 'reviews', label: 'Ready for Review', extra: waits ? <TabCount tone="ok">{waits}</TabCount> : null },
         { value: 'numbers', label: 'Statistics' },
       ]}
     />
@@ -426,17 +430,6 @@ const AgentsAtOnce = memo(function AgentsAtOnce({ allowed, most, live }: { allow
     </div>
   )
 })
-
-/** Beside "AI Reviews": how many run and how many are ready to read. Nothing while there are none. */
-function ReviewCounts({ counts }: { counts: Counts }) {
-  return (
-    <>
-      {counts.unmerged ? <TabCount tone="live">{counts.unmerged} not merged</TabCount> : null}
-      {counts.running ? <TabCount tone="live">{counts.running} running</TabCount> : null}
-      {counts.ready ? <TabCount tone="ok">{counts.ready} ready</TabCount> : null}
-    </>
-  )
-}
 
 /** A row's own choices that can be pressed now, in reading order. A row inside a row keeps its choices to itself. */
 function controlsOf(item: HTMLElement): HTMLElement[] {

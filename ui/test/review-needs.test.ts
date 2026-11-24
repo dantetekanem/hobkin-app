@@ -91,6 +91,7 @@ test("hobkin's own run is no second block: it marks the numbers it scores more t
 test('visibility with no monitoring known reads as not known on a row', () => {
   const unknown = { ...withoutMonitoring(), monitoring: 'unknown' as const }
   assert.equal(needNumbers([unknown])!.numbers[3]!.value, 'not known')
+  assert.equal(needNumbers([unknown])!.numbers[3]!.evidence, NO_MONITORING)
 
   const dropped = { ...withoutMonitoring(), monitoring: 'given' as const }
   assert.equal(scoresLine({ yours: dropped, head: HEAD, underWay: false }).state, 'rated')
@@ -127,11 +128,11 @@ test('a row and the YOLO mode page read the ratings in a few words', () => {
     needNumbers([rated()]),
     {
       numbers: [
-        { name: 'coverage', word: 'Cover', value: '8' },
-        { name: 'proof', word: 'Proof', value: '4' },
-        { name: 'safety', word: 'Deploy', value: '7' },
-        { name: 'visibility', word: 'Watch', value: '6' },
-        { name: 'rollback', word: 'Undo', value: '9' },
+        { name: 'coverage', word: 'Cover', value: '8', evidence: 'Five helper tests call link_user_tags, and three fail with it undone.' },
+        { name: 'proof', word: 'Proof', value: '4', evidence: 'No request test renders a post. Capped at 4: no test of the change was added or changed for the controller.' },
+        { name: 'safety', word: 'Deploy', value: '7', evidence: 'Every post page renders through it; no data is written.' },
+        { name: 'visibility', word: 'Watch', value: '6', evidence: 'Template errors reach the error tracker.' },
+        { name: 'rollback', word: 'Undo', value: '9', evidence: 'One revert, no migration.' },
       ],
       rate: '7.4',
       at: 'abc1234',

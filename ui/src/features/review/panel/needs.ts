@@ -195,7 +195,8 @@ const notWatched = (needs: ReviewNeeds) => needs.scores.visibility == null && ne
 
 /** A row's five numbers in the user's order, each with its short word, and the general rate. */
 export interface NeedNumbers {
-  numbers: { name: NeedName; word: string; value: string }[]
+  /** `evidence`: the review's line for the number, or why there is none. Empty when it gave none. */
+  numbers: { name: NeedName; word: string; value: string; evidence: string }[]
   rate: string | null
   /** The commit they were made at, short. */
   at: string
@@ -218,7 +219,7 @@ export function needNumbers(needs: unknown, head = ''): NeedNumbers | null {
   }
   const elsewhere = head !== '' && yours.head !== head ? `Rated at ${short(yours.head)}, an older commit than the change is at now` : null
   return {
-    numbers: NEED_NAMES.map((name) => ({ name, word: NEED_WORDS[name], value: valueOf(name) })),
+    numbers: NEED_NAMES.map((name) => ({ name, word: NEED_WORDS[name], value: valueOf(name), evidence: yours.scores[name]?.evidence ?? (name === 'visibility' && notWatched(yours) ? NO_MONITORING : '') })),
     rate: yours.rate != null ? String(yours.rate) : null,
     at: short(yours.head),
     other: yours.atOtherCommit ?? elsewhere,
