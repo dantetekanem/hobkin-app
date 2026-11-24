@@ -52,12 +52,20 @@ export function orderSchedules(list: readonly AgentSchedule[]): AgentSchedule[] 
 
 const two = (value: number) => String(value).padStart(2, '0')
 
+/** Days and the hours past them: "3 d", "2 d 3 h". */
+const daysWords = (ms: number) => {
+  const days = Math.floor(ms / DAY)
+  const hours = Math.floor((ms % DAY) / HOUR)
+  return hours ? `${days} d ${hours} h` : `${days} d`
+}
+
 /**
- * The time left before a schedule fires, as a clock reads it: "42s", "1:42", "1:02:05". A moment left still counts as
- * a second. Null once it is due.
+ * The time left before a schedule fires, as a clock reads it: "42s", "1:42", "1:02:05", and a day or more in days and
+ * hours, "2 d 3 h", which change seldom. A moment left still counts as a second. Null once it is due.
  */
 export function countdown(ms: number): string | null {
   if (!(ms > 0)) return null
+  if (ms >= DAY) return daysWords(ms)
   const seconds = Math.ceil(ms / SECOND)
   if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
@@ -140,12 +148,15 @@ function endedLine(ended: readonly AgentSchedule[]): ScheduleLineWords | null {
   return { count: 0, lead: 'ended', name, when: 'ended', text: `${name} ended`, short: 'ended' }
 }
 
-/** How often it fires: "once", "every minute", "every 2 min", "every hour". */
+/** How often it fires: "once", "every minute", "every 2 min", "every hour", "every 6 h", "every day", "every 1 d 12 h". */
 export function everyWords(every: number | undefined): string {
   if (!every || every <= 0) return 'once'
   if (every === 60) return 'every minute'
   if (every === 3600) return 'every hour'
+  if (every === 86400) return 'every day'
   if (every < 60) return `every ${every}s`
+  if (every * SECOND >= DAY) return `every ${daysWords(every * SECOND)}`
+  if (every > 3600) return `every ${spanWords(every * SECOND)}`
   const minutes = Math.floor(every / 60)
   const seconds = every % 60
   return seconds ? `every ${minutes} min ${seconds}s` : `every ${minutes} min`
@@ -160,8 +171,9 @@ export function agoWords(ms: number): string {
   return `${Math.floor(ms / DAY)} d ago`
 }
 
-/** A stretch of time: "40s", "28 min", "2 h", "1 h 28 min". */
+/** A stretch of time: "40s", "28 min", "2 h", "1 h 28 min", and a day or more "3 d" or "1 d 12 h". */
 export function spanWords(ms: number): string {
+  if (ms >= DAY) return daysWords(ms)
   const seconds = Math.ceil(ms / SECOND)
   if (seconds < 60) return `${seconds}s`
   const minutes = Math.floor(seconds / 60)
@@ -210,17 +222,19 @@ const sentenceOf = (text: string) => {
   return words.charAt(0).toLowerCase() + words.slice(1)
 }
 
-/** What a live schedule has left: its runs and the time to its end. Null for an ended one, or one that says neither. */
+/**
+ * What a live schedule has left: its runs and the time to its end. One with no end time has no end: its agent gave it
+ * none, as a host that sends `until` for every other one says by leaving it out. Null for an ended one.
+ */
 export function leftWords(schedule: AgentSchedule, now: number): string | null {
   if (isEnded(schedule)) return null
   const runs = schedule.maxRuns === undefined ? null : Math.max(0, schedule.maxRuns - (schedule.runs ?? 0))
   const until = timeOf(schedule.until)
   if (until !== null && until <= now) return 'ends now'
-  const time = until === null ? null : spanWords(until - now)
   const runWords = runs === null ? null : `${runs} ${runs === 1 ? 'run' : 'runs'}`
-  if (runWords && time) return `${runWords} and ${time} left`
-  if (runWords || time) return `${runWords ?? time} left`
-  return null
+  if (until === null) return runWords ? `${runWords} left, no end` : 'no end'
+  const time = spanWords(until - now)
+  return runWords ? `${runWords} and ${time} left` : `${time} left`
 }
 
 /** What it does: the command it runs, or, for a plain wake, what the agent told itself. */

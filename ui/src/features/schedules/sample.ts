@@ -81,6 +81,22 @@ export function sampleSchedules(now: number): readonly AgentSchedule[] {
       last: { at: at(-(5 * MINUTE + 50 * SECOND)), outcome: 'pending', exitCode: 1, woke: false },
     },
     {
+      // A daily one its agent gave no end and no cap on wakes (056, 2026-11-24).
+      id: 'sample:nightly',
+      owner: { kind: 'main' },
+      ownerTitle: 'hobkin',
+      name: 'Check the nightly export',
+      does: 'shell',
+      command: 'bin/export-status --last',
+      note: 'Say only when the export failed or is late.',
+      every: 24 * 60 * 60,
+      state: 'waiting',
+      nextAt: at(9 * 60 * MINUTE + 20 * MINUTE),
+      runs: 3,
+      wakes: 1,
+      last: { at: at(-(14 * 60 * MINUTE + 40 * MINUTE)), outcome: 'passed', exitCode: 0, woke: false, line: 'export ok, 1,204 rows' },
+    },
+    {
       id: 'sample:flaky',
       owner: { kind: 'main' },
       ownerTitle: 'hobkin',

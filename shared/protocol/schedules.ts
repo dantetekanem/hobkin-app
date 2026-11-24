@@ -50,17 +50,17 @@ export interface AgentSchedule {
   command?: string
   /** What the agent told itself to do when woken. */
   note?: string
-  /** Seconds between runs. Missing for a schedule that fires once. */
+  /** Seconds between runs, a minute or more with no most. Missing for a schedule that fires once. */
   every?: number
   state?: AgentScheduleState
   /** When it fires next, as an ISO time. Missing once it has ended or while it is paused. */
   nextAt?: string
-  /** When its lifetime ends, as an ISO time. Every schedule has an end. */
+  /** When its lifetime ends, as an ISO time. Missing for one whose agent gave it no end, as a host sends it every other time. */
   until?: string
   /** How many times it has run, and the most it may. */
   runs?: number
   maxRuns?: number
-  /** How many times it has woken its agent, and the most it may. */
+  /** How many times it has woken its agent, and the most it may: missing for one whose agent gave it no cap on wakes. */
   wakes?: number
   maxWakes?: number
   last?: AgentScheduleRun

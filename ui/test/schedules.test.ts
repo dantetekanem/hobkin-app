@@ -172,9 +172,9 @@ test('what a schedule has left: its runs and the time to its end', () => {
   assert.equal(leftWords({ ...watch, maxRuns: undefined }, NOW), '1 h 28 min left')
   assert.equal(leftWords({ ...watch, until: at(2 * HOUR) }, NOW), '23 runs and 2 h left')
   assert.equal(leftWords({ ...watch, until: at(40 * SECOND), maxRuns: undefined }, NOW), '40s left')
-  assert.equal(leftWords({ ...watch, until: undefined }, NOW), '23 runs left')
+  assert.equal(leftWords({ ...watch, until: undefined }, NOW), '23 runs left, no end', 'no end time is no end')
   assert.equal(leftWords({ ...watch, until: at(-SECOND) }, NOW), 'ends now')
-  assert.equal(leftWords({ id: 'bare' }, NOW), null)
+  assert.equal(leftWords({ id: 'bare' }, NOW), 'no end')
   assert.equal(leftWords({ ...watch, state: 'done' }, NOW), null, 'an ended one has nothing left')
 })
 
