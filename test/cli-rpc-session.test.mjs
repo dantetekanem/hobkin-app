@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileS
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { atomicJson, initialize } from '../src/cli/config.mjs';
+import { fileDecision, openDecisions } from '../src/cli/decisions.mjs';
 import { closePiSession, openImportedPiSession, openPiSession } from '../src/cli/pi-session.mjs';
 import { readAnswers } from '../src/cli/questions.mjs';
 import { extensionPath } from '../src/cli/rpc-session.mjs';
@@ -164,6 +165,19 @@ test('main workload Stop uses the registered RPC bridge and refuses startup with
   const runtime = await missing.open();
   t.after(() => runtime.close());
   await assert.rejects(runtime.connect(), /did not activate its tools: stop_workload/);
+});
+
+test('the main RPC host exposes Action Item dismissal without recording an answer', async t => {
+  const h = fixture(t);
+  const { id } = fileDecision(h.root, {
+    from: 'Fixture', question: 'Ship the change?',
+    choices: [{ value: 'wait', label: 'Wait' }, { value: 'ship', label: 'Ship' }],
+  });
+  await h.connected();
+
+  const { answer } = await bridge(h.fake, { op: 'tool', name: 'hobkin_action_items', id: 'dismiss', params: { action: 'dismiss', id } });
+  assert.deepEqual(answer.result.details, { dismissed: 1, remaining: 0 });
+  assert.deepEqual(openDecisions(h.root).map(decision => decision.id), [id]);
 });
 
 test('the main chat starts as `<launcher> --mode rpc` with its session, binding, extension and prompts', async t => {
@@ -383,7 +397,7 @@ test('a binding, identity or missing tool that differs is disposed before any pr
     [{ thinking: 'low' }, /binding/],
     [{ model: { provider: 'fixture', id: 'other' } }, /binding/],
     [{ hello: false }, /did not activate/],
-    [{ hello: ['ask_question'] }, /run_routine, message_check, stop_workload, owned_agent, hobkin_memory, model_settings/],
+    [{ hello: ['ask_question'] }, /run_routine, message_check, stop_workload, owned_agent, hobkin_memory, hobkin_action_items, model_settings/],
   ]) {
     const h = fixture(t, pi);
     await assert.rejects(openPiSession({ root: h.root, config: h.config }, h.dependencies), expected);

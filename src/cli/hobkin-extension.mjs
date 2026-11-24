@@ -5,6 +5,7 @@ import { decidedSection } from './decided.mjs';
 import { composePersonaPrompt } from './persona.mjs';
 import { directionsSection } from './directions.mjs';
 import { createMemoryTool, memorySection } from './memory.mjs';
+import { createActionItemTool } from './action-item-tool.mjs';
 import { createQuestionTool } from './questions.mjs';
 import { createCheckMessageTool, createScheduleTool, createSettingsTool, createStopWorkloadTool } from './hobkin-tools.mjs';
 import { createAgentScheduleTool, createAgentSchedulesTool } from './schedule-tools.mjs';
@@ -15,7 +16,7 @@ import { createRecallTool, createRememberTool } from './memory-tools.mjs';
  * them. A tool added here is added to that list in the same change.
  */
 export const HOBKIN_BRIDGE_TOOLS = Object.freeze(['ask_question', 'run_routine', 'message_check', 'hobkin_memory', 'model_settings', 'stop_workload',
-  'hobkin_schedule', 'hobkin_schedules', 'hobkin_recall', 'hobkin_remember', 'owned_agent']);
+  'hobkin_schedule', 'hobkin_schedules', 'hobkin_recall', 'hobkin_remember', 'hobkin_action_items', 'owned_agent']);
 
 /** hobkin's memories for the prompt. A host from before has none to give, and that costs the index, never the turn. */
 async function memoriesSection(ctx) {
@@ -37,7 +38,7 @@ async function memoriesSection(ctx) {
 export default function hobkin(pi) {
   guardCodeToolAbort();
   const tools = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool(),
-    createAgentScheduleTool(), createAgentSchedulesTool(), createRecallTool(), createRememberTool()];
+    createAgentScheduleTool(), createAgentSchedulesTool(), createRecallTool(), createRememberTool(), createActionItemTool()];
   for (const tool of tools) {
     pi.registerTool({
       ...tool,

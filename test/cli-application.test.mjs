@@ -32,6 +32,7 @@ const { readPresentationState, savePresentationState } = await import('../src/cl
 const { fakePi } = await import('./helpers/pi-session.mjs');
 import { png } from './helpers/png.mjs';
 const { fileActionItem, fileDecision, markShown, openDecisions } = await import('../src/cli/decisions.mjs');
+const { dismissActionItems } = await import('../src/cli/pending-read.mjs');
 const { readBriefState, writeBriefState } = await import('../src/cli/brief.mjs');
 const { openCheck } = await import('../src/cli/checks.mjs');
 const { retireOffers } = await import('../src/cli/work/land-offer.mjs');
@@ -1937,6 +1938,37 @@ test('the view carries every row Decisions lists', async t => {
 
     assert.deepEqual(waiting.yours.map(({ item, reason }) => [item, reason]), [[id, 'Rotate the keys at the provider.']]);
     assert.deepEqual(waiting.branches, []);
+  } finally {
+    await app.close();
+  }
+});
+
+test('dismissing an Action Item refreshes the dashboard without answering or showing the decision', async t => {
+  const h = fixture(t);
+  const { id } = fileDecision(h.root, {
+    from: 'Fixture',
+    question: 'Approve the change?',
+    choices: [{ value: 'no', label: 'No' }, { value: 'yes', label: 'Yes' }],
+  });
+  const refreshed = Promise.withResolvers();
+  let dismissed = false;
+  const app = await h.openApp({
+    intervalMs: HOUR_MS,
+    onChange: view => {
+      if (dismissed && !view.decisions.some(decision => decision.id === id)) refreshed.resolve();
+    },
+  });
+  try {
+    assert.ok((await app.refresh()).decisions.some(decision => decision.id === id));
+
+    dismissed = true;
+    assert.deepEqual(dismissActionItems(h.root, { id }), { dismissed: 1, remaining: 0 });
+    const timeout = setTimeout(() => refreshed.reject(Error('The dismissed decision is still on the dashboard.')), 2000);
+    await refreshed.promise.finally(() => clearTimeout(timeout));
+
+    assert.equal(app.nextUnshown(h.root), null);
+    assert.deepEqual(readLocalView(h.root).decisions, []);
+    assert.equal(openDecisions(h.root).find(decision => decision.id === id).answer, undefined);
   } finally {
     await app.close();
   }

@@ -6,6 +6,7 @@ import { readSessionHeader } from './migration/ownership.mjs';
 import { readSource, sha256 } from './migration/inventory.mjs';
 import { routinesFolder, validateBinding } from './schedules.mjs';
 import { createMemoryExtension, createMemoryTool } from './memory.mjs';
+import { createActionItemTool } from './action-item-tool.mjs';
 import { createQuestionTool } from './questions.mjs';
 import { createCheckMessageTool, createScheduleTool, createSettingsTool, createStopWorkloadTool } from './hobkin-tools.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
@@ -100,7 +101,7 @@ export async function openPiSession(
     expected,
     file,
     fresh,
-    customTools: [createQuestionTool(askQuestion, root), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root), createStopWorkloadTool(stopWorkload), createOwnedAgentSessionTool(ownedAgent),
+    customTools: [createQuestionTool(askQuestion, root), createScheduleTool(triggerSchedule), createCheckMessageTool(messageCheck), createMemoryTool(root), createStopWorkloadTool(stopWorkload), createActionItemTool(root), createOwnedAgentSessionTool(ownedAgent),
       ...Object.values(agentScheduleTools(agentSchedules)), ...Object.values(mainMemoryTools(memoryKeeper ?? memoryHandler(root, { kind: 'main' })))],
     modelSettings: { root, config },
   }, { ...dependencies, recoverScriptedHistory: false });

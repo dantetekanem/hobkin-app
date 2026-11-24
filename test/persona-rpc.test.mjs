@@ -88,7 +88,7 @@ test('configured main RPC reads durable persona lazily without changing session 
   const state = { sessionId: 'exact-pi-id', sessionFile: file, model: { provider: 'fake', id: 'local' }, thinkingLevel: 'medium' };
   config.main = { cwd: root, model: 'fake/local', effort: 'medium' };
   globalThis[Symbol.for('persona-rpc-transport')] = ({ onRecord }) => {
-    onRecord({ type: 'extension_ui_request', method: 'setStatus', statusKey: BRIDGE, statusText: JSON.stringify({ tools: ['ask_question', 'run_routine', 'message_check', 'stop_workload', 'owned_agent', 'hobkin_memory', 'model_settings', 'hobkin_schedule', 'hobkin_schedules', 'hobkin_recall', 'hobkin_remember'] }) });
+    onRecord({ type: 'extension_ui_request', method: 'setStatus', statusKey: BRIDGE, statusText: JSON.stringify({ tools: ['ask_question', 'run_routine', 'message_check', 'stop_workload', 'owned_agent', 'hobkin_memory', 'model_settings', 'hobkin_schedule', 'hobkin_schedules', 'hobkin_recall', 'hobkin_remember', 'hobkin_action_items'] }) });
     return { closed: new Promise(() => {}), request: async name => name === 'get_state' ? state : name === 'get_messages' ? { messages: [] } : {}, shutdown: async () => {} };
   };
   const session = await openRpcSession({ root, config, file, prompts: [] });

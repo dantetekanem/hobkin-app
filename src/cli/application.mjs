@@ -61,9 +61,10 @@ import { prView } from './work/reads.mjs';
 import { LandOffers, lastOfferAt, offerDecisions, retireOffers } from './work/land-offer.mjs';
 import { fileFirstPair } from './work/pairs.mjs';
 import { stalled } from './checks.mjs';
-import { fileDecision, findDecision, findOpenDecision, markShown, openDecisions, QUESTION_WAIT_MS, waitingDecisions } from './decisions.mjs';
+import { DISMISSALS_FILE } from './action-dismissal.mjs';
+import { fileDecision, findDecision, findOpenDecision, markShown, QUESTION_WAIT_MS } from './decisions.mjs';
 import { isPresent } from './pending.mjs';
-import { readPending, readWaiting } from './pending-read.mjs';
+import { readActionDecisions, readPending, readWaiting } from './pending-read.mjs';
 import { arrivedCount, arrivedSince, asksForBrief, BRIEF_BAR, briefMaterial, briefNote, briefSince, offerLine, readBriefState, returnedSince, seenMoved, withoutBriefNote, writeBriefState } from './brief.mjs';
 import { readReportIds } from './telemetry.mjs';
 import { carryOutAnswer } from './answer.mjs';
@@ -443,9 +444,9 @@ export class HobkinApplication {
       // Before anything starts: a durable hobkin's turn that was running when hobkin stopped is over.
       await app.hobkins.open();
       app.runner.start({ intervalMs });
-      // `hobkin reports delete` runs in another process and changes no runtime state.
-      app.deletionWatcher = watch(join(app.runtime.directory, 'runtime'), (event, name) => {
-        if (name?.startsWith('deleted-reports.json')) app.requestRefresh();
+      // Report deletions and Action Item dismissals can arrive from another process.
+      app.deletionWatcher = watch(join(app.runtime.directory, 'runtime'), (_event, name) => {
+        if (name === DISMISSALS_FILE || name?.startsWith('deleted-reports.json')) app.requestRefresh();
       });
       app.deletionWatcher.unref();
       // `hobkin tell` runs in a durable hobkin's own shell and waits for the answer, so its message is taken as soon as
@@ -867,8 +868,8 @@ export class HobkinApplication {
       reportAttention: this.telemetry.attention(runs.filter(run => !run.hobkin), this.now()),
       work,
       hobkins: hobkinSummaries(state),
-      decisions: waitingDecisions(this.runtime.directory),
-      waiting: this.waitingNow(visible.reports),
+      decisions: readActionDecisions(this.runtime.directory),
+      waiting: this.waitingNow(),
       wins: this.winsToday(),
       connection: 'connected',
       unread: this.unread,
@@ -1411,7 +1412,7 @@ export class HobkinApplication {
     const outlook = this.director.outlook();
     const watched = {
       work: workStatus(root, outlook, { shared: this.director.sharedLook?.(outlook), plan: this.director.planWork }),
-      decisions: waitingDecisions(root),
+      decisions: readActionDecisions(root),
       learning: learningEnabled(root),
       // At least once a minute, for whatever else in the dashboard moves with the clock alone.
       minute: Math.floor(this.now() / 60_000),
@@ -1797,7 +1798,7 @@ export class HobkinApplication {
   /** The oldest decision that has not had its moment on screen. The tick awaits nothing, so a log that cannot be read costs this look and nothing more. */
   nextUnshown(root) {
     try {
-      return openDecisions(root).find(({ shown }) => !shown) ?? null;
+      return readActionDecisions(root).find(({ shown }) => !shown) ?? null;
     } catch {
       return null;
     }
@@ -1886,7 +1887,7 @@ export class HobkinApplication {
   /** The offer for a return, or none when too little came in while the user was away. */
   offerAfter(root, since, now) {
     const arrived = arrivedSince({
-      decisions: waitingDecisions(root),
+      decisions: readActionDecisions(root),
       reports: this.snapshot.reports ?? [],
       read: readReportIds(root),
       since,
@@ -1905,11 +1906,11 @@ export class HobkinApplication {
       const material = briefMaterial({
         since: briefSince(readBriefState(root), now),
         now,
-        decisions: waitingDecisions(root),
+        decisions: readActionDecisions(root),
         reports,
         read: readReportIds(root),
-        waiting: readPending(root, { now, reports }),
-        rows: readWaiting(root, { now, reports }),
+        waiting: readPending(root, { now }),
+        rows: readWaiting(root, { now }),
         reportPath: id => savedReportPath(root, id),
       });
       return briefNote(material, { most: room });
@@ -1978,9 +1979,9 @@ export class HobkinApplication {
   }
 
   /** Every row the card counts, for the Decisions tab. A problem reading them costs this refresh its rows and nothing else. */
-  waitingNow(reports) {
+  waitingNow() {
     try {
-      return readWaiting(this.runtime.directory, { now: this.now(), reports });
+      return readWaiting(this.runtime.directory, { now: this.now() });
     } catch {
       return this.snapshot.waiting ?? null;
     }

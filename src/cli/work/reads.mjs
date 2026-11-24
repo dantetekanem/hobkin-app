@@ -579,7 +579,10 @@ export function attentionView(root) {
   const proposals = projects
     .filter(({ state }) => state === 'proposed')
     .toSorted(byRank)
-    .map(({ slug, summary = null }) => row('proposal', names.get(slug), `hobkin work choose ${slug} [level], or skip ${slug}`, { slug, reason: summary }));
+    .map(({ slug, summary = null, at }) => ({
+      ...row('proposal', names.get(slug), `hobkin work choose ${slug} [level], or skip ${slug}`, { slug, reason: summary }),
+      offeredAt: at,
+    }));
   const items = projects
     .filter(({ state }) => state === 'chosen')
     .flatMap(({ slug }) => readItems(root, slug)
