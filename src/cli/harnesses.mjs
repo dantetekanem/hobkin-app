@@ -27,7 +27,14 @@ const workPurposes = ['work-discover', 'work-look', 'work-do'];
 // A durable hobkin's turn works like a delegated job, with its own directions in place of a check's.
 // A goal's runs keep the purpose of the code runs, so tools, skills and limits are the same, and read their own prompt in its place.
 const goalPrompts = { 'work-look': 'work-goal-look', 'work-do': 'work-goal-do' };
-const workPromptOf = request => (request.workPrompt === undefined ? request.purpose : goalPrompts[request.purpose] === request.workPrompt ? request.workPrompt : null);
+
+/** The prompt a work run reads: its purpose's own, or the goal prompt that stands in for that purpose. Null for any other prompt asked for. */
+function workPromptOf({ purpose, workPrompt }) {
+  if (workPrompt === undefined) return purpose;
+
+  const standsInForPurpose = goalPrompts[purpose] === workPrompt;
+  return standsInForPurpose ? workPrompt : null;
+}
 const usesTools = purpose => purpose === undefined || purpose === 'compatibility-check' || purpose === 'durable' || workPurposes.includes(purpose);
 const prompt = name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8');
 /** What a work run is told, for a harness that cannot take it as a system prompt. */
