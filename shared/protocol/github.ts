@@ -4,6 +4,10 @@
  * See _specs/024-github.
  */
 
+import type { PullRequest } from './pulls.ts'
+
+export type { ChecksState, PullRequest, ReviewState } from './pulls.ts'
+
 /** Whether the host reaches GitHub through gh. */
 export type GitHubConnection =
   /** Not known yet: the first look is under way, or it failed before gh could say. */
@@ -14,12 +18,6 @@ export type GitHubConnection =
   | 'signed-out'
   /** gh is signed in to github.com. */
   | 'connected'
-
-/** Where a pull request's review stands. `waiting`: a review is asked for and none has been given yet. */
-export type ReviewState = 'approved' | 'changes-requested' | 'waiting' | 'none'
-
-/** Where a pull request's checks stand, on its last commit. */
-export type ChecksState = 'passing' | 'failing' | 'pending' | 'none'
 
 export interface GitHubIssue {
   /** `owner/name` */
@@ -51,32 +49,8 @@ export interface IssueWork {
   pr: string | null
 }
 
-export interface GitHubPull {
-  /** `owner/name` */
-  repo: string
-  number: number
-  title: string
-  labels: string[]
-  /** When it last changed on GitHub, as an ISO time. */
-  updatedAt: string
-  url: string
-  draft: boolean
-  /** Who opened it. Null for an account GitHub no longer has. */
-  author: string | null
-  review: ReviewState
-  checks: ChecksState
-  /** Lines added and removed, and files changed, as GitHub counts them now. A host older than these does not send them. */
-  additions?: number
-  deletions?: number
-  changedFiles?: number
-  /**
-   * The full commit its branch is at, when it was opened, and when that head commit was committed (about when it was
-   * last pushed), as ISO times. A host or a cached list from before these does not send them.
-   */
-  head?: string
-  openedAt?: string
-  pushedAt?: string
-}
+/** A pull request on GitHub. The app's own shape for one, whichever integration read it. */
+export type GitHubPull = PullRequest
 
 /** What one read brings back, each list the most recently updated first. */
 export interface GitHubLists {
