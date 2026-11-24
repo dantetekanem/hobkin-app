@@ -1,5 +1,5 @@
 import { CircleDot, GitPullRequest } from 'lucide-react'
-import type { GitHubPull, GitHubState } from '#shared/protocol/github.ts'
+import type { GitHubPull, GitHubState } from '../protocol.ts'
 import type { SpotlightTarget } from '@/app/spotlight-entries.ts'
 import { openAddress } from '@/lib/open-link.ts'
 import { openPullRequestReview } from './review.ts'

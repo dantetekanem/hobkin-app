@@ -1,4 +1,4 @@
-import type { GitHubConnection, GitHubPull, GitHubState } from '#shared/protocol/github.ts'
+import type { GitHubConnection, GitHubPull, GitHubState } from '../protocol.ts'
 import type { HomeAction, HomeCardFields, HomeContribution, HomeRow, HomeTarget, HomeTone } from '@/features/home/types.ts'
 
 /**

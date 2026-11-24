@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { registerHooks } from 'node:module'
 import test from 'node:test'
-import { sampleGitHub, type GitHubState } from '#shared/protocol/github.ts'
+import { sampleGitHub, type GitHubState } from '../protocol.ts'
 
 Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: { getItem: () => null, setItem() {}, removeItem() {} } } })
 // The app's `@/` imports point at ui/src, as Vite resolves them.

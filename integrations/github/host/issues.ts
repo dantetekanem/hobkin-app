@@ -1,6 +1,6 @@
 import { filedIssues, projectOfRepo } from 'hobkin/src/cli/work/issues.mjs'
 import { ownerView } from 'hobkin/src/cli/work/store.mjs'
-import type { GitHubState, IssueWork } from '#shared/protocol/github.ts'
+import type { GitHubState, IssueWork } from '../protocol.ts'
 import { Unavailable } from '#host/commands.ts'
 import { ghText, type GhCall } from '#host/review/gh.ts'
 import type { WorkApp } from '#host/work.ts'

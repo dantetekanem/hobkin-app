@@ -69,7 +69,7 @@ export function groupOf(name: FinishedGroupName, changes: FinishedChange[]): Fin
 
 const sha = (seed: string) => seed.padEnd(40, '0')
 
-/** An issue of the sample GitHub's (`sampleGitHub` in `shared/protocol/github.ts`), which a sample item was filed from. */
+/** An issue of the sample GitHub's (`sampleGitHub` in GitHub's integration), which a sample item was filed from. */
 const sampleIssue = (repo: string, number: number): WorkIssue => ({ repo: `hobkin-sample/${repo}`, number, url: `https://github.com/hobkin-sample/${repo}/issues/${number}` })
 
 const merging = (rest: Omit<FinishedChange, 'key' | 'review' | 'behind' | 'conflict' | 'landing'> & Partial<FinishedChange>): FinishedChange => ({

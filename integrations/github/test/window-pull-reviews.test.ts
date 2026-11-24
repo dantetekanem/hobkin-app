@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { sampleGitHub, type GitHubPull } from '#shared/protocol/github.ts'
+import { sampleGitHub, type GitHubPull } from '../protocol.ts'
 import type { ReviewList, ReviewListItem } from '#shared/review/status.ts'
 import { aiOf, pullReviewId, pullSections, startAiReview } from '../window/pull-reviews.ts'
 import { rowsOf } from '../../../ui/src/features/work/ai-reviews.ts'

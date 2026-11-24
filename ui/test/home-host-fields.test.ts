@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
 import { registerHooks } from 'node:module'
 import { shallow } from 'zustand/vanilla/shallow'
-import { GITHUB_UNKNOWN } from '../../shared/protocol/github.ts'
+import { GITHUB_UNKNOWN } from '../../integrations/github/protocol.ts'
 import type { WorkState } from '../../shared/protocol/work.ts'
 import { applyHostMessage, initialHostState, type HostState } from '../src/lib/host/state.ts'
 

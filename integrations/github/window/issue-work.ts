@@ -1,4 +1,4 @@
-import type { IssueWork } from '#shared/protocol/github.ts'
+import type { IssueWork } from '../protocol.ts'
 import type { FinishedGroupName, WorkState } from '#shared/protocol/work.ts'
 
 /**

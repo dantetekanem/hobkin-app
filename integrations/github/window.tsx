@@ -1,5 +1,5 @@
 import { GitPullRequest } from 'lucide-react'
-import { GITHUB_UNKNOWN, sampleGitHub, type GitHubState } from '#shared/protocol/github.ts'
+import { GITHUB_UNKNOWN, sampleGitHub, type GitHubState } from './protocol.ts'
 import type { WindowPart } from '@/integration/contract.ts'
 import manifest from './integration.ts'
 import { GitHubCard } from './window/GitHubCard.tsx'

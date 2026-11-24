@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import type { GitHubPull, GitHubState } from '#shared/protocol/github.ts'
+import type { GitHubPull, GitHubState } from '../protocol.ts'
 import { githubHome } from '../window/home.ts'
 
 const iso = new Date(2026, 10, 12, 18).toISOString()

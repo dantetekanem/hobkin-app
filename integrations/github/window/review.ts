@@ -1,4 +1,4 @@
-import type { GitHubPull } from '#shared/protocol/github.ts'
+import type { GitHubPull } from '../protocol.ts'
 import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import { useView } from '@/app/view-store.ts'
 

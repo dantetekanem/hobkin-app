@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { GITHUB_LIMIT, type ChecksState, type GitHubIssue, type GitHubPull, type ReviewState } from '#shared/protocol/github.ts'
+import { GITHUB_LIMIT, type ChecksState, type GitHubIssue, type GitHubPull, type ReviewState } from '../protocol.ts'
 import { plainWords, type GitHubRead, type GitHubSource } from './github.ts'
 import { findGh, type GhOutcome } from '#host/review/gh.ts'
 

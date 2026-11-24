@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { sampleGitHub, type GitHubIssue } from '#shared/protocol/github.ts'
+import { sampleGitHub, type GitHubIssue } from '../protocol.ts'
 import type { WorkProject } from '#shared/protocol/work.ts'
 import { chosenTab, pageIn, projectTabs, type GitHubPage } from '../window/project-filter.ts'
 import { pullSections, type PullEntry } from '../window/pull-reviews.ts'

@@ -1,5 +1,5 @@
 import { ArrowUpRight, LoaderCircle } from 'lucide-react'
-import type { GitHubConnection, GitHubState } from '#shared/protocol/github.ts'
+import type { GitHubConnection, GitHubState } from '../protocol.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Switch } from '@/components/ui/switch.tsx'
 import { useScreenInMenu } from '@/features/settings/store.ts'

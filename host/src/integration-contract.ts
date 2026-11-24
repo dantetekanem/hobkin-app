@@ -85,7 +85,10 @@ export interface HostPart {
   afterCommand?(call: CommandDone): void
   /** Every tool call of every agent the host sees, when it starts and when it ends. What it throws is logged and changes nothing. */
   onToolCall?(call: ToolCall): void
-  /** A pull request merged through the app, such as from Change Review's verdict. */
+  /**
+   * A pull request that left the open ones: merged through the app (Change Review's verdict), or merged or closed
+   * elsewhere, as the host's watch of the pull requests hobkin opened saw it.
+   */
   onMerged?(pull: Merged): void
   /** The open pull requests it knows, for Change Review's background (spec 053). Made-up ones say `sample` and are never reviewed. */
   pulls?(): { mine: readonly PullRequest[]; waiting: readonly PullRequest[]; sample: boolean } | null

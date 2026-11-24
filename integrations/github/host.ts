@@ -1,4 +1,4 @@
-import type { GitHubState } from '#shared/protocol/github.ts'
+import type { GitHubState } from './protocol.ts'
 import type { HostContext, HostPart, HostPartFactory } from '#host/integration-contract.ts'
 import { GH_TIMEOUT_MS, ghSource } from './host/gh.ts'
 import { GitHub, type GitHubSource } from './host/github.ts'

@@ -1,5 +1,5 @@
 import { CONFIRM_MS, createTwoClicks } from '../../../ui/src/lib/two-clicks.ts'
-import type { IssueWork } from '#shared/protocol/github.ts'
+import type { IssueWork } from '../protocol.ts'
 
 /**
  * Close issue on the GitHub page, confirmed in place by the core's two clicks: the first click arms the button, which waits ten seconds for

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { after, mock, test } from 'node:test'
 import { registerHooks } from 'node:module'
-import { GITHUB_UNKNOWN, sampleGitHub } from '../../shared/protocol/github.ts'
+import { GITHUB_UNKNOWN, sampleGitHub } from '../../integrations/github/protocol.ts'
 import type { HostMessage } from '../../shared/protocol/messages.ts'
 import type { WireSnapshot } from '../../shared/protocol/snapshot.ts'
 import type { WorkState } from '../../shared/protocol/work.ts'

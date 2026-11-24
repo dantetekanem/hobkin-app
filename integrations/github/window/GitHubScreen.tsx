@@ -1,7 +1,7 @@
 import { CircleAlert, RotateCw } from 'lucide-react'
 import { AnimatePresence, type Variants } from 'motion/react'
 import { useEffect, useMemo, useRef, type FocusEvent, type KeyboardEvent, type ReactNode, type RefObject } from 'react'
-import { GITHUB_LIMIT, type GitHubConnection, type GitHubState } from '#shared/protocol/github.ts'
+import { GITHUB_LIMIT, type GitHubConnection, type GitHubState } from '../protocol.ts'
 import { useScreenState } from '@/app/location.ts'
 import { Hero, Rise } from '@/app/Reveal.tsx'
 import { SCREEN_COLUMN, SCREEN_SCROLLER } from '@/app/screen-layout.ts'

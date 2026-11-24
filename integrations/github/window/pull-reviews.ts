@@ -1,4 +1,4 @@
-import type { GitHubLists, GitHubPull } from '#shared/protocol/github.ts'
+import type { GitHubLists, GitHubPull } from '../protocol.ts'
 import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
 import type { ReviewRow } from '../../../ui/src/features/work/ai-reviews.ts'
 

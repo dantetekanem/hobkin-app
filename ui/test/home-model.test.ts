@@ -5,7 +5,7 @@ import type { HomeInput } from '../src/features/home/types.ts'
 import type { ActionItem, WaitingRow } from '../src/features/actions/items.ts'
 import { hostRows } from '../src/features/actions/host.ts'
 import type { FinishedChange, WorkProject, WorkState, YoloState } from '../../shared/protocol/work.ts'
-import type { GitHubPull, GitHubState } from '../../shared/protocol/github.ts'
+import type { GitHubPull, GitHubState } from '../../integrations/github/protocol.ts'
 import { githubHome } from '../../integrations/github/window/home.ts'
 import { contributed } from '../src/integration/home.ts'
 

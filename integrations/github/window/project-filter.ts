@@ -1,4 +1,4 @@
-import type { GitHubIssue } from '#shared/protocol/github.ts'
+import type { GitHubIssue } from '../protocol.ts'
 import type { WorkProject } from '#shared/protocol/work.ts'
 import { targetOfReviewId } from '#shared/review/ids.ts'
 import { trackedProjects } from '../../../ui/src/features/work/projects.ts'

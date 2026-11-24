@@ -1,4 +1,4 @@
-import type { GitHubConnection } from '#shared/protocol/github.ts'
+import type { GitHubConnection } from '../protocol.ts'
 
 /** How gh stands. GitHub connects through gh, with the login gh already has (024-github). */
 export interface GhLink {

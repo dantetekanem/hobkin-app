@@ -1,4 +1,4 @@
-import { SAMPLE_GITHUB_LOGIN, sampleGitHub } from '#shared/protocol/github.ts'
+import { SAMPLE_GITHUB_LOGIN, sampleGitHub } from '../protocol.ts'
 import type { GitHubSource } from './github.ts'
 
 /**

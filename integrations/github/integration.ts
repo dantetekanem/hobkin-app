@@ -1,6 +1,6 @@
 import { Type } from 'typebox'
 import { defineIntegration } from '#shared/integration/manifest.ts'
-import type { GitHubState } from '#shared/protocol/github.ts'
+import type { GitHubState } from './protocol.ts'
 
 /**
  * GitHub, through the user's own gh, with the login gh already has (_specs/024-github). Its page lists the pull

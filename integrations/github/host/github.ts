@@ -1,4 +1,4 @@
-import { GITHUB_UNKNOWN, NO_GITHUB_LISTS, type GitHubLists, type GitHubState } from '#shared/protocol/github.ts'
+import { GITHUB_UNKNOWN, NO_GITHUB_LISTS, type GitHubLists, type GitHubState } from '../protocol.ts'
 
 /**
  * The user's GitHub for the GitHub page (_specs/024-github): pull requests waiting for their review, their own pull

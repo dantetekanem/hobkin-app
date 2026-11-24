@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { IssueWork } from '#shared/protocol/github.ts'
+import type { IssueWork } from '../protocol.ts'
 import { CLOSE_CONFIRM_MS, closeIssueAs, closeWarning, createIssueClose, SAMPLE_CLOSE, type CloseCommand, type CloseReason } from '../window/issue-close.ts'
 
 // Close issue on the GitHub page: the same two clicks as a verdict in Review, the first arming it for ten seconds and the second closing it,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { sampleGitHub, type IssueWork } from '#shared/protocol/github.ts'
+import { sampleGitHub, type IssueWork } from '../protocol.ts'
 import type { FinishedGroupName, WorkState } from '#shared/protocol/work.ts'
 import { issueChip, JUST_ADDED, placeOnWork, type WorkPlace } from '../window/issue-work.ts'
 import { sampleWork } from '../../../ui/src/features/work/sample.ts'
