@@ -186,8 +186,12 @@ function screenOf(now: ReviewLanding | null, kind: 'change' | 'pull' = 'change')
 test('approve and merge closes the review at once: with Merged! when it is known merged, with the host\'s words when it is not', async () => {
   // Merged at once: Merged!, and the review closes. So does a pull request, which GitHub merged, without asking more.
   const atOnce = screenOf(merged)
-  await afterVerdict('approve-merge', 'Merged it into main.', atOnce.screen)
+  assert.equal(await afterVerdict('approve-merge', 'Merged it into main.', atOnce.screen), true)
   assert.deepEqual(atOnce.seen, ['tada: Merged it into main.', 'close'])
+  // A reviewer who left the review before the verdict landed closes nothing, and a story goes on with nothing.
+  const left = screenOf(merged)
+  left.leave()
+  assert.equal(await afterVerdict('approve', 'Approved.', left.screen), false)
   const pull = screenOf(null, 'pull')
   let asked = false
   pull.screen.landing = async () => {

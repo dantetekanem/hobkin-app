@@ -263,16 +263,19 @@ export interface VerdictScreen {
  * the host says merged. A change an agent brings up to date first does not keep the review open: the yes is given, and
  * the merge that follows shows nothing here. A host that says nothing of how the change lands, as when hobkin hands the
  * merge to a session, or an older host, is never taken for a merge: like every other verdict, it closes the review with
- * a short confirmation of what the host did. A review the reviewer has left is never closed.
+ * a short confirmation of what the host did. A review the reviewer has left is never closed. It answers whether it closed
+ * the review, which is when a story goes on to the next one.
  */
-export async function afterVerdict(verdict: Verdict, message: string, screen: VerdictScreen): Promise<void> {
+export async function afterVerdict(verdict: Verdict, message: string, screen: VerdictScreen): Promise<boolean> {
   const closeWith = (kind: 'tada' | 'done') => {
     screen.celebrate(kind, message)
-    if (screen.here()) screen.close()
+    const closes = screen.here()
+    if (closes) screen.close()
+    return closes
   }
 
   if (verdict !== 'approve-merge') return closeWith('done')
   if (screen.kind === 'pull') return closeWith('tada')
   const landing = await screen.landing().catch(() => null)
-  closeWith(landing?.state === 'merged' ? 'tada' : 'done')
+  return closeWith(landing?.state === 'merged' ? 'tada' : 'done')
 }
