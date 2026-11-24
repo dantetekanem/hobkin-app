@@ -77,6 +77,8 @@ interface ReviewScores {
   /** What proof the review still wanted, in a line, and the commit it scored. */
   missing?: string | null
   head?: string
+  /** Who gave them: `change-review` for Change Review's own grades, kept by hobkin (spec 063). An older hobkin sends none. */
+  by?: string
 }
 
 /** A finished change as hobkin lists it: one of its `readyItems` or `pullRequestRows` (`src/cli/work/reads.mjs`). */
@@ -339,6 +341,8 @@ function scoreLine({ review }: ReadyRow): string | null {
  */
 export function hobkinNeedsOf({ review }: ReadyRow): ReviewNeeds | undefined {
   if (!review) return undefined
+  // Change Review's own grades, which hobkin keeps for YOLO mode, are the review's ratings already: nothing of hobkin's to show beside them.
+  if (review.by === 'change-review') return undefined
   const floors = review.floors.map(({ criterion, score, needs }) => ({ name: criterion, score, needs }))
   return readNeeds({ kind: review.kind, scores: review.scores, missing: review.missing ?? undefined, rate: review.rate, floors, head: review.head, by: 'hobkin' })
 }

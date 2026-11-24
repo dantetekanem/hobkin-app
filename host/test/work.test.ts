@@ -143,6 +143,20 @@ test('a layer that waits for the one under it has no merge among its choices, an
   assert.equal(cardOf('b2b2b2').yes, 'It cannot merge until layer 1 of its stack has landed.')
 })
 
+test('scores hobkin keeps from Change Review are not shown as a run of hobkin’s own', () => {
+  const score = { score: 9, evidence: 'The spec fails without the change.' }
+  const review = { kind: 'bug-fix', rate: 9, scores: { coverage: score, proof: score, safety: score, visibility: score, rollback: score }, floors: [], head: 'a'.repeat(40) }
+  const rows = [change('shop', 'a1a1a1', 'Graded by the review', { review: { ...review, by: 'change-review' } }), change('shop', 'b2b2b2', 'Scored by hobkin before', { review })]
+
+  const work = workFrom({ work: status(), waiting: { branches: rows } })!
+
+  // `needs` rides on the card's scores for the review host: hobkin's own ratings, when the scores are a run of its own.
+  const scoringOf = (item: string) => work.finished.flatMap(({ changes }) => changes).find((card) => card.key === `shop:${item}`)!.scoring as { rate: number; needs?: { by: string } } | null
+  assert.equal(scoringOf('a1a1a1')?.needs, undefined)
+  assert.equal(scoringOf('b2b2b2')?.needs?.by, 'hobkin')
+  assert.equal(scoringOf('a1a1a1')?.rate, 9, 'the card still shows the numbers')
+})
+
 test('a stack stands whole in the group its bottom layer is in, and its waiting layers are not counted as needing the user', () => {
   const place = (layer: number, below: string | null) => ({ id: 'a1a1a1', layer, of: 3, name: null, below, base: below ? 'abc1234' : null })
   const rows = [
