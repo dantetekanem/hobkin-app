@@ -12,9 +12,11 @@
 
 ## Outcome
 
-Work and YOLO mode each have a New project button. It opens a popup where the user names a folder, typed or picked in the Mac's own chooser, and says what they want from the project. Add puts the project in Work, taken, with those words given to every run there. A project does not have to be code. A goal is something to reach, kept in a folder that need not be a git repository: Work studies the folder, files steps toward what the user described, and does them in the folder itself, with no branch, pull request, review or merge.
+Work and YOLO mode each have a New project button. It opens a popup where the user names a folder, typed or picked in the Mac's own chooser, and says what they want from the project. Add puts the project in Work, taken, with those words given to every run there. A project does not have to be code. A goal is something to reach: Work studies the folder, files steps toward what the user described, and does them in the folder itself, with no branch, pull request, review or merge. Every project has a git repository of its own, so every step has a way back: a folder that has none gets one at the add, with no remote.
 
 The user, 2026-11-24: "I want to be able to add new projects to work mode and yolo mode, which is like a 'New Project' button. will open a popup, where I will put the folder (or open one), and describe what I want from this project. not every project in work mode needs to be a code project following the rules, can be just an achievement".
+
+The user again, the same day, on what a goal's run does to files where the folder keeps no versions: "we should always initialize git, even not having a remote. that should be a requirement for a tracked project".
 
 ## Decisions
 
@@ -28,14 +30,14 @@ The user, 2026-11-24: "I want to be able to add new projects to work mode and yo
 - A project has a kind, `code` or `goal`. A record with no kind is code, so every project from before this spec is unchanged.
 - Only the user's own add sets the kind. An agent's proposal cannot carry one.
 - The guard everywhere is the kind, never "is this a git repository": git looks upward for a repository, so a goal's folder inside some other repository would otherwise be read as that repository.
-- A folder with a git repository of its own can be either kind. A folder without one can only be a goal.
+- Every project has a git repository of its own. A folder that holds none gets one at the add: `git init` there and one first commit of what is in it, made as hobkin makes its own commits, with no remote. A folder that already holds one is left as it is. So either kind can be picked for any folder.
 
 ### The popup
 
 - New project stands in the Projects heading of Work and of YOLO mode. N opens it on both pages. Escape closes it and the keyboard goes back to the button.
 - Folder is a typed path, with `~` for home, and an Open button that shows the Mac's own folder chooser and writes what was picked into the field. The chooser is the host's: the app's shell has none, and adding one would need a restart.
-- One line under the field says what hobkin sees there: nothing typed yet, a git repository, a folder that is not a repository, no folder, a file, a project Work already has, or another project that has its name. The line keeps its height in every state.
-- Kind is Code or Goal, with one line that says what that kind means. It follows the folder until the user picks one: a repository starts as Code and any other folder as Goal. Code cannot be picked for a folder that is not a repository, and the line says why.
+- One line under the field says what hobkin sees there: nothing typed yet, a git repository, a folder with no repository yet (hobkin starts one at the add), no folder, a file, a project Work already has, or another project that has its name. The line keeps its height in every state.
+- Kind is Code or Goal, with one line that says what that kind means. It follows the folder until the user picks one: a repository starts as Code and any other folder as Goal.
 - "What do you want from it?" is the user's own words. A goal needs them, since they are what Work works toward. Code can be added without them.
 - "YOLO mode here" is a switch, on when the popup was opened from YOLO mode and off from Work. It cannot be on for a goal, and its line says a goal has nothing to merge.
 - Add project is pressed with Command+Enter from anywhere in the popup. While something is missing it is disabled and the line beside it says what. hobkin's own refusal shows in that same line, and the popup stays open with what was typed.
@@ -51,10 +53,11 @@ The user, 2026-11-24: "I want to be able to add new projects to work mode and yo
 
 ### A goal in Work
 
-- A goal's runs work in the folder itself. There is no worktree and no branch, and nothing of hobkin's is written into the folder.
+- A goal's runs work in the folder itself. There is no worktree and no branch.
+- hobkin commits each step when its run ends: the paths the run changed, under the step's title, and the commit is recorded on the step. What the user had already changed in the folder before the run stays theirs, uncommitted. The agent never commits, branches, stashes, resets or cleans.
 - Its study reads the folder and the user's words and writes where the goal stands and what comes next, then files the first steps. After that one look, at the project's own pace, reads what changed and what comes next. The code looks never run on a goal: no lenses, no state machines, no signals, no watch.
 - A step ends `done` with a summary and what shows it, naming every file it wrote or changed. A step only the user can take, such as signing, sending or paying, is filed for the user and shows with what is left for them.
-- A goal's run never sends, submits, signs, pays or deletes. The folder has no way back kept by hobkin, so a run follows the folder's own rules for keeping versions when it has any (a README, `AGENTS.md`, `CLAUDE.md` or a skill it names). When it has none, the run puts a copy beside a file before changing it, named `<name>.before-<date>`, and says so in its summary.
+- A goal's run never sends, submits, signs, pays or deletes. It still follows the folder's own rules for keeping versions when it has any (a README, `AGENTS.md`, `CLAUDE.md` or a skill it names).
 - A goal's runs keep the purpose of the code runs (`work-look`, `work-do`), so their tools, skills and limits are the same, and carry `workPrompt` to read `work-goal-look.md` and `work-goal-do.md` in place of the code prompts.
 - A step's kind is one hobkin already has: `feature`, `improvement`, `fix`, `chore`, or `yours` for a step only the user can take.
 - A finished step tells the user as any finished run does: its `Useful:` report is a quiet line in Chat, its summary and proof are on the item, and what it left for the user reaches Attention. There is no card to land, since there is no branch.
@@ -77,16 +80,16 @@ The user, 2026-11-24: "I want to be able to add new projects to work mode and yo
 
 ## Acceptance
 
-- A1. `hobkin work add project` takes a folder that is no git repository as a goal when asked for one, and still refuses it as code. A known project and a namesake are refused as before.
+- A1. An add takes a folder that is no git repository, as a goal or as code, and starts a repository there with one first commit of what is in it and no remote. A folder that already holds one is not initialized again and gets no commit. A known project and a namesake are refused as before.
 - A2. The words given with an add are the project's directions, and the study and every run on it are given them.
-- A3. A run on a goal works in the project's folder, gets no branch and no worktree, and its item ends `done` with its summary.
+- A3. A run on a goal works in the project's folder, gets no branch and no worktree, and its item ends `done` with its summary. When the run ends, the paths it changed are one commit under the step's title, recorded on the step, and what the user had changed before stays uncommitted.
 - A4. A goal gets its study and then its own look, and none of the code looks. Its study and its runs follow the goal prompts.
 - A5. YOLO mode files no readiness work on a goal and its switch is refused there. Pull request and issue settings, a branch or a pull request recorded on an item, and a branch adopted there are refused on a goal. The survey of unmerged branches skips it.
 - A6. Work status carries a goal's kind and how many of its steps are done.
 - A7. `work.project.look` says what is at a folder: missing, a file, a folder, a repository, the project Work has for it, and a namesake. It changes nothing.
 - A8. `work.project.new` adds a code project or a goal with the user's words through hobkin's own function, refuses a goal with no words, and passes hobkin's refusal on in its words.
 - A9. `work.folder.pick` answers with the folder picked or with none, and opens nothing in a test.
-- A10. The popup's model: the line for each state of the folder, the kind following the folder until the user picks one, Code refused for a folder that is no repository, YOLO off for a goal, and what stands in the way of Add.
+- A10. The popup's model: the line for each state of the folder, the kind following the folder until the user picks one, either kind for any folder, YOLO off for a goal, and what stands in the way of Add.
 - A11. New project is in the Projects heading of Work and of YOLO mode, N opens it, Command+Enter adds, and no control moves when the folder's line, the kind's line or a refusal changes.
 - A12. A goal's row says Goal with its steps to do, done and left for the user, and has no pull request or issue setting.
 
@@ -116,7 +119,8 @@ The user, 2026-11-24: "I want to be able to add new projects to work mode and yo
 
 ## Open questions
 
-- A goal's runs change the user's own files with no way back kept by hobkin. The default taken: they work in the folder, follow its own rules for versions, and where it has none leave a dated copy beside a file before changing it. Those copies are files in the user's folder. The other choice is a history hobkin keeps for each goal outside the folder, so any run can be undone from the window and no copies are left. It costs a copy of the folder's files in hobkin's home and a second piece of work.
+- Undoing a step from the window. Each step is a commit now, so the way back exists, and nothing in the window offers it yet.
+- The first commit takes everything in the folder, large files included, into its `.git`. A folder of scans and PDFs doubles on disk.
 - A goal has no page for its finished steps. Each is a line in Chat and a count on its row. A list of a goal's steps with their summaries would be the next thing to build.
 - Changing a project's words after the add has no place in the window yet. The same popup opened on an existing project would do it.
 - The folder chooser is the host's, shown by `osascript`. It has not been seen from the app, and it may open behind the window. The shell's own chooser would be certain, and needs a restart.
