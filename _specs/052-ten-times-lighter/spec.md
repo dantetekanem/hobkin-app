@@ -31,7 +31,7 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - The audio context is left running. Suspending it when quiet could silence the notice chime, which plays with no press.
 - Limits, on the user's word of 2026-11-21 ("raise to 100"): work mode may run up to 100 agents at once, 16 routines and session jobs, and 48 durable hobkins. The defaults stay as they were. "Agents at once" in Settings is hobkin's own number, with the same stepper on the Work screen.
 - Starts come 30 seconds apart whether or not something runs (it was five minutes while a run was going), on the user's word that work mode was too slow. The budget paces work from there: the hour's share and the day.
-- On an agent's page a step's words appear the moment the window has them, with no pacing and no motion of their own, and the transcript follows new steps by reading its place while drawing, as before this work. The user reported both changes as a "weird movement like bubbling and filling".
+- On an agent's page a step's words appear the moment the window has them, with no pacing and no motion of their own. The user reported both changes as a "weird movement like bubbling and filling". Since 2026-11-23 the transcript follows new steps without a glide: it goes to its end at once, at most once a frame, from what the page laid out, and reads nothing of the page while drawing (the user: "Steps appear in place with no rise and no glide. Lightest by far", replacing following "by reading its place while drawing").
 - A backup holds what hobkin and the client write by design and nothing an agent leaves in the home. The user: "this should never be in the backup path".
 
 ## Out of scope
@@ -67,7 +67,7 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - A22. Work mode can run 100 agents at once, routines 16 and durable hobkins 48, with the defaults as they were, and "Agents at once" in Settings sets hobkin's own number.
 - A23. With a free worker and room in the budget, the next start comes 30 seconds after the last, also in a home that saved the old five minutes.
 - A24. A backup leaves out what is not hobkin's own at the home's root, in `runtime/` and in a project's folder, lists it with its size, and never counts a socket as a failure.
-- A25. On an agent's page a step that arrives during a glide does not move the list, and a step's words carry no motion of their own.
+- A25. On an agent's page ten updates inside one frame scroll the view to its end once and never smoothly, nothing is read of the page while it draws, and a step's words carry no motion of their own (2026-11-23).
 - A21. Nothing else the user sees changes: the time to the first word, notifications, completion sounds, keyboard walks and the agent's page read as before. The focused tests of every changed module pass and typecheck adds no error.
 
 ## Proof
@@ -96,7 +96,7 @@ hobkin costs a tenth of what it costs today in the window, the host and the runt
 - A22. hobkin `test/cli-work-plan.test.mjs` › "a hundred agents can run at once: the 100th is admitted and the 101st waits for a free worker"
 - A23. hobkin `test/cli-work-plan.test.mjs` › "with a free worker and room in the budget the second start comes 30 seconds after the first, not five minutes"
 - A24. `host/test/backup-strays.test.ts` › "what is not hobkin's own at the root, in runtime/ and in a project's folder is left out, told with its size, and is no failure"
-- A25. `ui/test/agent-follow-place.test.ts` › "a step during a glide, before the page has drawn its new offset, does not make the next step glide for nothing"
+- A25. `ui/test/agent-follow-frames.test.ts` › "ten updates inside one frame scroll the view to the end once, at once, and read no layout while drawing"
 
 ## Steps
 
