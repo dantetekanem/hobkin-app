@@ -78,36 +78,47 @@ function wordsOf(value: unknown): string | undefined {
   return value.slice(0, /[\uD800-\uDBFF]/.test(value[REASON_MAX - 1]!) ? REASON_MAX - 1 : REASON_MAX)
 }
 
+/** The runtime's words when it answered no and gave some, or the host's own words for an answer it could not read. */
+const refusalWords = (answeredNo: boolean, words: unknown, unsaid: string): string => (answeredNo && wordsOf(words)) || unsaid
+
 const changeOf = (value: unknown): string | undefined => (typeof value === 'string' && value.length > 0 && value.length <= ID_MAX ? value : undefined)
+
+/** Each command's refusal, in its own answer's shape. */
+const notSaved = (message: string): MemorySaved => ({ saved: false, message })
+const notForgotten = (message: string): MemoryForgot => ({ forgot: false, message })
+const notDone = (reason: string) => ({ ok: false as const, reason })
 
 function saved(answer: unknown): MemorySaved {
   const { saved: kept, memory, change, message } = answerOf(answer)
   const read = kept === true ? readMemory(memory) : undefined
-  if (read) {
-    const id = changeOf(change)
-    return id ? { saved: true, memory: read, change: id } : { saved: true, memory: read }
-  }
-  return { saved: false, message: (kept === false && wordsOf(message)) || UNSAID.save }
+  if (!read) return notSaved(refusalWords(kept === false, message, UNSAID.save))
+
+  const id = changeOf(change)
+  return id ? { saved: true, memory: read, change: id } : { saved: true, memory: read }
 }
 
 function forgot(answer: unknown): MemoryForgot {
   const { forgot: done, change, message } = answerOf(answer)
   const id = done === true ? changeOf(change) : undefined
-  if (id) return { forgot: true, change: id }
-  return { forgot: false, message: (done === false && wordsOf(message)) || UNSAID.forget }
+  return id ? { forgot: true, change: id } : notForgotten(refusalWords(done === false, message, UNSAID.forget))
 }
 
 function undone(answer: unknown): MemoryUndone {
   const { ok, reason } = answerOf(answer)
-  if (ok === true) return { ok: true }
-  return { ok: false, reason: (ok === false && wordsOf(reason)) || UNSAID.undo }
+  return ok === true ? { ok: true } : notDone(refusalWords(ok === false, reason, UNSAID.undo))
 }
 
 function nowChanged(answer: unknown): MemoryNowChanged {
   const { ok, reason, now, nowVersion } = answerOf(answer)
-  if (ok !== true) return { ok: false, reason: (ok === false && wordsOf(reason)) || UNSAID.now }
+  if (ok !== true) return notDone(refusalWords(ok === false, reason, UNSAID.now))
+
+  // The list after the change, read as memory.list reads it.
   const list = readMemoryList({ memories: [], now, nowVersion })
-  return { ok: true, ...(list.now && { now: list.now }), ...(list.nowVersion && { nowVersion: list.nowVersion }) }
+  return {
+    ok: true,
+    ...(list.now && { now: list.now }),
+    ...(list.nowVersion && { nowVersion: list.nowVersion }),
+  }
 }
 
 export function memoryHandlers({ operations }: MemorySeat): Pick<HostHandlers, 'memory.list' | 'memory.save' | 'memory.forget' | 'memory.undo' | 'memory.now.change'> {
@@ -135,36 +146,26 @@ export function memoryHandlers({ operations }: MemorySeat): Pick<HostHandlers, '
   return {
     'memory.list': () => withRuntime((unavailable): MemoryList => ({ memories: [], unavailable }), listOf),
     'memory.save': (memory) =>
-      withRuntime(
-        (message): MemorySaved => ({ saved: false, message }),
-        async (runtime) => {
-          const why = await moved(runtime, memory.name, memory.version)
-          if (why) return { saved: false, message: why === 'gone' ? GONE_SAVE : STALE_SAVE }
-          return saved(await runtime.save(memory))
-        },
-      ),
+      withRuntime(notSaved, async (runtime) => {
+        const why = await moved(runtime, memory.name, memory.version)
+        if (why) return notSaved(why === 'gone' ? GONE_SAVE : STALE_SAVE)
+
+        return saved(await runtime.save(memory))
+      }),
     'memory.forget': (forget) =>
-      withRuntime(
-        (message): MemoryForgot => ({ forgot: false, message }),
-        async (runtime) => {
-          // A memory already gone is the runtime's to answer for: the same click may have forgotten it a moment before.
-          if ((await moved(runtime, forget.name, forget.version)) === 'stale') return { forgot: false, message: STALE_FORGET }
-          return forgot(await runtime.forget(forget))
-        },
-      ),
-    'memory.undo': ({ change }) =>
-      withRuntime(
-        (reason): MemoryUndone => ({ ok: false, reason }),
-        async (runtime) => undone(await runtime.undo(change)),
-      ),
+      withRuntime(notForgotten, async (runtime) => {
+        // A memory already gone is the runtime's to answer for: the same click may have forgotten it a moment before.
+        if ((await moved(runtime, forget.name, forget.version)) === 'stale') return notForgotten(STALE_FORGET)
+
+        return forgot(await runtime.forget(forget))
+      }),
+    'memory.undo': ({ change }) => withRuntime<MemoryUndone>(notDone, async (runtime) => undone(await runtime.undo(change))),
     'memory.now.change': (change) =>
-      withRuntime(
-        (reason): MemoryNowChanged => ({ ok: false, reason }),
-        async (runtime) => {
-          const { nowVersion } = await listOf(runtime)
-          if (nowVersion !== undefined && change.version !== nowVersion) return { ok: false, reason: STALE_NOW }
-          return nowChanged(await runtime.changeNow(change))
-        },
-      ),
+      withRuntime<MemoryNowChanged>(notDone, async (runtime) => {
+        const { nowVersion } = await listOf(runtime)
+        if (nowVersion !== undefined && change.version !== nowVersion) return notDone(STALE_NOW)
+
+        return nowChanged(await runtime.changeNow(change))
+      }),
   }
 }

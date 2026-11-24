@@ -134,7 +134,16 @@ export const MEMORY_NOW_MAX = 20
 /** A memory's name, which is its file's name. */
 export const MEMORY_NAME = /^[a-z0-9][a-z0-9-]{1,59}$/
 /** As long as the runtime lets each be, and the rest short enough for a row. */
-const WORDS_MAX = { description: 150, text: 2000, said: 300, from: 120, title: 120, now: 200, unreadable: 255, unavailable: 300 } as const
+const WORDS_MAX = {
+  description: 150,
+  text: 2000,
+  said: 300,
+  from: 120,
+  title: 120,
+  now: 200,
+  unreadable: 255,
+  unavailable: 300,
+} as const
 /** An id or a fingerprint is kept whole or not at all, since a cut one would name another change or match no file. */
 const ID_MAX = 128
 const LINKS_MAX = 50
@@ -173,7 +182,11 @@ function someOf<Shape extends object>(fields: { [Key in keyof Shape]: Shape[Key]
 
 function authorOf(value: unknown): MemoryAuthor | undefined {
   if (!isRow(value)) return undefined
-  return someOf<MemoryAuthor>({ kind: oneOf(AUTHORS, value.kind), id: idOf(value.id), title: cut(value.title, WORDS_MAX.title) })
+  return someOf<MemoryAuthor>({
+    kind: oneOf(AUTHORS, value.kind),
+    id: idOf(value.id),
+    title: cut(value.title, WORDS_MAX.title),
+  })
 }
 
 function stampOf(value: unknown): MemoryStamp | undefined {
@@ -183,7 +196,11 @@ function stampOf(value: unknown): MemoryStamp | undefined {
 
 function sourceOf(value: unknown): MemorySource | undefined {
   if (!isRow(value)) return undefined
-  return someOf<MemorySource>({ kind: oneOf(SOURCES, value.kind), said: cut(value.said, WORDS_MAX.said), from: cut(value.from, WORDS_MAX.from) })
+  return someOf<MemorySource>({
+    kind: oneOf(SOURCES, value.kind),
+    said: cut(value.said, WORDS_MAX.said),
+    from: cut(value.from, WORDS_MAX.from),
+  })
 }
 
 function linksOf(value: unknown): string[] | undefined {
@@ -229,6 +246,7 @@ export function readMemory(value: unknown): MemoryEntry | undefined {
  */
 export function readMemoryList(value: unknown): MemoryList {
   if (!isRow(value) || !Array.isArray(value.memories)) return { memories: [] }
+
   const seen = new Set<string>()
   const memories: MemoryEntry[] = []
   for (const row of value.memories) {
@@ -238,6 +256,7 @@ export function readMemoryList(value: unknown): MemoryList {
     seen.add(memory.name)
     memories.push(memory)
   }
+
   return present<MemoryList>({
     memories,
     now: linesOf(value.now, WORDS_MAX.now, MEMORY_NOW_MAX),

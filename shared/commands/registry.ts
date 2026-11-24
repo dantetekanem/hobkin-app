@@ -1269,7 +1269,12 @@ export const COMMANDS = {
     description: "Add a line to the main chat's \"right now\" list, or replace or remove one by its exact words, as the user, with the `version` the list was read at. Holds at most 20 lines of 200 characters.",
     runs: 'host',
     args: Type.Object(
-      { action: oneOf(['add', 'replace', 'remove']), item: Type.Optional(Type.String({ minLength: 1, maxLength: 65536 })), text: Type.Optional(oneLine(200)), version: Type.Optional(memoryMark) },
+      {
+        action: oneOf(['add', 'replace', 'remove']),
+        item: Type.Optional(Type.String({ minLength: 1, maxLength: 65536 })),
+        text: Type.Optional(oneLine(200)),
+        version: Type.Optional(memoryMark),
+      },
       { additionalProperties: false },
     ),
     rule: ({ action, item, text }) => {
