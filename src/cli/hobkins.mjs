@@ -74,12 +74,12 @@ const clip = text => String(text ?? '').trim().slice(0, SAID_MAX);
 export { turnRunId };
 
 /**
- * What a durable hobkin is told each turn: its own directions, the canvas skill, and its id for the canvas commands,
- * then the user's directions with the line that names them, and the index of hobkin's memories when there are any
- * (057-shared-memory).
+ * What a durable hobkin is told each turn: its own directions with the rules for hobkin's memories, the canvas skill,
+ * and its id for the canvas commands, then the user's directions with the line that names them, and the index of
+ * hobkin's memories when there are any (057-shared-memory).
  */
 export function durableDirections(id, { directions = '', memories = '' } = {}) {
-  const own = `${prompt('durable').trim()}\n\n${canvasSkill().trim()}\n\nYour id is ${id}. Pass \`--hobkin ${id}\` to every \`hobkin canvas\` command, so it uses your own canvas.\n`;
+  const own = `${prompt('durable').trim()}\n\n${prompt('memories').trim()}\n\n${canvasSkill().trim()}\n\nYour id is ${id}. Pass \`--hobkin ${id}\` to every \`hobkin canvas\` command, so it uses your own canvas.\n`;
   return [own, ...[directions && directionsSection(directions.trim()), memories].filter(Boolean).map(part => `\n${part}\n`)].join('');
 }
 

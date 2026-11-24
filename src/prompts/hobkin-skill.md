@@ -43,7 +43,7 @@ JSON
 
 This session never hears the answer. hobkin's main agent does, and acts on it there, so carry on with what you have and never wait for it.
 
-**A fact** reaches hobkin's main agent with the user's next message there, and it files the fact in its memory or its standing directions:
+**A fact** about the user or how they like things is saved at once as a memory every agent hobkin runs reads, from your session, and hobkin's main agent hears of it with the user's next message there. Hand over one fact at a time, in a sentence that reads alone, and never a password, a key, a token or an account number, which hobkin refuses:
 
 ```sh
 hobkin remember "The user wants appointments before noon" --from "Claude Code"
@@ -130,7 +130,7 @@ The fields are finish time, trigger (`scheduled` or `manual`), status, duration,
 
 `read` counts reports opened for at least 3 seconds or messaged about. `ignored` needs at least 5 reports over a week of tracking, at most 1 in 5 read, no critical finding and no requested run. A critical or useful line also reaches the user in Chat, so an unread report may still have been seen. Treat `ignored` as a reason to ask the user, never as a reason to change a check.
 
-**User memory.** `memory.md` holds up to 20 one-line items that matter to the user right now. Read it for context. The main agent maintains it.
+**User memory.** `memory.md` holds up to 20 one-line items that matter to the user right now. Read it for context. The main agent maintains it. Lasting facts about the user are memories: `hobkin memory list` prints the index, and `hobkin memory get <name>` or `hobkin memory search <words>` one whole. Outside hobkin you read only the ones the user shares with every agent, and you save one with `hobkin remember`.
 
 ## Add or change a check
 

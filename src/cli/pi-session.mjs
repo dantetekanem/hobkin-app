@@ -123,9 +123,13 @@ function claimSessionFile(file, { fresh, expected }) {
   }
 }
 
+// The memory prompt carries what hobkin remembers for every agent after the right-now list (057-shared-memory).
+const promptText = name => readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8');
+const mainPromptText = name => (name === 'memory' ? `${promptText('memory').trimEnd()}\n\n${promptText('memories')}` : promptText(name));
+
 function mainPrompts(root, config) {
   return ['prompt', 'taste', 'learning-context', 'v2-runtime', 'memory', 'canvas'].map(name =>
-    readFileSync(new URL(`../prompts/${name}.md`, import.meta.url), 'utf8').replace('{{runtime}}', JSON.stringify({
+    mainPromptText(name).replace('{{runtime}}', JSON.stringify({
       root,
       notes: join(root, 'notes'),
       routines: routinesFolder(root),
