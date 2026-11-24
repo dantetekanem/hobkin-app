@@ -1,3 +1,4 @@
+import { isWorkflowRow } from '../../integration/workflows.ts'
 import type { WireSnapshot } from '#shared/protocol/snapshot.ts'
 import { checkTimes, checkWindow } from './edit.ts'
 import { RECURRENCES, type Routine, type RoutinesData } from './types.ts'
@@ -62,6 +63,8 @@ export function routinesFromHost(snapshot: WireSnapshot): RoutinesData {
   }
   const seen = new Set<string>()
   for (const [index, row] of (Array.isArray(snapshot.schedules) ? snapshot.schedules : []).entries()) {
+    // An integration's workflow is listed apart, in its own group (`Workflows.tsx`).
+    if (isWorkflowRow(row)) continue
     if (isRoutine(row) && !seen.has(row.id)) {
       data.routines.push(row)
       seen.add(row.id)

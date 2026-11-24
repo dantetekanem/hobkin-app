@@ -16,6 +16,7 @@ import { AllRoutines, NextSevenDays, RoutineIndex } from './Lists.tsx'
 import { selectPreparedView } from './prepare.ts'
 import { listOrder, slideBetween } from './rules.ts'
 import { useRoutines, VIEW_ZONE, type RoutinesView } from './store.ts'
+import { Workflows } from './Workflows.tsx'
 import './routines.css'
 
 /**
@@ -227,6 +228,8 @@ export function Routines() {
               </div>
             </Rise>
           )}
+
+          <Workflows walkable={walkable} now={now} />
 
           {!fromHost && !empty && view === 'all' ? (
             <Rise>

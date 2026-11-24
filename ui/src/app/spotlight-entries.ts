@@ -14,7 +14,9 @@ import { useNerdStats } from '@/features/settings/nerd-stats-store.ts'
 import { useSettings } from '@/features/settings/store.ts'
 import { useWorkView } from '@/features/work/store.ts'
 import { partScreens, isPartScreen } from '@/integration/screens.ts'
-import { windowParts } from '@/integration/registry.ts'
+import { windowPart, windowParts } from '@/integration/registry.ts'
+import { runWorkflow, useWorkflows } from '@/integration/use-workflows.ts'
+import { pressable, type WorkflowRow } from '@/integration/workflows.ts'
 import { useSlice } from '@/integration/use-slice.ts'
 import type { WorkProject } from '@/lib/host/index.ts'
 import { activeCanvasScreen, requestCanvasFocus } from './focus.ts'
@@ -294,6 +296,20 @@ function actionTarget(row: WaitingRow, now: number): SpotlightTarget {
   }
 }
 
+/** A workflow a press starts: "Run <title>", found for every integration by the core. */
+export function workflowTarget(workflow: WorkflowRow): SpotlightTarget {
+  const name = windowPart(workflow.integration)?.manifest.name ?? workflow.integration
+  return {
+    id: `workflow:${workflow.id}`,
+    kind: 'routine',
+    title: `Run ${workflow.title}`,
+    detail: `${name} workflow`,
+    keywords: [workflow.id, workflow.integration, 'workflow'],
+    mark: { icon: CalendarClock },
+    go: () => void runWorkflow(workflow.id).catch(() => {}),
+  }
+}
+
 /** What each integration's part says the spotlight can find of it, from its own state. The parts are fixed once the window has started. */
 function usePartTargets(): SpotlightTarget[] {
   const parts = windowParts()
@@ -310,6 +326,7 @@ export function useSpotlightTargets(): SpotlightTarget[] {
   const routines = useRoutines((state) => state.data.routines)
   const rows = useWaitingRows()
   const fromParts = usePartTargets()
+  const workflows = useWorkflows()
   const projects = useWorkView().work?.projects
 
   return useMemo(() => {
@@ -324,6 +341,7 @@ export function useSpotlightTargets(): SpotlightTarget[] {
       ...routines.map(routineTarget),
       ...rows.map((row) => actionTarget(row, now)),
       ...fromParts,
+      ...workflows.filter(pressable).map(workflowTarget),
     ]
-  }, [outOfMenu, agents, projects, reports, routines, rows, fromParts])
+  }, [outOfMenu, agents, projects, reports, routines, rows, fromParts, workflows])
 }
