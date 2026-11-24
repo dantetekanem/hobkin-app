@@ -23,7 +23,20 @@ interface Shared {
   variants: Variants
 }
 
-export function PullStack({ unit, order, initiallyOpen = [], ...shared }: Shared & { unit: StackUnit; order: number; /** Layers open when it first draws, by address. */ initiallyOpen?: readonly string[] }) {
+export function PullStack({
+  unit,
+  order,
+  onRowsLeft,
+  initiallyOpen = [],
+  ...shared
+}: Shared & {
+  unit: StackUnit
+  order: number
+  /** Runs once a layer that left has gone, so the keyboard stays in the screen. */
+  onRowsLeft?: () => void
+  /** Layers open when it first draws, by address. */
+  initiallyOpen?: readonly string[]
+}) {
   const still = useStill()
   // Opening a layer closes nothing else, and it stays open until it is pressed again.
   const [open, setOpen] = useState<ReadonlySet<string>>(() => new Set(initiallyOpen))
@@ -41,7 +54,7 @@ export function PullStack({ unit, order, initiallyOpen = [], ...shared }: Shared
       <div role="group" aria-label={heading} className="flex flex-col gap-1.5 rounded-[28px] bg-foreground/[0.025] p-1.5 pt-3">
         <p className="px-5 text-[12.5px] leading-snug font-medium text-muted-foreground">{heading}</p>
         <ul className="relative flex flex-col">
-          <AnimatePresence mode="popLayout">
+          <AnimatePresence mode="popLayout" onExitComplete={onRowsLeft}>
             {unit.layers.flatMap((layer, index) => {
               const url = layer.entry.pull!.url
               if (index === 0) return [<PullCard key={url} entry={layer.entry} place={layer.place} {...shared} order={-1} />]
@@ -78,7 +91,7 @@ function LayerLine({ layer, opened, onToggle, ...shared }: Shared & { layer: Lay
         aria-expanded={opened}
         aria-label={`Layer ${place.layer} of ${place.of}: ${entry.title}${sitsOn ? `, ${sitsOn}` : ''}. ${opened ? 'Enter closes it.' : 'Enter opens it.'}`}
         onClick={onToggle}
-        className="pressable flex min-h-11 w-full scroll-mt-[124px] scroll-mb-6 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl bg-background/60 px-4 py-2 text-left outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] hover:bg-background focus-visible:bg-tone-2"
+        className="pressable flex min-h-11 w-full scroll-mt-[124px] scroll-mb-6 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl bg-background/60 px-4 py-2 text-left outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2"
       >
         <LayerBadge place={place} />
         <span className="min-w-0 flex-1 basis-40 truncate text-[13.5px] leading-snug font-medium">{entry.title}</span>

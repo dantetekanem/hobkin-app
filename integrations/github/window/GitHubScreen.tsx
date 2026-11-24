@@ -377,7 +377,7 @@ function Lists({
   /** A pull request on its own, as a card, or a stack, as one frame of its layers. */
   const unitRow = (group: string, mine: boolean) => (unit: PullUnit, order: number) =>
     unit.kind === 'stack' ? (
-      <PullStack key={`${group}:${unit.key}`} unit={unit} mine={mine} live={live} now={now} variants={variants} order={order} />
+      <PullStack key={`${group}:${unit.key}`} unit={unit} mine={mine} live={live} now={now} variants={variants} order={order} onRowsLeft={onRowsLeft} />
     ) : (
       <PullCard key={`${group}:${unit.key}`} entry={unit.entry} place={unit.place} elsewhere={elsewhereWords(unit.elsewhere)} mine={mine} live={live} now={now} variants={variants} order={order} />
     )
