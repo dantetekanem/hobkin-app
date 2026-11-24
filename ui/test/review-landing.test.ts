@@ -169,9 +169,7 @@ test('a merged change with no review to open is never prepared, and does not wai
 /** The review screen, as a verdict that has landed sees it, and everything that happens to it. */
 function screenOf(now: ReviewLanding | null, kind: 'change' | 'pull' = 'change') {
   const seen: string[] = []
-  let landing = now
   let here = true
-  let heard: ((landing: ReviewLanding | null) => void) | null = null
   return {
     seen,
     screen: {
@@ -179,23 +177,13 @@ function screenOf(now: ReviewLanding | null, kind: 'change' | 'pull' = 'change')
       here: () => here,
       close: () => void seen.push('close'),
       celebrate: (kind: 'tada' | 'done', message: string) => void seen.push(`${kind}: ${message}`),
-      landing: async () => landing,
-      follow: (listener: (landing: ReviewLanding | null) => void) => {
-        heard = listener
-        listener(landing)
-        return () => void (heard = null)
-      },
-    },
-    land: (next: ReviewLanding | null) => {
-      landing = next
-      heard?.(next)
+      landing: async () => now,
     },
     leave: () => void (here = false),
-    following: () => heard != null,
   }
 }
 
-test('approve and merge closes the review with Merged! once the change has merged: at once, or after an agent brings it up to date', async () => {
+test('approve and merge closes the review at once: with Merged! when it is known merged, with the host\'s words when it is not', async () => {
   // Merged at once: Merged!, and the review closes. So does a pull request, which GitHub merged, without asking more.
   const atOnce = screenOf(merged)
   await afterVerdict('approve-merge', 'Merged it into main.', atOnce.screen)
@@ -215,15 +203,10 @@ test('approve and merge closes the review with Merged! once the change has merge
   await afterVerdict('approve-merge', 'A session brings it up to date and merges it.', unsaid.screen)
   assert.deepEqual(unsaid.seen, ['done: A session brings it up to date and merges it.', 'close'])
 
-  // Brought up to date first: the review stays open while it is, and closes with Merged! once it has merged.
+  // Brought up to date first: the yes is given, so the review closes now, without waiting for the merge.
   const later = screenOf(refreshing)
   await afterVerdict('approve-merge', 'An agent is bringing it up to date.', later.screen)
-  assert.deepEqual(later.seen, [])
-  later.land({ ...refreshing, message: 'Still at it.' })
-  assert.deepEqual(later.seen, [])
-  later.land(merged)
-  assert.deepEqual(later.seen, [`tada: ${merged.message}`, 'close'])
-  assert.equal(later.following(), false)
+  assert.deepEqual(later.seen, ['done: An agent is bringing it up to date.', 'close'])
 
   // Every other verdict closes the review with a short confirmation of what the host did.
   for (const verdict of ['approve', 'request-changes', 'comment'] as const) {
@@ -233,22 +216,7 @@ test('approve and merge closes the review with Merged! once the change has merge
   }
 })
 
-test('nothing pops up later for a review the reviewer left, or for a change that stopped landing', async () => {
-  const left = screenOf(refreshing)
-  await afterVerdict('approve-merge', 'An agent is bringing it up to date.', left.screen)
-  left.leave()
-  left.land(merged)
-  assert.deepEqual(left.seen, [])
-
-  // The refresh ended without a merge: the review is the reviewer's again, and a merge after that is not this yes's.
-  const stopped = screenOf(refreshing)
-  await afterVerdict('approve-merge', 'An agent is bringing it up to date.', stopped.screen)
-  stopped.land(null)
-  stopped.land(merged)
-  assert.deepEqual(stopped.seen, [])
-  assert.equal(stopped.following(), false)
-
-  // Left before the host answered: a change it merged still says Merged!, and nothing closes; one it refreshes says nothing.
+test('a review the reviewer left is never closed, and still says what happened', async () => {
   const gone = screenOf(merged)
   gone.leave()
   await afterVerdict('approve-merge', 'Merged it into main.', gone.screen)
@@ -256,8 +224,7 @@ test('nothing pops up later for a review the reviewer left, or for a change that
   const goneRefreshing = screenOf(refreshing)
   goneRefreshing.leave()
   await afterVerdict('approve-merge', 'An agent is bringing it up to date.', goneRefreshing.screen)
-  assert.deepEqual(goneRefreshing.seen, [])
-  assert.equal(goneRefreshing.following(), false)
+  assert.deepEqual(goneRefreshing.seen, ['done: An agent is bringing it up to date.'])
 })
 
 /**
@@ -268,7 +235,6 @@ async function openReview({ conflicts = false } = {}) {
   const host = hostOf({ conflicts })
   await host.loader.load()
   const seen: string[] = []
-  let here = true
   const choices = createVerdictChoices({
     id: ID,
     head: REVIEWED,
@@ -278,11 +244,10 @@ async function openReview({ conflicts = false } = {}) {
     landed: (verdict, message) =>
       afterVerdict(verdict, message, {
         kind: 'change',
-        here: () => here,
+        here: () => true,
         close: () => void seen.push('close'),
         celebrate: (kind) => void seen.push(kind),
         landing: host.loader.look,
-        follow: host.loader.follow,
       }),
   })
   return {
@@ -293,11 +258,6 @@ async function openReview({ conflicts = false } = {}) {
     approveAndMerge: async () => {
       await choices.press('approve-merge')
       await choices.press('approve-merge')
-    },
-    /** The reviewer leaves the review, which closes it. */
-    leave: () => {
-      here = false
-      host.loader.dispose()
     },
   }
 }
@@ -312,34 +272,17 @@ test("the reviewer's own approve and merge of a change that merges at once close
   review.host.loader.dispose()
 })
 
-test("the reviewer's own approve and merge of a change an agent brings up to date first: the review stays open, and closes with Merged! once it merged", async () => {
+test("the reviewer's own approve and merge of a change an agent brings up to date first closes the review at once, and the merge after it shows nothing", async () => {
   const review = await openReview({ conflicts: true })
 
   await review.approveAndMerge()
 
-  // The yes is done, and the review stays open while its branch is brought up to date and moves.
-  assert.deepEqual(review.seen, [])
+  assert.deepEqual(review.seen, ['done', 'close'])
   assert.equal(review.choices.getState().busy, false)
-  assert.equal(review.host.loader.getState().preparation?.landing?.state, 'refreshing')
-  review.host.say({ head: REFRESHED })
-  await ticks(review.host.loader, 2)
-  assert.deepEqual(review.seen, [])
-
   review.host.say({ landing: merged })
-  await ticks(review.host.loader)
-  assert.deepEqual(review.seen, ['tada', 'close'])
+  await ticks(review.host.loader, 2)
+  assert.deepEqual(review.seen, ['done', 'close'])
   review.host.loader.dispose()
-})
-
-test('a reviewer who left while an agent brings the change up to date sees nothing when it merges later', async () => {
-  const review = await openReview({ conflicts: true })
-  await review.approveAndMerge()
-
-  review.leave()
-  review.host.say({ landing: merged })
-  await ticks(review.host.loader, 2)
-
-  assert.deepEqual(review.seen, [])
 })
 
 test('a host that no longer lists a finished change says so plainly: it was merged or closed, which is no failure', async () => {

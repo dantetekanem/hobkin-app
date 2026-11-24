@@ -220,9 +220,9 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
   const proofKeys = useRef<ProofKeys | null>(null)
   const assessment = useStore(loader, (state) => state.assessment)
 
-  // Once a verdict has landed the review closes: a merged change with "Merged!", any other with a short confirmation. A
-  // change an agent brings up to date first keeps it open until it has merged. A verdict that lands after the reviewer
-  // has left this review closes nothing that is open now, and a merge after they left shows nothing.
+  // Once the host took a verdict the review closes: a merged change with "Merged!", any other with a short confirmation,
+  // even a change an agent brings up to date first. A verdict that lands after the reviewer has left this review closes
+  // nothing that is open now.
   const here = useRef(true)
   useEffect(() => {
     here.current = true
@@ -238,7 +238,6 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
         close: () => here.current && close(),
         celebrate: (kind, words) => celebrate({ kind, message: words }),
         landing: loader.look,
-        follow: loader.follow,
       }),
     [close, loader, review.id],
   )

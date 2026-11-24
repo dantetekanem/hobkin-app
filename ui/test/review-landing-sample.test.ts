@@ -23,7 +23,7 @@ test('the made-up landing host is the sample finished change’s alone, and neve
   assert.equal(sampleLanding('stress', false, source), null)
 })
 
-test('approve and merge on the sample finished change: an agent brings it up to date for a few seconds, it merges and closes with Merged!, and it opens merged after', async () => {
+test('approve and merge on the sample finished change: an agent brings it up to date for a few seconds, the review has closed already, it merges, and it opens merged after', async () => {
   let now = Date.parse('2026-11-12T21:00:00Z')
   const hostFor = sampleLandings(() => now)
   const command = hostFor(SAMPLE_CHANGE, source)
@@ -38,22 +38,19 @@ test('approve and merge on the sample finished change: an agent brings it up to 
     command,
     saveNotes: async () => {},
     current: () => true,
-    landed: (verdict, message) => afterVerdict(verdict, message, { kind: 'change', here: () => true, close: () => void seen.push('close'), celebrate: (kind) => void seen.push(kind), landing: loader.look, follow: loader.follow }),
+    landed: (verdict, message) => afterVerdict(verdict, message, { kind: 'change', here: () => true, close: () => void seen.push('close'), celebrate: (kind) => void seen.push(kind), landing: loader.look }),
   })
   await choices.press('approve-merge')
   assert.ok(choices.getState().preview, 'the first click shows what it does')
   await choices.press('approve-merge')
+  assert.deepEqual(seen, ['done', 'close'], 'the yes is given: the review closes at once, while an agent brings it up to date')
   assert.equal(loader.getState().preparation?.landing?.state, 'refreshing')
   assert.equal(loader.getState().preparation?.head, HEAD, 'its branch moves, and the review holds still')
-  assert.deepEqual(seen, [])
 
-  now += SAMPLE_REFRESH_MS - 1
-  await loader.tick()
-  assert.deepEqual(seen, [])
-  now += 1
+  now += SAMPLE_REFRESH_MS
   await loader.tick()
   assert.equal(loader.getState().preparation?.landing?.state, 'merged')
-  assert.deepEqual(seen, ['tada', 'close'])
+  assert.deepEqual(seen, ['done', 'close'])
   loader.dispose()
 
   // Opened again while the window is open, it is merged already.

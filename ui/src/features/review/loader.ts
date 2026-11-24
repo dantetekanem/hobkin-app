@@ -343,25 +343,12 @@ export function createReviewLoader({ id, scope, memory, command, sample, now = D
     if (!disposed && review) keep(heldStill(status, review, store.getState().preparation))
     return status.landing ?? null
   }
-  /** Hears how the change lands now, and again each time that changes, until the function it answers is called. */
-  const follow = (heard: (landing: ReviewLanding | null) => void): (() => void) => {
-    const landingOf = (state: LoadState) => state.preparation?.landing ?? null
-    let told = JSON.stringify(landingOf(store.getState()))
-    const stop = store.subscribe((state) => {
-      const landing = landingOf(state)
-      if (JSON.stringify(landing) === told) return
-      told = JSON.stringify(landing)
-      heard(landing)
-    })
-    heard(landingOf(store.getState()))
-    return stop
-  }
   const dispose = () => {
     disposed = true
     generation++
     loading = null
     unsubscribe()
   }
-  return Object.assign(store, { source, load, check, start, tick, refresh: () => load(true), flushNotes, saveNotes, look, follow, dispose })
+  return Object.assign(store, { source, load, check, start, tick, refresh: () => load(true), flushNotes, saveNotes, look, dispose })
 }
 export type ReviewLoader = ReturnType<typeof createReviewLoader>

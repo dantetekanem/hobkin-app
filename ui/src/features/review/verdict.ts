@@ -255,18 +255,15 @@ export interface VerdictScreen {
   celebrate: (kind: 'tada' | 'done', message: string) => void
   /** How the finished change lands now, as the host says: null when it says nothing. */
   landing: () => Promise<ReviewLanding | null>
-  /** Hears how it lands now, and again each time that changes, until the function it answers is called. */
-  follow: (heard: (landing: ReviewLanding | null) => void) => () => void
 }
 
 /**
- * What the review does once a verdict has landed. Approve and merge closes it with "Merged!" once it is known to have
- * merged: a pull request, which GitHub merged, or a finished change the host says merged. A finished change an agent
- * brings up to date first keeps it open while that runs, and closes it with "Merged!" once hobkin has merged it, if
- * the reviewer is still on it. Should the refresh end without a merge, the review is theirs again. A host that says
- * nothing of how the change lands, as when hobkin hands the merge to a session, or an older host, is never taken for a
- * merge: like every other verdict, it closes the review with a short confirmation of what the host did. A review the
- * reviewer has left is never closed.
+ * What the review does once the host took a verdict: it closes, in every case, if the reviewer is still on it. Approve
+ * and merge says "Merged!" once it is known to have merged: a pull request, which GitHub merged, or a finished change
+ * the host says merged. A change an agent brings up to date first does not keep the review open: the yes is given, and
+ * the merge that follows shows nothing here. A host that says nothing of how the change lands, as when hobkin hands the
+ * merge to a session, or an older host, is never taken for a merge: like every other verdict, it closes the review with
+ * a short confirmation of what the host did. A review the reviewer has left is never closed.
  */
 export async function afterVerdict(verdict: Verdict, message: string, screen: VerdictScreen): Promise<void> {
   const closeWith = (kind: 'tada' | 'done') => {
@@ -277,21 +274,5 @@ export async function afterVerdict(verdict: Verdict, message: string, screen: Ve
   if (verdict !== 'approve-merge') return closeWith('done')
   if (screen.kind === 'pull') return closeWith('tada')
   const landing = await screen.landing().catch(() => null)
-  if (landing?.state === 'merged') return closeWith('tada')
-  if (landing?.state !== 'refreshing') return closeWith('done')
-  if (!screen.here()) return
-
-  let settled = false
-  let stopFollowing = () => {}
-  const hear = (now: ReviewLanding | null) => {
-    if (settled || now?.state === 'refreshing') return
-    settled = true
-    stopFollowing()
-    if (now?.state !== 'merged' || !screen.here()) return
-    screen.celebrate('tada', now.message ?? message)
-    screen.close()
-  }
-  stopFollowing = screen.follow(hear)
-  // `follow` tells how it lands at once, which can settle it before there is anything to stop.
-  if (settled) stopFollowing()
+  closeWith(landing?.state === 'merged' ? 'tada' : 'done')
 }
