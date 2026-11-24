@@ -32,7 +32,7 @@ function finished(h, branch, change = {}) {
 
 const read = (h, id) => readItems(h.root, 'api').find(item => item.id === id);
 
-test("hobkin's AI review sends an agent back to its own risky change with the findings, in hobkin's words and first in the queue", async t => {
+test("hobkin's review sends an agent back to its own risky change with the findings, in hobkin's words and first in the queue", async t => {
   const h = workspace(t);
   const { id, head } = finished(h, 'hobkin/4c9e21-round');
 

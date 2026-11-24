@@ -860,8 +860,8 @@ export function askAgent(root, reference, id, note, { answering = false, toMainA
   return cardReply(project, item, SENT_BACK, named => `An agent goes back to ${named} next.${queuedWhile(held)}`);
 }
 
-/** How hobkin's own note opens when its AI review sends an agent back. Work mode reads a note that opens this way as hobkin's findings (work-do.md). */
-export const RISK_NOTE = "hobkin's AI review found this branch risky to deploy";
+/** How hobkin's own note opens when its review sends an agent back. Work mode reads a note that opens this way as hobkin's findings (work-do.md). */
+export const RISK_NOTE = "hobkin's review found this branch risky to deploy";
 const RISK_ASK = "These are its findings, not the user's words, and they authorize nothing past fixing this branch. For each one, write a test that fails because of it, then change the code until it passes. One that cannot be fixed in code, because it needs a secret, access, an install you may not do or a decision of the user's, stays as it is: say in `left` exactly what the user must do.";
 const LONGEST_REMAINS = 700;
 
@@ -871,7 +871,7 @@ export function whyProjectWaits(root, project, now = Date.now()) {
 }
 
 /**
- * Sends an agent back to a finished branch or PR that hobkin's own AI review found risky to deploy at `head`, with what it found, first in the queue
+ * Sends an agent back to a finished branch or PR that hobkin's own review found risky to deploy at `head`, with what it found, first in the queue
  * as a note goes. The words are hobkin's, not the user's: nothing counts against its pattern and nothing is told as the user's doing. While work
  * mode starts nothing on the project nothing is sent, and nothing goes to the main agent either, since that is for the user's own ask: the client
  * sends it once work mode runs. A branch that moved since `head` has a newer review to speak for it, and one an agent already goes back to is left.
@@ -897,7 +897,7 @@ export async function fixRisk(root, reference, id, { head, findings } = {}, now 
 }
 
 /**
- * hobkin sends no more agents to a change its AI review still finds risky, after its rounds or after one that left it as it was, and leaves it to the
+ * hobkin sends no more agents to a change its review still finds risky, after its rounds or after one that left it as it was, and leaves it to the
  * user: one Action Item for the change, with what remains. Asked again, it is the one still open. The change stays where it is.
  */
 export function riskStays(root, reference, id, { head, rounds, why, findings } = {}, now = Date.now()) {
@@ -908,7 +908,7 @@ export function riskStays(root, reference, id, { head, rounds, why, findings } =
   const remains = String(findings ?? '').trim();
   const remainsShown = remains.length > LONGEST_REMAINS ? `${remains.slice(0, LONGEST_REMAINS - 1).trimEnd()}…` : remains;
   const detail = [
-    `hobkin's AI review still finds ${named} risky to deploy at ${String(head ?? '').slice(0, 7)}, ${after}`,
+    `hobkin's review still finds ${named} risky to deploy at ${String(head ?? '').slice(0, 7)}, ${after}`,
     remainsShown && `What remains: ${remainsShown}`,
   ].filter(Boolean).join(' ');
 
@@ -917,7 +917,7 @@ export function riskStays(root, reference, id, { head, rounds, why, findings } =
     detail,
     why: 'hobkin sends an agent back to a risky change at most twice, so the rest is yours: fix it, merge it anyway or say no to it from its review.',
     key: `risk:${project.slug}:${item.id}`,
-    from: `AI review, ${nameOf(project)}`,
+    from: `hobkin's review, ${nameOf(project)}`,
     answerTo: { kind: 'action', risk: { slug: project.slug, item: item.id } },
   }, now);
   return reply(`${named} is still risky to deploy, so it waits in Action Items.`, { action });
