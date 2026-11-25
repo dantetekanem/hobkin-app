@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+	<testcase name="shared case" time="0.000298" classname="test" file="/repo/test/shared.test.ts"/>
+	<testcase name="adds two" time="0.000055" classname="test" file="/repo/test/cart.test.ts"/>
+	<testsuite name="cart" time="0.001207" disabled="0" errors="0" tests="5" failures="1" skipped="2" timestamp="2026-11-25T21:35:20.451Z" hostname="localhost">
+		<testcase name="rounds the total" time="0.000082" classname="cart" file="/repo/test/cart.test.ts"/>
+		<testsuite name="empty" time="0.000454" disabled="0" errors="0" tests="1" failures="1" skipped="0" timestamp="2026-11-25T21:35:20.450Z" hostname="localhost">
+			<testcase name="has no total" time="0.000384" classname="cart.empty" file="/repo/test/cart.test.ts" failure="Expected values to be strictly equal:&#10;&#10;1 !== 2&#10;">
+				<failure type="testCodeFailure" message="Expected values to be strictly equal:&#10;&#10;1 !== 2">
+Error [ERR_TEST_FAILURE]: Expected values to be strictly equal:
+
+1 !== 2
+
+    at new Promise (&lt;anonymous>)
+    at Array.map (&lt;anonymous>) {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'testCodeFailure',
+  cause: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 2
+  
+      at TestContext.&lt;anonymous> (file:///repo/test/cart.test.ts:15:14)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at node:internal/test_runner/test:1903:71
+      at node:internal/per_context/primordials:505:82
+      at new Promise (&lt;anonymous>)
+      at new SafePromise (node:internal/per_context/primordials:479:3)
+      at node:internal/per_context/primordials:505:9
+      at Array.map (&lt;anonymous>) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 2,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+}
+				</failure>
+			</testcase>
+		</testsuite>
+		<testcase name="later" time="0.000030" classname="cart" file="/repo/test/cart.test.ts">
+			<skipped type="skipped" message="true"/>
+		</testcase>
+		<testcase name="someday" time="0.000369" classname="cart" file="/repo/test/cart.test.ts">
+			<skipped type="todo" message="true"/>
+		</testcase>
+		<testcase name="a &quot;quoted&quot; &lt;name> &amp; a > b" time="0.000063" classname="cart" file="/repo/test/cart.test.ts"/>
+	</testsuite>
+	<testcase name="twice" time="0.000045" classname="test" file="/repo/test/cart.test.ts"/>
+	<testcase name="twice" time="0.000033" classname="test" file="/repo/test/cart.test.ts"/>
+	<testsuite name="a parent" time="0.000165" disabled="0" errors="0" tests="1" failures="0" skipped="0" timestamp="2026-11-25T21:35:20.452Z" hostname="localhost">
+		<testcase name="a child" time="0.000052" classname="a parent" file="/repo/test/cart.test.ts"/>
+	</testsuite>
+	<testcase name="fails but todo" time="0.000041" classname="test" file="/repo/test/cart.test.ts" failure="not yet">
+		<skipped type="todo" message="true"/>
+		<failure type="testCodeFailure" message="not yet">
+[Error [ERR_TEST_FAILURE]: not yet] {
+  code: 'ERR_TEST_FAILURE',
+  failureType: 'testCodeFailure',
+  cause: Error: not yet
+      at TestContext.&lt;anonymous> (file:///repo/test/cart.test.ts:31:9)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7)
+}
+		</failure>
+	</testcase>
+	<testcase name="skips inside" time="0.000034" classname="test" file="/repo/test/cart.test.ts">
+		<skipped type="skipped" message="no database"/>
+	</testcase>
+	<!-- tests 13 -->
+	<!-- suites 2 -->
+	<!-- pass 8 -->
+	<!-- fail 1 -->
+	<!-- cancelled 0 -->
+	<!-- skipped 2 -->
+	<!-- todo 2 -->
+	<!-- duration_ms 74.036959 -->
+</testsuites>

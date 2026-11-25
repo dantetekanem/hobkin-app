@@ -333,7 +333,7 @@ export interface Condition {
 
 /** One test run of the proof step (FOUNDATION 4.2). Never recorded for a run that did not happen. */
 export interface TestRun {
-  /** The exact command, as run. */
+  /** The exact command, as run, less the arguments that have the runner write its case report to a temporary file. */
   command: string
   /** Test files it ran. */
   tests: string[]

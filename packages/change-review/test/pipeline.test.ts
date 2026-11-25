@@ -677,7 +677,7 @@ test('a test the change removes, and one it edits to assert less, are on the par
   const total = result.graph.nodes.find((node) => node.id === 'n1')!
   assert.deepEqual(total.tests, [
     { path: 'test/total.test.js', relation: 'edited', found: 'scan', lifecycle: false, at_head: 'passed', shows: 'still-passes', why: 'the scan links it to total; this diff changed it and it names total; named after src/total.js' },
-    { path: 'test/total.test.js', symbol: 'rounds', line: 5, relation: 'edited', found: 'scan', lifecycle: false, at_head: 'not-run', why: 'the scan links it to total; this diff changed it and it names total; named after src/total.js', weakened: { assertions_removed: 1, lines: [7] } },
+    { path: 'test/total.test.js', symbol: 'rounds', line: 5, relation: 'edited', found: 'scan', lifecycle: false, at_head: 'passed', why: 'the scan links it to total; this diff changed it and it names total; named after src/total.js', weakened: { assertions_removed: 1, lines: [7] } },
     { path: 'test/total.test.js', symbol: 'adds', line: 10, relation: 'removed', found: 'diff', lifecycle: false },
   ])
 })

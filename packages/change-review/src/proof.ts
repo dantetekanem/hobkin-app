@@ -6,9 +6,10 @@
  * a request's way and a test shows it. The changed file gets its exact bytes back before anything else runs, and the
  * proof refuses a checkout that is not exactly the change. No coverage tooling, clone or sandbox.
  */
-import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { accessSync, constants, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path'
+import { reportArgs, reportCases, type CaseReport, type Receipt } from './case-reports.ts'
 import { gitRepo, runProgram, type GitRepo, type ProgramRun } from './git.ts'
 import type { FileDiff, Finding, Hunk, Proof, ReviewNode, Scan, TestRun } from './types.ts'
 
@@ -29,6 +30,8 @@ export interface Runbook {
   accepts: string[]
   /** How it was found, in words. */
   source: string
+  /** How the runner reports each case's own result in a run of one test file, beside the output it prints. */
+  report?: CaseReport
 }
 
 /** A runbook the repository's configuration names, for repositories detection gets wrong. */
@@ -86,7 +89,25 @@ function overrideRunbook({ command, filesAt, env = {}, timeoutMs = RUN_TIMEOUT_M
   return { command: [...command], filesAt: 'end', env: { ...env }, timeoutMs, accepts: [], source: 'the configured runbook' }
 }
 
-const runbook = (command: string[], accepts: string[], source: string): Runbook => ({ command, filesAt: 'end', env: {}, timeoutMs: RUN_TIMEOUT_MS, accepts, source })
+const runbook = (command: string[], accepts: string[], source: string, report?: CaseReport): Runbook => ({
+  command,
+  filesAt: 'end',
+  env: {},
+  timeoutMs: RUN_TIMEOUT_MS,
+  accepts,
+  source,
+  ...(report ? { report } : {}),
+})
+
+/** Vitest 3 is the oldest seen to take `--includeTaskLocation`; an older one, or one whose version cannot be read, could refuse it. */
+function vitestGivesLines(cwd: string): boolean {
+  try {
+    const version = object(JSON.parse(readFileSync(join(cwd, 'node_modules/vitest/package.json'), 'utf8'))).version
+    return typeof version === 'string' && Number(version.split('.')[0]) >= 3
+  } catch {
+    return false
+  }
+}
 
 function railsRunbook(cwd: string): Runbook | null {
   return existsSync(join(cwd, 'bin/rails')) && isFolder(join(cwd, 'test')) ? runbook([join(cwd, 'bin/rails'), 'test'], ['_test.rb'], 'bin/rails with a test folder') : null
@@ -119,13 +140,15 @@ function packageRunbook(cwd: string): Runbook | null {
         return false
       }
     })
-    return bun ? runbook([bun, ...words.slice(1)], SCRIPT_TEST_FILES, 'the test script in package.json runs bun test') : null
+    return bun ? runbook([bun, ...words.slice(1)], SCRIPT_TEST_FILES, 'the test script in package.json runs bun test', { runner: 'bun' }) : null
   }
   const dependencies = { ...object(pkg.dependencies), ...object(pkg.devDependencies) }
   const bin = (name: string) => join(cwd, 'node_modules', '.bin', name)
   // The node that runs this package runs node --test too: an app opened from the Finder may have no node on PATH.
-  if (/\bnode\b[^&|;]*\s--test\b/.test(script)) return runbook([process.execPath, '--test'], SCRIPT_TEST_FILES, 'the test script in package.json runs node --test')
-  const vitest = existsSync(bin('vitest')) ? runbook([bin('vitest'), 'run'], SCRIPT_TEST_FILES, 'vitest, from package.json') : null
+  if (/\bnode\b[^&|;]*\s--test\b/.test(script)) {
+    return runbook([process.execPath, '--test'], SCRIPT_TEST_FILES, 'the test script in package.json runs node --test', { runner: 'node' })
+  }
+  const vitest = existsSync(bin('vitest')) ? runbook([bin('vitest'), 'run'], SCRIPT_TEST_FILES, 'vitest, from package.json', { runner: 'vitest', lines: vitestGivesLines(cwd) }) : null
   const jest = existsSync(bin('jest')) ? runbook([bin('jest'), '--runTestsByPath'], SCRIPT_TEST_FILES, 'jest, from package.json') : null
   if (/\bvitest\b/.test(script) && vitest) return vitest
   if (/\bjest\b/.test(script) && jest) return jest
@@ -825,7 +848,8 @@ export function doublesIn(text: string, path: string, symbol: string, nodePath: 
 
 // ───────────────────────── Running tests ─────────────────────────
 
-type Started = Extract<ProgramRun, { started: true }>
+/** A run that started, with each case's own result when its runner gave them. */
+type Started = Extract<ProgramRun, { started: true }> & { cases: Receipt[] }
 /** How a test file did in a run. `not-run`: the runner found no test to run in it. */
 type Outcome = 'passed' | 'failed' | 'timed-out' | 'not-run'
 /** How each file did, and for the files whose command could not start, why. */
@@ -951,19 +975,58 @@ function testEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
   return env
 }
 
+/** The most of a runner's case report that is read. */
+const REPORT_BYTES = 16 * 1024 * 1024
+
+/** A folder outside the checkout for one run's case report, or null when none can be made: the run then gives no cases. */
+function reportFolder(): string | null {
+  try {
+    return mkdtempSync(join(tmpdir(), 'change-review-report-'))
+  } catch {
+    return null
+  }
+}
+
+function reportText(file: string): string {
+  try {
+    return statSync(file).size <= REPORT_BYTES ? readFileSync(file, 'utf8') : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Runs test files with one command. A run of one file whose runner reports each case also writes that report, to a
+ * folder outside the checkout that is removed once it is read.
+ */
 async function start(command: Command, files: readonly string[]): Promise<Started | { stopped: string }> {
   const [program, ...args] = command.book.command
   if (files.some((file) => file.startsWith('-'))) return { stopped: 'a test file must not be a command option.' }
-  const run = await runProgram(program!, [...args, ...files], {
-    cwd: command.cwd,
-    env: command.env,
-    timeoutMs: command.timeoutMs,
-    group: true,
-    signal: command.signal,
-    overflow: 'tail',
-    maxBytes: 1024 * 1024,
-  })
-  return run.started ? run : { stopped: `${program} could not start: ${run.reason}` }
+  const report = files.length === 1 ? command.book.report : undefined
+  const folder = report ? reportFolder() : null
+  const reportFile = folder ? join(folder, 'cases') : null
+  try {
+    const run = await runProgram(program!, [...args, ...(report && reportFile ? reportArgs(report, reportFile) : []), ...files], {
+      cwd: command.cwd,
+      env: command.env,
+      timeoutMs: command.timeoutMs,
+      group: true,
+      signal: command.signal,
+      overflow: 'tail',
+      maxBytes: 1024 * 1024,
+    })
+    if (!run.started) return { stopped: `${program} could not start: ${run.reason}` }
+    // A run cut short says nothing of its cases.
+    const finished = !run.aborted && !run.timedOut
+    // A configured `bun test` writes no report: its output names the cases it ran.
+    const bun = basename(program ?? '') === 'bun' && args[0] === 'test'
+    let cases: Receipt[] = []
+    if (finished && report && reportFile) cases = reportCases(report, reportText(reportFile), files[0]!, command.cwd)
+    else if (finished && bun) cases = bunCases(run.tail, files, command.cwd)
+    return { ...run, cases }
+  } finally {
+    if (folder) rmSync(folder, { recursive: true, force: true })
+  }
 }
 
 /** Native Bun singleton receipts only: never borrow a header from another file or infer success. */
@@ -993,7 +1056,7 @@ export function bunCases(output: string, files: readonly string[], cwd: string):
 function testRunOf(command: Command, files: readonly string[], kind: TestRun['kind'], node: string | undefined, run: Started, failed: string[], notRun?: string): TestRun {
   const failedAt = failed.length ? failuresIn(run.tail, failed) : []
   const why = notRun ?? (failed.length ? null : notRunOf(run))
-  const cases = basename(command.book.command[0] ?? '') === 'bun' && command.book.command[1] === 'test' && !run.aborted && !run.timedOut ? bunCases(run.tail, files, command.cwd) : []
+  const { cases } = run
   return {
     ...(cases.length ? { cases } : {}),
     command: commandLine([...command.book.command, ...files]),
