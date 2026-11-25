@@ -77,6 +77,8 @@ export function AgentScreen() {
   const finished = agent !== undefined && running === undefined
   const question = questionOf(agentId)
   const waiting = Boolean(running?.asks)
+  // A living job between its turns (spec 072): its face rests, and the exchange says it is idle rather than thinking.
+  const idle = running?.idle !== undefined
   // Only whether there are steps: each part below reads what it shows of them itself, so a step draws only those parts.
   const presence = useActivityPresence(agentId)
   const notes = useAgentThreads((threads) => (agentId ? threads.notes[agentId] : undefined))
@@ -102,9 +104,9 @@ export function AgentScreen() {
               <Passing side={side}>
                 {/* A run on Claude Code has the crab pal beside its face. A finished run's record says how it ended. */}
                 {agent.onClaudeCode ? (
-                  <Pals id={agent.id} hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished} endedWell={finished && agent.doing === 'completed'} />
+                  <Pals id={agent.id} hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished && !idle} endedWell={finished && agent.doing === 'completed'} />
                 ) : (
-                  <AgentHood hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished} />
+                  <AgentHood hue={agent.hue} size={120} mood={finished ? 'idle' : agent.mood} asking={waiting} working={!finished && !idle} />
                 )}
               </Passing>
             ) : null}
@@ -153,7 +155,7 @@ export function AgentScreen() {
           <AnimatePresence initial={false}>
             <AgentPart key={agentId} className="absolute inset-0 flex flex-col">
               <AnimatePresence initial={false}>
-                {reading && agent && agentId ? <Exchange key={agentId} agentId={agentId} hue={agent.hue} question={question} waiting={waiting} /> : null}
+                {reading && agent && agentId ? <Exchange key={agentId} agentId={agentId} hue={agent.hue} question={question} waiting={waiting} idle={idle} /> : null}
               </AnimatePresence>
             </AgentPart>
           </AnimatePresence>
@@ -590,7 +592,7 @@ export function walkSteps(event: KeyboardEvent<HTMLOListElement>) {
  */
 const Exchange = memo(ExchangeSteps)
 
-function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; hue: number; question?: string; waiting: boolean }) {
+function ExchangeSteps({ agentId, hue, question, waiting, idle = false }: { agentId: string; hue: number; question?: string; waiting: boolean; idle?: boolean }) {
   const activity = useAgentActivity(agentId)
   const still = useStill()
   const live = useHasHost()
@@ -620,7 +622,7 @@ function ExchangeSteps({ agentId, hue, question, waiting }: { agentId: string; h
     newest.toCome()
     older.loadMore()
   }
-  const thinking = activity !== null && !waiting && pauseOf(activity.entries, { ended: activity.ended }) === 'thinking'
+  const thinking = activity !== null && !waiting && !idle && pauseOf(activity.entries, { ended: activity.ended }) === 'thinking'
 
   return (
     <motion.div

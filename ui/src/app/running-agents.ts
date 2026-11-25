@@ -134,24 +134,25 @@ export function useAgentWords(agent: Pick<RunningAgent, 'id' | 'update'>): strin
 }
 
 /**
- * How a list counts the agents that come and go: the ones at work, the ones that wait for their time with no process
- * (spec 053), counted apart, and the ones at work that need the user.
+ * How a list counts the agents that come and go: the ones at work, apart from them the living jobs idle between their
+ * turns (spec 072) and the ones that wait for their time with no process (spec 053), and the ones that need the user.
  */
-export function agentCounts(agents: readonly RunningAgent[]): { working: number; waiting: number; needYou: number } {
+export function agentCounts(agents: readonly RunningAgent[]): { working: number; waiting: number; idle: number; needYou: number } {
   const waiting = agents.filter((agent) => agent.waits !== undefined).length
+  const idle = agents.filter((agent) => agent.idle !== undefined).length
   const needYou = agents.filter((agent) => agent.asks).length
-  return { working: agents.length - waiting, waiting, needYou }
+  return { working: agents.length - waiting - idle, waiting, idle, needYou }
 }
 
-/** The count over the agents that come and go: how many work, and how many wait for their time only when some do. */
-export function othersCount({ working, waiting }: { working: number; waiting: number }): string {
-  return waiting ? `${working} working · ${waiting} waiting` : `${working} working`
+/** The count over the agents that come and go: how many work, then how many are idle and how many wait for their time, each only when some do. */
+export function othersCount({ working, waiting, idle = 0 }: { working: number; waiting: number; idle?: number }): string {
+  return [`${working} working`, idle ? `${idle} idle` : null, waiting ? `${waiting} waiting` : null].filter(Boolean).join(' · ')
 }
 
-/** An agent of a list whose face holds still: a durable hobkin between its turns, or a run that waits for its time. */
-export const atRest = (agent: Pick<RunningAgent, 'durable' | 'waits'>): boolean => agent.durable?.state === 'waiting' || agent.waits !== undefined
+/** An agent of a list whose face holds still: a durable hobkin between its turns, a living job idle between its own, or a run that waits for its time. */
+export const atRest = (agent: Pick<RunningAgent, 'durable' | 'waits' | 'idle'>): boolean => agent.durable?.state === 'waiting' || agent.waits !== undefined || agent.idle !== undefined
 
-/** The line under a waiting run's name: until when, then its note, or its project when it left none. */
+/** The line under a waiting or idle run's name: until when or since when, then its words, or its project when it has none. */
 export const waitingRowWords = (agent: Pick<RunningAgent, 'doing' | 'project'>, words: string | undefined): string => `${agent.doing} · ${words ?? agent.project}`
 
 /** The running agents as they are this instant, for code outside a component. */

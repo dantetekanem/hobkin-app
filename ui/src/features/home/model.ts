@@ -625,8 +625,8 @@ function stackOf({ needs, middle, last }: StackParts, agents: HomeInput['agents'
   const working = agents.filter(agent => !agent.asks).map(agent => candidate(4, null, {
     id: `agent:${agent.id}`,
     kind: 'agent',
-    label: `${agent.waits ? 'Agent waits' : 'Agent at work'} · ${agent.project}`,
-    reason: agent.waits ? 'Waiting' : 'Working now',
+    label: `${agent.waits ? 'Agent waits' : agent.idle ? 'Agent idle' : 'Agent at work'} · ${agent.project}`,
+    reason: agent.waits ? 'Waiting' : agent.idle ? 'Idle' : 'Working now',
     tone: 'info',
     title: agent.title,
     detail: agent.doing,
@@ -768,9 +768,9 @@ function chipParts(input: HomeInput): { first: Chips; rest: Chips } {
   return { first, rest }
 }
 
-/** The header's chips with the count of the agents at work between the two parts, when any work. One waiting for its time is not at work. */
+/** The header's chips with the count of the agents at work between the two parts, when any work. One waiting for its time, or a living job idle between its turns, is not at work. */
 function chipsOf({ first, rest }: { first: Chips; rest: Chips }, agents: HomeInput['agents']): Chips {
-  const count = agents.filter(agent => !agent.waits).length
+  const count = agents.filter(agent => !agent.waits && !agent.idle).length
   if (count === 0) return [...first, ...rest]
   const working: Chips[number] = { tone: 'info', label: `${count} working`, target: screen('work') }
   return [...first, working, ...rest]

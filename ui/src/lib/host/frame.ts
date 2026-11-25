@@ -92,6 +92,8 @@ export interface AgentWait {
 /** An agent as the host's runs make it: a sample agent's fields, and for a run that waits for its time, its wait. */
 export interface HostedAgent extends SampleAgent {
   waits?: AgentWait
+  /** A living job between its turns (spec 072): since when, as an ISO time. Its run still runs, waiting for a message. */
+  idle?: { since: string }
   /** It runs on Claude Code, so its face has the crab pal beside it (avatar/Pals.tsx). */
   onClaudeCode?: true
 }
@@ -122,6 +124,22 @@ export function waitingWords(until: string, now: number, { timeZone, locale }: {
   const weekday = new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone }).format(at)
   return `waiting until ${weekday} ${time}`
 }
+
+/** What an idle living job's row says of its time: "idle since 10:51 PM", "… yesterday", or the weekday further back, in the user's clock and time zone unless given. */
+export function idleWords(since: string, now: number, { timeZone, locale }: { timeZone?: string; locale?: string } = {}): string {
+  const at = Date.parse(since)
+  if (!Number.isFinite(at)) return 'idle'
+
+  const time = new Intl.DateTimeFormat(locale, { timeStyle: 'short', timeZone }).format(at)
+  const days = dayNumber(now, timeZone) - dayNumber(at, timeZone)
+  if (days <= 0) return `idle since ${time}`
+  if (days === 1) return `idle since ${time} yesterday`
+  const weekday = new Intl.DateTimeFormat(locale, { weekday: 'short', timeZone }).format(at)
+  return `idle since ${weekday} ${time}`
+}
+
+/** A running run that hobkin marks idle: a living job between its turns. */
+const isIdle = (run: RunSummary): boolean => run.state === 'running' && run.idle === true
 
 /**
  * Agents for the dock, or also ended runs for a reopened canvas. The main conversation is never an agent, and nor is a
@@ -155,8 +173,9 @@ export function madeOnce<List>(made: MadeLists<List>, snapshot: WireSnapshot, ma
   return list
 }
 
-/** What a run is doing and how its face looks: from its activity while it runs, at rest while it waits or once it ended. */
+/** What a run is doing and how its face looks: from its activity while it works, at rest while it is idle, waits or once it ended. */
 function stateOf(run: RunSummary & { id: string }, activity: Record<string, ActivityEntry[]>): Pick<SampleAgent, 'doing' | 'mood'> {
+  if (isIdle(run)) return { doing: idleWords(run.idleSince ?? '', Date.now()), mood: 'idle' }
   if (run.state === 'running') return doingOf(activity[run.id])
   if (run.state === 'waiting') return { doing: waitingWords(run.waitUntil ?? '', Date.now()), mood: 'idle' }
   return { doing: run.state, mood: 'idle' }
@@ -181,6 +200,7 @@ function buildAgents(snapshot: WireSnapshot, includeEnded: boolean): HostedAgent
         hue: hueOf(run.id),
         kind,
         ...(waits ? { waits: { until: run.waitUntil ?? '', ...(update ? { note: update } : {}) } } : {}),
+        ...(isIdle(run) ? { idle: { since: run.idleSince ?? '' } } : {}),
         ...(run.onClaudeCode ? { onClaudeCode: true as const } : {}),
       }
     })

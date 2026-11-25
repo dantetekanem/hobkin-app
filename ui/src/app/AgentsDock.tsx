@@ -277,7 +277,7 @@ const AgentRow = memo(function AgentRow({ agent, top, known, selected, still, li
       id={`${id}-${agent.id}`}
       role="option"
       aria-selected={selected}
-      aria-label={asks ? `${agent.title}, waiting for you: ${asks}` : waits ? `${agent.title}, ${agent.waits ? agent.doing : 'waiting'}` : undefined}
+      aria-label={asks ? `${agent.title}, waiting for you: ${asks}` : waits ? `${agent.title}, ${agent.waits || agent.idle ? agent.doing : 'waiting'}` : undefined}
       aria-describedby={`${id}-${agent.id}-children`}
       data-agent-row={agent.id}
       data-asking={asks ? true : undefined}
@@ -338,8 +338,8 @@ const AgentWords = memo(function AgentWords({ agent }: { agent: RunningAgent }) 
   const run = agent.durable ? agent.durable.run : agent.id
   return asks ? (
       <span className="block truncate text-[11px] text-muted-foreground">{asks}</span>
-    ) : agent.waits ? (
-      // A run waiting for its time: until when, then its note, in the same one line.
+    ) : agent.waits || agent.idle ? (
+      // A run waiting for its time: until when, then its note. A living job between its turns: since when, then its last words. In the same one line.
       <span className="block truncate text-[11px] text-muted-foreground">{waitingRowWords(agent, update)}</span>
     ) : waits ? (
       // Waiting for the next message, with what it said last. One the user has not looked at says so a little louder.

@@ -80,6 +80,12 @@ export interface RunSummary {
   waitUntil?: string
   waitNote?: string
   waits?: number
+  /**
+   * A job that lives until its agent says done (spec 072) sits idle between its turns: its process waits for a message.
+   * Only while its state is `running`, with when its last turn ended, as an ISO time. A host from before sends none.
+   */
+  idle?: true
+  idleSince?: string
 }
 
 /** Bounded public owned descendants, or legacy teams rows without ancestry. Never a private transcript. */

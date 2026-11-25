@@ -47,7 +47,7 @@ test('the agents that wait for their time are counted apart from the ones at wor
   const snapshot: WireSnapshot = { runs: [run('r1'), waiting, run('r2')] }
   const agents = [...agentsFrom(snapshot), { ...agentsFrom({ runs: [run('r3')] })[0]!, asks: 'Take the update now?' }]
 
-  assert.deepEqual(agentCounts(agents), { working: 3, waiting: 1, needYou: 1 })
+  assert.deepEqual(agentCounts(agents), { working: 3, waiting: 1, idle: 0, needYou: 1 })
 })
 
 test("a waiting run's row holds its face still and says until when, then its note or else its project", () => {
