@@ -52,6 +52,6 @@ The user, 2026-11-24: "feature: load_skill as a tool for hobkin (instead of just
 
 ## Steps
 
-- [ ] S1. The spec (lead).
-- [ ] S2 (A3 to A5). Window.
-- [ ] S3 (A1, A2). Runtime, in `~/Poetry/hobkin`, after spec 068's and spec 069's runtime lanes.
+- [x] S1. The spec (lead). 1c4a44a.
+- [x] S2 (A3 to A5). Window: 875da7d, 3cecd21, 9d429ac; `ui/test/agent-skills.test.ts` 4 of 4. Claude Code's `Skill` tool has input `{ skill }`.
+- [x] S3 (A1, A2). Runtime: hobkin edef993; `test/cli-load-skill.test.mjs` 4 of 4 on an export of main. Helpers run with `--no-skills` and get no tool; runs under a launcher get no hobkin extensions.
