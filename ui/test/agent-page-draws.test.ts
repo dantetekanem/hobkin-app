@@ -17,8 +17,9 @@ const { HostConnection } = await import('../src/lib/host/connection.ts')
 mock.method(HostConnection.prototype, 'start', () => { throw new Error('Connection must stay stopped') })
 mock.method(HostConnection.prototype, 'command', async () => { throw new Error('Nothing here sends commands') })
 const { hostStore } = await import('../src/lib/host/client.ts')
-const { useActivityPresence, useAgentActivity, useAgentGlance, useAgentTasks, useStepsMood } = await import('../src/features/agent-activity/use-agent-activity.ts')
-const { useMainHead, useMainSteps, useMainTasks } = await import('../src/features/main-agent/main-steps.ts')
+const { useActivityPresence, useAgentActivity, useAgentGlance, useStepsMood } = await import('../src/features/agent-activity/use-agent-activity.ts')
+const { useJobsTasks } = await import('../src/features/agent-activity/agent-jobs.ts')
+const { useMainHead, useMainSteps } = await import('../src/features/main-agent/main-steps.ts')
 after(() => {
   mock.restoreAll()
   mock.timers.reset()
@@ -33,6 +34,9 @@ const printed = (id: string, add: string, job = 'worker'): ActivityStep => ({ op
 const bash = (id: string, command: string, state: ActivityEntry['state'] = 'running'): ActivityEntry => ({ id: `tool:${id}`, kind: 'tool', name: 'bash', state, input: JSON.stringify({ command }), output: '' })
 const task = (id: string, title: string): ActivityEntry => ({ id: `tool:task${id}`, kind: 'tool', name: 'task_create', state: 'completed', input: JSON.stringify({ subject: title, description: '...' }), output: `Task #${id} created successfully: ${title}` })
 const MAIN = '#main'
+// The jobs the tasks line reads, as every agent's page has them (`agent-jobs.ts`).
+const WORKER = ['worker']
+const MAIN_JOBS = [MAIN]
 const opening = (): ActivityEntry[] => [{ id: 'message:1:0', kind: 'assistant', text: 'Starting' }, task('1', 'Fix the tests'), bash('1', 'pnpm test')]
 
 send({ type: 'hello', protocol: 1, home: '/fake/home', model: 'live', models: null, viewState: null, owner: { state: 'live', limits: { images: 4, imageBytes: 1 } }, signIn: { status: 'signed-in' } })
@@ -45,7 +49,7 @@ send({
 /** The parts of an agent's page, each reading what it shows of the agent's activity as the page does, counting its draws. */
 async function page() {
   const draws = { page: 0, overview: 0, tasks: 0, steps: 0 }
-  const read = { glance: undefined as ReturnType<typeof useAgentGlance> | undefined, tasks: [] as ReturnType<typeof useAgentTasks> }
+  const read = { glance: undefined as ReturnType<typeof useAgentGlance> | undefined, tasks: [] as ReturnType<typeof useJobsTasks> }
   const Page = () => {
     draws.page += 1
     useActivityPresence('worker')
@@ -59,7 +63,7 @@ async function page() {
   }
   const Tasks = () => {
     draws.tasks += 1
-    read.tasks = useAgentTasks('worker')
+    read.tasks = useJobsTasks(WORKER)
     return null
   }
   const Steps = () => {
@@ -134,7 +138,7 @@ test("ten updates to the main agent's running command draw the mind's steps ten 
   }
   const Tasks = () => {
     draws.tasks += 1
-    useMainTasks()
+    useJobsTasks(MAIN_JOBS)
     return null
   }
   const Steps = () => {

@@ -1,7 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { Check, ChevronDown } from 'lucide-react'
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactElement, type RefObject } from 'react'
-import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { inOverlay } from '@/app/key-page.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
@@ -11,10 +10,7 @@ import './agent-activity.css'
 import { useDrop } from './drop.ts'
 import { glowIn, liveIf, tasksGlow } from './glow.ts'
 import { taskListKey, type TaskKeyPress } from './task-keys.ts'
-import { progressOf, sameTasks, taskCount, tasksOf, titleOf, type AgentTask, type TaskProgress, type TaskState } from './tasks.ts'
-import { useAgentTasks } from './use-agent-activity.ts'
-
-const NO_TASKS: readonly AgentTask[] = []
+import { progressOf, taskCount, titleOf, type AgentTask, type TaskProgress, type TaskState } from './tasks.ts'
 
 /** The list never reaches the bottom of the transcript: the newest step and the way back to it stay in view. */
 const LEAVE = 56
@@ -59,23 +55,10 @@ function toggleList(root: HTMLElement | null, bar: HTMLButtonElement | null): vo
  * (task-keys.ts), and Escape inside closes it. It opens over the transcript and leaves its bottom in view, so it takes
  * no room from it. Nothing shows for an agent that keeps no tasks.
  *
- * Mount it outside the steps' scroller, first in a positioned row: the open list hangs from that row's left end, under
- * the line, at a width its words read well at.
+ * Mount it outside the steps' scroller, first in a positioned row (`AgentLines.tsx`): the open list hangs from that
+ * row's left end, under the line, at a width its words read well at. Given tasks kept as they are until a task changes,
+ * it draws again only for new tasks.
  */
-export function TaskList({ entries, hue }: { entries?: readonly ActivityEntry[]; hue: number }) {
-  const read = useMemo(() => (entries ? tasksOf(entries) : NO_TASKS), [entries])
-  // The agent's words arrive many times a second. The list is kept as it is until a task changes, so nothing redraws.
-  const held = useRef(read)
-  if (!sameTasks(held.current, read)) held.current = read
-  return <Tasks tasks={held.current} hue={hue} />
-}
-
-/** The tasks line of one agent's run, which reads the run's tasks itself: nothing around it draws for the agent's steps. */
-export function AgentTaskList({ agentId, hue }: { agentId: string | null; hue: number }) {
-  return <Tasks tasks={useAgentTasks(agentId)} hue={hue} />
-}
-
-/** The tasks line for tasks read elsewhere, kept as they are until a task changes. It draws again only for new tasks. */
 export const Tasks = memo(TaskBar)
 
 function TaskBar({ tasks, hue }: { tasks: readonly AgentTask[]; hue: number }) {

@@ -1,12 +1,8 @@
-import { memo, useMemo, useRef } from 'react'
-import type { ActivityEntry } from '#shared/protocol/activity.ts'
+import { memo } from 'react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import './agent-activity.css'
 import { glowIn } from './glow.ts'
-import { sameSkills, skillsCount, skillsOf } from './skills.ts'
-import { useAgentSkills } from './use-agent-activity.ts'
-
-const NO_SKILLS: readonly string[] = []
+import { skillsCount } from './skills.ts'
 
 /**
  * The skills the agent loaded (skills.ts) in one line beside its tasks, "3 loaded skills" (_specs/070-load-skill). Hover
@@ -14,22 +10,10 @@ const NO_SKILLS: readonly string[] = []
  * pill with its still ring and never glows: a load is over at once. Its loads are not drawn as steps (steps.ts,
  * `tasksOnLine`): this is where they show. Nothing shows before the agent loads a skill.
  *
- * Mount it last in its row, so it only adds at the row's end and nothing beside it moves as it appears or grows. With
- * too little room it gives way first, and its words are cut.
+ * Mount it last in its row (`AgentLines.tsx`), so it only adds at the row's end and nothing beside it moves as it
+ * appears or grows. With too little room it gives way first, and its words are cut. Given skills kept as they are until
+ * the agent loads another, it draws again only then.
  */
-export function AgentSkillsLine({ agentId, hue }: { agentId: string | null; hue: number }) {
-  return <Skills skills={useAgentSkills(agentId)} hue={hue} />
-}
-
-/** The line for steps read elsewhere, kept as it is until the agent loads another skill: it draws again only then. */
-export function SkillsLine({ entries, hue }: { entries: readonly ActivityEntry[] | null; hue: number }) {
-  const loaded = useMemo(() => (entries ? skillsOf(entries) : NO_SKILLS), [entries])
-  const held = useRef(loaded)
-  if (!sameSkills(held.current, loaded)) held.current = loaded
-  return <Skills skills={held.current} hue={hue} />
-}
-
-/** The line for given skills: what every agent's page draws (`AgentLines.tsx`), and what a still render draws. */
 export const Skills = memo(function Skills({ skills, hue }: { skills: readonly string[]; hue: number }) {
   if (skills.length === 0) return null
   return (

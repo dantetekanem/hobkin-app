@@ -3,7 +3,6 @@ import { MAIN_ACTIVITY, type ActivityEntry } from '#shared/protocol/activity.ts'
 import type { Mood } from '@/avatar/moods.tsx'
 import { sampleAt, sampleLength } from '@/features/agent-activity/sample.ts'
 import { familyOf, pauseOf, stepCount } from '@/features/agent-activity/steps.ts'
-import { sameTasks, tasksOf, type AgentTask } from '@/features/agent-activity/tasks.ts'
 import { sampleStart, type EntryTime } from '@/features/agent-activity/use-agent-activity.ts'
 import { useNow } from '@/features/chat/use-now.ts'
 import { useHasHost, useHost } from '@/lib/host/index.ts'
@@ -104,12 +103,4 @@ function sameHead(left: Head | null, right: Head | null): boolean {
 /** What the header shows of the steps, null from a host too old to send them. It changes with the count or the newest step's state. */
 export function useMainHead(): Head | null {
   return useMainOf(headOf, sameHead)
-}
-
-const NO_TASKS: readonly AgentTask[] = []
-const tasksFrom = (entries: Entries) => (entries ? tasksOf(entries) : NO_TASKS)
-
-/** The main agent's tasks, kept as they are until a task changes. */
-export function useMainTasks(): readonly AgentTask[] {
-  return useMainOf(tasksFrom, sameTasks)
 }
