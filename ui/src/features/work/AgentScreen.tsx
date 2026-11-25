@@ -43,6 +43,8 @@ import { useAgentImageInput } from './use-agent-image-input.ts'
 import { agentEntry, agentReading, keepsPreview } from './agent-entry.ts'
 import { executionKey, executionTargets } from './actions.ts'
 import { useExecution } from './store.ts'
+import { usePageSlash } from './use-agent-slash.ts'
+import { AgentSlashOver } from './AgentSlashOver.tsx'
 
 /** Where the small screen's header starts, below the menu and its second row. */
 const HEADER_TOP = 152
@@ -726,6 +728,19 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
   /** What a /model or /effort line did, under the box. */
   const [said, setSaid] = useState<string | null>(null)
   const canSend = (draft.trim().length > 0 || images.attachments.length > 0) && images.ready && !finished
+  const box = useRef<HTMLFormElement | null>(null)
+  const input = useRef<HTMLTextAreaElement | null>(null)
+  // A message that starts with a slash lists what Pi offers this agent's own session, and /model its tier or model.
+  const slash = usePageSlash({
+    agentId,
+    agent: live ? { run: agentId } : null,
+    text: draft,
+    setText: setDraft,
+    open: !finished,
+    setProblem,
+    setSaid,
+    onSent: (words) => useAgentThreads.getState().say(agentId, words),
+  })
 
   const send = async () => {
     if (!canSend) return
@@ -733,6 +748,8 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
     setProblem(null)
     setSaid(null)
     useAgentImages.getState().clearProblem(agentId)
+    // A command its session offers runs there, and a bare /model opens the choice of tier or model.
+    if (!images.attachments.length && slash.sendCommand(text)) return
     // A /model or /effort line changes how the agent works instead of being sent to it.
     const change = changeLine(text)
     if (change) {
@@ -767,8 +784,9 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
   return (
     <div className="pointer-events-auto mt-auto shrink-0 px-[10%] pt-2 pb-2">
       <form
+        ref={box}
         className={cn(
-          'rounded-[26px] border-[1.5px] bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring',
+          'relative rounded-[26px] border-[1.5px] bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring',
           images.dropping ? 'border-ring' : 'border-input',
         )}
         {...images.dropTarget}
@@ -777,6 +795,7 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
           void send()
         }}
       >
+        <AgentSlashOver slash={slash} agentId={agentId} box={box} input={input} />
         <AttachmentTray attachments={images.attachments} onRemove={images.remove} />
         <div className="flex items-end gap-2">
           <span className="grid size-9 shrink-0 place-items-center">
@@ -787,12 +806,15 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
             autoCorrect="off"
             autoCapitalize="off"
             data-agent-input
+            ref={input}
+            {...slash.inputProps}
             value={draft}
             readOnly={finished}
             onChange={(event) => setDraft(event.target.value)}
             onPaste={images.onPaste}
             onKeyDown={(event) => {
-              if (images.removeLast(event)) return
+              // While the list of commands is open its keys come first.
+              if (slash.onKeyDown(event) || images.removeLast(event)) return
               if (event.key === 'Escape') {
                 // Back onto the same agent in the list. One the list no longer holds leaves the key to the frame,
                 // which leaves the canvas.

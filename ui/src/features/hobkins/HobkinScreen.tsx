@@ -43,6 +43,8 @@ import { engineLabel, stateLabel } from './rules.ts'
 import { useNewHobkin } from './store.ts'
 import { useConversation, useMarkSeen, usePageShown } from './use-conversation.ts'
 import { useOnClaudeCode } from './use-pal.ts'
+import { usePageSlash } from '@/features/work/use-agent-slash.ts'
+import { AgentSlashOver } from '@/features/work/AgentSlashOver.tsx'
 
 /**
  * A durable hobkin's page: the agent screen for the agent id `hobkin:<id>` (`034-durable-hobkins`). Its name, folder,
@@ -577,6 +579,19 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
   const working = hobkin?.state === 'working'
   const text = draft.trim()
   const canSend = connected && !busy && (text.length > 0 || images.attachments.length > 0) && images.ready && text.length <= HOBKIN_MESSAGE_MAX
+  const box = useRef<HTMLFormElement | null>(null)
+  const input = useRef<HTMLTextAreaElement | null>(null)
+  // A message that starts with a slash lists what Pi offers this hobkin's own session, and /model its tier or model.
+  const slash = usePageSlash({
+    agentId: agent,
+    agent: { hobkin: id },
+    text: draft,
+    setText: setDraft,
+    open: connected && talkOpen(state),
+    setProblem,
+    setSaid,
+    onSent: (words, sent) => onSent({ text: words, at: Date.now(), ...sent }),
+  })
 
   if (!talkOpen(state)) {
     return <p className="shrink-0 px-[10%] pt-2 pb-6 text-center text-[13px] text-muted-foreground">This hobkin has ended. Its conversation stays on disk.</p>
@@ -586,6 +601,8 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
     if (!canSend) return
     setSaid(null)
     useAgentImages.getState().clearProblem(agent)
+    // A command its session offers runs there, and a bare /model opens the choice of tier or model.
+    if (!images.attachments.length && slash.sendCommand(text)) return
     // A /model or /effort line changes how the hobkin works instead of being sent to it.
     const change = changeLine(text)
     if (change) {
@@ -632,8 +649,9 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
   return (
     <div className="shrink-0 px-[10%] pt-2 pb-2">
       <form
+        ref={box}
         className={cn(
-          'rounded-[26px] border-[1.5px] bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring',
+          'relative rounded-[26px] border-[1.5px] bg-background py-2 pr-2 pl-3 shadow-panel transition-colors duration-[160ms] ease-[ease] focus-within:border-ring',
           images.dropping ? 'border-ring' : 'border-input',
         )}
         {...images.dropTarget}
@@ -642,6 +660,7 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
           void send()
         }}
       >
+        <AgentSlashOver slash={slash} agentId={agent} box={box} input={input} />
         <AttachmentTray attachments={images.attachments} onRemove={images.remove} />
         <div className="flex items-end gap-2">
           <span className="grid size-9 shrink-0 place-items-center">
@@ -652,11 +671,14 @@ function Talk({ id, split, onSending, onSent }: { id: string; split: boolean; on
             autoCorrect="off"
             autoCapitalize="off"
             data-agent-input
+            ref={input}
+            {...slash.inputProps}
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             onPaste={images.onPaste}
             onKeyDown={(event) => {
-              if (images.removeLast(event)) return
+              // While the list of commands is open its keys come first.
+              if (slash.onKeyDown(event) || images.removeLast(event)) return
               if (event.key === 'Escape') {
                 // Back onto the hobkin in the list. Without the list, or with the split over it, the frame leaves the page.
                 if (!split && focusAgentsDock()) event.preventDefault()

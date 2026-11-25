@@ -1,5 +1,5 @@
 import { Check, Search } from 'lucide-react'
-import { memo, useMemo, useRef, useState } from 'react'
+import { memo, useMemo, useRef, useState, type RefObject } from 'react'
 import { claudeChoices } from '#shared/tiers/claude-code.ts'
 import { TIER_IDS, TIER_INFO, filterModels, type Effort, type ModelChoice, type TierId } from '#shared/tiers/tiers.ts'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover.tsx'
@@ -10,7 +10,7 @@ import { useTiers } from '@/features/tiers/store.ts'
 import { runCommand, useHasHost, useListHost, type HostState } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { agentModelOf, agentTierOf, changeFor, changeForTier, changeTarget, effortsOf, modelWords, tierWords, type AgentModel } from './agent-model.ts'
-import type { RunningAgent } from './running-agents.ts'
+import { useAgent, type RunningAgent } from './running-agents.ts'
 
 /** The pill's one width, whatever tier or model it names, so nothing in the row moves when either changes. */
 const PILL = 'w-[84px] shrink-0 truncate rounded-full border border-border px-1.5 text-center text-[10px] leading-4 font-medium text-muted-foreground'
@@ -86,14 +86,11 @@ interface ModelChoicePopoverProps {
   full: string
 }
 
-function ModelChoicePopover({ agent, target, runs, models, words, full }: ModelChoicePopoverProps) {
-  const { current } = runs
+/** What a choice sends for this agent, hobkin's answer to it, and whether one is on its way. */
+function useModelChange(target: ChangeTarget, { current, tiers }: AgentRuns) {
   const live = useHasHost()
-  const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [answer, setAnswer] = useState<Answer | null>(null)
-  // Where the keyboard was before the choice opened: it goes back there, not to the pill, which is out of Tab's way.
-  const back = useRef<HTMLElement | null>(null)
 
   const send = async (change: { model?: string; effort?: Effort } | null) => {
     if (!change || busy) return
@@ -104,9 +101,21 @@ function ModelChoicePopover({ agent, target, runs, models, words, full }: ModelC
     setAnswer(done.ok ? { ok: true, words: done.message } : { ok: false, words: done.why })
   }
 
-  const chooseTier = (tier: TierId) => void send(changeForTier(current, runs.tiers[tier]))
-  const chooseModel = (model: ModelChoice) => void send(changeFor(current, model))
-  const chooseEffort = (effort: Effort) => void send(effort === current.effort ? null : { effort })
+  return {
+    busy,
+    answer,
+    clear: () => setAnswer(null),
+    onTier: (tier: TierId) => void send(changeForTier(current, tiers[tier])),
+    onModel: (model: ModelChoice) => void send(changeFor(current, model)),
+    onEffort: (effort: Effort) => void send(effort === current.effort ? null : { effort }),
+  }
+}
+
+function ModelChoicePopover({ agent, target, runs, models, words, full }: ModelChoicePopoverProps) {
+  const [open, setOpen] = useState(false)
+  const { clear, ...choice } = useModelChange(target, runs)
+  // Where the keyboard was before the choice opened: it goes back there, not to the pill, which is out of Tab's way.
+  const back = useRef<HTMLElement | null>(null)
 
   return (
     <Popover
@@ -114,7 +123,7 @@ function ModelChoicePopover({ agent, target, runs, models, words, full }: ModelC
       onOpenChange={(next) => {
         if (next) {
           back.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-          setAnswer(null)
+          clear()
         }
         setOpen(next)
       }}
@@ -142,18 +151,57 @@ function ModelChoicePopover({ agent, target, runs, models, words, full }: ModelC
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
-        <ModelChoiceBody
-          title={agent.title}
-          current={current}
-          tier={runs.tier}
-          tiers={runs.tiers}
-          models={models}
-          busy={busy}
-          answer={answer}
-          onTier={chooseTier}
-          onModel={chooseModel}
-          onEffort={chooseEffort}
-        />
+        <ModelChoiceBody title={agent.title} current={runs.current} tier={runs.tier} tiers={runs.tiers} models={models} {...choice} />
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+interface AgentModelChoiceOverProps {
+  agentId: string
+  target: ChangeTarget
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  /** What the choice is drawn over: the agent's message box. */
+  anchor: RefObject<Element | null>
+  /** Where the keyboard goes back to once it closes. */
+  back: RefObject<HTMLElement | null>
+}
+
+/**
+ * The pill's choice, opened by /model from an agent's own page and drawn over its message box. Each opening starts
+ * without the answer to the last one. An agent that has left the list has nothing to change.
+ */
+export function AgentModelChoiceOver({ agentId, ...props }: AgentModelChoiceOverProps) {
+  const agent = useAgent(agentId)
+  return agent ? <ChoiceOver agent={agent} {...props} /> : null
+}
+
+function ChoiceOver({ agent, target, open, onOpenChange, anchor, back }: Omit<AgentModelChoiceOverProps, 'agentId'> & { agent: RunningAgent }) {
+  const runs = useAgentRuns(agent)
+  const models = useModelChoices()
+  const { clear, ...choice } = useModelChange(target, runs)
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) clear()
+        onOpenChange(next)
+      }}
+    >
+      <PopoverContent
+        anchor={anchor}
+        side="top"
+        align="end"
+        sideOffset={8}
+        data-agent-model=""
+        finalFocus={back}
+        className="w-80 gap-2 p-2"
+        // Drawn outside the page but inside it for React: its keys are its own, so they never walk the page's steps.
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <ModelChoiceBody title={agent.title} current={runs.current} tier={runs.tier} tiers={runs.tiers} models={models} {...choice} />
       </PopoverContent>
     </Popover>
   )
