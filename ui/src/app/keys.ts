@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { useBlocks } from '@/features/agent-activity/blocks.ts'
 import { boardAt, canvasShowingNow, closeCanvasFromKeys, mainCanvasInMenu, saveCanvas } from '@/features/canvas-panel/controls.ts'
 import { useChat } from '@/features/chat/chat-store.ts'
+import { promptPress, talkBoxOf, useAgentPrompt } from '@/features/chat/prompt-target.ts'
 import { agentGroups } from '@/features/hobkins/list.ts'
 import { useNewHobkin } from '@/features/hobkins/store.ts'
 import { toggleMind } from '@/features/main-agent/route.ts'
@@ -78,7 +79,13 @@ function contextOf(target: EventTarget | null): KeyContext {
     inOverlay: safely(() => inOverlay(target, document), false),
     veilOpen: veil !== null,
     veilSection: veil,
-    dialog: useNewHobkin.getState().open ? 'new-hobkin' : useNerdStats.getState().open ? 'nerd-stats' : useChat.getState().draft.place === 'editor' ? 'prompt' : undefined,
+    dialog: useNewHobkin.getState().open
+      ? 'new-hobkin'
+      : useNerdStats.getState().open
+        ? 'nerd-stats'
+        : useChat.getState().draft.place === 'editor' || useAgentPrompt.getState().agent !== null
+          ? 'prompt'
+          : undefined,
     asking: safely(() => runningAgents().some((agent) => agent.asks), false),
     outOfMenu: useSettings.getState().screensOutOfMenu,
     typing: typingIn(target),
@@ -140,10 +147,13 @@ function perform(action: KeyAction): boolean {
       useNewHobkin.getState().closeSheet()
       return true
     case 'open-prompt': {
-      // The editor takes the keyboard as it opens and gives it back to whatever had it when it closes.
+      // The editor takes the keyboard as it opens and gives it back to whatever had it when it closes. From an agent's
+      // talk box it writes that box's message, and anywhere else the main chat's (`prompt-target.ts`).
       const chat = useChat.getState()
-      // The same key closes it; the toggle returns to the small input with the same draft, so nothing is lost.
-      chat.change({ type: 'editor-toggled' })
+      const press = promptPress({ chatOpen: chat.draft.place === 'editor', agentOpen: useAgentPrompt.getState().agent, typingTo: talkBoxOf(document.activeElement) })
+      // The same key closes it, with the words left where they were written, so nothing is lost.
+      if (press.do === 'toggle-chat') chat.change({ type: 'editor-toggled' })
+      else useAgentPrompt.setState({ agent: press.do === 'open-agent' ? press.agent : null })
       return true
     }
     case 'toggle-nerd-stats':

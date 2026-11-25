@@ -40,6 +40,7 @@ import { sentAtArg } from '@/lib/host/state.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { firstMessageNext, pageRows, pageState, pageTurns, talkOpen, waitsForTurn, withKept, withReceipts, type Delivery, type PageRow, type PageState, type SendingNote, type SentNote, type ShownTurn } from './conversation.ts'
+import { AgentPromptEditor } from '@/features/chat/PromptEditor.tsx'
 import { ContinueButton, imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
 import { CONTINUE_WORDS, waitingRows, type TalkAgent, type TalkQueue } from '@/features/work/talk.ts'
 import { useTalkControls } from '@/features/work/use-talk-controls.ts'
@@ -628,7 +629,8 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
             // macOS would offer its own corrections in a bubble over the field; the user writes as they mean.
             autoCorrect="off"
             autoCapitalize="off"
-            data-agent-input
+            // Which agent the box writes to, so the full prompt opened from it writes there too.
+            data-agent-input={agent}
             ref={input}
             {...slash.inputProps}
             value={draft}
@@ -689,6 +691,16 @@ function Talk({ id, split, sent, sending, onSending, onSent, onTakenBack }: Talk
           )}
         </div>
       </div>
+      {/* Control+Option+P here opens the full prompt on this box's message, sent as the box sends it. */}
+      <AgentPromptEditor
+        agent={agent}
+        to={{ name, face: <AgentHood hue={hueOf(id)} size={22} mood={working ? 'working' : 'listening'} working={working} /> }}
+        text={draft}
+        setText={setDraft}
+        canSend={canSend}
+        turnRunning={controls.working}
+        send={(queue) => void send(undefined, queue)}
+      />
     </div>
   )
 }

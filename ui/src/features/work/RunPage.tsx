@@ -25,6 +25,7 @@ import { AttachmentTray, SentImages } from '@/features/chat/AttachmentTray.tsx'
 import { changeLine } from '@/features/chat/change-line.ts'
 import { releaseImages } from '@/features/chat/image-uploads.ts'
 import { sendChange } from '@/features/chat/send-change.ts'
+import { AgentPromptEditor } from '@/features/chat/PromptEditor.tsx'
 import { imagesLine, QueuedRows, SendButton } from '@/features/chat/TalkControls.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { PageHeader, PartFrame } from '@/features/hobkins/PageHeader.tsx'
@@ -407,7 +408,8 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
             // macOS would offer its own corrections in a bubble over the field; the user writes as they mean.
             autoCorrect="off"
             autoCapitalize="off"
-            data-agent-input
+            // Which agent the box writes to, so the full prompt opened from it writes there too.
+            data-agent-input={agentId}
             ref={input}
             {...slash.inputProps}
             value={draft}
@@ -464,6 +466,16 @@ function TalkBox({ agentId, name, hue, mood, answering, finished }: { agentId: s
           ) : null}
         </div>
       </div>
+      {/* Control+Option+P here opens the full prompt on this box's message, sent as the box sends it. */}
+      <AgentPromptEditor
+        agent={agentId}
+        to={{ name, face: <AgentHood hue={hue} size={22} mood={finished ? 'idle' : answering ? 'listening' : mood} working={!finished} /> }}
+        text={draft}
+        setText={setDraft}
+        canSend={canSend}
+        turnRunning={controls.working}
+        send={(queue) => void send(undefined, queue)}
+      />
     </div>
   )
 }
