@@ -64,6 +64,8 @@ export function commandWords(command: string, integration: string): string {
   return own.replace(/[.\-_]+/g, ' ')
 }
 
+const CADENCE_WORDS: Readonly<Record<string, string>> = { daily: 'Every day', weekly: 'Every week', monthly: 'Every month' }
+
 /** What starts a workflow, in words: "On a press", "After issue close", "When GitHub starts it", and its schedule first when it has one. */
 export function startWords(row: Pick<WorkflowRow, 'starts' | 'cadence' | 'integration'>, integrationName: string): string {
   const words = row.starts.map((start) => {
@@ -71,6 +73,6 @@ export function startWords(row: Pick<WorkflowRow, 'starts' | 'cadence' | 'integr
     if (start.kind === 'after') return `After ${commandWords(start.command, row.integration)}`
     return `When ${integrationName} starts it`
   })
-  if (row.cadence) words.unshift(row.cadence === 'daily' ? 'Every day' : row.cadence === 'weekly' ? 'Every week' : row.cadence === 'monthly' ? 'Every month' : 'Once')
+  if (row.cadence) words.unshift(CADENCE_WORDS[row.cadence] ?? 'Once')
   return words.length ? words.join(' · ') : 'Nothing starts it'
 }
