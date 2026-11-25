@@ -19,11 +19,17 @@ export interface HostCode {
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const CODE = /\.(ts|mjs|js|md|json)$/
-const SKIPPED = new Set(['node_modules', 'test', 'tests', 'examples', 'dist', '.git'])
+/** Folders a host never runs. `window` holds an integration's window code, which the window loads itself. */
+const SKIPPED = new Set(['node_modules', 'test', 'tests', 'examples', 'dist', '.git', 'window'])
 
-/** Where the code a host runs lives: its own, what it shares with the window, the change review, and hobkin itself. */
+/** Where the repository's code a host runs lives: its own, what it shares with the window, the change review, and the integrations. */
+export function ownRoots(repo: string = REPO): string[] {
+  return [join(repo, 'host', 'src'), join(repo, 'shared'), join(repo, 'packages', 'change-review', 'src'), join(repo, 'packages', 'change-review', 'prompts'), join(repo, 'integrations')]
+}
+
+/** Where the code a host runs lives: the repository's own, and hobkin itself. */
 function roots(): string[] {
-  const own = [join(REPO, 'host', 'src'), join(REPO, 'shared'), join(REPO, 'packages', 'change-review', 'src'), join(REPO, 'packages', 'change-review', 'prompts')]
+  const own = ownRoots()
   try {
     return [...own, dirname(dirname(fileURLToPath(import.meta.resolve('hobkin/src/cli/work/store.mjs'))))]
   } catch {
