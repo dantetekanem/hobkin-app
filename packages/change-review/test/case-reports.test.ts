@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
-import { junitCases, reportArgs, vitestJsonCases } from '../src/case-reports.ts'
+import { junitCases, minitestCases, reportArgs, vitestJsonCases } from '../src/case-reports.ts'
 
 /**
  * Reports captured from real runs of one test file, test/cart.test.ts, that imports test/shared.test.ts: node v26.13.1
  * and v22.22.3 with `--test-reporter=junit`, Bun 1.3.14 with `--reporter=junit`, and Vitest 4.1.12 with
  * `--reporter=json --includeTaskLocation`. Only the checkout's folder (now /repo) and the host's name were changed.
+ * The Minitest outputs are of test/models/cart_test.rb run with `-v` on Ruby 4.0.10, Minitest 6.0.6 and Rails 8.1.4.1:
+ * Minitest's own reporter, Rails' test runner alone and with two parallel workers, and minitest-reporters 1.8.0's
+ * DefaultReporter in color, as a project that uses it sets it up.
  */
 const fixture = (name: string) => readFileSync(new URL(`fixtures/cases/${name}`, import.meta.url), 'utf8')
 const PATH = 'test/cart.test.ts'
@@ -72,9 +75,39 @@ test('a Vitest case is only its own file’s, and a report that does not parse g
   assert.deepEqual(vitestJsonCases(unlocated, PATH, '/repo'), [{ path: PATH, name: 'adds two', status: 'passed' }])
 })
 
+const MINITEST_CASES = [
+  { path: 'test/models/cart_test.rb', name: 'CartTest#test_total_is_rounded', status: 'passed' },
+  { path: 'test/models/cart_test.rb', name: 'CartTest#test_plain', status: 'passed' },
+  { path: 'test/models/cart_test.rb', name: 'CartTest#test_later', status: 'skipped' },
+  { path: 'test/models/cart_test.rb', name: 'CartTest#test_has_no_total', status: 'failed' },
+  { path: 'test/models/cart_test.rb', name: 'CartTest#test_raises', status: 'failed' },
+  { path: 'test/models/cart_test.rb', name: "Admin::OrderTest#test_can't_be_blank?", status: 'passed' },
+] as const
+const byName = (cases: readonly { name: string }[]) => [...cases].sort((a, b) => a.name.localeCompare(b.name))
+
+test("Minitest's verbose lines give each case its result, whichever reporter prints them", () => {
+  for (const name of ['minitest-verbose.txt', 'rails-verbose.txt', 'rails-parallel-verbose.txt', 'minitest-reporters-verbose.txt']) {
+    assert.deepEqual(byName(minitestCases(fixture(name), 'test/models/cart_test.rb', false)), byName(MINITEST_CASES), name)
+  }
+})
+
+test('Minitest output with a case whose result is not on its line, or whose start was cut, keeps nothing doubtful', () => {
+  const output = fixture('minitest-reporters-verbose.txt')
+  // Two tests started before either was recorded, as threads can make a split reporter print them.
+  const interleaved = output.replace('CartTest#test_later ', 'CartTest#test_ready \nCartTest#test_later ')
+  assert.deepEqual(minitestCases(interleaved, 'test/models/cart_test.rb', false), [])
+  // Output kept from its end only, cut inside the first case's class.
+  const rails = fixture('rails-verbose.txt')
+  const kept = rails.slice(rails.indexOf('Test#test_total_is_rounded'))
+  const names = minitestCases(kept, 'test/models/cart_test.rb', true).map((item) => item.name)
+  assert.deepEqual(byName(names.map((name) => ({ name }))), byName(MINITEST_CASES.slice(1)).map(({ name }) => ({ name })))
+})
+
 test('each runner keeps the output it prints and also writes its report to the file', () => {
   assert.deepEqual(reportArgs({ runner: 'node' }, '/tmp/r/cases'), ['--test-reporter=spec', '--test-reporter-destination=stdout', '--test-reporter=junit', '--test-reporter-destination=/tmp/r/cases'])
   assert.deepEqual(reportArgs({ runner: 'bun' }, '/tmp/r/cases'), ['--reporter=junit', '--reporter-outfile=/tmp/r/cases'])
   assert.deepEqual(reportArgs({ runner: 'vitest', lines: true }, '/tmp/r/cases'), ['--reporter=default', '--reporter=json', '--outputFile.json=/tmp/r/cases', '--includeTaskLocation'])
   assert.deepEqual(reportArgs({ runner: 'vitest', lines: false }, '/tmp/r/cases'), ['--reporter=default', '--reporter=json', '--outputFile.json=/tmp/r/cases'])
+  assert.deepEqual(reportArgs({ runner: 'minitest' }, null), ['-v'], 'Minitest prints each case when verbose, and writes no file')
+  assert.deepEqual(reportArgs({ runner: 'node' }, null), [], 'with no file to write to, a runner is run as it is')
 })

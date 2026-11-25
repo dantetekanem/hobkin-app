@@ -9,7 +9,7 @@
 import { accessSync, constants, existsSync, lstatSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { basename, delimiter, dirname, extname, isAbsolute, join, resolve, sep } from 'node:path'
-import { reportArgs, reportCases, type CaseReport, type Receipt } from './case-reports.ts'
+import { minitestCases, reportArgs, reportCases, writesFile, type CaseReport, type Receipt } from './case-reports.ts'
 import { gitRepo, runProgram, type GitRepo, type ProgramRun } from './git.ts'
 import type { FileDiff, Finding, Hunk, Proof, ReviewNode, Scan, TestRun } from './types.ts'
 
@@ -110,7 +110,8 @@ function vitestGivesLines(cwd: string): boolean {
 }
 
 function railsRunbook(cwd: string): Runbook | null {
-  return existsSync(join(cwd, 'bin/rails')) && isFolder(join(cwd, 'test')) ? runbook([join(cwd, 'bin/rails'), 'test'], ['_test.rb'], 'bin/rails with a test folder') : null
+  if (!existsSync(join(cwd, 'bin/rails')) || !isFolder(join(cwd, 'test'))) return null
+  return runbook([join(cwd, 'bin/rails'), 'test'], ['_test.rb'], 'bin/rails with a test folder', { runner: 'minitest' })
 }
 
 function rspecRunbook(cwd: string): Runbook | null {
@@ -995,38 +996,40 @@ function reportText(file: string): string {
   }
 }
 
-/** Where a run of one test file has its runner write the case report. */
-interface Written {
+/** How a run of one test file has its runner report each case: in a file it writes, or, with no `file`, in what it prints. */
+interface Reporting {
   report: CaseReport
-  file: string
+  file: string | null
 }
 
 /**
  * Each case's own result in a run: from the runner's report, or, for a configured `bun test`, which writes none,
  * from its output. A run cut short says nothing of its cases.
  */
-function casesOf(command: Command, files: readonly string[], run: Extract<ProgramRun, { started: true }>, written: Written | null): Receipt[] {
+function casesOf(command: Command, files: readonly string[], run: Extract<ProgramRun, { started: true }>, reporting: Reporting | null): Receipt[] {
   if (run.aborted || run.timedOut) return []
-  if (written) return reportCases(written.report, reportText(written.file), files[0]!, command.cwd)
+  const report = reporting?.report
+  if (report?.runner === 'minitest') return minitestCases(run.stdout.toString('utf8'), files[0]!, run.overflow)
+  if (report && reporting.file) return reportCases(report, reportText(reporting.file), files[0]!, command.cwd)
   const [program, subcommand] = command.book.command
   const bun = basename(program ?? '') === 'bun' && subcommand === 'test'
   return bun ? bunCases(run.tail, files, command.cwd) : []
 }
 
 /**
- * Runs test files with one command. A run of one file whose runner reports each case also writes that report, to a
- * folder outside the checkout that is removed once it is read.
+ * Runs test files with one command. A run of one file whose runner reports each case also gives that report: Minitest
+ * prints it, and the others write it to a folder outside the checkout that is removed once it is read.
  */
 async function start(command: Command, files: readonly string[]): Promise<Started | { stopped: string }> {
   const [program, ...args] = command.book.command
   if (files.some((file) => file.startsWith('-'))) return { stopped: 'a test file must not be a command option.' }
 
   const report = files.length === 1 ? command.book.report : undefined
-  const folder = report ? reportFolder() : null
-  const written = report && folder ? { report, file: join(folder, 'cases') } : null
-  const reporting = written ? reportArgs(written.report, written.file) : []
+  const folder = report && writesFile(report) ? reportFolder() : null
+  const reporting = report ? { report, file: folder ? join(folder, 'cases') : null } : null
+  const reportWords = reporting ? reportArgs(reporting.report, reporting.file) : []
   try {
-    const run = await runProgram(program!, [...args, ...reporting, ...files], {
+    const run = await runProgram(program!, [...args, ...reportWords, ...files], {
       cwd: command.cwd,
       env: command.env,
       timeoutMs: command.timeoutMs,
@@ -1036,7 +1039,7 @@ async function start(command: Command, files: readonly string[]): Promise<Starte
       maxBytes: 1024 * 1024,
     })
     if (!run.started) return { stopped: `${program} could not start: ${run.reason}` }
-    return { ...run, cases: casesOf(command, files, run, written) }
+    return { ...run, cases: casesOf(command, files, run, reporting) }
   } finally {
     if (folder) rmSync(folder, { recursive: true, force: true })
   }

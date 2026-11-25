@@ -1,0 +1,25 @@
+
+# Running tests with run options -v --seed 15575:
+
+
+CartTest#test_has_no_total 0.00 = [31mF[0m
+CartTest#test_later 0.00 = [33mS[0m
+CartTest#test_total_is_rounded 0.00 = [32m.[0m
+CartTest#test_plain 0.00 = [32m.[0m
+CartTest#test_raises 0.00 = [31mE[0m
+Admin::OrderTest#test_can't_be_blank? 0.00 = [32m.[0m
+
+[31mFinished tests in 0.000487s, 12320.3231 tests/s, 8213.5487 assertions/s.[0m
+
+
+[31mFailure:
+CartTest#test_has_no_total [/repo/test/models/cart_test.rb:9]
+Minitest::Assertion: Expected: 1
+  Actual: 2[0m
+
+[31mError:
+CartTest#test_raises:
+RuntimeError: boom
+    test/models/cart_test.rb:17:in 'block in <class:CartTest>'[0m
+
+[31m6 tests, 4 assertions, 1 failures, 1 errors, 1 skips[0m

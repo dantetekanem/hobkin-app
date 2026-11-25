@@ -25,7 +25,7 @@ function repo(t: TestContext, files: Record<string, string>, executable: string[
   return { dir, git, head: git('rev-parse', 'HEAD') }
 }
 
-test('node and Vitest runbooks say how their runner reports each case; others say nothing', (t) => {
+test('node, Vitest and Rails runbooks say how their runner reports each case; others say nothing', (t) => {
   const vitest = (version: string | null) =>
     repo(t, {
       'package.json': JSON.stringify({ scripts: { test: 'vitest' } }),
@@ -37,6 +37,7 @@ test('node and Vitest runbooks say how their runner reports each case; others sa
   // Vitest 3 is the oldest seen taking --includeTaskLocation; an older one could refuse it.
   assert.deepEqual(detectRunbook(vitest('2.1.9'))?.report, { runner: 'vitest', lines: false })
   assert.deepEqual(detectRunbook(vitest(null))?.report, { runner: 'vitest', lines: false })
+  assert.deepEqual(detectRunbook(repo(t, { 'bin/rails': '', 'test/test_helper.rb': '' }).dir)?.report, { runner: 'minitest' })
   const jest = repo(t, { 'package.json': JSON.stringify({ devDependencies: { jest: '^30.0.0' } }), 'node_modules/.bin/jest': '' }).dir
   assert.equal(detectRunbook(jest)?.report, undefined)
   assert.equal(detectRunbook(jest, { command: [process.execPath, '--test'] })?.report, undefined, 'a configured command is run as it is')
@@ -107,4 +108,32 @@ test('a Vitest run alone writes its report where the review asks, and each case 
     { path: 'test/cart.test.ts', name: 'cart > rounds', status: 'passed', line: 1 },
     { path: 'test/cart.test.ts', name: 'later', status: 'skipped', line: 1 },
   ])
+})
+
+test("a Rails test file run alone is run verbose, and Minitest's line for each case is its result", async (t) => {
+  // A stand-in for bin/rails test that prints what Rails' reporter prints, a line for each case only when verbose.
+  const fake = [
+    '#!/usr/bin/env node',
+    'const args = process.argv.slice(2)',
+    "const files = args.filter((arg) => arg.endsWith('_test.rb'))",
+    "const verbose = args.includes('-v')",
+    "for (const file of files) console.log(verbose ? `${file.includes('cart') ? 'CartTest' : 'OrderTest'}#test_total_is_rounded = 0.00 s = .` : '.')",
+    "console.log(`${files.length} runs, ${files.length} assertions, 0 failures, 0 errors, 0 skips`)",
+    '',
+  ].join('\n')
+  const { dir, head } = repo(t, {
+    'bin/rails': fake,
+    'test/models/cart_test.rb': 'class CartTest < ActiveSupport::TestCase\n  test "total is rounded" do\n  end\nend\n',
+    'test/models/order_test.rb': 'class OrderTest < ActiveSupport::TestCase\n  test "total is rounded" do\n  end\nend\n',
+  }, ['bin/rails'])
+
+  const changedTests = ['test/models/cart_test.rb', 'test/models/order_test.rb']
+  const result = await runProof({ cwd: dir, head, nodes: [], candidates: {}, runbook: detectRunbook(dir), diffs: [], doublePatterns: [], changedTests })
+
+  assert.deepEqual(result.runs.map((run) => [run.tests.join(' '), run.cases]), [
+    ['test/models/cart_test.rb test/models/order_test.rb', undefined],
+    ['test/models/cart_test.rb', [{ path: 'test/models/cart_test.rb', name: 'CartTest#test_total_is_rounded', status: 'passed' }]],
+    ['test/models/order_test.rb', [{ path: 'test/models/order_test.rb', name: 'OrderTest#test_total_is_rounded', status: 'passed' }]],
+  ])
+  assert.equal(result.runs[1]?.command, `${join(dir, 'bin/rails')} test test/models/cart_test.rb`)
 })

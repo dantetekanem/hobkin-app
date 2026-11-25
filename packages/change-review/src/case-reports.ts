@@ -1,8 +1,9 @@
 /**
- * Each case's own result, from the report a test runner writes for a run of one test file: a test counts as run only
+ * Each case's own result, from the report a test runner gives for a run of one test file: a test counts as run only
  * where its runner says how it did. Node's test runner and Bun write JUnit XML and Vitest writes JSON, each to a file
- * beside the output it prints. A case is kept only where the report places it in that file, and its name nests as
- * `suite > case`, as Bun prints it. A report that cannot be read gives no case, and the test is then not shown as run.
+ * beside the output it prints, and Minitest prints a line for each case when verbose. A case is kept only where the
+ * report places it in that file, and its name nests as `suite > case`, as Bun prints it, or is Minitest's
+ * `Class#test_name`. A report that cannot be read gives no case, and the test is then not shown as run.
  */
 import { realpathSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -10,11 +11,22 @@ import type { TestRun } from './types.ts'
 
 export type Receipt = NonNullable<TestRun['cases']>[number]
 
-/** The runner that reports each case: node's and Bun's in JUnit XML, Vitest's in JSON, with each case's line when it can. */
-export type CaseReport = { runner: 'node' | 'bun' } | { runner: 'vitest'; lines: boolean }
+/**
+ * The runner that reports each case: node's and Bun's in JUnit XML and Vitest's in JSON, with each case's line when it
+ * can, each in a file it writes; Minitest's in the lines it prints when verbose.
+ */
+export type CaseReport = { runner: 'node' | 'bun' } | { runner: 'vitest'; lines: boolean } | { runner: 'minitest' }
 
-/** The runner's arguments that also write its report to `file`, while it prints what it prints without them. */
-export function reportArgs(report: CaseReport, file: string): string[] {
+/** Whether the runner writes its report to a file. */
+export const writesFile = (report: CaseReport) => report.runner !== 'minitest'
+
+/**
+ * The runner's arguments that also give its report, while it prints what it prints without them: Minitest's verbose
+ * lines, or the report written to `file`. A runner that writes one gets none without a file to write to.
+ */
+export function reportArgs(report: CaseReport, file: string | null): string[] {
+  if (report.runner === 'minitest') return ['-v']
+  if (file === null) return []
   if (report.runner === 'vitest') {
     const lines = report.lines ? ['--includeTaskLocation'] : []
     return ['--reporter=default', '--reporter=json', `--outputFile.json=${file}`, ...lines]
@@ -23,8 +35,8 @@ export function reportArgs(report: CaseReport, file: string): string[] {
   return ['--test-reporter=spec', '--test-reporter-destination=stdout', '--test-reporter=junit', `--test-reporter-destination=${file}`]
 }
 
-/** The cases a report gives for the test file at `path`, relative to `cwd`. */
-export function reportCases(report: CaseReport, text: string, path: string, cwd: string): Receipt[] {
+/** The cases a report file gives for the test file at `path`, relative to `cwd`. */
+export function reportCases(report: Exclude<CaseReport, { runner: 'minitest' }>, text: string, path: string, cwd: string): Receipt[] {
   return report.runner === 'vitest' ? vitestJsonCases(text, path, cwd) : junitCases(text, path, cwd)
 }
 
@@ -174,4 +186,36 @@ export function vitestJsonCases(json: string, path: string, cwd: string): Receip
   const [file, ...others] = own
   if (!file || others.length > 0 || !Array.isArray(file.assertionResults)) return []
   return receipts(file.assertionResults.flatMap((result) => vitestCase(record(result), path)))
+}
+
+// ───────────────────────── Minitest's verbose lines ─────────────────────────
+
+const ANSI = /\x1b\[[\d;]*m/g
+/** A case's result as Minitest's and Rails' reporters print it, `Class#test_name = 0.01 s = .`, or minitest-reporters', `Class#test_name 0.01 = .`. */
+const MINITEST_RESULT = /^([A-Za-z_][\w:]*#test_\S*)(?: = \d+\.\d+ s = | \d+\.\d+ = )([.FES])$/
+/** A case started and not yet recorded: what those reporters print before its result. */
+const MINITEST_STARTED = /^[A-Za-z_][\w:]*#test_\S*(?: =)? $/
+const MINITEST_STATUS = new Map<string, Receipt['status']>([
+  ['.', 'passed'],
+  ['F', 'failed'],
+  ['E', 'failed'],
+  ['S', 'skipped'],
+])
+
+/**
+ * The cases Minitest's verbose output gives for the one test file a run ran, by class and test name. Only the file was
+ * run, so its cases are its own. Output kept from its end only (`cut`) starts inside a line, which is dropped. A case
+ * started while another was not yet recorded, as threads can make these reporters print, leaves every result line in
+ * doubt, so none is kept.
+ */
+export function minitestCases(output: string, path: string, cut: boolean): Receipt[] {
+  const lines = output.replace(ANSI, '').split(/\r?\n/)
+  if (cut) lines.shift()
+  if (lines.some((line) => MINITEST_STARTED.test(line))) return []
+  const found = lines.flatMap((line): Receipt[] => {
+    const match = MINITEST_RESULT.exec(line)
+    const status = match ? MINITEST_STATUS.get(match[2]!) : undefined
+    return match && status ? [{ path, name: match[1]!, status }] : []
+  })
+  return receipts(found)
 }
