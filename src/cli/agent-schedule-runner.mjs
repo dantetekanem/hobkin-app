@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { atomicJson } from './config.mjs';
 import { executeShell } from './shell.mjs';
 import { TURN_TOKEN } from './hobkin-tell.mjs';
+import { forgetRuns, keepRun, runsOf, scheduleRunsView } from './agent-schedule-runs.mjs';
 import {
   afterRun, askedSchedule, ended, endedWhyForAgent, expiredWhy, isDue, isExpired, isLive, KEPT_AFTER_END_MS, MOST_AT_ONCE, wakeCap,
   sameOwner, scheduleForAgent, scheduleView, SHOWN_AFTER_END_MS,
@@ -79,6 +80,7 @@ export class AgentScheduleRunner {
       let next = schedule;
       if (next.state === 'running') {
         next = afterRun({ ...next, state: 'waiting' }, { fired: now, result: { interrupted: true } }, now).schedule;
+        keepRun(this.root, next);
         if (next.resumeTo === 'paused') next.state = 'paused';
         delete next.resumeTo;
         changed = true;
@@ -97,8 +99,10 @@ export class AgentScheduleRunner {
   /** Writes the store whole. A write that fails, as on a full disk, never throws: its error is kept and the next write tries again. */
   save() {
     const now = this.now();
-    // An ended schedule shows for an hour and leaves the store a day after it ended.
-    this.schedules = this.schedules.filter(schedule => isLive(schedule) || now - Date.parse(schedule.endedAt) < KEPT_AFTER_END_MS);
+    // An ended schedule shows for an hour and leaves the store a day after it ended, its runs with it.
+    const kept = this.schedules.filter(schedule => isLive(schedule) || now - Date.parse(schedule.endedAt) < KEPT_AFTER_END_MS);
+    if (kept.length !== this.schedules.length) forgetRuns(this.root, this.schedules.filter(schedule => !kept.includes(schedule)).map(schedule => schedule.id));
+    this.schedules = kept;
     try {
       if (this.schedules.length || this.pending.length || existsSync(join(this.root, STORE))) {
         atomicJson(join(this.root, STORE), { version: 1, schedules: this.schedules, wakes: this.pending });
@@ -365,6 +369,7 @@ export class AgentScheduleRunner {
   settle(schedule, run, resumeTo) {
     const { resumeTo: _, ...firing } = schedule;
     const { schedule: after, wake } = afterRun(firing, run, this.now());
+    keepRun(this.root, after);
     if (!isLive(after)) {
       this.replace(after);
       // Its last run woke its agent with the end in it, or the end is told on its own.
@@ -387,6 +392,11 @@ export class AgentScheduleRunner {
     return this.schedules
       .filter(schedule => isLive(schedule) || now - Date.parse(schedule.endedAt) < SHOWN_AFTER_END_MS)
       .map(schedule => scheduleView(schedule, titleOf(schedule.owner)));
+  }
+
+  /** One owner's schedules with their runs, for its conversation: every one the store still has, ended ones too. */
+  runs(owner) {
+    return this.schedules.filter(schedule => sameOwner(schedule.owner, owner)).map(schedule => scheduleRunsView(schedule, runsOf(this.root, schedule)));
   }
 
   /** Resolves once no command runs. */

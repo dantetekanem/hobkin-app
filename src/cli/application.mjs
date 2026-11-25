@@ -1406,6 +1406,18 @@ export class HobkinApplication {
     return ['running', WAITING].includes(runs[owner.id]?.status);
   }
 
+  /**
+   * One agent's schedules with each run they made, for its conversation in the window: `owner` is the main chat, a
+   * durable hobkin or a run. None when hobkin keeps no schedules or they cannot be read.
+   */
+  agentScheduleRuns(owner) {
+    try {
+      return { schedules: this.agentSchedules?.runs(owner) ?? [] };
+    } catch {
+      return { schedules: [] };
+    }
+  }
+
   /** Every schedule as the window shows it, each with its owner's name. None when they cannot be read. */
   agentScheduleView(state) {
     try {
