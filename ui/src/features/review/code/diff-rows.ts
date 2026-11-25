@@ -187,6 +187,17 @@ export function showWholeFile(view: DiffView): DiffView {
   return { ...view, whole: true }
 }
 
+/** "Show more" in every gap at once, from each end it can open: twenty more lines around every group. For a key, where no button is pointed at. */
+export function showMoreEverywhere(diff: Diff, view: DiffView): DiffView {
+  let next = view
+  for (const item of unifiedRows(diff, view)) {
+    if (item.type !== 'gap') continue
+    if (item.above) next = expandGap(next, item.id, 'above')
+    if (item.below) next = expandGap(next, item.id, 'below')
+  }
+  return next
+}
+
 type Shown = { range: [number, number] } | Extract<DiffItem, { type: 'gap' }>
 
 interface Block {

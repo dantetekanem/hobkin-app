@@ -9,6 +9,7 @@ import {
   expandGap,
   lineNumberOn,
   rowOfLine,
+  showMoreEverywhere,
   showWholeFile,
   splitRows,
   stableScroll,
@@ -246,16 +247,7 @@ export function DiffView({
           if (numbers[start - 1] != null) onSelect({ ...selection, startLine: numbers[start - 1]! })
         }
       },
-      showMore: () =>
-        setView((now) => {
-          let next = now
-          for (const item of split ? splitRows(diff, now) : unifiedRows(diff, now)) {
-            if (item.type !== 'gap') continue
-            if (item.above) next = expandGap(next, item.id, 'above')
-            if (item.below) next = expandGap(next, item.id, 'below')
-          }
-          return next
-        }),
+      showMore: () => setView((now) => showMoreEverywhere(diff, now)),
       showWholeFile: () => setView(showWholeFile),
       scrollBy: (lines) => scroller.current?.scrollBy({ top: lines * LINE_HEIGHT }),
       keepInView: (at) => {

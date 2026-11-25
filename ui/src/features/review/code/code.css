@@ -127,7 +127,8 @@
 .dv-no[role='button'] {
   cursor: pointer;
 }
-.dv-line[data-selected='true'] {
+/* Under `.dv`, so in two columns the bar wins over the line between the columns. */
+.dv .dv-line[data-selected='true'] {
   background: color-mix(in oklab, var(--hb-accent) 26%, var(--hb-code-bg));
   box-shadow: inset 3px 0 0 var(--hb-accent);
 }
@@ -191,14 +192,14 @@
 }
 
 /* The cursor: a bar across its line, stronger than the selection it ends. Quiet while the keyboard is in the files. */
-.dv-line[data-cursor='true'] {
+.dv .dv-line[data-cursor='true'] {
   background: color-mix(in oklab, var(--hb-accent) 40%, var(--hb-code-bg));
   box-shadow: inset 3px 0 0 var(--hb-accent);
 }
 .dv-line[data-cursor='true'] .dv-no {
   color: var(--hb-code-text);
 }
-.dv-line[data-cursor='quiet'] {
+.dv .dv-line[data-cursor='quiet'] {
   box-shadow: inset 3px 0 0 color-mix(in oklab, var(--hb-accent) 60%, transparent);
 }
 

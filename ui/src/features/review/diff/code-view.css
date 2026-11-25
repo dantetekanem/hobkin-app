@@ -1,0 +1,56 @@
+/*
+ * The code view (spec 071): the changed files beside the diff, in the code's own colors, as pi-coder's `/diff` draws
+ * them. Rows and the header keep their heights whatever they say, so nothing moves when what is shown changes.
+ */
+
+.cv {
+  --cv-line: color-mix(in oklab, var(--hb-code-text) 11%, transparent);
+  --cv-quiet: color-mix(in oklab, var(--hb-code-text) 56%, var(--hb-code-bg));
+}
+
+.cv-files {
+  background: color-mix(in oklab, var(--hb-code-text) 3%, var(--hb-code-bg));
+  box-shadow: inset -1px 0 0 var(--cv-line);
+}
+
+.cv-file {
+  color: var(--hb-code-text);
+  transition: background-color var(--dur-fast) ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .cv-file:hover {
+    background: color-mix(in oklab, var(--hb-code-text) 6%, transparent);
+  }
+}
+/* The file shown. With the keyboard in the list it carries the cursor's accent, as the line under the cursor does. */
+.cv-file[data-active='true'] {
+  background: color-mix(in oklab, var(--hb-code-text) 10%, transparent);
+}
+.cv-files[data-focused='true'] .cv-file[data-active='true'] {
+  background: color-mix(in oklab, var(--hb-accent) 30%, var(--hb-code-bg));
+  box-shadow: inset 3px 0 0 var(--hb-accent);
+}
+
+/* A comment as a square, a question as a diamond in the question color, as in the diff's gutter. */
+.cv-note {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+}
+.cv-note[data-kind='comment'] {
+  border-radius: 1px;
+  background: color-mix(in oklab, var(--hb-code-text) 72%, transparent);
+}
+.cv-note[data-kind='question'] {
+  background: var(--hb-sun-fg);
+  transform: rotate(45deg) scale(0.92);
+}
+
+/* A part of the file needs the reviewer. */
+.cv-needs {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--hb-warn-fg);
+}
