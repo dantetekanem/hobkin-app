@@ -173,7 +173,11 @@ export class JobActivity {
     this.changed(entry);
   }
 
-  tool(id, name, state, input, output) {
+  /**
+   * A tool call's entry. A call another tool made while it ran, such as each call of a codemode script, names that tool's
+   * entry in `parent` (`tool:<its call id>`), from the `parentToolCallId` Pi gives its events.
+   */
+  tool(id, name, state, input, output, parent) {
     if (typeof id !== 'string' || !id) return;
     const key = `tool:${id}`;
     let entry = this.byId.get(key);
@@ -181,6 +185,7 @@ export class JobActivity {
       if (typeof name !== 'string' || !name) return;
       entry = this.add({ id: key, kind: 'tool', name: clean(name), state });
     }
+    if (typeof parent === 'string' && parent) entry.parent = `tool:${parent}`;
     entry.state = state;
     if (input !== undefined) entry.input = inputText(input);
     if (output !== undefined) {
@@ -247,9 +252,9 @@ export class JobActivity {
       this.message++;
       this.hidden = false;
     } else if (['tool_execution_start', 'tool_execution_update'].includes(event.type)) {
-      this.tool(event.toolCallId, event.toolName, 'running', event.args, event.partialResult);
+      this.tool(event.toolCallId, event.toolName, 'running', event.args, event.partialResult, event.parentToolCallId);
     } else if (event.type === 'tool_execution_end') {
-      this.tool(event.toolCallId, event.toolName, event.isError ? 'failed' : 'completed', undefined, event.result);
+      this.tool(event.toolCallId, event.toolName, event.isError ? 'failed' : 'completed', undefined, event.result, event.parentToolCallId);
     }
   }
 

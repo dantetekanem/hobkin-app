@@ -277,6 +277,24 @@ test('codemode partial output and nested errors stay separate from parent failur
   assert.equal(entry.codemode.calls[0].error, 'read failed');
 });
 
+test('a call a codemode script made names the script call it belongs to, and a call the model made names none', () => {
+  const feed = new JobActivity();
+  feed.accept({ type: 'tool_execution_start', toolCallId: 'script', toolName: 'codemode', args: { code: 'await tools.read({ path: "a" })' } });
+  // Pi gives a nested call its own events, with the id of the call that made it (`nested-tool-calls.js`).
+  feed.accept({ type: 'tool_execution_start', toolCallId: 'script/1', toolName: 'read', args: { path: 'a' }, parentToolCallId: 'script' });
+  feed.accept({ type: 'tool_execution_end', toolCallId: 'script/1', toolName: 'read', isError: true, result: { content: [{ type: 'text', text: 'no such file' }] }, parentToolCallId: 'script' });
+  // A feed that first hears of a nested call at its end still links it.
+  feed.accept({ type: 'tool_execution_end', toolCallId: 'script/2', toolName: 'bash', result: { content: [{ type: 'text', text: 'ok' }] }, parentToolCallId: 'script' });
+  feed.accept({ type: 'tool_execution_start', toolCallId: 'after', toolName: 'bash', args: { command: 'ls' }, parentToolCallId: '' });
+
+  const [script, read, bash, after] = feed.snapshot();
+  assert.equal(Object.hasOwn(script, 'parent'), false);
+  assert.equal(read.parent, 'tool:script');
+  assert.equal(read.state, 'failed');
+  assert.equal(bash.parent, 'tool:script');
+  assert.equal(Object.hasOwn(after, 'parent'), false, 'an empty parent id is none');
+});
+
 test('codemode metadata is bounded and private details from other tools remain excluded', () => {
   const feed = new JobActivity();
   feed.accept({ type: 'tool_execution_update', toolCallId: 'other', toolName: 'read', partialResult: {
