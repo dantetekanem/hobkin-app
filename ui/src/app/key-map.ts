@@ -78,6 +78,19 @@ export type KeyAction =
   | { do: 'go-forward' }
   | { do: 'close-canvas'; owner: string }
   | { do: 'save-canvas'; owner: string }
+  | { do: 'switch-agent'; step: 1 | -1 }
+
+/**
+ * The agent beside the one open, in the agents list's order (durable hobkins first, then the rest): `step` 1 is the next,
+ * -1 the one before, wrapping round. One no longer listed starts at the first, or the last going back. Null when there
+ * is no other agent to go to.
+ */
+export function besideAgent(walk: readonly string[], open: string | null, step: 1 | -1): string | null {
+  const at = open === null ? -1 : walk.indexOf(open)
+  if (at === -1) return (step === 1 ? walk[0] : walk.at(-1)) ?? null
+  if (walk.length < 2) return null
+  return walk[(at + step + walk.length) % walk.length]!
+}
 
 /** Work's own pages sit under its tab, so moving along the tabs from one starts at Work. */
 const UNDER_WORK: readonly ScreenId[] = ['world', 'yolo', 'project', 'proof']
@@ -147,8 +160,10 @@ export function resolveKey(press: KeyPress, context: KeyContext): KeyAction | nu
   }
   if (context.inOverlay) return null
 
-  // Control+Tab and Control+Shift+Tab move right and left through the menu's tabs, as in a browser, from anywhere.
+  // Control+Tab and Control+Shift+Tab move right and left through the menu's tabs, as in a browser, from anywhere. On an
+  // agent's page, a durable hobkin's too, they move to the next and the previous agent instead, as the agents list orders them.
   if (press.ctrl && !press.meta && !press.alt && press.key === 'Tab') {
+    if (context.screen === 'agent') return { do: 'switch-agent', step: press.shift ? -1 : 1 }
     const screen = besideTab(context.screens, context.screen, press.shift ? -1 : 1)
     return screen ? { do: 'open-screen', screen, focusCanvas: true } : null
   }

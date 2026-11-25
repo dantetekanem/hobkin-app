@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { resolveEscape, resolveKey, type KeyContext } from '../src/app/key-map.ts'
+import { besideAgent, resolveEscape, resolveKey, type KeyContext } from '../src/app/key-map.ts'
 import { walkScreens } from '../src/app/screens.ts'
 import { pressEnd } from '../src/features/hobkins/conversation.ts'
 import { forceStopStep } from '../src/features/work/actions.ts'
@@ -382,11 +382,34 @@ test('control tab and control shift tab move right and left through the menu tab
   assert.deepEqual(resolveKey(right, context({ screen: 'github' })), opens('home'), 'past the last tab, the first')
   assert.deepEqual(resolveKey(left, context({ screen: 'home' })), opens('github'), 'before the first tab, the last')
   assert.deepEqual(resolveKey(right, context({ screen: 'yolo' })), opens('github'), "a page of Work's own counts as Work")
-  assert.deepEqual(resolveKey(right, context({ screen: 'agent' })), opens('home'), 'from a page with no tab, the first')
-  assert.deepEqual(resolveKey(left, context({ screen: 'agent' })), opens('github'), 'and the last going left')
+  assert.deepEqual(resolveKey(right, context({ screen: 'mind' })), opens('home'), 'from a page with no tab, the first')
+  assert.deepEqual(resolveKey(left, context({ screen: 'mind' })), opens('github'), 'and the last going left')
   for (const zone of ['input', 'agents', 'other', 'canvas'] as const) {
     assert.deepEqual(resolveKey(right, context({ screen: 'work', zone, typing: zone === 'input' })), opens('github'), `from ${zone}`)
   }
   assert.equal(resolveKey(right, context({ zone: 'other', inOverlay: true })), null, 'a dialog keeps it')
   for (const other of [{ alt: true }, { meta: true }, { ctrl: false }]) assert.equal(resolveKey({ ...right, ...other }, context()), null, JSON.stringify(other))
+})
+
+test('on an agent’s page control tab and control shift tab move to the next and the previous agent, from anywhere on it', () => {
+  const right = { key: 'Tab', code: 'Tab', ctrl: true }
+  const left = { ...right, shift: true }
+  for (const zone of ['input', 'agents', 'other', 'canvas'] as const) {
+    const onAgent = context({ screen: 'agent', zone, typing: zone === 'canvas' })
+    assert.deepEqual(resolveKey(right, onAgent), { do: 'switch-agent', step: 1 }, `from ${zone}`)
+    assert.deepEqual(resolveKey(left, onAgent), { do: 'switch-agent', step: -1 }, `from ${zone}`)
+  }
+  assert.deepEqual(resolveKey(right, context({ screen: 'agent', hobkinPage: true })), { do: 'switch-agent', step: 1 }, 'a durable hobkin is an agent too')
+  assert.equal(resolveKey(right, context({ screen: 'agent', zone: 'other', inOverlay: true })), null, 'a dialog keeps it')
+})
+
+test('the agent beside the one open follows the agents list, wrapping round', () => {
+  const walk = ['h1', 'a1', 'a2']
+  assert.equal(besideAgent(walk, 'h1', 1), 'a1')
+  assert.equal(besideAgent(walk, 'a2', 1), 'h1', 'past the last, the first')
+  assert.equal(besideAgent(walk, 'h1', -1), 'a2', 'before the first, the last')
+  assert.equal(besideAgent(walk, 'gone', 1), 'h1', 'one no longer listed starts the walk at the first')
+  assert.equal(besideAgent(walk, 'gone', -1), 'a2', 'or the last going left')
+  assert.equal(besideAgent(['a1'], 'a1', 1), null, 'alone, there is nowhere to go')
+  assert.equal(besideAgent([], null, 1), null)
 })

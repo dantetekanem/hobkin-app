@@ -28,6 +28,7 @@ export const KEY_LIST: readonly KeyEntry[] = [
   { keys: '⌃⌥T', does: "Agent's task list", where: "an agent's screen, once the agent keeps tasks" },
   { keys: '⌃⌥W', does: 'Schedules agents keep', where: "the main chat, or an agent's page with schedules of its own, once one exists" },
   { keys: '⌃X', does: 'End or force stop an agent (press twice)', where: "an agent's page, or its row in the agents list" },
+  { keys: '⌃⇥  ⌃⇧⇥', does: 'Next or previous agent', where: "an agent's page" },
   { keys: 'esc', does: 'Close the canvas', where: 'the canvas' },
   { keys: '⌘S', does: 'Save the drawing', where: 'the canvas, on a drawing' },
   { keys: 'T  ⇧T', does: 'Open, close or expand the proof', where: 'a review' },

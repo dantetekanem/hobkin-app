@@ -4,6 +4,7 @@ import { useBlocks } from '@/features/agent-activity/blocks.ts'
 import { boardAt, canvasShowingNow, closeCanvasFromKeys, mainCanvasInMenu, saveCanvas } from '@/features/canvas-panel/controls.ts'
 import { useChat } from '@/features/chat/chat-store.ts'
 import { pressEndOf } from '@/features/hobkins/end.ts'
+import { agentGroups } from '@/features/hobkins/list.ts'
 import { useNewHobkin } from '@/features/hobkins/store.ts'
 import { toggleMind } from '@/features/main-agent/route.ts'
 import { useNerdStats } from '@/features/settings/nerd-stats-store.ts'
@@ -11,7 +12,7 @@ import { useSettings } from '@/features/settings/store.ts'
 import { pressForceStopOf } from '@/features/work/force-stop.ts'
 import { focusAgentsDock } from './AgentsDock.tsx'
 import { answerNext, runningAgents } from './running-agents.ts'
-import { keyboardHomeFor, resolveEscape, resolveKey, type KeyAction, type KeyContext, type Zone } from './key-map.ts'
+import { besideAgent, keyboardHomeFor, resolveEscape, resolveKey, type KeyAction, type KeyContext, type Zone } from './key-map.ts'
 import { inOverlay, installFrameKeys } from './key-page.ts'
 import { travel } from './location.ts'
 import { inMenu, walkScreens, type ScreenId } from './screens.ts'
@@ -218,6 +219,15 @@ function perform(action: KeyAction): boolean {
     case 'save-canvas':
       saveCanvas(action.owner)
       return true
+    case 'switch-agent': {
+      const next = besideAgent(agentGroups(runningAgents()).walk.map((agent) => agent.id), view.openAgent, action.step)
+      if (next === null) return false
+      // Typing to one agent, the keyboard goes on typing to the next; anywhere else on the page it lands on the next page.
+      const typing = document.activeElement?.matches('[data-agent-input]') ?? false
+      view.openAgentCanvas(next)
+      requestCanvasFocus(typing ? '[data-agent-input]' : undefined)
+      return true
+    }
   }
 }
 
