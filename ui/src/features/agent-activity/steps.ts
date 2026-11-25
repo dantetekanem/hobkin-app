@@ -79,7 +79,11 @@ interface Base {
 }
 
 export type Step =
-  | (Base & { kind: 'codemode'; state: CallState })
+  /**
+   * A codemode script, with the tool calls it made (`ActivityEntry.parent`), in order, each the step it makes on its
+   * own. Its entries are the script's call and then those calls'.
+   */
+  | (Base & { kind: 'codemode'; state: CallState; calls: Step[] })
   | (Base & { kind: 'says'; text: string })
   | (Base & { kind: 'shell'; commands: Command[] })
   | (Base & { kind: 'change'; change: Change })
@@ -304,16 +308,50 @@ interface Group {
 /** The kind of step a tool call of each family makes. */
 const STEP_OF: Record<Family, Group['kind']> = { shell: 'shell', change: 'change', read: 'looks', search: 'looks', list: 'looks', fetch: 'looks', other: 'tool' }
 
-/** Which entries make which step: words alone, commands in a row, edits to one file in a row, reads and searches in a row. */
+/**
+ * The codemode script each tool call belongs to, by entry id: a script's own call, and each call it made, through any
+ * call between (`ActivityEntry.parent`). A script that is not in the list, as one the feed let go, has none.
+ */
+function scriptsOf(entries: readonly ActivityEntry[]): Map<string, string> {
+  const scripts = new Map<string, string>()
+  for (const entry of entries) {
+    if (entry.kind !== 'tool') continue
+    const script = entry.parent === undefined ? undefined : scripts.get(entry.parent)
+    if (script !== undefined) scripts.set(entry.id, script)
+    else if (entry.name === 'codemode') scripts.set(entry.id, entry.id)
+  }
+  return scripts
+}
+
+/** The group a single call makes on its own. */
+function groupOf(entry: ActivityEntry, options: ReadOptions): Group {
+  const kind = STEP_OF[familyOf(entry.name)]
+  return kind === 'change' ? { kind, entries: [entry], path: pathOf(entry, options.cwd) } : { kind, entries: [entry] }
+}
+
+/**
+ * Which entries make which step: words alone, commands in a row, edits to one file in a row, reads and searches in a
+ * row, and a codemode script with every call it made, wherever they come.
+ */
 function groupsOf(entries: readonly ActivityEntry[], options: ReadOptions): Group[] {
   const groups: Group[] = []
+  const scripts = scriptsOf(entries)
+  const blocks = new Map<string, Group>()
   for (const entry of entries) {
     if (entry.kind !== 'tool') {
       if (entry.text?.trim()) groups.push({ kind: 'says', entries: [entry] })
       continue
     }
-    if (entry.name === 'codemode') {
-      groups.push({ kind: 'codemode', entries: [entry] })
+    const script = scripts.get(entry.id)
+    if (script === entry.id) {
+      const block: Group = { kind: 'codemode', entries: [entry] }
+      blocks.set(entry.id, block)
+      groups.push(block)
+      continue
+    }
+    const block = script === undefined ? undefined : blocks.get(script)
+    if (block) {
+      block.entries.push(entry)
       continue
     }
     if (options.tasksOnLine && isTaskTool(entry.name) && entry.state !== 'failed') continue
@@ -408,8 +446,11 @@ function buildStep(group: Group, carried: Carried, ended: boolean, options: Read
   switch (group.kind) {
     case 'says':
       return { step: { kind: 'says', key, entries, text: first.text ?? '' } }
-    case 'codemode':
-      return { step: { kind: 'codemode', key, entries, state: stateOf(first, ended) } }
+    case 'codemode': {
+      // Each call is built as its own step is, so a call that did not change is the step it was.
+      const calls = entries.slice(1).map((entry) => stepOf(groupOf(entry, options), ended, options))
+      return { step: { kind: 'codemode', key, entries, state: stateOf(first, ended), calls } }
+    }
     case 'tool': {
       const state = stateOf(first, ended)
       const failure = state === 'failed' ? failureOf(first) : undefined
@@ -469,28 +510,34 @@ export function stepsOf(entries: readonly ActivityEntry[], options: ReadOptions 
 /**
  * The agent's steps with the user's messages where they were sent. Each entry is placed by when hobkin first saw it,
  * the time its row shows, and one from a runtime that kept no times by when this window first saw it. Both clocks are
- * this Mac's. A message splits a run of steps around it.
+ * this Mac's. A message splits a run of steps around it, but not a codemode script's block: the calls the script made
+ * after the message stay in it, and the message goes after it.
  */
 export function exchangeOf(entries: readonly ActivityEntry[], notes: readonly Note[], options: ReadOptions & { seenAt: (id: string) => number | undefined }): ExchangeItem[] {
   const waiting = [...notes].sort((left, right) => left.at - right.at)
-  const items: ExchangeItem[] = []
+  const scripts = scriptsOf(entries)
+  const runOfScript = new Map<string, ActivityEntry[]>()
+  const parts: (ActivityEntry[] | Note)[] = []
   let run: ActivityEntry[] = []
-  const flush = () => {
-    items.push(...stepsOf(run, options))
-    run = []
-  }
+  parts.push(run)
   for (const entry of entries) {
+    const script = scripts.get(entry.id)
+    const held = script === undefined ? undefined : runOfScript.get(script)
+    if (held) {
+      held.push(entry)
+      continue
+    }
     const seen = entry.at ?? options.seenAt(entry.id) ?? -Infinity
     while (waiting.length && waiting[0]!.at < seen) {
-      flush()
-      const note = waiting.shift()!
-      items.push({ kind: 'note', key: `note:${note.id}`, note })
+      parts.push(waiting.shift()!)
+      run = []
+      parts.push(run)
     }
     run.push(entry)
+    if (script === entry.id) runOfScript.set(entry.id, run)
   }
-  flush()
-  for (const note of waiting) items.push({ kind: 'note', key: `note:${note.id}`, note })
-  return items
+  parts.push(...waiting)
+  return parts.flatMap((part): ExchangeItem[] => (Array.isArray(part) ? stepsOf(part, options) : [{ kind: 'note', key: `note:${part.id}`, note: part }]))
 }
 
 /**
@@ -604,10 +651,13 @@ export function doingNow(entries: readonly ActivityEntry[], options: ReadOptions
   return { lead, subject, ...drawn }
 }
 
-/** Between steps the agent is thinking: after a tool call or before its first step, while its job runs. Never while a tool runs or it writes. */
+/**
+ * Between steps the agent is thinking: after a tool call or before its first step, while its job runs. Never while a tool
+ * runs or it writes. A call another tool made, such as a codemode script's, is that tool's, which still runs.
+ */
 export function pauseOf(entries: readonly ActivityEntry[], options: ReadOptions = {}): 'thinking' | null {
   if (options.ended) return null
-  const last = entries.findLast((entry) => entry.kind === 'tool' || entry.text?.trim())
+  const last = entries.findLast((entry) => (entry.kind === 'tool' && entry.parent === undefined) || entry.text?.trim())
   if (!last) return 'thinking'
   return last.kind === 'tool' && last.state !== 'running' ? 'thinking' : null
 }

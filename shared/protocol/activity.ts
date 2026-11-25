@@ -28,6 +28,11 @@ export interface ActivityEntry {
   outputLength?: number
   /** Bounded codemode operation previews, never nested result bodies. */
   codemode?: CodemodeMetadata
+  /**
+   * For a call another tool made while it ran, such as each call of a codemode script: the id of that tool's entry
+   * (`tool:<call id>`). Left out for a call the model made, and by a runtime from before 2026-11-25.
+   */
+  parent?: string
   /** When hobkin first saw it, in milliseconds since the epoch: when the agent began saying it, or made the call. A runtime from before 2026-11-15 leaves it out. */
   at?: number
 }

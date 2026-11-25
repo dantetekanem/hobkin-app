@@ -19,13 +19,36 @@ function metadataOf(value: unknown): CodemodeMetadata | undefined {
   return { calls, ...(typeof data.fullOutputPath === 'string' ? { fullOutputPath: clean(data.fullOutputPath, 2000) } : {}) }
 }
 
-export function codemodeOf(entry: ActivityEntry, ended = false) {
+type CallStatus = CodemodeMetadata['calls'][number]['status']
+
+/** One tool call of a script: `unknown` when it still ran as the script ended. */
+export type Operation = Omit<CodemodeMetadata['calls'][number], 'status'> & { key: string; status: CallStatus | 'unknown' }
+
+const STATUS_OF: Record<NonNullable<ActivityEntry['state']>, CallStatus> = { running: 'running', completed: 'ok', failed: 'error' }
+
+/**
+ * A codemode step as its block shows it. `calls` are the entries of the tool calls its script made, each with the script's
+ * call as its `parent` (steps.ts). With them, the operations are those calls, each ended as the script's report says
+ * when it names it (a cancelled call is a failed entry), then what the report names that has no entry, such as a
+ * `models.classify` call. A call the report still has as `<script>/?` is starting and has its entry already. With
+ * none, as from a runtime that did not link them or a saved session, the operations are the report's. `listed` is what
+ * the report names that has no entry, and all of it when there are none.
+ */
+export function codemodeOf(entry: ActivityEntry, ended = false, calls: readonly ActivityEntry[] = []) {
   const metadata = metadataOf(entry.codemode)
   let source = entry.input ?? ''
   try { const args = JSON.parse(source); if (typeof args?.code === 'string') source = args.code } catch { /* Raw model-facing source is also valid. */ }
   const state = stateOf(entry, ended)
-  return { state, source, output: entry.output ?? '', metadata,
-    operations: metadata?.calls.map((call, ordinal) => ({ ...call, key: `${entry.id}:${ordinal}`, status: call.status === 'running' && state !== 'running' ? 'unknown' as const : call.status })) }
+  const asEnded = (status: CallStatus | 'unknown') => (status === 'running' && state !== 'running' ? 'unknown' : status)
+  const reported: Operation[] | undefined = metadata?.calls.map((call, ordinal) => ({ ...call, key: `${entry.id}:${ordinal}`, status: asEnded(call.status) }))
+  const base = { state, source, output: entry.output ?? '', metadata }
+  if (!calls.length) return { ...base, operations: reported, listed: reported }
+
+  const named = new Map(reported?.map((call) => [`tool:${call.id}`, call]))
+  const own: Operation[] = calls.map((call) => ({ key: call.id, id: call.id.slice('tool:'.length), name: call.name ?? 'tool', args: '', status: asEnded(named.get(call.id)?.status ?? STATUS_OF[call.state ?? 'completed']) }))
+  const ids = new Set(calls.map((call) => call.id))
+  const listed = (reported ?? []).filter((call) => !ids.has(`tool:${call.id}`) && !call.id.endsWith('/?'))
+  return { ...base, operations: [...own, ...listed], listed }
 }
 
 type Codemode = ReturnType<typeof codemodeOf>

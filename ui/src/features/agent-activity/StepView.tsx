@@ -1,5 +1,5 @@
 import { Braces, Check, ChevronRight, FilePenLine, FileText, FolderOpen, Globe, Search, SquareTerminal, TriangleAlert, Wrench, type LucideIcon } from 'lucide-react'
-import { createContext, Fragment, memo, useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { createContext, Fragment, memo, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type ReactNode } from 'react'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import { FilePath } from '@/components/FilePath.tsx'
 import { GrowingMarkdown } from '@/features/chat/markdown.ts'
@@ -16,6 +16,7 @@ import { BOX } from './boxes.ts'
 import { CodemodeCall } from './CodemodeCall.tsx'
 import { codemodeOf, codemodeText, codemodeWarning, codemodeWords, type CodemodeWords } from './codemode.ts'
 import { cutOf, cutWords, type CutState } from './cut-output.ts'
+import { liveIf } from './glow.ts'
 import { earlierWords, type EarlierRow } from './newest.ts'
 import { wholeOutput } from './older-steps.ts'
 import { previewOf } from './preview.ts'
@@ -105,7 +106,7 @@ export function EarlierSteps({ row, onMore }: { row: EarlierRow; onMore: () => v
 function StepBody({ step, timeOf, ended }: { step: Step; timeOf: TimeOf; ended: boolean }) {
   switch (step.kind) {
     case 'codemode':
-      return <CodemodeStep entry={step.entries[0]!} state={step.state} />
+      return <CodemodeStep step={step} timeOf={timeOf} />
     case 'says':
       return <Says text={step.text} ended={ended} />
     case 'shell':
@@ -645,30 +646,70 @@ function OtherTool({ id, name, summary, state, output, failure }: { id: string; 
   )
 }
 
+/** A codemode block's own color: its frame's ring, its glow while it runs, and its faint ground. */
+const CODEMODE_COLOR = { '--aa-glow': 'var(--hb-code)' } as CSSProperties
+
 /**
- * A codemode script: one row with how it stands and how many tool calls it made, which opens to its operations,
- * output and source.
+ * A codemode script, in a frame of its own color that glows while it runs: one row with how it stands and how many tool
+ * calls it made and how many failed, which opens to those calls in order, each drawn as its own step and opening on its
+ * own, then the script's output and source. The row is one line however many calls come, so the block keeps its height
+ * while it is closed.
  */
-function CodemodeStep({ entry, state }: { entry: ActivityEntry; state: CallState }) {
+function CodemodeStep({ step, timeOf }: { step: Extract<Step, { kind: 'codemode' }>; timeOf: TimeOf }) {
   const { open, toggle } = useBlock('other')
+  const { entries, state, calls } = step
+  const entry = entries[0]!
   const { words, warning } = useMemo(() => {
-    const model = codemodeOf(entry, state === 'stopped')
+    const model = codemodeOf(entries[0]!, state === 'stopped', entries.slice(1))
     return { words: codemodeWords(model), warning: codemodeWarning(model) }
-  }, [entry, state])
+  }, [entries, state])
   return (
-    <div className="flex flex-col gap-1.5">
+    <div {...liveIf(state === 'running')} style={CODEMODE_COLOR} className="aa-glow -mx-2.5 flex flex-col gap-1.5 rounded-xl bg-[color-mix(in_oklab,var(--hb-code)_4%,transparent)] px-2.5">
       <FoldRow icon={Braces} open={open} onToggle={toggle} failed={state === 'failed'}>
         <span className="shrink-0 font-medium">{state === 'running' ? 'Running' : 'Ran'}</span>
         <code className="shrink-0 font-mono text-[12px]">codemode</code>
         <CodemodeLine words={words} />
         <span className="ml-auto">
-          <StateMark state={state} warning={warning ?? undefined} />
+          <StateMark state={state} time={timeOf(entry.id)} warning={warning ?? undefined} />
         </span>
       </FoldRow>
-      {open ? <CodemodeCall entry={entry} ended={state === 'stopped'} /> : null}
+      {open ? (
+        <div className="flex flex-col gap-2 pb-2.5">
+          {calls.length ? <ScriptCalls calls={calls} timeOf={timeOf} /> : null}
+          <CodemodeCall entry={entry} ended={state === 'stopped'} calls={entries.slice(1)} />
+        </div>
+      ) : null}
     </div>
   )
 }
+
+/**
+ * The tool calls a codemode script made, in order, under its row's words. A call that comes while they are open arrives
+ * as a step does. Each has its time beside it, as its own step would; a command's card stamps itself.
+ */
+function ScriptCalls({ calls, timeOf }: { calls: readonly Step[]; timeOf: TimeOf }) {
+  return (
+    <ol aria-label="Tool calls the script made" className="flex flex-col gap-1.5 pl-[22px] [--aa-indent:22px]">
+      <Arrivals>
+        {calls.map((call) => (
+          <ScriptCall key={call.key} step={call} timeOf={timeOf} />
+        ))}
+      </Arrivals>
+    </ol>
+  )
+}
+
+const ScriptCall = memo(
+  function ScriptCall({ step, timeOf }: { step: Step; timeOf: TimeOf }) {
+    return (
+      <li className={cn('relative min-w-0', useArrival())}>
+        {step.kind === 'shell' ? null : <RowStamp at={atOf(step)} line="row" />}
+        <StepBody step={step} timeOf={timeOf} ended={false} />
+      </li>
+    )
+  },
+  (before, after) => before.timeOf === after.timeOf && sameStep(before.step, after.step),
+)
 
 /**
  * What a codemode row says after its name, in one line: the script's own end, how many tool calls it made and how
