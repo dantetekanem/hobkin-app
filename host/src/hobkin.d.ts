@@ -209,8 +209,15 @@ declare module 'hobkin/src/cli/application.mjs' {
       send(text: string, id?: string, images?: unknown[]): Promise<{ id: string; queued?: boolean }>
     }
     moods: { react(moment: { event: string; [key: string]: unknown }): void }
-    /** Resolves when the turn is accepted, not when it ends. During a turn the message steers it. `sentAt` is when the user sent it, on the window's clock. */
-    send(text: string, report?: unknown, images?: ImageHandle[], timing?: { sentAt: number }): Promise<{ id: string; queued?: boolean }>
+    /**
+     * Resolves when the turn is accepted, not when it ends. During a turn the message steers it, or with `queue: 'follow-up'` waits until
+     * the turn would end. `sentAt` is when the user sent it, on the window's clock.
+     */
+    send(text: string, report?: unknown, images?: ImageHandle[], timing?: { sentAt?: number; queue?: 'steer' | 'follow-up' }): Promise<{ id: string; queued?: boolean }>
+    /** Absent in a runtime from before. What waits for the running turn, as the user typed it, taken out of Pi's queue; the turn goes on. */
+    dequeue?(): Promise<string[]>
+    /** Absent in a runtime from before. Sends Continue as the user's message, only while the last main turn is one the user stopped. */
+    continueStopped?(timing?: { sentAt?: number }): Promise<{ id: string; queued?: boolean }>
     messageImage(args: { sessionId: string; messageId: string; ordinal: number }): { mimeType: string; data: string } | null
     /** Takes the image on the clipboard into the draft. With no `image`, `notice` says why not. */
     pasteImage(): Promise<{ image?: ImageHandle; notice?: string; tone?: string }>

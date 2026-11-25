@@ -215,6 +215,8 @@ export interface WireSnapshot {
   /** Missing on older hosts. Link loss retains these last-known facts; it does not make them live. */
   telemetry?: RunTelemetry
   busy?: boolean
+  /** The main turn the user stopped, by its run id, while no turn has started since: the one Continue goes on with. Missing on an older hobkin. */
+  mainStopped?: string | null
   /** One word for what the main agent is doing: thinking, writing, working, researching, delegating, retrying, compacting. */
   doing?: string | null
   searching?: boolean

@@ -241,7 +241,8 @@ export const COMMANDS = {
     runs: 'host', args: nothing,
   },
   'conversation.send': {
-    description: 'Send a message to hobkin, with the images attached to it and the report it is about, by id. While a turn is running it steers that turn.',
+    description:
+      'Send a message to hobkin, with the images attached to it and the report it is about, by id. While a turn is running `during` says what it does to that turn: `steer` it (the default), wait as a `follow-up` until the turn would end, or `interrupt` it: the turn stops and the message starts its own at once, and `unsent` gives back what the stopped turn never read. With no turn running every message starts one.',
     runs: 'host',
     args: Type.Object(
       {
@@ -252,6 +253,7 @@ export const COMMANDS = {
         review: Type.Optional(Type.Object({ id: reviewId, step: Type.Optional(words(256)), node: Type.Optional(words(512)) }, { additionalProperties: false })),
         /** An action item the user replies to, as Action Items reads it. hobkin gets it ahead of the words, as it gets a report. */
         item: Type.Optional(Type.Object({ id: words(512), title: words(1000), body: Type.String({ maxLength: 24576 }) }, { additionalProperties: false })),
+        during: Type.Optional(oneOf(['steer', 'follow-up', 'interrupt'])),
         sentAt,
       },
       { additionalProperties: false },
@@ -278,6 +280,17 @@ export const COMMANDS = {
     description: 'Stop the turn that is running. Returns the messages hobkin had not read yet.',
     runs: 'host',
     args: nothing,
+  },
+  'conversation.dequeue': {
+    description: 'Take back what waits for the running turn, steered and followed up alike, as the user typed it, for the input. The turn goes on. Pi does this on Alt+Up.',
+    runs: 'host',
+    args: nothing,
+  },
+  'conversation.continue': {
+    description:
+      "Continue the turn the user stopped, while nothing has started since (`mainStopped` in the snapshot). Pi cannot resume a stopped run, so hobkin sends the word Continue as the user's message.",
+    runs: 'host',
+    args: Type.Object({ sentAt }, { additionalProperties: false }),
   },
   'startup.force': {
     description: 'Fence this startup and force only its captured child. Closure, durable persistence and outer cleanup are separate facts.',
@@ -1500,10 +1513,13 @@ export interface CommandResults {
   'backup.now': BackupState
   /** `safety`: the backup taken of the data it replaced. */
   'backup.restore': { ok: true; restored: string; safety: string | null }
-  'conversation.send': { id: string; queued: boolean }
+  /** `unsent`: what a turn the message interrupted never read, for the input. */
+  'conversation.send': { id: string; queued: boolean; unsent?: string[] }
   'conversation.attach': { id: string; name: string; mimeType: string; notice?: string }
   'conversation.detach': { ok: true }
   'conversation.stop': { stopped: boolean; unsent: string[] }
+  'conversation.dequeue': { unsent: string[] }
+  'conversation.continue': { id: string; queued: boolean }
   'execution.stop': StopExecutionReceipt
   'startup.force': StartupForceReceipt
   'slash.list': { commands: SlashCommand[] }

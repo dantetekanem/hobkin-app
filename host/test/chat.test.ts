@@ -182,6 +182,86 @@ test('interrupt returns unsent text', async (t) => {
   assert.equal(after.messages.at(-1)?.content, 'Reply 2')
 })
 
+test('a follow-up waits for the turn to end, after what steers it', async (t) => {
+  const model = heldModel()
+  const host = await hostFor(t, { scripted: { reply: model.reply } })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.live()
+
+  await client.run('conversation.send', { text: 'Plan the week' })
+  await client.until((view) => view.snapshot.busy === true && model.calls.length === 1, 'the turn to start')
+  assert.equal((await client.run<{ queued: boolean }>('conversation.send', { text: 'Then sum it up', during: 'follow-up' })).queued, true)
+  assert.equal((await client.run<{ queued: boolean }>('conversation.send', { text: 'Only weekdays' })).queued, true)
+
+  model.release()
+  const view = await client.until((now) => now.snapshot.busy === false && now.messages.length === 6, 'both to be read')
+  assert.deepEqual(said(view), ['user: Plan the week', 'assistant: Reply 1', 'user: Only weekdays', 'assistant: Reply 2', 'user: Then sum it up', 'assistant: Reply 3'])
+  assert.deepEqual(mainRuns(view).map(({ title, state }) => `${title}: ${state}`).sort(), ['Conversation: completed', 'Follow-up: completed', 'Steering: completed'])
+})
+
+test('what waits for the turn comes back for the input, and the turn goes on', async (t) => {
+  const model = heldModel()
+  const host = await hostFor(t, { scripted: { reply: model.reply } })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.live()
+
+  assert.deepEqual(await client.run('conversation.dequeue'), { unsent: [] }, 'with no turn running nothing waits')
+  await client.run('conversation.send', { text: 'Plan the week' })
+  await client.until((view) => view.snapshot.busy === true && model.calls.length === 1, 'the turn to start')
+  await client.run('conversation.send', { text: 'Then sum it up', during: 'follow-up' })
+  await client.run('conversation.send', { text: 'Only weekdays' })
+
+  assert.deepEqual(await client.run('conversation.dequeue'), { unsent: ['Only weekdays', 'Then sum it up'] })
+  model.release()
+  const view = await client.until((now) => now.snapshot.busy === false && now.messages.length === 2, 'the turn to end')
+  assert.deepEqual(said(view), ['user: Plan the week', 'assistant: Reply 1'])
+  assert.equal(model.calls.length, 1, 'the model never saw what came back')
+})
+
+test('a send that interrupts stops the turn and starts its own at once', async (t) => {
+  const model = heldModel()
+  const host = await hostFor(t, { scripted: { reply: model.reply } })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.live()
+
+  await client.run('conversation.send', { text: 'Plan the week' })
+  await client.until((view) => view.snapshot.busy === true && model.calls.length === 1, 'the turn to start')
+  await client.run('conversation.send', { text: 'Only weekdays' })
+
+  // What the stopped turn never read comes back for the input, as a stop gives it.
+  const sent = await client.run<{ queued: boolean; unsent?: string[] }>('conversation.send', { text: 'Plan the month instead', during: 'interrupt' })
+  assert.deepEqual([sent.queued, sent.unsent], [false, ['Only weekdays']])
+  const view = await client.until((now) => now.snapshot.busy === false && now.messages.at(-1)?.role === 'assistant', 'the new turn to answer')
+  assert.deepEqual(said(view), ['user: Plan the week', 'system: You stopped hobkin.', 'user: Plan the month instead', 'assistant: Reply 2'])
+  assert.deepEqual(mainRuns(view).map(({ title, state }) => `${title}: ${state}`).sort(), ['Conversation: completed', 'Conversation: interrupted', 'Steering: interrupted'])
+})
+
+test('a turn the user stopped can be continued, and only that one', async (t) => {
+  const model = heldModel()
+  const host = await hostFor(t, { scripted: { reply: model.reply } })
+  const client = await Client.connect(host)
+  afterTest(t, () => client.close())
+  await client.live()
+
+  const refused = await client.command('conversation.continue')
+  assert.equal(!refused.ok && refused.error.message, 'Nothing to continue: the last turn was not one you stopped.')
+
+  const { id } = await client.run<{ id: string }>('conversation.send', { text: 'Plan the week' })
+  await client.until((view) => view.snapshot.busy === true && model.calls.length === 1, 'the turn to start')
+  await client.run('conversation.stop')
+  await client.until((view) => view.snapshot.mainStopped === id, 'the stopped turn to be offered')
+
+  // Pi cannot resume a stopped run, so Continue is the user's word, which the model reads after its cut reply.
+  await client.run('conversation.continue')
+  const view = await client.until((now) => now.snapshot.busy === false && now.messages.at(-1)?.role === 'assistant', 'the continued answer')
+  assert.deepEqual(said(view), ['user: Plan the week', 'system: You stopped hobkin.', 'user: Continue', 'assistant: Reply 2'])
+  assert.equal(view.snapshot.mainStopped, null)
+  assert.equal((await client.command('conversation.continue')).ok, false, 'a turn has started since')
+})
+
 test('a message about a report carries the report to hobkin', async (t) => {
   // A report on record, as an imported one is: hobkin lists it with the rest.
   const root = join(temporaryDirectory(t), 'home')

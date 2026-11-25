@@ -4,6 +4,7 @@ import { CLOSE, PROTOCOL_VERSION, type ClientMessage, type HelloMessage, type Ho
 import type { RunSummary } from '#shared/protocol/snapshot.ts'
 import { shownFacts } from '#shared/protocol/timings.ts'
 import type { StopExecutionArgs, StopExecutionReceipt } from '#shared/commands/registry.ts'
+import type { HobkinApplication } from 'hobkin/src/cli/application.mjs'
 import { APP_ORIGIN, createToken, DEV_UI_ORIGIN } from './access.ts'
 import { systemMetrics } from './system-metrics.ts'
 import { usageFacts } from './usage-facts.ts'
@@ -182,6 +183,17 @@ export async function stopExecution(owner: Pick<HomeOwner, 'captureExecution'>, 
     throw Error('The execution receipt does not match the captured request.')
   }
   return { ...receipt, target }
+}
+
+/**
+ * The user's stop of the main turn: what it never read, or null when no turn ran. A stop can wait up to thirty seconds, and one that
+ * gets no answer is unconfirmed, so asking again is the way on.
+ */
+async function interruptMain(app: Pick<HobkinApplication, 'interrupt'>): Promise<string[] | null> {
+  return app.interrupt().catch((error: unknown) => {
+    if ((error as { code?: string } | null)?.code === 'STOP_UNCONFIRMED') throw Error('hobkin has not confirmed the stop yet. Press Esc twice to ask again.')
+    throw error
+  })
 }
 
 /** The most jobs one window may watch at once. */
@@ -525,7 +537,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
   const imagesForAgents = agentImages(attachments, hobkin, () => owner.imageOnlyText)
   const handlers: HostHandlers = {
     ...appStateHandlers({ root, owner, revision: () => sync.full().rev }),
-    'conversation.send': async ({ text, images = [], report, review, item, sentAt }) => {
+    'conversation.send': async ({ text, images = [], report, review, item, during, sentAt }) => {
       const app = hobkin()
       const pictures = attachments.handles(images)
       // The report goes as hobkin's terminal app sends it: the whole report, from hobkin's own list, ahead of the words.
@@ -539,10 +551,13 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
       // A turn needs words, so a message of pictures alone gets hobkin's own.
       const words = text?.trim() ? text : pictures.length ? owner.imageOnlyText : null
       if (!words) throw Error('A message needs words or an image.')
+      // Pi's force submit: the running turn stops first, as a stop stops it, and the message starts a turn of its own.
+      const unsent = during === 'interrupt' ? await interruptMain(app) : null
       // When the user sent it goes to hobkin as it came, for its timing of the turn, and only when the window sent it.
-      const accepted = await (sentAt === undefined ? app.send(words, about, pictures) : app.send(words, about, pictures, { sentAt }))
+      const timing = { ...(sentAt === undefined ? {} : { sentAt }), ...(during === 'follow-up' ? { queue: 'follow-up' as const } : {}) }
+      const accepted = await (Object.keys(timing).length ? app.send(words, about, pictures, timing) : app.send(words, about, pictures))
       attachments.sent(images)
-      return { id: accepted.id, queued: accepted.queued === true }
+      return { id: accepted.id, queued: accepted.queued === true, ...(unsent?.length ? { unsent } : {}) }
     },
     'conversation.image': ({ messageId, ordinal }) => mainImage(hobkin, sync.shown(), messageId, ordinal),
     'history.image': async ({ id, messageId, ordinal }) => {
@@ -559,12 +574,19 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'execution.stop': (args) => stopExecution(owner, args),
     'startup.force': (args) => owner.forceStartup(args),
     'conversation.stop': async () => {
-      // A stop can wait up to thirty seconds. One that gets no answer is unconfirmed, and asking again is the way on.
-      const unsent = await hobkin().interrupt().catch((error: unknown) => {
-        if ((error as { code?: string } | null)?.code === 'STOP_UNCONFIRMED') throw Error('hobkin has not confirmed the stop yet. Press Esc twice to ask again.')
-        throw error
-      })
+      const unsent = await interruptMain(hobkin())
       return { stopped: unsent !== null, unsent: unsent ?? [] }
+    },
+    'conversation.dequeue': async () => {
+      const app = hobkin()
+      if (!app.dequeue) throw new Unavailable('This hobkin cannot take its queue back.')
+      return { unsent: await app.dequeue() }
+    },
+    'conversation.continue': async ({ sentAt }) => {
+      const app = hobkin()
+      if (!app.continueStopped) throw new Unavailable('This hobkin cannot continue a stopped turn.')
+      const accepted = await app.continueStopped(sentAt === undefined ? {} : { sentAt })
+      return { id: accepted.id, queued: accepted.queued === true }
     },
     'slash.list': async (asked) => ({ commands: await slash.list(owner.app, slashAgent(asked)) }),
     'slash.run': ({ name, args = '', ...asked }) => {
