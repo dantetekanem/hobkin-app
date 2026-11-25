@@ -305,3 +305,53 @@ test('after a crash, a job that was cut off ends its session with a report that 
   assert.equal(woken.name, name);
   assert.match(woken.said, CUT_OFF);
 });
+
+const userWords = app => app.runtime.messages().filter(message => message.role === 'user')
+  .map(message => (typeof message.content === 'string' ? message.content : message.content.map(part => part.text ?? '').join('')));
+const sessionCalls = calls => async (request, options) => (request.purpose ? notHere : heldCall(calls, request, options));
+
+test('an idle living job takes no place among the routines, and a turn on it takes one again', async t => {
+  const h = home(t, { concurrency: 1 });
+  const calls = [];
+  const app = await h.open({ runHarness: sessionCalls(calls) });
+  const count = async () => app.runner.scheduledJobCount(await app.runtime.runIndex());
+  await startSession({ root: h.root, title: 'Fix totals', brief: 'Fix the totals.', cwd: h.root, approved: true, tier: 'mid' });
+  void app.tickSessions();
+  await until(() => calls.length === 1);
+  assert.equal(await count(), 1, 'a working job takes its place');
+
+  calls[0].options.onIdle('Which branch should the fix go on?');
+  assert.equal(await count(), 0, 'an idle one takes none');
+  await startSession({ root: h.root, title: 'Read the logs', brief: 'Read the logs.', cwd: h.root, approved: true, tier: 'fast' });
+  void app.tickSessions();
+  await until(() => calls.length === 2);
+
+  calls[0].options.onWoken();
+  assert.equal(await count(), 2, 'a turn on it takes a place again');
+});
+
+test("a living job's reply reaches the main agent once, and the answer reaches the job as a message", async t => {
+  const h = home(t);
+  const calls = [];
+  const app = await h.open({ runHarness: sessionCalls(calls) });
+  const started = await startSession({ root: h.root, title: 'Fix totals', brief: 'Fix the totals.', cwd: h.root, approved: true, tier: 'mid' });
+  void app.tickSessions();
+  await until(() => calls.length === 1);
+  calls[0].options.onIdle('Which branch should the fix go on?');
+
+  await app.tickWakes();
+  await app.runtime.mainWork;
+  await app.tickWakes();
+  await app.runtime.mainWork;
+  const woken = userWords(app).filter(text => text.startsWith('<hobkin-wake>'));
+  assert.equal(woken.length, 1, 'told once');
+  assert.deepEqual(JSON.parse(woken[0].split('\n')[1]), { jobs: [{ title: 'Fix totals', routineId: `session.${started.name}`, said: 'Which branch should the fix go on?' }] });
+
+  await app.runner.messageCheck({ scheduleId: `session.${started.name}`, message: 'Put it on fix-totals.' });
+  assert.deepEqual(calls[0].heard, ['Put it on fix-totals.']);
+  calls[0].options.onWoken();
+  calls[0].options.onIdle('');
+  await app.tickWakes();
+  await app.runtime.mainWork;
+  assert.equal(userWords(app).filter(text => text.startsWith('<hobkin-wake>')).length, 1, 'a turn that ends with no words tells nobody');
+});

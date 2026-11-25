@@ -27,6 +27,12 @@ export const handOffBrief = jobs => brief({ handOff: jobs });
 /** Durable hobkins that stopped and wait on a user who has not looked, for the agent to tell the user about. */
 export const hobkinsBrief = hobkins => brief({ hobkins: hobkins.map(({ id, title, status, said }) => ({ id, title, status, said })) });
 
+/**
+ * Jobs the agent handed out that ended a turn without saying they are done, usually to ask the user something
+ * (072-jobs-live-until-done): each by its title, the routine id `message_check` reaches it on, and what it said.
+ */
+export const jobsBrief = jobs => brief({ jobs: jobs.map(({ title, routineId, said }) => ({ title, routineId, said })) });
+
 /** Messages durable hobkins sent the agent with `hobkin tell`: who sent each, by the id to answer with, and its words. */
 export const messagesBrief = messages => brief({ messages: messages.map(({ from, title, text, at }) => ({ from, title, text, at })) });
 

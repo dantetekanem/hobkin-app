@@ -190,6 +190,8 @@ const noteUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
 // What a workflow's start hands its run, as JSON, at most this big.
 const MOST_INPUT_BYTES = 32768;
 const notQueued = message => Object.assign(Error(message), { notQueued: true });
+// What a living job last said, as the main agent hears it, at most this long.
+const LONGEST_SAID = 4000;
 
 export class HobkinRunner {
   pendingNotes = new Map();
@@ -214,6 +216,9 @@ export class HobkinRunner {
     this.loaded = { schedules: [], errors: [], counts: { daily: 0, weekly: 0, monthly: 0, once: 0 } };
     this.jobs = new Map();
     this.inboxes = new Map();
+    // Jobs that live until their agent says they are done and sit idle between turns, by run id: their title, the
+    // routine id a message reaches them on, when their turn ended, what they said then, and whether the main agent heard it.
+    this.idle = new Map();
     this.legacySessions = new Set();
     this.stopped = false;
     this.lastError = null;
@@ -317,10 +322,38 @@ export class HobkinRunner {
     return typeof this.runtime.runIndex === 'function' ? this.runtime.runIndex() : this.runtime.state();
   }
 
-  /** Work runs have their own pool, and a durable hobkin's turn is the user's, so neither takes a place from ordinary checks. */
+  /**
+   * Work runs have their own pool, and a durable hobkin's turn is the user's, so neither takes a place from ordinary
+   * checks. Nor does a living job while it sits idle between turns (072-jobs-live-until-done).
+   */
   scheduledJobCount(state) {
-    const tracked = [...this.jobs.keys()].filter(id => !id.startsWith('work:') && !isTurnRunId(id));
-    return Math.max(tracked.length, runningCheckCount(state));
+    const tracked = [...this.jobs.keys()].filter(id => !id.startsWith('work:') && !isTurnRunId(id) && !this.idle.has(id));
+    const idleRunning = [...this.idle.keys()].filter(id => state.runs[id]?.status === 'running').length;
+    return Math.max(tracked.length, runningCheckCount(state) - idleRunning);
+  }
+
+  /** A living job's turn ended without `hobkin_done`, saying `said`: it sits idle until a turn starts on it again. */
+  jobIdle({ id, title, scheduleId }, said) {
+    this.idle.set(id, { title, routineId: scheduleId, since: new Date(this.now()).toISOString(), said: String(said ?? '').trim().slice(0, LONGEST_SAID), told: false });
+  }
+
+  /** A turn started on a living job, so it works again. */
+  jobWoken(id) {
+    this.idle.delete(id);
+  }
+
+  /** What living jobs said as their turns ended that the main agent has not heard yet, oldest first. A turn that said nothing tells nobody. */
+  idleReplies() {
+    return [...this.idle].filter(([, idle]) => !idle.told && idle.said).map(([id, idle]) => ({ id, ...idle }))
+      .toSorted((a, b) => a.since.localeCompare(b.since));
+  }
+
+  /** The main agent heard these replies. A job that has since ended a later turn is told that one too. */
+  toldIdle(replies) {
+    for (const { id, since } of replies) {
+      const idle = this.idle.get(id);
+      if (idle?.since === since) idle.told = true;
+    }
   }
 
   serialize(operation) {
@@ -489,6 +522,7 @@ export class HobkinRunner {
       .catch(error => { this.lastError = error.message; })
       .finally(() => {
         this.jobs.delete(request.id);
+        this.idle.delete(request.id);
         this.inboxes.get(request.id)?.reject(Error('That check has finished.'));
         this.inboxes.delete(request.id);
         for (const [key, note] of this.pendingNotes) {

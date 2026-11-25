@@ -38,7 +38,7 @@ import { AgentScheduleRunner } from './agent-schedule-runner.mjs';
 import { scheduledText, scheduleWakeBlock } from './agent-schedules.mjs';
 import { isTurnRunId } from './hobkin-ids.mjs';
 import { tierBinding } from './tiers.mjs';
-import { agentSchedulesBrief, failureKey, handOffBrief, hobkinsBrief, isQuietScheduledRun, isWakeBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
+import { agentSchedulesBrief, failureKey, handOffBrief, hobkinsBrief, isQuietScheduledRun, isWakeBrief, jobsBrief, messagesBrief, scheduledBrief, scheduledFailure, sessionsBrief } from './wake.mjs';
 import { Hobkins, hobkinSummaries } from './hobkins.mjs';
 import { answerRequest, takeRequests, tellRequests, turnToken } from './hobkin-tell.mjs';
 import { SCHEDULE_ENVIRONMENT, SCHEDULE_REQUESTS, scheduleAskedHere } from './agent-schedule-command.mjs';
@@ -166,6 +166,8 @@ const REFRESH_DELAY_MS = 25;
 const ACTIVITY_EVERY_MS = 100;
 // How long hobkin waits before it tries again to tell the main agent of a durable hobkin, after a try that failed.
 const HOBKIN_WAKE_RETRY_MS = 5 * 60000;
+// How many living jobs' replies one wake carries, so it stays well under what a message can hold. The rest go with the next.
+const JOBS_TOLD_MOST = 5;
 // The keys of the Done walk, which only the user presses.
 const WALK_EVENTS = { diff: 'done_diff', merge: 'done_merged', decline: 'done_declined', ask: 'done_sent_back' };
 // A tick comes every second, and what is waiting rarely changes that fast.
@@ -1618,6 +1620,15 @@ export class HobkinApplication {
         markCardActionsHeard(root, sessions.filter(session => session.stopRunId)
           .map(session => ({ id: `user-stop:${session.stopRunId}` })));
       }).catch(() => {}).finally(() => { this.waking = false; });
+    }
+    // What jobs handed out said as a turn ended without hobkin_done, as when one asks the user, told once for each such
+    // turn as soon as the agent is free (072-jobs-live-until-done). One that does not go is tried again after five minutes.
+    const replies = this.now() >= (this.jobsWakeAfter ?? 0) ? this.runner?.idleReplies().slice(0, JOBS_TOLD_MOST) ?? [] : [];
+    if (replies.length) {
+      this.waking = true;
+      return this.runtime.send(jobsBrief(replies)).then(() => this.runner.toldIdle(replies))
+        .catch(error => { if (error?.message !== MAIN_BUSY) this.jobsWakeAfter = this.now() + HOBKIN_WAKE_RETRY_MS; })
+        .finally(() => { this.waking = false; });
     }
     // Messages durable hobkins sent the main agent with `hobkin tell`, delivered once, as soon as it is free. They leave
     // the store only once it took the turn. One the main agent cannot take, as with a sign-in that ran out, waits five minutes.

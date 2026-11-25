@@ -89,7 +89,13 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
       // It reads hobkin's shared memories and suggests one (057-shared-memory).
       ...(keepsMemories(root) ? { memories: 'run' } : {}),
       signal,
-    }, { onEvent: event => runner.onActivity(request.id, event), onReady: send => inbox.resolve(send) });
+    }, {
+      onEvent: event => runner.onActivity(request.id, event),
+      onReady: send => inbox.resolve(send),
+      // A job that lives until its agent says it is done sits idle between turns (072-jobs-live-until-done).
+      onIdle: said => runner.jobIdle(request, said),
+      onWoken: () => runner.jobWoken(request.id),
+    });
     // hobkin closing stops every job, and one it stopped says so in its report (072-jobs-live-until-done).
     return runner.stopped && run?.status === 'interrupted' ? { ...run, text: cutOffReport(run.text) } : run;
   }, () => { admitted = true; }, { resume });
