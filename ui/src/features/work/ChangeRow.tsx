@@ -86,9 +86,11 @@ function TagChip({ tag }: { tag: Tag }) {
 function When({ at }: { at: string | undefined }) {
   const written = timeOf(at)
   const now = useNow(written !== null, 30_000)
+  if (written === null) return <span className="h-4" />
+
   return (
-    <span title={written === null ? undefined : `${dayLabel(written, now)}, ${clockTime(written)}, when hobkin last wrote it`} className="h-4 whitespace-nowrap">
-      {whenWords(at, now) ?? ''}
+    <span title={`${dayLabel(written, now)}, ${clockTime(written)}, when hobkin last wrote it`} className="h-4 whitespace-nowrap">
+      {whenWords(at, now)}
     </span>
   )
 }

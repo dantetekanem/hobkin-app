@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AssessmentStatus } from '#shared/review/assessment.ts'
-import { runCommand, useHost } from '@/lib/host/index.ts'
+import { runCommand, useHost, type HostState } from '@/lib/host/index.ts'
 import { followChangeReview, type ChangeReviewFollow } from './review-follow.ts'
+
+/** The host's last answer, with what it answered: the review, the host, and the commit the card named when it asked. */
+interface Answer {
+  id: string
+  home: HostState['home']
+  /** Can be older than the commit the answer is of: the host reviews the commit the branch is at in git. */
+  card: string | null
+  status: AssessmentStatus
+}
 
 /**
  * A finished change's change review, for its card. The host is asked when the card mounts, again when the change moves
@@ -10,8 +19,7 @@ import { followChangeReview, type ChangeReviewFollow } from './review-follow.ts'
  */
 export function useChangeReview(id: string | null, head: string | null): { assessment: AssessmentStatus | undefined; again: () => Promise<void> } {
   const home = useHost((state) => state.home)
-  // `card` is the commit the card named when the host answered, which can be older than the commit the answer is of.
-  const [last, setLast] = useState<{ id: string; home: typeof home; card: string | null; status: AssessmentStatus }>()
+  const [last, setLast] = useState<Answer>()
   const follow = useRef<ChangeReviewFollow | null>(null)
 
   useEffect(() => {

@@ -43,6 +43,7 @@ test('Space opens and closes the row, Enter opens it in Review, and a key meant 
 test('a row says how long ago its change was written, in the largest whole unit, and nothing when it has no readable time', () => {
   const now = Date.parse('2026-11-24T20:00:00.000Z')
   const ago = (ms: number) => whenWords(new Date(now - ms).toISOString(), now)
+
   assert.equal(ago(20_000), 'a moment ago')
   assert.equal(ago(-5_000), 'a moment ago', 'a time a little ahead of this Mac\'s clock')
   assert.equal(ago(61_000), '1 minute ago')

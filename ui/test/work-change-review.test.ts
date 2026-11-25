@@ -86,12 +86,18 @@ test('a card a commit behind its branch, as before hobkin looks at the branch ag
   const other = 'change:storefront:5be1a0'
   const C = 'c'.repeat(40)
   // hobkin's card still names A. The host looked the branch up in git, found B, and reviews B.
-  const running: AssessmentStatus = { state: 'running', head: B, percent: 20, now: 'Running the checkout tests' }
+  const running: AssessmentStatus = {
+    state: 'running',
+    head: B,
+    percent: 20,
+    now: 'Running the checkout tests',
+  }
   setResponder(async () => ({ ...IDLE_STATUS(other), state: 'preparing', head: B, assessment: running }))
+
   useChangeReview(other, A)
   commit()
   await answered()
-  assert.equal(reviewBadge(useChangeReview(other, A).assessment).label, 'Reviewing · 20%')
 
+  assert.equal(reviewBadge(useChangeReview(other, A).assessment).label, 'Reviewing · 20%')
   assert.equal(useChangeReview(other, C).assessment, undefined, 'once the card names another commit, the answer given for the old card is hidden until the host answers again')
 })
