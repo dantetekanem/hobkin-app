@@ -63,6 +63,7 @@ test("hobkin's question rises on the sheet, with who asks and hobkin's pick and 
 
 test('a question of several lines is headed by its short form, as Action Items heads it, and a summary that repeats the heading is left out', () => {
   const { host, stop } = connected()
+  const onSheet = (id: string) => useQuestions.getState().queue.waiting.find((question) => question.id === id)
   host.setState({
     question: {
       ...asked('q1'),
@@ -70,9 +71,11 @@ test('a question of several lines is headed by its short form, as Action Items h
       tldr: 'The checkout test needs a Stripe test key',
     },
   })
+  const several = onSheet('q1')
+  // The host holds one question at a time, so the next one puts this one off, and each is read as it rises.
   host.setState({ question: { ...asked('q2'), question: 'Unsubscribe from the newsletter?', tldr: 'Unsubscribe from the newsletter?' } })
+  const plain = onSheet('q2')
 
-  const [several, plain] = useQuestions.getState().queue.waiting
   assert.equal(several!.question, 'The checkout test needs a Stripe test key')
   assert.equal(several!.tldr, 'The checkout test needs a Stripe test key. Which one should it use? The shared key is in the password manager.')
   assert.equal(plain!.question, 'Unsubscribe from the newsletter?')
