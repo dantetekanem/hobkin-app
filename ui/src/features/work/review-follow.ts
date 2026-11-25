@@ -29,12 +29,13 @@ const PREPARING: Record<Exclude<PreparePhase, 'queued'>, string> = { reading: 'R
 /**
  * How a card's change review stands, from its review's status. While the host prepares the review itself, as it does
  * when a review is opened or asked for again, the card says it is reviewing, with what it is doing; while that waits
- * its turn, that it is queued. A host that runs no change review says nothing of one, and neither does this.
+ * its turn, that it is queued. The change review the host puts behind the graph it draws says queued until that graph
+ * is drawn, which is no wait. A host that runs no change review says nothing of one, and neither does this.
  */
 export function assessmentOf(status: ReviewStatus): AssessmentStatus | undefined {
   const { assessment, phase } = status
-  if (!assessment || !phase || underWay(assessment)) return assessment
-  if (phase === 'queued') return { state: 'queued', head: status.head }
+  if (!assessment || !phase || assessment.state === 'running') return assessment
+  if (phase === 'queued') return underWay(assessment) ? assessment : { state: 'queued', head: status.head }
   return { state: 'running', head: status.head, now: PREPARING[phase] }
 }
 

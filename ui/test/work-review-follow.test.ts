@@ -142,13 +142,27 @@ test('while the review itself is being prepared the card says it is reviewing, a
     ['checking', 'running', 'Checking the result'],
     ['queued', 'queued', undefined],
   ] as const) {
-    const host = hostAt({ state: 'idle', head: HEAD }, phase)
+    // The change review the host puts behind the graph it draws says queued until that graph is drawn.
+    for (const assessment of [{ state: 'idle', head: HEAD }, { state: 'queued', head: HEAD }, READY] as const) {
+      const host = hostAt(assessment, phase)
+      const shown: (AssessmentStatus | undefined)[] = []
+      const follow = followChangeReview({ id: ID, run: host.run, onStatus: (status) => shown.push(status) })
+      await answered()
+      follow.stop()
+      assert.equal(shown[0]?.state, state, `${phase} over ${assessment.state}`)
+      assert.equal(shown[0]?.now, now, `${phase} over ${assessment.state}`)
+    }
+  }
+})
+
+test('a change review already running says its own progress while the review is built', async () => {
+  for (const phase of ['queued', 'reading'] as const) {
+    const host = hostAt({ state: 'running', head: HEAD, percent: 40, now: 'triage: 3 files sorted' }, phase)
     const shown: (AssessmentStatus | undefined)[] = []
     const follow = followChangeReview({ id: ID, run: host.run, onStatus: (status) => shown.push(status) })
     await answered()
     follow.stop()
-    assert.equal(shown[0]?.state, state, phase)
-    assert.equal(shown[0]?.now, now, phase)
+    assert.deepEqual([shown[0]?.state, shown[0]?.percent, shown[0]?.now], ['running', 40, 'triage: 3 files sorted'], phase)
   }
 })
 
