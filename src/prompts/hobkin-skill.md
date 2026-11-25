@@ -60,7 +60,7 @@ These read saved state. They start nothing and call no model:
 | `hobkin status --plain` | Workspace, bindings, and each routine as `enabled` or `paused`. Exits 1 if any routine is invalid. |
 | `hobkin routines` | The same, without needing `--plain`. Use it to validate a routine file. |
 | `hobkin routines templates` | Routine templates as JSON, hobkin's and the user's own from `routines/templates/`: `id`, `title`, `summary`, `recurrence`, `group`, `needs`, `effort`, `fits`, `asks`, `version` and `file`, then the `rules` every routine made from one keeps, and any template it could not read. |
-| `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `routineId`, `at`, `body`, `outcome`. |
+| `hobkin reports` | Every report as JSON, newest first: `id`, `title`, `routineId`, `at`, `body`, `outcome` and `read`. |
 | `hobkin telemetry [--days n]` | What happened in hobkin as JSON, 30 days by default: events by type and day, runs by routine and project, mean durations, what reached the user beside what they acted on, and a `scoreboard` of what hobkin brought, what came of it and what it settled alone. Facts only, never text. |
 | `hobkin pending` | What is waiting on the user, across every routine and work mode, as JSON: the `total`, and one row per group with a `count`, a `label` and a short `fact`. |
 | `hobkin history` | History imported from the older Pi extension as JSON. Not recent runs. |
@@ -110,6 +110,8 @@ The line after it may say `Next: ...`, the one call the report asks of the user.
 
 Reports without a triage line and failed runs also appear, so check `outcome` too. It is `completed`, `failed`, `incomplete`, `interrupted` or `no_change`, or `imported` for old history. Filter by `routineId` to follow one check. A scheduled run that found nothing new is not in Reports, so its line in the run history below is its only record.
 
+`read` says whether the user has seen a report. `read` means they opened it for at least 3 seconds or messaged about it. `caught-up` means they never opened it, but a catch-up report covered it. `unread` means neither.
+
 **Run history.** `checks/<id>/log.md` has one line per finished run, oldest first:
 
 ```text
@@ -128,7 +130,7 @@ The fields are finish time, trigger (`scheduled` or `manual`), status, duration,
 ] }
 ```
 
-`read` counts reports opened for at least 3 seconds or messaged about. `ignored` needs at least 5 reports over a week of tracking, at most 1 in 5 read, no critical finding and no requested run. A critical or useful line also reaches the user in Chat, so an unread report may still have been seen. Treat `ignored` as a reason to ask the user, never as a reason to change a check.
+`read` counts reports opened for at least 3 seconds or messaged about, and never a caught-up one. `ignored` needs at least 5 reports over a week of tracking, at most 1 in 5 read, no critical finding and no requested run. A critical or useful line also reaches the user in Chat, so an unread report may still have been seen. Treat `ignored` as a reason to ask the user, never as a reason to change a check.
 
 **User memory.** `memory.md` holds up to 20 one-line items that matter to the user right now. Read it for context. The main agent maintains it. Lasting facts about the user are memories: `hobkin memory list` prints the index, and `hobkin memory get <name>` or `hobkin memory search <words>` one whole. Outside hobkin you read only the ones the user shares with every agent, and you save one with `hobkin remember`.
 

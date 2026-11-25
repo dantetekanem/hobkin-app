@@ -70,6 +70,19 @@ function scheduleAttention(scheduleId, reports, readTimes, trackedLongEnough) {
 /** Which reports someone opened or asked about. It writes nothing, so another process can ask. */
 export const readReportIds = root => new Set(parseEvents(logPath(root)).filter(isRealRead).map(({ id }) => id));
 
+/**
+ * Each report's read state by its id (069-report-catch-up): `read` once someone opened it or asked about it, and
+ * otherwise `caught-up` once a catch-up covered it. An unread report is not in it. It writes nothing either.
+ */
+export function reportReadStates(root) {
+  const states = new Map();
+  for (const event of parseEvents(logPath(root))) {
+    if (isRealRead(event)) states.set(event.id, 'read');
+    else if (event.type === 'report_caught_up' && !states.has(event.id)) states.set(event.id, 'caught-up');
+  }
+  return states;
+}
+
 /** Local-only record of how reports get used. It holds run IDs and timings, never report text. */
 export class Telemetry {
   constructor(root) {
@@ -110,6 +123,12 @@ export class Telemetry {
 
   recordReportDiscussed(id, now = Date.now()) {
     this.record({ type: 'report_discussed', at: new Date(now).toISOString(), id });
+  }
+
+  /** The reports catch-up `by` covered. None of them counts as read. */
+  recordCaughtUp(ids, by, now = Date.now()) {
+    const at = new Date(now).toISOString();
+    for (const id of ids) this.record({ type: 'report_caught_up', at, id, by });
   }
 
   /** Which reports were used and since when anyone was watching. Learning reads this, and it holds no report text. */

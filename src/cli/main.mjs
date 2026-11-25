@@ -9,6 +9,7 @@ import { draftFromChat, runFeedbackCommand, sendApproved } from './feedback/outb
 import { resolveDataRoot } from './migration/admission.mjs';
 import { readLocalView, savePresentationState } from './view.mjs';
 import { deleteReports } from './reports.mjs';
+import { reportReadStates } from './telemetry.mjs';
 import { inRoutineWords, whenItRuns } from './schedules.mjs';
 import { stayAwake } from './stay-awake.mjs';
 import { HOBKIN_VERSION } from './version.mjs';
@@ -363,7 +364,10 @@ export async function main(args = process.argv.slice(2), output = process.stdout
   if (options.command === 'reports') {
     const inventory = () => readLocalView(options.root).reports;
     if (!options.args.length) {
-      output.write(`${inRoutineWords(JSON.stringify(inventory(), null, 2))}\n`);
+      // Whether each was read comes from the reads themselves, not from the copy the running hobkin last saved (069-report-catch-up).
+      const states = reportReadStates(resolveDataRoot(options.root));
+      const reports = inventory().map(({ readState, ...report }) => ({ ...report, read: states.get(report.id) ?? 'unread' }));
+      output.write(`${inRoutineWords(JSON.stringify(reports, null, 2))}\n`);
       return 0;
     }
     const [action, ...ids] = options.args;
