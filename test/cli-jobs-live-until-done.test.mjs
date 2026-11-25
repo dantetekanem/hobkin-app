@@ -400,6 +400,27 @@ test('an idle living job takes no place among the routines, and a turn on it tak
   assert.equal(await count(), 2, 'a turn on it takes a place again');
 });
 
+test("an idle living job says so in the window's runs, with when it went idle, until a turn starts on it", async t => {
+  const h = home(t);
+  const calls = [];
+  const app = await h.open({ runHarness: sessionCalls(calls) });
+  const started = await fixTotals(h);
+  const id = `session:${started.name}`;
+  const listed = () => app.snapshot.runs?.find(run => run.id === id);
+  void app.tickSessions();
+  await until(() => calls.length === 1 && listed()?.state === 'running');
+  assert.equal(listed().idle, undefined, 'a job at work is not idle');
+
+  calls[0].options.onIdle(ASKED);
+  await until(() => listed()?.idle === true);
+  assert.equal(listed().state, 'running', 'it still lives');
+  assert.equal(listed().idleSince, app.runner.idle.get(id).since);
+
+  calls[0].options.onWoken();
+  await until(() => listed()?.idle === undefined);
+  assert.equal(listed().idleSince, undefined);
+});
+
 test("a living job's reply reaches the main agent once, and the answer reaches the job as a message", async t => {
   const h = home(t);
   const calls = [];

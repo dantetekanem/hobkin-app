@@ -199,12 +199,13 @@ export class HobkinRunner {
 
   /**
    * `workflows`, when given, says which folders of workflows the host's integrations have (`workflows.mjs`,
-   * 065-integration-drops): they run beside the routines, and are only ever read.
+   * 065-integration-drops): they run beside the routines, and are only ever read. `onIdleChange` hears a living job go
+   * idle or start a turn again, so the window can say which.
    */
-  constructor({ runtime, root, config, now = () => new Date(), runHarness = defaultRunHarness, compatibilityDue = null, compatibility = null, onActivity = () => {}, onTick = () => {}, workflows = null }) {
+  constructor({ runtime, root, config, now = () => new Date(), runHarness = defaultRunHarness, compatibilityDue = null, compatibility = null, onActivity = () => {}, onTick = () => {}, onIdleChange = () => {}, workflows = null }) {
     if (!Number.isInteger(config.concurrency) || config.concurrency < 1 || config.concurrency > MOST_CONCURRENCY) throw Error(`concurrency must be 1–${MOST_CONCURRENCY}`);
     if (!Number.isFinite(new Date(config.initializedAt).getTime())) throw Error('Invalid scheduler configuration bounds');
-    Object.assign(this, { runtime, root, config, now, runHarness, compatibilityDue, compatibility, onTick, workflows });
+    Object.assign(this, { runtime, root, config, now, runHarness, compatibilityDue, compatibility, onTick, onIdleChange, workflows });
     this.onActivity = (id, event) => {
       try {
         this.receiveNote(id, event);
@@ -341,11 +342,12 @@ export class HobkinRunner {
       said: String(said ?? '').trim().slice(0, LONGEST_SAID),
       told: false,
     });
+    this.onIdleChange();
   }
 
   /** A turn started on a living job, so it works again. */
   jobWoken(id) {
-    this.idle.delete(id);
+    if (this.idle.delete(id)) this.onIdleChange();
   }
 
   /** What living jobs said as their turns ended that the main agent has not heard yet, oldest first. A turn that said nothing tells nobody. */
