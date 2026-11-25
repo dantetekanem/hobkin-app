@@ -96,11 +96,14 @@ test('Minitest output with a case whose result is not on its line, or whose star
   // Two tests started before either was recorded, as threads can make a split reporter print them.
   const interleaved = output.replace('CartTest#test_later ', 'CartTest#test_ready \nCartTest#test_later ')
   assert.deepEqual(minitestCases(interleaved, 'test/models/cart_test.rb', false), [])
-  // Output kept from its end only, cut inside the first case's class.
+  // Output kept from its end only, cut inside the class of its first line's case.
   const rails = fixture('rails-verbose.txt')
   const kept = rails.slice(rails.indexOf('Test#test_total_is_rounded'))
+
   const names = minitestCases(kept, 'test/models/cart_test.rb', true).map((item) => item.name)
-  assert.deepEqual(byName(names.map((name) => ({ name }))), byName(MINITEST_CASES.slice(1)).map(({ name }) => ({ name })))
+
+  const whole = MINITEST_CASES.map((item) => item.name).filter((name) => name !== 'CartTest#test_total_is_rounded')
+  assert.deepEqual(names.sort(), whole.sort())
 })
 
 test('each runner keeps the output it prints and also writes its report to the file', () => {

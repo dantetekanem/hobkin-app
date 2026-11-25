@@ -1003,8 +1003,8 @@ interface Reporting {
 }
 
 /**
- * Each case's own result in a run: from the runner's report, or, for a configured `bun test`, which writes none,
- * from its output. A run cut short says nothing of its cases.
+ * Each case's own result in a run: from the report file the runner wrote, from the lines Minitest printed, or, for a
+ * configured `bun test`, which writes no report, from its output. A run cut short says nothing of its cases.
  */
 function casesOf(command: Command, files: readonly string[], run: Extract<ProgramRun, { started: true }>, reporting: Reporting | null): Receipt[] {
   if (run.aborted || run.timedOut) return []
