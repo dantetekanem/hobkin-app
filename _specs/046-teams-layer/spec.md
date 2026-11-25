@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["010-routines", "021-agent-rendering", "034-durable-hobkins", "038-resources"],
-  "updated": "2026-11-15"
+  "updated": "2026-11-25"
 }
 ---
 # Seeing a run's pi-extended-teams agents
@@ -67,8 +67,8 @@ A durable hobkin's turn or a routine run runs in its own Pi process, and the age
 
 ### Where it shows
 
-- An agent's screen (`AgentScreen.tsx`), for a routine run or any other: one line under the shrunken header, beside where the helpers' strip and the tasks' line sit, with their faces, how many and who leads. A click opens every one in a list under it, as the tasks line does, and the line stays where it is, open or closed. A spawn call is a step, so a run with teams agents always shows its exchange and this line.
-- A durable hobkin's page (`HobkinScreen.tsx`): rows under its header, for every turn whose run hobkin still holds, with a line above them that counts them by status.
+- An agent's page, a run's or a durable hobkin's, and hobkin's mind: one line under the header with the agent's other lines (`AgentLines.tsx`; every agent has the one page since 2026-11-25), with their faces, how many and who leads. A click opens every one in a list under it, as the tasks line does, and the line stays where it is, open or closed. A spawn call is a step, so a run with teams agents always shows its exchange and this line.
+- A durable hobkin's line reads every turn whose run hobkin still holds.
 - Quiet: small faces, names and times in muted text. Three at most, running ones first, and "+N more" opens the whole list in the sheet. The chips take `HelpersGlance`'s look, not its data.
 
 ### On the wire

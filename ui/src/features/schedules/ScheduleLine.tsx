@@ -63,7 +63,7 @@ function takesKey(element: HTMLElement): boolean {
 }
 
 /**
- * The main chat's schedules (`056-agent-schedules`), in one line in its status row under the input: with one, its name
+ * The main chat's schedules (`056-agent-schedules`), in one line in its status row above the input: with one, its name
  * and when it fires, "Watch CI in 1:42"; with more, how many and the next, "2 · Watch CI in 1:42"; while one runs its
  * command, that it runs. A press, Enter on it, or Control+Option+W opens every one above it, and the same again or
  * Escape closes it, with the keyboard back where it was. With none, nothing is drawn. An agent's page has its schedules
