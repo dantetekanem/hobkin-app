@@ -1,20 +1,27 @@
 import { constants } from 'node:fs'
-import { open, realpath, stat } from 'node:fs/promises'
+import { type FileHandle, open, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, extname, isAbsolute, join } from 'node:path'
-import type { FileContent } from '#shared/protocol/files.ts'
+import type { FileContent, ImageType } from '#shared/protocol/files.ts'
 import { Unavailable } from './commands.ts'
+import { imageTypeOf } from './image-type.ts'
 
 /**
- * Reading a file the user clicked, for the viewer (_specs/027-links-and-files). Text only, small, and only a
- * regular file: a folder, a device, a pipe or a link to one is refused. A symlink is followed and the answer names
- * the file it led to.
+ * Reading a file the user clicked, for the viewer (_specs/027-links-and-files). A small text file or an image, and
+ * only a regular file: a folder, a device, a pipe or a link to one is refused. A symlink is followed and the answer
+ * names the file it led to.
  */
 
-/** The most a file may weigh to be shown. */
+/** The most a text file may weigh to be shown. */
 export const MAX_FILE_BYTES = 2 * 1024 * 1024
 
-/** How far into a file a zero byte settles that it is not text. */
+/**
+ * The most an image may weigh to be drawn. A full-screen screenshot of a 5K or 6K Retina display is a 5 to 15 MB PNG
+ * and fits; the answer then stays under 27 MB of base64 on the window's local socket, which it crosses at once.
+ */
+export const MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
+/** How far into a file a zero byte settles that it is not text, and how much of it tells an image. */
 const SNIFF_BYTES = 8000
 
 const MARKDOWN = new Set(['.md', '.markdown', '.mdx'])
@@ -26,6 +33,7 @@ export interface FileOptions {
   /** What `~/` stands for. */
   home?: string
   maxBytes?: number
+  maxImageBytes?: number
 }
 
 /** `~/x` as a path under the home. Only a full path or `~/` is taken. */
@@ -51,24 +59,31 @@ async function resolve(path: string, home: string): Promise<{ real: string; size
 
 const megabytes = (bytes: number) => `${Number((bytes / (1024 * 1024)).toFixed(1))} MB`
 
-/** The text of a file, for the viewer. Refuses, with a plain reason, anything that is not a small text file. */
-export async function readTextFile(path: string, { home = homedir(), maxBytes = MAX_FILE_BYTES }: FileOptions = {}): Promise<FileContent> {
-  const { real, size } = await resolve(path, home)
-  if (size > maxBytes) throw new Unavailable(`The file is too large to show (${size.toLocaleString('en-US')} bytes; the limit is ${megabytes(maxBytes)}).`)
-
+/**
+ * A file for the viewer: an image (known by its bytes) as a data URL, or the text of a small text file. Refuses,
+ * with a plain reason, anything else.
+ */
+export async function readForViewer(path: string, { home = homedir(), maxBytes = MAX_FILE_BYTES, maxImageBytes = MAX_IMAGE_BYTES }: FileOptions = {}): Promise<FileContent> {
+  const { real } = await resolve(path, home)
   // O_NONBLOCK keeps a pipe swapped in after the check from hanging the host; the second look settles it is still a file.
   const handle = await open(real, constants.O_RDONLY | constants.O_NONBLOCK)
+  let type: ImageType | null
   let bytes: Buffer
   try {
-    if (!(await handle.stat()).isFile()) throw new Unavailable(`${path} is not a regular file (a folder or a device cannot be shown).`)
-    const buffer = Buffer.alloc(maxBytes + 1)
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0)
-    bytes = buffer.subarray(0, bytesRead)
+    const info = await handle.stat()
+    if (!info.isFile()) throw new Unavailable(`${path} is not a regular file (a folder or a device cannot be shown).`)
+    type = imageTypeOf(await readUpTo(handle, SNIFF_BYTES))
+    const what = type ? 'image' : 'file'
+    const limit = type ? maxImageBytes : maxBytes
+    if (info.size > limit) throw new Unavailable(`The ${what} is too large to show (${info.size.toLocaleString('en-US')} bytes; the limit is ${megabytes(limit)}).`)
+    bytes = await readUpTo(handle, limit + 1)
+    if (bytes.length > limit) throw new Unavailable(`The ${what} is too large to show (more than ${megabytes(limit)}).`)
   } finally {
     await handle.close()
   }
-  if (bytes.length > maxBytes) throw new Unavailable(`The file is too large to show (more than ${megabytes(maxBytes)}).`)
 
+  const shown = { path: real, name: basename(real), bytes: bytes.length }
+  if (type) return { kind: 'image', ...shown, type, url: `data:${type};base64,${bytes.toString('base64')}` }
   if (bytes.subarray(0, SNIFF_BYTES).includes(0)) throw new Unavailable('This is not a text file (it looks binary), so it cannot be shown.')
   let text: string
   try {
@@ -76,7 +91,14 @@ export async function readTextFile(path: string, { home = homedir(), maxBytes = 
   } catch {
     throw new Unavailable('This is not a text file (it is not UTF-8), so it cannot be shown.')
   }
-  return { path: real, name: basename(real), text, bytes: bytes.length, markdown: MARKDOWN.has(extname(real).toLowerCase()) }
+  return { kind: 'text', ...shown, text, markdown: MARKDOWN.has(extname(real).toLowerCase()) }
+}
+
+/** The first `length` bytes of an open file, or all of it when it is shorter. */
+async function readUpTo(handle: FileHandle, length: number): Promise<Buffer> {
+  const buffer = Buffer.alloc(length)
+  const { bytesRead } = await handle.read(buffer, 0, length, 0)
+  return buffer.subarray(0, bytesRead)
 }
 
 /**

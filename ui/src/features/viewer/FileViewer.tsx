@@ -2,11 +2,13 @@ import { Dialog } from '@base-ui/react/dialog'
 import { ExternalLink, X } from 'lucide-react'
 import { motion } from 'motion/react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ImageFile } from '#shared/protocol/files.ts'
 import { focusHome } from '@/app/focus-home.ts'
 import { holdStill, useStill } from '@/app/still.ts'
 import { Button } from '@/components/ui/button.tsx'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { Markdown } from '@/features/chat/markdown.ts'
+import { formatBytes } from '@/features/settings/backup.ts'
 import '@/features/review/code/code.css'
 import { languageOf } from '@/features/review/code/languages.ts'
 import { FONT, tokenStyle } from '@/features/review/code/tokens.ts'
@@ -15,14 +17,18 @@ import { runCommand, useHasHost } from '@/lib/host/index.ts'
 import { spring, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useViewer } from './store.ts'
-import { useFile } from './use-file.ts'
+import { type FileState, useFile } from './use-file.ts'
 
 /** Past this many lines a file is drawn plain: coloring every line of a huge file would stall the window. */
 const HIGHLIGHT_LINES = 5000
 
+/** A name that says image: its frame fills the sheet before the bytes arrive. The bytes decide what it is. */
+const IMAGE_NAME = /\.(png|jpe?g|gif|webp|avif|bmp|ico|svg)$/i
+
 /**
  * The file viewer (_specs/027-links-and-files): a sheet over a blurred window. A Markdown file is rendered the way
- * the chat renders it, any other text is code, and a file that cannot be shown says why in plain words.
+ * the chat renders it, any other text is code, an image is drawn to fit, and a file that cannot be shown says why
+ * in plain words.
  */
 export function FileViewer() {
   const open = useViewer((state) => state.open)
@@ -68,6 +74,8 @@ function Sheet({ path, still }: { path: string; still: boolean }) {
   const closeViewer = useViewer((store) => store.closeViewer)
   const [problem, setProblem] = useState<string | null>(null)
   const name = (state.status === 'ready' ? state.file.name : path.split('/').at(-1)) || path
+  // An image's frame fills the sheet from the start, so nothing moves while it loads.
+  const pictured = state.status === 'ready' ? state.file.kind === 'image' : IMAGE_NAME.test(path)
 
   const openInApp = () => {
     setProblem(null)
@@ -101,25 +109,56 @@ function Sheet({ path, still }: { path: string; still: boolean }) {
       <motion.div
         // Scrolls with the arrow keys once focused.
         tabIndex={0}
-        className="min-h-0 flex-1 overflow-y-auto px-6 pt-1 pb-6 outline-none"
+        className={cn('min-h-0 flex-1 px-6 pt-1 outline-none', pictured ? 'flex basis-[100vh] flex-col gap-3 overflow-hidden pb-5' : 'overflow-y-auto pb-6')}
         initial={holdStill({ opacity: 0, transform: 'translateY(26px) scale(0.98)' }, still)}
         animate={holdStill({ opacity: 1, transform: 'translateY(0px) scale(1)' }, still)}
         transition={{ transform: spring.rise, opacity: tween.enter, delay: 0.08 }}
-        key={state.status === 'ready' ? state.file.path : state.status}
+        key={pictured ? `image ${path}` : state.status === 'ready' ? state.file.path : state.status}
       >
-        <Body state={state} />
+        {pictured ? <Picture state={state} /> : <Body state={state} />}
       </motion.div>
     </>
   )
 }
 
-function Body({ state }: { state: ReturnType<typeof useFile> }) {
+function Body({ state }: { state: FileState }) {
   if (state.status === 'loading') return <p className="py-8 text-center text-[14px] text-muted-foreground">Reading the file...</p>
   if (state.status === 'refused') return <p className="py-8 text-center text-[14px] text-muted-foreground">{state.reason}</p>
   const { file } = state
+  if (file.kind === 'image') return null
   if (file.markdown) return <article className="text-[15px] leading-[1.65]"><Markdown text={file.text} /></article>
   if (file.text === '') return <p className="py-8 text-center text-[14px] text-muted-foreground">The file is empty.</p>
   return <Code text={file.text} path={file.path} />
+}
+
+/**
+ * An image drawn whole inside the sheet, never larger than it is, with its size in pixels and bytes under it. Only
+ * ever an `<img>`, so an SVG's script does not run. While it loads, or when it cannot be drawn, the frame stays.
+ */
+function Picture({ state }: { state: FileState }) {
+  const [drawn, setDrawn] = useState<{ width: number; height: number } | 'broken' | null>(null)
+  const file: ImageFile | null = state.status === 'ready' && state.file.kind === 'image' ? state.file : null
+  const words = state.status === 'loading' ? 'Reading the file...' : state.status === 'refused' ? state.reason : drawn === 'broken' ? 'This image cannot be drawn.' : null
+  const caption = file && drawn ? (drawn === 'broken' ? formatBytes(file.bytes) : `${drawn.width} × ${drawn.height} px · ${formatBytes(file.bytes)}`) : null
+
+  return (
+    <>
+      <div className="relative min-h-0 flex-1">
+        {file && drawn !== 'broken' ? (
+          <img
+            src={file.url}
+            alt={file.name}
+            draggable={false}
+            onLoad={(event) => setDrawn({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+            onError={() => setDrawn('broken')}
+            className={cn('absolute inset-0 m-auto max-h-full max-w-full transition-opacity duration-200', drawn ? 'opacity-100' : 'opacity-0')}
+          />
+        ) : null}
+        {words ? <p className="absolute inset-0 flex items-center justify-center text-center text-[14px] text-muted-foreground">{words}</p> : null}
+      </div>
+      <p className="h-5 shrink-0 text-center text-[12.5px] leading-5 text-muted-foreground tabular-nums">{caption}</p>
+    </>
+  )
 }
 
 /** Text that is not Markdown, as code: Shiki's colors for both themes, and plain text where it has none yet. */

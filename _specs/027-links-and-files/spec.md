@@ -5,20 +5,22 @@
   "kind": "work",
   "status": "doing",
   "depends": ["002-host", "003-chat", "008-review-code", "020-settings"],
-  "updated": "2026-11-10"
+  "updated": "2026-11-25"
 }
 ---
 # Links and local files
 
 ## Outcome
 
-A link clicked in the Mac window opens in the system's default browser. A local file path in the chat, in a report or in agent activity, written as `/Users/x/notes.md` or `~/Poetry/x/README.md`, shows as a link. Clicking it opens a sheet over the blurred window: a Markdown file rendered as the chat renders it, any other text as code, and a binary or very large file with a plain reason it is not shown. The sheet has a button that opens the file in the Mac's default app. Escape closes it.
+A link clicked in the Mac window opens in the system's default browser. A local file path in the chat, in a report or in agent activity, written as `/Users/x/notes.md` or `~/Poetry/x/README.md`, shows as a link. Clicking it opens a sheet over the blurred window: a Markdown file rendered as the chat renders it, any other text as code, an image drawn to fit the sheet with its size in pixels and bytes, and any other binary or very large file with a plain reason it is not shown. The sheet has a button that opens the file in the Mac's default app. Escape closes it.
 
 ## Decisions
 
 - The Mac window's web view opens no window for `target=_blank`, and the shell has no opener plugin (none is added). The host opens things, as it already does for GitHub and sign-in.
 - `system.open { url }` opens http, https and mailto addresses only, through an opener the host is handed (`openSystem`). The default is no opener, so a test never opens anything. `main.ts` passes the real one: `open <address>` through execFile, no shell (`host/src/open.ts`). The registry's pattern and the handler both check the address.
 - `file.read { path }` takes a full path or one that starts with `~/`. The host follows symlinks and answers with the real path. It refuses anything that is not a regular file, a file over 2 MB, a file with a zero byte in its first 8000 bytes, and a file that is not valid UTF-8. A refusal is an `unavailable` failure whose message is the plain reason (`host/src/files.ts`). A `.md`, `.markdown` or `.mdx` file is answered with `markdown: true`.
+- An image is known by its first bytes, never by its name (`host/src/image-type.ts`): PNG, JPEG, GIF, WebP, AVIF (an `ftyp` box with an AVIF brand), BMP (a known second header size, since "BM" starts plenty of text), ICO, and SVG (an `<svg>` root after any prolog, comments or doctype). `file.read` answers it with `kind: 'image'`, its type and its bytes as a base64 `data:` URL, up to 20 MB, with a plain refusal above that. 20 MB holds a full-screen screenshot of a 5K or 6K Retina display (a 5 to 15 MB PNG) and keeps the answer under 27 MB of base64 on the window's local socket. A text answer says `kind: 'text'`. The window's content policy already allows `data:` images. Any other binary file keeps its refusal.
+- An image is drawn only through an `<img>`, so an SVG's script never runs and it loads nothing else. It fits inside the sheet and is never drawn larger than it is. Its size in pixels comes from the drawn image, under it with its size in bytes. A file whose name says image gets the full-height frame before its bytes arrive, so the sheet does not change size or move its header as it loads; the bytes still decide what it is.
 - The button uses a separate command, `file.open { path }`, not `system.open` with a file URL, so `system.open` stays web and mail only. `file.open` resolves the path the same way and opens any regular file, large or binary, in its default app, but refuses a program (an executable bit, or an extension such as `.app`, `.command`, `.sh`, `.pkg`). It takes the opener `openFile`; none by default.
 - Neither file command is offered to hobkin's own client tool. They are for the window.
 - One catcher for the whole app (`ui/src/features/viewer/catch.ts`, mounted by `LinkLayer` in `App.tsx`) listens for clicks on the document, after the page's own handlers. A file link always opens the viewer. In the Mac window with a host connected, an `http`, `https` or `mailto` link calls `system.open`. In a browser tab, or with no host, the link works as a link does. The GitHub rows keep their own handler, which runs first.
@@ -28,7 +30,7 @@ A link clicked in the Mac window opens in the system's default browser. A local 
 
 ## Out of scope
 
-- Relative links inside a viewed Markdown file, line numbers in a path (`file.ts:12`), `file://` links, images in a viewed Markdown file, editing, and file types the viewer cannot read as text.
+- Relative links inside a viewed Markdown file, line numbers in a path (`file.ts:12`), `file://` links, images in a viewed Markdown file, editing, zooming an image, and file types the viewer can neither read as text nor draw as an image (HEIC, TIFF, PDF and others).
 - Opening a program from a link.
 
 ## Acceptance
@@ -43,6 +45,8 @@ A link clicked in the Mac window opens in the system's default browser. A local 
 - A8. The viewer opens over a blurred window, shows a refusal reason when the file cannot be shown, and Escape closes it.
 - A9. The viewer shows a `.md` file as rendered Markdown and other text as colored code, with a button that opens the file in the default app.
 - A10. Under Still the viewer only fades.
+- A11. `file.read` knows an image by its bytes and not its name, and answers it as a data URL of its own bytes, an SVG included. It refuses an image over 20 MB with a plain reason and keeps refusing other binary files.
+- A12. The viewer draws an image to fit the sheet, with its name, its size in pixels and bytes, and the open in default app button. The sheet has the same size and header while the image loads as once it is drawn.
 
 ## Proof
 
@@ -56,6 +60,8 @@ A link clicked in the Mac window opens in the system's default browser. A local 
 - A8. check: open http://localhost:5187 in a browser tab (sample data) and click a file link. The blurred sheet shows the "Files open once hobkin is connected" reason, and Escape closes it.
 - A9. check: with a host connected, click `~/some/README.md` in the chat, then a `.ts` path. The first renders as Markdown, the second as colored code, and the button opens the default app.
 - A10. check: set Movement to Still and open the viewer. It fades without rising or growing.
+- A11. `host/test/open.test.ts` › "an image is known by its bytes, not its name", › "file.read answers an image with its own bytes as a data URL, whatever its name", › "file.read refuses an image over 20 MB, and still refuses other binary files" and › "file.read and file.open run over the socket; only file.open reaches the opener"
+- A12. check: a still render (no browser) of the sheet with a wide JPEG and a tall PNG, dark and light, and of the same sheet while the file is read: the image fits, the caption reads "1920 × 1200 px · 959 KB", and the header sits in the same place in both. Clicking an image path in the live window needs a host restart and was not seen.
 
 ## Steps
 
@@ -63,6 +69,7 @@ A link clicked in the Mac window opens in the system's default browser. A local 
 - [x] S2 (A3, A4, A5). `file.read` and `file.open`.
 - [x] S3 (A6, A7). The path links in Markdown and the click catcher.
 - [x] S4 (A8, A9, A10). The viewer sheet.
+- [x] S5 (A11, A12). Images: known by their bytes in `file.read`, drawn in the sheet.
 
 ## Open questions
 

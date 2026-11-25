@@ -30,7 +30,7 @@ import { IntegrationHost, type IntegrationModule } from './integration-host.ts'
 import { ToolCallWatcher } from './tool-calls.ts'
 import { startOf, workflowHandlers } from './workflows.ts'
 import type { JobActivity } from '#shared/protocol/activity.ts'
-import { openablePath, readTextFile } from './files.ts'
+import { openablePath, readForViewer } from './files.ts'
 import { execFileSync } from 'node:child_process'
 import { hostCode, keptByApp, shouldRestart } from './code-age.ts'
 import { MergedPulls } from './merged-pulls.ts'
@@ -773,7 +773,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     'appearance.use': ({ theme }) => appearance.use(theme),
     'appearance.customize': ({ request }) => customTheme.start(request),
     'appearance.status': ({ id }) => customTheme.status(id),
-    'file.read': ({ path }) => readTextFile(path),
+    'file.read': ({ path }) => readForViewer(path),
     'file.open': async ({ path }) => {
       const real = await openablePath(path)
       ;(options.openFile ?? (() => {}))(real)

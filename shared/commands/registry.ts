@@ -884,7 +884,7 @@ export const COMMANDS = {
     hobkin: true,
   },
   'file.read': {
-    description: 'Read a file for the viewer: text only, up to 2 MB, a regular file only (links are followed). `path` is a full path or starts with ~/. Refused with a plain reason for anything else.',
+    description: 'Read a file for the viewer: a text file up to 2 MB, or an image known by its bytes (PNG, JPEG, GIF, WebP, AVIF, BMP, ICO or SVG) up to 20 MB as a base64 data URL. A regular file only (links are followed). `path` is a full path or starts with ~/. Refused with a plain reason for anything else.',
     runs: 'host',
     args: Type.Object({ path: Type.String({ pattern: '^(/|~/)', maxLength: 4096 }) }, { additionalProperties: false }),
   },
