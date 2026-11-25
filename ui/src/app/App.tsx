@@ -7,6 +7,10 @@ import { Frame } from './Frame.tsx'
 import { PhotoCredit } from './PhotoCredit.tsx'
 // Carries out the window moves and composer drafts hobkin drives for the user (013-hobkin-access).
 import './nudge.ts'
+import { installFunctionKeyGuard } from './function-key-guard.ts'
+
+// No text box takes an arrow or another function key as a character (the crossed square WebKit can type).
+installFunctionKeyGuard(document)
 
 // A page for development: its code loads only when its address is opened.
 const AvatarGallery = lazy(() => import('./dev/AvatarGallery.tsx').then((module) => ({ default: module.AvatarGallery })))
