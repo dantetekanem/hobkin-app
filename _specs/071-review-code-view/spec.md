@@ -25,7 +25,7 @@ The user, 2026-11-24: "i love the current review system that use graph, but i wa
 
 ### The switch
 
-- The switch at the bottom of the review becomes "Code | Free Roam | Story", with I, O and P on it, in the order the keys sit on the keyboard. I opens the code view, and I again goes back to the graph where it was. O and P go back to the graph in their mode and start it from the beginning, as they always have. The switch sits at the same place at the bottom in both looks.
+- The switch at the bottom of the review becomes "Code | Free Roam | Story", with I, O and P on it, in the order the keys sit on the keyboard. I opens the code view, and I again goes back to the graph where it was. O and P go back to the graph in their mode and start it from the beginning, as they always have. In the graph the switch stays where it was, beside the pager. In the code view it starts the line at the bottom, at its left: the graph's row centers what the step has (the pager, the whole graph), so the two places cannot be one without moving the graph's.
 - I is free in the review: no key of the graph, the code panel, the panel or the proof uses it.
 
 ### The code view
@@ -37,6 +37,8 @@ The model is pi-coder 0.9.10's `/diff` (`src/ui/review-app.ts`, read on 2026-11-
 - The files are the changed files, in the order the story tells them: the first step that shows a file puts it first. Files no step shows follow, by path. A file in the review only because unchanged code in it is shown is not listed. The top line says "N files · +X −Y". A row has the status letter (A, M, D or R) in its color, the path shortened from the left, its added and removed lines, how many comments and questions it carries, a mark when a part of it needs the reviewer, and a check once it is seen.
 - Over the diff: the file's path (old → new for a rename), which group of changes the cursor is in ("Change 2 of 5"), the file's added and removed lines, and what is selected. Then the diff, drawn as the code panel draws it (`DiffView`): three unchanged lines around each group of changes, Show more, Whole file, highlighting in a worker and a virtual list for long files. One column until V asks for two, and the choice is the code panel's (`splitDiff`).
 - The cursor is a bar across one line. A file opens with it on its first changed line, and while the review is open each file keeps its own cursor.
+- The review's short words (such as "Every file is seen.") show in the line at the bottom for 2.6 seconds, as pi-coder's status line, instead of floating over the code.
+- The diff is drawn by the same component as the code panel's (`DiffView`), with optional props for the cursor, the glyphs and the row under a line. Two things changed in the code panel with it: an unchanged line now counts inside a selection or a note of the old side, and in two columns the selection's bar shows in the right column too.
 
 ### Keys in the code view
 
@@ -89,8 +91,8 @@ The model is pi-coder 0.9.10's `/diff` (`src/ui/review-app.ts`, read on 2026-11-
 
 - A1. `ui/test/settings-review-view.test.ts`; `ui/test/review-look.test.ts` › the session opens in the look it is given.
 - A2, A6, A7, A9. `ui/test/review-look.test.ts`.
-- A3. `ui/test/review-code-files.test.ts`; still renders at 1440 pixels, dark and light.
-- A4. `ui/test/review-code-cursor.test.ts`.
+- A3. `ui/test/review-code-files.test.ts`; still renders at 1440 pixels, dark and light (lane C, `scratchpad/lane-c/page-*.png`).
+- A4. `ui/test/review-code-cursor.test.ts`, `ui/test/review-code-keys.test.ts`.
 - A5. `ui/test/review-look.test.ts` › a note's target and step in the code view; a still render of the input under the lines.
 - A8. `ui/test/review-width.test.ts`.
 - All: check in the app's window, by the user: open a review in each look, switch with I, write a comment and a question on lines, mark a file seen, reload.
@@ -98,7 +100,8 @@ The model is pi-coder 0.9.10's `/diff` (`src/ui/review-app.ts`, read on 2026-11-
 ## Steps
 
 - [x] S1 (A8). The width: `canvasGrowth` covers 98% of the window for a review.
-- [ ] S2 (A1, A2, A6, A7, A9). The look in the review's session: its keys, its place kept, the setting it opens from, notes and seen marks in the code view.
-- [ ] S3 (A3, A4, A5). The code view: the files, the diff with its cursor and selection, the gutter marks, the input under the lines, its keys.
-- [ ] S4 (A1, A2). The switch with Code on it, the choice in Settings › Reviews, the keys in the review's shortcuts and the Keys page.
-- [ ] S5 (all). The code view on the review's stage, and still renders.
+- [x] S2 (A1, A2, A6, A7, A9). The look in the review's session: its keys, its place kept, the setting it opens from, notes and seen marks in the code view. 809ebd1, 997c3d7, 6fd1006, d264207, 0aa5b1a.
+- [x] S3 (A3, A4, A5). The code view: the files, the diff with its cursor and selection, the gutter marks, the input under the lines, its keys. 16c73ca, 38f1da7, fa1bb34, 9c638e3, 904e33e.
+- [x] S4 (A1, A2). The switch with Code on it, the choice in Settings › Reviews, the keys in the review's shortcuts and the Keys page. e1bcc92, d87b4de.
+- [x] S5 (all). The code view on the review's stage. 2ee9f41. Still renders of the code view and of the Settings row; the stage as a whole is not seen.
+- [ ] S6 (all). The user's check in the app's window.
