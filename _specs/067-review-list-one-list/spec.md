@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["032-ai-reviews", "058-review-line", "064-review-story", "066-work-one-list"],
-  "updated": "2026-11-24"
+  "updated": "2026-11-25"
 }
 ---
 # The Review list as one list, each row saying its own state
@@ -81,7 +81,7 @@ The user, 2026-11-24, looking at four full cards of the rpsleague stack: "does t
 ## Acceptance
 
 - A6. A stack of two layers or more is one frame with its layers bottom first, in every order; a layer is never listed twice; a pull request sits under its project; counts follow the rows shown.
-- A6b. A stack of pull requests with no change of hobkin is one frame; a mixed stack is one frame, numbered by the pull requests' order; a layer said merge to is a quiet "merging" line in its place.
+- A8. A stack of pull requests with no change of hobkin is one frame; a mixed stack is one frame, numbered by the pull requests' order; a layer said merge to is a quiet "merging" line in its place.
 - A7. The tab has one number and no category words.
 - A1. No heading says Running, Ready, Failed or Asked to merge. Each project has a heading with its count.
 - A2. A row says Reviewing only while its review runs or is prepared; a row that waits says Waits its turn with how many are ahead.
@@ -91,6 +91,11 @@ The user, 2026-11-24, looking at four full cards of the rpsleague stack: "does t
 
 ## Proof
 
-- A6: `ui/test/work-review-stacks.test.ts`.
-- A2, A3, A4: `ui/test/work-ai-reviews.test.ts`, `ui/test/work-review-list.test.ts`, `ui/test/work-review-story.test.ts`.
-- A1, A5, A6, A7: still renders at 1300 and 760 pixels, dark and light. No press or key was run in the real window.
+- A6. `ui/test/work-review-stacks.test.ts`; still renders at 1300 and 760 pixels, dark and light. No press or key was run in the real window.
+- A8. `ui/test/work-review-stacks.test.ts`.
+- A2. `ui/test/work-ai-reviews.test.ts`, `ui/test/work-review-list.test.ts`, `ui/test/work-review-story.test.ts`.
+- A3. `ui/test/work-ai-reviews.test.ts`, `ui/test/work-review-list.test.ts`, `ui/test/work-review-story.test.ts`.
+- A4. `ui/test/work-ai-reviews.test.ts`, `ui/test/work-review-list.test.ts`, `ui/test/work-review-story.test.ts`.
+- A1. Still renders at 1300 and 760 pixels, dark and light. No press or key was run in the real window.
+- A5. Still renders at 1300 and 760 pixels, dark and light. No press or key was run in the real window.
+- A7. Still renders at 1300 and 760 pixels, dark and light. No press or key was run in the real window.

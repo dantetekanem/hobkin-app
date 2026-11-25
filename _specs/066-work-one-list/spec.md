@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["011-work", "061-finished-changes-rows", "060-make-it-a-stack"],
-  "updated": "2026-11-24"
+  "updated": "2026-11-25"
 }
 ---
 # Work's finished changes as one list with the grades in front
@@ -118,13 +118,16 @@ One line under the heading, and the same height whatever it says: "37 changes in
 
 - A1. Check (still renders at 1300 and 760 pixels, dark and light): the whole section.
 - A2. Check (still renders): graded, grading and not reviewed rows side by side; `ui/test/work-change-list.test.ts` for the rate and the five cells.
-- A3, A4, A5, A6. `ui/test/work-change-list.test.ts`.
+- A3. `ui/test/work-change-list.test.ts`.
+- A4. `ui/test/work-change-list.test.ts`.
+- A5. `ui/test/work-change-list.test.ts`.
+- A6. `ui/test/work-change-list.test.ts`.
 - A8. `ui/test/work-row-menu.test.ts`; the menu's items are the host's choices.
 - A7. The row's keys and its open body are the ones spec 061 built and are unchanged: `ui/test/work-change-row.test.ts`. No press or key was run in the real window.
 
 ## Steps
 
-- [x] S1 (A3 to A6). The pure list: flatten, project cut, sentence, tags, action, orders, tally.
+- [x] S1 (A3, A4, A5, A6). The pure list: flatten, project cut, sentence, tags, action, orders, tally.
 - [x] S2 (A1, A2, A7). The section and the row in place of the groups.
-- [x] S2b. The row menu.
-- [ ] S3. In the app's window, with the user's own changes.
+- [x] S4 (A8). The row menu.
+- [ ] S3 (A1, A2, A3, A4, A5, A6, A7, A8). In the app's window, with the user's own changes.
