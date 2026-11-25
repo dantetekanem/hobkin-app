@@ -5,7 +5,6 @@ import { useNow } from '@/features/chat/use-now.ts'
 import { doingOf, hasHost } from '@/lib/host/frame.ts'
 import { hostStore, useHasHost, useHost, useWatchJob, type HostState } from '@/lib/host/index.ts'
 import { sampleAt, sampleLength } from './sample.ts'
-import { doingNow, stepCount, type Doing } from './steps.ts'
 
 /** When this window first saw an entry and, for a tool call it saw start, when the call began and when it ended. */
 export interface EntryTime {
@@ -227,16 +226,6 @@ export function useAgentActivity(agentId: string | null): AgentActivity | null {
   return useAgentActivityOf(agentId, whole)
 }
 
-/** Whether an agent has activity, and any entry in it. */
-export type Presence = 'none' | 'empty' | 'some'
-
-const presenceOf = (activity: AgentActivity | null): Presence => (activity === null ? 'none' : activity.entries.length ? 'some' : 'empty')
-
-/** Whether the agent has activity and any step in it, which changes only when its first entry comes or all go. */
-export function useActivityPresence(agentId: string | null): Presence {
-  return useAgentActivityOf(agentId, presenceOf)
-}
-
 type Mood = ReturnType<typeof doingOf>['mood']
 
 /** How a face looks while its run works, by the run's newest step. */
@@ -247,33 +236,3 @@ export function useStepsMood(agentId: string | null): Mood {
   return useAgentActivityOf(agentId, moodOfSteps)
 }
 
-/** What the agent's page shows of it before its steps: how many steps it has taken, and what it is doing now. */
-export interface Glance {
-  steps: number
-  doing: Doing | null
-}
-
-const glanceOf = (activity: AgentActivity | null): Glance => ({
-  steps: activity ? stepCount(activity.entries) : 0,
-  doing: activity ? doingNow(activity.entries, { ended: activity.ended, cwd: activity.cwd }) : null,
-})
-
-function sameDoing(left: Doing | null, right: Doing | null): boolean {
-  if (left === right) return true
-  if (left === null || right === null) return false
-  return (
-    left.lead === right.lead &&
-    left.subject === right.subject &&
-    left.code === right.code &&
-    left.path === right.path &&
-    left.failed === right.failed &&
-    left.note === right.note
-  )
-}
-
-const sameGlance = (left: Glance, right: Glance) => left.steps === right.steps && sameDoing(left.doing, right.doing)
-
-/** The glance at the agent, which draws again when its step count or what it does changes, and not while `hidden`. */
-export function useAgentGlance(agentId: string | null, hidden: boolean): Glance {
-  return useAgentActivityOf(agentId, glanceOf, { same: sameGlance, paused: hidden })
-}

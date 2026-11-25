@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AnimatePresence, motion } from 'motion/react'
-import { agentEntry, agentReading, entryTransition, keepsPreview } from '../src/features/work/agent-entry.ts'
+import { agentEntry, entryTransition, keepsPreview } from '../src/features/work/agent-entry.ts'
 import { isStill } from '../src/app/still-rule.ts'
 
 test('the shared entry is quick and continuous: one spring with no bounce, faster than a screen push, and no count-dependent delay', () => {
@@ -12,17 +12,6 @@ test('the shared entry is quick and continuous: one spring with no bounce, faste
     assert.ok(Math.max(...participants.map((part) => (part.duration + ('delay' in part ? part.delay : 0)) * 1000)) <= 340)
     assert.deepEqual(agentEntry(false), { type: 'spring', duration: 0.32, bounce: 0, delay: 0 })
   }
-})
-
-test('existing and newly delivered content is readable synchronously, with no fabricated empty exchange', () => {
-  const fixture = { entries: [] as { id: string }[] }
-  const readable = () => agentReading(true, fixture.entries.length > 0)
-  assert.equal(readable(), false)
-  fixture.entries.push({ id: 'existing-step' })
-  assert.equal(readable(), true)
-  fixture.entries.push({ id: 'next-step' })
-  assert.equal(readable(), true)
-  assert.equal(agentReading(false, true), false)
 })
 
 test('snapshot presence initializes explicit nested entrances at their readable target', () => {

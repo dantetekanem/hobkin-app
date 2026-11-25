@@ -17,7 +17,7 @@ const { HostConnection } = await import('../src/lib/host/connection.ts')
 mock.method(HostConnection.prototype, 'start', () => { throw new Error('Connection must stay stopped') })
 mock.method(HostConnection.prototype, 'command', async () => { throw new Error('Nothing here sends commands') })
 const { hostStore } = await import('../src/lib/host/client.ts')
-const { useActivityPresence, useAgentActivity, useAgentGlance, useStepsMood } = await import('../src/features/agent-activity/use-agent-activity.ts')
+const { useAgentActivity, useStepsMood } = await import('../src/features/agent-activity/use-agent-activity.ts')
 const { useJobsTasks } = await import('../src/features/agent-activity/agent-jobs.ts')
 const { useMainHead, useMainSteps } = await import('../src/features/main-agent/main-steps.ts')
 after(() => {
@@ -48,19 +48,8 @@ send({
 
 /** The parts of an agent's page, each reading what it shows of the agent's activity as the page does, counting its draws. */
 async function page() {
-  const draws = { page: 0, overview: 0, tasks: 0, steps: 0 }
-  const read = { glance: undefined as ReturnType<typeof useAgentGlance> | undefined, tasks: [] as ReturnType<typeof useJobsTasks> }
-  const Page = () => {
-    draws.page += 1
-    useActivityPresence('worker')
-    return null
-  }
-  // The overview is hidden behind the steps while they are read.
-  const Overview = ({ hidden }: { hidden: boolean }) => {
-    draws.overview += 1
-    read.glance = useAgentGlance('worker', hidden)
-    return null
-  }
+  const draws = { tasks: 0, steps: 0 }
+  const read = { tasks: [] as ReturnType<typeof useJobsTasks> }
   const Tasks = () => {
     draws.tasks += 1
     read.tasks = useJobsTasks(WORKER)
@@ -71,48 +60,28 @@ async function page() {
     useAgentActivity('worker')
     return null
   }
-  const mounted = await mountCounting(() => [createElement(Page, { key: 'page' }), createElement(Overview, { key: 'overview', hidden: true }), createElement(Tasks, { key: 'tasks' }), createElement(Steps, { key: 'steps' })])
+  const mounted = await mountCounting(() => [createElement(Tasks, { key: 'tasks' }), createElement(Steps, { key: 'steps' })])
   return { mounted, draws, read }
 }
 
 test('ten updates to a running command draw the steps ten times and nothing else of the page', async () => {
   const { mounted, draws, read } = await page()
-  assert.deepEqual(draws, { page: 1, overview: 1, tasks: 1, steps: 1 })
+  assert.deepEqual(draws, { tasks: 1, steps: 1 })
   assert.deepEqual(read.tasks.map(({ title }) => title), ['Fix the tests'])
 
   for (let index = 0; index < 9; index++) await mounted.change(() => send(steps(printed('tool:1', `line ${index}\n`))))
   await mounted.change(() => send(steps(update(bash('2', 'pnpm lint')))))
-  assert.deepEqual(draws, { page: 1, overview: 1, tasks: 1, steps: 11 }, 'the page, its hidden overview and its tasks draw nothing for a step')
+  assert.deepEqual(draws, { tasks: 1, steps: 11 }, 'its tasks draw nothing for a step')
 
   // A task the agent adds is something the tasks line shows.
   await mounted.change(() => send(steps(update(task('2', 'Run the lint')))))
   assert.equal(draws.tasks, 2)
   assert.deepEqual(read.tasks.map(({ title }) => title), ['Fix the tests', 'Run the lint'])
-  assert.deepEqual([draws.page, draws.overview], [1, 1])
-  await mounted.unmount()
-})
-
-test('the overview in sight draws when what it says changes, not for a command printing more', async () => {
-  const draws = { overview: 0 }
-  let glance: ReturnType<typeof useAgentGlance> | undefined
-  const Overview = () => {
-    draws.overview += 1
-    glance = useAgentGlance('worker', false)
-    return null
-  }
-  const mounted = await mountCounting(() => createElement(Overview))
-  const shown = glance
-  for (let index = 0; index < 5; index++) await mounted.change(() => send(steps(printed('tool:2', `more ${index}\n`))))
-  assert.equal(draws.overview, 1, 'the same step count and the same command running')
-  assert.equal(glance, shown)
-
-  await mounted.change(() => send(steps(update(bash('3', 'pnpm build')))))
-  assert.equal(draws.overview, 2)
-  assert.deepEqual(glance?.doing, { lead: 'Running', subject: 'pnpm build', code: true })
   await mounted.unmount()
 })
 
 test("a durable hobkin's face draws when the turn's tool starts or ends, not for what it prints", async () => {
+  send(steps(update(bash('3', 'pnpm build'))))
   let draws = 0
   let mood: string | undefined
   const Face = () => {
