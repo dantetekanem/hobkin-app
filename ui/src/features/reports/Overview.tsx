@@ -1,19 +1,22 @@
 import { motion, type Variants } from 'motion/react'
-import { Bot, ChevronRight, Inbox, PauseCircle } from 'lucide-react'
+import { Bot, ChevronRight, Inbox, Newspaper, PauseCircle } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { Hero } from '@/app/Reveal.tsx'
 import { useView } from '@/app/view-store.ts'
 import { Hob } from '@/avatar/Hob.tsx'
+import { Button } from '@/components/ui/button.tsx'
 import type { Mood } from '@/avatar/moods.tsx'
 import { useAgents, useHost } from '@/lib/host/hooks.ts'
 import { dur, ease, spring, stagger, tween } from '@/lib/motion.ts'
 import { cn } from '@/lib/utils.ts'
 import { useActionCount } from '../actions/store.ts'
 import { useRoutines } from '../routines/store.ts'
-import { needsAttention, outcomeWeek, sinceLastLook, type OutcomeDay, type SourceAttention } from './briefing.ts'
+import { catchUpOffered, needsAttention, outcomeWeek, sinceLastLook, type OutcomeDay, type SourceAttention } from './briefing.ts'
+import { askCatchUp } from './catch-up.ts'
 import { summarize, type Summary } from './inbox.ts'
 import type { Report, Tone } from './report.ts'
 import { useStill } from './still.ts'
+import { useReports } from './store.ts'
 import { clockTime, dayKey, dayLabel } from './time.ts'
 import { TONE_NAME, ToneMark } from './Tone.tsx'
 
@@ -155,6 +158,42 @@ function RunsWeek({ days, still, onOpen }: { days: OutcomeDay[]; still: boolean;
 }
 
 /**
+ * Catch me up (069-report-catch-up): hobkin starts a catch-up over the unread reports, and its answer takes the
+ * press's place. Both are as tall as the press, so nothing around them moves.
+ */
+function CatchUpPress() {
+  const sample = useReports((state) => state.sample)
+  const [asking, setAsking] = useState(false)
+  const [said, setSaid] = useState<{ line: string; refused: boolean } | null>(null)
+  if (said) {
+    return (
+      <p role="status" className={cn('mt-3 flex h-7 items-center gap-2 text-[12.5px] leading-[14px]', said.refused ? 'text-warn-fg' : 'text-muted-foreground')}>
+        <Newspaper className="size-3.5 shrink-0" aria-hidden="true" />
+        <span className="line-clamp-2 min-w-0" title={said.line}>
+          {said.line}
+        </span>
+      </p>
+    )
+  }
+  return (
+    <div className="mt-3 flex h-7 items-center">
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={asking}
+        onClick={async () => {
+          setAsking(true)
+          setSaid(await askCatchUp(sample))
+        }}
+      >
+        <Newspaper aria-hidden="true" />
+        {asking ? 'Starting…' : 'Catch me up'}
+      </Button>
+    </div>
+  )
+}
+
+/**
  * The Reports home, beside the list while no report is open: what needs the user, what came since they last looked,
  * how the week's runs ended, and what is going on now. Every line opens what it names. hobkin's face says how the
  * unread reports look.
@@ -183,6 +222,7 @@ export function Overview({
   const summary = useMemo(() => summarize(list, read), [list, read])
   const sources = useMemo(() => needsAttention(list, read), [list, read])
   const fresh = useMemo(() => sinceLastLook(list, read, attention), [list, read, attention])
+  const offered = useMemo(() => catchUpOffered(list, read), [list, read])
   // The week changes with the day, not with each drawing.
   const days = useMemo(() => outcomeWeek(list, now), [list, today])
   const held = useMemo(() => facts.filter((fact) => fact.state === 'held' && fact.hold), [facts])
@@ -217,6 +257,7 @@ export function Overview({
               ) : fresh ? (
                 <p className="mt-1.5 text-[13px] text-muted-foreground">Nothing new since you last looked {lastLookWords(fresh.since, now)}.</p>
               ) : null}
+              {offered ? <CatchUpPress /> : null}
             </div>
             <Hob mood={summary.unread === 0 ? 'sleepy' : MOOD[summary.worst ?? 'plain']} size={56} className="shrink-0" />
           </header>
