@@ -1,9 +1,9 @@
 import { activeCanvasScreen, focusCanvas } from './focus.ts'
+import { overlayOpen } from './key-page.ts'
 import { rowKeyOf } from './kept-place.ts'
 import { rescueKeyboard } from './keyboard-rescue.ts'
 
 const FIELD = 'input, textarea, select, [contenteditable=""], [contenteditable="true"]'
-const OVERLAY = '[role="dialog"], [role="alertdialog"], [role="menu"], [role="listbox"], dialog[open]'
 /** React is done putting a moved or remounted row back within a frame or two. */
 const SETTLE_MS = 60
 
@@ -35,7 +35,7 @@ export function watchKeyboard(): () => void {
         fromCanvas,
         rowKey,
         rowDrawn: rowKey !== undefined && now?.querySelector(rowKey) != null,
-        overlayOpen: document.querySelector(OVERLAY) !== null,
+        overlayOpen: overlayOpen(document),
         sincePointerMs: pressedAt === null ? null : at - pressedAt,
       })
       if (rescue?.to === 'row') now?.querySelector<HTMLElement>(rescue.key)?.focus({ preventScroll: true })

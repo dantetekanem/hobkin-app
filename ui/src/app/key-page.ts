@@ -42,6 +42,19 @@ export function installFrameKeys(target: EventTarget, handlers: FrameKeyHandlers
 /** Drawn now, and not on its way out. */
 const shown = (element: Element) => !element.hasAttribute('data-ending-style') && element.getClientRects().length > 0
 
+/** The frame's own lists: the agents list under the chat, there whenever an agent is listed, and the chat's veil. */
+const FRAME_OWN = '[data-agents-dock], [data-chat-veil]'
+
+/**
+ * A dialog, menu or list is drawn over the window, so the keyboard the page lost is the user's to place. The frame's own
+ * lists never count: the agents list is a list box whenever an agent is listed, and counting it kept the keyboard on
+ * the page for good (`keyboard-watch.ts`).
+ */
+export function overlayOpen(page: Document): boolean {
+  const open = page.querySelectorAll('[role="dialog"], [role="alertdialog"], dialog[open], [role="menu"], [role="listbox"]')
+  return [...open].some((element) => element.closest(FRAME_OWN) === null && shown(element))
+}
+
 /**
  * A dialog, menu or list that handles its own keys has the keyboard. The veil and the agents list are the frame's own,
  * so they do not count. An input that is showing completions (a combobox with its list open, such as the message input

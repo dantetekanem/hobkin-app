@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mock, test } from 'node:test'
-import { inOverlay, installFrameKeys } from '../src/app/key-page.ts'
+import { inOverlay, installFrameKeys, overlayOpen } from '../src/app/key-page.ts'
 import { resolveKey, type KeyContext } from '../src/app/key-map.ts'
 import { withFixturePart } from './integration-fixture.ts'
 
@@ -62,4 +62,19 @@ test('a marker an overlay left behind never keeps command and a number from chan
     assert.deepEqual(resolveKey(press, context(inOverlay(body as EventTarget, inert([...dialogs])))), { do: 'open-screen', screen: 'routines', focusCanvas: true }, name)
   }
   assert.equal(inOverlay(body as EventTarget, inert([element([])])), true, 'an open lightbox still keeps its keys')
+})
+
+test('when the keyboard falls to the page, only a dialog, menu or list drawn over it counts as open, never the frame’s own lists', () => {
+  /** An element `overlayOpen` finds, inside the agents list or the chat's veil or not, drawn or on its way out. */
+  const found = ({ own = false, drawn = true, ending = false } = {}) => ({
+    hasAttribute: (name: string) => ending && name === 'data-ending-style',
+    closest: () => (own ? {} : null),
+    getClientRects: () => (drawn ? [{}] : []),
+  })
+  const page = (elements: unknown[]) => ({ querySelectorAll: () => elements }) as unknown as Document
+
+  assert.equal(overlayOpen(page([])), false, 'nothing open')
+  assert.equal(overlayOpen(page([found({ own: true })])), false, 'the agents list under the chat, there whenever an agent is listed')
+  assert.equal(overlayOpen(page([found({ ending: true }), found({ drawn: false })])), false, 'one on its way out, and one not drawn')
+  assert.equal(overlayOpen(page([found({ own: true }), found()])), true, 'a menu drawn over the window')
 })
