@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as wait } from 'node:timers/promises';
-import { namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
+import { buildInvocation, namingExtensions, runHarness } from '../src/cli/harnesses.mjs';
 import { BRIDGE } from '../src/cli/bridge.mjs';
 import { createDoneTool, doneExtension } from '../src/cli/done-extension.mjs';
 
@@ -193,4 +193,14 @@ test("hobkin_done asks the host over the job's own bridge and answers in the hos
   const answer = await createDoneTool().execute('call', { report: 'Useful: Done.' }, undefined, undefined, ctx);
   assert.deepEqual(asked, [[BRIDGE, { op: 'done', report: 'Useful: Done.' }]]);
   assert.equal(answer.content[0].text, 'hobkin ends this job when this turn ends.');
+});
+
+test('a living job reads its own short prompt in place of the routines\' one, and any other run keeps its own', t => {
+  const words = name => readFileSync(new URL(`../src/prompts/${name}.md`, import.meta.url), 'utf8');
+  const told = run => buildInvocation(run).args.join('\n');
+  assert.ok(told(living(t)).includes(words('session-job')));
+  assert.equal(told(living(t)).includes(words('background')), false);
+  assert.ok(told(request(t)).includes(words('background')));
+  assert.equal(told(request(t, { untilDone: true })).includes(words('session-job')), false, 'not without hobkin_done to end with');
+  assert.throws(() => buildInvocation(living(t, { purpose: 'work-do' })), /lives until/);
 });

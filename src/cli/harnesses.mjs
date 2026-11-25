@@ -127,7 +127,10 @@ export function buildInvocation(request) {
   }
   const isWork = workPurposes.includes(request.purpose);
   const noTools = !usesTools(request.purpose);
-  const system = durable ? request.directions ?? prompt('durable') : prompt(isWork ? 'background' : request.purpose ?? 'background');
+  const lives = livesUntilDone(request);
+  if (lives && request.purpose !== undefined) throw Error('Only a job of its own lives until it is done.');
+  // A living job reads its own short prompt (072-jobs-live-until-done), never the routines' one.
+  const system = durable ? request.directions ?? prompt('durable') : prompt(lives ? 'session-job' : isWork ? 'background' : request.purpose ?? 'background');
   if (!isAbsolute(request.sessionFile ?? '')) throw Error('Pi requires an explicit job session file.');
   const args = [
     '--mode', 'rpc',
