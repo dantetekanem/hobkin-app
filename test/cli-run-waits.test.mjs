@@ -108,7 +108,7 @@ test('hobkin_wait asks the host over the run\'s own bridge and answers in the ho
   await assert.rejects(createWaitTool().execute('call', { minutes: 2000, note: 'Look again.' }, undefined, undefined, refused), /at most 24 hours/);
 });
 
-test('only a run that can wait is given hobkin_wait', async t => {
+test('no run is given hobkin_wait: the user had run waits removed on 2026-11-24', async t => {
   const agentDir = mkdtempSync(join(tmpdir(), 'hobkin-agent-'));
   const previous = process.env.PI_CODING_AGENT_DIR;
   process.env.PI_CODING_AGENT_DIR = agentDir;
@@ -123,7 +123,7 @@ test('only a run that can wait is given hobkin_wait', async t => {
   const run = namingExtensions(async job => { started.push(job); });
   await run(request(t, { waits: 0 }));
   await run(request(t));
-  assert.equal(started[0].extensions.includes(waitExtension), true);
+  assert.equal(started[0].extensions.includes(waitExtension), false, 'not even a run whose request could wait');
   assert.equal(started[1].extensions.includes(waitExtension), false);
 });
 

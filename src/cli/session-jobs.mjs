@@ -113,8 +113,8 @@ function runSessionJob({ root, runner }, request, session, { prompt, waits, resu
  * activity and agents, `message_check` reaches it by its schedule, and `kill` stops it. When it ends, the session log
  * hears of it, so `--wake` gives the main agent its turn with the report. The run keeps the tier it was given beside
  * the model and effort that tier meant then, so a later change of the tier does not rewrite what ran. Its request carries
- * the user's directions, as a check's and a work run's do, read when it starts. Its agent can wait with `hobkin_wait`
- * and carry on at a time (053-run-waits), so its record keeps what its end needs (`session`).
+ * the user's directions, as a check's and a work run's do, read when it starts. Its record keeps what its end needs
+ * (`session`). Its agent is not offered `hobkin_wait`: the user had run waits removed on 2026-11-24.
  */
 export function startSessionJob({ root, runner, model, effort, tier }, session) {
   const { name, title, cwd, brief, report, wake } = session;

@@ -164,7 +164,7 @@ export const namingExtensions = run => async (request, options) => {
   const offer = options?.integrations?.offer;
   const leaveOut = [...(schedules ? ['pi-scheduler'] : []), ...(memories ? LEFT_OUT_WITH_MEMORIES : [])];
   const extensions = [...await extensionPaths(request.cwd, { leaveOut }), codeToolGuardExtension,
-    ...(Number.isInteger(request.waits) ? [waitExtension] : []), ...(schedules ? [scheduleExtension] : []), ...(memories ? [memories] : []),
+    ...(schedules ? [scheduleExtension] : []), ...(memories ? [memories] : []),
     ...(offer ? [integrationExtension] : [])];
   // Naming them comes before the process starts, so the turn's stages show how long it took.
   const turn = { since: asked, origin: 'run', ...options?.turn, marks: { ...options?.turn?.marks, resolved: Date.now() } };
