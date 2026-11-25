@@ -89,3 +89,31 @@ test('a wire is a smooth curve with level ends, forward or back', () => {
     assert.match(curve.d, /^M[-\d.]+ [-\d.]+C/)
   }
 })
+
+test('top to bottom, a wire leaves the bottom of its source downward and arrives at the top of its target from above', () => {
+  const edge = sample.edges.find((entry) => entry.id === `calls:${doingAfter}>${toolDoing}`)!
+  const [from, to] = [sample.nodes.find((node) => node.id === doingAfter)!, sample.nodes.find((node) => node.id === toolDoing)!]
+  const ends = wireEnds(edge, sample.nodes, 'top-to-bottom')
+  assert.deepEqual(ends.source, { x: from.position.x + NODE_SIZE.code.width / 2, y: from.position.y + NODE_SIZE.code.height }, 'the middle of the bottom edge')
+  assert.deepEqual(ends.target, { x: to.position.x + NODE_SIZE.code.width / 2, y: to.position.y }, 'the middle of the top edge')
+  assert.deepEqual(wireEnds(edge, sample.nodes, 'left-to-right'), wireEnds(edge, sample.nodes), 'left to right is the wire as it was')
+
+  for (const [source, target] of [
+    [{ x: 0, y: 0 }, { x: 120, y: 300 }],
+    [{ x: 0, y: 300 }, { x: 200, y: 0 }],
+    [{ x: 0, y: 0 }, { x: 0, y: 40 }],
+  ] as const) {
+    const curve = wireCurve(source, target, 'top-to-bottom')
+    assert.deepEqual(curve.pointAt(0), source)
+    assert.deepEqual(curve.pointAt(1), target)
+    // Plumb ends: just after the start and just before the end, the wire has barely left its pin's place across.
+    assert.ok(Math.abs(curve.pointAt(0.02).x - source.x) < Math.abs(target.x - source.x) * 0.02 + 0.5)
+    assert.ok(Math.abs(curve.pointAt(0.98).x - target.x) < Math.abs(target.x - source.x) * 0.02 + 0.5)
+    assert.ok(curve.pointAt(0.02).y > source.y, 'it leaves downward')
+    assert.ok(curve.pointAt(0.98).y < target.y, 'and arrives from above')
+    // It is the left-to-right curve turned over its diagonal.
+    const turn = ({ x, y }: { x: number; y: number }) => ({ x: y, y: x })
+    const across = wireCurve(turn(source), turn(target))
+    for (const at of [0.25, 0.5, 0.75]) assert.deepEqual(curve.pointAt(at), turn(across.pointAt(at)))
+  }
+})

@@ -1,7 +1,7 @@
 /**
  * How the camera gets from one focus to the next: along the wire that joins them, or straight when none does.
  */
-import { NODE_SIZE, type Point } from '#shared/review/layout.ts'
+import { wirePins, type GraphFlow, type Point } from '#shared/review/layout.ts'
 import { connectingEdge } from '#shared/review/story.ts'
 import type { ReviewEdge, ReviewNode } from '#shared/review/types.ts'
 import type { WireCurve } from '../graph/wire-path.ts'
@@ -28,14 +28,14 @@ export function pickTravel(edges: readonly ReviewEdge[], from: readonly string[]
 
 type Placed = Pick<ReviewNode, 'id' | 'kind' | 'position'>
 
-/** The two pins of a wire: the middle of the right edge of its source and of the left edge of its target. */
-export function wireEnds(edge: Pick<ReviewEdge, 'from' | 'to'>, nodes: readonly Placed[]): { source: Point; target: Point } {
+/**
+ * The two pins of a wire: the middle of the right edge of its source and of the left edge of its target, or on a graph
+ * that reads top to bottom, of the bottom edge of its source and of the top edge of its target.
+ */
+export function wireEnds(edge: Pick<ReviewEdge, 'from' | 'to'>, nodes: readonly Placed[], flow: GraphFlow = 'left-to-right'): { source: Point; target: Point } {
   const from = nodes.find((node) => node.id === edge.from)!
   const to = nodes.find((node) => node.id === edge.to)!
-  return {
-    source: { x: from.position.x + NODE_SIZE[from.kind].width, y: from.position.y + NODE_SIZE[from.kind].height / 2 },
-    target: { x: to.position.x, y: to.position.y + NODE_SIZE[to.kind].height / 2 },
-  }
+  return wirePins(from, to, flow)
 }
 
 /**
