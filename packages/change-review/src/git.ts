@@ -229,6 +229,8 @@ export function runProgram(program: string, args: readonly string[], options: Ru
 // ───────────────────────── git ─────────────────────────
 
 export const GIT_TIMEOUT_MS = 60_000
+/** `grep` reads every file at the revision: one search for every name a removal defined takes minutes on a very large repository. */
+export const GIT_SEARCH_TIMEOUT_MS = 10 * 60_000
 const GIT_MAX_BYTES = 512 * 1024 * 1024
 
 /** git never prompts, never takes optional locks, and speaks the same language everywhere so its errors can be read. */
@@ -266,19 +268,22 @@ function revision(value: string): string {
 const firstLine = (text: string) => text.trim().split('\n')[0] ?? ''
 
 /** git at `cwd`, read-only. Commands run at the repository's top folder, so paths are repository-relative. */
-export function gitRepo(cwd: string, { timeoutMs = GIT_TIMEOUT_MS }: { timeoutMs?: number } = {}): GitRepo {
+export function gitRepo(
+  cwd: string,
+  { timeoutMs = GIT_TIMEOUT_MS, searchTimeoutMs = GIT_SEARCH_TIMEOUT_MS }: { timeoutMs?: number; searchTimeoutMs?: number } = {},
+): GitRepo {
   const env = { ...process.env, ...GIT_ENV }
-  const run = async (folder: string, args: readonly string[], ok: readonly number[] = [0]) => {
-    const result = await runProgram('git', [...GIT_CONFIG, ...args], { cwd: folder, env, timeoutMs, maxBytes: GIT_MAX_BYTES })
+  const run = async (folder: string, args: readonly string[], ok: readonly number[] = [0], limitMs = timeoutMs) => {
+    const result = await runProgram('git', [...GIT_CONFIG, ...args], { cwd: folder, env, timeoutMs: limitMs, maxBytes: GIT_MAX_BYTES })
     if (!result.started) throw new GitError(`git could not start: ${result.reason}`)
-    if (result.timedOut) throw new GitError(`git ${args[0]} took longer than ${Math.round(timeoutMs / 1000)} seconds.`)
+    if (result.timedOut) throw new GitError(`git ${args[0]} took longer than ${Math.round(limitMs / 1000)} seconds.`)
     if (result.overflow) throw new GitError(`git ${args[0]} wrote more than ${GIT_MAX_BYTES} bytes.`)
     if (!ok.includes(result.code)) throw new GitError(firstLine(result.stderr.toString('utf8')) || `git ${args[0]} stopped with code ${result.code}.`)
     return result
   }
   let topFolder: Promise<string> | undefined
   const top = () => (topFolder ??= run(cwd, ['rev-parse', '--show-toplevel']).then((result) => result.stdout.toString('utf8').trim()))
-  const git = async (args: readonly string[], ok?: readonly number[]) => run(await top(), args, ok)
+  const git = async (args: readonly string[], ok?: readonly number[], limitMs?: number) => run(await top(), args, ok, limitMs)
   const out = async (args: readonly string[]) => (await git(args)).stdout.toString('utf8')
 
   const resolve = async (ref: string) => {
@@ -324,7 +329,7 @@ export function gitRepo(cwd: string, { timeoutMs = GIT_TIMEOUT_MS }: { timeoutMs
 
     async grep(rev, pattern, paths) {
       if (paths && paths.length === 0) return []
-      const result = await git(['grep', '-n', '-z', '-I', '-E', '--full-name', '--no-color', '-e', pattern, revision(rev), '--', ...(paths ?? [])], [0, 1])
+      const result = await git(['grep', '-n', '-z', '-I', '-E', '--full-name', '--no-color', '-e', pattern, revision(rev), '--', ...(paths ?? [])], [0, 1], searchTimeoutMs)
       return result.code === 0 ? grepHits(result.stdout.toString('utf8'), `${rev}:`) : []
     },
 

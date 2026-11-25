@@ -229,3 +229,37 @@ test('a missing locale key or a dangling removal breaks; complete ones pass', as
   const clean = await checkBuckets(triage(removalMeta), fakeRepo({ base: legacy, head: { 'config/routes.rb': "post 'tax', to: 'tax#create'\n" } }), removalMeta)
   assert.ok(clean.buckets.find((bucket) => bucket.treatment === 'removal')!.checks!.every((check) => check.passed === true))
 })
+
+test('a removal is searched for every name it defined, in one pass over the whole tree', async () => {
+  const names = Array.from({ length: 60 }, (_, index) => `legacyHelper${index}`)
+  const removalMeta = meta([file('web/src/legacy/helpers.ts', 0, 600, { status: 'deleted' })])
+  const repo = fakeRepo({
+    base: { 'web/src/legacy/helpers.ts': names.map((name) => `export function ${name}() {}\n`).join('') },
+    head: {
+      'web/src/app.ts': 'export const app = 1\n',
+      'test/fixtures/helpers.json': '{ "call": "legacyHelper59" }\n',
+      'android/app/Bridge.kt': 'val helper = legacyHelper58()\n',
+    },
+  })
+  const searches: (readonly string[] | undefined)[] = []
+  const counted: RepoReader = { ...repo, grep: (rev, pattern, paths) => (searches.push(paths), repo.grep(rev, pattern, paths)) }
+
+  const result = await checkBuckets(triage(removalMeta), counted, removalMeta)
+  const check = result.buckets.find((bucket) => bucket.treatment === 'removal')!.checks![0]!
+  assert.deepEqual(searches, [undefined])
+  assert.equal(check.passed, false)
+  assert.match(check.detail, /^test\/fixtures\/helpers\.json:1 still refers to legacyHelper59/m)
+  assert.match(check.detail, /^android\/app\/Bridge\.kt:1 still refers to legacyHelper58/m)
+  assert.doesNotMatch(check.detail, /legacyHelper5[0-7]\b|web\/src\/app\.ts/)
+})
+
+test('a removal whose search fails says it could not tell', async () => {
+  const removalMeta = meta([file('web/src/legacy/helpers.ts', 0, 600, { status: 'deleted' })])
+  const repo = fakeRepo({ base: { 'web/src/legacy/helpers.ts': 'export function legacyHelper() {}\n' }, head: {} })
+  const failing: RepoReader = { ...repo, grep: () => Promise.reject(new Error('git grep took longer than 600 seconds.')) }
+
+  const result = await checkBuckets(triage(removalMeta), failing, removalMeta)
+  const check = result.buckets.find((bucket) => bucket.treatment === 'removal')!.checks![0]!
+  assert.equal(check.passed, null)
+  assert.match(check.detail, /git grep took longer than 600 seconds/)
+})

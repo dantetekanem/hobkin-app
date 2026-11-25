@@ -466,8 +466,8 @@ export async function checkBuckets(result: Triage, reader: RepoReader, meta: Pic
   return { ...result, buckets }
 }
 
-/** A word that stands alone: not part of a longer name. Works for `git grep -E` and JavaScript alike. */
-const wholeWord = (text: string) => `(^|[^A-Za-z0-9_])${escapeRegex(text)}($|[^A-Za-z0-9_])`
+/** Any of these words standing alone: not part of a longer name. Works for `git grep -E` and JavaScript alike. */
+const wholeWord = (texts: readonly string[]) => `(^|[^A-Za-z0-9_])(${texts.map(escapeRegex).join('|')})($|[^A-Za-z0-9_])`
 
 async function localeChecks(bucket: Bucket, reader: RepoReader, { base, head }: Pick<ChangeMeta, 'base' | 'head'>): Promise<BucketCheck[]> {
   const readPath = bucket.sample?.read[0] ?? bucket.paths[0]!
@@ -613,16 +613,37 @@ function importPathOf(path: string): string {
   return parts.slice(-2).join('/')
 }
 
-const MOST_SEARCHES = 50
-
+/**
+ * Every line at head outside `skip` that names a term, found in one search of the whole tree for all of them, so
+ * fixtures, other platforms' code and other projects in the repository count too.
+ */
 async function referencesTo(reader: RepoReader, head: string, terms: readonly string[], skip: ReadonlySet<string>): Promise<string[]> {
+  if (!terms.length) return []
+  const matchers = terms.map((term) => ({ term, pattern: new RegExp(wholeWord([term])) }))
   const found: string[] = []
-  for (const term of terms.slice(0, MOST_SEARCHES)) {
-    for (const hit of await reader.grep(head, wholeWord(term))) {
-      if (!skip.has(hit.path)) found.push(`${hit.path}:${hit.line} still refers to ${term}: ${hit.text.trim().slice(0, 120)}`)
+  for (const hit of await reader.grep(head, wholeWord(terms))) {
+    if (skip.has(hit.path)) continue
+    for (const { term } of matchers.filter(({ pattern }) => pattern.test(hit.text))) {
+      found.push(`${hit.path}:${hit.line} still refers to ${term}: ${hit.text.trim().slice(0, 120)}`)
     }
   }
   return found
+}
+
+/** Breaks on each line that still names a term, passes with `cleanDetail` when none does, and cannot tell when the search fails. */
+async function nothingRefersTo(
+  name: string,
+  reader: RepoReader,
+  { head, terms, skip, cleanDetail }: { head: string; terms: readonly string[]; skip: ReadonlySet<string>; cleanDetail: string },
+): Promise<BucketCheck> {
+  let references: string[]
+  try {
+    references = await referencesTo(reader, head, terms, skip)
+  } catch (error) {
+    return { name, passed: null, detail: `could not search the tree: ${error instanceof Error ? error.message : String(error)}` }
+  }
+  if (references.length) return { name, passed: false, breaks: true, detail: references.join('\n') }
+  return { name, passed: true, detail: cleanDetail }
 }
 
 async function removalChecks(bucket: Bucket, reader: RepoReader, { base, head, files }: Pick<ChangeMeta, 'base' | 'head' | 'files'>): Promise<BucketCheck[]> {
@@ -633,15 +654,13 @@ async function removalChecks(bucket: Bucket, reader: RepoReader, { base, head, f
     const text = await reader.text(base, file.path)
     if (text) for (const name of namesDefined(file.path, text)) terms.add(name)
   }
-  const references = await referencesTo(reader, head, [...terms], new Set(bucket.paths))
   const checks: BucketCheck[] = [
-    references.length
-      ? { name: 'nothing refers to what was removed', passed: false, breaks: true, detail: references.join('\n') }
-      : {
-          name: 'nothing refers to what was removed',
-          passed: true,
-          detail: `no file at head refers to the ${deleted.length} removed files (${[...terms].length} names searched)`,
-        },
+    await nothingRefersTo('nothing refers to what was removed', reader, {
+      head,
+      terms: [...terms],
+      skip: new Set(bucket.paths),
+      cleanDetail: `no file at head refers to the ${deleted.length} removed files (${terms.size} names searched)`,
+    }),
   ]
   // A test deleted while its subject stays is a finding, not a break.
   const orphans: string[] = []
@@ -667,10 +686,12 @@ async function renameChecks(bucket: Bucket, reader: RepoReader, { head, files }:
   const moved = files.filter((file) => bucket.paths.includes(file.path) && file.oldPath)
   const oldTerms = moved.map((file) => importPathOf(file.oldPath!))
   const terms = oldTerms.filter((term, index) => oldTerms.indexOf(term) === index && !moved.some((file) => importPathOf(file.path) === term))
-  const references = await referencesTo(reader, head, terms, new Set(bucket.paths))
   return [
-    references.length
-      ? { name: 'nothing refers to the old paths', passed: false, breaks: true, detail: references.join('\n') }
-      : { name: 'nothing refers to the old paths', passed: true, detail: moved.map((file) => `${file.oldPath} → ${file.path}`).join('\n') || 'no renames' },
+    await nothingRefersTo('nothing refers to the old paths', reader, {
+      head,
+      terms,
+      skip: new Set(bucket.paths),
+      cleanDetail: moved.map((file) => `${file.oldPath} → ${file.path}`).join('\n') || 'no renames',
+    }),
   ]
 }

@@ -160,6 +160,14 @@ test('text, list and grep answer what the revision holds, never the working tree
   assert.deepEqual(await repo.grep(head, 'nothing matches this'), [])
 })
 
+test('a search of the tree runs under its own time limit, not the one for other git calls', async (t) => {
+  const { dir, head } = changedRepo(t)
+  const repo = gitRepo(dir, { searchTimeoutMs: 1 })
+
+  assert.equal(await repo.text(head, 'src/gone.ts'), null)
+  await assert.rejects(repo.grep(head, 'reduce'), /git grep took longer than/)
+})
+
 test('head, resolve, merge base and clean', async (t) => {
   const { dir, git, write, commit, base, head } = changedRepo(t)
   const repo = gitRepo(dir)
