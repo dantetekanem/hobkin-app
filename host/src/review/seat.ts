@@ -672,8 +672,9 @@ type ReviewCommand = 'review.prepare' | 'review.status' | 'review.list' | 'revie
  */
 export function reviewHandlers(reviews: Reviews, from: 'window' | 'hobkin' = 'window'): Pick<HostHandlers, ReviewCommand> {
   return {
-    // Asked for by the window or by hobkin, as against what the background prepares by itself.
-    'review.prepare': ({ id, refresh }) => reviews.prepare(id, { refresh, asked: true, ...(from === 'hobkin' ? { byAgent: true } : {}) }),
+    // Asked for by the window or by hobkin, as against what the background prepares by itself. The code look asks for the
+    // graph alone, with changeReview: false (spec 071).
+    'review.prepare': ({ id, refresh, changeReview }) => reviews.prepare(id, { refresh, changeReview, asked: true, ...(from === 'hobkin' ? { byAgent: true } : {}) }),
     'review.list': () => reviews.list(),
     'review.codeHosts': () => ({ hosts: reviews.codeHosts() }),
     'review.people': ({ id }) => reviews.people(id),

@@ -215,6 +215,11 @@ interface Job {
   target: ReviewTarget
   head: string | null
   refresh: boolean
+  /**
+   * Whether its change review starts once its graph is drawn. False when only the graph and its files were asked for, as
+   * the window's code look asks (spec 071); an ask for the change review while the job waits or runs sets it.
+   */
+  changeReview: boolean
 }
 
 /** A finished change's pull request: where it goes, and what it says. */
@@ -489,6 +494,8 @@ export class Reviews {
   private readonly statuses = new Map<string, ReviewStatus>()
   private readonly queue: Job[] = []
   private readonly running = new Map<string, Promise<void>>()
+  /** The job each preparation under way runs, so an ask for its change review that comes meanwhile still has one start. */
+  private readonly jobsUnderWay = new Map<string, Job>()
   private readonly opened = new Map<string, Prepared>()
   /** The version of each watched review last looked at, so the background looks at each version once. */
   private readonly watched = new Map<string, string>()
@@ -600,10 +607,16 @@ export class Reviews {
     return this.running.has(id) || this.queue.some((job) => reviewIdOf(job.target) === id)
   }
 
+  /** A preparation of this review is waiting or under way that starts its change review once its graph is drawn. */
+  private preparingReview(id: string): boolean {
+    const jobs = [this.jobsUnderWay.get(id), ...this.queue.filter((job) => reviewIdOf(job.target) === id)]
+    return jobs.some((job) => job?.changeReview)
+  }
+
   /**
    * How a review's change review stands at `head`: as it runs or ran; queued behind the graph it starts from while that
-   * is prepared, with what the preparation did so far; or failed, with why, when the preparation could not finish.
-   * Undefined on a host with no change reviews.
+   * is prepared, with what the preparation did so far; or failed, with why, when the preparation could not finish. A
+   * graph built alone has none behind it. Undefined on a host with no change reviews.
    */
   private assessmentOf(id: string, target: ReviewTarget, head: string | null): AssessmentStatus | undefined {
     const { assessments } = this.options
@@ -611,7 +624,7 @@ export class Reviews {
     const known = this.withFix(target, assessments.status(target, head))
     const run = this.runs.get(id)
     if (!run || known.state === 'queued' || known.state === 'running' || (head && run.head && run.head !== head)) return known
-    const preparing = this.preparing(id)
+    const preparing = this.preparingReview(id)
     if (!preparing && !(run.error && (known.state === 'idle' || known.state === 'failed'))) return known
     const shared = { head: run.head ?? head, startedAt: run.startedAt, ...(run.request ? { request: run.request } : {}), log: [...run.lines] }
     if (!preparing) return { state: 'failed', ...shared, error: run.error }
@@ -1015,8 +1028,10 @@ export class Reviews {
    * change's commit is used without a run, and one already under way is joined. A ready review stays ready, and opens,
    * while a newer one is prepared. `refresh` prepares it again even for the same commit. `asked` says someone asked
    * for it, the window or hobkin, so hobkin says in its chat when a pull request's review they asked for is ready.
+   * `changeReview: false` asks for the graph and its files alone, which ask no model, as the window's code look does
+   * (spec 071): the change review starts only on an ask for it, later or while that graph waits or is drawn.
    */
-  prepare(id: string, { refresh = false, asked = false, byAgent = false }: { refresh?: boolean; asked?: boolean; byAgent?: boolean } = {}): ReviewStatus {
+  prepare(id: string, { refresh = false, asked = false, byAgent = false, changeReview = true }: { refresh?: boolean; asked?: boolean; byAgent?: boolean; changeReview?: boolean } = {}): ReviewStatus {
     const target = this.target(id)
     const now = this.status(id)
     // Merged, or closed on its host: there is nothing left to review, and its status says so.
@@ -1037,19 +1052,26 @@ export class Reviews {
     }
     this.againAt.delete(id)
     if (asked) {
-      this.asked.add(id)
-      // Only the user's own ask keeps a review from being dropped by the line.
+      // A graph built alone is no news for the chat: the user watches it being built, and no change review runs to tell of.
+      if (changeReview) this.asked.add(id)
+      // Only the user's own ask keeps a review from being dropped by the line, a graph they wait for in the window too.
       if (!byAgent) this.userAsked.add(id)
     }
+    // An ask for the change review joins a graph that waits or is drawn alone, and has its change review start after it.
     const waiting = this.queue.find((job) => reviewIdOf(job.target) === id)
     if (waiting) {
       waiting.refresh ||= refresh
-      return now
+      waiting.changeReview ||= changeReview
+      return this.status(id)
     }
-    if (this.running.has(id) && !refresh) return now
+    if (this.running.has(id) && !refresh) {
+      const underWay = this.jobsUnderWay.get(id)
+      if (underWay) underWay.changeReview ||= changeReview
+      return this.status(id)
+    }
     const ahead = this.queue.length + this.running.size
     this.options.store.saveLanded(target, null)
-    this.queue.push({ target, head: null, refresh })
+    this.queue.push({ target, head: null, refresh, changeReview })
     const at = this.now()
     const startedAt = new Date(at).toISOString()
     this.runs.set(id, { head: null, startedAt, lines: [] })
@@ -1065,6 +1087,7 @@ export class Reviews {
     try {
       for (let job = this.queue.shift(); job; job = this.queue.shift()) {
         const id = reviewIdOf(job.target)
+        this.jobsUnderWay.set(id, job)
         const run = this.run(job).catch((error: unknown) => {
           const message = messageOf(error)
           this.asked.delete(id)
@@ -1080,6 +1103,7 @@ export class Reviews {
         this.running.set(id, run)
         await run
         this.running.delete(id)
+        this.jobsUnderWay.delete(id)
         if (this.controller.signal.aborted) return
       }
     } finally {
@@ -1087,7 +1111,8 @@ export class Reviews {
     }
   }
 
-  private async run({ target, refresh }: Job) {
+  private async run(job: Job) {
+    const { target, refresh } = job
     const id = reviewIdOf(target)
     const { store } = this.options
     const source = target.kind === 'change' ? this.options.sources.change : this.options.sources.pull
@@ -1112,7 +1137,7 @@ export class Reviews {
       this.opened.delete(id)
       if (log) log.request = requestOf(target, cached.review)
       this.set(id, { state: 'ready', phase: null, stale: false, preparedAt: cached.meta?.preparedAt ?? this.status(id).preparedAt, storyBy: cached.meta?.storyBy ?? null, ...(cached.meta?.owner ? { owner: cached.meta.owner } : {}), ...(cached.meta?.code ? { code: cached.meta.code } : {}) })
-      this.assess(target, cached.review)
+      this.assessAfter(job, cached.review)
       return
     }
 
@@ -1145,15 +1170,24 @@ export class Reviews {
       }
     }
     // Prepared again on the user's word: the change review runs again too.
-    this.assess(target, review, { again: refresh })
+    this.assessAfter(job, review)
   }
 
-  /** Starts the change review at the commit the review's graph was built for. Never stops the graph. */
   /** Whether a change review runs for this target: a host with change reviews, and a repository a review may check out. */
   private reviewsChange(target: ReviewTarget): boolean {
     return this.options.assessments != null && (this.options.checksOut?.(target) ?? true)
   }
 
+  /**
+   * Starts the change review once a job's graph is drawn, when the job asks for one (spec 071). A graph built alone
+   * starts none, and a stop asked for while it was drawn ends with it.
+   */
+  private assessAfter(job: Job, review: Review) {
+    if (job.changeReview) this.assess(job.target, review, { again: job.refresh })
+    else this.halted.delete(reviewIdOf(job.target))
+  }
+
+  /** Starts the change review at the commit the review's graph was built for. Never stops the graph. */
   private assess(target: ReviewTarget, review: Review, { again = false }: { again?: boolean } = {}) {
     const { assessments } = this.options
     if (!assessments || !this.reviewsChange(target) || this.closedOn(target)) return

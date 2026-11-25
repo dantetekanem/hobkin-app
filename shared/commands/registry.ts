@@ -861,9 +861,9 @@ export const COMMANDS = {
   },
   'review.prepare': {
     description:
-      "Start the review of a finished hobkin change or a GitHub pull request, by its review id, or review it again. It runs in the background and answers at once with how it stands: follow it with review.status or review.list. A review already prepared for the change's commit is used as it is. To review again, pass `refresh: true`: the review is built once more at the change's commit, with its tests and its model pass. A pull request is only read, through gh.",
+      "Start the review of a finished hobkin change or a GitHub pull request, by its review id, or review it again. It runs in the background and answers at once with how it stands: follow it with review.status or review.list. A review already prepared for the change's commit is used as it is. To review again, pass `refresh: true`: the review is built once more at the change's commit, with its tests and its model pass. `changeReview: false` builds only the review's graph and the change's files, which asks no model, for the window's code view; an ask without it, later or while that graph is built, starts the change review. A pull request is only read, through gh.",
     runs: 'host',
-    args: Type.Object({ id: reviewId, refresh: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
+    args: Type.Object({ id: reviewId, refresh: Type.Optional(Type.Boolean()), changeReview: Type.Optional(Type.Boolean()) }, { additionalProperties: false }),
     hobkin: true,
   },
   'review.status': {
