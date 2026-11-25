@@ -137,12 +137,20 @@ test('no credential field reaches the socket or the log', async (t) => {
   await pi.status('signed-out')
 
   const wire = pi.client.received.map((message) => JSON.stringify(message)).join('\n')
+  // The main startup's target (owner.startup.target) names that startup by home, epoch, token and session, and the window
+  // sends it back with startup.force so a force reaches only the startup it saw. Its token is a nonce the host draws for
+  // each startup, not a credential: it travels only on the socket, which opens only with the host's own token, and it
+  // lets that socket do nothing it could not do already. The field rule reads the wire without it.
+  const startupTarget = (value: unknown): value is { token: string } => Boolean(value && typeof value === 'object' && 'epoch' in value && 'sessionId' in value && 'token' in value)
+  const wireFields = pi.client.received
+    .map((message) => JSON.stringify(message, (key, value: unknown) => (key === 'target' && startupTarget(value) ? { ...value, token: undefined } : value)))
+    .join('\n')
   const logged = pi.log.join('\n')
   assert.ok(wire.length > 1000 && pi.client.received.some((message) => message.type === 'state' && message.signIn))
-  for (const [where, text] of [['a message to the UI', wire], ['the log', logged]] as const) {
+  for (const [where, text, fields] of [['a message to the UI', wire, wireFields], ['the log', logged, logged]] as const) {
     for (const secret of [...Object.values(FAKE_SECRETS), 'SECRET-AUTH-CODE']) assert.equal(text.includes(secret), false, `${secret} is in ${where}`)
     // A credential field holds its value as a string. The models slice names the API-key route as an object, which holds none.
-    assert.doesNotMatch(text, /"(access|refresh|key|apiKey|api_key|access_token|refresh_token|id_token|credential|secret|token)"\s*:\s*"/i, `a credential field is in ${where}`)
+    assert.doesNotMatch(fields, /"(access|refresh|key|apiKey|api_key|access_token|refresh_token|id_token|credential|secret|token)"\s*:\s*"/i, `a credential field is in ${where}`)
   }
   // The sign-in still said enough to be followed.
   assert.match(logged, /openai/)
