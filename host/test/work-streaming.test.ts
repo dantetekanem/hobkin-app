@@ -104,9 +104,12 @@ test('background Work streams through the application and host to the agent exch
   await app.runner.messageCheck({ scheduleId: 'work.fixture.do', message: 'Keep the whitespace.' })
   assert.deepEqual(heard, ['Keep the whitespace.'])
   // The lead spawns two teams agents in its own Pi. Only teams' spawn details reach this stream, never theirs.
+  // They travel as the run's teams agents, never as its helpers (`046-teams-layer`).
   callbacks.onEvent({ type: 'tool_execution_end', toolCallId: 'spawn', toolName: 'spawn_swarm_agents', isError: false, result: { content: [{ type: 'text', text: 'Spawned 2/2.' }], details: { session: 'private', spawned: [{ name: 'scout', role: 'read' }, { name: 'fixer', role: 'write', queued: true, queuePosition: 1 }], failed: [] } } })
   await app.refresh()
-  assert.deepEqual(childrenFrom(client.snapshot, id).map(({ name, state }) => [name, state]), [['scout', 'running'], ['fixer', 'queued']])
+  const teams = () => (client.snapshot.teamsAgents?.[id] ?? []).map(({ name, state }) => [name, state])
+  assert.deepEqual(teams(), [['scout', 'running'], ['fixer', 'queued']])
+  assert.deepEqual(childrenFrom(client.snapshot, id), [])
 
   // Completion and its last events arrive before the coalesced application refresh.
   callbacks.onEvent({ type: 'tool_execution_end', toolCallId: 'read', toolName: 'read', isError: false, result: { content: [{ type: 'text', text: 'export const login = true\n' }] } })
@@ -125,8 +128,9 @@ test('background Work streams through the application and host to the agent exch
   assert.equal(agentsFrom(client.snapshot).length, 0)
   await app.refresh() // The application releases it; the host retains the final feed.
   client = applyHostMessage({ ...initialHostState, home: root }, JSON.parse(JSON.stringify(sync.full())))
-  assert.deepEqual(childrenFrom(client.snapshot, id).map(({ name, state }) => [name, state]), [['scout', 'stopped'], ['fixer', 'stopped']], 'a reconnect gets the ended run whole')
-  assert.doesNotMatch(JSON.stringify(client.snapshot.jobChildren), /private/)
+  // No report was seen from either before the run ended, so how they ended is not known.
+  assert.deepEqual(teams(), [['scout', 'unknown'], ['fixer', 'unknown']], 'a reconnect gets the ended run whole')
+  assert.doesNotMatch(JSON.stringify(client.snapshot.teamsAgents), /private/)
   assert.equal(agentsFrom(client.snapshot, { includeEnded: true }).find((agent) => agent.id === id)?.title, 'fixture: Fix login')
   const exchange = exchangeOf(entries(), [], { ended: true, cwd: root, seenAt: () => undefined })
   assert.deepEqual(exchange.map((step) => step.kind), ['says', 'looks', 'tool', 'says'])
