@@ -98,6 +98,41 @@ test('the work filed for an issue is found by the issue, in any case, with its p
   assert.equal(filedFor({ repo: 'acme/web', number: 12 }), null, 'the same number on another repository');
 });
 
+test('an issue worked on again is filed once more as a follow-up that keeps the issue, and the issue is found by its newest work', t => {
+  const { root } = home(t);
+  taken(root, 'api');
+  const reset = { title: 'Login fails after a password reset', body: 'Steps.' };
+  const first = addIssue(root, 'api', issue(12, reset));
+  assert.equal(addIssue(root, 'api', issue(12, { ...reset, again: true })).message,
+    `acme/api#12 is still in work on api as ${first.id}, open. Nothing changed.`);
+  updateItem(root, 'api', first.id, { state: 'merged', pr: 'https://example.invalid/pull/3' });
+
+  const again = addIssue(root, 'api', issue(12, { ...reset, again: true }));
+
+  const followUp = readItems(root, 'api').find(item => item.id === again.id);
+  assert.notEqual(again.id, first.id);
+  assert.equal(again.message, `Added a follow-up on acme/api#12 to api as ${again.id}. It goes first in the queue, after anything picked before it.`);
+  assert.deepEqual({ title: followUp.title, brief: followUp.brief, kind: followUp.kind, issue: followUp.issue, state: followUp.state }, {
+    title: 'Follow-up: Login fails after a password reset',
+    brief: `Follow-up on acme/api#12. The earlier work on it, ${first.id}, is merged, in https://example.invalid/pull/3.\n\n`
+      + 'Login fails after a password reset\n\nSteps.\n\nhttps://github.com/acme/api/issues/12',
+    kind: 'improvement',
+    issue: { repo: 'acme/api', number: 12, url: 'https://github.com/acme/api/issues/12' },
+    state: 'open',
+  });
+  assert.equal(readMode(root).queueNext.at(-1), `item:api:${again.id}`);
+  assert.equal(filedIssues(root)({ repo: 'acme/api', number: 12 }).item.id, again.id);
+
+  updateItem(root, 'api', again.id, { state: 'done' });
+  const third = addIssue(root, 'api', issue(12, { ...reset, again: true }));
+  assert.equal(new Set([first.id, again.id, third.id]).size, 3, 'each time is an item of its own');
+  assert.match(readItems(root, 'api').find(item => item.id === third.id).brief, new RegExp(`^Follow-up on acme/api#12\\. The earlier work on it, ${again.id}, is done\\.\\n\\n`));
+  assert.equal(filedIssues(root)({ repo: 'acme/api', number: 12 }).item.id, third.id);
+
+  const fresh = addIssue(root, 'api', issue(13, { again: true }));
+  assert.equal(readItems(root, 'api').find(item => item.id === fresh.id).key, 'gh-issue:acme/api#13', 'an issue never filed is filed as it always is');
+});
+
 test('an issue is a fix when labeled a bug, security work when labeled security, and an improvement otherwise', t => {
   const { root } = home(t);
   taken(root, 'api');

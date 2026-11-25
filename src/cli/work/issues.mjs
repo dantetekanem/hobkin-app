@@ -1,13 +1,14 @@
 import { reply } from './controls.mjs';
 import { findProject, nameOf } from './names.mjs';
-import { chosenProjects, fileItem, issueMode, pickNext, readItems, readProjects, readState, writeState } from './store.mjs';
+import { chosenProjects, fileItem, issueMode, pickNext, readItems, readProjects, readState, runnableStates, writeState } from './store.mjs';
 import { gitOrNothing } from './tree.mjs';
 import { ghWithin } from './unmerged.mjs';
 
 /**
  * GitHub issues as work. The user adds one from the client's GitHub page, and it goes first in the queue like anything added by hand. A taken
  * project set to pick them up files its new open issues by itself, as ordinary items: auto-pick, a pause, the budget and every stop decide when
- * they start. Each issue is filed once for good under a key of its own, so neither way files one twice, whatever became of it.
+ * they start. Each issue is filed once for good under a key of its own, so neither way files one twice, whatever became of it. Only the user
+ * files it again, as a follow-up of its own (`again` on `addIssue`), once the work before it is finished.
  */
 
 // gh costs no tokens, and a project's issues do not change fast enough to be worth asking about more often than this.
@@ -49,17 +50,23 @@ export async function projectOfRepo(root, repo) {
 const ISSUE_KEY = 'gh-issue:';
 const issueKey = ({ repo, number }) => `${ISSUE_KEY}${repo.toLowerCase()}#${number}`;
 const named = ({ repo, number }) => `${repo}#${number}`;
+// Each time the user has an issue worked on again is an item of its own, under the issue's key and the count of times it was filed.
+const againKey = (issue, times) => `${issueKey(issue)}:again:${times}`;
+const isFor = issue => ({ key }) => key === issueKey(issue) || key?.startsWith(`${issueKey(issue)}:again:`);
+// Work on an issue that has not finished yet: in the queue, running or waiting to.
+const unfinished = [...runnableStates, 'waiting'];
 
 /**
  * What hobkin has filed for GitHub issues, from one read of every project's items: a lookup from an issue's `{ repo, number }` to its item and
- * that item's project, or null for an issue with nothing filed. A taken project speaks for an issue before one only proposed or left alone.
+ * that item's project, or null for an issue with nothing filed. A taken project speaks for an issue before one only proposed or left alone, and
+ * in a project the newest work on an issue, a follow-up, speaks for it.
  */
 export function filedIssues(root) {
   const filed = new Map();
   const rank = ({ state }) => (STATE_ORDER.includes(state) ? STATE_ORDER.indexOf(state) : STATE_ORDER.length);
   for (const project of readProjects(root).toSorted((left, right) => rank(right) - rank(left))) {
     for (const item of readItems(root, project.slug)) {
-      if (item.key?.startsWith(ISSUE_KEY)) filed.set(item.key, { project, item });
+      if (item.key?.startsWith(ISSUE_KEY)) filed.set(item.issue ? issueKey(item.issue) : item.key, { project, item });
     }
   }
   return issue => filed.get(issueKey(issue)) ?? null;
@@ -87,32 +94,45 @@ function issueOf({ repo, number, title, body, url, labels } = {}) {
   return { repo, number, title: heading, body: plainBody(body), url: link, labels };
 }
 
-function fileIssue(root, slug, issue, now) {
+/** `earlier` is the work on the issue before this, its items in the order they were filed, for a follow-up. */
+function fileIssue(root, slug, issue, now, earlier = []) {
   const { repo, number, title, body, url, labels } = issue;
+  const last = earlier.at(-1);
+  const followUp = last && `Follow-up on ${named(issue)}. The earlier work on it, ${last.id}, is ${last.state}${last.pr ? `, in ${last.pr}` : ''}.`;
   return fileItem(root, slug, {
-    key: issueKey(issue),
+    key: last ? againKey(issue, earlier.length + 1) : issueKey(issue),
     kind: kindOf(labels),
-    title,
-    brief: [title, body, url].filter(Boolean).join('\n\n'),
+    title: last ? `Follow-up: ${title}` : title,
+    brief: [followUp, title, body, url].filter(Boolean).join('\n\n'),
     issue: { repo, number, url },
   }, now);
 }
 
-/** The user's word, from the GitHub page: the issue goes first in the queue, as an item added by hand does. Added again it changes nothing, and says so. */
+/**
+ * The user's word, from the GitHub page: the issue goes first in the queue, as an item added by hand does. Added again it changes nothing, and
+ * says so. With `again`, once the work on it before is finished, it is filed once more as a follow-up that says what that work came to.
+ */
 export function addIssue(root, reference, value, now = Date.now()) {
   const project = findProject(root, reference);
   const issue = issueOf(value);
   if (!issue) throw Error('An issue needs its repository as owner/name, its number and its title.');
   const { slug } = project;
-  const before = readItems(root, slug).find(item => item.key === issueKey(issue));
-  if (before) return reply(`${named(issue)} is already filed on ${nameOf(project)} as ${before.id}, ${before.state}. Nothing changed.`, { slug, id: before.id });
+  const earlier = readItems(root, slug).filter(isFor(issue));
+  const before = earlier.at(-1);
+  if (before && value.again !== true) {
+    return reply(`${named(issue)} is already filed on ${nameOf(project)} as ${before.id}, ${before.state}. Nothing changed.`, { slug, id: before.id });
+  }
+  if (before && unfinished.includes(before.state)) {
+    return reply(`${named(issue)} is still in work on ${nameOf(project)} as ${before.id}, ${before.state}. Nothing changed.`, { slug, id: before.id });
+  }
 
-  const filed = fileIssue(root, slug, issue, now);
+  const filed = fileIssue(root, slug, issue, now, earlier);
   if (project.state === 'chosen') pickNext(root, `item:${slug}:${filed.id}`);
   const next = project.state === 'chosen'
     ? 'It goes first in the queue, after anything picked before it.'
     : `Nothing runs until ${nameOf(project)} is taken.`;
-  return reply(`Added "${filed.title}" from ${named(issue)} to ${nameOf(project)} as ${filed.id}. ${next}`, { slug, id: filed.id });
+  const added = before ? `Added a follow-up on ${named(issue)}` : `Added "${filed.title}" from ${named(issue)}`;
+  return reply(`${added} to ${nameOf(project)} as ${filed.id}. ${next}`, { slug, id: filed.id });
 }
 
 /** A gh that is missing, signed out or offline has no issues to give, and the next pass asks again. */

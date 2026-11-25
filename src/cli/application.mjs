@@ -1755,6 +1755,7 @@ export class HobkinApplication {
       pauseProject: () => pauseWork(root, slug),
       resumeProject: () => resumeWork(root, slug),
       // A GitHub issue the user added from the client's GitHub page, as `{ repo, number, title, body, url, labels }`. It goes first in the queue.
+      // With `again: true` too, an issue whose work is finished is filed once more as a follow-up.
       issue: () => addIssue(root, slug, value, this.now()),
       grade: () => updateItem(root, slug, value, { grade: extra }),
       skip: () => skipProject(root, slug),
