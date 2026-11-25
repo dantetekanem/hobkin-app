@@ -235,3 +235,18 @@ test('a notice that a review is ready carries the review, so the chat can open i
 
   assert.deepEqual(entries.map((entry) => (entry.kind === 'notice' ? entry.review ?? null : 'not a notice')), ['change:shop:4c9e21', null])
 })
+
+test("each run of the main chat's schedules stands among the messages where it ended, by day, and runs in a row fold", () => {
+  const messages: ChatMessage[] = [
+    { id: 'asked', role: 'user', content: 'Watch the deploy', at: '2026-11-08T23:58:00Z' },
+    { id: 'answer', role: 'assistant', content: 'Watching it.', at: '2026-11-09T14:00:00Z' },
+  ]
+  const schedule = { id: 'sch-1', name: 'Watch the deploy', does: 'shell' as const, command: 'deploy status' }
+  const ran = (at: string) => ({ schedule, at: Date.parse(at), run: { at, startedAt: at, outcome: 'pending' as const, woke: false } })
+  const runs = [ran('2026-11-08T23:59:00Z'), ran('2026-11-09T14:10:00Z'), ran('2026-11-09T14:12:00Z')]
+  const days = buildConversation({ messages, runs, now: NOW, timeZone: 'UTC' })
+  assert.deepEqual(days.map((day) => [day.label, day.entries.map((entry) => (entry.kind === 'schedule' ? `${entry.schedule.id}×${entry.runs.length}` : entry.key))]), [
+    ['Yesterday', ['asked', 'sch-1×1']],
+    ['Today', ['answer', 'sch-1×2']],
+  ])
+})

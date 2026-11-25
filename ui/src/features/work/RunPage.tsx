@@ -14,7 +14,10 @@ import { earlierRow, useNewest } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
-import { exchangeOf, pauseOf, type ExchangeItem } from '@/features/agent-activity/steps.ts'
+import { atOf, exchangeOf, pauseOf, type ExchangeItem } from '@/features/agent-activity/steps.ts'
+import { withRuns } from '@/features/schedules/runs.ts'
+import { ScheduleRunsItem } from '@/features/schedules/ScheduleRuns.tsx'
+import { useScheduleRuns } from '@/features/schedules/use-schedule-runs.ts'
 import { EarlierSteps, StepItem, StepJob } from '@/features/agent-activity/StepView.tsx'
 import { lastStepTime, useAgentActivity, type AgentActivity } from '@/features/agent-activity/use-agent-activity.ts'
 import { useFollow } from '@/features/agent-activity/use-follow.ts'
@@ -154,9 +157,12 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: str
         : (notes ?? []).map((note) => ({ kind: 'note', key: `note:${note.id}`, note })),
     [activity, entries, notes],
   )
+  // Each run of the run's schedules stands where it happened, from hobkin's record of them (056).
+  const runs = useScheduleRuns({ kind: 'run', id: agentId })
+  const rows = useMemo(() => withRuns(items, runs, (item) => (item.kind === 'note' ? item.note.at : (atOf(item) ?? null))), [items, runs])
   // A long run draws only its newest steps, with a row above them for the ones before (newest.ts). Once every step held
   // is drawn, the row reads older ones, and the step being read stays where it was when they come.
-  const newest = useNewest(agentId, items)
+  const newest = useNewest(agentId, rows)
   const earlier = earlierRow(newest.earlier, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })
   const holdPlace = useReadingPlace(scroll.scroller, older.steps)
   const showEarlier = () => {
@@ -166,7 +172,7 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: str
     older.loadMore()
   }
   const thinking = activity !== null && !waiting && !idle && pauseOf(activity.entries, { ended: activity.ended }) === 'thinking'
-  const empty = items.length === 0 && !question && !thinking
+  const empty = rows.length === 0 && !question && !thinking
 
   return (
     <div
@@ -186,7 +192,15 @@ function ExchangeSteps({ agentId, hue, question, waiting, idle }: { agentId: str
           {/* The steps drawn with the page are simply there. Later ones arrive, and nothing leaves with a motion. */}
           <Arrivals>
             <StepJob.Provider value={job}>
-              {newest.shown.map((item) => (item.kind === 'note' ? <Said key={item.key} note={item.note} /> : <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />))}
+              {newest.shown.map((item) =>
+                item.kind === 'note' ? (
+                  <Said key={item.key} note={item.note} />
+                ) : item.kind === 'schedule' ? (
+                  <ScheduleRunsItem key={item.key} row={item} />
+                ) : (
+                  <StepItem key={item.key} step={item} timeOf={activity!.timeOf} ended={activity!.ended} />
+                ),
+              )}
             </StepJob.Provider>
             {/* It goes in the same moment the next step arrives. */}
             {thinking ? <Thinking key="thinking" activity={activity} run={agentId} /> : <AgentWaits key="waits" agentId={agentId} />}

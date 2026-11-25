@@ -2,6 +2,7 @@ import { useMemo, useRef } from 'react'
 import { sampleMessages } from '@/app/sample.ts'
 import { useHasHost, useHost } from '@/lib/host/index.ts'
 import type { ChatMessage } from '#shared/protocol/snapshot.ts'
+import { useScheduleRuns } from '@/features/schedules/use-schedule-runs.ts'
 import { useChat } from './chat-store.ts'
 import { Composer } from './Composer.tsx'
 import { buildConversation } from './conversation.ts'
@@ -11,6 +12,7 @@ import { usePinnedScroll } from './use-pinned-scroll.ts'
 import { usePresence } from './use-presence.ts'
 
 const MINUTE_MS = 60000
+const MAIN = { kind: 'main' } as const
 
 // The frame's sample conversation, in the shape hobkin's messages have, a minute apart and ending now.
 const loadedAt = Date.now()
@@ -38,13 +40,15 @@ export function ChatColumn() {
   const epoch = useHost((state) => state.epoch)
   const outbox = useChat((chat) => chat.outbox.entries)
   const local = useChat((chat) => chat.local)
+  // Each run of the main chat's own schedules stands where it happened (056).
+  const runs = useScheduleRuns(MAIN)
   usePresence(useChat((chat) => chat.draft.text.length > 0))
   // Only the day labels depend on the clock: the column draws again when the day turns, not each minute.
   const now = useToday()
 
   const days = useMemo(
-    () => (hasHost ? buildConversation({ messages, local, live, outbox, now }) : buildConversation({ messages: SAMPLE, now })),
-    [hasHost, messages, local, live, outbox, now],
+    () => (hasHost ? buildConversation({ messages, local, live, outbox, runs, now }) : buildConversation({ messages: SAMPLE, now })),
+    [hasHost, messages, local, live, outbox, runs, now],
   )
 
   return (

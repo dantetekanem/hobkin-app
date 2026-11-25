@@ -2,6 +2,7 @@ import { readMemoryNote, type MemoryNote } from '#shared/protocol/memory.ts'
 import { shellFields, type ChatMessage, type NoticeTone, type ShellFields } from '#shared/protocol/snapshot.ts'
 import { replyText, storedBesideLive, type LiveReply, type LiveTurn } from '../../lib/host/live.ts'
 import { splitRoutineReference } from '../reports/reply.ts'
+import { runName, withRuns, type PlacedRun, type RunsRow } from '../schedules/runs.ts'
 import type { OutboxEntry } from './outbox.ts'
 
 /** Something said in the conversation: by the user, by hobkin, or by an extension (`note`). */
@@ -42,7 +43,12 @@ export interface ShellEntry extends ShellFields {
   outcome: 'cancelled' | 'success' | 'failed' | 'unknown'
 }
 
-export type Entry = MessageEntry | NoticeEntry | ShellEntry
+/** A run of the main chat's own schedules, or several in a row that ended the same way (`056-agent-schedules`). `text` is its schedule's name. */
+export interface ScheduleEntry extends RunsRow {
+  text: string
+}
+
+export type Entry = MessageEntry | NoticeEntry | ShellEntry | ScheduleEntry
 
 export interface DayGroup {
   key: string
@@ -56,6 +62,8 @@ export interface ConversationInput {
   local?: readonly ChatMessage[]
   live?: LiveTurn | null
   outbox?: readonly OutboxEntry[]
+  /** The runs of the main chat's own schedules, in the order they ended. Each stands where it ended. */
+  runs?: readonly PlacedRun[]
   /** The current time, in milliseconds. */
   now: number
   /** The user's time zone. Defaults to the system's. */
@@ -200,9 +208,10 @@ function withLocal(stored: readonly ChatMessage[], local: readonly ChatMessage[]
 
 /**
  * The conversation as it is drawn: stored messages by day, oldest first, identical notices in a row folded
- * into one, then the replies still being written, then what the user sent that hobkin has not stored yet.
+ * into one, with each run of the main chat's schedules where it ended, then the replies still being written, then what
+ * the user sent that hobkin has not stored yet.
  */
-export function buildConversation({ messages, local = [], live = null, outbox = [], now, timeZone }: ConversationInput): DayGroup[] {
+export function buildConversation({ messages, local = [], live = null, outbox = [], runs = [], now, timeZone }: ConversationInput): DayGroup[] {
   const days: DayGroup[] = []
   // Reuse the formatter while grouping; the next build picks up any system timezone change.
   let dates: Intl.DateTimeFormat | undefined
@@ -223,8 +232,9 @@ export function buildConversation({ messages, local = [], live = null, outbox = 
     else day.entries.push(entry)
   }
 
-  for (const message of withLocal(storedBesideLive(messages, live), local)) {
-    const entry = entryOf(message)
+  const stored = withLocal(storedBesideLive(messages, live), local).map(entryOf)
+  for (const row of withRuns(stored, runs, (each) => each.at)) {
+    const entry = row.kind === 'schedule' && !('text' in row) ? { ...row, text: runName(row.schedule) } : row
     place(entry, entry.at)
   }
   for (const reply of live?.replies ?? []) {

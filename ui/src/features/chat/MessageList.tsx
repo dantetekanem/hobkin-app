@@ -6,6 +6,7 @@ import { holdStill, useStill } from '@/app/still.ts'
 import { useView } from '@/app/view-store.ts'
 import { Kbd } from '@/components/ui/kbd.tsx'
 import { MemoryLine } from '@/features/memory/MemoryLine.tsx'
+import { ScheduleRuns } from '@/features/schedules/ScheduleRuns.tsx'
 import { useHost } from '@/lib/host/index.ts'
 import { isLive as hobkinLive } from '@/lib/host/state.ts'
 import { spring, stagger, tween } from '@/lib/motion.ts'
@@ -150,7 +151,16 @@ const Row = memo(function Row({ entry, order, arrangement }: { entry: Entry; ord
         style={{ transformOrigin: mine ? '100% 100%' : '0% 100%' }}
         className={cn('flex min-w-0', entry.kind !== 'notice' ? 'flex-col gap-1' : 'items-baseline gap-2', mine && 'items-end')}
       >
-        {entry.kind === 'shell' ? <ShellTranscript message={{ role: 'bashExecution', ...entry }} at={entry.at} /> : entry.kind === 'message' ? <Message entry={{ ...entry, text }} mine={mine} /> : <Notice entry={entry} />}
+        {entry.kind === 'shell' ? (
+          <ShellTranscript message={{ role: 'bashExecution', ...entry }} at={entry.at} />
+        ) : entry.kind === 'message' ? (
+          <Message entry={{ ...entry, text }} mine={mine} />
+        ) : entry.kind === 'schedule' ? (
+          // A run of the main chat's own schedules: a quiet row with its time at its end, as a notice's.
+          <ScheduleRuns row={entry} aside={<Clock at={entry.at} />} />
+        ) : (
+          <Notice entry={entry} />
+        )}
       </motion.div>
     </motion.li>
   )
@@ -177,6 +187,15 @@ export function ShellTranscript({ message, at }: { message: unknown; at?: number
 }
 
 const AUTHOR: Record<MessageEntry['role'], string> = { user: 'You', assistant: 'hobkin', note: 'Note' }
+
+/** A row's time at its end, as a notice has it. */
+function Clock({ at }: { at: number }) {
+  return (
+    <time dateTime={new Date(at).toISOString()} className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+      {clock.format(at)}
+    </time>
+  )
+}
 
 const HELD: Record<Holder, string> = {
   compacting: 'hobkin is compacting the conversation. Your message goes as soon as that ends.',

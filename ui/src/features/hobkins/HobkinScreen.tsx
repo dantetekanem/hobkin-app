@@ -12,6 +12,10 @@ import { useSplit } from '@/features/canvas-panel/use-board.ts'
 import { Arrivals, useArrival } from '@/features/agent-activity/arrive.ts'
 import { ShowStamps, Stamped } from '@/features/agent-activity/Stamp.tsx'
 import { AgentLines } from '@/features/agent-activity/AgentLines.tsx'
+import { atOf } from '@/features/agent-activity/steps.ts'
+import { withRuns, type RunsRow } from '@/features/schedules/runs.ts'
+import { ScheduleRunsItem } from '@/features/schedules/ScheduleRuns.tsx'
+import { useScheduleRuns } from '@/features/schedules/use-schedule-runs.ts'
 import { earlierRow, useNewest, withEarlier } from '@/features/agent-activity/newest.ts'
 import { mayHaveOlder, useOlderSteps } from '@/features/agent-activity/older-steps.ts'
 import { useReadingPlace } from '@/features/agent-activity/reading-place.ts'
@@ -271,8 +275,11 @@ function Header({ id, hobkin, state, mood, split }: { id: string; hobkin: Hobkin
   )
 }
 
-/** A row of the conversation, or the row that reads the live turn's older steps from its run's saved session. */
-type ShownRow = PageRow | { kind: 'older'; key: 'older' }
+/** A row of the conversation, a run of its schedules, or the row that reads the live turn's older steps from its run's saved session. */
+type ShownRow = PageRow | RunsRow | { kind: 'older'; key: 'older' }
+
+/** When a row happened, for the schedules' runs to stand among the rows (`withRuns`). Thinking is now, after every run. */
+const rowTime = (row: PageRow): number | null => (row.kind === 'thinking' ? Infinity : row.kind === 'step' ? (atOf(row.step) ?? null) : row.at)
 const OLDER_ROW: ShownRow = { kind: 'older', key: 'older' }
 
 interface ConversationProps {
@@ -307,11 +314,14 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
   const older = useOlderSteps(job)
   const saved = earlierRow(0, { more: older.more, loading: older.loading, mayHaveOlder: job !== null && mayHaveOlder(activity?.entries) })
   const offersOlder = saved !== null
+  // Each run of the hobkin's schedules stands where it happened, from hobkin's record of them (056).
+  const runs = useScheduleRuns({ kind: 'hobkin', id })
   const rows = useMemo(() => {
     const entries = activity && older.steps.length ? [...older.steps, ...activity.entries] : activity?.entries
-    const page: readonly ShownRow[] = pageRows(turns, { sending, activity: activity && entries ? { entries, cwd: activity.cwd ?? cwd, seenAt: (id) => activity.timeOf(id)?.seen } : null })
+    const said = pageRows(turns, { sending, activity: activity && entries ? { entries, cwd: activity.cwd ?? cwd, seenAt: (id) => activity.timeOf(id)?.seen } : null })
+    const page: readonly ShownRow[] = withRuns(said, runs, rowTime)
     return offersOlder && job ? withEarlier(page, (row) => row.kind === 'step' && row.key.startsWith(`${job}:`), OLDER_ROW) : page
-  }, [turns, sending, activity, older.steps, cwd, offersOlder, job])
+  }, [turns, sending, activity, older.steps, cwd, offersOlder, job, runs])
   // A long conversation draws only its newest rows, with a row above them for the ones before (newest.ts). The step
   // being read stays where it was when older steps come.
   const newest = useNewest(id, rows)
@@ -343,6 +353,8 @@ function ConversationRows({ id, turns, cwd, sending, problem, loading }: Convers
                   <StepItem key={row.key} step={row.step} timeOf={activity!.timeOf} ended={row.ended} />
                 ) : row.kind === 'answer' ? (
                   <Answer key={row.key} turn={row.turn} at={row.at} />
+                ) : row.kind === 'schedule' ? (
+                  <ScheduleRunsItem key={row.key} row={row} />
                 ) : (
                   <Working key={row.key} run={run} />
                 ),

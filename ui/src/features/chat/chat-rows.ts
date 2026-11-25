@@ -26,6 +26,8 @@ function saying(entry: Entry): string {
       return `${entry.role}\n${entry.text}`
     case 'notice':
       return `${entry.tone}\n${entry.text}`
+    case 'schedule':
+      return `schedule\n${entry.key}`
   }
 }
 
