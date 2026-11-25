@@ -116,10 +116,19 @@ const deployOf = (item: object): string | null => {
   return typeof state === 'string' ? state : null
 }
 
-const workOf = (filed: Filed): IssueWork | null =>
-  filed
-    ? { slug: filed.project.slug, project: filed.project.name ?? filed.project.slug, item: filed.item.id, state: filed.item.state, pr: filed.item.pr ?? null, deploy: deployOf(filed.item) }
-    : null
+function workOf(filed: Filed): IssueWork | null {
+  if (!filed) return null
+
+  const { project, item } = filed
+  return {
+    slug: project.slug,
+    project: project.name ?? project.slug,
+    item: item.id,
+    state: item.state,
+    pr: item.pr ?? null,
+    deploy: deployOf(item),
+  }
+}
 
 /**
  * The GitHub page's issues, each with the hobkin work filed for it, so a filed issue shows where its work stands on every load. hobkin's items

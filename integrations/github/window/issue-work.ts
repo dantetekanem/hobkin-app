@@ -74,8 +74,8 @@ export function issueChip({ slug, item, state, deploy }: IssueWork, place: WorkP
   if (place?.on === 'merging') return { label: 'Merging after your yes', tone: 'live', target: null }
   if (place?.on === 'card') return { label: CARD_WAITS[place.group], tone: 'warn', target: `[data-change="${key}"]` }
   const target = place?.on === 'queue' ? `[data-queue-row="item:${key}"]` : null
-  const deploying = state === 'merged' && deploy ? MERGED_UNTIL_DEPLOYED[deploy] : undefined
-  const standing = deploying ?? STANDINGS[state] ?? { label: 'Filed', tone: 'quiet' }
+  const untilDeployed = state === 'merged' && deploy ? MERGED_UNTIL_DEPLOYED[deploy] : undefined
+  const standing = untilDeployed ?? STANDINGS[state] ?? { label: 'Filed', tone: 'quiet' }
   if (justAdded && (state === 'open' || state === 'stuck')) return { ...JUST_ADDED, target }
   return { ...standing, target }
 }

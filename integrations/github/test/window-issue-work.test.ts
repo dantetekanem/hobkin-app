@@ -56,7 +56,8 @@ test('the other states say where the item stands, and a queued one opens its row
 })
 
 test('merged work on a project that deploys says it waits for its deploy, since its issue stays open until a deploy that carries it holds', () => {
-  const merged = (deploy?: string | null) => issueChip({ ...filed('merged'), ...(deploy === undefined ? {} : { deploy }) }, null)
+  const merged = (deploy?: string | null) => issueChip({ ...filed('merged'), deploy }, null)
+
   // Merged since the last deploy, or carried by one that regressed: the next calm deploy closes it.
   for (const deploy of ['waiting', 'regressed']) assert.deepEqual(merged(deploy), { label: 'Merged, waits for deploy', tone: 'quiet', target: null }, deploy)
   assert.deepEqual(merged('deploying'), { label: 'Deploying', tone: 'live', target: null })

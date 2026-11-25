@@ -406,8 +406,11 @@ const CHIP = 'inline-flex h-7 items-center gap-1.5 rounded-full px-3 font-headin
  */
 function filedWords({ state, project, item, deploy }: IssueWork): string {
   if (state !== 'merged') return `Filed on ${project} as ${item}.`
+
   const merged = `Merged on ${project} as ${item}.`
-  return deploy && deploy !== 'live' ? `${merged} ${project} deploys, so hobkin closes the issue once a deploy that carries it held.` : merged
+  const deployStillToHold = Boolean(deploy) && deploy !== 'live'
+  if (!deployStillToHold) return merged
+  return `${merged} ${project} deploys, so hobkin closes the issue once a deploy that carries it held.`
 }
 
 /** Its pull request's address, to open while it is open and once it merged. */

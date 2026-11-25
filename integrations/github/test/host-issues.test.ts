@@ -157,5 +157,14 @@ test("an issue whose work merged on a project that deploys carries where that de
   updateItem(root, slug, id, { state: 'merged', pr: 'https://github.com/acme/web/pull/40', deploy: { state: 'waiting', at: '2026-11-24T02:04:14Z' } })
   const github: GitHubState = { ...GITHUB_UNKNOWN, connection: 'connected', issues: [listed(12)] }
 
-  assert.deepEqual(issueWorkReader(() => root)(github, {}).issues[0]!.work, { slug, project: 'web', item: id, state: 'merged', pr: 'https://github.com/acme/web/pull/40', deploy: 'waiting' })
+  const read = issueWorkReader(() => root)(github, {})
+
+  assert.deepEqual(read.issues[0]!.work, {
+    slug,
+    project: 'web',
+    item: id,
+    state: 'merged',
+    pr: 'https://github.com/acme/web/pull/40',
+    deploy: 'waiting',
+  })
 })
