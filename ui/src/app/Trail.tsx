@@ -5,19 +5,21 @@ import type { ProofRunSummary } from '#shared/protocol/proofs.ts'
 import { labelFor } from '@/features/canvas-panel/rules.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { SAMPLE_PROOFS } from '@/features/proofs/sample.ts'
+import { useSettings } from '@/features/settings/store.ts'
 import { useWorkUi } from '@/features/work/store.ts'
 import { usePullRequests } from '@/integration/use-pulls.ts'
 import { useHasHost, useHost } from '@/lib/host/index.ts'
 import { cn } from '@/lib/utils.ts'
 import { requestCanvasFocus } from './focus.ts'
 import { useAgent } from './running-agents.ts'
-import { modelName, placeName, reviewTitleOf, shownTrail, type Stop } from './trail.ts'
+import { drawnPlaces, modelName, placeName, reviewTitleOf, shownTrail, type Stop } from './trail.ts'
 import { useView } from './view-store.ts'
 
 /**
  * The trail (053), the one way a page says where it is: one line under the menu, on every page, of the places the user
  * came through to it, oldest first. Each earlier place is a button back to it; the last is the page itself, in plain
- * text. It is always one line of the same height: a long trail shortens its middle places first, then its ends.
+ * text. A menu page reached from nowhere names nothing there, since the menu lights it. It is always one line of the
+ * same height: a long trail shortens its middle places first, then its ends.
  * Escape goes back one place too (`keys.ts`).
  *
  * While the main canvas is open and the menu keeps one row, the canvas's pill sits at the line's right end
@@ -40,13 +42,16 @@ export const Trail = memo(function Trail({ pill = null, dot = false }: {
   const screenReturn = useView((view) => view.screenReturn)
   const mindReturn = useView((view) => view.mindReturn)
   const canvasReturn = useView((view) => view.canvasReturn)
+  const outOfMenu = useSettings((settings) => settings.screensOutOfMenu)
   const shown = useMemo(
     () => shownTrail({ screen, trail, openAgent, openReview, openProof, project, settingsReturn, screenReturn, mindReturn, canvasReturn }),
     [screen, trail, openAgent, openReview, openProof, project, settingsReturn, screenReturn, mindReturn, canvasReturn],
   )
   // The canvas names itself in the menu, and its drawing starts right under it.
-  const places = screen === 'canvas' ? [] : shown
-  if (places.length === 0 && !pill) return null
+  if (screen === 'canvas' && !pill) return null
+  // A menu page reached from nowhere is the menu's lit item already. The line keeps its height and names nothing, so no
+  // page moves when a trail starts.
+  const places = screen === 'canvas' ? [] : drawnPlaces(shown, outOfMenu)
 
   return (
     <nav aria-label="Trail" data-trail="" className="relative mt-0.5 flex h-5 w-full min-w-0 justify-center px-6">

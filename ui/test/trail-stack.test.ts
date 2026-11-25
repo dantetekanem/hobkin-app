@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { beforeEach, test } from 'node:test'
 import { resolveEscape, type KeyContext } from '../src/app/key-map.ts'
-import { MOST_PLACES, shownTrail } from '../src/app/trail.ts'
+import { drawnPlaces, MOST_PLACES, shownTrail } from '../src/app/trail.ts'
 import { useView } from '../src/app/view-store.ts'
 import { withFixturePart } from './integration-fixture.ts'
 
@@ -168,4 +168,15 @@ test('Escape with nothing on the trail goes where each page went before: Work, o
   useView.setState({ screen: 'github', trail: [], screenReturn: 'routines' })
   view().leave()
   assert.equal(view().screen, 'routines')
+})
+
+test('a menu page reached from nowhere draws no trail, since the menu lights it already', () => {
+  const drawn = () => drawnPlaces(shownTrail(view())).map(({ screen, about }) => (about ? `${screen}:${about}` : screen))
+  view().openMenuScreen('work')
+  assert.deepEqual(drawn(), [], 'Work alone is the lit menu item')
+  view().openProject('hobkin-api')
+  assert.deepEqual(drawn(), ['work', 'project:hobkin-api'], 'once there is somewhere to go back to, the whole trail shows')
+  useView.setState({ screen: 'project', project: 'hobkin-api', trail: [] })
+  assert.deepEqual(drawn(), ['project:hobkin-api'], 'a page the menu has no item for still names itself')
+  assert.deepEqual(drawnPlaces([{ screen: 'reports' }], ['reports']), [{ screen: 'reports' }], 'a page taken out of the menu still names itself')
 })

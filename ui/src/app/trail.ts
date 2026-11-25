@@ -2,7 +2,7 @@ import { targetOfReviewId } from '#shared/review/ids.ts'
 import type { Place } from '../features/main-agent/mind.ts'
 import { isPartScreen } from '../integration/screens.ts'
 import { depth } from './overlays.ts'
-import { screens, type ScreenId } from './screens.ts'
+import { inMenu, screens, type ScreenId } from './screens.ts'
 
 /**
  * The trail (053): the places the user came through to the page they are on, oldest first, as the frame shows them
@@ -120,6 +120,12 @@ export function shownTrail(view: TrailView): Stop[] {
   const under = view.screen === 'mind' ? view.mindReturn : view.screen === 'canvas' ? view.canvasReturn : null
   const below = under ? [stopOf({ ...view, ...under })] : []
   return [...view.trail, ...below, stopOf(view)].slice(-MOST_PLACES)
+}
+
+/** The places the trail draws: none for a menu page reached from nowhere, which the menu lights already. */
+export function drawnPlaces(stops: readonly Stop[], outOfMenu: readonly string[] = []): readonly Stop[] {
+  const [only] = stops
+  return stops.length === 1 && only && inMenu(only.screen, outOfMenu) ? [] : stops
 }
 
 /**
