@@ -578,8 +578,8 @@ const MOVEMENTS: readonly { value: Movement; label: string }[] = [
 ]
 
 const MOVEMENT_SAYS: Record<Movement, string> = {
-  lively: 'Everything moves, even when the Mac asks for less.',
-  system: 'Moves unless the Mac asks for less.',
+  lively: 'Faces keep moving all the time, even when the Mac asks for less. Uses more power.',
+  system: 'Faces move when their mood changes, then rest. Less if the Mac asks.',
   still: 'Screens fade, and nothing travels.',
 }
 

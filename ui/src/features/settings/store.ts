@@ -8,7 +8,7 @@ import { clampAgents } from '../work/agents-at-once.ts'
 import { AGENTS, BUDGET, OPACITY, OPEN_BY_DEFAULT, adjustedPalette, migrateSettings, receiveAppearance, stepBudget, stepOpacity, themeRequestText, type BlockKind, type Palette } from './rules.ts'
 import { readLook, type ReviewLook } from '../review/state/look.ts'
 
-/** Lively plays movement even when the Mac asks for less. Still never moves. */
+/** Lively keeps faces moving all the time, even when the Mac asks for less. System moves a face when its mood changes. Still never moves. */
 export type Movement = 'lively' | 'system' | 'still'
 
 /** The face for reading text. Headings, labels and the wordmark stay in Space Grotesk. */
