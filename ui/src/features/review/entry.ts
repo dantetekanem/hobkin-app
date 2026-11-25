@@ -26,6 +26,8 @@ interface EscapableSession {
   /** When the proof and the code opened, as a count that goes up: the one opened last is the inner one. */
   proofAt?: number
   codeAt?: number
+  /** Graph or Code (spec 071). */
+  look?: 'graph' | 'code'
 }
 
 /**
@@ -33,8 +35,18 @@ interface EscapableSession {
  * code, with its selected lines, when the code opened after it), an open wire, selected lines, the code, then every open
  * group of a large change at once (spec 053), those the outline, U or a kept place opened by themselves too: one press,
  * never one for each. With the proof open it never leaves the review. Graph focus never traps the screen's exit.
+ *
+ * The code view (spec 071) has no code panel, wire or group: the note, the finder, the proof, then `collapse`, which takes
+ * a selection of several lines back to the cursor's line and says whether it did, then the review.
  */
-export function escapeReview(session: EscapableSession, close: () => void): void {
+export function escapeReview(session: EscapableSession, close: () => void, collapse?: () => boolean): void {
+  if (session.look === 'code') {
+    if (session.editor) session.closeEditor()
+    else if (session.finder) session.closeFinder()
+    else if (session.proof && session.closeProof) session.closeProof()
+    else if (!collapse?.()) close()
+    return
+  }
   const codeOverProof = session.code != null && (session.codeAt ?? 0) > (session.proofAt ?? 0)
   if (session.editor) session.closeEditor()
   else if (session.finder) session.closeFinder()

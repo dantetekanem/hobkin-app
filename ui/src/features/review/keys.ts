@@ -13,6 +13,7 @@ import type { Verdict } from '#shared/review/verdict.ts'
 import { isFoldGroup } from './graph/focus.ts'
 import { nodeAlongWire, nodeToward, type Direction } from './graph/navigate.ts'
 import { modeOfKey } from './story/mode.ts'
+import { LOOK_KEY } from './state/look.ts'
 import type { Session } from './state/session.ts'
 
 export interface KeyPress {
@@ -37,6 +38,11 @@ export interface KeyEffects {
   focusStack?(): void
   /** `{` and `}` (spec 060): -1 goes to the review of the layer under this one in its stack, 1 to the layer over it. Missing where there is no panel. */
   moveLayer?(direction: -1 | 1): void
+  /**
+   * The code view's own keys, asked first while it is the look (spec 071): the cursor and the selection, the files, the
+   * changes, the seen mark and the view, Option with them too. True when it used the key.
+   */
+  codeKey?(press: KeyPress): boolean
 }
 
 /**
@@ -140,9 +146,32 @@ function panelKeys(session: Session, key: string, effects: KeyEffects): boolean 
   }
 }
 
+/**
+ * A key in the code view (spec 071). Its own keys go to it first. Of the rest, those of the notes, the panel, the verdict,
+ * the proof, the stack and the finder are the review's as in the graph; I goes back to the graph, and O and P go to the
+ * graph in their mode. The graph's own keys (the steps, the wires, the outline, the whole graph) move nothing here.
+ */
+function codeViewKey(session: Session, press: KeyPress, effects: KeyEffects): boolean {
+  const { key, shift, alt } = press
+  if (effects.codeKey?.(press)) return true
+  if (alt) return false
+  if (key === 't' || key === 'T') return effects.proofKey(shift), true
+  if ((key === '{' || key === '}') && effects.moveLayer) return effects.moveLayer(key === '{' ? -1 : 1), true
+  if (shift && key === 'S' && effects.focusStack) return effects.focusStack(), true
+  if (shift) return false
+  if (key.toUpperCase() === LOOK_KEY) return session.setLook('graph'), true
+  const mode = modeOfKey(key)
+  if (mode) return session.setMode(mode), true
+  if (key === '/') return session.openFinder(), true
+  // The files are the code view's outline.
+  if (key === 'l' || key === 'L') return true
+  return panelKeys(session, key, effects) ?? false
+}
+
 /** Does what a key means in the review. True when the key was the review's, and should go no further. */
 export function pressKey(session: Session, press: KeyPress, effects: KeyEffects): boolean {
   const { key, shift, alt } = press
+  if (session.look === 'code') return codeViewKey(session, press, effects)
   if (alt) return false
 
   // An open wire takes its two letters first: Y to say yes to a proposed wire, R to remove it.
@@ -185,9 +214,10 @@ export function pressKey(session: Session, press: KeyPress, effects: KeyEffects)
   if (shift && key === 'S' && effects.focusStack) return effects.focusStack(), true
   if (shift) return false
 
-  // O and P choose the mode, and start it from the beginning, wherever the reviewer is.
+  // O and P choose the mode, and start it from the beginning, wherever the reviewer is. I opens the code view (spec 071).
   const mode = modeOfKey(key)
   if (mode) return session.setMode(mode), true
+  if (key.toUpperCase() === LOOK_KEY) return session.setLook('code'), true
   // In Free Roam no step leads: the keys that walk the story are still the review's, and move nothing.
   if (roam && (/^[0-9]$/.test(key) || [' ', 'Home', 'End', 'b', 'B'].includes(key))) return true
 

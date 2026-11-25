@@ -15,6 +15,7 @@ import { backToStep, focusGroup, focusNode, focusOf, goToStep, leaveFocus, offPa
 import { modeStart, type ReviewMode } from '../story/mode.ts'
 import { pickTravel, type Travel } from '../story/travel.ts'
 import { applyMemory, type MemoryState, type Point, type ReviewView, type ViewEdge, type WireDecision } from './memory.ts'
+import { partsInFile, partsToSee, placeOfPart, stepShowing, type DiffAt, type ReviewLook } from './look.ts'
 import type { KeptEntry, SessionPlace } from './place.ts'
 import type { NotesShown } from './quick-notes.ts'
 import { marksOf } from './seen.ts'
@@ -75,6 +76,16 @@ export interface Session {
   opened: string | null
   /** Story, where the steps lead, or Free Roam, where nothing does (`story/mode.ts`). The window remembers the last chosen. */
   mode: ReviewMode
+  /**
+   * Graph or Code (spec 071, `look.ts`): the review walked as a graph, or the change as a diff, file by file. A review
+   * opens in the look the window's settings choose, or in the one it was left in for another page.
+   */
+  look: ReviewLook
+  /**
+   * The code view: the file it shows, by id, null for the first it lists, and lines a step, a part or a note asked it to
+   * show, which its cursor goes to. `ask` goes up each time it is asked to show something, so the same ask moves it again.
+   */
+  diff: { file: string | null; at: DiffAt | null; ask: number }
   /** Which groups of a large change are open, and the nodes reached in them (`graph/focus.ts`). */
   fold: FocusState
   /**
@@ -218,6 +229,16 @@ export interface Session {
    */
   setMode(mode: ReviewMode): void
   /**
+   * Graph or Code. Code closes the graph's code panel and starts on the code it had open. The graph is where it was left.
+   * In the code view, whatever goes to a step or a part (`goTo`, `focusOn`, `showNote`, `openCode`) shows its code there,
+   * and the graph's story follows along.
+   */
+  setLook(look: ReviewLook): void
+  /** Shows a file in the code view, its cursor on `at` when given. A selection on another file goes. */
+  showFile(fileId: string, at?: DiffAt | null): void
+  /** Z in the code view: marks every changed part of the review in a file seen, or takes the marks off when all are. False when it has none. */
+  toggleFileSeen(fileId: string): boolean
+  /**
    * Takes in a newer copy of the same review, at the same commit, such as one whose change review rewrote its story:
    * the graph, its levels and the story follow it in place. The reviewer stays on the step, the node or the whole graph
    * they were on, and what they have open stays open, while the review still has it; a step it no longer has puts them
@@ -328,9 +349,10 @@ function keptPlace(graph: Placed, kept: SessionPlace): { story: StoryState; hist
 
 /**
  * A session on a review. `kept` is where the reviewer was when they left it for another page (`place.ts`): the session
- * comes back there, as long as the review at this commit still has it.
+ * comes back there, as long as the review at this commit still has it. `opens.look` is the look the window's settings
+ * open reviews in; a place kept wins over it.
  */
-export function createSession(opened: Review, memory: StoreApi<MemoryState>, kept: SessionPlace | null = null): SessionStore {
+export function createSession(opened: Review, memory: StoreApi<MemoryState>, kept: SessionPlace | null = null, opens: { look?: ReviewLook } = {}): SessionStore {
   /** The review on screen: the one opened, then each newer copy of it taken in (`adopt`). */
   let review = opened
   /** Which of its groups are open. Kept here too, so the view can be worked out before the store holds it. */
@@ -388,9 +410,10 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       const next = derive(before.view, moved.state)
       const travel = kind === 'whole' ? null : pickTravel(before.view.edges, before.focus, next.focus, preferred)
       memory.getState().saveProgress(review, progressOf(review, moved.state))
-      // A step visited on the path is seen: every node the review's own steps under it focus.
+      // A step visited on the path is seen: every node the review's own steps under it focus. In the code view a file is
+      // seen when the reviewer says so, so a step gone to from the panel marks nothing there.
       const { detour, group, whole, step } = moved.state
-      if (detour == null && group == null && !whole) {
+      if (before.look !== 'code' && detour == null && group == null && !whole) {
         const told = new Set(before.view.story[step]?.steps ?? [])
         markSeen(review.story.filter((each) => told.has(each.id)).flatMap((each) => each.focus))
       }
@@ -413,6 +436,19 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       })
     }
     const graph = () => ({ ...review, ...get().view })
+    const partOf = (id: string) => review.nodes.find((node) => node.id === id)
+    /**
+     * In the code view, what goes to a step or a part shows its code there: the first of `ids`, or of the parts they stand
+     * for, with code in a file the code view lists. Nothing moves for code it does not list, such as unchanged context.
+     */
+    const followInCode = (ids: readonly string[]) => {
+      if (get().look !== 'code') return
+      for (const id of ids.flatMap((each) => reviewNodesOf(get().view, each))) {
+        const node = partOf(id)
+        const place = node ? placeOfPart(node, review.files) : null
+        if (place) return get().showFile(place.fileId, place.at)
+      }
+    }
     /** The move that puts the reviewer back on a place they were. */
     const movedTo = (entry: FocusEntry): Moved => {
       let moved = goToStep(graph(), get().story, entry.step)
@@ -467,6 +503,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       notesShown: null,
       opened: null,
       mode: firstMode,
+      look: back ? (kept!.look ?? 'graph') : (opens.look ?? 'graph'),
+      diff: { file: back && kept!.file != null && review.files.some((file) => file.id === kept!.file) ? kept!.file : null, at: null, ask: 0 },
       fold,
       seen: seenNow(),
       outline: back ? kept!.outline : firstView.plan.active,
@@ -485,11 +523,12 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         // Riding the wire the review names only makes sense when moving one step forward along the path.
         const forward = index === story.step + 1 && !offPath(graph(), story)
         apply(goToStep(graph(), story, index), 'step', forward ? get().view.story[index]?.travel : undefined)
+        followInCode(get().view.story[index]?.focus ?? [])
       },
       goTo: (index) => {
         const { story } = get()
-        if (index === story.step && !offPath(graph(), story)) return
-        apply(goToStep(graph(), story, index), Math.abs(index - story.step) === 1 ? 'step' : 'jump')
+        if (!(index === story.step && !offPath(graph(), story))) apply(goToStep(graph(), story, index), Math.abs(index - story.step) === 1 ? 'step' : 'jump')
+        followInCode(get().view.story[index]?.focus ?? [])
       },
       focusOn: (nodeId) => {
         const { story, focus, mode } = get()
@@ -498,6 +537,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         // In Free Roam a node of a step is focused alone, as any other: no step takes the focus back.
         if (!(focus.length === 1 && focus[0] === drawn)) apply(focusNode(graph(), story, drawn, { alone: mode === 'roam' }), 'detour')
         if (get().nodeOf.has(drawn)) set({ pointed: drawn })
+        followInCode([nodeId])
       },
       back: () => {
         const { story, mode } = get()
@@ -525,6 +565,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         const target = nodeId ?? codeTarget(view, onPath ? (view.story[story.step]?.focus ?? []) : focus)
         beforeCode = null
         if (!target) return false
+        // The code view has no code panel: the code is shown there.
+        if (get().look === 'code') return followInCode([target]), true
         // A folded test shows its own code, with its card in focus.
         if (nodeId && !focus.includes(drawnAs(view, nodeId))) get().focusOn(nodeId)
         set({ code: target, wire: null, ...(get().code == null ? { codeAt: (openedCount += 1) } : {}) })
@@ -585,6 +627,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         if (!note) return
         const stepIndex = get().view.stepOf[note.step] ?? -1
         const { target } = note
+        // The code view shows a note's lines, else the code of what it is about.
+        if (get().look === 'code' && target.kind === 'lines') return get().showFile(target.fileId, { side: target.side, startLine: target.startLine, endLine: target.endLine })
         if (target.kind === 'step') {
           if (stepIndex >= 0) get().goTo(stepIndex)
           return
@@ -610,6 +654,22 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         const { story, wire, selection, view, pointed } = get()
         const step = view.story[story.step]
         if (!step) return
+        if (get().look === 'code') {
+          // C or D on lines that carry a note of that kind opens it, as in pi-coder.
+          const held = selection
+            ? get().notes.find(({ author, intent: kind, target }) => author === 'user' && kind === intent && target.kind === 'lines' && target.fileId === selection.fileId && target.side === selection.side && target.startLine <= selection.startLine && selection.endLine <= target.endLine)
+            : undefined
+          if (held) return get().editNote(held.id)
+          // Lines selected, or with none, as with the files focused, the file, through its first part.
+          const file = review.files.find((each) => each.id === (selection?.fileId ?? get().diff.file))
+          const part = file ? partsInFile(review.nodes, file)[0] : undefined
+          const target: NoteTarget = selection ?? (part ? { kind: 'node', node: part.id } : { kind: 'step' })
+          const on = stepShowing(view.story, (id) => reviewNodesOf(view, id), partOf, target) ?? step.id
+          const draft = memory.getState().of(review).draft
+          memory.getState().setDraft(review, { intent, text: draft && !draft.editing ? draft.text : '' })
+          set({ editor: { step: on, target } })
+          return
+        }
         // A note on a card of folded tests is about its first test: a node of the review, which hobkin can read.
         const on = story.detour ?? pointed
         const target = noteTarget({ step: step.id, detour: on ? (get().view.groups[on]?.tests[0] ?? on) : null, wire, selection })
@@ -648,12 +708,14 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
         if (panelOpen !== get().panelOpen) set({ panelOpen })
       },
       showCode: (nodeId) => {
+        if (get().look === 'code') return followInCode([nodeId])
         if (get().code == null || !get().nodeOf.has(nodeId)) return
         set({ code: nodeId })
         markSeen(reviewNodesOf(get().view, nodeId))
       },
       showTest: (testId) => {
         if (!get().nodeOf.has(testId)) return false
+        if (get().look === 'code') return followInCode([testId]), true
         beforeCode = null
         set({ code: testId, wire: null, ...(get().code == null ? { codeAt: (openedCount += 1) } : {}) })
         markSeen([testId])
@@ -739,7 +801,7 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       },
       toggleOutline: () => set(get().outline ? { outline: false } : { outline: true, outlineAsked: get().outlineAsked + 1 }),
       placeNow: () => {
-        const { story, mode, history, outline, code, proof, view } = get()
+        const { story, mode, history, outline, code, proof, view, look, diff } = get()
         const stepId = (step: number) => view.story[step]?.id ?? ''
         const kept = (entry: FocusEntry): KeptEntry => ({ ...entry, stepId: stepId(entry.step) })
         return {
@@ -751,6 +813,8 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
           outline,
           code,
           proof: proof?.run ?? null,
+          look,
+          file: diff.file,
         }
       },
       say: (text) => set({ notice: { key: (get().notice?.key ?? 0) + 1, text } }),
@@ -856,9 +920,31 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
       setMode: (mode) => {
         memory.getState().setReviewMode(mode)
         beforeCode = null
-        set({ mode, code: null, selection: null, finder: false })
+        // A mode is the graph's: from the code view it goes back to the graph.
+        set({ mode, look: 'graph', code: null, selection: null, finder: false })
         // Its start, as a fresh one: nothing to go back to from before it.
         apply(modeStart(graph(), get().story, mode), mode === 'roam' ? 'whole' : 'jump', undefined, NO_HISTORY)
+      },
+      setLook: (look) => {
+        const before = get()
+        if (look === before.look) return
+        // The graph is where it was left. What the code view had selected is the code view's.
+        if (look === 'graph') return set({ look, selection: null })
+        // The code the graph's panel had open is where the code view starts, with what was selected in it.
+        beforeCode = null
+        set({ look, code: null, wire: null, finder: false, notesShown: null, opened: null, ...(before.code == null ? { selection: null } : {}) })
+        if (before.code != null) followInCode([before.code])
+      },
+      showFile: (fileId, at = null) => {
+        const { diff, selection } = get()
+        set({ diff: { file: fileId, at, ask: diff.ask + 1 }, selection: selection?.fileId === fileId ? selection : null })
+      },
+      toggleFileSeen: (fileId) => {
+        const file = review.files.find((each) => each.id === fileId)
+        const ids = file ? partsToSee(review.nodes, file).map((node) => node.id).filter((id) => marks.has(id)) : []
+        if (ids.length === 0) return false
+        markSeen(ids, !ids.every((id) => get().seen.has(id)))
+        return true
       },
       adopt: (next) => {
         if (next === review) return
@@ -901,7 +987,9 @@ export function createSession(opened: Review, memory: StoreApi<MemoryState>, kep
           hover: hoverLevels(view, hovered),
           pointed: has(before.pointed) ? before.pointed : null,
           code,
-          selection: code == null ? null : before.selection,
+          // The code view stays on its file and lines, while the review still has the file.
+          selection: code == null && before.look !== 'code' ? null : before.selection,
+          diff: before.diff.file == null || review.files.some((file) => file.id === before.diff.file) ? before.diff : { file: null, at: null, ask: before.diff.ask + 1 },
           notesShown: shown && (shown.kind === 'node' ? has(shown.node) : view.stepOf[shown.step] != null) ? shown : null,
           opened: before.opened != null && view.groups[before.opened] ? before.opened : null,
         })

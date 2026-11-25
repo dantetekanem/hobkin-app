@@ -11,6 +11,7 @@ import type { Camera } from '../story/camera.ts'
 import type { FocusEntry } from '../story/history.ts'
 import type { ReviewMode } from '../story/mode.ts'
 import type { StoryState } from '../story/story.ts'
+import type { ReviewLook } from './look.ts'
 
 /** A place to go back to, with its step's id: a story rewritten at the same commit moves its steps' places. */
 export type KeptEntry = FocusEntry & { stepId: string }
@@ -29,6 +30,10 @@ export interface SessionPlace {
   code: string | null
   /** The run of the proof open beside the review. A place kept before the proof sat beside the review has none. */
   proof?: string | null
+  /** Graph or Code (spec 071). A place kept before the code view has none, and comes back in the graph. */
+  look?: ReviewLook
+  /** The file the code view showed. */
+  file?: string | null
 }
 
 /** And where the camera was. */
