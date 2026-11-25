@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { checkGrammar, GRAMMAR_CHECKER, GRAMMAR_EDITOR, type GrammarAsk } from '../review/grammar.ts'
+import { checkGrammar, GRAMMAR_CHECKER, GRAMMAR_EDITOR, grammarLines, type GrammarAsk } from '../review/grammar.ts'
 
 /** A model that answers each pass as told, and writes down what each pass was asked. */
 function model(answers: { editor?: unknown; checker?: unknown }) {
@@ -30,6 +30,10 @@ test('a correction that is only grammar is made, and one that could change the m
   assert.deepEqual(asked.map((call) => call.system), [GRAMMAR_EDITOR, GRAMMAR_CHECKER])
   // The second pass sees each change beside what it was, and nothing that did not change.
   assert.ok(asked[1]!.prompt.includes('this dont handle the retry') && !asked[1]!.prompt.includes('looks fine'))
+
+  // In words, each suggestion is a line, unless the suggestions go apart, for the reviewer to take in one by one.
+  assert.deepEqual(grammarLines(checked), ['Grammar fixed in one place; what goes is shown below.', 'Not changed, since it could change what you meant: "rename it to totals". Suggested: "Rename it to total."'])
+  assert.deepEqual(grammarLines(checked, { suggestions: false }), ['Grammar fixed in one place; what goes is shown below.'])
 })
 
 test('words with nothing to fix ask the second pass nothing', async () => {

@@ -166,6 +166,11 @@ export interface VerdictPreview {
   post?: PullReviewPost
   /** For a finished hobkin change: the note hobkin's agent will get when changes are asked for. */
   note?: string
+  /**
+   * For a pull request: the corrections the grammar check did not make, since they could change what the user meant.
+   * The user takes one in by changing their own words, as pi-coder asks the user for each.
+   */
+  suggested?: { original: string; suggestion: string }[]
   confirm: string
 }
 

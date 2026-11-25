@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import type { Review } from '../../shared/review/types.ts'
 import type { Verdict } from '../../shared/review/verdict.ts'
 import { createReviewMemory, memoryStorage } from '../src/features/review/state/memory.ts'
-import { CONFIRM_MS, createVerdictChoices, heldDown, sendsComments, VERDICT_CHOICES, verdictChoices, verdictComments, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
+import { CONFIRM_MS, createVerdictChoices, heldDown, sendsComments, suggestionNote, VERDICT_CHOICES, verdictChoices, verdictComments, verdictKind, type VerdictCommands } from '../src/features/review/verdict.ts'
 
 const CHANGE = 'change:hobkin:7d02c9'
 const PULL = 'pr:acme/shop/482'
@@ -239,6 +239,18 @@ test("a pull request's verdict takes only the user's own comments; a finished ch
   ]
   assert.deepEqual(verdictComments(PULL, notes), ['mine'])
   assert.deepEqual(verdictComments(CHANGE, notes), ['mine', 'hobkins', 'asked'])
+})
+
+test("a grammar suggestion is taken in by the user's own comment that says what it corrects, and by no other note", () => {
+  const base = { step: 's1', target: { kind: 'step' as const }, at: 1 }
+  const notes = [
+    { ...base, id: 'hobkins', intent: 'comment' as const, author: 'hobkin' as const, text: 'rename it' },
+    { ...base, id: 'gone', intent: 'comment' as const, author: 'user' as const, text: 'rename it', sent: 5 },
+    { ...base, id: 'asked', intent: 'question' as const, author: 'user' as const, text: 'rename it' },
+    { ...base, id: 'mine', intent: 'comment' as const, author: 'user' as const, text: 'rename it  ' },
+  ]
+  assert.equal(suggestionNote(notes, 'rename it')?.id, 'mine')
+  assert.equal(suggestionNote(notes, 'this dont handle the retry'), undefined, 'the body is more than one note: it is only shown')
 })
 
 test('Remove comes after every yes for a finished change and for a pull request, shown before it goes, and takes no comments with it', async () => {

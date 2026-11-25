@@ -268,7 +268,9 @@ test("the user's words have their grammar fixed before they post: the preview sh
   const preview = await reviews.preview(id, 'comment', '')
   assert.deepEqual([preview.post?.body, preview.post?.comments.map((comment) => comment.body)], ["This doesn't handle the retry.", ['rename it']])
   assert.ok(preview.lines.includes('Grammar fixed in one place; what goes is shown below.'), preview.lines.join('\n'))
-  assert.ok(preview.lines.includes('Not changed, since it could change what you meant: "rename it". Suggested: "Rename it to total."'), preview.lines.join('\n'))
+  // What could change the meaning is not made: it is handed over, for the reviewer to take in, as pi-coder asks for each.
+  assert.deepEqual(preview.suggested, [{ original: 'rename it', suggestion: 'Rename it to total.' }])
+  assert.equal(preview.lines.some((line) => line.startsWith('Not changed')), false, 'said once, where it can be taken in')
   await reviews.verdict(id, 'comment', '', preview.confirm)
   assert.deepEqual(JSON.parse(posts.find((post) => post.args.includes('--method'))!.input!), preview.post)
   assert.equal(passes.length, 2, 'the yes posts the words the preview checked, asking nothing again')

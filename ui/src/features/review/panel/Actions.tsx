@@ -14,7 +14,7 @@ import type { Note } from '../notes/notes.ts'
 import '../preparing/preparing.css'
 import { reviewMemory, useSession } from '../state/context.tsx'
 import { unseenNeeds, unseenWords } from './evidence.ts'
-import { CONFIRM_MS, createVerdictChoices, handOver, heldDown, VERDICT_CHOICES, verdictComments, verdictKind, type VerdictCommands } from '../verdict.ts'
+import { CONFIRM_MS, createVerdictChoices, handOver, heldDown, suggestionNote, VERDICT_CHOICES, verdictComments, verdictKind, type VerdictCommands } from '../verdict.ts'
 import { createReviewRemoval, footOf, KEEPS, REMOVE_REVIEW_LINES, removeChoices, type RemoveChoice } from './foot.ts'
 
 /** The choices that send the reviewer's comments, and have nothing to send without one. */
@@ -118,6 +118,15 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
     } finally {
       setTalking(false)
     }
+  }
+  // A grammar suggestion taken in changes the user's own comment to it. Like any change of the notes, that takes back
+  // the choice shown, to be shown again with the words as they are now.
+  const suggestion: Suggestion = {
+    takes: (original) => suggestionNote(notes, original) != null,
+    take: (original, words) => {
+      const note = suggestionNote(reviewMemory.getState().notesOf(review), original)
+      if (note) reviewMemory.getState().editNote(review, note.id, { text: words, intent: note.intent })
+    },
   }
 
   const choices = useMemo(
@@ -245,7 +254,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
       tabIndex={-1}
       className={cn('rv-scroll min-h-0 flex-1 overflow-y-auto rounded-xl px-3 py-2.5 text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] outline-none', says && 'bg-background')}
     >
-      <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} unseen={unseen} why={foot.why} />
+      <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} unseen={unseen} why={foot.why} suggestion={suggestion} />
     </div>
   )
   const said = removeShown ? (
@@ -463,7 +472,8 @@ const labelOf = (kind: 'change' | 'pull', verdict: Verdict) => VERDICT_CHOICES[k
  * its second click, the host's reason when it will not do it, its words when it did, or the sample notice. Nothing
  * when there is nothing to say.
  */
-function Said({ kind, live, flow, doing, landing, unseen, why }: {
+function Said({ kind, live, flow, doing, landing, unseen, why, suggestion }: {
+  suggestion: Suggestion
   kind: 'change' | 'pull'
   live: boolean
   flow: { busy: boolean; preview: VerdictPreview | null; error: string | null; message: string | null }
@@ -493,7 +503,7 @@ function Said({ kind, live, flow, doing, landing, unseen, why }: {
       </p>
     )
   }
-  if (flow.preview) return <Preview kind={kind} preview={flow.preview} unseen={isYes(flow.preview.verdict) ? unseenWords(unseen) : null} />
+  if (flow.preview) return <Preview kind={kind} preview={flow.preview} unseen={isYes(flow.preview.verdict) ? unseenWords(unseen) : null} suggestion={suggestion} />
   if (flow.message) return <Markdown text={flow.message} />
   if (!live) return <p className="text-muted-foreground">Sample review: nothing is sent from here.</p>
   return (
@@ -517,7 +527,13 @@ const isYes = (verdict: Verdict) => verdict === 'approve' || verdict === 'approv
  * What a choice will do, as the host says it, while the choice waits for its second click. A yes given with nodes that
  * need the reviewer not seen says how many first, and that U goes to the next: the second press still does it.
  */
-function Preview({ kind, preview, unseen }: { kind: 'change' | 'pull'; preview: VerdictPreview; unseen: string | null }) {
+/** Whether a grammar suggestion can be taken in, by the user's own comment it corrects, and taking it in. */
+interface Suggestion {
+  takes(original: string): boolean
+  take(original: string, words: string): void
+}
+
+function Preview({ kind, preview, unseen, suggestion }: { kind: 'change' | 'pull'; preview: VerdictPreview; unseen: string | null; suggestion: Suggestion }) {
   return (
     <div className="flex flex-col gap-2" aria-label={`What ${labelOf(kind, preview.verdict)} will do`}>
       {unseen ? (
@@ -533,6 +549,22 @@ function Preview({ kind, preview, unseen }: { kind: 'change' | 'pull'; preview: 
         ))}
       </ul>
       {preview.note ? <pre className="rounded-lg bg-secondary/70 p-2.5 font-sans text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{preview.note}</pre> : null}
+      {preview.suggested?.length ? (
+        <div className="flex flex-col gap-1.5" aria-label="Grammar not changed">
+          <p className="text-pretty">Not changed, since it could change what you meant. Use a suggestion to change your words to it:</p>
+          {preview.suggested.map(({ original, suggestion: words }, index) => (
+            <div key={index} className="flex flex-col gap-1 rounded-lg bg-secondary/70 p-2.5">
+              <p className="text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap text-muted-foreground">{original}</p>
+              <p className="text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{words}</p>
+              {suggestion.takes(original) ? (
+                <Button data-stop size="sm" variant="outline" className="h-7 self-start rounded-full px-2.5 text-[13px]" onClick={() => suggestion.take(original, words)}>
+                  Use it
+                </Button>
+              ) : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
       {preview.post ? <GitHubPost post={preview.post} /> : null}
       <p className="flex flex-wrap items-center gap-1 text-[13px] text-muted-foreground">
         Click it again within ten seconds to confirm. <Kbd>esc</Kbd> takes it back.

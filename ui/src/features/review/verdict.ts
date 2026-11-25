@@ -134,6 +134,15 @@ export function verdictComments(id: string, notes: readonly Note[]): string[] {
 }
 
 /**
+ * The user's own comment that a grammar suggestion corrects, still to go: its words are what the check read. Undefined
+ * for words that are no one note's, as a review's body made of several, which are only shown.
+ */
+export function suggestionNote(notes: readonly Note[], original: string): Note | undefined {
+  const words = original.trim()
+  return notes.find((note) => note.author === 'user' && note.intent === 'comment' && note.sent == null && note.text.trim() === words)
+}
+
+/**
  * True for a key held down, which must not give the second click. A choice waiting for its second click holds the
  * keyboard as soon as the host has said what will happen, and the key that gave the first may still be down then, such
  * as Enter on the choice. A held key goes on as repeats, and only a key pressed anew confirms. Enter and Space are the

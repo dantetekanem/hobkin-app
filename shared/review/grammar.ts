@@ -93,10 +93,14 @@ export async function checkGrammar(texts: GrammarTexts, ask: GrammarAsk, { passM
   }
 }
 
-/** What the confirmation says of the check, in plain lines. */
-export function grammarLines(result: GrammarResult): string[] {
+/**
+ * What the confirmation says of the check, in plain lines. With `suggestions: false` the corrections it did not make are
+ * left out, for they are shown apart, each to be taken in by the user.
+ */
+export function grammarLines(result: GrammarResult, { suggestions = true }: { suggestions?: boolean } = {}): string[] {
   if (result.kind === 'unchecked') return [`Your words go as you wrote them: their grammar was not checked, because ${result.why}.`]
   const lines = result.fixed > 0 ? [`Grammar fixed in ${result.fixed === 1 ? 'one place' : `${result.fixed} places`}; what goes is shown below.`] : []
+  if (!suggestions) return lines
   for (const { original, suggestion } of result.suggested) lines.push(`Not changed, since it could change what you meant: "${original}". Suggested: "${suggestion}"`)
   return lines
 }

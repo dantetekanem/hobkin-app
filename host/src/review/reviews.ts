@@ -1499,13 +1499,17 @@ export class Reviews {
     return found
   }
 
-  /** A pull request review with its words' grammar fixed where only grammar changed, and what the confirmation says of it. */
-  private async fixedPost(post: PullReviewPost): Promise<{ post: PullReviewPost; said: string[] }> {
+  /**
+   * A pull request review with its words' grammar fixed where only grammar changed, what the confirmation says of it,
+   * and the corrections it did not make, which the window shows apart for the user to take in (as pi-coder asks for each).
+   */
+  private async fixedPost(post: PullReviewPost): Promise<{ post: PullReviewPost; said: string[]; suggested: { original: string; suggestion: string }[] }> {
     const result = await this.grammarOf({ ...(post.body ? { body: post.body } : {}), comments: post.comments.map((comment) => comment.body) })
-    if (!result) return { post, said: [] }
-    if (result.kind === 'unchecked') return { post, said: grammarLines(result) }
+    if (!result) return { post, said: [], suggested: [] }
+    if (result.kind === 'unchecked') return { post, said: grammarLines(result), suggested: [] }
     const { body, comments } = result.texts
-    return { post: { ...post, ...(body !== undefined ? { body } : {}), comments: post.comments.map((comment, index) => ({ ...comment, body: comments[index]! })) }, said: grammarLines(result) }
+    const fixed = { ...post, ...(body !== undefined ? { body } : {}), comments: post.comments.map((comment, index) => ({ ...comment, body: comments[index]! })) }
+    return { post: fixed, said: grammarLines(result, { suggestions: false }), suggested: result.suggested }
   }
 
   /** The words a pull request gets before it is closed, with their grammar fixed in the same way. */
@@ -1590,7 +1594,7 @@ export class Reviews {
         const movedOn = !(current.startsWith(reviewed) || reviewed.startsWith(current))
         const said = movedOn ? await this.pullMovedWords(target, reviewed, current, base) : null
         // GitHub lets nobody approve their own pull request: what the user wrote still goes, as a comment, and then it merges.
-        const { post: written, said: checked } = await this.fixedPost(pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose))
+        const { post: written, said: checked, suggested } = await this.fixedPost(pullReviewPost(review, notes, mine ? 'comment' : 'approve', summary, loose))
         // A review with no line to place goes on the commit it merges; lines stay on the commit they were written on.
         const post = movedOn && written.comments.length === 0 ? { ...written, commit_id: current } : written
         const says = !mine || !saysNothing(post)
@@ -1605,7 +1609,7 @@ export class Reviews {
             ]
           : [`Approve ${name} on GitHub, as you, through gh, ${lineComments(post)}.`, ...checked, `Then merge it into ${base} ${MERGE_WORDS[method]}.`, ...tail]
         const merge: Merge = { post: says ? post : null, method, base, mine, head: current }
-        return { review, card: null, merge, preview: { verdict, lines, ...(says ? { post } : {}), confirm: token(merge) } }
+        return { review, card: null, merge, preview: { verdict, lines, ...(says ? { post, ...(suggested.length ? { suggested } : {}) } : {}), confirm: token(merge) } }
       }
       // GitHub would refuse it, so it is refused here, before anything is sent.
       if (verdict === 'approve' && this.apiFor(target) && (await this.pullFacts(target)).mine) {
@@ -1616,10 +1620,10 @@ export class Reviews {
       if (verdict === 'comment' && saysNothing(written)) throw new Unavailable('There is nothing to post: write a comment first.')
       // GitHub asks every request for changes for a body, and only the user's words may be it.
       if (verdict === 'request-changes' && !written.body) throw new Unavailable('A request for changes needs your words: write what should change first.')
-      const { post, said: checked } = await this.fixedPost(written)
+      const { post, said: checked, suggested } = await this.fixedPost(written)
       const words = { comment: 'Comment on', approve: 'Approve', 'request-changes': 'Ask for changes on' }[verdict]
       const lines = [`${words} ${name} on ${where}, as you, ${how}.`, `At commit ${at.slice(0, 7)}, the one this review was built from.`, `${lineComments(post).replace(/^w/, 'W')}.`, ...checked]
-      return { review, card: null, preview: { verdict, lines, post, confirm: token(post) } }
+      return { review, card: null, preview: { verdict, lines, post, ...(suggested.length ? { suggested } : {}), confirm: token(post) } }
     }
 
     const card = this.options.card(target.slug, target.item)
@@ -1707,7 +1711,7 @@ export class Reviews {
     const current = pull.head?.sha
     if (!current) throw new Unavailable(`${host} did not say which commit ${name} is at, so its merge is not asked.`)
     const opened = Boolean(pull.user?.login && ways.emails.includes(pull.user.login.toLowerCase()))
-    const { post: written, said: checked } = await this.fixedPost(pullReviewPost(review, notes, opened ? 'comment' : 'approve', summary, loose))
+    const { post: written, said: checked, suggested } = await this.fixedPost(pullReviewPost(review, notes, opened ? 'comment' : 'approve', summary, loose))
     // A review with no line to place goes on the commit it asks to merge; lines stay on the commit they were written on.
     const post = current !== at && written.comments.length === 0 ? { ...written, commit_id: current } : written
     const says = !opened || !saysNothing(post)
@@ -1723,7 +1727,7 @@ export class Reviews {
       `It asks at commit ${current.slice(0, 7)}: if ${name} moves before then, nothing more is posted.`,
     ]
     const merge: Merge = { asks: ways.mergeBy, post: says ? post : null, method: 'merge', base: '', mine: opened, head: current }
-    return { review, card: null, merge, preview: { verdict: 'approve-merge', lines, ...(says ? { post } : {}), confirm: token(merge) } }
+    return { review, card: null, merge, preview: { verdict: 'approve-merge', lines, ...(says ? { post, ...(suggested.length ? { suggested } : {}) } : {}), confirm: token(merge) } }
   }
 
   /**
