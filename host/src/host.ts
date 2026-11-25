@@ -79,6 +79,7 @@ import { proofHandlers, ProofsKeeper } from './proofs.ts'
 import { proofToolsHandlers } from './setup-proof.ts'
 import { workHandlers } from './work.ts'
 import { workQueueHandlers } from './work-queue.ts'
+import { guideHandlers } from './work-guide.ts'
 import { newProjectHandlers } from './work-new-project.ts'
 import { metricsHandlers } from './metrics.ts'
 import { workReader } from './work-items.ts'
@@ -746,6 +747,7 @@ export async function startHost(options: HostOptions): Promise<RunningHost> {
     ...agentHandlers({ app: hobkin, runs: () => (owner.snapshot?.runs ?? []) as RunSummary[], models: async () => (await signIn.refresh(), signIn.models ?? null), images: imagesForAgents, schedules: () => agentSchedules.read(owner.snapshot) }),
     // An agent's schedules, cancelled, paused or run now from the window's list, through hobkin's own methods (056).
     ...newProjectHandlers({ root: () => hobkin().runtime.directory, refresh: () => hobkin().refresh() }),
+    ...guideHandlers({ root: () => hobkin().runtime.directory, refresh: () => hobkin().refresh() }),
     ...folderPickHandlers({ pick: options.pickFolder ?? (async () => null) }),
     ...scheduleHandlers({ operations: () => scheduleOperationsOf(hobkin()), schedules: () => agentSchedules.read(owner.snapshot) }),
     // What hobkin remembers for every agent, on the window's Memory page, through hobkin's own memory functions (057).
