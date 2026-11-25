@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "ready",
   "depends": ["011-work", "020-settings", "023-integrations", "033-claude-code-agents", "034-durable-hobkins", "039-skills-and-extensions"],
-  "updated": "2026-11-14"
+  "updated": "2026-11-25"
 }
 ---
 # Starting blank: what each agent loads
@@ -177,6 +177,8 @@ Every agent hobkin starts on Pi begins with hobkin's own instructions and tools,
 - A20. `host/test/resources.test.ts` › "a run sent to Claude Code gets none of Pi's resources, and the state names the kinds that go there"
 - A21. `hobkin/test/cli-resource-runs.test.mjs` › "under a launcher that manages extensions, skills still follow the selection and the project's files still load"
 - A22. `hobkin/test/cli-resource-runs.test.mjs` › "with the kinds switch off runs load what they did before, and on they load their kind's choice"; `hobkin/test/cli-resource-policy.test.mjs` › "the starting choice is written once by package name, leaves out what is not installed, and files one Action Item"; `host/test/resources.test.ts` › "only the window turns the kinds switch on"
+
+## Notes
 
 Note, 2026-11-13. S1 and S2 are built as runtime modules that no run loads yet (`resource-catalog.mjs`, `resource-facts-extension.mjs`, `resource-use.mjs`, and version 2 functions added beside version 1 in `resource-policy.mjs` and `config.mjs`). Their tests pass against Pi 1.5.0 as installed, with temporary Pi folders and fakes of Pi's extension surface.
 

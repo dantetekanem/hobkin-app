@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["011-work", "025-onboarding", "049-yolo-mode", "053-work-control-room"],
-  "updated": "2026-11-24"
+  "updated": "2026-11-25"
 }
 ---
 # New project, and projects that are goals
@@ -95,11 +95,9 @@ The user again, the same day, on what a goal's run does to files where the folde
 
 ## Proof
 
-- A1. In hobkin, `test/cli-work-goal.test.mjs` › "newProject takes a goal in a plain folder, with its words as the directions", › "newProject takes code from a repository, keeps its words, and never reads a goal's parent as the project", › "newProject refuses in plain words and changes nothing" and › "the command line takes a goal with its words on stdin, and a proposal can never carry a kind"
-- A1, the repository. In hobkin, `test/cli-work-goal.test.mjs` › "every project has a repository of its own: a plain folder gets one whose first commit holds its files, with no remote", › "an empty folder gets a repository with an empty first commit", › "a folder that already holds a repository is left exactly as it is", › "a goal's folder inside another repository gets a repository of its own" and › "when git fails the add is refused with its reason, no project is written and no repository is left"; `host/test/work-new-project-runtime.test.ts` › "a repository is added as code as it is, a folder with none is added as code with one started, and a second add is refused"
+- A1. In hobkin, `test/cli-work-goal.test.mjs` › "newProject takes a goal in a plain folder, with its words as the directions", › "newProject takes code from a repository, keeps its words, and never reads a goal's parent as the project", › "newProject refuses in plain words and changes nothing" and › "the command line takes a goal with its words on stdin, and a proposal can never carry a kind"; the repository, in hobkin, `test/cli-work-goal.test.mjs` › "every project has a repository of its own: a plain folder gets one whose first commit holds its files, with no remote", › "an empty folder gets a repository with an empty first commit", › "a folder that already holds a repository is left exactly as it is", › "a goal's folder inside another repository gets a repository of its own" and › "when git fails the add is refused with its reason, no project is written and no repository is left"; `host/test/work-new-project-runtime.test.ts` › "a repository is added as code as it is, a folder with none is added as code with one started, and a second add is refused"
 - A2. In hobkin, `test/cli-work-goal.test.mjs` › "the user's words are written as the directions, and blank words write nothing"; `host/test/work-new-project-runtime.test.ts` › "a folder that is no repository is added as a goal: hobkin takes it with its kind, and the words are its directions". That a run is given a project's directions is hobkin's own test from before, `test/cli-work-director.test.mjs` near line 2000.
-- A3. In hobkin, `test/cli-work-goal.test.mjs` › "a goal is studied and worked in its own folder, with no worktree, branch or code look" and › "the item command takes a finished step on a goal and refuses a branch, a pull request and an adopted branch there"
-- A3, the commit. In hobkin, `test/cli-work-goal.test.mjs` › "a step's run ends with one commit of exactly what it changed, recorded on the item, and the user's own edit stays uncommitted", › "a run that changes nothing makes no commit" and › "a run that ends without an outcome still has its changes committed"
+- A3. In hobkin, `test/cli-work-goal.test.mjs` › "a goal is studied and worked in its own folder, with no worktree, branch or code look" and › "the item command takes a finished step on a goal and refuses a branch, a pull request and an adopted branch there"; the commit, in hobkin, `test/cli-work-goal.test.mjs` › "a step's run ends with one commit of exactly what it changed, recorded on the item, and the user's own edit stays uncommitted", › "a run that changes nothing makes no commit" and › "a run that ends without an outcome still has its changes committed"
 - A4. In hobkin, `test/cli-work-goal.test.mjs` › "after its study a goal gets one look of its own and none of the code looks"; `test/cli-harnesses.test.mjs`, its test of the goal prompt.
 - A5. In hobkin, `test/cli-work-goal.test.mjs` › "YOLO mode files nothing on a goal, refuses its switch, leaves it out of the view, and still treats code as before", › "a goal takes no pull request or issue setting, and code still does" and › "the survey of unmerged branches skips a goal, even one inside a repository with unmerged work"
 - A6. In hobkin, `test/cli-work-goal.test.mjs` › "status carries a goal's kind and how many steps are done, and gives code no such count"; `host/test/work.test.ts` › "a goal's kind and how many of its steps are done reach the window, and a project with no kind sends neither"
@@ -118,7 +116,7 @@ The user again, the same day, on what a goal's run does to files where the folde
 - [x] S4 (A7, A8, A9). Host: the three commands. 01b5e47, 58f8afc, 9d16d65, c8d06c9, 254796a, and 2d96221 for the check against hobkin's own add. The Mac's chooser was never shown: every test hands in a fake.
 - [x] S5 (A10, A11, A12). Window: the popup, the two buttons, and a goal's row. 4ffa52a, 88f7bdf, 8bed998, ac902f6, 922d0a5. Seen in still renders only.
 - [x] S7 (A1, A3, A10). Every project has a git repository of its own, on the user's word of 2026-11-24. hobkin 715fad4 (a repository started at the add, and removed again if git fails) and 1b4f1b7 (a goal's step committed when its run ends); here b302755 (the popup) and 871a178 (the host, checked against hobkin's own add). The first commit leaves out `node_modules` and `.env` files, which hobkin never keeps. A path the user had changed before a run and the run changed again stays uncommitted, as the user's.
-- [ ] S6. In the app's own window: the two buttons, N, the chooser from Open, an add of a goal, and its row.
+- [ ] S6 (A8, A9, A10, A11, A12). In the app's own window: the two buttons, N, the chooser from Open, an add of a goal, and its row.
 
 ## Open questions
 

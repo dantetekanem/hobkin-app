@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["030-canvas-panel", "035-canvas-drawings", "036-canvas-browser", "034-durable-hobkins", "019-keyboard"],
-  "updated": "2026-11-19"
+  "updated": "2026-11-25"
 }
 ---
 # Canvas: the right side, live drawings and the kit
@@ -80,10 +80,13 @@ The canvas becomes a real drawing surface and whiteboard, as big as the right si
 - A15. Under Still movement, the canvas place and the split fade without travelling.
 
 ## Proof
-- A1, A3, A4. `ui/test/canvas-place.test.ts`; check: ask hobkin to draw, go to Reports and back by the pill, close it.
+- A1. `ui/test/canvas-place.test.ts`; check: ask hobkin to draw, go to Reports and back by the pill, close it.
 - A2. check: a still render of the canvas place in light and dark.
+- A3. `ui/test/canvas-place.test.ts`; check: ask hobkin to draw, go to Reports and back by the pill, close it.
+- A4. `ui/test/canvas-place.test.ts`; check: ask hobkin to draw, go to Reports and back by the pill, close it.
 - A5. `ui/test/canvas-place.test.ts` › the split's sizes; check: ask a durable hobkin to draw.
-- A6, A7. `ui/test/keys.test.ts`.
+- A6. `ui/test/keys.test.ts`.
+- A7. `ui/test/keys.test.ts`.
 - A8. `host/test/canvas-runtime.test.ts` › the keys a drawing passes on; `ui/test/canvas-panel.test.ts` › the frame's messages.
 - A9. `host/test/canvases.test.ts`.
 - A10. `host/test/canvas-runtime.test.ts` › in place or fresh; `ui/test/canvas-panel.test.ts` › before and after `ready`.
