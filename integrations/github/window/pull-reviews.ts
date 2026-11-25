@@ -85,19 +85,23 @@ function reviewsOfPulls(rows: readonly ReviewRow[]): (id: string) => ReviewRow |
   const opened = new Map<string, ReviewRow>()
   const changesAt = new Map<string, ReviewRow[]>()
   for (const row of rows) {
+    const { head } = row.item
     if (row.item.kind === 'pull') {
       own.set(row.item.id, row)
-      continue
+    } else {
+      const pull = row.link ? pullReviewId(row.link) : null
+      if (pull) opened.set(pull, row)
+      if (head) changesAt.set(head, [...(changesAt.get(head) ?? []), row])
     }
-    const pull = row.link ? pullReviewId(row.link) : null
-    if (pull) opened.set(pull, row)
-    if (row.item.head) changesAt.set(row.item.head, [...(changesAt.get(row.item.head) ?? []), row])
   }
+
   return (id) => {
     const shown = own.get(id) ?? opened.get(id)
     if (!shown) return undefined
-    const sameChange = [opened.get(id), ...(shown.item.head ? (changesAt.get(shown.item.head) ?? []) : [])]
-    return withRunOf(shown, sameChange.filter((row): row is ReviewRow => row !== undefined && row !== shown))
+
+    const atItsCommit = shown.item.head ? (changesAt.get(shown.item.head) ?? []) : []
+    const sameChange = [opened.get(id), ...atItsCommit].filter((row): row is ReviewRow => row !== undefined && row !== shown)
+    return withRunOf(shown, sameChange)
   }
 }
 

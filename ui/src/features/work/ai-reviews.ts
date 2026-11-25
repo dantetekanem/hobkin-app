@@ -186,8 +186,11 @@ const runPlace = ({ state }: ReviewRow) => (state.kind === 'reviewing' ? 0 : sta
  * run's line, percent and start, so a review started again on either shows wherever the change is shown.
  */
 export function withRunOf(shown: ReviewRow, others: readonly ReviewRow[]): ReviewRow {
-  const run = others.reduce((best, row) => (runPlace(row) < runPlace(best) ? row : best), shown)
-  return run === shown ? shown : { ...shown, state: run.state, line: run.line, percent: run.percent, startedAt: run.startedAt }
+  const furthest = others.reduce((best, row) => (runPlace(row) < runPlace(best) ? row : best), shown)
+  if (furthest === shown) return shown
+
+  const { state, line, percent, startedAt } = furthest
+  return { ...shown, state, line, percent, startedAt }
 }
 
 /** When a row last moved: a running one when it started, or when it was asked for while it waits; the rest when they ended. */

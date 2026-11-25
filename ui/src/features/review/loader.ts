@@ -248,12 +248,12 @@ export function createReviewLoader({ id, scope, memory, command, sample, look: o
         const rebuild = refresh && !current.preparation?.landing
         preparation = rebuild ? await command('review.prepare', { id, refresh: true }) : await command('review.status', { id })
         // Nothing changed since the review: the host built nothing and says what another build costs. The next press builds it.
-        const unbuilt = rebuild ? (preparation.again?.why ?? null) : null
-        if (rebuild && !unbuilt) reviewStarted(id)
+        const whyNotBuilt = rebuild ? (preparation.again?.why ?? null) : null
+        if (rebuild && !whyNotBuilt) reviewStarted(id)
         if (disposed || turn !== generation) return
         const open = store.getState().review
-        if (unbuilt && open) {
-          patch({ error: unbuilt })
+        if (whyNotBuilt && open) {
+          patch({ error: whyNotBuilt })
           return
         }
         if (preparation.landing && open) {
