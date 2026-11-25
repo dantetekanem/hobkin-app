@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { AppearanceRequest, Background, BorderColors, BuiltInTheme } from '#shared/protocol/appearance.ts'
+import { readFlow, type GraphFlow } from '#shared/review/layout.ts'
 import type { StoreApi } from 'zustand/vanilla'
 import type { HostState } from '../../lib/host/state.ts'
 import { DEFAULT_PET, petOr, type PetChoice } from '../../avatar/pets.ts'
@@ -48,6 +49,11 @@ interface SettingsState extends BorderColors {
    * installation and for settings saved before the choice, as the store fills in what a saved state lacks.
    */
   reviewView: ReviewLook
+  /**
+   * Which way a review's graph reads (spec 006): left to right, or top to bottom. Left to right for a new installation
+   * and for settings saved before the choice. An open review takes a new choice at once.
+   */
+  reviewGraphFlow: GraphFlow
   /** The custom theme's colors. Kept while a built-in theme is chosen, so choosing Custom again brings them back. */
   palette: Palette | null
   /** The custom theme's backdrop behind the window, or null for the flat palette background (app/theme.ts). */
@@ -84,6 +90,7 @@ interface SettingsState extends BorderColors {
   changeBackgroundOpacity: (delta: -1 | 1) => void
   setOpenByDefault: (kind: BlockKind, open: boolean) => void
   setReviewView: (look: ReviewLook) => void
+  setReviewGraphFlow: (flow: GraphFlow) => void
   /** Refuses a palette whose text would not read, and keeps the last one that does. */
   setPalette: (palette: Palette) => void
   setCustomTheme: (on: boolean) => void
@@ -144,6 +151,7 @@ export const useSettings = create<SettingsState>()(
       backgroundOpacity: OPACITY.initial,
       openByDefault: { ...OPEN_BY_DEFAULT },
       reviewView: 'graph',
+      reviewGraphFlow: 'left-to-right',
       palette: null,
       background: null,
       themeName: null,
@@ -188,6 +196,7 @@ export const useSettings = create<SettingsState>()(
       changeBackgroundOpacity: (delta) => set({ backgroundOpacity: stepOpacity(get().backgroundOpacity, delta) }),
       setOpenByDefault: (kind, open) => set({ openByDefault: { ...OPEN_BY_DEFAULT, ...get().openByDefault, [kind]: open } }),
       setReviewView: (reviewView) => set({ reviewView: readLook(reviewView) }),
+      setReviewGraphFlow: (flow) => set({ reviewGraphFlow: readFlow(flow) }),
       setPalette: (palette) => set({ palette: adjustedPalette(palette) ?? get().palette }),
       setCustomTheme: (on) => set({ customTheme: on && get().palette !== null }),
     }),
@@ -198,12 +207,12 @@ export const useSettings = create<SettingsState>()(
       // Version 6 keeps the screens out of the menu as a list: a saved "GitHub is not in the menu" becomes that screen in it.
       version: 6,
       migrate: (saved, from) => outOfMenuFrom(migrateSettings(saved, from)),
-      // Storage can hold anything: a look it does not know opens reviews in Graph.
+      // Storage can hold anything: a look it does not know opens reviews in Graph, and a flow it does not know reads left to right.
       merge: (saved, current) => {
         const kept = (saved ?? {}) as Partial<SettingsState>
-        return { ...current, ...kept, reviewView: readLook(kept.reviewView) }
+        return { ...current, ...kept, reviewView: readLook(kept.reviewView), reviewGraphFlow: readFlow(kept.reviewGraphFlow) }
       },
-      partialize: ({ movement, sound, typeFace, pet, agents, dailyTokens, usageEvents, feedback, screensOutOfMenu, backgroundOpacity, openByDefault, reviewView, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
+      partialize: ({ movement, sound, typeFace, pet, agents, dailyTokens, usageEvents, feedback, screensOutOfMenu, backgroundOpacity, openByDefault, reviewView, reviewGraphFlow, palette, background, themeName, border, borderStrong, customTheme, appearanceId, appearanceHome }) => ({
         movement,
         sound,
         typeFace,
@@ -216,6 +225,7 @@ export const useSettings = create<SettingsState>()(
         backgroundOpacity,
         openByDefault,
         reviewView,
+        reviewGraphFlow,
         palette,
         background,
         themeName,

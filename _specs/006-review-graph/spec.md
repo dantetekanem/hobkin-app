@@ -5,7 +5,7 @@
   "kind": "work",
   "status": "doing",
   "depends": ["001-foundation", "005-review-model"],
-  "updated": "2026-11-10"
+  "updated": "2026-11-25"
 }
 ---
 # Change Review: the graph
@@ -23,6 +23,9 @@ A review opens on the canvas as a node graph in the hobkin palette. At a glance 
 - Hovering a node lights its wires and neighbors and dims the rest. Clicking a wire shows its label.
 - The graph is a view of the review model. It never edits code ranges.
 - The review screen is a canvas screen like the others, opened from a finished change's card or by a command. The conversation stays where it is.
+- The user, 2026-11-25: "in settings, i want an option to select the direction from how code review graphs will render, default of left->right, and can be top->bottom as the other one". Settings › Reviews has a "Review graph" choice beside "A review opens in": Left to right, the default, or Top to bottom. It is kept with the window's settings, and an open review turns at once, on the step it was on, the camera framing it again.
+- Top to bottom is the same graph turned over its diagonal: each rank of the request is a row, the ranks run down, and the nodes of a rank stand side by side. Wires leave a pin at the bottom and arrive at a pin at the top. Each zone keeps its heading above its nodes, and a zone of tests stands beside the code it mirrors, each test just above what it covers. A node the user drags keeps its new place on the graph it was dragged on.
+- The arrow keys turn with the graph. Top to bottom, Down does what Right does left to right (the next step, and with Shift a wire this node sends), Up what Left does, and Right and Left what Down and Up do (the node beside). The key list, the rail and the opening card show the arrows that way.
 
 ## Out of scope
 
@@ -43,6 +46,10 @@ A review opens on the canvas as a node graph in the hobkin palette. At a glance 
 - A10. The first opening of a review plays an entrance in column order: spec, then tests, then code, then context, with wires drawing after the nodes they join.
 - A11. The graph pans by dragging and by two-finger scroll, zooms by pinch and by Command with scroll, and fits to the window with the `G` key and a button.
 - A12. With the keyboard, Up and Down move the focus to the nearest node above or below, and Shift with Right or Left follows a wire to the node it connects to on that side, nearest in height, or to the nearest node that way when no wire leaves that side.
+- A13. Settings › Reviews says "Review graph", Left to right until the user chooses Top to bottom, and keeps the choice with the window's settings. A saved value it does not know reads as Left to right.
+- A14. Top to bottom, the ranks run down and the nodes of a rank stand side by side, no two nodes or zones overlap, every node is inside its zone under its heading, and every wire runs from a bottom pin to a top pin.
+- A15. Top to bottom, Down and Up change the step, Right and Left move to the nearest node beside, and Shift with Down or Up follows a wire, nearest across. Left to right the keys are as they were.
+- A16. Choosing the other direction turns an open review at once, on the step it was on, and the camera frames it again. A node dragged on one graph stays where the layout has it on the other.
 
 ## Proof
 
@@ -58,6 +65,10 @@ A review opens on the canvas as a node graph in the hobkin palette. At a glance 
 - A10. check: open the sample review for the first time and watch the order.
 - A11. check: pan, pinch, Command with scroll, `G`.
 - A12. `ui/test/review-focus.test.ts` › "Shift with the arrows follows a wire to the node it connects to"
+- A13. `ui/test/settings-review-graph-flow.test.ts` › "a review graph reads left to right until the user chooses top to bottom, and the choice is kept with the window settings"
+- A14. `shared/test/review-layout.test.ts` › "zones top to bottom: the same graph with its ranks running down and the nodes of a rank side by side"
+- A15. `ui/test/review-focus.test.ts` › "top to bottom, each arrow turns with the graph: what Right did is on Down, and what Down did is on Right"
+- A16. `ui/test/review-focus.test.ts` › "an open review turns to read top to bottom at once, on the step it was on, and the camera frames it again"
 
 ## Steps
 
@@ -65,3 +76,4 @@ A review opens on the canvas as a node graph in the hobkin palette. At a glance 
 - [ ] S2 (A4, A5, A6, A7, A11, A12). Interaction: pan, zoom, fit, drag with saved positions, hover, wire labels, proposed wires, moving the focus with the keyboard.
 - [ ] S3 (A10, A9). The entrance, and the reduced-motion path.
 - [ ] S4 (A8). A stress review of 80 nodes, a frame-time overlay for development, and tuning until the budget holds.
+- [x] S5 (A13, A14, A15, A16). The Review graph setting, the top-to-bottom layout, its pins and wires, its keys and their hints, and an open review turning at once.

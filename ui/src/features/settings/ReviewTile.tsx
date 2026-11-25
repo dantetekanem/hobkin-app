@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { GraphFlow } from '#shared/review/layout.ts'
 import { REVIEW_ROLES, REVIEW_ROLE_INFO, type ReviewRole, type TierId } from '#shared/tiers/tiers.ts'
 import { Rise } from '@/app/Reveal.tsx'
 import { shownTier, modelName } from '@/features/tiers/host-tiers.ts'
@@ -27,6 +28,32 @@ const LOOK_SAYS: Record<ReviewLook, string> = {
   code: 'The change as a diff, file by file, with comments and questions on its lines.',
 }
 
+const FLOWS: readonly { value: GraphFlow; label: string }[] = [
+  { value: 'left-to-right', label: 'Left to right' },
+  { value: 'top-to-bottom', label: 'Top to bottom' },
+]
+
+const FLOW_SAYS: Record<GraphFlow, string> = {
+  'left-to-right': 'Where a request enters on the left, and what it calls to its right.',
+  'top-to-bottom': 'Where a request enters at the top, and what it calls below it.',
+}
+
+/** Which way a review's graph reads (spec 006): left to right, the default, or top to bottom. Kept in the window's settings. */
+function FlowRow() {
+  const flow = useSettings((state) => state.reviewGraphFlow)
+  const setFlow = useSettings((state) => state.setReviewGraphFlow)
+  return (
+    <div role="group" aria-label="Review graph" className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-2xl bg-surface px-4 py-3">
+      <div className="min-w-[16rem] flex-1">
+        <h3 className="text-[15px] leading-tight font-semibold tracking-tight">Review graph</h3>
+        <p className="mt-0.5 text-[12px] leading-snug text-muted-foreground">{FLOW_SAYS[flow]}</p>
+      </div>
+      <Choice label="Review graph" value={flow} options={FLOWS} onChoose={(value) => setFlow(value)} />
+      <p className="w-60 text-[12px] leading-snug text-muted-foreground">An open review turns at once, and its arrow keys with it.</p>
+    </div>
+  )
+}
+
 /** How a review opens (spec 071): Graph, the default, or Code. Kept in the window's settings; I moves between them inside a review. */
 function LookRow() {
   const look = useSettings((state) => state.reviewView)
@@ -44,7 +71,7 @@ function LookRow() {
 }
 
 /**
- * How a review opens, Graph or Code, kept in the window (spec 071). Then the two tiers an AI review runs on, set here in Settings (017-model-tiers): the Reviewer, which builds the review,
+ * How a review opens, Graph or Code, kept in the window (spec 071), and which way its graph reads (spec 006). Then the two tiers an AI review runs on, set here in Settings (017-model-tiers): the Reviewer, which builds the review,
  * and Quick, which checks it once. A choice is saved at once, in hobkin's own settings through the host, and the next
  * review uses it. The Models window sets the same two, beside the tiers' models.
  */
@@ -90,10 +117,11 @@ export function ReviewTile() {
         <header>
           <h2 className="eyebrow">Reviews</h2>
           <p className="mt-1 font-heading text-[20px] leading-tight font-semibold tracking-[-0.022em]">How a change is reviewed</p>
-          <p className="mt-1 max-w-[70ch] text-[13px] text-muted-foreground">How a review opens, and the two tiers it runs on: a review uses those and no other. The next review uses what is chosen here.</p>
+          <p className="mt-1 max-w-[70ch] text-[13px] text-muted-foreground">How a review opens, which way its graph reads, and the two tiers it runs on: a review uses those and no other. The next review uses what is chosen here.</p>
         </header>
         <div className="flex flex-col gap-2">
           <LookRow />
+          <FlowRow />
           {REVIEW_ROLES.map((role) => {
             const info = REVIEW_ROLE_INFO[role]
             const runs = shownTier(view, review[role])

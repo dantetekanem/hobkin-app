@@ -288,8 +288,11 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
   const camera = useCamera()
   const reduced = useReduced()
   const treatment = useDev((dev) => dev.treatment)
-  // A review opens in the look Settings › Reviews chose, or in the one it was left in for another page (spec 071).
-  const [session] = useState(() => createSession(review, reviewMemory, kept, { look: useSettings.getState().reviewView }))
+  // A review opens in the look Settings › Reviews chose, or in the one it was left in for another page (spec 071), with
+  // its graph reading the way Settings says (spec 006). An open review turns at once when that changes.
+  const [session] = useState(() => createSession(review, reviewMemory, kept, { look: useSettings.getState().reviewView, flow: useSettings.getState().reviewGraphFlow }))
+  const flow = useSettings((settings) => settings.reviewGraphFlow)
+  useEffect(() => session.getState().setFlow(flow), [flow, session])
   const look = useStore(session, (state) => state.look)
   // The loader follows the look, before it is drawn: the graph look starts the change review the code look did not ask
   // for, and shows its progress in place of the bare graph until it is ready (spec 071).
@@ -354,7 +357,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
   const [entrance, setEntrance] = useState<EntrancePlan | null>(() => {
     if (reduced || reviewMemory.getState().of(review).opened) return null
     const view = session.getState().view
-    return planEntrance(view.nodes, view.edges)
+    return planEntrance(view.nodes, view.edges, view.flow)
   })
   useEffect(() => {
     if (!entrance) return
@@ -551,7 +554,7 @@ const Stage = memo(function Stage({ review, source, loader, live, close: closeRe
                 }}
               />
             ) : null}
-            {import.meta.env.DEV ? <DevTools onReplay={() => setEntrance(planEntrance(session.getState().view.nodes, session.getState().view.edges))} /> : null}
+            {import.meta.env.DEV ? <DevTools onReplay={() => setEntrance(planEntrance(session.getState().view.nodes, session.getState().view.edges, session.getState().view.flow))} /> : null}
           </div>
         </EntranceContext.Provider>
       </MotionConfig>
