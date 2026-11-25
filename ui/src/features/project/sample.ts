@@ -176,7 +176,7 @@ export function sampleRunGuide(slug: string, now: number): RunGuide {
       writtenAt: ago(3.1),
       commit: headOf('storefront:guide'),
       sources: ['README.md', 'package.json', '.env.example', 'db/seed.ts'],
-      lastRun: { at: ago(3), by: 'guide', item: null, worked: true, reached: null, note: 'http://localhost:3000 answered with the shop’s home page.' },
+      lastRun: { at: ago(3.05), by: 'guide', item: null, worked: true, reached: null, note: 'http://localhost:3000 answered with the shop’s home page.' },
     }
   }
   if (slug === 'billing-api') {
@@ -186,7 +186,7 @@ export function sampleRunGuide(slug: string, now: number): RunGuide {
       writtenAt: ago(9.2),
       commit: headOf('billing-api:guide'),
       sources: ['README.md', 'bin/setup', 'docker-compose.yml', 'Procfile.dev'],
-      lastRun: { at: ago(9), by: 'item', item: '0f6a3b', worked: false, reached: 'Set up once', note: 'db:prepare failed: the seeds need a currency table the migrations no longer make.' },
+      lastRun: { at: ago(9.05), by: 'item', item: '0f6a3b', worked: false, reached: 'Set up once', note: 'db:prepare failed: the seeds need a currency table the migrations no longer make.' },
     }
   }
   if (slug === 'marathon-plan') return { ...none, refused: 'A goal has no run guide: there is no app to run.' }

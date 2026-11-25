@@ -10,11 +10,13 @@ import type { FinishedChange } from '@/lib/host/index.ts'
 import { openAddress } from '@/lib/open-link.ts'
 import { menuItemsOf } from './row-menu.ts'
 import type { useChangeActions } from './row-actions.ts'
+import { TryItItem, TryItSheet } from './TryItSheet.tsx'
 
 /**
  * A row's "⋯": every action the change can take, so the row's one action is never the only way. It lists hobkin's own
- * choices for the change in its words, Review, Make it a stack above 300 lines, and a reply. Close without merging asks twice,
- * as it does in the open row. It is one of the row's own controls, in a fixed place right after its one action.
+ * choices for the change in its words, Review, a reply, Try it for a code project's change, and Make it a stack above 300
+ * lines. Close without merging asks twice, as it does in the open row. It is one of the row's own controls, in a fixed
+ * place right after its one action.
  */
 type Actions = ReturnType<typeof useChangeActions>
 
@@ -23,6 +25,8 @@ const ARMED_MS = 10_000
 export function RowMenu({ change, live, actions, reviewing, onReply }: { change: FinishedChange; live: boolean; actions: Actions; reviewing: boolean; /** Opens the row's reply box. Missing where the row has none. */ onReply?: () => void }) {
   const [open, setOpen] = useState(false)
   const [armed, setArmed] = useState<string | null>(null)
+  // Try it's sheet, drawn once it has been opened, so a row whose sheet never opened holds none.
+  const [trying, setTrying] = useState<boolean | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => () => clearTimeout(timer.current), [])
   const reviewId = finishedReviewId(change, live)
@@ -34,50 +38,54 @@ export function RowMenu({ change, live, actions, reviewing, onReply }: { change:
   const offersStack = Boolean(reviewId) && !change.stack && (change.size?.lines ?? 0) > BIG_CHANGE_LINES
 
   return (
-    <DropdownMenu
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) {
-          clearTimeout(timer.current)
-          setArmed(null)
-        }
-      }}
-    >
-      <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon-sm" data-row-control="" tabIndex={-1} aria-label={`More for ${change.title}`} title="Everything this change can do" className="shrink-0 text-muted-foreground" />}
+    <>
+      <DropdownMenu
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (!next) {
+            clearTimeout(timer.current)
+            setArmed(null)
+          }
+        }}
       >
-        <Ellipsis aria-hidden="true" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-auto min-w-56">
-        {items.map((item) => {
-          const disabled = item.disabled || (actions.busy && item.kind !== 'review' && item.kind !== 'open' && item.kind !== 'reply')
-          const confirming = item.kind === 'confirm' && armed === item.id
-          return (
-            <DropdownMenuItem
-              key={item.id}
-              variant={item.destructive ? 'destructive' : 'default'}
-              disabled={disabled}
-              closeOnClick={!(item.kind === 'confirm' && !confirming)}
-              onClick={() => {
-                if (item.kind === 'review') review()
-                else if (item.kind === 'open') openAddress(change.pr!)
-                else if (item.kind === 'again') void actions.reviewAgain()
-                else if (item.kind === 'reply') onReply?.()
-                else if (item.kind === 'confirm' && !confirming) {
-                  setArmed(item.id)
-                  clearTimeout(timer.current)
-                  timer.current = setTimeout(() => setArmed(null), ARMED_MS)
-                } else if (item.choice) void actions.choose(item.choice)
-              }}
-            >
-              {confirming ? `Press again: ${item.label}` : item.label}
-            </DropdownMenuItem>
-          )
-        })}
-        {offersStack ? <StackItem id={reviewId!} live={live} /> : null}
-      </DropdownMenuContent>
-    </DropdownMenu>
+        <DropdownMenuTrigger
+          render={<Button variant="ghost" size="icon-sm" data-row-control="" tabIndex={-1} aria-label={`More for ${change.title}`} title="Everything this change can do" className="shrink-0 text-muted-foreground" />}
+        >
+          <Ellipsis aria-hidden="true" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-auto min-w-56">
+          {items.map((item) => {
+            const disabled = item.disabled || (actions.busy && item.kind !== 'review' && item.kind !== 'open' && item.kind !== 'reply')
+            const confirming = item.kind === 'confirm' && armed === item.id
+            return (
+              <DropdownMenuItem
+                key={item.id}
+                variant={item.destructive ? 'destructive' : 'default'}
+                disabled={disabled}
+                closeOnClick={!(item.kind === 'confirm' && !confirming)}
+                onClick={() => {
+                  if (item.kind === 'review') review()
+                  else if (item.kind === 'open') openAddress(change.pr!)
+                  else if (item.kind === 'again') void actions.reviewAgain()
+                  else if (item.kind === 'reply') onReply?.()
+                  else if (item.kind === 'confirm' && !confirming) {
+                    setArmed(item.id)
+                    clearTimeout(timer.current)
+                    timer.current = setTimeout(() => setArmed(null), ARMED_MS)
+                  } else if (item.choice) void actions.choose(item.choice)
+                }}
+              >
+                {confirming ? `Press again: ${item.label}` : item.label}
+              </DropdownMenuItem>
+            )
+          })}
+          {open ? <TryItItem change={change} onTry={() => setTrying(true)} /> : null}
+          {offersStack ? <StackItem id={reviewId!} live={live} /> : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      {trying === null ? null : <TryItSheet open={trying} change={change} live={live} onClose={() => setTrying(false)} />}
+    </>
   )
 }
 
