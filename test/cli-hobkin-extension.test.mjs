@@ -16,6 +16,10 @@ import { createQuestionTool } from '../src/cli/questions.mjs';
 import { createOwnedAgentSessionTool } from '../src/cli/owned-agent-tool.mjs';
 import { createAgentScheduleTool, createAgentSchedulesTool } from '../src/cli/schedule-tools.mjs';
 import { createRecallTool, createRememberTool } from '../src/cli/memory-tools.mjs';
+import { createActionItemTool } from '../src/cli/action-item-tool.mjs';
+import { initialize } from '../src/cli/config.mjs';
+import { fileDecision, openDecisions } from '../src/cli/decisions.mjs';
+import { readActionDecisions } from '../src/cli/pending-read.mjs';
 import { recordCardAction } from '../src/cli/work/card-actions.mjs';
 import { isolatePiHome } from './helpers/pi-session.mjs';
 
@@ -65,6 +69,7 @@ function scriptedModel(session, calls, requests = []) {
 
 async function fixture(t, { mode = 'rpc' } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'hobkin-extension-'));
+  initialize(root, { cwd: root });
   const agentDir = join(root, 'agent');
   isolatePiHome(t, agentDir);
   t.after(() => rmSync(root, { recursive: true, force: true }));
@@ -95,6 +100,7 @@ async function fixture(t, { mode = 'rpc' } = {}) {
       message_check: createCheckMessageTool(async ({ scheduleId }) => ({ scheduleId, status: 'delivered' })),
       hobkin_memory: createMemoryTool(root),
       model_settings: createSettingsTool(async request => ({ action: request.action, scope: request.scope })),
+      hobkin_action_items: createActionItemTool(root),
     },
     memory: () => readMemory(root),
     directions: () => 'Keep reports short.',
@@ -128,7 +134,7 @@ const toolResults = session => session.messages.filter(message => message.role =
 
 test('Pi registers the Hobkin tools with their ordinary definitions and reports them on start', async t => {
   const { session, statuses } = await fixture(t);
-  const originals = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool(), createAgentScheduleTool(), createAgentSchedulesTool(), createRecallTool(), createRememberTool(), createOwnedAgentSessionTool()];
+  const originals = [createQuestionTool(), createScheduleTool(), createCheckMessageTool(), createMemoryTool(), createSettingsTool(), createStopWorkloadTool(), createAgentScheduleTool(), createAgentSchedulesTool(), createRecallTool(), createRememberTool(), createActionItemTool(), createOwnedAgentSessionTool()];
   const registered = session.agent.state.tools;
   for (const tool of originals) {
     const found = registered.find(item => item.name === tool.name);
@@ -219,6 +225,39 @@ test('what the user decided lately ends every turn’s system prompt through the
   const part = requests.at(-1).slice(requests.at(-1).indexOf('## What the user decided lately'));
   assert.match(part, /for \\"Fix the login timeout\\" on api, they said no\./);
   assert.ok(!part.includes('item-7f3a'));
+});
+
+test('registered Action Item tool dismisses exact IDs without answering decisions and preserves arrivals', async t => {
+  const { session, root, asked, scheduled } = await fixture(t);
+  const first = fileDecision(root, question);
+  async function invoke(arguments_) {
+    const before = toolResults(session).length;
+    scriptedModel(session, [{ name: 'hobkin_action_items', arguments: arguments_ }]);
+    await session.prompt('Manage Action Items.', { preflightResult() {} });
+    return toolResults(session)[before];
+  }
+  const listed = (await invoke({ action: 'list' })).details;
+  assert.deepEqual(listed, { total: 1, items: [{ id: first.id, group: 'question', title: question.question }] });
+  const { id } = listed.items[0];
+  const later = fileDecision(root, { ...question, question: 'New arrival?' });
+
+  assert.deepEqual((await invoke({ action: 'dismiss', id })).details, { dismissed: 1, remaining: 1 });
+  assert.deepEqual((await invoke({ action: 'dismiss', id })).details, { dismissed: 0, remaining: 1 });
+  assert.deepEqual(readActionDecisions(root).map(decision => decision.id), [later.id]);
+  assert.deepEqual((await invoke({ action: 'dismiss_all' })).details, { dismissed: 1, remaining: 0 });
+  assert.deepEqual((await invoke({ action: 'dismiss_all' })).details, { dismissed: 0, remaining: 0 });
+  assert.deepEqual(readActionDecisions(root), []);
+
+  fileDecision(root, { ...question, question: 'After dismissal?' });
+  assert.equal((await invoke({ action: 'list' })).details.total, 1);
+  assert.equal(openDecisions(root).length, 3);
+  assert.ok(openDecisions(root).some(item => item.id === first.id));
+  assert.deepEqual(asked, []);
+  assert.deepEqual(scheduled, []);
+  for (const request of [{}, { action: 'dismiss' }, { action: 'dismiss', id: '' }, { action: 'dismiss_all', id }, { action: 'list', all: true }, { action: 'dismiss', id, all: true }]) {
+    assert.equal((await invoke(request)).isError, true, JSON.stringify(request));
+  }
+  assert.equal((await invoke({ action: 'list' })).details.total, 1);
 });
 
 test('outside an RPC host the tools refuse to ask anyone, and a missing answer is an error', async () => {

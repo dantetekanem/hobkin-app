@@ -12,6 +12,7 @@ import { keptPrompt } from './prompt-parts.mjs';
 import { createMemoryTool, readMemory } from './memory.mjs';
 import { keptEffort, runModelSettings } from './model-settings.mjs';
 import { MAX_SESSION_BYTES, readSessionHeader } from './migration/ownership.mjs';
+import { createActionItemTool } from './action-item-tool.mjs';
 import { createQuestionTool } from './questions.mjs';
 import { startRpcProcess } from './rpc-process.mjs';
 import { startMainSessionChild } from './main-session-child.mjs';
@@ -436,6 +437,7 @@ export async function openRpcSession(
     stop_workload: createStopWorkloadTool(stopWorkload),
     owned_agent: createOwnedAgentSessionTool(ownedAgent),
     hobkin_memory: createMemoryTool(root),
+    hobkin_action_items: createActionItemTool(root),
     model_settings: createSettingsTool(request => runModelSettings({
       root,
       config,

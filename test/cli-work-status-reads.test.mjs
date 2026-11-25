@@ -118,5 +118,5 @@ test('the plan the director makes each tick, and the Action Items rows, each loo
   assert.equal(planWork(h.root).entries.some(({ item }) => item?.id === 'abc123'), false, 'finished work is not planned again');
   assert.deepEqual(h.reads(), { survey: 0, runs: 0, ready: 0, items: 1 });
   assert.deepEqual(readWaiting(h.root).branches.map(({ item }) => item), ['abc123']);
-  assert.deepEqual(h.reads(), { survey: 0, runs: 1, ready: 0, items: 1 });
+  assert.deepEqual(h.reads(), { survey: 0, runs: 0, ready: 0, items: 1 }, 'waiting rows do not need report history');
 });
