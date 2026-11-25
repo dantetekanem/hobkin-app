@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import { parseSpec } from '../spec/parse.ts'
 
@@ -133,7 +133,10 @@ test('says what does not follow the format, and still reads what it can', () => 
 
 test('every spec in this repository follows its own format', () => {
   const root = new URL('../../_specs/', import.meta.url)
-  const folders = readdirSync(root, { withFileTypes: true }).filter((entry) => entry.isDirectory())
+  // A spec is a folder with a spec.md. Other folders hold other things, such as the TLA+ models in tla/<area>/.
+  const folders = readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .filter((entry) => existsSync(new URL(`${entry.name}/spec.md`, root)))
   assert.ok(folders.length >= 10)
 
   for (const folder of folders) {
