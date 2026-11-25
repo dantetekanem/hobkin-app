@@ -78,7 +78,9 @@ test("a live host on a development home goes on with the model Pi picks, and nev
   // hobkin's server is never reached: upload is off again, and the fetch hobkin got refuses.
   assert.equal(config.telemetryUploadEnabled(root), false)
   await assert.rejects(handed[0].fetch!('https://api.hobkin.dev/api/v1/enrollments', { method: 'POST' }), /sends nothing to hobkin's server/)
-  assert.deepEqual([...new Set(reached)], [server.origin])
+  // The main conversation's Pi runs in a process of its own, so its requests are the fake server's above; this one
+  // reaches nothing else.
+  assert.deepEqual([...new Set(reached)].filter((origin) => origin !== server.origin), [])
   assert.equal(existsSync(join(root, 'runtime', 'remote.json')), false, 'no enrollment key')
 
   // hobkin and what it starts see no Herdr pane, and `hobkin` commands land in this home.
