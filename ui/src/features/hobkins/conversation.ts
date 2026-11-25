@@ -156,15 +156,19 @@ export type PageRow =
   | { kind: 'answer'; key: string; turn: ShownTurn; at: number | null }
   | { kind: 'thinking'; key: 'working' }
 
+/** A message the page shows from this window: on its way, or sent to a turn. */
+type PageNote = SendingNote & Partial<SentNote>
+
 /**
  * How far what the user added to a turn has got. The words hobkin answered for are with it until the turn's receipt says
  * it read them in. Words sent with an id that the turn ended without reading say so; with no id there is no receipt to
  * wait for, so they stay with hobkin.
  */
-function addedDelivery(turn: ShownTurn, note: SendingNote & Partial<SentNote>): Delivery {
+function addedDelivery(turn: ShownTurn, note: PageNote): Delivery {
   if (note.receivedAt !== undefined) return 'received'
-  const over = !turn.live && turn.status !== 'running'
-  return note.noteId && over ? 'unconfirmed' : 'waiting'
+
+  const ended = !turn.live && turn.status !== 'running'
+  return note.noteId && ended ? 'unconfirmed' : 'waiting'
 }
 
 /**
@@ -195,10 +199,11 @@ export function pageRows(turns: readonly ShownTurn[], { sending, activity }: { s
     const images = turn.askedImages.length ? { images: turn.askedImages } : {}
     const from = senderName(turn.from)
     // The message that began a turn was taken in once the turn began.
-    const delivery = from ? null : turn.begun ? 'received' : 'waiting'
-    if (turn.asked || images.images) rows.push({ kind: 'said', key: turn.askedKey, text: turn.asked, delivery, from, at: turn.askedWhen, ...images })
-    const notes: readonly (SendingNote & Partial<SentNote>)[] = turn === into && pending ? [...turn.notes, pending] : turn.notes
-    const saidIn = (note: SendingNote & Partial<SentNote>) => said(note, note === pending ? 'sending' : addedDelivery(turn, note))
+    const askedDelivery = from ? null : turn.begun ? 'received' : 'waiting'
+    if (turn.asked || images.images) rows.push({ kind: 'said', key: turn.askedKey, text: turn.asked, delivery: askedDelivery, from, at: turn.askedWhen, ...images })
+
+    const notes: readonly PageNote[] = turn === into && pending ? [...turn.notes, pending] : turn.notes
+    const saidIn = (note: PageNote) => said(note, note === pending ? 'sending' : addedDelivery(turn, note))
     if (!turn.live) {
       rows.push(...notes.map(saidIn), { kind: 'answer', key: `${turn.run}:answer`, turn, at: timeOf(turn.endedAt) })
       continue
@@ -209,7 +214,12 @@ export function pageRows(turns: readonly ShownTurn[], { sending, activity }: { s
     }
     const options = { seenAt: activity.seenAt, ended: turn.ending, cwd: activity.cwd, tasksOnLine: true }
     for (const item of exchangeOf(activity.entries, notes.map((note) => ({ ...note, id: saidKey(note.at) })), options)) {
-      rows.push(item.kind === 'note' ? saidIn(notes.find((note) => note.at === item.note.at)!) : { kind: 'step', key: `${turn.run}:${item.key}`, step: item, ended: turn.ending })
+      if (item.kind !== 'note') {
+        rows.push({ kind: 'step', key: `${turn.run}:${item.key}`, step: item, ended: turn.ending })
+        continue
+      }
+      const note = notes.find((each) => each.at === item.note.at)
+      if (note) rows.push(saidIn(note))
     }
   }
   if (pending && !into) rows.push(said(pending, 'sending'))
@@ -219,16 +229,29 @@ export function pageRows(turns: readonly ShownTurn[], { sending, activity }: { s
 
 /**
  * The notes the user sent, by hobkin, with each one hobkin's receipts now say its turn read in marked so. A receipt
- * counts only under the run of the turn the note reached. The same notes when nothing is new.
+ * counts only under the run of the turn the note reached. A hobkin's notes with nothing new stay the same list, and with
+ * nothing new anywhere the same notes come back.
  */
 export function withReceipts(
   sent: Readonly<Record<string, readonly SentNote[]>>,
   receipts: WireSnapshot['steeringReceipts'],
 ): Readonly<Record<string, readonly SentNote[]>> {
-  const receivedAt = (note: SentNote) => receipts?.[note.run]?.find((receipt) => receipt.noteId === note.noteId)?.at
-  const fresh = (note: SentNote) => note.noteId !== undefined && note.receivedAt === undefined && receivedAt(note) !== undefined
-  if (!Object.values(sent).some((notes) => notes.some(fresh))) return sent
-  return Object.fromEntries(Object.entries(sent).map(([id, notes]) => [id, notes.map((note) => (fresh(note) ? { ...note, receivedAt: receivedAt(note) } : note))]))
+  const marked = (note: SentNote): SentNote => {
+    if (note.noteId === undefined || note.receivedAt !== undefined) return note
+
+    const receipt = receipts?.[note.run]?.find((each) => each.noteId === note.noteId)
+    return receipt ? { ...note, receivedAt: receipt.at } : note
+  }
+
+  let changed = false
+  const next: Record<string, readonly SentNote[]> = {}
+  for (const [id, notes] of Object.entries(sent)) {
+    const now = notes.map(marked)
+    const same = now.every((note, index) => note === notes[index])
+    next[id] = same ? notes : now
+    if (!same) changed = true
+  }
+  return changed ? next : sent
 }
 
 export type PageState = 'live' | 'starting' | 'ended'

@@ -11,7 +11,11 @@ export function DeliveryMark({ delivery, why }: { delivery: AgentNote['delivery'
   if (delivery === 'sending' || delivery === 'waiting' || delivery === 'received') {
     return (
       <p role="status" className="-mr-1 -mb-0.5 flex h-4 justify-end text-muted-foreground">
-        {delivery === 'received' ? <CheckCheck className="size-3.5" aria-hidden="true" /> : <Check className={cn('size-3.5', delivery === 'sending' && 'opacity-40')} aria-hidden="true" />}
+        {delivery === 'received' ? (
+          <CheckCheck className="size-3.5" aria-hidden="true" />
+        ) : (
+          <Check className={cn('size-3.5', delivery === 'sending' && 'opacity-40')} aria-hidden="true" />
+        )}
         <span className="sr-only">{delivery === 'received' ? 'Received' : delivery === 'waiting' ? 'Waiting' : 'Sending'}</span>
       </p>
     )

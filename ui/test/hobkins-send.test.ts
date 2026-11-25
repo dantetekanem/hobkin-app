@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import type { ActivityEntry } from '#shared/protocol/activity.ts'
 import type { HobkinConversation, HobkinSummary, HobkinTurn } from '#shared/protocol/hobkins.ts'
 import { atOf } from '../src/features/agent-activity/steps.ts'
-import { pageRows, pageTurns, withReceipts, type PageRow, type SendingNote, type SentNote } from '../src/features/hobkins/conversation.ts'
+import { pageRows, pageTurns, withReceipts, type LiveActivity, type PageRow, type SendingNote, type SentNote } from '../src/features/hobkins/conversation.ts'
 
 // Every state a durable hobkin's page passes through from Enter until the host has caught up, in the order the host
 // sends them: the say's answer comes before the snapshot that shows the new turn, and the read comes after both.
@@ -193,33 +193,38 @@ test('a message that starts a turn shows a faint check on its way, one once hobk
 
 test('a message added while a turn works shows two checks once hobkin has its receipt, and keeps them', () => {
   const read: HobkinConversation = { hobkin: working, turns: [...earlier, turn(3, 'das', 'running')] }
+  const ended = summary({ turns: 3 })
+  const done: HobkinConversation = { hobkin: ended, turns: [...earlier, turn(3, 'das', 'completed', 'Done.')] }
   const opened: SentNote = { text: 'das', at: 1000, run: runOf(3), started: true }
   const noteId = '00000000-0000-4000-8000-000000000001'
   const added: SentNote = { text: 'also the README', at: 1200, run: runOf(3), started: false, noteId }
-  const rowsOf = (sent: readonly SentNote[], sending: SendingNote | null = null, conversation = read, hobkin = working) =>
-    marks(pageRows(pageTurns(conversation, hobkin, sent), { sending, activity: null })).at(-1)
 
-  assert.deepEqual(rowsOf([opened], { text: 'also the README', at: 1200 }), ['also the README', 'sending'])
-  assert.deepEqual(rowsOf([opened, added]), ['also the README', 'waiting'])
+  /** The newest message on the page, with its mark. While turn 3 works, unless the scenario says otherwise. */
+  const newest = (
+    sent: readonly SentNote[],
+    { sending = null, conversation = read, hobkin = working, activity = null }: { sending?: SendingNote | null; conversation?: HobkinConversation; hobkin?: HobkinSummary; activity?: LiveActivity | null } = {},
+  ) => marks(pageRows(pageTurns(conversation, hobkin, sent), { sending, activity })).at(-1)
+
+  assert.deepEqual(newest([opened], { sending: { text: 'also the README', at: 1200 } }), ['also the README', 'sending'])
+  assert.deepEqual(newest([opened, added]), ['also the README', 'waiting'])
 
   // A receipt for the same note under another run is not this one.
-  const elsewhere = { [runOf(2)]: [{ noteId, at: 1300 }] }
   const notes = { [id]: [opened, added] }
+  const elsewhere = { [runOf(2)]: [{ noteId, at: 1300 }] }
   assert.equal(withReceipts(notes, elsewhere), notes, 'nothing new, the same notes')
-  const receipts = { [runOf(3)]: [{ noteId, at: 1300 }] }
-  const received = withReceipts(notes, receipts)
-  assert.deepEqual(received[id]!.map((note) => note.receivedAt), [undefined, 1300])
-  assert.deepEqual(rowsOf(received[id]!), ['also the README', 'received'])
+
+  const received = withReceipts(notes, { [runOf(3)]: [{ noteId, at: 1300 }] })[id]!
+  assert.deepEqual(received.map((note) => note.receivedAt), [undefined, 1300])
+  assert.deepEqual(newest(received), ['also the README', 'received'])
   // Among the live turn's steps too.
   const steps = activityOf([tool('a'), tool('b')], { 'tool:a': 1100, 'tool:b': 1400 })
-  assert.deepEqual(marks(pageRows(pageTurns(read, working, received[id]!), { sending: null, activity: steps })).at(-1), ['also the README', 'received'])
+  assert.deepEqual(newest(received, { activity: steps }), ['also the README', 'received'])
 
   // Once seen, the receipt stays: hobkin may let it go, as it does on a restart.
-  assert.equal(withReceipts(received, {}), received)
-  assert.equal(withReceipts(received, undefined), received)
-  const ended = summary({ turns: 3 })
-  const done: HobkinConversation = { hobkin: ended, turns: [...earlier, turn(3, 'das', 'completed', 'Done.')] }
-  assert.deepEqual(rowsOf(received[id]!, null, done, ended), ['also the README', 'received'])
+  const kept = { [id]: received }
+  assert.equal(withReceipts(kept, {}), kept)
+  assert.equal(withReceipts(kept, undefined), kept)
+  assert.deepEqual(newest(received, { conversation: done, hobkin: ended }), ['also the README', 'received'])
 })
 
 test('a message the turn ended without reading says so, and one sent with no id keeps one check', () => {
@@ -230,10 +235,14 @@ test('a message the turn ended without reading says so, and one sent with no id 
   const read: HobkinConversation = { hobkin: working, turns: [...earlier, turn(3, 'das', 'running')] }
   const ended = summary({ turns: 3 })
   const done: HobkinConversation = { hobkin: ended, turns: [...earlier, turn(3, 'das', 'interrupted')] }
-  const tail = (conversation: HobkinConversation, hobkin: HobkinSummary) => marks(pageRows(pageTurns(conversation, hobkin, [opened, added, command]), { sending: null, activity: null })).slice(-2)
+  /** The two messages added to turn 3, with their marks. */
+  const addedMarks = (conversation: HobkinConversation, hobkin: HobkinSummary) => {
+    const rows = pageRows(pageTurns(conversation, hobkin, [opened, added, command]), { sending: null, activity: null })
+    return marks(rows).slice(-2)
+  }
 
-  assert.deepEqual(tail(read, working), [['also the README', 'waiting'], ['/review', 'waiting']])
+  assert.deepEqual(addedMarks(read, working), [['also the README', 'waiting'], ['/review', 'waiting']])
   // The snapshot says it waits again, and the read still has the turn running: its end is not known yet.
-  assert.deepEqual(tail(read, ended), [['also the README', 'waiting'], ['/review', 'waiting']])
-  assert.deepEqual(tail(done, ended), [['also the README', 'unconfirmed'], ['/review', 'waiting']])
+  assert.deepEqual(addedMarks(read, ended), [['also the README', 'waiting'], ['/review', 'waiting']])
+  assert.deepEqual(addedMarks(done, ended), [['also the README', 'unconfirmed'], ['/review', 'waiting']])
 })

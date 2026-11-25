@@ -91,23 +91,26 @@ const NO_NOTES: readonly SentNote[] = []
 
 /**
  * What the user sent from the page, by hobkin, and the message on its way now. Kept while the window is open. hobkin's
- * receipts mark what each turn read in as they come, and one that came before the say answered counts too.
+ * receipts mark what each turn read in as they come.
  */
 function useSentNotes() {
   const [sent, setSent] = useState<Readonly<Record<string, readonly SentNote[]>>>({})
   const [sending, setSending] = useState<Record<string, SendingNote | null>>({})
 
   const add = useCallback((id: string, note: SentNote) => {
-    setSent((all) => withReceipts({ ...all, [id]: [...(all[id] ?? []), note] }, hostStore.getState().snapshot.steeringReceipts))
+    setSent((all) => {
+      const added = { ...all, [id]: [...(all[id] ?? []), note] }
+      // A receipt that came before the say answered counts too.
+      return withReceipts(added, hostStore.getState().snapshot.steeringReceipts)
+    })
   }, [])
 
-  useEffect(
-    () =>
-      hostStore.subscribe(({ snapshot }, { snapshot: before }) => {
-        if (snapshot.steeringReceipts !== before.steeringReceipts) setSent((all) => withReceipts(all, snapshot.steeringReceipts))
-      }),
-    [],
-  )
+  useEffect(() => {
+    return hostStore.subscribe(({ snapshot }, { snapshot: before }) => {
+      if (snapshot.steeringReceipts === before.steeringReceipts) return
+      setSent((all) => withReceipts(all, snapshot.steeringReceipts))
+    })
+  }, [])
 
   const sendingTo = useCallback((id: string, note: SendingNote | null) => {
     setSending((all) => ({ ...all, [id]: note }))
