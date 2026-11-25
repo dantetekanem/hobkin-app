@@ -50,10 +50,8 @@ interface Need {
   question?: PendingQuestion
   waiting?: WaitingRow
   change?: FinishedChange
-  /** An integration's card for this row. */
-  card?: HomeCardFields
-  /** The integration it came from, by its place among the contributions. */
-  integration?: number
+  /** An integration's card for this row, and that integration's place among the contributions. */
+  card?: { fields: HomeCardFields; integration: number }
   reminder?: ReminderOccurrence & { home: string }
 }
 
@@ -149,7 +147,13 @@ function needsOf(input: HomeInput): Need[] {
   }
 
   input.contributions.forEach((contribution, integration) => {
-    for (const { row, card } of contribution.needs ?? []) needs.push({ row: { ...row, kind: 'integration' }, at: null, card, integration })
+    for (const { row, card } of contribution.needs ?? []) {
+      needs.push({
+        row: { ...row, kind: 'integration' },
+        at: null,
+        card: { fields: card, integration },
+      })
+    }
   })
 
   for (const server of input.integrations?.servers.filter(server => server.state === 'sign-in') ?? []) {
@@ -438,10 +442,11 @@ const integrationGroup = (at: number) => `integration:${at}`
 
 type CardFields = Omit<StackCard, 'mood' | 'next' | 'facts' | 'choices' | 'pick' | 'why' | 'secondary'> & Partial<StackCard>
 
-function candidate(tier: Tier, at: number | null, fields: CardFields): Candidate {
+function candidate(tier: Tier, at: number | null, fields: CardFields, group?: string): Candidate {
   return {
     tier,
     at,
+    group,
     card: {
       mood: tier === -2 || tier === 2 ? 'error' : tier <= 1 ? 'listening' : 'working',
       next: null,
@@ -543,8 +548,9 @@ function stackParts(input: HomeInput, needs: Need[]): StackParts {
     if (card) needCards.push(card)
   }
   const candidates: Candidate[] = []
-  for (const { card, integration = 0 } of needs) {
-    if (card) candidates.push({ ...candidate(1, null, { ...card, kind: 'integration' }), group: integrationGroup(integration) })
+  for (const { card } of needs) {
+    if (!card) continue
+    candidates.push(candidate(1, null, { ...card.fields, kind: 'integration' }, integrationGroup(card.integration)))
   }
 
   for (const report of problemReports(input)) {
@@ -564,7 +570,9 @@ function stackParts(input: HomeInput, needs: Need[]): StackParts {
   }
 
   input.contributions.forEach((contribution, integration) => {
-    for (const card of contribution.cards ?? []) candidates.push({ ...candidate(2, null, { ...card, kind: 'integration' }), group: integrationGroup(integration) })
+    for (const card of contribution.cards ?? []) {
+      candidates.push(candidate(2, null, { ...card, kind: 'integration' }, integrationGroup(integration)))
+    }
   })
 
   const fresh = sinceLastLook(input.reports, input.read, input.attention)
@@ -647,9 +655,10 @@ function stackOf({ needs, middle, last }: StackParts, agents: HomeInput['agents'
     return 0
   })
   const seen = new Set<string>()
-  return candidates.filter(({ card, group = card.kind }) => {
-    if (seen.has(group)) return false
-    seen.add(group)
+  return candidates.filter(({ card, group }) => {
+    const shownOnce = group ?? card.kind
+    if (seen.has(shownOnce)) return false
+    seen.add(shownOnce)
     return true
   }).slice(0, 7).map(({ card }) => card)
 }

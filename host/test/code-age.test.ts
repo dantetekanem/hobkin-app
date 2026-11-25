@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { mkdirSync, utimesSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { test } from 'node:test'
 import { hostCode, ownRoots, shouldRestart } from '../src/code-age.ts'
 import { temporaryDirectory } from './support.ts'
@@ -30,9 +30,10 @@ test("an integration's host code counts as the host's own, and its window code d
   const repo = temporaryDirectory(t)
   const started = Date.parse('2026-11-12T20:56:00Z')
   const at = (path: string, when: number) => {
-    mkdirSync(join(repo, path, '..'), { recursive: true })
-    writeFileSync(join(repo, path), '')
-    utimesSync(join(repo, path), when / 1000, when / 1000)
+    const file = join(repo, path)
+    mkdirSync(dirname(file), { recursive: true })
+    writeFileSync(file, '')
+    utimesSync(file, when / 1000, when / 1000)
   }
   at('integrations/forge/host.ts', started + 60_000)
   at('integrations/forge/host/pulls.ts', started + 120_000)

@@ -24,7 +24,13 @@ const SKIPPED = new Set(['node_modules', 'test', 'tests', 'examples', 'dist', '.
 
 /** Where the repository's code a host runs lives: its own, what it shares with the window, the change review, and the integrations. */
 export function ownRoots(repo: string = REPO): string[] {
-  return [join(repo, 'host', 'src'), join(repo, 'shared'), join(repo, 'packages', 'change-review', 'src'), join(repo, 'packages', 'change-review', 'prompts'), join(repo, 'integrations')]
+  return [
+    join(repo, 'host', 'src'),
+    join(repo, 'shared'),
+    join(repo, 'packages', 'change-review', 'src'),
+    join(repo, 'packages', 'change-review', 'prompts'),
+    join(repo, 'integrations'),
+  ]
 }
 
 /** Where the code a host runs lives: the repository's own, and hobkin itself. */

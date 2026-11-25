@@ -140,21 +140,25 @@ function OrderSwitch({ count }: { count: number }) {
 }
 
 /** Names in a sentence: "GitHub", "GitHub or Forge", "A, B or C". */
-const eitherOf = (names: readonly string[]) => (names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`)
+function eitherOf(names: readonly string[]): string {
+  if (names.length < 2) return names[0] ?? ''
+  return `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`
+}
 
 /** How a review starts, for a host that has none yet. Each integration with pull requests is offered. */
 function NoReviews() {
-  const pulls = pullScreens()
+  const screens = pullScreens()
+  const pages = eitherOf(screens.map(({ label }) => label))
   return (
     <section aria-label="No review yet" className="flex flex-col items-start gap-3 rounded-3xl bg-background p-6">
       <p className="font-heading text-[18px] leading-snug font-semibold tracking-[-0.015em]">No review yet</p>
       <p className="max-w-[64ch] text-[14px] leading-relaxed text-muted-foreground">
         A finished change gets one by itself, once work mode finishes it.
-        {pulls.length ? ` A pull request gets one when you press Start review on its row on the ${eitherOf(pulls.map(({ label }) => label))} page.` : ''}
+        {screens.length ? ` A pull request gets one when you press Start review on its row on the ${pages} page.` : ''}
       </p>
-      {pulls.length ? (
+      {screens.length ? (
         <div className="flex flex-wrap gap-2">
-          {pulls.map((screen) => (
+          {screens.map((screen) => (
             <Button key={screen.id} variant="outline" data-stop="" onClick={() => useView.getState().openPartScreen(screen.id)}>
               Open {screen.label}
             </Button>
