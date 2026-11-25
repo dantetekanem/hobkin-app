@@ -110,6 +110,42 @@ export interface NewProjectDone {
   message: string
 }
 
+/** One time a project's run guide was followed: by its own look, by a study, or by a change's run (068-run-guide). */
+export interface RunGuideRun {
+  at: string
+  by: 'guide' | 'study' | 'item'
+  /** The item whose run followed it, for `item`. Null otherwise. */
+  item: string | null
+  /** The app answered where the guide says to open it. Tests passing is not a run. */
+  worked: boolean
+  /** The last step that worked, in the guide's words, when it did not work. Null when it worked. */
+  reached: string | null
+  /** One line from the run, such as which step was wrong. */
+  note: string | null
+}
+
+/** A code project's run guide (`work.guide.read`): how the user runs it end to end, kept in hobkin's home, never in the project. */
+export interface RunGuide {
+  slug: string
+  /** The guide in Markdown. Null when none is written yet. */
+  text: string | null
+  writtenAt: string | null
+  /** The project's commit the guide was written at. */
+  commit: string | null
+  /** The project's own files it was written from, such as `README.md` and `bin/setup`. */
+  sources: string[]
+  lastRun: RunGuideRun | null
+  /** A guide look waits in the queue, or runs now. */
+  pending: 'queued' | 'writing' | null
+  /** Why this project cannot have one, in hobkin's words, as for a goal. Null when it can. */
+  refused: string | null
+}
+
+/** A guide look filed on the user's press (`work.guide.write`), with hobkin's own line about it. */
+export interface RunGuideAsked {
+  message: string
+}
+
 /** The folder the user picked in the Mac's own chooser (`work.folder.pick`), or null when they closed it. */
 export interface FolderPicked {
   folder: string | null
