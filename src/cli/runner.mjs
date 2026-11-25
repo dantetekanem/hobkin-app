@@ -676,7 +676,7 @@ export class HobkinRunner {
    * `images` are the pictures the user attached to the words, as Pi's image content, and go with them.
    */
   async messageCheck({ scheduleId, runId, noteId, message, images, queue }, { durable = false } = {}) {
-    const took = new Date(this.now()).getTime();
+    const takenAt = new Date(this.now()).getTime();
     const reachable = await this.reachableRuns(durable);
     if (!scheduleId) return { running: reachable.map(run => ({ scheduleId: run.scheduleId, title: run.title })) };
 
@@ -706,8 +706,17 @@ export class HobkinRunner {
       const status = disposition === 'started' || disposition === 'queued' ? 'queued' : disposition === 'handled' ? 'handled' : 'unconfirmed';
       // What the turn it interrupted never read comes back, for the user's input.
       const unsent = queue === 'interrupt' ? this.givenBack(run.id, sent?.unsent) : undefined;
-      const added = noteId === undefined || status === 'handled' ? null
-        : { noteId, text: message, at: took, queue: queue ?? 'steer', ...(pictures ? { images: pictures.length } : {}) };
+      // Only a note the window sent is the user's to keep, and one Pi handled never waits for the turn.
+      const kept = noteId !== undefined && status !== 'handled';
+      const added = kept
+        ? {
+          noteId,
+          text: message,
+          at: takenAt,
+          queue: queue ?? 'steer',
+          ...(pictures ? { images: pictures.length } : {}),
+        }
+        : null;
       await this.keepNotes(run.id, { added, takenBack: unsent });
       return { scheduleId, status, ...(unsent ? { unsent } : {}) };
     } catch (error) {
@@ -742,16 +751,20 @@ export class HobkinRunner {
    * store that cannot take the change costs the page its copy, never the message, which has gone already.
    */
   async keepNotes(runId, { added = null, takenBack = [] }) {
-    const gone = new Set(takenBack.flatMap(({ noteId }) => (noteId ? [noteId] : [])));
-    if (!added && !gone.size) return;
+    const takenBackIds = new Set(takenBack.flatMap(({ noteId }) => (noteId ? [noteId] : [])));
+    if (!added && !takenBackIds.size) return;
 
     await this.runtime.change(state => {
       const run = state.runs[runId];
       if (!run) return;
-      const notes = (run.notes ?? []).filter(note => !gone.has(note.noteId));
-      // A receipt can come before the send answers.
-      const receipt = added && this.receivedNotes.get(JSON.stringify([runId, added.noteId]));
-      if (added) notes.push(receipt ? { ...added, receivedAt: receipt.at } : added);
+
+      const notes = (run.notes ?? []).filter(note => !takenBackIds.has(note.noteId));
+      if (added) {
+        // A receipt can come before the send answers.
+        const receipt = this.receivedNotes.get(JSON.stringify([runId, added.noteId]));
+        notes.push(receipt ? { ...added, receivedAt: receipt.at } : added);
+      }
+
       if (notes.length) run.notes = notes;
       else delete run.notes;
     }).catch(() => {});

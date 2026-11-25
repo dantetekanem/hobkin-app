@@ -1409,10 +1409,13 @@ test("what the user adds to a working hobkin's turn stays with that turn, with i
     // A schedule's wake reaches the turn too, but it is not the user's, so it is not kept as theirs.
     await app.hobkins.wake(id, { text: 'Two pull requests are new.', from: { kind: 'schedule', id: 'prs', title: 'New pull requests' } });
     assert.equal(turn.heard.length, 2);
-    const [kept] = (await app.hobkins.read(id)).turns[0].notes;
-    assert.deepEqual({ ...kept, at: undefined }, { noteId, text: 'Delegate it through team-leader.', at: undefined, queue: 'steer' });
-    assert.ok(kept.at >= sent && kept.at <= Date.now(), 'when hobkin took it');
-    assert.equal((await app.hobkins.read(id)).turns[0].notes.length, 1);
+
+    const { notes } = (await app.hobkins.read(id)).turns[0];
+    assert.equal(notes.length, 1, "only the user's note is kept");
+    const [kept] = notes;
+    const { at, ...words } = kept;
+    assert.deepEqual(words, { noteId, text: 'Delegate it through team-leader.', queue: 'steer' });
+    assert.ok(at >= sent && at <= Date.now(), 'when hobkin took it');
 
     // Its turn read it in: the receipt is kept with it.
     turn.options.onEvent({ type: 'message_end', message: { role: 'user', content: [{ type: 'text', text: turn.heard[0] }] } });

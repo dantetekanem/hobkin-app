@@ -1264,24 +1264,29 @@ test("the user's notes stay on their run's record with their receipts, and what 
   const { work } = runner.startTracked({ id: 'run', scheduleId: 'check' }, () => finish.promise);
   t.after(async () => { finish.resolve({ status: 'completed' }); await work; });
   const chart = { type: 'image', data: 'aW1hZ2U=', mimeType: 'image/png' };
-  const notes = () => runtime.data.runs.run.notes?.map(({ noteId, text, at, queue, images, receivedAt }) => [noteId, text, at, queue, images, receivedAt]);
+  const kept = () => runtime.data.runs.run.notes;
 
   await runner.messageCheck({ scheduleId: 'check', runId: 'run', noteId: weekdays, message: 'Only weekdays' });
   await runner.messageCheck({ scheduleId: 'check', runId: 'run', message: 'From the main agent' });
   await runner.messageCheck({ scheduleId: 'check', runId: 'run', noteId: sum, message: 'Then sum it up', images: [chart], queue: 'follow-up' });
-  assert.deepEqual(notes(), [[weekdays, 'Only weekdays', 123, 'steer', undefined, undefined], [sum, 'Then sum it up', 123, 'follow-up', 1, undefined]]);
-  assert.doesNotMatch(JSON.stringify(runtime.data.runs.run.notes), /aW1hZ2U=/, 'no image is kept');
+  assert.deepEqual(kept(), [
+    { noteId: weekdays, text: 'Only weekdays', at: 123, queue: 'steer' },
+    { noteId: sum, text: 'Then sum it up', at: 123, queue: 'follow-up', images: 1 },
+  ]);
+  assert.doesNotMatch(JSON.stringify(kept()), /aW1hZ2U=/, 'no image is kept');
 
   runner.onActivity('run', { type: 'message_end', message: { role: 'user', content: [{ type: 'text', text: marked(sum, 'Then sum it up') }, { type: 'image' }] } });
   // The receipt is written without anything waiting for it.
   await new Promise(setImmediate);
-  assert.equal(runtime.data.runs.run.notes[1].receivedAt, 123);
+  assert.equal(kept()[1].receivedAt, 123);
 
   await runner.takeBack({ scheduleId: 'check', runId: 'run' });
-  assert.deepEqual(notes().map(([noteId]) => noteId), [sum], 'taken back into the box, it leaves the run');
+  assert.deepEqual(kept().map(note => note.noteId), [sum], 'taken back into the box, it leaves the run');
+
   await runner.messageCheck({ scheduleId: 'check', runId: 'run', noteId: month, message: 'Plan the month instead', queue: 'interrupt' });
-  assert.deepEqual(notes(), [[month, 'Plan the month instead', 123, 'interrupt', undefined, undefined]], 'what the interrupted turn never read leaves too');
+  assert.deepEqual(kept(), [{ noteId: month, text: 'Plan the month instead', at: 123, queue: 'interrupt' }], 'what the interrupted turn never read leaves too');
+
   // Its page reads them back, and a run hobkin does not know has none.
-  assert.deepEqual(await runner.notesOf('run'), runtime.data.runs.run.notes);
+  assert.deepEqual(await runner.notesOf('run'), kept());
   assert.deepEqual(await runner.notesOf('gone'), []);
 });
