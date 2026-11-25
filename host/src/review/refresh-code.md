@@ -29,7 +29,7 @@ Make a git worktree for yourself, on the change's branch. Work only there. Never
 - Merge the change itself into the branch it merges into.
 - Touch another branch.
 - Force a push, or rewrite a commit that is published.
-- Comment on GitHub, or open, close or change a pull request.
+- Comment on {{host}}, or open, close or change a pull request.
 
 ## When the branch is up to date
 

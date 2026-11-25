@@ -1126,7 +1126,7 @@ export class Reviews {
     const source = target.kind === 'change' ? this.options.sources.change : this.options.sources.pull
     const say = (text: string) => this.say(id, text)
     this.set(id, { phase: 'reading', error: null })
-    say(target.kind === 'pull' ? `Asking GitHub where #${target.number} is.` : 'Looking up the commit the change is at.')
+    say(target.kind === 'pull' ? `Asking ${target.host ?? 'GitHub'} where #${target.number} is.` : 'Looking up the commit the change is at.')
     const head = await source.head(target)
     if (!head) throw new Error(target.kind === 'change' ? 'This change has no branch to read any more.' : 'This pull request is not open any more.')
     const log = this.runs.get(id)
@@ -2520,14 +2520,15 @@ export class Reviews {
     // What waits gets no review, and so no agent goes back to it by itself: the row says so (spec 058).
     const unchecked = head != null && this.options.store.newest(target) ? ' Its review is of an older commit, so nothing checks this one by itself.' : ' Not reviewed yet, so nothing checks it by itself.'
     const read = this.statuses.get(id)?.head ?? this.lookedHead.get(id)
+    const list = `${(target.kind === 'pull' && target.host) || 'GitHub'}'s list`
     const unnamed = !this.pullsWithoutHead.has(id)
       ? ''
       : read
-        ? ` GitHub's list did not say its commit, so the line goes by ${read.slice(0, 7)}, the one hobkin last read.`
-        : " GitHub's list did not say its commit, and hobkin has read none of it yet."
+        ? ` ${list} did not say its commit, so the line goes by ${read.slice(0, 7)}, the one hobkin last read.`
+        : ` ${list} did not say its commit, and hobkin has read none of it yet.`
     const untimed = !this.pullsWithoutTimes.has(id)
       ? ''
-      : `${unnamed ? ' Nor did it say' : " GitHub's list did not say"} when it was opened or pushed, so its wait counts from its last update there.`
+      : `${unnamed ? ' Nor did it say' : ` ${list} did not say`} when it was opened or pushed, so its wait counts from its last update there.`
     return { ahead: waits.ahead, why: `${waits.why}${unchecked}${unnamed}${untimed}` }
   }
 

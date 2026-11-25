@@ -36,6 +36,18 @@ test('the prompt carries the change facts, with no place left unfilled, for each
   assert.ok(stackPrompt({ ...OWN, start: null }).includes('not known'))
 })
 
+test('the prompt names the code host the pull request is on', () => {
+  const named: StackFacts = { ...OTHER, pull: { number: 183, address: 'https://code.example.invalid/them/rpg/pull/183', author: null, host: 'corp' } }
+  const text = stackPrompt(named)
+  assert.match(text, /Comment on corp\./)
+  assert.match(text, /written by an author corp did not name/)
+  assert.doesNotMatch(text, /GitHub/)
+  const github = stackPrompt({ ...OTHER, pull: { ...OTHER.pull!, author: null } })
+  assert.match(github, /Comment on GitHub\./)
+  assert.match(github, /written by an author GitHub did not name/)
+  assert.match(stackPrompt(OWN), /Comment on any code host\./)
+})
+
 test('it starts one agent in the repository folder with the change title and the prompt', async () => {
   const { seat, started } = fakeSeat()
   const answer = await stackHandlers(seat)['review.stack']!({ id: 'change:shop:billing' })

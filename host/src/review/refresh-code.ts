@@ -1,6 +1,6 @@
 import type { ReviewStatus } from '#shared/review/status.ts'
 import { Unavailable, type HostHandlers } from '../commands.ts'
-import { fill, oneAgentAtATime, readPromptFile, titled } from './agent-prompt.ts'
+import { codeHostWords, fill, oneAgentAtATime, readPromptFile, titled } from './agent-prompt.ts'
 
 /**
  * Code stale, refresh (the button beside Make it a stack). hobkin's code merges nothing: it gathers what it knows of the
@@ -20,7 +20,8 @@ export interface RefreshFacts {
   code: NonNullable<ReviewStatus['code']>
   /** hobkin's own finished change, the user's own pull request, or another author's pull request. */
   kind: 'own' | 'mine' | 'other'
-  pull?: { number: number; address: string; author: string | null }
+  /** The pull request, with the named code host it is on: none for GitHub's. */
+  pull?: { number: number; address: string; author: string | null; host?: string }
 }
 
 export interface RefreshSeat {
@@ -62,8 +63,9 @@ function stateWords({ behind, conflict, base }: RefreshFacts['code']): string {
 
 /** The prompt for a change, with every place filled. */
 export function refreshPrompt(facts: RefreshFacts): string {
+  const host = codeHostWords(facts.pull)
   const pull = facts.pull
-    ? fill(template.part('pull'), { number: String(facts.pull.number), address: facts.pull.address, author: facts.pull.author ?? 'an author GitHub did not name' })
+    ? fill(template.part('pull'), { number: String(facts.pull.number), address: facts.pull.address, author: facts.pull.author ?? `an author ${host} did not name` })
     : template.part('no pull')
   const ending = template.part(facts.kind === 'own' ? (facts.pull ? 'own with pull' : 'own') : facts.kind)
   return fill(template.main, {
@@ -74,6 +76,7 @@ export function refreshPrompt(facts: RefreshFacts): string {
     base: facts.code.base ?? NOT_KNOWN,
     state: stateWords(facts.code),
     pull,
+    host,
     ending,
   })
 }

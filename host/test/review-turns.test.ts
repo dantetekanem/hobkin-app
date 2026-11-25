@@ -7,7 +7,7 @@ import type { PullRequest } from '#shared/protocol/pulls.ts'
 import type { WorkState } from '#shared/protocol/work.ts'
 import { reviewIdOf } from '#shared/review/ids.ts'
 import type { Review } from '#shared/review/types.ts'
-import type { Assessments } from '../src/review/assessment.ts'
+import { Assessments } from '../src/review/assessment.ts'
 import { Reviews, type Watched } from '../src/review/reviews.ts'
 import { finishTimes, toPrepare } from '../src/review/seat.ts'
 import { reviewStore } from '../src/review/store.ts'
@@ -300,6 +300,33 @@ test("pull requests the workload names wait in their repository's line like chan
     reviews.status('pr:acme/shop/5').turn?.why,
     "Waits its turn: 4 ahead in acme/shop. Not reviewed yet, so nothing checks it by itself. GitHub's list did not say its commit, and hobkin has read none of it yet. Nor did it say when it was opened or pushed, so its wait counts from its last update there.",
   )
+})
+
+test('a pull request on a code host other than GitHub names that host when it waits, and when its preparation asks where it is', async (t) => {
+  const root = temporaryDirectory(t)
+  const reviews = new Reviews({
+    store: reviewStore(root),
+    assessments: new Assessments({ root, run: async () => Promise.reject(new Error('not run here')), repoOf: () => null }),
+    sources: {
+      change: { head: async () => null, read: async () => Promise.reject(new Error('no')) },
+      pull: { head: async () => null, read: async () => Promise.reject(new Error('not read here')) },
+    },
+    work: () => ({ workAction: async () => ({}) }),
+    card: () => null,
+  })
+  t.after(() => reviews.close())
+  const pulls = Array.from({ length: 5 }, (_, index) => ({ id: reviewIdOf({ kind: 'pull', host: 'corp', owner: 'acme', repo: 'shop', number: index + 1 }), updatedAt: new Date().toISOString() }))
+
+  reviews.watch(pulls)
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  const why = reviews.status('pr:corp:acme/shop/5').turn?.why ?? ''
+  assert.match(why, /corp's list did not say its commit, and hobkin has read none of it yet\. Nor did it say when/)
+  assert.doesNotMatch(why, /GitHub/)
+
+  reviews.prepare('pr:corp:acme/shop/5', { asked: true })
+  await reviews.settled('pr:corp:acme/shop/5')
+  const log = reviews.status('pr:corp:acme/shop/5').assessment?.log?.map((line) => line.text) ?? []
+  assert.ok(log.includes('Asking corp where #5 is.'), log.join('\n'))
 })
 
 test('the line\'s clock is when a change finished, not when hobkin last wrote it', async (t) => {

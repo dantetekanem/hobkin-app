@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { useStore } from 'zustand'
 import type { ReviewLanding, ReviewStatus, VerdictPreview } from '#shared/review/status.ts'
 import type { Review } from '#shared/review/types.ts'
+import { pullOfReview } from '#shared/review/ids.ts'
 import { discussionMessage } from '#shared/review/notes.ts'
 import { questionsToDiscuss, type Verdict } from '#shared/review/verdict.ts'
 import { Markdown } from '@/features/chat/markdown.ts'
@@ -82,6 +83,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
   status?: ReviewStatus | null
 }) {
   const kind = verdictKind(review.id)
+  const codeHost = pullOfReview(review.id)?.host ?? 'GitHub'
   // Someone else's pull request is approved or commented on, and only its review is removed: its author merges or closes it.
   const foot = footOf(review.id, status?.owner)
   const choosable = removeChoices(foot.remove)
@@ -254,7 +256,7 @@ export function Actions({ review, notes, live, verdict, saveNotes, landed, ask, 
       tabIndex={-1}
       className={cn('rv-scroll min-h-0 flex-1 overflow-y-auto rounded-xl px-3 py-2.5 text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] outline-none', says && 'bg-background')}
     >
-      <Said kind={kind} live={live} flow={flow} doing={doing.current != null} landing={landing} unseen={unseen} why={foot.why} suggestion={suggestion} />
+      <Said kind={kind} codeHost={codeHost} live={live} flow={flow} doing={doing.current != null} landing={landing} unseen={unseen} why={foot.why} suggestion={suggestion} />
     </div>
   )
   const said = removeShown ? (
@@ -472,9 +474,11 @@ const labelOf = (kind: 'change' | 'pull', verdict: Verdict) => VERDICT_CHOICES[k
  * its second click, the host's reason when it will not do it, its words when it did, or the sample notice. Nothing
  * when there is nothing to say.
  */
-function Said({ kind, live, flow, doing, landing, unseen, why, suggestion }: {
+function Said({ kind, codeHost, live, flow, doing, landing, unseen, why, suggestion }: {
   suggestion: Suggestion
   kind: 'change' | 'pull'
+  /** The code host a pull request is on, in words. */
+  codeHost: string
   live: boolean
   flow: { busy: boolean; preview: VerdictPreview | null; error: string | null; message: string | null }
   doing: boolean
@@ -503,7 +507,7 @@ function Said({ kind, live, flow, doing, landing, unseen, why, suggestion }: {
       </p>
     )
   }
-  if (flow.preview) return <Preview kind={kind} preview={flow.preview} unseen={isYes(flow.preview.verdict) ? unseenWords(unseen) : null} suggestion={suggestion} />
+  if (flow.preview) return <Preview kind={kind} codeHost={codeHost} preview={flow.preview} unseen={isYes(flow.preview.verdict) ? unseenWords(unseen) : null} suggestion={suggestion} />
   if (flow.message) return <Markdown text={flow.message} />
   if (!live) return <p className="text-muted-foreground">Sample review: nothing is sent from here.</p>
   return (
@@ -533,7 +537,7 @@ interface Suggestion {
   take(original: string, words: string): void
 }
 
-function Preview({ kind, preview, unseen, suggestion }: { kind: 'change' | 'pull'; preview: VerdictPreview; unseen: string | null; suggestion: Suggestion }) {
+function Preview({ kind, codeHost, preview, unseen, suggestion }: { kind: 'change' | 'pull'; codeHost: string; preview: VerdictPreview; unseen: string | null; suggestion: Suggestion }) {
   return (
     <div className="flex flex-col gap-2" aria-label={`What ${labelOf(kind, preview.verdict)} will do`}>
       {unseen ? (
@@ -565,7 +569,7 @@ function Preview({ kind, preview, unseen, suggestion }: { kind: 'change' | 'pull
           ))}
         </div>
       ) : null}
-      {preview.post ? <GitHubPost post={preview.post} /> : null}
+      {preview.post ? <CodeHostPost post={preview.post} codeHost={codeHost} /> : null}
       <p className="flex flex-wrap items-center gap-1 text-[13px] text-muted-foreground">
         Click it again within ten seconds to confirm. <Kbd>esc</Kbd> takes it back.
       </p>
@@ -575,12 +579,15 @@ function Preview({ kind, preview, unseen, suggestion }: { kind: 'change' | 'pull
 
 const EVENT: Record<NonNullable<VerdictPreview['post']>['event'], string> = { APPROVE: 'an approval', COMMENT: 'a comment', REQUEST_CHANGES: 'a request for changes' }
 
-/** The review GitHub will get, as the host will post it: its kind, the user's words when they wrote any, and each comment on its lines. */
-function GitHubPost({ post }: { post: NonNullable<VerdictPreview['post']> }) {
+/**
+ * The review the pull request's code host will get, as the host will post it: its kind, the user's words when they
+ * wrote any, and each comment on its lines.
+ */
+function CodeHostPost({ post, codeHost }: { post: NonNullable<VerdictPreview['post']>; codeHost: string }) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg bg-secondary/70 p-2.5" aria-label="The review GitHub will get">
+    <div className="flex flex-col gap-2 rounded-lg bg-secondary/70 p-2.5" aria-label={`The review ${codeHost} will get`}>
       <p className="font-heading text-[13px] font-semibold text-muted-foreground">
-        GitHub gets {EVENT[post.event]}, on commit {post.commit_id.slice(0, 7)}
+        {codeHost} gets {EVENT[post.event]}, on commit {post.commit_id.slice(0, 7)}
       </p>
       {post.body ? <p className="text-[13.5px] leading-[1.45] [overflow-wrap:anywhere] whitespace-pre-wrap">{post.body}</p> : null}
       {post.comments.map((comment, index) => (

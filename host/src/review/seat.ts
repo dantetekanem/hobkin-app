@@ -439,7 +439,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
         branch: change?.branch ?? built?.branch ?? null,
         kind: 'own',
         project: target.slug,
-        ...(change?.pr && opened?.kind === 'pull' ? { pull: { number: opened.number, address: change.pr, author: null } } : {}),
+        ...(change?.pr && opened?.kind === 'pull' ? { pull: { number: opened.number, address: change.pr, author: null, ...(opened.host ? { host: opened.host } : {}) } } : {}),
       }
     }
     const head = status.head ?? built?.head ?? null
@@ -454,7 +454,7 @@ export function hostReviews(seat: ReviewSeat): Reviews {
       head,
       branch: built?.branch ?? null,
       kind: status.owner?.mine ? 'mine' : 'other',
-      pull: { number: target.number, address: pullUrl(target) ?? `${target.owner}/${target.repo}#${target.number}`, author: status.owner?.author ?? null },
+      pull: { number: target.number, address: pullUrl(target) ?? `${target.owner}/${target.repo}#${target.number}`, author: status.owner?.author ?? null, ...(target.host ? { host: target.host } : {}) },
     }
   })
   refreshFacts.set(reviews, async (id) => {

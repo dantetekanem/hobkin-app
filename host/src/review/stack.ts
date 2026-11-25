@@ -1,5 +1,5 @@
 import { Unavailable, type HostHandlers } from '../commands.ts'
-import { fill, oneAgentAtATime, readPromptFile, titled } from './agent-prompt.ts'
+import { codeHostWords, fill, oneAgentAtATime, readPromptFile, titled } from './agent-prompt.ts'
 
 /**
  * Make it a stack (060-make-it-a-stack). hobkin's code plans nothing: it gathers what it knows of the change, fills the
@@ -22,7 +22,8 @@ export interface StackFacts {
   kind: 'own' | 'mine' | 'other'
   /** For hobkin's own change: its Work project. */
   project?: string
-  pull?: { number: number; address: string; author: string | null }
+  /** The pull request, with the named code host it is on: none for GitHub's. */
+  pull?: { number: number; address: string; author: string | null; host?: string }
 }
 
 export interface StackSeat {
@@ -42,8 +43,9 @@ const NOT_KNOWN = 'not known to hobkin: work it out with git'
 /** The prompt for a change, with every place filled. */
 export function stackPrompt(facts: StackFacts): string {
   const known = (value: string | null) => value ?? NOT_KNOWN
+  const host = codeHostWords(facts.pull)
   const pull = facts.pull
-    ? fill(part('pull'), { number: String(facts.pull.number), address: facts.pull.address, author: facts.pull.author ?? 'an author GitHub did not name' })
+    ? fill(part('pull'), { number: String(facts.pull.number), address: facts.pull.address, author: facts.pull.author ?? `an author ${host} did not name` })
     : part('no pull')
   const ending = fill(part(facts.kind), { project: facts.project ?? '' })
   return fill(template.main, {
@@ -54,6 +56,7 @@ export function stackPrompt(facts: StackFacts): string {
     head: known(facts.head),
     branch: known(facts.branch),
     pull,
+    host,
     ending,
   })
 }

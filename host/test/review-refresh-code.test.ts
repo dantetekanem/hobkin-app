@@ -41,6 +41,18 @@ test('the prompt is filled for each ending, with no place left unfilled and each
   assert.equal(new Set(texts.slice(0, 4)).size, 4)
 })
 
+test('the prompt names the code host the pull request is on', () => {
+  const named: RefreshFacts = { ...OTHER, pull: { number: 183, address: 'https://code.example.invalid/them/rpg/pull/183', author: null, host: 'corp' } }
+  const text = refreshPrompt(named)
+  assert.match(text, /Comment on corp, or open/)
+  assert.match(text, /written by an author corp did not name/)
+  assert.doesNotMatch(text, /GitHub/)
+  const github = refreshPrompt({ ...OTHER, pull: { ...OTHER.pull!, author: null } })
+  assert.match(github, /Comment on GitHub, or open/)
+  assert.match(github, /written by an author GitHub did not name/)
+  assert.match(refreshPrompt(OWN), /Comment on any code host, or open/)
+})
+
 test('it starts one agent in the repository folder with the change title and the prompt', async () => {
   const { seat, started } = fakeSeat()
   assert.deepEqual(await ask(seat), { hobkin: 'h1', run: 'r1', already: false })

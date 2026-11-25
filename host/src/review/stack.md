@@ -37,7 +37,7 @@ The top layer must equal the original change. Show it: `git diff <top branch> <o
 
 - Push anything.
 - Open or change a pull request.
-- Comment on GitHub.
+- Comment on {{host}}.
 - Merge.
 - Touch the original branch or the user's working folder.
 

@@ -38,6 +38,9 @@ export function fill(text: string, values: Record<string, string>): string {
 /** A title with a lead, cut to the title's limit. */
 export const titled = (lead: string, title: string): string => `${lead}: ${title}`.slice(0, HOBKIN_TITLE_MAX).trim()
 
+/** The code host a change's pull request is on, in words: GitHub, or the one the code host file names. With no pull request, any. */
+export const codeHostWords = (pull: { host?: string } | undefined): string => (pull ? (pull.host ?? 'GitHub') : 'any code host')
+
 export interface Started {
   hobkin: string
   run: string | null
