@@ -5,7 +5,7 @@ import { rowLayout } from '@/features/reports/list-motion.ts'
 import { useStill } from '@/features/reports/still.ts'
 import { LayerArrow } from '@/features/work/LayerArrow.tsx'
 import { stackHeading, type Layer, type PullUnit } from './page-order.ts'
-import { CHECKS, Chip, LayerBadge, PullCard } from './rows.tsx'
+import { ChecksChip, LayerBadge, PullCard, PullNumber } from './rows.tsx'
 
 /**
  * A stack of pull requests on the GitHub page, drawn as Work draws one (`ui/src/features/work/StackGroup.tsx`): one
@@ -71,7 +71,8 @@ export function PullStack({
 
 /**
  * A layer over the bottom: its place, title, number and checks, in one line that opens to its card. The arrow in front
- * shows the layer it sits on, and its label says it in words.
+ * shows the layer it sits on, and its label says it in words. Each part but the title has the width the cards give it,
+ * so the lines line up, and the title is cut with "…" when it is longer, whole on a hover.
  */
 function LayerLine({ layer, opened, onToggle, ...shared }: Shared & { layer: Layer; opened: boolean; onToggle: () => void }) {
   const still = useStill()
@@ -92,11 +93,13 @@ function LayerLine({ layer, opened, onToggle, ...shared }: Shared & { layer: Lay
           className="pressable flex min-h-11 min-w-0 flex-1 scroll-mt-[124px] scroll-mb-6 flex-wrap items-center gap-x-3 gap-y-1.5 rounded-2xl bg-background/60 px-4 py-2 text-left outline-offset-[-2px] transition-colors duration-[160ms] ease-[ease] focus-visible:bg-tone-2"
         >
           <LayerBadge place={place} />
-          <span className="min-w-0 flex-1 basis-40 truncate text-[13.5px] leading-snug font-medium">{entry.title}</span>
-          {entry.number !== null ? <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">#{entry.number}</span> : null}
+          <span title={entry.title} className="min-w-0 flex-1 basis-40 truncate text-[13.5px] leading-snug font-medium">
+            {entry.title}
+          </span>
+          <PullNumber number={entry.number} className="text-right text-[12px] text-muted-foreground" />
           {entry.pull ? (
             <span className="hidden shrink-0 sm:inline-flex">
-              <Chip {...CHECKS[entry.pull.checks]} />
+              <ChecksChip checks={entry.pull.checks} />
             </span>
           ) : null}
           <Chevron aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />

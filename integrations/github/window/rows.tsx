@@ -31,6 +31,7 @@ import type { StackPlace } from '#shared/protocol/work.ts'
 import { pullUrl, targetOfReviewId } from '#shared/review/ids.ts'
 import { useView } from '@/app/view-store.ts'
 import { Button } from '@/components/ui/button.tsx'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip.tsx'
 import { useNow } from '@/features/chat/use-now.ts'
 import { rowLayout } from '@/features/reports/list-motion.ts'
 import { useStill } from '@/features/reports/still.ts'
@@ -93,13 +94,36 @@ export const CHECKS: Record<ChecksState, Said> = {
   none: { label: 'No checks', tone: 'quiet', icon: Minus },
 }
 
-export function Chip({ label, tone, icon: Icon }: Said) {
+export function Chip({ label, tone, icon: Icon, className }: Said & { className?: string }) {
   return (
-    <span className={cn('inline-flex h-6 items-center gap-1 rounded-full px-2.5 font-heading text-[12.5px] font-medium whitespace-nowrap', TONE[tone])}>
-      <Icon className="size-3.5" aria-hidden="true" />
+    <span className={cn('inline-flex h-6 shrink-0 items-center gap-1 rounded-full px-2.5 font-heading text-[12.5px] font-medium whitespace-nowrap', TONE[tone], className)}>
+      <Icon className="size-3.5 shrink-0" aria-hidden="true" />
       {label}
     </span>
   )
+}
+
+/*
+ * Each part of a pull request's card has one width on every card, so the same part lines up down the whole list and
+ * nothing moves when a state changes. Each width fits the part's longest value: "Checks running", "Changes requested",
+ * "12 of 12", #99999, "updated 59 minutes ago". The AI review's column is 260px, with its buttons one width.
+ */
+const CHECKS_WIDTH = 'w-[8.5rem]'
+const REVIEW_WIDTH = 'w-40'
+const REPO_WIDTH = 'w-52'
+const NUMBER_WIDTH = 'w-14'
+const AUTHOR_WIDTH = 'w-32'
+const TIME_WIDTH = 'w-40'
+const AI_BUTTON_WIDTH = 'w-[8.5rem]'
+
+/** A pull request's checks, at the one width every card gives them. */
+export function ChecksChip({ checks }: { checks: ChecksState }) {
+  return <Chip {...CHECKS[checks]} className={CHECKS_WIDTH} />
+}
+
+/** A pull request's number, at the one width every card and line gives it. */
+export function PullNumber({ number, className }: { number: number | null; className?: string }) {
+  return <span className={cn(NUMBER_WIDTH, 'shrink-0 tabular-nums', className)}>{number !== null ? `#${number}` : null}</span>
 }
 
 interface Placed {
@@ -125,15 +149,49 @@ function Piece({ variants, order, className, children, aiOnly }: Placed & { clas
 const CARD =
   'relative isolate flex flex-wrap items-start gap-x-6 gap-y-3 rounded-3xl bg-background px-5 py-4 transition-colors duration-[160ms] ease-[ease] hover:bg-tone-1 has-[[data-github-row]:focus-visible]:bg-tone-2'
 const TITLE_LINK =
-  "mt-1 block font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] text-balance outline-none after:absolute after:inset-0 after:rounded-3xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-ring"
+  "mt-1 block truncate font-heading text-[16px] leading-snug font-semibold tracking-[-0.01em] outline-none after:absolute after:inset-0 after:rounded-3xl after:content-[''] focus-visible:after:ring-2 focus-visible:after:ring-ring"
 
-/** The card's title: the link to its page, and its stop in the walk. */
+/**
+ * The card's title: the link to its page, and its stop in the walk. It is one line, cut with "…" when it is longer. A
+ * hover shows the whole title, and so does a key that brings it the focus while it is cut.
+ */
 function TitleLink({ url, title, onOpen }: { url: string; title: string; onOpen: (event: MouseEvent<HTMLAnchorElement>) => void }) {
   const walkable = useContext(Walkable)
+  const [whole, setWhole] = useState(false)
+  const onFocus = (event: FocusEvent<HTMLAnchorElement>) => {
+    const link = event.currentTarget
+    setWhole(link.matches(':focus-visible') && link.scrollWidth > link.clientWidth)
+  }
   return (
-    <a href={url} target="_blank" rel="noopener noreferrer" data-stop={walkable ? '' : undefined} data-github-row={walkable ? '' : undefined} onClick={onOpen} className={cn(TITLE_LINK, 'scroll-mt-24 scroll-mb-6')}>
-      {title}
-    </a>
+    // Only a key's focus opens it: a hover has the title's own tooltip. Escape, or the focus leaving, closes it.
+    <Tooltip
+      open={whole}
+      onOpenChange={(open) => {
+        if (!open) setWhole(false)
+      }}
+    >
+      <TooltipTrigger
+        render={
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={title}
+            data-stop={walkable ? '' : undefined}
+            data-github-row={walkable ? '' : undefined}
+            onClick={onOpen}
+            onFocus={onFocus}
+            onBlur={() => setWhole(false)}
+            className={cn(TITLE_LINK, 'scroll-mt-24 scroll-mb-6')}
+          />
+        }
+      >
+        {title}
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="start" className="max-w-md text-left leading-snug whitespace-normal">
+        {title}
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -143,21 +201,22 @@ function Labels({ labels }: { labels: string[] }) {
   return (
     <>
       {labels.slice(0, MOST_LABELS).map((label) => (
-        <span key={label} className="inline-flex h-6 max-w-[18ch] items-center truncate rounded-full border border-border px-2.5 text-[12.5px] text-muted-foreground">
+        <span key={label} title={label} className="h-6 max-w-[18ch] min-w-12 truncate rounded-full border border-border px-2.5 text-[12.5px] leading-[22px] text-muted-foreground">
           {label}
         </span>
       ))}
-      {labels.length > MOST_LABELS ? <span className="text-[12.5px] text-muted-foreground">+{labels.length - MOST_LABELS}</span> : null}
+      {labels.length > MOST_LABELS ? <span className="shrink-0 text-[12.5px] text-muted-foreground">+{labels.length - MOST_LABELS}</span> : null}
     </>
   )
 }
 
 /** Lines added and removed, and files, as GitHub counts them, or as the AI review read them for one GitHub no longer lists. */
 function Size({ size }: { size: NonNullable<PullEntry['size']> }) {
+  // Each number has a column that fits +12345, so the numbers line up down the list; a larger one widens it.
   return (
-    <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 font-heading text-[12.5px] font-medium tabular-nums">
-      <span className="text-ok-fg">+{size.added}</span>
-      <span className="text-bad-fg">−{size.removed}</span>
+    <span className="inline-flex h-6 min-w-[11.75rem] shrink-0 items-center gap-1.5 rounded-full bg-surface-2 px-2.5 font-heading text-[12.5px] font-medium whitespace-nowrap tabular-nums">
+      <span className="min-w-12 text-ok-fg">+{size.added}</span>
+      <span className="min-w-12 text-bad-fg">−{size.removed}</span>
       <span className="text-muted-foreground">
         · {size.files} {size.files === 1 ? 'file' : 'files'}
       </span>
@@ -168,7 +227,7 @@ function Size({ size }: { size: NonNullable<PullEntry['size']> }) {
 /** "2 of 3": a pull request's place in its stack, counted from the bottom, of the layers the page lists. A screen reader hears "Layer 2 of 3". */
 export function LayerBadge({ place }: { place: StackPlace }) {
   return (
-    <span className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-surface-2 px-2 font-heading text-[12px] font-medium whitespace-nowrap text-foreground tabular-nums [&_svg]:size-3.5">
+    <span className="inline-flex h-6 w-20 shrink-0 items-center gap-1 rounded-full bg-surface-2 px-2 font-heading text-[12px] font-medium whitespace-nowrap text-foreground tabular-nums [&_svg]:size-3.5 [&_svg]:shrink-0">
       <Layers aria-hidden="true" className="text-muted-foreground" />
       <span className="sr-only">Layer </span>
       {place.layer} of {place.of}
@@ -210,24 +269,40 @@ export function PullCard({
     <Piece {...placed} className="relative" aiOnly={!pull}>
       <div className={CARD}>
         <div className="min-w-[240px] flex-1">
-          <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[13px] text-muted-foreground">
+          {/* Where it is on the left and when it changed on the right, each part at its one width, so they line up down the list. */}
+          <p className="flex h-6 items-center gap-1.5 text-[13px] whitespace-nowrap text-muted-foreground">
             <Icon className={cn('size-4 shrink-0', pull?.draft ? 'text-muted-foreground' : 'text-ok-fg')} aria-hidden="true" />
-            <span className="font-medium text-foreground">{entry.repo}</span>
-            {entry.number !== null ? <span className="tabular-nums">#{entry.number}</span> : null}
+            <span title={entry.repo} className={cn(REPO_WIDTH, 'min-w-0 truncate font-medium text-foreground')}>
+              {entry.repo}
+            </span>
+            <PullNumber number={entry.number} />
             {place ? <LayerBadge place={place} /> : null}
-            {pull?.author && !mine ? <span>· by @{pull.author}</span> : null}
-            {Number.isFinite(updated) ? (
-              <time dateTime={pull!.updatedAt} className="tabular-nums">
-                · updated {waited(updated, now)} ago
-              </time>
-            ) : null}
+            <span className="ml-auto flex min-w-0 items-center gap-1.5">
+              {pull?.author && !mine ? (
+                <span title={`by @${pull.author}`} className={cn(AUTHOR_WIDTH, 'min-w-0 truncate')}>
+                  by @{pull.author}
+                </span>
+              ) : null}
+              {Number.isFinite(updated) ? (
+                <time dateTime={pull!.updatedAt} className={cn(TIME_WIDTH, 'shrink-0 tabular-nums')}>
+                  updated {waited(updated, now)} ago
+                </time>
+              ) : null}
+            </span>
           </p>
-          {url ? <TitleLink url={url} title={entry.title} onOpen={open} /> : <p className={TITLE_LINK}>{entry.title}</p>}
-          <p className="mt-2.5 flex flex-wrap items-center gap-1.5 empty:hidden">
-            {pull ? <Chip {...CHECKS[pull.checks]} /> : null}
-            {pull && mine ? <Chip {...REVIEW[pull.review]} /> : null}
-            {pull?.draft ? <Chip label="Draft" tone="quiet" icon={GitPullRequestDraft} /> : null}
+          {url ? (
+            <TitleLink url={url} title={entry.title} onOpen={open} />
+          ) : (
+            <p title={entry.title} className={TITLE_LINK}>
+              {entry.title}
+            </p>
+          )}
+          {/* One line: the checks and the review at their widths, then the size, a draft and the labels, which are cut before it would wrap. */}
+          <p className="mt-2.5 flex h-6 items-center gap-1.5 overflow-hidden empty:hidden">
+            {pull ? <ChecksChip checks={pull.checks} /> : null}
+            {pull && mine ? <Chip {...REVIEW[pull.review]} className={REVIEW_WIDTH} /> : null}
             {entry.size ? <Size size={entry.size} /> : null}
+            {pull?.draft ? <Chip label="Draft" tone="quiet" icon={GitPullRequestDraft} /> : null}
             {pull ? <Labels labels={pull.labels} /> : null}
           </p>
           {elsewhere ? <p className="mt-2 text-[13px] leading-snug text-muted-foreground">{elsewhere}</p> : null}
@@ -282,57 +357,68 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
   }
 
   return (
-    <div data-ai-review className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col items-start gap-2">
-      {ai.state === 'none' ? (
-        <>
-          <span className="text-[13px] text-muted-foreground">Not reviewed yet</span>
-          <Button variant="outline" data-stop="" disabled={starting} focusableWhenDisabled onClick={() => void start(false)}>
-            <Sparkles aria-hidden="true" />
-            {starting ? 'Starting…' : 'Start review'}
-          </Button>
-        </>
-      ) : null}
-      {ai.state === 'running' ? (
-        <>
-          <span className="flex w-full items-baseline justify-between gap-2 font-heading text-[14px] font-semibold">
-            Review running
-            {ai.percent !== null ? <span className="tabular-nums">{ai.percent}%</span> : null}
+    // Three lines of one height in every state: what the review is, its button or its progress, and one more line. So
+    // the state, the button and the last line sit at one height down the list, and a card keeps its height as it changes.
+    <div data-ai-review className="relative z-10 flex w-[260px] max-w-full shrink-0 flex-col gap-2">
+      <div className="flex h-7 items-center justify-between gap-2">
+        {ai.state === 'none' ? <span className="text-[13px] text-muted-foreground">Not reviewed yet</span> : null}
+        {ai.state === 'running' ? (
+          <>
+            <span className="font-heading text-[14px] font-semibold">Review running</span>
+            <AiWhen ai={ai} />
+          </>
+        ) : null}
+        {ai.state === 'waits' ? (
+          <span role="status" className="truncate font-heading text-[14px] font-semibold text-muted-foreground">
+            {stateWords({ kind: 'waits', ahead: ai.ahead })}
           </span>
-          <ReviewProgress percent={ai.percent} label={`Review of ${title}`} />
-          <span role="status" className="line-clamp-2 text-[13.5px] leading-snug">
-            {ai.line}
-          </span>
-        </>
-      ) : null}
-      {ai.state === 'waits' ? (
-        <span role="status" className="font-heading text-[14px] font-semibold text-muted-foreground">
-          {stateWords({ kind: 'waits', ahead: ai.ahead })}
-        </span>
-      ) : null}
-      {ai.state === 'ready' ? (
-        <>
-          {ai.row.summary ? (
+        ) : null}
+        {ai.state === 'ready' ? (
+          ai.row.summary ? (
             <ReviewBadge status={ai.row.item.assessment} size="md" />
           ) : (
             <span className="inline-flex h-7 items-center rounded-full bg-surface-2 px-3 font-heading text-[13px] font-medium text-muted-foreground">Review ready</span>
-          )}
-          <Button variant="outline" data-stop="" onClick={() => openReview(ai.row.item.id)}>
+          )
+        ) : null}
+        {ai.state === 'failed' ? <span className="font-heading text-[14px] font-semibold text-bad-fg">Review failed</span> : null}
+      </div>
+      <div className="flex h-8 items-center gap-3">
+        {ai.state === 'none' ? (
+          <Button variant="outline" data-stop="" disabled={starting} focusableWhenDisabled className={AI_BUTTON_WIDTH} onClick={() => void start(false)}>
+            <Sparkles aria-hidden="true" />
+            {starting ? 'Starting…' : 'Start review'}
+          </Button>
+        ) : null}
+        {ai.state === 'running' && ai.percent !== null ? (
+          <>
+            <ReviewProgress percent={ai.percent} label={`Review of ${title}`} />
+            <span className="w-10 shrink-0 text-right font-heading text-[14px] font-semibold tabular-nums">{ai.percent}%</span>
+          </>
+        ) : null}
+        {ai.state === 'ready' ? (
+          <Button variant="outline" data-stop="" className={AI_BUTTON_WIDTH} onClick={() => openReview(ai.row.item.id)}>
             Open review
           </Button>
-        </>
-      ) : null}
-      {ai.state === 'failed' ? (
-        <>
-          <span className="font-heading text-[14px] font-semibold text-bad-fg">Review failed</span>
-          <span title={ai.line} className="line-clamp-3 text-[13px] leading-snug text-muted-foreground">
-            {ai.line}
-          </span>
-          <Button variant="outline" data-stop="" disabled={starting} focusableWhenDisabled onClick={() => void start(true)}>
+        ) : null}
+        {ai.state === 'failed' ? (
+          <Button variant="outline" data-stop="" disabled={starting} focusableWhenDisabled className={AI_BUTTON_WIDTH} onClick={() => void start(true)}>
             {starting ? 'Starting…' : 'Try again'}
           </Button>
-        </>
-      ) : null}
-      <AiWhen ai={ai} />
+        ) : null}
+      </div>
+      <div className="flex h-5 min-w-0 items-center">
+        {ai.state === 'running' ? (
+          <span role="status" title={ai.line} className="truncate text-[13px] leading-5">
+            {ai.line}
+          </span>
+        ) : null}
+        {ai.state === 'ready' ? <AiWhen ai={ai} /> : null}
+        {ai.state === 'failed' ? (
+          <span title={ai.line} className="truncate text-[13px] leading-5 text-muted-foreground">
+            {ai.line}
+          </span>
+        ) : null}
+      </div>
       {refusal ? (
         <p role="alert" className="text-[13px] leading-snug text-bad-fg">
           {refusal}
