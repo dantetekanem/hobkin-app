@@ -54,7 +54,7 @@ const lensWorth = { goal: 2, security: 3, bugs: 3, updates: 2, improvements: 2, 
 // How many grades below its project a row sits.
 const impactSteps = { high: 0, medium: 1, low: 2 };
 const IDEAS_STEPS = 2;
-const entryOrder = ['discover', 'study', 'watch', 'item', 'signals', 'machines', 'look', 'ideas'];
+const entryOrder = ['discover', 'study', 'guide', 'watch', 'item', 'signals', 'machines', 'look', 'ideas'];
 // The state-machines look comes once a week for every project, whatever its priority: it is a deep read, not a pace.
 const MACHINES_EVERY_MS = 7 * 24 * HOUR_MS;
 
@@ -308,6 +308,26 @@ export function signalsEntry(project, state, { root, now }, triggered) {
   };
 }
 
+/**
+ * The look that writes a code project's run guide and follows it in a tree (`run-guide.mjs`). It is never due by itself: only the user's press puts
+ * it in the queue, so the row is there only while that pick is.
+ */
+function guideEntry(project) {
+  const { slug, level } = project;
+  return {
+    ...ofProject(project),
+    key: `guide:${slug}`,
+    kind: 'guide',
+    lane: 'look',
+    focus: 'guide',
+    grade: priorityOf(project),
+    title: 'run guide',
+    effort: 'medium',
+    score: levelWorth[level] * impactWorth.medium / effortCost.medium,
+    why: 'asked for',
+  };
+}
+
 /** A project has one look due at most: its study until that is done, then its weekly state-machines look, then a lens, then ideas. A trigger makes a look due, and nothing else about it changes. */
 function lookEntry(context, project, state, studied, items) {
   const triggered = kind => context.mode.queueNext.includes(`${kind}:${project.slug}`);
@@ -342,7 +362,8 @@ function projectEntries(context, project) {
   const code = !isGoal(project);
   const watch = code ? watchEntry(project, state, context, triggered('watch')) : null;
   const signals = studied && code ? signalsEntry(project, state, context, triggered('signals')) : null;
-  const entries = [...items, ...[look, watch, signals].filter(Boolean)];
+  const guide = code && triggered('guide') ? guideEntry(project) : null;
+  const entries = [...items, ...[look, watch, signals, guide].filter(Boolean)];
   // A study that keeps failing must never hold a project's items, so they wait for its first try and no longer.
   const unstudied = !studied && !state.lastLookAt;
   return entries.map(entry => ({ ...entry, paused, unstudied: unstudied && entry.kind === 'item' }));

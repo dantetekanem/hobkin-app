@@ -59,8 +59,8 @@ const MAX_DISCOVERY_CONTINUATIONS = 2;
 const MAX_NOTES_BYTES = 16384;
 const MAX_ITEMS_SENT = 40;
 const MAX_REASON_LENGTH = 500;
-// These looks run tests, which write files, so they never run in the project's own folder.
-const looksThatWrite = ['study', 'bugs', 'improvements'];
+// These looks run tests, which write files, so they never run in the project's own folder. A guide look installs and starts services too.
+const looksThatWrite = ['study', 'bugs', 'improvements', 'guide'];
 // Nothing else gives a run a deadline, and a run that has hung holds its worker for good.
 const QUIET_MS = HOUR_MS;
 const QUIET_REASON = 'It went quiet for an hour.';
@@ -793,6 +793,8 @@ export class WorkDirector {
       'state-machines': { lastLookAt: now, lastMachinesAt: now, ...(toolsHere(this.root) ? { lastMachinesTlcAt: now } : {}) },
       signals: { lastSignalsAt: now },
       watch: { lastWatchAt: now },
+      // Only the user's press makes a guide look, so it has no clock to stamp and leaves the lenses where they were.
+      guide: {},
     };
     const stamped = stampedBy[focus] ?? lens;
     const earlier = Object.fromEntries(Object.keys(stamped).map(key => [key, state[key] ?? null]));

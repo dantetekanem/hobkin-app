@@ -18,6 +18,7 @@ import { filePickUp } from './pick-up.mjs';
 import { finishesWork, holdingOf, MAX_RUNS_A_DAY, MAX_RUNS_AT_ONCE, planWork, rowWait } from './plan.mjs';
 import { assertState, attentionView, closingItems, itemCounts, itemsView, landingList, projectsView, prView, queueView, readyItems, runningView, searchView, statusView, watchingView } from './reads.mjs';
 import { reviewView } from './review.mjs';
+import { readRunGuide, recordGuideRun } from './run-guide.mjs';
 import { readSignals, recordSignals, signalGaps } from './signals.mjs';
 import {
   agentStates, chooseAutoPick, currentRequest, fileItem, folderSearched, isGoal, issueMode, landing, MAX_AGENTS, nextDiscoveryAt, nextLookAt, noteDiscovery, ownerView, paths, priorityOf, proposeProject,
@@ -77,6 +78,7 @@ Used by agents inside a run:
   yolo <project> [item]                JSON on stdin: its readiness; or, with an item, monitoring after its deploy
   deployed <project> <commit>          JSON on stdin: the live check and monitoring after a Deploy now? deploy
   machines <project>                   JSON on stdin: each state machine a look found, with its files
+  guide <project> [study]              JSON on stdin: a run of its run guide; with nothing piped, the guide
 `;
 // What the tab and an agent asking need, and a long plan would otherwise fill the status.
 const MAX_PLAN_SENT = 50;
@@ -161,6 +163,13 @@ async function machinesCommand(root, reference, input) {
   const found = machines.length ? `${machines.length} state ${machines.length === 1 ? 'machine' : 'machines'}` : 'no state machine';
   const tools = tlc ? 'with Java and TLC found' : 'without Java and TLC, so readiness waits for a look that has them';
   return reply(`Recorded ${found} on ${nameOf(project)}, ${tools}.`, { machines: machines.length, tlc });
+}
+
+/** A run of a project's run guide, piped by the run that followed it (`run-guide.mjs`). With nothing piped this only reads the guide. */
+async function guideCommand(root, [reference, caller], input) {
+  const report = input && !input.isTTY ? await readText(input) : '';
+  if (!report.trim()) return readRunGuide(root, reference);
+  return recordGuideRun(root, reference, JSON.parse(report), caller);
 }
 
 async function watchCommand(root, reference, input) {
@@ -442,6 +451,7 @@ export async function runWorkCommand(requestedRoot, [action, ...args], input, { 
       return recordDeployed(root, args[0], args[1], JSON.parse(report));
     }
     case 'machines': return machinesCommand(root, args[0], input);
+    case 'guide': return guideCommand(root, args, input);
     case 'trouble': return callTrouble(root, ...args);
     default: throw new WrongCommand(HELP);
   }

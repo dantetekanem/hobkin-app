@@ -73,6 +73,9 @@ const joinPaths = (root, slug) => {
     signals: join(directory, 'signals.json'),
     state: join(directory, 'state.json'),
     prs: join(directory, 'prs'),
+    // The user's run guide (`run-guide.mjs`), kept here and never in the project, and the log of when it was written and run.
+    runGuide: join(directory, 'run-guide.md'),
+    runGuideLog: join(directory, 'run-guide.jsonl'),
     trees,
     // A project runs one look at a time, so its looks share one tree.
     lookTree: join(trees, 'look'),
@@ -767,6 +770,11 @@ export function retryItem(root, slug, id, now = Date.now()) {
 export const readLaunches = (root, slug) => fold(parseLog(paths(root, slug).launches), event => event.item);
 
 export const recordLaunch = (root, slug, change, now = Date.now()) => appendEvent(paths(root, slug).launches, { ...change, updatedAt: new Date(now).toISOString() });
+
+/** A run guide's log, oldest first: a `written` line each time the guide changed and a `ran` line for each run of it (`run-guide.mjs`). It only grows. */
+export const readGuideLog = (root, slug) => parseLog(paths(root, slug).runGuideLog);
+
+export const recordGuideLog = (root, slug, line) => appendEvent(paths(root, slug).runGuideLog, line);
 
 /** The user's own word on a pattern, from `hobkin work trust`. The last word on each stands. */
 export const readTrust = root => fold(parseLog(trustPath(root)), event => event.pattern);

@@ -23,8 +23,9 @@ import { AFTER_MERGE, changeFacts, closeMergedPull, ghWithin, landedRecord, land
 
 const run = promisify(execFile);
 
-const QUEUE_KEY = /^(item|look|study|ideas|signals|watch|machines):([^:]+)(?::(.+))?$/;
-const LOOKS = ['look', 'study', 'ideas', 'signals', 'watch', 'machines'];
+const QUEUE_KEY = /^(item|look|study|ideas|signals|watch|machines|guide):([^:]+)(?::(.+))?$/;
+// `guide` writes a code project's run guide and is only ever queued by the user's press (`run-guide.mjs`).
+const LOOKS = ['look', 'study', 'ideas', 'signals', 'watch', 'machines', 'guide'];
 // A finished branch can go round again. Its item goes back to `open`, and the next run picks up from that branch.
 const statesThatRun = [...runnableStates, 'branch'];
 // A look's pace in the words people use: every hour, every 12 hours, every day, every 3 days, every week.
@@ -284,7 +285,8 @@ function queueRow(root, reference, target, unnamed = () => null) {
   if (!row) throw Error('Say which row: look, study or an item.');
   if (LOOKS.includes(row)) {
     const look = row === 'look' && !existsSync(paths(root, slug).project) ? 'study' : row;
-    return { project, key: `${look}:${slug}`, label: `the ${look} on ${nameOf(project)}` };
+    const label = look === 'guide' ? `the run guide for ${nameOf(project)}` : `the ${look} on ${nameOf(project)}`;
+    return { project, key: `${look}:${slug}`, label };
   }
   const item = findItem(root, project, row);
   return { project, item, key: `item:${slug}:${item.id}`, label: `"${item.title}" on ${nameOf(project)}` };

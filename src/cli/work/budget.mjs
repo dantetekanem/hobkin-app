@@ -21,6 +21,8 @@ export const startBudgets = {
 export const firstGuess = {
   discover: { fresh: 500000, cached: 10000000 },
   study: { fresh: 300000, cached: 2000000 },
+  // A run guide written from the project's docs and followed once in a tree, on the user's press.
+  guide: { fresh: 300000, cached: 2000000 },
   look: { fresh: 300000, cached: 2000000 },
   ideas: { fresh: 200000, cached: 1000000 },
   // A deep read of the whole project on the strongest model, once a week.
