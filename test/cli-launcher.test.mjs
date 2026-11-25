@@ -6,8 +6,19 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { atomicJson, initialize, loadConfig, validateConfig } from '../src/cli/config.mjs';
 import { buildInvocation, runHarness } from '../src/cli/harnesses.mjs';
-import { piCommand, piEnvironment, validateLauncher } from '../src/cli/launcher.mjs';
+import { AGENTS_ENVIRONMENT } from '../src/cli/agent-directions-extension.mjs';
+import { piCommand, validateLauncher } from '../src/cli/launcher.mjs';
 import { createOwnedAgentAdapter } from '../src/cli/owned-agent-session.mjs';
+
+/**
+ * What a job's environment sets beyond this process's own, and any inherited name it drops. Compared this way, a
+ * failing test prints only these, never the inherited environment and the keys in it.
+ */
+function beyondInherited(env) {
+  const set = Object.fromEntries(Object.entries(env).filter(([name, value]) => process.env[name] !== value));
+  const dropped = Object.keys(process.env).filter(name => !(name in env));
+  return { set, dropped };
+}
 
 const launcher = { command: ['my-pi-launcher', 'pi'], env: { EXAMPLE_MODE: '1' }, managedExtensions: true };
 const id = 'f094b0ba-036c-4abc-9198-745fd1226765';
@@ -92,7 +103,7 @@ test('without a launcher a job still starts bare pi with the offline environment
   await runHarness(request(t), { spawnProcess: fake(rpc(finished), calls) });
   assert.equal(calls[0].command, 'pi');
   assert.equal(calls[0].args[0], '--mode');
-  assert.deepEqual(calls[0].options.env, { ...process.env, PI_OFFLINE: '1', PI_TELEMETRY: '0' });
+  assert.deepEqual(beyondInherited(calls[0].options.env), { set: { PI_OFFLINE: '1', PI_TELEMETRY: '0', ...AGENTS_ENVIRONMENT }, dropped: [] });
 });
 
 test('with a launcher every job spawns its command first, with its environment and no shell', async t => {
@@ -105,8 +116,7 @@ test('with a launcher every job spawns its command first, with its environment a
   assert.equal(calls[0].args[calls[0].args.indexOf('--model') + 1], 'test/model');
   assert.equal(calls[0].options.shell, false);
   assert.equal(calls[0].options.cwd, input.cwd);
-  assert.deepEqual(calls[0].options.env, { ...process.env, EXAMPLE_MODE: '1' }, 'the launcher keeps its own network and telemetry defaults');
-  assert.deepEqual(piEnvironment(launcher), calls[0].options.env, 'nothing but the inherited environment and the launcher’s own is added');
+  assert.deepEqual(beyondInherited(calls[0].options.env), { set: { EXAMPLE_MODE: '1', ...AGENTS_ENVIRONMENT }, dropped: [] }, 'the launcher keeps its own network and telemetry defaults');
   await assert.rejects(runHarness({ ...input, launcher: { command: ['-x'] } }, { spawnProcess: fake('') }), /launcher/);
 });
 
