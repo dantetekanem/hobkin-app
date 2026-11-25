@@ -34,7 +34,7 @@ export interface ReviewSource {
   /** The commit the change is at now, or null when it is gone: merged, closed or deleted. */
   head(target: ReviewTarget): Promise<string | null>
   /** Where the change starts at that commit, for a source that reads it with git here. A review is built from there. */
-  start?(target: ReviewTarget, head: string): Promise<string>
+  start?(target: ReviewTarget, head: string): Promise<string | null>
   /** The whole change at that commit. */
   read(target: ReviewTarget, head: string, watch?: ReadWatch): Promise<ChangeInput>
 }
@@ -122,7 +122,10 @@ export function changeSource({
   }
   const startAt = async (target: ReviewTarget, head: string) => {
     const { facts, repo } = where(target)
-    if (facts.stack?.base) return facts.stack.base
+    if (facts.stack?.base) {
+      if (!(await git(repo).contains(head, facts.stack.base))) throw new Error(`The stack base ${facts.stack.base.slice(0, 7)} is not an ancestor of ${head.slice(0, 7)}. Check the layer before reviewing it.`)
+      return facts.stack.base
+    }
     return startOfChange({ reader: git(repo), into: await baseOf(repo), head, recorded: recorded?.(target) ?? null })
   }
   return {
@@ -182,6 +185,8 @@ export function pullSource({
   limit?: SizeLimit
 }): ReviewSource {
   const github = githubApi(gh)
+  // A retargeted PR can keep the same head. Compare immutable tips, not today's branch names.
+  const ranges = new Map<string, { head: string; tip: string; base?: string }>()
   /** A read on the pull request's own host. */
   const read = (target: PullTarget) => async <Value>(path: string): Promise<Value> => JSON.parse(await (apiOf(target) ?? github)({ path })) as Value
   // Who the user is, when it cannot be said, leaves every pull request someone else's: nothing is merged or closed on a guess.
@@ -200,17 +205,38 @@ export function pullSource({
   return {
     async head(target) {
       const pull = pullOf(target)
-      const answer = await read(pull)<{ state?: string; head?: { sha?: string } }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
-      return answer.state === 'open' && answer.head?.sha ? answer.head.sha : null
+      const answer = await read(pull)<{ state?: string; head?: { sha?: string }; base?: { sha?: string } }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
+      const head = answer.state === 'open' ? answer.head?.sha : null
+      const tip = answer.base?.sha
+      if (head && tip && /^[0-9a-f]{40}$/.test(tip) && /^[0-9a-f]{40}$/.test(head)) {
+        const key = pullUrl(pull)!
+        const seen = ranges.get(key)
+        if (seen?.tip !== tip || seen.head !== head) ranges.set(key, { head, tip })
+      } else ranges.delete(pullUrl(pull)!)
+      return head ?? null
+    },
+    async start(target, head) {
+      const pull = pullOf(target)
+      const seen = ranges.get(pullUrl(pull)!)
+      if (pull.host || !seen || seen.head !== head) return null
+      if (!seen.base) {
+        const compared = await read(pull)<{ merge_base_commit?: { sha?: string } }>(`repos/${pull.owner}/${pull.repo}/compare/${seen.tip}...${head}?per_page=1`)
+        const base = compared.merge_base_commit?.sha
+        if (!base || !/^[0-9a-f]{40}$/.test(base)) throw new Error(`GitHub did not identify the merge base of #${pull.number}.`)
+        seen.base = base
+      }
+      return seen.base
     },
     async read(target, head, watch = {}) {
       const pull = pullOf(target)
       if (!checkout) throw new Error('This host checks out no pull requests, so it cannot read one.')
       const say = watch.say ?? (() => {})
       say(`Reading #${pull.number} on ${pull.host ?? 'GitHub'}.`)
-      const details = await read(pull)<{ title: string; body?: string | null; base: { ref: string }; head: { ref: string }; user?: { login?: string } | null; mergeable?: boolean | null; mergeable_state?: string }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
+      const details = await read(pull)<{ title: string; body?: string | null; base: { ref: string; sha?: string }; head: { ref: string; sha?: string }; user?: { login?: string } | null; mergeable?: boolean | null; mergeable_state?: string }>(`repos/${pull.owner}/${pull.repo}/pulls/${pull.number}`)
+      if (details.head.sha && details.head.sha !== head) throw new Error(`#${pull.number} moved while its details were read. Start its review again.`)
       watch.titled?.(details.title)
-      const { repo, base } = await checkout.fetch(pull, { head, baseBranch: details.base.ref, headBranch: details.head.ref }, say)
+      const { repo, base } = await checkout.fetch(pull, { head, baseBranch: details.base.ref, ...(details.base.sha ? { baseSha: details.base.sha } : {}), headBranch: details.head.ref }, say)
+      if (details.base.sha) ranges.set(pullUrl(pull)!, { head, tip: details.base.sha, base })
       // How far behind its base the pull request is, counted in the checkout this read already made.
       const behind = await gitIn(repo, 'rev-list', '--count', `${head}..${pullRefs(pull).base}`).then((count) => Number.parseInt(count, 10), () => null)
       const reader = gitReader(repo)

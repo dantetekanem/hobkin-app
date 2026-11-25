@@ -76,11 +76,11 @@ const input = (more: Partial<NodeTestsInput> = {}): NodeTestsInput => ({
 
 test('each test of a part says how it relates to the change, how it was found, how it did and what it showed, the older first', () => {
   const tests = nodeTestsOf(input())
-  assert.deepEqual(tests, [
+  assert.deepEqual(tests.filter((entry) => !entry.symbol || entry.relation === 'removed'), [
     { path: 'test/e2e/topics.test.js', relation: 'before', found: 'entry', lifecycle: true, at_head: 'passed', shows: 'reaches', why: 'life-cycle test of showTopic: route: showTopic' },
-    { path: 'test/flow/old.test.js', symbol: 'an old flow', line: 2, relation: 'before', found: 'scan', lifecycle: true, at_head: 'not-run', why: 'the scan links it; it was not among the tests run' },
-    { path: 'test/render.test.js', symbol: 'renders a mention', line: 4, relation: 'edited', found: 'convention', lifecycle: false, at_head: 'passed', shows: 'still-passes', why: 'named after src/render.js; this diff edited it' },
-    { path: 'test/helpers/posts.test.js', symbol: 'repeated mentions are one lookup', line: 6, relation: 'added', found: 'scan', lifecycle: false, at_head: 'passed', shows: 'proves', why: 'the scan links it to linkUserTags' },
+    { path: 'test/flow/old.test.js', relation: 'before', found: 'scan', lifecycle: true, at_head: 'not-run', why: 'the scan links it; it was not among the tests run' },
+    { path: 'test/render.test.js', relation: 'edited', found: 'convention', lifecycle: false, at_head: 'passed', shows: 'still-passes', why: 'named after src/render.js' },
+    { path: 'test/helpers/posts.test.js', relation: 'added', found: 'scan', lifecycle: false, at_head: 'passed', shows: 'proves', why: 'the scan links it to linkUserTags' },
     { path: 'test/helpers/old.test.js', symbol: 'counts each mention', line: 3, relation: 'removed', found: 'diff', lifecycle: false },
   ])
 })
@@ -101,8 +101,44 @@ test('a test that fails or hangs at the commit says so, and one that fails only 
 
 test('an edited test of the part that lost assertions is weakened', () => {
   const diff: FileDiff = { path: 'test/render.test.js', hunks: [{ oldStart: 4, oldLines: 3, newStart: 4, newLines: 2, lines: ["   test('renders a mention', () => {", "-    assert.match(render('@1'), /Ana/)", '   })'] }] }
-  const edited = nodeTestsOf(input({ diffs: [diff] })).find((entry) => entry.path === 'test/render.test.js')!
+  const edited = nodeTestsOf(input({ diffs: [diff] })).find((entry) => entry.path === 'test/render.test.js' && entry.symbol)!
   assert.deepEqual(edited.weakened, { assertions_removed: 1, lines: [5] })
+})
+
+test('a skipped file cannot inherit a green batch result', () => {
+  const path = 'test/helpers/posts.test.js'
+  const tests = nodeTestsOf(input({ runs: [run('baseline', [path, 'test/other.test.js']), { ...run('baseline', [path]), not_run: 'the test runner found no test to run.' }] }))
+  assert.equal(tests.find((entry) => entry.path === path)?.at_head, 'not-run')
+})
+
+test('file receipts stay on the file, not every named case', () => {
+  const path = 'test/helpers/posts.test.js'
+  const tests = nodeTestsOf(input())
+  assert.equal(tests.find((entry) => entry.path === path && !entry.symbol)?.shows, 'proves')
+  const named = tests.find((entry) => entry.path === path && entry.symbol)
+  assert.equal(named?.at_head, 'not-run')
+  assert.equal(named?.shows, undefined)
+})
+
+test('named cases use local failures, not unknown or sibling failure locations', () => {
+  const path = 'test/helpers/posts.test.js'
+  const named = (line?: number) => nodeTestsOf(input({ runs: [
+    run('baseline', [path]),
+    { ...run('revert', [path], [path], 'n1'), ...(line ? { failed_at: [{ path, line }] } : {}) },
+  ] })).find((entry) => entry.path === path && entry.symbol)!
+  assert.equal(named(8).shows, 'proves')
+  assert.equal(named(80).shows, undefined)
+  assert.equal(named().shows, undefined)
+  const failed = nodeTestsOf(input({ runs: [{ ...run('baseline', [path], [path]), failed_at: [{ path, line: 8 }] }] }))
+  assert.equal(failed.find((entry) => entry.path === path && entry.symbol)?.at_head, 'failed')
+})
+
+test('exact native case success is preferred without passing sibling or template cases', () => {
+  const path = 'test/helpers/posts.test.js'
+  const runs: TestRun[] = [{ ...run('baseline', [path]), cases: [{path, name: 'repeated mentions are one lookup', status: 'passed'}] }]
+  const tests = nodeTestsOf(input({runs}))
+  assert.equal(tests.find((item) => item.symbol === 'repeated mentions are one lookup')?.at_head, 'passed')
+  assert.equal(tests.find((item) => item.symbol === 'renders a mention')?.at_head, 'not-run')
 })
 
 test('a test has no tests of its own', () => {
@@ -132,7 +168,7 @@ test('each covering test in a changed file has its own relation: one there befor
       runs: [],
     }),
   )
-  assert.deepEqual(tests.map((entry) => [entry.path, entry.symbol, entry.line, entry.relation]), [
+  assert.deepEqual(tests.filter((entry) => entry.symbol).map((entry) => [entry.path, entry.symbol, entry.line, entry.relation]), [
     ['test/models/review_test.rb', 'ReviewTest test "score label"', 4, 'before'],
     ['test/models/review_test.rb', 'ReviewTest test "score label caps at five"', 8, 'added'],
   ])
@@ -156,7 +192,7 @@ test('each covering test in a changed file gives its own reason: one there befor
       runs: [],
     }),
   )
-  assert.deepEqual(tests.map((entry) => [entry.relation, entry.why]), [
+  assert.deepEqual(tests.filter((entry) => entry.symbol).map((entry) => [entry.relation, entry.why]), [
     ['before', 'the scan links it to Review#score_label; named after app/models/review.rb; this diff did not change it'],
     ['edited', 'the scan links it to Review#score_label; this diff changed it and it names score_label; named after app/models/review.rb'],
     ['added', 'the scan links it to Review#score_label; named after app/models/review.rb; this diff added it'],

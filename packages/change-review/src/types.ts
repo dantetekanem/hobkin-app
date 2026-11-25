@@ -263,8 +263,9 @@ export interface ScanEdge {
 export interface Dangling {
   symbol: string
   path: string
-  /** Where it is still referred to. */
-  references: { path: string; line: number; text: string }[]
+  oldLine?: number
+  /** Name matches are candidates, not proof of receiver or binding identity. */
+  references: { path: string; line: number; text: string; resolution?: string }[]
 }
 
 /** A test that references changed definitions, as `--tests all` lists it in the pack's `testDefinitions`. */
@@ -350,6 +351,8 @@ export interface TestRun {
   seconds: number
   /** Test files that failed in this run. */
   failed: string[]
+  /** Concrete case receipts reported by a runner, scoped to their test file. */
+  cases?: { path: string; name: string; status: 'passed' | 'failed' | 'skipped' }[]
   /**
    * Where the failures were, when the runner's output names places in the run's test files: a failing test's own
    * line, the line of its failed assertion. A test of a file that failed, with no place of its own here, passed.
@@ -400,6 +403,8 @@ export interface Watch {
 export interface FloorExtras {
   /** Rule 1: something is broken or missing, said in words. */
   broken?: string
+  /** A removed name has matches, but their receiver/binding has not been resolved. */
+  unresolvedReference?: string
   /** Rule 2: a removal that nothing remaining refers to. */
   unreferencedRemoval?: boolean
   /** Rule 2: a bucket from FOUNDATION section 6 whose checks all passed. */
@@ -678,6 +683,8 @@ export interface ReviewNode {
   /** Triage bucket this node's file is in. */
   bucket?: string
   callers?: { total: number; shown: number; complete: boolean }
+  /** Actual arguments and resolution, not merely a caller count. */
+  callSites?: CallSite[]
   /** Sensitive names matched (money, auth, tenant...). Orders units inside a level; never sets one. */
   sensitive: string[]
   level: NodeLevel | null
@@ -726,6 +733,8 @@ export interface Graph {
   range: string
   base: string
   head: string
+  /** Validated hosted results, retained even when no Reviewer model ran. */
+  hostedChecks?: HostedChecks
   nodes: ReviewNode[]
   edges: GraphEdge[]
   coverage: { truncated: boolean; notes: string[] }
@@ -748,6 +757,22 @@ export interface Graph {
 export type EvidenceKind = 'equivalent' | 'off-path-identical' | 'unreferenced' | 'additive-schema' | 'dominance-proven'
 export const EVIDENCE_KINDS = ['equivalent', 'off-path-identical', 'unreferenced', 'additive-schema', 'dominance-proven'] as const satisfies readonly EvidenceKind[]
 
+/** Source citations are checked against the reviewed revisions; their meaning still needs review. */
+export interface RiskGrounding {
+  kind: 'code-path' | 'regression-test' | 'coverage-gap' | 'hypothesis' | 'model-only'
+  trigger?: string
+  trace?: { role: 'consumer' | 'change'; path: string; line: number; side: 'base' | 'head'; quote: string }[]
+}
+
+/** Exact-head hosted results, not branch coverage or required-check completeness. */
+export interface HostedChecks {
+  status: 'available' | 'unknown'
+  headSha: string
+  checks: { name: string; status: string; conclusion: string | null; headSha: string }[]
+  truncated: boolean
+  reason?: string
+}
+
 /** One line of risk-events.jsonl (schemas/risk-event.schema.json). Events are the whole history: replaying them from the floors gives the graph. */
 export interface RiskEvent {
   node: string
@@ -755,6 +780,7 @@ export interface RiskEvent {
   origin?: 'introduced' | 'worsened' | 'pre-existing' | 'unknown'
   /** Base/head evidence for the same input and actual consumer. */
   comparison?: string
+  grounding?: RiskGrounding
   /** The node's level after this finding. Equal to the floor when nothing changes. */
   level: Level
   direction: 'up' | 'down' | 'sideways' | 'time'

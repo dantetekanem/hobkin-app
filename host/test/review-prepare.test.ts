@@ -38,12 +38,13 @@ function reviewsFor(t: TestContext, more: Partial<ConstructorParameters<typeof R
   const home = temporaryDirectory(t)
   const store = reviewStore(home)
   let current = head()
+  let stackBase: string | undefined
   // gh is not here, so every pull request fails to read. Each try is written down.
   const pullTries: string[][] = []
   // Every preparation reads the change once, so the reads say how many were made.
   const reads: string[] = []
   const source = changeSource({
-    find: () => ({ project: 'hobkin', title: 'Say what hobkin is doing', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', head: current }),
+    find: () => ({ project: 'hobkin', title: 'Say what hobkin is doing', branch: 'hobkin/7d02c9-say-what-hobkin-is-doing', head: current, ...(stackBase ? { stack: { base: stackBase } } : {}) }),
     repoOf: () => repo,
     baseOf: async () => 'main',
   })
@@ -52,6 +53,7 @@ function reviewsFor(t: TestContext, more: Partial<ConstructorParameters<typeof R
     sources: {
       change: {
         head: (target) => source.head(target),
+        start: (target, at) => source.start!(target, at),
         read: (target, at) => {
           reads.push(at)
           return source.read(target, at)
@@ -68,7 +70,7 @@ function reviewsFor(t: TestContext, more: Partial<ConstructorParameters<typeof R
     card: () => null,
     ...more,
   })
-  return { reviews, store, home, git, write, pullTries, reads, move: () => (current = head()) }
+  return { reviews, store, home, git, write, pullTries, reads, move: () => (current = head()), stackOn: (base: string) => { stackBase = base } }
 }
 
 const ID = 'change:hobkin:7d02c9'
@@ -106,6 +108,37 @@ test('prepares one head once', async (t) => {
   const folder = join(home, 'client', 'reviews', 'change+hobkin+7d02c9')
   assert.deepEqual(readdirSync(folder).filter((name) => name.startsWith('review-')).length, 2)
   assert.ok(existsSync(join(folder, `review-${first.slice(0, 12)}.json`)))
+})
+
+test('a cached graph of the same head is rebuilt when its stack base differs', async (t) => {
+  const { reviews, store, reads } = reviewsFor(t)
+  const target = { kind: 'change', slug: 'hobkin', item: '7d02c9' } as const
+  reviews.prepare(ID)
+  await reviews.settled(ID)
+  const { review, files, meta } = store.latest(target)!
+  store.write(target, { ...review, change: { ...review.change, base: 'b'.repeat(40) } }, files, meta!)
+  reviews.prepare(ID)
+  await reviews.settled(ID)
+  assert.equal(store.latest(target)?.review.change.base, review.change.base)
+  assert.equal(reads.length, 2)
+})
+
+test('a watched change rebuilds from a new stack base without waiting for a new head', async (t) => {
+  const { reviews, git, write, move, stackOn, reads } = reviewsFor(t)
+  const layer = git('rev-parse', 'HEAD')
+  write('notes.md', 'Second layer\n')
+  git('add', 'notes.md')
+  git('commit', '--quiet', '-m', 'Second layer')
+  const head = move()
+  reviews.watch([{ id: ID, head }], 1)
+  await reviews.settled()
+  stackOn(layer)
+  await reviews.lookAgain(ID, () => Date.now() + 65_000)
+  assert.equal(reviews.status(ID).stale, true)
+  reviews.watch([{ id: ID, head }], 1)
+  await reviews.settled()
+  assert.equal(reviews.get(ID).review.change.base, layer)
+  assert.deepEqual(reads, [head, head])
 })
 
 test('a review’s graph is the host’s own: no model narrates it', async (t) => {

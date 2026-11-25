@@ -27,7 +27,7 @@ export interface PullCheckout {
    * Fetches the pull request at `head`, and the branch it merges into, into hobkin's own refs. Answers the repository's
    * folder and the commit the change starts from: where `head` and that branch last met, as GitHub compares them.
    */
-  fetch(target: PullTarget, pull: { head: string; baseBranch: string; headBranch?: string }, say?: Say): Promise<{ repo: string; base: string }>
+  fetch(target: PullTarget, pull: { head: string; baseBranch: string; baseSha?: string; headBranch?: string }, say?: Say): Promise<{ repo: string; base: string }>
   /** The repository's folder with `head` in it, found or made, fetching the pull request's head again when it is not there. */
   repoFor(target: PullTarget, head: string, say?: Say): Promise<string>
   /**
@@ -239,14 +239,16 @@ export function pullCheckout({
   const reviewKey = (target: PullTarget) => `${target.host ?? ''}:${target.owner}/${target.repo}#${target.number}`
 
   return {
-    async fetch(target, { head, baseBranch, headBranch }, say) {
+    async fetch(target, { head, baseBranch, baseSha, headBranch }, say) {
       if (headBranch) branches.set(reviewKey(target), headBranch)
       const clone = await place(target, say)
       const refs = pullRefs(target)
       say?.(`Fetching #${target.number} and ${baseBranch} from ${from(target)}.`)
       await fetchInto(target, clone, [`+${headRefOf(target)}:${refs.head}`, `+refs/heads/${baseBranch}:${refs.base}`])
-      if (!(await has(clone.folder, head))) throw moved(target, head)
-      const base = await git(clone.folder, 'merge-base', refs.base, head)
+      if ((await git(clone.folder, 'rev-parse', refs.head)) !== head) throw moved(target, head)
+      const baseTip = await git(clone.folder, 'rev-parse', refs.base)
+      if (baseSha && baseTip !== baseSha) throw new Error(`The base of #${target.number} moved while it was fetched. Start its review again.`)
+      const base = await git(clone.folder, 'merge-base', baseTip, head)
       if (clone.own) {
         // One diff reads every changed file at both ends, so a blobless clone fetches them in one go, not one by one.
         say?.('Fetching the changed files.')

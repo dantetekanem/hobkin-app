@@ -6,9 +6,9 @@
  * a request's way and a test shows it. The changed file gets its exact bytes back before anything else runs, and the
  * proof refuses a checkout that is not exactly the change. No coverage tooling, clone or sandbox.
  */
-import { existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { basename, extname, join, resolve, sep } from 'node:path'
+import { accessSync, constants, existsSync, lstatSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { basename, delimiter, extname, isAbsolute, join, resolve, sep } from 'node:path'
 import { gitRepo, runProgram, type GitRepo, type ProgramRun } from './git.ts'
 import type { FileDiff, Finding, Hunk, Proof, ReviewNode, Scan, TestRun } from './types.ts'
 
@@ -106,6 +106,21 @@ function packageRunbook(cwd: string): Runbook | null {
   }
   const testScript = object(pkg.scripts).test
   const script = typeof testScript === 'string' ? testScript : ''
+  if (/^\s*bun\s+test(?:\s|$)/.test(script)) {
+    // Complex shell scripts need an explicit runbook; never discard their flags or filters.
+    const words = script.trim().split(/\s+/)
+    if (!/^bun\s+test(?:\s+--(?:timeout\s+\d+|bail))*$/.test(script.trim())) return null
+    const folders = [...(process.env.PATH ?? '').split(delimiter).filter(isAbsolute), join(homedir(), '.bun/bin'), '/opt/homebrew/bin', '/usr/local/bin']
+    const bun = folders.map((folder) => join(folder, 'bun')).find((path) => {
+      try {
+        accessSync(path, constants.X_OK)
+        return statSync(path).isFile()
+      } catch {
+        return false
+      }
+    })
+    return bun ? runbook([bun, ...words.slice(1)], SCRIPT_TEST_FILES, 'the test script in package.json runs bun test') : null
+  }
   const dependencies = { ...object(pkg.dependencies), ...object(pkg.devDependencies) }
   const bin = (name: string) => join(cwd, 'node_modules', '.bin', name)
   // The node that runs this package runs node --test too: an app opened from the Finder may have no node on PATH.
@@ -868,8 +883,8 @@ export function couldNotStart(output: string, code: number | null): string | nul
   return null
 }
 
-/** What minitest and RSpec say when they ran no test, and still exit 0. */
-const NONE_RAN = [/\b0 runs, 0 assertions\b/, /\b0 examples, 0 failures\b/]
+/** Runner summaries that report no executed test, even when the command exits successfully. */
+const NONE_RAN = [/\b0 runs, 0 assertions\b/, /\b0 examples, 0 failures\b/, /(?:^|\n)\s*0 pass\b/, /(?:^|\n)(?:# |ℹ )pass 0\b/]
 
 function outcomeOf(run: Started): Outcome {
   if (run.timedOut) return 'timed-out'
@@ -919,6 +934,7 @@ function testEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
 
 async function start(command: Command, files: readonly string[]): Promise<Started | { stopped: string }> {
   const [program, ...args] = command.book.command
+  if (files.some((file) => file.startsWith('-'))) return { stopped: 'a test file must not be a command option.' }
   const run = await runProgram(program!, [...args, ...files], {
     cwd: command.cwd,
     env: command.env,
@@ -931,11 +947,36 @@ async function start(command: Command, files: readonly string[]): Promise<Starte
   return run.started ? run : { stopped: `${program} could not start: ${run.reason}` }
 }
 
+/** Native Bun singleton receipts only: never borrow a header from another file or infer success. */
+export function bunCases(output: string, files: readonly string[], cwd: string): NonNullable<TestRun['cases']> {
+  if (files.length !== 1 || output.length > 1024 * 1024 || !/^bun test v\d+\./.test(output)) return []
+  const path = files[0]!
+  let own = false
+  const found = new Map<string, NonNullable<TestRun['cases']>[number]>()
+  const duplicate = new Set<string>()
+  for (const line of output.split('\n')) {
+    if (line.endsWith(':') && !line.startsWith('(')) {
+      own = resolve(cwd, line.slice(0, -1)) === resolve(cwd, path)
+      continue
+    }
+    if (!own) continue
+    const match = /^\((pass|fail|skip)\) (.+?)(?: \[\d+(?:\.\d+)?ms\])?$/.exec(line)
+    if (!match) continue
+    const name = match[2]!
+    if (name.length > 500 || found.size >= 500) return []
+    if (found.has(name)) duplicate.add(name)
+    found.set(name, { path, name, status: match[1] === 'pass' ? 'passed' : match[1] === 'fail' ? 'failed' : 'skipped' })
+  }
+  return [...found.values()].filter((item) => !duplicate.has(item.name))
+}
+
 /** A run as recorded. `notRun` says why it tells nothing of its files when the run itself cannot say so. */
 function testRunOf(command: Command, files: readonly string[], kind: TestRun['kind'], node: string | undefined, run: Started, failed: string[], notRun?: string): TestRun {
   const failedAt = failed.length ? failuresIn(run.tail, failed) : []
   const why = notRun ?? (failed.length ? null : notRunOf(run))
+  const cases = basename(command.book.command[0] ?? '') === 'bun' && command.book.command[1] === 'test' && !run.aborted && !run.timedOut ? bunCases(run.tail, files, command.cwd) : []
   return {
+    ...(cases.length ? { cases } : {}),
     command: commandLine([...command.book.command, ...files]),
     tests: [...files],
     kind,
@@ -968,8 +1009,8 @@ async function runFiles(runner: Runner, files: readonly string[], kind: TestRun[
 }
 
 /**
- * Runs test files with one command: in one run when there are several, and when that fails, each file alone to learn
- * which ones fail. The batch is recorded first, naming the files that failed alone.
+ * Runs test files with one command, then verifies each file alone even when the batch passed: a green batch can
+ * include excluded or skipped files. The batch is recorded first, naming the files that failed alone.
  */
 async function runCommand(command: Command, files: readonly string[], kind: TestRun['kind'], node?: string): Promise<Ran> {
   if (files.length === 0) return { outcomes: new Map() }
@@ -983,7 +1024,7 @@ async function runCommand(command: Command, files: readonly string[], kind: Test
     const why = `the test command could not start here (${unstarted}).`
     return { outcomes: new Map(), unstarted: new Map(files.map((file) => [file, why])) }
   }
-  if (files.length === 1 || first.code === 0 || first.aborted) {
+  if (files.length === 1 || first.aborted) {
     command.record(testRunOf(command, files, kind, node, first, failedIn(first, files)))
     if (first.aborted) return { stopped: 'the proof was stopped.' }
     return { outcomes: new Map(files.map((file) => [file, outcomeOf(first)])) }

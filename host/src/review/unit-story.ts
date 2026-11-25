@@ -39,8 +39,9 @@ export interface UnitRun {
   node?: string
   tests: readonly string[]
   failed: readonly string[]
-  /** Where in its test files the run failed, when its output said. A test of a failed file with no place here passed. */
+  /** Case-local failure locations. Missing locations say nothing about individual cases. */
   failed_at?: readonly { path: string; line: number }[]
+  cases?: readonly { path: string; name: string; status: 'passed' | 'failed' | 'skipped' }[]
   /** Why the run tells nothing of how its test files did: its command could not start, it was stopped, or it ran no test. */
   not_run?: string
 }
@@ -78,9 +79,8 @@ interface TestTold {
 
 /**
  * Each test of the review as the change review's runs went for it, by node id. A test proves the change only when the
- * run failed in that test: where a run says which places failed, another test of the same file passed. It passes
- * only where a run that held its file ran tests and failed none in it; a file that ran alone is told by those runs,
- * since the batch it was in may have run only its other files.
+ * run failed in that test. A failure elsewhere or a green file does not establish that this case ran or passed.
+ * Native runner case receipts can establish named success; missing receipts remain unknown.
  */
 function testsTold(review: Review, parts: UnitWordsParts): Map<string, TestTold> {
   const files = new Map(review.files.map((file) => [file.id, file]))
@@ -94,16 +94,19 @@ function testsTold(review: Review, parts: UnitWordsParts): Map<string, TestTold>
     const here = node.anchors.filter((anchor) => anchor.side !== 'deleted' && files.get(anchor.fileId)?.path === path)
     /** The run failed in this test: in its file, and at one of its own lines when the run says where it failed. */
     const failedIn = (run: UnitRun) =>
-      run.failed.includes(path) && (run.failed_at == null || run.failed_at.some((at) => at.path === path && here.some((anchor) => anchor.startLine <= at.line && at.line <= anchor.endLine)))
+      !run.not_run && (receipt(run) === 'failed' || (run.failed.includes(path) && Boolean(run.failed_at?.some((at) => at.path === path && here.some((anchor) => anchor.startLine <= at.line && at.line <= anchor.endLine)))))
     const namesOf = (kinds: readonly string[]) => [...new Set(ran.filter((run) => kinds.includes(run.kind) && run.node && failedIn(run)).map((run) => symbolOf.get(run.node!) ?? run.node!))]
+    const matching = parts.places.filter((place) => place.kind === 'test' && place.path === path && here.some((anchor) => anchor.startLine === place.lines[0] && anchor.endLine === place.lines[1]))
+    const name = matching.length === 1 ? matching[0]?.symbol : undefined
+    const receipt = (run: UnitRun) => name ? run.cases?.find((item) => item.path === path && item.name === name)?.status : undefined
     const failsAtHead = ran.some((run) => run.kind === 'baseline' && run.node == null && failedIn(run))
     const proves = namesOf(['revert', 'probe'])
     const atHead = ran.filter((run) => run.kind === 'baseline')
     const alone = atHead.filter((run) => run.tests.length === 1)
     const telling = alone.length ? alone : atHead
-    const passes = telling.some((run) => !run.not_run && !failedIn(run))
-    const status: NodeStatus = failsAtHead ? 'failed' : proves.length ? 'proves-change' : passes ? 'passed' : 'not-run'
-    const why = status === 'not-run' ? (telling.find((run) => run.not_run)?.not_run ?? unrun.get(path) ?? parts.notRun) : undefined
+    // Match only the exact scan name, never a suffix or parameterized template.
+    const status: NodeStatus = failsAtHead || telling.some((run) => receipt(run) === 'failed') ? 'failed' : proves.length ? 'proves-change' : telling.some((run) => receipt(run) === 'passed') ? 'passed' : 'not-run'
+    const why = status === 'not-run' ? (telling.find((run) => run.not_run)?.not_run ?? unrun.get(path) ?? parts.notRun ?? 'no case-local execution receipt was recorded.') : undefined
     told.set(node.id, { status, proves, reaches: namesOf(['reach']), ...(why ? { why } : {}) })
   }
   return told
@@ -165,7 +168,7 @@ export function unitWords(review: Review, parts: UnitWordsParts): ReviewNode[] {
       passed: reaches.length
         ? `It runs through ${listed(reaches.slice(0, 2))} and passes, with the change and with it put back: it does not check the change itself.`
         : "It passes at the change's commit, and no change put back made it fail.",
-      'not-run': `Not run${why ? `: ${why.replace(/\.$/, '')}` : ' by the change review'}.`,
+      'not-run': why === 'no case-local execution receipt was recorded.' ? 'No individual result was recorded; the file ran.' : `Not run${why ? `: ${why.replace(/\.$/, '')}` : ' by the change review'}.`,
     }[status as 'failed' | 'proves-change' | 'passed' | 'not-run']
     return { ...node, status, summary: cleanProse(`${testCovers(review.nodes, review.edges, node).said} ${result}`, PROSE_LIMIT.summary) }
   })

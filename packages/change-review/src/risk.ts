@@ -38,7 +38,7 @@ const floorOf = (node: ReviewNode): Floor => {
 const oneOf = (list: readonly string[], value: unknown) => typeof value === 'string' && list.includes(value)
 
 /** A test that fails or hangs at head is a result, not an argument: the level it sets holds like a floor. */
-const fromFailingTest = (event: RiskEvent) => event.by === 'proof' || event.rule === 'failing-test' || event.rule === 'test-timeout'
+const fromFailingTest = (event: RiskEvent) => event.by === 'proof'
 
 /** Why an event is not valid on its own (FOUNDATION 5.2 and the risk-event schema), or null. */
 function malformed(event: RiskEvent): string | null {
@@ -55,6 +55,30 @@ function malformed(event: RiskEvent): string | null {
     if (event.suggest.kind !== undefined && !oneOf(SUGGEST_KINDS, event.suggest.kind)) return `bad suggest kind: ${String(event.suggest.kind)}`
   }
   if (event.critical === true && event.level !== 'high') return 'critical is only valid with level high'
+  return null
+}
+
+export type RiskSource = (path: string, side: 'base' | 'head') => string | null
+
+/** A model claim is not a measured failure. Require a checkable path through both revisions. */
+function unsupported(event: RiskEvent, node: ReviewNode, source?: RiskSource): string | null {
+  if (event.by !== 'model' || event.origin === 'pre-existing') return null
+  if (event.level !== 'high') return null
+  const grounding = event.grounding
+  if (!['introduced', 'worsened'].includes(event.origin ?? '') || !event.comparison?.trim()) return 'a model regression needs base/head attribution; head-only impact is unknown'
+  if (!grounding || !['code-path', 'regression-test'].includes(grounding.kind) || !grounding.trigger?.trim()) return 'a model regression needs a reachable trigger and source witnesses, not conjecture or model-only evidence'
+  const trace = grounding.trace ?? []
+  if (!trace.some((site) => site.side === 'base' && site.role === 'change') || !trace.some((site) => site.side === 'head' && site.role === 'change') || !trace.some((site) => site.side === 'head' && site.role === 'consumer')) return 'a model regression needs source witnesses for the consumer and the change at base and head'
+  if (!trace.some((site) => site.role === 'change' && site.path === node.path)) return 'source witnesses do not identify this changed part'
+  for (const site of trace) {
+    const lines = source?.(site.path, site.side)?.split('\n')
+    if (!lines || !site.quote.trim() || !lines.slice(site.line - 1, site.line - 1 + site.quote.split('\n').length).join('\n').includes(site.quote.trim())) return `source witness does not match ${site.side}:${site.path}:${site.line}`
+  }
+  const consumers = trace.filter((site) => site.role === 'consumer' && site.side === 'head')
+  const bound = consumers.some((witness) =>
+    node.callSites?.some((site) => site.resolution === 'exact' && site.path === witness.path && site.line === witness.line && (!site.text || witness.quote.includes(site.text.trim())))
+    || (witness.path === node.path && witness.line >= node.lines[0] && witness.line <= node.lines[1] && node.runs_from?.found === 'origins' && node.runs_from.origins.some((origin) => origin.exact && origin.hops === 0)))
+  if (!bound) return 'source witnesses need an exact consumer binding; name-only or unresolved sites do not establish reachability'
   return null
 }
 
@@ -77,13 +101,13 @@ function mergeWatch(into: Watch | null, from: Watch | undefined): Watch | null {
 
 /**
  * Applies the risk events to the nodes. Every node starts again from its floor, so applying the same events twice, or
- * to a graph that already has them, gives the same graph (FOUNDATION 14). A raise is always valid. A lowering needs an
+ * to a graph that already has them, gives the same graph (FOUNDATION 14). Model raises need source witnesses. A lowering needs an
  * evidence kind, nothing lowers a node below its floor while that floor is rule 5 or 6 (no test showed it, or direct
  * tests alone: that mid never becomes safe on an argument), nothing lowers a break that search or a test run found
  * (rule 1): an argument is not a search result or a test run. Events that break a rule are returned in `rejected` with the reason and change
  * nothing.
  */
-export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly RiskEvent[]): { nodes: ReviewNode[]; rejected: RejectedEvent[] } {
+export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly RiskEvent[], source?: RiskSource): { nodes: ReviewNode[]; rejected: RejectedEvent[] } {
   const rejected: RejectedEvent[] = []
   const next = new Map<string, ReviewNode>()
   const floors = new Map<string, Floor>()
@@ -107,7 +131,7 @@ export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly R
       rejected.push({ event, reason: `unknown node: ${String(event.node)}` })
       continue
     }
-    const bad = malformed(event)
+    const bad = malformed(event) ?? unsupported(event, node, source)
     if (bad) {
       rejected.push({ event, reason: bad })
       continue
@@ -119,6 +143,10 @@ export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly R
         ...(event.lines ? { lines: event.lines } : {}),
         by: event.by ?? 'model',
       }, findingKey)
+      continue
+    }
+    if (event.grounding?.kind === 'hypothesis' || event.grounding?.kind === 'model-only') {
+      addOnce(node.findings, { rule: event.grounding.kind, text: `Unverified; not a demonstrated regression: ${event.evidence}`, by: event.by ?? 'model' }, findingKey)
       continue
     }
     const level = node.level
@@ -141,7 +169,7 @@ export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly R
       }
       const hold = held.get(event.node)
       if (hold && RANK[event.level] < RANK[hold]) {
-        rejected.push({ event, reason: `a test that fails or hangs at head set this node to ${hold}: only a test that runs lowers it` })
+        rejected.push({ event, reason: `a test that fails or hangs at head, or a source-grounded regression, set this node to ${hold}: only a new result lowers it` })
         continue
       }
     }
@@ -149,7 +177,7 @@ export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly R
     if (RANK[event.level] !== RANK[level.current]) level.current = event.level
 
     const heldLevel = held.get(event.node) ?? 'safe'
-    if (fromFailingTest(event) && RANK[event.level] > RANK[heldLevel]) held.set(event.node, event.level)
+    if ((fromFailingTest(event) || (event.by === 'model' && event.level === 'high')) && RANK[event.level] > RANK[heldLevel]) held.set(event.node, event.level)
 
     if (level.current !== 'high') node.critical = false
     else if (event.critical === true) node.critical = true
@@ -157,7 +185,7 @@ export function applyRiskEvents(nodes: readonly ReviewNode[], events: readonly R
 
     addOnce(level.why, event.evidence, (w) => w)
     const finding: Finding = {
-      rule: event.rule ?? 'risk-event',
+      rule: event.grounding?.kind === 'coverage-gap' ? 'coverage-gap' : event.rule ?? 'risk-event',
       text: event.evidence,
       ...(event.lines ? { lines: event.lines } : {}),
       by: event.by ?? 'model',

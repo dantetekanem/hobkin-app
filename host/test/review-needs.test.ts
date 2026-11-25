@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
 import type { ReviewNeeds } from '#shared/review/needs.ts'
@@ -60,7 +60,7 @@ test("the project's monitoring and way back, from hobkin's readiness record, are
 })
 
 /** A home with a review of the shop's change at HEAD, its change review finished with `graph`. */
-function reviewed(t: TestContext, graph: object, card: () => { hobkinNeeds?: ReviewNeeds | null } | null = () => null) {
+function reviewed(t: TestContext, graph: object, card: () => { hobkinNeeds?: ReviewNeeds | null } | null = () => null, start?: string) {
   const root = temporaryDirectory(t)
   const target = { kind: 'change' as const, slug: 'shop', item: 'a1' }
   reviewStore(root).write(target, ({ change: { title: 'Round the totals', project: 'shop', head: HEAD, base: 'b'.repeat(40) } }) as unknown as Review, [])
@@ -71,7 +71,7 @@ function reviewed(t: TestContext, graph: object, card: () => { hobkinNeeds?: Rev
   const assessments = new Assessments({ root, run: async () => Promise.reject(new Error('not run here')), repoOf: () => null })
   const reviews = new Reviews({
     store: reviewStore(root),
-    sources: { change: { head: async () => HEAD, read: async () => Promise.reject(new Error('no')) }, pull: { head: async () => null, read: async () => Promise.reject(new Error('no')) } },
+    sources: { change: { head: async () => HEAD, ...(start ? { start: async () => start } : {}), read: async () => Promise.reject(new Error('no')) }, pull: { head: async () => null, read: async () => Promise.reject(new Error('no')) } },
     work: () => ({ workAction: async () => ({}) }),
     card: () => {
       const given = card()
@@ -97,6 +97,26 @@ test("a review's status and row carry its ratings, the commit they were made at 
   assert.deepEqual(row?.needs, [own, hobkins])
 })
 
+test('a changed stack base invalidates a same-head score on the card and in the list', async (t) => {
+  const reviews = reviewed(t, { base: 'b'.repeat(40), head: HEAD, needs: ENGINE_NEEDS }, undefined, 'a'.repeat(40))
+  const id = 'change:shop:a1'
+  assert.equal(reviews.status(id).rating?.state, 'rated')
+  await reviews.lookAgain(id)
+  assert.equal(reviews.status(id).stale, true)
+  assert.equal(reviews.status(id).assessment?.state, 'idle')
+  assert.equal(reviews.list().reviews.find(row => row.id === id)?.rating?.state, 'waits')
+  assert.equal(reviews.status(id).needs, undefined)
+})
+
+test('reading a final graph before its summary is published does not permanently hide the rating', (t) => {
+  const reviews = reviewed(t, { needs: ENGINE_NEEDS })
+  const summary = join(reviews.folder, 'summary.json')
+  renameSync(summary, summary + '.pending')
+  assert.equal(reviews.status('change:shop:a1').rating?.state, 'waits')
+  renameSync(summary + '.pending', summary)
+  assert.equal(reviews.status('change:shop:a1').rating?.state, 'rated')
+})
+
 test("the list's line for a repository counts about how many tokens its reviews took this week", (t) => {
   const reviews = reviewed(t, { nodes: [] })
   recordUsage(reviews.folder, { pass: 'review', tier: 'high', model: 'a', at: '2026-11-23T09:00:00.000Z', input: 900_000, output: 100_000, cacheRead: 0, cacheWrite: 100_000, tokens: 1_100_000 })
@@ -110,12 +130,14 @@ test('a review whose change review gave no ratings is not rated, and says nothin
   assert.equal(reviews.status('change:shop:a1').needs, undefined)
 })
 
-test('a rating made at another commit than the one its row and status are at says which, as a carried review does', (t) => {
+test('a rating carried to a validated range still names the older commit that was scored', async (t) => {
   const from = 'd'.repeat(40)
   const hobkins: ReviewNeeds = { kind: 'feature', scores: { coverage: answer(9) }, head: 'e'.repeat(40), by: 'hobkin' }
   // Carried to HEAD: the change review's graph names the commit it was rated at, its summary where it came from.
-  const reviews = reviewed(t, { nodes: [], needs: { ...ENGINE_NEEDS, head: from } }, () => ({ hobkinNeeds: hobkins }))
-  writeFileSync(join(reviews.folder, 'summary.json'), JSON.stringify({ level: 'safe', critical: false, needsYou: 0, worthALook: 0, safe: 1, storyBy: 'model', at: '2026-11-23T10:00:00.000Z', carried: { from, why: 'Only its start moved.', tests: 1 } }))
+  const base = 'b'.repeat(40)
+  const reviews = reviewed(t, { base: '1'.repeat(40), head: from, nodes: [], needs: { ...ENGINE_NEEDS, head: from } }, () => ({ hobkinNeeds: hobkins }), base)
+  writeFileSync(join(reviews.folder, 'summary.json'), JSON.stringify({ level: 'safe', critical: false, needsYou: 0, worthALook: 0, safe: 1, storyBy: 'model', at: '2026-11-23T10:00:00.000Z', range: { base, head: HEAD }, carried: { from, why: 'Only its start moved.', tests: 1 } }))
+  await reviews.lookAgain('change:shop:a1')
 
   const status = reviews.status('change:shop:a1')
   const row = reviews.list().reviews.find((entry) => entry.id === 'change:shop:a1')

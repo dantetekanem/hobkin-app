@@ -28,12 +28,18 @@ export interface NeedsFacts {
   monitoring: boolean
   /** The change is TLA+ models and their configs, and nothing else. */
   onlyModels: boolean
+  onlyTests?: boolean
   /** Every changed file is documentation and nothing that runs, builds or generates names it: nothing runs differently. */
   onlyUnread: boolean
   /** Models of the change whose check broke a rule at this commit. */
   brokenModels: string[]
   /** Models of the change with no check that held or broke at this commit. */
   uncheckedModels: string[]
+  /** Explicit branch gaps are not regressions, even when another test proves the definition. */
+  coverageGaps?: string[]
+  changedProof?: number
+  /** Criterion-specific measured evidence. Absent only on older callers. */
+  evidence?: Record<string, { criteria: NeedCriterion[]; text: string; uncertain?: boolean }>
 }
 
 /** The longest evidence hobkin keeps for a score. */
@@ -59,11 +65,32 @@ const several = (names: readonly string[]) => names.map(oneLine).filter(Boolean)
 export function needsFacts({ nodes, files, checks, monitoring, onlyUnread = false }: { nodes: readonly ReviewNode[]; files: readonly ChangedFile[]; checks: readonly ModelCheck[]; monitoring: boolean; onlyUnread?: boolean }): NeedsFacts {
   const paths = files.map((file) => file.path)
   const parts = nodes.filter((node) => !node.hidden && node.kind !== 'test' && node.change !== 'none')
-  const definitions = parts.filter((node) => node.kind === 'function' && node.change !== 'removed' && node.facts.effect.value !== 'text')
+  const definitions = parts.filter((node) => (node.kind === 'function' || node.findings.some((finding) => finding.rule === 'not-mapped')) && node.change !== 'removed' && node.facts.effect.value !== 'text')
   const modelPaths = [...paths, ...checks.map((check) => check.spec)]
   const specs = modelsOf(paths.filter((path) => isModelFile(path, modelPaths)))
   const checkOf = (spec: string) => checks.find((check) => check.spec === spec)
+  const onlyTests = paths.length > 0 && paths.every(isTestPath)
+  const onlyModels = changesOnlyModels(paths)
+  const evidence: NonNullable<NeedsFacts['evidence']> = {}
+  for (const node of parts) {
+    evidence[`${node.id}:proof`] = { criteria: ['coverage', 'proof'], text: `${node.symbol}: ${node.facts.proof.value}; ${node.facts.proof.evidence}` }
+    evidence[`${node.id}:risk`] = { criteria: ['safety'], text: `${node.symbol}: ${node.level?.current ?? 'unknown'}; ${node.level?.why.join(' ') ?? 'not rated'}` }
+    evidence[`${node.id}:undo`] = { criteria: ['rollback'], text: `${node.symbol}: ${node.facts.undo.value}; ${node.facts.undo.evidence}` }
+    if (node.facts.proof.value === 'unknown' || node.unverified || node.extras.unresolvedReference) evidence[`${node.id}:uncertainty`] = { criteria: ['safety'], uncertain: true, text: `${node.symbol}: impact is uncertain, not a demonstrated regression; ${node.extras.unresolvedReference ?? node.unverified ?? node.facts.proof.evidence}` }
+    if (node.watch) evidence[`${node.id}:watch`] = { criteria: ['visibility'], text: JSON.stringify(node.watch) }
+  }
+  for (const path of paths.filter((path) => isTestPath(path) || isModelFile(path, paths))) {
+    const check = checks.find((check) => check.spec === path)
+    const runs = nodes.flatMap((node) => node.runs).filter((run) => run.kind === 'baseline' && run.tests.includes(path) && !run.not_run)
+    const result = check?.result ?? (runs.length ? runs.some((run) => run.exit_code !== 0) ? 'failed at head' : 'ran at head' : 'not run at head')
+    evidence[path] = { criteria: onlyTests || onlyModels ? ['coverage', 'proof', 'safety', 'rollback'] : isTestPath(path) ? ['coverage', 'proof'] : [], uncertain: !check && !runs.length, text: `${path}: ${result}; ${onlyModels ? 'model evidence, not an implementation test' : 'test changes, not branch coverage'}. Reverting restores the previous check.` }
+  }
+  if (monitoring) evidence.monitoring = { criteria: ['visibility'], text: 'Use the supplied project monitoring, not CI results.' }
+  if (onlyUnread) evidence.unread = { criteria: ['coverage', 'proof', 'safety', 'rollback'], text: `No runtime, build or generator consumer found for ${paths.join(', ')}.` }
   return {
+    evidence,
+    coverageGaps: parts.flatMap((node) => node.findings.filter((finding) => finding.rule === 'coverage-gap').map((finding) => `${node.symbol}: ${finding.text}`)),
+    changedProof: definitions.filter((node) => PROVEN.has(node.facts.proof.value) && node.extras.testChangedWithIt).length,
     unproven: definitions.filter((node) => !PROVEN.has(node.facts.proof.value)).map((node) => node.symbol),
     proven: definitions.filter((node) => PROVEN.has(node.facts.proof.value)).length,
     testsChanged: files.filter((file) => isTestPath(file.path) && file.status !== 'deleted').length,
@@ -71,7 +98,8 @@ export function needsFacts({ nodes, files, checks, monitoring, onlyUnread = fals
     undoNone: parts.filter((node) => node.facts.undo.value === 'none').map((node) => node.symbol),
     dataOrLoad: parts.filter((node) => ['data', 'load'].includes(node.facts.effect.value) || node.facts.exposure.value === 'at-load').map((node) => node.symbol),
     monitoring,
-    onlyModels: changesOnlyModels(paths),
+    onlyModels,
+    onlyTests,
     onlyUnread,
     brokenModels: specs.filter((spec) => checkOf(spec)?.result === 'violated').map(fileOf),
     uncheckedModels: specs.filter((spec) => !['holds', 'violated'].includes(checkOf(spec)?.result ?? '')).map(fileOf),
@@ -86,11 +114,21 @@ function capsOf(facts: NeedsFacts): Partial<Record<NeedCriterion, { most: number
   if (facts.brokenModels.length) caps.proof = { most: 3, why: `the model check of ${named(facts.brokenModels)} breaks a rule at this commit` }
   else if (facts.onlyModels && facts.uncheckedModels.length) caps.proof = { most: 4, why: `the model check of ${named(facts.uncheckedModels)} was not run at this commit` }
   else if (!facts.onlyModels && !facts.onlyUnread && facts.testsChanged === 0) caps.proof = { most: 4, why: 'no test was added or changed with the change' }
+  else if (!facts.onlyModels && !facts.onlyTests && !facts.onlyUnread && facts.changedProof === 0) caps.proof = { most: 4, why: 'no added or changed test was measured proving a changed definition' }
   if (facts.high.length) caps.safety = { most: 5, why: `${named(facts.high)} ${several(facts.high) ? 'are' : 'is'} rated high` }
   if (facts.undoNone.length) caps.rollback = { most: 4, why: `nothing undoes ${named(facts.undoNone)}` }
   // With no monitoring known visibility is set by rule (`capNeeds`). With monitoring given, whether it covers
   // a part that writes data or runs at load is the Reviewer's to judge: the prompt asks for 4 or less where it does not.
   return caps
+}
+
+/** Refuse unsupported numbers, rather than inventing a replacement for a false premise. */
+function unsupportedScore(criterion: NeedCriterion, score: NeedScore, facts: NeedsFacts): string | null {
+  if (!facts.evidence || (criterion === 'visibility' && !facts.monitoring)) return null
+  if (!score.facts?.length || score.facts.some((id) => !facts.evidence![id]?.criteria.includes(criterion))) return 'cite measured rating_evidence for this criterion; CI or an unaccepted finding is not proof'
+  if (criterion === 'safety' && score.score <= 5 && !facts.high.length && !facts.undoNone.length && !score.facts.some((id) => facts.evidence![id]?.uncertain)) return 'a safety score of 5 or less needs an established break, irreversible effect, or explicitly cited uncertainty; not an invented failure'
+  if (criterion === 'coverage' && score.score >= 9 && (facts.unproven.length || facts.coverageGaps?.length)) return `near-complete ${criterion} conflicts with unproven parts or branch gaps: ${named([...facts.unproven, ...(facts.coverageGaps ?? [])])}`
+  return null
 }
 
 /** A score held to its cap, the cap said at the end of its evidence, within the length hobkin keeps. */
@@ -118,9 +156,14 @@ export const DEFAULT_RATING_TRIES = 3
  */
 export function capNeeds(answered: Answered, facts: NeedsFacts, head: string, problems: string[] = []): ReviewNeeds {
   const caps = capsOf(facts)
-  const given = Object.entries(answered.scores).filter(([criterion]) => {
-    if (criterion !== 'visibility' || facts.monitoring) return true
-    problems.push('needs.scores.visibility: a visibility rating was given with no monitoring known, and was not kept')
+  const given = Object.entries(answered.scores).filter(([criterion, score]) => {
+    if (criterion === 'visibility' && !facts.monitoring) {
+      problems.push('needs.scores.visibility: a visibility rating was given with no monitoring known, and was not kept')
+      return false
+    }
+    const reason = unsupportedScore(criterion as NeedCriterion, score!, facts)
+    if (!reason) return true
+    problems.push(`needs.scores.${criterion}: ${reason}; dropped`)
     return false
   })
   const held = given.map(([criterion, kept]) => [criterion, heldTo(kept!, caps[criterion as NeedCriterion])] as const)
@@ -135,12 +178,12 @@ const requiredOf = (facts: NeedsFacts): NeedCriterion[] => NEED_CRITERIA.filter(
 const MOST_OF_REVIEW = 30_000
 
 /** What the narrow call is told, and what it asks for: only the ratings that are missing. */
-function ratingsRequest({ held, missing, kind, review, monitoring, attempt, of }: { held: Answered['scores']; missing: readonly ('kind' | NeedCriterion)[]; kind?: NeedKind; review: string; monitoring?: readonly string[]; attempt: number; of: number }) {
+function ratingsRequest({ held, missing, kind, review, monitoring, attempt, of, facts }: { facts: NeedsFacts; held: Answered['scores']; missing: readonly ('kind' | NeedCriterion)[]; kind?: NeedKind; review: string; monitoring?: readonly string[]; attempt: number; of: number }) {
   const system = [
     "You are the Reviewer of a change. Your earlier answer left some of the user's ratings out or malformed. Give only the ratings named in `missing`, each from 1 to 10, as the user reads them: a whole number and one line of evidence that names what it rests on.",
-    'Never give a rating that is not in `missing`. Answer with one JSON object: {"needs":{"kind":"<one of ' + NEED_KINDS.join(', ') + '>","scores":{"<name>":{"score":7,"evidence":"one line"}}}}. The kind is needed only when `missing` names it.',
+    'Never give a rating that is not in `missing`. Answer with one JSON object: {"needs":{"kind":"<one of ' + NEED_KINDS.join(', ') + '>","scores":{"<name>":{"score":7,"evidence":"one line","facts":["rating_evidence key"]}}}}. The kind is needed only when `missing` names it.',
   ].join('\n')
-  const data = { ask: 'missing-ratings', try: attempt, of, kind: kind ?? null, missing, given: held, monitoring: monitoring?.length ? monitoring : 'unknown', review: review.slice(0, MOST_OF_REVIEW) }
+  const data = { rating_evidence: facts.evidence, measured: { unproven: facts.unproven, coverage_gaps: facts.coverageGaps, high: facts.high, changed_proof: facts.changedProof, undo_none: facts.undoNone }, ask: 'missing-ratings', try: attempt, of, kind: kind ?? null, missing, given: held, monitoring: monitoring?.length ? monitoring : 'unknown', review: review.slice(0, MOST_OF_REVIEW) }
   return { system, prompt: `Ratings still missing\n${JSON.stringify(data)}` }
 }
 
@@ -177,14 +220,19 @@ export async function rateNeeds(input: {
   const allowed = Math.max(0, Math.floor(Number.isFinite(input.tries) ? input.tries : DEFAULT_RATING_TRIES))
   const required = requiredOf(facts)
   let kind = input.answered?.kind
-  const scores: Answered['scores'] = { ...input.answered?.scores }
+  const validScores = (given: Answered['scores']) => Object.fromEntries(Object.entries(given).filter(([criterion, score]) => {
+    const reason = unsupportedScore(criterion as NeedCriterion, score!, facts)
+    if (reason) problems.push(`needs.scores.${criterion}: ${reason}; dropped`)
+    return !reason
+  })) as Answered['scores']
+  const scores: Answered['scores'] = validScores(input.answered?.scores ?? {})
   const missingNow = (): ('kind' | NeedCriterion)[] => [...(kind ? [] : (['kind'] as const)), ...required.filter((criterion) => !scores[criterion])]
   let reason = input.answered ? 'the answer lacked ratings' : 'the answer had no ratings'
   let tried = 0
   while (ask && tried < allowed && missingNow().length) {
     tried += 1
     const missing = missingNow()
-    const call = ratingsRequest({ held: scores, missing, ...(kind ? { kind } : {}), review, ...(monitoring ? { monitoring } : {}), attempt: tried, of: allowed })
+    const call = ratingsRequest({ facts, held: scores, missing, ...(kind ? { kind } : {}), review, ...(monitoring ? { monitoring } : {}), attempt: tried, of: allowed })
     const answer = await ask(call)
     if ('failed' in answer) {
       reason = `the Reviewer could not be asked (${answer.failed})`
@@ -197,7 +245,8 @@ export async function rateNeeds(input: {
     }
     const read = readRatings(answer.text, missing.filter((name): name is NeedCriterion => name !== 'kind'), missing.includes('kind'))
     if (read.kind && !kind) kind = read.kind
-    for (const criterion of required) if (read.scores[criterion] && !scores[criterion]) scores[criterion] = read.scores[criterion]
+    const valid = validScores(read.scores)
+    for (const criterion of required) if (valid[criterion] && !scores[criterion]) scores[criterion] = valid[criterion]
     const left = missingNow()
     if (left.length) {
       reason = read.why.find((line) => left.some((name) => line.startsWith(`${name}:`))) ?? read.why[0] ?? 'the answer lacked ratings'

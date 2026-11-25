@@ -53,6 +53,7 @@ function rowOf(input: FloorInput): Floor {
   if (input.model) return modelRow(input.model)
 
   if (input.broken) return row(1, 'high', sentence(input.broken), { critical: true })
+  if (input.unresolvedReference) return row(11, 'mid', sentence(input.unresolvedReference))
   if (input.context) return row(2, 'safe', 'Nothing in it changed: it is shown for context.')
   if (effect === 'text') return row(2, 'safe', 'Only comments, whitespace or translations changed.')
   if (input.unreferencedRemoval) return row(2, 'safe', 'Nothing that remains refers to what was removed.')

@@ -125,7 +125,7 @@ function fakeEngine({ fail = false } = {}) {
     // The test passed at head and failed with the total put back: it proves the change.
     const ran = [
       { kind: 'baseline', tests: ['test/models/cart_test.rb'], failed: [] },
-      { kind: 'revert', node: 'n1', tests: ['test/models/cart_test.rb'], failed: ['test/models/cart_test.rb'] },
+      { kind: 'revert', node: 'n1', tests: ['test/models/cart_test.rb'], failed: ['test/models/cart_test.rb'], failed_at: [{ path: 'test/models/cart_test.rb', line: 3 }] },
     ]
     write('graph.json', {
       nodes: [

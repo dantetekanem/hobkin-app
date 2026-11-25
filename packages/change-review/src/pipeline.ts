@@ -41,6 +41,7 @@ import type {
   FileDiff,
   Graph,
   GraphEdge,
+  HostedChecks,
   ModelCheck,
   ModelRunner,
   Origin,
@@ -85,6 +86,8 @@ export interface ReviewChangeOptions {
    * rated by it, and each file a model names hears what it showed in its level's reasons.
    */
   modelChecks?: readonly ModelCheck[]
+  /** Read-only hosted checks; only results matching this review's exact head are usable. */
+  hostedChecks?: HostedChecks
   /**
    * What the project's monitoring covers and its way back, as lines hobkin's readiness record holds (spec 058), handed
    * to the Reviewer for the user's visibility question. Absent: monitoring is unknown, and no visibility score is asked for.
@@ -208,38 +211,41 @@ function changeOf(anchor: ScanAnchor, atHead: readonly string[] | null): ReviewN
   return anchor.changedLines.length >= span && !(anchor.removed ?? []).some((block) => block.lines.length) ? 'added' : 'modified'
 }
 
-/** The node for a removed definition that something remaining still refers to: broken, decided by search alone. */
+/** Only resolved references establish a broken binding; name matches remain questions. */
 function brokenReferenceNode(dangling: Dangling, id: string): ReviewNode {
-  const where = dangling.references
+  const exact = dangling.references.filter((ref) => ref.resolution === 'exact')
+  const resolved = exact.length > 0
+  const where = (resolved ? exact : dangling.references)
     .slice(0, 3)
     .map((ref) => `${ref.path}:${ref.line}`)
     .join(', ')
-  const verb = dangling.references.length === 1 ? 'refers' : 'refer'
+  const verb = exact.length === 1 ? 'refers' : 'refer'
+  const uncertain = `Name matches at ${where} do not establish the receiver or binding of removed ${dangling.symbol}.`
   return {
     id,
     kind: 'general',
     symbol: dangling.symbol,
     path: dangling.path,
-    lines: [1, 1],
+    lines: [dangling.oldLine ?? 1, dangling.oldLine ?? 1],
     change: 'removed',
     changed_lines: [],
     entries: [],
     facts: {
       effect: { value: 'interface', evidence: 'a definition was removed' },
-      proof: { value: 'not-applicable', evidence: 'a broken reference is decided by search, not by a test' },
-      exposure: { value: 'everyone', evidence: `still referred to at ${where}` },
+      proof: { value: 'not-applicable', evidence: resolved ? 'a resolved reference survives removal' : uncertain },
+      exposure: { value: 'everyone', evidence: resolved ? `still referred to at ${where}` : uncertain },
       undo: { value: 'rollback', evidence: 'reverting the deploy restores the definition' },
     },
-    extras: { broken: `${where} still ${verb} to ${dangling.symbol}, which this diff removes.` },
+    extras: resolved ? { broken: `${where} still ${verb} to ${dangling.symbol}, which this diff removes.` } : { unresolvedReference: uncertain },
     conditions: [],
     hosts_condition: false,
     runs: [],
     sensitive: [],
     level: null,
     critical: false,
-    findings: [{ rule: 'dangling-reference', text: `${dangling.symbol} is removed while ${where} still refers to it.`, by: 'search' }],
+    findings: [{ rule: resolved ? 'dangling-reference' : 'unresolved-reference', text: resolved ? `${dangling.symbol} is removed while ${where} still refers to it.` : uncertain, by: 'search' }],
     watch: null,
-    questions: [],
+    questions: resolved ? [] : [{ text: `Do these sites refer to removed ${dangling.symbol}?`, why: uncertain }],
   }
 }
 
@@ -343,9 +349,6 @@ async function diffParts({ triage, diffs, nodes, scan, scanned, linesAt, base, h
   return parts
 }
 
-/** The name a symbol is called by: `total` for `Cart#total` or `Billing::Cart.total`. */
-const shortName = (symbol: string) => symbol.split(/#|::|\./).filter(Boolean).at(-1) ?? symbol
-
 /** The changed lines of one node, from the hunks that touch it, as a small diff. */
 function changedExcerpt(diffs: readonly FileDiff[], node: Pick<ReviewNode, 'path' | 'lines'>): string {
   const file = diffs.find((diff) => diff.path === node.path)
@@ -440,6 +443,12 @@ async function attempt<T>(call: () => Promise<T>): Promise<{ value: T } | { fail
  */
 export async function reviewChange(options: ReviewChangeOptions): Promise<ReviewChangeResult> {
   const { cwd, base, head, out } = options
+  const checks = options.hostedChecks
+  const hostedChecks: HostedChecks = !checks
+    ? { status: 'unknown', headSha: head, checks: [], truncated: false, reason: 'Hosted checks were not supplied.' }
+    : checks.headSha !== head || checks.checks.some((check) => check.headSha !== head)
+      ? { ...checks, status: 'unknown', checks: [], reason: 'Hosted checks do not all match the reviewed head.' }
+      : checks
   const config = options.config ?? DEFAULT_CONFIG
   const signal = options.signal ?? new AbortController().signal
   const stopped = () => Object.assign(new Error('The review was stopped before it finished.', { cause: signal.reason }), { name: 'AbortError' })
@@ -542,6 +551,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
       runs: [],
       ...(bucket ? { bucket } : {}),
       ...(anchor.callers ? { callers: anchor.callers } : {}),
+      ...(anchor.callSites ? { callSites: anchor.callSites } : {}),
       sensitive: derived.sensitive,
       level: null,
       critical: false,
@@ -578,6 +588,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
     range: triage.range,
     base,
     head,
+    hostedChecks,
     nodes: list,
     edges,
     coverage: { truncated: scan.coverage.truncated, notes: scan.coverage.notes },
@@ -598,7 +609,9 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   // makes the broken node beside it, at rule 1.
   for (const node of nodes.filter((item) => item.change === 'removed' && item.kind !== 'test' && !item.extras.broken)) {
     node.facts.proof = { value: 'not-applicable', evidence: 'removed: there is nothing left to run' }
-    const referred = scan.dangling.some((entry) => shortName(entry.symbol) === shortName(node.symbol))
+    const matches = scan.dangling.filter((entry) => entry.path === node.path && entry.symbol === node.symbol)
+    const referred = matches.length > 0
+    if (referred && !matches.some((entry) => entry.references.some((ref) => ref.resolution === 'exact'))) node.extras.unresolvedReference = `The matches for removed ${node.symbol} have unresolved receiver or binding identity.`
     if (!referred && !scan.coverage.truncated) node.extras.unreferencedRemoval = true
   }
   // What the scan was given and holds nothing for is read from its diff, never left out or only counted.
@@ -834,7 +847,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   const texts = new Map<string, string | null>()
   // Every file mapped is read too, with no node in it, so a change of only comments or blank lines can be told apart.
   const mappedPaths = diffs.filter((file) => mapped.has(file.path)).flatMap((file) => [file.path, ...(file.oldPath ? [file.oldPath] : [])])
-  for (const path of new Set([...nodes.map((node) => node.path), ...Object.values(scan.nodes).map((node) => node.path), ...mappedPaths])) {
+  for (const path of new Set([...nodes.map((node) => node.path), ...nodes.flatMap((node) => node.callSites?.map((site) => site.path) ?? []), ...Object.values(scan.nodes).map((node) => node.path), ...mappedPaths])) {
     texts.set(`head:${path}`, (await linesAt(head, path))?.join('\n') ?? null)
     texts.set(`base:${path}`, (await linesAt(base, path))?.join('\n') ?? null)
   }
@@ -857,12 +870,14 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
   else {
     const code = Object.fromEntries(nodes.map((node) => [node.id, changedExcerpt(diffs, node)]))
     const mappedIds = new Set(nodes.map((node) => node.id))
+    const directCallees = new Set(scan.edges.filter((edge) => mappedIds.has(edge.from) && edge.relationship === 'calls').map((edge) => edge.to))
     const context: ContextEntry[] = Object.values(scan.nodes)
       .filter((entry) => !mappedIds.has(entry.id) && entry.kind !== 'test' && !testFiles.has(entry.path))
-      .sort((a, b) => a.path.localeCompare(b.path) || a.startLine - b.startLine)
-      .map((entry) => ({ symbol: entry.symbol, path: entry.path, lines: [entry.startLine, entry.endLine] }))
+      .sort((a, b) => Number(directCallees.has(b.id)) - Number(directCallees.has(a.id)) || a.path.localeCompare(b.path) || a.startLine - b.startLine)
+      .map((entry) => ({ symbol: entry.symbol, path: entry.path, lines: [entry.startLine, entry.endLine], ...(directCallees.has(entry.id) ? { direct: true } : {}) }))
     const zones = graphOf(applied.nodes).zones
-    const request = reviewRequest({ triage, files: meta.files, diffs, onlyUnread, nodes: applied.nodes, units: units.units, code, context, modelChecks, ...(zones?.length ? { zones } : {}), ...(options.monitoring?.length ? { monitoring: options.monitoring } : {}) })
+    const ratingEvidence = needsFacts({ nodes: applied.nodes, files: meta.files, checks: modelChecks, monitoring: Boolean(options.monitoring?.length), onlyUnread }).evidence
+    const request = reviewRequest({ source, hostedChecks, ratingEvidence, triage, files: meta.files, diffs, onlyUnread, nodes: applied.nodes, units: units.units, code, context, modelChecks, ...(zones?.length ? { zones } : {}), ...(options.monitoring?.length ? { monitoring: options.monitoring } : {}) })
     problems.push(...request.cut.map((cut) => `Left out of what the Reviewer read: ${cut}`))
     const asked = await attempt(() => model({ pass: 'review', system: request.system, prompt: request.prompt, signal }))
     // A call the signal stopped is the review stopping, not the model failing.
@@ -899,7 +914,16 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
         return false
       })
       events = [...events, ...allowed]
-      applied = applyRiskEvents([...before, ...added.nodes], events)
+      applied = applyRiskEvents([...before, ...added.nodes], events, source)
+      const rejectedRisk = applied.rejected.some(({ event }) => event.by === 'model' && event.level === 'high')
+      if (rejectedRisk) {
+        // Words have no citation links of their own: fall back to measured facts when their premise was rejected.
+        answer.words = {}
+        answer.map = answer.map.filter((op) => op.op !== 'describe' && op.op !== 'zone').map((op) =>
+          op.op === 'unit' || op.op === 'merge' || op.op === 'add' ? { ...op, title: undefined, what: undefined } : op)
+        for (const node of applied.nodes) delete node.told
+        problems.push(said('Unsupported high-risk claims were rejected; narrative descriptions were replaced by measured facts.'))
+      }
       const title = answer.words.title ?? words.title
       const told: StoryWords = { ...words, ...answer.words, ...(title ? { title } : {}) }
       if (answer.map.length) {
@@ -924,7 +948,7 @@ export async function reviewChange(options: ReviewChangeOptions): Promise<Review
         units = next
       }
       answered = answer.needs
-      storyBy = 'model'
+      storyBy = rejectedRisk ? 'host' : 'model'
       tracker.end('risk-model')
     }
   }

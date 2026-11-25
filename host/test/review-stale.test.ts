@@ -115,7 +115,7 @@ test("a layer of a stack starts where the layer under it is, and the bottom laye
   const BELOW = 'c'.repeat(40)
   const FORKED = 'd'.repeat(40)
   const target = targetOfReviewId('change:hobkin:7d02c9')!
-  const git = { resolve: async () => null, mergeBase: async () => FORKED } as unknown as GitReader
+  const git = { resolve: async () => null, mergeBase: async () => FORKED, contains: async (head: string, base: string) => head === 'e'.repeat(40) && base === BELOW } as unknown as GitReader
   const startOf = (stack?: { base: string | null }) =>
     changeSource({
       find: () => ({ project: 'hobkin', title: 'Layer', branch: null, head: 'e'.repeat(40), ...(stack ? { stack } : {}) }),
@@ -127,6 +127,7 @@ test("a layer of a stack starts where the layer under it is, and the bottom laye
   assert.equal(await startOf({ base: BELOW }), BELOW, 'a layer starts at the commit under it')
   assert.equal(await startOf({ base: null }), FORKED, 'the bottom layer starts from the default branch')
   assert.equal(await startOf(), FORKED, 'a change in no stack starts from the default branch')
+  await assert.rejects(startOf({ base: 'a'.repeat(40) }), /stack base.*not an ancestor/i, 'a rewritten parent is not silently diffed against the old layer')
 })
 
 test("a review built from the default branch before its change was a layer says it starts elsewhere once its change is a layer, so the window calls it outdated", async (t) => {
