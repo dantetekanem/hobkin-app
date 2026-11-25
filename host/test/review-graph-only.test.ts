@@ -115,3 +115,16 @@ test('review.prepare takes changeReview: false from the window', async (t) => {
   await reviews.settled(ID)
   assert.deepEqual(started(), [ID])
 })
+
+test('a ready review built again is listed ready, so the older one still opens, with the phase and start the window reads as reviewing', async (t) => {
+  const { reviews } = reviewsFor(t)
+  reviews.prepare(ID, { asked: true })
+  await reviews.settled(ID)
+
+  reviews.prepare(ID, { asked: true, refresh: true })
+  const listed = reviews.list().reviews.find((item) => item.id === ID)
+  assert.deepEqual([listed?.state, listed?.phase, typeof listed?.startedAt, listed?.assessment?.state], ['ready', 'reading', 'string', 'queued'])
+  await reviews.settled(ID)
+  const done = reviews.list().reviews.find((item) => item.id === ID)
+  assert.deepEqual([done?.state, done?.phase, done?.startedAt], ['ready', null, undefined])
+})
