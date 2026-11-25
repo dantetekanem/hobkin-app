@@ -99,7 +99,11 @@ export interface DiffViewProps {
   cursor?: LineCursor | null
   /** A row drawn under a line, or over the first line when `after` is null, such as the input of a note being written. It is always drawn, in view or not. */
   insert?: { after: LinePlace | null; key: string; node: ReactNode } | null
-  /** Up, Down and the page keys scroll the view when the keyboard is in it, as in the code panel. False leaves them to a cursor that walks the lines. */
+  /**
+   * Up, Down and the page keys scroll the view when the keyboard is in it, as in the code panel. False leaves them to a
+   * cursor that walks the lines, and the view never takes the keyboard: the review keeps it, so the view drawn for the
+   * next file drops nothing (the code view, spec 071).
+   */
   scrollKeys?: boolean
   /** Called once with how long the first lines took to be on screen, in milliseconds. */
   onFirstLines?: (ms: number) => void
@@ -312,7 +316,7 @@ export function DiffView({
   }
 
   return (
-    <div ref={scroller} className={`dv ${className ?? ''}`} tabIndex={0} aria-label={`Changes in ${description.title}`} data-rv-code={scrollKeys || undefined} data-glyphs={glyphs ? '' : undefined}>
+    <div ref={scroller} className={`dv ${className ?? ''}`} tabIndex={scrollKeys ? 0 : undefined} aria-label={`Changes in ${description.title}`} data-rv-code={scrollKeys || undefined} data-glyphs={glyphs ? '' : undefined}>
       <div style={{ height: virtual.getTotalSize(), position: 'relative' }}>
         {virtual.getVirtualItems().map((row) => {
           const item = itemAt(row.index)
