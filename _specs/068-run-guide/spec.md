@@ -104,11 +104,11 @@ Commands, `shared/commands/registry.ts`, both `runs: 'host'` and `hobkin: true`:
 
 ## Steps
 
-- [ ] S1. The spec and the protocol types (lead).
-- [ ] S2 (A1 to A5). Runtime, in `~/Poetry/hobkin`.
-- [ ] S3 (A6). Host commands.
-- [ ] S4 (A7 to A9). Window: the section and Try it.
-- [ ] S5. The host against hobkin main's own functions, still renders of the section and the sheet, and the guide on one real project once the user restarts the host.
+- [x] S1. The spec and the protocol types (lead). 1525231, 6fd67fd.
+- [x] S2 (A1 to A5). Runtime, in `~/Poetry/hobkin`: hobkin 0c98d45, b2780b8, 3e95898; 5983603 (the queued line names no terminal command). `test/cli-work-run-guide.test.mjs` 13 of 13 on an export of main. `reached` is the last step that worked; `commit` is the default branch's tip.
+- [x] S3 (A6). Host commands. 1c0739a, 924a39c; `host/test/work-guide.test.ts` 6 of 6.
+- [x] S4 (A7 to A9). Window: the section and Try it. 36e5386, 8feca13, e266386; `ui/test/run-guide*.test.ts` 17 of 17; eleven stills, not seen in the app's window.
+- [ ] S5. The host against hobkin main's own functions: checked 2026-11-24 on a throwaway home (read gives the shape, the press queues one guide look, the next read says queued, an unknown project is refused in hobkin's words). Left: the guide on one real project once the user restarts the host and a guide look has run.
 
 ## Open questions
 
