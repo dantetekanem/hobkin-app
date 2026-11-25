@@ -1,6 +1,6 @@
 import type { StackPlace } from '#shared/protocol/work.ts'
 import { pullOfReview } from '#shared/review/ids.ts'
-import type { ReviewRow } from './ai-reviews.ts'
+import { withRunOf, type ReviewRow } from './ai-reviews.ts'
 import type { StackOf } from './review-story.ts'
 import { placeLookup, type MergingLayer, type PlaceOf } from './stack-places.ts'
 
@@ -28,14 +28,15 @@ function layerKeyOf(row: ReviewRow, placeOf: PlaceOf): string {
 
 /**
  * The one row of a layer: the pull request's, since merging happens there, else the one with a pull request, else the
- * first. It takes what it lacks from the other: its grades, its summary, its priority and a merge that did not land.
+ * first. It takes what it lacks from the other: its grades, its summary, its priority and a merge that did not land,
+ * and says the other is reviewing or waits its turn when it is further along (`withRunOf`).
  */
 function oneOf(group: readonly ReviewRow[]): ReviewRow {
   const shown = group.find((row) => row.item.kind === 'pull' && row.link) ?? group.find((row) => row.item.kind === 'pull') ?? group.find((row) => row.link) ?? group[0]!
   if (group.length === 1) return shown
   const others = group.filter((row) => row !== shown)
   const lent = <K extends 'needs' | 'summary' | 'priority' | 'merge' | 'rate'>(key: K): ReviewRow[K] => (shown[key] ?? others.find((row) => row[key] != null)?.[key] ?? null) as ReviewRow[K]
-  return { ...shown, needs: lent('needs'), summary: lent('summary'), priority: lent('priority'), merge: lent('merge'), rate: lent('rate') }
+  return withRunOf({ ...shown, needs: lent('needs'), summary: lent('summary'), priority: lent('priority'), merge: lent('merge'), rate: lent('rate') }, others)
 }
 
 /** The rows with one for each layer, each at the place its first row held. */

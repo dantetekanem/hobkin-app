@@ -177,6 +177,19 @@ function rowOf(item: ReviewListItem, priorityOf: PriorityOf): ReviewRow | null {
   return row
 }
 
+/** How far along a row is: reviewing, then waiting its turn, then anything else. */
+const runPlace = ({ state }: ReviewRow) => (state.kind === 'reviewing' ? 0 : state.kind === 'waits' ? 1 : 2)
+
+/**
+ * One change reviewed more than once, as a pull request's own review and the review of the finished change behind it,
+ * shown as `shown`. When another of them is further along, reviewing or waiting its turn, `shown` says so, with that
+ * run's line, percent and start, so a review started again on either shows wherever the change is shown.
+ */
+export function withRunOf(shown: ReviewRow, others: readonly ReviewRow[]): ReviewRow {
+  const run = others.reduce((best, row) => (runPlace(row) < runPlace(best) ? row : best), shown)
+  return run === shown ? shown : { ...shown, state: run.state, line: run.line, percent: run.percent, startedAt: run.startedAt }
+}
+
 /** When a row last moved: a running one when it started, or when it was asked for while it waits; the rest when they ended. */
 const momentOf = (row: ReviewRow) => row.startedAt ?? row.at ?? timeOf(row.item.updatedAt) ?? 0
 

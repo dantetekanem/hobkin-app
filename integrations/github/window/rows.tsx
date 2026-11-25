@@ -316,7 +316,7 @@ function AiReview({ id, ai, live, title }: { id: string; ai: PullAi; live: boole
             <span className="inline-flex h-7 items-center rounded-full bg-surface-2 px-3 font-heading text-[13px] font-medium text-muted-foreground">Review ready</span>
           )}
           {ai.row.summary ? <DeployWhy summary={ai.row.summary} head={ai.row.item.head} /> : null}
-          <Button variant="outline" data-stop="" onClick={() => openReview(id)}>
+          <Button variant="outline" data-stop="" onClick={() => openReview(ai.row.item.id)}>
             Open review
           </Button>
         </>

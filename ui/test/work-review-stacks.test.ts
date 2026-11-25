@@ -29,6 +29,12 @@ test('a change review and its pull request review are one row, the pull request,
   assert.equal(one[0]!.needs?.rate, '7')
 })
 
+test("a layer's one row says reviewing while either of its reviews is built again, with that run's line and start", () => {
+  const again = changeReview(2, { needs, phase: 'reading', startedAt: at, assessment: { state: 'queued', head: head(2) } })
+  const [row] = oneRowPerLayer(rows([again, pullReview(2)]), placeOf)
+  assert.deepEqual([row!.item.kind, row!.state, row!.line, row!.startedAt, row!.needs?.rate], ['pull', { kind: 'reviewing', percent: null }, 'Reading the change', Date.parse(at), '7'])
+})
+
 test('the pull request of a layer is found by the change that opened it or by its commit', () => {
   const byPull = pullReview(2, { head: null })
   const byHead = pullReview(3, { id: 'pr:dantetekanem/rpsleague/999' })

@@ -155,3 +155,33 @@ test('Start AI review asks the host to prepare the review and then opens it; a r
   assert.equal(await startAiReview('pr:acme/web/7', { live: false, prepare, open }), null)
   assert.deepEqual(calls, ['open pr:acme/web/7'])
 })
+
+test("a pull request's card follows every review of its change: one started again on the finished change behind it, or the only one the host lists", () => {
+  const graded = { state: 'ready' as const, head: HEAD, summary: { level: 'mid' as const, critical: false, needsYou: 0, worthALook: 1, safe: 2, storyBy: 'model' as const, at: ago(30) } }
+  const change = (id: string, over: Partial<ReviewListItem>) => review(id, { kind: 'change', project: 'web', ...over })
+  const lists = { reviews: [], pulls: [pull('acme/web', 7), pull('acme/web', 8), pull('acme/web', 9)] }
+  const sections = pullSections(
+    lists,
+    rowsOf({
+      reviews: [
+        // #7 has a review of its own, ready, and the finished change at its commit is reviewed again.
+        review('pr:acme/web/7', {}),
+        change('change:web:a1', { phase: 'reading', startedAt: ago(1), assessment: { state: 'queued', head: HEAD } }),
+        // #8 was opened by a finished change, so the host lists only the change's review, which runs.
+        change('change:web:b2', { head: 'b2'.padEnd(40, '0'), pr: 'https://github.com/acme/web/pull/8', assessment: { state: 'running', head: 'b2'.padEnd(40, '0'), percent: 30, now: 'Running the tests', startedAt: ago(2) } }),
+        // #9 is ready, and a change at another commit runs: it is another change.
+        review('pr:acme/web/9', { head: 'c3'.padEnd(40, '0'), assessment: { ...graded, head: 'c3'.padEnd(40, '0') } }),
+        change('change:web:d4', { head: 'd4'.padEnd(40, '0'), assessment: { state: 'running', head: 'd4'.padEnd(40, '0'), percent: 80 } }),
+      ],
+    }),
+  )
+
+  assert.deepEqual(
+    sections.mine.map(({ number, ai }) => [number, ai.state === 'running' ? [ai.state, ai.percent, ai.line, ai.startedAt] : ai.state]),
+    [
+      [7, ['running', null, 'Reading the change', Date.parse(ago(1))]],
+      [8, ['running', 30, 'Running the tests', Date.parse(ago(2))]],
+      [9, 'ready'],
+    ],
+  )
+})

@@ -1,6 +1,6 @@
 import type { GitHubLists, GitHubPull } from '../protocol.ts'
 import { reviewIdOf, targetOfReviewId } from '#shared/review/ids.ts'
-import type { ReviewRow } from '../../../ui/src/features/work/ai-reviews.ts'
+import { withRunOf, type ReviewRow } from '../../../ui/src/features/work/ai-reviews.ts'
 
 /**
  * The GitHub page's pull requests with their AI reviews (spec 032): the ones that ask for the user's review, the user's
@@ -75,16 +75,42 @@ function countedBy({ additions, deletions, changedFiles }: GitHubPull): PullEntr
   return additions === undefined || deletions === undefined || changedFiles === undefined ? null : { added: additions, removed: deletions, files: changedFiles }
 }
 
-/** The page's three lists. `rows` are every review that ran, newest first, as `rowsOf` gives them; only pull requests' count. */
+/**
+ * Each pull request's review, by name, as the page shows it: its own, or else the review of the finished change that
+ * opened it, which the host lists in its place. A finished change at the same commit is the same change, so a review of
+ * it that runs or waits shows on the pull request too, and so does one of the change that opened it.
+ */
+function reviewsOfPulls(rows: readonly ReviewRow[]): (id: string) => ReviewRow | undefined {
+  const own = new Map<string, ReviewRow>()
+  const opened = new Map<string, ReviewRow>()
+  const changesAt = new Map<string, ReviewRow[]>()
+  for (const row of rows) {
+    if (row.item.kind === 'pull') {
+      own.set(row.item.id, row)
+      continue
+    }
+    const pull = row.link ? pullReviewId(row.link) : null
+    if (pull) opened.set(pull, row)
+    if (row.item.head) changesAt.set(row.item.head, [...(changesAt.get(row.item.head) ?? []), row])
+  }
+  return (id) => {
+    const shown = own.get(id) ?? opened.get(id)
+    if (!shown) return undefined
+    const sameChange = [opened.get(id), ...(shown.item.head ? (changesAt.get(shown.item.head) ?? []) : [])]
+    return withRunOf(shown, sameChange.filter((row): row is ReviewRow => row !== undefined && row !== shown))
+  }
+}
+
+/** The page's three lists. `rows` are every review that ran, newest first, as `rowsOf` gives them. */
 export function pullSections(lists: Pick<GitHubLists, 'reviews' | 'pulls'>, rows: readonly ReviewRow[], { most = RECENT_MOST, reviewError = null }: { most?: number; reviewError?: string | null } = {}): PullSections {
   const unavailable = reviewError !== null
   const pulls = unavailable ? [] : rows.filter(({ item }) => item.kind === 'pull')
-  const byId = new Map(pulls.map((row) => [row.item.id, row]))
+  const reviewOf = reviewsOfPulls(unavailable ? [] : rows)
   const listed = new Set<string>()
 
   const entryOf = (pull: GitHubPull): PullEntry => {
     const id = pullReviewId(pull.url)
-    const row = id ? byId.get(id) : undefined
+    const row = id ? reviewOf(id) : undefined
     if (id) listed.add(id)
     return { id, pull, ai: unavailable ? { state: 'unavailable' } : aiOf(row), title: pull.title, repo: pull.repo, number: pull.number, size: countedBy(pull) ?? sizeOf(row) }
   }
@@ -102,7 +128,7 @@ export function pullSections(lists: Pick<GitHubLists, 'reviews' | 'pulls'>, rows
       const target = targetOfReviewId(row.item.id)
       const number = target?.kind === 'pull' ? target.number : null
       const repo = row.item.project || (target?.kind === 'pull' ? `${target.owner}/${target.repo}` : '')
-      return { id: row.item.id, pull: null, ai: aiOf(row), title: row.item.title, repo, number, size: sizeOf(row) }
+      return { id: row.item.id, pull: null, ai: aiOf(reviewOf(row.item.id)), title: row.item.title, repo, number, size: sizeOf(row) }
     })
   return { requested, mine, reviewed }
 }
